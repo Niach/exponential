@@ -360,10 +360,11 @@ fn run_daemon(args: &[String]) -> CommandResult {
     let personal_key = context::ensure_personal_key(&ctx).ok();
     let sessions: Sessions = Arc::new(Mutex::new(Vec::new()));
     // EXP-484: the collected agent status (accounts + usage windows), filled
-    // OFF the 1Hz loop by the device worker and drained by the next
-    // heartbeat. `collect_if_due` can block for ~10s (a codex app-server
-    // spawn) — it must never sit on this loop.
-    let agent_status: Arc<Mutex<Option<coding::AgentStatusPayload>>> = Arc::new(Mutex::new(None));
+    // OFF the 1Hz loop and read by the next heartbeat. #FEED-211: on its OWN
+    // thread ([`coding::usage_worker`]), not the serialized device worker —
+    // a slow pass (a refresh lock, a timeout, a CLI probe) held every queued
+    // command behind it.
+    let agent_status = coding::usage_worker::UsageWorker::new();
     // EXP-484: raised by a finished `agent_login` — the doctor re-probe (and
     // with it the accounts map) must not wait out a full DOCTOR_RECHECK
     // before the machine rows learn who just signed in.
@@ -383,7 +384,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
         Arc::clone(&ctx),
         Arc::clone(&sessions),
         device_id.clone(),
-        Arc::clone(&agent_status),
+        agent_status.clone(),
         Arc::clone(&doctor_soon),
         Arc::clone(&update_now),
         Arc::clone(&logins_inflight),
@@ -778,12 +779,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
             // for a FRESH collection, which nudges it (`then_beat`), so the
             // row carries the moved `active` flag instead of the old one.
             reported_sessions = Some(live_now);
-            device_worker
-                .send(DeviceWork::CollectAgentStatus {
-                    report: Box::new(doctor.clone()),
-                    then_beat: true,
-                })
-                .ok();
+            start_agent_status(&agent_status, &ctx, &doctor, Some(&check_in));
         }
         // EXP-481: a relay check_in nudge means "the server persisted new
         // work" — beat NOW instead of on the cadence (the beat is the pull).
@@ -802,7 +798,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
             // 30s would be pure sync noise. "Changed" is the accounts
             // IDENTITY (`accounts_key`, `checked_at` excluded — the
             // collector restamps it every pass) and the usage JSON.
-            let status = agent_status.lock().ok().and_then(|slot| slot.clone());
+            let status = agent_status.latest();
             let accounts_json = status.as_ref().and_then(|status| status.accounts_json());
             let usage_json = status.as_ref().and_then(|status| status.usage_json());
             let accounts_key = status
@@ -931,15 +927,11 @@ fn run_daemon(args: &[String]) -> CommandResult {
                 }
                 Err(err) => heartbeat_health.on_err("devices.heartbeat", &err, carried_optional),
             }
-            // EXP-484: collect for the NEXT beat, on the worker — never
-            // here (a codex app-server probe blocks for seconds, and this
-            // loop also owns the update gate and the session reaper).
-            device_worker
-                .send(DeviceWork::CollectAgentStatus {
-                    report: Box::new(doctor.clone()),
-                    then_beat: false,
-                })
-                .ok();
+            // EXP-484: collect for the NEXT beat, off this loop (a codex
+            // app-server probe blocks for seconds, and this loop also owns
+            // the update gate and the session reaper). #FEED-211: a pass
+            // still in flight is left to finish; none starts beside it.
+            start_agent_status(&agent_status, &ctx, &doctor, None);
         }
         // Session start/end changes the inventory's busy flags.
         if session_change {
@@ -1969,17 +1961,6 @@ enum DeviceWork {
     Commands(Vec<api::devices::PendingCommand>),
     /// Re-scan the worktrees and report when the fingerprint moved.
     ReportWorktrees,
-    /// EXP-484: collect the agent accounts + usage windows for the NEXT
-    /// heartbeat. Runs here because `collect_if_due` blocks (keychain read,
-    /// an HTTP fetch, a codex app-server spawn — up to ~10s) and the daemon
-    /// loop must stay at 1Hz. `report` is the loop's last doctor pass: the
-    /// collector reads it for which binaries exist and who is signed in
-    /// (boxed — it dwarfs every other variant). EXP-1158: `then_beat` raises
-    /// the loop's check-in once the collection landed (a session change).
-    CollectAgentStatus {
-        report: Box<coding::DoctorReport>,
-        then_beat: bool,
-    },
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1987,7 +1968,7 @@ fn spawn_device_worker(
     ctx: Arc<Ctx>,
     sessions: Sessions,
     device_id: String,
-    agent_status: Arc<Mutex<Option<coding::AgentStatusPayload>>>,
+    agent_status: coding::usage_worker::UsageWorker,
     doctor_soon: Arc<AtomicBool>,
     update_now: Arc<AtomicBool>,
     // EXP-484: `agent_login` runs on its own thread (a PTY that lives for
@@ -1996,8 +1977,7 @@ fn spawn_device_worker(
     // `agent_update` (minutes of download) claims the same set, and the
     // loop's self-update restart holds while it is non-empty.
     logins_inflight: Arc<Mutex<HashSet<String>>>,
-    // EXP-1158: the loop's beat-now flag, raised after a `then_beat`
-    // collection.
+    // The loop's beat-now flag, raised after a usage refresh landed.
     check_in: Arc<AtomicBool>,
 ) -> flume::Sender<DeviceWork> {
     let (tx, rx) = flume::unbounded::<DeviceWork>();
@@ -2039,6 +2019,7 @@ fn spawn_device_worker(
                             &CommandSlots {
                                 agent_status: &agent_status,
                                 update_now: &update_now,
+                                check_in: &check_in,
                             },
                         );
                     }
@@ -2047,34 +2028,45 @@ fn spawn_device_worker(
                 DeviceWork::ReportWorktrees => {
                     report_worktrees(&ctx, &sessions, &device_id, &mut last_inventory_fp);
                 }
-                DeviceWork::CollectAgentStatus { report, then_beat } => {
-                    let settings =
-                        coding::Settings::load(&coding::Settings::default_path(&ctx.data_dir));
-                    let payload = coding::collect_if_due(
-                        &ctx.data_dir,
-                        &settings,
-                        &report,
-                        coding::run_registry::now_secs(),
-                    );
-                    if let Ok(mut slot) = agent_status.lock() {
-                        *slot = Some(payload);
-                    }
-                    if then_beat {
-                        check_in.store(true, Ordering::SeqCst);
-                    }
-                }
             }
         }
     });
     tx
 }
 
+/// #FEED-211: start a collection pass on the usage worker's own thread
+/// (none while one is in flight). EXP-1158: `then_beat` = the loop's check-in,
+/// raised once the pass landed (a session change waits for the fresh pass).
+fn start_agent_status(
+    worker: &coding::usage_worker::UsageWorker,
+    ctx: &Arc<Ctx>,
+    report: &coding::DoctorReport,
+    then_beat: Option<&Arc<AtomicBool>>,
+) {
+    let data_dir = ctx.data_dir.clone();
+    let report = report.clone();
+    let then_beat = then_beat.map(Arc::clone);
+    worker.start(
+        move || {
+            let settings = coding::Settings::load(&coding::Settings::default_path(&data_dir));
+            coding::collect_if_due(&data_dir, &settings, &report, coding::run_registry::now_secs())
+        },
+        move |_| {
+            if let Some(flag) = then_beat {
+                flag.store(true, Ordering::SeqCst);
+            }
+        },
+    );
+}
+
 /// EXP-792: the worker-owned slots a command may write (the forced usage
 /// refresh fills the status slot).
 struct CommandSlots<'a> {
-    agent_status: &'a Arc<Mutex<Option<coding::AgentStatusPayload>>>,
+    agent_status: &'a coding::usage_worker::UsageWorker,
     /// FEED-36: `update_now` sets it after ending the live sessions.
     update_now: &'a Arc<AtomicBool>,
+    /// #FEED-211: a usage refresh that landed beats at once.
+    check_in: &'a Arc<AtomicBool>,
 }
 
 /// Reconcile against an OBSERVED server copy.
@@ -2261,38 +2253,73 @@ fn run_device_command(
         }
         // EXP-792: force one agent's usage re-read past the shared TTL
         // (never past the 429 floor — a hot refusal names when).
+        // #FEED-211: on its OWN thread, completing itself — a refresh that
+        // waits out a lock or a timeout must not hold the commands queued
+        // behind it. The claim set makes a redelivered id a no-op.
         "agent_usage_refresh" => {
             let agent = command.payload["agent"].as_str().unwrap_or_default();
-            let profile = command.payload["profileId"].as_str().unwrap_or_default();
+            let profile = command.payload["profileId"].as_str().unwrap_or_default().to_string();
             match coding::CodingAgent::parse(agent) {
                 None => (false, "Malformed command payload.".to_string()),
                 Some(agent) => {
-                    let report = coding::run_doctor(&settings, &ctx.data_dir);
-                    // EXP-808: every account PROFILE refreshes, not just the
-                    // device's default one.
-                    match coding::force_collect(
-                        &ctx.data_dir,
-                        &settings,
-                        &report,
-                        agent,
-                        profile,
-                        coding::run_registry::now_secs(),
-                    ) {
-                        Ok(payload) => {
-                            if let Ok(mut slot) = slots.agent_status.lock() {
-                                *slot = Some(payload);
-                            }
-                            (true, format!("Refreshed {} usage.", agent.id()))
+                    {
+                        let Ok(mut guard) = logins_inflight.lock() else {
+                            return;
+                        };
+                        if !guard.insert(command.id.clone()) {
+                            return;
                         }
-                        Err(until) => (
-                            false,
-                            format!(
-                                "{} is rate-limited; try again after {}.",
-                                agent.id(),
-                                coding::agent_accounts::iso_from_unix_secs(until as i64)
-                                    .unwrap_or_else(|| until.to_string())
-                            ),
-                        ),
+                    }
+                    let ctx = Arc::clone(ctx);
+                    let command_id = command.id.clone();
+                    let claimed = Arc::clone(logins_inflight);
+                    let usage = slots.agent_status.clone();
+                    let check_in = Arc::clone(slots.check_in);
+                    let spawned = std::thread::Builder::new()
+                        .name("exp-usage-refresh".to_string())
+                        .spawn(move || {
+                            let report = coding::run_doctor(&settings, &ctx.data_dir);
+                            // EXP-808: every account PROFILE refreshes, not
+                            // just the device's default one.
+                            let (ok, message) = match coding::force_collect(
+                                &ctx.data_dir,
+                                &settings,
+                                &report,
+                                agent,
+                                &profile,
+                                coding::run_registry::now_secs(),
+                            ) {
+                                Ok(payload) => {
+                                    usage.publish(payload);
+                                    check_in.store(true, Ordering::SeqCst);
+                                    (true, format!("Refreshed {} usage.", agent.id()))
+                                }
+                                Err(until) => (
+                                    false,
+                                    format!(
+                                        "{} is rate-limited; try again after {}.",
+                                        agent.id(),
+                                        coding::agent_accounts::iso_from_unix_secs(until as i64)
+                                            .unwrap_or_else(|| until.to_string())
+                                    ),
+                                ),
+                            };
+                            if let Err(err) =
+                                api::devices::complete_command(&ctx.trpc, &command_id, ok, Some(&message))
+                            {
+                                log::debug!("completeCommand failed (redelivery will retry): {err}");
+                            }
+                            if let Ok(mut guard) = claimed.lock() {
+                                guard.remove(&command_id);
+                            }
+                        });
+                    if spawned.is_err() {
+                        if let Ok(mut guard) = logins_inflight.lock() {
+                            guard.remove(&command.id);
+                        }
+                        (false, "This machine could not start the usage refresh.".to_string())
+                    } else {
+                        return;
                     }
                 }
             }
@@ -2358,9 +2385,7 @@ fn run_device_command(
                     };
                     match outcome {
                         Ok((payload, _)) => {
-                            if let Ok(mut slot) = slots.agent_status.lock() {
-                                *slot = Some(payload);
-                            }
+                            slots.agent_status.publish(payload);
                             doctor_soon.store(true, Ordering::SeqCst);
                             (true, done)
                         }
