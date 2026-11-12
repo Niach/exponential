@@ -108,14 +108,14 @@ class TunnelTransportTest {
         val crash = t.event()
         t.transport.send(crash, HintUtils.createWithTypeCheckHint(cached))
         assertEquals(listOf(crash), t.cache.stored)
-        assertFalse(cached.retry)
+        assertFalse(cached.retried)
         assertFalse(cached.result!!)
 
         // The cache sender meets that copy again: it is ours, left alone.
         val again = CachedHint()
         t.transport.send(crash, HintUtils.createWithTypeCheckHint(again))
         assertEquals(1, t.posts)
-        assertTrue(again.retry)
+        assertTrue(again.retried)
     }
 
     @Test
@@ -125,7 +125,7 @@ class TunnelTransportTest {
         t.transport.send(t.event(), HintUtils.createWithTypeCheckHint(cached))
         assertTrue(t.cache.stored.isEmpty())
         assertTrue(t.cache.discarded.isEmpty())
-        assertFalse(cached.retry)
+        assertFalse(cached.retried)
         assertTrue(cached.result!!)
     }
 
@@ -139,7 +139,7 @@ class TunnelTransportTest {
 
     private class Harness(vararg statuses: Int) {
         val options = SentryOptions()
-        val cache = RecordingCache().also { options.envelopeDiskCache = it }
+        val cache = RecordingCache().also { options.setEnvelopeDiskCache(it) }
         val scheduler = ManualScheduler()
         var clock = 1_000_000L
         var posts = 0
@@ -208,11 +208,11 @@ class TunnelTransportTest {
     }
 
     private class CachedHint : Cached, Retryable, SubmissionResult {
-        var retry = false
+        var retried = false
         var result: Boolean? = null
-        override fun isRetry() = retry
+        override fun isRetry() = retried
         override fun setRetry(retry: Boolean) {
-            this.retry = retry
+            retried = retry
         }
         override fun setResult(success: Boolean) {
             result = success
