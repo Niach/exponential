@@ -31,7 +31,7 @@ pub(super) fn rows() -> Vec<McpServerListEntry> {
 }
 
 fn mcp(name: &str, team: bool, owner: bool, load: Option<Result<Vec<McpServerListEntry>, String>>, reloading: bool, pending: Option<&'static str>, connecting: Option<&'static str>, clicks: &'static [(f32, f32)]) {
-    let shot = McpShot { team: team.then(|| "t".to_string()), owner };
+    let shot = McpShot { team: team.then(|| "t".to_string()), owner, instance: "https://app.exponential.at".into(), ..Default::default() };
     shoot_pane_clicked(name, McpServersPane::for_shots, move |pane, cx| pane.show(shot, load, reloading, pending, connecting, cx), None, clicks);
 }
 

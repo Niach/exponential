@@ -1,10 +1,11 @@
-//! #EXP-1629: Settings › MCP (endpoint, servers, clients, access, the
-//! built-in tools) and its Activity page, in every state.
+//! #EXP-1629: Settings › MCP (overview, the one Servers group with its
+//! open rows, access, clients) and its Activity page, in every state.
 
 use super::*;
 use super::mcp_servers::rows as server_rows;
 use crate::settings::mcp::{McpActivityPane, McpPane, McpShot};
-use api::app_access::{AccessApp, AccessOut, AccessRow};
+use api::app_access::{AccessApp, AccessAppTool, AccessOut, AccessRow};
+use api::mcp_servers::McpToolRow;
 use api::mcp_clients::{McpActivityOut, McpCall, McpClient, McpClientsOut};
 
 const TEAM: &str = "team-shots";
@@ -39,7 +40,10 @@ fn clients() -> McpClientsOut {
 }
 
 fn app(id: &str, name: &str, icon: Option<&str>, color: Option<&str>, tools: u32) -> AccessApp {
-    AccessApp { id: id.into(), slug: id.into(), name: name.into(), icon: icon.map(str::to_string), color: color.map(str::to_string), tool_count: tools }
+    let listed = (0..tools)
+        .map(|ix| AccessAppTool { name: format!("{id}_tool_{ix}"), title: format!("{name} tool {}", ix + 1), blurb: "Does one thing for the app.".into() })
+        .collect();
+    AccessApp { id: id.into(), slug: id.into(), name: name.into(), icon: icon.map(str::to_string), color: color.map(str::to_string), tool_count: tools, tools: listed }
 }
 
 fn member(id: &str, name: &str, email: &str, levels: &[(&str, &str)]) -> AccessRow {
@@ -63,13 +67,15 @@ fn base() -> McpShot {
     McpShot {
         team: Some(TEAM.into()),
         owner: true,
-        endpoint: "https://app.exponential.at/api/mcp/apps".into(),
+        instance: "https://app.exponential.at".into(),
         scope: "mine",
         clients: Some(clients()),
         access: Some(access(true)),
         filter: "",
         revoking: false,
         servers: Some(Ok(server_rows())),
+        open: Vec::new(),
+        tools: Vec::new(),
     }
 }
 
@@ -127,13 +133,40 @@ fn settings_mcp_empty_member() {
 #[test]
 #[ignore]
 fn settings_mcp_filter() {
-    page("mcp-filter", McpShot { filter: "label", ..bare() });
+    page("mcp-filter", McpShot { filter: "label", open: vec!["builtin:exponential"], ..bare() });
 }
 
 #[test]
 #[ignore]
 fn settings_mcp_no_match() {
-    page("mcp-no-match", McpShot { filter: "zzz-no-tool", ..bare() });
+    page("mcp-no-match", McpShot { filter: "zzz-no-tool", open: vec!["builtin:exponential"], ..bare() });
+}
+
+/// The built-in Exponential row open on every contract tool group.
+#[test]
+#[ignore]
+fn settings_mcp_builtin_open() {
+    page("mcp-builtin-open", McpShot { open: vec!["builtin:exponential"], ..bare() });
+}
+
+/// Team apps open, a listed server, a loading one, a failed one and the
+/// connect / stdio lines.
+#[test]
+#[ignore]
+fn settings_mcp_rows_open() {
+    let tool = |name: &str, title: &str, blurb: &str| McpToolRow { name: name.into(), title: title.into(), blurb: blurb.into() };
+    page("mcp-rows-open", McpShot {
+        open: vec!["builtin:apps", "s1", "s2", "s5"],
+        tools: vec![("s1", Some(Ok(vec![tool("create_issue", "Create issue", "Create a Linear issue."), tool("search", "Search", "Search issues, projects and docs.")])))],
+        ..base()
+    });
+}
+
+#[test]
+#[ignore]
+fn settings_mcp_rows_tools_states() {
+    page("mcp-rows-tools-states", McpShot { open: vec!["s1"], tools: vec![("s1", Some(Err("401 Unauthorized".into())))], ..base() });
+    page("mcp-rows-tools-loading", McpShot { open: vec!["s1"], ..base() });
 }
 
 #[test]
