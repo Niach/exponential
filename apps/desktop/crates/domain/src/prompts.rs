@@ -162,23 +162,44 @@ macro_rules! confirm {
 pub const DELETE_ISSUE: Spec = Spec {
     id: "delete-issue",
     copy: &[
-        ("title", "Delete {identifier}?"),
-        ("body", "Its comments and files are deleted with it."),
+        ("title", "Move {identifier} to trash?"),
+        (
+            "body",
+            "After 30 days it is deleted with its comments and files. Until then anyone on the team can restore it in team settings.",
+        ),
     ],
     params: &["identifier"],
-    actions: confirm!(destructive "delete", "Delete"),
+    actions: confirm!(destructive "delete", "Move to trash"),
     focus: "cancel",
 };
 
 pub const DELETE_ISSUES: Spec = Spec {
     id: "delete-issues",
     copy: &[
-        ("titleOne", "Delete 1 issue?"),
-        ("titleMany", "Delete {count} issues?"),
-        ("bodyOne", "Its comments and files are deleted with it."),
-        ("bodyMany", "Their comments and files are deleted with them."),
+        ("titleOne", "Move 1 issue to trash?"),
+        ("titleMany", "Move {count} issues to trash?"),
+        (
+            "bodyOne",
+            "After 30 days it is deleted with its comments and files. Until then anyone on the team can restore it in team settings.",
+        ),
+        (
+            "bodyMany",
+            "After 30 days they are deleted with their comments and files. Until then anyone on the team can restore them in team settings.",
+        ),
     ],
     params: &["count"],
+    actions: confirm!(destructive "delete", "Move to trash"),
+    focus: "cancel",
+};
+
+/// #EXP-1797: Delete forever, from the team's issue trash (owners only).
+pub const PURGE_ISSUE: Spec = Spec {
+    id: "purge-issue",
+    copy: &[
+        ("title", "Delete {identifier}?"),
+        ("body", "Its comments and files are deleted with it."),
+    ],
+    params: &["identifier"],
     actions: confirm!(destructive "delete", "Delete"),
     focus: "cancel",
 };
@@ -514,6 +535,7 @@ pub const EXPONENTIAL_UI_CONSENT_DESTRUCTIVE: Spec = Spec {
 pub const ALL: &[Spec] = &[
     DELETE_ISSUE,
     DELETE_ISSUES,
+    PURGE_ISSUE,
     DELETE_FILE,
     MOVE_ISSUE,
     MERGE_ISSUE_PR,
@@ -559,6 +581,10 @@ pub fn delete_issues(count: usize) -> Prompt {
     } else {
         DELETE_ISSUES.render("titleMany", Some("bodyMany"), &[("count", &count.to_string())])
     }
+}
+
+pub fn purge_issue(identifier: &str) -> Prompt {
+    PURGE_ISSUE.render("title", Some("body"), &[("identifier", identifier)])
 }
 
 pub fn delete_file(filename: &str) -> Prompt {
@@ -845,6 +871,7 @@ mod tests {
             delete_issue("EXP-12"),
             delete_issues(1),
             delete_issues(3),
+            purge_issue("EXP-12"),
             delete_file("a.png"),
             move_issue("EXP-12", "Web"),
             merge_issue_pr(Some(7), 1),
@@ -888,13 +915,14 @@ mod tests {
 
     #[test]
     fn the_variants_pick_the_right_keys() {
-        assert_eq!(delete_issue("EXP-12").title, "Delete EXP-12?");
-        assert_eq!(delete_issues(1).title, "Delete 1 issue?");
+        assert_eq!(delete_issue("EXP-12").title, "Move EXP-12 to trash?");
+        assert_eq!(delete_issues(1).title, "Move 1 issue to trash?");
         assert_eq!(
             delete_issues(2).body.as_deref(),
-            Some("Their comments and files are deleted with them.")
+            Some("After 30 days they are deleted with their comments and files. Until then anyone on the team can restore them in team settings.")
         );
-        assert_eq!(delete_issues(2).title, "Delete 2 issues?");
+        assert_eq!(delete_issues(2).title, "Move 2 issues to trash?");
+        assert_eq!(purge_issue("EXP-12").title, "Delete EXP-12?");
         assert_eq!(merge_issue_pr(Some(7), 1).title, "Merge PR #7?");
         assert_eq!(merge_issue_pr(Some(7), 1).body.as_deref(), Some("It is squash-merged."));
         assert_eq!(
