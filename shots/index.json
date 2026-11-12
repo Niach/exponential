@@ -7769,8 +7769,8 @@
         "file": "shots/trace/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 38880,
-        "sha256": "e5aef2c5475c9d3c010854eba019b8d7af02b49aa010686477a31b842887470e"
+        "bytes": 37812,
+        "sha256": "297e5500259429ecb08737f7181c377c7c611ddc6443880ce9a46cc7d85f8eae"
       },
       "web": {
         "file": "shots/trace/web.webp",
