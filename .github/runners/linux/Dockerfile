@@ -31,5 +31,5 @@ RUN install -d -o runner -g runner /home/runner/.cargo /home/runner/.rustup \
 
 ENV RUSTC_WRAPPER=sccache \
     SCCACHE_DIR=/home/runner/.cache/sccache \
-    SCCACHE_CACHE_SIZE=40G \
+    SCCACHE_CACHE_SIZE=15G \
     CARGO_INCREMENTAL=0
