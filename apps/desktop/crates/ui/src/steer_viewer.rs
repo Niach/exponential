@@ -3485,14 +3485,16 @@ impl SteerSessionView {
             .iter()
             .flat_map(|spec| spec.item_indices().iter().filter_map(|&ix| self.feed.items().get(ix)).map(|item| item.id))
             .collect();
-        let calls: Vec<(u64, &str)> = self
+        // #FEED-231: a call's preview names the card it posted or edited.
+        let calls: Vec<(u64, &str, Option<&str>)> = self
             .feed
             .items()
             .iter()
             .filter(|item| shown.contains(&item.id))
             .filter_map(|item| match &item.kind {
-                FeedKind::Tool { name, settled: true, failed: false, .. } => {
-                    domain::ask_dock::card_call_row(name).map(|row| (item.id, row))
+                FeedKind::Tool { name, settled: true, failed: false, preview, .. } => {
+                    let card = preview.as_ref().and_then(|preview| preview.id.as_deref());
+                    domain::ask_dock::card_call_row(name).map(|row| (item.id, row, card))
                 }
                 _ => None,
             })

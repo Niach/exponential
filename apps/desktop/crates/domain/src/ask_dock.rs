@@ -286,30 +286,43 @@ pub fn card_call_row(name: &str) -> Option<&'static str> {
 }
 
 /// Where each session card draws: right after the SETTLED, unfailed call
-/// that posted it, paired newest back PER KIND over the legacy calls, then
-/// over the shared `show` calls (S-3); a card with no call left is
-/// unanchored (card order, the transcript's head). `calls` = the feed's
-/// settled, unfailed Exponential calls in feed order: (feed item id, display
-/// row). Returns card INDICES into `kinds`.
+/// that posted it. #FEED-231: a call naming its card (`cardId`, the
+/// device's `preview.id`) anchors exactly that card, the NEWEST such call
+/// winning, and never joins the count pool. The rest pair newest back PER
+/// KIND over the legacy calls, then over the shared `show` calls (S-3),
+/// counting only calls with no card id (an older device); a card with no
+/// call left is unanchored (card order, the transcript's head). `calls` =
+/// the feed's settled, unfailed Exponential calls in feed order: (feed item
+/// id, display row, card id). Returns card INDICES into `cards` (id, kind).
 pub fn anchor_session_cards(
-    calls: &[(u64, &str)],
-    kinds: &[SessionCardKind],
+    calls: &[(u64, &str, Option<&str>)],
+    cards: &[(&str, SessionCardKind)],
 ) -> (HashMap<u64, Vec<usize>>, Vec<usize>) {
     let mut anchors: HashMap<u64, Vec<usize>> = HashMap::new();
     let mut unanchored = Vec::new();
+    let mut named: HashMap<&str, u64> = HashMap::new();
+    let mut pool: Vec<(u64, &str)> = Vec::new();
+    for &(id, row, card) in calls {
+        match card.filter(|card| !card.is_empty()) {
+            Some(card) => {
+                named.insert(card, id);
+            }
+            None => pool.push((id, row)),
+        }
+    }
     let mut used: HashMap<&str, usize> = HashMap::new();
     let mut take = |row: &'static str| {
         let skip = used.entry(row).or_default();
-        let call = calls.iter().rev().filter(|(_, name)| *name == row).nth(*skip);
+        let call = pool.iter().rev().filter(|(_, name)| *name == row).nth(*skip);
         if call.is_some() {
             *skip += 1;
         }
-        call
+        call.map(|(id, _)| *id)
     };
-    for (index, kind) in kinds.iter().enumerate().rev() {
-        let call = take(kind.posting_call()).or_else(|| take(SHOW_CARD_CALL));
+    for (index, (card, kind)) in cards.iter().enumerate().rev() {
+        let call = named.get(card).copied().or_else(|| take(kind.posting_call())).or_else(|| take(SHOW_CARD_CALL));
         match call {
-            Some((id, _)) => anchors.entry(*id).or_default().insert(0, index),
+            Some(id) => anchors.entry(id).or_default().insert(0, index),
             None => unanchored.insert(0, index),
         }
     }
@@ -481,15 +494,20 @@ mod tests {
     fn anchor_session_cards_match_the_fixture() {
         let fixture = fixture();
         for case in fixture["anchorCases"].as_array().unwrap() {
-            let calls: Vec<(u64, &str)> = case["feed"]
+            let calls: Vec<(u64, &str, Option<&str>)> = case["feed"]
                 .as_array()
                 .unwrap()
                 .iter()
                 .filter(|item| item["kind"] == "tool" && item["settled"] == true && item["failed"] != true)
-                .filter_map(|item| Some((item["id"].as_u64()?, card_call_row(item["name"].as_str()?)?)))
+                .filter_map(|item| {
+                    Some((item["id"].as_u64()?, card_call_row(item["name"].as_str()?)?, item["cardId"].as_str()))
+                })
                 .collect();
             let cards = case["cards"].as_array().unwrap();
-            let kinds: Vec<SessionCardKind> = cards.iter().map(|card| kind_of(card["kind"].as_str().unwrap())).collect();
+            let kinds: Vec<(&str, SessionCardKind)> = cards
+                .iter()
+                .map(|card| (card["id"].as_str().unwrap(), kind_of(card["kind"].as_str().unwrap())))
+                .collect();
             let (anchors, unanchored) = anchor_session_cards(&calls, &kinds);
             let id = |index: &usize| cards[*index]["id"].clone();
             let anchors: serde_json::Map<String, Value> = anchors
