@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Markdown link labels balance brackets (#FEED-214): `linkAt` ends a label at the `[`'s balancing `]` (one stack pass per string, `Scan.closeBracket`) instead of the first `](`, as web, SwiftUI and gpui do, so `[![x](1.png)](u)` is a link `x` → `u`; `MarkdownRenderTest` replays the restored `image_in_link_is_alt` case.
 - Text `truncate: "middle"` keeps 4 characters or none (#EXP-1789): a cut keeping fewer than `MIDDLE_MIN_KEPT` (4, start + end together) shows the `…` alone, so a nearly-gone run never reads as stray glyphs; `TextTruncateTest` replays the fixture's new cases.
 - `accessibility.selected` / `.expanded` (#EXP-1629): `selected`, the expand / collapse actions (unchanged painter, the core now accepts the keys); `A11yStatesTest` replays the fixture.
 - Input / Textarea `style.color` (#EXP-1787): the typed text takes the field's ink (the core's authored colour); the caret stays the `field` recipe's (`fieldCaretInk`, a `row` at its 70%), the placeholder its part's (`InteractionTest.fieldInkColoursOnlyTheTypedText`).
