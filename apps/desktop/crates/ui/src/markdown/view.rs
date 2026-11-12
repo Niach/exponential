@@ -1208,4 +1208,53 @@ mod tests {
         assert!(selected.find("alpha").unwrap() < selected.find("beta").unwrap(), "reading order: {selected:?}");
     }
 
+    /// Danny's bug: a sweep from the prose above a code block, across every
+    /// one of its lines, into the prose below copies all of it with the
+    /// block's line feeds kept (the highlight: `range_boxes`' test).
+    #[gpui::test]
+    async fn a_sweep_selects_every_line_of_a_code_block(cx: &mut gpui::TestAppContext) {
+        use gpui::{Modifiers, MouseButton, Render, VisualTestContext};
+        use gpui_base::TextSelectionLayer;
+
+        const SOURCE: &str = "Live commands:\n\n```sh\ncd ~/repo\n\n# build\nscripts/mkboot.sh build\nsudo umount /mnt\n```\n\nThe last block needs you.";
+        struct Host;
+        impl Render for Host {
+            fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+                div().size_full().child(TextSelectionLayer).child(MarkdownView::new("sweep-code", SOURCE).selectable(true))
+            }
+        }
+
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+        });
+        let (_host, cx) = cx.add_window_view(|_, _| Host);
+        let cx: &mut VisualTestContext = cx;
+        for _ in 0..3 {
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            cx.run_until_parked();
+        }
+        let sweep = |cx: &mut VisualTestContext, from: gpui::Point<gpui::Pixels>, to: gpui::Point<gpui::Pixels>| {
+            cx.simulate_mouse_down(from, MouseButton::Left, Modifiers::default());
+            cx.update(|window, cx| {
+                let _ = window.draw(cx);
+            });
+            cx.simulate_mouse_move(to, Some(MouseButton::Left), Modifiers::default());
+            cx.update(|window, cx| {
+                let _ = window.draw(cx);
+            });
+            cx.simulate_mouse_up(to, MouseButton::Left, Modifiers::default());
+            cx.update(|window, cx| {
+                let _ = window.draw(cx);
+            });
+            cx.update(|window, cx| gpui_base::TextSelection::selected_text(window, cx))
+        };
+        // The whole document, prose to prose.
+        let all = sweep(cx, gpui::point(px(1.), px(4.)), gpui::point(px(700.), px(600.)));
+        assert!(all.contains("Live commands:"), "the prose above: {all:?}");
+        assert!(all.contains("cd ~/repo\n\n# build\nscripts/mkboot.sh build\nsudo umount /mnt"), "every code line, line feeds kept: {all:?}");
+        assert!(all.contains("The last block needs you."), "the prose below: {all:?}");
+        assert!(all.find("Live").unwrap() < all.find("cd ~").unwrap() && all.find("umount").unwrap() < all.find("The last").unwrap(), "reading order: {all:?}");
+    }
+
 }
