@@ -5,6 +5,7 @@ import { currentKeySource } from "@/lib/enet/current-key-holder"
 import { openMessageWith } from "@/lib/enet/sealed-open"
 import { useKeyVersion } from "@/lib/enet/use-key-holder"
 import { messageCollection } from "@/lib/collections"
+import { sharedLiveQuery } from "@/lib/shared-live-query"
 import { useNow } from "@/hooks/use-now"
 import { useSessionTitles, useTeamSessions } from "@/hooks/use-session-tree"
 
@@ -43,14 +44,17 @@ export interface ResultsTabState {
 }
 
 export function useResultsTab(teamId: string | null | undefined, rootId: string | null): ResultsTabState {
+  // #PERF-7: shared, so reopening the chat reuses the loaded subset.
   const { data, isLoading } = useLiveQuery(
-    (query) =>
+    () =>
       rootId
-        ? query
-            .from({ messages: messageCollection })
-            .where(({ messages }) =>
-              and(eq(messages.rootId, rootId), not(isNull(messages.authorSessionId)), not(isNull(messages.card)))
-            )
+        ? sharedLiveQuery(`results:${rootId}`, (query) =>
+            query
+              .from({ messages: messageCollection })
+              .where(({ messages }) =>
+                and(eq(messages.rootId, rootId), not(isNull(messages.authorSessionId)), not(isNull(messages.card)))
+              )
+          )
         : undefined,
     [rootId]
   )
