@@ -19,6 +19,7 @@ public struct AppIcon: View {
     private let assetName: String?
     private let baseSize: CGFloat
     private let weight: Font.Weight?
+    private let renderingMode: Image.TemplateRenderingMode
     @ScaledMetric private var scale: CGFloat = 1
 
     /// Draw a registry icon by its Lucide name (`"bug"`, `"git-pull-request"`).
@@ -28,12 +29,22 @@ public struct AppIcon: View {
         self.assetName = AppIcons.assetName(name)
         self.baseSize = size
         self.weight = weight
+        self.renderingMode = .template
+    }
+
+    /// #EXP-1795: a brand mark by its slug (`AppIcons.brandSlugs`), drawn in
+    /// its own fills, never tinted; an unknown slug renders nothing.
+    public init(brand slug: String, size: CGFloat = 17) {
+        self.assetName = AppIcons.brandAssetName(slug)
+        self.baseSize = size
+        self.weight = nil
+        self.renderingMode = .original
     }
 
     public var body: some View {
         if let assetName {
             Image(assetName)
-                .renderingMode(.template)
+                .renderingMode(renderingMode)
                 .resizable()
                 .scaledToFit()
                 .frame(width: baseSize * scale, height: baseSize * scale)

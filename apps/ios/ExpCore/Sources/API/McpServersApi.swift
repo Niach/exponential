@@ -103,9 +103,62 @@ public enum McpServers {
 
     /// The row's second line: the URL's host, else the command.
     public static func location(_ server: McpServerRow) -> String? {
-        if let url = server.url, let host = URL(string: url)?.host, !host.isEmpty { return host }
+        if let host = hostOf(server.url) { return host }
         let command = server.command?.trimmingCharacters(in: .whitespacesAndNewlines)
         return (command?.isEmpty ?? true) ? nil : command
+    }
+
+    // #EXP-1795: the picker row's glyph, web `getMcpServerIcon`, Android
+    // `mcpServerGlyph` (McpServerPick.kt).
+
+    /// A URL's host the way web's `new URL(url).host` reads it: lowercased,
+    /// the port kept unless it is the scheme's default; nil when unparseable.
+    public static func hostOf(_ url: String?) -> String? {
+        guard let url, let parts = URLComponents(string: url.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let host = parts.host?.lowercased(), !host.isEmpty else { return nil }
+        let defaultPort: Int? = switch parts.scheme?.lowercased() {
+        case "http", "ws": 80
+        case "https", "wss": 443
+        default: nil
+        }
+        guard let port = parts.port, port != defaultPort else { return host }
+        return "\(host):\(port)"
+    }
+
+    private static func pathOf(_ url: String) -> String? {
+        guard let parts = URLComponents(string: url.trimmingCharacters(in: .whitespacesAndNewlines)) else { return nil }
+        return parts.path.isEmpty ? "/" : parts.path
+    }
+
+    /// The contract `mcpCatalog` mark a server's URL belongs to: a hosted
+    /// entry by exact host, else a `{host}` template whose path the URL carries.
+    public static func catalogMark(for url: String?) -> String? {
+        guard let url, let host = hostOf(url) else { return nil }
+        let urls = DomainContract.mcpCatalogUrls
+        let marks = DomainContract.mcpCatalogMarks
+        let isTemplate = { (i: Int) in urls[i].contains("{host}") }
+        if let i = urls.indices.first(where: { !isTemplate($0) && hostOf(urls[$0]) == host }) { return marks[i] }
+        guard let path = pathOf(url) else { return nil }
+        return urls.indices.first(where: {
+            isTemplate($0) && pathOf(urls[$0].replacingOccurrences(of: "{host}", with: "template.invalid")) == path
+        }).map { marks[$0] }
+    }
+
+    /// What a server row leads with.
+    public enum Glyph: Equatable, Sendable {
+        /// A catalog server's real brand mark (contract `mcpCatalog` slug).
+        case brand(String)
+        /// A stdio command: `session-shell`.
+        case shell
+        /// Anything else: `ui-mcp`.
+        case plug
+    }
+
+    public static func glyph(_ server: McpServerRow) -> Glyph {
+        if let mark = catalogMark(for: server.url) { return .brand(mark) }
+        let hasCommand = !(server.command ?? "").isEmpty
+        let hasUrl = !(server.url ?? "").isEmpty
+        return hasCommand && !hasUrl ? .shell : .plug
     }
 
     /// The submenu row's value: the number picked, none at zero.

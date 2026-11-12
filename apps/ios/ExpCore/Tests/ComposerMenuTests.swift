@@ -188,6 +188,29 @@ final class ComposerMenuTests: XCTestCase {
         XCTAssertEqual(McpServers.pickedValue(["a", "c"]), "2")
     }
 
+    // #EXP-1795: a row's glyph = the contract `mcpCatalog` mark by exact host
+    // (port kept unless default), else a `{host}` template's path; stdio =
+    // shell; anything else = plug.
+    func testMcpServerGlyph() {
+        func row(_ url: String? = nil, command: String? = nil) -> McpServerRow {
+            McpServerRow(id: "x", name: "x", url: url, command: command, connection: .init(status: "connected"))
+        }
+        XCTAssertEqual(McpServers.glyph(row("https://mcp.linear.app/mcp")), .brand("linear"))
+        XCTAssertEqual(McpServers.glyph(row("https://MCP.Sentry.dev:443/sse")), .brand("sentry"))
+        XCTAssertEqual(McpServers.glyph(row("https://mcp.atlassian.com/v1/sse")), .brand("jira"))
+        XCTAssertEqual(McpServers.glyph(row("https://gitlab.acme.dev/api/v4/mcp")), .brand("gitlab"))
+        XCTAssertEqual(McpServers.glyph(row("https://mcp.linear.app:8443/mcp")), .plug)
+        XCTAssertEqual(McpServers.glyph(row("https://docs.acme.dev/mcp")), .plug)
+        XCTAssertEqual(McpServers.glyph(row(command: "npx srv")), .shell)
+        XCTAssertEqual(McpServers.glyph(row()), .plug)
+        XCTAssertEqual(McpServers.hostOf("http://localhost:8080/mcp"), "localhost:8080")
+        XCTAssertEqual(McpServers.hostOf("http://localhost:80/mcp"), "localhost")
+        XCTAssertNil(McpServers.hostOf("not a url"))
+        for (url, mark) in zip(DomainContract.mcpCatalogUrls, DomainContract.mcpCatalogMarks) {
+            XCTAssertEqual(McpServers.catalogMark(for: url.replacingOccurrences(of: "{host}", with: "git.example.org")), mark, url)
+        }
+    }
+
     // #EXP-1793: an agent chat's MCP pick rides a send only while it differs
     // from its seed (an empty pick clears), then becomes the seed.
     func testAgentChatMcpPickCarriesOnlyAChange() {
