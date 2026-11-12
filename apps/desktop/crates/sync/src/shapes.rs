@@ -1,4 +1,4 @@
-//! The 34 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
+//! The 35 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
 //! iterates and the store builds its schema from. gpui-free.
 //!
 //! Each [`ShapeSpec`] carries the SQLite table name, the kebab-case proxy URL
@@ -54,6 +54,14 @@ impl ShapeSpec {
         }
     }
 
+    /// #FEED-219: a shape newer than some servers this build talks to. Its
+    /// 404 means "not served yet", never an outage: the thread parks
+    /// without a `PollFailed` (the offline banner stays out of it) and
+    /// re-probes every [`crate::client::NOT_SERVED_PARK`].
+    pub fn may_be_absent(&self) -> bool {
+        MAY_BE_ABSENT.contains(&self.name)
+    }
+
     /// Whether Electric row keys for this shape carry a composite
     /// (trailing-2-segment) primary key.
     pub fn composite_keys(&self) -> bool {
@@ -80,11 +88,12 @@ impl ShapeSpec {
     }
 }
 
-/// The 34 shapes, in §5.9 order (#EXP-1656 appended `skills`). Column sets mirror `packages/db-schema`
+/// The 35 shapes, in §5.9 order (#EXP-1656 appended `skills`; #FEED-219
+/// added `composer_drafts` after `issue_drafts`). Column sets mirror `packages/db-schema`
 /// (minus the §5.4 exclusions: no `email` on `issue_subscribers`, web-only
 /// billing fields dropped from `users`, no `body` on `actions`, no scoping
 /// mirrors on `device_worktrees`).
-pub const SHAPES: [ShapeSpec; 34] = [
+pub const SHAPES: [ShapeSpec; 35] = [
     ShapeSpec {
         name: "teams",
         path: "/api/shapes/teams",
@@ -793,6 +802,18 @@ pub const SHAPES: [ShapeSpec; 34] = [
         pk: PkKind::Id,
     },
     ShapeSpec {
+        name: "composer_drafts",
+        path: "/api/shapes/composer-drafts",
+        // #FEED-219: every composer's synced draft (composer-draft.json). A
+        // STATIC per-user shape (`user_id = me`) like `issue_drafts`; one
+        // row per (user, key), `key` = `<kind>:<id>`. Byte-matches the
+        // proxy's allowlist (apps/web routes/api/shapes/composer-drafts.ts).
+        // A server that predates it 404s: the thread parks quietly
+        // ([`ShapeSpec::may_be_absent`]).
+        columns: &["id", "user_id", "team_id", "key", "text", "created_at", "updated_at"],
+        pk: PkKind::Id,
+    },
+    ShapeSpec {
         name: "session_reads",
         path: "/api/shapes/session-reads",
         // EXP-1323: the caller's read marks of sessions (`sessions.markRead`),
@@ -936,6 +957,9 @@ pub const SHAPES: [ShapeSpec; 34] = [
     },
 ];
 
+/// Shapes a server older than this build may not serve (#FEED-219).
+pub const MAY_BE_ABSENT: &[&str] = &["composer_drafts"];
+
 /// Look a shape up by its table name.
 pub fn shape_by_name(name: &str) -> Option<&'static ShapeSpec> {
     SHAPES.iter().find(|s| s.name == name)
@@ -947,7 +971,7 @@ mod tests {
 
     #[test]
     fn registry_has_34_shapes_with_kebab_paths() {
-        assert_eq!(SHAPES.len(), 34);
+        assert_eq!(SHAPES.len(), 35);
         for spec in &SHAPES {
             assert!(spec.path.starts_with("/api/shapes/"), "{}", spec.name);
             assert!(!spec.path.contains('_'), "paths are kebab-case: {}", spec.path);
@@ -1085,6 +1109,18 @@ mod tests {
         // draft was created elsewhere — dropping it strands the page.
         let spec = shape_by_name("issues").unwrap();
         assert!(spec.columns.contains(&"draft_id"));
+    }
+
+    #[test]
+    fn composer_drafts_match_the_proxy_and_may_be_absent() {
+        let spec = shape_by_name("composer_drafts").unwrap();
+        assert_eq!(spec.path, "/api/shapes/composer-drafts");
+        assert_eq!(
+            spec.columns,
+            &["id", "user_id", "team_id", "key", "text", "created_at", "updated_at"]
+        );
+        assert!(spec.may_be_absent());
+        assert!(!shape_by_name("issue_drafts").unwrap().may_be_absent());
     }
 
     #[test]

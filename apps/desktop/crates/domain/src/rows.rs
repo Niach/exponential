@@ -368,6 +368,27 @@ pub struct Pin {
     pub updated_at: Option<String>,
 }
 
+/// `composer_drafts` shape row (#FEED-219, composer-draft.json) — one
+/// composer's synced draft, from a STATIC per-user shape (`user_id = me`).
+/// `key` = `<kind>:<id>` ([`crate::composer_draft::parse_key`]); a row whose
+/// key does not parse is ignored by every reader.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct ComposerDraftRow {
+    pub id: String,
+    #[serde(default)]
+    pub user_id: Option<String>,
+    #[serde(default)]
+    pub team_id: Option<String>,
+    #[serde(default)]
+    pub key: Option<String>,
+    #[serde(default)]
+    pub text: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
 /// `issue_drafts` shape row (EXP-878) — one unfiled create-issue dialog,
 /// from a STATIC per-user shape (`user_id = me`), neither team- nor
 /// trash-scoped. A row renders only once its `board_id` resolves in the

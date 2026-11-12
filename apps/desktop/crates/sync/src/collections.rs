@@ -44,7 +44,7 @@ use crate::shapes::{shape_by_name, ShapeSpec};
 use crate::store::{ShapeStore, StoreError};
 
 use domain::rows::{
-    AgentDefRow, Attachment, Board, Comment, DeviceRow, DeviceWorktreeRow, Issue, IssueDraftRow,
+    AgentDefRow, Attachment, Board, Comment, ComposerDraftRow, DeviceRow, DeviceWorktreeRow, Issue, IssueDraftRow,
     IssueEvent, IssueLabel, IssueRelation, IssueStatusRow, IssueSubscriber, Label, MessageRow, ConversationRow,
     Notification, Pin, PullRequestCheckRow, PullRequestIssueRow, PullRequestRow, SessionIssueRow, SessionReadRow,
     EventRow, PromptRow, SkillRow, AppRow, AppVersionRow, AppRecordRow, SessionRow, Team, TeamInvite, TeamMember, User,
@@ -210,6 +210,7 @@ id_shape_row!(DeviceWorktreeRow, "device_worktrees");
 id_shape_row!(IssueRelation, "issue_relations");
 id_shape_row!(Pin, "pins");
 id_shape_row!(IssueDraftRow, "issue_drafts");
+id_shape_row!(ComposerDraftRow, "composer_drafts");
 id_shape_row!(SessionReadRow, "session_reads");
 id_shape_row!(AgentDefRow, "agents");
 id_shape_row!(EventRow, "events");
@@ -667,6 +668,9 @@ pub struct Collections {
     /// static like `pins`; the Drafts page filters to the active team and to
     /// rows whose board still resolves.
     pub issue_drafts: Entity<Collection<IssueDraftRow>>,
+    /// #FEED-219 every composer's synced draft (the 35th shape) — per-user
+    /// and static like `issue_drafts`; keyed by `<kind>:<id>`.
+    pub composer_drafts: Entity<Collection<ComposerDraftRow>>,
     /// EXP-1323 the viewer's session read marks (the 26th shape) — per-user
     /// and static like `pins`; unread titles + the Chats nav dot.
     pub session_reads: Entity<Collection<SessionReadRow>>,
@@ -751,6 +755,8 @@ macro_rules! for_each_collection {
         $body;
         let $entity = &$collections.issue_drafts;
         $body;
+        let $entity = &$collections.composer_drafts;
+        $body;
         let $entity = &$collections.session_reads;
         $body;
         let $entity = &$collections.agents;
@@ -799,6 +805,7 @@ impl Collections {
             issue_relations: cx.new(|_| Collection::new()),
             pins: cx.new(|_| Collection::new()),
             issue_drafts: cx.new(|_| Collection::new()),
+            composer_drafts: cx.new(|_| Collection::new()),
             session_reads: cx.new(|_| Collection::new()),
             agents: cx.new(|_| Collection::new()),
             events: cx.new(|_| Collection::new()),
@@ -905,6 +912,7 @@ impl Collections {
             "issue_relations" => prepare_for(|c| &c.issue_relations, keys, full_replace, up_to_date, sqlite),
             "pins" => prepare_for(|c| &c.pins, keys, full_replace, up_to_date, sqlite),
             "issue_drafts" => prepare_for(|c| &c.issue_drafts, keys, full_replace, up_to_date, sqlite),
+            "composer_drafts" => prepare_for(|c| &c.composer_drafts, keys, full_replace, up_to_date, sqlite),
             "session_reads" => prepare_for(|c| &c.session_reads, keys, full_replace, up_to_date, sqlite),
             "agents" => prepare_for(|c| &c.agents, keys, full_replace, up_to_date, sqlite),
             "events" => prepare_for(|c| &c.events, keys, full_replace, up_to_date, sqlite),
@@ -2025,6 +2033,7 @@ mod tests {
             IssueRelation::spec().name,
             Pin::spec().name,
             IssueDraftRow::spec().name,
+            ComposerDraftRow::spec().name,
             SessionReadRow::spec().name,
             AgentDefRow::spec().name,
             EventRow::spec().name,

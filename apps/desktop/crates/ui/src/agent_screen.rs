@@ -196,6 +196,8 @@ struct FirstComposer {
     /// for the first message (`None` = the agent's `mcpServerIds`, the
     /// seed); a pick that differs rides the send as `mcpServerIds`.
     mcp_picked: Option<Vec<String>>,
+    /// #FEED-219: the synced draft (`agent:<id>` / `app:<id>`).
+    draft: crate::composer_drafts::DraftField,
 }
 
 /// #EXP-1793: one team MCP server as the first composer's "+" lists it.
@@ -290,10 +292,17 @@ impl AgentScreenView {
             window,
             |this, _, event: &InputEvent, window, cx| match event {
                 InputEvent::PressEnter { shift: false, .. } => this.send_first(window, cx),
-                InputEvent::Change => cx.notify(),
+                InputEvent::Change => {
+                    // #FEED-219: the person's edit, written synced.
+                    let text = this.first.input.read(cx).value().to_string();
+                    this.first.draft.edited(&text, cx);
+                    cx.notify();
+                }
                 _ => {}
             },
         )];
+        // #FEED-219: the view going away writes what is pending.
+        subscriptions.push(cx.on_release(|this, cx| this.first.draft.leave(cx)));
         if let Some(store) = Store::try_global(cx) {
             let collections = store.collections().clone();
             subscriptions.push(cx.observe_in(&collections.agents, window, |this, _, window, cx| {
@@ -312,6 +321,13 @@ impl AgentScreenView {
                 this.queue_refresh(window, cx)
             }));
             subscriptions.push(cx.observe(&collections.users, |_, _, cx| cx.notify()));
+            // #FEED-219: an untouched first composer follows its draft.
+            subscriptions.push(cx.observe_in(&collections.composer_drafts, window, |this, _, window, cx| {
+                this.first.draft.reconcile(cx);
+                if crate::composer_drafts::apply_follow(&this.first.draft, &this.first.input, window, cx) {
+                    cx.notify();
+                }
+            }));
         }
         // The "Not found" verdict waits out the sync grace: one repaint then.
         cx.spawn(async move |this, cx| {
@@ -343,6 +359,7 @@ impl AgentScreenView {
                 mention_team: None,
                 teams_picked: None,
                 mcp_picked: None,
+                draft: Default::default(),
             },
             dock: cx.new(|_| crate::dock::DockState::default()),
             placeholder_name: None,
@@ -564,6 +581,25 @@ impl AgentScreenView {
         });
     }
 
+    /// #FEED-219: the first composer's draft key once the subject resolved
+    /// (`agent:<agentId>`, `app:<appId>`) and the team its row files under.
+    fn sync_first_draft(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        use domain::composer_draft::{Kind, Target};
+        let (target, team_id) = match (&self.subject, &self.agent, &self.app) {
+            (ChannelSubject::Agent(_), Some(agent), _) => {
+                (Some(Target::new(Kind::Agent, agent.id.clone())), agent.team_id.clone())
+            }
+            (ChannelSubject::App(_), _, Some(app)) => (Some(Target::new(Kind::App, app.id.clone())), app.team_id.clone()),
+            _ => (None, None),
+        };
+        if target.is_none() {
+            return;
+        }
+        if self.first.draft.retarget(target, team_id, cx) {
+            crate::composer_drafts::apply_follow(&self.first.draft, &self.first.input, window, cx);
+        }
+    }
+
     fn refresh(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         match self.subject.clone() {
             ChannelSubject::Agent(requested) => {
@@ -583,6 +619,7 @@ impl AgentScreenView {
                 self.sync_editor_runner(window, cx);
             }
         }
+        self.sync_first_draft(window, cx);
         let name = self.subject_name();
         let placeholder = self.placeholder();
         // #EXP-1732: an editor's chat = THE root's own session view, built
@@ -938,6 +975,9 @@ impl AgentScreenView {
                         // #EXP-1793: the conversation holds the pick now.
                         this.first.mcp_picked = None;
                         composer_images::settle_sent(&this.first.input, &mut this.first.images, &sent, window, cx);
+                        // #FEED-219: the field the send leaves is written at once.
+                        let left = this.first.input.read(cx).value().to_string();
+                        this.first.draft.write_now(&left, cx);
                     }
                     Err(composer_images::UploadSendError::Upload(resolved, error)) => {
                         this.first.images.note_uploaded(&resolved);

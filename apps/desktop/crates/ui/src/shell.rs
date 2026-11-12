@@ -397,6 +397,8 @@ impl Shell {
             }
         })
         .detach();
+        // #FEED-219: composer drafts not written yet go out on quit.
+        cx.on_app_quit(|_: &mut Self, cx| crate::composer_drafts::on_quit(cx)).detach();
 
         // ---- EXP-263: enforce the minimum window size ourselves ------------
         // macOS enforces `window_min_size` natively; on Linux the option is
