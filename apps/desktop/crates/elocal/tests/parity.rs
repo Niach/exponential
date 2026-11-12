@@ -101,6 +101,18 @@ fn drafts() {
 }
 
 #[test]
+fn composer_drafts() {
+    let f = fixture();
+    let who = identity(&f["issues"]["team"]["identity"]);
+    for c in f["composerDrafts"]["upsert"]["cases"].as_array().unwrap() {
+        let existing = c["existing"].as_object().cloned();
+        let row = composer_draft_row(&obj(&c["input"]), &who, existing.as_ref(), c["id"].as_str().unwrap(), c["now"].as_str().unwrap());
+        assert_eq!(Value::Object(row), c["expected"], "{}", c["name"]);
+    }
+    assert_eq!(composer_draft_empty_refusal(), "An empty draft is a delete");
+}
+
+#[test]
 fn comments() {
     let f = fixture();
     let team = &f["issues"]["team"];
