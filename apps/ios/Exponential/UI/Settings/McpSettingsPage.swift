@@ -1,6 +1,6 @@
 import ExpCore
 import ExpUI
-import ExponentialUIPrimitives
+internal import ExponentialUIPrimitives
 import GRDB
 import SwiftUI
 import UIKit
