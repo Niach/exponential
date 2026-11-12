@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-12-count-badges",
+    date: "2026-11-12",
+    title: "One count badge everywhere",
+    summary: "Every unread or waiting signal is now a number in the same badge on every platform: yellow when something waits on you, grey for plain unread.",
+    body: r##"- **Numbers, not dots**: Needs you, Chats, your agents, the Inbox, Drafts, chat rows and the team picker each show how many things need you, in one badge with the same size and colours everywhere; past 99 it reads 99+.
+- **Yellow means waiting on you**: a plan, a question or a ready PR turns the badge yellow; plain unread stays grey.
+- **App icon**: the app icon shows how many things wait on you across all your teams.
+- **Running is not a count**: the green running dots left the menu; running work shows on its own row."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_265: ChangelogEntry = ChangelogEntry {
     id: "2026-11-12-trash-desktop",
     date: "2026-11-12",
     title: "Deleted issues come back in the desktop app",

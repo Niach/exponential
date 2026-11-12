@@ -221,7 +221,7 @@ function ChatsPage() {
                   </Button>
                 ) : undefined
               }
-              inboxUnread={unread > 0}
+              inboxCount={unread}
               onSearch={issueSearch.open}
               onInbox={() => void navigate({ to: `/t/$teamSlug/inbox`, params: { teamSlug } })}
             />

@@ -170,7 +170,9 @@ describe(`kitchen-sink.json`, () => {
     // #EXP-1760: IconPicker and ColorPicker (a Popover over Button, Box and
     // Icon, natives the sink has) join with that rewrite; catalog-macros.json
     // locks them.
-    const later = [`Calendar`, `Timeline`, `KeyRecorder`, `Embed`, `IconPicker`, `ColorPicker`]
+    // #FEED-232: CountBadge (a native capsule) joins with that rewrite;
+    // catalog-components.json + specimens.json lock it.
+    const later = [`Calendar`, `Timeline`, `KeyRecorder`, `Embed`, `IconPicker`, `ColorPicker`, `CountBadge`]
     // VAPP-217: a macro the HOST fills (RecordForm, RecordTable: props marked
     // `host`) paints only once filled; its catalog specimen shows it (the
     // styleguide entries) and it expands into natives the sink already has.

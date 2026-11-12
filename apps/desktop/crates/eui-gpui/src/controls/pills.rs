@@ -266,17 +266,25 @@ pub fn live_dot(tone: Hsla, ping: bool) -> AnyElement {
         .into_any_element()
 }
 
-/// The count badge's tone (EXP-963, web `Badge tone`).
+/// The count badge's tone (EXP-963, web `Badge tone`; #FEED-232
+/// domain-contract nav-badges.json `tones`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BadgeTone {
-    /// A count you parked (the rail's drafts): muted fill.
+    /// Plain unread / a resting count (the rail's drafts): muted fill.
     Muted,
-    /// A count that wants you (unread): the accent fill.
+    /// #FEED-232: the count holds something WAITING ON you: the needs-you
+    /// yellow (#FACC15), black figures.
+    Attention,
+    /// Legacy accent fill (no nav destination uses it).
     Primary,
 }
 
+/// #FEED-232: the attention tone's fill (yellow-400) and ink.
+pub const BADGE_ATTENTION_FILL: u32 = 0xfacc15;
+pub const BADGE_ATTENTION_INK: u32 = 0x000000;
+
 /// Past this a [`count_badge`] reads `99+` (web `Badge max`).
-pub const COUNT_BADGE_MAX: usize = 99;
+pub const COUNT_BADGE_MAX: usize = eui_core::count_badge::COUNT_BADGE_MAX as usize;
 
 /// EXP-963 — the COUNT badge, the web `Badge` twin: the smallest chip there
 /// is, a 16px capsule carrying a NUMBER and nothing else, 10px semibold so
@@ -287,18 +295,16 @@ pub const COUNT_BADGE_MAX: usize = 99;
 /// shape. A `Pill` `Sm` is 24 tall and carries a word; this carries a
 /// quantity.
 pub fn count_badge(count: usize, tone: BadgeTone, cx: &App) -> Option<Div> {
-    if count == 0 {
+    // The genUI CountBadge's label rule (`eui_core::count_badge`).
+    let label = eui_core::count_badge::label_of(count as u64);
+    if label.is_empty() {
         return None;
     }
     let theme = cx.theme();
     let (fill, ink) = match tone {
         BadgeTone::Muted => (theme.muted, theme.muted_foreground),
+        BadgeTone::Attention => (gpui::rgb(BADGE_ATTENTION_FILL).into(), gpui::rgb(BADGE_ATTENTION_INK).into()),
         BadgeTone::Primary => (theme.primary, theme.primary_foreground),
-    };
-    let label = if count > COUNT_BADGE_MAX {
-        format!("{COUNT_BADGE_MAX}+")
-    } else {
-        count.to_string()
     };
     Some(
         div()
@@ -313,6 +319,7 @@ pub fn count_badge(count: usize, tone: BadgeTone, cx: &App) -> Option<Div> {
             .rounded_full()
             .bg(fill)
             .text_color(ink)
+            .font(crate::measure::with_tabular_nums(crate::measure::make_font(theme.font_family.clone(), 600)))
             .text_size(px(10.))
             .line_height(px(10.))
             .font_weight(FontWeight::SEMIBOLD)

@@ -43,6 +43,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.domain.ClosePr
 import com.exponential.app.domain.MergeTrain
+import com.exponential.app.domain.NavBadges
 import com.exponential.app.domain.NeedsYou
 import com.exponential.app.domain.Prompts
 import com.exponential.app.ui.components.GlassAlert
@@ -54,6 +55,7 @@ import com.exponential.app.ui.work.STACK_CONFIRM_CANCEL_LABEL
 import com.exponential.app.ui.work.MergeNowConfirm
 import com.exponential.app.ui.work.NeedsApprovalConfirm
 import com.exponential.app.ui.components.ChatEntryRow
+import com.exponential.app.ui.components.CountBadge
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.LocalPageHeaderActions
 import com.exponential.app.ui.components.PageHeader
@@ -74,26 +76,6 @@ import com.exponential.app.ui.chats.ChatsViewModel
 //                     THE EmptyState
 //   NeedsYouPage      the pushed page: the page header with back over the list
 
-/** The entry's count Badge: the needs-you tone, 16 tall (web `Badge`). */
-@Composable
-fun NeedsYouCountBadge(count: Int, modifier: Modifier = Modifier) {
-    Box(
-        modifier
-            .heightIn(min = 16.dp)
-            .background(DesignTokens.Semantic.Yellow, CircleShape)
-            .padding(horizontal = 5.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            count.toString(),
-            style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
-            fontWeight = FontWeight.SemiBold,
-            color = Color.Black,
-            maxLines = 1,
-        )
-    }
-}
-
 /** THE ENTRY on phones: as tall as the Archived row, the glyph in the needs-you
  *  tone centred in the lead disc's column (no disc), the title `copy.entry`,
  *  the count Badge in the needs-you tone trailing. */
@@ -107,7 +89,7 @@ fun NeedsYouEntryRow(count: Int, onClick: (() -> Unit)?, modifier: Modifier = Mo
         modifier = modifier,
         testTag = NeedsYou.TestIds.ENTRY,
     ) {
-        NeedsYouCountBadge(count)
+        CountBadge(count, NavBadges.Tone.Attention, testTag = "needs-you-count")
     }
 }
 
@@ -229,7 +211,7 @@ fun NeedsYouPageContent(
     onBack: () -> Unit,
     onOpen: (NeedsYou.Row) -> Unit,
     onOpenInbox: () -> Unit,
-    inboxUnread: Boolean,
+    inboxUnread: Int,
     modifier: Modifier = Modifier,
     onAction: (NeedsYou.Row, MergeTrain.StuckAction) -> Unit = { _, _ -> },
 ) {
@@ -259,7 +241,7 @@ fun NeedsYouPage(
     onBack: () -> Unit,
     onOpen: (NeedsYou.Row) -> Unit,
     onOpenInbox: () -> Unit,
-    inboxUnread: Boolean,
+    inboxUnread: Int,
     viewModel: ChatsViewModel = hiltViewModel(),
 ) {
     val rows by viewModel.needsYouRows.collectAsStateWithLifecycle()

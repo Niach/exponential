@@ -126,28 +126,8 @@ pub(crate) fn chat_row(row: &ChatRow, lead: AnyElement, cx: &App) -> Div {
     let word = row
         .word
         .and_then(|word| word.text().map(|text| (word_glyph(word), text)));
-    let badge = unread.then(|| {
-        let (fill, text) = if row.needs_you {
-            (theme::tokens::YELLOW.to_hsla(), gpui::black())
-        } else {
-            (theme.foreground, theme.background)
-        };
-        let count = if row.unread_count > 99 { "99+".to_string() } else { row.unread_count.to_string() };
-        div()
-            .flex_shrink_0()
-            .min_w(px(20.))
-            .h(px(20.))
-            .px_1p5()
-            .rounded_full()
-            .flex()
-            .items_center()
-            .justify_center()
-            .bg(fill)
-            .text_size(px(11.))
-            .font_weight(FontWeight::SEMIBOLD)
-            .text_color(text)
-            .child(SharedString::from(count))
-    });
+    // #FEED-232: THE count badge (`row_badge`), attention while it needs you.
+    let badge = crate::sidebar::nav_count(domain::nav_badges::row_badge(row.unread_count, row.needs_you), cx);
     let (prefix, rest) = preview_parts(row);
     let preview = div()
         .flex_1()

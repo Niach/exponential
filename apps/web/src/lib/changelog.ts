@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-12-count-badges`,
+    date: `2026-11-12`,
+    title: `One count badge everywhere`,
+    summary: `Every unread or waiting signal is now a number in the same badge on every platform: yellow when something waits on you, grey for plain unread.`,
+    body: `- **Numbers, not dots**: Needs you, Chats, your agents, the Inbox, Drafts, chat rows and the team picker each show how many things need you, in one badge with the same size and colours everywhere; past 99 it reads 99+.
+- **Yellow means waiting on you**: a plan, a question or a ready PR turns the badge yellow; plain unread stays grey.
+- **App icon**: the app icon shows how many things wait on you across all your teams.
+- **Running is not a count**: the green running dots left the menu; running work shows on its own row.`,
+  },
+  {
     id: `2026-11-12-trash-desktop`,
     date: `2026-11-12`,
     title: `Deleted issues come back in the desktop app`,

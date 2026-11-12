@@ -594,30 +594,7 @@ function SidebarMenuAction({
   )
 }
 
-function SidebarMenuBadge({
-  className,
-  ...props
-}: React.ComponentProps<`div`>) {
-  return (
-    <div
-      data-slot="sidebar-menu-badge"
-      data-sidebar="menu-badge"
-      className={cn(
-        `pointer-events-none absolute right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-glass-row px-1.5 text-xs font-medium text-sidebar-foreground tabular-nums select-none`,
-        `peer-hover/menu-button:text-sidebar-accent-foreground peer-data-[active=true]/menu-button:text-sidebar-accent-foreground`,
-        `peer-data-[size=sm]/menu-button:top-1`,
-        `peer-data-[size=default]/menu-button:top-1.5`,
-        `peer-data-[size=lg]/menu-button:top-2.5`,
-        `peer-data-[density=compact]/menu-button:top-1`,
-        `group-data-[collapsible=icon]:hidden`,
-        className
-      )}
-      {...props}
-    />
-  )
-}
-
-/** EXP-1477: THE trailing column of a sidebar row — its dot, count, spinner
+/** EXP-1477: THE trailing column of a sidebar row — its count badge, spinner
  *  or device glyph, centred in the 20px column 4px in from the row's right
  *  edge: the column `SidebarMenuAction` (the hover gear) and
  *  `SidebarGroupAction` (a section's "+") take too, so every trailing
@@ -636,37 +613,6 @@ function SidebarMenuTrailing({
         `group-data-[collapsible=icon]:hidden`,
         className
       )}
-      {...props}
-    />
-  )
-}
-
-/** #EXP-1480 — THE status dot of the rail (a nav row's dot, an agent's
- *  needs-you dot, a team's live dot): `size-2` = the `sidebar.trailingDot`
- *  token (8 design units; the IDE's `rail_badge_element` draws the same
- *  number), in one of the rail's tones. Inside `SidebarMenuTrailing` on a
- *  row; positioned by the caller on an icon's corner. */
-const SIDEBAR_DOT_TONES = {
-  /** Unread (the Inbox's, a chat's unread reply). */
-  unread: `bg-primary`,
-  /** Waits on you: `semantic.yellow` (#FACC15). */
-  needsYou: `bg-yellow-400`,
-  /** Something of yours runs. */
-  live: `bg-green-500`,
-} as const
-
-type SidebarDotTone = keyof typeof SIDEBAR_DOT_TONES
-
-function SidebarMenuDot({
-  tone,
-  className,
-  ...props
-}: React.ComponentProps<`span`> & { tone: SidebarDotTone }) {
-  return (
-    <span
-      data-slot="sidebar-menu-dot"
-      data-tone={tone}
-      className={cn(`size-2 shrink-0 rounded-full`, SIDEBAR_DOT_TONES[tone], className)}
       {...props}
     />
   )
@@ -788,11 +734,7 @@ export {
   SidebarInset,
   SidebarMenu,
   SidebarMenuAction,
-  SidebarMenuBadge,
   SidebarMenuTrailing,
-  SidebarMenuDot,
-  SIDEBAR_DOT_TONES,
-  type SidebarDotTone,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSkeleton,

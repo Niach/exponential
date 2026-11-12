@@ -1,0 +1,488 @@
+{
+  "$comment": "#FEED-232 (owner 2026-11-12: 'one system with numbers that is consistent and logical ... everywhere'). ONE COUNT BADGE ×4 (+ the genUI `CountBadge`, React · Solid · Swift · Compose · gpui): every unread / attention signal on a destination (a sidebar row, a phone tab, the Inbox circle, a chat-list row, the team picker, the OS app icon) is a NUMBER = the items in that destination needing the viewer, drawn by THE count badge: a 16pt capsule (min width 16, 4pt side padding), 10pt semibold tabular figures, `label(count)` = the number, `99+` past 99, and ZERO OR LESS = NO BADGE (`labelCases`, `''` = nothing renders). TWO TONES, nothing else: `attention` (the needs-you yellow #FACC15, black figures) when the count holds an item WAITING ON the viewer (a plan, a question, a ready PR, a session parked on input), else `muted` (muted fill, muted-foreground figures) for plain unread. No dots: a dot never stands for a count. LIVE STATE IS NOT A COUNT: `running` / busy never badges a nav row (no green dot anywhere in the nav); it lives on the rows themselves (the working mark of a chat / run row, the Running section). WHAT EACH DESTINATION COUNTS (one definition each): NEEDS YOU = needs-you.json rows' length, always `attention`. CHATS (sidebar row, phone Chats tab) = `chatsBadge(groups, reads)` (`chatsCases`): the DISTINCT depth-0 chat rows (a session counted once across groups) that need the viewer or hold an unread reply, an archived root counting only while it needs the viewer; child rows never; `attention` when one of them needs the viewer. AN AGENT ROW (sidebar Agents, the pinned agent / app rows of the Chats list) and A CHAT-LIST ROW = `rowBadge({unreadCount, needsYou})` (`rowCases`): the row's unread agent messages (chats.json `unreadCount`), at least 1 while it needs the viewer, `attention` when it does; a busy row with nothing unread = no badge (its run mark shows the work). INBOX (the wide Inbox button, the phone page header's Inbox circle) = the active team's unread notifications the inbox can show, `muted`. DRAFTS = the team's drafts, `muted`. DEVICES, APPS, BOARDS, PINS = no badge. THE TEAM PICKER (the switcher's corner + each OTHER team's row; the active team never) = that team's needs-you rows' length, `attention`; the switcher corner = `appIconBadge` over the other teams. THE OS APP ICON (iOS `setBadgeCount`, Android the summary notification's number, web `navigator.setAppBadge` where supported, desktop the dock / launcher entry) = `appIconBadge(teams)` (`appIconCases`): the SUM of every team's needs-you rows of the signed-in account(s), 0 clears it. Mirrors: TS src/nav-badges.ts, desktop domain::nav_badges, iOS ExpCore NavBadges.swift, Android domain/NavBadges.kt; each replays every case list.",
+  "max": 99,
+  "tones": {
+    "attention": {
+      "fill": "#FACC15",
+      "ink": "#000000"
+    },
+    "muted": {
+      "fill": "muted",
+      "ink": "muted-foreground"
+    }
+  },
+  "geometry": {
+    "height": 16,
+    "minWidth": 16,
+    "paddingX": 4,
+    "fontSize": 10,
+    "fontWeight": 600
+  },
+  "labelCases": [
+    {
+      "name": "zero renders nothing",
+      "count": 0,
+      "expected": ""
+    },
+    {
+      "name": "negative renders nothing",
+      "count": -3,
+      "expected": ""
+    },
+    {
+      "name": "one",
+      "count": 1,
+      "expected": "1"
+    },
+    {
+      "name": "ninety-nine",
+      "count": 99,
+      "expected": "99"
+    },
+    {
+      "name": "past the cap",
+      "count": 100,
+      "expected": "99+"
+    },
+    {
+      "name": "far past the cap",
+      "count": 1234,
+      "expected": "99+"
+    }
+  ],
+  "chatsCases": [
+    {
+      "name": "no chats",
+      "input": {
+        "groups": [],
+        "reads": []
+      },
+      "expected": {
+        "count": 0,
+        "tone": "muted"
+      }
+    },
+    {
+      "name": "two unread chats",
+      "input": {
+        "groups": [
+          {
+            "key": "recent",
+            "title": "recent",
+            "rows": [
+              {
+                "sessionId": "a",
+                "teamId": "t1",
+                "depth": 0,
+                "parentId": null,
+                "rootId": "a",
+                "title": "a",
+                "deviceId": null,
+                "busy": false,
+                "needsYou": false,
+                "unread": true,
+                "activityAt": "2026-10-23T09:00:00.000Z"
+              },
+              {
+                "sessionId": "b",
+                "teamId": "t1",
+                "depth": 0,
+                "parentId": null,
+                "rootId": "b",
+                "title": "b",
+                "deviceId": null,
+                "busy": false,
+                "needsYou": false,
+                "unread": true,
+                "activityAt": "2026-10-23T09:00:00.000Z"
+              },
+              {
+                "sessionId": "c",
+                "teamId": "t1",
+                "depth": 0,
+                "parentId": null,
+                "rootId": "c",
+                "title": "c",
+                "deviceId": null,
+                "busy": false,
+                "needsYou": false,
+                "unread": false,
+                "activityAt": "2026-10-23T09:00:00.000Z"
+              }
+            ]
+          }
+        ],
+        "reads": []
+      },
+      "expected": {
+        "count": 2,
+        "tone": "muted"
+      }
+    },
+    {
+      "name": "a chat that needs you turns it attention",
+      "input": {
+        "groups": [
+          {
+            "key": "needs_you",
+            "title": "needs_you",
+            "rows": [
+              {
+                "sessionId": "a",
+                "teamId": "t1",
+                "depth": 0,
+                "parentId": null,
+                "rootId": "a",
+                "title": "a",
+                "deviceId": null,
+                "busy": false,
+                "needsYou": true,
+                "unread": true,
+                "activityAt": "2026-10-23T09:00:00.000Z"
+              }
+            ]
+          },
+          {
+            "key": "recent",
+            "title": "recent",
+            "rows": [
+              {
+                "sessionId": "b",
+                "teamId": "t1",
+                "depth": 0,
+                "parentId": null,
+                "rootId": "b",
+                "title": "b",
+                "deviceId": null,
+                "busy": false,
+                "needsYou": false,
+                "unread": true,
+                "activityAt": "2026-10-23T09:00:00.000Z"
+              }
+            ]
+          }
+        ],
+        "reads": []
+      },
+      "expected": {
+        "count": 2,
+        "tone": "attention"
+      }
+    },
+    {
+      "name": "a chat that needs you counts without an unread reply",
+      "input": {
+        "groups": [
+          {
+            "key": "needs_you",
+            "title": "needs_you",
+            "rows": [
+              {
+                "sessionId": "a",
+                "teamId": "t1",
+                "depth": 0,
+                "parentId": null,
+                "rootId": "a",
+                "title": "a",
+                "deviceId": null,
+                "busy": false,
+                "needsYou": true,
+                "unread": false,
+                "activityAt": "2026-10-23T09:00:00.000Z"
+              }
+            ]
+          }
+        ],
+        "reads": []
+      },
+      "expected": {
+        "count": 1,
+        "tone": "attention"
+      }
+    },
+    {
+      "name": "a running chat with nothing unread is no count",
+      "input": {
+        "groups": [
+          {
+            "key": "working",
+            "title": "working",
+            "rows": [
+              {
+                "sessionId": "a",
+                "teamId": "t1",
+                "depth": 0,
+                "parentId": null,
+                "rootId": "a",
+                "title": "a",
+                "deviceId": null,
+                "busy": true,
+                "needsYou": false,
+                "unread": false,
+                "activityAt": "2026-10-23T09:00:00.000Z"
+              }
+            ]
+          }
+        ],
+        "reads": []
+      },
+      "expected": {
+        "count": 0,
+        "tone": "muted"
+      }
+    },
+    {
+      "name": "an archived unread chat does not count",
+      "input": {
+        "groups": [
+          {
+            "key": "recent",
+            "title": "recent",
+            "rows": [
+              {
+                "sessionId": "a",
+                "teamId": "t1",
+                "depth": 0,
+                "parentId": null,
+                "rootId": "a",
+                "title": "a",
+                "deviceId": null,
+                "busy": false,
+                "needsYou": false,
+                "unread": true,
+                "activityAt": "2026-10-23T09:00:00.000Z"
+              },
+              {
+                "sessionId": "b",
+                "teamId": "t1",
+                "depth": 0,
+                "parentId": null,
+                "rootId": "b",
+                "title": "b",
+                "deviceId": null,
+                "busy": false,
+                "needsYou": false,
+                "unread": true,
+                "activityAt": "2026-10-23T09:00:00.000Z"
+              }
+            ]
+          }
+        ],
+        "reads": [
+          {
+            "sessionId": "a",
+            "readAt": "2026-10-23T08:00:00.000Z",
+            "archivedAt": "2026-10-23T08:30:00.000Z"
+          }
+        ]
+      },
+      "expected": {
+        "count": 1,
+        "tone": "muted"
+      }
+    },
+    {
+      "name": "an archived chat that needs you does",
+      "input": {
+        "groups": [
+          {
+            "key": "needs_you",
+            "title": "needs_you",
+            "rows": [
+              {
+                "sessionId": "a",
+                "teamId": "t1",
+                "depth": 0,
+                "parentId": null,
+                "rootId": "a",
+                "title": "a",
+                "deviceId": null,
+                "busy": false,
+                "needsYou": true,
+                "unread": true,
+                "activityAt": "2026-10-23T09:00:00.000Z"
+              }
+            ]
+          }
+        ],
+        "reads": [
+          {
+            "sessionId": "a",
+            "readAt": "2026-10-23T08:00:00.000Z",
+            "archivedAt": "2026-10-23T08:30:00.000Z"
+          }
+        ]
+      },
+      "expected": {
+        "count": 1,
+        "tone": "attention"
+      }
+    },
+    {
+      "name": "an unread child row never counts",
+      "input": {
+        "groups": [
+          {
+            "key": "recent",
+            "title": "recent",
+            "rows": [
+              {
+                "sessionId": "a1",
+                "teamId": "t1",
+                "depth": 1,
+                "parentId": "a",
+                "rootId": "a",
+                "title": "a1",
+                "deviceId": null,
+                "busy": false,
+                "needsYou": false,
+                "unread": true,
+                "activityAt": "2026-10-23T09:00:00.000Z"
+              }
+            ]
+          }
+        ],
+        "reads": []
+      },
+      "expected": {
+        "count": 0,
+        "tone": "muted"
+      }
+    },
+    {
+      "name": "a chat in two groups counts once",
+      "input": {
+        "groups": [
+          {
+            "key": "needs_you",
+            "title": "needs_you",
+            "rows": [
+              {
+                "sessionId": "a",
+                "teamId": "t1",
+                "depth": 0,
+                "parentId": null,
+                "rootId": "a",
+                "title": "a",
+                "deviceId": null,
+                "busy": false,
+                "needsYou": true,
+                "unread": true,
+                "activityAt": "2026-10-23T09:00:00.000Z"
+              }
+            ]
+          },
+          {
+            "key": "recent",
+            "title": "recent",
+            "rows": [
+              {
+                "sessionId": "a",
+                "teamId": "t1",
+                "depth": 0,
+                "parentId": null,
+                "rootId": "a",
+                "title": "a",
+                "deviceId": null,
+                "busy": false,
+                "needsYou": true,
+                "unread": true,
+                "activityAt": "2026-10-23T09:00:00.000Z"
+              }
+            ]
+          }
+        ],
+        "reads": []
+      },
+      "expected": {
+        "count": 1,
+        "tone": "attention"
+      }
+    }
+  ],
+  "rowCases": [
+    {
+      "name": "nothing",
+      "input": {
+        "unreadCount": 0,
+        "needsYou": false
+      },
+      "expected": {
+        "count": 0,
+        "tone": "muted"
+      }
+    },
+    {
+      "name": "three unread replies",
+      "input": {
+        "unreadCount": 3,
+        "needsYou": false
+      },
+      "expected": {
+        "count": 3,
+        "tone": "muted"
+      }
+    },
+    {
+      "name": "waiting with nothing unread is one",
+      "input": {
+        "unreadCount": 0,
+        "needsYou": true
+      },
+      "expected": {
+        "count": 1,
+        "tone": "attention"
+      }
+    },
+    {
+      "name": "waiting with unread replies",
+      "input": {
+        "unreadCount": 4,
+        "needsYou": true
+      },
+      "expected": {
+        "count": 4,
+        "tone": "attention"
+      }
+    }
+  ],
+  "appIconCases": [
+    {
+      "name": "no teams",
+      "teams": [],
+      "expected": 0
+    },
+    {
+      "name": "sums every team",
+      "teams": [
+        {
+          "teamId": "t1",
+          "needsYou": 2
+        },
+        {
+          "teamId": "t2",
+          "needsYou": 0
+        },
+        {
+          "teamId": "t3",
+          "needsYou": 5
+        }
+      ],
+      "expected": 7
+    },
+    {
+      "name": "a negative never subtracts",
+      "teams": [
+        {
+          "teamId": "t1",
+          "needsYou": -1
+        },
+        {
+          "teamId": "t2",
+          "needsYou": 1
+        }
+      ],
+      "expected": 1
+    }
+  ]
+}

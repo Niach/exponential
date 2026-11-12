@@ -402,6 +402,10 @@
       "field",
       "row",
       "code"
+    ],
+    "countBadgeTone": [
+      "attention",
+      "muted"
     ]
   },
   "defs": {
@@ -3188,6 +3192,28 @@
         },
         "label": {
           "type": "string"
+        }
+      }
+    },
+    "CountBadge": {
+      "kind": "native",
+      "group": "feedback",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "count": {
+          "type": "number",
+          "required": true,
+          "bindable": true
+        },
+        "tone": {
+          "type": "enum",
+          "enum": "countBadgeTone",
+          "default": "muted"
+        },
+        "max": {
+          "type": "number",
+          "default": 99
         }
       }
     },

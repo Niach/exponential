@@ -7,7 +7,7 @@ use std::{borrow::Cow, path::PathBuf, sync::Arc};
 use gpui::{px, size, AppContext as _, AssetSource, Entity, HeadlessAppContext, SharedString, Window};
 use serde_json::json;
 
-use uicore_model::ide::{IdeActiveInput, IdeAgentInput, IdeAppInput, IdeBoardInput, IdeDot, IdePinInput, IdeSidebarInput};
+use uicore_model::ide::{IdeActiveInput, IdeAgentInput, IdeAppInput, IdeBoardInput, IdeCount, IdePinInput, IdeSidebarInput, IdeTone};
 
 use crate::navigation::nav_for_window;
 use crate::sidebar::RailView;
@@ -59,7 +59,7 @@ fn shell_header() {
     cx.update_window(window, |_, window, cx| {
         let nav = nav_for_window(window, cx);
         let mut live = std::collections::BTreeMap::new();
-        live.insert("t2".to_string(), crate::session_data::TeamLiveRuns { count: 1, needs_input: true });
+        live.insert("t2".to_string(), 3usize);
         region.update(cx, |region, cx| region.refresh(&nav, &live, cx));
     })
     .expect("the window");
@@ -203,19 +203,78 @@ fn open(cx: &mut HeadlessAppContext, bounds: gpui::Size<gpui::Pixels>) -> gpui::
     .expect("a headless window")
 }
 
-/// Every row kind the sidebar draws: counts, dots, selection, a hover gear.
+/// #FEED-232: chat-list rows wearing THE count badge (`row_badge`):
+/// waiting with nothing unread = 1 attention, waiting with replies, plain
+/// unread = muted, a busy row = no badge.
+struct ChatRowsShot;
+
+impl gpui::Render for ChatRowsShot {
+    fn render(&mut self, _: &mut Window, cx: &mut gpui::Context<Self>) -> impl gpui::IntoElement {
+        use domain::chats::{ChatLead, ChatPreview, ChatPreviewKind, ChatRow};
+        use gpui::{ParentElement as _, Styled as _};
+        use gpui_component::ActiveTheme as _;
+        let row = |id: &str, title: &str, lead: ChatLead, kind: ChatPreviewKind, text: &str, unread_count: usize, needs_you: bool, busy: bool| ChatRow {
+            session_id: id.into(),
+            team_id: "t1".into(),
+            title: title.into(),
+            device_id: None,
+            group: domain::session_tree::ChatsListKey::Recent,
+            lead,
+            preview: ChatPreview { kind, text: text.into() },
+            activity_at: String::new(),
+            time: "9:41".into(),
+            unread_count,
+            needs_you,
+            busy,
+            word: None,
+            dim: false,
+        };
+        let rows = [
+            row("r1", "Fix the login redirect", ChatLead::NeedsYou, ChatPreviewKind::Plan, "Plan: move the redirect into the auth guard", 0, true, false),
+            row("r2", "Ship the release notes", ChatLead::NeedsYou, ChatPreviewKind::Question, "Question: which build goes out first?", 3, true, false),
+            row("r3", "Dark mode for the settings", ChatLead::Waiting, ChatPreviewKind::Agent, "Done: the settings follow the theme now", 2, false, false),
+            row("r4", "Profile the board query", ChatLead::Working, ChatPreviewKind::Working, "Working", 0, false, true),
+            row("r5", "Rename the export button", ChatLead::Waiting, ChatPreviewKind::Agent, "Renamed it everywhere", 0, false, false),
+        ];
+        gpui::div()
+            .size_full()
+            .bg(cx.theme().background)
+            .flex()
+            .flex_col()
+            .children(rows.iter().map(|row| crate::chat_list::chat_row(row, crate::chat_list::chat_lead_disc(row.lead, None, false, cx), cx)))
+    }
+}
+
+#[test]
+#[ignore]
+fn shell_chat_rows() {
+    let Some(dir) = std::env::var_os("EXP_SHELL_SHOTS") else { return };
+    let mut cx = headless();
+    cx.update(seeded);
+    let handle = cx.open_window(size(px(560.), px(420.)), |_: &mut Window, cx| cx.new(|_| ChatRowsShot)).expect("a headless window");
+    let window: gpui::AnyWindowHandle = handle.into();
+    for _ in 0..4 {
+        draw(window, &mut cx);
+        cx.run_until_parked();
+    }
+    let shot = cx.capture_screenshot(window).expect("the frame");
+    shot.save(std::path::Path::new(&dir).join("chat-rows.png")).expect("the PNG");
+    std::mem::forget(cx);
+}
+
+/// Every row kind the sidebar draws: counts, selection, a hover gear.
 fn sample() -> IdeSidebarInput {
-    let agent = |id: &str, name: &str, needs_you, busy| IdeAgentInput { id: id.into(), name: name.into(), icon: "settings-agents".into(), needs_you, busy };
+    let agent = |id: &str, name: &str, needs_you, unread| IdeAgentInput { id: id.into(), name: name.into(), icon: "settings-agents".into(), needs_you, unread };
     let board = |id: &str, name: &str| IdeBoardInput { id: id.into(), name: name.into(), icon: format!("ide:board:{id}") };
     let app = |id: &str, name: &str, icon: &str| IdeAppInput { id: id.into(), slug: id.into(), name: name.into(), icon: icon.into() };
     IdeSidebarInput {
         screen: "board:b1".into(),
         needs_you: 5,
         drafts: 2,
-        chats_dot: Some(IdeDot::Amber),
+        chats: IdeCount { count: 3, tone: IdeTone::Attention },
         owner: true,
         pins: vec![IdePinInput { id: "i1".into(), identifier: "APP-1".into(), title: "Crash on launch".into() }],
-        agents: vec![agent("a1", "Triage", true, false), agent("a2", "Release", false, true), agent("a3", "Designer", false, false)],
+        agents: vec![agent("a1", "Triage", true, 0), agent("a2", "Release", false, 2), agent("a3", "Designer", false, 0)],
         apps: vec![app("x1", "CRM", "ui-file"), app("x2", "Leave planner", "ui-file")],
         boards: vec![board("b1", "Mobile App"), board("b2", "Website"), board("b3", "Infrastructure")],
         active: vec![IdeActiveInput { id: "r1".into(), title: "Fix the login redirect".into(), icon: "nav-chats".into(), session_ids: vec!["r1".into()], unread: true }],

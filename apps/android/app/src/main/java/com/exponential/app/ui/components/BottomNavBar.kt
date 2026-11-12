@@ -71,6 +71,7 @@ import androidx.compose.ui.unit.sp
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.domain.Chats
+import com.exponential.app.domain.NavBadges
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
@@ -132,6 +133,8 @@ data class PhoneBoardMenuRow(
     val id: String,
     val label: String,
     val active: Boolean,
+    /** #FEED-232: another team's needs-you rows (attention); 0 = none. */
+    val badge: Int = 0,
     val glyph: @Composable () -> Unit,
 )
 
@@ -169,9 +172,12 @@ data class PhoneBoardMenu(
             activeTeamId: String?,
             onSelect: (TeamEntity) -> Unit,
             onNewTeam: () -> Unit,
+            /** #FEED-232: team id → its needs-you rows (the active team's never shows). */
+            needsYou: Map<String, Int> = emptyMap(),
         ) = PhoneBoardMenu(
             rows = teams.map { team ->
-                PhoneBoardMenuRow(team.id, team.name, team.id == activeTeamId) {
+                val active = team.id == activeTeamId
+                PhoneBoardMenuRow(team.id, team.name, active, badge = if (active) 0 else needsYou[team.id] ?: 0) {
                     TeamAvatar(team.iconUrl, size = TabGlyphSize)
                 }
             },
@@ -189,7 +195,8 @@ private class PhoneTab(
     val testTag: String,
     val glyph: @Composable () -> Unit,
     val caret: Boolean = false,
-    val dotColor: Color? = null,
+    /** #FEED-232: THE count badge on the glyph's corner (count 0 = none). */
+    val badge: NavBadges.Badge = NavBadges.NONE,
 )
 
 @Composable
@@ -212,12 +219,10 @@ fun BottomNavBar(
     /** The Team page is up: the Team tab wears the caret and its tap opens the
      *  team menu (the caller's [onSelectTab] decides). */
     onTeamPage: Boolean = false,
-    /** EXP-1327: a green dot on Chats while a chat runs. */
-    chatsRunning: Boolean,
-    /** An amber dot on Chats while a chat needs a person. */
-    chatsNeedYou: Boolean,
-    /** EXP-1323 / chats.json `chatsUnread`: a chat has unread news. */
-    chatsUnread: Boolean = false,
+    /** #FEED-232: the Chats tab's count badge (`chatsBadge`). */
+    chatsBadge: NavBadges.Badge = NavBadges.NONE,
+    /** #FEED-232: the Team tab's corner = the OTHER teams' needs-you rows. */
+    teamBadge: Int = 0,
     /** EXP-973: whether New issue has a board to file onto (it always shows). */
     composeEnabled: Boolean,
     /** A tab was tapped or a drag lifted on it (the same thing). */
@@ -235,7 +240,6 @@ fun BottomNavBar(
     lensPreview: String? = null,
     lensPreviewOffset: Dp = 0.dp,
 ) {
-    val unreadDot = MaterialTheme.colorScheme.primary
     val tabs = Chats.Shell.TABS.map { key ->
         when (key) {
             "board" -> PhoneTab(
@@ -253,13 +257,7 @@ fun BottomNavBar(
                 label = Chats.Copy.TABS.getValue(key),
                 testTag = "tab-chats",
                 glyph = { TabIcon(ExpIcons.navChats) },
-                // Amber, then green, then the unread dot (EXP-1323).
-                dotColor = when {
-                    chatsNeedYou -> ChatsNeedYouAmber
-                    chatsRunning -> ChatsLiveGreen
-                    chatsUnread -> unreadDot
-                    else -> null
-                },
+                badge = chatsBadge,
             )
             "apps" -> PhoneTab(
                 key = key,
@@ -273,6 +271,7 @@ fun BottomNavBar(
                 testTag = Chats.TestIds.TAB_TEAM,
                 glyph = { TeamAvatar(team?.iconUrl, size = TabGlyphSize) },
                 caret = onTeamPage,
+                badge = NavBadges.Badge(teamBadge, NavBadges.Tone.Attention),
             )
         }
     }
@@ -683,16 +682,11 @@ private fun TabItem(
                         tint = tint,
                     )
                 }
-                if (tab.dotColor != null) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .offset(x = 4.dp, y = (-2).dp)
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(tab.dotColor),
-                    )
-                }
+                CountBadge(
+                    tab.badge,
+                    modifier = Modifier.align(Alignment.TopEnd).offset(x = 8.dp, y = (-4).dp),
+                    testTag = "${tab.testTag}-badge",
+                )
             }
             Spacer(Modifier.height(4.dp))
             Text(
@@ -758,6 +752,7 @@ private fun BoardMenuPanel(
                     label = row.label,
                     active = row.active,
                     muted = false,
+                    badge = row.badge,
                     glyph = row.glyph,
                     onClick = {
                         menu.onSelect(row.id)
@@ -795,6 +790,7 @@ private fun BoardMenuRow(
     muted: Boolean,
     glyph: @Composable () -> Unit,
     onClick: () -> Unit,
+    badge: Int = 0,
 ) {
     val pill = RoundedCornerShape(percent = 50)
     Row(
@@ -820,6 +816,7 @@ private fun BoardMenuRow(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
+        CountBadge(badge, NavBadges.Tone.Attention, testTag = "board-menu-row-badge")
         if (active) {
             Icon(
                 ExpIcons.uiCheck,
@@ -830,11 +827,6 @@ private fun BoardMenuRow(
         }
     }
 }
-
-// The Chats dot: amber while a chat needs a person (EXP-214), green while
-// one runs (EXP-1327; the shared semantic green).
-private val ChatsLiveGreen = DesignTokens.Semantic.Green
-private val ChatsNeedYouAmber = DesignTokens.Semantic.Yellow
 
 /**
  * EXP-827: the merged launcher on a board — the circle's 52dp height, two

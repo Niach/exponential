@@ -202,6 +202,8 @@ fn main() {
         // XDG notification, macOS reads the bundle itself (no-op). Must
         // precede the first window and the first notification.
         cx.set_app_identity(channel::APP_ID, channel::APP_NAME);
+        // #FEED-232: the launcher entry the app icon's count names.
+        ui::set_app_badge_id(channel::APP_ID);
 
         // ---- Auth + sync globals (§5.7 / §5.8) -----------------------------
         // The AuthStore hydrates remembered accounts + tokens (0600-file
