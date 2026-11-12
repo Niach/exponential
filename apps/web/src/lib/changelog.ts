@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-12-issue-trash-on-phones`,
+    date: `2026-11-12`,
+    title: `Deleted issues come back on phones`,
+    summary: `iPhone, iPad and Android move a deleted issue to the team's trash, and team settings › Boards lists it with Restore.`,
+    body: `- **Trash on phones**: deleting an issue on iPhone, iPad or Android moves it to the team's trash with its comments, files and relations, for 30 days.
+- **Deleted issues**: team settings › Boards on a phone lists the deleted issues with Restore for every member, and Delete forever for owners.`,
+  },
+  {
     id: `2026-11-12-issue-trash`,
     date: `2026-11-12`,
     title: `Deleted issues go to a trash`,
