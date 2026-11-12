@@ -100,8 +100,8 @@ export function IssueActionsMenu({
     )
   }
 
-  // Delete is a hard delete (issues.delete cleans up attachments
-  // server-side); once it commits, land back on the board.
+  // #EXP-1797: delete moves the issue to the team's trash (restorable from
+  // team settings for 30 days); once it commits, land back on the board.
   const handleDeleteIssue = async () => {
     await trpc.issues.delete.mutate({ id: issue.id })
     void navigate({

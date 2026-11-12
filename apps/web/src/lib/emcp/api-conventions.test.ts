@@ -130,6 +130,8 @@ const READ_ONLY_EXTRA = new Set([
   // VAPP-215: a record's history is a read.
   `exponential_apps_records_history`,
   `exponential_issues_activity`,
+  // #EXP-1797: the issue trash is a read.
+  `exponential_issues_trash`,
   `exponential_pr_files`,
   `exponential_issues_show`,
 ])

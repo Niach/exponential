@@ -304,6 +304,72 @@ pub fn issues_delete(trpc: &TrpcClient, id: &str) -> Result<IssuesDeleteOutput, 
     trpc.mutation("issues.delete", &Input { id })
 }
 
+/// #EXP-1797: one row of the team's issue trash (`issues.listDeleted`).
+/// Trashed issues are out of every synced shape, so this read is the only
+/// way to see them.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TrashedIssue {
+    pub id: String,
+    pub identifier: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub board_id: Option<String>,
+    /// ISO-8601.
+    #[serde(default)]
+    pub deleted_at: Option<String>,
+    #[serde(default)]
+    pub deleted_by: Option<String>,
+    #[serde(default)]
+    pub deleted_by_agent_id: Option<String>,
+    /// ISO-8601: when the watchdog's sweep purges it.
+    #[serde(default)]
+    pub purge_at: Option<String>,
+}
+
+/// `issues.restore` / `issues.purge` output.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IssueTrashOutput {
+    pub id: String,
+    #[serde(default)]
+    pub identifier: Option<String>,
+    #[serde(default)]
+    pub tx_id: Option<i64>,
+}
+
+/// `issues.listDeleted` — query (any member): the team's issue trash,
+/// newest deleted first. Blocking; background executor only (§3.5).
+pub fn issues_list_deleted(trpc: &TrpcClient, team_id: &str) -> Result<Vec<TrashedIssue>, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        team_id: &'a str,
+    }
+    trpc.query_with_input("issues.listDeleted", &Input { team_id })
+}
+
+/// `issues.restore` — mutation (any member): takes an issue back out of
+/// the trash. Blocking; background executor only (§3.5).
+pub fn issues_restore(trpc: &TrpcClient, id: &str) -> Result<IssueTrashOutput, ApiError> {
+    #[derive(Serialize)]
+    struct Input<'a> {
+        id: &'a str,
+    }
+    trpc.mutation("issues.restore", &Input { id })
+}
+
+/// `issues.purge` — mutation (owners only): Delete forever, from the
+/// trash. Blocking; background executor only (§3.5).
+pub fn issues_purge(trpc: &TrpcClient, id: &str) -> Result<IssueTrashOutput, ApiError> {
+    #[derive(Serialize)]
+    struct Input<'a> {
+        id: &'a str,
+    }
+    trpc.mutation("issues.purge", &Input { id })
+}
+
 /// `issues.move` — same-team board move (EXP-57). The server
 /// renumbers the issue in the target board (EXP-42 → ABC-17), re-points
 /// the denormalized child rows and records a `board_moved` timeline event;
@@ -889,6 +955,40 @@ mod tests {
         assert_eq!(out.id, "i-1");
         assert_eq!(out.tx_id, Some(7));
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(r#"{"id":"i-1"}"#));
+    }
+
+    #[test]
+    fn list_deleted_queries_the_team_and_decodes_rows() {
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":[{"id":"i-1","identifier":"EXP-12","title":"Fix","boardId":"b-1","deletedAt":"2026-11-12T12:00:00.000Z","deletedBy":"u-1","deletedByAgentId":null,"purgeAt":"2026-12-12T12:00:00.000Z"}]}}"#,
+        );
+        let rows = issues_list_deleted(&client(&base), "t-1").unwrap();
+        assert_eq!(rows[0].identifier, "EXP-12");
+        assert_eq!(rows[0].board_id.as_deref(), Some("b-1"));
+        assert_eq!(rows[0].purge_at.as_deref(), Some("2026-12-12T12:00:00.000Z"));
+        assert_eq!(rows[0].deleted_by_agent_id, None);
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request
+            .starts_with("GET /api/trpc/issues.listDeleted?input=%7B%22teamId%22%3A%22t-1%22%7D HTTP/1.1"));
+    }
+
+    #[test]
+    fn restore_and_purge_send_the_id() {
+        let (base, captured) =
+            one_shot_server(200, r#"{"result":{"data":{"txId":5,"id":"i-1","identifier":"EXP-12"}}}"#);
+        let out = issues_restore(&client(&base), "i-1").unwrap();
+        assert_eq!((out.id.as_str(), out.identifier.as_deref(), out.tx_id), ("i-1", Some("EXP-12"), Some(5)));
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/issues.restore HTTP/1.1"));
+        assert!(request.ends_with(r#"{"id":"i-1"}"#));
+
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txId":6,"id":"i-1"}}}"#);
+        let out = issues_purge(&client(&base), "i-1").unwrap();
+        assert_eq!((out.id.as_str(), out.tx_id), ("i-1", Some(6)));
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/issues.purge HTTP/1.1"));
         assert!(request.ends_with(r#"{"id":"i-1"}"#));
     }
 

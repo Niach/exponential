@@ -21,7 +21,7 @@ use smithay::{
         output::OutputHandler,
         selection::{
             data_device::{set_data_device_focus, DataDeviceHandler, DataDeviceState, WaylandDndGrabHandler},
-            SelectionHandler,
+            SelectionHandler, SelectionSource, SelectionTarget,
         },
     },
 };
@@ -50,7 +50,39 @@ impl SeatHandler for Ede {
 }
 
 impl SelectionHandler for Ede {
-    type SelectionUserData = ();
+    /// A compositor-side selection: Xwayland's or ours ([`crate::clipboard`]).
+    type SelectionUserData = crate::clipboard::Selection;
+
+    /// A Wayland client set (or cleared) the clipboard: the serial moves
+    /// and Xwayland's CLIPBOARD follows.
+    fn new_selection(&mut self, ty: SelectionTarget, source: Option<SelectionSource>, _seat: Seat<Self>) {
+        if ty != SelectionTarget::Clipboard {
+            return;
+        }
+        let mimes = source.map(|s| s.mime_types());
+        self.clipboard.changed(mimes.clone().map_or(crate::clipboard::Owner::Empty, crate::clipboard::Owner::Client));
+        self.xwm_selection(mimes);
+    }
+
+    /// A Wayland client reads a compositor-side selection.
+    fn send_selection(&mut self, ty: SelectionTarget, mime_type: String, fd: std::os::fd::OwnedFd, _seat: Seat<Self>, user_data: &Self::SelectionUserData) {
+        if ty != SelectionTarget::Clipboard {
+            return;
+        }
+        match user_data {
+            crate::clipboard::Selection::Ours(owned) => self.serve_owned(owned, &mime_type, fd),
+            #[cfg(feature = "xwayland")]
+            crate::clipboard::Selection::X11 => {
+                if let Some(xwm) = self.xwm.as_mut() {
+                    if let Err(e) = xwm.send_selection(ty, mime_type, fd) {
+                        tracing::warn!("clipboard from X11: {e:?}");
+                    }
+                }
+            }
+            #[cfg(not(feature = "xwayland"))]
+            crate::clipboard::Selection::X11 => drop(fd),
+        }
+    }
 }
 
 impl DataDeviceHandler for Ede {

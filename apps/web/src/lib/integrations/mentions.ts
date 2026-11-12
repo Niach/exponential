@@ -2,7 +2,7 @@ import { and, eq, inArray, ne, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { issues, boards, teamMembers } from "@/db/schema"
 import { users } from "@/db/auth-schema"
-import { boardVisible } from "@/lib/board-visibility"
+import { boardVisible, issueVisible } from "@/lib/board-visibility"
 import { extractIssueRefs } from "@/lib/issue-refs"
 import { extractMentionEmails } from "@/lib/mention-refs"
 
@@ -66,6 +66,7 @@ export async function resolveIssueRefs(
       and(
         eq(boards.teamId, teamId),
         boardVisible(),
+        issueVisible(),
         inArray(issues.identifier, identifiers),
         ...(opts?.excludeIssueId ? [ne(issues.id, opts.excludeIssueId)] : [])
       )

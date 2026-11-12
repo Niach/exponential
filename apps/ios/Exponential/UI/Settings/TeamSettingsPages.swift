@@ -774,6 +774,7 @@ private struct TeamBoardsPage: View {
                 teamId: teamId,
                 isOwner: data.isOwner,
                 boardsApi: deps.boardsApi,
+                issuesApi: deps.issuesApi,
                 repositoriesApi: deps.repositoriesApi,
                 onDelete: { board in deleteBoardTarget = board }
             )

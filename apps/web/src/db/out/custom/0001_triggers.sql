@@ -38,9 +38,12 @@ $$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON teams FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON boards FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+-- #EXP-1797: an issue's own trash/restore (deleted_at) is bookkeeping too: a
+-- restored issue must not read as freshly edited.
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON issues FOR EACH ROW
   WHEN (NEW.board_deleted_at IS NOT DISTINCT FROM OLD.board_deleted_at
-    AND NEW.board_archived_at IS NOT DISTINCT FROM OLD.board_archived_at)
+    AND NEW.board_archived_at IS NOT DISTINCT FROM OLD.board_archived_at
+    AND NEW.deleted_at IS NOT DISTINCT FROM OLD.deleted_at)
   EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON labels FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON issue_statuses FOR EACH ROW EXECUTE FUNCTION update_updated_at();
@@ -366,15 +369,25 @@ CREATE OR REPLACE TRIGGER populate_pull_request_issue_team_id
 --    issue_id like the team_id populate. notifications also carries this trigger
 --    (REV-109): issue-less rows — agent_message, session_blocked — keep both
 --    NULL and always sync.
+--    #EXP-1797: board_deleted_at on a CHILD row means "its container is in
+--    the trash": the board's deleted_at OR the issue's own (issues.deleted_at,
+--    the issue trash), so every child shape hides a trashed issue's rows with
+--    the same static predicate. An issue relation is hidden while EITHER side
+--    is trashed. (issues.board_deleted_at itself stays the board's pure
+--    mirror; the issues shape filters deleted_at on its own.)
 CREATE OR REPLACE FUNCTION populate_issue_child_board_id()
 RETURNS TRIGGER AS $$
 BEGIN
   IF NEW.issue_id IS NOT NULL THEN
-    SELECT i.board_id, b.deleted_at, b.archived_at
+    SELECT i.board_id, coalesce(i.deleted_at, b.deleted_at), b.archived_at
       INTO NEW.board_id, NEW.board_deleted_at, NEW.board_archived_at
     FROM issues i JOIN boards b ON b.id = i.board_id
     WHERE i.id = NEW.issue_id
     FOR KEY SHARE OF i;
+    IF TG_TABLE_NAME = 'issue_relations' AND NEW.board_deleted_at IS NULL THEN
+      SELECT r.deleted_at INTO NEW.board_deleted_at
+      FROM issues r WHERE r.id = NEW.related_issue_id;
+    END IF;
   END IF;
   RETURN NEW;
 END;
@@ -840,24 +853,44 @@ RETURNS TRIGGER AS $$
 BEGIN
   UPDATE issues SET board_deleted_at = NEW.deleted_at
     WHERE board_id = NEW.id AND board_deleted_at IS DISTINCT FROM NEW.deleted_at;
-  UPDATE comments SET board_deleted_at = NEW.deleted_at
-    WHERE board_id = NEW.id AND board_deleted_at IS DISTINCT FROM NEW.deleted_at;
-  UPDATE attachments SET board_deleted_at = NEW.deleted_at
-    WHERE board_id = NEW.id AND board_deleted_at IS DISTINCT FROM NEW.deleted_at;
-  UPDATE issue_labels SET board_deleted_at = NEW.deleted_at
-    WHERE board_id = NEW.id AND board_deleted_at IS DISTINCT FROM NEW.deleted_at;
-  UPDATE issue_relations SET board_deleted_at = NEW.deleted_at
-    WHERE board_id = NEW.id AND board_deleted_at IS DISTINCT FROM NEW.deleted_at;
-  UPDATE issue_subscribers SET board_deleted_at = NEW.deleted_at
-    WHERE board_id = NEW.id AND board_deleted_at IS DISTINCT FROM NEW.deleted_at;
-  UPDATE issue_events SET board_deleted_at = NEW.deleted_at
-    WHERE board_id = NEW.id AND board_deleted_at IS DISTINCT FROM NEW.deleted_at;
-  UPDATE notifications SET board_deleted_at = NEW.deleted_at
-    WHERE board_id = NEW.id AND board_deleted_at IS DISTINCT FROM NEW.deleted_at;
-  UPDATE session_issues SET board_deleted_at = NEW.deleted_at
-    WHERE board_id = NEW.id AND board_deleted_at IS DISTINCT FROM NEW.deleted_at;
-  UPDATE pull_request_issues SET board_deleted_at = NEW.deleted_at
-    WHERE board_id = NEW.id AND board_deleted_at IS DISTINCT FROM NEW.deleted_at;
+  -- #EXP-1797: a child of a trashed ISSUE keeps its issue's deleted_at when
+  -- the board is restored (the mirror = the board's OR the issue's trash).
+  UPDATE comments c SET board_deleted_at = coalesce(i.deleted_at, NEW.deleted_at)
+    FROM issues i
+    WHERE c.board_id = NEW.id AND i.id = c.issue_id
+      AND c.board_deleted_at IS DISTINCT FROM coalesce(i.deleted_at, NEW.deleted_at);
+  UPDATE attachments c SET board_deleted_at = coalesce(i.deleted_at, NEW.deleted_at)
+    FROM issues i
+    WHERE c.board_id = NEW.id AND i.id = c.issue_id
+      AND c.board_deleted_at IS DISTINCT FROM coalesce(i.deleted_at, NEW.deleted_at);
+  UPDATE issue_labels c SET board_deleted_at = coalesce(i.deleted_at, NEW.deleted_at)
+    FROM issues i
+    WHERE c.board_id = NEW.id AND i.id = c.issue_id
+      AND c.board_deleted_at IS DISTINCT FROM coalesce(i.deleted_at, NEW.deleted_at);
+  UPDATE issue_subscribers c SET board_deleted_at = coalesce(i.deleted_at, NEW.deleted_at)
+    FROM issues i
+    WHERE c.board_id = NEW.id AND i.id = c.issue_id
+      AND c.board_deleted_at IS DISTINCT FROM coalesce(i.deleted_at, NEW.deleted_at);
+  UPDATE issue_events c SET board_deleted_at = coalesce(i.deleted_at, NEW.deleted_at)
+    FROM issues i
+    WHERE c.board_id = NEW.id AND i.id = c.issue_id
+      AND c.board_deleted_at IS DISTINCT FROM coalesce(i.deleted_at, NEW.deleted_at);
+  UPDATE notifications c SET board_deleted_at = coalesce(i.deleted_at, NEW.deleted_at)
+    FROM issues i
+    WHERE c.board_id = NEW.id AND i.id = c.issue_id
+      AND c.board_deleted_at IS DISTINCT FROM coalesce(i.deleted_at, NEW.deleted_at);
+  UPDATE session_issues c SET board_deleted_at = coalesce(i.deleted_at, NEW.deleted_at)
+    FROM issues i
+    WHERE c.board_id = NEW.id AND i.id = c.issue_id
+      AND c.board_deleted_at IS DISTINCT FROM coalesce(i.deleted_at, NEW.deleted_at);
+  UPDATE pull_request_issues c SET board_deleted_at = coalesce(i.deleted_at, NEW.deleted_at)
+    FROM issues i
+    WHERE c.board_id = NEW.id AND i.id = c.issue_id
+      AND c.board_deleted_at IS DISTINCT FROM coalesce(i.deleted_at, NEW.deleted_at);
+  UPDATE issue_relations c SET board_deleted_at = coalesce(i.deleted_at, r.deleted_at, NEW.deleted_at)
+    FROM issues i, issues r
+    WHERE c.board_id = NEW.id AND i.id = c.issue_id AND r.id = c.related_issue_id
+      AND c.board_deleted_at IS DISTINCT FROM coalesce(i.deleted_at, r.deleted_at, NEW.deleted_at);
   RETURN NULL;
 END;
 $$ LANGUAGE plpgsql;
@@ -867,6 +900,51 @@ CREATE OR REPLACE TRIGGER propagate_board_deleted_at
   FOR EACH ROW
   WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
   EXECUTE FUNCTION propagate_board_deleted_at();
+
+-- 9b. #EXP-1797 (issue-lifecycle.json `trash`): an issue's own trash/restore
+--     fans out to its child rows' board_deleted_at mirror (the container's
+--     trash: the issue's deleted_at, else its board's), so every child shape
+--     hides a trashed issue's comments, files, labels, relations (either
+--     side), subscribers, activity, notifications, session and PR links and
+--     brings them back on restore, as incremental move-out/move-in deltas.
+--     updated_at is preserved (the update_updated_at guards above).
+CREATE OR REPLACE FUNCTION propagate_issue_deleted_at()
+RETURNS TRIGGER AS $$
+DECLARE
+  hidden timestamptz;
+BEGIN
+  SELECT coalesce(NEW.deleted_at, b.deleted_at) INTO hidden
+    FROM boards b WHERE b.id = NEW.board_id;
+  UPDATE comments SET board_deleted_at = hidden
+    WHERE issue_id = NEW.id AND board_deleted_at IS DISTINCT FROM hidden;
+  UPDATE attachments SET board_deleted_at = hidden
+    WHERE issue_id = NEW.id AND board_deleted_at IS DISTINCT FROM hidden;
+  UPDATE issue_labels SET board_deleted_at = hidden
+    WHERE issue_id = NEW.id AND board_deleted_at IS DISTINCT FROM hidden;
+  UPDATE issue_subscribers SET board_deleted_at = hidden
+    WHERE issue_id = NEW.id AND board_deleted_at IS DISTINCT FROM hidden;
+  UPDATE issue_events SET board_deleted_at = hidden
+    WHERE issue_id = NEW.id AND board_deleted_at IS DISTINCT FROM hidden;
+  UPDATE notifications SET board_deleted_at = hidden
+    WHERE issue_id = NEW.id AND board_deleted_at IS DISTINCT FROM hidden;
+  UPDATE session_issues SET board_deleted_at = hidden
+    WHERE issue_id = NEW.id AND board_deleted_at IS DISTINCT FROM hidden;
+  UPDATE pull_request_issues SET board_deleted_at = hidden
+    WHERE issue_id = NEW.id AND board_deleted_at IS DISTINCT FROM hidden;
+  UPDATE issue_relations c SET board_deleted_at = coalesce(i.deleted_at, r.deleted_at, b.deleted_at)
+    FROM issues i, issues r, boards b
+    WHERE (c.issue_id = NEW.id OR c.related_issue_id = NEW.id)
+      AND i.id = c.issue_id AND r.id = c.related_issue_id AND b.id = i.board_id
+      AND c.board_deleted_at IS DISTINCT FROM coalesce(i.deleted_at, r.deleted_at, b.deleted_at);
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER propagate_issue_deleted_at
+  AFTER UPDATE OF deleted_at ON issues
+  FOR EACH ROW
+  WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
+  EXECUTE FUNCTION propagate_issue_deleted_at();
 
 -- VAPP-122: app records mirror their app's trash (`app_deleted_at`), the
 -- app-records shape's static predicate: a trashed app's records leave every

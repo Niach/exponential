@@ -104,7 +104,7 @@ export async function findIssueIdByIdentifier(
   const issueRows = await db
     .select({ id: issues.id })
     .from(issues)
-    .where(and(inArray(issues.boardId, boardIds), eq(issues.identifier, identifier)))
+    .where(and(inArray(issues.boardId, boardIds), eq(issues.identifier, identifier), isNull(issues.deletedAt)))
     .limit(2)
   if (issueRows.length === 1) return issueRows[0]!.id
   if (issueRows.length > 1) {
@@ -824,7 +824,8 @@ export async function linkPullRequestIssuesInTx(
   const rows: IssueLinkRow[] = await tx
     .select({ id: issues.id, teamId: issues.teamId, status: issues.status })
     .from(issues)
-    .where(and(inArray(issues.id, issueIds), eq(issues.teamId, pr.teamId)))
+    // #EXP-1797: a trashed issue never gains a new PR link.
+    .where(and(inArray(issues.id, issueIds), eq(issues.teamId, pr.teamId), isNull(issues.deletedAt)))
   if (rows.length === 0) return []
   const inserted = await tx
     .insert(pullRequestIssues)

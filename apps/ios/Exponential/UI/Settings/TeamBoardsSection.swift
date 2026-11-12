@@ -8,6 +8,7 @@ struct TeamBoardsSection: View {
     let teamId: String
     let isOwner: Bool
     let boardsApi: BoardsApi
+    let issuesApi: IssuesApi
     let repositoriesApi: RepositoriesApi
     let onDelete: (BoardEntity) -> Void
 
@@ -122,6 +123,16 @@ struct TeamBoardsSection: View {
                     boardsApi: boardsApi
                 )
             }
+
+            // #EXP-1797: the issue trash, for EVERY member (the board bands
+            // above stay owner-only).
+            DeletedIssuesBand(
+                accountId: accountId,
+                teamId: teamId,
+                boards: boards,
+                isOwner: isOwner,
+                issuesApi: issuesApi
+            )
         }
         .sheet(item: $repoTarget) { board in
             ChangeRepositorySheet(
@@ -187,23 +198,14 @@ private struct PutAwayBoardsBands: View {
         VStack(alignment: .leading, spacing: 0) {
             GlassSectionBand(title)
             ForEach(rows) { board in
-                HStack(spacing: 10) {
-                    AppIcon(BoardTypeDisplay.iconName(for: board.icon) ?? (board.repositoryId != nil ? "code" : "square-kanban"), size: 16)
-                        .foregroundStyle(Color(hex: board.color ?? "#888888") ?? .gray)
-                    Text(board.name)
-                        .font(.subheadline)
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                    Spacer(minLength: 8)
-                    Text(caption(board))
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .lineLimit(1)
+                PutAwayRow(
+                    icon: BoardTypeDisplay.iconName(for: board.icon) ?? (board.repositoryId != nil ? "code" : "square-kanban"),
+                    color: board.color,
+                    text: board.name,
+                    caption: caption(board)
+                ) {
                     GlassPill(action, mode: .action { Task { await perform(board) } }, enabled: pendingId != board.id)
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .flatRow()
             }
         }
         .padding(.top, 24)
@@ -225,6 +227,149 @@ private struct PutAwayBoardsBands: View {
         } catch {
             toaster.error(
                 FeedbackStates.Errors.title(verb: verb, thing: board.name),
+                description: error.trpcUserMessage
+            )
+        }
+        pendingId = nil
+        await refresh()
+    }
+}
+
+/// #NEW-37: one put-away row (an archived or trashed board, #EXP-1797 a
+/// trashed issue): the glyph tinted with the board color, the text (truncates),
+/// the caption, then the pills.
+private struct PutAwayRow<Pills: View>: View {
+    /// nil = no glyph (an issue whose board is not in the live list).
+    let icon: String?
+    let color: String?
+    let text: String
+    let caption: String
+    @ViewBuilder let pills: () -> Pills
+
+    var body: some View {
+        HStack(spacing: 10) {
+            if let icon {
+                AppIcon(icon, size: 16)
+                    .foregroundStyle(Color(hex: color ?? "#888888") ?? .gray)
+            }
+            Text(text)
+                .font(.subheadline)
+                .foregroundStyle(.white)
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            // Web's put-away row: the caption and the pills keep their
+            // natural width (`shrink-0`); only the name truncates.
+            Text(caption)
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+            HStack(spacing: 8) { pills() }
+                .fixedSize(horizontal: true, vertical: false)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .flatRow()
+    }
+}
+
+/// #EXP-1797 (issue-lifecycle.json `trash`): the team's deleted issues, a
+/// band under the board bands drawn only while non-empty, for EVERY member
+/// (web `DeletedIssues`, desktop + Android twins). Each row = the issue's
+/// board glyph, `{identifier} {title}`, the purge countdown (re-rendered every
+/// minute), Restore and, for owners, Delete forever behind the `purge-issue`
+/// prompt. Trashed issues are out of every synced shape: `issues.listDeleted`
+/// loads on open and after every Restore / Delete forever; a failed read is
+/// quiet (the band keeps its rows), a failed action a toast.
+private struct DeletedIssuesBand: View {
+    let accountId: String
+    let teamId: String
+    let boards: [BoardEntity]
+    let isOwner: Bool
+    let issuesApi: IssuesApi
+
+    @State private var trashed: [TrashedIssue] = []
+    @State private var pendingId: String?
+    @State private var purgeTarget: TrashedIssue?
+    @Environment(\.toaster) private var toaster
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if !trashed.isEmpty {
+                let actions = IssueTrash.actions(role: isOwner ? "owner" : "member")
+                let boardById = Dictionary(boards.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                TimelineView(.periodic(from: .now, by: 60)) { context in
+                    VStack(alignment: .leading, spacing: 0) {
+                        GlassSectionBand(IssueTrash.Copy.band)
+                        ForEach(trashed) { issue in
+                            let board = boardById[issue.boardId]
+                            PutAwayRow(
+                                icon: board.map { BoardTypeDisplay.iconName(for: $0) },
+                                color: board?.color,
+                                text: IssueTrash.rowText(identifier: issue.identifier, title: issue.title),
+                                caption: IssueTrash.caption(purgeAt: issue.purgeAt, now: context.date)
+                            ) {
+                                GlassPill(
+                                    IssueTrash.Copy.restore,
+                                    mode: .action { Task { await restore(issue) } },
+                                    enabled: pendingId != issue.id
+                                )
+                                if actions.contains(.purge) {
+                                    GlassPill(
+                                        IssueTrash.Copy.purge,
+                                        mode: .action { purgeTarget = issue },
+                                        enabled: pendingId != issue.id
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    .padding(.top, 24)
+                }
+            }
+        }
+        .task(id: "\(accountId)|\(teamId)") { await refresh() }
+        .background {
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .glassAlert(item: $purgeTarget) { issue in
+                    GlassAlert(
+                        prompt: Prompts.PurgeIssue.copy(identifier: issue.identifier),
+                        enabled: ["delete": pendingId != issue.id],
+                        handlers: ["delete": { Task { await purge(issue) } }]
+                    )
+                }
+        }
+    }
+
+    private func refresh() async {
+        if let rows = try? await issuesApi.listDeleted(accountId: accountId, teamId: teamId) {
+            trashed = rows
+        }
+    }
+
+    private func restore(_ issue: TrashedIssue) async {
+        await run(issue, verb: "restore") {
+            try await issuesApi.restore(accountId: accountId, id: issue.id)
+        }
+    }
+
+    private func purge(_ issue: TrashedIssue) async {
+        await run(issue, verb: "delete") {
+            try await issuesApi.purge(accountId: accountId, id: issue.id)
+        }
+    }
+
+    /// Refresh on success AND failure: a restore can fail because the sweep
+    /// purged the issue meanwhile.
+    private func run(_ issue: TrashedIssue, verb: String, _ action: () async throws -> Void) async {
+        pendingId = issue.id
+        do {
+            try await action()
+        } catch {
+            toaster.error(
+                FeedbackStates.Errors.title(verb: verb, thing: issue.identifier),
                 description: error.trpcUserMessage
             )
         }

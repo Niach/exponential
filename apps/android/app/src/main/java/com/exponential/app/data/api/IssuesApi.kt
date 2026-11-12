@@ -128,6 +128,25 @@ data class SearchIssueHit(
     // ranked rows by id — that is the whole of what it needs from a hit.
 ) : IssueSearch.Hit
 
+/**
+ * #EXP-1797: a trashed issue, as `issues.listDeleted` returns it (the trash is
+ * out of every synced shape). Dates are ISO strings (no transformer).
+ */
+@Serializable
+data class DeletedIssue(
+    val id: String,
+    val identifier: String,
+    val title: String,
+    val boardId: String,
+    val deletedAt: String? = null,
+    val deletedBy: String? = null,
+    val deletedByAgentId: String? = null,
+    val purgeAt: String? = null,
+)
+
+@Serializable
+private data class DeletedIssuesInput(val teamId: String)
+
 @Singleton
 class IssuesApi @Inject constructor(private val trpc: TrpcClient) {
 
@@ -184,6 +203,24 @@ class IssuesApi @Inject constructor(private val trpc: TrpcClient) {
             inputSerializer = DeleteIssueInput.serializer(),
         )
     }
+
+    /** #EXP-1797: `issues.listDeleted` (any member): the team's issue trash. */
+    suspend fun listDeleted(accountId: String, teamId: String): List<DeletedIssue> =
+        trpc.query(
+            accountId,
+            path = "issues.listDeleted",
+            input = DeletedIssuesInput(teamId),
+            inputSerializer = DeletedIssuesInput.serializer(),
+            outputSerializer = ListSerializer(DeletedIssue.serializer()),
+        )
+
+    /** #EXP-1797: `issues.restore` (any member): back out of the trash. */
+    suspend fun restore(accountId: String, id: String) =
+        trpc.mutationUnit(accountId, path = "issues.restore", input = DeleteIssueInput(id), inputSerializer = DeleteIssueInput.serializer())
+
+    /** #EXP-1797: `issues.purge` (owners): Delete forever, from the trash. */
+    suspend fun purge(accountId: String, id: String) =
+        trpc.mutationUnit(accountId, path = "issues.purge", input = DeleteIssueInput(id), inputSerializer = DeleteIssueInput.serializer())
 
     /**
      * Server-side full-text search over a team's issues — matches title,

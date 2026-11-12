@@ -135,7 +135,7 @@ final class SettingsNavTests: XCTestCase {
         XCTAssertEqual(owner.first { $0.id == "agents" }?.items, ["@assistant", "@agents", "@new-agent", "mcp", "skills"])
         XCTAssertEqual(owner.first { $0.id == "personal" }?.items, ["account", "notifications", "security", "about"])
         let member = SettingsNav.visibleGroups(platform: .ios, isOwner: false)
-        XCTAssertEqual(member.first { $0.id == "boards" }?.items, ["@boards"])
+        XCTAssertEqual(member.first { $0.id == "boards" }?.items, ["@boards", "all-boards"])
         XCTAssertEqual(member.first { $0.id == "agents" }?.items, ["@assistant", "@agents", "mcp", "skills"])
     }
 }

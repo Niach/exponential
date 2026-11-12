@@ -1898,6 +1898,13 @@
       "when": 1794498802730,
       "tag": "0270_mcp_calls_session_target",
       "breakpoints": true
+    },
+    {
+      "idx": 271,
+      "version": "7",
+      "when": 1794500606833,
+      "tag": "0271_real_mister_fear",
+      "breakpoints": true
     }
   ]
 }

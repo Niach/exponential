@@ -7,7 +7,7 @@ use std::{io::Write, os::fd::AsFd, os::unix::net::UnixStream};
 
 use wayland_client::{
     delegate_noop,
-    protocol::{wl_buffer, wl_compositor, wl_keyboard, wl_output, wl_pointer, wl_registry, wl_seat, wl_shm, wl_shm_pool, wl_surface},
+    protocol::{wl_buffer, wl_compositor, wl_data_device, wl_data_device_manager, wl_data_offer, wl_data_source, wl_keyboard, wl_output, wl_pointer, wl_registry, wl_seat, wl_shm, wl_shm_pool, wl_surface},
     Connection, Dispatch, EventQueue, QueueHandle, WEnum,
 };
 use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{zwp_virtual_keyboard_manager_v1, zwp_virtual_keyboard_v1};
@@ -50,6 +50,16 @@ pub struct Client {
     /// The serial of the last button press our pointer received (what a
     /// client-side title bar hands back with `move` and `resize`).
     pub press_serial: Option<u32>,
+    pub data_device_manager: Option<wl_data_device_manager::WlDataDeviceManager>,
+    /// Every offer the data device announced, with its types.
+    pub offers: Vec<(wl_data_offer::WlDataOffer, Vec<String>)>,
+    /// The offer the data device last named the selection (`None` = cleared).
+    pub selection: Option<wl_data_offer::WlDataOffer>,
+    /// What our own source serves per type; a type missing here is never
+    /// answered (a hung client: its fd is kept open in `held`).
+    pub source_data: Vec<(String, Vec<u8>)>,
+    pub held: Vec<std::os::fd::OwnedFd>,
+    pub source_cancelled: bool,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -282,6 +292,7 @@ impl Dispatch<wl_registry::WlRegistry, ()> for Client {
                 "xdg_wm_base" => state.wm_base = Some(registry.bind(name, version.min(5), qh, ())),
                 "zwlr_layer_shell_v1" => state.layer_shell = Some(registry.bind(name, version.min(4), qh, ())),
                 "wl_output" => state.outputs.push(registry.bind(name, version.min(4), qh, ())),
+                "wl_data_device_manager" => state.data_device_manager = Some(registry.bind(name, version.min(3), qh, ())),
                 "zxdg_decoration_manager_v1" => state.decoration_manager = Some(registry.bind(name, 1, qh, ())),
                 _ => {}
             }
@@ -402,6 +413,93 @@ impl Dispatch<wl_pointer::WlPointer, ()> for Client {
     }
 }
 
+impl Session {
+    /// The seat's data device (call [`Session::keyboard`] first: the
+    /// selection goes to the keyboard-focused client only).
+    pub fn data_device(&mut self) -> wl_data_device::WlDataDevice {
+        let seat = self.state.seat.clone().expect("seat advertised");
+        let device = self.state.data_device_manager.as_ref().expect("data device manager advertised").get_data_device(&seat, &self.qh, ());
+        self.roundtrip();
+        device
+    }
+
+    /// Sets the clipboard to a source offering `types` (`None` data = never answered).
+    pub fn set_selection(&mut self, device: &wl_data_device::WlDataDevice, types: &[(&str, Option<&[u8]>)]) -> wl_data_source::WlDataSource {
+        let source = self.state.data_device_manager.as_ref().unwrap().create_data_source(&self.qh, ());
+        self.state.source_data.clear();
+        self.state.source_cancelled = false;
+        for (mime, data) in types {
+            source.offer(mime.to_string());
+            if let Some(data) = data {
+                self.state.source_data.push((mime.to_string(), data.to_vec()));
+            }
+        }
+        device.set_selection(Some(&source), 0);
+        self.roundtrip();
+        source
+    }
+
+    /// The types of the current selection's offer.
+    pub fn selection_types(&self) -> Option<Vec<String>> {
+        let offer = self.state.selection.as_ref()?;
+        self.state.offers.iter().find(|(o, _)| o == offer).map(|(_, types)| types.clone())
+    }
+
+    /// Reads `mime` of the current selection to the end, pumping events
+    /// while the compositor writes.
+    pub fn read_selection(&mut self, mime: &str) -> Vec<u8> {
+        use std::io::Read;
+        let offer = self.state.selection.clone().expect("a selection");
+        let (mut read, write) = std::io::pipe().expect("pipe");
+        offer.receive(mime.into(), write.as_fd());
+        drop(write);
+        self.roundtrip();
+        let mut out = Vec::new();
+        read.read_to_end(&mut out).expect("read the selection");
+        out
+    }
+}
+
+impl Dispatch<wl_data_device::WlDataDevice, ()> for Client {
+    fn event(state: &mut Self, _: &wl_data_device::WlDataDevice, event: wl_data_device::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        match event {
+            wl_data_device::Event::DataOffer { id } => state.offers.push((id, Vec::new())),
+            wl_data_device::Event::Selection { id } => state.selection = id,
+            _ => {}
+        }
+    }
+
+    wayland_client::event_created_child!(Client, wl_data_device::WlDataDevice, [
+        wl_data_device::EVT_DATA_OFFER_OPCODE => (wl_data_offer::WlDataOffer, ()),
+    ]);
+}
+
+impl Dispatch<wl_data_offer::WlDataOffer, ()> for Client {
+    fn event(state: &mut Self, offer: &wl_data_offer::WlDataOffer, event: wl_data_offer::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        if let wl_data_offer::Event::Offer { mime_type } = event {
+            if let Some((_, types)) = state.offers.iter_mut().find(|(o, _)| o == offer) {
+                types.push(mime_type);
+            }
+        }
+    }
+}
+
+impl Dispatch<wl_data_source::WlDataSource, ()> for Client {
+    fn event(state: &mut Self, _: &wl_data_source::WlDataSource, event: wl_data_source::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        match event {
+            wl_data_source::Event::Send { mime_type, fd } => match state.source_data.iter().find(|(m, _)| *m == mime_type) {
+                Some((_, data)) => {
+                    let _ = std::fs::File::from(fd).write_all(data);
+                }
+                None => state.held.push(fd),
+            },
+            wl_data_source::Event::Cancelled => state.source_cancelled = true,
+            _ => {}
+        }
+    }
+}
+
+delegate_noop!(Client: ignore wl_data_device_manager::WlDataDeviceManager);
 delegate_noop!(Client: ignore wl_seat::WlSeat);
 delegate_noop!(Client: ignore zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1);
 delegate_noop!(Client: ignore zwp_virtual_keyboard_v1::ZwpVirtualKeyboardV1);

@@ -160,6 +160,8 @@ pub mod issue_estimate;
 pub mod issue_graph;
 pub mod issue_nesting;
 pub mod issue_rail;
+// #EXP-1797: the team's issue trash (caption, pills, sweep rule), fixture-locked ×4.
+pub mod issue_trash;
 /// Row timestamps as UTC milliseconds (both spellings the shapes deliver).
 pub mod instant;
 pub mod issue_search;

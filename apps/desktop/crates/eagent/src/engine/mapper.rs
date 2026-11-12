@@ -2813,8 +2813,14 @@ impl Mapper {
     fn exp_tool_preview(&self, id: &str, result: &Value) -> Option<wire::frames::ToolPreview> {
         let state = self.tools.get(id)?;
         let title = state.title.as_str();
-        self.config.host_tools.row(title)?;
+        let row = self.config.host_tools.row(title)?;
         let mut preview = exp_tool_preview(result).unwrap_or_default();
+        // #FEED-231 (ask-dock.json `anchorCases`): a show call names the card
+        // it posted or edited, so every transcript draws THAT card after it
+        // (the row's `result` is `none`: nothing renders the preview).
+        if row == SHOW_ROW {
+            preview.id = shown_card_id(result);
+        }
         let no_input = Value::Object(Map::new());
         let input = state.raw_input.as_ref().unwrap_or(&no_input);
         preview.refs = super::exp_tool_refs::exp_tool_refs(
@@ -4380,6 +4386,17 @@ fn script_source(input: &Value) -> Option<&str> {
 /// hop into a named wrapper (`{"issue": {...}}` is what most of our tools
 /// answer with); `count` is a list answer's length, or its own `total`/`count`.
 /// `None` when nothing was named — an empty preview is never published.
+/// The contract row of `exponential_show` (`expToolDisplay`).
+const SHOW_ROW: &str = "show";
+
+/// #FEED-231: the message a show call posted or edited (its answer's
+/// `messageId`).
+fn shown_card_id(result: &Value) -> Option<String> {
+    let payload = json_payload(result)?;
+    let id = payload.get("messageId")?.as_str()?.trim();
+    (!id.is_empty()).then(|| id.to_string())
+}
+
 fn exp_tool_preview(result: &Value) -> Option<wire::frames::ToolPreview> {
     let payload = json_payload(result)?;
     let count = list_count(&payload);
@@ -5311,6 +5328,20 @@ mod tests {
         assert!(exp_tool_preview(&json!({ "ok": true })).is_none());
         assert!(exp_tool_preview(&json!("not json at all")).is_none());
         assert!(exp_tool_preview(&Value::Null).is_none());
+    }
+
+    /// #FEED-231: a show call's preview names the card it posted or edited
+    /// (its answer's `messageId`, through the MCP envelope), so every
+    /// transcript anchors that very card after the call.
+    #[test]
+    fn a_show_answer_names_its_card() {
+        let envelope = json!({
+            "content": [{ "type": "text", "text": "{\"messageId\":\"m-1\",\"replaced\":true,\"uploads\":[]}" }]
+        });
+        assert_eq!(shown_card_id(&envelope).as_deref(), Some("m-1"));
+        assert_eq!(shown_card_id(&json!({ "messageId": " " })), None);
+        assert_eq!(shown_card_id(&json!({ "ok": true })), None);
+        assert_eq!(SHOW_ROW, "show");
     }
 
     /// EXP-846: the cap is the producer's job — the relay drops a frame whose

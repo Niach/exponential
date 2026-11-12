@@ -473,17 +473,21 @@ fn card_kind(row: &SessionChatRow) -> Option<domain::ask_dock::SessionCardKind> 
 
 /// Where a session's conversation cards sit in its relay feed: THE rule ×4
 /// (`domain::ask_dock::anchor_session_cards`, ask-dock.json `anchorCases`):
-/// each card right after the SETTLED call that posted it, paired newest back
-/// per call kind; a card with no such call in the feed is `unanchored` (card
-/// order), painted at the transcript's HEAD before its first row.
-/// `calls` = the feed's settled, unfailed Exponential calls in feed order:
-/// (feed item id, display row). Returns card INDICES into `cards`.
+/// each card right after the SETTLED call that posted it (#FEED-231: the
+/// call naming it, else paired newest back per call kind); a card with no
+/// such call in the feed is `unanchored` (card order), painted at the
+/// transcript's HEAD before its first row. `calls` = the feed's settled,
+/// unfailed Exponential calls in feed order: (feed item id, display row,
+/// the card id its preview names). Returns card INDICES into `cards`.
 pub(crate) fn anchor_cards(
-    calls: &[(u64, &str)],
+    calls: &[(u64, &str, Option<&str>)],
     cards: &[SessionChatRow],
 ) -> (HashMap<u64, Vec<usize>>, Vec<usize>) {
-    let (indices, kinds): (Vec<usize>, Vec<_>) =
-        cards.iter().enumerate().filter_map(|(index, card)| card_kind(card).map(|kind| (index, kind))).unzip();
+    let (indices, kinds): (Vec<usize>, Vec<_>) = cards
+        .iter()
+        .enumerate()
+        .filter_map(|(index, card)| card_kind(card).map(|kind| (index, (card.id(), kind))))
+        .unzip();
     let (anchors, unanchored) = domain::ask_dock::anchor_session_cards(calls, &kinds);
     let back = |list: Vec<usize>| list.into_iter().map(|i| indices[i]).collect::<Vec<_>>();
     (anchors.into_iter().map(|(call, list)| (call, back(list))).collect(), back(unanchored))
@@ -521,7 +525,7 @@ mod tests {
     /// call left is unanchored (the head, before the first row).
     #[test]
     fn cards_anchor_to_their_calls_newest_back() {
-        let calls = [(4, "session_self_show"), (7, "session_self_plan"), (9, "session_self_show")];
+        let calls = [(4, "session_self_show", None), (7, "session_self_plan", None), (9, "session_self_show", None)];
         let cards = [surface("a"), surface("b"), surface("c"), plan("p")];
         let (anchors, unanchored) = anchor_cards(&calls, &cards);
         assert_eq!(anchors.get(&9), Some(&vec![2]));
@@ -531,6 +535,20 @@ mod tests {
         let (anchors, unanchored) = anchor_cards(&[], &cards);
         assert!(anchors.is_empty());
         assert_eq!(unanchored, vec![0, 1, 2, 3]);
+    }
+
+    /// #FEED-231: a show call naming its card anchors exactly it; edits of
+    /// another card (the Assistant's status card) never shift the rest.
+    #[test]
+    fn a_named_call_anchors_its_own_card() {
+        let calls = [(1, "show", Some("a")), (2, "show", Some("p")), (3, "show", Some("b")), (4, "show", Some("p"))];
+        let cards = [surface("a"), plan("p"), surface("b")];
+        let (anchors, unanchored) = anchor_cards(&calls, &cards);
+        assert_eq!(anchors.get(&1), Some(&vec![0]));
+        assert_eq!(anchors.get(&3), Some(&vec![2]));
+        assert_eq!(anchors.get(&4), Some(&vec![1]));
+        assert_eq!(anchors.get(&2), None);
+        assert!(unanchored.is_empty());
     }
 
     #[test]

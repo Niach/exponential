@@ -1,0 +1,2 @@
+- Deleted issues go to a trash and come back with Restore
+- Settings › Boards lists the deleted issues

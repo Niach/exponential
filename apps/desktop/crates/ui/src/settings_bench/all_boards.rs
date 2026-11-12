@@ -14,7 +14,12 @@ fn settings_all_boards_put_away() {
             {"id": "b4", "name": "Duplicates"},
         ]))
         .expect("trashed boards");
-        pane.show(archived, trash, cx)
+        let issues = serde_json::from_value(serde_json::json!([
+            {"id": "i1", "identifier": "EXP-42", "title": "Flaky login redirect", "boardId": null, "purgeAt": (chrono::Utc::now() + chrono::Duration::hours(9 * 24 - 1)).to_rfc3339()},
+            {"id": "i2", "identifier": "EXP-7", "title": "Old onboarding copy", "purgeAt": null},
+        ]))
+        .expect("trashed issues");
+        pane.show_with_issues(archived, trash, issues, cx)
     });
 }
 

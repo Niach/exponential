@@ -81,6 +81,21 @@ object Prompts {
     object DeleteIssue {
         val spec = destructiveSpec(
             "delete-issue",
+            mapOf(
+                "title" to "Move {identifier} to trash?",
+                "body" to "After 30 days it is deleted with its comments and files. Until then anyone on the team can restore it in team settings.",
+            ),
+            listOf("identifier"),
+            "delete",
+            "Move to trash",
+        )
+        fun prompt(identifier: String) = spec.render("title", "body", "identifier" to identifier)
+    }
+
+    /** #EXP-1797: Delete forever, from the issue trash (owners). */
+    object PurgeIssue {
+        val spec = destructiveSpec(
+            "purge-issue",
             mapOf("title" to "Delete {identifier}?", "body" to "Its comments and files are deleted with it."),
             listOf("identifier"),
             "delete",
@@ -93,14 +108,14 @@ object Prompts {
         val spec = destructiveSpec(
             "delete-issues",
             mapOf(
-                "titleOne" to "Delete 1 issue?",
-                "titleMany" to "Delete {count} issues?",
-                "bodyOne" to "Its comments and files are deleted with it.",
-                "bodyMany" to "Their comments and files are deleted with them.",
+                "titleOne" to "Move 1 issue to trash?",
+                "titleMany" to "Move {count} issues to trash?",
+                "bodyOne" to "After 30 days it is deleted with its comments and files. Until then anyone on the team can restore it in team settings.",
+                "bodyMany" to "After 30 days they are deleted with their comments and files. Until then anyone on the team can restore them in team settings.",
             ),
             listOf("count"),
             "delete",
-            "Delete",
+            "Move to trash",
         )
         fun prompt(count: Int) =
             if (count == 1) spec.render("titleOne", "bodyOne")
@@ -522,7 +537,7 @@ object Prompts {
      *  a nested object's first access initialises this one first. */
     val all: Map<String, Spec> by lazy {
         listOf(
-            DeleteIssue.spec, DeleteIssues.spec, DeleteFile.spec, MoveIssue.spec, MergeIssuePr.spec,
+            DeleteIssue.spec, DeleteIssues.spec, PurgeIssue.spec, DeleteFile.spec, MoveIssue.spec, MergeIssuePr.spec,
             MergeRunPr.spec, MergeNowPr.spec, StopRun.spec, ResumeRun.spec, DeleteTrigger.spec, DeleteAction.spec, RemoveDevice.spec,
             RemoveDeviceShare.spec,
             DeleteTeam.spec, TrashBoard.spec, DeleteLabel.spec, RemoveMember.spec, LeaveTeam.spec,

@@ -4,7 +4,7 @@ import { and, eq } from "drizzle-orm"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { boards, issueRelations, issues } from "@/db/schema"
 import { assertIssueAccess } from "@/lib/team-membership"
-import { boardVisible } from "@/lib/board-visibility"
+import { boardVisible, issueVisible } from "@/lib/board-visibility"
 import { issueRelationTypeSchema } from "@/lib/domain"
 import {
   canonicalizeRelation,
@@ -61,7 +61,7 @@ export const relationsRouter = router({
         .select({ teamId: boards.teamId })
         .from(issues)
         .innerJoin(boards, eq(boards.id, issues.boardId))
-        .where(and(eq(issues.id, input.relatedIssueId), boardVisible()))
+        .where(and(eq(issues.id, input.relatedIssueId), boardVisible(), issueVisible()))
         .limit(1)
       if (!other || other.teamId !== issueContext.teamId) {
         throw new TRPCError({

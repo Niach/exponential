@@ -46,6 +46,8 @@ struct Run {
     hook: Option<AbortHook>,
     /// The display the run works on (`tools::CallContext`).
     display: Option<usize>,
+    /// `tools::CallContext::copy_mark`.
+    copy_mark: Option<u64>,
 }
 
 #[derive(Default)]
@@ -230,15 +232,22 @@ impl ToolHost for Host {
             })
         };
         let interrupted = || self.aborted(session_id);
-        let mut display = self.runs.lock().unwrap().get(session_id).and_then(|run| run.display);
+        let (mut display, mut copy_mark) =
+            self.runs.lock().unwrap().get(session_id).map(|run| (run.display, run.copy_mark)).unwrap_or_default();
         let mut ctx = tools::CallContext {
             interrupted: &interrupted,
             display: &mut display,
+            copy_mark: &mut copy_mark,
             picked: crate::work_screen::picked(),
             engage: &engage,
         };
         let result = tools::call(&*backend, name, &arguments, &mut ctx);
-        self.runs.lock().unwrap().entry(session_id.to_string()).or_default().display = display;
+        {
+            let mut runs = self.runs.lock().unwrap();
+            let run = runs.entry(session_id.to_string()).or_default();
+            run.display = display;
+            run.copy_mark = copy_mark;
+        }
         // Esc during the action: what it did is moot, the answer is the abort.
         if interrupted() {
             return tools::error(tools::ABORTED);

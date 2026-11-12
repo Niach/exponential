@@ -58,6 +58,29 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
+const PREVIOUS_264: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-12-issue-trash-on-phones",
+    date: "2026-11-12",
+    title: "Deleted issues come back on phones",
+    summary: "iPhone, iPad and Android move a deleted issue to the team's trash, and team settings › Boards lists it with Restore.",
+    body: r##"- **Trash on phones**: deleting an issue on iPhone, iPad or Android moves it to the team's trash with its comments, files and relations, for 30 days.
+- **Deleted issues**: team settings › Boards on a phone lists the deleted issues with Restore for every member, and Delete forever for owners."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_263: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-12-issue-trash",
+    date: "2026-11-12",
+    title: "Deleted issues go to a trash",
+    summary: "Deleting an issue moves it to the team's trash for 30 days, with its comments, relations and links, and anyone on the team can restore it.",
+    body: r##"- **Issue trash**: deleting an issue, one or many, from any app or over MCP moves it to the team's trash. It disappears everywhere, keeps its comments, files, relations and links, and is deleted for good after 30 days.
+- **Restore**: team settings › Boards lists the deleted issues with Restore for every member, and Delete forever for owners. Agents restore with the MCP issues_write restore operation.
+- **In the event stream**: issue.deleted, issue.restored and issue.purged go to the team's events, so agents and apps can react."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
 const PREVIOUS_262: ChangelogEntry = ChangelogEntry {
     id: "2026-11-12-large-chats-desktop",
     date: "2026-11-12",

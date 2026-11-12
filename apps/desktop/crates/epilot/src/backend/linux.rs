@@ -34,8 +34,11 @@ use x11rb::protocol::Event;
 use x11rb::rust_connection::RustConnection;
 use x11rb::wrapper::ConnectionExt as _;
 
-use crate::backend::{Backend, Button, DisplayInfo, Image, LockGuard, WindowInfo};
+use crate::backend::{Backend, Button, Clipboard, DisplayInfo, Image, LockGuard, WindowInfo};
 use crate::keys::{Key, Named};
+
+#[path = "x11_clipboard.rs"]
+mod clipboard;
 
 x11rb::atom_manager! {
     Atoms: AtomsCookie {
@@ -588,6 +591,10 @@ impl Backend for X11 {
 
     fn lock(&self, on_esc: Box<dyn Fn() + Send + Sync>) -> Result<Box<dyn LockGuard>, String> {
         Ok(Box::new(Lock::take(on_esc)?))
+    }
+
+    fn clipboard(&self) -> Result<Box<dyn Clipboard + '_>, String> {
+        Ok(Box::new(clipboard::X11Clipboard::open(self)?))
     }
 }
 

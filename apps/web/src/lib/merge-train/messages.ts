@@ -128,7 +128,7 @@ export async function closedIssueIdentifiers(tx: Tx, pullRequestId: string): Pro
     .select({ identifier: issues.identifier })
     .from(pullRequestIssues)
     .innerJoin(issues, eq(issues.id, pullRequestIssues.issueId))
-    .where(and(eq(pullRequestIssues.pullRequestId, pullRequestId), eq(pullRequestIssues.closes, true)))
+    .where(and(eq(pullRequestIssues.pullRequestId, pullRequestId), eq(pullRequestIssues.closes, true), isNull(issues.deletedAt)))
   return rows.map((r) => r.identifier)
 }
 

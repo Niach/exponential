@@ -3,11 +3,13 @@ import {
   buildTeamScopedChildWhere,
   getUserTeamIds,
 } from "@/lib/team-membership"
+import { andClauses } from "@/lib/auth/shape-where"
 import { createShapeRouteHandler } from "@/lib/shape-route"
 
 // Server-pinned column allowlist (clients cannot widen it). Excludes the
 // scoping columns `team_id` + `board_deleted_at` (REV2-5) +
-// `board_archived_at` (EXP-500) — server-only
+// `board_archived_at` (EXP-500) + the issue trash `deleted_at` /
+// `deleted_by` / `deleted_by_agent_id` (#EXP-1797) — server-only
 // bookkeeping the where clause filters on (Electric evaluates `where`
 // server-side, so a shape may filter on a column its allowlist excludes);
 // native schemas don't carry them.
@@ -63,8 +65,10 @@ export const Route = createFileRoute(`/api/shapes/issues`)({
           // board_deleted_at predicate (REV2-5 — stable across board
           // create/trash). Anonymous: the empty team list yields the
           // impossible-match sentinel.
+          // #EXP-1797: a trashed issue (its own deleted_at) leaves every
+          // client; restore brings it back (issue-lifecycle.json `trash`).
           const teamIds = userId ? await getUserTeamIds(userId) : []
-          return buildTeamScopedChildWhere(teamIds)
+          return andClauses(buildTeamScopedChildWhere(teamIds), `"deleted_at" IS NULL`)
         },
       }),
     },

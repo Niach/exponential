@@ -40,7 +40,7 @@ const PREFIX = `exponential_`
  *  only there). Pinned to the server's split by apps/web's
  *  api-conventions.test.ts. `session_self` has no reads and keeps its name. */
 export const NOUN_READ_OPS: Readonly<Record<string, readonly string[]>> = {
-  issues: [`list`, `get`, `show`, `activity`],
+  issues: [`list`, `get`, `show`, `trash`, `activity`],
   comments: [`list`],
   pr: [`files`],
   boards: [`list`, `get`],

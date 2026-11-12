@@ -106,6 +106,8 @@ pub struct Ede {
     pub virtual_keymap: Option<smithay::input::keyboard::KeyboardSource>,
     /// ede-protocol: the control socket, its grants and clients.
     pub ipc: crate::ipc::Ipc,
+    /// The seat's CLIPBOARD serial, owner and reads ([`crate::clipboard`]).
+    pub clipboard: crate::clipboard::Clipboard,
     /// Alt+Tab, Super, the media keys: what the shell answers ([`crate::hotkeys`]).
     pub hotkeys: crate::hotkeys::Hotkeys,
     /// The active workspace and the parked windows ([`crate::workspaces`]).
@@ -238,6 +240,7 @@ impl Ede {
             virtual_keyboard_state: smithay::wayland::virtual_keyboard::VirtualKeyboardManagerState::new::<Self, _>(&dh, |_| true),
             virtual_keymap: None,
             ipc: crate::ipc::Ipc::default(),
+            clipboard: Default::default(),
             hotkeys: crate::hotkeys::Hotkeys::default(),
             workspaces: crate::workspaces::Workspaces::default(),
             fractional_scale_state: smithay::wayland::fractional_scale::FractionalScaleManagerState::new::<Self>(&dh),

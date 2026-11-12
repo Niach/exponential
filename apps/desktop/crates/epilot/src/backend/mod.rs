@@ -126,6 +126,56 @@ pub(crate) enum Button {
 /// must not join that thread.
 pub(crate) trait LockGuard: Send {}
 
+/// What the clipboard held before a `paste_text` / `copy_selection` took
+/// it: every format the OS let us read, as (the OS's name of the format,
+/// its bytes), in the OS's order. Each backend reads back only its own
+/// names (X11 atom names, Wayland mime types, macOS pasteboard types,
+/// Windows `CF:<n>` or a registered name). Empty = the clipboard was empty
+/// (restoring clears it). Never logged: it is the person's clipboard.
+#[derive(Default)]
+pub(crate) struct SavedClipboard {
+    pub formats: Vec<(String, Vec<u8>)>,
+}
+
+/// Whether the focused window took the text a paste offered.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Pasted {
+    /// The OS saw the focused window read it (X11, eDE).
+    Taken,
+    /// The OS cannot tell (macOS, Windows): a fixed settle passed.
+    #[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
+    Settled,
+    /// Nobody took it within the timeout (or another program took the
+    /// clipboard first).
+    Missed,
+}
+
+/// The clipboard, for the agent's own copy and paste only (`tools.rs`):
+/// never an ambient read of the person's clipboard.
+pub(crate) trait Clipboard {
+    /// A number that moves on every change of the clipboard (macOS
+    /// `changeCount`, Windows `GetClipboardSequenceNumber`, X11 an XFixes
+    /// owner-change count, eDE the compositor's selection serial).
+    fn change_count(&self) -> Result<u64, String>;
+    /// Everything the clipboard holds now, to [`Clipboard::restore`] later;
+    /// formats that cannot be read (too large, an OS handle) are skipped.
+    fn save(&self) -> Result<SavedClipboard, String>;
+    /// Put `text` on the clipboard. `sensitive` = a secret: marked so
+    /// clipboard managers and the OS history skip it (X11: served only to
+    /// the focused window's client + `x-kde-passwordManagerHint: secret`;
+    /// macOS `org.nspasteboard.ConcealedType`; Windows
+    /// `ExcludeClipboardContentFromMonitorProcessing` +
+    /// `CanIncludeInClipboardHistory` = 0).
+    fn set_text(&self, text: &str, sensitive: bool) -> Result<(), String>;
+    /// After the paste key: wait until the focused window took the text, at
+    /// most `timeout`.
+    fn wait_pasted(&self, timeout: std::time::Duration) -> Pasted;
+    /// Put `saved` back (empty = clear the clipboard).
+    fn restore(&self, saved: SavedClipboard) -> Result<(), String>;
+    /// The clipboard's text now (`None` = no text on it).
+    fn text(&self) -> Result<Option<String>, String>;
+}
+
 pub(crate) trait Backend: Send {
     /// Every display, the primary marked; never empty.
     fn displays(&self) -> Result<Vec<DisplayInfo>, String>;
@@ -151,6 +201,10 @@ pub(crate) trait Backend: Send {
     /// window, our own input still lands; `on_esc` fires on their Esc.
     /// `Err` = the OS refused (another grab, a missing permission).
     fn lock(&self, on_esc: Box<dyn Fn() + Send + Sync>) -> Result<Box<dyn LockGuard>, String>;
+    /// The clipboard (`paste_text`, `copy_selection`, `read_clipboard`).
+    fn clipboard(&self) -> Result<Box<dyn Clipboard + '_>, String> {
+        Err("This desktop has no clipboard computer use can drive.".to_string())
+    }
 }
 
 /// Why this machine cannot drive anything, if so (no display, Wayland):

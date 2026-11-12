@@ -13,7 +13,7 @@ import {
   type PullRequest,
 } from "@/db/schema"
 import { resolveTeamAccess } from "@/lib/auth/access"
-import { boardVisible } from "@/lib/board-visibility"
+import { boardVisible, issueVisible } from "@/lib/board-visibility"
 import { loadSessionForUser } from "@/lib/sessions/access"
 import { PR_BODY_MAX, prBodyFromPictures } from "@/lib/pr-body"
 import { expandTeamLinksInMarkdown } from "@/lib/app-link"
@@ -185,14 +185,14 @@ interface IssueForPr {
 async function loadNamedIssuesForPr(teamId: string, identifiers: string[]): Promise<IssueForPr[]> {
   if (identifiers.length === 0) return []
   const rows = await issueForPrSelect().where(
-    and(eq(issues.teamId, teamId), inArray(issues.identifier, identifiers), boardVisible())
+    and(eq(issues.teamId, teamId), inArray(issues.identifier, identifiers), boardVisible(), issueVisible())
   )
   return identifiers.flatMap((identifier) => rows.filter((row) => row.identifier === identifier))
 }
 
 async function loadIssuesForPr(ids: string[]): Promise<IssueForPr[]> {
   if (ids.length === 0) return []
-  return issueForPrSelect().where(and(inArray(issues.id, ids), boardVisible()))
+  return issueForPrSelect().where(and(inArray(issues.id, ids), boardVisible(), issueVisible()))
 }
 
 function issueForPrSelect() {
@@ -525,7 +525,7 @@ export async function resolvePullRequest(args: {
     const [issue] = await db
       .select({ teamId: issues.teamId })
       .from(issues)
-      .where(eq(issues.id, args.issueId))
+      .where(and(eq(issues.id, args.issueId), issueVisible()))
       .limit(1)
     if (!issue) fail(`NOT_FOUND`, `Issue not found`)
     await assertPrAccess(args.userId, issue!.teamId)

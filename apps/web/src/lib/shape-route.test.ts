@@ -505,10 +505,14 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
   // EXP-878: attachments additionally drop draft-owned rows (`draft_id` set,
   // `issue_id` NULL) — private to their author, served via tRPC only — so the
   // natives' non-optional issueId keeps holding. The suffix is static too.
+  // #EXP-1797: issues additionally drop TRASHED issues (their own
+  // `deleted_at`, issue-lifecycle.json `trash`), static like the rest.
   const childWhere = (name: string, scope: string) =>
     name === `attachments`
       ? `(${scope}) AND ("issue_id" IS NOT NULL)`
-      : scope
+      : name === `issues`
+        ? `(${scope}) AND ("deleted_at" IS NULL)`
+        : scope
 
   it.each(childRoutes)(
     `%s member branch is team-scoped, trash/archive-aware, and byte-stable`,

@@ -1,5 +1,5 @@
 import { githubFetch } from "@/lib/integrations/github-client"
-import { and, asc, eq, isNotNull, ne, sql } from "drizzle-orm"
+import { and, asc, eq, isNotNull, isNull, ne, sql } from "drizzle-orm"
 import { isPrPictureCard } from "@exp/domain-contract/results-tab"
 import type { MessageCard } from "@exp/db-schema/domain"
 import { db } from "@/db/connection"
@@ -167,7 +167,7 @@ export async function linkedIssuesOfPullRequest(
     .select({ identifier: issues.identifier, title: issues.title })
     .from(pullRequestIssues)
     .innerJoin(issues, eq(issues.id, pullRequestIssues.issueId))
-    .where(and(eq(pullRequestIssues.pullRequestId, pullRequestId), eq(pullRequestIssues.closes, true)))
+    .where(and(eq(pullRequestIssues.pullRequestId, pullRequestId), eq(pullRequestIssues.closes, true), isNull(issues.deletedAt)))
     .orderBy(asc(pullRequestIssues.createdAt))
 }
 

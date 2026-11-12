@@ -76,7 +76,7 @@ final class GlassAlertLayoutTests: XCTestCase {
     // order and focus straight from `prompts.json`.
 
     func testPromptDestructiveConfirmFocusesCancel() {
-        let alert = GlassAlert(prompt: Prompts.DeleteIssue.copy(identifier: "EXP-12"), handlers: [:])
+        let alert = GlassAlert(prompt: Prompts.PurgeIssue.copy(identifier: "EXP-12"), handlers: [:])
         let actions = Mirror(reflecting: alert).descendant("actions") as? [GlassAlertAction] ?? []
         XCTAssertEqual(ids(actions), ["cancel", "delete"])
         XCTAssertEqual(actions.map(\.label), ["Cancel", "Delete"])

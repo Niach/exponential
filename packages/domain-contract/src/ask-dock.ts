@@ -193,19 +193,35 @@ function cardCallRow(name: string | null | undefined): string | null {
 }
 
 /** Where each session card draws: right after the SETTLED, unfailed call
- *  that posted it, paired newest back PER KIND over the legacy calls, then
- *  over the shared `show` calls (S-3: one verb posts every kind); a card
- *  with no call left = `unanchored` (card order, the transcript's head).
- *  `anchors` keys = feed item ids, each list oldest first. */
+ *  that posted it. #FEED-231: a call carrying `cardId` (the message it
+ *  posted or edited, the device's `preview.id`) anchors exactly that card,
+ *  the NEWEST such call winning, and never joins the count pool. The rest
+ *  pair newest back PER KIND over the legacy calls, then over the shared
+ *  `show` calls (S-3: one verb posts every kind), counting only calls with
+ *  no `cardId` (an older device); a card with no call left = `unanchored`
+ *  (card order, the transcript's head). `anchors` keys = feed item ids,
+ *  each list oldest first. */
 export function anchorSessionCards(
-  feed: readonly { id: number; kind: string; name?: string | null; settled?: boolean; failed?: boolean }[],
+  feed: readonly {
+    id: number
+    kind: string
+    name?: string | null
+    settled?: boolean
+    failed?: boolean
+    cardId?: string | null
+  }[],
   cards: readonly { id: string; kind: SessionCardKind }[]
 ): { anchors: Map<number, string[]>; unanchored: string[] } {
   const calls = new Map<string, number[]>()
+  const named = new Map<string, number>()
   for (const item of feed) {
     if (item.kind !== `tool` || item.settled !== true || item.failed === true) continue
     const row = cardCallRow(item.name)
     if (row === null) continue
+    if (item.cardId) {
+      named.set(item.cardId, item.id)
+      continue
+    }
     calls.set(row, [...(calls.get(row) ?? []), item.id])
   }
   const used = new Map<string, number>()
@@ -220,7 +236,7 @@ export function anchorSessionCards(
   }
   for (let i = cards.length - 1; i >= 0; i--) {
     const card = cards[i]!
-    const call = take(SESSION_CARD_CALLS[card.kind]) ?? take(SHOW_CARD_CALL)
+    const call = named.get(card.id) ?? take(SESSION_CARD_CALLS[card.kind]) ?? take(SHOW_CARD_CALL)
     if (call === undefined) unanchored.unshift(card.id)
     else anchors.set(call, [card.id, ...(anchors.get(call) ?? [])])
   }

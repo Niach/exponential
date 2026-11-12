@@ -133,7 +133,9 @@ export async function runEmailDigestSweep(
         // Leave them UNCLAIMED (filtered from the scan, not claim-only): a
         // restore inside the backstop window lets them digest late, and a
         // purge cascade-deletes them.
-        or(isNull(notifications.boardId), boardVisible())
+        or(isNull(notifications.boardId), boardVisible()),
+        // #EXP-1797: same for a trashed issue (NULL on issue-less rows).
+        isNull(issues.deletedAt)
       )
     )
     .orderBy(notifications.createdAt)

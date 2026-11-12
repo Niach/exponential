@@ -39,7 +39,7 @@ image = { workspace = true, features = ["png"] }
 # at runtime on a server. xtest = the input, xinput = the lock (XInput2
 # grabs of the person's own devices), randr = the displays.
 [target.'cfg(target_os = "linux")'.dependencies]
-x11rb = { version = "0.13", features = ["xtest", "xinput", "randr"] }
+x11rb = { version = "0.13", features = ["xtest", "xinput", "randr", "xfixes"] }
 # #EDE-23: on an eDE session (Wayland, no XTest) input, capture and the lock
 # go through the compositor's control plane (`src/backend/ede.rs`); a path
 # dependency inside this repository, so the git tag carries it (#EDE-22).
@@ -54,8 +54,9 @@ core-graphics = { version = "0.24", features = ["highsierra"] }
 foreign-types = "0.5"
 core-foundation = "0.10"
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", features = ["NSRunningApplication", "NSScreen", "NSWorkspace"] }
-objc2-foundation = { version = "0.3", features = ["NSArray", "NSString", "NSEnumerator", "NSGeometry"] }
+# The clipboard (paste_text, copy_selection, read_clipboard): NSPasteboard.
+objc2-app-kit = { version = "0.3", features = ["NSRunningApplication", "NSScreen", "NSWorkspace", "NSPasteboard", "NSPasteboardItem"] }
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSString", "NSEnumerator", "NSGeometry", "NSData"] }
 
 # Windows: SendInput + GDI capture + the low-level hooks lock, raw bindings.
 [target.'cfg(target_os = "windows")'.dependencies]
@@ -63,7 +64,10 @@ windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
     "Win32_Graphics_Dwm",
+    "Win32_System_DataExchange",
     "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_Ole",
     "Win32_System_Threading",
     "Win32_UI_HiDpi",
     "Win32_UI_Input_KeyboardAndMouse",
