@@ -31,6 +31,19 @@ fn input_tools() -> &'static [String] {
     })
 }
 
+/// The tools that press keys into the focused window (`keyTools`).
+fn key_tools() -> &'static [String] {
+    static TOOLS: OnceLock<Vec<String>> = OnceLock::new();
+    TOOLS.get_or_init(|| {
+        fixture()["keyTools"]
+            .as_array()
+            .expect("work-screen keyTools")
+            .iter()
+            .map(|tool| tool.as_str().expect("a key tool name").to_string())
+            .collect()
+    })
+}
+
 /// Whether `tool` acts on the foreground (`inputTools`).
 pub(crate) fn is_input(tool: &str) -> bool {
     input_tools().iter().any(|input| input == tool)
@@ -154,7 +167,7 @@ pub fn gate(state: &State, call: Call<'_>) -> Result<(), Refusal> {
         if state.active_fullscreen && !work.contains(&active) {
             return Err(refuse(GAMING, Fields { display: Some(active), ..Fields::default() }, &work));
         }
-        if matches!(call.tool, "type" | "key") && !work.contains(&active) {
+        if key_tools().iter().any(|tool| tool == call.tool) && !work.contains(&active) {
             return Err(refuse(KEYS_ELSEWHERE, Fields { display: Some(active), ..Fields::default() }, &work));
         }
     }

@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
-use crate::backend::{Backend, Button, DisplayInfo, Image, WindowInfo};
+use crate::backend::{Backend, Button, DisplayInfo, Image, Pasted, WindowInfo};
 use crate::keys::{parse_combo, Key, Named};
 use crate::work_screen;
 
@@ -36,6 +36,12 @@ const CLICK_GAP: Duration = Duration::from_millis(40);
 /// click-to-focus grab (gpui), while the release still lands.
 const MOVE_SETTLE: Duration = Duration::from_millis(30);
 const WAIT_MAX_SECONDS: f64 = 10.0;
+/// A `paste_text`'s ceiling.
+const PASTE_MAX_CHARS: usize = 100_000;
+/// How long the focused window gets to take a paste, and a copy to land.
+const CLIPBOARD_TIMEOUT: Duration = Duration::from_secs(2);
+/// After the target took a paste: it may pull a second format.
+const PASTE_SETTLE: Duration = Duration::from_millis(150);
 
 /// Screen units ↔ frame pixels, for one display.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -112,7 +118,15 @@ pub(crate) fn list() -> Value {
             "x": { "type": "number" }, "y": { "type": "number" },
             "direction": { "type": "string", "enum": ["up", "down", "left", "right"] },
             "amount": { "type": "integer", "description": "Wheel notches (default 3)", "minimum": 1, "maximum": 50 } }, "required": ["x", "y", "direction"] } },
-        { "name": "type", "description": format!("Type text into the focused control (at most {TYPE_MAX_CHARS} characters; a newline presses Return)."), "inputSchema": { "type": "object", "properties": { "text": { "type": "string" } }, "required": ["text"] } },
+        { "name": "type", "description": format!("Type text into the focused control key by key (at most {TYPE_MAX_CHARS} characters; a newline presses Return). For more than a few characters, or a secret, use paste_text."), "inputSchema": { "type": "object", "properties": { "text": { "type": "string" } }, "required": ["text"] } },
+        { "name": "paste_text", "description": format!("Paste text into the focused control in one step: the clipboard is saved, set to the text, the paste shortcut pressed once, then the old clipboard put back. Prefer it to `type` for anything longer than a few characters (at most {PASTE_MAX_CHARS} characters). `sensitive: true` for a secret (password, token, key): clipboard managers and the OS clipboard history never see it, and the answer never repeats it. `file` instead of `text` reads the text from a local file (one trailing newline dropped), so a secret never enters the conversation."), "inputSchema": { "type": "object", "properties": {
+            "text": { "type": "string", "description": "The text (or give `file`)" },
+            "file": { "type": "string", "description": "An absolute path whose contents are the text" },
+            "sensitive": { "type": "boolean", "description": "A secret: kept out of clipboard managers and history, never echoed (default false)" },
+            "shortcut": { "type": "string", "description": format!("The paste combo when the app uses another one, e.g. \"ctrl+shift+v\" in a terminal (default {DEFAULT_PASTE})") } } } },
+        { "name": "copy_selection", "description": "Copy the focused window's current selection and answer its text; the person's clipboard is put back afterwards. Select first (drag, double_click, ctrl+a).", "inputSchema": { "type": "object", "properties": {
+            "shortcut": { "type": "string", "description": format!("The copy combo when the app uses another one, e.g. \"ctrl+shift+c\" in a terminal (default {DEFAULT_COPY})") } } } },
+        { "name": "read_clipboard", "description": "The clipboard's text, only right after your own last click or key copied something (an app's Copy button, a copy shortcut). Never the person's clipboard: anything else is refused.", "inputSchema": none },
         { "name": "key", "description": "Press one key or combo: \"Return\", \"ctrl+s\", \"alt+Tab\", \"cmd+space\", \"F5\". Modifiers: ctrl, shift, alt, super/cmd.", "inputSchema": { "type": "object", "properties": { "combo": { "type": "string" } }, "required": ["combo"] } },
         { "name": "wait", "description": format!("Wait for the screen to settle (at most {WAIT_MAX_SECONDS} seconds), then take a screenshot."), "inputSchema": { "type": "object", "properties": { "seconds": { "type": "number", "minimum": 0, "maximum": WAIT_MAX_SECONDS } } } }
     ])
@@ -146,6 +160,10 @@ fn point(args: &Value, frame: Frame, x: &str, y: &str) -> Result<(i32, i32), Str
 pub(crate) struct CallContext<'a> {
     pub interrupted: &'a dyn Fn() -> bool,
     pub display: &'a mut Option<usize>,
+    /// The clipboard's change count just before the run's last click or
+    /// key: `read_clipboard` reads only a change made since (the run's own
+    /// copy). `None` = nothing armed.
+    pub copy_mark: &'a mut Option<u64>,
     /// `launch_defaults.computerUseDisplayId` (a display id; `None` = Auto).
     pub picked: Option<String>,
     /// Takes the person's input; runs once the call passed the gate, so a
@@ -328,6 +346,7 @@ fn dispatch(
         }
         "left_click" | "right_click" | "middle_click" | "double_click" => {
             let (x, y) = point(args, frame, "x", "y")?;
+            *ctx.copy_mark = clipboard_mark(backend);
             let (button, clicks) = match name {
                 "right_click" => (Button::Right, 1),
                 "middle_click" => (Button::Middle, 1),
@@ -416,18 +435,148 @@ fn dispatch(
         }
         "key" => {
             let combo = parse_combo(args.get("combo").and_then(Value::as_str).unwrap_or_default())?;
-            for modifier in &combo.modifiers {
-                backend.key(Key::Named(*modifier), true)?;
-            }
-            let pressed = press(backend, combo.key);
-            for modifier in combo.modifiers.iter().rev() {
-                backend.key(Key::Named(*modifier), false)?;
-            }
-            pressed?;
+            *ctx.copy_mark = clipboard_mark(backend);
+            press_combo(backend, &combo)?;
             Ok(ok("Pressed.", json!({})))
+        }
+        "paste_text" => {
+            let text = paste_source(args)?;
+            let sensitive = args.get("sensitive").and_then(Value::as_bool).unwrap_or(false);
+            let combo = shortcut(args, DEFAULT_PASTE)?;
+            *ctx.copy_mark = None;
+            paste(backend, &text, sensitive, &combo, interrupted)
+        }
+        "copy_selection" => {
+            let combo = shortcut(args, DEFAULT_COPY)?;
+            *ctx.copy_mark = None;
+            copy(backend, &combo, interrupted)
+        }
+        "read_clipboard" => {
+            let Some(mark) = ctx.copy_mark.take() else {
+                return Err(READ_REFUSED.to_string());
+            };
+            let clipboard = backend.clipboard()?;
+            if clipboard.change_count()? == mark {
+                // Not yet: an app may copy a moment after the click.
+                *ctx.copy_mark = Some(mark);
+                return Err("The clipboard has not changed since your last click or key, so there is nothing of yours to read yet.".to_string());
+            }
+            let text = clipboard.text()?.ok_or("What was copied is not text.")?;
+            let count = text.chars().count();
+            Ok(ok(text, json!({ "characters": count })))
         }
         other => Err(format!("Unknown tool {other}.")),
     }
+}
+
+/// The platform's paste and copy combos.
+const DEFAULT_PASTE: &str = if cfg!(target_os = "macos") { "cmd+v" } else { "ctrl+v" };
+const DEFAULT_COPY: &str = if cfg!(target_os = "macos") { "cmd+c" } else { "ctrl+c" };
+
+const READ_REFUSED: &str = "read_clipboard reads only what your own last click or key copied (an app's Copy button, a copy shortcut), never the person's clipboard. Copy first, or use copy_selection.";
+
+fn press_combo(backend: &dyn Backend, combo: &crate::keys::Combo) -> Result<(), String> {
+    for modifier in &combo.modifiers {
+        backend.key(Key::Named(*modifier), true)?;
+    }
+    let pressed = press(backend, combo.key);
+    for modifier in combo.modifiers.iter().rev() {
+        backend.key(Key::Named(*modifier), false)?;
+    }
+    pressed
+}
+
+fn shortcut(args: &Value, default: &str) -> Result<crate::keys::Combo, String> {
+    parse_combo(args.get("shortcut").and_then(Value::as_str).map(str::trim).filter(|combo| !combo.is_empty()).unwrap_or(default))
+}
+
+/// The clipboard's change count now, where the desktop has one.
+fn clipboard_mark(backend: &dyn Backend) -> Option<u64> {
+    backend.clipboard().and_then(|clipboard| clipboard.change_count()).ok()
+}
+
+/// `paste_text`'s text: `text`, or `file`'s contents less one trailing
+/// newline. Never logged or echoed.
+fn paste_source(args: &Value) -> Result<String, String> {
+    let text = match (args.get("text").and_then(Value::as_str), args.get("file").and_then(Value::as_str)) {
+        (Some(text), None) => text.to_string(),
+        (None, Some(path)) => {
+            let mut text = std::fs::read_to_string(path).map_err(|err| format!("Could not read `file` ({err})."))?;
+            if text.ends_with('\n') {
+                text.pop();
+                if text.ends_with('\r') {
+                    text.pop();
+                }
+            }
+            text
+        }
+        _ => return Err("Give either `text` or `file`.".to_string()),
+    };
+    let count = text.chars().count();
+    if text.is_empty() {
+        return Err("There is no text to paste.".to_string());
+    }
+    if count > PASTE_MAX_CHARS {
+        return Err(format!("The text is {count} characters; the limit is {PASTE_MAX_CHARS}."));
+    }
+    Ok(text)
+}
+
+/// Save, set, press once, put back. The person's clipboard is back
+/// whatever happens after it was saved.
+fn paste(backend: &dyn Backend, text: &str, sensitive: bool, combo: &crate::keys::Combo, interrupted: &dyn Fn() -> bool) -> Result<Value, String> {
+    let clipboard = backend.clipboard()?;
+    let saved = clipboard.save().map_err(|err| format!("Could not keep the clipboard ({err}); nothing was pasted."))?;
+    let pasted = (|| {
+        clipboard.set_text(text, sensitive)?;
+        if interrupted() {
+            return Err(ABORTED.to_string());
+        }
+        press_combo(backend, combo)?;
+        let pasted = clipboard.wait_pasted(CLIPBOARD_TIMEOUT);
+        if pasted == Pasted::Taken {
+            std::thread::sleep(PASTE_SETTLE);
+        }
+        Ok(pasted)
+    })();
+    let restored = clipboard.restore(saved);
+    let pasted = pasted?;
+    let note = match &restored {
+        Ok(()) => "the clipboard is as it was".to_string(),
+        Err(err) => format!("the old clipboard could not be put back ({err})"),
+    };
+    if pasted == Pasted::Missed {
+        return Err(format!("The focused window did not take the paste (is a text field focused?); {note}."));
+    }
+    let what = if sensitive { "the sensitive text".to_string() } else { format!("{} characters", text.chars().count()) };
+    Ok(ok(format!("Pasted {what}; {note}."), json!({ "restored": restored.is_ok() })))
+}
+
+/// Press copy, wait for the clipboard to change, read it, put it back.
+fn copy(backend: &dyn Backend, combo: &crate::keys::Combo, interrupted: &dyn Fn() -> bool) -> Result<Value, String> {
+    let clipboard = backend.clipboard()?;
+    let saved = clipboard.save().map_err(|err| format!("Could not keep the clipboard ({err}); nothing was copied."))?;
+    let copied = (|| {
+        let before = clipboard.change_count()?;
+        press_combo(backend, combo)?;
+        let until = std::time::Instant::now() + CLIPBOARD_TIMEOUT;
+        while clipboard.change_count()? == before {
+            if interrupted() {
+                return Err(ABORTED.to_string());
+            }
+            if std::time::Instant::now() >= until {
+                return Ok(None);
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        clipboard.text()
+    })();
+    let restored = clipboard.restore(saved);
+    let Some(text) = copied? else {
+        return Err("Nothing was copied: the selection is empty, not text, or the window ignored the shortcut.".to_string());
+    };
+    let count = text.chars().count();
+    Ok(ok(text, json!({ "characters": count, "restored": restored.is_ok() })))
 }
 
 /// What a call answers once the person pressed Esc.
@@ -495,6 +644,7 @@ pub(crate) fn base64(bytes: &[u8]) -> String {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use crate::backend::Clipboard;
     use std::sync::Mutex;
 
     /// A backend that records what it was asked: a 2000x1000 primary display
@@ -507,6 +657,60 @@ pub(crate) mod tests {
         pub gaming: bool,
         /// The window list fails (#1295 review: input fails closed).
         pub no_windows: bool,
+        pub clip: Mutex<FakeClip>,
+    }
+
+    /// The fake clipboard: its text, change count, what the focused app
+    /// copies on ctrl+c and whether it takes a paste.
+    #[derive(Default)]
+    pub(crate) struct FakeClip {
+        pub text: Option<String>,
+        pub count: u64,
+        pub copies: Option<String>,
+        pub refuses_paste: bool,
+    }
+
+    struct FakeClipboard<'a>(&'a FakeBackend);
+
+    impl FakeClipboard<'_> {
+        fn log(&self, line: String) {
+            self.0.log.lock().unwrap().push(line);
+        }
+    }
+
+    impl Clipboard for FakeClipboard<'_> {
+        fn change_count(&self) -> Result<u64, String> {
+            Ok(self.0.clip.lock().unwrap().count)
+        }
+        fn save(&self) -> Result<crate::backend::SavedClipboard, String> {
+            self.log("clip save".into());
+            let text = self.0.clip.lock().unwrap().text.clone();
+            Ok(crate::backend::SavedClipboard { formats: text.map(|text| vec![("text".to_string(), text.into_bytes())]).unwrap_or_default() })
+        }
+        fn set_text(&self, text: &str, sensitive: bool) -> Result<(), String> {
+            self.log(format!("clip set {}", if sensitive { "<secret>" } else { text }));
+            let mut clip = self.0.clip.lock().unwrap();
+            clip.text = Some(text.to_string());
+            clip.count += 1;
+            Ok(())
+        }
+        fn wait_pasted(&self, _timeout: Duration) -> Pasted {
+            if self.0.clip.lock().unwrap().refuses_paste {
+                Pasted::Missed
+            } else {
+                Pasted::Taken
+            }
+        }
+        fn restore(&self, saved: crate::backend::SavedClipboard) -> Result<(), String> {
+            self.log(format!("clip restore {}", saved.formats.len()));
+            let mut clip = self.0.clip.lock().unwrap();
+            clip.text = saved.formats.into_iter().next().map(|(_, bytes)| String::from_utf8(bytes).unwrap());
+            clip.count += 1;
+            Ok(())
+        }
+        fn text(&self) -> Result<Option<String>, String> {
+            Ok(self.0.clip.lock().unwrap().text.clone())
+        }
     }
 
     impl Backend for FakeBackend {
@@ -553,7 +757,17 @@ pub(crate) mod tests {
         }
         fn key(&self, key: Key, down: bool) -> Result<(), String> {
             self.log.lock().unwrap().push(format!("key {key:?} {}", if down { "down" } else { "up" }));
+            let mut clip = self.clip.lock().unwrap();
+            if key == Key::Char('c') && down {
+                if let Some(copied) = clip.copies.clone() {
+                    clip.text = Some(copied);
+                    clip.count += 1;
+                }
+            }
             Ok(())
+        }
+        fn clipboard(&self) -> Result<Box<dyn Clipboard + '_>, String> {
+            Ok(Box::new(FakeClipboard(self)))
         }
         fn type_char(&self, ch: char) -> Result<(), String> {
             self.log.lock().unwrap().push(format!("type {ch}"));
@@ -581,7 +795,7 @@ pub(crate) mod tests {
     /// A call with a fresh display memory.
     fn one(backend: &dyn Backend, name: &str, args: Value) -> Value {
         let mut display = None;
-        call(backend, name, &args, &mut CallContext { interrupted: &never, display: &mut display, picked: None, engage: &engaged })
+        call(backend, name, &args, &mut CallContext { interrupted: &never, display: &mut display, copy_mark: &mut None, picked: None, engage: &engaged })
     }
 
     #[test]
@@ -636,13 +850,13 @@ pub(crate) mod tests {
     fn a_run_switches_display_with_the_screenshot_and_keeps_it() {
         let backend = FakeBackend::default();
         let mut display = None;
-        let mut ctx = CallContext { interrupted: &never, display: &mut display, picked: None, engage: &engaged };
+        let mut ctx = CallContext { interrupted: &never, display: &mut display, copy_mark: &mut None, picked: None, engage: &engaged };
         let shot = call(&backend, "screenshot", &json!({ "display": 1 }), &mut ctx);
         assert_eq!(shot["structuredContent"]["width"], 800);
         assert_eq!(shot["structuredContent"]["display"], 1);
         call(&backend, "left_click", &json!({ "x": 0, "y": 0 }), &mut ctx);
         assert_eq!(display, Some(1));
-        let mut ctx = CallContext { interrupted: &never, display: &mut display, picked: None, engage: &engaged };
+        let mut ctx = CallContext { interrupted: &never, display: &mut display, copy_mark: &mut None, picked: None, engage: &engaged };
         let missing = call(&backend, "screenshot", &json!({ "display": 9 }), &mut ctx);
         assert_eq!(missing["isError"], true);
         assert_eq!(backend.log.lock().unwrap().as_slice(), ["shot B", "move 2000,0", "Left down", "Left up"]);
@@ -658,7 +872,7 @@ pub(crate) mod tests {
         );
         backend.log.lock().unwrap().clear();
         let mut display = None;
-        let reply = call(&backend, "type", &json!({ "text": "abc" }), &mut CallContext { interrupted: &|| true, display: &mut display, picked: None, engage: &engaged });
+        let reply = call(&backend, "type", &json!({ "text": "abc" }), &mut CallContext { interrupted: &|| true, display: &mut display, copy_mark: &mut None, picked: None, engage: &engaged });
         assert_eq!(reply["isError"], true);
         assert!(backend.log.lock().unwrap().is_empty());
         let too_long = one(&backend, "type", json!({ "text": "x".repeat(TYPE_MAX_CHARS + 1) }));
@@ -692,7 +906,7 @@ pub(crate) mod tests {
         let mut display = None;
         let mut run = |name: &str, args: Value, picked: Option<&str>| {
             let picked = picked.map(str::to_string);
-            call(&backend, name, &args, &mut CallContext { interrupted: &never, display: &mut display, picked, engage: &engage })
+            call(&backend, name, &args, &mut CallContext { interrupted: &never, display: &mut display, copy_mark: &mut None, picked, engage: &engage })
         };
         let click = run("left_click", json!({ "x": 1, "y": 1 }), None);
         assert_eq!(click["isError"], true);
@@ -737,7 +951,7 @@ pub(crate) mod tests {
         let mut display = None;
         let mut run = |name: &str, args: Value, picked: Option<&str>| {
             let picked = picked.map(str::to_string);
-            call(&backend, name, &args, &mut CallContext { interrupted: &never, display: &mut display, picked, engage: &engage })
+            call(&backend, name, &args, &mut CallContext { interrupted: &never, display: &mut display, copy_mark: &mut None, picked, engage: &engage })
         };
         for picked in [None, Some("uuid-A")] {
             for (name, args) in [("type", json!({ "text": "x" })), ("left_click", json!({ "x": 1, "y": 1 })), ("list_windows", json!({}))] {
@@ -763,6 +977,96 @@ pub(crate) mod tests {
         assert_eq!(base64(b"fo"), "Zm8=");
         assert_eq!(base64(b"foo"), "Zm9v");
         assert_eq!(base64(b"foobar"), "Zm9vYmFy");
+    }
+
+
+    fn person_clipboard(backend: &FakeBackend, text: &str) {
+        let mut clip = backend.clip.lock().unwrap();
+        clip.text = Some(text.to_string());
+        clip.count = 10;
+    }
+
+    #[test]
+    fn paste_text_saves_sets_presses_once_and_restores() {
+        let backend = FakeBackend::default();
+        person_clipboard(&backend, "the person's");
+        let reply = one(&backend, "paste_text", json!({ "text": "hello" }));
+        assert_eq!(reply["isError"], Value::Null, "{reply}");
+        assert_eq!(
+            backend.log.lock().unwrap().as_slice(),
+            ["clip save", "clip set hello", "key Named(Control) down", "key Char('v') down", "key Char('v') up", "key Named(Control) up", "clip restore 1"]
+        );
+        assert_eq!(backend.clip.lock().unwrap().text.as_deref(), Some("the person's"));
+        assert!(reply["content"][0]["text"].as_str().unwrap().starts_with("Pasted 5 characters"));
+    }
+
+    #[test]
+    fn a_sensitive_paste_never_echoes_and_a_missed_paste_still_restores() {
+        let backend = FakeBackend::default();
+        person_clipboard(&backend, "before");
+        let dir = std::env::temp_dir().join(format!("epilot-paste-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("secret");
+        std::fs::write(&file, "hunter2\n").unwrap();
+        let reply = one(&backend, "paste_text", json!({ "file": file, "sensitive": true, "shortcut": "ctrl+shift+v" }));
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(reply["isError"], Value::Null, "{reply}");
+        assert!(!reply.to_string().contains("hunter2"), "{reply}");
+        let log = backend.log.lock().unwrap().join("|");
+        assert!(log.contains("clip set <secret>") && log.contains("key Named(Shift) down") && log.ends_with("clip restore 1"), "{log}");
+        assert_eq!(backend.clip.lock().unwrap().text.as_deref(), Some("before"));
+
+        backend.clip.lock().unwrap().refuses_paste = true;
+        let missed = one(&backend, "paste_text", json!({ "text": "x" }));
+        assert_eq!(missed["isError"], true);
+        assert_eq!(backend.clip.lock().unwrap().text.as_deref(), Some("before"));
+        assert_eq!(one(&backend, "paste_text", json!({}))["isError"], true);
+        assert_eq!(one(&backend, "paste_text", json!({ "text": "a", "file": "/x" }))["isError"], true);
+        assert_eq!(one(&backend, "paste_text", json!({ "text": "x".repeat(PASTE_MAX_CHARS + 1) }))["isError"], true);
+    }
+
+    #[test]
+    fn copy_selection_answers_the_text_and_puts_the_clipboard_back() {
+        let backend = FakeBackend::default();
+        person_clipboard(&backend, "mine");
+        backend.clip.lock().unwrap().copies = Some("selected words".into());
+        let reply = one(&backend, "copy_selection", json!({}));
+        assert_eq!(reply["content"][0]["text"], "selected words", "{reply}");
+        assert_eq!(backend.clip.lock().unwrap().text.as_deref(), Some("mine"));
+        // Nothing copied: an error, the clipboard untouched.
+        backend.clip.lock().unwrap().copies = None;
+        let mut display = None;
+        let none = call(&backend, "copy_selection", &json!({}), &mut CallContext { interrupted: &never, display: &mut display, copy_mark: &mut None, picked: None, engage: &engaged });
+        assert_eq!(none["isError"], true);
+        assert_eq!(backend.clip.lock().unwrap().text.as_deref(), Some("mine"));
+    }
+
+    #[test]
+    fn read_clipboard_reads_only_the_runs_own_copy() {
+        let backend = FakeBackend::default();
+        person_clipboard(&backend, "the person's secret");
+        let mut display = None;
+        let mut mark = None;
+        let mut run = |name: &str, args: Value| {
+            call(&backend, name, &args, &mut CallContext { interrupted: &never, display: &mut display, copy_mark: &mut mark, picked: None, engage: &engaged })
+        };
+        // No action of the run's yet: the person's clipboard stays theirs.
+        let ambient = run("read_clipboard", json!({}));
+        assert_eq!(ambient["isError"], true);
+        assert!(!ambient.to_string().contains("secret"));
+        // A click that copies nothing: still refused.
+        run("left_click", json!({ "x": 1, "y": 1 }));
+        let unchanged = run("read_clipboard", json!({}));
+        assert_eq!(unchanged["isError"], true);
+        assert!(!unchanged.to_string().contains("secret"));
+        // The run's own copy shortcut: readable once.
+        backend.clip.lock().unwrap().copies = Some("a token".into());
+        run("key", json!({ "combo": "ctrl+c" }));
+        assert_eq!(run("read_clipboard", json!({}))["content"][0]["text"], "a token");
+        assert_eq!(run("read_clipboard", json!({}))["isError"], true);
+        // A paste's own restore never arms it.
+        run("paste_text", json!({ "text": "x" }));
+        assert_eq!(run("read_clipboard", json!({}))["isError"], true);
     }
 
     #[test]

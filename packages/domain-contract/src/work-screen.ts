@@ -10,6 +10,8 @@ import fixture from "../fixtures/work-screen.json" with { type: "json" }
 export const WORK_SCREEN_COPY = fixture.copy
 export const WORK_SCREEN_TEST_IDS = fixture.testIds
 export const WORK_SCREEN_INPUT_TOOLS: readonly string[] = fixture.inputTools
+/** The tools that press keys into the focused window (`keysElsewhere`). */
+export const WORK_SCREEN_KEY_TOOLS: readonly string[] = fixture.keyTools
 /** #FEED-164: a string-keyed picker's keys (web, the IDE, Android). */
 export const WORK_SCREEN_PICKER_KEYS = fixture.pickerKeys
 
@@ -157,7 +159,7 @@ export function workScreenGate(state: WorkScreenState, call: WorkScreenCall): Wo
     if (state.activeFullscreen && !work.includes(state.active)) {
       return refuse(`gaming`, { display: state.active }, work)
     }
-    if ((call.tool === `type` || call.tool === `key`) && !work.includes(state.active)) {
+    if (WORK_SCREEN_KEY_TOOLS.includes(call.tool) && !work.includes(state.active)) {
       return refuse(`keysElsewhere`, { display: state.active }, work)
     }
   }

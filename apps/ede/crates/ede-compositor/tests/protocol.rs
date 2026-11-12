@@ -614,3 +614,206 @@ fn relative_motion_and_scrolling() {
     ipc.input(InputEvent::PointerAxis { dx: 0.0, dy: 30.0 }).unwrap();
     ipc.input(InputEvent::PointerAxisDiscrete { dx: 0, dy: -2 }).unwrap();
 }
+
+fn item(mime: &str, data: &[u8]) -> ede_protocol::ClipboardItem {
+    ede_protocol::ClipboardItem { mime: mime.into(), data: data.to_vec() }
+}
+
+/// Runs `call` on its own thread (a deferred clipboard read waits for the
+/// client) while `app` pumps its events.
+fn pumped<R: Send + 'static>(app: &mut Session, call: impl FnOnce() -> R + Send + 'static) -> R {
+    let handle = std::thread::spawn(call);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !handle.is_finished() {
+        assert!(Instant::now() < deadline, "the clipboard call never answered");
+        app.roundtrip();
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    handle.join().unwrap()
+}
+
+/// ePilot's paste on eDE: the compositor owns a selection, the focused
+/// client sees and reads it (`taken`), a client's own selection moves the
+/// serial and is read back through pipes (a hung type dropped after its
+/// timeout), and an empty set clears it.
+#[test]
+fn the_clipboard_is_set_read_back_and_taken() {
+    let h = harness();
+    let mut app = Session::connect(h.connect());
+    app.keyboard();
+    let t = app.toplevel("editor");
+    app.draw(&t, 300, 200, BLUE);
+    wait_for(&mut app, |c| c.state.keyboard_focus.is_some());
+    let device = app.data_device();
+
+    let mut ipc = h.ipc();
+    let grant = ipc.mint(SessionId::new("epilot").unwrap(), vec![Capability::Capture, Capability::InputPerson], None).unwrap();
+    let mut epilot = h.ipc_with(grant.token).unwrap();
+    let capture_only = ipc.mint(SessionId::new("viewer").unwrap(), vec![Capability::Capture], None).unwrap();
+    assert_eq!(code(h.ipc_with(capture_only.token).unwrap().clipboard_serial().unwrap_err()), ErrorCode::Forbidden);
+
+    let before = epilot.clipboard_serial().unwrap();
+    assert_eq!(epilot.clipboard_text().unwrap().text, None);
+    let serial = epilot.clipboard_set(vec![item("text/plain;charset=utf-8", b"hunter2"), item("text/plain", b"hunter2")], true).unwrap();
+    assert!(serial > before);
+    assert_eq!(epilot.clipboard_serial().unwrap(), serial);
+    let snapshot = epilot.clipboard_snapshot().unwrap();
+    assert_eq!(snapshot.serial, serial);
+    let mimes: Vec<&str> = snapshot.items.iter().map(|i| i.mime.as_str()).collect();
+    assert_eq!(mimes, ["text/plain;charset=utf-8", "text/plain", ede_protocol::CLIPBOARD_SECRET_HINT]);
+    assert_eq!(snapshot.items[2].data, b"secret");
+    assert_eq!(epilot.clipboard_text().unwrap().text.as_deref(), Some("hunter2"));
+
+    // The focused client is offered it; reading the hint is not a paste.
+    wait_for(&mut app, |c| c.selection_types().is_some_and(|t| t.len() == 3));
+    assert_eq!(app.read_selection(ede_protocol::CLIPBOARD_SECRET_HINT), b"secret");
+    assert_eq!(epilot.clipboard_taken(serial).unwrap(), ede_protocol::ClipboardTaken { serial, taken: false });
+    assert_eq!(app.read_selection("text/plain"), b"hunter2");
+    assert_eq!(epilot.clipboard_taken(serial).unwrap(), ede_protocol::ClipboardTaken { serial, taken: true });
+
+    // Larger than a pipe's buffer: written as the reader drains it.
+    let big: Vec<u8> = (0..600_000u32).map(|i| (i % 251) as u8).collect();
+    let serial = epilot.clipboard_set(vec![item("application/octet-stream", &big)], false).unwrap();
+    wait_for(&mut app, |c| c.selection_types().is_some_and(|t| t == ["application/octet-stream"]));
+    assert_eq!(app.read_selection("application/octet-stream"), big);
+    assert!(epilot.clipboard_taken(serial).unwrap().taken);
+
+    // The client takes the clipboard: the serial moves past ours.
+    let _source = app.set_selection(&device, &[("text/plain;charset=utf-8", Some("copied ü".as_bytes())), ("application/x-hang", None), ("text/html", Some(b"<b>copied</b>"))]);
+    let theirs = epilot.clipboard_serial().unwrap();
+    assert!(theirs > serial);
+    assert_eq!(epilot.clipboard_taken(serial).unwrap(), ede_protocol::ClipboardTaken { serial: theirs, taken: false });
+
+    let started = Instant::now();
+    let (snapshot, epilot) = pumped(&mut app, move || (epilot.clipboard_snapshot().unwrap(), epilot));
+    let mut epilot = epilot;
+    assert!(started.elapsed() < Duration::from_secs(3), "the hung type timed out: {:?}", started.elapsed());
+    assert_eq!(snapshot.serial, theirs);
+    let read: Vec<(&str, &[u8])> = snapshot.items.iter().map(|i| (i.mime.as_str(), i.data.as_slice())).collect();
+    assert_eq!(read, [("text/plain;charset=utf-8", "copied ü".as_bytes()), ("text/html", b"<b>copied</b>".as_slice())]);
+    let (text, epilot2) = pumped(&mut app, move || (epilot.clipboard_text().unwrap(), epilot));
+    epilot = epilot2;
+    assert_eq!(text.text.as_deref(), Some("copied ü"));
+    // The connection still answers in order after the deferred replies.
+    assert_eq!(epilot.clipboard_serial().unwrap(), theirs);
+
+    // Restore = set the saved items back; empty = clear.
+    let restored = epilot.clipboard_set(snapshot.items.clone(), false).unwrap();
+    wait_for(&mut app, |c| c.state.source_cancelled);
+    assert_eq!(epilot.clipboard_snapshot().unwrap().items, snapshot.items);
+    let cleared = epilot.clipboard_set(vec![], false).unwrap();
+    assert!(cleared > restored);
+    wait_for(&mut app, |c| c.state.selection.is_none());
+    assert_eq!(epilot.clipboard_snapshot().unwrap(), ede_protocol::ClipboardSnapshot { serial: cleared, items: vec![] });
+    assert_eq!(epilot.clipboard_text().unwrap().text, None);
+}
+
+/// The clipboard across Xwayland: an X11 client pastes the selection
+/// eDE set (and that counts as taken), and eDE snapshots an X11 client's
+/// selection through the XWM. Xwayland must be installed; skipped otherwise.
+#[cfg(feature = "xwayland")]
+#[test]
+fn the_clipboard_crosses_xwayland_both_ways() {
+    use x11rb::{
+        connection::Connection,
+        protocol::{
+            xproto::{AtomEnum, ConnectionExt as _, CreateWindowAux, EventMask, PropMode, SelectionNotifyEvent, WindowClass, SELECTION_NOTIFY_EVENT},
+            Event,
+        },
+        wrapper::ConnectionExt as _,
+        CURRENT_TIME,
+    };
+    if std::process::Command::new("Xwayland").arg("-version").output().is_err() {
+        eprintln!("skipped: no Xwayland binary");
+        return;
+    }
+    let h = harness();
+    h.with(|ede| ede.start_xwayland());
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let display = loop {
+        if let Some(n) = h.with(|ede| ede.xdisplay) {
+            break n;
+        }
+        assert!(Instant::now() < deadline, "Xwayland never became ready");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    let (conn, screen) = x11rb::connect(Some(&format!(":{display}"))).expect("connect to Xwayland");
+    let root = conn.setup().roots[screen].root;
+    let win = conn.generate_id().unwrap();
+    conn.create_window(x11rb::COPY_DEPTH_FROM_PARENT, win, root, 0, 0, 200, 100, 0, WindowClass::INPUT_OUTPUT, 0, &CreateWindowAux::new().event_mask(EventMask::PROPERTY_CHANGE))
+        .unwrap();
+    conn.map_window(win).unwrap();
+    conn.flush().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !h.with(|ede| ede.focused_window().is_some_and(|w| w.x11_surface().is_some())) {
+        assert!(Instant::now() < deadline, "the X11 window never took focus");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let atom = |name: &str| conn.intern_atom(false, name.as_bytes()).unwrap().reply().unwrap().atom;
+    let (clipboard, utf8, targets, prop) = (atom("CLIPBOARD"), atom("UTF8_STRING"), atom("TARGETS"), atom("EDE_TEST"));
+
+    let mut ipc = h.ipc();
+    let serial = ipc.clipboard_set(vec![item("text/plain;charset=utf-8", b"from ede"), item("UTF8_STRING", b"from ede")], false).unwrap();
+    // X11 pastes: convert CLIPBOARD to UTF8_STRING (retried until the XWM owns it).
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let pasted = 'paste: loop {
+        assert!(Instant::now() < deadline, "the X11 client never got the selection");
+        conn.convert_selection(win, clipboard, utf8, prop, CURRENT_TIME).unwrap();
+        conn.flush().unwrap();
+        let wait = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < wait {
+            match conn.poll_for_event().unwrap() {
+                Some(Event::SelectionNotify(n)) if n.property == prop => {
+                    let reply = conn.get_property(true, win, prop, AtomEnum::ANY, 0, u32::MAX).unwrap().reply().unwrap();
+                    break 'paste reply.value;
+                }
+                Some(Event::SelectionNotify(_)) => break,
+                _ => std::thread::sleep(Duration::from_millis(10)),
+            }
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert_eq!(pasted, b"from ede");
+    assert!(ipc.clipboard_taken(serial).unwrap().taken);
+
+    // X11 copies: eDE reads it back through the XWM.
+    conn.set_selection_owner(win, clipboard, CURRENT_TIME).unwrap();
+    conn.flush().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while ipc.clipboard_serial().unwrap() == serial {
+        assert!(Instant::now() < deadline, "the X11 selection never reached eDE");
+        // Answer the XWM's TARGETS query meanwhile.
+        serve_x11(&conn, win, targets, utf8, b"from x11");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let handle = std::thread::spawn(move || (ipc.clipboard_text().unwrap(), ipc.clipboard_snapshot().unwrap()));
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !handle.is_finished() {
+        assert!(Instant::now() < deadline, "the X11 read never answered");
+        serve_x11(&conn, win, targets, utf8, b"from x11");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let (text, snapshot) = handle.join().unwrap();
+    assert_eq!(text.text.as_deref(), Some("from x11"));
+    assert!(snapshot.items.iter().any(|i| i.data == b"from x11"), "{:?}", snapshot.items);
+
+    /// Answers pending SelectionRequests: TARGETS and UTF8_STRING.
+    fn serve_x11(conn: &impl Connection, win: u32, targets: u32, utf8: u32, text: &[u8]) {
+        while let Some(event) = conn.poll_for_event().unwrap() {
+            let Event::SelectionRequest(r) = event else { continue };
+            let property = if r.target == targets {
+                conn.change_property32(PropMode::REPLACE, r.requestor, r.property, AtomEnum::ATOM, &[targets, utf8]).unwrap();
+                r.property
+            } else if r.target == utf8 {
+                conn.change_property8(PropMode::REPLACE, r.requestor, r.property, utf8, text).unwrap();
+                r.property
+            } else {
+                x11rb::NONE
+            };
+            let notify = SelectionNotifyEvent { response_type: SELECTION_NOTIFY_EVENT, sequence: 0, time: r.time, requestor: r.requestor, selection: r.selection, target: r.target, property };
+            conn.send_event(false, r.requestor, EventMask::NO_EVENT, notify).unwrap();
+            conn.flush().unwrap();
+        }
+        let _ = win;
+    }
+}

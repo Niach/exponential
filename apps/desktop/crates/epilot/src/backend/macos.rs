@@ -16,6 +16,7 @@
 //! space (origin top-left of the main display, y down).
 
 use std::cell::Cell;
+use std::collections::BTreeMap;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -43,9 +44,14 @@ use core_graphics::window::{
     kCGWindowListOptionOnScreenOnly, kCGWindowName, kCGWindowNumber, kCGWindowOwnerName, kCGWindowOwnerPID,
 };
 use foreign_types::ForeignType;
-use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication, NSWorkspace};
+use objc2::rc::Retained;
+use objc2::runtime::ProtocolObject;
+use objc2_app_kit::{
+    NSApplicationActivationOptions, NSPasteboard, NSPasteboardItem, NSPasteboardTypeString, NSPasteboardWriting, NSRunningApplication, NSWorkspace,
+};
+use objc2_foundation::{NSArray, NSData, NSString};
 
-use crate::backend::{Backend, Button, DisplayInfo, Image, LockGuard, WindowInfo};
+use crate::backend::{Backend, Button, Clipboard, DisplayInfo, Image, LockGuard, Pasted, SavedClipboard, WindowInfo};
 use crate::keys::{Key, Named};
 use crate::Permission;
 
@@ -394,6 +400,130 @@ impl Backend for Mac {
 
     fn lock(&self, on_esc: Box<dyn Fn() + Send + Sync>) -> Result<Box<dyn LockGuard>, String> {
         Ok(Box::new(Lock::take(on_esc)?))
+    }
+
+    fn clipboard(&self) -> Result<Box<dyn Clipboard + '_>, String> {
+        Ok(Box::new(MacClipboard::new()))
+    }
+}
+
+/// nspasteboard.org: clipboard managers hide (concealed) and skip
+/// (transient) an entry carrying these types.
+const CONCEALED_TYPE: &str = "org.nspasteboard.ConcealedType";
+const TRANSIENT_TYPE: &str = "org.nspasteboard.TransientType";
+/// The most of the person's clipboard `save` keeps; types past it are
+/// skipped.
+const SAVE_CAP: usize = 32 << 20;
+/// macOS cannot tell when the focused app read the pasteboard: the settle
+/// after the paste key.
+const PASTE_SETTLE: Duration = Duration::from_millis(400);
+
+/// The general pasteboard. Never logs what it holds. `Retained` keeps it
+/// off other threads (not `Send`); NSPasteboard itself works off the main
+/// thread.
+struct MacClipboard {
+    board: Retained<NSPasteboard>,
+    /// The change count right after our own `set_text`.
+    ours: Cell<Option<isize>>,
+}
+
+impl MacClipboard {
+    fn new() -> MacClipboard {
+        MacClipboard { board: NSPasteboard::generalPasteboard(), ours: Cell::new(None) }
+    }
+}
+
+/// `public.utf8-plain-text`.
+fn string_type() -> &'static NSString {
+    // SAFETY: a constant NSString AppKit exports, alive for the process.
+    unsafe { NSPasteboardTypeString }
+}
+
+/// Write `items` as the pasteboard's new contents (after `clearContents`).
+fn write_items(board: &NSPasteboard, items: Vec<Retained<NSPasteboardItem>>) -> Result<(), String> {
+    let objects: Vec<Retained<ProtocolObject<dyn NSPasteboardWriting>>> = items.into_iter().map(ProtocolObject::from_retained).collect();
+    let array = NSArray::from_retained_slice(&objects);
+    if board.writeObjects(&array) {
+        Ok(())
+    } else {
+        Err("macOS refused to write the clipboard.".to_string())
+    }
+}
+
+impl Clipboard for MacClipboard {
+    fn change_count(&self) -> Result<u64, String> {
+        Ok(self.board.changeCount() as u64)
+    }
+
+    fn save(&self) -> Result<SavedClipboard, String> {
+        objc2::rc::autoreleasepool(|_| {
+            let mut formats = Vec::new();
+            let Some(items) = self.board.pasteboardItems() else { return Ok(SavedClipboard::default()) };
+            let mut total = 0usize;
+            for (index, item) in items.iter().enumerate() {
+                for kind in item.types().iter() {
+                    let Some(data) = item.dataForType(&kind) else { continue };
+                    let len = data.len();
+                    if total.saturating_add(len) > SAVE_CAP {
+                        continue;
+                    }
+                    total += len;
+                    formats.push((format!("{index}\t{kind}"), data.to_vec()));
+                }
+            }
+            Ok(SavedClipboard { formats })
+        })
+    }
+
+    fn set_text(&self, text: &str, sensitive: bool) -> Result<(), String> {
+        objc2::rc::autoreleasepool(|_| {
+            let item = NSPasteboardItem::new();
+            if !item.setString_forType(&NSString::from_str(text), string_type()) {
+                return Err("macOS refused the text for the clipboard.".to_string());
+            }
+            if sensitive {
+                let marker = NSData::with_bytes(&[]);
+                for kind in [CONCEALED_TYPE, TRANSIENT_TYPE] {
+                    item.setData_forType(&marker, &NSString::from_str(kind));
+                }
+            }
+            self.board.clearContents();
+            let written = write_items(&self.board, vec![item]);
+            self.ours.set(Some(self.board.changeCount()));
+            written
+        })
+    }
+
+    fn wait_pasted(&self, timeout: Duration) -> Pasted {
+        std::thread::sleep(timeout.min(PASTE_SETTLE));
+        match self.ours.get() {
+            Some(ours) if self.board.changeCount() != ours => Pasted::Missed,
+            _ => Pasted::Settled,
+        }
+    }
+
+    fn restore(&self, saved: SavedClipboard) -> Result<(), String> {
+        objc2::rc::autoreleasepool(|_| {
+            self.board.clearContents();
+            if saved.formats.is_empty() {
+                return Ok(());
+            }
+            let mut items: BTreeMap<usize, Retained<NSPasteboardItem>> = BTreeMap::new();
+            for (name, bytes) in &saved.formats {
+                let Some((index, kind)) = name.split_once('\t') else { continue };
+                let Ok(index) = index.parse::<usize>() else { continue };
+                let item = items.entry(index).or_insert_with(NSPasteboardItem::new);
+                item.setData_forType(&NSData::with_bytes(bytes), &NSString::from_str(kind));
+            }
+            if items.is_empty() {
+                return Ok(());
+            }
+            write_items(&self.board, items.into_values().collect())
+        })
+    }
+
+    fn text(&self) -> Result<Option<String>, String> {
+        Ok(objc2::rc::autoreleasepool(|_| self.board.stringForType(string_type()).map(|text| text.to_string())))
     }
 }
 

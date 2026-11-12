@@ -41,6 +41,9 @@ The host serves it as one loopback MCP server, `computer`. A session gets its UR
 | `drag` | Press at one point, move to another, release. |
 | `scroll` | Move there and turn the wheel. |
 | `type` | Type up to 4,000 characters into the focused control. |
+| `paste_text` | Paste up to 100,000 characters in one step: the clipboard is saved, set, pasted once into the focused control and put back. `sensitive: true` keeps a secret out of clipboard managers and the OS history (X11: served only to the focused app + `x-kde-passwordManagerHint`; macOS `org.nspasteboard.ConcealedType`; Windows `ExcludeClipboardContentFromMonitorProcessing`, `CanIncludeInClipboardHistory` = 0); `file` reads the text from a local file. |
+| `copy_selection` | Copy the focused window's selection and answer its text; the clipboard is put back. |
+| `read_clipboard` | The clipboard's text, only right after the agent's own click or key copied something; never the person's clipboard. |
 | `key` | One key or combo: Return, ctrl+s, alt+Tab, cmd+space. |
 | `wait` | Let the screen settle (up to 10 s), then take a screenshot. |
 

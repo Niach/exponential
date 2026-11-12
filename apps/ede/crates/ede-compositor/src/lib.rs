@@ -12,6 +12,7 @@
 //! DRM/KMS + libinput, feature `udev`) and `headless` (CI).
 
 pub mod backend;
+pub mod clipboard;
 pub mod config;
 pub mod doctor;
 pub mod fallback;

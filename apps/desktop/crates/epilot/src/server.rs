@@ -45,7 +45,8 @@ const INSTRUCTIONS: &str = "This computer's desktop, in the foreground: the pers
 keyboard. While you drive, their input is locked and a banner tells them so; their Esc aborts \
 every call until they speak again. Take a screenshot, act on what it shows (every coordinate is in \
 the screenshot's pixels), take another to verify; an unverified effect is not success. Say in your \
-reply that you are taking the screen before the first action.";
+reply that you are taking the screen before the first action. Enter text with paste_text (sensitive: true \
+for any secret, best from a file), not type.";
 
 /// Bind loopback and serve `host`; grants and revokes go through the
 /// returned server.

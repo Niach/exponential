@@ -259,21 +259,33 @@ impl XwmHandler for Ede {
     }
 
     fn send_selection(&mut self, _xwm: XwmId, selection: SelectionTarget, mime_type: String, fd: OwnedFd) {
-        if selection == SelectionTarget::Clipboard {
-            if let Err(e) = request_data_device_client_selection(&self.seat, mime_type, fd) {
-                tracing::warn!("clipboard to X11: {e:?}");
-            }
+        if selection != SelectionTarget::Clipboard {
+            return;
+        }
+        // Ours ([`crate::clipboard`]) is served from memory; a Wayland
+        // client's through its source.
+        let ours = match current_data_device_selection_userdata(&self.seat).as_deref() {
+            Some(crate::clipboard::Selection::Ours(owned)) => Some(owned.clone()),
+            _ => None,
+        };
+        if let Some(owned) = ours {
+            self.serve_owned(&owned, &mime_type, fd);
+        } else if let Err(e) = request_data_device_client_selection(&self.seat, mime_type, fd) {
+            tracing::warn!("clipboard to X11: {e:?}");
         }
     }
 
     fn new_selection(&mut self, _xwm: XwmId, selection: SelectionTarget, mime_types: Vec<String>) {
         if selection == SelectionTarget::Clipboard {
-            set_data_device_selection(&self.display_handle, &self.seat, mime_types, ());
+            self.clipboard.changed(crate::clipboard::Owner::X11(mime_types.clone()));
+            set_data_device_selection(&self.display_handle, &self.seat, mime_types, crate::clipboard::Selection::X11);
         }
     }
 
     fn cleared_selection(&mut self, _xwm: XwmId, selection: SelectionTarget) {
-        if selection == SelectionTarget::Clipboard && current_data_device_selection_userdata(&self.seat).is_some() {
+        let x11 = matches!(current_data_device_selection_userdata(&self.seat).as_deref(), Some(crate::clipboard::Selection::X11));
+        if selection == SelectionTarget::Clipboard && x11 {
+            self.clipboard.changed(crate::clipboard::Owner::Empty);
             clear_data_device_selection(&self.display_handle, &self.seat);
         }
     }
