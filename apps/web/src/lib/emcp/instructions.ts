@@ -17,6 +17,8 @@
 // instance has a feedback widget, i.e. cloud) — `reportBug` is per-instance,
 // not per-caller, so it is a plain flag next to the gates.
 
+import { DELETE_INSTRUCTIONS_LINE } from "@exp/emcp/deletes"
+
 export function mcpServerInstructions(gates: {
   /** The caller runs inside a session of its own. */
   inSession: boolean
@@ -40,7 +42,8 @@ export function mcpServerInstructions(gates: {
         ]),
     // EXP-792: the one registry. An agent asked to "add the Linear MCP"
     // would otherwise write a repo .mcp.json the launcher never reads.
-    `Team MCP servers live in exponential_mcp_servers, never .mcp.json.`,
+    // #EXP-1798: a delete names one id the user gave (deletes.json).
+    `Team MCP servers live in exponential_mcp_servers, never .mcp.json. ${DELETE_INSTRUCTIONS_LINE}`,
   ]
   if (gates.reportBug) {
     paragraphs.push(

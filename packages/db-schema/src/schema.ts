@@ -4176,6 +4176,10 @@ export const mcpCalls = pgTable(
     error: varchar({ length: 64 }),
     latencyMs: integer(`latency_ms`).notNull(),
     argsHash: varchar(`args_hash`, { length: 80 }).notNull(),
+    // EXP-1798: the caller's verified session, and `<op>:<id>` of a
+    // destructive call (@exp/emcp deletes.json `destructiveTarget`).
+    sessionId: uuid(`session_id`),
+    target: varchar({ length: 256 }),
     createdAt: timestamp(`created_at`, { withTimezone: true })
       .notNull()
       .defaultNow(),

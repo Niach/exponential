@@ -7,6 +7,8 @@ import type { McpUser } from "./server"
 import type { McpAccess } from "./scope"
 import { err } from "./helpers"
 import { compactViewResult, isViewListOp } from "./view-results"
+import { guardDestructiveCall } from "./delete-guard"
+import { DELETE_DESCRIPTION_LINE, destructiveKey } from "@exp/emcp/deletes"
 
 // NEW-4 (plan 3.11): the MCP surface is 22 tools, the SAME set for every
 // caller, no conditional registration. ONE tool per noun takes an `op` and
@@ -61,6 +63,10 @@ export interface NounSpec {
   label: string
   /** The first sentence of the description. */
   blurb: string
+  /** #EXP-1798: what only the read half / only the write half needs, after
+   *  the blurb (the always-loaded budget pays for every byte twice). */
+  readNote?: string
+  writeNote?: string
   /** `op` → the recorded (EXP-988) tool it routes to; absent for a verb. */
   ops?: Record<string, string>
   /** A verb tool registered whole under this name. */
@@ -84,7 +90,9 @@ export const NOUN_TOOLS: readonly NounSpec[] = [
     name: `issues`,
     label: `issues`,
     group: `work`,
-    blurb: `Issues (id = UUID or identifier: EXP-12; list = open only unless includeClosed or a status filter; widget = reporter data). create links only via sessionId or link: true.`,
+    blurb: `Issues (id = UUID or identifier: EXP-12).`,
+    readNote: `list = open only unless includeClosed or a status filter; widget = reporter data.`,
+    writeNote: `create links only via sessionId or link: true.`,
     alwaysLoad: true,
     ops: {
       list: `issues_list`,
@@ -434,7 +442,11 @@ export function nounDescription(
   })
   // #VAPP-293: each half names its twin, so a write is one hop away.
   const twin = half?.twin ? ` ${half.read ? `Writes` : `Reads`}: ${half.twin}.` : ``
-  return `${spec.blurb}${twin} op = ${ops.join(` | `)}`
+  // #EXP-1798: every tool carrying a destructive op says the rule.
+  const shown = half ? half.ops : Object.keys(spec.ops ?? {})
+  const deletes = !half?.read && shown.some((op) => destructiveKey(spec.name, op)) ? ` ${DELETE_DESCRIPTION_LINE}` : ``
+  const note = half ? (half.read ? spec.readNote : spec.writeNote) : [spec.readNote, spec.writeNote].filter(Boolean).join(` `)
+  return `${spec.blurb}${note ? ` ${note}` : ``}${twin}${deletes} op = ${ops.join(` | `)}`
 }
 
 // NEW-44: a noun's JSON schema carries only `op`, so a client passes every
@@ -703,6 +715,17 @@ export function registerNounTools(
             return err(new Error(`Invalid arguments for ${spec.name}.${String(op)}: ${issues}`))
           }
           const data = parsed.data as Record<string, unknown>
+          // #EXP-1798: one explicit id, within the burst (delete-guard.ts).
+          const refused = guardDestructiveCall({
+            noun: spec.name,
+            op: String(op),
+            args: data,
+            userId: user.id,
+            verifiedSessionId: gates.inSession ? sessionId : null,
+            authorization: request.headers.get(`authorization`),
+            access,
+          })
+          if (refused) return err(new Error(refused))
           const result = await tool.handler(data, extra)
           // #VAPP-292: outside a session a view list op answers the model with
           // a summary and the view with the rows (view-results.ts).

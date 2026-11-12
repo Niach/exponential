@@ -165,6 +165,20 @@ describe(`the views' read ops are the server's (#VAPP-293)`, () => {
   })
 })
 
+// #VAPP-293: Claude's connector directory refuses a tool with a parameter
+// that declares no type (it flagged sessions_send's and show's sealed fields).
+describe(`every parameter declares a type (#VAPP-293)`, () => {
+  it(`no top-level property is a bare {}`, () => {
+    for (const [name, def] of defs) {
+      const props = (jsonSchema(def).properties ?? {}) as Record<string, Record<string, unknown>>
+      for (const [key, prop] of Object.entries(props)) {
+        const typed = [`type`, `anyOf`, `oneOf`, `allOf`, `enum`, `const`, `$ref`].some((k) => k in prop)
+        expect(typed, `${name}.${key}`).toBe(true)
+      }
+    }
+  })
+})
+
 describe(`one pagination model (EXP-707 theme G)`, () => {
   it(`every *_list tool declares a limit`, () => {
     const listTools = [...defs.keys()].filter((name) => name.endsWith(`_list`))

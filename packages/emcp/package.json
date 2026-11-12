@@ -22,6 +22,7 @@
     "./hub": "./src/hub.ts",
     "./automations": "./src/automations.ts",
     "./webhooks": "./src/webhooks.ts",
+    "./deletes": "./src/deletes.ts",
     "./fixtures/*": "./fixtures/*"
   },
   "devDependencies": {

@@ -1,0 +1,94 @@
+{
+  "$comment": "EXP-1798 (2026-11-12, after a tool-test script hard-deleted 16 prod issues by looping a delete over a list result): THE GUARD RAILS ON EVERY DESTRUCTIVE OP of Exponential's MCP surface (`/api/mcp`). DESTRUCTIVE OPS (`destructiveOps`: noun -> op -> the ONE argument that names what goes) are every op that deletes, trashes or revokes, on whichever wire tool carries it (`exponential_<noun>_write`, or the noun's own name for a first-party caller's legacy writes). ONE EXPLICIT ID (`singleId`, `singleIdCases`): the named argument must be ONE string, trimmed non-empty, at most `maxIdLength` chars, holding none of `forbiddenChars` (whitespace, `,`, `;`, `*`, `[`, `]`): no arrays, no lists, no wildcards, no filters; anything else is refused before the op's handler runs with `errors.notOne` (absent: `errors.missing`). Not checkable server-side: whether the caller (an agent) took the id from the user or from a list result; so the rule is in words (`descriptionLine` appended to the description of every tool that carries a destructive op, `instructionsLine` in the server instructions) and bounded by THE BURST GUARD (`burst`, `burstCases`): per caller key (`burstKey`: the caller's own verified session `session:<id>` when the request runs inside one, else the credential `user:<userId>|token:<first 16 hex of SHA-256 of the Authorization header, or cookie>`), at most `burst.max` destructive calls are ADMITTED within any `burst.windowSeconds` (a sliding window over admitted calls only; a refused call does not extend it). The next one is refused with `errors.burst` (`{max}`, `{window}` filled in) and audited `failed` / `deleteBurst`. The FIRST refusal per key within a window posts `burst.event` to the team stream (emitted by the server; `eventPayload` keys; team = the session's team, else the one team a confined credential reaches, else the caller's personal team); further refusals in that window stay quiet (`blockedQuiet`). The payload never names the id (the stream is the whole team's, and the refused id may be another team's); the audit row does. Defaults hold for normal use (a person deletes one thing at a time); `burst.env` overrides them per deployment (positive integers; anything else = the default). Counting is per server process. AUDIT: every destructive call's `mcp_calls` row (audit.json) carries `session_id` (the caller's verified session, else null) and `target` = `<op>:<id>` (`destructiveTarget`, `targetCases`: the id as sent, cut to `maxIdLength`; a non-string id = `<op>:?`; any other call = null), so token (`client_id` / `user_id`), session and the deleted id are on the row. TOOL TESTS (the repo's MCP harnesses: `apps/web/scripts/mcp-oauth-e2e.mjs` and any script with `--base` / `--bearer`) default to a local stack and refuse a `prodHosts` base unless `prodFlag` is given (`prodHostCases`).",
+  "destructiveOps": {
+    "issues": { "delete": "id" },
+    "comments": { "delete": "id" },
+    "boards": { "delete": "id" },
+    "labels": { "delete": "id" },
+    "statuses": { "delete": "id" },
+    "attachments": { "delete": "id" },
+    "people": { "invites_revoke": "id" },
+    "agents": { "delete": "id" },
+    "prompts": { "delete": "id" },
+    "skills": { "delete": "id" },
+    "mcp_servers": { "delete": "id" },
+    "apps": { "delete": "slug", "records_delete": "id" }
+  },
+  "maxIdLength": 200,
+  "forbiddenChars": [" ", "\t", "\n", ",", ";", "*", "[", "]"],
+  "errors": {
+    "missing": "{noun}.{op} needs one explicit {key}.",
+    "notOne": "{noun}.{op} takes exactly ONE explicit {key} the user named: no lists, arrays, wildcards or filters.",
+    "burst": "Refused: more than {max} deletes within {window} s by this caller. Delete only ids the user named, one per call; never loop a delete over a list result. Ask the user before deleting more."
+  },
+  "auditError": "deleteBurst",
+  "descriptionLine": "Never delete ids from a list result.",
+  "instructionsLine": "Delete only an id the user named, one per call; never act on a list result.",
+  "burst": {
+    "max": 5,
+    "windowSeconds": 60,
+    "env": { "max": "MCP_DELETE_BURST_MAX", "windowSeconds": "MCP_DELETE_BURST_WINDOW_SECONDS" },
+    "event": "mcp.delete_burst_blocked"
+  },
+  "eventPayload": ["tool", "op", "max", "windowSeconds", "sessionId", "userId"],
+  "singleIdCases": [
+    { "value": "EXP-12", "expected": null },
+    { "value": "0b8f6c2e-3a51-4c07-9d1e-6f1b2a3c4d5e", "expected": null },
+    { "value": "standup", "expected": null },
+    { "value": "  EXP-12  ", "expected": null },
+    { "value": "", "expected": "missing" },
+    { "value": "   ", "expected": "missing" },
+    { "value": null, "expected": "missing" },
+    { "value": ["EXP-1", "EXP-2"], "expected": "notOne" },
+    { "value": "EXP-1,EXP-2", "expected": "notOne" },
+    { "value": "EXP-1 EXP-2", "expected": "notOne" },
+    { "value": "EXP-*", "expected": "notOne" },
+    { "value": "[\"EXP-1\"]", "expected": "notOne" },
+    { "value": 12, "expected": "notOne" },
+    { "value": { "id": "EXP-1" }, "expected": "notOne" }
+  ],
+  "burstCases": [
+    { "name": "five in a minute pass", "max": 5, "windowSeconds": 60, "at": [0, 1, 2, 3, 4], "expected": ["ok", "ok", "ok", "ok", "ok"] },
+    {
+      "name": "the 2026-11-12 loop: 16 deletes in 3 s",
+      "max": 5,
+      "windowSeconds": 60,
+      "at": [0, 0.2, 0.4, 0.6, 0.8, 1, 1.2, 1.4, 1.6, 1.8, 2, 2.2, 2.4, 2.6, 2.8, 3],
+      "expected": ["ok", "ok", "ok", "ok", "ok", "blocked", "blockedQuiet", "blockedQuiet", "blockedQuiet", "blockedQuiet", "blockedQuiet", "blockedQuiet", "blockedQuiet", "blockedQuiet", "blockedQuiet", "blockedQuiet"]
+    },
+    { "name": "the window slides over admitted calls", "max": 2, "windowSeconds": 10, "at": [0, 5, 9, 10, 14, 15], "expected": ["ok", "ok", "blocked", "ok", "blockedQuiet", "ok"] },
+    { "name": "a new window posts again", "max": 1, "windowSeconds": 10, "at": [0, 1, 11, 12], "expected": ["ok", "blocked", "ok", "blocked"] },
+    { "name": "spread out never trips", "max": 5, "windowSeconds": 60, "at": [0, 15, 30, 45, 60, 75, 90, 105, 120], "expected": ["ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok"] }
+  ],
+  "envCases": [
+    { "env": {}, "expected": { "max": 5, "windowSeconds": 60 } },
+    { "env": { "MCP_DELETE_BURST_MAX": "20", "MCP_DELETE_BURST_WINDOW_SECONDS": "300" }, "expected": { "max": 20, "windowSeconds": 300 } },
+    { "env": { "MCP_DELETE_BURST_MAX": "0", "MCP_DELETE_BURST_WINDOW_SECONDS": "abc" }, "expected": { "max": 5, "windowSeconds": 60 } },
+    { "env": { "MCP_DELETE_BURST_MAX": "2.5" }, "expected": { "max": 5, "windowSeconds": 60 } }
+  ],
+  "targetCases": [
+    { "tool": "exponential_issues_write", "args": { "op": "delete", "id": "EXP-12" }, "expected": "delete:EXP-12" },
+    { "tool": "exponential_issues", "args": { "op": "delete", "id": "EXP-12" }, "expected": "delete:EXP-12" },
+    { "tool": "exponential_issues_write", "args": { "op": "update", "id": "EXP-12" }, "expected": null },
+    { "tool": "exponential_apps_write", "args": { "op": "delete", "slug": "standup" }, "expected": "delete:standup" },
+    { "tool": "exponential_apps_write", "args": { "op": "records_delete", "slug": "standup", "id": "0b8f6c2e-3a51-4c07-9d1e-6f1b2a3c4d5e" }, "expected": "records_delete:0b8f6c2e-3a51-4c07-9d1e-6f1b2a3c4d5e" },
+    { "tool": "exponential_people_write", "args": { "op": "invites_revoke", "id": "0b8f6c2e-3a51-4c07-9d1e-6f1b2a3c4d5e" }, "expected": "invites_revoke:0b8f6c2e-3a51-4c07-9d1e-6f1b2a3c4d5e" },
+    { "tool": "exponential_comments_write", "args": { "op": "delete", "id": ["a", "b"] }, "expected": "delete:?" },
+    { "tool": "exponential_sessions_send", "args": { "op": "delete", "id": "x" }, "expected": null },
+    { "tool": "standup__delete", "args": { "op": "delete", "id": "x" }, "expected": null },
+    { "tool": "exponential_teams_write", "args": { "op": "delete", "id": "x" }, "expected": null },
+    { "tool": "exponential_issues_write", "args": null, "expected": null }
+  ],
+  "prodHosts": ["app.exponential.at", "exponential.at", "www.exponential.at"],
+  "prodFlag": "--i-know-this-is-prod",
+  "defaultBase": "http://localhost:3000",
+  "prodHostCases": [
+    { "base": "https://app.exponential.at", "flag": false, "expected": "refused" },
+    { "base": "https://APP.exponential.at/", "flag": false, "expected": "refused" },
+    { "base": "https://app.exponential.at", "flag": true, "expected": "ok" },
+    { "base": "https://next.exponential.at", "flag": false, "expected": "ok" },
+    { "base": "http://localhost:3000", "flag": false, "expected": "ok" },
+    { "base": "https://app.exponential.at.evil.test", "flag": false, "expected": "ok" },
+    { "base": "not a url", "flag": false, "expected": "invalid" }
+  ]
+}
