@@ -87,12 +87,14 @@ struct SessionComposerReplies: View {
         .task(id: sessionId) {
             guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
             let id = sessionId
+            // Large chats: only the card rows (a `replies` card is one),
+            // opened off main, never the whole conversation.
             let observation = ValueObservation.tracking { db in
-                try SessionQueries.messages(db: db, sessionId: id)
+                try SessionQueries.cardRows(db: db, sessionId: id).map(TreeMessage.init(messageRow:))
             }
             do {
                 for try await rows in observation.values(in: pool) {
-                    messages = rows.map { TreeMessage(messageRow: $0) }
+                    messages = rows
                 }
             } catch {}
         }

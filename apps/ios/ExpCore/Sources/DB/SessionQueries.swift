@@ -160,6 +160,18 @@ public enum SessionQueries {
             """, arguments: StatementArguments(sessionIds))
     }
 
+    /// One session's own CARD rows (`card` set, never a JSON `null`), oldest
+    /// first: what its dock cards and composer replies fold, never its whole
+    /// conversation (8.5k rows on a long agent chat), raw (a sealed card
+    /// opens where it is read).
+    public static func cardRows(db: Database, sessionId: String) throws -> [SessionMessage] {
+        try SessionMessage.fetchAll(db, sql: """
+            \(keyedMessagesSQL) AND "messages"."session_id" = ?
+                AND "messages"."card" IS NOT NULL AND "messages"."card" <> 'null'
+            ORDER BY "messages"."created_at" ASC, "messages"."id" ASC
+            """, arguments: [sessionId])
+    }
+
     /// One session's own messages, oldest first.
     public static func messages(db: Database, sessionId: String) throws -> [SessionMessage] {
         try SessionMessage.fetchAll(db, sql: """
