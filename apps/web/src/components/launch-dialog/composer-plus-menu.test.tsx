@@ -84,3 +84,43 @@ describe(`add-file on the "+" (EXP-1635)`, () => {
     expect(onAttach).toHaveBeenCalledExactlyOnceWith(choice)
   })
 })
+
+// #EXP-1793 (composer-menu.json `mcpPick`): an agent chat offers MCP
+// servers › while the team has a server, its value = the pick's count; a
+// session never does.
+describe(`MCP servers on an agent chat (#EXP-1793)`, () => {
+  const servers = [
+    { id: `s1`, name: `GlitchTip` },
+    { id: `s2`, name: `Linear` },
+  ] as never
+  const openOn = async (surface: `agent` | `session`, list = servers) => {
+    phone.value = false
+    render(
+      <ComposerOptionsMenu
+        surface={surface}
+        agent="claude"
+        onAttach={() => {}}
+        mcp={{ servers: list, selectedIds: [`s2`], onToggle: () => {}, connectHref: () => null }}
+      />
+    )
+    const plus = screen.getByTestId(`agent-composer-plus-button`)
+    fireEvent.pointerDown(plus, { button: 0, ctrlKey: false })
+    fireEvent.click(plus)
+    await screen.findByTestId(`agent-composer-menu-add-file`)
+  }
+
+  it(`an agent chat shows the row with the pick's count`, async () => {
+    await openOn(`agent`)
+    expect(screen.getByTestId(`agent-composer-menu-mcp-servers`).textContent).toContain(`1`)
+  })
+
+  it(`no servers, no row`, async () => {
+    await openOn(`agent`, [] as never)
+    expect(screen.queryByTestId(`agent-composer-menu-mcp-servers`)).toBeNull()
+  })
+
+  it(`a session never shows it`, async () => {
+    await openOn(`session`)
+    expect(screen.queryByTestId(`agent-composer-menu-mcp-servers`)).toBeNull()
+  })
+})

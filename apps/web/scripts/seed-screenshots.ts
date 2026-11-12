@@ -3064,6 +3064,17 @@ async function main() {
       expiresAt: null,
     },
   })
+  // #EXP-1793: the Triage agent's MCP servers (its page's MCP servers row,
+  // its chat's + › MCP servers seed).
+  await db
+    .update(agents)
+    .set({ mcpServerIds: [linearServer!.id] })
+    .where(eq(agents.id, DEMO_AGENT_IDS.triage))
+  // ...and its conversations, as `agents.update` carries it onto them.
+  await db
+    .update(sessions)
+    .set({ mcpServerIds: [linearServer!.id] })
+    .where(eq(sessions.agentId, DEMO_AGENT_IDS.triage))
 
   // Embeddable widget configs for the `settings-widget` view ("No widgets
   // yet." without them). One full config — a domain allowlist, two of the

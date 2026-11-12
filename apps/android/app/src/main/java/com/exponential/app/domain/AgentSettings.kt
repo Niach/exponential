@@ -270,6 +270,24 @@ object AgentSettings {
         devices.filter { !assistant || it.kind == "desktop" || it.deviceId == boundId }.map { it.deviceId }
 
     /**
+     * #EXP-1793 (agent-settings.json `mcpRow`): the agent page's MCP servers
+     * row, right under Skills (the Assistant: after Skills, the last row of
+     * Runs on); THE composer's MCP servers multi picker; owners edit
+     * (`agents.update {mcpServerIds}`), members read. Shown while the team
+     * has a server or the agent already names one.
+     */
+    object McpRow {
+        const val ID = "mcp-servers"
+        const val LABEL = "MCP servers"
+        const val AFTER = "skills"
+        const val NONE = "None"
+        const val MAX = 20
+        const val TEST_ID = "agent-settings-mcp-servers"
+
+        fun visible(teamServerCount: Int, agentServerCount: Int): Boolean = teamServerCount > 0 || agentServerCount > 0
+    }
+
+    /**
      * #EXP-1717 (agent-settings.json `coordinator`): THE team Coordinator, a
      * ROLE on one team agent (`agents.role = coordinator`, at most one per
      * team). Owners pick it in Team settings › Agents (ONE settings Picker
@@ -436,4 +454,13 @@ object AgentSettings {
         fun inTeamOrPersonal(sessionTeamId: String, userId: String?, teamId: String, teamIds: Collection<String>, me: String?): Boolean =
             sessionTeamId == teamId || (me != null && userId == me && teamIds.isNotEmpty() && sessionTeamId !in teamIds)
     }
+}
+
+/** #EXP-1793 (`mcpValueCases`, TS `agentMcpServersValue`): the MCP servers
+ *  row's value, the picked names (team list order) as the one picker summary
+ *  (`None` / `a` / `a, b` / `a, b +N`). */
+fun agentMcpServersValue(names: List<String>): String = when {
+    names.isEmpty() -> AgentSettings.McpRow.NONE
+    names.size <= 2 -> names.joinToString(", ")
+    else -> "${names.take(2).joinToString(", ")} +${names.size - 2}"
 }

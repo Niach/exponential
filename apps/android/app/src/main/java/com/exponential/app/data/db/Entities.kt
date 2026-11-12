@@ -784,9 +784,17 @@ data class AgentDefinitionEntity(
     // TEXT, a string array; [skillIdList] reads it).
     @ColumnInfo(name = "skill_ids") @SerialName("skill_ids")
     @Serializable(with = JsonAsStringSerializer::class) val skillIds: String? = null,
+    // #EXP-1793 (agent-settings.json `mcpRow`): the team MCP servers every
+    // run of the agent starts with (raw jsonb TEXT, a string array;
+    // [mcpServerIdList] reads it).
+    @ColumnInfo(name = "mcp_server_ids") @SerialName("mcp_server_ids") @JsonNames("mcpServerIds")
+    @Serializable(with = JsonAsStringSerializer::class) val mcpServerIds: String? = null,
 ) {
     /** #EXP-1661: [skillIds] as ids (null / malformed = none). */
     val skillIdList: List<String> get() = parseJsonStringList(skillIds)
+
+    /** #EXP-1793: [mcpServerIds] as ids (null / malformed = none). */
+    val mcpServerIdList: List<String> get() = parseJsonStringList(mcpServerIds)
 
     /** #EXP-1730: [defaults] parsed (null / malformed = no picks). */
     val runnerDefaults: AgentDefaults get() = AgentDefaults.parse(defaults)

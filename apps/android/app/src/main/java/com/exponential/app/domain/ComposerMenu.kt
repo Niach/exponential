@@ -45,6 +45,9 @@ enum class ComposerMenuCondition(val wire: String) {
     Repositories("repositories"),
     Ultracode("ultracode"),
     Mcp("mcp"),
+    /** #EXP-1793: the MCP servers pick can change here (launch while
+     *  temporary; an agent chat, always). */
+    McpPick("mcpPick"),
     /** #EXP-1661: the team has at least one skill. */
     Skills("skills"),
     ComputerUse("computerUse"),
@@ -65,6 +68,9 @@ data class ComposerMenuConditions(
     val repositories: Boolean = false,
     val ultracode: Boolean = false,
     val mcp: Boolean = false,
+    /** #EXP-1793: the MCP servers pick can change here (launch while
+     *  temporary; an agent chat, always). */
+    val mcpPick: Boolean = false,
     /** #EXP-1661: the team has at least one skill. */
     val skills: Boolean = false,
     val computerUse: Boolean = false,
@@ -83,6 +89,7 @@ data class ComposerMenuConditions(
         ComposerMenuCondition.Repositories -> repositories
         ComposerMenuCondition.Ultracode -> ultracode
         ComposerMenuCondition.Mcp -> mcp
+        ComposerMenuCondition.McpPick -> mcpPick
         ComposerMenuCondition.Skills -> skills
         ComposerMenuCondition.ComputerUse -> computerUse
         ComposerMenuCondition.Prompts -> prompts
@@ -205,8 +212,8 @@ object ComposerMenu {
         ComposerMenuEntry.Separator,
         ComposerMenuEntry.Row(
             ComposerMenuRowId.McpServers, ComposerMenuRowKind.Submenu, "MCP servers",
-            icon = "ui-mcp", surfaces = LAUNCH,
-            conditions = listOf(ComposerMenuCondition.Temporary, ComposerMenuCondition.Mcp),
+            icon = "ui-mcp", surfaces = LAUNCH_AND_AGENT,
+            conditions = listOf(ComposerMenuCondition.McpPick, ComposerMenuCondition.Mcp),
         ),
         ComposerMenuEntry.Row(
             ComposerMenuRowId.Skills, ComposerMenuRowKind.Submenu, "Skills",

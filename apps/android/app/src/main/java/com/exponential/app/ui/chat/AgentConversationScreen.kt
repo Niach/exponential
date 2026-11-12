@@ -97,6 +97,7 @@ class AgentConversationViewModel @Inject constructor(
     private val promptsApi: com.exponential.app.data.api.PromptsApi,
     private val store: com.exponential.app.data.steer.SteerConnectionStore,
     selection: com.exponential.app.data.TeamSelection,
+    private val mcpServersApi: com.exponential.app.data.api.McpServersApi,
 ) : ViewModel() {
 
     val agentId: String = savedStateHandle["agentId"] ?: ""
@@ -129,6 +130,49 @@ class AgentConversationViewModel @Inject constructor(
             null
         }
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    // ── #EXP-1793 (composer-menu.json `mcpPick`): the agent chat's MCP servers ›
+
+    private val _mcpServers = MutableStateFlow<List<com.exponential.app.domain.McpServerOption>>(emptyList())
+    /** The agent's team's MCP servers (`mcpServers.list`, once per team). */
+    val mcpServers: StateFlow<List<com.exponential.app.domain.McpServerOption>> = _mcpServers
+
+    init {
+        viewModelScope.launch {
+            agent.map { it?.teamId?.takeIf { id -> id.isNotEmpty() } }.distinctUntilChanged().collect { team ->
+                _mcpServers.value = emptyList()
+                val accountId = auth.activeAccountId.value
+                if (team == null || accountId == null) return@collect
+                runCatching { mcpServersApi.list(accountId, team) }
+                    .onFailure { if (it is CancellationException) throw it }
+                    .getOrNull()
+                    ?.let { _mcpServers.value = it }
+            }
+        }
+    }
+
+    /** The person's pick; null = untouched (the seed: no conversation yet,
+     *  so the agent's `mcpServerIds`). */
+    private val _mcpPick = MutableStateFlow<List<String>?>(null)
+
+    /** The pick as the row shows it, ids naming a deleted server dropped. */
+    val mcpServerIds: StateFlow<List<String>> = combine(_mcpPick, agent, _mcpServers) { picked, row, servers ->
+        val known = servers.mapTo(HashSet()) { it.id }
+        (picked ?: row?.mcpServerIdList.orEmpty()).filter { it in known }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    fun toggleMcpServer(id: String) {
+        val current = mcpServerIds.value
+        _mcpPick.value = if (id in current) current - id else current + id
+    }
+
+    /** The send's `mcpServerIds`: the pick while it differs from the seed
+     *  (an empty pick clears), else omitted. */
+    private fun mcpSendPick(): List<String>? {
+        if (_mcpPick.value == null) return null
+        val current = mcpServerIds.value
+        return current.takeIf { it.toSet() != agent.value?.mcpServerIdList.orEmpty().toSet() }
+    }
 
     /** My conversation session with the agent, once it exists. */
     val conversationId: StateFlow<String?> = combine(
@@ -275,6 +319,8 @@ class AgentConversationViewModel @Inject constructor(
                         body,
                         sent.mapNotNull { it.uploadedId },
                         scopeTeamIds = if (assistant) SessionsSendInput.scope(_teamsPick.value) else null,
+                        // #EXP-1793: the conversation starts with the pick.
+                        mcpServerIds = mcpSendPick(),
                     ),
                 )
                 onSent(text)
@@ -319,6 +365,8 @@ fun AgentConversationScreen(
     FailedActionToast(failure, onShown = viewModel::clearFailure)
     val promptRows by viewModel.promptRows.collectAsStateWithLifecycle()
     val teamsPickState by viewModel.teamsPick.collectAsStateWithLifecycle()
+    val mcpServers by viewModel.mcpServers.collectAsStateWithLifecycle()
+    val mcpServerIds by viewModel.mcpServerIds.collectAsStateWithLifecycle()
     val promptFailure by viewModel.promptFailure.collectAsStateWithLifecycle()
     FailedActionToast(promptFailure, onShown = viewModel::clearPromptFailure)
 
@@ -494,12 +542,14 @@ fun AgentConversationScreen(
                                 ultracode = false,
                                 computerUse = false,
                                 canComputerUse = false,
-                                mcpServers = emptyList(),
-                                mcpServerIds = emptyList(),
+                                // #EXP-1793: MCP servers › (`mcpPick`).
+                                mcpServers = mcpServers,
+                                mcpServerIds = mcpServerIds,
                                 issues = emptyList(),
                                 readOnly = false,
                                 onConfigure = {},
                                 surface = com.exponential.app.domain.ComposerMenuSurface.Agent,
+                                onToggleMcp = viewModel::toggleMcpServer,
                                 // #EXP-1434: Prompts › on every composer; a
                                 // pick inserts the body at the caret.
                                 prompts = promptRows,
