@@ -233,20 +233,23 @@ public enum AskDock {
         public let name: String?
         public let settled: Bool
         public let failed: Bool
+        /// #FEED-231: the card the call posted or edited (its `preview.id`).
+        public let cardId: String?
 
-        public init(id: Int, name: String?, settled: Bool, failed: Bool) {
+        public init(id: Int, name: String?, settled: Bool, failed: Bool, cardId: String? = nil) {
             self.id = id
             self.name = name
             self.settled = settled
             self.failed = failed
+            self.cardId = cardId
         }
     }
 
     /// The feed's tool calls, as `anchorSessionCards` reads them.
     public static func feedCalls(_ feed: [AgentFeedItem]) -> [FeedCall] {
         feed.compactMap { item in
-            guard case let .tool(id, name, _, _, _, _, settled, failed, _, _, _, _, _) = item else { return nil }
-            return FeedCall(id: id, name: name, settled: settled, failed: failed)
+            guard case let .tool(id, name, _, _, _, _, settled, failed, _, preview, _, _, _) = item else { return nil }
+            return FeedCall(id: id, name: name, settled: settled, failed: failed, cardId: preview?.id)
         }
     }
 
@@ -265,18 +268,26 @@ public enum AskDock {
     }
 
     /// Where each session card draws: right after the SETTLED, unfailed call
-    /// that posted it, paired newest back PER KIND over the legacy calls,
-    /// then over the shared `show` calls (S-3: one verb posts every kind); a
-    /// card with no call left = `unanchored` (card order, the transcript's
-    /// head). `anchors` keys = feed item ids, each list oldest first.
+    /// that posted it. #FEED-231: a call naming its card (`cardId`, the
+    /// device's `preview.id`) anchors exactly that card, the NEWEST such call
+    /// winning, and never joins the count pool. The rest pair newest back PER
+    /// KIND over the legacy calls, then over the shared `show` calls (S-3),
+    /// counting only calls with no card id (an older device); a card with no
+    /// call left = `unanchored` (card order, the transcript's head).
+    /// `anchors` keys = feed item ids, each list oldest first.
     public static func anchorSessionCards(
         _ calls: [FeedCall], cards: [SessionCard]
     ) -> (anchors: [Int: [String]], unanchored: [String]) {
         // EXP-1358: nothing to anchor = no walk over the whole feed.
         guard !cards.isEmpty else { return ([:], []) }
         var byRow: [String: [Int]] = [:]
+        var named: [String: Int] = [:]
         for call in calls where call.settled && !call.failed {
             guard let row = cardCallRow(call.name) else { continue }
+            if let card = call.cardId, !card.isEmpty {
+                named[card] = call.id
+                continue
+            }
             byRow[row, default: []].append(call.id)
         }
         var used: [String: Int] = [:]
@@ -291,7 +302,7 @@ public enum AskDock {
         var anchors: [Int: [String]] = [:]
         var unanchored: [String] = []
         for card in cards.reversed() {
-            if let call = take(card.kind.postingCall) ?? take(showCardCall) {
+            if let call = named[card.id] ?? take(card.kind.postingCall) ?? take(showCardCall) {
                 anchors[call, default: []].insert(card.id, at: 0)
             } else {
                 unanchored.insert(card.id, at: 0)

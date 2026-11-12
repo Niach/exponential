@@ -194,6 +194,7 @@ class AskDockTest {
                         name = it.str("name"),
                         settled = it.getValue("settled").jsonPrimitive.boolean,
                         failed = it.getValue("failed").jsonPrimitive.boolean,
+                        cardId = it.str("cardId"),
                     )
                 }
             val cards = case.getValue("cards").jsonArray.map { it.jsonObject }.map { card ->
