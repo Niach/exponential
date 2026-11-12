@@ -1061,6 +1061,10 @@ pub fn extra_env() -> BTreeMap<String, String> {
     // `exponential_session_self {op: "quiet"}` (nothing to say) and
     // `exponential_show` (the card is the answer).
     env.insert(TERMINAL_MCP_TOOLS_ENV.to_string(), TERMINAL_MCP_TOOLS.join(","));
+    // #FEED-230: Fable is always 5.2, on every claude child the adapter
+    // spawns (launcher sessions AND server-free local runs): a typed
+    // `/model fable` resolves the CLI's alias through this var.
+    env.insert(crate::agent::CLAUDE_FABLE_MODEL_ENV.to_string(), crate::agent::CLAUDE_FABLE_MODEL.to_string());
     env
 }
 
@@ -1840,6 +1844,14 @@ mod tests {
         for tool in tools.split(',') {
             assert!(tool.starts_with(&format!("mcp__{server}__exponential_")), "{tool}");
         }
+    }
+
+    /// #FEED-230: every claude child pins the CLI's `fable` alias to 5.2,
+    /// whichever path started it (the launcher or a server-free local run).
+    #[test]
+    fn extra_env_pins_the_fable_alias_to_5_2() {
+        let env = extra_env();
+        assert_eq!(env.get("ANTHROPIC_DEFAULT_FABLE_MODEL").map(String::as_str), Some("claude-fable-5-2"));
     }
 
     fn base() -> Vec<String> {
