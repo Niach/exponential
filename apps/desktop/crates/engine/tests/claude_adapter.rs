@@ -902,6 +902,9 @@ async fn the_argv_pins_the_permission_mode_and_the_reaper_anchor() {
     assert!(run.argv.iter().any(|arg| arg == "--forward-subagent-text"));
     // Env: the session-state backstop on, the entrypoint label never claimed.
     assert!(run.argv.iter().any(|arg| arg == "env:CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1"));
+    // #FEED-227: a turn that called session_self (quiet) or show may end silently.
+    assert!(run.argv.iter().any(|arg| arg
+        == "env:CLAUDE_CODE_TERMINAL_MCP_TOOLS=mcp__exponential__exponential_session_self,mcp__exponential__exponential_show"));
     // Never SET by the adapter (the SDK claims `sdk-ts`; we do not): whatever
     // the child reports is what it inherited from this process.
     let inherited = std::env::var("CLAUDE_CODE_ENTRYPOINT").unwrap_or_default();

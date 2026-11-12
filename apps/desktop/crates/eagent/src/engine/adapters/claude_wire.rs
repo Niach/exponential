@@ -1053,8 +1053,24 @@ pub fn extra_env() -> BTreeMap<String, String> {
     // The `system/session_state_changed` idle frame is the turn-settlement
     // backstop when a background subagent outlives the first `result`.
     env.insert("CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS".to_string(), "1".to_string());
+    // #FEED-227: Claude Code answers a turn that ends with no text by injecting
+    // "[Your previous response had no visible output. Please continue and
+    // produce a user-visible response.]", which forces a filler reply ("No
+    // change.") on every quiet schedule tick. A successful call to a tool
+    // listed here earlier in the turn makes the silent end valid:
+    // `exponential_session_self {op: "quiet"}` (nothing to say) and
+    // `exponential_show` (the card is the answer).
+    env.insert(TERMINAL_MCP_TOOLS_ENV.to_string(), TERMINAL_MCP_TOOLS.join(","));
     env
 }
+
+/// Claude Code's list of MCP tools after which a turn may end without text.
+pub const TERMINAL_MCP_TOOLS_ENV: &str = "CLAUDE_CODE_TERMINAL_MCP_TOOLS";
+
+/// The full `mcp__<server>__<tool>` names; the server is always
+/// `exponential` (`inline_mcp_config`).
+pub const TERMINAL_MCP_TOOLS: [&str; 2] =
+    ["mcp__exponential__exponential_session_self", "mcp__exponential__exponential_show"];
 
 // ---------------------------------------------------------------------------
 // argv spellings and the inline MCP document
@@ -1808,6 +1824,23 @@ pub fn prompt_to_claude(text: &str) -> String {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    /// #FEED-227: Claude Code skips its "no visible output" nudge only after
+    /// a listed tool; the names must match the inline config's server key.
+    #[test]
+    fn extra_env_lets_a_quiet_turn_end_without_text() {
+        let env = extra_env();
+        let tools = env.get(TERMINAL_MCP_TOOLS_ENV).expect("terminal tools set");
+        assert_eq!(
+            tools,
+            "mcp__exponential__exponential_session_self,mcp__exponential__exponential_show"
+        );
+        let config: Value = serde_json::from_str(&inline_mcp_config("https://x/api/mcp", None, &[])).unwrap();
+        let server = config["mcpServers"].as_object().unwrap().keys().next().unwrap().clone();
+        for tool in tools.split(',') {
+            assert!(tool.starts_with(&format!("mcp__{server}__exponential_")), "{tool}");
+        }
+    }
 
     fn base() -> Vec<String> {
         vec![
