@@ -249,6 +249,12 @@ class ChatViewModel @Inject constructor(
     val messages: StateFlow<List<SessionTree.Message>> =
         treeMessages.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** results-tab.json: the tree's session-authored card rows (opened), the
+     *  Results tab's and its count's ONE input, older than the window too. */
+    val resultCards: StateFlow<List<SessionTree.Message>> =
+        dbFlow.scopedQuery(emptyList<SessionTree.Message>()) { it.keyedMessages(it.messageDao().observeResultCardsByRoot(rootId)) }
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     /** EXP-1341: the sessions the tree's cards name outside the tree (an
      *  agent channel's `thread_started` → another root): their rows + the
      *  card-less messages their titles read, by id. */

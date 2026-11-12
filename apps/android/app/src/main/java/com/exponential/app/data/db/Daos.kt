@@ -467,6 +467,16 @@ abstract class MessageDao {
     fun observeNewestByRoot(rootId: String, limit: Int): Flow<List<MessageEntity>> =
         rawObserveNewestByRoot(rootId, limit).openedMessages()
 
+    // results-tab.json: a chat's result CANDIDATES = the tree's session-authored
+    // card rows, never the loaded window (the Results tab + its count).
+    @Query(
+        "SELECT * FROM messages WHERE root_id = :rootId AND author_session_id IS NOT NULL " +
+            "AND card IS NOT NULL AND card != 'null' ORDER BY created_at, id",
+    )
+    abstract fun rawObserveResultCardsByRoot(rootId: String): Flow<List<MessageEntity>>
+    fun observeResultCardsByRoot(rootId: String): Flow<List<MessageEntity>> =
+        rawObserveResultCardsByRoot(rootId).openedMessages()
+
     // #EXP-1380: the card-less rows of the given sessions —
     // all a session TITLE reads (its first prompt), never a whole transcript.
     @Query(

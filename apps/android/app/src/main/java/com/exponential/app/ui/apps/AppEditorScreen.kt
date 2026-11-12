@@ -257,8 +257,8 @@ fun AppEditorScreen(
                     com.exponential.app.ui.chat.sessionScreenTreeItems(rootId, tree.sessions.map(SessionTree::session), emptyList())
                 }
             }
-            val resultsCount = remember(tree.sessions, tree.messages, rootId) {
-                if (rootId == null) 0 else com.exponential.app.ui.chat.chatResultsCount(rootId, tree.sessions, tree.messages)
+            val resultsCount = remember(tree.sessions, tree.resultCards, rootId) {
+                if (rootId == null) 0 else com.exponential.app.ui.chat.chatResultsCount(rootId, tree.sessions, tree.resultCards)
             }
             val screen = SessionScreen.screen(
                 kind = SessionScreen.Kind.App,
@@ -486,7 +486,7 @@ fun AppEditorScreen(
                     SessionScreen.Tab.Results -> com.exponential.app.ui.chat.ChatResultsPage(
                         rootId = rootId.orEmpty(),
                         sessions = tree.sessions,
-                        messages = tree.messages,
+                        cards = tree.resultCards,
                         onReply = { sessionId, text -> chat?.sendTo(sessionId, text) },
                         pullRequests = tree.pullRequests,
                         teamPullRequests = tree.teamPullRequests,
@@ -574,6 +574,8 @@ private class AppEditorTree(
     val view: SessionTree.ChatView?,
     val sessions: List<SessionEntity>,
     val messages: List<SessionTree.Message>,
+    /** results-tab.json: the tree's session-authored card rows. */
+    val resultCards: List<SessionTree.Message>,
     val pullRequests: List<PullRequestEntity>,
     val teamPullRequests: List<PullRequestEntity>,
     val pullRequestIssues: List<PullRequestIssueEntity>,
@@ -585,11 +587,12 @@ private fun rememberAppEditorTree(chat: ChatViewModel?): AppEditorTree {
     val view by (chat?.view ?: remember { MutableStateFlow<SessionTree.ChatView?>(null) }).collectAsStateWithLifecycle()
     val sessions by (chat?.tree ?: remember { MutableStateFlow(emptyList<SessionEntity>()) }).collectAsStateWithLifecycle()
     val messages by (chat?.messages ?: remember { MutableStateFlow(emptyList<SessionTree.Message>()) }).collectAsStateWithLifecycle()
+    val resultCards by (chat?.resultCards ?: remember { MutableStateFlow(emptyList<SessionTree.Message>()) }).collectAsStateWithLifecycle()
     val pullRequests by (chat?.pullRequests ?: remember { MutableStateFlow(emptyList<PullRequestEntity>()) }).collectAsStateWithLifecycle()
     val teamPullRequests by (chat?.teamPullRequests ?: remember { MutableStateFlow(emptyList<PullRequestEntity>()) }).collectAsStateWithLifecycle()
     val pullRequestIssues by (chat?.pullRequestIssues ?: remember { MutableStateFlow(emptyList<PullRequestIssueEntity>()) }).collectAsStateWithLifecycle()
     val issues by (chat?.syncedIssues ?: remember { MutableStateFlow(emptyList<IssueEntity>()) }).collectAsStateWithLifecycle()
-    return AppEditorTree(view, sessions, messages, pullRequests, teamPullRequests, pullRequestIssues, issues)
+    return AppEditorTree(view, sessions, messages, resultCards, pullRequests, teamPullRequests, pullRequestIssues, issues)
 }
 
 /** VAPP-177 / #EXP-1732: the header's `…` (`editorTabs.menu` less Versions

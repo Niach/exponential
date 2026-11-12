@@ -138,6 +138,7 @@ fun ChatScreen(
     val root by viewModel.root.collectAsStateWithLifecycle()
     val isAgent by viewModel.isAgent.collectAsStateWithLifecycle()
     val messages by viewModel.messages.collectAsStateWithLifecycle()
+    val resultCards by viewModel.resultCards.collectAsStateWithLifecycle()
     val teamUsers by viewModel.teamUsers.collectAsStateWithLifecycle()
     val me by viewModel.currentUserId.collectAsStateWithLifecycle()
     val statuses by viewModel.statuses.collectAsStateWithLifecycle()
@@ -367,7 +368,7 @@ fun ChatScreen(
         }
         SessionScreenItems(treeIssues, sessions)
     }
-    val resultsCount = remember(tree, messages, viewModel.rootId) { chatResultsCount(viewModel.rootId, tree, messages) }
+    val resultsCount = remember(tree, resultCards, viewModel.rootId) { chatResultsCount(viewModel.rootId, tree, resultCards) }
     val kind = SessionScreen.kind(
         agentId = if (agent != null) rootRow?.agentId else null,
         // An app's editor session renders as AppEditorScreen (its Preview /
@@ -626,7 +627,7 @@ fun ChatScreen(
                     ChatResultsPage(
                         rootId = viewModel.rootId,
                         sessions = tree,
-                        messages = messages,
+                        cards = resultCards,
                         onReply = viewModel::sendTo,
                         pullRequests = pullRequests,
                         teamPullRequests = teamPullRequests,

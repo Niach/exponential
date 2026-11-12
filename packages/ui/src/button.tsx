@@ -40,10 +40,14 @@ function Button({
   const node = React.useRef<HTMLButtonElement | null>(null)
   const idleWidth = React.useRef<number | null>(null)
 
-  // Measure while idle so the pending state keeps the width it replaced.
+  // Measure the idle width once, when `pending` turns on (the spinner shows
+  // only after the delay, so the idle content is still laid out), so the
+  // pending state keeps the width it replaced. Never per render: a forced
+  // layout in every button's commit cost a long chat 127 ms on open.
   React.useLayoutEffect(() => {
-    if (!shown && node.current) idleWidth.current = node.current.offsetWidth || null
-  })
+    if (pending && !shown && node.current) idleWidth.current = node.current.offsetWidth || null
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending])
 
   const setRef = React.useCallback(
     (element: HTMLButtonElement | null) => {

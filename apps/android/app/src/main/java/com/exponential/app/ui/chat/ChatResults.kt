@@ -89,9 +89,11 @@ import kotlinx.coroutines.launch
 @Composable
 fun ChatResultsPage(
     rootId: String,
-    /** The tree's rows and messages: every result of the root's tree. */
+    /** The tree's rows + its session-authored card rows
+     *  ([ChatViewModel.resultCards]): every result of the root's tree, never
+     *  only the chat's loaded window. */
     sessions: List<SessionEntity>,
-    messages: List<SessionTree.Message>,
+    cards: List<SessionTree.Message>,
     /** An inline surface's reply press (session id, text). */
     onReply: (String, String) -> Unit,
     pullRequests: List<PullRequestEntity>,
@@ -123,11 +125,11 @@ fun ChatResultsPage(
             now = System.currentTimeMillis()
         }
     }
-    val inputs = remember(sessions, messages) { resultsTabInputs(sessions, messages) }
+    val inputs = remember(sessions, cards) { resultsTabInputs(sessions, cards) }
     val results = remember(inputs, rootId, now) {
         ResultsTab.resultsTab(now, rootId, inputs.first, inputs.second)
     }
-    val messagesById = remember(messages) { messages.associateBy { it.id } }
+    val cardsById = remember(cards) { cards.associateBy { it.id } }
     var opened by remember { mutableStateOf<PictureViewerSet?>(null) }
 
     if (review && files != null) {
@@ -161,7 +163,7 @@ fun ChatResultsPage(
                 null
             },
             surface = { result ->
-                messagesById[result.id]?.let(SessionTree::surfaceRow)?.let { row ->
+                cardsById[result.id]?.let(SessionTree::surfaceRow)?.let { row ->
                     SurfaceCard(
                         row = row,
                         animate = false,
@@ -175,13 +177,13 @@ fun ChatResultsPage(
     opened?.let { set -> PictureViewer(items = set.items, start = set.start, onClose = { opened = null }) }
 }
 
-/** The fold's input off the tree's synced rows. */
+/** The fold's input off the tree's synced rows and its card rows. */
 internal fun resultsTabInputs(
     sessions: List<SessionEntity>,
-    messages: List<SessionTree.Message>,
+    cards: List<SessionTree.Message>,
 ): Pair<List<ResultsTab.SessionInput>, List<ResultsTab.MessageInput>> = Pair(
     sessions.map { ResultsTab.SessionInput(it.id, it.rootId, it.title.orEmpty()) },
-    messages.mapNotNull { message ->
+    cards.mapNotNull { message ->
         val created = WireTimestamps.parseEpochMs(message.createdAt) ?: return@mapNotNull null
         ResultsTab.MessageInput(message.id, message.sessionId, message.authorSessionId, created, message.card)
     },
@@ -375,12 +377,12 @@ private fun ResultsReview(files: List<Diff.File>, padding: PaddingValues, onBack
 }
 
 /** #EXP-1732 (session-screen.json `count`): the Results tab's count = the
- *  fold's results of the root's tree. */
+ *  fold's results of the root's tree, off its card rows (never the window). */
 internal fun chatResultsCount(
     rootId: String,
     sessions: List<SessionEntity>,
-    messages: List<SessionTree.Message>,
+    cards: List<SessionTree.Message>,
 ): Int {
-    val inputs = resultsTabInputs(sessions, messages)
+    val inputs = resultsTabInputs(sessions, cards)
     return ResultsTab.resultsTab(System.currentTimeMillis(), rootId, inputs.first, inputs.second).size
 }

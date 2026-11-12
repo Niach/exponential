@@ -362,27 +362,42 @@ pub fn read_journal(data_dir: &Path, session_id: &str) -> Option<Vec<ActivityEve
 /// The folded latest-wins slots keep the seq of the line they last occupied,
 /// which is out of order — deliberately: all three are state slots on every
 /// client, never transcript rows, and nothing sorts by their seq.
+///
+/// LEGACY REPLAYS ([`ReplayMarker`]): the copies of the conversation that
+/// resumes appended before `Recorder::skip_history` are left out, and the
+/// rest keep their line's seq — the seqs go sparse, never renumber.
 pub fn read_journal_seq(
     data_dir: &Path,
     session_id: &str,
 ) -> Option<Vec<(u64, ActivityEvent)>> {
     let path = journal_path(data_dir, session_id)?;
     let file = File::open(&path).ok()?;
+    // LEGACY REPLAYS: every parsed line is marked first, so the resume
+    // replays an older build appended can be dropped before the fold.
+    let mut parsed: Vec<(u64, ActivityEvent)> = Vec::new();
+    let mut replays = ReplayMarker::default();
+    for (seq, line) in BufReader::new(file).lines().enumerate() {
+        let Ok(line) = line else { break };
+        if line.trim().is_empty() {
+            continue;
+        }
+        let Ok(event) = serde_json::from_str::<ActivityEvent>(&line) else {
+            continue;
+        };
+        replays.mark(&event, &line);
+        parsed.push((seq as u64, event));
+    }
+    let dropped = replays.dropped();
     let mut events: Vec<(u64, ActivityEvent)> = Vec::new();
     let mut slots: [Option<(u64, ActivityEvent)>; SLOT_COUNT] =
         [None, None, None, None, None, None, None, None, None];
     // EXP-850 §3: the keyed `workflow` fold — the newest line per workflow id,
     // in first-appearance order, capped like the in-memory journal.
     let mut workflows: Vec<(String, u64, ActivityEvent)> = Vec::new();
-    for (seq, line) in BufReader::new(file).lines().enumerate() {
-        let Ok(line) = line else { break };
-        if line.trim().is_empty() {
+    for ((seq, mut event), dropped) in parsed.into_iter().zip(dropped) {
+        if dropped {
             continue;
         }
-        let Ok(mut event) = serde_json::from_str::<ActivityEvent>(&line) else {
-            continue;
-        };
-        let seq = seq as u64;
         backfill_tool_identity(&mut event, seq);
         if let ActivityEvent::Workflow(workflow) = &event {
             let id = workflow.id.clone();
@@ -412,6 +427,212 @@ pub fn read_journal_seq(
     events.extend(workflows.into_iter().map(|(_, seq, event)| (seq, event)));
     events.extend(slots.flatten());
     Some(events)
+}
+
+/// LEGACY REPLAYS (`fixtures/steer-enet.json`): until `Recorder::skip_history`
+/// a resumed run appended the agent's history replay (`session/load` /
+/// `--resume` stream the whole conversation back before the host seeds the
+/// `turn` slot) — one more copy of the conversation per resume, up to 137 in
+/// a real file (52.6k of its 56k lines). A replay copy is coalesced (one
+/// narration per text block instead of the live chunks), carries no `turn`
+/// event, and repeats the stable ids of the original. The reader drops what
+/// it can PROVE is a copy and keeps everything else (a false positive would
+/// delete real conversation from view):
+///
+/// - COPY, always dropped: a `tool` whose call id an earlier `tool` line
+///   holds; a `narration` of a CLOSED message (by `messageId`) whose text lies
+///   inside a body that message already showed; a `thought` of a closed
+///   message whose (id, state) was already seen. A message closes when a new
+///   message starts in its lane (main agent or one subagent: API messages
+///   are sequential there), on a `turn` `ended`, or on any copy (a replay
+///   means the run that wrote the message is gone) — so a live continuation
+///   chunk is never a copy.
+/// - NO-OP UPDATE, always dropped: a `tool_update` byte-identical (minus
+///   `at`) to the latest earlier update of its id: the client's fold by id
+///   is unchanged.
+/// - REPEAT (a `user_message`, a narration without `messageId`, every other
+///   row kind; byte-identical minus `at` to an earlier line): dropped only
+///   when the next decisive line after it is a COPY within the same
+///   `turn`-free stretch, and that stretch does not end in `turn` `started`.
+///   A live prompt is answered by a `turn` edge or by new ids, never by a
+///   copy, so a person sending the same prompt twice keeps both.
+///
+/// Anything new inside a replay (history the file never held) is kept.
+#[derive(Default)]
+struct ReplayMarker {
+    marks: Vec<Mark>,
+    /// Every `tool` call id seen.
+    tools: std::collections::HashSet<String>,
+    /// Every (thought id, state) seen.
+    thoughts: std::collections::HashSet<(String, bool)>,
+    /// Per message id: closed?, and the bodies it showed (the live one, then
+    /// any kept text that was not inside it).
+    messages: std::collections::HashMap<String, (bool, Vec<String>)>,
+    /// Per lane (`None` = the main agent, else the subagent id): its open
+    /// messages.
+    open: std::collections::HashMap<Option<String>, Vec<String>>,
+    /// Per tool call id: its latest update, minus `at`.
+    updates: std::collections::HashMap<String, String>,
+    /// Every REPEAT-able line seen, minus `at`.
+    lines: std::collections::HashSet<String>,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Mark {
+    Copy,
+    NoopUpdate,
+    Repeat,
+    /// A row with new content: live, or history the file never held.
+    Fresh,
+    /// A `turn` edge; `true` = `started`.
+    Turn(bool),
+    /// State slots and the other updates: neither evidence nor dropped.
+    Transparent,
+}
+
+impl ReplayMarker {
+    fn close_lanes(&mut self) {
+        for (_, open) in self.open.drain() {
+            for id in open {
+                if let Some(message) = self.messages.get_mut(&id) {
+                    message.0 = true;
+                }
+            }
+        }
+    }
+
+    /// A new message in `lane` closes the lane's open ones.
+    fn start_message(&mut self, lane: Option<&String>, id: &str, body: &str) {
+        if let Some(open) = self.open.insert(lane.cloned(), vec![id.to_string()]) {
+            for held in open {
+                if let Some(message) = self.messages.get_mut(&held) {
+                    message.0 = true;
+                }
+            }
+        }
+        self.messages.insert(id.to_string(), (false, vec![body.to_string()]));
+    }
+
+    fn mark(&mut self, event: &ActivityEvent, line: &str) {
+        let mark = match event {
+            ActivityEvent::Turn { state, .. } => {
+                if *state == crate::frames::TurnState::Ended {
+                    self.close_lanes();
+                }
+                Mark::Turn(*state == crate::frames::TurnState::Started)
+            }
+            event if is_state_slot(event) => Mark::Transparent,
+            ActivityEvent::Tool { id: Some(id), .. } => {
+                if self.tools.insert(id.clone()) {
+                    Mark::Fresh
+                } else {
+                    Mark::Copy
+                }
+            }
+            ActivityEvent::Thought { id, state, subagent_id, .. } => {
+                let message = id.split('#').next().unwrap_or(id);
+                let fresh = self.thoughts.insert((id.clone(), *state == crate::frames::ThoughtState::Started));
+                match self.messages.get(message) {
+                    None => {
+                        self.start_message(subagent_id.as_ref(), message, "");
+                        Mark::Fresh
+                    }
+                    Some((true, _)) if !fresh => Mark::Copy,
+                    Some(_) => Mark::Fresh,
+                }
+            }
+            ActivityEvent::Narration { text, message_id: Some(message), subagent_id, .. } => {
+                match self.messages.get_mut(message) {
+                    None => {
+                        self.start_message(subagent_id.as_ref(), message, text);
+                        Mark::Fresh
+                    }
+                    Some((true, bodies)) => {
+                        if !text.is_empty() && bodies.iter().any(|body| body.contains(text.as_str())) {
+                            Mark::Copy
+                        } else {
+                            bodies.push(text.clone());
+                            Mark::Fresh
+                        }
+                    }
+                    Some((false, bodies)) => {
+                        bodies[0].push_str(text);
+                        Mark::Fresh
+                    }
+                }
+            }
+            ActivityEvent::ToolUpdate { id, .. } => {
+                let key = without_at(line);
+                if self.updates.get(id) == Some(&key) {
+                    Mark::NoopUpdate
+                } else {
+                    self.updates.insert(id.clone(), key);
+                    Mark::Transparent
+                }
+            }
+            _ => {
+                if self.lines.insert(without_at(line)) {
+                    Mark::Fresh
+                } else {
+                    Mark::Repeat
+                }
+            }
+        };
+        if mark == Mark::Copy {
+            self.close_lanes();
+        }
+        self.marks.push(mark);
+    }
+
+    /// Which marked lines to drop, in marking order.
+    fn dropped(self) -> Vec<bool> {
+        #[derive(PartialEq)]
+        enum Next {
+            Copy,
+            Live,
+            Edge,
+        }
+        let mut next = Next::Edge;
+        // The `turn` that ends the stretch: `started` = a live prompt's.
+        let mut ends_started = false;
+        let mut dropped = vec![false; self.marks.len()];
+        for (ix, mark) in self.marks.iter().enumerate().rev() {
+            match mark {
+                Mark::Copy => {
+                    dropped[ix] = true;
+                    next = Next::Copy;
+                }
+                Mark::NoopUpdate => dropped[ix] = true,
+                Mark::Repeat => dropped[ix] = next == Next::Copy && !ends_started,
+                Mark::Fresh => next = Next::Live,
+                Mark::Turn(started) => {
+                    next = Next::Edge;
+                    ends_started = *started;
+                }
+                Mark::Transparent => {}
+            }
+        }
+        dropped
+    }
+}
+
+/// A journal line minus its `"at"` stamps (`,"at":<int>`): what a replayed
+/// copy and its original share. A raw `,"at":` is always structural (a quote
+/// inside a JSON string is escaped).
+fn without_at(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut rest = line;
+    while let Some(at) = rest.find(",\"at\":") {
+        out.push_str(&rest[..at]);
+        let tail = &rest[at + 6..];
+        let digits = tail
+            .char_indices()
+            .find(|&(ix, c)| !(c.is_ascii_digit() || (ix == 0 && c == '-')))
+            .map_or(tail.len(), |(ix, _)| ix);
+        rest = &tail[digits..];
+    }
+    out.push_str(rest);
+    out
 }
 
 /// EXP-906: the sidecar's diff with the sequence it was numbered with, or
@@ -974,6 +1195,267 @@ mod tests {
         events[2].1 = tool_call("t1");
         let (kept, _) = replay_tail(events, 3);
         assert_eq!(kept.first().unwrap().0, 17);
+    }
+
+    /// LEGACY REPLAYS: the lines of a journal file, `at` stamped `at`.
+    fn write_lines(dir: &Path, id: &str, events: &[ActivityEvent]) {
+        let path = journal_path(dir, id).unwrap();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let mut raw = String::new();
+        for event in events {
+            raw.push_str(&serde_json::to_string(event).unwrap());
+            raw.push('\n');
+        }
+        fs::write(path, raw).unwrap();
+    }
+
+    fn said(text: &str, message: &str, at: i64) -> ActivityEvent {
+        ActivityEvent::Narration {
+            text: text.to_string(),
+            before_question_id: None,
+            message_id: Some(message.to_string()),
+            subagent_id: None,
+            at: Some(at),
+        }
+    }
+
+    fn prompt(text: &str, at: i64) -> ActivityEvent {
+        ActivityEvent::UserMessage { text: text.to_string(), subagent_id: None, at: Some(at) }
+    }
+
+    fn call(id: &str, at: i64) -> ActivityEvent {
+        let mut event = tool_call(id);
+        if let ActivityEvent::Tool { at: held, .. } = &mut event {
+            *held = Some(at);
+        }
+        event
+    }
+
+    fn done(id: &str, output: &str, at: i64) -> ActivityEvent {
+        ActivityEvent::ToolUpdate {
+            id: id.to_string(),
+            status: Some(crate::frames::ToolUpdateStatus::Completed),
+            diff: None,
+            output: Some(output.to_string()),
+            at: Some(at),
+            preview: None,
+            script: None,
+        }
+    }
+
+    fn edge(started: bool) -> ActivityEvent {
+        ActivityEvent::turn(if started { crate::frames::TurnState::Started } else { crate::frames::TurnState::Ended })
+    }
+
+    /// One live turn as the publisher records it: the prompt, a `turn`
+    /// edge, chunked narration, a call and its update, the end.
+    fn live_turn(text: &str, message: &str, call_id: &str, at: i64) -> Vec<ActivityEvent> {
+        vec![
+            prompt(text, at),
+            edge(true),
+            said("Looking at ", message, at + 1),
+            said("it now.", message, at + 2),
+            call(call_id, at + 3),
+            done(call_id, "ok", at + 4),
+            edge(false),
+        ]
+    }
+
+    /// The same turn as a resume's `session/load` streams it back: one
+    /// coalesced narration, no `turn` edge, every stamp the resume's.
+    fn replayed_turn(text: &str, message: &str, call_id: &str, at: i64) -> Vec<ActivityEvent> {
+        vec![prompt(text, at), said("Looking at it now.", message, at), call(call_id, at), done(call_id, "ok", at)]
+    }
+
+    fn texts(events: &[(u64, ActivityEvent)]) -> Vec<String> {
+        events
+            .iter()
+            .filter_map(|(seq, event)| match event {
+                ActivityEvent::UserMessage { text, .. } => Some(format!("{seq}:you:{text}")),
+                ActivityEvent::Narration { text, .. } => Some(format!("{seq}:{text}")),
+                ActivityEvent::Tool { id: Some(id), .. } => Some(format!("{seq}:tool:{id}")),
+                ActivityEvent::ToolUpdate { id, .. } => Some(format!("{seq}:done:{id}")),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// LEGACY REPLAYS: two resumes each appended the whole conversation
+    /// again before the host's `turn` seed; the reader drops both copies
+    /// and every kept line keeps its own seq (the line index), so pages
+    /// and `activity_synced` still address the file.
+    #[test]
+    fn a_resumes_replayed_copies_are_dropped_and_seqs_stay_line_indexes() {
+        let dir = temp_dir("legacy-replay");
+        let mut lines = live_turn("fix the bug", "m1", "t1", 100);
+        for resume in [1_000, 2_000] {
+            lines.extend(replayed_turn("fix the bug", "m1", "t1", resume));
+            lines.push(edge(false)); // the host's seed
+        }
+        lines.extend(live_turn("now ship it", "m2", "t2", 3_000));
+        write_lines(&dir, "sess-1", &lines);
+
+        let events = read_journal_seq(&dir, "sess-1").unwrap();
+        assert_eq!(
+            texts(&events),
+            [
+                "0:you:fix the bug",
+                "2:Looking at ",
+                "3:it now.",
+                "4:tool:t1",
+                "5:done:t1",
+                "17:you:now ship it",
+                "19:Looking at ",
+                "20:it now.",
+                "21:tool:t2",
+                "22:done:t2",
+            ]
+        );
+        // A page below the second turn holds the first one, nothing else.
+        let page = read_journal_page(&dir, "sess-1", 17, 50).unwrap();
+        assert_eq!(seqs(&page), [0, 2, 3, 4, 5]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A person who sends the same prompt twice keeps both: a live prompt
+    /// is followed by a `turn` edge and new ids, never by a copy.
+    #[test]
+    fn a_prompt_sent_twice_is_kept_twice() {
+        let dir = temp_dir("legacy-same-prompt");
+        let mut lines = live_turn("run the tests", "m1", "t1", 100);
+        lines.extend(live_turn("run the tests", "m2", "t2", 200));
+        // …even right after a resume's replay and its seed.
+        lines.extend(replayed_turn("run the tests", "m1", "t1", 300));
+        lines.extend(replayed_turn("run the tests", "m2", "t2", 300));
+        lines.push(edge(false));
+        lines.push(said("Looking at it now.", "m2", 301)); // a late replayed chunk
+        lines.extend(live_turn("run the tests", "m3", "t3", 400));
+        write_lines(&dir, "sess-1", &lines);
+
+        let events = read_journal_seq(&dir, "sess-1").unwrap();
+        let prompts: Vec<u64> = events
+            .iter()
+            .filter(|(_, event)| matches!(event, ActivityEvent::UserMessage { .. }))
+            .map(|(seq, _)| *seq)
+            .collect();
+        assert_eq!(prompts, [0, 7, 24], "three live prompts, no replayed one");
+        assert_eq!(events.iter().filter(|(_, event)| matches!(event, ActivityEvent::Tool { .. })).count(), 3);
+        assert!(events.iter().all(|(seq, _)| !(14..=23).contains(seq)), "the replay and its late chunk are gone");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A partial replay (the agent kept only part of the conversation, or
+    /// streamed history this file never held) drops what it can prove and
+    /// keeps the rest; a replayed update that differs (the original run was
+    /// killed before its call settled) is kept, it settles the original row.
+    #[test]
+    fn a_partial_replay_keeps_what_the_file_never_held() {
+        let dir = temp_dir("legacy-partial");
+        let mut lines = live_turn("first", "m1", "t1", 100);
+        // A killed run: the call never settled, no `turn` end.
+        lines.extend([prompt("second", 200), edge(true), said("Running", "m2", 201), call("t2", 202)]);
+        // The resume streams both turns back, the second settled this time,
+        // plus a call the file never saw.
+        lines.extend(replayed_turn("first", "m1", "t1", 300));
+        lines.extend([
+            prompt("second", 300),
+            said("Running", "m2", 300),
+            call("t2", 300),
+            done("t2", "finished", 300),
+            call("t9", 300),
+            done("t9", "new", 300),
+            edge(false),
+        ]);
+        write_lines(&dir, "sess-1", &lines);
+
+        let events = read_journal_seq(&dir, "sess-1").unwrap();
+        assert_eq!(
+            texts(&events),
+            [
+                "0:you:first",
+                "2:Looking at ",
+                "3:it now.",
+                "4:tool:t1",
+                "5:done:t1",
+                "7:you:second",
+                "9:Running",
+                "10:tool:t2",
+                "18:done:t2",
+                "19:tool:t9",
+                "20:done:t9",
+            ]
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Exact repeats of a live update and a live continuation chunk that
+    /// happens to repeat earlier text are not replays: the update is a no-op
+    /// for every client's fold (dropped), the chunk is kept.
+    #[test]
+    fn live_chunks_and_subagent_lanes_are_never_copies() {
+        let dir = temp_dir("legacy-live");
+        let sub = |text: &str, message: &str| ActivityEvent::Narration {
+            text: text.to_string(),
+            before_question_id: None,
+            message_id: Some(message.to_string()),
+            subagent_id: Some("agent-1".to_string()),
+            at: Some(5),
+        };
+        let lines = vec![
+            prompt("go", 1),
+            edge(true),
+            said("ok. ", "m1", 2),
+            // A subagent's message interleaves; m1 stays open in its lane.
+            sub("ok. ", "s1"),
+            said("ok. ", "m1", 3),
+            call("t1", 4),
+            done("t1", "same", 4),
+            done("t1", "same", 9),
+            edge(false),
+        ];
+        write_lines(&dir, "sess-1", &lines);
+        let events = read_journal_seq(&dir, "sess-1").unwrap();
+        assert_eq!(texts(&events), ["0:you:go", "2:ok. ", "3:ok. ", "4:ok. ", "5:tool:t1", "6:done:t1"]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn without_at_strips_every_stamp() {
+        assert_eq!(without_at(r#"{"kind":"x","at":17,"y":1}"#), r#"{"kind":"x","y":1}"#);
+        assert_eq!(without_at(r#"{"kind":"x","at":-3}"#), r#"{"kind":"x"}"#);
+        assert_eq!(without_at(r#"{"kind":"x","text":"a,\"at\":1"}"#), r#"{"kind":"x","text":"a,\"at\":1"}"#);
+    }
+
+    /// LEGACY REPLAYS on a real journal: `STEER_REAL_JOURNAL=<data dir>:<session id>
+    /// cargo test -p steer --release real_journal_dedupe -- --ignored --nocapture`.
+    /// Prints the parsed lines against what the reader keeps, and its time.
+    #[test]
+    #[ignore]
+    fn real_journal_dedupe() {
+        let spec = std::env::var("STEER_REAL_JOURNAL").expect("STEER_REAL_JOURNAL=<data dir>:<session id>");
+        let (dir, id) = spec.rsplit_once(':').unwrap();
+        let path = journal_path(Path::new(dir), id).unwrap();
+        let raw = fs::read_to_string(&path).unwrap();
+        let ms = |started: std::time::Instant| started.elapsed().as_secs_f64() * 1000.0;
+        // Best of five, interleaved: the parse alone (what a read cost
+        // before) against the whole read.
+        let (mut parse_ms, mut read_ms, mut parsed, mut events) = (f64::MAX, f64::MAX, 0, Vec::new());
+        for _ in 0..5 {
+            let started = std::time::Instant::now();
+            parsed = raw.lines().filter(|line| serde_json::from_str::<ActivityEvent>(line).is_ok()).count();
+            parse_ms = parse_ms.min(ms(started));
+            let started = std::time::Instant::now();
+            events = read_journal_seq(Path::new(dir), id).expect("a journal");
+            read_ms = read_ms.min(ms(started));
+        }
+        let log = events.iter().filter(|(_, event)| !is_state_slot(event)).count();
+        let (tail, _) = replay_tail(events.clone(), REPLAY_TAIL);
+        println!(
+            "{} lines, {parsed} parsed; kept {} events ({log} log); tail {}; parse alone {parse_ms:.1} ms, read+parse+dedupe {read_ms:.1} ms",
+            raw.lines().count(),
+            events.len(),
+            tail.len()
+        );
     }
 
     /// REPLAY TAIL on a real journal: `STEER_REAL_JOURNAL=<data dir>:<session id>

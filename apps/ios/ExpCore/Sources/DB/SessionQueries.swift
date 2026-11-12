@@ -124,6 +124,19 @@ public enum SessionQueries {
             """, arguments: [rootId, max(0, limit)])
     }
 
+    /// results-tab.json: a root's result CANDIDATES = its tree's
+    /// session-authored card rows (`root_id` + `author_session_id` + `card`),
+    /// oldest first, raw (a sealed card opens where it is read). The Results
+    /// tab and its count fold THESE, never the loaded window (#EXP-1380).
+    public static func resultCardMessages(db: Database, rootId: String) throws -> [SessionMessage] {
+        try SessionMessage.fetchAll(db, sql: """
+            \(keyedMessagesSQL) AND "messages"."root_id" = ?
+                AND "messages"."author_session_id" IS NOT NULL
+                AND "messages"."card" IS NOT NULL AND "messages"."card" <> 'null'
+            ORDER BY "messages"."created_at" ASC, "messages"."id" ASC
+            """, arguments: [rootId])
+    }
+
     /// #EXP-1399: messages by id (an `ask` mirror's ORIGIN card, which lives
     /// in another tree), oldest first; an unsynced id reads nothing.
     public static func messages(db: Database, ids: [String]) throws -> [SessionMessage] {

@@ -509,7 +509,13 @@ export function AgentSessionView({
   const canLoadEarlier = windowStart > 0 || snapshotCanLoadEarlier
   /** Pull the next page in, anchored to the distance from the bottom. */
   const anchorRef = useRef<number | null>(null)
+  const loadingSinceRef = useRef(0)
   const loadEarlier = useCallback(() => {
+    // One page at a time: every scroll event near the top fired another
+    // widen before the last one committed (a 300 ms task per extra page).
+    // A page that never lands (no reply) frees the next press after 2 s.
+    if (anchorRef.current !== null && performance.now() - loadingSinceRef.current < 2_000) return
+    loadingSinceRef.current = performance.now()
     const el = scrollRef.current
     anchorRef.current = el ? el.scrollHeight - el.scrollTop : null
     // #EXP-1380: the chat's loaded messages widen with it (its cards, ×4).
