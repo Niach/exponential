@@ -16,6 +16,17 @@ describe(`nounCall (#VAPP-292)`, () => {
       args: { deviceId: `d`, issueIds: [`EXP-1`], cli: `codex` },
     })
   })
+  // #VAPP-293: Claude reaches a write only on the noun's `_write` twin.
+  it(`sends a write op to the noun's _write twin`, () => {
+    expect(nounCall(`exponential_comments_create`, { issueId: `i`, body: `b` })).toEqual({
+      name: `exponential_comments_write`,
+      args: { op: `create`, issueId: `i`, body: `b` },
+    })
+    expect(nounCall(`exponential_devices_account_login`, { deviceId: `d` }).name).toBe(`exponential_devices_write`)
+    expect(nounCall(`exponential_apps`, { op: `records_upsert` }).name).toBe(`exponential_apps_write`)
+    expect(nounCall(`exponential_apps`, { op: `records_list` }).name).toBe(`exponential_apps`)
+    expect(nounCall(`exponential_issues_write`, { op: `update` }).name).toBe(`exponential_issues_write`)
+  })
   it(`passes a noun or verb as is`, () => {
     expect(nounCall(`exponential_apps`, { op: `get` })).toEqual({ name: `exponential_apps`, args: { op: `get` } })
     expect(nounCall(`exponential_show`, {}).name).toBe(`exponential_show`)

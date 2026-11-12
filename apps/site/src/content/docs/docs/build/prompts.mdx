@@ -30,7 +30,7 @@ In a running session, `/` lists `/compact`, `/new`, `/model` and `/effort` first
 
 ## Prompts over MCP
 
-Agents read prompts with the [`exponential_prompts`](/docs/build/mcp/) tool (`list`, `get`; owners also `create`, `update`, `delete`). `exponential_sessions_send` takes a `promptId` to start a session with a prompt's body first.
+Agents read prompts with the [`exponential_prompts`](/docs/build/mcp/) tool (`list`, `get`); owners also `create`, `update` and `delete` them with `exponential_prompts_write`. `exponential_sessions_send` takes a `promptId` to start a session with a prompt's body first.
 
 <Aside>
 Prompts run when someone picks them. To run work on a schedule or when an event happens, give an agent a trigger: see [Sessions](/docs/using/sessions/).

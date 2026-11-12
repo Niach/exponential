@@ -4341,7 +4341,10 @@ fn exp_tool_title(tools: &dyn HostTools, title: &str, raw_input: Option<&Value>)
     else {
         return title.to_string();
     };
-    let composed = format!("{trimmed}_{}", op.trim());
+    // #VAPP-293: a noun's writes are its `_write` twin (`exponential_issues_write`
+    // + `{op: "create"}`), whose row is still the noun's (`issues_create`).
+    let noun = trimmed.strip_suffix("_write").unwrap_or(trimmed);
+    let composed = format!("{noun}_{}", op.trim());
     if tools.row(&composed).is_some() {
         composed
     } else {
@@ -7525,5 +7528,40 @@ mod conversation_tests {
         );
         assert!(out.subagents.is_empty(), "{:?}", out.subagents);
         assert_eq!(out.wire.len(), 1, "the live layer still shows it");
+    }
+}
+
+#[cfg(test)]
+mod exp_tool_title_tests {
+    use super::*;
+    use serde_json::json;
+
+    /// Two rows, looked up namespace-free like Exponential's host does.
+    struct Rows;
+    impl HostTools for Rows {
+        fn row(&self, title: &str) -> Option<&'static str> {
+            let bare = title.rsplit("__").next().unwrap_or(title).trim_start_matches("exponential_");
+            ["issues_create", "issues_get"].into_iter().find(|row| *row == bare)
+        }
+    }
+
+    // #VAPP-293: a noun's writes moved to its `_write` twin; the row is still
+    // the noun's, so every client's lookup stays `issues_create`.
+    #[test]
+    fn a_write_twin_composes_the_nouns_row() {
+        let op = |op: &str| json!({ "op": op });
+        assert_eq!(
+            exp_tool_title(&Rows, "mcp__exponential__exponential_issues_write", Some(&op("create"))),
+            "mcp__exponential__exponential_issues_create"
+        );
+        assert_eq!(
+            exp_tool_title(&Rows, "mcp__exponential__exponential_issues", Some(&op("get"))),
+            "mcp__exponential__exponential_issues_get"
+        );
+        // An op with no row keeps the title as it came.
+        assert_eq!(
+            exp_tool_title(&Rows, "mcp__exponential__exponential_issues_write", Some(&op("explode"))),
+            "mcp__exponential__exponential_issues_write"
+        );
     }
 }

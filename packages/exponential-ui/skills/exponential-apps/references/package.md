@@ -102,7 +102,7 @@ Today:
   - `apps.package` is the PUBLISHED version's package (`published_version`, 0 = never published); `apps.draft_package` is the head's while it is ahead.
   - Every version write (`apps upsert`, Restore) makes a draft. Members, the exposed MCP tools (the broker), record policies and automations run the published package.
   - The editor's preview shows the head while the viewer's own editor session is live (or nothing is published), else the published version.
-  - "Publish" (the editor header; phones: the … menu; any Versions row; the viewing banner) or `exponential_apps {op: "publish", version?}` moves the pointer. An older version = a rollback; past a version whose sweep ran, the Publish first warns that rollback doesn't reverse migrated data (#VAPP-256, apps.json `rollbackCases`, no data moves). An imported app, or one created with a package, publishes v1 at once.
+  - "Publish" (the editor header; phones: the … menu; any Versions row; the viewing banner) or `exponential_apps_write {op: "publish", version?}` moves the pointer. An older version = a rollback; past a version whose sweep ran, the Publish first warns that rollback doesn't reverse migrated data (#VAPP-256, apps.json `rollbackCases`, no data moves). An imported app, or one created with a package, publishes v1 at once.
   - Grants follow the published package: an owner's publish keeps the still-declared grants, anyone else's clears them.
   - Records validate against the published kinds plus a draft's new kinds (so an editor can seed them before publishing).
 

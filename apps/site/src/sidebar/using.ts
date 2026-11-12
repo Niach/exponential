@@ -8,5 +8,6 @@ export const USING = {
     { label: `Voice`, link: `/docs/using/voice/` },
     { label: `Desktop app`, link: `/docs/using/desktop-app/` },
     { label: `Mobile apps`, link: `/docs/using/mobile-apps/` },
+    { label: `Claude`, link: `/docs/using/claude/` },
   ],
 }

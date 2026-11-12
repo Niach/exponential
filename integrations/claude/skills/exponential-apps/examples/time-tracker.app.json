@@ -1,0 +1,2307 @@
+{
+  "formatVersion": 5,
+  "id": "exponential.time-tracker",
+  "name": "Time tracker",
+  "version": "1.1.0",
+  "catalogId": "https://ui.exponential.at/catalogs/exponential-app/v1",
+  "description": "Log your hours per day against the team's projects; see the month per day and per ISO week, the total and what is left of the monthly target. Entries are private to their author (owners see everyone's). Agents read the weeks and log hours over MCP.",
+  "icon": {
+    "glyph": "ui-clock"
+  },
+  "sources": [
+    "records:entry",
+    "records:project",
+    "records:settings",
+    "exp:me"
+  ],
+  "functions": [
+    "records.*",
+    "bind",
+    "harness.toast"
+  ],
+  "records": {
+    "entry": {
+      "title": "Time entry",
+      "description": "Hours one member worked on one day.",
+      "policy": {
+        "read": "author",
+        "create": "member",
+        "update": "author",
+        "delete": "author"
+      },
+      "schema": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "description": "The day"
+          },
+          "hours": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 24
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "What you did"
+          },
+          "project": {
+            "type": "string",
+            "maxLength": 40,
+            "description": "A project's value"
+          }
+        },
+        "required": [
+          "date",
+          "hours"
+        ],
+        "additionalProperties": false
+      },
+      "computed": {
+        "minutes": "round(hours * 60)",
+        "week": "isoWeek(date)"
+      }
+    },
+    "project": {
+      "title": "Project",
+      "description": "What hours are booked on; value + label make a row a Select option.",
+      "policy": {
+        "read": "member",
+        "create": "owners",
+        "update": "owners",
+        "delete": "owners"
+      },
+      "schema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string",
+            "maxLength": 40,
+            "description": "Short code"
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 80,
+            "description": "Display name"
+          },
+          "archived": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "value",
+          "label"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "settings": {
+      "title": "Monthly target",
+      "description": "The newest row is the team's target; older rows are its history.",
+      "policy": {
+        "read": "member",
+        "create": "owners",
+        "update": "owners",
+        "delete": "owners"
+      },
+      "schema": {
+        "type": "object",
+        "properties": {
+          "hours_per_month": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 744
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "queries": {
+    "month": {
+      "from": "entry",
+      "mine": true,
+      "month": {
+        "field": "date",
+        "key": "${month}"
+      },
+      "sum": "hours",
+      "group": [
+        {
+          "bucket": "date",
+          "by": "day"
+        }
+      ],
+      "aggregate": {
+        "hours": [
+          "sum",
+          "hours"
+        ],
+        "n": [
+          "count"
+        ]
+      },
+      "sort": [
+        [
+          "date",
+          "desc"
+        ]
+      ],
+      "limit": 500
+    },
+    "team": {
+      "from": "entry",
+      "month": {
+        "field": "date",
+        "key": "${month}"
+      },
+      "group": [
+        "author"
+      ],
+      "aggregate": {
+        "hours": [
+          "sum",
+          "hours"
+        ],
+        "days": [
+          "countDistinct",
+          "date"
+        ]
+      },
+      "sort": [
+        [
+          "hours",
+          "desc"
+        ]
+      ],
+      "limit": 500
+    },
+    "weeks": {
+      "from": "entry",
+      "mine": true,
+      "month": {
+        "field": "date",
+        "key": "${month}"
+      },
+      "group": [
+        "week"
+      ],
+      "aggregate": {
+        "minutes": [
+          "sum",
+          "minutes"
+        ],
+        "hours": [
+          "sum",
+          "hours"
+        ],
+        "days": [
+          "countDistinct",
+          "date"
+        ]
+      },
+      "sort": [
+        [
+          "week",
+          "asc"
+        ]
+      ],
+      "limit": 500
+    }
+  },
+  "actions": {
+    "log": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "hours": {
+            "type": "number"
+          },
+          "note": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "date",
+          "hours"
+        ]
+      },
+      "steps": [
+        {
+          "require": "params.hours > 0",
+          "message": "Log more than 0 hours"
+        },
+        {
+          "require": "params.hours <= 24",
+          "message": "A day has 24 hours"
+        },
+        {
+          "require": "!has(params.note) || size(params.note) <= 500",
+          "message": "Keep the note under 500 characters"
+        },
+        {
+          "records.upsert": {
+            "kind": "entry",
+            "data": {
+              "date": "params.date",
+              "hours": "params.hours",
+              "note": "params.note",
+              "project": "params.project"
+            }
+          }
+        },
+        {
+          "set": {
+            "path": "/draft/open",
+            "value": false
+          }
+        },
+        {
+          "call": "harness.toast",
+          "args": {
+            "message": "'Logged ' + formatDuration(params.hours, 'h:mm') + ' on ' + params.date"
+          }
+        }
+      ]
+    },
+    "edit": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "hours": {
+            "type": "number"
+          },
+          "note": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string"
+          },
+          "entry": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "entry",
+          "date",
+          "hours"
+        ]
+      },
+      "steps": [
+        {
+          "require": "params.hours > 0",
+          "message": "Log more than 0 hours"
+        },
+        {
+          "require": "params.hours <= 24",
+          "message": "A day has 24 hours"
+        },
+        {
+          "require": "!has(params.note) || size(params.note) <= 500",
+          "message": "Keep the note under 500 characters"
+        },
+        {
+          "records.upsert": {
+            "kind": "entry",
+            "id": "params.entry",
+            "data": {
+              "date": "params.date",
+              "hours": "params.hours",
+              "note": "params.note",
+              "project": "params.project"
+            }
+          }
+        },
+        {
+          "set": {
+            "path": "/draft/open",
+            "value": false
+          }
+        },
+        {
+          "call": "harness.toast",
+          "args": {
+            "message": "'Saved ' + formatDuration(params.hours, 'h:mm')"
+          }
+        }
+      ]
+    },
+    "remove": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "entry": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "entry"
+        ]
+      },
+      "steps": [
+        {
+          "records.delete": {
+            "id": "params.entry"
+          }
+        },
+        {
+          "set": {
+            "path": "/draft/open",
+            "value": false
+          }
+        },
+        {
+          "call": "harness.toast",
+          "args": {
+            "message": "'Entry deleted'"
+          }
+        }
+      ]
+    },
+    "setTarget": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "hours": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "hours"
+        ]
+      },
+      "steps": [
+        {
+          "require": "params.hours >= 0 && params.hours <= 744",
+          "message": "A month has at most 744 hours"
+        },
+        {
+          "records.upsert": {
+            "kind": "settings",
+            "data": {
+              "hours_per_month": "params.hours"
+            }
+          }
+        },
+        {
+          "call": "harness.toast",
+          "args": {
+            "message": "'Target set to ' + formatDuration(params.hours, 'h:mm')"
+          }
+        }
+      ]
+    },
+    "addProject": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "label"
+        ]
+      },
+      "steps": [
+        {
+          "require": "size(params.value) > 0 && size(params.label) > 0",
+          "message": "A project needs a code and a name"
+        },
+        {
+          "records.upsert": {
+            "kind": "project",
+            "data": {
+              "value": "params.value",
+              "label": "params.label",
+              "archived": false
+            }
+          }
+        },
+        {
+          "set": {
+            "path": "/newProject",
+            "value": {
+              "value": "",
+              "label": ""
+            }
+          }
+        }
+      ]
+    }
+  },
+  "exposes": [
+    {
+      "name": "week_summary",
+      "title": "Hours per week",
+      "description": "Your logged hours in one month, grouped by ISO week (minutes, hours and days per week). month = YYYY-MM; left out = this month.",
+      "input": {
+        "type": "object",
+        "properties": {
+          "month": {
+            "type": "string",
+            "pattern": "^[0-9]{4}-[0-9]{2}$",
+            "description": "YYYY-MM"
+          }
+        }
+      },
+      "access": "read",
+      "run": {
+        "records": {
+          "op": "list",
+          "kind": "entry",
+          "query": "weeks"
+        }
+      }
+    },
+    {
+      "name": "log_hours",
+      "title": "Log hours",
+      "description": "Log hours you worked on one day (as you, via the time tracker).",
+      "input": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "hours": {
+            "type": "number",
+            "minimum": 0.25,
+            "maximum": 24
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "project": {
+            "type": "string",
+            "maxLength": 40
+          }
+        },
+        "required": [
+          "date",
+          "hours"
+        ]
+      },
+      "access": "write",
+      "run": {
+        "records": {
+          "op": "upsert",
+          "kind": "entry",
+          "data": {
+            "date": "${input.date}",
+            "hours": "${input.hours}",
+            "note": "${input.note}",
+            "project": "${input.project}"
+          }
+        }
+      }
+    }
+  ],
+  "templates": {
+    "month": {
+      "data": {
+        "month": {
+          "rows": [],
+          "count": 0,
+          "sum": 0,
+          "groups": [],
+          "totals": {},
+          "month": {
+            "key": "",
+            "label": "",
+            "prev": "",
+            "next": "",
+            "today": "",
+            "days": [],
+            "labels": [],
+            "counts": [],
+            "sums": []
+          }
+        },
+        "team": {
+          "rows": [],
+          "count": 0,
+          "groups": [],
+          "totals": {}
+        },
+        "projects": {
+          "rows": [],
+          "count": 0
+        },
+        "settings": {
+          "rows": [],
+          "count": 0
+        },
+        "draft": {
+          "open": false,
+          "entry": "",
+          "date": "",
+          "hours": 0,
+          "note": "",
+          "project": ""
+        },
+        "newProject": {
+          "value": "",
+          "label": ""
+        },
+        "targetDraft": 160,
+        "weeks": {
+          "rows": [],
+          "count": 0,
+          "groups": [],
+          "totals": {}
+        }
+      },
+      "bindings": [
+        {
+          "path": "/month",
+          "source": "records:entry?query=month"
+        },
+        {
+          "path": "/weeks",
+          "source": "records:entry?query=weeks"
+        },
+        {
+          "path": "/team",
+          "source": "records:entry?query=team"
+        },
+        {
+          "path": "/projects",
+          "source": "records:project?archived.in=,false&sort=label&order=asc"
+        },
+        {
+          "path": "/settings",
+          "source": "records:settings?sort=createdAt&order=desc&limit=1"
+        },
+        {
+          "path": "/me",
+          "source": "exp:me"
+        }
+      ],
+      "components": [
+        {
+          "id": "root",
+          "component": "Page",
+          "title": "Time tracker",
+          "subtitle": {
+            "path": "/month/month/label"
+          },
+          "children": [
+            "toolbar",
+            "stats",
+            "progress",
+            "entries",
+            "weeks",
+            "team",
+            "admin",
+            "editor"
+          ]
+        },
+        {
+          "id": "toolbar",
+          "component": "Toolbar",
+          "children": [
+            "prev",
+            "monthLabel",
+            "next"
+          ],
+          "slots": {
+            "trailing": "logBtn"
+          }
+        },
+        {
+          "id": "prev",
+          "component": "Button",
+          "icon": "ui-chevron-left",
+          "variant": "outline",
+          "size": "icon",
+          "on": {
+            "press": {
+              "functionCall": {
+                "call": "bind",
+                "args": {
+                  "path": "/month",
+                  "source": "records:entry?query=month",
+                  "params": {
+                    "month": {
+                      "path": "/month/month/prev"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "monthLabel",
+          "component": "Text",
+          "variant": "title",
+          "text": {
+            "path": "/month/month/label"
+          }
+        },
+        {
+          "id": "next",
+          "component": "Button",
+          "icon": "ui-chevron-right",
+          "variant": "outline",
+          "size": "icon",
+          "on": {
+            "press": {
+              "functionCall": {
+                "call": "bind",
+                "args": {
+                  "path": "/month",
+                  "source": "records:entry?query=month",
+                  "params": {
+                    "month": {
+                      "path": "/month/month/next"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "logBtn",
+          "component": "Button",
+          "label": "Log hours",
+          "icon": "ui-add",
+          "on": {
+            "press": {
+              "functionCall": {
+                "call": "set",
+                "args": {
+                  "path": "/draft",
+                  "value": {
+                    "open": true,
+                    "entry": "",
+                    "date": {
+                      "path": "/month/month/today"
+                    },
+                    "hours": 0,
+                    "note": "",
+                    "project": ""
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "stats",
+          "component": "Grid",
+          "columns": {
+            "base": 2,
+            "md": 4
+          },
+          "gap": "sm",
+          "children": [
+            "statLogged",
+            "statTarget",
+            "statLeft",
+            "statDays"
+          ]
+        },
+        {
+          "id": "statLogged",
+          "component": "StatTile",
+          "label": "Logged",
+          "value": {
+            "call": "expr",
+            "args": {
+              "expr": "formatDuration(m.sum, 'h:mm')",
+              "default": "0:00",
+              "vars": {
+                "m": {
+                  "path": "/month"
+                }
+              }
+            }
+          },
+          "trend": {
+            "path": "/month/month/sums"
+          }
+        },
+        {
+          "id": "statTarget",
+          "component": "StatTile",
+          "label": "Target",
+          "value": {
+            "call": "expr",
+            "args": {
+              "expr": "formatDuration((size(s.rows) > 0 && has(s.rows[0].hours_per_month) ? s.rows[0].hours_per_month : 160), 'h:mm')",
+              "default": "160:00",
+              "vars": {
+                "s": {
+                  "path": "/settings"
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "statLeft",
+          "component": "StatTile",
+          "label": "Left",
+          "value": {
+            "call": "expr",
+            "args": {
+              "expr": "formatDuration(max((size(s.rows) > 0 && has(s.rows[0].hours_per_month) ? s.rows[0].hours_per_month : 160) - m.sum, 0), 'h:mm')",
+              "default": "–",
+              "vars": {
+                "m": {
+                  "path": "/month"
+                },
+                "s": {
+                  "path": "/settings"
+                }
+              }
+            }
+          },
+          "delta": {
+            "call": "expr",
+            "args": {
+              "expr": "m.sum > (size(s.rows) > 0 && has(s.rows[0].hours_per_month) ? s.rows[0].hours_per_month : 160) ? 'over by ' + formatDuration(m.sum - (size(s.rows) > 0 && has(s.rows[0].hours_per_month) ? s.rows[0].hours_per_month : 160), 'h:mm') : ''",
+              "default": "",
+              "vars": {
+                "m": {
+                  "path": "/month"
+                },
+                "s": {
+                  "path": "/settings"
+                }
+              }
+            }
+          },
+          "tone": {
+            "call": "expr",
+            "args": {
+              "expr": "m.sum >= (size(s.rows) > 0 && has(s.rows[0].hours_per_month) ? s.rows[0].hours_per_month : 160) ? 'success' : 'neutral'",
+              "default": "neutral",
+              "vars": {
+                "m": {
+                  "path": "/month"
+                },
+                "s": {
+                  "path": "/settings"
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "statDays",
+          "component": "StatTile",
+          "label": "Days logged",
+          "value": {
+            "call": "formatNumber",
+            "args": {
+              "value": {
+                "call": "expr",
+                "args": {
+                  "expr": "size(m.groups)",
+                  "default": 0,
+                  "vars": {
+                    "m": {
+                      "path": "/month"
+                    }
+                  }
+                }
+              },
+              "decimals": 0
+            }
+          }
+        },
+        {
+          "id": "progress",
+          "component": "Progress",
+          "label": "Month target",
+          "value": {
+            "call": "expr",
+            "args": {
+              "expr": "min(round(m.sum * 100 / max((size(s.rows) > 0 && has(s.rows[0].hours_per_month) ? s.rows[0].hours_per_month : 160), 1)), 100)",
+              "default": 0,
+              "vars": {
+                "m": {
+                  "path": "/month"
+                },
+                "s": {
+                  "path": "/settings"
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "entries",
+          "component": "Section",
+          "title": "My entries",
+          "count": {
+            "path": "/month/count"
+          },
+          "children": [
+            "entryList",
+            "noEntries"
+          ]
+        },
+        {
+          "id": "noEntries",
+          "component": "EmptyState",
+          "size": "list",
+          "icon": "ui-clock",
+          "title": "No hours this month",
+          "visible": {
+            "call": "expr",
+            "args": {
+              "expr": "m.count == 0",
+              "default": false,
+              "vars": {
+                "m": {
+                  "path": "/month"
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "entryList",
+          "component": "List",
+          "divided": true,
+          "children": {
+            "componentId": "entryRow",
+            "path": "/month/rows",
+            "key": "id"
+          }
+        },
+        {
+          "id": "entryRow",
+          "component": "Row",
+          "title": {
+            "call": "expr",
+            "args": {
+              "expr": "note != null && note != '' ? note : 'No note'",
+              "default": "No note",
+              "vars": {
+                "note": {
+                  "path": "note"
+                }
+              }
+            }
+          },
+          "subtitle": {
+            "call": "expr",
+            "args": {
+              "expr": "p != null && p != '' ? orElse(d, '') + ' · ' + p : orElse(d, '')",
+              "default": "",
+              "vars": {
+                "d": {
+                  "path": "date"
+                },
+                "p": {
+                  "path": "project"
+                }
+              }
+            }
+          },
+          "value": {
+            "call": "expr",
+            "args": {
+              "expr": "formatDuration(orElse(h, 0), 'h:mm')",
+              "default": "",
+              "vars": {
+                "h": {
+                  "path": "hours"
+                }
+              }
+            }
+          },
+          "pressable": true,
+          "chevron": "right",
+          "on": {
+            "press": {
+              "functionCall": {
+                "call": "set",
+                "args": {
+                  "path": "/draft",
+                  "value": {
+                    "open": true,
+                    "entry": {
+                      "path": "id"
+                    },
+                    "date": {
+                      "path": "date"
+                    },
+                    "hours": {
+                      "path": "hours"
+                    },
+                    "note": {
+                      "call": "fallback",
+                      "args": {
+                        "value": {
+                          "path": "note"
+                        },
+                        "default": ""
+                      }
+                    },
+                    "project": {
+                      "call": "fallback",
+                      "args": {
+                        "value": {
+                          "path": "project"
+                        },
+                        "default": ""
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "weeks",
+          "component": "Section",
+          "title": "This month by week",
+          "count": {
+            "call": "expr",
+            "args": {
+              "expr": "size(w.groups)",
+              "default": 0,
+              "vars": {
+                "w": {
+                  "path": "/weeks"
+                }
+              }
+            }
+          },
+          "collapsible": true,
+          "open": false,
+          "children": [
+            "weekTable"
+          ]
+        },
+        {
+          "id": "weekTable",
+          "component": "Table",
+          "density": "compact",
+          "rowKey": "week",
+          "columns": [
+            {
+              "key": "week",
+              "label": "Week",
+              "type": "number",
+              "align": "start"
+            },
+            {
+              "key": "days",
+              "label": "Days",
+              "type": "number",
+              "align": "end"
+            },
+            {
+              "key": "minutes",
+              "label": "Minutes",
+              "type": "number",
+              "align": "end"
+            },
+            {
+              "key": "hours",
+              "label": "Hours",
+              "type": "number",
+              "decimals": 2,
+              "align": "end"
+            }
+          ],
+          "rows": {
+            "path": "/weeks/groups"
+          }
+        },
+        {
+          "id": "team",
+          "component": "Section",
+          "title": "This month by member",
+          "caption": "Owners see everyone; members see themselves",
+          "count": {
+            "path": "/team/count"
+          },
+          "collapsible": true,
+          "open": false,
+          "children": [
+            "teamTable"
+          ]
+        },
+        {
+          "id": "teamTable",
+          "component": "Table",
+          "density": "compact",
+          "rowKey": "authorId",
+          "columns": [
+            {
+              "key": "author",
+              "label": "Member"
+            },
+            {
+              "key": "days",
+              "label": "Days",
+              "type": "number",
+              "align": "end"
+            },
+            {
+              "key": "hours",
+              "label": "Hours",
+              "type": "number",
+              "decimals": 2,
+              "align": "end"
+            }
+          ],
+          "rows": {
+            "path": "/team/groups"
+          }
+        },
+        {
+          "id": "admin",
+          "component": "Card",
+          "title": "Team settings",
+          "description": "Owners only: the monthly target and the projects.",
+          "children": [
+            "targetRow",
+            "projectRow",
+            "projectList"
+          ],
+          "visible": {
+            "call": "eq",
+            "args": {
+              "a": {
+                "path": "/me/role"
+              },
+              "b": "owner"
+            }
+          }
+        },
+        {
+          "id": "targetRow",
+          "component": "Toolbar",
+          "children": [
+            "targetField"
+          ],
+          "slots": {
+            "trailing": "targetSave"
+          }
+        },
+        {
+          "id": "targetField",
+          "component": "NumberField",
+          "label": "Hours per month",
+          "name": "hours_per_month",
+          "value": {
+            "path": "/targetDraft"
+          },
+          "min": 0,
+          "max": 744,
+          "unit": "h"
+        },
+        {
+          "id": "targetSave",
+          "component": "Button",
+          "label": "Save target",
+          "variant": "outline",
+          "on": {
+            "press": {
+              "functionCall": {
+                "call": "actions.setTarget",
+                "args": {
+                  "hours": {
+                    "path": "/targetDraft"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "projectRow",
+          "component": "FieldGroup",
+          "columns": 3,
+          "children": [
+            "projectValue",
+            "projectLabel",
+            "projectAdd"
+          ]
+        },
+        {
+          "id": "projectValue",
+          "component": "Input",
+          "label": "Code",
+          "name": "value",
+          "placeholder": "web",
+          "value": {
+            "path": "/newProject/value"
+          }
+        },
+        {
+          "id": "projectLabel",
+          "component": "Input",
+          "label": "Name",
+          "name": "label",
+          "placeholder": "Web app",
+          "value": {
+            "path": "/newProject/label"
+          }
+        },
+        {
+          "id": "projectAdd",
+          "component": "Button",
+          "label": "Add project",
+          "variant": "outline",
+          "icon": "ui-add",
+          "on": {
+            "press": {
+              "functionCall": {
+                "call": "actions.addProject",
+                "args": {
+                  "value": {
+                    "path": "/newProject/value"
+                  },
+                  "label": {
+                    "path": "/newProject/label"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "projectList",
+          "component": "Stack",
+          "direction": "horizontal",
+          "gap": "xs",
+          "wrap": true,
+          "children": {
+            "componentId": "projectChip",
+            "path": "/projects/rows",
+            "key": "id"
+          }
+        },
+        {
+          "id": "projectChip",
+          "component": "Chip",
+          "label": {
+            "path": "label"
+          }
+        },
+        {
+          "id": "editor",
+          "component": "Dialog",
+          "title": "Log hours",
+          "open": {
+            "path": "/draft/open"
+          },
+          "children": [
+            "form"
+          ]
+        },
+        {
+          "id": "form",
+          "component": "Form",
+          "name": "entry",
+          "children": [
+            "fields",
+            "formActions"
+          ],
+          "on": {
+            "submit": {
+              "functionCall": {
+                "call": "actions.log",
+                "args": {
+                  "date": {
+                    "path": "/draft/date"
+                  },
+                  "hours": {
+                    "path": "/draft/hours"
+                  },
+                  "note": {
+                    "path": "/draft/note"
+                  },
+                  "project": {
+                    "path": "/draft/project"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "fields",
+          "component": "FieldGroup",
+          "columns": 2,
+          "children": [
+            "date",
+            "hours",
+            "project",
+            "note"
+          ]
+        },
+        {
+          "id": "date",
+          "component": "DatePicker",
+          "label": "Day",
+          "name": "date",
+          "value": {
+            "path": "/draft/date"
+          }
+        },
+        {
+          "id": "hours",
+          "component": "NumberField",
+          "label": "Hours",
+          "name": "hours",
+          "value": {
+            "path": "/draft/hours"
+          },
+          "min": 0,
+          "max": 24,
+          "step": 0.25,
+          "unit": "h",
+          "checks": [
+            {
+              "condition": {
+                "call": "and",
+                "args": {
+                  "values": [
+                    {
+                      "call": "lt",
+                      "args": {
+                        "a": 0,
+                        "b": {
+                          "path": "/draft/hours"
+                        }
+                      }
+                    },
+                    {
+                      "call": "not",
+                      "args": {
+                        "value": {
+                          "call": "lt",
+                          "args": {
+                            "a": 24,
+                            "b": {
+                              "path": "/draft/hours"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              "message": "Between 0 and 24 hours"
+            }
+          ]
+        },
+        {
+          "id": "project",
+          "component": "Select",
+          "label": "Project",
+          "name": "project",
+          "placeholder": "No project",
+          "options": {
+            "path": "/projects/rows"
+          },
+          "value": {
+            "path": "/draft/project"
+          }
+        },
+        {
+          "id": "note",
+          "component": "Textarea",
+          "label": "What you did",
+          "name": "note",
+          "rows": 2,
+          "value": {
+            "path": "/draft/note"
+          }
+        },
+        {
+          "id": "formActions",
+          "component": "FormActions",
+          "submit": "Save",
+          "cancel": true,
+          "children": [
+            "deleteBtn",
+            "saveEditBtn"
+          ],
+          "on": {
+            "cancel": {
+              "functionCall": {
+                "call": "set",
+                "args": {
+                  "path": "/draft/open",
+                  "value": false
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "deleteBtn",
+          "component": "Button",
+          "label": "Delete",
+          "variant": "ghost",
+          "icon": "ui-delete",
+          "visible": {
+            "call": "expr",
+            "args": {
+              "expr": "e != ''",
+              "default": false,
+              "vars": {
+                "e": {
+                  "path": "/draft/entry"
+                }
+              }
+            }
+          },
+          "on": {
+            "press": {
+              "functionCall": {
+                "call": "actions.remove",
+                "args": {
+                  "entry": {
+                    "path": "/draft/entry"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "saveEditBtn",
+          "component": "Button",
+          "label": "Save changes",
+          "variant": "secondary",
+          "visible": {
+            "call": "expr",
+            "args": {
+              "expr": "e != ''",
+              "default": false,
+              "vars": {
+                "e": {
+                  "path": "/draft/entry"
+                }
+              }
+            }
+          },
+          "on": {
+            "press": {
+              "functionCall": {
+                "call": "actions.edit",
+                "args": {
+                  "entry": {
+                    "path": "/draft/entry"
+                  },
+                  "date": {
+                    "path": "/draft/date"
+                  },
+                  "hours": {
+                    "path": "/draft/hours"
+                  },
+                  "note": {
+                    "path": "/draft/note"
+                  },
+                  "project": {
+                    "path": "/draft/project"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "tests": [
+    {
+      "name": "the month's total, my rows only",
+      "now": "2026-11-12T09:00:00.000Z",
+      "records": {
+        "entry": [
+          {
+            "id": "e1",
+            "author": "member",
+            "date": "2026-11-02",
+            "hours": 7.5,
+            "note": "Sprint planning",
+            "project": "web"
+          },
+          {
+            "id": "e2",
+            "author": "member",
+            "date": "2026-11-02",
+            "hours": 1
+          },
+          {
+            "id": "e3",
+            "author": "member",
+            "date": "2026-11-03",
+            "hours": 8,
+            "project": "ios"
+          },
+          {
+            "id": "e4",
+            "author": "member",
+            "date": "2026-10-30",
+            "hours": 6
+          },
+          {
+            "id": "a1",
+            "date": "2026-11-04",
+            "hours": 5,
+            "author": "ada"
+          }
+        ],
+        "settings": [
+          {
+            "hours_per_month": 120,
+            "author": "owner1"
+          }
+        ]
+      },
+      "expr": {
+        "expr": "formatDuration(m.sum, 'h:mm')",
+        "vars": {
+          "m": {
+            "source": "records:entry?query=month"
+          }
+        }
+      },
+      "expect": "16:30"
+    },
+    {
+      "name": "hours left against the newest target",
+      "now": "2026-11-12T09:00:00.000Z",
+      "records": {
+        "entry": [
+          {
+            "id": "e1",
+            "author": "member",
+            "date": "2026-11-02",
+            "hours": 7.5,
+            "note": "Sprint planning",
+            "project": "web"
+          },
+          {
+            "id": "e2",
+            "author": "member",
+            "date": "2026-11-02",
+            "hours": 1
+          },
+          {
+            "id": "e3",
+            "author": "member",
+            "date": "2026-11-03",
+            "hours": 8,
+            "project": "ios"
+          },
+          {
+            "id": "e4",
+            "author": "member",
+            "date": "2026-10-30",
+            "hours": 6
+          },
+          {
+            "id": "a1",
+            "date": "2026-11-04",
+            "hours": 5,
+            "author": "ada"
+          }
+        ],
+        "settings": [
+          {
+            "hours_per_month": 120,
+            "author": "owner1"
+          }
+        ]
+      },
+      "expr": {
+        "expr": "formatDuration(max((size(s.rows) > 0 && has(s.rows[0].hours_per_month) ? s.rows[0].hours_per_month : 160) - m.sum, 0), 'h:mm')",
+        "vars": {
+          "m": {
+            "source": "records:entry?query=month"
+          },
+          "s": {
+            "source": "records:settings?sort=createdAt&order=desc&limit=1"
+          }
+        }
+      },
+      "expect": "103:30"
+    },
+    {
+      "name": "no target falls back to 160 h",
+      "now": "2026-11-12T09:00:00.000Z",
+      "records": {
+        "entry": [
+          {
+            "id": "e1",
+            "author": "member",
+            "date": "2026-11-02",
+            "hours": 7.5,
+            "note": "Sprint planning",
+            "project": "web"
+          },
+          {
+            "id": "e2",
+            "author": "member",
+            "date": "2026-11-02",
+            "hours": 1
+          },
+          {
+            "id": "e3",
+            "author": "member",
+            "date": "2026-11-03",
+            "hours": 8,
+            "project": "ios"
+          },
+          {
+            "id": "e4",
+            "author": "member",
+            "date": "2026-10-30",
+            "hours": 6
+          },
+          {
+            "id": "a1",
+            "date": "2026-11-04",
+            "hours": 5,
+            "author": "ada"
+          }
+        ]
+      },
+      "expr": {
+        "expr": "(size(s.rows) > 0 && has(s.rows[0].hours_per_month) ? s.rows[0].hours_per_month : 160)",
+        "vars": {
+          "s": {
+            "source": "records:settings?limit=1"
+          }
+        }
+      },
+      "expect": 160
+    },
+    {
+      "name": "the month per day",
+      "now": "2026-11-12T09:00:00.000Z",
+      "records": {
+        "entry": [
+          {
+            "id": "e1",
+            "author": "member",
+            "date": "2026-11-02",
+            "hours": 7.5,
+            "note": "Sprint planning",
+            "project": "web"
+          },
+          {
+            "id": "e2",
+            "author": "member",
+            "date": "2026-11-02",
+            "hours": 1
+          },
+          {
+            "id": "e3",
+            "author": "member",
+            "date": "2026-11-03",
+            "hours": 8,
+            "project": "ios"
+          },
+          {
+            "id": "e4",
+            "author": "member",
+            "date": "2026-10-30",
+            "hours": 6
+          },
+          {
+            "id": "a1",
+            "date": "2026-11-04",
+            "hours": 5,
+            "author": "ada"
+          }
+        ],
+        "settings": [
+          {
+            "hours_per_month": 120,
+            "author": "owner1"
+          }
+        ]
+      },
+      "query": {
+        "name": "month",
+        "params": {
+          "month": "2026-11"
+        }
+      },
+      "expect": {
+        "count": 3,
+        "sum": 16.5,
+        "groups": [
+          {
+            "date": "2026-11-03",
+            "hours": 8,
+            "n": 1
+          },
+          {
+            "date": "2026-11-02",
+            "hours": 8.5,
+            "n": 2
+          }
+        ],
+        "totals": {
+          "hours": 16.5,
+          "n": 3
+        }
+      }
+    },
+    {
+      "name": "computed minutes and ISO weeks group the month",
+      "now": "2026-11-12T09:00:00.000Z",
+      "records": {
+        "entry": [
+          {
+            "id": "e1",
+            "author": "member",
+            "date": "2026-11-02",
+            "hours": 7.5,
+            "note": "Sprint planning",
+            "project": "web"
+          },
+          {
+            "id": "e2",
+            "author": "member",
+            "date": "2026-11-02",
+            "hours": 1
+          },
+          {
+            "id": "e3",
+            "author": "member",
+            "date": "2026-11-03",
+            "hours": 8,
+            "project": "ios"
+          },
+          {
+            "id": "e4",
+            "author": "member",
+            "date": "2026-10-30",
+            "hours": 6
+          },
+          {
+            "id": "a1",
+            "date": "2026-11-04",
+            "hours": 5,
+            "author": "ada"
+          },
+          {
+            "id": "e5",
+            "author": "member",
+            "date": "2026-11-09",
+            "hours": 0.75,
+            "project": "web"
+          }
+        ],
+        "settings": [
+          {
+            "hours_per_month": 120,
+            "author": "owner1"
+          }
+        ]
+      },
+      "query": {
+        "name": "weeks",
+        "params": {
+          "month": "2026-11"
+        }
+      },
+      "expect": {
+        "count": 4,
+        "groups": [
+          {
+            "week": 45,
+            "minutes": 990,
+            "hours": 16.5,
+            "days": 2
+          },
+          {
+            "week": 46,
+            "minutes": 45,
+            "hours": 0.75,
+            "days": 1
+          }
+        ],
+        "totals": {
+          "minutes": 1035,
+          "hours": 17.25,
+          "days": 3
+        }
+      }
+    },
+    {
+      "name": "a row carries its computed fields",
+      "now": "2026-11-12T09:00:00.000Z",
+      "records": {
+        "entry": [
+          {
+            "id": "e1",
+            "author": "member",
+            "date": "2026-11-02",
+            "hours": 7.5,
+            "note": "Sprint planning",
+            "project": "web"
+          },
+          {
+            "id": "e2",
+            "author": "member",
+            "date": "2026-11-02",
+            "hours": 1
+          },
+          {
+            "id": "e3",
+            "author": "member",
+            "date": "2026-11-03",
+            "hours": 8,
+            "project": "ios"
+          },
+          {
+            "id": "e4",
+            "author": "member",
+            "date": "2026-10-30",
+            "hours": 6
+          },
+          {
+            "id": "a1",
+            "date": "2026-11-04",
+            "hours": 5,
+            "author": "ada"
+          },
+          {
+            "id": "e5",
+            "author": "member",
+            "date": "2026-11-09",
+            "hours": 0.75,
+            "project": "web"
+          }
+        ],
+        "settings": [
+          {
+            "hours_per_month": 120,
+            "author": "owner1"
+          }
+        ]
+      },
+      "expr": {
+        "expr": "w.rows.filter(r, r.week == 46).map(r, r.minutes)",
+        "vars": {
+          "w": {
+            "source": "records:entry?query=weeks"
+          }
+        }
+      },
+      "expect": [
+        45
+      ]
+    },
+    {
+      "name": "October is another month",
+      "now": "2026-11-12T09:00:00.000Z",
+      "records": {
+        "entry": [
+          {
+            "id": "e1",
+            "author": "member",
+            "date": "2026-11-02",
+            "hours": 7.5,
+            "note": "Sprint planning",
+            "project": "web"
+          },
+          {
+            "id": "e2",
+            "author": "member",
+            "date": "2026-11-02",
+            "hours": 1
+          },
+          {
+            "id": "e3",
+            "author": "member",
+            "date": "2026-11-03",
+            "hours": 8,
+            "project": "ios"
+          },
+          {
+            "id": "e4",
+            "author": "member",
+            "date": "2026-10-30",
+            "hours": 6
+          },
+          {
+            "id": "a1",
+            "date": "2026-11-04",
+            "hours": 5,
+            "author": "ada"
+          }
+        ],
+        "settings": [
+          {
+            "hours_per_month": 120,
+            "author": "owner1"
+          }
+        ]
+      },
+      "query": {
+        "name": "month",
+        "params": {
+          "month": "2026-10"
+        }
+      },
+      "expect": {
+        "count": 1,
+        "totals": {
+          "hours": 6
+        }
+      }
+    },
+    {
+      "name": "logging lands an entry and a toast",
+      "now": "2026-11-12T09:00:00.000Z",
+      "action": {
+        "name": "log",
+        "params": {
+          "date": "2026-11-12",
+          "hours": 2.25,
+          "note": "Review",
+          "project": "web"
+        }
+      },
+      "expect": {
+        "records": {
+          "entry": [
+            {
+              "id": "new-1",
+              "date": "2026-11-12",
+              "hours": 2.25,
+              "note": "Review",
+              "project": "web",
+              "author": "member"
+            }
+          ]
+        },
+        "sets": [
+          {
+            "path": "/draft/open",
+            "value": false
+          }
+        ],
+        "calls": [
+          {
+            "name": "harness.toast",
+            "args": {
+              "message": "Logged 2:15 on 2026-11-12"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "zero hours are refused",
+      "action": {
+        "name": "log",
+        "params": {
+          "date": "2026-11-12",
+          "hours": 0
+        }
+      },
+      "expect": {
+        "error": "Log more than 0 hours"
+      }
+    },
+    {
+      "name": "25 hours are refused",
+      "action": {
+        "name": "log",
+        "params": {
+          "date": "2026-11-12",
+          "hours": 25
+        }
+      },
+      "expect": {
+        "error": "A day has 24 hours"
+      }
+    },
+    {
+      "name": "editing patches my entry",
+      "now": "2026-11-12T09:00:00.000Z",
+      "records": {
+        "entry": [
+          {
+            "id": "e1",
+            "author": "member",
+            "date": "2026-11-02",
+            "hours": 7.5,
+            "note": "Sprint planning",
+            "project": "web"
+          },
+          {
+            "id": "e2",
+            "author": "member",
+            "date": "2026-11-02",
+            "hours": 1
+          },
+          {
+            "id": "e3",
+            "author": "member",
+            "date": "2026-11-03",
+            "hours": 8,
+            "project": "ios"
+          },
+          {
+            "id": "e4",
+            "author": "member",
+            "date": "2026-10-30",
+            "hours": 6
+          },
+          {
+            "id": "a1",
+            "date": "2026-11-04",
+            "hours": 5,
+            "author": "ada"
+          }
+        ],
+        "settings": [
+          {
+            "hours_per_month": 120,
+            "author": "owner1"
+          }
+        ]
+      },
+      "action": {
+        "name": "edit",
+        "params": {
+          "entry": "e2",
+          "date": "2026-11-02",
+          "hours": 1.5
+        }
+      },
+      "expect": {
+        "records": {
+          "entry": [
+            {
+              "id": "e1"
+            },
+            {
+              "id": "e2",
+              "author": "member",
+              "hours": 1.5
+            },
+            {
+              "id": "e3"
+            },
+            {
+              "id": "e4"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "another member cannot read my entries",
+      "now": "2026-11-12T09:00:00.000Z",
+      "records": {
+        "entry": [
+          {
+            "id": "e1",
+            "author": "member",
+            "date": "2026-11-02",
+            "hours": 7.5,
+            "note": "Sprint planning",
+            "project": "web"
+          },
+          {
+            "id": "e2",
+            "author": "member",
+            "date": "2026-11-02",
+            "hours": 1
+          },
+          {
+            "id": "e3",
+            "author": "member",
+            "date": "2026-11-03",
+            "hours": 8,
+            "project": "ios"
+          },
+          {
+            "id": "e4",
+            "author": "member",
+            "date": "2026-10-30",
+            "hours": 6
+          },
+          {
+            "id": "a1",
+            "date": "2026-11-04",
+            "hours": 5,
+            "author": "ada"
+          }
+        ],
+        "settings": [
+          {
+            "hours_per_month": 120,
+            "author": "owner1"
+          }
+        ]
+      },
+      "as": "bob",
+      "expr": {
+        "expr": "all.count",
+        "vars": {
+          "all": {
+            "source": "records:entry"
+          }
+        }
+      },
+      "expect": 0
+    },
+    {
+      "name": "ada reads only her own entry",
+      "now": "2026-11-12T09:00:00.000Z",
+      "records": {
+        "entry": [
+          {
+            "id": "e1",
+            "author": "member",
+            "date": "2026-11-02",
+            "hours": 7.5,
+            "note": "Sprint planning",
+            "project": "web"
+          },
+          {
+            "id": "e2",
+            "author": "member",
+            "date": "2026-11-02",
+            "hours": 1
+          },
+          {
+            "id": "e3",
+            "author": "member",
+            "date": "2026-11-03",
+            "hours": 8,
+            "project": "ios"
+          },
+          {
+            "id": "e4",
+            "author": "member",
+            "date": "2026-10-30",
+            "hours": 6
+          },
+          {
+            "id": "a1",
+            "date": "2026-11-04",
+            "hours": 5,
+            "author": "ada"
+          }
+        ],
+        "settings": [
+          {
+            "hours_per_month": 120,
+            "author": "owner1"
+          }
+        ]
+      },
+      "as": "ada",
+      "expr": {
+        "expr": "all.rows.map(r, r.id)",
+        "vars": {
+          "all": {
+            "source": "records:entry"
+          }
+        }
+      },
+      "expect": [
+        "a1"
+      ]
+    },
+    {
+      "name": "an owner reads everyone's entries",
+      "now": "2026-11-12T09:00:00.000Z",
+      "records": {
+        "entry": [
+          {
+            "id": "e1",
+            "author": "member",
+            "date": "2026-11-02",
+            "hours": 7.5,
+            "note": "Sprint planning",
+            "project": "web"
+          },
+          {
+            "id": "e2",
+            "author": "member",
+            "date": "2026-11-02",
+            "hours": 1
+          },
+          {
+            "id": "e3",
+            "author": "member",
+            "date": "2026-11-03",
+            "hours": 8,
+            "project": "ios"
+          },
+          {
+            "id": "e4",
+            "author": "member",
+            "date": "2026-10-30",
+            "hours": 6
+          },
+          {
+            "id": "a1",
+            "date": "2026-11-04",
+            "hours": 5,
+            "author": "ada"
+          }
+        ],
+        "settings": [
+          {
+            "hours_per_month": 120,
+            "author": "owner1"
+          }
+        ]
+      },
+      "as": "owner1",
+      "role": "owner",
+      "query": {
+        "name": "team",
+        "params": {
+          "month": "2026-11"
+        }
+      },
+      "expect": {
+        "count": 4,
+        "groups": [
+          {
+            "authorId": "member",
+            "hours": 16.5,
+            "days": 2
+          },
+          {
+            "authorId": "ada",
+            "hours": 5,
+            "days": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "bob cannot delete ada's entry (not found for him)",
+      "records": {
+        "entry": [
+          {
+            "id": "e1",
+            "author": "member",
+            "date": "2026-11-02",
+            "hours": 7.5,
+            "note": "Sprint planning",
+            "project": "web"
+          },
+          {
+            "id": "e2",
+            "author": "member",
+            "date": "2026-11-02",
+            "hours": 1
+          },
+          {
+            "id": "e3",
+            "author": "member",
+            "date": "2026-11-03",
+            "hours": 8,
+            "project": "ios"
+          },
+          {
+            "id": "e4",
+            "author": "member",
+            "date": "2026-10-30",
+            "hours": 6
+          },
+          {
+            "id": "a1",
+            "date": "2026-11-04",
+            "hours": 5,
+            "author": "ada"
+          }
+        ],
+        "settings": [
+          {
+            "hours_per_month": 120,
+            "author": "owner1"
+          }
+        ]
+      },
+      "as": "bob",
+      "action": {
+        "name": "remove",
+        "params": {
+          "entry": "a1"
+        }
+      },
+      "expect": {
+        "error": "write 0: record a1 not found"
+      }
+    },
+    {
+      "name": "a member cannot add a project",
+      "action": {
+        "name": "addProject",
+        "params": {
+          "value": "web",
+          "label": "Web app"
+        }
+      },
+      "expect": {
+        "error": "write 0: Only team owners can add these records"
+      }
+    },
+    {
+      "name": "an owner adds a project",
+      "role": "owner",
+      "action": {
+        "name": "addProject",
+        "params": {
+          "value": "web",
+          "label": "Web app"
+        }
+      },
+      "expect": {
+        "records": {
+          "project": [
+            {
+              "value": "web",
+              "label": "Web app",
+              "archived": false
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -60,6 +60,8 @@ import { FULL_ACCESS } from "@/lib/emcp/scope"
 import { ALL_MCP_TOOL_GATES } from "@/lib/emcp/gates"
 import { issueWireColumns } from "@/lib/issue-columns"
 import type { McpUser } from "@/lib/emcp/server"
+import { NOUN_TOOLS } from "@/lib/emcp/nouns"
+import { NOUN_READ_OPS } from "@exp/mcp-apps/tool-names"
 
 type ToolDef = {
   description?: string
@@ -142,6 +144,22 @@ describe(`read-only hints (FEED-25)`, () => {
     for (const [name, def] of defs) {
       expect(def.annotations?.readOnlyHint === true, name).toBe(isRead(name))
     }
+  })
+})
+
+// #VAPP-293: the MCP Apps views route a write to the noun's `_write` twin off
+// their own table of read ops; it is exactly the server's split.
+describe(`the views' read ops are the server's (#VAPP-293)`, () => {
+  it(`NOUN_READ_OPS lists every noun's readOnlyHint ops`, () => {
+    const split = Object.fromEntries(
+      NOUN_TOOLS.filter((spec) => spec.ops && spec.name !== `session_self`).map((spec) => [
+        spec.name,
+        Object.entries(spec.ops!)
+          .filter(([, tool]) => defs.get(`exponential_${tool}`)?.annotations?.readOnlyHint === true)
+          .map(([op]) => op),
+      ])
+    )
+    expect(NOUN_READ_OPS).toEqual(split)
   })
 })
 

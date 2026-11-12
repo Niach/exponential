@@ -1,0 +1,1667 @@
+{
+  "formatVersion": 5,
+  "id": "exponential.standup",
+  "name": "Standup",
+  "version": "1.0.0",
+  "catalogId": "https://ui.exponential.at/catalogs/exponential-app/v1",
+  "description": "The async daily standup: what you did yesterday, what you do today and what blocks you. Everyone reads every update; only its author (or an owner) edits or deletes it.",
+  "icon": {
+    "glyph": "ui-team"
+  },
+  "sources": [
+    "records:update",
+    "exp:members"
+  ],
+  "functions": [
+    "records.*",
+    "bind",
+    "harness.toast"
+  ],
+  "records": {
+    "update": {
+      "title": "Standup update",
+      "policy": {
+        "read": "member",
+        "create": "member",
+        "update": "author",
+        "delete": "author"
+      },
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "date",
+          "yesterday",
+          "today"
+        ],
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "yesterday": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "today": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "blockers": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        }
+      }
+    }
+  },
+  "queries": {
+    "day": {
+      "from": "update",
+      "where": [
+        [
+          "date",
+          "eq",
+          "${day}"
+        ]
+      ],
+      "sort": [
+        [
+          "createdAt",
+          "asc"
+        ]
+      ],
+      "limit": 200
+    },
+    "recent": {
+      "from": "update",
+      "month": {
+        "field": "date",
+        "key": "${month}"
+      },
+      "sort": [
+        [
+          "date",
+          "desc"
+        ],
+        [
+          "createdAt",
+          "desc"
+        ]
+      ],
+      "limit": 500
+    },
+    "week": {
+      "from": "update",
+      "where": [
+        [
+          "date",
+          "between",
+          "${start}",
+          "${end}"
+        ]
+      ],
+      "group": [
+        "author"
+      ],
+      "aggregate": {
+        "posted": [
+          "count"
+        ],
+        "blocked": [
+          "count",
+          "blockers"
+        ],
+        "last": [
+          "max",
+          "date"
+        ]
+      },
+      "sort": [
+        [
+          "posted",
+          "desc"
+        ]
+      ]
+    }
+  },
+  "actions": {
+    "post": {
+      "params": {
+        "type": "object",
+        "required": [
+          "yesterday",
+          "today"
+        ],
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "yesterday": {
+            "type": "string"
+          },
+          "today": {
+            "type": "string"
+          },
+          "blockers": {
+            "type": "string"
+          }
+        }
+      },
+      "steps": [
+        {
+          "require": "size(params.today) > 0",
+          "message": "Say what you will do today"
+        },
+        {
+          "require": "!orElse(data.recent.rows, []).exists(u, u.date == orElse(params.date, today()) && u.authorId == me)",
+          "message": "You already posted for this day: edit that update"
+        },
+        {
+          "records.upsert": {
+            "kind": "update",
+            "data": {
+              "date": "orElse(params.date, today())",
+              "yesterday": "params.yesterday",
+              "today": "params.today",
+              "blockers": "has(params.blockers) && params.blockers != '' ? params.blockers : null"
+            }
+          }
+        },
+        {
+          "set": {
+            "path": "/draft",
+            "value": {
+              "open": false,
+              "yesterday": "",
+              "today": "",
+              "blockers": ""
+            }
+          }
+        },
+        {
+          "call": "harness.toast",
+          "args": {
+            "message": "has(params.blockers) && params.blockers != '' ? 'Posted, with a blocker' : 'Posted'"
+          }
+        }
+      ]
+    },
+    "edit": {
+      "params": {
+        "type": "object",
+        "required": [
+          "entry",
+          "yesterday",
+          "today"
+        ],
+        "properties": {
+          "entry": {
+            "type": "string"
+          },
+          "yesterday": {
+            "type": "string"
+          },
+          "today": {
+            "type": "string"
+          },
+          "blockers": {
+            "type": "string"
+          }
+        }
+      },
+      "steps": [
+        {
+          "require": "size(params.today) > 0",
+          "message": "Say what you will do today"
+        },
+        {
+          "records.upsert": {
+            "kind": "update",
+            "id": "params.entry",
+            "data": {
+              "yesterday": "params.yesterday",
+              "today": "params.today",
+              "blockers": "has(params.blockers) && params.blockers != '' ? params.blockers : null"
+            }
+          }
+        },
+        {
+          "set": {
+            "path": "/detail/open",
+            "value": false
+          }
+        }
+      ]
+    },
+    "remove": {
+      "params": {
+        "type": "object",
+        "required": [
+          "entry"
+        ],
+        "properties": {
+          "entry": {
+            "type": "string"
+          }
+        }
+      },
+      "steps": [
+        {
+          "records.delete": {
+            "id": "params.entry"
+          }
+        },
+        {
+          "set": {
+            "path": "/detail/open",
+            "value": false
+          }
+        }
+      ]
+    }
+  },
+  "templates": {
+    "standup": {
+      "data": {
+        "tab": "today",
+        "picked": "",
+        "recent": {
+          "rows": [],
+          "count": 0,
+          "month": {
+            "key": "",
+            "label": "",
+            "today": "",
+            "days": []
+          }
+        },
+        "day": {
+          "rows": [],
+          "count": 0
+        },
+        "week": {
+          "rows": [],
+          "count": 0,
+          "groups": []
+        },
+        "members": {
+          "rows": [],
+          "count": 0,
+          "me": null
+        },
+        "draft": {
+          "open": false,
+          "yesterday": "",
+          "today": "",
+          "blockers": ""
+        },
+        "detail": {
+          "open": false,
+          "id": "",
+          "author": "",
+          "authorId": "",
+          "date": "",
+          "yesterday": "",
+          "today": "",
+          "blockers": ""
+        }
+      },
+      "bindings": [
+        {
+          "path": "/recent",
+          "source": "records:update?query=recent"
+        },
+        {
+          "path": "/day",
+          "source": "records:update?query=day"
+        },
+        {
+          "path": "/week",
+          "source": "records:update?query=week"
+        },
+        {
+          "path": "/members",
+          "source": "exp:members"
+        }
+      ],
+      "components": [
+        {
+          "id": "root",
+          "component": "Page",
+          "title": "Standup",
+          "subtitle": {
+            "path": "/recent/month/today"
+          },
+          "children": [
+            "stats",
+            "tabs",
+            "postDialog",
+            "detail"
+          ],
+          "slots": {
+            "trailing": "postBtn"
+          }
+        },
+        {
+          "id": "postBtn",
+          "component": "Button",
+          "label": "Post update",
+          "icon": "ui-add",
+          "on": {
+            "press": {
+              "functionCall": {
+                "call": "set",
+                "args": {
+                  "path": "/draft/open",
+                  "value": true
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "stats",
+          "component": "Grid",
+          "columns": {
+            "base": 1,
+            "md": 3
+          },
+          "gap": "sm",
+          "children": [
+            "statPosted",
+            "statWaiting",
+            "statBlockers"
+          ]
+        },
+        {
+          "id": "statPosted",
+          "component": "StatTile",
+          "label": "Posted today",
+          "value": {
+            "call": "formatNumber",
+            "args": {
+              "decimals": 0,
+              "value": {
+                "call": "expr",
+                "args": {
+                  "expr": "size(r.rows.filter(u, u.date == today()))",
+                  "default": 0,
+                  "vars": {
+                    "r": {
+                      "path": "/recent"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "statWaiting",
+          "component": "StatTile",
+          "label": "Still to post",
+          "value": {
+            "call": "formatNumber",
+            "args": {
+              "decimals": 0,
+              "value": {
+                "call": "expr",
+                "args": {
+                  "expr": "max(orElse(m.count, 0) - size(r.rows.filter(u, u.date == today())), 0)",
+                  "default": 0,
+                  "vars": {
+                    "r": {
+                      "path": "/recent"
+                    },
+                    "m": {
+                      "path": "/members"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "statBlockers",
+          "component": "StatTile",
+          "label": "Blockers",
+          "tone": {
+            "call": "expr",
+            "args": {
+              "expr": "size(r.rows.filter(u, u.date == today() && has(u.blockers) && u.blockers != '')) > 0 ? 'warning' : 'success'",
+              "default": "neutral",
+              "vars": {
+                "r": {
+                  "path": "/recent"
+                }
+              }
+            }
+          },
+          "value": {
+            "call": "pluralize",
+            "args": {
+              "value": {
+                "call": "expr",
+                "args": {
+                  "expr": "size(r.rows.filter(u, u.date == today() && has(u.blockers) && u.blockers != ''))",
+                  "default": 0,
+                  "vars": {
+                    "r": {
+                      "path": "/recent"
+                    }
+                  }
+                }
+              },
+              "zero": "No blockers today",
+              "one": "1 blocker today",
+              "other": "{count} blockers today"
+            }
+          }
+        },
+        {
+          "id": "tabs",
+          "component": "Tabs",
+          "value": {
+            "path": "/tab"
+          },
+          "tabs": [
+            {
+              "label": "Today",
+              "value": "today"
+            },
+            {
+              "label": "Any day",
+              "value": "day"
+            },
+            {
+              "label": "This week",
+              "value": "week"
+            }
+          ],
+          "on": {
+            "change": {
+              "functionCall": {
+                "call": "bind",
+                "args": {
+                  "path": "/week",
+                  "source": "records:update?query=week",
+                  "params": {
+                    "start": {
+                      "call": "expr",
+                      "args": {
+                        "expr": "startOf(today(), 'week')",
+                        "default": ""
+                      }
+                    },
+                    "end": {
+                      "call": "expr",
+                      "args": {
+                        "expr": "endOf(today(), 'week')",
+                        "default": ""
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "children": [
+            "todayPanel",
+            "dayPanel",
+            "weekPanel"
+          ]
+        },
+        {
+          "id": "todayPanel",
+          "component": "Stack",
+          "gap": "sm",
+          "children": [
+            "todayEmpty",
+            "todayList"
+          ]
+        },
+        {
+          "id": "todayEmpty",
+          "component": "EmptyState",
+          "size": "list",
+          "icon": "ui-team",
+          "title": "Nobody has posted today",
+          "visible": {
+            "call": "expr",
+            "args": {
+              "expr": "size(r.rows.filter(u, u.date == today())) == 0",
+              "default": false,
+              "vars": {
+                "r": {
+                  "path": "/recent"
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "todayList",
+          "component": "List",
+          "divided": true,
+          "children": {
+            "componentId": "todayRow",
+            "path": "/recent/rows",
+            "key": "id"
+          }
+        },
+        {
+          "id": "todayRow",
+          "component": "Row",
+          "title": {
+            "path": "author"
+          },
+          "subtitle": {
+            "path": "today"
+          },
+          "meta": {
+            "call": "expr",
+            "args": {
+              "expr": "b != null && b != '' ? 'blocked' : ''",
+              "default": "",
+              "vars": {
+                "b": {
+                  "path": "blockers"
+                }
+              }
+            }
+          },
+          "visible": {
+            "call": "expr",
+            "args": {
+              "expr": "d == today()",
+              "default": false,
+              "vars": {
+                "d": {
+                  "path": "date"
+                }
+              }
+            }
+          },
+          "pressable": true,
+          "chevron": "right",
+          "on": {
+            "press": {
+              "functionCall": {
+                "call": "set",
+                "args": {
+                  "path": "/detail",
+                  "value": {
+                    "open": true,
+                    "id": {
+                      "path": "id"
+                    },
+                    "author": {
+                      "path": "author"
+                    },
+                    "authorId": {
+                      "path": "authorId"
+                    },
+                    "date": {
+                      "path": "date"
+                    },
+                    "yesterday": {
+                      "path": "yesterday"
+                    },
+                    "today": {
+                      "path": "today"
+                    },
+                    "blockers": {
+                      "call": "fallback",
+                      "args": {
+                        "value": {
+                          "path": "blockers"
+                        },
+                        "default": ""
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "dayPanel",
+          "component": "Stack",
+          "gap": "sm",
+          "children": [
+            "dayPicker",
+            "dayList"
+          ]
+        },
+        {
+          "id": "dayPicker",
+          "component": "DatePicker",
+          "label": "Day",
+          "name": "day",
+          "value": {
+            "path": "/picked"
+          },
+          "on": {
+            "change": {
+              "functionCall": {
+                "call": "bind",
+                "args": {
+                  "path": "/day",
+                  "source": "records:update?query=day",
+                  "params": {
+                    "day": {
+                      "path": "/picked"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "dayList",
+          "component": "List",
+          "divided": true,
+          "children": {
+            "componentId": "dayRow",
+            "path": "/day/rows",
+            "key": "id"
+          }
+        },
+        {
+          "id": "dayRow",
+          "component": "Row",
+          "title": {
+            "path": "author"
+          },
+          "subtitle": {
+            "path": "today"
+          },
+          "meta": {
+            "call": "expr",
+            "args": {
+              "expr": "b != null && b != '' ? 'blocked' : ''",
+              "default": "",
+              "vars": {
+                "b": {
+                  "path": "blockers"
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "weekPanel",
+          "component": "Table",
+          "density": "compact",
+          "rowKey": "authorId",
+          "emptyText": "No updates this week",
+          "columns": [
+            {
+              "key": "author",
+              "label": "Member"
+            },
+            {
+              "key": "posted",
+              "label": "Updates",
+              "type": "number",
+              "align": "end"
+            },
+            {
+              "key": "blocked",
+              "label": "Blocked days",
+              "type": "number",
+              "align": "end"
+            },
+            {
+              "key": "last",
+              "label": "Last",
+              "type": "date",
+              "align": "end"
+            }
+          ],
+          "rows": {
+            "path": "/week/groups"
+          }
+        },
+        {
+          "id": "postDialog",
+          "component": "Dialog",
+          "title": "Post your update",
+          "open": {
+            "path": "/draft/open"
+          },
+          "children": [
+            "postForm"
+          ]
+        },
+        {
+          "id": "postForm",
+          "component": "Form",
+          "name": "update",
+          "children": [
+            "fYesterday",
+            "fToday",
+            "fBlockers",
+            "postActions"
+          ],
+          "on": {
+            "submit": {
+              "functionCall": {
+                "call": "actions.post",
+                "args": {
+                  "yesterday": {
+                    "path": "/draft/yesterday"
+                  },
+                  "today": {
+                    "path": "/draft/today"
+                  },
+                  "blockers": {
+                    "path": "/draft/blockers"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "fYesterday",
+          "component": "Textarea",
+          "label": "Yesterday",
+          "name": "yesterday",
+          "autosize": true,
+          "value": {
+            "path": "/draft/yesterday"
+          }
+        },
+        {
+          "id": "fToday",
+          "component": "Textarea",
+          "label": "Today",
+          "name": "today",
+          "autosize": true,
+          "value": {
+            "path": "/draft/today"
+          },
+          "checks": [
+            {
+              "condition": {
+                "call": "required",
+                "args": {
+                  "value": {
+                    "path": "/draft/today"
+                  }
+                }
+              },
+              "message": "Say what you will do today"
+            }
+          ]
+        },
+        {
+          "id": "fBlockers",
+          "component": "Textarea",
+          "label": "Blockers",
+          "name": "blockers",
+          "placeholder": "Nothing blocks me",
+          "value": {
+            "path": "/draft/blockers"
+          }
+        },
+        {
+          "id": "postActions",
+          "component": "FormActions",
+          "submit": "Post",
+          "cancel": true,
+          "on": {
+            "cancel": {
+              "functionCall": {
+                "call": "set",
+                "args": {
+                  "path": "/draft/open",
+                  "value": false
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "detail",
+          "component": "Drawer",
+          "side": "right",
+          "title": "Update",
+          "open": {
+            "path": "/detail/open"
+          },
+          "children": [
+            "dHead",
+            "dYesterday",
+            "dToday",
+            "dBlockers",
+            "dEditForm"
+          ]
+        },
+        {
+          "id": "dHead",
+          "component": "Row",
+          "title": {
+            "path": "/detail/author"
+          },
+          "meta": {
+            "path": "/detail/date"
+          }
+        },
+        {
+          "id": "dYesterday",
+          "component": "Markdown",
+          "text": {
+            "call": "concat",
+            "args": {
+              "values": [
+                "**Yesterday**\n\n",
+                {
+                  "path": "/detail/yesterday"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "dToday",
+          "component": "Markdown",
+          "text": {
+            "call": "concat",
+            "args": {
+              "values": [
+                "**Today**\n\n",
+                {
+                  "path": "/detail/today"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "dBlockers",
+          "component": "Text",
+          "tone": "warning",
+          "text": {
+            "call": "concat",
+            "args": {
+              "values": [
+                "Blocked: ",
+                {
+                  "path": "/detail/blockers"
+                }
+              ]
+            }
+          },
+          "visible": {
+            "call": "expr",
+            "args": {
+              "expr": "b != ''",
+              "default": false,
+              "vars": {
+                "b": {
+                  "path": "/detail/blockers"
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "dEditForm",
+          "component": "Collapsible",
+          "title": "Edit (author or owner)",
+          "children": [
+            "eToday",
+            "eBlockers",
+            "eActions"
+          ]
+        },
+        {
+          "id": "eToday",
+          "component": "Textarea",
+          "label": "Today",
+          "name": "today",
+          "value": {
+            "path": "/detail/today"
+          }
+        },
+        {
+          "id": "eBlockers",
+          "component": "Textarea",
+          "label": "Blockers",
+          "name": "blockers",
+          "value": {
+            "path": "/detail/blockers"
+          }
+        },
+        {
+          "id": "eActions",
+          "component": "Toolbar",
+          "children": [
+            "eDelete"
+          ],
+          "slots": {
+            "trailing": "eSave"
+          }
+        },
+        {
+          "id": "eDelete",
+          "component": "Button",
+          "label": "Delete",
+          "icon": "ui-delete",
+          "variant": "ghost",
+          "on": {
+            "press": {
+              "functionCall": {
+                "call": "actions.remove",
+                "args": {
+                  "entry": {
+                    "path": "/detail/id"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "eSave",
+          "component": "Button",
+          "label": "Save",
+          "variant": "secondary",
+          "on": {
+            "press": {
+              "functionCall": {
+                "call": "actions.edit",
+                "args": {
+                  "entry": {
+                    "path": "/detail/id"
+                  },
+                  "yesterday": {
+                    "path": "/detail/yesterday"
+                  },
+                  "today": {
+                    "path": "/detail/today"
+                  },
+                  "blockers": {
+                    "path": "/detail/blockers"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "tests": [
+    {
+      "name": "today's updates",
+      "now": "2026-11-04T08:30:00.000Z",
+      "records": {
+        "update": [
+          {
+            "id": "u1",
+            "date": "2026-11-04",
+            "yesterday": "Shipped the CRM",
+            "today": "Standup app",
+            "author": "ada"
+          },
+          {
+            "id": "u2",
+            "date": "2026-11-04",
+            "yesterday": "Reviews",
+            "today": "Fix the sync bug",
+            "blockers": "Waiting on staging DB",
+            "author": "bob"
+          },
+          {
+            "id": "u3",
+            "date": "2026-11-03",
+            "yesterday": "Planning",
+            "today": "Reviews",
+            "blockers": "",
+            "author": "bob"
+          },
+          {
+            "id": "u4",
+            "date": "2026-11-02",
+            "yesterday": "Off",
+            "today": "Planning",
+            "blockers": "Laptop broke",
+            "author": "bob"
+          },
+          {
+            "id": "u5",
+            "date": "2026-10-30",
+            "yesterday": "x",
+            "today": "y",
+            "author": "ada"
+          },
+          {
+            "id": "u6",
+            "date": "2026-11-04",
+            "yesterday": "Calls",
+            "today": "Calls",
+            "blockers": "VPN down",
+            "author": "cy"
+          }
+        ]
+      },
+      "query": {
+        "name": "day",
+        "params": {
+          "day": "2026-11-04"
+        }
+      },
+      "expect": {
+        "count": 3,
+        "rows": [
+          {
+            "id": "u1"
+          },
+          {
+            "id": "u2"
+          },
+          {
+            "id": "u6"
+          }
+        ]
+      }
+    },
+    {
+      "name": "updates per member this week",
+      "now": "2026-11-04T08:30:00.000Z",
+      "records": {
+        "update": [
+          {
+            "id": "u1",
+            "date": "2026-11-04",
+            "yesterday": "Shipped the CRM",
+            "today": "Standup app",
+            "author": "ada"
+          },
+          {
+            "id": "u2",
+            "date": "2026-11-04",
+            "yesterday": "Reviews",
+            "today": "Fix the sync bug",
+            "blockers": "Waiting on staging DB",
+            "author": "bob"
+          },
+          {
+            "id": "u3",
+            "date": "2026-11-03",
+            "yesterday": "Planning",
+            "today": "Reviews",
+            "blockers": "",
+            "author": "bob"
+          },
+          {
+            "id": "u4",
+            "date": "2026-11-02",
+            "yesterday": "Off",
+            "today": "Planning",
+            "blockers": "Laptop broke",
+            "author": "bob"
+          },
+          {
+            "id": "u5",
+            "date": "2026-10-30",
+            "yesterday": "x",
+            "today": "y",
+            "author": "ada"
+          },
+          {
+            "id": "u6",
+            "date": "2026-11-04",
+            "yesterday": "Calls",
+            "today": "Calls",
+            "blockers": "VPN down",
+            "author": "cy"
+          }
+        ]
+      },
+      "query": {
+        "name": "week",
+        "params": {
+          "start": "2026-11-02",
+          "end": "2026-11-08"
+        }
+      },
+      "expect": {
+        "count": 5,
+        "groups": [
+          {
+            "authorId": "bob",
+            "posted": 3,
+            "blocked": 2,
+            "last": "2026-11-04"
+          },
+          {
+            "authorId": "ada",
+            "posted": 1,
+            "blocked": 0
+          },
+          {
+            "authorId": "cy",
+            "posted": 1,
+            "blocked": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "N blockers today (an empty blocker is none)",
+      "now": "2026-11-04T08:30:00.000Z",
+      "records": {
+        "update": [
+          {
+            "id": "u1",
+            "date": "2026-11-04",
+            "yesterday": "Shipped the CRM",
+            "today": "Standup app",
+            "author": "ada"
+          },
+          {
+            "id": "u2",
+            "date": "2026-11-04",
+            "yesterday": "Reviews",
+            "today": "Fix the sync bug",
+            "blockers": "Waiting on staging DB",
+            "author": "bob"
+          },
+          {
+            "id": "u3",
+            "date": "2026-11-03",
+            "yesterday": "Planning",
+            "today": "Reviews",
+            "blockers": "",
+            "author": "bob"
+          },
+          {
+            "id": "u4",
+            "date": "2026-11-02",
+            "yesterday": "Off",
+            "today": "Planning",
+            "blockers": "Laptop broke",
+            "author": "bob"
+          },
+          {
+            "id": "u5",
+            "date": "2026-10-30",
+            "yesterday": "x",
+            "today": "y",
+            "author": "ada"
+          },
+          {
+            "id": "u6",
+            "date": "2026-11-04",
+            "yesterday": "Calls",
+            "today": "Calls",
+            "blockers": "VPN down",
+            "author": "cy"
+          }
+        ]
+      },
+      "expr": {
+        "expr": "size(r.rows.filter(u, u.date == today() && has(u.blockers) && u.blockers != ''))",
+        "vars": {
+          "r": {
+            "source": "records:update?query=recent"
+          }
+        }
+      },
+      "expect": 2
+    },
+    {
+      "name": "posted today",
+      "now": "2026-11-04T08:30:00.000Z",
+      "records": {
+        "update": [
+          {
+            "id": "u1",
+            "date": "2026-11-04",
+            "yesterday": "Shipped the CRM",
+            "today": "Standup app",
+            "author": "ada"
+          },
+          {
+            "id": "u2",
+            "date": "2026-11-04",
+            "yesterday": "Reviews",
+            "today": "Fix the sync bug",
+            "blockers": "Waiting on staging DB",
+            "author": "bob"
+          },
+          {
+            "id": "u3",
+            "date": "2026-11-03",
+            "yesterday": "Planning",
+            "today": "Reviews",
+            "blockers": "",
+            "author": "bob"
+          },
+          {
+            "id": "u4",
+            "date": "2026-11-02",
+            "yesterday": "Off",
+            "today": "Planning",
+            "blockers": "Laptop broke",
+            "author": "bob"
+          },
+          {
+            "id": "u5",
+            "date": "2026-10-30",
+            "yesterday": "x",
+            "today": "y",
+            "author": "ada"
+          },
+          {
+            "id": "u6",
+            "date": "2026-11-04",
+            "yesterday": "Calls",
+            "today": "Calls",
+            "blockers": "VPN down",
+            "author": "cy"
+          }
+        ]
+      },
+      "expr": {
+        "expr": "r.rows.filter(u, u.date == today()).map(u, u.authorId)",
+        "vars": {
+          "r": {
+            "source": "records:update?query=recent"
+          }
+        }
+      },
+      "expect": [
+        "ada",
+        "bob",
+        "cy"
+      ]
+    },
+    {
+      "name": "the week starts on Monday",
+      "now": "2026-11-04T08:30:00.000Z",
+      "expr": {
+        "expr": "[startOf(today(), 'week'), endOf(today(), 'week')]"
+      },
+      "expect": [
+        "2026-11-02",
+        "2026-11-08"
+      ]
+    },
+    {
+      "name": "posting lands today's update",
+      "now": "2026-11-04T08:30:00.000Z",
+      "action": {
+        "name": "post",
+        "params": {
+          "yesterday": "Wrote tests",
+          "today": "Ship it",
+          "blockers": ""
+        },
+        "data": {
+          "recent": {
+            "rows": []
+          }
+        }
+      },
+      "expect": {
+        "records": {
+          "update": [
+            {
+              "id": "new-1",
+              "date": "2026-11-04",
+              "today": "Ship it",
+              "blockers": null,
+              "author": "member"
+            }
+          ]
+        },
+        "calls": [
+          {
+            "args": {
+              "message": "Posted"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "an empty today is refused",
+      "now": "2026-11-04T08:30:00.000Z",
+      "action": {
+        "name": "post",
+        "params": {
+          "yesterday": "x",
+          "today": ""
+        }
+      },
+      "expect": {
+        "error": "Say what you will do today"
+      }
+    },
+    {
+      "name": "one update per member and day",
+      "now": "2026-11-04T08:30:00.000Z",
+      "as": "ada",
+      "action": {
+        "name": "post",
+        "params": {
+          "yesterday": "x",
+          "today": "y"
+        },
+        "data": {
+          "recent": {
+            "rows": [
+              {
+                "date": "2026-11-04",
+                "authorId": "ada"
+              }
+            ]
+          }
+        }
+      },
+      "expect": {
+        "error": "You already posted for this day: edit that update"
+      }
+    },
+    {
+      "name": "everyone reads every update",
+      "now": "2026-11-04T08:30:00.000Z",
+      "records": {
+        "update": [
+          {
+            "id": "u1",
+            "date": "2026-11-04",
+            "yesterday": "Shipped the CRM",
+            "today": "Standup app",
+            "author": "ada"
+          },
+          {
+            "id": "u2",
+            "date": "2026-11-04",
+            "yesterday": "Reviews",
+            "today": "Fix the sync bug",
+            "blockers": "Waiting on staging DB",
+            "author": "bob"
+          },
+          {
+            "id": "u3",
+            "date": "2026-11-03",
+            "yesterday": "Planning",
+            "today": "Reviews",
+            "blockers": "",
+            "author": "bob"
+          },
+          {
+            "id": "u4",
+            "date": "2026-11-02",
+            "yesterday": "Off",
+            "today": "Planning",
+            "blockers": "Laptop broke",
+            "author": "bob"
+          },
+          {
+            "id": "u5",
+            "date": "2026-10-30",
+            "yesterday": "x",
+            "today": "y",
+            "author": "ada"
+          },
+          {
+            "id": "u6",
+            "date": "2026-11-04",
+            "yesterday": "Calls",
+            "today": "Calls",
+            "blockers": "VPN down",
+            "author": "cy"
+          }
+        ]
+      },
+      "as": "zed",
+      "expr": {
+        "expr": "all.count",
+        "vars": {
+          "all": {
+            "source": "records:update"
+          }
+        }
+      },
+      "expect": 6
+    },
+    {
+      "name": "bob may not edit ada's update",
+      "records": {
+        "update": [
+          {
+            "id": "u1",
+            "date": "2026-11-04",
+            "yesterday": "Shipped the CRM",
+            "today": "Standup app",
+            "author": "ada"
+          },
+          {
+            "id": "u2",
+            "date": "2026-11-04",
+            "yesterday": "Reviews",
+            "today": "Fix the sync bug",
+            "blockers": "Waiting on staging DB",
+            "author": "bob"
+          },
+          {
+            "id": "u3",
+            "date": "2026-11-03",
+            "yesterday": "Planning",
+            "today": "Reviews",
+            "blockers": "",
+            "author": "bob"
+          },
+          {
+            "id": "u4",
+            "date": "2026-11-02",
+            "yesterday": "Off",
+            "today": "Planning",
+            "blockers": "Laptop broke",
+            "author": "bob"
+          },
+          {
+            "id": "u5",
+            "date": "2026-10-30",
+            "yesterday": "x",
+            "today": "y",
+            "author": "ada"
+          },
+          {
+            "id": "u6",
+            "date": "2026-11-04",
+            "yesterday": "Calls",
+            "today": "Calls",
+            "blockers": "VPN down",
+            "author": "cy"
+          }
+        ]
+      },
+      "as": "bob",
+      "action": {
+        "name": "edit",
+        "params": {
+          "entry": "u1",
+          "yesterday": "x",
+          "today": "hijacked"
+        }
+      },
+      "expect": {
+        "error": "write 0: Only the record's author or a team owner can change it"
+      }
+    },
+    {
+      "name": "ada edits her own update",
+      "records": {
+        "update": [
+          {
+            "id": "u1",
+            "date": "2026-11-04",
+            "yesterday": "Shipped the CRM",
+            "today": "Standup app",
+            "author": "ada"
+          },
+          {
+            "id": "u2",
+            "date": "2026-11-04",
+            "yesterday": "Reviews",
+            "today": "Fix the sync bug",
+            "blockers": "Waiting on staging DB",
+            "author": "bob"
+          },
+          {
+            "id": "u3",
+            "date": "2026-11-03",
+            "yesterday": "Planning",
+            "today": "Reviews",
+            "blockers": "",
+            "author": "bob"
+          },
+          {
+            "id": "u4",
+            "date": "2026-11-02",
+            "yesterday": "Off",
+            "today": "Planning",
+            "blockers": "Laptop broke",
+            "author": "bob"
+          },
+          {
+            "id": "u5",
+            "date": "2026-10-30",
+            "yesterday": "x",
+            "today": "y",
+            "author": "ada"
+          },
+          {
+            "id": "u6",
+            "date": "2026-11-04",
+            "yesterday": "Calls",
+            "today": "Calls",
+            "blockers": "VPN down",
+            "author": "cy"
+          }
+        ]
+      },
+      "as": "ada",
+      "action": {
+        "name": "edit",
+        "params": {
+          "entry": "u1",
+          "yesterday": "Shipped the CRM",
+          "today": "Standup app + tests",
+          "blockers": "CI is slow"
+        }
+      },
+      "expect": {
+        "records": {
+          "update": [
+            {
+              "id": "u1",
+              "today": "Standup app + tests",
+              "blockers": "CI is slow"
+            },
+            {},
+            {},
+            {},
+            {},
+            {}
+          ]
+        }
+      }
+    },
+    {
+      "name": "an owner deletes any update",
+      "records": {
+        "update": [
+          {
+            "id": "u1",
+            "date": "2026-11-04",
+            "yesterday": "Shipped the CRM",
+            "today": "Standup app",
+            "author": "ada"
+          },
+          {
+            "id": "u2",
+            "date": "2026-11-04",
+            "yesterday": "Reviews",
+            "today": "Fix the sync bug",
+            "blockers": "Waiting on staging DB",
+            "author": "bob"
+          },
+          {
+            "id": "u3",
+            "date": "2026-11-03",
+            "yesterday": "Planning",
+            "today": "Reviews",
+            "blockers": "",
+            "author": "bob"
+          },
+          {
+            "id": "u4",
+            "date": "2026-11-02",
+            "yesterday": "Off",
+            "today": "Planning",
+            "blockers": "Laptop broke",
+            "author": "bob"
+          },
+          {
+            "id": "u5",
+            "date": "2026-10-30",
+            "yesterday": "x",
+            "today": "y",
+            "author": "ada"
+          },
+          {
+            "id": "u6",
+            "date": "2026-11-04",
+            "yesterday": "Calls",
+            "today": "Calls",
+            "blockers": "VPN down",
+            "author": "cy"
+          }
+        ]
+      },
+      "as": "boss",
+      "role": "owner",
+      "action": {
+        "name": "remove",
+        "params": {
+          "entry": "u6"
+        }
+      },
+      "expect": {
+        "records": {
+          "update": [
+            {
+              "id": "u1"
+            },
+            {
+              "id": "u2"
+            },
+            {
+              "id": "u3"
+            },
+            {
+              "id": "u4"
+            },
+            {
+              "id": "u5"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
