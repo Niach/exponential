@@ -48,6 +48,11 @@ struct Conn {
     id: u64,
     writer: UnixStream,
     inbuf: Vec<u8>,
+    /// Whole frames not served yet: they wait while a call's reply is
+    /// deferred (a clipboard read), so replies keep the calls' order.
+    queued: std::collections::VecDeque<Vec<u8>>,
+    /// The call whose reply is deferred.
+    busy: Option<u64>,
     token: Option<Token>,
     subscribed: bool,
     dead: bool,
@@ -155,7 +160,7 @@ impl Ede {
         let Ok(reader) = stream.try_clone() else { return };
         let id = self.ipc.next_client;
         self.ipc.next_client += 1;
-        self.ipc.clients.push(Conn { id, writer: stream, inbuf: Vec::new(), token: None, subscribed: false, dead: false });
+        self.ipc.clients.push(Conn { id, writer: stream, inbuf: Vec::new(), queued: Default::default(), busy: None, token: None, subscribed: false, dead: false });
         let inserted = self.loop_handle.insert_source(Generic::new(reader, Interest::READ, Mode::Level), move |_, reader, state| {
             let mut buf = [0u8; 65536];
             // Level-triggered and readable: one read never blocks.
@@ -189,21 +194,43 @@ impl Ede {
 
     /// `false` = drop the connection.
     fn ipc_received(&mut self, id: u64, bytes: &[u8]) -> bool {
-        let frames = {
+        {
             let Some(conn) = self.ipc.clients.iter_mut().find(|c| c.id == id) else { return false };
             conn.inbuf.extend_from_slice(bytes);
             match take_frames(&mut conn.inbuf) {
-                Ok(f) => f,
+                Ok(f) => conn.queued.extend(f),
                 Err(()) => return false,
             }
-        };
-        for frame in frames {
+        }
+        self.ipc_serve(id)
+    }
+
+    /// Serves the queued frames until one defers its reply. `false` = drop
+    /// the connection.
+    fn ipc_serve(&mut self, id: u64) -> bool {
+        loop {
+            let frame = {
+                let Some(conn) = self.ipc.clients.iter_mut().find(|c| c.id == id) else { return false };
+                if conn.busy.is_some() {
+                    break;
+                }
+                match conn.queued.pop_front() {
+                    Some(frame) => frame,
+                    None => break,
+                }
+            };
             let (call_id, outcome) = match serde_json::from_slice::<Call>(&frame) {
-                Ok(call) => (call.id, self.ipc_call(id, call.request)),
+                Ok(call) => (call.id, self.ipc_call(id, call.id, call.request)),
                 Err(e) => (0, Err(fail(ErrorCode::Invalid, &e.to_string()))),
             };
             let (message, extra) = match outcome {
-                Ok((result, extra)) => (Message::Reply { id: call_id, result }, extra),
+                Ok(Some((result, extra))) => (Message::Reply { id: call_id, result }, extra),
+                Ok(None) => {
+                    if let Some(conn) = self.ipc.clients.iter_mut().find(|c| c.id == id) {
+                        conn.busy = Some(call_id);
+                    }
+                    continue;
+                }
                 Err(error) => (Message::Error { id: call_id, error }, None),
             };
             if !self.ipc_send(id, &message, extra.as_deref()) {
@@ -211,6 +238,26 @@ impl Ede {
             }
         }
         self.ipc.clients.iter().any(|c| c.id == id && !c.dead)
+    }
+
+    /// The reply to a call [`Ede::ipc_call`] deferred; the connection's
+    /// next calls are served after it.
+    pub(crate) fn ipc_reply_later(&mut self, id: u64, call_id: u64, outcome: Result<serde_json::Value, Failure>) {
+        let Some(conn) = self.ipc.clients.iter_mut().find(|c| c.id == id) else { return };
+        if conn.busy != Some(call_id) {
+            return;
+        }
+        conn.busy = None;
+        let message = match outcome {
+            Ok(result) => Message::Reply { id: call_id, result },
+            Err(error) => Message::Error { id: call_id, error },
+        };
+        if !self.ipc_send(id, &message, None) || !self.ipc_serve(id) {
+            if let Some(conn) = self.ipc.clients.iter_mut().find(|c| c.id == id) {
+                conn.dead = true;
+                let _ = conn.writer.shutdown(std::net::Shutdown::Both);
+            }
+        }
     }
 
     pub(crate) fn ipc_send(&mut self, id: u64, message: &Message, extra: Option<&[u8]>) -> bool {
@@ -246,7 +293,8 @@ impl Ede {
         }
     }
 
-    fn ipc_call(&mut self, id: u64, request: Request) -> Result<(serde_json::Value, Option<Vec<u8>>), Failure> {
+    /// `Ok(None)` = the reply comes later ([`Ede::ipc_reply_later`]).
+    fn ipc_call(&mut self, id: u64, call_id: u64, request: Request) -> Result<Option<(serde_json::Value, Option<Vec<u8>>)>, Failure> {
         let now = now_ms();
         let token = self.ipc.clients.iter().find(|c| c.id == id).and_then(|c| c.token.clone());
         if let Request::Hello { version, token } = &request {
@@ -259,7 +307,7 @@ impl Ede {
                 c.token = Some(grant.token.clone());
             }
             let hello = Hello { version: PROTOCOL_VERSION, capabilities: grant.capabilities, session_id: grant.session_id };
-            return Ok((serde_json::to_value(hello).unwrap(), None));
+            return Ok(Some((serde_json::to_value(hello).unwrap(), None)));
         }
         let Some(grant) = token.and_then(|t| self.ipc.grant(&t).cloned()) else {
             return Err(fail(ErrorCode::Unauthorized, "say hello with a valid token first"));
@@ -272,7 +320,7 @@ impl Ede {
                 return Err(fail(ErrorCode::Forbidden, &format!("needs the {} capability", cap.as_str())));
             }
         }
-        let json = |v: serde_json::Value| Ok((v, None));
+        let json = |v: serde_json::Value| Ok(Some((v, None)));
         match request {
             Request::Hello { .. } => unreachable!(),
             Request::ListWindows => json(serde_json::to_value(self.window_infos()).unwrap()),
@@ -341,7 +389,7 @@ impl Ede {
             Request::Capture { target, since } => {
                 if since == Some(self.frame_serial) {
                     let info = CaptureInfo { width: 0, height: 0, stride: 0, format: "argb8888".into(), serial: self.frame_serial, unchanged: true };
-                    return Ok((serde_json::to_value(info).unwrap(), None));
+                    return Ok(Some((serde_json::to_value(info).unwrap(), None)));
                 }
                 let frame = match target {
                     CaptureTarget::Output { name } => {
@@ -361,7 +409,7 @@ impl Ede {
                 .map_err(|e| fail(ErrorCode::Internal, &e))?;
                 let info = CaptureInfo { width: frame.width, height: frame.height, stride: frame.width * 4, format: "argb8888".into(), serial: self.frame_serial, unchanged: false };
                 let bytes = frame.pixels.iter().flat_map(|p| p.to_le_bytes()).collect();
-                Ok((serde_json::to_value(info).unwrap(), Some(bytes)))
+                Ok(Some((serde_json::to_value(info).unwrap(), Some(bytes))))
             }
             Request::Input { event, bindings } => {
                 if bindings && grant.session_id.as_str() != ROOT_SESSION {
@@ -458,6 +506,14 @@ impl Ede {
                 self.ipc.shortcuts.unbind(&owner);
                 json(serde_json::Value::Null)
             }
+            Request::ClipboardSerial => json(serde_json::to_value(ede_protocol::ClipboardSerial { serial: self.clipboard.serial }).unwrap()),
+            Request::ClipboardSet { items, sensitive } => {
+                let serial = self.clipboard_set(items, sensitive)?;
+                json(serde_json::to_value(ede_protocol::ClipboardSerial { serial }).unwrap())
+            }
+            Request::ClipboardTaken { serial } => json(serde_json::to_value(self.clipboard_taken(serial)).unwrap()),
+            Request::ClipboardSnapshot => Ok(self.clipboard_read(id, call_id, crate::clipboard::Want::Snapshot).map(|v| (v, None))),
+            Request::ClipboardText => Ok(self.clipboard_read(id, call_id, crate::clipboard::Want::Text).map(|v| (v, None))),
             Request::Unlock => {
                 let token = self.ipc.clients.iter().find(|c| c.id == id).and_then(|c| c.token.clone()).ok_or_else(|| fail(ErrorCode::Unauthorized, "no token"))?;
                 self.sealed_unlock(&token).map_err(|e| fail(ErrorCode::Forbidden, e))?;

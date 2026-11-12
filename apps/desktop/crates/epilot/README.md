@@ -88,6 +88,7 @@ Every coordinate is in the last screenshot's pixels (fitted to at most 1280×800
 | `mouse_move`, `left_click`, `right_click`, `middle_click`, `double_click {x, y}` | pointer |
 | `drag {from_x, from_y, to_x, to_y}`, `scroll {x, y, direction, amount?}` | pointer |
 | `type {text}` (≤ 4000 chars, newline = Return), `key {combo}` (`"ctrl+s"`, `"cmd+space"`) | keyboard |
+| `paste_text {text \| file, sensitive?, shortcut?}`, `copy_selection {shortcut?}`, `read_clipboard` | clipboard: save → set → paste once → restore; a sensitive paste never reaches clipboard managers or history; reads only the run's own copy |
 | `wait {seconds ≤ 10}` | let the screen settle, then a screenshot |
 
 A call on a display outside the work screen answers a refusal the agent reads

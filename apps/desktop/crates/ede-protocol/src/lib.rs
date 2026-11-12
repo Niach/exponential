@@ -169,6 +169,142 @@ pub enum Request {
     /// has the keyboard, and they go when the connection does.
     BindShortcuts { owner: String, shortcuts: Vec<ShortcutSpec> },
     UnbindShortcuts { owner: String },
+    /// The seat's CLIPBOARD selection counter: [`ClipboardSerial`]. It
+    /// moves on every change (a client's set or clear, Xwayland's, our own
+    /// [`Request::ClipboardSet`]). ePilot's paste (`input:person`).
+    ClipboardSerial,
+    /// Every type the selection offers, read into memory now:
+    /// [`ClipboardSnapshot`]. A type past [`CLIPBOARD_ITEM_MAX`] is skipped,
+    /// reading stops past [`CLIPBOARD_TOTAL_MAX`], a source that does not
+    /// answer within [`CLIPBOARD_READ_MS`] loses that type.
+    ClipboardSnapshot,
+    /// The compositor owns the selection itself and serves `items` to the
+    /// focused client (and Xwayland's): [`ClipboardSerial`] of the new
+    /// selection. Empty = clear it. `sensitive` = a secret: never logged,
+    /// [`CLIPBOARD_SECRET_HINT`] offered alongside.
+    ClipboardSet {
+        items: Vec<ClipboardItem>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        sensitive: bool,
+    },
+    /// Did a client read a type of the selection set at `serial` (the
+    /// password hint aside)? Never waits: [`ClipboardTaken`].
+    ClipboardTaken { serial: u64 },
+    /// The selection's UTF-8 text ([`CLIPBOARD_TEXT_MIMES`], the first one
+    /// offered): [`ClipboardText`].
+    ClipboardText,
+}
+
+/// The mime that marks a selection as a secret (KDE's, the one clipboard
+/// managers honour); its data is `secret`.
+pub const CLIPBOARD_SECRET_HINT: &str = "x-kde-passwordManagerHint";
+/// The text types, best first (Wayland's, then X11's).
+pub const CLIPBOARD_TEXT_MIMES: [&str; 5] = ["text/plain;charset=utf-8", "text/plain", "UTF8_STRING", "TEXT", "STRING"];
+/// A [`Request::ClipboardSnapshot`] skips a type larger than this.
+pub const CLIPBOARD_ITEM_MAX: usize = 8 << 20;
+/// … and stops reading past this many bytes in all.
+pub const CLIPBOARD_TOTAL_MAX: usize = 32 << 20;
+/// How long one type's read may take before it is dropped.
+pub const CLIPBOARD_READ_MS: u64 = 500;
+
+/// One type of a selection: its mime and its bytes (base64 on the wire).
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClipboardItem {
+    pub mime: String,
+    #[serde(with = "base64")]
+    pub data: Vec<u8>,
+}
+
+/// Never prints the bytes: it may be a secret.
+impl std::fmt::Debug for ClipboardItem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ClipboardItem({:?}, {} bytes)", self.mime, self.data.len())
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClipboardSerial {
+    pub serial: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ClipboardSnapshot {
+    pub serial: u64,
+    pub items: Vec<ClipboardItem>,
+}
+
+/// `serial` = the selection's serial now: another one than asked = someone
+/// else took the clipboard.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClipboardTaken {
+    pub serial: u64,
+    pub taken: bool,
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClipboardText {
+    pub serial: u64,
+    pub text: Option<String>,
+}
+
+impl std::fmt::Debug for ClipboardText {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ClipboardText({}, {:?} chars)", self.serial, self.text.as_ref().map(|t| t.chars().count()))
+    }
+}
+
+/// Standard base64 (with padding) for [`ClipboardItem::data`].
+pub mod base64 {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+    pub fn encode(bytes: &[u8]) -> String {
+        let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+        for chunk in bytes.chunks(3) {
+            let n = (u32::from(chunk[0]) << 16) | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8) | u32::from(*chunk.get(2).unwrap_or(&0));
+            for i in 0..4 {
+                if i <= chunk.len() {
+                    out.push(ALPHABET[(n >> (18 - 6 * i) & 63) as usize] as char);
+                } else {
+                    out.push('=');
+                }
+            }
+        }
+        out
+    }
+
+    pub fn decode(text: &str) -> Result<Vec<u8>, String> {
+        let text = text.trim_end_matches('=').as_bytes();
+        let mut out = Vec::with_capacity(text.len() * 3 / 4);
+        let (mut acc, mut bits) = (0u32, 0u32);
+        for &c in text {
+            let v = match c {
+                b'A'..=b'Z' => c - b'A',
+                b'a'..=b'z' => c - b'a' + 26,
+                b'0'..=b'9' => c - b'0' + 52,
+                b'+' => 62,
+                b'/' => 63,
+                _ => return Err(format!("not base64: {:?}", c as char)),
+            };
+            acc = (acc << 6) | u32::from(v);
+            bits += 6;
+            if bits >= 8 {
+                bits -= 8;
+                out.push((acc >> bits) as u8);
+                acc &= (1 << bits) - 1;
+            }
+        }
+        Ok(out)
+    }
+
+    pub fn serialize<S: Serializer>(bytes: &[u8], s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&encode(bytes))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
+        decode(&String::deserialize(d)?).map_err(serde::de::Error::custom)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -203,6 +339,9 @@ impl Request {
             Request::SetOutput { .. } => Some(Capability::System),
             Request::Capture { .. } => Some(Capability::Capture),
             Request::Input { .. } | Request::HoldInput | Request::ReleaseInput => Some(Capability::InputPerson),
+            Request::ClipboardSerial | Request::ClipboardSnapshot | Request::ClipboardSet { .. } | Request::ClipboardTaken { .. } | Request::ClipboardText => {
+                Some(Capability::InputPerson)
+            }
             Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::MintGrant { .. } | Request::RevokeGrant { .. } => Some(Capability::System),
         }
     }
@@ -496,6 +635,9 @@ impl Client {
                 Message::Event { event } => self.events.push_back(event),
                 Message::Reply { id: rid, result } if rid == id => return Ok(result),
                 Message::Error { id: rid, error } if rid == id => return Err(Error::Failed(error)),
+                // A call the compositor could not parse (an op it does not
+                // know: an older compositor) comes back without its id.
+                Message::Error { id: 0, error } => return Err(Error::Failed(error)),
                 other => return Err(Error::Protocol(format!("unexpected {other:?}"))),
             }
         }
@@ -616,6 +758,27 @@ impl Client {
         self.call(Request::MoveToWorkspace { window, index }).map(|_| ())
     }
 
+    pub fn clipboard_serial(&mut self) -> Result<u64, Error> {
+        self.call_as::<ClipboardSerial>(Request::ClipboardSerial).map(|s| s.serial)
+    }
+
+    pub fn clipboard_snapshot(&mut self) -> Result<ClipboardSnapshot, Error> {
+        self.call_as(Request::ClipboardSnapshot)
+    }
+
+    /// The serial of the selection it set.
+    pub fn clipboard_set(&mut self, items: Vec<ClipboardItem>, sensitive: bool) -> Result<u64, Error> {
+        self.call_as::<ClipboardSerial>(Request::ClipboardSet { items, sensitive }).map(|s| s.serial)
+    }
+
+    pub fn clipboard_taken(&mut self, serial: u64) -> Result<ClipboardTaken, Error> {
+        self.call_as(Request::ClipboardTaken { serial })
+    }
+
+    pub fn clipboard_text(&mut self) -> Result<ClipboardText, Error> {
+        self.call_as(Request::ClipboardText)
+    }
+
     pub fn set_output(&mut self, name: &str, mode: Option<&str>, scale: Option<f64>, position: Option<(i32, i32)>) -> Result<(), Error> {
         self.call(Request::SetOutput { name: name.into(), mode: mode.map(String::from), scale, position }).map(|_| ())
     }
@@ -668,6 +831,49 @@ mod tests {
         assert_eq!(Request::Input { event: InputEvent::Keysym { keysym: 0x61, pressed: true }, bindings: false }.capability(), Some(Capability::InputPerson));
         assert_eq!(Request::MinimizeWindow { window: WindowId::new("w1").unwrap() }.capability(), Some(Capability::Ui));
         assert_eq!(Request::RestoreWindow { window: WindowId::new("w1").unwrap() }.capability(), Some(Capability::Ui));
+        for clipboard in [Request::ClipboardSerial, Request::ClipboardSnapshot, Request::ClipboardSet { items: vec![], sensitive: false }, Request::ClipboardTaken { serial: 1 }, Request::ClipboardText] {
+            assert_eq!(clipboard.capability(), Some(Capability::InputPerson));
+        }
+    }
+
+    #[test]
+    fn clipboard_ops_round_trip_with_base64_bytes() {
+        let items = vec![ClipboardItem { mime: "text/plain".into(), data: b"hi\x00\xff".to_vec() }];
+        let set = Call { id: 5, request: Request::ClipboardSet { items: items.clone(), sensitive: true } };
+        let json = serde_json::to_value(&set).unwrap();
+        assert_eq!(json, serde_json::json!({"id": 5, "op": "clipboard_set", "items": [{"mime": "text/plain", "data": "aGkA/w=="}], "sensitive": true}));
+        assert_eq!(serde_json::from_value::<Call>(json).unwrap(), set);
+        // `sensitive` defaults off and is left out when off.
+        let plain: Call = serde_json::from_str(r#"{"id":1,"op":"clipboard_set","items":[]}"#).unwrap();
+        assert_eq!(plain.request, Request::ClipboardSet { items: vec![], sensitive: false });
+        assert_eq!(serde_json::to_value(&plain).unwrap(), serde_json::json!({"id": 1, "op": "clipboard_set", "items": []}));
+        for (request, op) in [
+            (Request::ClipboardSerial, "clipboard_serial"),
+            (Request::ClipboardSnapshot, "clipboard_snapshot"),
+            (Request::ClipboardText, "clipboard_text"),
+            (Request::ClipboardTaken { serial: 7 }, "clipboard_taken"),
+        ] {
+            let call = Call { id: 2, request };
+            let json = serde_json::to_value(&call).unwrap();
+            assert_eq!(json["op"], op);
+            assert_eq!(serde_json::from_value::<Call>(json).unwrap(), call);
+        }
+        let snapshot = ClipboardSnapshot { serial: 3, items };
+        assert_eq!(serde_json::from_value::<ClipboardSnapshot>(serde_json::to_value(&snapshot).unwrap()).unwrap(), snapshot);
+        let text: ClipboardText = serde_json::from_str(r#"{"serial":4,"text":null}"#).unwrap();
+        assert_eq!(text.text, None);
+        assert!(!format!("{:?}", ClipboardItem { mime: "a".into(), data: b"secret".to_vec() }).contains("secret"));
+    }
+
+    #[test]
+    fn base64_round_trips_every_length() {
+        let bytes: Vec<u8> = (0..=255u8).collect();
+        for n in 0..40 {
+            assert_eq!(base64::decode(&base64::encode(&bytes[..n])).unwrap(), &bytes[..n]);
+        }
+        assert_eq!(base64::encode(b"foobar"), "Zm9vYmFy");
+        assert_eq!(base64::encode(b"fo"), "Zm8=");
+        assert!(base64::decode("a*b").is_err());
     }
 
     #[test]

@@ -14,6 +14,14 @@
 //! `on_esc`. Dropping the guard closes the connection, which releases the
 //! hold (a crashed host never leaves the person locked out).
 //!
+//! The clipboard (`paste_text`, `copy_selection`, `read_clipboard`) is the
+//! compositor's: `clipboard_serial` moves on every selection change,
+//! `clipboard_snapshot` reads every type the selection offers,
+//! `clipboard_set` makes the compositor own the selection (served to the
+//! focused window only), `clipboard_taken` says whether a window read it.
+//! An eDE older than these ops answers "unknown variant": the tool says to
+//! update eDE.
+//!
 //! eDE = `XDG_CURRENT_DESKTOP` names `Exponential` and its socket
 //! (`$XDG_RUNTIME_DIR/exponential-desktop/$WAYLAND_DISPLAY.sock`) is there.
 //! Grants by default (#EDE-22): the root token file only mints, once per
@@ -26,9 +34,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
 
-use ede_protocol::{Capability, CaptureTarget, Client, InputEvent, Request, SessionId, Token, WindowId};
+use ede_protocol::{Capability, CaptureTarget, ClipboardItem, Client, InputEvent, Request, SessionId, Token, WindowId, CLIPBOARD_SECRET_HINT, CLIPBOARD_TEXT_MIMES};
 
-use crate::backend::{finish_ids, Backend, Button, DisplayInfo, Image, LockGuard, WindowInfo};
+use crate::backend::{finish_ids, Backend, Button, Clipboard, DisplayInfo, Image, LockGuard, Pasted, SavedClipboard, WindowInfo};
 use crate::keys::Key;
 
 /// Where an eDE session's control plane lives, read from the environment.
@@ -266,6 +274,93 @@ impl Backend for Ede {
     fn lock(&self, on_esc: Box<dyn Fn() + Send + Sync>) -> Result<Box<dyn LockGuard>, String> {
         Ok(Box::new(Hold::take(self.session.connect()?, on_esc)?))
     }
+
+    fn clipboard(&self) -> Result<Box<dyn Clipboard + '_>, String> {
+        Ok(Box::new(EdeClipboard { client: &self.client, set: Mutex::new(None) }))
+    }
+}
+
+/// How often [`Clipboard::wait_pasted`] asks `clipboard_taken`.
+const TAKEN_POLL: Duration = Duration::from_millis(25);
+
+/// The compositor's clipboard over the backend's connection.
+struct EdeClipboard<'a> {
+    client: &'a Mutex<Client>,
+    /// The serial of the selection [`Clipboard::set_text`] set.
+    set: Mutex<Option<u64>>,
+}
+
+/// An eDE without the clipboard ops cannot parse them.
+fn clipboard_error(what: &'static str) -> impl Fn(ede_protocol::Error) -> String {
+    move |err| {
+        let text = err.to_string();
+        if text.contains("unknown variant") {
+            "This eDE is too old for the clipboard; update eDE.".to_string()
+        } else {
+            format!("eDE {what}: {text}")
+        }
+    }
+}
+
+/// `set_text`'s types: every text type carrying the UTF-8 text, the
+/// secret hint when sensitive (the compositor adds it too).
+fn text_items(text: &str, sensitive: bool) -> Vec<ClipboardItem> {
+    let mut items: Vec<ClipboardItem> = CLIPBOARD_TEXT_MIMES.iter().map(|mime| ClipboardItem { mime: mime.to_string(), data: text.as_bytes().to_vec() }).collect();
+    if sensitive {
+        items.push(ClipboardItem { mime: CLIPBOARD_SECRET_HINT.into(), data: b"secret".to_vec() });
+    }
+    items
+}
+
+impl EdeClipboard<'_> {
+    fn client(&self) -> std::sync::MutexGuard<'_, Client> {
+        self.client.lock().unwrap_or_else(|p| p.into_inner())
+    }
+}
+
+impl Clipboard for EdeClipboard<'_> {
+    fn change_count(&self) -> Result<u64, String> {
+        self.client().clipboard_serial().map_err(clipboard_error("clipboard"))
+    }
+
+    fn save(&self) -> Result<SavedClipboard, String> {
+        let snapshot = self.client().clipboard_snapshot().map_err(clipboard_error("clipboard"))?;
+        Ok(SavedClipboard { formats: snapshot.items.into_iter().map(|item| (item.mime, item.data)).collect() })
+    }
+
+    fn set_text(&self, text: &str, sensitive: bool) -> Result<(), String> {
+        let serial = self.client().clipboard_set(text_items(text, sensitive), sensitive).map_err(clipboard_error("clipboard"))?;
+        *self.set.lock().unwrap_or_else(|p| p.into_inner()) = Some(serial);
+        Ok(())
+    }
+
+    fn wait_pasted(&self, timeout: Duration) -> Pasted {
+        let Some(serial) = *self.set.lock().unwrap_or_else(|p| p.into_inner()) else { return Pasted::Missed };
+        let until = std::time::Instant::now() + timeout;
+        loop {
+            match self.client().clipboard_taken(serial) {
+                Ok(taken) if taken.taken => return Pasted::Taken,
+                // Someone else took the clipboard first.
+                Ok(taken) if taken.serial != serial => return Pasted::Missed,
+                Ok(_) => {}
+                Err(_) => return Pasted::Missed,
+            }
+            if std::time::Instant::now() >= until {
+                return Pasted::Missed;
+            }
+            std::thread::sleep(TAKEN_POLL);
+        }
+    }
+
+    fn restore(&self, saved: SavedClipboard) -> Result<(), String> {
+        let sensitive = saved.formats.iter().any(|(mime, _)| mime == CLIPBOARD_SECRET_HINT);
+        let items = saved.formats.into_iter().map(|(mime, data)| ClipboardItem { mime, data }).collect();
+        self.client().clipboard_set(items, sensitive).map(|_| ()).map_err(clipboard_error("clipboard"))
+    }
+
+    fn text(&self) -> Result<Option<String>, String> {
+        self.client().clipboard_text().map(|text| text.text).map_err(clipboard_error("clipboard"))
+    }
 }
 
 /// The hold, on a connection of its own; a thread waits for the person's Esc.
@@ -388,6 +483,96 @@ mod tests {
         assert!(closed);
     }
 
+    /// A fake compositor answering the clipboard ops from a script; the
+    /// ops it saw come back.
+    fn fake_compositor(replies: Vec<Result<serde_json::Value, &'static str>>) -> (Ede, std::thread::JoinHandle<Vec<serde_json::Value>>) {
+        let (ours, theirs) = UnixStream::pair().unwrap();
+        let server = std::thread::spawn(move || {
+            let mut theirs = theirs;
+            let mut seen = Vec::new();
+            let mut replies = replies.into_iter();
+            loop {
+                let Ok(frame) = read_frame(&mut theirs) else { return seen };
+                let call: Call = serde_json::from_slice(&frame).unwrap();
+                let message = if let Request::Hello { .. } = call.request {
+                    Message::Reply { id: call.id, result: serde_json::json!({"version": 1, "capabilities": ["capture", "input:person"], "session_id": "epilot"}) }
+                } else {
+                    seen.push(serde_json::to_value(&call.request).unwrap());
+                    match replies.next().expect("a scripted reply") {
+                        Ok(result) => Message::Reply { id: call.id, result },
+                        // An older compositor cannot parse the call: id 0.
+                        Err(message) => Message::Error { id: 0, error: ede_protocol::Failure::new(ede_protocol::ErrorCode::Invalid, message) },
+                    }
+                };
+                write_frame(&mut theirs, &serde_json::to_vec(&message).unwrap()).unwrap();
+            }
+        });
+        let client = Client::over(ours, Token::new("a".repeat(64)).unwrap()).unwrap();
+        let session = Session { socket: PathBuf::from("/nonexistent"), token_file: PathBuf::from("/nonexistent"), token: None };
+        (Ede { client: Mutex::new(client), session }, server)
+    }
+
+    /// paste_text's round on eDE: save = snapshot, set = every text type
+    /// (+ the hint when sensitive), wait = poll `clipboard_taken`, restore
+    /// = set the saved types back (sensitive again when they carry the
+    /// hint), text = `clipboard_text`.
+    #[test]
+    fn the_clipboard_is_the_compositors() {
+        use serde_json::json;
+        let (ede, server) = fake_compositor(vec![
+            Ok(json!({"serial": 4})),
+            Ok(json!({"serial": 4, "items": [{"mime": "image/png", "data": "AAE="}, {"mime": CLIPBOARD_SECRET_HINT, "data": "c2VjcmV0"}]})),
+            Ok(json!({"serial": 5})),
+            Ok(json!({"serial": 5, "taken": false})),
+            Ok(json!({"serial": 5, "taken": true})),
+            Ok(json!({"serial": 6})),
+            Ok(json!({"serial": 6, "text": "copied"})),
+            Ok(json!({"serial": 7})),
+            Ok(json!({"serial": 8, "taken": false})),
+        ]);
+        let clipboard = ede.clipboard().unwrap();
+        assert_eq!(clipboard.change_count().unwrap(), 4);
+        let saved = clipboard.save().unwrap();
+        assert_eq!(saved.formats, vec![("image/png".to_string(), vec![0, 1]), (CLIPBOARD_SECRET_HINT.to_string(), b"secret".to_vec())]);
+        clipboard.set_text("pw", true).unwrap();
+        assert_eq!(clipboard.wait_pasted(Duration::from_secs(2)), Pasted::Taken);
+        clipboard.restore(saved).unwrap();
+        assert_eq!(clipboard.text().unwrap().as_deref(), Some("copied"));
+        clipboard.set_text("again", false).unwrap();
+        // Someone else's selection (serial 8) before ours was read.
+        assert_eq!(clipboard.wait_pasted(Duration::from_secs(2)), Pasted::Missed);
+        drop(clipboard);
+        drop(ede);
+        let seen = server.join().unwrap();
+        let ops: Vec<&str> = seen.iter().map(|op| op["op"].as_str().unwrap()).collect();
+        assert_eq!(ops, ["clipboard_serial", "clipboard_snapshot", "clipboard_set", "clipboard_taken", "clipboard_taken", "clipboard_set", "clipboard_text", "clipboard_set", "clipboard_taken"]);
+        let mimes = |set: &serde_json::Value| set["items"].as_array().unwrap().iter().map(|item| item["mime"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+        assert_eq!(mimes(&seen[2]), ["text/plain;charset=utf-8", "text/plain", "UTF8_STRING", "TEXT", "STRING", CLIPBOARD_SECRET_HINT]);
+        assert_eq!(seen[2]["items"][0]["data"], "cHc=");
+        assert_eq!(seen[2]["sensitive"], true);
+        assert_eq!(seen[3]["serial"], 5);
+        assert_eq!(mimes(&seen[5]), ["image/png", CLIPBOARD_SECRET_HINT]);
+        assert_eq!(seen[5]["sensitive"], true, "a restored secret stays one");
+        assert_eq!(mimes(&seen[7]).len(), 5);
+        assert_eq!(seen[7].get("sensitive"), None);
+    }
+
+    #[test]
+    fn an_old_ede_says_to_update() {
+        let (ede, _server) = fake_compositor(vec![Err("unknown variant `clipboard_serial`, expected one of `hello`, `list_windows`")]);
+        let err = ede.clipboard().unwrap().change_count().unwrap_err();
+        assert_eq!(err, "This eDE is too old for the clipboard; update eDE.");
+    }
+
+    #[test]
+    fn an_empty_save_restores_as_a_clear() {
+        let (ede, server) = fake_compositor(vec![Ok(serde_json::json!({"serial": 2}))]);
+        ede.clipboard().unwrap().restore(SavedClipboard::default()).unwrap();
+        drop(ede);
+        let seen = server.join().unwrap();
+        assert_eq!(seen, [serde_json::json!({"op": "clipboard_set", "items": []})]);
+    }
+
     /// #EDE-23 against a real headless `exponential-compositor` (pixman, no
     /// seat, no GPU): `EDE_COMPOSITOR=<path to the binary> cargo test -p
     /// epilot headless_ede`. Skipped without it (the desktop CI builds no
@@ -472,5 +657,17 @@ mod tests {
             drop(guard);
         }
         assert_eq!(ede.cursor_position().unwrap(), (10, 10));
+
+        // The clipboard: set, read back, nobody focused takes it, restore.
+        let clipboard = ede.clipboard().unwrap();
+        let before = clipboard.change_count().unwrap();
+        let saved = clipboard.save().unwrap();
+        assert!(saved.formats.is_empty());
+        clipboard.set_text("hello", false).unwrap();
+        assert!(clipboard.change_count().unwrap() > before);
+        assert_eq!(clipboard.text().unwrap().as_deref(), Some("hello"));
+        assert_eq!(clipboard.wait_pasted(Duration::from_millis(100)), Pasted::Missed);
+        clipboard.restore(saved).unwrap();
+        assert_eq!(clipboard.text().unwrap(), None);
     }
 }

@@ -142,7 +142,8 @@ pub const COMPUTER_USE_SECTION: &str = "# Computer use
 
 This device lets you see and drive its desktop through the `computer` MCP server: `screenshot`, \
 `list_windows`, `activate_window`, `left_click`, `double_click`, `right_click`, `drag`, `scroll`, \
-`type`, `key`, `mouse_move`, `cursor_position`, `wait`; read the tool schemas. It is the person's \
+`type`, `paste_text`, `copy_selection`, `read_clipboard`, `key`, `mouse_move`, `cursor_position`, `wait`; read the \
+tool schemas. It is the person's \
 own screen, pointer and keyboard, in the foreground: while you drive, their input is locked and a \
 banner tells them so; their Esc aborts every call until they speak again.
 
@@ -154,6 +155,9 @@ an API; use the screen only when the task needs a desktop app or the person's lo
 image's pixels; `list_windows` + `activate_window` put the right window in front), then \
 `screenshot` again to verify; an unverified effect is not success. A run works on one display at \
 a time; `screenshot {display}` switches.
+- Text: `paste_text` (one step, clipboard put back), not `type`, past a few characters. A secret \
+is ALWAYS `paste_text` with `sensitive: true` from a private temp `file`; never `type` or echo \
+it. Read text with `copy_selection`.
 - Show the person a frame that matters: `exponential_show` with a `label`ed picture \
 (through its returned upload line).
 - Drive the screen from ONE subagent at a time on model `{model}` (the `Agent` tool's `model`, a \
