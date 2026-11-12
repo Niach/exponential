@@ -28,6 +28,17 @@ fn frame(window: AnyWindowHandle, cx: &mut HeadlessAppContext) -> f64 {
     started.elapsed().as_secs_f64() * 1000.
 }
 
+/// #PERF-9: until every heavy shape's off-main hydrate is installed.
+pub(crate) fn wait_hydrated(cx: &mut HeadlessAppContext) {
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while !cx.update(|cx| ["messages", "conversations", "sessions", "issues", "issue_events", "pull_request_checks", "events"].iter().all(|shape| sync::Store::global(cx).collections().is_hydrated(shape))) {
+        assert!(Instant::now() < deadline, "the hydrate never landed");
+        cx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    cx.run_until_parked();
+}
+
 struct Stats(Vec<f64>);
 
 impl std::fmt::Display for Stats {
@@ -67,9 +78,9 @@ fn real_data_bench() {
         cx.set_global(store);
         sync::Store::global(cx).clone().connect_local(&account, &db, rx, cx).expect("the store hydrates");
     });
-    let sessions = cx.update(|cx| sync::Store::global(cx).collections().sessions.read(cx).len());
-    let messages = cx.update(|cx| sync::Store::global(cx).collections().messages.read(cx).len());
-    println!("[real] hydrated {sessions} sessions, {messages} messages in {:.0} ms", started.elapsed().as_secs_f64() * 1e3);
+    // #PERF-9: the connect itself is the main thread's share; the heavy
+    // shapes land from the background executor after it.
+    println!("[real] connect held the main thread {:.0} ms", started.elapsed().as_secs_f64() * 1e3);
 
     let screen = std::env::var("LOGS_REAL_SCREEN").ok();
     let handle = cx
@@ -84,10 +95,51 @@ fn real_data_bench() {
         .expect("a headless window");
     let window: AnyWindowHandle = handle.into();
     cx.update_window(window, |_, window, _| window.activate_window()).unwrap();
-    cx.run_until_parked();
     let first = frame(window, &mut cx);
-    cx.run_until_parked();
-    println!("[real] first frame {first:.1} ms");
+    println!("[real] first frame {first:.1} ms ({:.0} ms after start)", started.elapsed().as_secs_f64() * 1e3);
+    // #PERF-9: the boot as the app runs it: the window draws while the heavy
+    // shapes land; every foreground slice (the installs and what they wake)
+    // and every frame is timed until the store is whole.
+    let mut slices = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let hydrated = cx.update(|cx| ["messages", "conversations", "sessions", "issues", "issue_events", "pull_request_checks", "events"].iter().all(|shape| sync::Store::global(cx).collections().is_hydrated(shape)));
+        let slice = Instant::now();
+        cx.run_until_parked();
+        slices.push(slice.elapsed().as_secs_f64() * 1e3);
+        slices.push(frame(window, &mut cx));
+        if hydrated {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the hydrate never landed");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    let sessions = cx.update(|cx| sync::Store::global(cx).collections().sessions.read(cx).len());
+    let messages = cx.update(|cx| sync::Store::global(cx).collections().messages.read(cx).len());
+    println!("[real] hydrated {sessions} sessions, {messages} messages in {:.0} ms; boot slices: {}", started.elapsed().as_secs_f64() * 1e3, Stats(slices));
+    // #PERF-9: what each heavy shape's install wakes on the main thread
+    // (observers, derived views) and the frame after it; the read itself is
+    // the background executor's in the app.
+    {
+        let sqlite = sync::store::ShapeStore::open(&db).expect("the copy");
+        const HEAVY: [&str; 7] = ["issues", "sessions", "conversations", "issue_events", "pull_request_checks", "events", "messages"];
+        for shape in HEAVY {
+            let started = Instant::now();
+            let read = cx.update(|cx| sync::Store::global(cx).collections().clone().reinstall_for_bench(shape, &sqlite, cx));
+            let woke = started.elapsed().as_secs_f64() * 1e3 - read;
+            let drawn = frame(window, &mut cx);
+            println!("[real] install {shape:<20} main thread {woke:6.1} ms + frame {drawn:5.1} ms (read {read:.0} ms off main)");
+        }
+        // Against: one install of them all (every derived view at once).
+        for _ in 0..3 {
+            let started = Instant::now();
+            let read: f64 = cx.update(|cx| HEAVY.iter().map(|shape| sync::Store::global(cx).collections().clone().reinstall_for_bench(shape, &sqlite, cx)).sum());
+            let woke = started.elapsed().as_secs_f64() * 1e3 - read;
+            let drawn = frame(window, &mut cx);
+            println!("[real] install all heavy shapes at once: main thread {woke:6.1} ms + frame {drawn:5.1} ms (reads {read:.0} ms off main)");
+        }
+        cx.run_until_parked();
+    }
     if let Some(spec) = screen.as_deref() {
         let screen = crate::navigation::parse_dev_screen(spec).expect("a dev screen");
         let open = Instant::now();
@@ -210,6 +262,41 @@ fn deltas_read_off_the_main_thread_land_in_order(cx: &mut gpui::TestAppContext) 
     drop(dir);
 }
 
+/// #PERF-9: a heavy shape hydrates off the main thread; a delta of it that
+/// arrives meanwhile waits for the install and lands on top (never under
+/// the snapshot), and the shape reads not-ready until then.
+#[gpui::test]
+fn a_heavy_shapes_delta_lands_after_its_off_main_hydrate(cx: &mut gpui::TestAppContext) {
+    use sync::protocol::{RowKey, ShapeMessage};
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("local.sqlite");
+    let store = sync::store::ShapeStore::open(&db).unwrap();
+    let spec = sync::shapes::shape_by_name("messages").unwrap();
+    let row = |id: &str, body: &str| serde_json::json!({"id": id, "session_id": "s1", "author_kind": "agent", "body": body, "created_at": "2026-11-12T09:00:00.000Z"}).as_object().unwrap().clone();
+    store.apply_batch(spec, &[ShapeMessage::Insert { key: RowKey::Single("m1".into()), value: row("m1", "old") }], None).unwrap();
+    let (changes, rx) = flume::unbounded::<(String, Vec<String>)>();
+    cx.update(|cx| {
+        let store = sync::Store::open(cx, None, None);
+        cx.set_global(store);
+        sync::Store::global(cx).clone().connect_local("local-test", &db, rx, cx).unwrap();
+    });
+    let messages = cx.update(|cx| sync::Store::global(cx).collections().messages.clone());
+    // Off the main thread: nothing installed yet, and not ready.
+    assert!(cx.read(|cx| !sync::Store::global(cx).collections().is_hydrated("messages")));
+    assert!(cx.read(|cx| messages.read(cx).is_empty() && !messages.read(cx).is_ready()));
+    // A write and its delta queue up before the hydrate lands.
+    store.apply_batch(spec, &[ShapeMessage::Update { key: RowKey::Single("m1".into()), value: row("m1", "new") }, ShapeMessage::Insert { key: RowKey::Single("m2".into()), value: row("m2", "two") }], None).unwrap();
+    changes.send(("messages".into(), vec!["m1".into(), "m2".into()])).unwrap();
+    cx.run_until_parked();
+    assert!(cx.read(|cx| sync::Store::global(cx).collections().is_hydrated("messages")));
+    let body = |id: &str, cx: &mut gpui::TestAppContext| cx.read(|cx| messages.read(cx).get(id).and_then(|row| row.body.clone()));
+    assert_eq!(body("m1", cx).as_deref(), Some("new"));
+    assert_eq!(body("m2", cx).as_deref(), Some("two"));
+    assert!(cx.read(|cx| messages.read(cx).is_ready()));
+    assert_eq!(cx.read(|cx| messages.read(cx).in_group("s1").count()), 2);
+    drop(dir);
+}
+
 /// #EXP-1380 (chats.json WINDOW): open the biggest chat of a REAL store,
 /// data only: the main thread's share of the first chat model (the root
 /// view, the conversation cards, the root's messages) and of the Results
@@ -236,6 +323,8 @@ fn open_biggest_chat_bench() {
         cx.set_global(store);
         sync::Store::global(cx).clone().connect_local("bench", &db, rx, cx).expect("the store hydrates");
     });
+    println!("[open] connect held the main thread {:.0} ms", started.elapsed().as_secs_f64() * 1e3);
+    wait_hydrated(&mut cx);
     let messages = cx.update(|cx| sync::Store::global(cx).collections().messages.read(cx).len());
     println!("[open] hydrated {messages} messages in {:.0} ms", started.elapsed().as_secs_f64() * 1e3);
     cx.run_until_parked();
