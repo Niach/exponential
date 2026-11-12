@@ -68,7 +68,7 @@ object SessionTitle {
                             (!m.authorSessionId.isNullOrEmpty() && m.authorSessionId != sessionId)
                         )
             }
-            .sortedWith(compareBy<TitleMessage>({ ms(it.createdAt) }, { it.id }))
+            .sortedByEpoch(tie = compareBy { it.id }) { ms(it.createdAt) }
             .firstNotNullOfOrNull { firstLine(it.body) }
 
     private fun issueLabel(issues: List<TitleIssue>): String {
@@ -100,5 +100,10 @@ object SessionTitle {
         links: List<TitleLink>,
         issues: List<TitleIssue>,
         messages: List<TitleMessage>,
-    ): Map<String, String> = sessions.associate { it.id to sessionTitle(it, links, issues, messages) }
+    ): Map<String, String> {
+        // Large chats: the rows grouped by session ONCE ([firstPrompt] reads
+        // only its own session's), never every row per session.
+        val bySession = messages.groupBy { it.sessionId }
+        return sessions.associate { it.id to sessionTitle(it, links, issues, bySession[it.id].orEmpty()) }
+    }
 }

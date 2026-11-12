@@ -1,6 +1,7 @@
 package com.exponential.app.data.sealed
 
 import com.exponential.app.data.db.MessageEntity
+import com.exponential.app.data.db.SessionEntity
 import com.exponential.app.domain.SessionTree
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -107,5 +108,16 @@ class SealedRowCacheTest {
         assertTrue(plain === SealedContent.message(plain))
         assertEquals("hello", SessionTree.message(plain, root).body)
         assertEquals(0, crypto.bodies + crypto.cards)
+    }
+
+    @Test
+    fun `a keyless sealed session title opens once until its keys arrive`() {
+        val row = SessionEntity(id = "s1", rootId = root, title = "", sealedTitle = SealedContent.BODY_PREFIX + "title")
+        repeat(3) { assertEquals("", SealedContent.session(row).title) }
+        assertEquals(1, crypto.bodies)
+        SealedKeys.merge(mapOf(root to mapOf(1 to byteArrayOf(1))))
+        assertEquals("opened:title", SealedContent.session(row).title)
+        assertEquals("opened:title", SealedContent.session(row).title)
+        assertEquals(2, crypto.bodies)
     }
 }

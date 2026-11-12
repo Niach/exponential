@@ -228,9 +228,90 @@ object SealedContent {
      *  root's keys (#EXP-1730: the digest lives on the session). */
     fun session(row: SessionEntity, keys: TreeKeys = SealedKeys.keys.value): SessionEntity {
         val rootId = row.rootId.ifEmpty { row.id }
+        val sealedTitle = row.sealedTitle
+        val digest = row.digest
+        // Nothing to open natively (no sealed title, no sealed digest slot):
+        // the plain path, no lookup.
+        val sealed = (sealedTitle != null && isSealedBody(sealedTitle)) ||
+            (digest != null && (digest.contains(BODY_PREFIX) || digest.contains("\"$CARD_SEALED\"")))
+        if (!sealed) return openSession(row, rootId, keys)
+        // Large chats: ONE opening per session row whatever its outcome (a
+        // keyless title / digest too), valid while its sealed title and digest
+        // are the same and the root's keys are the same map ([RowOpening]).
+        val rootKeys = keys[rootId]
+        val titleHash = sealedTitle?.hashCode() ?: 0
+        val titleLength = sealedTitle?.length ?: -1
+        val digestHash = digest?.hashCode() ?: 0
+        val digestLength = digest?.length ?: -1
+        val hit = synchronized(sessionRows) { sessionRows[row.id] }?.takeIf {
+            it.rootId == rootId && it.titleLength == titleLength && it.titleHash == titleHash &&
+                it.digestLength == digestLength && it.digestHash == digestHash && it.rootKeys === rootKeys
+        }
+        if (hit != null) {
+            // The holder is still asked (throttled) while a part stays keyless.
+            for (epoch in hit.asks) askFor(rootId, epoch)
+            var out = row
+            if (hit.titleChanged) out = out.copy(title = hit.title)
+            if (hit.digestChanged) out = out.copy(digest = hit.digest)
+            return out
+        }
+        val asks = mutableListOf<Int?>()
+        val opened = recordingAsks(asks) { openSession(row, rootId, keys) }
+        val entry = SessionOpening(
+            rootId = rootId,
+            titleLength = titleLength,
+            titleHash = titleHash,
+            digestLength = digestLength,
+            digestHash = digestHash,
+            rootKeys = rootKeys,
+            titleChanged = opened.title !== row.title,
+            title = opened.title.takeIf { it !== row.title },
+            digestChanged = opened.digest !== row.digest,
+            digest = opened.digest.takeIf { it !== row.digest },
+            asks = asks.distinct(),
+        )
+        synchronized(sessionRows) { sessionRows[row.id] = entry }
+        return opened
+    }
+
+    private fun openSession(row: SessionEntity, rootId: String, keys: TreeKeys): SessionEntity {
         val titled = sessionTitle(row, rootId, keys)
         val opened = digest(titled.digest, rootId, keys)
         return if (opened === titled.digest) titled else titled.copy(digest = opened)
+    }
+
+    /** One session row's opening ([session]): what changed + the keyless epochs it asked for. */
+    private class SessionOpening(
+        val rootId: String,
+        val titleLength: Int,
+        val titleHash: Int,
+        val digestLength: Int,
+        val digestHash: Int,
+        val rootKeys: Map<Int, ByteArray>?,
+        val titleChanged: Boolean,
+        val title: String?,
+        val digestChanged: Boolean,
+        val digest: String?,
+        val asks: List<Int?>,
+    )
+
+    private const val SESSIONS_MAX = 8_192
+    private val sessionRows = object : LinkedHashMap<String, SessionOpening>(256, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, SessionOpening>?) = size > SESSIONS_MAX
+    }
+
+    // The keyless epochs an opening meets ([askFor]), recorded so a cached
+    // hit asks the holder again exactly as the opening did.
+    private val askLog = ThreadLocal<MutableList<Int?>?>()
+
+    private inline fun <T> recordingAsks(into: MutableList<Int?>, block: () -> T): T {
+        val previous = askLog.get()
+        askLog.set(into)
+        try {
+            return block()
+        } finally {
+            askLog.set(previous)
+        }
     }
 
     private fun sessionTitle(row: SessionEntity, rootId: String, keys: TreeKeys): SessionEntity {
@@ -294,6 +375,7 @@ object SealedContent {
     private val DIGEST_SLOTS = listOf("first", "preview", "waiting")
 
     private fun askFor(rootId: String, epoch: Int?) {
+        askLog.get()?.add(epoch)
         val key = "$rootId|$epoch"
         val now = System.currentTimeMillis()
         val ask = synchronized(asked) {
@@ -307,6 +389,7 @@ object SealedContent {
     internal fun clearCache() {
         synchronized(cache) { cache.clear() }
         synchronized(rows) { rows.clear() }
+        synchronized(sessionRows) { sessionRows.clear() }
         synchronized(asked) { asked.clear() }
     }
 }
