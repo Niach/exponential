@@ -11,6 +11,7 @@
     "smoke:server": "bun scripts/smoke-server.ts",
     "migrate": "drizzle-kit migrate",
     "migrate:generate": "drizzle-kit generate",
+    "migrate:contract": "bun scripts/apply-contract-steps.ts",
     "backfill:default-branches": "bun scripts/backfill-default-branches.ts",
     "check:device-shares": "bun scripts/check-device-shares.ts",
     "audit:device-first-seen": "bun scripts/audit-device-first-seen.ts",

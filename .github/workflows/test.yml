@@ -243,7 +243,9 @@ jobs:
       - uses: ./.github/actions/setup-bun
       - run: bun install --frozen-lockfile
       - name: Apply migrations from scratch
-        run: bun run migrate
+        # + the deferred contract steps (#ERR-1, apps/web/src/db/contract-steps.ts)
+        # at once: no older release serves this database.
+        run: bun run migrate && (cd apps/web && bun run migrate:contract)
       - name: Detect silent migration drift
         # Same-DB before/after dumps around `drizzle-kit push --force`; any
         # delta = the chain does not produce packages/db-schema. pg_dump runs
