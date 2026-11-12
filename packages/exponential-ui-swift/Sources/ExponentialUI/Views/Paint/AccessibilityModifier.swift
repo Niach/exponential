@@ -307,6 +307,8 @@ struct A11yInfo: Equatable {
             return n.accessibilityLabel
         case ("Spinner", _), ("Ring", _):
             return n.accessibilityLabel ?? model.builtinString("loading")
+        case ("CountBadge", _):
+            return n.accessibilityLabel ?? n.props.str("text")
         default:
             return n.accessibilityLabel
         }

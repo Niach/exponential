@@ -11,6 +11,8 @@
 //                     domain-contract nav-badges.json): the needs-you yellow,
 //                     black figures
 //         primary   — legacy accent fill (no nav destination uses it)
+import { countBadgeLabel } from "../../count-badge"
+
 export type BadgeTone = `muted` | `attention` | `primary`
 
 export const BADGE_CLASSES = {
@@ -22,8 +24,8 @@ export const BADGE_CLASSES = {
   },
 } as const
 
-/** What the badge prints for `count` (zero and below render nothing). */
+/** What the badge prints for `count` (zero and below render nothing): the
+ *  core's `countBadgeLabel`, the CountBadge native's rule too. */
 export function badgeLabel(count: number, max = 99): string {
-  if (count <= 0) return ``
-  return count > max ? `${max}+` : String(count)
+  return countBadgeLabel(count, max)
 }

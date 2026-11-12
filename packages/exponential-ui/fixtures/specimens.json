@@ -8774,6 +8774,105 @@
       }
     },
     {
+      "id": "exponential-ui-count-badge",
+      "component": "CountBadge",
+      "title": "CountBadge",
+      "node": {
+        "id": "specimen_count_badge",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen_count_badge_case_0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen_count_badge_case_0_label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0_count_badge",
+                "component": "CountBadge",
+                "props": {
+                  "count": 3,
+                  "tone": "attention"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_count_badge_case_1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen_count_badge_case_1_label",
+                "component": "Text",
+                "props": {
+                  "text": "tone · muted",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1_count_badge",
+                "component": "CountBadge",
+                "props": {
+                  "count": 3,
+                  "tone": "muted"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_count_badge_case_2",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen_count_badge_case_2_label",
+                "component": "Text",
+                "props": {
+                  "text": "count 120 · muted",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c2_count_badge_capped",
+                "component": "CountBadge",
+                "props": {
+                  "count": 120,
+                  "tone": "muted"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "id": "exponential-ui-call-surface",
       "component": "CallSurface",
       "title": "CallSurface",
