@@ -392,6 +392,32 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
     }
   })
 
+  it(`#FEED-211: a parked run that speaks to the server after its flag is busy again though its device's beat is still late; activity from before the flag changes nothing`, async () => {
+    const w = await world()
+    const rootId = await w.root()
+    const [speaking, quiet] = await Promise.all([`speaks again`, `stays quiet`].map((text) => w.child(rootId, text)))
+    for (const id of [speaking, quiet]) {
+      await w.host.claim({ sessionId: id, deviceId: w.deviceId })
+      await w.host.report({ sessionId: id, busy: true })
+      await backdateSession(id, `updated_at`, ago(10 * MIN))
+    }
+    // A stuck beat body: the device misses the online window and both runs are parked.
+    await backdateDevice(w.deviceId, ago(5 * MIN))
+    const flaggedAt = ago(60_000)
+    await runWatchdog(flaggedAt)
+    for (const id of [speaking, quiet]) {
+      expect(await row(id)).toMatchObject({ status: `idle`, busy: false, blocked: { kind: `device_offline`, resume: true } })
+    }
+
+    // The run keeps working: its own MCP call after the flag (the eMCP gate's
+    // sign of life). The beat is still late.
+    await touchSessionActivity(eq(sessions.id, speaking), ago(20_000))
+    await runWatchdog(NOW)
+    expect(await row(speaking)).toMatchObject({ status: `running`, busy: true, blocked: null, needsInput: false })
+    expect(await row(quiet)).toMatchObject({ status: `idle`, busy: false, blocked: { kind: `device_offline`, resume: true } })
+    expect(await lines(rootId, `session_interrupted`, speaking)).toHaveLength(0)
+  })
+
   it(`a heartbeat's liveSessionIds flags a busy session its host no longer runs; listed ones and a beat without the field change nothing`, async () => {
     const w = await world({ shared: true })
     const rootId = await w.root()
