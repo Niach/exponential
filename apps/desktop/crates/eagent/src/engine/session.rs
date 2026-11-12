@@ -287,6 +287,12 @@ impl EngineSession {
         self.0.ctx.with_mapper(|mapper| mapper.current_model().map(str::to_string))
     }
 
+    /// #FEED-229: a handed message row this engine has not reported
+    /// consumed yet (its agent never read it).
+    pub fn holds_unread(&self, message_id: &str) -> bool {
+        self.0.ctx.message_ids.lock().is_ok_and(|ids| ids.contains(message_id))
+    }
+
     /// FEED-25's activity clock, as an `Instant`.
     pub fn last_activity(&self) -> std::time::Instant {
         self.0.ctx.last_activity()
