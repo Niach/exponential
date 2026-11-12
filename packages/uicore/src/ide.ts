@@ -5,15 +5,24 @@ import fixture from "../fixtures/ide-sidebar.json" with { type: "json" }
 
 export type IdeDot = `amber` | `green` | `primary`
 
+/** #FEED-232 (`nav-badges.json`): a nav row's count badge tone; no dots. */
+export type IdeTone = `attention` | `muted`
+
+/** A count the host computed (`chatsBadge`): 0 = no badge. */
+export interface IdeCount {
+  count: number
+  tone: IdeTone
+}
+
 export interface IdeSidebarInput {
   /** The open screen as `<kind>` or `<kind>:<id>`. */
   screen: string
   needsYou: number
   drafts: number
-  chatsDot: IdeDot | null
+  chats: IdeCount
   owner: boolean
   pins: { id: string; identifier: string; title: string }[]
-  agents: { id: string; name: string; icon: string; needsYou: boolean; busy: boolean }[]
+  agents: { id: string; name: string; icon: string; needsYou: boolean; unread: number }[]
   apps: { id: string; slug: string; name: string; icon: string }[]
   boards: { id: string; name: string; icon: string }[]
   active: { id: string; title: string; icon: string; sessionIds: string[]; unread: boolean }[]
@@ -25,7 +34,7 @@ export interface IdeNavRow {
   icon: string
   selected: boolean
   count: string | null
-  dot: IdeDot | null
+  tone: IdeTone | null
 }
 
 export interface IdeRow {
@@ -33,7 +42,8 @@ export interface IdeRow {
   title: string
   icon: string
   selected: boolean
-  dot: IdeDot | null
+  count: string | null
+  tone: IdeTone | null
   gear: boolean
 }
 
@@ -59,36 +69,46 @@ export interface IdeTabs {
 
 const COPY = fixture.copy
 
-const nav = (id: keyof typeof COPY, icon: string, selected: boolean, count: string | null, dot: IdeDot | null): IdeNavRow => ({
+/** The badge's label: null at zero, `99+` past 99 (nav-badges.json `labelCases`). */
+export const countLabel = (count: number): string | null => count <= 0 ? null : count > 99 ? `99+` : String(count)
+
+const badge = (count: number, tone: IdeTone) => {
+  const label = countLabel(count)
+  return { count: label, tone: label === null ? null : tone }
+}
+
+const nav = (id: keyof typeof COPY, icon: string, selected: boolean, count: number, tone: IdeTone): IdeNavRow => ({
   id,
   title: COPY[id],
   icon,
   selected,
-  count,
-  dot,
+  ...badge(count, tone),
 })
 
-const agentDot = (needsYou: boolean, busy: boolean): IdeDot | null => needsYou ? `amber` : busy ? `green` : null
+/** An agent row's badge (`rowBadge`): its unread, at least 1 while it needs
+ *  you, attention when it does. Busy is no badge. */
+export const agentCount = (unread: number, needsYou: boolean): IdeCount =>
+  needsYou ? { count: Math.max(1, unread), tone: `attention` } : { count: unread, tone: `muted` }
 
 export function ideSidebar(input: IdeSidebarInput): IdeSidebar {
   const { screen } = input
   const rows: IdeNavRow[] = []
-  if (input.needsYou > 0 || screen === `needs-you`) rows.push(nav(`needs-you`, `nav-needs-you`, screen === `needs-you`, String(input.needsYou), null))
-  rows.push(nav(`chats`, `nav-chats`, screen === `chats`, null, input.chatsDot))
-  rows.push(nav(`devices`, `nav-devices`, screen === `devices`, null, null))
-  if (input.drafts > 0 || screen === `drafts`) rows.push(nav(`drafts`, `nav-drafts`, screen === `drafts`, String(input.drafts), null))
+  if (input.needsYou > 0 || screen === `needs-you`) rows.push(nav(`needs-you`, `nav-needs-you`, screen === `needs-you`, input.needsYou, `attention`))
+  rows.push(nav(`chats`, `nav-chats`, screen === `chats`, input.chats.count, input.chats.tone))
+  rows.push(nav(`devices`, `nav-devices`, screen === `devices`, 0, `muted`))
+  if (input.drafts > 0 || screen === `drafts`) rows.push(nav(`drafts`, `nav-drafts`, screen === `drafts`, input.drafts, `muted`))
   return {
     nav: rows,
     pins: input.pins.map((p) => ({ ...p, selected: screen === `issue:${p.id}` })),
     agents: {
       add: input.owner,
-      rows: input.agents.map((a) => ({ id: a.id, title: a.name, icon: a.icon, selected: screen === `agent:${a.id}`, dot: agentDot(a.needsYou, a.busy), gear: true })),
+      rows: input.agents.map((a) => ({ id: a.id, title: a.name, icon: a.icon, selected: screen === `agent:${a.id}`, ...badge(agentCount(a.unread, a.needsYou).count, agentCount(a.unread, a.needsYou).tone), gear: true })),
     },
     apps: {
-      rows: input.apps.map((a) => ({ id: a.id, title: a.name, icon: a.icon, selected: screen === `app:${a.id}` || screen === `app:${a.slug}`, dot: null, gear: true })),
+      rows: input.apps.map((a) => ({ id: a.id, title: a.name, icon: a.icon, selected: screen === `app:${a.id}` || screen === `app:${a.slug}`, count: null, tone: null, gear: true })),
     },
     boards: {
-      rows: input.boards.map((b) => ({ id: b.id, title: b.name, icon: b.icon, selected: screen === `board:${b.id}`, dot: null, gear: input.owner })),
+      rows: input.boards.map((b) => ({ id: b.id, title: b.name, icon: b.icon, selected: screen === `board:${b.id}`, count: null, tone: null, gear: input.owner })),
       empty: input.boards.length === 0,
     },
     active: input.active.map((a) => ({

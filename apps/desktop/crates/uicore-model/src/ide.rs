@@ -15,6 +15,31 @@ pub enum IdeDot {
     Primary,
 }
 
+/// #FEED-232 (`nav-badges.json`): a nav row's count badge tone; no dots.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum IdeTone {
+    Attention,
+    #[default]
+    Muted,
+}
+
+/// A count the host computed (`chatsBadge`): 0 = no badge.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IdeCount {
+    pub count: usize,
+    pub tone: IdeTone,
+}
+
+/// The badge's label: `None` at zero, `99+` past 99 (`labelCases`).
+pub fn count_label(count: usize) -> Option<String> {
+    match count {
+        0 => None,
+        1..=99 => Some(count.to_string()),
+        _ => Some("99+".into()),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IdePinInput {
     pub id: String,
@@ -29,7 +54,8 @@ pub struct IdeAgentInput {
     pub name: String,
     pub icon: String,
     pub needs_you: bool,
-    pub busy: bool,
+    /// The agent conversation's unread agent messages.
+    pub unread: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -65,7 +91,7 @@ pub struct IdeSidebarInput {
     pub screen: String,
     pub needs_you: usize,
     pub drafts: usize,
-    pub chats_dot: Option<IdeDot>,
+    pub chats: IdeCount,
     pub owner: bool,
     pub pins: Vec<IdePinInput>,
     pub agents: Vec<IdeAgentInput>,
@@ -81,7 +107,7 @@ pub struct IdeNavRow {
     pub icon: String,
     pub selected: bool,
     pub count: Option<String>,
-    pub dot: Option<IdeDot>,
+    pub tone: Option<IdeTone>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -90,7 +116,8 @@ pub struct IdeRow {
     pub title: String,
     pub icon: String,
     pub selected: bool,
-    pub dot: Option<IdeDot>,
+    pub count: Option<String>,
+    pub tone: Option<IdeTone>,
     pub gear: bool,
 }
 
@@ -145,8 +172,20 @@ fn copy(id: &str) -> String {
     copy[id].as_str().unwrap_or_default().to_string()
 }
 
-fn nav(id: &str, icon: &str, selected: bool, count: Option<String>, dot: Option<IdeDot>) -> IdeNavRow {
-    IdeNavRow { id: id.into(), title: copy(id), icon: icon.into(), selected, count, dot }
+fn nav(id: &str, icon: &str, selected: bool, count: usize, tone: IdeTone) -> IdeNavRow {
+    let count = count_label(count);
+    let tone = count.is_some().then_some(tone);
+    IdeNavRow { id: id.into(), title: copy(id), icon: icon.into(), selected, count, tone }
+}
+
+/// An agent row's badge (`rowBadge`): its unread, at least 1 while it needs
+/// you, attention when it does. Busy is no badge.
+pub fn agent_count(unread: usize, needs_you: bool) -> IdeCount {
+    if needs_you {
+        IdeCount { count: unread.max(1), tone: IdeTone::Attention }
+    } else {
+        IdeCount { count: unread, tone: IdeTone::Muted }
+    }
 }
 
 /// An agent's dot: needs you before busy.
@@ -165,25 +204,34 @@ pub fn ide_sidebar(input: &IdeSidebarInput) -> IdeSidebar {
     let on = |kind: &str, id: &str| screen.strip_prefix(kind).and_then(|s| s.strip_prefix(':')) == Some(id);
     let mut rows = Vec::new();
     if input.needs_you > 0 || screen == "needs-you" {
-        rows.push(nav("needs-you", "nav-needs-you", screen == "needs-you", Some(input.needs_you.to_string()), None));
+        rows.push(nav("needs-you", "nav-needs-you", screen == "needs-you", input.needs_you, IdeTone::Attention));
     }
-    rows.push(nav("chats", "nav-chats", screen == "chats", None, input.chats_dot));
-    rows.push(nav("devices", "nav-devices", screen == "devices", None, None));
+    rows.push(nav("chats", "nav-chats", screen == "chats", input.chats.count, input.chats.tone));
+    rows.push(nav("devices", "nav-devices", screen == "devices", 0, IdeTone::Muted));
     if input.drafts > 0 || screen == "drafts" {
-        rows.push(nav("drafts", "nav-drafts", screen == "drafts", Some(input.drafts.to_string()), None));
+        rows.push(nav("drafts", "nav-drafts", screen == "drafts", input.drafts, IdeTone::Muted));
     }
     IdeSidebar {
         nav: rows,
         pins: input.pins.iter().map(|p| IdePinRow { id: p.id.clone(), identifier: p.identifier.clone(), title: p.title.clone(), selected: on("issue", &p.id) }).collect(),
         agents: IdeAgents {
             add: input.owner,
-            rows: input.agents.iter().map(|a| IdeRow { id: a.id.clone(), title: a.name.clone(), icon: a.icon.clone(), selected: on("agent", &a.id), dot: agent_dot(a.needs_you, a.busy), gear: true }).collect(),
+            rows: input
+                .agents
+                .iter()
+                .map(|a| {
+                    let badge = agent_count(a.unread, a.needs_you);
+                    let count = count_label(badge.count);
+                    let tone = count.is_some().then_some(badge.tone);
+                    IdeRow { id: a.id.clone(), title: a.name.clone(), icon: a.icon.clone(), selected: on("agent", &a.id), count, tone, gear: true }
+                })
+                .collect(),
         },
         apps: IdeApps {
-            rows: input.apps.iter().map(|a| IdeRow { id: a.id.clone(), title: a.name.clone(), icon: a.icon.clone(), selected: on("app", &a.id) || on("app", &a.slug), dot: None, gear: true }).collect(),
+            rows: input.apps.iter().map(|a| IdeRow { id: a.id.clone(), title: a.name.clone(), icon: a.icon.clone(), selected: on("app", &a.id) || on("app", &a.slug), count: None, tone: None, gear: true }).collect(),
         },
         boards: IdeBoards {
-            rows: input.boards.iter().map(|b| IdeRow { id: b.id.clone(), title: b.name.clone(), icon: b.icon.clone(), selected: on("board", &b.id), dot: None, gear: input.owner }).collect(),
+            rows: input.boards.iter().map(|b| IdeRow { id: b.id.clone(), title: b.name.clone(), icon: b.icon.clone(), selected: on("board", &b.id), count: None, tone: None, gear: input.owner }).collect(),
             empty: input.boards.is_empty(),
         },
         active: input.active.iter().map(|a| IdeActiveRow { id: a.id.clone(), title: a.title.clone(), icon: a.icon.clone(), selected: on("chat", &a.id) || a.session_ids.iter().any(|id| on("session", id)), unread: a.unread }).collect(),

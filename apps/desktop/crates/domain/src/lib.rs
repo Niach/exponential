@@ -175,6 +175,8 @@ pub mod plan_page;
 pub mod merge_train;
 // #FEED-191: every plan and question waiting on the viewer, fixture-locked ×4.
 pub mod needs_you;
+// #FEED-232: ONE count badge on every nav destination (nav-badges.json).
+pub mod nav_badges;
 // #FEED-191: a chat tree's results (the session screen's last tab), fixture-locked ×4.
 pub mod results_tab;
 pub mod placeholder_status;

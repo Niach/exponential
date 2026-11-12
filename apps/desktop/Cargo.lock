@@ -13071,6 +13071,7 @@ dependencies = [
  "url",
  "uuid",
  "x11rb",
+ "zbus",
 ]
 
 [[package]]
