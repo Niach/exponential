@@ -579,6 +579,7 @@ impl HostPlugin for FooterHost {
 impl SteerSessionView {
     /// THE composer: the chat document's footer.
     pub(super) fn render_doc_composer(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
+        self.sync_composer_draft(window, cx);
         let frame = self.composer_frame(cx);
         let team_id = self.row.as_ref().and_then(|row| row.team_id.clone());
         let steer = cx.entity().downgrade();
@@ -598,6 +599,24 @@ impl SteerSessionView {
         match self.mcp_picker(window, cx) {
             Some(picker) => gpui::div().w_full().min_w_0().child(element).child(picker).into_any_element(),
             None => element,
+        }
+    }
+
+    /// #FEED-219: the field's text against its synced draft, once per
+    /// frame. Every path that changes the field (the document's keystrokes,
+    /// a pick, a restore after Stop) lands in `input`, so a difference from
+    /// what the draft last knew is the person's edit; an untouched field
+    /// follows the draft instead.
+    fn sync_composer_draft(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let team_id = self.row.as_ref().and_then(|row| row.team_id.clone());
+        self.composer_draft.set_team(team_id, cx);
+        let value = self.input.read(cx).value().to_string();
+        if value != self.draft_seen {
+            self.composer_draft.edited(&value, cx);
+            self.draft_seen = value;
+        } else if crate::composer_drafts::apply_follow(&self.composer_draft, &self.input, window, cx) {
+            self.draft_seen = self.input.read(cx).value().to_string();
+            self.refresh_slash(cx);
         }
     }
 

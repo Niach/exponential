@@ -68,6 +68,7 @@ pub mod attachment_upload;
 pub mod attachments;
 pub mod billing;
 pub mod comments;
+pub mod composer_drafts;
 pub mod error;
 pub mod http;
 pub mod installs;
