@@ -157,8 +157,8 @@ pub use image_message::{
 };
 pub use history::{
     history_chunk_frame, journal_dir, journal_path, prune_journals, prune_session_history,
-    read_journal, read_journal_page, read_journal_seq, remove_journal, JournalWriter,
-    HISTORY_PAGE_MAX, JOURNAL_FILE_CAP, JOURNAL_CAP_NOTICE,
+    read_journal, read_journal_page, read_journal_seq, remove_journal, replay_tail, JournalWriter,
+    HISTORY_PAGE_MAX, REPLAY_TAIL, JOURNAL_FILE_CAP, JOURNAL_CAP_NOTICE,
 };
 pub use enet_steer::{StoredJournals, StoredSession};
 pub use journal::{ActivityJournal, JOURNAL_BYTE_CAP, JOURNAL_EVENT_CAP};

@@ -1266,6 +1266,9 @@ pub struct AgentDefRow {
     /// #EXP-1656: the team skills every run of this agent starts with
     /// (jsonb `string[]`; `null` = none).
     pub skill_ids: Vec<String>,
+    /// #EXP-1793 (agent-settings.json `mcpRow`): the team MCP servers every
+    /// run of this agent starts with (jsonb `string[]`, default `[]`).
+    pub mcp_server_ids: Vec<String>,
     pub owner_id: Option<String>,
     pub sort_order: Option<f64>,
     /// S-3: contract `agentRole` (`assistant` | `agent`); an old row without
@@ -1301,6 +1304,8 @@ struct AgentDefWire {
     defaults: Option<serde_json::Value>,
     #[serde(default, deserialize_with = "tolerant_id_list")]
     skill_ids: Vec<String>,
+    #[serde(default, deserialize_with = "tolerant_id_list")]
+    mcp_server_ids: Vec<String>,
     #[serde(default)]
     owner_id: Option<String>,
     #[serde(default, deserialize_with = "tolerant_opt_f64")]
@@ -1338,6 +1343,7 @@ impl From<AgentDefWire> for AgentDefRow {
             account,
             model,
             skill_ids: wire.skill_ids,
+            mcp_server_ids: wire.mcp_server_ids,
             owner_id: wire.owner_id,
             sort_order: wire.sort_order,
             role: wire.role,

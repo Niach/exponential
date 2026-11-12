@@ -95,6 +95,24 @@ pub static AGENT_SETTINGS: LazyLock<AgentSettingsSpec> = LazyLock::new(|| {
     serde_json::from_str(AGENT_SETTINGS_JSON).expect("agent-settings.json parses")
 });
 
+/// #EXP-1793 (agent-settings.json `mcpRow`): the agent page's MCP servers
+/// row, right under Skills.
+pub const MCP_ROW_LABEL: &str = "MCP servers";
+pub const MCP_ROW_NONE: &str = "None";
+/// The most servers an agent may name (`mcpRow.max`).
+pub const MCP_ROW_MAX: usize = 20;
+
+/// The MCP servers row's value (web `agentMcpServersValue`): the picked
+/// servers' names (team list order) through the shared picker summary
+/// (`a` / `a, b` / `a, b +N`), `None` when empty.
+pub fn agent_mcp_servers_value(names: &[&str]) -> String {
+    match names.len() {
+        0 => MCP_ROW_NONE.to_string(),
+        1 | 2 => names.join(", "),
+        n => format!("{} +{}", names[..2].join(", "), n - 2),
+    }
+}
+
 /// One Triggers row's text for an `AgentTrigger` jsonb (NEW-2): a schedule
 /// reads the schedule picker's [`schedule_summary`] (`Every day at 09:00`,
 /// ` ({tz})` when zoned), a builtin event its copy, any
@@ -702,6 +720,24 @@ mod tests {
             };
             let expected: Vec<AgentFormError> = serde_json::from_value(case["expected"].clone()).unwrap();
             assert_eq!(validate_agent_form(&form), expected, "{}", case["name"]);
+        }
+    }
+
+    /// #EXP-1793: `mcpRow` + `mcpValueCases` (the skills `agentValueCases`
+    /// rule, skills.rs).
+    #[test]
+    fn mcp_row_replays_the_fixture() {
+        let fixture = fixture();
+        let row = &fixture["mcpRow"];
+        assert_eq!(row["label"], MCP_ROW_LABEL);
+        assert_eq!(row["none"], MCP_ROW_NONE);
+        assert_eq!(row["after"], "skills");
+        assert_eq!(row["max"].as_u64(), Some(MCP_ROW_MAX as u64));
+        let cases = fixture["mcpValueCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let names: Vec<&str> = case["names"].as_array().unwrap().iter().map(|n| n.as_str().unwrap()).collect();
+            assert_eq!(agent_mcp_servers_value(&names), case["expected"].as_str().unwrap(), "{}", case["name"]);
         }
     }
 

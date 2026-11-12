@@ -130,6 +130,7 @@ describe(`sessions allowlist`, () => {
     expect(SKILL_COLUMNS).toContain(`description`)
     expect(SKILL_COLUMNS).toContain(`enabled_by_default`)
     expect(AGENT_COLUMNS).toContain(`skill_ids`)
+    expect(AGENT_COLUMNS).toContain(`mcp_server_ids`)
   })
   it(`syncs the #EXP-1383 agent columns, never the instructions text`, () => {
     expect(AGENT_COLUMNS).toContain(`instructions_updated_at`)

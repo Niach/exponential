@@ -144,12 +144,14 @@ function normalizeFields(fields: Fields): {
     bad(`OAuth sign-in applies to http servers only`)
   }
   if (fields.auth === `secret`) {
+    // #EXP-1793: one or more (e.g. Cloudflare Access's two + a bearer token);
+    // each member types a value for every name.
     const positions = http ? headerNames : envNames
-    if (positions.length !== 1) {
+    if (positions.length === 0) {
       bad(
         http
-          ? `A secret-authenticated http server declares exactly one header name (the secret's)`
-          : `A secret-authenticated stdio server declares exactly one env name (the secret's)`
+          ? `A secret-authenticated http server declares at least one header name (the secrets')`
+          : `A secret-authenticated stdio server declares at least one env name (the secrets')`
       )
     }
   }
@@ -165,6 +167,71 @@ function normalizeFields(fields: Fields): {
     auth: fields.auth,
     enabledByDefault: fields.enabledByDefault === true,
   }
+}
+
+/** An owner adds a server to the team's registry (tRPC `create`, and MCP
+ *  `mcp_servers` create, #EXP-1793). The name is unique per team. */
+export async function insertMcpServer(
+  db: Context[`db`],
+  userId: string,
+  input: Fields & { teamId: string }
+): Promise<McpServer> {
+  await assertTeamOwner(userId, input.teamId)
+  const values = normalizeFields(fieldsSchema.parse(input))
+  const [dup] = await db
+    .select({ id: mcpServers.id })
+    .from(mcpServers)
+    .where(and(eq(mcpServers.teamId, input.teamId), eq(mcpServers.name, values.name)))
+    .limit(1)
+  if (dup) {
+    throw new TRPCError({
+      code: `CONFLICT`,
+      message: `A server named ${values.name} already exists in this team`,
+    })
+  }
+  const [row] = await db
+    .insert(mcpServers)
+    .values({ ...values, teamId: input.teamId, createdById: userId })
+    .returning()
+  return row!
+}
+
+const secretValueSchema = z
+  .string()
+  .min(1)
+  .max(4096)
+  .refine((value) => !value.includes(`\u0000`), `contains NUL bytes`)
+
+/** #EXP-1793: the caller's values for a `secret` server: `values` keyed by
+ *  EVERY declared name, or `value` alone for a one-name server. A header
+ *  value is one line; an env value may be anything but NUL. */
+export function secretValuesFor(
+  server: Pick<McpServer, `name` | `transport` | `headerNames` | `envNames`>,
+  input: { value?: string; values?: Record<string, string> }
+): Record<string, string> {
+  const names = server.transport === `stdio` ? server.envNames : server.headerNames
+  const values =
+    input.values ?? (input.value !== undefined && names.length === 1 ? { [names[0]!]: input.value } : null)
+  if (!values) {
+    throw new TRPCError({
+      code: `BAD_REQUEST`,
+      message: `${server.name} takes ${names.length} secrets: pass values keyed by ${names.join(`, `)}`,
+    })
+  }
+  const keys = Object.keys(values)
+  if (keys.length !== names.length || names.some((name) => !(name in values))) {
+    throw new TRPCError({
+      code: `BAD_REQUEST`,
+      message: `Pass exactly one value for each of ${names.join(`, `)}`,
+    })
+  }
+  for (const value of Object.values(values)) {
+    secretValueSchema.parse(value)
+    if (server.transport === `http` && /[\r\n]/.test(value)) {
+      throw new TRPCError({ code: `BAD_REQUEST`, message: `A header secret must be a single line` })
+    }
+  }
+  return Object.fromEntries(names.map((name) => [name, values[name]!]))
 }
 
 function dedupe(values: string[]): string[] {
@@ -353,27 +420,7 @@ export const mcpServersRouter = router({
     .input(fieldsSchema.extend({ teamId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       await assertNotAgentKey(ctx)
-      const userId = ctx.session.user.id
-      await assertTeamOwner(userId, input.teamId)
-      const values = normalizeFields(input)
-      const [dup] = await ctx.db
-        .select({ id: mcpServers.id })
-        .from(mcpServers)
-        .where(
-          and(eq(mcpServers.teamId, input.teamId), eq(mcpServers.name, values.name))
-        )
-        .limit(1)
-      if (dup) {
-        throw new TRPCError({
-          code: `CONFLICT`,
-          message: `A server named ${values.name} already exists in this team`,
-        })
-      }
-      const [row] = await ctx.db
-        .insert(mcpServers)
-        .values({ ...values, teamId: input.teamId, createdById: userId })
-        .returning()
-      return row!
+      return insertMcpServer(ctx.db, ctx.session.user.id, input)
     }),
 
   update: authedProcedure
@@ -548,17 +595,19 @@ export const mcpServersRouter = router({
       }
     }),
 
-  // The caller's value for a `secret` server's ONE declared header/env name.
+  // The caller's values for a `secret` server's declared header/env names
+  // (#EXP-1793: `values` keyed by name; `value` = a one-name server's).
   setSecret: authedProcedure
     .input(
-      z.object({
-        serverId: z.string().uuid(),
-        value: z
-          .string()
-          .min(1)
-          .max(4096)
-          .refine((value) => !value.includes(`\u0000`), `contains NUL bytes`),
-      })
+      z
+        .object({
+          serverId: z.string().uuid(),
+          value: secretValueSchema.optional(),
+          values: z.record(z.string(), secretValueSchema).optional(),
+        })
+        .refine((input) => (input.value === undefined) !== (input.values === undefined), {
+          message: `Pass value or values`,
+        })
     )
     .mutation(async ({ ctx, input }) => {
       await assertNotAgentKey(ctx)
@@ -569,18 +618,12 @@ export const mcpServersRouter = router({
           message: `${server.name} does not take a secret`,
         })
       }
-      // A header value is one line; an env value may be anything but NUL.
-      if (server.transport === `http` && /[\r\n]/.test(input.value)) {
-        throw new TRPCError({
-          code: `BAD_REQUEST`,
-          message: `A header secret must be a single line`,
-        })
-      }
+      const values = secretValuesFor(server, input)
       await storeSecret(ctx.db, {
         serverId: server.id,
         userId: ctx.session.user.id,
         teamId: server.teamId,
-        value: input.value,
+        values,
       })
       return { ok: true as const }
     }),

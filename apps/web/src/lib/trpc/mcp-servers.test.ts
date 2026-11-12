@@ -244,14 +244,14 @@ describe(`mcpServers.create — validation matrix`, () => {
     ).rejects.toMatchObject({ code: `BAD_REQUEST` })
   })
 
-  it(`auth: secret needs exactly ONE declared name (the secret position)`, async () => {
+  it(`auth: secret needs at least one declared name (#EXP-1793: several headers allowed)`, async () => {
     const http = { ...base, auth: `secret` as const, transport: `http` as const, url: `https://x.y/mcp` }
     await expect(callerFor().create(http)).rejects.toMatchObject({
       code: `BAD_REQUEST`,
     })
     await expect(
-      callerFor().create({ ...http, headerNames: [`A`, `B`] })
-    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+      callerFor().create({ ...http, name: `CF`, headerNames: [`CF-Access-Client-Id`, `CF-Access-Client-Secret`] })
+    ).resolves.toMatchObject({ auth: `secret`, headerNames: [`CF-Access-Client-Id`, `CF-Access-Client-Secret`] })
     await expect(
       callerFor().create({ ...http, headerNames: [`X-Api-Key`] })
     ).resolves.toMatchObject({ auth: `secret`, headerNames: [`X-Api-Key`] })
@@ -553,10 +553,35 @@ describe(`mcpServers.setSecret / disconnect`, () => {
     expect(rows).toHaveLength(2)
     const mine = rows.find((row) => row.userId === `actor`)!
     expect(String(mine.ciphertext)).not.toContain(`key-2`)
-    expect(decryptCredential(String(mine.ciphertext), { id: String(mine.id), serverId: SECRET, userId: `actor` })).toEqual({ value: `key-2` })
+    expect(decryptCredential(String(mine.ciphertext), { id: String(mine.id), serverId: SECRET, userId: `actor` })).toEqual({ values: { "X-Api-Key": `key-2` } })
 
     await expect(callerFor().disconnect({ serverId: SECRET })).resolves.toEqual({ ok: true })
     expect(db.rows(`mcp_credentials`).map((row) => row.userId)).toEqual([`mate`])
+  })
+
+  it(`#EXP-1793: a multi-header server takes values keyed by every declared name`, async () => {
+    const MULTI = `11111111-1111-4111-8111-444444444444`
+    db.rows(`mcp_servers`).push(
+      serverRow({ id: MULTI, name: `GlitchTip`, auth: `secret`, headerNames: [`CF-Access-Client-Id`, `CF-Access-Client-Secret`, `Authorization`] })
+    )
+    await expect(callerFor().setSecret({ serverId: MULTI, value: `x` })).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    await expect(
+      callerFor().setSecret({ serverId: MULTI, values: { "CF-Access-Client-Id": `id`, "CF-Access-Client-Secret": `s` } })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    await expect(
+      callerFor().setSecret({
+        serverId: MULTI,
+        values: { "CF-Access-Client-Id": `id`, "CF-Access-Client-Secret": `s`, Authorization: `Bearer a\nb` },
+      })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    await callerFor().setSecret({
+      serverId: MULTI,
+      values: { Authorization: `Bearer t`, "CF-Access-Client-Id": `id`, "CF-Access-Client-Secret": `s` },
+    })
+    const row = db.rows(`mcp_credentials`).find((entry) => entry.serverId === MULTI)!
+    expect(decryptCredential(String(row.ciphertext), { id: String(row.id), serverId: MULTI, userId: `actor` })).toEqual({
+      values: { "CF-Access-Client-Id": `id`, "CF-Access-Client-Secret": `s`, Authorization: `Bearer t` },
+    })
   })
 
   it(`refuses a secret for a non-secret server and a multi-line header value`, async () => {

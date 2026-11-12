@@ -548,6 +548,8 @@ fun ChatScreen(
         CompositionLocalProvider(
             // #EXP-1561 (waiting-cards.json DISMISS): every waiting card's ×.
             com.exponential.app.ui.session.LocalCardDismiss provides viewModel::dismissCard,
+            // #EXP-1380: the chat's Load earlier also widens its loaded messages.
+            com.exponential.app.ui.session.LocalLoadEarlierMessages provides viewModel::loadEarlierMessages,
             LocalOpenPlanPage provides openPlanHere,
             LocalDetailHaze provides hazeState,
             LocalTitleCollapse provides titleCollapse,

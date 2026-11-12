@@ -57,6 +57,28 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
+const PREVIOUS_255: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-12-quiet-scheduled-ticks",
+    date: "2026-11-12",
+    title: "Scheduled agents stay quiet when there is nothing to say",
+    summary: "A team agent's scheduled check that finds nothing new now ends silently instead of posting a note that it had no visible output.",
+    body: r##"- **Silent quiet ticks**: when a team agent's schedule fires and there is nothing to report, the turn ends without a message, so agent chats only show ticks that did something."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_254: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-12-agents-keep-mcp-servers",
+    date: "2026-11-12",
+    title: "Agents keep their MCP servers",
+    summary: "An agent now remembers the MCP servers it works with, its chat can change them from the + menu, and API-key servers can ask for several headers.",
+    body: r##"- **MCP servers on the agent page**: a new MCP servers row under Skills picks the team servers every run of the agent starts with: its chat, its triggers and the sessions it starts. Owners change it, members read it.
+- **MCP servers in the agent chat**: the + menu of an agent's chat has MCP servers too; a change rides your next message and sticks to that conversation.
+- **Several headers per key**: an API-key server can declare more than one header or variable (for example Cloudflare Access's client id and secret), and Set key asks for each one."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
 const PREVIOUS_253: ChangelogEntry = ChangelogEntry {
     id: "2026-11-11-accounts-and-slash-menu",
     date: "2026-11-11",

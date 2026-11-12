@@ -94,13 +94,18 @@ tail ~/Library/Logs/exponential/disk-keeper.log                # every removal +
 ```
 
 Every 15 minutes, below 40 GB free, it deletes only stale build output until
-40 GB is free: cargo `debug/deps` files and `incremental/` dirs older than a day
-(idle worktrees' `target*` dirs, then the shared `CARGO_TARGET_DIR`, a profile
-only while no build holds its `.cargo-lock`), DerivedData nothing wrote to for a
-day, idle worktrees' `apps/ios/build` and Android `build/` dirs, Gradle
-build-cache entries older than a day, unavailable simulators, and finished
-capture stacks (containers exited over a day ago, then unused volumes; never
-the `exponential` stack). A worktree is live, never touched, when it is locked,
+40 GB is free: cargo `deps` files (every profile and triple) and `incremental/`
+dirs older than a day (idle worktrees' `target*` dirs, then the shared
+`CARGO_TARGET_DIR`, a profile only while no build holds its `.cargo-lock`),
+DerivedData nothing wrote to for a day, idle worktrees' `apps/ios/build` and
+Android `build/` dirs, Gradle build-cache entries older than a day, unavailable
+simulators, finished capture stacks (containers exited over a day ago, then
+unused volumes; never the `exponential` stack), the user's `/tmp` scratch nothing
+wrote to for a day and no process has open (lanes' `-derivedDataPath /tmp/…`,
+capture stacks: ~9 GB a day), idle worktrees' `node_modules` and
+`apps/ios/Tuist/.build` (~5 GB of SwiftPM artifacts each), `exp-*` lane
+simulators untouched for two days (never `exp-store`) and cargo git checkouts
+unused for three days. The runners' sccache is capped at 15 GB (`install.sh`). A worktree is live, never touched, when it is locked,
 holds an `index.lock`, is a process's cwd, had a file or git write in the last
 day, or has anything uncommitted; in an idle one only git-ignored paths go.
 Still below 30 GB after cleaning = a `WARN` line in the log and one

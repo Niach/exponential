@@ -772,6 +772,8 @@ fn attach_publisher(
             embeds: life.embeds.clone(),
             // VAPP-33: the eNet steer room's access rule.
             audience: life.audience.clone(),
+            // Large chats: a resume's history replay is already on disk.
+            resumed: ctx.resumes() && !ctx.replay,
         },
         hooks,
     );

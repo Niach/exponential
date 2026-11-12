@@ -110,6 +110,27 @@ class AgentSettingsTest {
         }
     }
 
+    // #EXP-1793: the agent page's MCP servers row (`mcpRow`, `mcpValueCases`).
+    @Test
+    fun `every mcp value case matches the fixture`() {
+        val cases = fixture.getValue("mcpValueCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val names = case.getValue("names").jsonArray.map { it.jsonPrimitive.content }
+            assertEquals(case.str("name"), case.str("expected"), agentMcpServersValue(names))
+        }
+    }
+
+    @Test
+    fun `the mcp row equals the fixture`() {
+        val row = fixture.getValue("mcpRow").jsonObject
+        assertEquals(row.str("id"), AgentSettings.McpRow.ID)
+        assertEquals(row.str("label"), AgentSettings.McpRow.LABEL)
+        assertEquals(row.str("after"), AgentSettings.McpRow.AFTER)
+        assertEquals(row.str("none"), AgentSettings.McpRow.NONE)
+        assertEquals(row.str("max"), AgentSettings.McpRow.MAX.toString())
+    }
+
     @Test
     fun `the fields equal the fixture`() {
         val fields = fixture.getValue("fields").jsonArray.map { it.jsonObject }

@@ -96,6 +96,8 @@ import { AssistantMark } from "@/components/team/assistant-mark"
 import { skillPickerItems } from "@/components/launch-dialog/skill-picker"
 import { useSkills } from "@/hooks/use-skills"
 import { agentSkillsValue, SKILLS } from "@exp/domain-contract/skills"
+import { McpServerPicker } from "@/components/launch-dialog/mcp-server-picker"
+import { useMcpServers } from "@/hooks/use-mcp-servers"
 
 // EXP-1293 / NEW-2: Team settings → Agents (fixtures/agent-settings.json
 // ×4) over the `agents` DEFINITION rows. Agents are managed exactly like
@@ -280,6 +282,11 @@ export function AgentSettingsPage({
   // starts with; a pick writes at once (`agents.update {skillIds}`).
   const [skillIds, setSkillIds] = useState<string[]>([])
   const { skills } = useSkills(team.id)
+  // #EXP-1793 (agent-settings.json `mcpRow`): the MCP servers every run of
+  // the agent starts with; a pick writes at once (`agents.update
+  // {mcpServerIds}`).
+  const [mcpServerIds, setMcpServerIds] = useState<string[]>([])
+  const { servers: mcpServers } = useMcpServers(team.id)
   const [pin, setPin] = useState<TriggerAccountPin>(EMPTY_PIN)
   const [model, setModel] = useState<string | null>(null)
   const [triggers, setTriggers] = useState<AgentTrigger[]>([])
@@ -306,6 +313,7 @@ export function AgentSettingsPage({
     setColor(agent?.color ?? DEFAULT_AGENT_COLOR)
     setDeviceId(agent?.defaults?.deviceId ?? null)
     setSkillIds(agent?.skillIds ?? [])
+    setMcpServerIds(agent?.mcpServerIds ?? [])
     setPin({ agent: agent?.defaults?.cli ?? ``, account: agent?.defaults?.account ?? `` })
     setModel(agent?.defaults?.model ?? null)
     setTriggers(readTriggers(agent?.triggers))
@@ -331,6 +339,10 @@ export function AgentSettingsPage({
   useEffect(() => {
     if (syncedSkillIds) setSkillIds(syncedSkillIds)
   }, [syncedSkillIds])
+  const syncedMcpServerIds = agent?.mcpServerIds
+  useEffect(() => {
+    if (syncedMcpServerIds) setMcpServerIds(syncedMcpServerIds)
+  }, [syncedMcpServerIds])
   useEffect(() => {
     if (!creating) setTriggers(readTriggers(syncedTriggers))
   }, [creating, syncedTriggers])
@@ -604,6 +616,7 @@ export function AgentSettingsPage({
           triggers,
           deviceId,
           ...(skillIds.length > 0 ? { skillIds } : {}),
+          ...(mcpServerIds.length > 0 ? { mcpServerIds } : {}),
           ...(pin.agent ? { cli: pin.agent } : {}),
           ...(pin.account ? { account: pin.account } : {}),
         },
@@ -696,6 +709,37 @@ export function AgentSettingsPage({
     />
   )
 
+  // #EXP-1793 (`mcpRow`): THE composer's MCP servers multi picker (an
+  // unconnected server opens Settings › MCP servers to connect), names in
+  // the team list's order; shown while the team has a server or the agent
+  // already names one.
+  const teamMcpServers = mcpServers ?? []
+  const pickedMcpServerIds = teamMcpServers
+    .filter((server) => mcpServerIds.includes(server.id))
+    .map((server) => server.id)
+  const toggleMcpServer = (id: string) => {
+    const previous = mcpServerIds
+    const next = pickedMcpServerIds.includes(id)
+      ? pickedMcpServerIds.filter((current) => current !== id)
+      : [...pickedMcpServerIds, id]
+    setMcpServerIds(next)
+    if (creating) return
+    quietly(update({ mcpServerIds: next }, () => setMcpServerIds(previous)))
+  }
+  const mcpConnectHref = (serverId: string) =>
+    `/t/${encodeURIComponent(team.slug)}/settings/mcp?connect=${encodeURIComponent(serverId)}`
+  const mcpRow =
+    mcpServers !== null && (mcpServers.length > 0 || mcpServerIds.length > 0) ? (
+      <McpServerPicker
+        servers={teamMcpServers}
+        selectedIds={pickedMcpServerIds}
+        onToggle={toggleMcpServer}
+        connectHref={mcpConnectHref}
+        disabled={readOnly}
+        testId="agent-mcp-servers"
+      />
+    ) : null
+
   const deviceRow = (
     <DevicePicker
       triggerVariant="row"
@@ -748,6 +792,7 @@ export function AgentSettingsPage({
           />
           {!assistant && deviceRow}
           {!assistant && skillsRow}
+          {!assistant && mcpRow}
         </GlassGroup>
         <FieldError className="px-1">{identityError ?? (assistant ? null : deviceError)}</FieldError>
       </div>
@@ -769,6 +814,7 @@ export function AgentSettingsPage({
               data-testid="assistant-model"
             />
             {skillsRow}
+            {mcpRow}
           </GlassGroup>
           <FieldError className="px-1">{deviceError}</FieldError>
         </div>

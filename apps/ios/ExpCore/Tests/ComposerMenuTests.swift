@@ -52,6 +52,7 @@ final class ComposerMenuTests: XCTestCase {
                 repositories: c["repositories"] ?? false,
                 ultracode: c["ultracode"] ?? false,
                 mcp: c["mcp"] ?? false,
+                mcpPick: c["mcpPick"] ?? false,
                 skills: c["skills"] ?? false,
                 computerUse: c["computerUse"] ?? false,
                 prompts: c["prompts"] ?? false,
@@ -72,7 +73,7 @@ final class ComposerMenuTests: XCTestCase {
         // Separators sit where the fixture puts them.
         let layout = ComposerMenu.composerMenuLayout(ComposerMenu.Conditions(
             temporary: true, device: true, account: true, model: true, repositories: true,
-            ultracode: true, mcp: true, skills: true, computerUse: true, prompts: true,
+            ultracode: true, mcp: true, mcpPick: true, skills: true, computerUse: true, prompts: true,
             assistant: true, teams: true
         ), surface: .launch)
         XCTAssertEqual(wire(layout), all.map { ($0["id"] as? String) ?? "-" })
@@ -185,5 +186,37 @@ final class ComposerMenuTests: XCTestCase {
         XCTAssertEqual(McpServers.location(rows[2]), "npx srv")
         XCTAssertNil(McpServers.pickedValue([]))
         XCTAssertEqual(McpServers.pickedValue(["a", "c"]), "2")
+    }
+
+    // #EXP-1793: an agent chat's MCP pick rides a send only while it differs
+    // from its seed (an empty pick clears), then becomes the seed.
+    func testAgentChatMcpPickCarriesOnlyAChange() {
+        var pick = AgentChatMcpPick(agentId: "g1", seed: ["a"])
+        XCTAssertNil(pick.outgoing)
+        pick.picked = ["a", "b"]
+        XCTAssertEqual(pick.outgoing, ["a", "b"])
+        pick.sent()
+        XCTAssertNil(pick.outgoing)
+        pick.picked = []
+        XCTAssertEqual(pick.outgoing, [])
+        // A pending pick survives a reseed; an untouched one follows it.
+        pick.reseed(["c"])
+        XCTAssertEqual(pick.picked, [])
+        XCTAssertEqual(pick.outgoing, [])
+        pick.picked = ["c"]
+        pick.reseed(["d"])
+        XCTAssertEqual(pick.picked, ["d"])
+        XCTAssertNil(pick.outgoing)
+    }
+
+    func testAnAgentSendCarriesItsMcpPick() throws {
+        let encode = { (input: SessionsSendInput) throws -> [String: Any] in
+            try XCTUnwrap(JSONSerialization.jsonObject(with: try JSONEncoder().encode(input)) as? [String: Any])
+        }
+        let picked = try encode(.agent(agentId: "g1", text: "hi", mcpServerIds: ["m1"]))
+        XCTAssertEqual(picked["mcpServerIds"] as? [String], ["m1"])
+        let cleared = try encode(.agent(agentId: "g1", text: "hi", mcpServerIds: []))
+        XCTAssertEqual(cleared["mcpServerIds"] as? [String], [])
+        XCTAssertNil(try encode(.agent(agentId: "g1", text: "hi"))["mcpServerIds"])
     }
 }

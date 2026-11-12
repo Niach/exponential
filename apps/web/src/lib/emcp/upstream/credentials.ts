@@ -57,8 +57,31 @@ export interface McpConnection {
   shared: boolean
 }
 
+/** #EXP-1793: a `secret` server's declared names with the member's value
+ *  for each, in declaration order (null = one is missing). A pre-#EXP-1793
+ *  row's lone `value` fills the first name. Without the names (a caller
+ *  that only knows `auth`), any stored value counts. */
+export function secretEntries(
+  server: Partial<Pick<McpServer, `transport` | `headerNames` | `envNames`>>,
+  payload: McpCredentialPayload
+): Array<{ name: string; value: string }> | null {
+  const names = server.transport === `stdio` ? server.envNames : server.headerNames
+  if (!names) {
+    const any = payload.value || Object.values(payload.values ?? {}).some(Boolean)
+    return any ? [] : null
+  }
+  if (names.length === 0) return null
+  const out: Array<{ name: string; value: string }> = []
+  for (const [i, name] of names.entries()) {
+    const value = payload.values?.[name] ?? (i === 0 ? payload.value : undefined)
+    if (!value) return null
+    out.push({ name, value })
+  }
+  return out
+}
+
 export function connectionFor(
-  server: Pick<McpServer, `auth`>,
+  server: Pick<McpServer, `auth`> & Partial<Pick<McpServer, `transport` | `headerNames` | `envNames`>>,
   row:
     | (Pick<McpCredential, `id` | `serverId` | `userId` | `ciphertext` | `expiresAt` | `error`> & {
         shared?: boolean | null
@@ -80,7 +103,7 @@ export function connectionFor(
   }
   if (!row || !payload) return notConnected
   if (server.auth === `secret`) {
-    return payload.value
+    return secretEntries(server, payload)
       ? { status: `connected`, expiresAt: null, error: null, shared }
       : notConnected
   }
@@ -164,9 +187,11 @@ export async function storeOauthTokens(
   )
 }
 
+/** A member's secret(s) for a `secret` server: `values` keyed by declared
+ *  name (#EXP-1793), or the lone `value` of a one-name server. */
 export async function storeSecret(
   db: Db,
-  args: { serverId: string; userId: string; teamId: string; value: string },
+  args: { serverId: string; userId: string; teamId: string; value?: string; values?: Record<string, string> },
   now = new Date()
 ): Promise<void> {
   await upsertCredential(
@@ -175,7 +200,7 @@ export async function storeSecret(
       serverId: args.serverId,
       userId: args.userId,
       teamId: args.teamId,
-      payload: { value: args.value },
+      payload: args.values ? { values: args.values } : { value: args.value },
       expiresAt: null,
       issuer: null,
       clientId: null,
@@ -350,10 +375,11 @@ async function resolveServerEntry(
   if (!row || !payload) return { skip: `not connected` }
 
   if (server.auth === `secret`) {
-    const name = entry.transport === `http` ? server.headerNames[0] : server.envNames[0]
-    if (!payload.value || !name) return { skip: `not connected` }
-    if (entry.transport === `http`) entry.headers.push({ name, value: payload.value })
-    else entry.env.push({ name, value: payload.value })
+    // #EXP-1793: one value per declared name, every one required.
+    const values = secretEntries(server, payload)
+    if (!values || values.length === 0) return { skip: `not connected` }
+    if (entry.transport === `http`) entry.headers.push(...values)
+    else entry.env.push(...values)
     return { entry }
   }
 

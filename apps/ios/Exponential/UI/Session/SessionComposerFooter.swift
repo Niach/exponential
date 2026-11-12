@@ -49,6 +49,9 @@ struct SessionComposerFooter: View {
         var teams: ComposerTeamsBinding?
         /// #FEED-204: an app editor's Device row; nil = every other composer.
         var device: DeviceMenu?
+        /// #EXP-1793: an agent chat's MCP servers pick (`mcpPick`); nil =
+        /// every other composer.
+        var mcp: McpMenu?
         /// #EXP-1729: an app editor's composer: Account and Model always
         /// (an ended root's picks ride the next send).
         var editor = false
@@ -62,6 +65,7 @@ struct SessionComposerFooter: View {
         var menuConditions: ComposerMenu.Conditions {
             ComposerMenu.Conditions(
                 device: device != nil, account: (editor || !ended) && account != nil, model: canPickModel,
+                mcp: !(mcp?.servers.isEmpty ?? true), mcpPick: mcp != nil,
                 prompts: !prompts.isEmpty,
                 assistant: teams != nil, teams: (teams?.teams.count ?? 0) > 1
             )
@@ -76,6 +80,15 @@ struct SessionComposerFooter: View {
         let onPick: (String) -> Void
 
         var value: String? { devices.first { $0.id == current }?.name }
+    }
+
+    /// #EXP-1793: what an agent chat's "+" MCP servers page reads: THE
+    /// launch composer's MCP server picker rows over the team's servers, the
+    /// conversation's pick checked (`AgentChatMcpPick`).
+    struct McpMenu {
+        let servers: [McpServerRow]
+        let picked: [String]
+        let onChange: ([String]) -> Void
     }
 
     /// #EXP-1535: what the "+" Account page reads — THE AccountPicker rows

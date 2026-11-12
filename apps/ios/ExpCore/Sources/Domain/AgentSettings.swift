@@ -69,6 +69,25 @@ public enum AgentSettings {
         public static let accountLastUsed = "Last used"
     }
 
+    /// #EXP-1793 (fixture `mcpRow`): the agent page's MCP servers row,
+    /// right under Skills.
+    public enum McpRow {
+        public static let id = "mcp-servers"
+        public static let label = "MCP servers"
+        public static let after = "skills"
+        public static let none = "None"
+        public static let max = 20
+    }
+
+    /// The MCP servers row's value (`mcpValueCases`): the picked servers'
+    /// names (team list order) as the shared picker summary (`a` / `a, b` /
+    /// `a, b +N`), `None` when empty.
+    public static func agentMcpServersValue(_ names: [String]) -> String {
+        if names.isEmpty { return McpRow.none }
+        if names.count <= 2 { return names.joined(separator: ", ") }
+        return names.prefix(2).joined(separator: ", ") + " +\(names.count - 2)"
+    }
+
     /// Fixture `testIds`.
     public enum TestIds {
         public static let list = "agents-settings-list"

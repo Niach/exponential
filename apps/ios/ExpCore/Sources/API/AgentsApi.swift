@@ -85,6 +85,8 @@ public struct AgentPatch: Sendable, Equatable {
     public var sortOrder: Double?
     /// #EXP-1661: the WHOLE skill list (an empty one = none) or nothing.
     public var skillIds: [String]?
+    /// #EXP-1793: the WHOLE MCP server list (an empty one = none) or nothing.
+    public var mcpServerIds: [String]?
 
     public init(
         name: String? = nil,
@@ -97,7 +99,8 @@ public struct AgentPatch: Sendable, Equatable {
         account: String?? = nil,
         model: String?? = nil,
         sortOrder: Double? = nil,
-        skillIds: [String]? = nil
+        skillIds: [String]? = nil,
+        mcpServerIds: [String]? = nil
     ) {
         self.name = name
         self.icon = icon
@@ -110,13 +113,14 @@ public struct AgentPatch: Sendable, Equatable {
         self.model = model
         self.sortOrder = sortOrder
         self.skillIds = skillIds
+        self.mcpServerIds = mcpServerIds
     }
 
     /// Nothing changed — no id-only mutation.
     public var isEmpty: Bool {
         name == nil && icon == nil && color == nil && instructions == nil && triggers == nil
             && deviceId == nil && cli == nil && account == nil && model == nil && sortOrder == nil
-            && skillIds == nil
+            && skillIds == nil && mcpServerIds == nil
     }
 }
 
@@ -126,7 +130,7 @@ struct UpdateAgentInput: Encodable {
     let patch: AgentPatch
 
     enum CodingKeys: String, CodingKey {
-        case id, name, icon, color, instructions, triggers, deviceId, cli, account, model, sortOrder, skillIds
+        case id, name, icon, color, instructions, triggers, deviceId, cli, account, model, sortOrder, skillIds, mcpServerIds
     }
 
     func encode(to encoder: Encoder) throws {
@@ -150,6 +154,7 @@ struct UpdateAgentInput: Encodable {
         }
         try c.encodeIfPresent(patch.sortOrder, forKey: .sortOrder)
         try c.encodeIfPresent(patch.skillIds, forKey: .skillIds)
+        try c.encodeIfPresent(patch.mcpServerIds, forKey: .mcpServerIds)
     }
 }
 

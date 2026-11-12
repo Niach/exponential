@@ -4,6 +4,7 @@
 // name, and picking it opens the settings deep link instead of adding it.
 import { fireEvent, render, screen } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import agentSettings from "@exp/domain-contract/fixtures/agent-settings.json"
 import type { McpServerRow } from "@/lib/mcp-servers"
 import {
   McpServerPicker,
@@ -124,4 +125,15 @@ describe(`McpServerPicker`, () => {
     expect(mcpPickSummary(SERVERS, [])).toBe(`None`)
     expect(mcpPickSummary(SERVERS, [`srv-1`, `srv-3`])).toBe(`Linear, Docs`)
   })
+})
+
+// #EXP-1793: the agent page's MCP servers row reads through this summary:
+// agent-settings.json `mcpValueCases` (the skills row's rule).
+describe(`mcpPickSummary = mcpValueCases`, () => {
+  for (const c of agentSettings.mcpValueCases) {
+    it(c.name, () => {
+      const servers = c.names.map((name, index) => ({ id: `id-${index}`, name }))
+      expect(mcpPickSummary(servers, servers.map((server) => server.id))).toBe(c.expected)
+    })
+  }
 })

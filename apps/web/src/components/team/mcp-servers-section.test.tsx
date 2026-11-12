@@ -30,6 +30,7 @@ const mockState = vi.hoisted(() => ({
   create: vi.fn(),
   connect: vi.fn(),
   setShared: vi.fn(),
+  setSecret: vi.fn(),
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
   assign: vi.fn(),
@@ -44,7 +45,7 @@ vi.mock(`@/lib/trpc-client`, () => ({
       update: { mutate: vi.fn() },
       remove: { mutate: vi.fn() },
       connect: { mutate: mockState.connect },
-      setSecret: { mutate: vi.fn() },
+      setSecret: { mutate: mockState.setSecret },
       disconnect: { mutate: vi.fn() },
       test: { mutate: vi.fn() },
       setShared: { mutate: mockState.setShared },
@@ -199,6 +200,40 @@ describe(`TeamMcpServersSection`, () => {
 
   // EXP-1285: ONE "…" menu per row — the viewer's connection items with the
   // owner's Edit above the separator, Disconnect / Remove below it.
+  // #EXP-1793: a secret server may declare several headers (Cloudflare
+  // Access's two): Set key asks for one masked value per name, labelled by
+  // it, and sends them keyed by name.
+  it(`asks a multi-header secret server for one value per header`, async () => {
+    mockState.list.mockResolvedValue([
+      server(`gate`, `secret`, `not_connected`, {
+        headerNames: [`CF-Access-Client-Id`, `CF-Access-Client-Secret`],
+      }),
+    ])
+    mockState.setSecret.mockResolvedValue({ ok: true })
+    render(<TeamMcpServersSection teamId="t1" isOwner={false} />)
+    await screen.findByText(`gate`)
+    fireEvent.click(screen.getByRole(`button`, { name: /Set key/ }))
+
+    const id = await screen.findByLabelText(`CF-Access-Client-Id`)
+    const secret = screen.getByLabelText(`CF-Access-Client-Secret`)
+    const save = screen.getByRole(`button`, { name: `Save key` })
+    fireEvent.change(id, { target: { value: ` abc.access ` } })
+    // One value is not enough: every declared name needs its own.
+    expect((save as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.change(secret, { target: { value: `s3cret` } })
+    expect((save as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.click(save)
+    await waitFor(() =>
+      expect(mockState.setSecret).toHaveBeenCalledWith(
+        {
+          serverId: `gate`,
+          values: { "CF-Access-Client-Id": `abc.access`, "CF-Access-Client-Secret": `s3cret` },
+        },
+        expect.anything()
+      )
+    )
+  })
+
   it(`merges the connection items and the owner's Edit / Remove into the row menu`, async () => {
     mockState.list.mockResolvedValue([
       server(`linear`, `oauth`, `connected`),

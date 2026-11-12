@@ -22,6 +22,16 @@ public enum WireTimestamps {
 
     /// Parse either wire form to a `Date`, or nil if neither matches.
     public static func parse(_ value: String) -> Date? {
+        // Large chats: the strict fast path first — both wire forms without
+        // a formatter (an 8.5k-message chat parsed every stamp through
+        // `ISO8601DateFormatter` per snapshot, ~0.1s of each build). Anything
+        // it does not fully recognise takes the tolerant path below.
+        fastParse(value) ?? tolerantParse(value)
+    }
+
+    /// The formatter path: surrounding whitespace, any ISO shape the
+    /// formatters take, the Postgres text form normalised first.
+    static func tolerantParse(_ value: String) -> Date? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         // EXP-1358: the Postgres text form (a SPACE separator — what every
@@ -34,6 +44,93 @@ public enum WireTimestamps {
         // Otherwise normalize the Postgres text form into RFC 3339 and re-try.
         guard let normalized = normalizePostgresText(trimmed) else { return nil }
         return parseIso(normalized)
+    }
+
+    /// `yyyy-MM-dd[T| ]HH:mm:ss[.f…][Z|±HH|±HHMM|±HH:MM]` (no offset = UTC,
+    /// the fraction truncated to milliseconds exactly like the tolerant
+    /// path's normalisation). nil = not exactly that shape, or a field out of
+    /// range: the caller falls back to the formatters.
+    static func fastParse(_ value: String) -> Date? {
+        if let parsed = value.utf8.withContiguousStorageIfAvailable(fastParse) { return parsed }
+        // A bridged (non-native) string: one contiguous copy.
+        var native = value
+        native.makeContiguousUTF8()
+        return native.utf8.withContiguousStorageIfAvailable(fastParse) ?? nil
+    }
+
+    private static func fastParse(_ b: UnsafeBufferPointer<UInt8>) -> Date? {
+        let n = b.count
+        guard n >= 19 else { return nil }
+        func digits(_ at: Int, _ count: Int) -> Int? {
+            var out = 0
+            for i in at..<(at + count) {
+                let c = b[i]
+                guard c >= 48, c <= 57 else { return nil }
+                out = out * 10 + Int(c - 48)
+            }
+            return out
+        }
+        guard b[4] == 45, b[7] == 45, b[10] == 84 || b[10] == 32, b[13] == 58, b[16] == 58,
+              let year = digits(0, 4), let month = digits(5, 2), let day = digits(8, 2),
+              let hour = digits(11, 2), let minute = digits(14, 2), let second = digits(17, 2),
+              (1...12).contains(month), (1...31).contains(day), hour < 24, minute < 60, second < 60
+        else { return nil }
+        var i = 19
+        var millis = 0
+        if i < n, b[i] == 46 {
+            i += 1
+            var count = 0
+            while i < n, b[i] >= 48, b[i] <= 57 {
+                if count < 3 { millis = millis * 10 + Int(b[i] - 48) }
+                count += 1
+                i += 1
+            }
+            guard count > 0 else { return nil }
+            for _ in min(count, 3)..<3 { millis *= 10 }
+        }
+        var offset = 0
+        if i < n {
+            let sign = b[i]
+            if sign == 90 {
+                i += 1
+            } else if sign == 43 || sign == 45 {
+                i += 1
+                guard i + 2 <= n, let hh = digits(i, 2) else { return nil }
+                i += 2
+                var mm = 0
+                if i < n, b[i] == 58 { i += 1 }
+                if i < n {
+                    guard i + 2 <= n, let m = digits(i, 2) else { return nil }
+                    mm = m
+                    i += 2
+                }
+                guard hh < 24, mm < 60 else { return nil }
+                offset = (hh * 3600 + mm * 60) * (sign == 45 ? -1 : 1)
+            } else {
+                return nil
+            }
+        }
+        guard i == n else { return nil }
+        // Days from the civil date (Howard Hinnant's algorithm), UTC.
+        let y = month <= 2 ? year - 1 : year
+        let era = (y >= 0 ? y : y - 399) / 400
+        let yoe = y - era * 400
+        let mp = (month + 9) % 12
+        let doy = (153 * mp + 2) / 5 + day - 1
+        let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
+        let days = era * 146_097 + doe - 719_468
+        // A day past the month's end (Feb 30) is the formatter's to reject.
+        guard day <= daysIn(month: month, year: year) else { return nil }
+        let seconds = days * 86_400 + hour * 3600 + minute * 60 + second - offset
+        return Date(timeIntervalSince1970: Double(seconds) + Double(millis) / 1000)
+    }
+
+    private static func daysIn(month: Int, year: Int) -> Int {
+        switch month {
+        case 2: return (year % 4 == 0 && year % 100 != 0) || year % 400 == 0 ? 29 : 28
+        case 4, 6, 9, 11: return 30
+        default: return 31
+        }
     }
 
     private static func parseIso(_ value: String) -> Date? {

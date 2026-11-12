@@ -377,6 +377,8 @@ pub const PLUS_TEAMS: &str = "teams";
 pub const PLUS_DEVICE: &str = "device";
 pub const PLUS_ACCOUNT: &str = "account";
 pub const PLUS_MODEL: &str = "model";
+/// #EXP-1793: an agent chat's MCP servers (multi, checkbox entries).
+pub const PLUS_MCP_SERVERS: &str = "mcp-servers";
 
 /// composer-menu.json `rows[id].label` / `.icon` (byte-identical ×4).
 pub fn plus_row(id: &str) -> uicore_model::chat::ChatPlusRow {
@@ -388,6 +390,7 @@ pub fn plus_row(id: &str) -> uicore_model::chat::ChatPlusRow {
         PLUS_DEVICE => ("Device", "nav-devices"),
         PLUS_ACCOUNT => ("Account", "settings-account"),
         PLUS_MODEL => ("Model", "coding-assistant"),
+        PLUS_MCP_SERVERS => ("MCP servers", "ui-mcp"),
         _ => ("", ""),
     };
     uicore_model::chat::ChatPlusRow { id: id.to_string(), label: label.into(), icon: icon.into(), ..Default::default() }
@@ -432,7 +435,7 @@ mod tests {
     #[test]
     fn the_plus_rows_are_the_composer_menus() {
         let fixture: serde_json::Value = serde_json::from_str(include_str!("../../../../../packages/domain-contract/fixtures/composer-menu.json")).unwrap();
-        for id in [PLUS_ADD_FILE, PLUS_ISSUE, PLUS_PROMPTS, PLUS_TEAMS, PLUS_DEVICE, PLUS_ACCOUNT, PLUS_MODEL] {
+        for id in [PLUS_ADD_FILE, PLUS_ISSUE, PLUS_PROMPTS, PLUS_TEAMS, PLUS_DEVICE, PLUS_ACCOUNT, PLUS_MODEL, PLUS_MCP_SERVERS] {
             let spec = fixture["rows"].as_array().unwrap().iter().find(|r| r["id"] == id).unwrap_or_else(|| panic!("{id}"));
             let row = plus_row(id);
             assert_eq!(row.label, spec["label"].as_str().unwrap(), "{id}");

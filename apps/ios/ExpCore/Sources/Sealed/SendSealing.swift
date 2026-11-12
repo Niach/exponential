@@ -80,7 +80,7 @@ extension SessionsSendInput {
     public var text: String? {
         switch self {
         case let .newChat(_, _, _, text, _, _, _, _): text
-        case let .agent(_, text, _, _, _): text
+        case let .agent(_, text, _, _, _, _): text
         case let .app(_, _, text, _, _, _, _): text
         case let .child(_, _, _, text): text
         case let .message(_, text, _, _): text
@@ -92,7 +92,7 @@ extension SessionsSendInput {
     public var attachmentIds: [String] {
         switch self {
         case let .newChat(_, _, _, _, ids, _, _, _): ids ?? []
-        case let .agent(_, _, ids, _, _): ids ?? []
+        case let .agent(_, _, ids, _, _, _): ids ?? []
         case let .app(_, _, _, ids, _, _, _): ids ?? []
         case let .message(_, _, ids, _): ids ?? []
         case .child, .switchAccount, .moveDevice: []
@@ -104,8 +104,8 @@ extension SessionsSendInput {
         switch self {
         case let .newChat(teamId, deviceId, options, _, attachmentIds, issueIds, promptId, repositoryId):
             .newChat(teamId: teamId, deviceId: deviceId, options: options, text: text, attachmentIds: attachmentIds, issueIds: issueIds, promptId: promptId, repositoryId: repositoryId)
-        case let .agent(agentId, _, attachmentIds, issueIds, scope):
-            .agent(agentId: agentId, text: text, attachmentIds: attachmentIds, issueIds: issueIds, scope: scope)
+        case let .agent(agentId, _, attachmentIds, issueIds, scope, mcpServerIds):
+            .agent(agentId: agentId, text: text, attachmentIds: attachmentIds, issueIds: issueIds, scope: scope, mcpServerIds: mcpServerIds)
         case let .app(appId, deviceId, _, attachmentIds, cli, account, model):
             .app(appId: appId, deviceId: deviceId, text: text, attachmentIds: attachmentIds, cli: cli, account: account, model: model)
         case let .child(parentId, deviceId, options, _):

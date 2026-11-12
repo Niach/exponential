@@ -4,6 +4,9 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 
 /**
  * Session 58cb32df (owner 2026-10-23, #EXP-1373): CHATS, the phone app's
@@ -313,6 +316,55 @@ object Chats {
         var base = if (pinnedStart == null) tail else minOf(maxOf(0, pinnedStart), tail)
         for (index in waitingIndexes) if (index in 0 until rowCount && index < base) base = index
         return maxOf(0, base - maxOf(0, loadedSteps) * Transcript.WINDOW_STEP)
+    }
+
+    // ── #EXP-1380: the chat's loaded messages (TS `useNewestMessages`) ──
+
+    /** The newest messages a chat loads at first (TS `CHAT_MESSAGE_LIMIT`). */
+    const val CHAT_MESSAGE_LIMIT = Transcript.WINDOW + Transcript.WINDOW_STEP
+
+    /** Chat [limit] widened by one Load earlier (TS `loadEarlierMessages`). */
+    fun widenedMessageLimit(limit: Int): Int = limit + Transcript.WINDOW_STEP
+
+    /** #FEED-191: EVERY waiting card the tree's digests name (`waiting`,
+     *  `waits[]`), sorted, once each: loaded by id however old. */
+    fun digestWaitingIds(digests: List<JsonObject?>): List<String> =
+        digests.flatMap { digest ->
+            if (digest == null) return@flatMap emptyList()
+            val waits = (digest["waits"] as? kotlinx.serialization.json.JsonArray).orEmpty()
+            (listOf(digest["waiting"]) + waits).mapNotNull { slot ->
+                ((slot as? JsonObject)?.get("id") as? JsonPrimitive)?.takeIf { it.isString }?.content
+            }
+        }.distinct().sorted()
+
+    /** A chat's loaded page: the newest [limit] ([loaded], oldest first) +
+     *  the waiting cards outside it; [more] = older ones exist unloaded. */
+    data class MessagePage(val rows: List<SessionTree.Message>, val more: Boolean, val loaded: Int)
+
+    fun newestMessagesPage(
+        loaded: List<SessionTree.Message>,
+        waiting: List<SessionTree.Message>,
+        limit: Int,
+    ): MessagePage {
+        val ids = loaded.mapTo(HashSet()) { it.id }
+        val extra = waiting.filter { it.id !in ids }
+        val rows = if (extra.isEmpty()) {
+            loaded
+        } else {
+            (extra + loaded).sortedWith(compareBy<SessionTree.Message>({ it.createdAt }, { it.id }))
+        }
+        return MessagePage(rows, more = loaded.size >= limit, loaded = rows.size)
+    }
+
+    /** Per-chat limits for this process (TS `chatLimits`): a reopen keeps
+     *  what Load earlier widened, as on web. */
+    private val chatLimits = kotlinx.coroutines.flow.MutableStateFlow<Map<String, Int>>(emptyMap())
+
+    fun messageLimit(key: String): kotlinx.coroutines.flow.Flow<Int> =
+        chatLimits.map { it[key] ?: CHAT_MESSAGE_LIMIT }.distinctUntilChanged()
+
+    fun loadEarlierMessages(key: String) {
+        chatLimits.update { it + (key to widenedMessageLimit(it[key] ?: CHAT_MESSAGE_LIMIT)) }
     }
 
     /** `agentMenu.sends`: what Compact / New conversation send (one path

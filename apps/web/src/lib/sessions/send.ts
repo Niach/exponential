@@ -288,7 +288,9 @@ async function assertRepositoryInTeam(tx: Tx, teamId: string, repositoryId: stri
   }
 }
 
-async function assertMcpServersInTeam(tx: Tx, teamId: string, ids: string[] | undefined) {
+/** A session's (or an agent's, #EXP-1793) MCP server pick: deduped, pick
+ *  order, every id a row of `teamId` (else BAD_REQUEST); empty = null. */
+export async function assertMcpServersInTeam(tx: Pick<Tx, `select`>, teamId: string, ids: readonly string[] | undefined) {
   const unique = [...new Set(ids ?? [])]
   if (unique.length === 0) return null
   const rows = await tx
@@ -305,6 +307,18 @@ async function assertMcpServersInTeam(tx: Tx, teamId: string, ids: string[] | un
 async function agentSkillIds(tx: Tx, agentId: string): Promise<string[] | null> {
   const [row] = await tx.select({ skillIds: agents.skillIds }).from(agents).where(eq(agents.id, agentId)).limit(1)
   return row?.skillIds?.length ? row.skillIds : null
+}
+
+/** #EXP-1793: an agent's default MCP servers for a root in `teamId` (null =
+ *  none; an Assistant's root in another team gets none: the servers are its
+ *  own team's). */
+async function agentMcpServerIds(tx: Tx, agentId: string, teamId: string): Promise<string[] | null> {
+  const [row] = await tx
+    .select({ mcpServerIds: agents.mcpServerIds })
+    .from(agents)
+    .where(and(eq(agents.id, agentId), eq(agents.teamId, teamId)))
+    .limit(1)
+  return row?.mcpServerIds?.length ? row.mcpServerIds : null
 }
 
 /**
@@ -1523,6 +1537,23 @@ async function messageAgent(
   return db.transaction(async (tx) => {
     const txid = await generateTxId(tx)
     const { session, created } = await conversationInTx(tx, agent, userId)
+    // #EXP-1793: the sender's MCP servers / skills pick = the conversation's
+    // from now on (its device re-reads `sessions.mcpPicks` between turns);
+    // an id outside the agent's team is refused, never dropped.
+    const mcpServerIds =
+      input.mcpServerIds === undefined ? undefined : await assertMcpServersInTeam(tx, agent.teamId, input.mcpServerIds)
+    const skillIds =
+      input.skillIds === undefined ? undefined : await assertSkillsInTeam(tx, agent.teamId, input.skillIds)
+    if (mcpServerIds !== undefined || skillIds !== undefined) {
+      await tx
+        .update(sessions)
+        .set({
+          ...(mcpServerIds !== undefined ? { mcpServerIds } : {}),
+          ...(skillIds !== undefined ? { skillIds } : {}),
+          updatedAt: new Date(),
+        })
+        .where(eq(sessions.id, session.id))
+    }
     // #VAPP-236: a conversation an app's hand-off starts reads "via <app>".
     const viaAppId = sendViaApp.getStore()
     if (created && viaAppId) await tx.update(sessions).set({ viaAppId }).where(eq(sessions.id, session.id))
@@ -1918,7 +1949,10 @@ async function startRoot(
     const device = await resolveSessionDeviceInTx(tx, userId, teamId, deviceId)
     if (input.issueIds) await assertIssuesInTeam(tx, teamId, input.issueIds)
     if (input.repositoryId) await assertRepositoryInTeam(tx, teamId, input.repositoryId)
-    const mcpServerIds = await assertMcpServersInTeam(tx, teamId, input.mcpServerIds)
+    // #EXP-1793: a root an agent's tree starts without a pick takes the agent's.
+    const mcpServerIds =
+      (await assertMcpServersInTeam(tx, teamId, input.mcpServerIds)) ??
+      (startedByAgentId ? await agentMcpServerIds(tx, startedByAgentId, teamId) : null)
     // #EXP-1656: the pick, else (a root an agent tree starts) the agent's.
     const skillIds =
       (await assertSkillsInTeam(tx, teamId, input.skillIds)) ??

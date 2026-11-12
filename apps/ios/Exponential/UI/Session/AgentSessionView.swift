@@ -152,6 +152,12 @@ struct AgentSessionView: View {
     /// auto-scroll only while pinned; scrolling up pauses follow and surfaces
     /// the "Jump to bottom" pill.
     @State private var atBottom = true
+    /// steer-enet.json REPLAY TAIL: the row that headed the transcript when
+    /// the reader's scroll near its top paged older rows in; the scroll
+    /// lands back on it once they are above it (nil = no page pending).
+    @State private var earlierAnchor: Int?
+    /// #EXP-1380: this chat's message limit as last read (`Chats.MessageLimits`).
+    @State private var messageLimit = 0
     /// EXP-356: the selected conversation tab — nil is the main agent; a
     /// subagent id focuses that agent's stream. Falls back to Main whenever
     /// the id vanishes from the feed (an `activity_reset` replay).
@@ -206,6 +212,9 @@ struct AgentSessionView: View {
     /// #EXP-1715: the Teams pick (nil = every team), seeded from the root's
     /// synced `scope_team_ids` and re-seeded when another client moves it.
     @State private var teamsPicked: [String]?
+    /// #EXP-1793: the team's MCP servers for an agent chat's "+" MCP servers
+    /// page (`mcpServers.list`).
+    @State private var mcpServers: [McpServerRow] = []
     /// #EXP-1714: optional, a specimen may mount the view without one.
     @Environment(TeamState.self) private var teamState: TeamState?
     /// #EXP-1736: this session's tree snapshot (the senders' names and
@@ -421,11 +430,18 @@ struct AgentSessionView: View {
     private func withLifecycle(_ content: some View) -> some View {
         content
             .task(id: session.id) { await observeToolAsks() }
-            .task(id: session.id) { await observeTranscriptSenders() }
+            // #EXP-1380: a widened message limit (Load earlier) re-reads.
+            .task(id: "\(session.id)#\(messageLimit)") { await observeTranscriptSenders() }
+            .onReceive(NotificationCenter.default.publisher(for: Chats.MessageLimits.changed)) { note in
+                let rootId = session.rootId.isEmpty ? session.id : session.rootId
+                guard (note.object as? String) == rootId else { return }
+                messageLimit = Chats.MessageLimits.shared.limit(rootId)
+            }
             .onChange(of: model?.session?.scopeTeamIds ?? session.scopeTeamIds, initial: true) { _, ids in
                 teamsPicked = ids
             }
             .task(id: session.viaAppId) { await observeViaApp() }
+            .task(id: "\(session.id)|\(model == nil)") { await loadMcpPick() }
             .task(id: session.teamId) {
                 slashPrompts.bind(accountId: accountId, teamId: session.teamId, db: deps.db)
             }
@@ -853,7 +869,10 @@ struct AgentSessionView: View {
                             // upward (and, past the feed's own first row, asks
                             // the device for the page below it).
                             if model.canLoadEarlier {
-                                TranscriptLoadEarlierButton { model.loadEarlier() }
+                                TranscriptLoadEarlierButton {
+                                    loadEarlierMessages()
+                                    model.loadEarlier()
+                                }
                             }
                             // S-3 (dock.json): a waiting plan or question
                             // stays inline, answerable, never a DockCard.
@@ -954,6 +973,23 @@ struct AgentSessionView: View {
                     slack: AgentSessionLayout.followSlack,
                     repin: { proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom) }
                 ))
+                // steer-enet.json REPLAY TAIL: within one viewport of the
+                // top, older rows page in by themselves (the same action as
+                // Load earlier, no new UI); the reader stays on the row they
+                // were reading once the page lands above it.
+                .modifier(LoadEarlierNearTop(
+                    enabled: agentTab == nil && !atBottom && model.canLoadEarlier,
+                    load: {
+                        let anchor = model.transcript.first?.id
+                        loadEarlierMessages()
+                        if model.loadEarlier(), let anchor { earlierAnchor = anchor }
+                    }
+                ))
+                .onChange(of: model.transcript.first?.id) { _, first in
+                    guard let anchor = earlierAnchor, first != anchor else { return }
+                    earlierAnchor = nil
+                    Task { @MainActor in proxy.scrollTo(anchor, anchor: .top) }
+                }
                 // #EXP-1562: the chat header's waiting pick (an embedded
                 // session page) scrolls here and lights the card.
                 .modifier(WaitingFocusScroll(
@@ -990,7 +1026,10 @@ struct AgentSessionView: View {
                 // (EXP-356).
                 // EXP-795: back at the bottom, the window slides with the stream
                 // again (web/Android/desktop parity).
-                .onChange(of: atBottom) { _, now in model.noteAtBottom(now) }
+                .onChange(of: atBottom) { _, now in
+                    if now { earlierAnchor = nil }
+                    model.noteAtBottom(now)
+                }
                 .onChange(of: agentTab) { _, _ in
                     atBottom = true
                     proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
@@ -1537,6 +1576,14 @@ struct AgentSessionView: View {
         }
     }
 
+    /// #EXP-1380 (TS `loadEarlierMessages`): the transcript's Load earlier
+    /// also widens the chat's loaded messages by one `windowStep` while
+    /// older ones exist unloaded.
+    private func loadEarlierMessages() {
+        guard let rows = transcriptRows, rows.messagesMore else { return }
+        Chats.MessageLimits.shared.loadEarlier(rows.root.id)
+    }
+
     /// #EXP-1736: this session's tree snapshot (the transcript's senders)
     /// and S-3 `origin` (`buildSessionChat` focused on it), re-read only
     /// when its root's digest moves (`ChatRows.signature`).
@@ -1548,8 +1595,13 @@ struct AgentSessionView: View {
             .tracking { db in try ChatRows.signature(db: db, rootId: rootId) }
             .removeDuplicates()
         do {
-            for try await _ in observation.values(in: pool) {
-                guard let rows = try await pool.read({ db in try ChatRows.load(db: db, rootId: rootId) }) else {
+            for try await signature in observation.values(in: pool) {
+                // Large chats: the chat screen hosting this view observes the
+                // same digest; one read serves both.
+                guard let rows = try await ChatRowsLoads.shared.load(
+                    pool: pool, rootId: rootId, signature: signature,
+                    limit: Chats.MessageLimits.shared.limit(rootId)
+                ) else {
                     transcriptRows = nil
                     originSessionId = nil
                     continue
@@ -2181,6 +2233,8 @@ struct AgentSessionView: View {
                 onUsage: { showUsageSheet = true },
                 // An ended row takes no `/model` (no Model row in the "+").
                 ended: model.session?.isLive == false,
+                // S-3: an agent's conversation root is an agent chat's "+".
+                surface: session.parentId == nil && !(session.agentId ?? "").isEmpty ? .agent : .session,
                 // S-3: the "+" Issue page searches the session's team.
                 teamId: model.session?.teamId,
                 // #EXP-1434: the "+" Prompts page = the `/` menu's prompts; a
@@ -2205,6 +2259,7 @@ struct AgentSessionView: View {
                         Task { await model.moveDevice(to: picked) }
                     }
                 },
+                mcp: mcpMenu(model),
                 editor: editorPicks != nil
             ),
             attach: $attach,
@@ -2294,6 +2349,43 @@ struct AgentSessionView: View {
     private func prepareSend(_ model: AgentSessionModel) {
         model.sendScope = teamsPick?.scope
         model.sendAppMove = editorMove
+    }
+
+    /// #EXP-1793 (composer-menu.json `mcpPick`): the agent whose conversation
+    /// ROOT this is, while it is the viewer's own; nil anywhere else (a
+    /// child, another member's conversation, any other session).
+    private var mcpPickAgentId: String? {
+        guard session.parentId == nil, session.userId == deps.auth.userId,
+              let agentId = session.agentId, !agentId.isEmpty
+        else { return nil }
+        return agentId
+    }
+
+    /// The "+" MCP servers page of the viewer's agent conversation root.
+    private func mcpMenu(_ model: AgentSessionModel) -> SessionComposerFooter.McpMenu? {
+        guard mcpPickAgentId != nil, let pick = model.mcpPick else { return nil }
+        return SessionComposerFooter.McpMenu(
+            servers: mcpServers,
+            picked: pick.picked,
+            onChange: { model.mcpPick?.picked = $0 }
+        )
+    }
+
+    /// The team's servers and the conversation's pick (`sessions.mcpPicks`;
+    /// unreadable = the agent's `mcpServerIds`) seed the "+" pick.
+    private func loadMcpPick() async {
+        guard let agentId = mcpPickAgentId, let model else { return }
+        let api = McpServersApi(trpc: deps.trpc)
+        async let servers = try? api.list(accountId: accountId, teamId: session.teamId)
+        async let picks = try? deps.sessionsApi.mcpPicks(accountId: accountId, sessionId: session.id)
+        let (rows, picked) = await (servers, picks)
+        mcpServers = rows ?? []
+        let seed = picked ?? transcriptRows?.agent?.mcpServerIds ?? []
+        if model.mcpPick?.agentId == agentId {
+            model.mcpPick?.reseed(seed)
+        } else {
+            model.mcpPick = AgentChatMcpPick(agentId: agentId, seed: seed)
+        }
     }
 
     /// #EXP-1715 (composer-menu.json `teamsPick`): the Teams pick while this
@@ -4416,6 +4508,40 @@ private struct CommandPill: View {
 /// stuck true so the "Jump to bottom" pill never appeared and follow-scroll
 /// couldn't be escaped (EXP-212). Pre-18 keeps the preference path.
 /// EXP-1316 (1n): the chat Conversation follows with the same tracker.
+/// steer-enet.json REPLAY TAIL — the reader scrolling within ONE viewport
+/// of the transcript's top pages older rows in: the same action as the Load
+/// earlier button above the rows (it stays, for a transcript too short to
+/// scroll and for iOS 17). Fires on ENTERING the band, once per entry, and
+/// off the scroll's layout pass (the EXP-943 re-entrancy rule).
+struct LoadEarlierNearTop: ViewModifier {
+    /// Main transcript, scrolled away from the bottom, something to load.
+    let enabled: Bool
+    let load: () -> Void
+    @State private var nearTop = false
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content
+                .onScrollGeometryChange(for: Bool.self) { geo in
+                    geo.contentOffset.y + geo.contentInsets.top < geo.containerSize.height
+                } action: { _, near in
+                    nearTop = near
+                    guard near, enabled else { return }
+                    Task { @MainActor in load() }
+                }
+                // Still in the band when the gate opens (a page landed and
+                // there is more): one more step, never a loop of them.
+                .onChange(of: enabled) { _, on in
+                    guard on, nearTop else { return }
+                    Task { @MainActor in load() }
+                }
+        } else {
+            content
+        }
+    }
+}
+
 struct FollowPinTracker: ViewModifier {
     @Binding var atBottom: Bool
     /// Within this many points of the bottom still counts as pinned.
