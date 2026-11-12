@@ -3,7 +3,8 @@ name: check-desktop-windows
 # FEED-189: the gate's desktop `cargo check` runs on Linux, so `cfg(windows)`
 # code merges uncompiled, and the release's Windows leg is continue-on-error.
 # This compiles the app for Windows on the PRs that touch its update and
-# relaunch path. Informational: not part of `gate`.
+# relaunch path or the vendored gpui-pre-windows (#ERR-2/#ERR-3), whose own
+# tests it runs too. Informational: not part of `gate`.
 
 on:
   pull_request:
@@ -13,6 +14,7 @@ on:
       - "apps/desktop/crates/app/src/main.rs"
       - "apps/desktop/crates/coding/src/process.rs"
       - "apps/desktop/crates/updater/**"
+      - "apps/desktop/vendor/gpui-pre-windows/**"
 
 permissions:
   contents: read
@@ -36,3 +38,7 @@ jobs:
       - name: cargo check
         shell: bash
         run: cargo check --locked --manifest-path apps/desktop/Cargo.toml -p app
+      # #ERR-2 / #ERR-3: the vendored gpui-pre-windows patch's own tests.
+      - name: gpui-pre-windows patch tests
+        shell: bash
+        run: cargo test --locked --manifest-path apps/desktop/Cargo.toml -p gpui-pre-windows --lib -- exponential_patch_tests system_notifications::tests

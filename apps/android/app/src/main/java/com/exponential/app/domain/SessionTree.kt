@@ -1451,54 +1451,41 @@ object SessionTree {
             .filter { it.rows.isNotEmpty() }
     }
 
-    /** #PERF-9: the Chats tab's three dots (unread, running, needs you). */
-    data class ChatsNavDots(val unread: Boolean = false, val running: Boolean = false, val needsYou: Boolean = false)
-
     /**
-     * #PERF-9: exactly what [partitionChats] + `Chats.chatsUnread` and the
-     * Running / Needs you groups say for the nav dots, without building the
-     * list: no titles, no rows, and a root's activity time (the costly
-     * timestamp parsing) only when an unread Recent root has to be ranked
-     * against Recent's cut. The nav bar reads it under an open chat on every
-     * sync tick.
+     * #PERF-9 / #FEED-232: exactly `NavBadges.chatsBadge` over [partitionChats]
+     * for the Chats tab's count badge, without building the list: no titles,
+     * no rows, and a root's activity time (the costly timestamp parsing) only
+     * when an unread Recent root has to be ranked against Recent's cut. The
+     * nav bar reads it under an open chat on every sync tick.
      */
-    fun chatsNavDots(
+    fun chatsNavBadge(
         sessions: List<Session>,
         messages: List<Message>,
         teamId: String?,
         reads: List<SessionRead> = emptyList(),
         now: String? = null,
-    ): ChatsNavDots {
+    ): NavBadges.Badge {
         val roots = sessions.filter {
             it.parentId == null && it.agentId.isNullOrEmpty() && it.appId.isNullOrEmpty() &&
                 (teamId == null || it.teamId == teamId)
         }
-        if (roots.isEmpty()) return ChatsNavDots()
+        if (roots.isEmpty()) return NavBadges.NONE
         val byRoot = HashMap<String, MutableList<Session>>()
         for (session in sessions) byRoot.getOrPut(session.rootId) { mutableListOf() }.add(session)
-        var needsAny = false
-        var runningAny = false
         val recent = ArrayList<Session>()
         val needs = HashSet<String>()
-        val shown = HashSet<String>()
+        val running = ArrayList<String>()
         for (root in roots) {
             val tree = byRoot[root.id] ?: listOf(root)
             val live = tree.filter { it.status != DomainContract.sessionStatusEnded }
             when {
-                live.any { it.needsInput } -> {
-                    needsAny = true
-                    needs += root.id
-                    shown += root.id
-                }
-                live.any { it.status == DomainContract.sessionStatusQueued || it.busy } -> {
-                    runningAny = true
-                    shown += root.id
-                }
+                live.any { it.needsInput } -> needs += root.id
+                live.any { it.status == DomainContract.sessionStatusQueued || it.busy } -> running += root.id
                 else -> recent += root
             }
         }
         // Unread = an agent message newer than the viewer's read mark, on a
-        // root outside the archive (one that needs you counts anyway).
+        // root outside the archive (a root that needs you counts anyway).
         val archived = reads.filter { !it.archivedAt.isNullOrEmpty() }.mapTo(HashSet()) { it.sessionId }
         val readAt = reads.associate { it.sessionId to it.readAt }
         val rootOf = HashMap<String, String>(sessions.size)
@@ -1513,33 +1500,31 @@ object SessionTree {
             newestAgent[rootId] = maxOf(newestAgent[rootId] ?: 0L, at)
         }
         fun unread(rootId: String): Boolean {
+            if (rootId in archived) return false
             val newest = newestAgent[rootId] ?: return false
-            if (newest <= (readAt[rootId]?.let { ms(it) ?: 0L } ?: -1L)) return false
-            return rootId in needs || rootId !in archived
+            return newest > (readAt[rootId]?.let { ms(it) ?: 0L } ?: -1L)
         }
-        var unreadAny = shown.any(::unread)
-        if (!unreadAny) {
-            val candidates = recent.filter { unread(it.id) }
-            if (candidates.isNotEmpty()) {
-                // Recent's cut, exactly as [partitionChats] makes it.
-                fun activity(root: Session): Long = (byRoot[root.id] ?: listOf(root))
-                    .fold(ms(root.updatedAt) ?: 0L) { latest, s -> maxOf(latest, ms(s.updatedAt) ?: 0L) }
-                val at = now?.let { ms(it) }
-                val windowMs = ListCopy.RECENT_HOURS * 60L * 60L * 1000L
-                val ids = candidates.mapTo(HashSet()) { it.id }
-                val activityById = HashMap<String, Long>()
-                val sorted = recent.sortedByEpoch(descending = true, tie = compareBy { it.id }) { root ->
-                    activity(root).also { activityById[root.id] = it }
-                }
-                unreadAny = sorted.withIndex().any { (index, root) ->
-                    root.id in ids && (
-                        index < ListCopy.RECENT_MAX ||
-                            (at != null && at - activityById.getValue(root.id) <= windowMs)
-                        )
-                }
+        var count = needs.size + running.count(::unread)
+        val candidates = recent.filter { unread(it.id) }
+        if (candidates.isNotEmpty()) {
+            // Recent's cut, exactly as [partitionChats] makes it.
+            fun activity(root: Session): Long = (byRoot[root.id] ?: listOf(root))
+                .fold(ms(root.updatedAt) ?: 0L) { latest, s -> maxOf(latest, ms(s.updatedAt) ?: 0L) }
+            val at = now?.let { ms(it) }
+            val windowMs = ListCopy.RECENT_HOURS * 60L * 60L * 1000L
+            val ids = candidates.mapTo(HashSet()) { it.id }
+            val activityById = HashMap<String, Long>()
+            val sorted = recent.sortedByEpoch(descending = true, tie = compareBy { it.id }) { root ->
+                activity(root).also { activityById[root.id] = it }
+            }
+            count += sorted.withIndex().count { (index, root) ->
+                root.id in ids && (
+                    index < ListCopy.RECENT_MAX ||
+                        (at != null && at - activityById.getValue(root.id) <= windowMs)
+                    )
             }
         }
-        return ChatsNavDots(unread = unreadAny, running = runningAny, needsYou = needsAny)
+        return NavBadges.badge(count, attention = needs.isNotEmpty())
     }
 
     /**

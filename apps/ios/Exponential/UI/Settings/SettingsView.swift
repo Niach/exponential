@@ -16,18 +16,18 @@ private struct TeamCounts: Equatable, Sendable {
 /// EXP-1373 (chats.json `shell`): the phone's TEAM tab (the old settings
 /// root moved here; the board header lost its gear). The ACTIVE team's
 /// avatar (84) + name + `copy.team.meta`, a glass group of the viewer's
-/// teams (the active one checked, a team with an unread notification an
-/// amber dot; a tap switches — the ONLY place a phone switches team), then
+/// teams (the active one checked, another team its needs-you count badge,
+/// #FEED-232; a tap switches — the ONLY place a phone switches team), then
 /// the team's settings rows, the account rows (each server's signed-in
 /// account) and the rest of the old root (Getting started, About).
 struct TeamTabView: View {
-    /// Teams holding an unread notification (their amber dots).
-    var unreadTeamIds: Set<String> = []
     /// A team row's tap: `(accountId, teamId)`.
     var onSwitchTeam: (String, String) -> Void = { _, _ in }
 
     @Environment(AppDependencies.self) private var deps
     @Environment(TeamState.self) private var teamState
+    /// #FEED-232: each other team's needs-you count (the team rows' badge).
+    @Environment(SessionListsModel.self) private var lists
     /// EXP-1270: Getting started for the ACTIVE team, behind the General
     /// section's row (the phones' entry; web's sidebar entry).
     @State private var gettingStarted = GettingStartedProgress()
@@ -172,11 +172,11 @@ struct TeamTabView: View {
                 if active {
                     AppIcon(AppIcons.uiCheck, size: AppIcon.Size.medium)
                         .foregroundStyle(.white)
-                } else if accountId == activeAccountId, unreadTeamIds.contains(team.id) {
-                    Circle()
-                        .fill(DesignTokens.Semantic.yellow)
-                        .frame(width: 8, height: 8)
-                        .accessibilityLabel("Unread")
+                } else if accountId == activeAccountId {
+                    CountBadge(
+                        count: lists.needsYou(teamId: team.id, me: deps.auth.userId, now: Date()).count,
+                        tone: .attention
+                    )
                 }
             }
             .padding(.horizontal, 16)

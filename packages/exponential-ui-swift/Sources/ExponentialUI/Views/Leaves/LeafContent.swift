@@ -65,6 +65,8 @@ struct LeafContent: View {
             SpinnerView(size: min(cx.inner.width, cx.inner.height), color: cx.ink).frame(width: cx.size.width, height: cx.size.height)
         case ("Ring", _):
             RingLeaf(cx: cx)
+        case ("CountBadge", _):
+            CountBadgeLeaf(cx: cx)
         case ("VoiceWave", _):
             VoiceWaveLeaf(cx: cx)
         case ("QrCode", _):
@@ -411,6 +413,19 @@ struct LinkLeaf: View {
         let label = cx.props.str("label").isEmpty ? cx.props.str("href") : cx.props.str("label")
         let allowed = cx.model.linkHref(cx.props.str("href")) != nil
         MeasuredLabel(text: label, ts: cx.textStyle, color: cx.ink, underline: allowed)
+            .frame(width: cx.inner.width, height: cx.inner.height)
+            .offset(x: cx.inner.minX, y: cx.inner.minY)
+    }
+}
+
+/// #FEED-232: a CountBadge: its label (the core's `text`; a `""` badge is
+/// hidden by the core) centred in the box the `CountBadge/root` recipe fills
+/// and rounds, one line in the leaf's (tabular) type.
+struct CountBadgeLeaf: View {
+    let cx: LeafContext
+
+    var body: some View {
+        MeasuredLabel(text: cx.props.str("text"), ts: cx.textStyle, color: cx.ink, underline: false)
             .frame(width: cx.inner.width, height: cx.inner.height)
             .offset(x: cx.inner.minX, y: cx.inner.minY)
     }

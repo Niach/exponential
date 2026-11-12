@@ -264,7 +264,9 @@ jobs:
       - uses: ./.github/actions/setup-bun
       - run: bun install --frozen-lockfile
       - name: Apply migrations from scratch
-        run: bun run migrate
+        # + the deferred contract steps (#ERR-1, apps/web/src/db/contract-steps.ts)
+        # at once: no older release serves this database.
+        run: bun run migrate && (cd apps/web && bun run migrate:contract)
       - name: Detect silent migration drift
         # Assert `drizzle-kit push` is a NO-OP on the freshly-migrated DB:
         # dump the schema, push, dump again — any delta means the migration

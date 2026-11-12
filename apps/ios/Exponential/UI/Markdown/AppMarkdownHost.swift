@@ -117,6 +117,7 @@ final class AppMarkdownHost: HostPlugin {
     /// Each link's label by destination (an attachment's name).
     private var labels: [String: String] = [:]
     private var prepared: [String: String] = [:]
+    private var preparedTick = 0
     /// The pictures' press handlers by raw src (the latest text showing it).
     private var pictureHandlers: [String: (String) -> Void] = [:]
 
@@ -133,6 +134,11 @@ final class AppMarkdownHost: HostPlugin {
     /// Markdown link's label never asks the host) and, with `autolink`, every
     /// bare `http(s)://` url outside code written as a link.
     func prepare(_ raw: String, autolink: Bool) -> String {
+        // A store answer landed: the chips baked into a text may differ.
+        if preparedTick != StoreMemoLoads.shared.tick {
+            preparedTick = StoreMemoLoads.shared.tick
+            prepared.removeAll(keepingCapacity: true)
+        }
         let memoKey = "\(autolink ? 1 : 0)\(raw)"
         if let hit = prepared[memoKey] { return hit }
         let markdown = chipped(raw)
@@ -250,23 +256,23 @@ final class AppMarkdownHost: HostPlugin {
     /// #EXP-1674 (prose-links.json): agent prose with its bare in-app URLs
     /// rewritten to their chips, in the run's team. Display text only.
     private func chipped(_ text: String) -> String {
-        guard bareRefs, let teamId, let deps, text.contains("://"), let origin,
-              let pool = try? deps.db.pool(forAccountId: accountId)
-        else { return text }
+        guard bareRefs, let teamId, let deps, text.contains("://"), let origin else { return text }
         let db = deps.db
         let accountId = accountId
-        func cell(_ sql: String, _ first: String, _ second: String) -> String? {
-            (try? pool.read { db -> String? in
-                try String.fetchOne(db, sql: sql, arguments: [first, second])
-            }) ?? nil
+        func cell(_ sql: String, _ arguments: [String]) -> String? {
+            Self.cells.peek(Cell(accountId: accountId, sql: sql, arguments: arguments)) {
+                guard let pool = try? db.pool(forAccountId: accountId) else { return nil }
+                return (try? await pool.read { db in
+                    try String.fetchOne(db, sql: sql, arguments: StatementArguments(arguments))
+                }) ?? nil
+            }
         }
-        let team = (try? pool.read { db -> String? in
-            try String.fetchOne(db, sql: #"SELECT "slug" FROM "teams" WHERE "id" = ? LIMIT 1"#, arguments: [teamId])
-        }) ?? nil
+        func cell(_ sql: String, _ first: String, _ second: String) -> String? { cell(sql, [first, second]) }
+        let team = cell(#"SELECT "slug" FROM "teams" WHERE "id" = ? LIMIT 1"#, [teamId])
         return ProseLinks.chipBareAppLinks(text, origin: origin, team: team) { kind, id in
             switch kind {
             case .issue:
-                return IssueRefChipCache.chip(id.uppercased(), scope: .team(id: teamId), db: db, accountId: accountId)?.title
+                return IssueRefChipCache.peek(id.uppercased(), scope: .team(id: teamId), db: db, accountId: accountId)?.title
             case .board:
                 return cell(#"SELECT "name" FROM "boards" WHERE "team_id" = ? AND "slug" = ? LIMIT 1"#, teamId, id)
             case .session:
@@ -278,6 +284,15 @@ final class AppMarkdownHost: HostPlugin {
             }
         }
     }
+
+    /// One cell of the store, for `chipped` (#PERF-5: never a blocking read).
+    private struct Cell: Hashable, Sendable {
+        let accountId: String
+        let sql: String
+        let arguments: [String]
+    }
+
+    private static let cells = StoreMemo<Cell, String>()
 
     /// The pictures of `source` open through `open` (the raw src).
     func registerPictures(in source: String, open: @escaping (String) -> Void) {
@@ -312,7 +327,7 @@ final class AppMarkdownHost: HostPlugin {
         }
         if let scope, let deps {
             for match in IssueRefs.matches(in: piece, bare: bareRefs) {
-                guard let chip = IssueRefChipCache.chip(match.identifier, scope: scope, db: deps.db, accountId: accountId) else { continue }
+                guard let chip = IssueRefChipCache.peek(match.identifier, scope: scope, db: deps.db, accountId: accountId) else { continue }
                 let title = IssueRefs.chipTitle(chip.title)
                 let label = title.isEmpty ? match.identifier : "\(match.identifier) \(title)"
                 hits.append(Hit(range: match.range, segment: TextLinkSegment(
@@ -346,7 +361,7 @@ final class AppMarkdownHost: HostPlugin {
     func icon(_ name: String, size: CGFloat) -> AnyView? {
         if name.hasPrefix(Self.statusIcon) {
             guard let scope, let deps,
-                  let status = IssueRefChipCache.chip(String(name.dropFirst(Self.statusIcon.count)), scope: scope, db: deps.db, accountId: accountId)?.status
+                  let status = IssueRefChipCache.peek(String(name.dropFirst(Self.statusIcon.count)), scope: scope, db: deps.db, accountId: accountId)?.status
             else { return nil }
             return AnyView(AppIcon(status.iconName, size: size).foregroundStyle(status.color))
         }
@@ -356,7 +371,7 @@ final class AppMarkdownHost: HostPlugin {
 
     private func attachmentInfo(_ src: String) -> AttachmentMediaInfo? {
         guard let deps, let id = AttachmentLinks.attachmentId(fromUrl: src, baseURL: baseURL) else { return nil }
-        return AttachmentInfoCache.info(id, db: deps.db, accountId: accountId)
+        return AttachmentInfoCache.peek(id, db: deps.db, accountId: accountId)
     }
 
     func imageSize(_ src: String) -> CGSize? {

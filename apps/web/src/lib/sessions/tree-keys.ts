@@ -5,7 +5,6 @@
 import { TRPCError } from "@trpc/server"
 import { and, eq, inArray, notInArray, sql } from "drizzle-orm"
 import { devices, installs, sessionKeys, sessions, teamMembers, type Session } from "@/db/schema"
-import { resolveSessionHost } from "@/lib/sessions/host"
 import type { Tx } from "@/lib/sessions/tx"
 
 // 32 bytes as unpadded base64url (43 chars; the last carries 4 bits).
@@ -30,58 +29,124 @@ export const notFound = () => new TRPCError({ code: `NOT_FOUND`, message: `Sessi
 
 /** The readers of `root`'s tree, by install id. */
 export async function treeReaders(database: Reader, root: Root): Promise<Map<string, TreeReader>> {
-  const members = new Set(
-    (await database.select({ userId: teamMembers.userId }).from(teamMembers).where(eq(teamMembers.teamId, root.teamId))).map(
-      (row) => row.userId
-    )
-  )
-  const out = new Map<string, TreeReader>()
-  const add = (rows: Array<typeof installs.$inferSelect>, executing: boolean) => {
-    for (const row of rows) {
-      if (row.revokedAt || !members.has(row.userId)) continue
-      const known = out.get(row.id)
-      out.set(row.id, {
-        installId: row.id,
-        userId: row.userId,
-        x25519Public: row.x25519Public,
-        executing: executing || (known?.executing ?? false),
-      })
-    }
+  return (await treeReadersMany(database, [root])).get(root.id) ?? new Map()
+}
+
+/** `treeReaders` of many roots at once, in a fixed number of queries
+ *  (#PERF-6: `sessionKeys.pending` ran ~6 queries per held root, sequentially,
+ *  so a holder of a few hundred trees took seconds). Roots are keyed by id. */
+export async function treeReadersMany(database: Reader, roots: readonly Root[]): Promise<Map<string, Map<string, TreeReader>>> {
+  const out = new Map<string, Map<string, TreeReader>>()
+  for (const root of roots) out.set(root.id, new Map())
+  if (roots.length === 0) return out
+  const rootIds = [...out.keys()]
+
+  // Team members of every root's team.
+  const teamIds = [...new Set(roots.map((root) => root.teamId))]
+  const membersOf = new Map<string, Set<string>>()
+  for (const teamId of teamIds) membersOf.set(teamId, new Set())
+  for (const row of await database
+    .select({ teamId: teamMembers.teamId, userId: teamMembers.userId })
+    .from(teamMembers)
+    .where(inArray(teamMembers.teamId, teamIds))) {
+    membersOf.get(row.teamId)?.add(row.userId)
   }
 
-  const userIds = root.shared ? [...members] : members.has(root.userId) ? [root.userId] : []
-  if (userIds.length > 0) {
-    add(await database.select().from(installs).where(inArray(installs.userId, userIds)), false)
-  }
-
-  // The executing devices: the host row of every (machine, starter) in the tree.
+  // The executing devices: the host row of every (machine, starter) in each tree.
   const tree = await database
-    .select({ deviceId: sessions.deviceId, userId: sessions.userId, teamId: sessions.teamId })
+    .select({ rootId: sessions.rootId, deviceId: sessions.deviceId, userId: sessions.userId, teamId: sessions.teamId })
     .from(sessions)
-    .where(eq(sessions.rootId, root.id))
-  const hosts = new Map<string, { deviceId: string; userId: string; teamId: string }>()
-  for (const row of tree) hosts.set(`${row.deviceId}\n${row.userId}`, row)
-  const deviceRowIds: string[] = []
-  for (const key of hosts.values()) {
-    const host = await resolveSessionHost(key, database)
-    if (!host || !members.has(host)) continue
+    .where(inArray(sessions.rootId, rootIds))
+  const hostsOf = new Map<string, Map<string, { deviceId: string; userId: string; teamId: string }>>()
+  for (const row of tree) {
+    if (!row.rootId || !out.has(row.rootId)) continue
+    const hosts = hostsOf.get(row.rootId) ?? new Map()
+    hosts.set(`${row.deviceId}\n${row.userId}`, row)
+    hostsOf.set(row.rootId, hosts)
+  }
+  const machineIds = [...new Set(tree.filter((row) => row.rootId && out.has(row.rootId)).map((row) => row.deviceId))]
+  type DeviceRow = { id: string; userId: string; deviceId: string; sharedTeamIds: string[] | null; createdAt: Date }
+  const devicesOf = new Map<string, DeviceRow[]>()
+  if (machineIds.length > 0) {
     const rows = await database
-      .select({ id: devices.id, userId: devices.userId, deviceId: devices.deviceId })
+      .select({
+        id: devices.id,
+        userId: devices.userId,
+        deviceId: devices.deviceId,
+        sharedTeamIds: devices.sharedTeamIds,
+        createdAt: devices.createdAt,
+      })
       .from(devices)
-      .where(and(eq(devices.userId, host), eq(devices.deviceId, key.deviceId)))
-    for (const row of rows) {
-      if (row.userId === host && row.deviceId === key.deviceId) deviceRowIds.push(row.id)
+      .where(inArray(devices.deviceId, machineIds))
+    for (const row of rows) devicesOf.set(row.deviceId, [...(devicesOf.get(row.deviceId) ?? []), row])
+    // resolveSessionHost's SHARING_ORDER: oldest row first, then id.
+    for (const list of devicesOf.values()) {
+      list.sort((a, b) => ms(a.createdAt) - ms(b.createdAt) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
     }
   }
-  if (deviceRowIds.length > 0) {
-    const rows = await database.select().from(installs).where(inArray(installs.deviceId, deviceRowIds))
-    add(
-      rows.filter((row) => row.deviceId !== null && deviceRowIds.includes(row.deviceId)),
-      true
-    )
+  /** resolveSessionHost over the prefetched rows. */
+  const hostOf = (key: { deviceId: string; userId: string; teamId: string }) => {
+    const rows = devicesOf.get(key.deviceId) ?? []
+    if (rows.some((row) => row.userId === key.userId)) return key.userId
+    return rows.find((row) => (row.sharedTeamIds ?? []).includes(key.teamId))?.userId ?? null
+  }
+  const deviceRowsOf = new Map<string, Set<string>>()
+  for (const root of roots) {
+    const members = membersOf.get(root.teamId) ?? new Set<string>()
+    const rowIds = new Set<string>()
+    for (const key of hostsOf.get(root.id)?.values() ?? []) {
+      const host = hostOf(key)
+      if (!host || !members.has(host)) continue
+      for (const row of devicesOf.get(key.deviceId) ?? []) {
+        if (row.userId === host && row.deviceId === key.deviceId) rowIds.add(row.id)
+      }
+    }
+    deviceRowsOf.set(root.id, rowIds)
+  }
+
+  // Every candidate install in one query: by user (starters / members) or by device row.
+  const userIdsOf = new Map<string, string[]>()
+  for (const root of roots) {
+    const members = membersOf.get(root.teamId) ?? new Set<string>()
+    userIdsOf.set(root.id, root.shared ? [...members] : members.has(root.userId) ? [root.userId] : [])
+  }
+  const allUserIds = [...new Set([...userIdsOf.values()].flat())]
+  const allDeviceRowIds = [...new Set([...deviceRowsOf.values()].flatMap((set) => [...set]))]
+  const byUser = new Map<string, Array<typeof installs.$inferSelect>>()
+  const byDevice = new Map<string, Array<typeof installs.$inferSelect>>()
+  if (allUserIds.length > 0) {
+    for (const row of await database.select().from(installs).where(inArray(installs.userId, allUserIds))) {
+      if (allUserIds.includes(row.userId)) byUser.set(row.userId, [...(byUser.get(row.userId) ?? []), row])
+    }
+  }
+  if (allDeviceRowIds.length > 0) {
+    for (const row of await database.select().from(installs).where(inArray(installs.deviceId, allDeviceRowIds))) {
+      if (row.deviceId !== null) byDevice.set(row.deviceId, [...(byDevice.get(row.deviceId) ?? []), row])
+    }
+  }
+
+  for (const root of roots) {
+    const members = membersOf.get(root.teamId) ?? new Set<string>()
+    const readers = out.get(root.id)!
+    const add = (rows: Array<typeof installs.$inferSelect>, executing: boolean) => {
+      for (const row of rows) {
+        if (row.revokedAt || !members.has(row.userId)) continue
+        const known = readers.get(row.id)
+        readers.set(row.id, {
+          installId: row.id,
+          userId: row.userId,
+          x25519Public: row.x25519Public,
+          executing: executing || (known?.executing ?? false),
+        })
+      }
+    }
+    add((userIdsOf.get(root.id) ?? []).flatMap((userId) => byUser.get(userId) ?? []), false)
+    add([...(deviceRowsOf.get(root.id) ?? [])].flatMap((rowId) => byDevice.get(rowId) ?? []), true)
   }
   return out
 }
+
+const ms = (at: Date | null | undefined) => (at ? at.getTime() : 0)
 
 /** The caller's own, non-revoked install. */
 export async function ownInstall(database: Reader, userId: string, installId: string) {

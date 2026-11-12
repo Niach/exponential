@@ -1,9 +1,9 @@
 // FEED-128 (React's natives/feedback.tsx): Ring, Spinner, Skeleton,
-// TreeGuides, VoiceWave (Chart: chart.tsx). Sizes and strokes come from the theme's
+// TreeGuides, VoiceWave (Chart: chart.tsx); #FEED-232: CountBadge. Sizes and strokes come from the theme's
 // recipes (`resolveRecipe`), exactly as React reads them.
 
 import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, type JSX } from "solid-js"
-import { resolveRecipe, nativeRecipeProps, voiceWave, voiceWaveBars, voiceWaveChildBox, voiceWavePath, voiceWaveVariant, TREE_GUIDE_BRIDGE, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS, VOICE_WAVE_ACTIVITIES, VOICE_WAVE_RINGS } from "@exponential_app/eui"
+import { countBadgeLabel, resolveRecipe, nativeRecipeProps, voiceWave, voiceWaveBars, voiceWaveChildBox, voiceWavePath, voiceWaveVariant, TREE_GUIDE_BRIDGE, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS, VOICE_WAVE_ACTIVITIES, VOICE_WAVE_RINGS } from "@exponential_app/eui"
 import type { VoiceWaveActivity, VoiceWaveSizeName } from "@exponential_app/eui"
 import { voiceWaveAnimates, voiceWaveClock, voiceWaveFitChild, voiceWaveName } from "@exponential_app/eui/web"
 import type { Component } from "solid-js"
@@ -64,6 +64,18 @@ export function SpinnerNative(props: NativeProps): JSX.Element {
     <span {...props.rootProps} role="status" aria-label={label()} style={mergeStyle(props.rootProps, { width: size(), height: size() })}>
       <PaintIcon icon={CHROME.spinner} aria-hidden="true" />
     </span>
+  )
+}
+
+/** #FEED-232: CountBadge = THE count badge (React's `CountBadgeNative`):
+ *  the `countBadgeLabel` rule, the `CountBadge/root` recipe's look; `''`
+ *  (0 or less) renders nothing at all. */
+export function CountBadgeNative(props: NativeProps): JSX.Element {
+  const label = () => countBadgeLabel(num(props.props.count, 0), num(props.props.max, 99))
+  return (
+    <Show when={label()}>
+      <span {...props.rootProps}>{label()}</span>
+    </Show>
   )
 }
 
@@ -302,6 +314,7 @@ function VoiceWaveRingNative(props: NativeProps): JSX.Element {
 export const NATIVES_FEEDBACK: Record<string, Component<NativeProps>> = {
   Ring: RingNative,
   Spinner: SpinnerNative,
+  CountBadge: CountBadgeNative,
   Skeleton: SkeletonNative,
   VoiceWave: VoiceWaveNative,
   TreeGuides: TreeGuidesNative,

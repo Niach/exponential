@@ -60,6 +60,7 @@ final class PlanPageTests: XCTestCase {
         XCTAssertEqual(num(layout["outlineWidth"]), PlanPage.Layout.outlineWidth)
         XCTAssertEqual(num(layout["columnMaxWidth"]), PlanPage.Layout.columnMaxWidth)
         XCTAssertEqual(num(layout["railWidth"]), PlanPage.Layout.railWidth)
+        XCTAssertEqual(num(layout["documentMinWidth"]), PlanPage.Layout.documentMinWidth)
         XCTAssertNil(layout["headerHeight"])
         XCTAssertEqual(
             layout["columnPadding"] as? [String: Double],
@@ -119,6 +120,16 @@ final class PlanPageTests: XCTestCase {
             let decision = entry["decision"] as? String
             let glyph = PlanPage.planTabGlyph(decision)
             same(["icon": glyph.icon, "tone": glyph.tone], entry["expected"], decision ?? "nil")
+        }
+    }
+
+    func testPaneCases() throws {
+        let entries = try cases("paneCases")
+        XCTAssertFalse(entries.isEmpty)
+        for entry in entries {
+            let name = entry["name"] as? String ?? ""
+            let pane = PlanPage.planPaneLayout(try XCTUnwrap(num(entry["width"])))
+            same(["outline": pane.outline, "rail": pane.rail], entry["expected"], name)
         }
     }
 

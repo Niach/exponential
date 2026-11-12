@@ -250,6 +250,7 @@ const lines = (sessionId: string) =>
     .from(messages)
     .where(and(inSession(sessionId), sql`${messages.card}->>'event' = 'pr_merge'`))
     .orderBy(asc(messages.createdAt), asc(messages.id))
+const outcomeOf = (l: { card: unknown }) => (l.card as { mergeOutcome?: string } | null)?.mergeOutcome
 const pass = async (repoId: string, n = 1) => {
   for (let i = 0; i < n; i++) await worker.runRepository(repoId)
 }
@@ -804,6 +805,62 @@ describe.skipIf(!ready.ok)(`EXP-1709: the merge train worker`, () => {
     await pass(w.repoId)
     expect(await prRow(a)).toMatchObject({ state: `open`, mergeAttempts: 2 })
     expect(fake.closed).toEqual([])
+  })
+
+  it(`#FEED-233: a Merge now restarts the 24 h clock: its bounce is a bounce, never an instant timeout`, async () => {
+    const w = await world()
+    const a = await w.pr(901)
+    await w.idle()
+    const old = new Date(Date.now() - 48 * 3_600_000)
+    await db.update(pullRequests).set({ mergeQueuedSince: old }).where(eq(pullRequests.id, a))
+    fake.hold = true
+    await pass(w.repoId)
+    expect(await prRow(a)).toMatchObject({ mergeState: `held`, mergeHold: `timeout` })
+    fake.hold = false
+    fake.judge = () => ({ conflicts: [901] })
+    await worker.mergeNowPullRequest(a)
+    await worker.drainMergeTrainEdges()
+    await pass(w.repoId, 2)
+    const row = await prRow(a)
+    expect(row).toMatchObject({ mergeState: `conflict`, mergeHold: null, mergeNow: false })
+    expect(row.mergeQueuedSince!.getTime()).toBeGreaterThan(old.getTime())
+    expect((await lines(w.children[901]!)).map((l) => outcomeOf(l)).at(-1)).toBe(`conflict`)
+  })
+
+  it(`#FEED-233: a plain pr merge re-queues a PR held by the limits; a person's Hold stays`, async () => {
+    const w = await world()
+    const a = await w.pr(911)
+    const b = await w.pr(912)
+    await w.idle()
+    await db.update(pullRequests).set({ mergeState: `held`, mergeHold: `timeout`, mergeQueuedSince: new Date(Date.now() - 48 * 3_600_000) }).where(eq(pullRequests.id, a))
+    await db.update(pullRequests).set({ mergeState: `held`, mergeHold: `person` }).where(eq(pullRequests.id, b))
+    await worker.queuePullRequest(a)
+    await worker.queuePullRequest(b)
+    await worker.drainMergeTrainEdges()
+    await pass(w.repoId, 2)
+    expect((await prRow(a)).mergeState).toBe(`merged`)
+    expect(await prRow(b)).toMatchObject({ mergeState: `held`, mergeHold: `person` })
+  })
+
+  it(`#FEED-225: a PR's merged line supersedes its held line the agent never read`, async () => {
+    const w = await world()
+    const a = await w.pr(921)
+    await w.idle()
+    await db.update(pullRequests).set({ mergeQueuedSince: new Date(Date.now() - 48 * 3_600_000) }).where(eq(pullRequests.id, a))
+    fake.hold = true
+    await pass(w.repoId)
+    expect(await prRow(a)).toMatchObject({ mergeState: `held`, mergeHold: `timeout` })
+    const opener = w.children[921]!
+    expect((await lines(opener)).map((l) => [outcomeOf(l), l.consumedAt])).toEqual([[`held`, null]])
+    fake.hold = false
+    await worker.resumePullRequest(a)
+    await worker.drainMergeTrainEdges()
+    await pass(w.repoId, 2)
+    expect((await prRow(a)).mergeState).toBe(`merged`)
+    const after = await lines(opener)
+    expect(after.map((l) => outcomeOf(l))).toEqual([`held`, `merged`])
+    expect(after[0]!.consumedAt).not.toBeNull()
+    expect(after[1]!.consumedAt).toBeNull()
   })
 
   it(`hold, resume and the queue report`, async () => {

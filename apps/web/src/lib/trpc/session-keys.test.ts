@@ -16,6 +16,7 @@ vi.mock(`@/lib/trpc`, async (importOriginal) => ({
 vi.mock(`@/lib/trpc/devices`, () => ({ nudgeDevice: vi.fn() }))
 
 import { nudgeMissingWraps, sessionKeysRouter, treeReaders } from "@/lib/trpc/session-keys"
+import { treeReadersMany } from "@/lib/sessions/tree-keys"
 import { nudgeDevice } from "@/lib/trpc/devices"
 import { createFakeDb, type FakeDb } from "@/lib/emcp/upstream/test-db"
 import { generateTreeKey, unwrapTreeKey, wrapTreeKey } from "@exp/domain-contract/sealed-content"
@@ -275,6 +276,35 @@ describe(`sessionKeys.pending + wrap + mine`, () => {
     await caller(`u2`).wrap({ installId: I2, wraps: [{ rootId: R2, epoch: 1, targetInstallId: I1B, wrapped }] })
     const [mine] = await caller(`u1`).mine({ installId: I1B })
     expect(unwrapTreeKey(Buffer.from(fixture.install.secret, `hex`), mine!.wrapped)).toEqual(tree.secret)
+  })
+})
+
+describe(`#PERF-6: pending resolves readers in batches`, () => {
+  it(`treeReadersMany equals treeReaders per root`, async () => {
+    const roots: Parameters<typeof treeReaders>[1][] = [R1, R2, R3, R4].map(root)
+    const many = await treeReadersMany(db, roots)
+    for (const one of roots) {
+      expect([...many.get(one.id)!.values()].sort((a, b) => a.installId.localeCompare(b.installId))).toEqual(
+        [...(await treeReaders(db, one)).values()].sort((a, b) => a.installId.localeCompare(b.installId))
+      )
+    }
+  })
+
+  it(`answers a holder of many trees in a fixed number of queries`, async () => {
+    for (let n = 0; n < 150; n++) {
+      const rowId = id(`e${n.toString(16).padStart(3, `0`)}`)
+      db.rows(`sessions`).push(session(rowId, { teamId: TEAM_A, userId: `u1`, deviceId: `mac-1`, shared: true, sealPublicKey: PUBLIC, sealEpoch: 1 }))
+      db.rows(`session_keys`).push({ id: id(`k${n}`), rootId: rowId, epoch: 1, installId: I1D, wrapped: WRAP })
+    }
+    const selects = vi.spyOn(db, `select`)
+    const pairs = await caller(`u1`).pending({ installId: I1D })
+    // 4 missing readers per tree (I1A, I1B, I2, I3D), capped at the limit:
+    // the first chunk of 100 trees already fills it.
+    expect(pairs).toHaveLength(200)
+    expect(selects.mock.calls.length).toBeLessThanOrEqual(3 + 6)
+    selects.mockClear()
+    expect(await caller(`u1`).pending({ installId: I1D, limit: 1 })).toHaveLength(1)
+    expect(selects.mock.calls.length).toBeLessThanOrEqual(3 + 6)
   })
 })
 

@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- `CountBadge` (#FEED-232): `CountBadgeLeaf` (the core's label, centred, the leaf's tabular type) + the measurer's one-line label; the recipe fills and rounds the box; 0 or below = hidden by the core.
 - Text `truncate: "middle"` keeps 4 characters or none (#EXP-1789): a cut keeping fewer than `middleMinKept` (4, the fixture's `minKept`) characters, start + end together, shows the `…` alone, so a nearly-gone run never reads as stray glyphs. `TextTruncateTests` replays `text-truncate.json`.
 - `accessibility.selected` / `.expanded` (#EXP-1629): `.isSelected`, the value expanded / collapsed (unchanged painter, the core now accepts the keys); `A11yStatesTests` replays the fixture.
 - Input / Textarea `style.color` colours the typed text only (#EXP-1787): the core lands a node's own `color` ($color token) on the `field` part, so `OwnedTextField` draws the value in it (a `row` at its 70%); the placeholder keeps its part's colour and the caret (`caretColor`: iOS `tintColor`, macOS `insertionPointColor`) the `field` recipe's (`TextFieldLeaf.caretInk`). No `color` = unchanged. `InteractionTests` replays `interactions-round1.json` `fieldInk`.

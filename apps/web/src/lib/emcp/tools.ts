@@ -3318,7 +3318,7 @@ export function registerExponentialTools(
           await train.runRepository(pr.repositoryId)
           return ok({ ...prRef(pr), merged: false, queued: true, mergeNow: true, mergeQueue: await train.queueReport(pr.id), checks })
         }
-        await train.approvePullRequest(pr.id)
+        await train.queuePullRequest(pr.id)
         await train.runRepository(pr.repositoryId)
         return ok({ ...prRef(pr), merged: false, queued: true, mergeQueue: await train.queueReport(pr.id), checks })
       } catch (e) {
