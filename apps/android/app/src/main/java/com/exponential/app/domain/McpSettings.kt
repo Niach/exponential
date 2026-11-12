@@ -2,24 +2,23 @@ package com.exponential.app.domain
 
 /**
  * #VAPP-185: Settings › MCP, ONE page ×4 (`fixtures/settings-mcp.json`, its
- * `$comment` is the spec): Endpoint · Servers · Clients (Mine | Everyone) ·
- * Access (+ Activity) · Built-in Exponential tools. The Android mirror of
+ * `$comment` is the spec): Overview · Servers (the built-ins first, every row
+ * expandable to its tools) · Access (+ Activity) · Clients (Mine | Everyone).
+ * The Android mirror of
  * TS `settings-mcp.ts` (web), desktop `settings/mcp.rs`, iOS
  * `McpSettings.swift`; locked to the fixture by `McpSettingsTest`.
  */
 object McpSettings {
     const val TITLE = "MCP"
-    val SECTIONS: List<String> = listOf("endpoint", "servers", "clients", "access", "builtin")
+    val SECTIONS: List<String> = listOf("overview", "servers", "access", "clients")
     val LABELS: Map<String, String> = linkedMapOf(
-        "endpoint" to "Endpoint",
         "servers" to "Servers",
         "clients" to "Clients",
         "access" to "Access",
-        "builtin" to "Built-in Exponential tools",
     )
+    const val OVERVIEW = "MCP servers your team's sessions, agents and apps can call."
     const val COPY = "Copy"
     const val COPIED = "Copied"
-    const val ENDPOINT_PATH = "/api/mcp/apps"
     const val REVOKE = "Revoke"
     const val ACTIVITY = "Activity"
 
@@ -45,16 +44,51 @@ object McpSettings {
 
     object TestIds {
         const val PAGE = "settings-mcp-page"
-        const val ENDPOINT = "settings-mcp-endpoint"
+        const val OVERVIEW = "settings-mcp-overview"
         const val SERVERS = "settings-mcp-servers"
-        const val CLIENTS = "settings-mcp-clients"
-        const val ACCESS = "settings-mcp-access"
         const val BUILTIN = "settings-mcp-builtin"
+        const val APPS_SERVER = "settings-mcp-apps-server"
+        const val SERVER_TOOLS = "settings-mcp-server-tools"
+        const val ACCESS = "settings-mcp-access"
         const val ACTIVITY = "settings-mcp-activity"
+        const val CLIENTS = "settings-mcp-clients"
     }
 
-    /** The endpoint row's URL: the instance origin + [ENDPOINT_PATH]. */
-    fun endpointUrl(instanceUrl: String): String = instanceUrl.trimEnd('/') + ENDPOINT_PATH
+    // ── Owner 2026-11-12: ONE Servers group, every row expandable to its tools ──
+
+    /** A built-in server row (`builtins.<id>`): its name and its URL path. */
+    data class Builtin(val id: String, val name: String, val path: String)
+
+    val BUILTIN_EXPONENTIAL = Builtin("exponential", "Exponential", "/api/mcp")
+    val BUILTIN_APPS = Builtin("apps", "Team apps", "/api/mcp/apps")
+    val BUILTINS: List<Builtin> = listOf(BUILTIN_EXPONENTIAL, BUILTIN_APPS)
+
+    const val BUILTIN_PILL = "Built-in"
+    const val TOOLS_CONNECT = "Connect to see its tools."
+    const val TOOLS_STDIO = "A local command: its tools list where a session runs it."
+    const val TOOLS_FAILED = "Could not list its tools: {reason}"
+    const val TOOLS_NONE = "No tools."
+    const val RETRY = "Retry"
+
+    /** A built-in's URL: the instance origin + its path (TS `builtinEndpoint`). */
+    fun builtinEndpoint(instanceUrl: String, builtin: Builtin): String = instanceUrl.trimEnd('/') + builtin.path
+
+    /** The Servers group's order (TS `mcpServerOrder`): `builtin:exponential`,
+     *  `builtin:apps` when an app exposes tools, then the team's servers. */
+    fun <T> serverOrder(appTools: Boolean, servers: List<T>): List<Any?> =
+        listOf<Any?>("builtin:exponential") + (if (appTools) listOf("builtin:apps") else emptyList()) + servers
+
+    /** What an open team server row shows (TS `mcpToolsState`). */
+    enum class ToolsState(val wire: String) { List("list"), Connect("connect"), Stdio("stdio") }
+
+    fun toolsState(transport: String, status: String): ToolsState = when {
+        transport != "http" -> ToolsState.Stdio
+        status == "connected" || status == "not_needed" -> ToolsState.List
+        else -> ToolsState.Connect
+    }
+
+    /** "Could not list its tools: <reason>". */
+    fun toolsFailedLine(reason: String): String = TOOLS_FAILED.replace("{reason}", reason)
 
     /** A server row's "Used by …" caption (null = no app uses it), by name, case-insensitive. */
     fun usedByCaption(apps: List<String>): String? {
@@ -105,7 +139,7 @@ object McpSettings {
     /** One built-in Exponential tool row (web `builtinExpTools`): contract order. */
     data class BuiltinTool(val name: String, val title: String, val blurb: String)
 
-    /** #EXP-1657: one band of the BUILT-IN section = one contract tool group. */
+    /** #EXP-1657: one band of the open Exponential row = one contract tool group. */
     data class BuiltinToolBand(val id: String, val label: String, val tools: List<BuiltinTool>)
 
     /** The listed rows: every contract row but the retired `aliasOf` ones
@@ -120,7 +154,7 @@ object McpSettings {
         blurb = DomainContract.expToolBlurbs[i],
     )
 
-    /** The bands the BUILT-IN section shows for [query] (TS `builtinToolBands`):
+    /** The bands the open Exponential row shows for [query] (TS `builtinToolBands`):
      *  contract group order and labels, rows filtered by [filterBuiltinTools],
      *  a band with no match left out (all gone = the empty state). */
     fun builtinToolBands(query: String): List<BuiltinToolBand> =

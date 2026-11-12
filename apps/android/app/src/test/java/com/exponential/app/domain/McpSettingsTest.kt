@@ -35,7 +35,20 @@ class McpSettingsTest {
         assertEquals(fixture.map("labels"), McpSettings.LABELS)
         assertEquals(fixture.str("copy"), McpSettings.COPY)
         assertEquals(fixture.str("copied"), McpSettings.COPIED)
-        assertEquals(fixture.str("endpointPath"), McpSettings.ENDPOINT_PATH)
+        assertEquals(fixture.str("overview"), McpSettings.OVERVIEW)
+        assertEquals(fixture.str("builtinPill"), McpSettings.BUILTIN_PILL)
+        assertEquals(fixture.str("toolsConnect"), McpSettings.TOOLS_CONNECT)
+        assertEquals(fixture.str("toolsStdio"), McpSettings.TOOLS_STDIO)
+        assertEquals(fixture.str("toolsFailed"), McpSettings.TOOLS_FAILED)
+        assertEquals(fixture.str("toolsNone"), McpSettings.TOOLS_NONE)
+        assertEquals(fixture.str("retry"), McpSettings.RETRY)
+        val builtins = fixture.getValue("builtins").jsonObject
+        assertEquals(builtins.keys.toList(), McpSettings.BUILTINS.map { it.id })
+        for (b in McpSettings.BUILTINS) {
+            val want = builtins.getValue(b.id).jsonObject
+            assertEquals(want.str("name"), b.name)
+            assertEquals(want.str("path"), b.path)
+        }
         assertEquals(fixture.str("revoke"), McpSettings.REVOKE)
         assertEquals(fixture.str("activity"), McpSettings.ACTIVITY)
         assertEquals(options("scopes"), McpSettings.SCOPES)
@@ -55,13 +68,20 @@ class McpSettingsTest {
     @Test
     fun `the test ids match the fixture`() {
         val ids = fixture.map("testIds")
-        assertEquals(ids["page"], McpSettings.TestIds.PAGE)
-        assertEquals(ids["endpoint"], McpSettings.TestIds.ENDPOINT)
-        assertEquals(ids["servers"], McpSettings.TestIds.SERVERS)
-        assertEquals(ids["clients"], McpSettings.TestIds.CLIENTS)
-        assertEquals(ids["access"], McpSettings.TestIds.ACCESS)
-        assertEquals(ids["builtin"], McpSettings.TestIds.BUILTIN)
-        assertEquals(ids["activity"], McpSettings.TestIds.ACTIVITY)
+        assertEquals(
+            ids,
+            linkedMapOf(
+                "page" to McpSettings.TestIds.PAGE,
+                "overview" to McpSettings.TestIds.OVERVIEW,
+                "servers" to McpSettings.TestIds.SERVERS,
+                "builtin" to McpSettings.TestIds.BUILTIN,
+                "appsServer" to McpSettings.TestIds.APPS_SERVER,
+                "serverTools" to McpSettings.TestIds.SERVER_TOOLS,
+                "access" to McpSettings.TestIds.ACCESS,
+                "activity" to McpSettings.TestIds.ACTIVITY,
+                "clients" to McpSettings.TestIds.CLIENTS,
+            ),
+        )
     }
 
     @Test
@@ -69,6 +89,28 @@ class McpSettingsTest {
         assertEquals(fixture.str("runsOn"), McpSettings.RUNS_ON)
         for (case in fixture.getValue("runsOnCases").jsonArray.map { it.jsonObject }) {
             assertEquals(case.str("name"), case.str("expected"), McpSettings.runsOnCaption(case.str("device")))
+        }
+    }
+
+    @Test
+    fun serverOrderCases() {
+        for (case in fixture.getValue("serverOrder").jsonObject.getValue("cases").jsonArray.map { it.jsonObject }) {
+            assertEquals(
+                case.str("name"),
+                case.strings("expected"),
+                McpSettings.serverOrder(case.getValue("appTools").jsonPrimitive.boolean, case.strings("servers")),
+            )
+        }
+    }
+
+    @Test
+    fun toolsStateCases() {
+        for (case in fixture.getValue("toolsStateCases").jsonArray.map { it.jsonObject }) {
+            assertEquals(
+                case.str("name"),
+                case.str("expected"),
+                McpSettings.toolsState(case.str("transport")!!, case.str("status")!!).wire,
+            )
         }
     }
 
@@ -139,11 +181,13 @@ class McpSettingsTest {
     }
 
     @Test
-    fun `tool count, level labels and the endpoint url`() {
+    fun `tool count, level labels and the built-in urls`() {
         assertEquals("1 tool", McpSettings.toolCountLabel(1))
         assertEquals("3 tools", McpSettings.toolCountLabel(3))
         assertEquals("Read only", McpSettings.levelLabel("read"))
         assertEquals("Full", McpSettings.levelLabel("write"))
-        assertEquals("https://x.at/api/mcp/apps", McpSettings.endpointUrl("https://x.at/"))
+        assertEquals("https://x.at/api/mcp", McpSettings.builtinEndpoint("https://x.at/", McpSettings.BUILTIN_EXPONENTIAL))
+        assertEquals("https://x.at/api/mcp/apps", McpSettings.builtinEndpoint("https://x.at", McpSettings.BUILTIN_APPS))
+        assertEquals("Could not list its tools: HTTP 500", McpSettings.toolsFailedLine("HTTP 500"))
     }
 }
