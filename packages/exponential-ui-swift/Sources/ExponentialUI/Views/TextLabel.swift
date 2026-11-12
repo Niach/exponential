@@ -106,32 +106,7 @@ struct SelectableTextLabel: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    /// #PERF-9 (large chats' scroll): the views a lazy list let go of, reused
-    /// by the next blocks it realizes. A `UITextView` (its TextKit stack, its
-    /// selection interactions) is the costly part of a row coming into view.
-    @MainActor private static var spare: [View] = []
-    private static let spareCap = 48
-
-    static func dismantleUIView(_ view: View, coordinator: Coordinator) {
-        view.onTap = nil
-        guard spare.count < spareCap else { return }
-        spare.append(view)
-    }
-
-    /// A spare view that is off screen by now (one still in a window is
-    /// still someone's).
-    private static func reusable() -> View? {
-        while let view = spare.popLast() {
-            guard view.window == nil else { continue }
-            view.removeFromSuperview()
-            view.selectedRange = NSRange(location: 0, length: 0)
-            return view
-        }
-        return nil
-    }
-
     func makeUIView(context: Context) -> View {
-        if let view = Self.reusable() { return view }
         let view = View(usingTextLayoutManager: false)
         view.isEditable = false
         view.isSelectable = true
