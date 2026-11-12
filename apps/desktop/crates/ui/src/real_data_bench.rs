@@ -209,3 +209,71 @@ fn deltas_read_off_the_main_thread_land_in_order(cx: &mut gpui::TestAppContext) 
     assert!(cx.read(|cx| pulls.read(cx).get("pr1").is_none()));
     drop(dir);
 }
+
+/// #EXP-1380 (chats.json WINDOW): open the biggest chat of a REAL store,
+/// data only: the main thread's share of the first chat model (the root
+/// view, the conversation cards, the root's messages) and of the Results
+/// tab, the rows each derived over, before and after the page lands.
+///
+/// ```sh
+/// cp /tmp/a4af/sync-v2.sqlite /tmp/a4af/bench/ && \
+/// LOGS_REAL_DB=/tmp/a4af/bench/sync-v2.sqlite LOGS_REAL_ROOT=<root id> \
+/// cargo test -p ui --release --lib open_biggest_chat_bench -- --ignored --nocapture
+/// ```
+#[test]
+#[ignore = "a release bench on a real store: run with --ignored --nocapture"]
+fn open_biggest_chat_bench() {
+    let (Some(db), Ok(root)) = (std::env::var_os("LOGS_REAL_DB"), std::env::var("LOGS_REAL_ROOT")) else {
+        eprintln!("[open] LOGS_REAL_DB / LOGS_REAL_ROOT unset: skipped");
+        return;
+    };
+    let db = std::path::PathBuf::from(db);
+    let mut cx = headless();
+    let (_changes, rx) = flume::unbounded::<(String, Vec<String>)>();
+    let started = Instant::now();
+    cx.update(|cx| {
+        let store = sync::Store::open(cx, None, None);
+        cx.set_global(store);
+        sync::Store::global(cx).clone().connect_local("bench", &db, rx, cx).expect("the store hydrates");
+    });
+    let messages = cx.update(|cx| sync::Store::global(cx).collections().messages.read(cx).len());
+    println!("[open] hydrated {messages} messages in {:.0} ms", started.elapsed().as_secs_f64() * 1e3);
+    cx.run_until_parked();
+    let ms = |started: Instant| started.elapsed().as_secs_f64() * 1e3;
+    // The chat model: what the session screen and the transcript read.
+    let model = |cx: &mut HeadlessAppContext| {
+        cx.update(|cx| {
+            let started = Instant::now();
+            let now = crate::session_data::now_ms();
+            let view = crate::session_data::root_chat_view(&root, now, cx);
+            let own = crate::session_data::messages_of_session(&root, cx);
+            let cards = crate::session_data::conversation_cards(&root, cx);
+            (ms(started), view.map_or(0, |view| view.rows.len()), own.len(), cards.len())
+        })
+    };
+    let mut main = 0.;
+    let (first, rows, own, cards) = model(&mut cx);
+    main += first;
+    println!("[open] first model: {first:.1} ms main thread · {rows} view rows · {own} root messages · {cards} cards");
+    let waited = Instant::now();
+    cx.run_until_parked();
+    let parked = ms(waited);
+    let (second, rows, own, cards) = model(&mut cx);
+    main += second;
+    println!("[open] after the page ({parked:.1} ms parked): {second:.1} ms main thread · {rows} view rows · {own} root messages · {cards} cards");
+    println!("[open] main thread to the paged model: {main:.1} ms");
+    let (warm, ..) = model(&mut cx);
+    println!("[open] warm re-read: {warm:.2} ms");
+    let results = |cx: &mut HeadlessAppContext| {
+        cx.update(|cx| {
+            let started = Instant::now();
+            let n = crate::results_tab::results_of_root(&root, cx).len();
+            (ms(started), n)
+        })
+    };
+    let (first, n) = results(&mut cx);
+    cx.run_until_parked();
+    let (second, m) = results(&mut cx);
+    println!("[open] results: first {first:.1} ms ({n}), after the read {second:.1} ms ({m})");
+    std::mem::forget(cx);
+}

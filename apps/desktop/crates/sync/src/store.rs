@@ -120,6 +120,13 @@ const OUTBOX_DDL: &str = r#"CREATE TABLE IF NOT EXISTS app_record_outbox (
   acked_at  TEXT
 )"#;
 
+/// #EXP-1380 (chats.json WINDOW): a chat reads its NEWEST messages by
+/// `root_id` ([`ShapeStore::read_newest_messages`]) and its result cards
+/// ([`ShapeStore::read_result_cards`]); without this every chat open was a
+/// scan of the whole table (only the pk was indexed).
+pub const MESSAGES_ROOT_INDEX: &str =
+    r#"CREATE INDEX IF NOT EXISTS "messages_root_created" ON "messages" ("root_id", "created_at", "id")"#;
+
 /// The per-account SQLite store. One writer connection behind a `Mutex` (WAL
 /// single-writer) plus a separate read-only WAL connection for hydration
 /// queries that never block on the writer (§5.4).
@@ -160,6 +167,9 @@ impl ShapeStore {
             heal_missing_columns(&writer, spec)?;
         }
         backfill_one_tree_columns(&writer)?;
+        // #EXP-1380: every store, a new one or an existing one (IF NOT
+        // EXISTS), gets the chat page's index.
+        writer.execute_batch(MESSAGES_ROOT_INDEX)?;
         let reader = Connection::open_with_flags(
             path,
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
@@ -365,6 +375,66 @@ impl ShapeStore {
             out.push(row_to_map(row, &names)?);
         }
         Ok(out)
+    }
+
+    // -- the chat page (#EXP-1380) ------------------------------------------
+
+    /// The newest `limit` messages of `root_id`'s tree, newest first
+    /// (Android `rawObserveNewestByRoot`), off `messages_root_created`.
+    pub fn read_newest_messages(&self, root_id: &str, limit: usize) -> Result<Vec<Map<String, Value>>> {
+        let limit = i64::try_from(limit).unwrap_or(i64::MAX);
+        self.read_rows(
+            r#"SELECT * FROM "messages" WHERE "root_id" = ?1 ORDER BY "created_at" DESC, "id" DESC LIMIT ?2"#,
+            &[&root_id as &dyn rusqlite::ToSql, &limit],
+        )
+    }
+
+    /// The messages `ids` names (the ones that exist).
+    pub fn read_messages_by_ids(&self, ids: &[&str]) -> Result<Vec<Map<String, Value>>> {
+        let mut out = Vec::new();
+        // Under SQLite's bound-parameter cap.
+        for chunk in ids.chunks(500) {
+            let marks = (1..=chunk.len()).map(|n| format!("?{n}")).collect::<Vec<_>>().join(", ");
+            let params: Vec<&dyn rusqlite::ToSql> = chunk.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
+            out.extend(self.read_rows(&format!(r#"SELECT * FROM "messages" WHERE "id" IN ({marks})"#), &params)?);
+        }
+        Ok(out)
+    }
+
+    /// results-tab.json: `root_id`'s result CANDIDATES over the whole chat
+    /// = its session-authored card rows, oldest first (Android
+    /// `rawObserveResultCardsByRoot`).
+    pub fn read_result_cards(&self, root_id: &str) -> Result<Vec<Map<String, Value>>> {
+        self.read_rows(
+            r#"SELECT * FROM "messages" WHERE "root_id" = ?1
+               AND "author_session_id" IS NOT NULL AND "author_session_id" != ''
+               AND "card" IS NOT NULL AND "card" != 'null'
+               ORDER BY "created_at", "id""#,
+            &[&root_id as &dyn rusqlite::ToSql],
+        )
+    }
+
+    /// `sql`'s rows as JSON objects (the read-only connection).
+    fn read_rows(&self, sql: &str, params: &[&dyn rusqlite::ToSql]) -> Result<Vec<Map<String, Value>>> {
+        let conn = self.reader.lock().expect("reader poisoned");
+        let mut stmt = conn.prepare_cached(sql)?;
+        let names: Vec<String> = stmt.column_names().into_iter().map(|s| s.to_string()).collect();
+        let mut rows = stmt.query(params)?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next()? {
+            out.push(row_to_map(row, &names)?);
+        }
+        Ok(out)
+    }
+
+    /// The query plan SQLite picks for `sql` (tests: the index is used).
+    pub fn explain(&self, sql: &str) -> Result<String> {
+        let conn = self.reader.lock().expect("reader poisoned");
+        let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}"))?;
+        let details = stmt
+            .query_map([], |row| row.get::<_, String>(3))?
+            .collect::<std::result::Result<Vec<String>, _>>()?;
+        Ok(details.join("\n"))
     }
 
     // -- the app record outbox (VAPP-235) --------------------------------------

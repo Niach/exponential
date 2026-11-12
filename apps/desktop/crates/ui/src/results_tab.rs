@@ -13,7 +13,7 @@
 //! - [`changes_row`]: the PR block's ONE `Changes` row, opening THE review pane;
 //!   [`review_header`] = that pane's `‹ Results` back row.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder as _;
@@ -23,6 +23,7 @@ use gpui::{
 };
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 
+use domain::rows::MessageRow;
 use domain::results_tab::{is_result_card, results_tab, ResultPicture, ResultsMessageInput, ResultsSessionInput, ResultsTabInput, TabResult, RESULTS_TAB};
 
 use crate::icons::registry;
@@ -211,11 +212,11 @@ pub(crate) fn results_of_root(root_id: &str, cx: &mut App) -> Rc<Vec<TabResult>>
     };
     let collections = store.collections();
     let now = crate::session_data::now_ms();
+    // #EXP-1380: the WHOLE chat's candidates (their own read, off the main
+    // thread), never the transcript's loaded page.
+    let cards = crate::chat_window::result_cards(root_id, cx);
     let key = ResultsKey {
-        revisions: [
-            collections.sessions.read(cx).revision(),
-            collections.messages.read(cx).revision(),
-        ],
+        revisions: [collections.sessions.read(cx).revision(), cards.version],
         minute: now / 60_000,
     };
     if let Some((cached, results)) = cx.default_global::<ResultsMemo>().0.get(root_id) {
@@ -223,12 +224,12 @@ pub(crate) fn results_of_root(root_id: &str, cx: &mut App) -> Rc<Vec<TabResult>>
             return results.clone();
         }
     }
-    let results = Rc::new(results_tab(&results_input(root_id, now, cx)));
+    let results = Rc::new(results_tab(&results_input(root_id, &cards.rows, now, cx)));
     cx.global_mut::<ResultsMemo>().0.insert(root_id.to_string(), (key, results.clone()));
     results
 }
 
-fn results_input(root_id: &str, now: i64, cx: &App) -> ResultsTabInput {
+fn results_input(root_id: &str, cards: &[MessageRow], now: i64, cx: &App) -> ResultsTabInput {
     let sessions: Vec<ResultsSessionInput> = crate::session_data::tree_of_root(root_id, cx)
         .into_iter()
         .map(|session| ResultsSessionInput {
@@ -237,12 +238,16 @@ fn results_input(root_id: &str, now: i64, cx: &App) -> ResultsTabInput {
             id: session.id,
         })
         .collect();
-    let messages: Vec<ResultsMessageInput> = crate::session_data::keyed_messages(cx, sessions.iter().map(|session| session.id.as_str()), |owner, message| {
-        message.author_session_id.as_deref() == Some(owner)
-            && message.card.as_ref().is_some_and(is_result_card)
-    })
-    .into_iter()
-    .filter_map(|message| {
+    let tree: HashSet<&str> = sessions.iter().map(|session| session.id.as_str()).collect();
+    let messages: Vec<ResultsMessageInput> = cards
+        .iter()
+        .filter(|message| {
+            tree.contains(message.session_id.as_str())
+                && message.author_session_id.as_deref() == Some(message.session_id.as_str())
+                && message.card.as_ref().is_some_and(is_result_card)
+        })
+        .cloned()
+        .filter_map(|message| {
         Some(ResultsMessageInput {
             created_at: message.created_at.as_deref().and_then(domain::session_tree::iso_ms)?,
             id: message.id,

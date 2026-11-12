@@ -49,6 +49,7 @@ mod chat_launch;
 mod chat_actions;
 mod chat_list;
 mod chat_tab_transcript;
+mod chat_window;
 mod chat_screen;
 mod dawn_mark;
 mod duty_cycle;
