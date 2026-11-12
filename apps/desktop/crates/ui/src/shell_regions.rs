@@ -120,8 +120,8 @@ fn gather(nav: &Entity<Navigation>, cx: &mut App) -> (IdeSidebarInput, HashMap<S
         input.pins.push(IdePinInput { id: issue.id, identifier: issue.identifier, title: issue.title });
     }
     // #FEED-232: an agent row counts its conversation's unread replies.
-    let unread: HashMap<String, usize> =
-        crate::session_data::chats_model(&team_id, cx).agent_rows.iter().map(|row| (row.agent_id.clone(), row.unread_count)).collect();
+    // #PERF-10: the counts alone (the whole Chats model derived per write).
+    let unread: HashMap<String, usize> = crate::session_data::agent_unread_counts(&team_id, cx);
     for agent in crate::session_data::agents_in_team(&team_id, cx) {
         let icon = format!("ide:agent:{}", agent.agent_id);
         let unread = unread.get(&agent.agent_id).copied().unwrap_or(0);

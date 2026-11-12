@@ -225,6 +225,7 @@ mod session_chat;
 // #EXP-1561 / #EXP-1562: a waiting card's ×, the dismissed line, the strip's waiting chips.
 mod waiting_cards;
 mod chats_view;
+mod chat_rows;
 mod work_card;
 mod script_card;
 // EXP-1324: THE Trace + THE CodeBlock.
