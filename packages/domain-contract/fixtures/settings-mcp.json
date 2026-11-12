@@ -478,7 +478,7 @@
     "activity": "settings-mcp-activity",
     "clients": "settings-mcp-clients"
   },
-  "overview": "MCP servers your team's sessions, agents and apps can call. Built-ins are always on; connect your own account to the others.",
+  "overview": "MCP servers your team's sessions, agents and apps can call.",
   "builtins": {
     "exponential": {
       "name": "Exponential",
