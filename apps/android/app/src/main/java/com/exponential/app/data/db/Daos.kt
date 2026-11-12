@@ -477,6 +477,38 @@ abstract class MessageDao {
     fun observeResultCardsByRoot(rootId: String): Flow<List<MessageEntity>> =
         rawObserveResultCardsByRoot(rootId).openedMessages()
 
+    // Large chats: the newest createdAt of a session's rows by one author kind
+    // (the session view's "news arrived" stamp) — the max the whole session
+    // read used to fold, without reading (or opening) a single row.
+    @Query(
+        "SELECT created_at FROM messages WHERE session_id = :sessionId AND author_kind = :authorKind " +
+            "ORDER BY created_at DESC LIMIT 1",
+    )
+    abstract fun observeNewestCreatedAt(sessionId: String, authorKind: String): Flow<String?>
+
+    // Large chats: a session's CARD rows (replies, plans, questions, surfaces):
+    // everything the composer's quick replies and the session's own cards
+    // read; a card-less row can never carry a card once opened.
+    @Query(
+        "SELECT * FROM messages WHERE session_id = :sessionId AND card IS NOT NULL AND card != 'null' " +
+            "ORDER BY created_at, id",
+    )
+    abstract fun rawObserveCardRowsBySession(sessionId: String): Flow<List<MessageEntity>>
+    fun observeCardRowsBySession(sessionId: String): Flow<List<MessageEntity>> =
+        rawObserveCardRowsBySession(sessionId).openedMessages()
+
+    // Large chats (session-title.json `firstPrompt`): the rows of one tree a
+    // session TITLE can read — card-less, a person's or ANOTHER session's
+    // input — never the tree's whole transcript.
+    @Query(
+        "SELECT * FROM messages WHERE root_id = :rootId AND (card IS NULL OR card = 'null') " +
+            "AND (author_kind = 'user' OR (author_session_id IS NOT NULL AND author_session_id != '' " +
+            "AND author_session_id != session_id)) ORDER BY created_at, id",
+    )
+    abstract fun rawObserveTitleRowsByRoot(rootId: String): Flow<List<MessageEntity>>
+    fun observeTitleRowsByRoot(rootId: String): Flow<List<MessageEntity>> =
+        rawObserveTitleRowsByRoot(rootId).openedMessages()
+
     // #EXP-1380: the card-less rows of the given sessions —
     // all a session TITLE reads (its first prompt), never a whole transcript.
     @Query(

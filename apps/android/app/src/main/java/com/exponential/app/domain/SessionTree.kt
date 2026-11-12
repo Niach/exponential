@@ -1815,8 +1815,10 @@ object SessionTree {
      *  or by a DAO query scoped to that session). */
     fun message(row: MessageEntity, sessionId: String): Message {
         // EXP-1459: the DAO already opened what this install can; what stays
-        // sealed is LOCKED (empty body, the card's clear part).
-        val opened = SealedContent.openMessage(row.rootId, row.body, row.card)
+        // sealed is LOCKED (empty body, the card's clear part). Per message
+        // id: an opened row is plain here, a locked one reuses the DAO's
+        // outcome (no second native open).
+        val opened = SealedContent.openMessage(row)
         return Message(
             id = row.id,
             sessionId = sessionId,

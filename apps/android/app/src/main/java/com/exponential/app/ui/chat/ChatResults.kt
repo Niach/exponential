@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -34,6 +36,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -89,10 +92,11 @@ import kotlinx.coroutines.launch
 @Composable
 fun ChatResultsPage(
     rootId: String,
-    /** The tree's rows + its session-authored card rows
-     *  ([ChatViewModel.resultCards]): every result of the root's tree, never
-     *  only the chat's loaded window. */
-    sessions: List<SessionEntity>,
+    /** THE fold ([ChatViewModel.results]: every result of the root's tree,
+     *  never only the chat's loaded window), built off the main thread. */
+    results: List<ResultsTab.Result>,
+    /** The tree's session-authored card rows ([ChatViewModel.resultCards]):
+     *  a result's inline surface. */
     cards: List<SessionTree.Message>,
     /** An inline surface's reply press (session id, text). */
     onReply: (String, String) -> Unit,
@@ -117,18 +121,6 @@ fun ChatResultsPage(
         files?.let { list -> GuideChangeSet(list, list.sumOf { it.additions }, list.sumOf { it.deletions }) }
     }
     var review by rememberSaveable { mutableStateOf(false) }
-    // The ages follow the clock.
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(60_000)
-            now = System.currentTimeMillis()
-        }
-    }
-    val inputs = remember(sessions, cards) { resultsTabInputs(sessions, cards) }
-    val results = remember(inputs, rootId, now) {
-        ResultsTab.resultsTab(now, rootId, inputs.first, inputs.second)
-    }
     val cardsById = remember(cards) { cards.associateBy { it.id } }
     var opened by remember { mutableStateOf<PictureViewerSet?>(null) }
 
@@ -137,15 +129,20 @@ fun ChatResultsPage(
         return
     }
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .detailHazeSource()
-            .verticalScroll(rememberScrollState())
-            .padding(padding)
-            .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 32.dp),
+    // ONE lazy list (large chats: a hundred results never compose in one
+    // frame): the page's insets + the 16/16/16/32 margins as content padding,
+    // the PR block and the results as items with THE [ResultsTabContent] gaps.
+    val direction = LocalLayoutDirection.current
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().detailHazeSource(),
+        contentPadding = PaddingValues(
+            start = padding.calculateStartPadding(direction) + 16.dp,
+            top = padding.calculateTopPadding() + 16.dp,
+            end = padding.calculateEndPadding(direction) + 16.dp,
+            bottom = padding.calculateBottomPadding() + 32.dp,
+        ),
     ) {
-        ResultsTabContent(
+        resultsTabItems(
             results = results,
             onOpenPicture = { result, index -> opened = resultPictureSet(result, index) },
             lead = if (pr != null) {

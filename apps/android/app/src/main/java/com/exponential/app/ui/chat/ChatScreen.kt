@@ -368,7 +368,10 @@ fun ChatScreen(
         }
         SessionScreenItems(treeIssues, sessions)
     }
-    val resultsCount = remember(tree, resultCards, viewModel.rootId) { chatResultsCount(viewModel.rootId, tree, resultCards) }
+    // results-tab.json: THE fold, built off the main thread in the view model
+    // (the page reads the same list): never re-folded here per change.
+    val results by viewModel.results.collectAsStateWithLifecycle()
+    val resultsCount = results.size
     val kind = SessionScreen.kind(
         agentId = if (agent != null) rootRow?.agentId else null,
         // An app's editor session renders as AppEditorScreen (its Preview /
@@ -626,7 +629,7 @@ fun ChatScreen(
                 resultsPage = { padding ->
                     ChatResultsPage(
                         rootId = viewModel.rootId,
-                        sessions = tree,
+                        results = results,
                         cards = resultCards,
                         onReply = viewModel::sendTo,
                         pullRequests = pullRequests,
