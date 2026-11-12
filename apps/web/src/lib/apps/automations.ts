@@ -107,6 +107,8 @@ export async function auditAutomation(app: AutomationApp, automation: Automation
       error,
       latencyMs: Math.max(0, Math.floor(Date.now() - startedAt)),
       argsHash: argsHash(input),
+      sessionId: null,
+      target: null,
     },
   ])
 }

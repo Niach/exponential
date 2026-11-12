@@ -1891,6 +1891,13 @@
       "when": 1794457098573,
       "tag": "0269_square_tigra",
       "breakpoints": true
+    },
+    {
+      "idx": 270,
+      "version": "7",
+      "when": 1794498802730,
+      "tag": "0270_mcp_calls_session_target",
+      "breakpoints": true
     }
   ]
 }
