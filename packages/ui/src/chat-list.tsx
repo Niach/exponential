@@ -12,6 +12,8 @@ import {
   type ChatSelectionAction,
 } from "@exp/domain-contract/chats"
 import { CHAT_ROW_WORDS, CHATS_LIST_COPY } from "@exp/domain-contract/session-tree"
+import { rowBadge } from "@exp/domain-contract/nav-badges"
+import { Badge } from "./badge"
 import { AgentWorkingMark, RUN_MARK_BADGE_CLASS } from "./agent-brand-mark"
 import { BoardGlyph } from "./board-glyph"
 import { getAppIcon } from "./board-icons"
@@ -220,6 +222,7 @@ function ChatRowText({
   const { prefix, rest } = previewParts(preview)
   const word = wordKey ? (CHAT_ROW_WORDS[wordKey] ?? null) : null
   const row = { title, time, needsYou, unreadCount, preview, word: wordKey }
+  const badge = rowBadge({ unreadCount, needsYou })
   return (
       <span
         className={cn(
@@ -264,17 +267,8 @@ function ChatRowText({
               {word}
             </span>
           )}
-          {unread && (
-            <span
-              data-slot="chat-unread"
-              className={cn(
-                `flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold tabular-nums`,
-                row.needsYou ? `bg-yellow-400 text-black` : `bg-foreground text-background`
-              )}
-            >
-              {row.unreadCount > 99 ? `99+` : row.unreadCount}
-            </span>
-          )}
+          {/* #FEED-232: THE count badge (nav-badges.json `rowBadge`). */}
+          <Badge count={badge.count} tone={badge.tone} data-slot="chat-unread" />
         </span>
       </span>
   )

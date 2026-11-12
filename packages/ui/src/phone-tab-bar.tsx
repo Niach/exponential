@@ -1,7 +1,9 @@
 import * as React from "react"
 import { Slot } from "radix-ui"
 import { CHATS_SHELL } from "@exp/domain-contract/chats"
+import type { CountBadgeValue } from "@exp/domain-contract/nav-badges"
 
+import { Badge } from "./badge"
 import { cn } from "./cn"
 import { FAB_CHROME_CLASS } from "./fab-chrome"
 
@@ -9,7 +11,7 @@ import { FAB_CHROME_CLASS } from "./fab-chrome"
 // bottom bar's tab capsule — on Android and web-mobile the look-alike of the
 // iOS Liquid Glass tab bar, painted on THE floating chrome recipe
 // (`FAB_CHROME_CLASS`): each tab an icon over its label, the selected one on
-// the glass-active pill, an optional dot (Chats = unread). 52px tall, the
+// the glass-active pill, an optional count badge (Chats, #FEED-232). 52px tall, the
 // height of the two-armed new chat / new issue capsule beside it. iOS = the
 // system tab bar (ExpUI `PhoneTabBar` look), Android `ui/components`
 // `PhoneTabBar`.
@@ -272,25 +274,11 @@ export function PhoneTabBar({
   )
 }
 
-/** The dot a tab wears (top-right of its icon). */
-export function PhoneTabDot({ className }: { className?: string }) {
-  return (
-    <span
-      aria-hidden
-      data-slot="phone-tab-dot"
-      className={cn(
-        `pointer-events-none absolute left-[calc(50%+5px)] top-1 size-2 rounded-full ring-2 ring-popover`,
-        className
-      )}
-    />
-  )
-}
-
 export function PhoneTab({
   label,
   icon,
   selected = false,
-  dot,
+  badge,
   caret,
   asChild = false,
   lensPreview,
@@ -303,8 +291,9 @@ export function PhoneTab({
   /** The glyph (a concept icon at size-5, or the team's avatar). */
   icon: React.ReactNode
   selected?: boolean
-  /** The dot's colour class (`bg-yellow-400`); absent = none. */
-  dot?: string | null
+  /** #FEED-232: THE count badge on the icon's top-right corner
+   *  (nav-badges.json); absent or a count of 0 = none. */
+  badge?: CountBadgeValue | null
   /** #EXP-1645 (`shell.boardTab`): beside the glyph, out of flow, so showing
    *  it never changes the tab's width (the Board tab on the board view, the
    *  Team tab on the Team page). */
@@ -331,6 +320,14 @@ export function PhoneTab({
       )}
       <span className="relative flex h-5 items-center justify-center">
         {icon}
+        {badge && (
+          <Badge
+            count={badge.count}
+            tone={badge.tone}
+            data-slot="phone-tab-badge"
+            className="absolute bottom-[calc(100%-8px)] left-[calc(50%+4px)]"
+          />
+        )}
         {caret && (
           <span
             aria-hidden
@@ -345,7 +342,6 @@ export function PhoneTab({
       <span className="min-w-0 max-w-full truncate text-[10px] font-medium leading-none">
         {label}
       </span>
-      {dot && <PhoneTabDot className={dot} />}
     </>
   )
   const tabClassName = cn(
