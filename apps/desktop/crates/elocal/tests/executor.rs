@@ -59,10 +59,12 @@ fn boards_statuses_labels_issues_comments() {
     let got = api::issues::issues_get(&client, "WK-2").unwrap();
     assert_eq!(got.issue.id, second.issue.id);
 
+    // #EXP-1799: a delete is the trash's; the rows leave every read.
     api::issues::issues_delete(&client, &created.issue.id).unwrap();
     assert_eq!(desktop.store.rows("comments").unwrap().len(), 0);
     assert_eq!(desktop.store.rows("issue_labels").unwrap().len(), 0);
     assert_eq!(desktop.store.rows("issues").unwrap().len(), 1);
+    assert_eq!(desktop.executor.meta().issue_trash.len(), 1);
 
     api::statuses::statuses_delete(&client, &team_id, &status.status.id, None).unwrap();
     assert_eq!(desktop.store.rows("issue_statuses").unwrap().len(), 6);

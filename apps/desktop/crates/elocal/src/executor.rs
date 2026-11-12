@@ -191,7 +191,7 @@ impl LocalExecutor {
 
     // -- dispatch ----------------------------------------------------------------
 
-    fn dispatch(&self, path: &str, input: Row) -> Out {
+    fn dispatch(&self, path: &str, input: Row, session_id: Option<&str>) -> Out {
         if !parity::is_local_procedure(path) {
             return Err(Refusal(501, parity::refusal(path)));
         }
@@ -219,12 +219,15 @@ impl LocalExecutor {
             "issueLabels.bulkRemove" => self.issue_labels_set(&ids_of(&input, "issueIds"), need(&input, "labelId")?, false),
             "issues.create" => self.issues_create(input),
             "issues.update" => self.issues_update(input),
-            "issues.delete" => self.issues_delete(input),
+            "issues.delete" => self.issues_delete(input, session_id),
             "issues.move" => self.issues_move(input),
             "issues.get" => self.issues_get(input),
             "issues.search" => self.issues_search(input),
             "issues.bulkUpdate" => self.issues_bulk_update(input),
-            "issues.bulkDelete" => self.issues_bulk_delete(input),
+            "issues.bulkDelete" => self.issues_bulk_delete(input, session_id),
+            "issues.listDeleted" => self.issues_list_deleted(),
+            "issues.restore" => self.issues_restore(input, session_id),
+            "issues.purge" => self.issues_purge(input, session_id),
             "issueDrafts.upsert" => self.drafts_upsert(input),
             "issueDrafts.delete" => self.drafts_delete(input),
             // A Local desktop's files ride an issue, never a draft: none to list.
@@ -381,6 +384,11 @@ impl LocalExecutor {
         self.row_or("boards", id, "Board")?;
         let issues: Vec<String> = self.rows_where("issues", "board_id", id)?.iter().filter_map(|i| text(i, "id")).map(str::to_string).collect();
         self.issues_remove(&issues)?;
+        // #EXP-1799: the board goes for good here, its trashed issues with it.
+        let trashed: Vec<String> = self.meta.lock().expect("meta").issue_trash.iter().filter(|t| text(&t.issue, "board_id") == Some(id)).map(|t| t.id().to_string()).collect();
+        for issue in trashed {
+            self.purge_issue(&issue, Some(Actor::of(self, None)))?;
+        }
         self.delete("boards", id)?;
         Ok(json!({"ok": true, "txid": self.txid()}))
     }
@@ -600,10 +608,11 @@ impl LocalExecutor {
         self.delete_many("issues", ids)
     }
 
-    fn issues_delete(&self, input: Row) -> Out {
+    /// #EXP-1799: a delete is the trash's (issue-lifecycle.json `trash`).
+    fn issues_delete(&self, input: Row, session_id: Option<&str>) -> Out {
         let id = need(&input, "id")?.to_string();
         self.row_or("issues", &id, "Issue")?;
-        self.issues_remove(&[id.clone()])?;
+        self.trash_issues(&[id.clone()], session_id)?;
         Ok(json!({"id": id, "txid": self.txid()}))
     }
 
@@ -654,10 +663,11 @@ impl LocalExecutor {
         Ok(json!({"updated": updated, "txid": self.txid()}))
     }
 
-    fn issues_bulk_delete(&self, input: Row) -> Out {
-        let ids = ids_of(&input, "ids");
-        self.issues_remove(&ids)?;
-        Ok(json!({"deleted": ids.len(), "txid": self.txid()}))
+    fn issues_bulk_delete(&self, input: Row, session_id: Option<&str>) -> Out {
+        // The server's input is `issueIds` (what the api wrapper sends).
+        let ids = if input.contains_key("issueIds") { ids_of(&input, "issueIds") } else { ids_of(&input, "ids") };
+        let trashed = self.trash_issues(&ids, session_id)?;
+        Ok(json!({"deleted": trashed, "txid": self.txid()}))
     }
 
     // -- comments ----------------------------------------------------------------
@@ -1052,8 +1062,244 @@ impl LocalExecutor {
     }
 }
 
+
+// -- the issue trash (#EXP-1799) -------------------------------------------------
+//
+// issue-lifecycle.json `trash`, the server's semantics (apps/web
+// lib/issue-trash.ts) over a store with no server-side predicates: a trashed
+// issue's row and its children leave the synced tables for the sidecar's
+// `issue_trash`, so every read hides them and nothing is lost; restore puts
+// them back, purge (an owner's Delete forever, the sweep past the retention)
+// drops them and their bytes.
+
+/// The tables whose rows are an issue's children (the server's
+/// `propagate_issue_deleted_at` set); `issue_relations` matches either side.
+const TRASH_CHILDREN: [&str; 9] = [
+    "comments",
+    "attachments",
+    "issue_labels",
+    "issue_subscribers",
+    "issue_events",
+    "notifications",
+    "session_issues",
+    "pull_request_issues",
+    "issue_relations",
+];
+
+/// The columns the trash stamps on the issue row.
+const TRASH_COLUMNS: [&str; 3] = ["deleted_at", "deleted_by", "deleted_by_agent_id"];
+
+/// Who trashed, restored or purged; `None` at a call site = the sweep.
+struct Actor {
+    user_id: String,
+    agent_id: Option<String>,
+    session_id: Option<String>,
+}
+
+impl Actor {
+    /// The identity, acting through `session_id` when the call names one
+    /// (the local agent tools do): that session's agent is the acting agent.
+    fn of(executor: &LocalExecutor, session_id: Option<&str>) -> Self {
+        let agent_id = session_id.and_then(|s| executor.row("sessions", s).ok().flatten()).and_then(|s| text(&s, "agent_id").filter(|a| !a.is_empty()).map(str::to_string));
+        Self { user_id: executor.identity().user_id, agent_id, session_id: session_id.map(str::to_string) }
+    }
+}
+
+/// The key a child row is deleted by.
+fn child_key(table: &str, row: &Row) -> Option<String> {
+    if table == "issue_labels" {
+        Some(format!("{}/{}", text(row, "issue_id")?, text(row, "label_id")?))
+    } else {
+        text(row, "id").map(str::to_string)
+    }
+}
+
+/// The trash `eventPayload`, in order.
+fn trash_payload(issue: &Row, actor: Option<&Actor>) -> Value {
+    json!({
+        "issueId": issue.get("id").cloned().unwrap_or(Value::Null),
+        "identifier": issue.get("identifier").cloned().unwrap_or(Value::Null),
+        "title": issue.get("title").cloned().unwrap_or(Value::Null),
+        "boardId": issue.get("board_id").cloned().unwrap_or(Value::Null),
+        "actorUserId": actor.map(|a| a.user_id.clone()),
+        "actorAgentId": actor.and_then(|a| a.agent_id.clone()),
+        "sessionId": actor.and_then(|a| a.session_id.clone()),
+        "viaMcp": actor.is_some_and(|a| a.session_id.is_some()),
+    })
+}
+
+impl LocalExecutor {
+    /// The team stream's row for a trash event (`events`, as emitEventInTx writes it).
+    fn emit_trash_event(&self, name: &str, issue: &Row, actor: Option<&Actor>) -> Result<(), Refusal> {
+        let (emitted_by, session_id, user_id) = match actor {
+            None => ("server", None, None),
+            Some(Actor { session_id: Some(s), .. }) => ("session", Some(s.clone()), None),
+            Some(a) => ("user", None, Some(a.user_id.clone())),
+        };
+        self.write("events", obj(json!({"id": new_id(), "team_id": self.team_id, "name": name, "payload": trash_payload(issue, actor), "emitted_by": emitted_by, "session_id": session_id, "user_id": user_id, "created_at": time::now()})))
+    }
+
+    /// The child rows of `issue_id` in `table`.
+    fn children_of(&self, table: &str, issue_id: &str) -> Result<Vec<Row>, Refusal> {
+        if table == "issue_relations" {
+            Ok(self.rows(table)?.into_iter().filter(|r| text(r, "issue_id") == Some(issue_id) || text(r, "related_issue_id") == Some(issue_id)).collect())
+        } else {
+            self.rows_where(table, "issue_id", issue_id)
+        }
+    }
+
+    /// Moves the live issues among `ids` to the trash (an id not in the
+    /// store is skipped); returns how many went.
+    fn trash_issues(&self, ids: &[String], session_id: Option<&str>) -> Result<usize, Refusal> {
+        let actor = Actor::of(self, session_id);
+        let now = time::now();
+        let mut trashed = 0;
+        for id in ids {
+            let Some(mut issue) = self.row("issues", id)? else { continue };
+            let mut children = std::collections::BTreeMap::new();
+            for table in TRASH_CHILDREN {
+                let rows = self.children_of(table, id)?;
+                if !rows.is_empty() {
+                    children.insert(table.to_string(), rows);
+                }
+            }
+            issue.insert("deleted_at".into(), json!(now));
+            issue.insert("deleted_by".into(), json!(actor.user_id));
+            issue.insert("deleted_by_agent_id".into(), json!(actor.agent_id));
+            // The sidecar first: a crash between the two keeps the rows.
+            let entry = crate::desktops::TrashedIssue { issue: issue.clone(), children: children.clone() };
+            self.with_meta(|m| {
+                m.issue_trash.retain(|t| t.id() != id);
+                m.issue_trash.push(entry);
+            });
+            for (table, rows) in &children {
+                let keys: Vec<String> = rows.iter().filter_map(|r| child_key(table, r)).collect();
+                self.delete_many(table, &keys)?;
+            }
+            self.delete("issues", id)?;
+            self.emit_trash_event(domain::issue_trash::EVENT_DELETED, &issue, Some(&actor))?;
+            trashed += 1;
+        }
+        Ok(trashed)
+    }
+
+    fn trashed(&self, id: &str) -> Option<crate::desktops::TrashedIssue> {
+        self.meta.lock().expect("meta").issue_trash.iter().find(|t| t.id() == id).cloned()
+    }
+
+    fn trash_out(entry: &crate::desktops::TrashedIssue) -> Value {
+        json!({"id": entry.id(), "identifier": entry.issue.get("identifier").cloned().unwrap_or(Value::Null), "txId": null})
+    }
+
+    /// `issues.listDeleted`: the trash, newest deleted first; a removed
+    /// board's issues are not listed. Runs the sweep first.
+    fn issues_list_deleted(&self) -> Out {
+        self.purge_due_issues(jiff::Timestamp::now().as_millisecond());
+        let boards: Vec<String> = self.rows("boards")?.iter().filter_map(|b| text(b, "id")).map(str::to_string).collect();
+        let mut entries: Vec<crate::desktops::TrashedIssue> = self.meta.lock().expect("meta").issue_trash.iter().filter(|t| text(&t.issue, "board_id").is_some_and(|b| boards.iter().any(|x| x == b))).cloned().collect();
+        entries.sort_by(|a, b| b.deleted_at().cmp(&a.deleted_at()));
+        Ok(Value::Array(
+            entries
+                .iter()
+                .map(|t| {
+                    let purge_at = t.deleted_at().and_then(domain::instant::parse_instant).map(|ms| time::format_ms(ms + domain::issue_trash::RETENTION_DAYS * 86_400_000));
+                    let column = |key: &str| t.issue.get(key).cloned().unwrap_or(Value::Null);
+                    json!({"id": t.id(), "identifier": column("identifier"), "title": column("title"), "boardId": column("board_id"), "deletedAt": column("deleted_at"), "deletedBy": column("deleted_by"), "deletedByAgentId": column("deleted_by_agent_id"), "purgeAt": purge_at})
+                })
+                .collect(),
+        ))
+    }
+
+    /// `issues.restore`: every row back (minus what went since), the three
+    /// columns cleared.
+    fn issues_restore(&self, input: Row, session_id: Option<&str>) -> Out {
+        let id = need(&input, "id")?;
+        let entry = self.trashed(id).ok_or_else(|| not_found("Issue"))?;
+        let mut issue = entry.issue.clone();
+        for column in TRASH_COLUMNS {
+            issue.remove(column);
+        }
+        issue.insert("updated_at".into(), json!(time::now()));
+        self.write("issues", issue)?;
+        for (table, rows) in &entry.children {
+            let mut back = Vec::new();
+            for row in rows {
+                match table.as_str() {
+                    "issue_labels" if self.row("labels", text(row, "label_id").unwrap_or(""))?.is_none() => continue,
+                    "session_issues" if self.row("sessions", text(row, "session_id").unwrap_or(""))?.is_none() => continue,
+                    "issue_relations" => {
+                        let other = if text(row, "issue_id") == Some(id) { text(row, "related_issue_id") } else { text(row, "issue_id") }.unwrap_or("");
+                        if self.trashed(other).is_some() {
+                            // Still hidden while the other side is trashed: it rides that issue.
+                            let row = row.clone();
+                            self.with_meta(|m| {
+                                if let Some(t) = m.issue_trash.iter_mut().find(|t| t.id() == other) {
+                                    t.children.entry("issue_relations".into()).or_default().push(row);
+                                }
+                            });
+                            continue;
+                        }
+                        if self.row("issues", other)?.is_none() {
+                            continue;
+                        }
+                    }
+                    _ => {}
+                }
+                back.push(row.clone());
+            }
+            if !back.is_empty() {
+                self.write_many(table, back)?;
+            }
+        }
+        self.with_meta(|m| m.issue_trash.retain(|t| t.id() != id));
+        self.emit_trash_event(domain::issue_trash::EVENT_RESTORED, &entry.issue, Some(&Actor::of(self, session_id)))?;
+        Ok(Self::trash_out(&entry))
+    }
+
+    /// `issues.purge`: Delete forever, from the trash only (the identity is
+    /// the desktop's owner, `access.purge`).
+    fn issues_purge(&self, input: Row, session_id: Option<&str>) -> Out {
+        let id = need(&input, "id")?;
+        let entry = self.purge_issue(id, Some(Actor::of(self, session_id)))?.ok_or_else(|| not_found("Issue"))?;
+        Ok(Self::trash_out(&entry))
+    }
+
+    /// Drops one trashed issue for good: its bytes, its held rows, and the
+    /// `issue.purged` row. `None` = it was not in the trash.
+    fn purge_issue(&self, id: &str, actor: Option<Actor>) -> Result<Option<crate::desktops::TrashedIssue>, Refusal> {
+        let Some(entry) = self.with_meta(|m| {
+            let at = m.issue_trash.iter().position(|t| t.id() == id)?;
+            Some(m.issue_trash.remove(at))
+        }) else {
+            return Ok(None);
+        };
+        for attachment in entry.children.get("attachments").into_iter().flatten() {
+            if let Some(a) = text(attachment, "id") {
+                self.blobs.remove(a);
+            }
+        }
+        self.emit_trash_event(domain::issue_trash::EVENT_PURGED, &entry.issue, actor.as_ref())?;
+        Ok(Some(entry))
+    }
+
+    /// The sweep: purges every issue trashed past the retention (`now_ms` =
+    /// UTC milliseconds); returns their ids.
+    pub fn purge_due_issues(&self, now_ms: i64) -> Vec<String> {
+        let due: Vec<String> = self.meta.lock().expect("meta").issue_trash.iter().filter(|t| domain::issue_trash::is_purge_due(t.deleted_at(), now_ms)).map(|t| t.id().to_string()).collect();
+        due.into_iter()
+            .filter(|id| match self.purge_issue(id, None) {
+                Ok(purged) => purged.is_some(),
+                Err(Refusal(_, e)) => {
+                    log::warn!("issue trash sweep {id}: {e}");
+                    false
+                }
+            })
+            .collect()
+    }
+}
+
 impl Transport for LocalExecutor {
-    fn call(&self, _kind: CallKind, path: &str, input: Option<&str>, _session_id: Option<&str>) -> Result<String, ApiError> {
+    fn call(&self, _kind: CallKind, path: &str, input: Option<&str>, session_id: Option<&str>) -> Result<String, ApiError> {
         let input: Row = match input {
             Some(json) => match serde_json::from_str::<Value>(json) {
                 Ok(Value::Object(map)) => map,
@@ -1063,7 +1309,7 @@ impl Transport for LocalExecutor {
             },
             None => Row::new(),
         };
-        match self.dispatch(path, input) {
+        match self.dispatch(path, input, session_id) {
             Ok(value) => serde_json::to_string(&value).map_err(|e| ApiError::Decode(format!("{path} output: {e}"))),
             Err(Refusal(status, message)) => Err(ApiError::Http { status, message }),
         }
