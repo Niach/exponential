@@ -134,7 +134,8 @@ pub fn encode(envelope: Envelope, dsn: &Dsn) -> Option<Vec<u8>> {
     }
     let mut body = Vec::new();
     scrubbed.to_writer(&mut body).ok()?;
-    Some(body)
+    // #ERR-12: debug images in the shape GlitchTip symbolicates.
+    Some(crash_monitor::native_debug_images(body))
 }
 
 #[cfg(test)]
