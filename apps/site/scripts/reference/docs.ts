@@ -291,6 +291,8 @@ Clients that render MCP Apps show \`exponential_issues\` op \`show\`, \`exponent
 
 **Interactive in Claude (MCP Apps).** Outside a session \`exponential_show\` draws its surface inline with the genUI renderer; a Button whose press is a \`reply\` event sends its text as your next message. \`exponential_apps\` op \`get\` runs the app in the conversation: its records, bindings, actions and screens work through the connector, as you, and a call the app is not granted asks first. Op \`list\` lists the apps to open.
 
+**Full size and long lists.** \`exponential_issues\` op \`show\` and a running app open full size (Claude's side pane or full page); everything else stays inline and any view can be expanded from its title bar. Rows open in place (an issue row opens the issue, with a way back). Outside a session the list ops answer the model with a summary, one line per row and the next \`offset\`, and hand every row to the view, which pages with Show more. Ops that answer no list or issue (delete, labels, subscribe, mark_read) draw no view.
+
 Session content is end-to-end encrypted: a client connected straight to \`/api/mcp\` sees a session's metadata (who, when, state) and none of its text.
 
 ## App tools
