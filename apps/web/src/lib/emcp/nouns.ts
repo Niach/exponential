@@ -90,7 +90,7 @@ export const NOUN_TOOLS: readonly NounSpec[] = [
     name: `issues`,
     label: `issues`,
     group: `work`,
-    blurb: `Issues (id = UUID or identifier: EXP-12).`,
+    blurb: `Issues (id = UUID or EXP-12).`,
     readNote: `list = open only unless includeClosed or a status filter; widget = reporter data.`,
     writeNote: `create links only via sessionId or link: true.`,
     alwaysLoad: true,
