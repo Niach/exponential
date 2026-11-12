@@ -367,7 +367,10 @@ impl ChatTranscript {
             .collect();
         #[cfg(test)]
         counters::bump(|c| c.2 += bodies.len());
-        let mut prepared = md.prepare_document(&bodies, push.prose, cx).into_iter();
+        let mut prepared = {
+            let _span = tracing::trace_span!("chat.prepare", rows = bodies.len()).entered();
+            md.prepare_document(&bodies, push.prose, cx).into_iter()
+        };
         let mut streaming = None;
         for row in &mut rows {
             if let ChatRowInput::Message { id, body, .. } = row {
@@ -410,9 +413,13 @@ impl ChatTranscript {
             state.senders = push.senders;
         }
         let input = ChatInput { session_id: Some(push.session_id), bubbles: true, slash_commands: true, rows: all, ..ChatInput::default() };
-        let value = serde_json::to_value(uicore_model::chat::chat_view(&input)).unwrap_or_default();
+        let value = {
+            let _span = tracing::trace_span!("chat.view").entered();
+            serde_json::to_value(uicore_model::chat::chat_view(&input)).unwrap_or_default()
+        };
         if self.shown.as_ref() != Some(&value) {
             self.shown = Some(value.clone());
+            let _span = tracing::trace_span!("chat.set_data").entered();
             view.update(cx, |view, cx| {
                 let _ = view.set_data("/chatting", Some(value), cx);
             });

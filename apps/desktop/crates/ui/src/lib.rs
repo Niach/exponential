@@ -285,6 +285,8 @@ mod rail_bench;
 #[cfg(test)]
 mod real_data_bench;
 #[cfg(test)]
+pub(crate) mod span_clock;
+#[cfg(test)]
 mod settings_bench;
 /// #EXP-1488: the accessible-name rules (eui-gpui's `tests/accessible_names.rs`),
 /// compiled here too so the desktop job's lib tests run them on every IDE change.

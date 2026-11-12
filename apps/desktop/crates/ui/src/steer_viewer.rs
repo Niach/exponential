@@ -1735,7 +1735,13 @@ impl SteerSessionView {
     /// is a wrong row height rather than a crash: exactly the class of bug
     /// not worth a cache to earn.
     fn sync_list(&mut self, cx: &mut gpui::Context<Self>) {
-        self.refresh_derived();
+        // #PERF-4: each stage its own span, so a hang inside this view's
+        // render names the stage (it read `render(SteerSessionView)` alone).
+        let _span = tracing::trace_span!("steer.sync_list").entered();
+        {
+            let _span = tracing::trace_span!("steer.derive").entered();
+            self.refresh_derived();
+        }
         self.reanchor_window();
         if std::mem::take(&mut self.extend_window) {
             self.grow_window();
@@ -1758,6 +1764,7 @@ impl SteerSessionView {
         let projection_key = (self.feed_epoch, self.feed.generation(), start, focus.clone());
         let project = self.projection_key.as_ref() != Some(&projection_key);
         if project {
+            let _span = tracing::trace_span!("steer.project_rows").entered();
             self.project_rows(start, focus.as_deref());
             self.projection_key = Some(projection_key);
         }
@@ -1767,7 +1774,10 @@ impl SteerSessionView {
         // (EXP-884, [`Self::refresh_derived`] above).
         self.prune_dropped_rows();
         // Session 58cb32df: the conversation's own cards beside the relay rows.
-        self.refresh_conversation_cards(focus.is_none(), cx);
+        {
+            let _span = tracing::trace_span!("steer.conversation_cards").entered();
+            self.refresh_conversation_cards(focus.is_none(), cx);
+        }
         // #EXP-1736: who sent each row (the bubbles, the avatars, the gaps);
         // the origin only when the main transcript's window holds the feed's
         // first row (nothing above it, no device page left to load).
@@ -1785,9 +1795,11 @@ impl SteerSessionView {
             hasher.finish()
         };
         if project || self.layout_key != Some(layout_key) {
+            let _span = tracing::trace_span!("steer.transcript_layout").entered();
             self.refresh_transcript_layout(from_start, cx);
             self.layout_key = Some(layout_key);
         }
+        let _span = tracing::trace_span!("steer.list_keys").entered();
         self.sync_list_keys(focus, cx);
     }
 
@@ -1955,6 +1967,7 @@ impl SteerSessionView {
         let rows_moved = self.chat.dirty || self.chat.streaming_key() != streaming.as_deref();
         let chips_moved = self.chat.revision() != revision;
         if rows_moved || (chips_moved && self.chat_cycle.ready(cx, |view| &mut view.chat_cycle)) {
+            let _span = tracing::trace_span!("steer.chat_push").entered();
             let started = std::time::Instant::now();
             let items = self.feed.items();
             let agent = self.agent();
@@ -3455,10 +3468,12 @@ impl SteerSessionView {
         // #LOGS-7: the cards and the tree's suggestions are derived once per
         // store change (`session_data`'s memos), never per frame; a frame
         // whose inputs did not move keeps what the last one derived.
+        let memo_span = tracing::trace_span!("cards.memo").entered();
         let cards = crate::session_data::conversation_cards(&self.session_id, cx);
         let suggestions = self
             .tree_scope
             .then(|| crate::session_data::tree_suggestions(&self.session_id, crate::session_data::now_ms(), cx));
+        drop(memo_span);
         let same = self.conv_memo.as_ref().is_some_and(|(at, tree)| {
             Rc::ptr_eq(at, &cards)
                 && match (tree, &suggestions) {
@@ -8466,7 +8481,10 @@ impl SteerSessionView {
     /// THE composer; and the open card's sheet. S-3 (dock.json): a waiting
     /// plan / question (the relay's own ask or a tool-posted card) is never a DockCard; it stays inline, answerable.
     fn render_session_dock(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> (Option<AnyElement>, Option<AnyElement>) {
-        let sources = self.session_dock_sources(cx);
+        let sources = {
+            let _span = tracing::trace_span!("dock.sources").entered();
+            self.session_dock_sources(cx)
+        };
         let rows = domain::dock::dock_rows(&sources);
         let dock = self.dock.clone();
         // The relay replays its history after the first frame: cards in it
@@ -8474,8 +8492,15 @@ impl SteerSessionView {
         let loaded = matches!(self.phase, ViewerPhase::Live | ViewerPhase::Ended { .. }) || self.source.read_only();
         dock.update(cx, |state, _| state.auto_open(&rows, true, loaded));
         let sheet = self.render_dock_sheet(&rows, window, cx);
-        let actions = self.session_dock_actions(cx);
-        let composer = self.composer_visible().then(|| self.render_composer_card(window, cx)).flatten();
+        let actions = {
+            let _span = tracing::trace_span!("dock.actions").entered();
+            self.session_dock_actions(cx)
+        };
+        let composer = {
+            let _span = tracing::trace_span!("dock.composer").entered();
+            self.composer_visible().then(|| self.render_composer_card(window, cx)).flatten()
+        };
+        let _span = tracing::trace_span!("dock.band").entered();
         let band = crate::dock::band(
             &dock,
             crate::dock::Band { id: "steer".into(), rows, actions, composer },
@@ -9389,16 +9414,25 @@ impl Render for SteerSessionView {
         self.dev_type_composer_text(window, cx);
         self.sync_card_focus(window, cx);
         // EXP-789: the subagent strip sits between the header and the feed.
-        let strip = self.render_subagent_strip(cx);
+        let strip = {
+            let _span = tracing::trace_span!("steer.strip").entered();
+            self.render_subagent_strip(cx)
+        };
         // N-11 (owner 2026-10-24): no status row over the transcript; the
         // live "Working…" row at its bottom is the one working signal.
         // N-12: THE Dock (the waiting cards, THE Queue, the queued messages,
         // the banners, then THE composer) sits under the transcript; the
         // transcript is the ONE scroll region and ENDS at the band's top
         // edge (#EXP-1782: clipped there, no fade, nothing behind the band).
-        let (dock, sheet) = self.render_session_dock(window, cx);
+        let (dock, sheet) = {
+            let _span = tracing::trace_span!("steer.dock").entered();
+            self.render_session_dock(window, cx)
+        };
         let composer_visible = self.composer_visible();
-        let feed = self.render_feed(window, cx);
+        let feed = {
+            let _span = tracing::trace_span!("steer.feed").entered();
+            self.render_feed(window, cx)
+        };
         let width_probe = self.view_width.clone();
         let jump = self.render_jump_to_bottom(!self.feed.is_empty(), composer_visible, cx);
         let conversation = v_flex()

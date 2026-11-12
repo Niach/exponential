@@ -821,18 +821,7 @@ fn guide_menu(model: &ChatModel, cx: &App) -> Option<AnyElement> {
     }
     let pull_request_id = pull.map(|pull| pull.id.clone()).unwrap_or_default();
     // The batch line names the issues the PR closes beyond one.
-    let others = Store::try_global(cx)
-        .map(|store| {
-            store
-                .collections()
-                .pull_request_issues
-                .read(cx)
-                .iter()
-                .filter(|link| link.pull_request_id == pull_request_id)
-                .count()
-                .saturating_sub(1)
-        })
-        .unwrap_or(0);
+    let others = crate::pr_checks::linked_issue_count(&pull_request_id, cx).saturating_sub(1);
     let trigger = crate::controls::ghost_icon_button(
         SharedString::from(SESSION_CHAT.test_ids.guide_menu.clone()),
         Icon::new(registry::UI_MORE),
@@ -3639,6 +3628,7 @@ impl SessionChatScreenView {
     ) -> AnyElement {
         // #EXP-1710 (merge-train.json STATUS PILL): the PR's merge STATUS
         // (any viewer; a closed PR has none), its tap the Checks list.
+        let merge_span = tracing::trace_span!("header.merge").entered();
         let member = chat_member(model, cx);
         let merge = model.pull().cloned().and_then(|pull| {
             crate::work_header::merge_status_pill(
@@ -3649,6 +3639,7 @@ impl SessionChatScreenView {
                 cx,
             )
         });
+        drop(merge_span);
         // #FEED-191 (chats.json THE WAY BACK): a session link opened this.
         let back = crate::session_screen::session_link_back(window, cx);
         let this = cx.entity().downgrade();
@@ -3676,7 +3667,11 @@ impl SessionChatScreenView {
         let on_waiting: crate::waiting_cards::OnWaitingPick = Rc::new(move |card, window, cx| {
             let _ = this.update(cx, |this, cx| this.pick_waiting(card, window, cx));
         });
-        let waiting = crate::waiting_cards::header_chips(&crate::waiting_cards::chat_waiting_cards(&model.view.rows), on_waiting, cx);
+        let waiting = {
+            let _span = tracing::trace_span!("header.waiting").entered();
+            crate::waiting_cards::header_chips(&crate::waiting_cards::chat_waiting_cards(&model.view.rows), on_waiting, cx)
+        };
+        let lead_span = tracing::trace_span!("header.lead").entered();
         let (avatar, title, trailing, menu, agent) = match conversation_agent(model) {
             // An agent's (the Assistant's) conversation: its disc, its NAME,
             // the telephone, THE agent menu.
@@ -3696,8 +3691,12 @@ impl SessionChatScreenView {
                 (chat_header_lead(model, cx), title, merge.into_iter().collect::<Vec<_>>(), guide_menu(model, cx), None)
             }
         };
+        drop(lead_span);
+        let subtitle_span = tracing::trace_span!("header.subtitle").entered();
         let subtitle = screen_subtitle(Some(&model.root), &model.tree, agent.as_ref(), cx);
         let tone = domain::session_screen::session_screen_tone(&tree_status_word(Some(&model.root), &model.tree), false);
+        drop(subtitle_span);
+        let _span = tracing::trace_span!("header.build").entered();
         let subtitle_color = Some(tone_color(tone, cx));
         let trailing = waiting.into_iter().chain(trailing).collect();
         screen_header(ScreenHeader { avatar, title, subtitle, subtitle_color, trailing, gear, menu, back, tabs }, cx)
@@ -4188,6 +4187,14 @@ impl Focusable for SessionChatScreenView {
     }
 }
 
+impl SessionChatScreenView {
+    /// The root's session view (benches).
+    #[cfg(test)]
+    pub(crate) fn inner_for_bench(&self, cx: &App) -> Entity<crate::steer_viewer::SteerSessionView> {
+        self.root_view.read(cx).inner().clone()
+    }
+}
+
 impl Render for SessionChatScreenView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "SessionChatScreenView").entered();
@@ -4264,12 +4271,18 @@ impl Render for SessionChatScreenView {
             .answering(self.root_view.read(cx).inner().read(cx).may_message());
         // EXP-1323: what is on screen is read: the chat (the whole tree's
         // agent replies) and the session open in the pane (its own).
-        crate::session_data::mark_read_if_unread(&self.root_id, true, cx);
-        if let Some(focus) = self.focus_id().map(str::to_string) {
-            crate::session_data::mark_read_if_unread(&focus, false, cx);
+        {
+            let _span = tracing::trace_span!("chat.mark_read").entered();
+            crate::session_data::mark_read_if_unread(&self.root_id, true, cx);
+            if let Some(focus) = self.focus_id().map(str::to_string) {
+                crate::session_data::mark_read_if_unread(&focus, false, cx);
+            }
         }
         let screen = self.screen_of(&model, cx);
-        let header = self.render_header(&model, &screen, window, cx);
+        let header = {
+            let _span = tracing::trace_span!("chat.header").entered();
+            self.render_header(&model, &screen, window, cx)
+        };
         // #EXP-1732 THE Chat tab (every layout, every kind): the ROOT's own
         // session view: its raw work, its cards inline, THE Dock and THE
         // composer posting to the root. #EXP-1736: its origin = the sender
@@ -4282,9 +4295,11 @@ impl Render for SessionChatScreenView {
             inner.update(cx, |inner, cx| inner.set_transcript_origin(origin, cx));
         }
         // #EXP-1545: a Live child's Queue rides the root's Dock.
+        let queue_span = tracing::trace_span!("chat.queues").entered();
         let children = live_children(&model.view, &model.root, cx);
         self.sync_queue_feeds(children, window, cx);
         let queue_from = self.chat_queue_from(&model, cx);
+        drop(queue_span);
         inner.update(cx, |inner, _| inner.set_queue_from(queue_from));
         let chat = session_pane(&self.root_view, cx);
         // EXP-1686: the call panel covers an agent chat's body while it runs.

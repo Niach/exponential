@@ -935,6 +935,9 @@ impl Render for RailView {
         // open: auto-clone on board open + the attention badge both ride the
         // GitBar's load gate.
         let git_bar = self.shared.read(cx).git_bar.clone();
+        // #PERF-3: the rail's stages are spans of their own (a hang read
+        // `render(RailView)` and nothing under it).
+        let git_span = tracing::trace_span!("rail.git").entered();
         git_bar.update(cx, |bar, cx| bar.ensure_loaded(window, cx));
 
         // A branch checkout changes the working tree — refresh the file tree
@@ -1006,6 +1009,7 @@ impl Render for RailView {
 
         // EXP-1105: yolo mode hides Files / Source Control unless a git
         // failure needs a person (see `yolo_rail`).
+        drop(git_span);
         let rail_gate = yolo_rail(team_yolo.unwrap_or(false), sc_failing);
         let computer = ComputerState {
             files: rail_gate.files,
@@ -1024,6 +1028,7 @@ impl Render for RailView {
         self.region.update(cx, |region, cx| {
             region.set_computer(computer);
             if stale {
+                let _span = tracing::trace_span!("rail.derive").entered();
                 region.refresh(&nav, cx);
             } else {
                 region.repaint_computer(cx);

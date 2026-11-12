@@ -90,8 +90,15 @@ fn gather(nav: &Entity<Navigation>, cx: &mut App) -> (IdeSidebarInput, HashMap<S
     };
     input.owner = crate::settings::is_owner(cx, &team_id);
     input.drafts = crate::drafts::drafts_in_team(&team_id, cx).iter().filter(|d| Some(&d.id) != open_draft.as_ref()).count();
-    input.needs_you = crate::needs_you::rows_in_team(&team_id, cx).rows.len();
-    input.chats_dot = chats_dot(&team_id, cx);
+    input.needs_you = {
+        let _span = tracing::trace_span!("rail.needs_you").entered();
+        crate::needs_you::rows_in_team(&team_id, cx).rows.len()
+    };
+    input.chats_dot = {
+        let _span = tracing::trace_span!("rail.chats_dot").entered();
+        chats_dot(&team_id, cx)
+    };
+    let agents_span = tracing::trace_span!("rail.agents").entered();
     let collections = Store::global(cx).collections().clone();
     for pin in crate::pins::pins_in_team(&team_id, cx) {
         let Some((domain::contract::PIN_KIND_ISSUE, target)) = crate::pins::pin_target(&pin) else { continue };
@@ -103,6 +110,8 @@ fn gather(nav: &Entity<Navigation>, cx: &mut App) -> (IdeSidebarInput, HashMap<S
         input.agents.push(IdeAgentInput { id: agent.agent_id.clone(), name: agent.name.clone(), icon: icon.clone(), needs_you: agent.needs_you, busy: agent.busy });
         glyphs.insert(icon, Glyph::Agent(agent));
     }
+    drop(agents_span);
+    let apps_span = tracing::trace_span!("rail.apps_boards").entered();
     for app in crate::apps_view::app_entries(&team_id, cx) {
         let icon = format!("ide:app:{}", app.id);
         input.apps.push(IdeAppInput { id: app.id.clone(), slug: app.slug.clone(), name: app.name.clone(), icon: icon.clone() });
@@ -113,6 +122,8 @@ fn gather(nav: &Entity<Navigation>, cx: &mut App) -> (IdeSidebarInput, HashMap<S
         input.boards.push(IdeBoardInput { id: board.id.clone(), name: board.name.clone(), icon: icon.clone() });
         glyphs.insert(icon, Glyph::Board(board));
     }
+    drop(apps_span);
+    let _span = tracing::trace_span!("rail.live_roots").entered();
     for row in crate::session_data::live_roots_for_rail(&team_id, cx) {
         let agent = row
             .session_ids
@@ -220,7 +231,10 @@ impl SidebarRegion {
         if self.frozen {
             return;
         }
-        let (input, glyphs) = gather(nav, cx);
+        let (input, glyphs) = {
+            let _span = tracing::trace_span!("rail.gather").entered();
+            gather(nav, cx)
+        };
         // A glyph is host-painted: its state changes without the data. The
         // rail renders on every tick of a mark inside it (#LOGS-4): repaint
         // the document only when a glyph or the Computer button changed.
@@ -266,6 +280,7 @@ impl SidebarRegion {
             return;
         }
         self.shown = Some(value.clone());
+        let _span = tracing::trace_span!("rail.push").entered();
         self.view.update(cx, |view, cx| {
             // The IDE's sidebar never folds: the nodes the rail hides read it.
             let _ = view.set_data("/shell/rail", Some(json!(false)), cx);
