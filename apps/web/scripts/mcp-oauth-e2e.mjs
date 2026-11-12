@@ -8,8 +8,11 @@
 // to one build can be resumed against the next (better-auth 1.6 → 1.7: the
 // cached 1.6 token endpoint must keep refreshing).
 //
-//   node scripts/mcp-oauth-e2e.mjs <step> --base <url> --state <file> [--db <url>] [--bearer <token>]
+//   node scripts/mcp-oauth-e2e.mjs <step> --state <file> [--base <url>] [--db <url>] [--bearer <token>]
 //
+//   --base     the instance (default: the local stack); prod
+//              (app.exponential.at) is refused unless --i-know-this-is-prod
+//              is given (#EXP-1798: tool tests run on staging or locally)
 //   --bearer   an instance without password login (staging): the browser
 //              carries this session token as `Authorization: Bearer` to the
 //              instance (never to other origins), so no login page is shown
@@ -29,6 +32,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import { auth, UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js"
 import { chromium } from "@playwright/test"
+import { assertToolTestBase } from "./lib/prod-target-guard.mjs"
 
 const args = process.argv.slice(2)
 const step = args[0]
@@ -36,10 +40,18 @@ const opt = (name) => {
   const i = args.indexOf(`--${name}`)
   return i >= 0 ? args[i + 1] : undefined
 }
-const base = (opt(`base`) ?? ``).replace(/\/$/, ``)
 const statePath = opt(`state`)
-if (!step || !base || !statePath) {
-  console.error(`usage: mcp-oauth-e2e.mjs <setup|connect|reuse|refresh|revoke> --base <url> --state <file> [--db <url>]`)
+if (!step || !statePath) {
+  console.error(
+    `usage: mcp-oauth-e2e.mjs <setup|connect|reuse|refresh|revoke> --state <file> [--base <url>] [--db <url>] [--bearer <token>] [--i-know-this-is-prod]`
+  )
+  process.exit(2)
+}
+let base
+try {
+  base = assertToolTestBase(opt(`base`))
+} catch (e) {
+  console.error(`[e2e:${step}] ${e.message}`)
   process.exit(2)
 }
 const bearer = opt(`bearer`)

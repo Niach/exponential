@@ -145,6 +145,11 @@ pub struct AuditRow {
     pub error: Option<&'static str>,
     pub latency_ms: u64,
     pub args_hash: String,
+    /// The run's session (#EXP-1798: audit.json `session_id`).
+    pub session_id: Option<String>,
+    /// Always `None` on the hub: deletes.json `destructiveTarget` names
+    /// only Exponential's own nouns, which the server audits itself.
+    pub target: Option<String>,
     pub created_at: String,
 }
 
@@ -162,6 +167,8 @@ impl AuditRow {
             "error": self.error,
             "latency_ms": self.latency_ms,
             "args_hash": self.args_hash,
+            "session_id": self.session_id,
+            "target": self.target,
             "created_at": self.created_at,
         })
     }
@@ -191,6 +198,8 @@ pub fn audit_row(input: RowInput<'_>) -> AuditRow {
         error: input.outcome.error(),
         latency_ms: input.latency_ms,
         args_hash: args_hash(input.args),
+        session_id: Some(input.run.to_string()),
+        target: None,
         created_at: format_utc_ms(input.created_ms),
     }
 }

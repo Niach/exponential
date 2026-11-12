@@ -7,6 +7,7 @@
 // the message.
 import { lte } from "drizzle-orm"
 import { argsHash, AUDIT_RETENTION_DAYS, callStatus, type CallOutcome, type CallStatus } from "@exp/emcp/audit"
+import { DELETE_BURST_AUDIT_ERROR, destructiveTarget } from "@exp/emcp/deletes"
 import { db } from "@/db/connection"
 import { mcpCalls } from "@/db/schema"
 import { reportSchedulerRun } from "@/lib/metrics/registry"
@@ -58,6 +59,8 @@ export const BUILTIN_CALL_ERRORS = {
   toolError: `toolError`,
   rpcError: `rpcError`,
   noAnswer: `noAnswer`,
+  /** #EXP-1798: refused by the delete burst guard (deletes.json). */
+  deleteBurst: DELETE_BURST_AUDIT_ERROR as `deleteBurst`,
 } as const
 
 // The SDK answers an unknown or disabled tool and failed input validation as
@@ -66,6 +69,8 @@ const UNKNOWN_TOOL = /^MCP error -32602: Tool \S+ (not found|disabled)$/
 const INVALID_INPUT = /^MCP error -32602: Input validation error/
 // scope.ts's denials all keep this wording (clients key on it too).
 const NOT_GRANTED = /not granted access/
+// #EXP-1798: the burst guard's refusal (deletes.json `errors.burst`).
+const DELETE_BURST = /^Refused: more than \d+ deletes within/
 
 function errorText(result: { content?: unknown }): string {
   const content = Array.isArray(result.content) ? result.content : []
@@ -91,6 +96,7 @@ export function classifyToolResponse(response: unknown): { outcome: CallOutcome;
   if (UNKNOWN_TOOL.test(text)) return { outcome: { denied: true }, error: BUILTIN_CALL_ERRORS.unknownTool }
   if (INVALID_INPUT.test(text)) return { outcome: { invalid: true }, error: BUILTIN_CALL_ERRORS.invalidArguments }
   if (NOT_GRANTED.test(text)) return { outcome: { denied: true }, error: BUILTIN_CALL_ERRORS.notGranted }
+  if (DELETE_BURST.test(text)) return { outcome: { error: true }, error: BUILTIN_CALL_ERRORS.deleteBurst }
   return { outcome: { error: true }, error: BUILTIN_CALL_ERRORS.toolError }
 }
 
@@ -100,6 +106,8 @@ export interface AuditCaller {
   clientId: string | null
   teamId: string | null
   appId: string | null
+  /** #EXP-1798: the caller's own verified session, if any. */
+  sessionId?: string | null
 }
 
 export interface McpCallRow {
@@ -112,6 +120,10 @@ export interface McpCallRow {
   error: string | null
   latencyMs: number
   argsHash: string
+  /** #EXP-1798: the caller's verified session. */
+  sessionId: string | null
+  /** #EXP-1798: `<op>:<id>` of a destructive call (deletes.json), else null. */
+  target: string | null
 }
 
 /** #VAPP-181: an endpoint's own reading of its calls: the app whose tool
@@ -143,6 +155,8 @@ export function auditRows(
       error,
       latencyMs: Math.max(0, Math.floor(latencyMs)),
       argsHash: argsHash(call.args),
+      sessionId: caller.sessionId ?? null,
+      target: destructiveTarget(call.tool, call.args),
     }
   })
 }

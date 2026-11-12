@@ -56,6 +56,8 @@ export async function writeUpstreamMappings(db: Db, app: { id: string; teamId: s
       error: null,
       latencyMs: 0,
       argsHash: argsHash({ upstream: pick.upstream, serverId: write.op === `set` ? write.serverId : null }),
+      sessionId: null,
+      target: null,
     })
   }
   return audit

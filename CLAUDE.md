@@ -47,15 +47,17 @@ bun run dev:site / build:site    # exponential.at (apps/site)
 scripts/lanes/lane.sh <ios|android|heavy> <owner> -- <cmd>   # device + heavy-build lanes
 ```
 
-Lane locks (`scripts/lanes/lock.sh`): work only after your own `take_lock`; free one only with `release_lock <dir> <owner>`, never `rm` (it refuses a lock another owner holds).
+Lane locks (`scripts/lanes/lock.sh`): work only after your own `take_lock`; free one only with `release_lock <dir> <owner>`, never `rm`.
 
-Never lint/format. Schema change = edit `packages/db-schema/src/schema.ts`, `bun run migrate:generate && bun run migrate`; custom triggers in `apps/web/src/db/out/custom/0001_triggers.sql` apply at boot (`applyCustomSql`; `bun dev` does not run it: apply by hand in dev). Enum change = `contract.json` + regenerate ×4. Icon change = `packages/icons/icons.json` + regenerate; `pickable`/`devicePickable` are APPEND-ONLY. New low-level component = genUI catalog + `fixtures/specimens.json` (the catalogue renders it; no styleguide app). Every user-facing release PREPENDS a `ChangelogEntry` to `lib/changelog.ts` (mirror `crates/ui/src/changelog.rs`).
+Tool tests (MCP e2e, `--bearer`) run on staging or a local stack, never prod.
+
+Never lint/format. Schema change = edit `packages/db-schema/src/schema.ts`, `bun run migrate:generate && bun run migrate`; custom triggers in `apps/web/src/db/out/custom/0001_triggers.sql` apply at boot (`applyCustomSql`; not `bun dev`: apply by hand). Enum change = `contract.json` + regenerate ×4. Icon change = `packages/icons/icons.json` + regenerate; `pickable`/`devicePickable` are APPEND-ONLY. New low-level component = genUI catalog + `fixtures/specimens.json` (the catalogue renders it; no styleguide app). Every user-facing release PREPENDS a `ChangelogEntry` to `lib/changelog.ts` (mirror `crates/ui/src/changelog.rs`).
 
 ## Deploys
 
 Coolify (home-LAN-only): `coolify deploy uuid <uuid>` after a green Actions run and a clean `check:device-shares` on the target DB (`.github/workflows/README.md`). `build-web.yml` publishes `ghcr.io/niach/exponential-web` on master pushes + `v*` tags: ONE image for cloud, staging and self-host. Native releases = tags `{android,desktop,cli,ios}-v*` → `build-*.yml`. The operations runbook lives outside the repo.
 
-**CI:** pull requests run ONE gate, `test.yml` (required check `gate`, < 5 min; ~15 with eUI): typecheck, web unit tests ×4 shards, web production build when web or `packages/` is touched, migrations from scratch + drift + triggers, desktop `cargo check` + eagent/coding/engine/ui tests when touched, eUI conformance ×5 renderers + `conformant` when eUI is touched (`exponential-ui.yml` `conformance_only`); the Mac-runner legs (`ios-core` ExpCore replay, `ios-app` app-target compile, `eui-swift`) run on PRs as informational checks outside `gate` and block in `release-suite.yml`. Everything heavy (the rest of the eUI suite + bench, iOS, Android, desktop `cargo test`, site + `shots:check`, package + real-DB suites, image smoke builds) = `release-suite.yml`, on the release tags (once per commit) and `workflow_dispatch`. Bench timings only warn.
+**CI:** pull requests run ONE gate, `test.yml` (required check `gate`, < 5 min; ~15 with eUI): typecheck, web unit tests ×4 shards, web production build when web or `packages/` is touched, migrations from scratch + drift + triggers, desktop `cargo check` + eagent/coding/engine/ui tests when touched, eUI conformance ×5 renderers + `conformant` when eUI is touched (`exponential-ui.yml` `conformance_only`); the Mac-runner legs (`ios-core` ExpCore replay, `ios-app` app-target compile, `eui-swift`) run on PRs as informational checks outside `gate` and block in `release-suite.yml`. Everything heavy (the rest of the eUI suite + bench, iOS, Android, desktop `cargo test`, site + `shots:check`, package + real-DB suites, image smoke builds) = `release-suite.yml`, on the release tags and `workflow_dispatch`. Bench timings only warn.
 
 ## Conventions that gates enforce
 

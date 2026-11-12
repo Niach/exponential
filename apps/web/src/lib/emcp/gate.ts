@@ -225,6 +225,8 @@ export async function serveMcp(
                 clientId: caller.clientId,
                 teamId: audit.teamId !== undefined ? audit.teamId : (auditTeamId(caller.access) ?? actingTeam),
                 appId: null,
+                // #EXP-1798: the session only when it is the caller's own.
+                sessionId: caller.gates.inSession ? caller.sessionId : null,
               },
               body,
               answer,
