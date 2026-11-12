@@ -173,8 +173,8 @@ android {
         applicationId = "at.exponential"
         minSdk = 26
         targetSdk = 36
-        versionCode = 212
-        versionName = "0.14.129"
+        versionCode = 213
+        versionName = "0.14.130"
 
         // #LOGS-2: release CI mints one per build and uploads the R8 mapping
         // under it (build-android.yml); empty = no mapping to name.

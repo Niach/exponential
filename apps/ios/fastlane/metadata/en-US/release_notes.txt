@@ -1,3 +1,6 @@
+- Large chats open instantly from what was stored last time
+- The MCP picker shows each server's brand mark
+- Settings › MCP is one list of servers
 - Large chats open fast on their newest messages and load earlier ones as you scroll up
 - Smoother scrolling in busy sessions
 - An account's card says which login is active

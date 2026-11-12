@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-12-instant-large-chats-on-phones`,
+    date: `2026-11-12`,
+    title: `Large chats open instantly on phones`,
+    summary: `Phones show a long chat from what they stored last time while the rest loads, the MCP picker rows match the web, and Settings › MCP is one list.`,
+    body: `- **Instant large chats**: iPhone, iPad and Android paint a long chat from the tail they stored last time, then catch up, so it opens without a wait.
+- **MCP picker like the web**: choosing a session's MCP servers on a phone shows the same rows with each server's brand mark.
+- **One MCP list**: Settings › MCP lists the built-in and your team's servers together, and every row unfolds to its tools.
+- **Smaller crash symbols**: phone builds upload only what crash reports need, so symbol uploads stay small.`,
+  },
+  {
     id: `2026-11-12-mcp-read-and-write-tools`,
     date: `2026-11-12`,
     title: `Exponential's MCP tools come as reads and writes`,
