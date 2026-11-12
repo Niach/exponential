@@ -55,7 +55,17 @@ pub struct LiveView {
     /// EXP-1334: the model the engine runs right now
     /// ([`LiveEngine::model`]); `None` = unknown.
     pub agent_model: Option<String>,
+    /// #FEED-229: handed ids the engine has held UNREAD while idle for
+    /// [`HANDED_IDLE_REDELIVER`] or longer — a delivery its agent never ran a
+    /// turn for. [`plan`] revokes and re-delivers them.
+    pub stranded: HashSet<String>,
 }
+
+/// #FEED-229: how long an idle engine may hold a handed, unread message
+/// before the pickup takes it back and delivers it again. An idle engine
+/// starts a delivered message's turn at once, so anything this old was lost
+/// on the way to the agent.
+pub const HANDED_IDLE_REDELIVER: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// EXP-1334: a live run's launch options, in the row's terms (the row's
 /// pickers as they were when the engine launched — or since applied live —
@@ -735,8 +745,16 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
         let view = &input.live[session_id];
         let mut handed: Vec<&String> = view.handed.iter().collect();
         handed.sort_unstable();
+        // #FEED-229: a handed message an idle engine never read, still
+        // pending: taken back and delivered again, in its place in the queue.
+        let redeliver: HashSet<&str> = pending
+            .get(session_id)
+            .map(|queue| {
+                queue.iter().filter(|m| view.stranded.contains(&m.id)).map(|m| m.id.as_str()).collect()
+            })
+            .unwrap_or_default();
         for message_id in handed {
-            if !messages.contains_key(message_id.as_str()) {
+            if !messages.contains_key(message_id.as_str()) || redeliver.contains(message_id.as_str()) {
                 revokes.push(PickupAction::Revoke {
                     session_id: session_id.to_string(),
                     message_id: message_id.clone(),
@@ -745,7 +763,13 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
         }
         let fresh: Vec<&MessageRow> = pending
             .get(session_id)
-            .map(|queue| queue.iter().copied().filter(|m| !view.handed.contains(&m.id)).collect())
+            .map(|queue| {
+                queue
+                    .iter()
+                    .copied()
+                    .filter(|m| !view.handed.contains(&m.id) || redeliver.contains(m.id.as_str()))
+                    .collect()
+            })
             .unwrap_or_default();
         // EXP-1280: the session's answered tool cards not handed yet.
         let cards: Vec<&MessageRow> = answered
@@ -1417,6 +1441,12 @@ pub trait LiveEngine: Send + Sync {
     fn is_done(&self) -> bool;
     /// EXP-849: between turns (nothing in flight) — a switch waits for it.
     fn is_idle(&self) -> bool;
+    /// #FEED-229: a handed message the agent has not read (the engine never
+    /// reported it consumed). The default (a host that cannot tell) says no,
+    /// so nothing is ever re-delivered on its account.
+    fn holds_unread(&self, _message_id: &str) -> bool {
+        false
+    }
     /// EXP-1252: TRULY idle — between turns, no backgrounded subagent still
     /// running, no open question/plan card. A move waits for it.
     fn quiescent(&self) -> bool {
@@ -1555,6 +1585,9 @@ struct LiveEntry {
     running_account: Option<String>,
     /// [`LiveView::options`].
     options: Option<LaunchedOptions>,
+    /// #FEED-229: since when the engine has been idle holding an unread
+    /// handed message ([`LiveView::stranded`]).
+    idle_holding_since: Option<std::time::Instant>,
 }
 
 impl LiveRegistry {
@@ -1592,6 +1625,7 @@ impl LiveRegistry {
                 row_account,
                 running_account: None,
                 options: None,
+                idle_holding_since: None,
             },
         );
         self.refused
@@ -1750,6 +1784,11 @@ impl LiveRegistry {
     }
 
     pub fn live_views(&self) -> HashMap<String, LiveView> {
+        self.live_views_at(std::time::Instant::now())
+    }
+
+    /// [`Self::live_views`] at `now` (the #FEED-229 clock).
+    fn live_views_at(&self, now: std::time::Instant) -> HashMap<String, LiveView> {
         self.lock()
             .iter_mut()
             .filter(|(_, entry)| !entry.engine.is_done())
@@ -1763,6 +1802,25 @@ impl LiveRegistry {
                 }
                 let mut open_cards = entry.engine.open_cards();
                 open_cards.retain(|message_id, _| !entry.answered.contains(message_id));
+                // #FEED-229: an idle engine still holding an unread handed
+                // message never ran a turn for it.
+                let unread: HashSet<String> = if entry.engine.is_idle() {
+                    entry.handed.iter().filter(|id| entry.engine.holds_unread(id)).cloned().collect()
+                } else {
+                    HashSet::new()
+                };
+                let stranded = if unread.is_empty() {
+                    entry.idle_holding_since = None;
+                    HashSet::new()
+                } else {
+                    let since = *entry.idle_holding_since.get_or_insert(now);
+                    if now.saturating_duration_since(since) >= HANDED_IDLE_REDELIVER {
+                        log::warn!("pickup: session {id} idle with {} unread handed message(s): re-delivering", unread.len());
+                        unread
+                    } else {
+                        HashSet::new()
+                    }
+                };
                 (
                     id.clone(),
                     LiveView {
@@ -1772,6 +1830,7 @@ impl LiveRegistry {
                         running_account: entry.running_account.clone(),
                         options: entry.options.clone(),
                         agent_model,
+                        stranded,
                     },
                 )
             })
@@ -1825,6 +1884,8 @@ impl LiveRegistry {
         let mut entries = self.lock();
         if let Some(entry) = entries.get_mut(session_id) {
             entry.handed.extend(message_ids.iter().cloned());
+            // #FEED-229: a (re-)delivery restarts the stranded clock.
+            entry.idle_holding_since = None;
             // S-4: a message is activity, even one consumed before the next
             // release beat looks.
             locked(&self.quiet_since).remove(session_id);
@@ -5014,6 +5075,29 @@ mod tests {
         );
     }
 
+    /// #FEED-229: a stranded handed message (an idle engine never read it,
+    /// its row still pending) is revoked and delivered again; a handed one
+    /// that is merely in flight is left alone.
+    #[test]
+    fn a_stranded_handed_message_is_revoked_and_delivered_again() {
+        let row = message("m1", "s1", "2026-10-02T00:00:01Z");
+        let pass = Pass::new(
+            vec![session("s1", "running", DEV, "2026-10-01T00:00:00Z")],
+            vec![row.clone(), message("m2", "s1", "2026-10-02T00:00:02Z")],
+        )
+        .live(
+            "s1",
+            LiveView { stranded: HashSet::from(["m1".to_string()]), ..handed(&["m1", "m2"]) },
+        );
+        assert_eq!(
+            pass.run(),
+            vec![
+                PickupAction::Revoke { session_id: "s1".to_string(), message_id: "m1".to_string() },
+                PickupAction::Deliver { session_id: "s1".to_string(), messages: vec![row] },
+            ]
+        );
+    }
+
     /// EXP-1316: a relay answer finds the card posted for its question,
     /// once; another session's or an unknown question finds none.
     #[test]
@@ -5106,6 +5190,7 @@ mod tests {
                 running_account: None,
                 options: None,
                 agent_model: None,
+                stranded: HashSet::new(),
             },
         )
         .live("l2", LiveView::default())
@@ -5177,6 +5262,8 @@ mod tests {
         answered: Mutex<Vec<(String, String, bool, bool)>>,
         /// S-4: the run's last activity (`None` = never reported).
         activity: Mutex<Option<std::time::Instant>>,
+        /// #FEED-229: handed ids the agent has not read yet.
+        unread: Mutex<HashSet<String>>,
     }
 
     impl FakeEngine {
@@ -5234,6 +5321,39 @@ mod tests {
         fn last_activity(&self) -> Option<std::time::Instant> {
             *self.activity.lock().unwrap()
         }
+        fn holds_unread(&self, message_id: &str) -> bool {
+            self.unread.lock().unwrap().contains(message_id)
+        }
+    }
+
+    /// #FEED-229: an idle engine holding a handed message it never read is
+    /// stranded only after [`HANDED_IDLE_REDELIVER`]; a turn in flight, a
+    /// read, or a re-delivery stops (and restarts) the clock.
+    #[test]
+    fn an_idle_engine_holding_an_unread_message_strands_it_after_a_minute() {
+        let registry = LiveRegistry::default();
+        let engine = Arc::new(FakeEngine::default());
+        registry.insert("s1", engine.clone(), None);
+        registry.mark_handed("s1", &["m1".to_string()]);
+        engine.unread.lock().unwrap().insert("m1".to_string());
+        let t0 = std::time::Instant::now();
+        let at = |secs: u64| registry.live_views_at(t0 + std::time::Duration::from_secs(secs))["s1"].stranded.clone();
+        assert!(at(0).is_empty());
+        assert!(at(59).is_empty());
+        assert_eq!(at(60), HashSet::from(["m1".to_string()]));
+        // Mid-turn the message may still be read: never stranded, and the
+        // clock starts over once the engine idles again.
+        engine.working.store(true, Ordering::SeqCst);
+        assert!(at(120).is_empty());
+        engine.working.store(false, Ordering::SeqCst);
+        assert!(at(121).is_empty());
+        assert_eq!(at(181), HashSet::from(["m1".to_string()]));
+        // A re-delivery restarts it.
+        registry.mark_handed("s1", &["m1".to_string()]);
+        assert!(at(182).is_empty());
+        // Read: nothing to rescue.
+        engine.unread.lock().unwrap().clear();
+        assert!(at(1000).is_empty());
     }
 
     #[test]
@@ -5261,6 +5381,7 @@ mod tests {
             running_account: None,
             options: None,
             agent_model: None,
+            stranded: HashSet::new(),
         });
         assert!(registry.contains_live("s1"));
         assert!(!registry.contains_live("s2"));
