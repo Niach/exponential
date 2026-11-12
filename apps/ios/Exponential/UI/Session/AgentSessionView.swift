@@ -968,6 +968,11 @@ struct AgentSessionView: View {
                 // EXP-1162: no `stickyHeaderFade` — the Work screen's header
                 // band hangs the top edge strip over every face itself.
                 .coordinateSpace(name: AgentSessionLayout.feedCoordSpace)
+                // Large chats: the first layout starts at the bottom (the
+                // initial offset only, never re-anchored on size changes,
+                // EXP-70), so the opening pass sizes the newest rows, not the
+                // oldest before the scroll-to-bottom.
+                .modifier(InitialBottomOffset())
                 .modifier(FollowPinTracker(
                     atBottom: $atBottom,
                     slack: AgentSessionLayout.followSlack,
@@ -4830,5 +4835,16 @@ struct BodySlice<Content: View>: View {
 
     var body: some View {
         content()
+    }
+}
+
+/// iOS 18+: `defaultScrollAnchor(.bottom, for: .initialOffset)`.
+private struct InitialBottomOffset: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.defaultScrollAnchor(.bottom, for: .initialOffset)
+        } else {
+            content
+        }
     }
 }
