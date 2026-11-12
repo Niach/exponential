@@ -202,7 +202,9 @@ it(`keeps the serialized MCP tool context within budget`, () => {
     // plan, pictures) and its description teaches the node syntax, an
     // example and the component names, so agents never guess a surface.
     // EXP-1445: + the no-Card-root / no-text-only rule and a Stack example.
-    const cap = def.name === `exponential_show` ? 3_650 : 1_800
+    // #VAPP-293: show's and sessions_send's sealed fields carry real types now (Claude's
+    // directory refuses an untyped parameter): show 3.85k, sessions_send 2k.
+    const cap = def.name === `exponential_show` ? 3_850 : def.name === `exponential_sessions_send` ? 2_000 : 1_800
     expect(JSON.stringify(def).length, `${def.name}`).toBeLessThan(cap)
   }
 })
