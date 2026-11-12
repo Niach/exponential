@@ -32,9 +32,12 @@ public final class DatabaseManager: @unchecked Sendable {
         var config = Configuration()
         config.foreignKeysEnabled = true
         config.journalMode = .wal
-        MainThreadReads.watch(&config)
-        let pool = try DatabasePool(path: path, configuration: config)
-        try DatabaseManager.runMigrations(on: pool)
+        MainThreadDatabaseAccess.watch(&config)
+        let pool = try MainThreadDatabaseAccess.exempting {
+            let pool = try DatabasePool(path: path, configuration: config)
+            try DatabaseManager.runMigrations(on: pool)
+            return pool
+        }
         pools[accountId] = pool
         logger.info("Opened DB pool for account \(accountId, privacy: .public)")
         return pool
@@ -3616,9 +3619,9 @@ public final class DatabaseManager: @unchecked Sendable {
         }
     }
 
-    public func clearAllData(forAccountId accountId: String) throws {
+    public func clearAllData(forAccountId accountId: String) async throws {
         guard let pool = lock.withLock({ pools[accountId] }) else { return }
-        try pool.write { db in
+        try await pool.write { db in
             try db.execute(sql: "DELETE FROM electric_offsets")
             // EXP-778: pins point at issues/sessions — first.
             try db.execute(sql: "DELETE FROM pins")
