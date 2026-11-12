@@ -1440,7 +1440,7 @@ fn builtin_row(ink: &Ink, chrome: &Chrome, id: &str, name: &str, icon: Value, ti
 }
 
 /// The pane's tree: the band (the owner's Add server pill, the reload
-/// spinner) over THE one group: the built-ins (each with its open tools),
+/// spinner) over THE one list of flat rows: the built-ins (each with its open tools),
 /// then the team's rows (or the skeleton / failed state); no team = its
 /// empty state alone.
 fn document(ink: &Ink, tints: &Tints, chrome: &Chrome) -> Value {
@@ -1467,25 +1467,23 @@ fn document(ink: &Ink, tints: &Tints, chrome: &Chrome) -> Value {
         "children": [super::mcp::list("apps_rows", json!(true), "/pane/apps/rows", json!({"id": "apps_item", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0}, "children": [app_label, app_tool]}))]});
     let apps = json!({"id": super::mcp::test_id("appsServer"), "component": "Box", "visible": path("/pane/builtins/apps/shown"), "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0},
         "children": [
-            ink.divider("apps_rule", json!(true)),
-            builtin_row(ink, chrome, BUILTIN_APPS, SETTINGS_MCP.builtin_apps.name, json!("nav-apps"), json!(ink.foreground)),
+            builtin_row(ink, chrome, BUILTIN_APPS, SETTINGS_MCP.builtin_apps.name, json!(super::mcp::LOGO), json!(ink.foreground)),
             app_tools,
         ]});
 
-    // The team's servers, each under a hairline.
+    // The team's servers.
     let rows = json!({"id": "rows", "component": "List", "visible": path("/pane/hasRows"), "props": {"gap": "none"},
         "template": {"component": "row_wrap", "path": "/pane/rows", "key": "key"},
         "children": [{"id": "row_wrap", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0},
-            "children": [ink.divider("row_rule", json!(true)), server_row(ink, tints), server_tools(ink, tints)]}]});
-    let group = ink.group("group", vec![
+            "children": [server_row(ink, tints), server_tools(ink, tints)]}]});
+    // Flat rows under the band (no fill, no hairlines), web alike.
+    let group = json!({"id": "group", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0}, "children": [
         exponential,
         apps,
-        ink.divider("loading_rule", path("/pane/loading")),
         ink.skeleton_rows("skeleton", &tints.skeleton, path("/pane/loading")),
-        ink.divider("failed_rule", path("/pane/failed")),
         failed_state(ink, "failed", "settings-mcp", crate::empty_state_copy::MCP_SERVERS, path("/pane/failed")),
         rows,
-    ]);
+    ]});
     let list = json!({"id": "list", "component": "Box", "visible": not(path("/pane/noTeam")), "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.5), "width": "100%", "minWidth": 0},
         "children": [
             ink.band_with("band", None, SETTINGS_MCP.labels.servers, Some(path("/pane/reloading")), Some(add)),
