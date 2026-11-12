@@ -59,6 +59,25 @@ final class AgentSettingsTests: XCTestCase {
         XCTAssertEqual(testIds["page"], AgentSettings.TestIds.page)
     }
 
+    // #EXP-1793: the agent page's MCP servers row and its value.
+    func testMcpRowMatchesTheFixture() throws {
+        let row = try XCTUnwrap(try fixture()["mcpRow"] as? [String: Any])
+        XCTAssertEqual(row["id"] as? String, AgentSettings.McpRow.id)
+        XCTAssertEqual(row["label"] as? String, AgentSettings.McpRow.label)
+        XCTAssertEqual(row["after"] as? String, AgentSettings.McpRow.after)
+        XCTAssertEqual(row["none"] as? String, AgentSettings.McpRow.none)
+        XCTAssertEqual(row["max"] as? Int, AgentSettings.McpRow.max)
+    }
+
+    func testMcpValueCases() throws {
+        let cases = try XCTUnwrap(try fixture()["mcpValueCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            let names = try XCTUnwrap(c["names"] as? [String])
+            XCTAssertEqual(AgentSettings.agentMcpServersValue(names), c["expected"] as? String, c["name"] as? String ?? "")
+        }
+    }
+
     func testTriggerSummaryReplaysEveryCase() throws {
         let cases = try XCTUnwrap(try fixture()["summaryCases"] as? [[String: Any]])
         XCTAssertFalse(cases.isEmpty)

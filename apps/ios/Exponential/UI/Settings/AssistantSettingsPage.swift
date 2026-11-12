@@ -123,7 +123,8 @@ private struct AssistantSettingsContent: View {
                     onCheckIn: { setCheckIn($0) },
                     teamId: teamId,
                     agentId: agentId,
-                    skillIds: agent?.skillIds ?? []
+                    skillIds: agent?.skillIds ?? [],
+                    mcpServerIds: agent?.mcpServerIds ?? []
                 )
             }
         }
@@ -260,6 +261,10 @@ struct AssistantSettingsForm: View {
     var teamId: String? = nil
     var agentId: String? = nil
     var skillIds: [String] = []
+    /// #EXP-1793: the MCP servers row (with the Skills row's ids).
+    var mcpServerIds: [String] = []
+    /// The team's MCP servers (`mcpServers.list`).
+    @State private var mcpServers: [McpServerRow] = []
 
     private var device: SteerDevice? {
         devices.first { $0.deviceId == draft.deviceId }
@@ -288,6 +293,11 @@ struct AssistantSettingsForm: View {
                 // the last row of Runs on; the member owns their Assistant.
                 if let teamId, let agentId {
                     AgentSkillsRow(teamId: teamId, agentId: agentId, skillIds: skillIds, canEdit: true)
+                    // #EXP-1793 (agent-settings.json `mcpRow`): after Skills,
+                    // while the team has a server or the Assistant names one.
+                    if !mcpServers.isEmpty || !mcpServerIds.isEmpty {
+                        AgentMcpServersRow(agentId: agentId, servers: mcpServers, mcpServerIds: mcpServerIds, canEdit: true)
+                    }
                 }
             } header: {
                 GlassSectionHeader(AgentSettings.AssistantCopy.runsOn)
@@ -308,6 +318,7 @@ struct AssistantSettingsForm: View {
         .scrollContentBackground(.hidden)
         .listSectionSpacing(8)
         .tint(DesignTokens.Palette.primary)
+        .modifier(AgentMcpServersLoader(teamId: agentId == nil ? nil : teamId, servers: $mcpServers))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AgentSettings.TestIds.page)
     }

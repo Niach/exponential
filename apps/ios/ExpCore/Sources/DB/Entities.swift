@@ -1232,6 +1232,9 @@ public struct AgentDefinitionEntity: FetchableRecord, PersistableRecord, Identif
     public let role: String
     /// #EXP-1661: the skills the agent's runs start with (jsonb `skill_ids`).
     public let skillIds: [String]
+    /// #EXP-1793: the team MCP servers the agent's runs start with (jsonb
+    /// `mcp_server_ids`).
+    public let mcpServerIds: [String]
 
     /// S-3: the member's own Assistant (`agents.role = assistant`).
     public var isAssistant: Bool { role == DomainContract.agentRoleAssistant }
@@ -1259,11 +1262,13 @@ public struct AgentDefinitionEntity: FetchableRecord, PersistableRecord, Identif
         updatedAt: String,
         instructionsUpdatedAt: String? = nil,
         role: String = DomainContract.agentRoleAgent,
-        skillIds: [String] = []
+        skillIds: [String] = [],
+        mcpServerIds: [String] = []
     ) {
         self.instructionsUpdatedAt = instructionsUpdatedAt
         self.role = role
         self.skillIds = skillIds
+        self.mcpServerIds = mcpServerIds
         self.id = id
         self.teamId = teamId
         self.name = name
@@ -1286,6 +1291,7 @@ public struct AgentDefinitionEntity: FetchableRecord, PersistableRecord, Identif
         case updatedAt = "updated_at"
         case instructionsUpdatedAt = "instructions_updated_at"
         case skillIds = "skill_ids"
+        case mcpServerIds = "mcp_server_ids"
     }
 }
 
@@ -1313,6 +1319,9 @@ extension AgentDefinitionEntity: Codable {
         // #EXP-1661: the jsonb list as its JSON text (wire or store); missing,
         // null or garbage = none.
         skillIds = c.decodeWireJsonString(forKey: .skillIds)
+            .flatMap { try? JSONDecoder().decode([String].self, from: Data($0.utf8)) } ?? []
+        // #EXP-1793: skill_ids' twin.
+        mcpServerIds = c.decodeWireJsonString(forKey: .mcpServerIds)
             .flatMap { try? JSONDecoder().decode([String].self, from: Data($0.utf8)) } ?? []
     }
 }
