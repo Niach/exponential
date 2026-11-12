@@ -41,37 +41,33 @@ struct AgentIssueRefContext {
     var mentionKey: String { ChatMentionMembers.fingerprint(mentionMembers) }
 }
 
-/// The `@` vocabulary of a chat surface, read synchronously off the two
-/// synced tables (both whole and small) and memoized per account × team for
-/// a few seconds, exactly like `IssueRefChipCache`: a feed re-renders every
-/// row on each emission, and they all share one read.
+/// The `@` vocabulary of a chat surface, off the two synced tables (both
+/// whole and small), memoized per account × team for a few seconds, like
+/// `IssueRefChipCache`: a feed re-renders every row on each emission, and
+/// they all share one read. #PERF-5: read from a view body, so memory only:
+/// none until the members load off main.
 @MainActor
 enum ChatMentionMembers {
-    private struct Key: Hashable {
+    private struct Key: Hashable, Sendable {
         let accountId: String
         let teamId: String
     }
 
-    private static var entries: [Key: (value: [MentionMember], at: Date)] = [:]
-    private static let ttl: TimeInterval = 5
+    private static let memo = StoreMemo<Key, [MentionMember]>(capacity: 64)
 
     static func members(teamId: String, db: DatabaseManager, accountId: String) -> [MentionMember] {
-        let key = Key(accountId: accountId, teamId: teamId)
-        let now = Date()
-        if let hit = entries[key], now.timeIntervalSince(hit.at) < ttl { return hit.value }
-        let users = (try? db.pool(forAccountId: accountId).read { db -> [UserEntity] in
-            let memberIds = try TeamMemberEntity
-                .filter(Column("team_id") == teamId)
-                .fetchAll(db)
-                .map(\.userId)
-            return try UserEntity.filter(keys: memberIds).fetchAll(db)
-        }) ?? []
-        let value = users
-            .map { MentionMember(name: $0.name ?? $0.email, email: $0.email) }
-            .sorted { $0.email < $1.email }
-        if entries.count >= 64 { entries.removeAll(keepingCapacity: true) }
-        entries[key] = (value, now)
-        return value
+        memo.peek(Key(accountId: accountId, teamId: teamId)) {
+            guard let pool = try? db.pool(forAccountId: accountId) else { return nil }
+            let members = (try? await pool.read { db -> [MentionMember] in
+                let memberIds = try TeamMemberEntity
+                    .filter(Column("team_id") == teamId)
+                    .fetchAll(db)
+                    .map(\.userId)
+                return try UserEntity.filter(keys: memberIds).fetchAll(db)
+                    .map { MentionMember(name: $0.name ?? $0.email, email: $0.email) }
+            }) ?? []
+            return members.sorted { $0.email < $1.email }
+        } ?? []
     }
 
     nonisolated static func fingerprint(_ members: [MentionMember]) -> String {
@@ -172,7 +168,9 @@ struct AgentMarkdownText: View {
                     streaming: streaming, imageMaxHeight: style.imageMaxHeight
                 ),
                 hugsWidth: hugsWidth,
-                revision: host.revision
+                // #PERF-5: the host's chips load off main; a landed answer
+                // re-parses the text.
+                revision: "\(host.revision)|\(StoreMemoLoads.shared.tick)"
             )
             .frame(maxWidth: hugsWidth ? nil : .infinity, alignment: .leading)
             .onAppear { register(host, source) }
