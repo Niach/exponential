@@ -69,7 +69,12 @@ export const appAccessRouter = router({
       .orderBy(asc(apps.name))
     const toolApps = appRows
       .filter((a) => exposesOf(a.package).length > 0)
-      .map(({ package: pkg, ...a }) => ({ ...a, toolCount: exposesOf(pkg).length }))
+      // Settings › MCP: the open Team apps row lists each app's tools.
+      .map(({ package: pkg, ...a }) => ({
+        ...a,
+        toolCount: exposesOf(pkg).length,
+        tools: exposesOf(pkg).map((e) => ({ name: e.name, title: e.title || e.name, blurb: (e.description ?? ``).trim().split(/\r?\n/)[0] ?? `` })),
+      }))
       .sort((a, b) => a.name.localeCompare(b.name, `en`, { sensitivity: `base` }))
     const owner = me.role === `owner`
     const members = await ctx.db

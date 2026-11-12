@@ -472,9 +472,16 @@ class AgentAccountsRowsTest {
     @Test
     fun `the remove confirm names the login, the machine and what survives`() {
         assertEquals(
-            "Delete Claude Code · dev@acme.test on Studio? The login is removed from " +
+            "Delete Codex · dev@acme.test on Studio? The login is removed from " +
                 "this device only; the account itself is untouched.",
-            AgentAccountsRows.removeAccountConfirm("Claude Code · dev@acme.test", "Studio"),
+            AgentAccountsRows.removeAccountConfirm("Codex · dev@acme.test", "Studio", "codex"),
+        )
+        // EXP-1794: a claude login's conversations stay in the device's store.
+        assertEquals(
+            "Delete Claude Code · dev@acme.test on Studio? The login is removed from " +
+                "this device only; its conversations stay on this device, and the account " +
+                "itself is untouched.",
+            AgentAccountsRows.removeAccountConfirm("Claude Code · dev@acme.test", "Studio", "claude"),
         )
     }
 

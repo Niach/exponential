@@ -28,6 +28,9 @@ x-runner: &runner
     # FileAccessTimeJournal"); the old shared volume is the read-only warm
     # dependency cache.
     GRADLE_RO_DEP_CACHE: /home/runner/.gradle-ro/caches
+    # The shared sccache volume's cap (also the Dockerfile's default): 43 GB
+    # at the old 40 GB cap on 2026-11-12; the Mac's is 15 GB (#2688).
+    SCCACHE_CACHE_SIZE: 15G
   # Per service below (compose cannot merge lists). EXP-1370: bun, cargo,
   # rustup and gradle are PER RUNNER: setup-bun / rustup overwrite binaries the
   # other runner may be executing (ETXTBSY), Gradle daemons lock one journal.

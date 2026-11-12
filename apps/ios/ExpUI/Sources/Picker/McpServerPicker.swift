@@ -2,7 +2,8 @@ import ExpCore
 import SwiftUI
 
 // EXP-792/1249 contract — the MCP servers picker: the team's servers this run
-// gets, a MULTI pick, each by the `ui-mcp` concept + name. A server the
+// gets, a MULTI pick, each by its glyph (#EXP-1795: brand mark, shell or the
+// `ui-mcp` plug) + name + host. A server the
 // caller has not connected (or whose sign-in expired) stays listed but greyed
 // with "Connect first" / "Reconnect first" as its note — connecting happens
 // in Settings on web or the IDE. The composer's "+" menu opens it (web
@@ -38,16 +39,27 @@ public struct McpServerPicker<Trigger: View>: View {
     }
 
     /// One row per server: not-ready ones disabled with their note, ready
-    /// ones described by where they live.
+    /// ones described by where they live. The glyph (#EXP-1795): a catalog
+    /// server's brand mark untinted, a stdio command the shell, else the plug.
     nonisolated public static func items(_ servers: [McpServerRow]) -> [PickerItem<String>] {
         servers.map { server in
             let note = McpServers.notReadyLabel(server)
+            var brand: String?
+            let icon: String
+            switch McpServers.glyph(server) {
+            case let .brand(mark):
+                brand = AppIcons.brandAssetName(mark) == nil ? nil : mark
+                icon = AppIcons.uiMcp
+            case .shell: icon = AppIcons.sessionShell
+            case .plug: icon = AppIcons.uiMcp
+            }
             return PickerItem(
                 value: server.id,
                 label: server.name,
-                icon: AppIcons.uiMcp,
+                icon: icon,
                 description: note ?? McpServers.location(server),
-                disabled: note != nil
+                disabled: note != nil,
+                brand: brand
             )
         }
     }

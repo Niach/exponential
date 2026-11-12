@@ -40,6 +40,9 @@ const BUILT_FROM: &str = concat!("exp-built-from:", env!("CARGO_MANIFEST_DIR"));
 const SESSION_DEVICE_ENV: &str = "EXPONENTIAL_SESSION_DEVICE";
 
 fn main() {
+    // #ERR-12: the crash monitor (this binary, `__exp-crash-monitor`) runs
+    // and exits here, before anything else starts.
+    observability::run_crash_monitor_if_requested();
     // Read once and cleared before any thread starts, so the terminals and
     // agents this app spawns don't inherit it.
     let session_device = std::env::var_os(SESSION_DEVICE_ENV).is_some_and(|v| v == "1");
@@ -85,6 +88,7 @@ fn main() {
         version: domain::client_version::current_version().to_string(),
         data_dir: log_data_dir.clone(),
         http: api::http::shared,
+        native_crashes: true,
     });
     observability::lag::mark_main_thread();
 

@@ -82,6 +82,9 @@ fn install_logger(command: &str, rest: &[String]) {
         version: cli_version().to_string(),
         data_dir: context::data_dir(),
         http: api::http::shared,
+        // #ERR-12: the long-running daemon only (a monitor per one-shot
+        // command would cost more than it catches).
+        native_crashes: is_daemon,
     });
 }
 
@@ -169,6 +172,9 @@ fn maybe_prompt_auto_update() {
 }
 
 fn main() -> ExitCode {
+    // #ERR-12: the crash monitor (this binary, `__exp-crash-monitor`) runs
+    // and exits here, before anything else starts.
+    observability::run_crash_monitor_if_requested();
     // EXP-1287: code mode's script worker (`__codemode-worker`, one
     // child per `exec`): the engine and nothing else, killable by its host.
     if coding::codemode::worker::requested() {

@@ -16,6 +16,12 @@
 //! to that DSN). `EXP_FRAME_STATS=1` prints a frame-time summary to stderr
 //! with or without Sentry ([`stats`]).
 //!
+//! Native crashes (#ERR-12): a long-running binary calls
+//! [`watch_native_crashes`]; a monitor process (the same binary, see
+//! [`run_crash_monitor_if_requested`]) writes a walked report of every
+//! signal/abort crash, and the next launch with a client sends it with the
+//! crashed release (deleted unsent when diagnostics are off).
+//!
 //! Privacy: `send_default_pii` off, the hostname dropped, the user is the
 //! account's pseudonymous id alone, and [`scrub`] filters credentials out
 //! of every event, breadcrumb and log.
@@ -41,6 +47,26 @@ pub use stats::{record_frame, LoopWatch, HANG, LONG_FRAME, TICK};
 
 /// `exponential-ede@<version>`: one release name for every eDE binary.
 pub const RELEASE: &str = concat!("exponential-ede@", env!("CARGO_PKG_VERSION"));
+
+/// First thing in `main`: a crash-monitor process runs and exits here.
+pub use crash_monitor::run_monitor_if_requested as run_crash_monitor_if_requested;
+
+/// `$XDG_CACHE_HOME/exponential-desktop/crashes`.
+fn crashes_dir() -> std::path::PathBuf {
+    config::cache_path().with_file_name("crashes")
+}
+
+fn diagnostics_consent() -> bool {
+    config::diagnostics_on(std::env::var("EXP_DIAGNOSTICS").ok().as_deref(), std::fs::read_to_string(config::compositor_toml()).ok().as_deref())
+}
+
+/// #ERR-12: report this process's native crashes (a long-running binary
+/// only: one monitor process each). Nothing when diagnostics are off.
+pub fn watch_native_crashes(component: &'static str) {
+    if diagnostics_consent() {
+        crash_monitor::install(crash_monitor::Setup { dir: crashes_dir(), release: RELEASE.to_string(), component: component.to_string() });
+    }
+}
 
 /// Keeps the Sentry client alive; dropping it flushes what is queued.
 pub struct Guard(Option<sentry::ClientInitGuard>);
@@ -96,6 +122,9 @@ pub fn init(component: &'static str, default_filter: &str, output: Output) -> Gu
     config::refresh_in_background();
 
     let Some(plan) = plan else {
+        if !diagnostics_consent() {
+            crash_monitor::discard_pending(&crashes_dir());
+        }
         stats::init(false);
         return Guard(None);
     };
@@ -108,6 +137,23 @@ pub fn init(component: &'static str, default_filter: &str, output: Output) -> Gu
         }
     });
     stats::init(guard.is_enabled());
+    if guard.is_enabled() {
+        // #ERR-12: the last launches' native crashes, each with its release.
+        // Deleted once flushed, off the startup path.
+        let hub = sentry::Hub::current();
+        let _ = std::thread::Builder::new().name("ede-crash-reports".into()).spawn(move || {
+            let sent = crash_monitor::send_pending(
+                &crashes_dir(),
+                |event| {
+                    hub.capture_event(event);
+                },
+                || hub.client().is_some_and(|client| client.flush(Some(Duration::from_secs(10)))),
+            );
+            if sent > 0 {
+                tracing::info!(sent, "native crash reports sent");
+            }
+        });
+    }
     tracing::info!(environment = %plan.environment, "diagnostics on");
     Guard(Some(guard))
 }

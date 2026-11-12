@@ -3285,7 +3285,10 @@ pub fn claude_projects_root_in(deps: &CodingDeps, profile_dir: Option<&Path>) ->
     // A profile's tree is DETERMINED by its config dir — nothing stands in for
     // it, not even an injected fixture (which is the AMBIENT login's tree).
     if let Some(dir) = profile_dir {
-        return Some(dir.join("projects"));
+        // EXP-1794: a linked profile's tree IS the device's one store.
+        return Some(
+            eagent::claude_store::linked_store_entry(dir, "projects").unwrap_or_else(|| dir.join("projects")),
+        );
     }
     if let Some(root) = &deps.claude_projects_root {
         return Some(root.clone());
@@ -3322,6 +3325,11 @@ fn copy_claude_transcript(
     else {
         return false;
     };
+    // EXP-1794: both profiles on the one store = one file. Never copy a file
+    // onto itself (the lookup above already answers this; this is the guard).
+    if same_tree(&source, &target_root) {
+        return true;
+    }
     // Keep claude's own per-cwd directory name: it munges the cwd (and
     // hash-suffixes long ones), and a name we invented would not be the one
     // the CLI looks under for THIS cwd.
@@ -3339,6 +3347,15 @@ fn copy_claude_transcript(
             log::warn!("coding: could not hand transcript {session_id} to the target account: {err}");
             false
         }
+    }
+}
+
+/// Whether `source` already lives under `target_root`, both canonicalized
+/// (through the store links).
+fn same_tree(source: &Path, target_root: &Path) -> bool {
+    match (std::fs::canonicalize(source), std::fs::canonicalize(target_root)) {
+        (Ok(source), Ok(root)) => source.starts_with(root),
+        _ => false,
     }
 }
 
@@ -6084,6 +6101,30 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         // The next resume re-enters the login that now holds the transcript.
         let record = crate::run_registry::get(&dir.0, "sess-old").expect("record");
         assert_eq!(record.account().as_deref(), Some(target.id.as_str()));
+    }
+
+    /// EXP-1794 — two linked logins share one store: the hand-over finds the
+    /// transcript already in the target's tree and never copies a file onto
+    /// itself; the projects root of either login IS the store.
+    #[test]
+    fn linked_logins_hand_over_nothing() {
+        let dir = temp_dir("store-switch");
+        let base = canned_server(vec![]);
+        let deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
+        let a = crate::agent_profiles::create(&dir.0, CodingAgent::Claude).unwrap();
+        let b = crate::agent_profiles::create(&dir.0, CodingAgent::Claude).unwrap();
+        let a_dir = crate::agent_profiles::profile_dir(&dir.0, CodingAgent::Claude, &a.id).unwrap();
+        let b_dir = crate::agent_profiles::profile_dir(&dir.0, CodingAgent::Claude, &b.id).unwrap();
+        let store = dir.0.join("agents").join("claude").join("store").join("projects");
+        assert_eq!(claude_projects_root_in(&deps, Some(&a_dir)), Some(store.clone()));
+        assert_eq!(claude_projects_root_in(&deps, Some(&b_dir)), Some(store.clone()));
+        let transcript = a_dir.join("projects").join("-repo").join("claude-1.jsonl");
+        fs::create_dir_all(transcript.parent().unwrap()).unwrap();
+        fs::write(&transcript, "{\"turn\":1}\n").unwrap();
+        assert!(copy_claude_transcript(&deps, Some(&a_dir), Some(&b_dir), "claude-1"));
+        assert!(claude_transcript_exists_in(&deps, Some(&b_dir), "claude-1"));
+        assert_eq!(fs::read_to_string(&transcript).unwrap(), "{\"turn\":1}\n");
+        assert!(same_tree(&transcript, &b_dir.join("projects")));
     }
 
     /// EXP-1626 — PERSIST LOGIN: an account switch (a resume onto another

@@ -1,0 +1,40 @@
+[package]
+name = "crash-monitor"
+description = "#ERR-12: native crashes (signals, aborts, SEH) of the IDE, the CLI daemon and eDE, as Sentry events with the crashed release"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+# Shared by `observability` (desktop + CLI) and eDE's `ede-observability`
+# (by path; eDE is its own Cargo workspace). No Sentry client here: the
+# report becomes a `sentry-types` event, the caller's client sends it.
+[dependencies]
+# The in-process half: signal handlers (alternate stack), Mach exception
+# ports, vectored exception handler.
+crash-handler = "0.8"
+# The out-of-process half: the monitor (this same binary) writes the
+# minidump while the crashed process waits.
+minidumper = "0.11"
+# The monitor walks the dump right away, while the binaries it unwinds
+# with are still on disk (an AppImage unmounts once the app is gone):
+# CFI from the local modules (`debuginfo-unwind` = framehop + object, no
+# symbolication: GlitchTip symbolicates from the uploaded debug files).
+minidump = "0.27"
+minidump-processor = { version = "0.27", default-features = false }
+minidump-unwind = { version = "0.27", default-features = false, features = ["debuginfo-unwind"] }
+futures-executor = "0.3"
+sentry-types = { version = "0.49", default-features = false, features = ["protocol"] }
+serde.workspace = true
+serde_json.workspace = true
+uuid = { version = "1", features = ["v4"] }
+log = "0.4"
+
+
+[dev-dependencies]
+tempfile = "3"
+
+# A child process really crashes (SIGSEGV, SIGABRT): its own `main`.
+[[test]]
+name = "native_crash"
+harness = false

@@ -107,7 +107,8 @@ describe.skipIf(!ready.ok)(`MCP widget metadata + reporter access (real db)`, ()
       pageUrl: `https://dev.matflow.test/editor`,
     })
     const listed = await tool(r.member, `exponential_issues`)({ op: `list`, teamId: r.teamId })
-    const rows = JSON.parse(listed.content[0]!.text!) as Array<{ id: string; widget?: unknown }>
+    // #VAPP-292: outside a session the rows ride structuredContent (the text is the model's summary).
+    const rows = (listed as { structuredContent?: { items: Array<{ id: string; widget?: unknown }> } }).structuredContent!.items
     expect(rows.find((row) => row.id === r.issueId)?.widget).toEqual({
       reporter: { name: `Emma`, email: reporter.email.toUpperCase() },
       customData: { site: `app`, page: `/editor` },

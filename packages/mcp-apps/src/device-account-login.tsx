@@ -59,14 +59,21 @@ type Phase =
 export function AddAccountRow({
   device,
   onDevices,
+  autoStart = false,
+  onClose,
 }: {
   device: DeviceListRow
   onDevices: (rows: readonly DeviceListRow[]) => void
+  /** #VAPP-292: opened by the device card's `+` (web `AddAccountChip`): the
+   *  picker (or, with one agent, the sign-in) shows at once. */
+  autoStart?: boolean
+  /** Done or cancelled. */
+  onClose?: () => void
 }) {
   const agents = addableAgents(device)
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(autoStart && agents.length > 1)
   const [agent, setAgent] = useState(agents[0] ?? ``)
-  const [target, setTarget] = useState<LoginTarget | null>(null)
+  const [target, setTarget] = useState<LoginTarget | null>(autoStart && agents.length === 1 ? {} : null)
   if (agents.length === 0) return null
   if (target) {
     return (
@@ -78,6 +85,7 @@ export function AddAccountRow({
         onDone={() => {
           setTarget(null)
           setOpen(false)
+          onClose?.()
         }}
       />
     )
@@ -118,7 +126,10 @@ export function AddAccountRow({
         variant="ghost"
         size="sm"
         className="h-6 px-1 text-[11px] text-muted-foreground"
-        onClick={() => setOpen(false)}
+        onClick={() => {
+          setOpen(false)
+          onClose?.()
+        }}
       >
         Cancel
       </Button>

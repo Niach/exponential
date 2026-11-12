@@ -56,7 +56,7 @@ import { unlinkUpstream } from "@/lib/emcp/revoke"
 import { safeReturnTo } from "@/lib/emcp/upstream/urls"
 import { McpHttpError } from "@/lib/emcp/upstream/net"
 import { McpOauthError } from "@/lib/emcp/upstream/oauth-client"
-import { probeMcpServer, testMcpServer } from "@/lib/emcp/upstream/mcp-client"
+import { listMcpServerTools, probeMcpServer, testMcpServer, type UpstreamToolRow } from "@/lib/emcp/upstream/mcp-client"
 import { claimDeviceCall } from "@/lib/emcp/upstream/device-call"
 import { mcpUrlAllowed } from "@exp/emcp/upstream"
 
@@ -302,6 +302,12 @@ function outboundError(e: unknown): never {
   }
   throw e
 }
+
+/** `mcpServers.tools`' cache: a member's listed tools per server (keyed by
+ *  server, member and URL), 5 minutes, at most 500. */
+const TOOL_LIST_TTL_MS = 5 * 60_000
+const TOOL_LIST_CACHE_MAX = 500
+const toolListCache = new Map<string, { at: number; answer: { ok: boolean; tools: UpstreamToolRow[] | null; error: string | null } }>()
 
 export const mcpServersRouter = router({
   // One team's servers with the CALLER's connection per server and the
@@ -708,6 +714,39 @@ export const mcpServersRouter = router({
         server.url,
         Object.fromEntries(entry.headers.map((header) => [header.name, header.value]))
       )
+    }),
+
+  // Settings › MCP (fixtures/settings-mcp.json `toolsStateCases` `list`):
+  // an open team server row's tools, listed with the caller's OWN
+  // credential like `test`; a member's answer is cached 5 minutes
+  // (`toolListCache`), so reopening a row never re-dials the server.
+  tools: authedProcedure
+    .input(z.object({ serverId: z.string().uuid() }))
+    .query(async ({ ctx, input }): Promise<{ ok: boolean; tools: UpstreamToolRow[] | null; error: string | null }> => {
+      await assertNotAgentKey(ctx)
+      const server = await loadMemberServer(ctx, input.serverId)
+      if (server.transport !== `http` || !server.url) {
+        throw new TRPCError({ code: `PRECONDITION_FAILED`, message: `Only http servers list their tools here` })
+      }
+      const key = `${server.id}:${ctx.session.user.id}:${server.url}`
+      const cached = toolListCache.get(key)
+      if (cached && cached.at > Date.now() - TOOL_LIST_TTL_MS) return cached.answer
+      const resolved = await resolveForLaunch(ctx.db, {
+        userId: ctx.session.user.id,
+        teamIds: [server.teamId],
+        serverIds: [server.id],
+      })
+      const entry = resolved.servers[0]
+      if (!entry) return { ok: false, tools: null, error: resolved.skipped[0]?.reason ?? `not connected` }
+      const answer = await listMcpServerTools(
+        server.url,
+        Object.fromEntries(entry.headers.map((header) => [header.name, header.value]))
+      )
+      if (answer.ok) {
+        if (toolListCache.size >= TOOL_LIST_CACHE_MAX) toolListCache.delete(toolListCache.keys().next().value as string)
+        toolListCache.set(key, { at: Date.now(), answer })
+      }
+      return answer
     }),
 
   // The launcher's read (desktop, CLI daemon): the caller's OWN credentials

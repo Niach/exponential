@@ -1469,7 +1469,12 @@ fn dial_control(
 /// loop should wait on).
 fn sweep_scratch_dirs(ctx: &Arc<Ctx>) {
     let ctx = Arc::clone(ctx);
-    std::thread::spawn(move || sweep_scratch_dirs_now(&ctx));
+    std::thread::spawn(move || {
+        // EXP-1794: every claude login onto the one conversation store
+        // (whichever host starts first; spawns wait for its lock).
+        coding::agent_profiles::migrate_claude_store(&ctx.data_dir);
+        sweep_scratch_dirs_now(&ctx);
+    });
 }
 
 /// [`sweep_scratch_dirs`] on the CALLING thread — the quit sweep's shape.

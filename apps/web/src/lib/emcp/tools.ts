@@ -1324,6 +1324,7 @@ export function registerExponentialTools(
           .optional(),
         includeClosed: z.boolean().default(false),
         limit: z.number().int().min(1).max(200).default(50),
+        offset: z.number().int().min(0).default(0),
       }),
     },
     (args) => listIssues(issuesListInput.parse({ ...args, sort: `-updatedAt` }))

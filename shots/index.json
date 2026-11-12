@@ -7129,15 +7129,15 @@
         "file": "shots/settings-mcp/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 44220,
-        "sha256": "d6cefdacbf000f5272cbe98dd7aee3419600713e04f6a74767142882a4a628bd"
+        "bytes": 52014,
+        "sha256": "45ba499ebb6f3bde91a742678f0ec8e0d56d66669a3b148d59b0f321863309bb"
       },
       "web-mobile": {
         "file": "shots/settings-mcp/web-mobile.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 42724,
-        "sha256": "78a2dd82294e21d0270d8989b28ceef61612854f023222015e626c69be2ed1f1"
+        "bytes": 53042,
+        "sha256": "882c6e08598657df8fbd6bf144a8fc8010263a50899c54389856c70be5adbefe"
       }
     },
     "settings-mcp-activity": {

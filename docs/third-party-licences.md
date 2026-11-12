@@ -171,13 +171,14 @@ with its REAL brand mark. The files are the LIGHT SVGs of selfh.st/icons
 (CC-BY-4.0, attribution carried in the selfh.st/icons entry of the notices),
 vendored verbatim under `packages/icons/brand/` and emitted unchanged by
 `packages/icons` (a React component per slug for the web, the file itself as
-`apps/desktop/assets/icons/brand-<slug>.svg` for the desktop). The licence
+`apps/desktop/assets/icons/brand-<slug>.svg` for the desktop; #EXP-1795: the
+same elements as a `brand-<slug>` imageset on iOS and an `ExpBrandIcons`
+ImageVector on Android, for the phones' MCP server pickers). The licence
 covers the icon FILES; the marks themselves are their owners' trademarks and
 are listed one by one under the notices' Trademarks heading with the owner
 and the nominative use. Rules that follow from that: never recolour, restyle
 or redraw a mark (sizing is the only change a call site may make), never fold
-one into the Lucide grid, never ship one where no such server is offered (the
-natives have no MCP surface and bundle none). Adding a catalog entry = a light
+one into the Lucide grid, never ship one where no such server is offered. Adding a catalog entry = a light
 SVG under `brand/`, a row in `icons.json` `brand` (with `owner`), a row in
 `contract.json` `mcpCatalog`, a `TRADEMARKS` row in
 `packages/licenses/curated/supplement.ts`, then the three generators.

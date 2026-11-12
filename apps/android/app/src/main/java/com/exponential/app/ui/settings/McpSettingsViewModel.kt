@@ -10,12 +10,12 @@ import com.exponential.app.data.api.McpClientsList
 import com.exponential.app.data.api.McpServerListRow
 import com.exponential.app.data.api.McpServersApi
 import com.exponential.app.data.api.McpSettingsApi
+import com.exponential.app.data.api.McpToolDto
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.domain.DomainContract
-import com.exponential.app.domain.McpSettings
 import com.exponential.app.ui.components.FailedAction
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -32,6 +32,13 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.flowOn
+
+/** An open team server row's tools (`toolsStateCases` `list`). */
+sealed interface McpToolsLoad {
+    data object Loading : McpToolsLoad
+    data class Loaded(val tools: List<McpToolDto>) : McpToolsLoad
+    data class Failed(val reason: String) : McpToolsLoad
+}
 
 // #VAPP-185 (fixtures/settings-mcp.json): Settings › MCP on a phone. Every
 // section is a server-only read (web `mcp-settings-page.tsx` fetches the
@@ -67,9 +74,12 @@ class McpSettingsViewModel @Inject constructor(
         }
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
-    val endpointUrl: StateFlow<String?> = auth.instanceUrl
-        .map { it?.let(McpSettings::endpointUrl) }
-        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), auth.instanceUrl.value?.let(McpSettings::endpointUrl))
+    /** The instance origin the built-in rows' URLs start with. */
+    val instanceUrl: StateFlow<String?> = auth.instanceUrl
+
+    private val _tools = MutableStateFlow<Map<String, McpToolsLoad>>(emptyMap())
+    /** Per team server id: its listed tools (fetched on the row's first open). */
+    val serverTools: StateFlow<Map<String, McpToolsLoad>> = _tools
 
     private val _servers = MutableStateFlow<List<McpServerListRow>?>(null)
     val serverRows: StateFlow<List<McpServerListRow>?> = _servers
@@ -177,6 +187,29 @@ class McpSettingsViewModel @Inject constructor(
             } finally {
                 _pending.value = null
             }
+        }
+    }
+
+    /** An open row's tools: fetched once (the server caches 5 minutes);
+     *  [force] = the failure line's Retry. */
+    fun loadTools(serverId: String, force: Boolean = false) {
+        val account = auth.activeAccountId.value ?: return
+        val now = _tools.value[serverId]
+        if (now is McpToolsLoad.Loading || (now != null && !force)) return
+        _tools.value = _tools.value + (serverId to McpToolsLoad.Loading)
+        viewModelScope.launch {
+            val next = try {
+                val answer = servers.tools(account, serverId)
+                if (answer.ok && answer.tools != null) {
+                    McpToolsLoad.Loaded(answer.tools)
+                } else {
+                    McpToolsLoad.Failed(answer.error ?: "unknown error")
+                }
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                McpToolsLoad.Failed(trpcErrorMessage(t, "unknown error"))
+            }
+            _tools.value = _tools.value + (serverId to next)
         }
     }
 

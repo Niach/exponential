@@ -50,7 +50,7 @@ pub(crate) fn remove_account(
     window: &mut Window,
     cx: &mut App,
 ) {
-    let confirm = remove_account_confirm(&account_label, &device_label);
+    let confirm = remove_account_confirm(&account_label, &device_label, agent);
     confirmed_account_change(
         AccountChange {
             device_id,

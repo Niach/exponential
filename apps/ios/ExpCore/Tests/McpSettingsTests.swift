@@ -4,8 +4,8 @@ import XCTest
 
 // #VAPP-185: Settings › MCP, locked ×4 (TS `settings-mcp.test.ts`, desktop
 // `settings/mcp.rs`, Android `McpSettingsTest`) against
-// fixtures/settings-mcp.json: the copy, the sections in order, the test ids
-// and every caption case.
+// fixtures/settings-mcp.json: the copy, the sections in order, the test ids,
+// the Servers order, the tools states and every caption case.
 final class McpSettingsTests: XCTestCase {
     private func fixture() throws -> [String: Any] {
         let url = URL(fileURLWithPath: #filePath)
@@ -23,13 +23,29 @@ final class McpSettingsTests: XCTestCase {
         let f = try fixture()
         XCTAssertEqual(McpSettings.title, f["title"] as? String)
         XCTAssertEqual(McpSettings.Section.allCases.map(\.rawValue), f["sections"] as? [String])
+        // The Overview line has no label; every other section has one.
         let labels = try XCTUnwrap(f["labels"] as? [String: String])
         for section in McpSettings.Section.allCases {
             XCTAssertEqual(section.label, labels[section.rawValue], section.rawValue)
         }
+        XCTAssertNil(McpSettings.Section.overview.label)
+        XCTAssertEqual(McpSettings.overview, f["overview"] as? String)
         XCTAssertEqual(McpSettings.copy, f["copy"] as? String)
         XCTAssertEqual(McpSettings.copied, f["copied"] as? String)
-        XCTAssertEqual(McpSettings.endpointPath, f["endpointPath"] as? String)
+        XCTAssertNil(f["endpointPath"])
+        XCTAssertEqual(McpSettings.builtinPill, f["builtinPill"] as? String)
+        XCTAssertEqual(McpSettings.toolsConnect, f["toolsConnect"] as? String)
+        XCTAssertEqual(McpSettings.toolsStdio, f["toolsStdio"] as? String)
+        XCTAssertEqual(McpSettings.toolsNone, f["toolsNone"] as? String)
+        XCTAssertEqual(McpSettings.retry, f["retry"] as? String)
+        let failed = try XCTUnwrap(f["toolsFailed"] as? String)
+        XCTAssertEqual(McpSettings.toolsFailedLine("HTTP 500"), failed.replacingOccurrences(of: "{reason}", with: "HTTP 500"))
+        let builtins = try XCTUnwrap(f["builtins"] as? [String: [String: String]])
+        XCTAssertEqual(Set(McpSettings.Builtin.allCases.map(\.rawValue)), Set(builtins.keys))
+        for builtin in McpSettings.Builtin.allCases {
+            XCTAssertEqual(builtin.name, builtins[builtin.rawValue]?["name"], builtin.rawValue)
+            XCTAssertEqual(builtin.path, builtins[builtin.rawValue]?["path"], builtin.rawValue)
+        }
         XCTAssertEqual(McpSettings.revoke, f["revoke"] as? String)
         XCTAssertEqual(McpSettings.activity, f["activity"] as? String)
         XCTAssertEqual(McpSettings.never, f["never"] as? String)
@@ -56,6 +72,9 @@ final class McpSettingsTests: XCTestCase {
     func testTestIdsMatchTheFixture() throws {
         let ids = try XCTUnwrap(try fixture()["testIds"] as? [String: String])
         XCTAssertEqual(McpSettings.TestId.page, ids["page"])
+        XCTAssertEqual(McpSettings.TestId.builtin, ids["builtin"])
+        XCTAssertEqual(McpSettings.TestId.appsServer, ids["appsServer"])
+        XCTAssertEqual(McpSettings.TestId.serverTools, ids["serverTools"])
         XCTAssertEqual(McpSettings.TestId.activity, ids["activity"])
         for section in McpSettings.Section.allCases {
             XCTAssertEqual(section.testId, ids[section.rawValue], section.rawValue)
@@ -149,9 +168,38 @@ final class McpSettingsTests: XCTestCase {
         }
     }
 
-    func testEndpoint() {
-        XCTAssertEqual(McpSettings.endpoint(instanceUrl: "https://app.exponential.at/"), "https://app.exponential.at/api/mcp/apps")
-        XCTAssertEqual(McpSettings.endpoint(instanceUrl: "http://localhost:3000"), "http://localhost:3000/api/mcp/apps")
+    func testBuiltinEndpoints() {
+        XCTAssertEqual(McpSettings.builtinEndpoint(instanceUrl: "https://app.exponential.at/", .exponential), "https://app.exponential.at/api/mcp")
+        XCTAssertEqual(McpSettings.builtinEndpoint(instanceUrl: "https://app.exponential.at", .apps), "https://app.exponential.at/api/mcp/apps")
+        XCTAssertEqual(McpSettings.builtinEndpoint(instanceUrl: "http://localhost:3000//", .apps), "http://localhost:3000/api/mcp/apps")
+    }
+
+    func testServerOrderCases() throws {
+        let order = try XCTUnwrap(try fixture()["serverOrder"] as? [String: Any])
+        let cases = try XCTUnwrap(order["cases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            let servers = try XCTUnwrap(c["servers"] as? [String])
+            let keys = McpSettings.serverOrder(appTools: c["appTools"] as? Bool ?? false, servers: servers).map { entry -> String in
+                switch entry {
+                case .builtin(let builtin): builtin.key
+                case .server(let name): name
+                }
+            }
+            XCTAssertEqual(keys, c["expected"] as? [String], c["name"] as? String ?? "")
+        }
+    }
+
+    func testToolsStateCases() throws {
+        let cases = try XCTUnwrap(try fixture()["toolsStateCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            XCTAssertEqual(
+                McpSettings.toolsState(transport: c["transport"] as? String ?? "", status: c["status"] as? String ?? "").rawValue,
+                c["expected"] as? String,
+                c["name"] as? String ?? ""
+            )
+        }
     }
 
     func testWireDecoding() throws {
@@ -160,19 +208,32 @@ final class McpSettingsTests: XCTestCase {
         """.utf8))
         XCTAssertEqual(clients.clients.first?.id, "c1:u1")
         let access = try JSONDecoder().decode(McpAppAccess.self, from: Data("""
-        {"canEdit":false,"apps":[{"id":"a1","slug":"customer-admin","name":"Customer admin","icon":null,"color":null,"toolCount":3}],"rows":[{"userId":"u1","name":"Mia","email":"m@x","image":null,"role":"member","levels":{"a1":"read"}}]}
+        {"canEdit":false,"apps":[{"id":"a1","slug":"customer-admin","name":"Customer admin","icon":null,"color":null,"toolCount":1,"tools":[{"name":"refund","title":"Refund","blurb":"Refund a payment"}]}],"rows":[{"userId":"u1","name":"Mia","email":"m@x","image":null,"role":"member","levels":{"a1":"read"}}]}
         """.utf8))
+        XCTAssertEqual(access.apps.first?.tools, [McpToolRow(name: "refund", title: "Refund", blurb: "Refund a payment")])
         XCTAssertEqual(access.rows.first?.level("a1"), .read)
         XCTAssertEqual(access.rows.first?.level("other"), .write)
         let server = try JSONDecoder().decode(McpServerRow.self, from: Data("""
-        {"id":"s1","name":"Linear","url":"https://mcp.linear.app/sse","auth":"oauth","connection":{"status":"connected"},"usedBy":["Customer admin"]}
+        {"id":"s1","name":"Linear","url":"https://mcp.linear.app/sse","transport":"http","auth":"oauth","connection":{"status":"connected"},"usedBy":["Customer admin"]}
         """.utf8))
         XCTAssertEqual(server.usedBy, ["Customer admin"])
+        XCTAssertEqual(server.transport, "http")
         XCTAssertNil(server.deviceLabel)
         let routed = try JSONDecoder().decode(McpServerRow.self, from: Data("""
         {"id":"s2","name":"ha","command":"ha-mcp","auth":"none","connection":{"status":"not_needed"},"device":{"id":"d1","label":"homelab","ownerId":"u1","kind":"server","icon":null}}
         """.utf8))
         XCTAssertEqual(routed.deviceLabel, "homelab")
+        // An older server without `transport`: a command = stdio.
+        XCTAssertEqual(routed.transport, "stdio")
+        let tools = try JSONDecoder().decode(McpServerTools.self, from: Data("""
+        {"ok":true,"tools":[{"name":"list_issues","title":"","blurb":"Issues"}],"error":null}
+        """.utf8))
+        XCTAssertEqual(tools.tools?.first?.title, "list_issues")
+        let failed = try JSONDecoder().decode(McpServerTools.self, from: Data("""
+        {"ok":false,"tools":null,"error":"HTTP 500"}
+        """.utf8))
+        XCTAssertNil(failed.tools)
+        XCTAssertEqual(failed.error, "HTTP 500")
         let revoke = try JSONEncoder().encode(McpClientRevokeInput(clientId: "c1", teamId: "t1", userId: nil))
         XCTAssertFalse(String(decoding: revoke, as: UTF8.self).contains("userId"))
     }

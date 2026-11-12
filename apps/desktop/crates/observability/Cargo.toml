@@ -14,6 +14,8 @@ serde.workspace = true
 serde_json.workspace = true
 reqwest.workspace = true
 libc.workspace = true
+# #ERR-12: native crashes (signals, aborts, SEH) as events on the next launch.
+crash-monitor = { path = "../crash-monitor" }
 
 [dev-dependencies]
 # The tunnel test builds its own reqwest client.
