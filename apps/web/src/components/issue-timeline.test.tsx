@@ -14,6 +14,8 @@ import {
 // the wiring — comments enter as barriers, `created` rows stay hidden either
 // way, the toggle flips the raw list back in and the "(N)" count follows.
 
+// #FEED-219: the composer field as a plain field (no drafts shape here).
+vi.mock(`@/hooks/use-composer-draft`, () => import(`@/test/composer-draft-plain`))
 vi.mock(`@/lib/trpc-client`, () => ({ trpc: {} }))
 // #EXP-1383: no team agents in these cases.
 vi.mock(`@/hooks/use-agent-row`, () => {

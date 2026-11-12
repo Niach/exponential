@@ -12,7 +12,6 @@ import {
   MobileWorkCapsule,
 } from "@exp/ui"
 import { CommentComposer } from "@/components/comment-composer"
-import { issueMemoryOwner } from "@/lib/work-tab-memory"
 
 // EXP-568 — the phone issue-detail bottom bar: the three things a reader
 // actually reaches for, floating over the chat instead of buried at the
@@ -25,6 +24,7 @@ const AddIcon = conceptIcon(`ui-add`)
 
 export function IssueDetailMobileBar({
   issueId,
+  teamId,
   users,
   propertiesNode,
   trailingNode,
@@ -33,6 +33,8 @@ export function IssueDetailMobileBar({
   reporter = null,
 }: {
   issueId: string
+  /** #FEED-219: the team the comment draft files under. */
+  teamId: string
   users: User[]
   /** The properties chip row — shown inside the bottom sheet. */
   propertiesNode: ReactNode
@@ -84,7 +86,7 @@ export function IssueDetailMobileBar({
               autoFocus
               issueId={issueId}
               users={users}
-              draft={{ owner: issueMemoryOwner(issueId), slot: `comment` }}
+              draft={{ target: { kind: `comment`, id: issueId }, teamId }}
               reporter={reporter}
               onSubmit={async (body, attachmentIds, audience) => {
                 await onSubmitComment(body, attachmentIds, audience)

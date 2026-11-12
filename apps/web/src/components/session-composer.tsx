@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
+import { useComposerDraft } from "@/hooks/use-composer-draft"
+import type { ComposerDraftTarget } from "@exp/domain-contract/composer-draft"
 import { sendSessionMessage } from "@/lib/enet/send-sealed"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { SESSIONS_SEND_TEXT_MAX } from "@exp/db-schema/domain"
@@ -378,7 +380,17 @@ export function SessionComposer({
   /** VAPP-176: a new app draft's editor opens with the field focused. */
   autoFocus?: boolean
 }) {
-  const [text, setText] = useState(``)
+  // #FEED-219 (composer-draft.json): the field IS the target's synced draft
+  // (a session's, an agent's before its conversation, an app editor's before
+  // its first session), so a tab switch, a reload or another device keeps it.
+  const draftTarget: ComposerDraftTarget | null = sessionId
+    ? { kind: `session`, id: sessionId }
+    : appId
+      ? { kind: `app`, id: appId }
+      : agentId
+        ? { kind: `agent`, id: agentId }
+        : null
+  const { text, textRef, setText } = useComposerDraft(draftTarget, teamId)
   const [files, setFiles] = useState<PendingFile[]>([])
   const [sending, setSending] = useState(false)
   /** A context-discarding command (`/clear`) waiting on its confirmation. */
@@ -398,8 +410,6 @@ export function SessionComposer({
   // REFUSED Stop can take exactly that back out: the device still holds
   // the queue, and the text must not stay here too (it would go twice).
   const restored = useSyncExternalStore(store.subscribe, store.getDraftSnapshot).text
-  const textRef = useRef(text)
-  textRef.current = text
   const heldRef = useRef<{
     held: string
     before: string
@@ -412,9 +422,8 @@ export function SessionComposer({
     const before = textRef.current
     const after = mergeHeldIntoDraft(before, [held])
     heldRef.current = { held, before, after }
-    textRef.current = after
     setText(after)
-  }, [store, restored])
+  }, [store, restored, setText, textRef])
   useEffect(
     () =>
       onStopRetraction(sessionId ?? ``, (held) => {
@@ -423,7 +432,6 @@ export function SessionComposer({
         heldRef.current = null
         // Typed over since: the person's edit stays.
         if (textRef.current !== last.after) return false
-        textRef.current = last.before
         setText(last.before)
         return true
       }),
@@ -453,7 +461,6 @@ export function SessionComposer({
       .query({ id: prompt.id })
       .then(({ prompt: full }) => {
         if (matchSlashDraft(textRef.current) === null) return
-        textRef.current = full.body
         setText(full.body)
       })
       .catch((error) => failedAction(`load`, prompt.name, error))
@@ -469,7 +476,7 @@ export function SessionComposer({
     text,
     commands,
     prompts,
-    onAccept: setText,
+    onAccept: (next: string) => setText(next),
     onPickPrompt: pickPrompt,
   })
   // NEW-2: `/effort <level>` = `sessions.configure`, never a message.
@@ -544,8 +551,7 @@ export function SessionComposer({
     const sentMcpPick = mcpPick?.sendPick
     const clearSent = () => {
       const after = composerTextAfterSend(sentText, textRef.current)
-      textRef.current = after
-      setText(after)
+      setText(after, { now: true })
     }
     setSending(true)
     try {
@@ -773,7 +779,7 @@ export function SessionComposer({
           <MentionTextarea
             ref={fieldRef}
             value={text}
-            onValueChange={setText}
+            onValueChange={(next) => setText(next)}
             users={users as User[]}
             onKeyDown={(event) => {
               if (event.nativeEvent.isComposing) return

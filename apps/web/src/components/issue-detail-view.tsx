@@ -726,6 +726,7 @@ export function IssueDetailView({
           <IssueDetailMobileBar
             key={issue.id}
             issueId={issue.id}
+            teamId={issue.teamId}
             users={users}
             propertiesNode={mobilePropertiesPanel}
             trailingNode={embedded ? undefined : startControl}
