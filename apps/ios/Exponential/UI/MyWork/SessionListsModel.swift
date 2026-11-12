@@ -7,8 +7,8 @@ import GRDB
 /// of the synced `sessions` (their digests, never `messages`) /
 /// `session_issues` / `pull_requests` rows, owned by
 /// the navigator for its whole lifetime and handed down through the
-/// environment, so the Chats tab, its dot, Home's Running band and the
-/// board switcher's per-team dots never disagree. Every rule is ExpCore's
+/// environment, so the Chats tab, its badge and Home's Running band
+/// never disagree. Every rule is ExpCore's
 /// `SessionTree` (fixture-locked ×4); this model only maps rows and keeps
 /// the derived lists.
 @MainActor @Observable
@@ -41,8 +41,6 @@ final class SessionListsModel {
     /// EXP-1316: a chat row's device glyph (the ROOT's `device_id` against
     /// the synced devices rows), by root id; absent = no glyph.
     private(set) var devices: [String: ChatRowDevice] = [:]
-    /// The board switcher's per-team dots (`liveByTeam`).
-    private(set) var liveByTeam: [String: SessionTree.TeamLiveSessions] = [:]
     /// The first emission landed (before it, lists draw skeleton rows).
     private(set) var loaded = false
     /// EXP-1373 (chats.json): the list inputs — every conversation's digest
@@ -71,28 +69,20 @@ final class SessionListsModel {
 
     nonisolated init() {}
 
-    /// The Chats tab's amber dot: a chat waits on a person (the
-    /// Needs-you group). Agents have their own rail rows, so they never
-    /// light it (web/Android parity, EXP-1327).
-    var needsYou: Bool {
-        groups.contains { $0.key == .needsYou }
+    /// #FEED-232 (nav-badges.json `chatsCases`): the Chats destination's
+    /// count badge (the phone tab, the iPad sidebar row). EXP-1373: ONE
+    /// active team drives the phone: it reads that team's rows alone.
+    func chatsBadge(teamId: String?) -> NavBadges.Value {
+        NavBadges.chatsBadge(teamGroups(teamId), reads: reads)
     }
 
-    /// EXP-1373: ONE active team drives the phone: the Chats dot reads its
-    /// rows alone.
-    func chatsRunning(teamId: String?) -> Bool {
-        groups.contains { $0.key == .running && $0.rows.contains { teamId == nil || $0.teamId == teamId } }
-    }
-
-    func chatsNeedYou(teamId: String?) -> Bool {
-        groups.contains { group in
-            group.key == .needsYou && group.rows.contains { row in teamId.map { shows(row, in: $0) } ?? true }
-        }
-    }
-
-    /// #EXP-1388 (`dotCases`): an archived chat never lights the dot.
-    func chatsUnread(teamId: String?) -> Bool {
-        Chats.chatsUnread(groups: teamGroups(teamId), reads: reads)
+    /// #FEED-232 (`rowCases`): an agent row's badge: my conversation's unread
+    /// agent messages, at least 1 while it waits on me.
+    func agentBadge(_ agent: AgentRow) -> NavBadges.Value {
+        let unread = agentConversations[agent.agentId].map {
+            Chats.unreadCount(rootId: $0, messages: chatMessages, reads: reads)
+        } ?? 0
+        return NavBadges.rowBadge(unreadCount: unread, needsYou: agent.needsYou)
     }
 
     /// The Chats tab's list (`Chats.chatList`) of a team, computed once per
@@ -204,7 +194,6 @@ final class SessionListsModel {
         words = [:]
         prStates = [:]
         devices = [:]
-        liveByTeam = [:]
         chatMessages = []
         reads = []
         sessions = []
@@ -246,7 +235,6 @@ final class SessionListsModel {
         var words: [String: ChatRowWord]
         var prStates: [String: [String]]
         var devices: [String: ChatRowDevice]
-        var liveByTeam: [String: SessionTree.TeamLiveSessions]
         var chatMessages: [TreeMessage]
         var reads: [TreeSessionRead]
         var sessions: [TreeSession]
@@ -269,7 +257,6 @@ final class SessionListsModel {
         words = derived.words
         prStates = derived.prStates
         devices = derived.devices
-        liveByTeam = derived.liveByTeam
         chatMessages = derived.chatMessages
         reads = derived.reads
         sessions = derived.sessions
@@ -415,7 +402,6 @@ final class SessionListsModel {
             words: words,
             prStates: prStates,
             devices: devices,
-            liveByTeam: SessionTree.liveByTeam(rows.sessions, userId: userId),
             chatMessages: rows.messages,
             reads: rows.reads,
             sessions: rows.sessions,
