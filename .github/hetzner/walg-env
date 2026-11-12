@@ -1,0 +1,5 @@
+#!/bin/sh
+# WAL-G wrapper for prod Postgres (archive_command / restore_command / backups). See README.md ("Prod Postgres PITR").
+# Lives at /walg/walg-env inside the prod Postgres container; /walg/walg.env holds the S3 keys (root:70, 0640, never committed).
+set -a; . /walg/walg.env; set +a
+exec /walg/wal-g "$@"
