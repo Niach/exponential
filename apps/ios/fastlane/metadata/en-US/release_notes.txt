@@ -1,3 +1,5 @@
+- Large chats open fast on their newest messages and load earlier ones as you scroll up
+- Smoother scrolling in busy sessions
 - An account's card says which login is active
 - Closing a sign-in stops it on the machine
 - Add a passkey from Settings › Account › Passkeys

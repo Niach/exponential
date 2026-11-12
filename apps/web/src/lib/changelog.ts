@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-12-large-chats-on-phones`,
+    date: `2026-11-12`,
+    title: `Large chats open fast on phones`,
+    summary: `Long chats on iPhone, iPad and Android open on their newest messages and load earlier ones as you scroll up, and Android sends crash reports from the first start.`,
+    body: `- **Large chats open fast**: a long chat opens on its newest messages and loads earlier ones as you scroll up, on every app.
+- **Smooth scrolling**: phones read and lay out a chat off the main thread, so a busy session no longer stutters.
+- **Android crash fixes**: the live feed and calls no longer crash, and crash reports are sent even before you pick a server.`,
+  },
+  {
     id: `2026-11-12-mcp-servers-one-list`,
     date: `2026-11-12`,
     title: `One list for every MCP server`,
