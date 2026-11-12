@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-12-desktop-selection-todo",
+    date: "2026-11-12",
+    title: "Code blocks select cleanly in the desktop app",
+    summary: "Selecting text across a code block highlights every line, a session's todo list shows its title once, and busy session trees answer faster.",
+    body: r##"- **Code block selection**: selecting text in a code block in the desktop app highlights every selected line, not only the first.
+- **Todo title once**: a session's todo list shows its title once, on every app.
+- **Faster session trees**: replies and End no longer wait on each other in a busy session tree, and held trees load in batches."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_265: ChangelogEntry = ChangelogEntry {
     id: "2026-11-12-trash-desktop",
     date: "2026-11-12",
     title: "Deleted issues come back in the desktop app",
