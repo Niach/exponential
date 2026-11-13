@@ -117,4 +117,16 @@ class ShareTargetsTest {
             assertEquals(case.str("name"), expected?.str("id"), got?.id)
         }
     }
+
+    @Test
+    fun `issueBoardCases match the fixture`() {
+        for (case in cases("issueBoardCases")) {
+            val input = case.getValue("input").jsonObject
+            val boards = input.getValue("boards").jsonArray.map { it.jsonObject.str("id")!! to it.jsonObject.str("teamId")!! }
+            val got = ShareTargets.shareIssueBoards(input.str("teamId"), boards, input.str("lastBoardId"), { it.first }, { it.second })
+            val expected = case.getValue("expected").jsonObject
+            assertEquals(case.str("name"), strings(expected.getValue("boards")), got.boards.map { it.first })
+            assertEquals(case.str("name"), expected.str("board"), got.board?.first)
+        }
+    }
 }

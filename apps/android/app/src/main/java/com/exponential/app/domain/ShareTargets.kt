@@ -102,6 +102,14 @@ object ShareTargets {
         return if (rest.isEmpty()) null else DirectTarget(kind, rest)
     }
 
+    /** New issue's boards on the picked team (#EXP-1823), and the one it opens on. */
+    data class IssueBoards<T>(val boards: List<T>, val board: T?)
+
+    fun <T> shareIssueBoards(teamId: String?, boards: List<T>, lastBoardId: String?, id: (T) -> String, team: (T) -> String): IssueBoards<T> {
+        val own = if (teamId == null) emptyList() else boards.filter { team(it) == teamId }
+        return IssueBoards(own, own.firstOrNull { id(it) == lastBoardId } ?: own.firstOrNull())
+    }
+
     private fun <T> ordered(agents: List<T>, me: String?, row: (T) -> Agent): List<T> =
         AgentSettings.Assistant.orderedAgents(agents, me) {
             row(it).let { a -> AgentSettings.Assistant.OrderLike(a.role, a.ownerId, a.name, a.sortOrder) }

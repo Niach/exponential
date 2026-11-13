@@ -159,7 +159,7 @@ struct ShareFlowView: View {
     private func page(_ route: ShareRoute) -> some View {
         switch route {
         case .newIssue:
-            ShareComposeView(deps: deps, payload: payload, onComplete: onComplete, onCancel: onCancel)
+            ShareComposeView(deps: deps, payload: payload, team: team, onComplete: onComplete, onCancel: onCancel)
         case let .compose(pick):
             composer(pick: pick, chat: nil)
         case let .chat(id):
@@ -214,7 +214,13 @@ struct ShareComposeView: View {
 
     private let boards: [MirroredBoard]
 
-    init(deps: ShareDependencies, payload: SharedPayload, onComplete: @escaping () -> Void, onCancel: @escaping () -> Void) {
+    init(
+        deps: ShareDependencies,
+        payload: SharedPayload,
+        team: ShareTeam?,
+        onComplete: @escaping () -> Void,
+        onCancel: @escaping () -> Void
+    ) {
         self.deps = deps
         self.payload = payload
         self.onComplete = onComplete
@@ -224,16 +230,20 @@ struct ShareComposeView: View {
         // signing out of one server must neither hide the other accounts' boards
         // nor offer a destination that can no longer authenticate.
         let signedIn = deps.auth.authenticatedAccountIds
-        let boards = SharedBoardMirror.readBoards().filter { signedIn.contains($0.accountId) }
-        self.boards = boards
+        // #EXP-1823 (share-targets.json `shareIssueBoards`): the team picked
+        // on Share to owns the page, its boards only, its last board first.
+        let lastUsed = SharedBoardMirror.readLastUsed()
+        let picked = ShareTargets.shareIssueBoards(
+            teamId: team?.id,
+            boards: SharedBoardMirror.readBoards().filter { signedIn.contains($0.accountId) },
+            lastBoardId: lastUsed.map { $0.accountId + ":" + $0.boardId },
+            id: \.id,
+            team: { ShareTeam(accountId: $0.accountId, teamId: $0.teamId, name: $0.teamName).id }
+        )
+        self.boards = picked.boards
         _title = State(initialValue: payload.title)
         _descriptionText = State(initialValue: payload.descriptionText)
-        let lastUsed = SharedBoardMirror.readLastUsed()
-        _selectedBoardKey = State(initialValue:
-            lastUsed.flatMap { last in
-                boards.first { $0.accountId == last.accountId && $0.boardId == last.boardId }?.id
-            } ?? boards.first?.id
-        )
+        _selectedBoardKey = State(initialValue: picked.board?.id)
     }
 
     var body: some View {

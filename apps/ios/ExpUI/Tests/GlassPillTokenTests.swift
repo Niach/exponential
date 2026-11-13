@@ -49,6 +49,28 @@ final class GlassPillTokenTests: XCTestCase {
         XCTAssertEqual(GlassPillTokens.spacingMd, 6)
     }
 
+    // EXP-1822: the pill numbers ARE the shared `tokens.json` sizes the web
+    // `Pill`, Android `GlassPillDefaults` and the IDE read.
+    func testEveryRungReadsTheSharedTokens() {
+        XCTAssertEqual(GlassPillTokens.horizontalPaddingSm, DesignTokens.Size.pillPaddingSm)
+        XCTAssertEqual(GlassPillTokens.horizontalPaddingMd, DesignTokens.Size.pillPaddingMd)
+        XCTAssertEqual(GlassPillTokens.spacingSm, DesignTokens.Size.pillGapSm)
+        XCTAssertEqual(GlassPillTokens.spacingMd, DesignTokens.Size.pillGapMd)
+        XCTAssertEqual(GlassPillTokens.glyphSm, DesignTokens.Size.pillGlyphSm)
+        XCTAssertEqual(GlassPillTokens.glyphMd, DesignTokens.Size.pillGlyphMd)
+        XCTAssertEqual(GlassPillTokens.dotSize, DesignTokens.Size.pillDot)
+    }
+
+    // EXP-1822: the property chip box's metrics ×4: a 16pt face clearing the
+    // 24pt capsule by 4, 8pt label dots, a 6pt wrap gap inside 10pt padding.
+    func testPropertyChipMetrics() {
+        XCTAssertEqual(GlassPillTokens.avatarSm, 16)
+        XCTAssertEqual((GlassPillTokens.heightSm - GlassPillTokens.avatarSm) / 2, 4)
+        XCTAssertEqual(GlassPillTokens.labelDot, 8)
+        XCTAssertEqual(GlassPillTokens.chipBoxGap, 6)
+        XCTAssertEqual(GlassPillTokens.chipBoxPadding, 10)
+    }
+
     // MARK: - Glyphs
 
     func testGlyphSizes() {

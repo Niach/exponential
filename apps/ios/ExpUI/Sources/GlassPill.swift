@@ -52,19 +52,31 @@ public enum GlassPillTokens {
     /// `controlMd` — the rung that matches `CircleIconButton`.
     public static let heightMd: CGFloat = DesignTokens.Size.controlMd
 
-    public static let horizontalPaddingSm: CGFloat = 8
-    public static let horizontalPaddingMd: CGFloat = 12
+    /// EXP-1822: every number below is the shared `tokens.json` `size`
+    /// entry the web `Pill`, Android `GlassPillDefaults` and the IDE read.
+    public static let horizontalPaddingSm: CGFloat = DesignTokens.Size.pillPaddingSm
+    public static let horizontalPaddingMd: CGFloat = DesignTokens.Size.pillPaddingMd
 
     /// Gap between the leading mark, the label and the trailing slot.
-    public static let spacingSm: CGFloat = 4
-    public static let spacingMd: CGFloat = 6
+    public static let spacingSm: CGFloat = DesignTokens.Size.pillGapSm
+    public static let spacingMd: CGFloat = DesignTokens.Size.pillGapMd
 
     /// The leading registry glyph.
-    public static let glyphSm: CGFloat = 12
-    public static let glyphMd: CGFloat = 16
+    public static let glyphSm: CGFloat = DesignTokens.Size.pillGlyphSm
+    public static let glyphMd: CGFloat = DesignTokens.Size.pillGlyphMd
 
     /// The status/label dot — a plain filled disc, never a ring.
-    public static let dotSize: CGFloat = 6
+    public static let dotSize: CGFloat = DesignTokens.Size.pillDot
+
+    /// A face in an `.sm` pill (the assignee chip): web `UserAvatar size={16}`.
+    public static let avatarSm: CGFloat = DesignTokens.Size.pillAvatar
+
+    /// The labels chip's colour dots (web `h-2 w-2`), the ring drawn outside.
+    public static let labelDot: CGFloat = DesignTokens.Size.pillLabelDot
+
+    /// The property chip box: its wrap gap and inner padding.
+    public static let chipBoxGap: CGFloat = DesignTokens.Size.chipBoxGap
+    public static let chipBoxPadding: CGFloat = DesignTokens.Size.chipBoxPadding
 }
 
 /// The two rungs. A pill is either chip-sized or control-sized; there is no
