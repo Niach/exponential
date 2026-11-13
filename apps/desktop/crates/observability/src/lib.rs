@@ -18,6 +18,12 @@
 //! signal/abort/SEH crash; the next launch sends it once its client is up
 //! (or deletes it unsent when diagnostics are off).
 //!
+//! Rust panics (#ERR-18, [`keep_panic`]): the panic hook sends the event
+//! in-process, but only within a bounded flush and through a tunnel that can
+//! answer 5xx; so the event is also written beside the native crashes and
+//! deleted once the tunnel answered 2xx for it, else the next launch sends
+//! it.
+//!
 //! Never a dependency of `crates/eagent` or the Engine runner.
 
 pub mod config;
@@ -28,7 +34,7 @@ mod transport;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, Once, OnceLock};
 use std::time::Duration;
 
 pub use transport::HttpClient;
@@ -92,6 +98,67 @@ static STATE: OnceLock<Mutex<State>> = OnceLock::new();
 static SENTRY_ON: AtomicBool = AtomicBool::new(false);
 /// A `log` record being forwarded (a send that logs must not recurse).
 static FORWARDING: AtomicBool = AtomicBool::new(false);
+/// #ERR-18: where a panic's event waits (set while a client is up) and the
+/// events this process kept.
+static PANIC_DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
+static KEPT_PANICS: Mutex<Vec<(sentry::types::Uuid, PathBuf)>> = Mutex::new(Vec::new());
+static SETTLE_HOOK: Once = Once::new();
+/// How long a panicking process waits, after sentry's own flush, for the
+/// tunnel to take its event before leaving it for the next launch.
+const PANIC_DELIVERY_WAIT: Duration = Duration::from_secs(3);
+
+fn set_panic_dir(dir: Option<PathBuf>) {
+    *PANIC_DIR.lock().unwrap_or_else(|e| e.into_inner()) = dir;
+}
+
+fn is_panic(event: &sentry::protocol::Event<'_>) -> bool {
+    event.exception.values.iter().any(|e| e.mechanism.as_ref().is_some_and(|m| m.ty == "panic"))
+}
+
+/// `before_send`: a panic's event, captured while the thread unwinds (the
+/// next launch resending it is not), is written to the crash directory
+/// first. Runs inside the panic hook: no locks it could wait on, no panics.
+fn keep_panic(event: &sentry::protocol::Event<'_>) {
+    if !std::thread::panicking() || !is_panic(event) {
+        return;
+    }
+    let Some(dir) = PANIC_DIR.try_lock().ok().and_then(|dir| dir.clone()) else { return };
+    if let Ok(path) = crash_monitor::write_panic(&dir, event) {
+        if let Ok(mut kept) = KEPT_PANICS.try_lock() {
+            kept.push((event.event_id, path));
+        }
+    }
+}
+
+/// After sentry's panic hook (capture + its flush): delete each kept event
+/// the tunnel took; a panic the tunnel never took stays for the next launch.
+fn settle_kept_panics(wait: Duration) {
+    let Ok(mut kept) = KEPT_PANICS.try_lock() else { return };
+    let ids: Vec<_> = kept.iter().map(|(id, _)| *id).collect();
+    if ids.is_empty() {
+        return;
+    }
+    transport::wait_delivered(&ids, wait);
+    kept.retain(|(id, path)| {
+        let sent = transport::delivered(id);
+        if sent {
+            let _ = std::fs::remove_file(path);
+        }
+        !sent
+    });
+}
+
+/// Wrap the panic hook sentry's panic integration installed (when the first
+/// client is built) so the settle step runs after it. Once per process.
+fn install_settle_hook() {
+    SETTLE_HOOK.call_once(|| {
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            previous(info);
+            settle_kept_panics(PANIC_DELIVERY_WAIT);
+        }));
+    });
+}
 
 fn state() -> Option<std::sync::MutexGuard<'static, State>> {
     STATE.get().map(|state| state.lock().unwrap_or_else(|e| e.into_inner()))
@@ -289,6 +356,7 @@ fn apply(remote: RemoteConfig) {
     let hub = sentry::Hub::main();
     if let Some(client) = hub.client() {
         SENTRY_ON.store(false, Ordering::Relaxed);
+        set_panic_dir(None);
         client.close(Some(Duration::from_secs(2)));
         hub.bind_client(None);
         set_levels(false);
@@ -311,31 +379,43 @@ fn apply(remote: RemoteConfig) {
     options.send_default_pii = false;
     options.server_name = None;
     options.max_breadcrumbs = 100;
-    options.before_send = Some(Arc::new(|event| Some(scrub::scrub_event(event))));
+    options.before_send = Some(Arc::new(|event| {
+        let event = scrub::scrub_event(event);
+        keep_panic(&event);
+        Some(event)
+    }));
     options.before_breadcrumb = Some(Arc::new(|breadcrumb| Some(scrub::scrub_breadcrumb(breadcrumb))));
     options.before_send_log = Some(Arc::new(|log| Some(scrub::scrub_log(log))));
     options.transport = Some(transport::TunnelTransport::factory(config::tunnel_url(&server), state.http));
     let mut options = sentry::apply_defaults(options);
     options.server_name = None;
     let client = Arc::new(sentry::Client::from(options));
+    // Building the client installed sentry's panic hook (once).
+    install_settle_hook();
     hub.bind_client(Some(client));
     SENTRY_ON.store(true, Ordering::Relaxed);
     let crashes = crashes_dir(&state.data_dir);
+    set_panic_dir(Some(crashes.clone()));
     drop(state);
     apply_user();
-    // #ERR-12: the last launches' native crashes, each with its own
-    // release; deleted once flushed (off the UI thread).
+    // #ERR-12 / #ERR-18: the last launches' native crashes and panics,
+    // each with its own release; deleted once the tunnel took every one
+    // (a 2xx), off the UI thread.
     let _ = std::thread::Builder::new().name("exp-crash-reports".into()).spawn(move || {
         let hub = sentry::Hub::main();
+        let ids = std::cell::RefCell::new(Vec::new());
         let sent = crash_monitor::send_pending(
             &crashes,
             |event| {
-                hub.capture_event(event);
+                ids.borrow_mut().push(hub.capture_event(event));
             },
-            || hub.client().is_some_and(|client| client.flush(Some(Duration::from_secs(10)))),
+            || {
+                hub.client().is_some_and(|client| client.flush(Some(Duration::from_secs(10))))
+                    && transport::wait_delivered(&ids.borrow(), Duration::from_secs(5))
+            },
         );
         if sent > 0 {
-            log::info!(target: "observability", "diagnostics: sent {sent} native crash report(s)");
+            log::info!(target: "observability", "diagnostics: sent {sent} crash report(s)");
         }
     });
     // The lag data feeds Sentry's hang and long-frame transactions too.

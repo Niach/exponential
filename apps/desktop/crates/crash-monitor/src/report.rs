@@ -223,31 +223,91 @@ pub fn pending(dir: &Path) -> Vec<(std::path::PathBuf, Crash)> {
     crashes
 }
 
-/// Hand every pending crash to `send` (an event per crash), then `flush`;
-/// the reports are deleted only once `flush` says they went out (a crash
-/// right after startup must not lose the last one). A resend after a
+/// Hand every pending crash and panic to `send` (an event each), then
+/// `flush`; the reports are deleted only once `flush` says they went out (a
+/// crash right after startup must not lose the last one). A resend after a
 /// failed flush carries the same event id. Returns how many were handed
 /// over.
 pub fn send_pending(dir: &Path, mut send: impl FnMut(proto::Event<'static>), flush: impl FnOnce() -> bool) -> usize {
     let crashes = pending(dir);
-    let count = crashes.len();
+    let panics = pending_panics(dir);
+    let count = crashes.len() + panics.len();
     if count == 0 {
         return 0;
     }
     for (_, crash) in &crashes {
         send(crash.to_event());
     }
+    let mut paths: Vec<std::path::PathBuf> = crashes.into_iter().map(|(path, _)| path).collect();
+    for (path, event) in panics {
+        send(event);
+        paths.push(path);
+    }
     if flush() {
-        for (path, _) in crashes {
+        for path in paths {
             let _ = std::fs::remove_file(path);
         }
     }
     count
 }
 
+/// #ERR-18: the extension of a Rust panic's event waiting in the crash
+/// directory (`<event id>.panic`). A panic is sent in-process, but within
+/// the panic hook's bounded flush: a slow or failing tunnel lost it. It is
+/// written before that send and deleted once the tunnel took it; else the
+/// next launch sends it like a native crash.
+pub const PANIC_EXTENSION: &str = "panic";
+
+/// The file a panic event waits in.
+pub fn panic_path(dir: &Path, event_id: &proto::Uuid) -> std::path::PathBuf {
+    dir.join(format!("{}.{PANIC_EXTENSION}", event_id.as_hyphenated()))
+}
+
+/// Keep a panic event for the next launch. Runs inside a panic hook: no
+/// panics here (a panic in the hook aborts), every error is returned.
+pub fn write_panic(dir: &Path, event: &proto::Event<'_>) -> std::io::Result<std::path::PathBuf> {
+    std::fs::create_dir_all(dir)?;
+    let path = panic_path(dir, &event.event_id);
+    let tmp = path.with_extension("panic.tmp");
+    std::fs::write(&tmp, serde_json::to_vec(event).map_err(std::io::Error::other)?)?;
+    std::fs::rename(&tmp, &path)?;
+    Ok(path)
+}
+
+/// The panic events waiting in `dir`, oldest first, pruned like
+/// [`pending`] (at most [`MAX_PENDING`], none older than [`MAX_AGE`], the
+/// unreadable deleted).
+pub fn pending_panics(dir: &Path) -> Vec<(std::path::PathBuf, proto::Event<'static>)> {
+    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+    let now = SystemTime::now();
+    let mut panics = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some(PANIC_EXTENSION) {
+            continue;
+        }
+        let event = std::fs::read(&path).ok().and_then(|bytes| serde_json::from_slice::<proto::Event<'static>>(&bytes).ok());
+        match event {
+            Some(event) if now.duration_since(event.timestamp).map_or(true, |age| age <= MAX_AGE) => panics.push((path, event)),
+            _ => {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+    }
+    panics.sort_by_key(|(_, event)| event.timestamp);
+    let excess = panics.len().saturating_sub(MAX_PENDING);
+    for (path, _) in panics.drain(..excess) {
+        let _ = std::fs::remove_file(path);
+    }
+    panics
+}
+
 /// Delete every pending crash unsent (diagnostics are off).
 pub fn discard_pending(dir: &Path) {
     for (path, _) in pending(dir) {
+        let _ = std::fs::remove_file(path);
+    }
+    for (path, _) in pending_panics(dir) {
         let _ = std::fs::remove_file(path);
     }
 }
@@ -400,5 +460,60 @@ mod tests {
         write(dir.path(), &crash()).unwrap();
         discard_pending(dir.path());
         assert!(pending(dir.path()).is_empty());
+    }
+
+    fn panic_event(age: Duration) -> proto::Event<'static> {
+        proto::Event {
+            level: proto::Level::Fatal,
+            release: Some("exponential-desktop@0.14.154".into()),
+            timestamp: SystemTime::now() - age,
+            exception: vec![proto::Exception {
+                ty: "panic".into(),
+                value: Some("Encoding Error".into()),
+                mechanism: Some(proto::Mechanism { ty: "panic".into(), handled: Some(false), ..Default::default() }),
+                ..Default::default()
+            }]
+            .into(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_kept_panic_is_sent_with_its_own_release_and_id_then_deleted() {
+        let dir = tempfile::tempdir().unwrap();
+        let event = panic_event(Duration::from_secs(5));
+        let path = write_panic(dir.path(), &event).unwrap();
+        assert_eq!(path, panic_path(dir.path(), &event.event_id));
+        // A native crash report beside it is not confused with it.
+        write(dir.path(), &crash()).unwrap();
+        assert_eq!(pending(dir.path()).len(), 1);
+
+        let mut sent = Vec::new();
+        assert_eq!(send_pending(dir.path(), |e| sent.push(e), || false), 2);
+        assert!(path.exists(), "kept until the tunnel took it");
+        sent.clear();
+        assert_eq!(send_pending(dir.path(), |e| sent.push(e), || true), 2);
+        let panic = sent.iter().find(|e| e.event_id == event.event_id).expect("the panic event");
+        assert_eq!(panic.release.as_deref(), Some("exponential-desktop@0.14.154"));
+        assert_eq!(panic.exception.values[0].value.as_deref(), Some("Encoding Error"));
+        assert!(!path.exists());
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn panics_are_pruned_and_discarded_like_crashes() {
+        let dir = tempfile::tempdir().unwrap();
+        for i in 0..(MAX_PENDING as u64 + 2) {
+            write_panic(dir.path(), &panic_event(Duration::from_secs(100 - i))).unwrap();
+        }
+        let old = panic_event(MAX_AGE + Duration::from_secs(60));
+        write_panic(dir.path(), &old).unwrap();
+        std::fs::write(dir.path().join("broken.panic"), b"{").unwrap();
+        let kept = pending_panics(dir.path());
+        assert_eq!(kept.len(), MAX_PENDING);
+        assert!(kept.iter().all(|(_, e)| e.event_id != old.event_id));
+        assert!(!dir.path().join("broken.panic").exists());
+        discard_pending(dir.path());
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
     }
 }
