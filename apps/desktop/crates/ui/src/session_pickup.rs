@@ -280,6 +280,9 @@ fn action_session_id(action: &PickupAction) -> &str {
 
 /// One pass: snapshot, plan, execute (the daemon's `pickup_pass`).
 fn run_pass(cx: &mut App) {
+    // #PERF-2: a pass runs on the main thread (deferred off a store
+    // change or a timer, outside every view's span): hangs named nothing.
+    let _span = tracing::trace_span!("pickup.pass").entered();
     // #EXP-1727: a Local desktop's sessions are `elocal::runs`'s to claim.
     #[cfg(test)]
     let local_runs = !PASS_ON_LOCAL.with(std::cell::Cell::get);

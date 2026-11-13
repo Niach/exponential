@@ -68,6 +68,8 @@ fn real_data_bench() {
     };
     let db = std::path::PathBuf::from(db);
     let data = std::path::PathBuf::from(data);
+    // #PERF-2/3/4: every main-thread span's self time, per phase below.
+    let (spans, _spans) = crate::span_clock::SpanClock::install();
     let mut cx = headless();
     let (changes, rx) = flume::unbounded::<(String, Vec<String>)>();
     let started = Instant::now();
@@ -152,6 +154,14 @@ fn real_data_bench() {
         frame(window, &mut cx);
         cx.run_until_parked();
     }
+    // A journal-seeded chat folds off the main thread: let it land.
+    for _ in 0..20 {
+        std::thread::sleep(Duration::from_millis(100));
+        cx.run_until_parked();
+        frame(window, &mut cx);
+    }
+    println!("[real] spans to here: {}", spans.top(14));
+    spans.reset();
 
     if let Some(shot) = std::env::var_os("LOGS_REAL_SHOT") {
         cx.capture_screenshot(window).expect("the frame").save(std::path::Path::new(&shot)).expect("the PNG");
@@ -164,6 +174,8 @@ fn real_data_bench() {
         idle.push(frame(window, &mut cx));
     }
     println!("[real] idle frames: {}", Stats(idle));
+    println!("[real] idle spans: {}", spans.top(12));
+    spans.reset();
 
     let shapes: &[(&str, &str, usize)] = &[
         ("pull_requests", "updated_at", 3),
@@ -209,6 +221,8 @@ fn real_data_bench() {
         }
         println!("[real] {shape:20} delta apply: {}", Stats(apply));
         println!("[real] {shape:20} delta frame: {}", Stats(drawn));
+        println!("[real] {shape:20} spans: {}", spans.top(12));
+        spans.reset();
         cx.advance_clock(Duration::from_secs(3));
         cx.run_until_parked();
         let started = Instant::now();
@@ -365,4 +379,114 @@ fn open_biggest_chat_bench() {
     let (second, m) = results(&mut cx);
     println!("[open] results: first {first:.1} ms ({n}), after the read {second:.1} ms ({m})");
     std::mem::forget(cx);
+}
+
+/// #PERF-4: ONE chat on a REAL store with a REAL journal's feed (the
+/// replay tail folded into its root view, as the relay replays it): the
+/// span self time of its idle frames, of the frames after each store delta
+/// kind, and of a streaming reply's frames.
+///
+/// ```sh
+/// LOGS_REAL_DB=… LOGS_REAL_DATA=… LOGS_REAL_ACCOUNT=… LOGS_REAL_ROOT=<root id> \
+/// LOGS_REAL_JOURNAL=/tmp/copy/<root id>.jsonl \
+/// cargo test -p ui --release --lib real_chat_bench -- --ignored --nocapture
+/// ```
+#[test]
+#[ignore = "a release bench on a real store: run with --ignored --nocapture"]
+fn real_chat_bench() {
+    let (Some(db), Some(data), Ok(account), Ok(root), Some(journal)) = (
+        std::env::var_os("LOGS_REAL_DB"),
+        std::env::var_os("LOGS_REAL_DATA"),
+        std::env::var("LOGS_REAL_ACCOUNT"),
+        std::env::var("LOGS_REAL_ROOT"),
+        std::env::var_os("LOGS_REAL_JOURNAL"),
+    ) else {
+        eprintln!("[chat] LOGS_REAL_DB / _DATA / _ACCOUNT / _ROOT / _JOURNAL unset: skipped");
+        return;
+    };
+    let db = std::path::PathBuf::from(db);
+    let data = std::path::PathBuf::from(data);
+    let (spans, _spans) = crate::span_clock::SpanClock::install();
+    let mut cx = headless();
+    let (changes, rx) = flume::unbounded::<(String, Vec<String>)>();
+    cx.update(|cx| {
+        crate::init(cx);
+        cx.set_global(crate::AuthContext { auth: api::AuthStore::load(data.clone()), client: std::sync::Arc::new(api::AuthClient::new()), data_dir: data.clone() });
+        let store = sync::Store::open(cx, None, None);
+        cx.set_global(store);
+        sync::Store::global(cx).clone().connect_local(&account, &db, rx, cx).expect("the store hydrates");
+    });
+    wait_hydrated(&mut cx);
+    let mut chat = None;
+    let handle = cx
+        .open_window(size(px(1440.), px(900.)), |window: &mut Window, cx| {
+            let view = cx.new(|cx| crate::session_chat::SessionChatScreenView::new(root.clone(), window, cx));
+            chat = Some(view.clone());
+            cx.new(|cx| gpui_component::Root::new(view, window, cx))
+        })
+        .expect("a headless window");
+    let window: AnyWindowHandle = handle.into();
+    let chat = chat.expect("the chat view");
+    cx.update_window(window, |_, window, _| window.activate_window()).unwrap();
+    for _ in 0..3 {
+        frame(window, &mut cx);
+        cx.run_until_parked();
+    }
+    let steer = cx.update(|cx| chat.read(cx).inner_for_bench(cx));
+    let path = std::path::PathBuf::from(journal);
+    let dir = tempfile::tempdir().unwrap();
+    let copy = steer::journal_path(dir.path(), "bench").expect("a path");
+    std::fs::create_dir_all(copy.parent().unwrap()).unwrap();
+    std::fs::copy(&path, &copy).unwrap();
+    let events = steer::read_journal_seq(dir.path(), "bench").expect("the journal");
+    let tail = steer::replay_tail(events, steer::REPLAY_TAIL).0;
+    let viewer: Vec<steer::ViewerEvent> = std::iter::once(steer::ViewerEvent::Phase(steer::ViewerPhase::Live))
+        .chain(tail.into_iter().map(|(seq, event)| steer::ViewerEvent::Activity(seq, event)))
+        .collect();
+    let started = Instant::now();
+    cx.update(|cx| steer.update(cx, |steer, cx| steer.apply_events_for_test(viewer, cx)));
+    let fold = started.elapsed().as_secs_f64() * 1e3;
+    let first = frame(window, &mut cx);
+    cx.run_until_parked();
+    let (items, rows) = cx.update(|cx| steer.read(cx).bench_counts());
+    println!("[chat] fold {fold:.0} ms · first frame {first:.1} ms · {items} items · {rows} rows · spans {}", spans.top(12));
+    spans.reset();
+    let mut idle = Vec::new();
+    for _ in 0..60 {
+        cx.advance_clock(Duration::from_millis(16));
+        cx.run_until_parked();
+        idle.push(frame(window, &mut cx));
+    }
+    println!("[chat] idle frames: {} · spans {}", Stats(idle), spans.top(14));
+    spans.reset();
+    crate::duty_cycle::enable_for_test(true);
+    for (shape, order) in [("sessions", "updated_at"), ("messages", "created_at"), ("issues", "updated_at")] {
+        let ids = recent_ids(&db, shape, order, 3);
+        let mut frames = Vec::new();
+        for _ in 0..10 {
+            let started = Instant::now();
+            changes.send((shape.to_string(), ids.clone())).unwrap();
+            cx.run_until_parked();
+            frame(window, &mut cx);
+            frames.push(started.elapsed().as_secs_f64() * 1e3);
+            cx.advance_clock(Duration::from_millis(400));
+            cx.run_until_parked();
+        }
+        println!("[chat] {shape:10} delta + frame: {} · spans {}", Stats(frames), spans.top(14));
+        spans.reset();
+    }
+    let mut arrivals = Vec::new();
+    let mut reply = String::from("Streaming the reply:");
+    for n in 0..30 {
+        reply.push_str(&format!(" chunk {n} of the reply with **marks** and #EXP-{n}"));
+        let event = steer::ViewerEvent::Activity(10_000_000 + n, steer::ActivityEvent::narration(reply.clone()));
+        let started = Instant::now();
+        cx.update(|cx| steer.update(cx, |steer, cx| steer.apply_events_for_test(vec![event], cx)));
+        frame(window, &mut cx);
+        cx.run_until_parked();
+        arrivals.push(started.elapsed().as_secs_f64() * 1e3);
+    }
+    println!("[chat] streaming chunk + frame: {} · spans {}", Stats(arrivals), spans.top(14));
+    std::mem::forget(cx);
+    std::mem::forget(dir);
 }

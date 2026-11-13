@@ -483,6 +483,14 @@ pub(crate) fn first_issue_identifier(root_id: &str, cx: &App) -> Option<String> 
 /// never the transcript; the open chat, unread marking and pickup stay on
 /// [`keyed_messages`].
 pub(crate) fn digest_messages(cx: &App, keep: impl Fn(&str) -> bool) -> Vec<MessageRow> {
+    digest_message_lists(cx, keep).iter().flat_map(|rows| rows.iter().cloned()).collect()
+}
+
+/// [`digest_messages`] as the cached per-session lists, never cloned:
+/// #PERF-3: the rail's derives (the chat lists, Needs you) read every team
+/// session's digest on each sessions write, and cloning them all (bodies
+/// and cards) was most of a derive.
+pub(crate) fn digest_message_lists(cx: &App, keep: impl Fn(&str) -> bool) -> Vec<Rc<Vec<MessageRow>>> {
     let Some(store) = Store::try_global(cx) else {
         return Vec::new();
     };
@@ -509,7 +517,7 @@ pub(crate) fn digest_messages(cx: &App, keep: impl Fn(&str) -> bool) -> Vec<Mess
             }
             cache.0 = Some(stamp);
         }
-        let mut out: Vec<MessageRow> = Vec::new();
+        let mut out: Vec<Rc<Vec<MessageRow>>> = Vec::new();
         for session in sessions.iter() {
             if !keep(session.id.as_str()) {
                 continue;
@@ -518,7 +526,9 @@ pub(crate) fn digest_messages(cx: &App, keep: impl Fn(&str) -> bool) -> Vec<Mess
                 let digest = domain::chats::ConversationDigest::decode(session.digest.as_ref());
                 Rc::new(domain::chats::digest_messages(&session.id, digest.as_ref()))
             });
-            out.extend(rows.iter().cloned());
+            if !rows.is_empty() {
+                out.push(rows.clone());
+            }
         }
         out
     })
@@ -1277,7 +1287,10 @@ pub(crate) fn chat_lists(team_id: &str, cx: &mut App) -> Rc<Vec<ChatsListGroup>>
             return lists.clone();
         }
     }
-    let lists = Rc::new(derive_chat_lists(team_id, cx));
+    let lists = {
+        let _span = tracing::trace_span!("chat_lists.derive").entered();
+        Rc::new(derive_chat_lists(team_id, cx))
+    };
     cx.global_mut::<ListsMemo>().0 = Some((key, lists.clone()));
     lists
 }
@@ -1311,8 +1324,8 @@ fn derive_chat_lists(team_id: &str, cx: &App) -> Vec<ChatsListGroup> {
     let in_team: HashSet<&str> = rows.iter().map(|session| session.id.as_str()).collect();
     // EXP-1341: every session's own first prompt names it; session e4a04d22:
     // read off each conversation's digest, never the transcript.
-    let keyed: Vec<MessageRow> = digest_messages(cx, |owner| in_team.contains(owner));
-    let messages: Vec<&MessageRow> = keyed.iter().collect();
+    let keyed = digest_message_lists(cx, |owner| in_team.contains(owner));
+    let messages: Vec<&MessageRow> = keyed.iter().flat_map(|rows| rows.iter()).collect();
     let session_reads = collections.session_reads.read(cx);
     let reads: Vec<&SessionReadRow> = session_reads
         .iter()
@@ -1436,8 +1449,8 @@ fn derive_chats_model(team_id: &str, groups: &[ChatsListGroup], cx: &App) -> Cha
         )
         .collect();
     // Session e4a04d22: the digest's messages, never the transcript.
-    let keyed: Vec<MessageRow> = digest_messages(cx, |owner| roots.contains(owner));
-    let messages: Vec<&MessageRow> = keyed.iter().collect();
+    let keyed = digest_message_lists(cx, |owner| roots.contains(owner));
+    let messages: Vec<&MessageRow> = keyed.iter().flat_map(|rows| rows.iter()).collect();
     let session_reads = collections.session_reads.read(cx);
     let reads: Vec<&SessionReadRow> = session_reads
         .iter()
@@ -1725,7 +1738,12 @@ pub(crate) fn live_roots_for_rail(team_id: &str, cx: &mut App) -> Vec<LiveRootRo
     let Some(store) = Store::try_global(cx) else {
         return Vec::new();
     };
-    let pulls = team_pr_snapshot(team_id, cx).pulls;
+    // #PERF-3: the team's PRs only (the full snapshot cloned every link and
+    // linked issue too, per rail derive).
+    let pulls: Vec<PullRequestRow> = {
+        let _span = tracing::trace_span!("live_roots.pulls").entered();
+        store.collections().pull_requests.read(cx).iter().filter(|pull| pull.team_id.as_deref() == Some(team_id)).cloned().collect()
+    };
     let sessions = store.collections().sessions.read(cx);
     let rows: Vec<&SessionRow> = sessions
         .iter()

@@ -13,9 +13,9 @@
 // a one-link paragraph the host's `attachment` classifies is the Video /
 // AudioPlayer native or the FileUpload file row (React's markdown.tsx).
 
-import { For, Show, createMemo, createSignal, useContext, type JSX } from "solid-js"
+import { For, Show, createMemo, createSignal, onCleanup, useContext, type JSX } from "solid-js"
 import { Dynamic } from "solid-js/web"
-import { linkedMarkdown, linkHref, markdownChipOverlay, markdownPartAttrs, markdownProfileHost, loadedImageSize, markdownCodeLines, markdownImageCap, markdownImageSizeOf, markdownImageStyle, mediaRequestOf, rememberImageSize, parseMarkdown, partClass, propAttribute, type MarkdownBlock, type MarkdownChip, type MarkdownInline, type MarkdownList } from "@exponential_app/eui/web"
+import { MARKDOWN_CELL_TEXT, watchMarkdownTable, linkedMarkdown, linkHref, markdownChipOverlay, markdownPartAttrs, markdownProfileHost, loadedImageSize, markdownCodeLines, markdownImageCap, markdownImageSizeOf, markdownImageStyle, mediaRequestOf, rememberImageSize, parseMarkdown, partClass, propAttribute, type MarkdownBlock, type MarkdownChip, type MarkdownInline, type MarkdownList } from "@exponential_app/eui/web"
 import type { MarkdownVariant } from "@exponential_app/eui/web"
 import type { UiNode } from "@exponential_app/eui"
 import { SurfaceContext } from "./context"
@@ -249,23 +249,26 @@ function block(b: MarkdownBlock, host: HostPlugin, scope: string, id: string, ke
     case `list`:
       return renderList(b.list, host, scope)
     case `table`:
+      // #FEED-224: the columns fit by fixtures/table-fit.json (web/table-fit.ts).
       return (
-        <table {...mdPart(host, scope, `table`)}>
-          <thead>
-            <tr>
-              <For each={b.head}>{(h, c) => <th {...mdPart(host, scope, `headerCell`)} style={css(b.align[c()] ? { textAlign: b.align[c()]! } : undefined)}>{inline(h, host, scope)}</th>}</For>
-            </tr>
-          </thead>
-          <tbody>
-            <For each={b.rows}>
-              {(r) => (
-                <tr>
-                  <For each={r}>{(cell, c) => <td {...mdPart(host, scope, `cell`)} style={css(b.align[c()] ? { textAlign: b.align[c()]! } : undefined)}>{inline(cell, host, scope)}</td>}</For>
-                </tr>
-              )}
-            </For>
-          </tbody>
-        </table>
+        <div class="xui-Markdown-tableScroll" ref={(el) => onCleanup(watchMarkdownTable(el))}>
+          <table {...mdPart(host, scope, `table`)}>
+            <thead>
+              <tr>
+                <For each={b.head}>{(h, c) => <th {...mdPart(host, scope, `headerCell`)} style={css(b.align[c()] ? { textAlign: b.align[c()]! } : undefined)}><div class={MARKDOWN_CELL_TEXT}>{inline(h, host, scope)}</div></th>}</For>
+              </tr>
+            </thead>
+            <tbody>
+              <For each={b.rows}>
+                {(r) => (
+                  <tr>
+                    <For each={r}>{(cell, c) => <td {...mdPart(host, scope, `cell`)} style={css(b.align[c()] ? { textAlign: b.align[c()]! } : undefined)}><div class={MARKDOWN_CELL_TEXT}>{inline(cell, host, scope)}</div></td>}</For>
+                  </tr>
+                )}
+              </For>
+            </tbody>
+          </table>
+        </div>
       )
     case `rule`:
       return <hr />

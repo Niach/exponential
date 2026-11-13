@@ -191,6 +191,24 @@ export function draftRow(input: Row, ctx: { identity: LocalIdentity; existing: R
   }
 }
 
+/** #EXP-1800: `composerDrafts.upsert` refused: an empty text is a delete. */
+export const LOCAL_COMPOSER_DRAFT_EMPTY: string = fixture.composerDrafts.emptyRefusal
+
+/** #EXP-1800: `composerDrafts.upsert`: the identity's one row per `key`
+ *  (composer-draft.json); a new key takes `id`, a re-save keeps the row's id
+ *  and `created_at` and replaces team and text. */
+export function composerDraftRow(input: Row, ctx: { identity: LocalIdentity; existing: Row | null; id: string; now: string }): Row {
+  return {
+    id: (ctx.existing?.id as string | undefined) ?? ctx.id,
+    user_id: ctx.identity.userId,
+    team_id: input.teamId ?? null,
+    key: typeof input.key === `string` ? input.key : ``,
+    text: typeof input.text === `string` ? input.text : ``,
+    created_at: (ctx.existing?.created_at as string | undefined) ?? ctx.now,
+    updated_at: ctx.now,
+  }
+}
+
 /** `comments.create`: the identity's, one level deep. */
 export function createCommentRow(input: Row, ctx: { teamId: string; identity: LocalIdentity; existing: readonly { id: string; parent_id: string | null }[]; id: string; now: string }): Row {
   let parent = typeof input.parentId === `string` ? input.parentId : null
