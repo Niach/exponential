@@ -97,7 +97,6 @@ public enum CiRunView {
                 "wrap": .bool(false),
                 "copyable": .bool(true),
                 "maxLines": .number(Double(phone ? CiRun.logMaxLinesPhone : CiRun.logMaxLinesWide)),
-                "variant": .string(CiRun.isFailing(status: job.status, conclusion: job.conclusion) ? "destructive" : "default"),
                 "highlight": .array(view.highlight.map { .number(Double($0)) }),
                 "follow": .bool(running),
             ]))
@@ -128,9 +127,11 @@ public enum CiRunView {
                 ids.tiles, "Grid",
                 props: ["columns": .number(phone ? 2 : 4), "gap": .string("md")],
                 children: tiles.enumerated().map { i, tile in
-                    node("\(ids.tiles).\(i)", "StatTile", props: [
+                    var props: [String: CardJSON] = [
                         "label": .string(tile.label), "value": .string(tile.value), "tone": .string(tile.tone.rawValue),
-                    ])
+                    ]
+                    if let delta = tile.delta { props["delta"] = .string(delta) }
+                    return node("\(ids.tiles).\(i)", "StatTile", props: props)
                 }
             ),
         ]
