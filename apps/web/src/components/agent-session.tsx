@@ -1064,6 +1064,9 @@ export function AgentSessionView({
         mark: `${feed.length}:${windowStart}:${sessionMessages.length}`,
       }
       if (!scroller || !el || placeholderYoung) return { ...base, found: false, laidOut: false, centred: false }
+      // Older rows just mounted: the reader's place is being restored, the
+      // card's measurement is stale until it is.
+      if (anchorRef.current !== null) return { ...base, found: true, laidOut: false, centred: false }
       const measured = measureCard(scroller, el)
       // A card drawn above a window that can still grow (its anchor rows
       // are older than the window) sits pinned at the top, never centred:
