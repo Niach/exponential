@@ -1675,6 +1675,17 @@
         "result": "none"
       },
       {
+        "name": "apps_render",
+        "title": "Render app screen",
+        "blurb": "Renders one app screen as a viewer sees it, as a text outline with its problems.",
+        "progressive": "Rendering app screen",
+        "done": "Rendered app screen",
+        "progressiveMany": "Rendering {n} app screens",
+        "doneMany": "Rendered {n} app screens",
+        "subjectKey": "slug",
+        "result": "none"
+      },
+      {
         "name": "apps_records_list",
         "title": "List app records",
         "blurb": "Lists an app's records (its own data), newest first, by kind.",
@@ -2182,6 +2193,7 @@
       { "name": "apps_publish", "refs": "" },
       { "name": "apps_delete", "refs": "" },
       { "name": "apps_catalog", "refs": "" },
+      { "name": "apps_render", "refs": "" },
       { "name": "apps_records_list", "refs": "" },
       { "name": "apps_records_upsert", "refs": "" },
       { "name": "apps_records_delete", "refs": "" },
