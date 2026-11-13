@@ -16,6 +16,7 @@ import {
   type TreeSessionRead,
 } from "./session-tree"
 import { SEALED_BODY_PREFIX, SEALED_PLACEHOLDER, type LockedReason } from "./sealed-content"
+import { titleLine, usableTitleLine } from "./session-title"
 
 export const CHATS_COPY = fixture.copy
 
@@ -638,12 +639,10 @@ export interface ConversationDigest {
 const msOr0 = (iso: string | null | undefined) => ms(iso) ?? 0
 
 /** The index of a body's first usable line (the title rule's `firstLine`:
- *  non-blank, not an image embed), -1 = none. */
+ *  non-blank once its `[Image #N]` markers are gone, not an image embed),
+ *  -1 = none. */
 function firstUsableLineAt(body: string): number {
-  return body.split(`\n`).findIndex((part) => {
-    const line = part.trim()
-    return line.length > 0 && !line.startsWith(`![`)
-  })
+  return body.split(`\n`).findIndex((part) => usableTitleLine(titleLine(part)))
 }
 
 /** Cut to `DIGEST_TEXT_MAX` characters (code points, SQL `left()`'s count). */

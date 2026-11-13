@@ -28,6 +28,7 @@ export const MESSAGE_COLUMNS = [
   `issue_brief`,
   `answered_at`,
   `consumed_at`,
+  `delivered_at`,
   `created_at`,
   `updated_at`,
 ]

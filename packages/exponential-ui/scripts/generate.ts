@@ -759,7 +759,7 @@ function componentCases(): ComponentCase[] {
 const INLINE_SPECIMENS = new Set([
   `Avatar`, `Badge`, `Button`, `Checkbox`, `Chip`, `Icon`, `Link`, `Menu`,
   `Radio`, `Ring`, `Spinner`, `Switch`, `Toggle`, `Segmented`, `Tooltip`, `Popover`, `Pagination`, `QrCode`,
-  `CountBadge`,
+  `CountBadge`, `MessageStatus`,
 ])
 /** The enum props a specimen shows, in priority order (at most two of them). */
 const SPECIMEN_ENUMS = [`variant`, `shape`, `surface`, `openOn`, `type`, `kind`, `level`, `size`, `tone`, `tint`, `chevron`, `density`, `orientation`, `direction`, `fit`]
@@ -969,6 +969,8 @@ const SPECIMEN_OVERRIDES: Record<string, { label: string; node: NestedNode }[]> 
     { label: `example`, node: { id: `bubble`, component: `MessageBubble`, props: { text: `Is the printer fixed?`, side: `out`, time: `18:00`, status: `read` }, style: { width: 360 } } },
     { label: `side · in · author + attachment`, node: { id: `bubble`, component: `MessageBubble`, props: { text: `There you go.`, author: `spezl`, time: `20:21` }, style: { width: 360 }, slots: { attachment: { id: `file`, component: `Chip`, props: { label: `IMG_2041.jpg`, icon: `ui-file`, shape: `rect` } } } } },
   ],
+  // #FEED-237: the four delivery marks (packages/domain-contract/fixtures/message-delivery.json `marks`).
+  MessageStatus: [`sending`, `sent`, `read`, `failed`].map((status) => ({ label: `status · ${status}`, node: { id: `status`, component: `MessageStatus`, props: { status } } })),
   CallSurface: [
     { label: `state · ringing`, node: { id: `call`, component: `CallSurface`, props: { name: `Assistant`, seed: `agent-assistant`, state: `ringing`, status: `Calling…` }, style: { minHeight: 480 } } },
     { label: `state · talking`, node: { id: `call`, component: `CallSurface`, props: { name: `Assistant`, seed: `agent-assistant`, state: `talking`, activity: `speaking`, level: 0.6, bands: [0.9, 0.5, 1, 0.6], status: `01:24`, caption: `Sure, Friday at eight works. Shall I book it?`, speaker: true }, style: { minHeight: 480 } } },

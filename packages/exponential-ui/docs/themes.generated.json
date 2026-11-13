@@ -4505,6 +4505,16 @@
         "confirmActions"
       ],
       "props": []
+    },
+    {
+      "name": "MessageStatus",
+      "kind": "macro",
+      "parts": [
+        "root"
+      ],
+      "props": [
+        "status"
+      ]
     }
   ]
 }

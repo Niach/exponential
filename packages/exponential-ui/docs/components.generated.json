@@ -7968,11 +7968,11 @@
         },
         {
           "name": "status",
-          "type": "sending | sent | read",
+          "type": "sending | sent | read | failed",
           "required": false,
           "bindable": true,
           "responsive": false,
-          "description": "Delivery, out only."
+          "description": "Delivery mark, out only (MessageStatus)."
         },
         {
           "name": "author",
@@ -8002,7 +8002,7 @@
       ],
       "accessibility": {
         "role": "group",
-        "notes": "group labelled by `author`, else `time` (a button when pressable: `on.press` or `href`); the avatar slot is the author's node; the delivery icon is labelled `sending`/`sent`/`read`",
+        "notes": "group labelled by `author`, else `time` (a button when pressable: `on.press` or `href`); the avatar slot is the author's node; the delivery icon is labelled `sending`/`sent`/`read`/`notSent` (MessageStatus)",
         "keys": [
           "Enter, Space: press (pressable only)"
         ]
@@ -9239,6 +9239,39 @@
         "deleteOpen": false
       },
       "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe RecordTable/<part>."
+    },
+    {
+      "name": "MessageStatus",
+      "kind": "macro",
+      "group": "list",
+      "lite": true,
+      "specimenId": "exponential-ui-message-status",
+      "description": "A message's delivery mark: clock, check, double check (info), error (danger).",
+      "children": "none",
+      "slots": [],
+      "events": [],
+      "basic": [],
+      "props": [
+        {
+          "name": "status",
+          "type": "sending | sent | read | failed",
+          "required": true,
+          "bindable": true,
+          "responsive": false,
+          "description": "Delivery state."
+        }
+      ],
+      "accessibility": {
+        "role": "img",
+        "notes": "img labelled `sending`/`sent`/`read`/`notSent` by its status",
+        "keys": []
+      },
+      "example": {
+        "id": "example",
+        "component": "MessageStatus",
+        "status": "read"
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe MessageStatus/<part>."
     }
   ]
 }

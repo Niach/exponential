@@ -17,6 +17,10 @@ import {
   steerBatches,
   steerOfflineRedial,
   steerNoFeedState,
+  steerNoFeedInputs,
+  steerRowWakes,
+  type SteerWakeRow,
+  type SteerNoFeedInputRow,
   steerShowConnectionLost,
   type SteerRedialPhase,
   type SteerRedialTrigger,
@@ -58,6 +62,16 @@ describe(`steer over eNet (fixtures/steer-enet.json)`, () => {
   for (const c of fixture.noFeed) {
     test(`noFeed: ${c.name}`, () => {
       expect(steerNoFeedState(c)).toBe(c.state)
+    })
+  }
+  for (const c of fixture.noFeedInputCases) {
+    test(`noFeedInputs: ${c.name}`, () => {
+      expect(steerNoFeedInputs(c.messages as SteerNoFeedInputRow[], c.max).map((m) => m.id)).toEqual(c.expected)
+    })
+  }
+  for (const c of fixture.rowWakeCases) {
+    test(`rowWake: ${c.name}`, () => {
+      expect(steerRowWakes(c.from as SteerWakeRow | null, c.to as SteerWakeRow)).toBe(c.wake)
     })
   }
   test(`encode round-trips`, () => {

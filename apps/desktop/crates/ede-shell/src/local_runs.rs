@@ -249,6 +249,7 @@ pub fn demo_input() -> ChatInput {
         time: time.into(),
         queued: false,
         group: None,
+        status: None,
     };
     let mut input = ChatInput {
         session_id: Some("demo".into()),

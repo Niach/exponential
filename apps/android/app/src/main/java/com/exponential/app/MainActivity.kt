@@ -27,6 +27,7 @@ import com.exponential.app.data.push.NotificationActions
 import com.exponential.app.data.push.PushDeepLinks
 import com.exponential.app.data.push.QuestionPush
 import com.exponential.app.data.share.ShareIntentParser
+import com.exponential.app.data.share.ShareIntentPlan
 import com.exponential.app.domain.AppShortcuts
 import com.exponential.app.domain.WebLinks
 import com.exponential.app.domain.AppLink
@@ -82,7 +83,12 @@ class MainActivity : ComponentActivity() {
         // savedInstanceState != null identifies the redelivery; a link that
         // arrives while the process is dead is delivered to onNewIntent after
         // the restore, never as this launch intent, so nothing is lost.
-        handleIntent(intent, freshDelivery = savedInstanceState == null)
+        // A launch from Recents replays the task's ORIGINAL intent (a share
+        // already placed, its read grant gone): not fresh either.
+        handleIntent(
+            intent,
+            freshDelivery = ShareIntentPlan.isFreshDelivery(savedInstanceState != null, intent?.flags ?: 0),
+        )
         maybeRequestNotificationPermission()
         setContent {
             ExponentialTheme {

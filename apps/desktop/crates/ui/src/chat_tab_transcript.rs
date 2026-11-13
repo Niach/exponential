@@ -158,6 +158,9 @@ pub(crate) fn chat_row(facts: &RowFacts) -> ChatRowInput {
             _ => String::new(),
         },
         queued: false,
+        // #FEED-237: the live transcript's echo of the viewer's own turn
+        // reads two checks.
+        status: (own && matches!(facts.content, RowContent::Prompt(_))).then(|| "read".to_string()),
         group: Some(ChatGroup {
             side: Some(if own { "out" } else { "in" }.to_string()),
             avatar: (other && facts.layout.is_some_and(|layout| layout.avatar) && sender.is_some()).then(|| format!("{SENDER_ICON}{}", facts.key)),

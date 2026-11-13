@@ -51,7 +51,7 @@ function gap(input: ChatRowInput, index: number): number {
 }
 
 export type ChatRowInput =
-  | { id: string; type: `message`; author: string; body: string; name: string | null; time: string; queued: boolean; group?: ChatGroup | null }
+  | { id: string; type: `message`; author: string; body: string; name: string | null; time: string; queued: boolean; group?: ChatGroup | null; status?: string | null }
   /** #EDE-65 lane O: a row the host paints itself (an Embed it claims by its painted id). */
   | { id: string; type: `host` }
   | { id: string; type: `pill`; icon: string; label: string }
@@ -194,6 +194,9 @@ export interface ChatRow {
   indent: boolean
   link: string | null
   gap: number
+  /** #FEED-237: an `out` bubble's MessageBubble `status` (message-delivery.json);
+   *  absent = no mark (rows without one read as before). */
+  status?: string
 }
 
 /** What the document binds. */
@@ -270,6 +273,7 @@ function row(input: ChatRowInput, bubbles: boolean): ChatRow {
         indent: group.indent ?? false,
         link: group.link ?? null,
         gap: group.gap ?? 0,
+        ...(bubbles && side === `out` && input.status ? { status: input.status } : {}),
       })
       if (input.author === `user`) {
         return { ...grouped(`user`), bubble: bubbles, body: input.body, caption: bubbles ? caption(input.time) : caption(input.name, input.time), queued: input.queued }

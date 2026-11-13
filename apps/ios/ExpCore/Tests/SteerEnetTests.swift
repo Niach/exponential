@@ -224,6 +224,45 @@ final class SteerEnetTests: XCTestCase {
         }
     }
 
+    // Android 0.14.134 SENT INPUTS: consumed card-less person inputs, oldest
+    // first, the newest `max`.
+    func testNoFeedInputCases() throws {
+        XCTAssertEqual(try fixture()["noFeedInputsMax"] as? Int, SteerNoFeed.inputsMax)
+        let all = try cases("noFeedInputCases")
+        XCTAssertFalse(all.isEmpty)
+        for c in all {
+            let name = c["name"] as? String ?? "?"
+            let max = try XCTUnwrap(c["max"] as? Int, name)
+            let messages = try XCTUnwrap(c["messages"] as? [[String: Any]], name)
+            let got = SteerNoFeed.inputs(messages, max: max) { m in
+                SteerNoFeed.InputRow(
+                    id: m["id"] as? String ?? "",
+                    authorKind: m["authorKind"] as? String ?? "",
+                    hasCard: m["card"] != nil && !(m["card"] is NSNull),
+                    consumedAt: m["consumedAt"] as? String,
+                    createdAt: m["createdAt"] as? String ?? ""
+                )
+            }.map { $0["id"] as? String ?? "" }
+            XCTAssertEqual(got, try XCTUnwrap(c["expected"] as? [String], name), name)
+        }
+    }
+
+    // Android 0.14.134 ROW WAKE: the claim, a turn starting or a move cuts
+    // the starting backoff short; nothing else does.
+    func testRowWakeCases() throws {
+        let all = try cases("rowWakeCases")
+        XCTAssertFalse(all.isEmpty)
+        func row(_ any: Any?) -> SteerNoFeed.WakeRow? {
+            guard let d = any as? [String: Any] else { return nil }
+            return SteerNoFeed.WakeRow(status: d["status"] as? String ?? "", busy: d["busy"] as? Bool ?? false, deviceId: d["deviceId"] as? String)
+        }
+        for c in all {
+            let name = c["name"] as? String ?? "?"
+            let to = try XCTUnwrap(row(c["to"]), name)
+            XCTAssertEqual(SteerNoFeed.rowWakes(from: row(c["from"]), to: to), c["wake"] as? Bool, name)
+        }
+    }
+
     func testNoFeedIdleCopyMatchesTheFixture() throws {
         let copy = try XCTUnwrap(try fixture()["noFeedIdle"] as? [String: Any])
         XCTAssertEqual(copy["title"] as? String, SteerNoFeed.idleTitle)

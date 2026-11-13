@@ -17521,6 +17521,74 @@
       }
     ]
   },
+  "MessageBubble\/status=failed" : {
+    "height" : 64,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          64
+        ],
+        "id" : "message_bubble"
+      },
+      {
+        "bg" : "#ffffff1c",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          192,
+          0,
+          198,
+          64
+        ],
+        "id" : "message_bubble.bubble",
+        "radius" : 16
+      },
+      {
+        "component" : "Markdown",
+        "frame" : [
+          207,
+          11,
+          168,
+          20
+        ],
+        "id" : "message_bubble.bubble.text"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          317,
+          33,
+          58,
+          20
+        ],
+        "id" : "message_bubble.bubble.footer"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          317,
+          33,
+          40,
+          20
+        ],
+        "id" : "message_bubble.bubble.footer.time"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          361,
+          36,
+          14,
+          14
+        ],
+        "id" : "message_bubble.bubble.footer.status"
+      }
+    ]
+  },
   "MessageBubble\/status=read" : {
     "height" : 64,
     "nodes" : [
@@ -17722,6 +17790,81 @@
           14
         ],
         "id" : "message_bubble.bubble.footer.status"
+      }
+    ]
+  },
+  "MessageStatus\/example" : {
+    "height" : 14,
+    "nodes" : [
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          0,
+          14,
+          14
+        ],
+        "id" : "message_status"
+      }
+    ]
+  },
+  "MessageStatus\/status=failed" : {
+    "height" : 14,
+    "nodes" : [
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          0,
+          14,
+          14
+        ],
+        "id" : "message_status"
+      }
+    ]
+  },
+  "MessageStatus\/status=read" : {
+    "height" : 14,
+    "nodes" : [
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          0,
+          14,
+          14
+        ],
+        "id" : "message_status"
+      }
+    ]
+  },
+  "MessageStatus\/status=sending" : {
+    "height" : 14,
+    "nodes" : [
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          0,
+          14,
+          14
+        ],
+        "id" : "message_status"
+      }
+    ]
+  },
+  "MessageStatus\/status=sent" : {
+    "height" : 14,
+    "nodes" : [
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          0,
+          14,
+          14
+        ],
+        "id" : "message_status"
       }
     ]
   },

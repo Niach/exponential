@@ -205,6 +205,8 @@ mod session;
 mod session_extras;
 mod session_bar;
 mod session_data;
+// #FEED-237: a session composer's outbox (persisted, WhatsApp-style bubbles).
+mod session_outbox;
 mod session_pickup;
 mod session_registry;
 mod session_results;
@@ -337,6 +339,8 @@ pub fn init(cx: &mut App) {
     eui_gpui::chrome::install(cx, controls::ide_chrome().clone());
     navigation::init(cx);
     navigation::start_dev_tour(cx);
+    // #FEED-237: the outbox's unacked entries go out again on start.
+    session_outbox::init(cx);
     // EXP-105: quit-time sweep ending every `sessions` row this process
     // launched — without it a closed IDE ghosts the "coding now" badge on
     // every client until the server staleness sweep catches it.

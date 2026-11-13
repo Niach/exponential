@@ -227,6 +227,55 @@ class SteerEnetTest {
     }
 
     @Test
+    fun theNoFeedInputCasesAreTheFixtures() {
+        // Android 0.14.134: fixtures/steer-enet.json SENT INPUTS.
+        assertEquals(fixture["noFeedInputsMax"]!!.jsonPrimitive.long.toInt(), STEER_NO_FEED_INPUTS_MAX)
+        val cases = fixture["noFeedInputCases"]!!.jsonArray
+        assertTrue(cases.isNotEmpty())
+        cases.forEach { element ->
+            val case = element.jsonObject
+            val rows = case["messages"]!!.jsonArray.map { it.jsonObject }
+            val picked = steerNoFeedInputs(rows, case["max"]!!.jsonPrimitive.long.toInt()) { m ->
+                SteerInputRow(
+                    id = m["id"]!!.jsonPrimitive.content,
+                    authorKind = m["authorKind"]!!.jsonPrimitive.content,
+                    hasCard = m["card"] !is kotlinx.serialization.json.JsonNull && m["card"] != null,
+                    consumedAt = (m["consumedAt"] as? kotlinx.serialization.json.JsonPrimitive)
+                        ?.takeIf { it.isString }?.content,
+                    createdAt = m["createdAt"]!!.jsonPrimitive.content,
+                )
+            }
+            assertEquals(
+                case["name"]!!.jsonPrimitive.content,
+                case["expected"]!!.jsonArray.map { it.jsonPrimitive.content },
+                picked.map { it["id"]!!.jsonPrimitive.content },
+            )
+        }
+    }
+
+    @Test
+    fun theRowWakeCasesAreTheFixtures() {
+        // Android 0.14.134: fixtures/steer-enet.json ROW WAKE.
+        fun row(value: JsonElement?): SteerWakeRow? = (value as? JsonObject)?.let { o ->
+            SteerWakeRow(
+                status = o["status"]!!.jsonPrimitive.content,
+                busy = o["busy"]!!.jsonPrimitive.boolean,
+                deviceId = (o["deviceId"] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content,
+            )
+        }
+        val cases = fixture["rowWakeCases"]!!.jsonArray
+        assertTrue(cases.isNotEmpty())
+        cases.forEach { element ->
+            val case = element.jsonObject
+            assertEquals(
+                case["name"]!!.jsonPrimitive.content,
+                case["wake"]!!.jsonPrimitive.boolean,
+                steerRowWakes(row(case["from"]), row(case["to"])!!),
+            )
+        }
+    }
+
+    @Test
     fun anEncodedEnvelopeParsesBackWithItsFramesUnchanged() {
         val frames = listOf(frame("""{"t":"input","data":"hello"}"""), frame("""{"t":"input","data":"\r"}"""))
         val parsed = parseSteerEnvelope(encodeSteerEnvelope("s1", frames).decodeToString())!!

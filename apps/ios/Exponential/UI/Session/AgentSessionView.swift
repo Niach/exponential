@@ -208,6 +208,10 @@ struct AgentSessionView: View {
     @State private var deepLinkFrame: CGRect?
     /// The session's cards have been read once (a link waits for them).
     @State private var cardsLoaded = false
+    /// Android 0.14.134 (steer-enet.json SENT INPUTS): the session's consumed
+    /// person inputs, oldest first, drawn as the viewer's bubbles under a
+    /// no-feed placeholder.
+    @State private var noFeedInputs: [NoFeedInput] = []
     /// EXP-1398: the `surface` cards' rows, by message id.
     @State private var surfaceRows: [String: SessionChatRow] = [:]
     /// EXP-1323 / #EXP-1732: a ROOT's suggested tasks rows (`buildSessionChat`
@@ -437,6 +441,7 @@ struct AgentSessionView: View {
     private func withLifecycle(_ content: some View) -> some View {
         content
             .task(id: session.id) { await observeToolAsks() }
+            .task(id: session.id) { await observeNoFeedInputs() }
             // #EXP-1380: a widened message limit (Load earlier) re-reads.
             .task(id: "\(session.id)#\(messageLimit)") { await observeTranscriptSenders() }
             .onReceive(NotificationCenter.default.publisher(for: Chats.MessageLimits.changed)) { note in
@@ -637,6 +642,7 @@ struct AgentSessionView: View {
     private enum NoFeedPlaceholder {
         case history(String)
         case deviceAway
+        case queued
         case idle
         case loading
         case waitingForActivity
@@ -651,6 +657,13 @@ struct AgentSessionView: View {
                deviceOffline: model.hostDevice.offline
            ) == .away {
             return .deviceAway
+        }
+        // Android 0.14.134 (steer-enet.json SENT INPUTS): a QUEUED row (sent,
+        // its device not on it yet) reads "Starting on {device}", never the
+        // idle state below.
+        if !model.sessionEnded, (model.session ?? session).status == "queued",
+           model.phase == .connecting || model.phase == .starting || model.phase == .idle {
+            return .queued
         }
         if model.phase == .starting,
            SteerNoFeed.state(
@@ -671,13 +684,41 @@ struct AgentSessionView: View {
     @ViewBuilder
     private func noFeedBody(_ placeholder: NoFeedPlaceholder, model: AgentSessionModel) -> some View {
         let waitingIds = sessionCards.filter(\.waiting).map(\.id)
-        if waitingIds.isEmpty {
+        // Android 0.14.134 (steer-enet.json SENT INPUTS): what was sent shows
+        // at once above the placeholder's copy, until the feed lands.
+        let inputs = model.sessionEnded ? [] : noFeedInputs
+        // #FEED-237 (message-delivery.json ORDER): ONE own-bubble mechanism:
+        // the consumed inputs stand in for the transcript (`read`), then the
+        // own tail (unconsumed rows, the outbox) with their marks.
+        if waitingIds.isEmpty && inputs.isEmpty && model.ownBubbles.isEmpty {
             noFeedPlaceholderView(placeholder, model: model)
         } else {
             GeometryReader { geo in
                 ScrollViewReader { proxy in
                     ScrollView {
                         VStack(spacing: 0) {
+                            if !inputs.isEmpty {
+                                VStack(alignment: .trailing, spacing: 8) {
+                                    ForEach(inputs) { input in
+                                        UserMessageBubble(
+                                            text: input.text,
+                                            context: markdownContext,
+                                            caption: input.at.map { GlassTimeRow.formatted($0) },
+                                            status: .read
+                                        )
+                                    }
+                                }
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+                                .padding(.top, 8)
+                                .transcriptColumn()
+                                .accessibilityElement(children: .contain)
+                                .accessibilityIdentifier("transcript-sent-inputs")
+                            }
+                            if !model.ownBubbles.isEmpty {
+                                VStack(spacing: 0) { ownPendingBubbles(model) }
+                                    .padding(.top, 8)
+                                    .transcriptColumn()
+                            }
                             noFeedPlaceholderView(placeholder, model: model)
                             VStack(alignment: .leading, spacing: 0) {
                                 inlineToolCards(waitingIds, model: model)
@@ -726,6 +767,17 @@ struct AgentSessionView: View {
             centeredState {
                 EmptyState(title: SteerNoFeed.idleTitle, description: SteerNoFeed.idleText)
             }
+        case .queued:
+            VStack(alignment: .leading, spacing: 8) {
+                SkeletonRows(rows: 3, rowHeight: 28, dividers: false)
+                Text(FeedbackStates.Starting.label(device: hostLabel))
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
+            .transcriptColumn()
+            .frame(maxHeight: .infinity, alignment: .top)
+            .padding(.top, 8)
+            .accessibilityIdentifier("transcript-placeholder")
         case .loading:
             // EXP-1275 (D8): a first load is skeleton rows, never a spinner.
             SkeletonRows(rows: 3, rowHeight: 28, dividers: false)
@@ -948,6 +1000,10 @@ struct AgentSessionView: View {
                                         prev: entries.last?.row.rowClass, cur: .tool
                                     )))
                             }
+                            // #FEED-237 (message-delivery.json ORDER): the
+                            // viewer's own messages the device has not
+                            // consumed, then the outbox, each with its mark.
+                            ownPendingBubbles(model)
                         }
                         // N-12: THE Queue left the transcript for THE Dock
                         // (`SessionDock`).
@@ -1058,6 +1114,12 @@ struct AgentSessionView: View {
                     if atBottom {
                         proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
                     }
+                }
+                // #FEED-237: a press puts the bubble at the bottom: follow it.
+                .onChange(of: model.ownPending.count) { old, new in
+                    guard new > old else { return }
+                    atBottom = true
+                    proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
                 }
                 // Switching conversation tabs re-pins to the newest event
                 // (EXP-356).
@@ -1255,7 +1317,8 @@ struct AgentSessionView: View {
                     // origin's bubble (the session that started this one).
                     senderBubble(text, layout: layout, streaming: false, time: time)
                 } else {
-                    UserMessageBubble(text: text, context: markdownContext, caption: time)
+                    // #FEED-237: the live transcript's echo of the turn = two checks.
+                    UserMessageBubble(text: text, context: markdownContext, caption: time, status: .read)
                 }
             case let .question(question):
                 questionCard(question)
@@ -1738,6 +1801,33 @@ struct AgentSessionView: View {
         } catch {}
     }
 
+    /// Android 0.14.134 (steer-enet.json SENT INPUTS): the session's consumed
+    /// card-less person inputs (`SteerNoFeed.inputs`), opened off main; a
+    /// locked body reads the sealed placeholder copy.
+    private func observeNoFeedInputs() async {
+        guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+        let id = session.id
+        let observation = ValueObservation.tracking { db in
+            try SessionQueries.consumedInputRows(db: db, sessionId: id, limit: SteerNoFeed.inputsMax)
+                .map(TreeMessage.init(messageRow:))
+        }
+        do {
+            for try await rows in observation.values(in: pool) {
+                let picked = SteerNoFeed.inputs(rows) { m in
+                    SteerNoFeed.InputRow(
+                        id: m.id, authorKind: m.authorKind, hasCard: m.card != nil,
+                        consumedAt: m.consumedAt, createdAt: m.createdAt
+                    )
+                }
+                let inputs: [NoFeedInput] = picked.compactMap { m in
+                    let text = m.locked.map(SealedPlaceholder.copy) ?? m.body
+                    return text.isEmpty ? nil : NoFeedInput(id: m.id, text: text, at: WireTimestamps.parse(m.createdAt))
+                }
+                if inputs != noFeedInputs { noFeedInputs = inputs }
+            }
+        } catch {}
+    }
+
     /// EXP-1398: a surface card's reply = the person's next message, through
     /// the one send path (ChatScreen `reply`).
     private func replyFromSurface(_ text: String) {
@@ -1787,8 +1877,46 @@ struct AgentSessionView: View {
         }
     }
 
-    /// N-12: THE Dock's rows: THE Queue, the queued messages and the
-    /// banners (`SessionDock`). S-3 (dock.json): a waiting plan or question
+    /// #FEED-237 (message-delivery.json): the viewer's own pending bubbles,
+    /// the `HH:mm` of the row (an outbox entry's own until its row arrives)
+    /// then the mark; the menu per `bubbleActions`.
+    @ViewBuilder
+    private func ownPendingBubbles(_ model: AgentSessionModel) -> some View {
+        ForEach(Array(model.ownBubbles.enumerated()), id: \.element.id) { index, bubble in
+            TranscriptRow(
+                side: .own,
+                gap: index == 0 ? TranscriptGrouping.Layout.gapBetween : TranscriptGrouping.Layout.gapInGroup,
+                avatar: nil
+            ) {
+                UserMessageBubble(
+                    text: bubble.text,
+                    context: markdownContext,
+                    caption: bubble.at.map { GlassTimeRow.formatted($0) },
+                    status: bubble.state,
+                    actions: bubble.actions,
+                    onAction: { action in ownBubbleAction(action, bubble: bubble, model: model) }
+                )
+            }
+            .id("own-\(bubble.id)")
+        }
+    }
+
+    private func ownBubbleAction(_ action: MessageDelivery.Action, bubble: OwnPendingBubble, model: AgentSessionModel) {
+        switch action {
+        case .retry:
+            if let clientId = bubble.clientId { model.retryOutbox(clientId) }
+        case .delete:
+            if let clientId = bubble.clientId { model.deleteOutbox(clientId) }
+        case .cancel:
+            Task {
+                if await !model.cancelSending(bubble) {
+                    toaster.error(MessageDelivery.Copy.cancelFailed)
+                }
+            }
+        }
+    }
+
+    /// N-12: THE Dock's rows: THE Queue and the banners (`SessionDock`). S-3 (dock.json): a waiting plan or question
     /// is never a DockCard; it stays inline in the transcript.
     private func dockRows(_ model: AgentSessionModel) -> [Dock.Row] {
         // EXP-1323 / #EXP-1732: a root's suggested tasks with an open item
@@ -2755,12 +2883,16 @@ struct NarrationBubble: View {
 struct UserMessageBubble: View {
     let text: String
     let context: AgentMarkdownContext
-    /// EXP-1553 (chats.json TRANSCRIPT ×4): the bubble's caption (`HH:mm`,
-    /// ` · queued`) INSIDE it bottom-right; nil = none.
+    /// EXP-1553 (chats.json TRANSCRIPT ×4): the bubble's caption (`HH:mm`)
+    /// INSIDE it bottom-right; nil = none.
     var caption: String?
-    /// EXP-1317: a person's OWN queued message — the `Remove from queue` X
-    /// at the END of the caption line (`sessions.unqueue`); nil = no X.
-    var onRemove: (() -> Void)? = nil
+    /// #FEED-237 (message-delivery.json): the delivery mark after the time
+    /// (the viewer's own bubbles); nil = none.
+    var status: MessageDelivery.State? = nil
+    /// The bubble's menu (`bubbleActions`; long-press, a failed mark's
+    /// press); empty = none.
+    var actions: [MessageDelivery.Action] = []
+    var onAction: (MessageDelivery.Action) -> Void = { _ in }
 
     @State private var expanded = false
 
@@ -2792,7 +2924,7 @@ struct UserMessageBubble: View {
         // more "lines" of nothing, and they used to push a two-line steer into
         // the fold — which then hid the images the fold was measuring.
         let clampable = isClampable(hasImages ? parsed.text : text)
-        let hasCaption = (caption?.isEmpty == false) || onRemove != nil
+        let hasCaption = (caption?.isEmpty == false) || status != nil
         return MessageBubble(side: .own, hasFooter: hasCaption) {
             VStack(alignment: .leading, spacing: 4) {
                 Group {
@@ -2851,15 +2983,52 @@ struct UserMessageBubble: View {
                 }
             }
         } footer: {
-            BubbleCaptionLine(caption: caption, onRemove: onRemove)
+            BubbleCaptionLine(caption: caption, status: status, actions: actions, onAction: onAction)
+        }
+        .modifier(MessageBubbleContextMenu(actions: actions, onAction: onAction))
+    }
+}
+
+/// The long-press menu, only on a bubble that has one.
+private struct MessageBubbleContextMenu: ViewModifier {
+    let actions: [MessageDelivery.Action]
+    let onAction: (MessageDelivery.Action) -> Void
+
+    func body(content: Content) -> some View {
+        if actions.isEmpty {
+            content
+        } else {
+            content.contextMenu {
+                MessageBubbleMenu(actions: actions, onAction: onAction)
+            }
         }
     }
 }
 
-/// The caption line itself: the muted text, then the `Remove from queue` X.
+/// #FEED-237: the own bubble's menu (message-delivery.json `copy.menu`).
+private struct MessageBubbleMenu: View {
+    let actions: [MessageDelivery.Action]
+    let onAction: (MessageDelivery.Action) -> Void
+
+    var body: some View {
+        ForEach(actions, id: \.self) { action in
+            Button(role: action == .delete ? .destructive : nil) {
+                onAction(action)
+            } label: {
+                Text(MessageDelivery.Copy.menu(action))
+            }
+            .accessibilityIdentifier("\(MessageDelivery.TestIds.menu)-\(action.rawValue)")
+        }
+    }
+}
+
+/// The caption line itself: the muted time, then the delivery mark (a
+/// failed one is a press target opening the bubble's menu).
 private struct BubbleCaptionLine: View {
     let caption: String?
-    var onRemove: (() -> Void)?
+    var status: MessageDelivery.State?
+    var actions: [MessageDelivery.Action] = []
+    var onAction: (MessageDelivery.Action) -> Void = { _ in }
 
     var body: some View {
         HStack(spacing: 4) {
@@ -2870,16 +3039,18 @@ private struct BubbleCaptionLine: View {
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .accessibilityIdentifier("user-message-caption")
             }
-            if let onRemove {
-                Button(action: onRemove) {
-                    AppIcon(AppIcons.uiClose, size: 10, weight: .semibold)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .frame(width: 22, height: 22)
-                        .contentShape(Rectangle())
+            if let status {
+                if status == .failed, !actions.isEmpty {
+                    Menu {
+                        MessageBubbleMenu(actions: actions, onAction: onAction)
+                    } label: {
+                        MessageStatusMark(status)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier(MessageDelivery.TestIds.menu)
+                } else {
+                    MessageStatusMark(status)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(AgentFeed.queueRemoveLabel)
-                .accessibilityIdentifier("chat-queue-remove")
             }
         }
     }
@@ -4918,4 +5089,13 @@ private struct InitialBottomOffset: ViewModifier {
             content
         }
     }
+}
+
+/// Android 0.14.134 (steer-enet.json SENT INPUTS): one consumed person input
+/// drawn under a no-feed placeholder.
+struct NoFeedInput: Identifiable, Equatable {
+    let id: String
+    let text: String
+    /// #FEED-237: the bubble's `HH:mm` (message-delivery.json).
+    var at: Date? = nil
 }

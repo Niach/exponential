@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "reac
 import { useComposerDraft } from "@/hooks/use-composer-draft"
 import type { ComposerDraftTarget } from "@exp/domain-contract/composer-draft"
 import { sendSessionMessage } from "@/lib/enet/send-sealed"
+import { sendThroughOutbox } from "@/hooks/use-session-outbox"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { SESSIONS_SEND_TEXT_MAX } from "@exp/db-schema/domain"
 import { composerTextAfterSend } from "@exp/domain-contract/composer-send"
@@ -153,8 +154,8 @@ function useComposerSession(sessionId: string | null) {
   // The chat and the agent channel render no feed of their own: the
   // composer is what keeps the root's relay state (model, usage) current.
   useEffect(() => {
-    if (row) store.noteSessionStatus(row.status)
-  }, [store, row?.status])
+    if (row) store.noteSessionStatus(row.status, { busy: row.busy, deviceId: row.deviceId })
+  }, [store, row?.status, row?.busy, row?.deviceId])
   useEffect(() => {
     if (live) store.connect()
   }, [store, live])
@@ -560,6 +561,37 @@ export function SessionComposer({
       const dispatched = sessionId ? await dispatch(sentText) : null
       if (dispatched !== null) {
         if (dispatched === `sent`) clearSent()
+        return
+      }
+      // #FEED-237 (message-delivery.json): a message into a session is an
+      // outbox bubble from the press: the field, its synced draft and the
+      // picked files clear now; the bubble carries the clock, then the
+      // device's checks, or the red mark with Retry.
+      if (sessionId && !moveDevice && !(ended && heldRunner)) {
+        const extra = {
+          ...(teamsPick ? { scopeTeamIds: teamsPick.picked === null ? null : [...teamsPick.picked] } : {}),
+          ...(sentMcpPick ? { mcpServerIds: sentMcpPick } : {}),
+        }
+        sendThroughOutbox({
+          teamId,
+          sessionId,
+          text: sentText,
+          extra,
+          upload:
+            sentFiles.length > 0
+              ? async () => {
+                  const ids: string[] = []
+                  for (const entry of sentFiles) ids.push((await uploadTeamSessionImageFile(teamId, entry.file)).id)
+                  for (const entry of sentFiles) if (entry.previewUrl) URL.revokeObjectURL(entry.previewUrl)
+                  return ids
+                }
+              : undefined,
+        })
+        if (sentMcpPick) mcpPick?.sent(sentMcpPick)
+        setText(``, { now: true })
+        heldRef.current = null
+        const gone = new Set(sentFiles.map((entry) => entry.key))
+        setFiles((current) => current.filter((entry) => !gone.has(entry.key)))
         return
       }
       const attachmentIds: string[] = []

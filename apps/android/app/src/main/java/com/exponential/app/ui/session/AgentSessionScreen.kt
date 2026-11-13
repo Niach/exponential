@@ -222,9 +222,6 @@ import com.exponential.app.domain.ToolResultPreview
 import com.exponential.app.domain.ToolGroupSummary
 import com.exponential.app.domain.AnswerState
 import com.exponential.app.domain.BackgroundTask
-import com.exponential.app.domain.QUEUE_REMOVE_LABEL
-import com.exponential.app.domain.QUEUE_STRIP_TITLE
-import com.exponential.app.domain.QueuedMessage
 import com.exponential.app.domain.TaskListEntry
 import com.exponential.app.domain.WorkflowAgent
 import com.exponential.app.domain.WorkflowState
@@ -767,6 +764,8 @@ private fun RunFaceContent(
             activity.localAnswerSummary(key)?.let { key to it }
         }.toMap()
     }
+    // Android 0.14.134 (steer-enet.json SENT INPUTS): under a no-feed placeholder.
+    val noFeedInputs by viewModel.noFeedInputs.collectAsStateWithLifecycle()
     val pendingImages by viewModel.pendingImages.collectAsStateWithLifecycle()
     // EXP-621: the draft lives with the connection, not in a `remember` — so a
     // half-typed message survives a reconnect, a back-tap and a rotation.
@@ -1013,6 +1012,11 @@ private fun RunFaceContent(
                     textAlign = TextAlign.Center,
                 )
             }
+            // Android 0.14.134 (steer-enet.json SENT INPUTS, web parity): a
+            // QUEUED row (sent, its device not on it yet) reads "Starting on
+            // {device}", never the idle state below.
+            startingRun ->
+                TranscriptPlaceholder(FeedbackStates.startingLabel(hostDevice.displayLabel))
             // EXP-1487 (steer-enet.json "NO FEED, EMPTY TRANSCRIPT"): NO
             // FEED on a row that is neither busy nor ended (idle, or on an
             // open question) is never "starting": the idle empty state, no
@@ -1031,8 +1035,6 @@ private fun RunFaceContent(
                     textAlign = TextAlign.Center,
                 )
             }
-            startingRun ->
-                TranscriptPlaceholder(FeedbackStates.startingLabel(hostDevice.displayLabel))
             feed.isEmpty() && (phase == AgentPhase.Connecting || phase == AgentPhase.Starting) ->
                 TranscriptPlaceholder(
                     if (phase == AgentPhase.Starting) {
@@ -1059,6 +1061,16 @@ private fun RunFaceContent(
         }
     }
     val bodyPlaceholder = feedPlaceholder
+    // #FEED-237 (message-delivery.json): the viewer's own pending bubbles; a
+    // refused Cancel sending is the one toast.
+    val ownTail by viewModel.ownTail.collectAsStateWithLifecycle()
+    val cancelError by viewModel.cancelError.collectAsStateWithLifecycle()
+    val cancelToaster = LocalToaster.current
+    LaunchedEffect(cancelError) {
+        val message = cancelError ?: return@LaunchedEffect
+        cancelToaster.error(message)
+        viewModel.clearCancelError()
+    }
     val renderSessionCard: @Composable (SessionTree.SessionChatRow) -> Unit = { row ->
         when (row) {
             is SessionTree.SessionChatRow.Surface -> SurfaceCard(
@@ -1173,6 +1185,27 @@ private fun RunFaceContent(
                         .fillMaxWidth()
                         .weight(1f),
                 ) {
+                    // Android 0.14.134 (steer-enet.json SENT INPUTS): what
+                    // was sent shows at once, the brief a claim consumed
+                    // included, until the feed (its replay holds them) lands.
+                    // #FEED-237 (message-delivery.json ORDER): ONE own-bubble
+                    // mechanism: the consumed inputs stand in for the
+                    // transcript (`read`), then the own tail (unconsumed rows,
+                    // the outbox) with their marks.
+                    if (!sessionEnded && noFeedInputs.isNotEmpty()) {
+                        com.exponential.app.ui.chat.OwnTailBubbles(
+                            noFeedInputs,
+                            viewModel::ownBubbleAction,
+                            modifier = Modifier.padding(top = 8.dp).testTag("transcript-sent-inputs"),
+                        )
+                    }
+                    if (ownTail.isNotEmpty()) {
+                        com.exponential.app.ui.chat.OwnTailBubbles(
+                            ownTail,
+                            viewModel::ownBubbleAction,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                    }
                     Box(Modifier.fillMaxWidth().weight(1f)) { placeholderBody() }
                     if (waitingCardRows.isNotEmpty()) {
                         Column(Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState())) {
@@ -1250,6 +1283,8 @@ private fun RunFaceContent(
                     },
                     sessionCards = cardSlots,
                     renderCard = renderSessionCard,
+                    ownTail = ownTail,
+                    onOwnAction = viewModel::ownBubbleAction,
                 )
             }
         }
@@ -1774,6 +1809,9 @@ private fun ActivityFeed(
     renderCard: @Composable (SessionTree.SessionChatRow) -> Unit = {},
     /** #EXP-1736: who sent each row (null = no grouping: every row full). */
     senders: FeedSenders? = null,
+    /** #FEED-237: the viewer's own pending bubbles at the very bottom. */
+    ownTail: List<com.exponential.app.domain.MessageDelivery.Bubble> = emptyList(),
+    onOwnAction: (com.exponential.app.domain.MessageDelivery.Bubble, com.exponential.app.domain.MessageDelivery.Action) -> Unit = { _, _ -> },
 ) {
     // A card with a wire id stays answerable until it resolves; an id-less one
     // (a pre-EXP-249 desktop) is read-only (EXP-672).
@@ -1976,11 +2014,11 @@ private fun ActivityFeed(
     // scrollBy finishes the scroll to the true bottom (EXP-197). agentTab is a
     // key too: switching conversations re-pins to the newest event (EXP-356),
     // and `working` re-pins when the EXP-389 footer appears/disappears.
-    LaunchedEffect(feed.size, following, agentTab, working, orphanWorkflows.size) {
+    LaunchedEffect(feed.size, following, agentTab, working, orphanWorkflows.size, ownTail.size) {
         val visible = if (focused != null) {
             focused.items.size + 1
         } else {
-            rows.size + orphanWorkflows.size + (if (working) 1 else 0)
+            rows.size + orphanWorkflows.size + (if (working) 1 else 0) + (if (ownTail.isNotEmpty()) 1 else 0)
         }
         if (following && visible > 0) {
             listState.scrollToItem(visible - 1)
@@ -1998,7 +2036,8 @@ private fun ActivityFeed(
         firstPin[0] = true
         if (listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0) {
             val count = (if (canLoadEarlier) 1 else 0) + sessionCards.head.size + rows.size +
-                orphanWorkflows.size + (if (working) 1 else 0) + (if (feedFooter != null) 1 else 0)
+                orphanWorkflows.size + (if (working) 1 else 0) + (if (ownTail.isNotEmpty()) 1 else 0) +
+                (if (feedFooter != null) 1 else 0)
             listState.requestScrollToItem(count - 1, Int.MAX_VALUE / 2)
         }
     }
@@ -2234,7 +2273,13 @@ private fun ActivityFeed(
                                             onOpen = if (link != null && open != null) ({ open(link) }) else null,
                                         ) { UserMessageBody(relay?.body ?: item.text, fold = false) }
                                     }
-                                    else -> MessageBubble(own = true, time = time) { UserMessageBody(item.text) }
+                                    // #FEED-237: the live echo of the person's
+                                    // turn = processed into the session (two checks).
+                                    else -> MessageBubble(
+                                        own = true,
+                                        time = time,
+                                        status = com.exponential.app.domain.MessageDelivery.State.Read,
+                                    ) { UserMessageBody(item.text) }
                                 }
                             }
                             is AgentFeedItem.Compaction -> CompactionMarkerRow()
@@ -2313,6 +2358,15 @@ private fun ActivityFeed(
                             workflowCaption = workflowCaption,
                             agent = workingAgent,
                         )
+                    }
+                }
+            }
+            // #FEED-237 (message-delivery.json ORDER): the viewer's own rows
+            // the device has not consumed, then the outbox entries.
+            if (ownTail.isNotEmpty()) {
+                item(key = "own-tail", contentType = "own-tail") {
+                    TranscriptRow(TranscriptGap.Turn) {
+                        com.exponential.app.ui.chat.OwnTailBubbles(ownTail, onOwnAction)
                     }
                 }
             }
@@ -2953,25 +3007,17 @@ internal fun rememberSessionDock(viewModel: AgentSessionViewModel, onOpenUsage: 
     val hostDevice by viewModel.hostDevice.collectAsStateWithLifecycle()
     val hostOffline by viewModel.hostDeviceOffline.collectAsStateWithLifecycle()
     val accountSwitch by viewModel.accountSwitch.collectAsStateWithLifecycle()
-    val serverQueue by viewModel.queuedMessages.collectAsStateWithLifecycle()
     val agentDefinition by viewModel.agentDefinition.collectAsStateWithLifecycle()
     val sessionEnded = session?.isEnded == true
     val feed = activity.feed
     val nowMs = rememberUsageClock()
     var completedOpen by rememberSaveable { mutableStateOf(false) }
-    // EXP-861/1291: the server's not-yet-consumed rows are the queue (X =
-    // `sessions.unqueue`); the device's own relay queue while it reports one.
     // #EXP-1538 (dock.json LOCAL FIRST): the stream's slots are the session's
     // last-known values (the connection outlives the screen), drawn at once
     // while it (re)joins instead of after the replay; over = none of them.
+    // #FEED-237: no `queued` source any more: a sent message is the viewer's
+    // own bubble at the transcript's bottom (message-delivery.json).
     val streamSlots = dockStreamSlots(phase, sessionEnded)
-    val relayQueue = streamSlots && activity.queue.isNotEmpty()
-    val queue: List<QueuedMessage> = when {
-        serverQueue.isNotEmpty() -> serverQueue
-        relayQueue -> activity.queue
-        else -> emptyList()
-    }
-    val onRemove: (String) -> Unit = if (serverQueue.isNotEmpty()) viewModel::unqueueMessage else viewModel::unqueue
     // EXP-1321/1324: THE Queue, while the run is not over.
     val taskQueue = rememberSessionTaskQueue(feed, activity.taskList, activity.backgroundTasks)
         .takeIf { streamSlots }
@@ -2986,7 +3032,6 @@ internal fun rememberSessionDock(viewModel: AgentSessionViewModel, onOpenUsage: 
     val blockedLabel = AgentUsagePresentation.blockedBadgeLabel(persistedBlock, nowMs)
     val rateLimit = activity.rateLimit
     val sources = buildList<Dock.Source> {
-        add(Dock.Source.Queued(queue.map { Dock.QueuedMessage(it.id, it.text.replace(QUEUE_LINE_WHITESPACE, " ").trim()) }))
         add(Dock.Source.Tasks(taskQueue))
         if (sessionBanner != null) add(sessionBanner.source)
         val p = phase
@@ -3063,7 +3108,6 @@ internal fun rememberSessionDock(viewModel: AgentSessionViewModel, onOpenUsage: 
                         )
                     }
                 }
-                Dock.Kind.Queued -> DockSheetBody { QueueStrip(messages = queue, onRemove = onRemove, plain = true) }
                 else -> Unit
             }
         },
@@ -3195,68 +3239,6 @@ internal fun SessionLiveTail(activity: ActivityFeedState, session: SessionEntity
     }
 }
 
-/**
- * EXP-861: the queue bar above the composer — the messages the agent has not
- * read yet, oldest first, each on ONE truncated line (a multi-line message
- * reads as one); a held line carries the ghost X that revokes it
- * ([QUEUE_REMOVE_LABEL]), a `sent` one (EXP-873) none. Same recipe as
- * [BackgroundWorkStrip]; the bar itself reads as [QUEUE_STRIP_TITLE] to a
- * screen reader.
- */
-@Composable
-private fun QueueStrip(messages: List<QueuedMessage>, onRemove: (String) -> Unit, plain: Boolean = false) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(if (plain) Modifier else Modifier.glassRow().padding(start = 12.dp, end = 4.dp, top = 2.dp, bottom = 2.dp))
-            .semantics { contentDescription = QUEUE_STRIP_TITLE }
-            .testTag("queue-strip"),
-    ) {
-        messages.forEach { message ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Icon(
-                    imageVector = ExpIcons.uiQueued,
-                    contentDescription = null,
-                    modifier = Modifier.size(12.dp),
-                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                )
-                Text(
-                    message.text.replace(QUEUE_LINE_WHITESPACE, " ").trim(),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                // EXP-873: a line already with the agent cannot be taken back
-                // one at a time — only Stop does — so it draws no X.
-                if (message.sent) {
-                    Spacer(modifier = Modifier.size(28.dp))
-                } else {
-                    IconButton(
-                        onClick = { onRemove(message.id) },
-                        modifier = Modifier.size(28.dp).testTag("queue-remove"),
-                    ) {
-                        Icon(
-                            imageVector = ExpIcons.uiClose,
-                            contentDescription = QUEUE_REMOVE_LABEL,
-                            modifier = Modifier.size(12.dp),
-                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** EXP-861: a queued message renders on one line — newlines and runs of
- *  whitespace collapse to a single space before the ellipsis. */
-private val QUEUE_LINE_WHITESPACE = Regex("\\s+")
 
 /**
  * EXP-856: a SECOND copy of an agent that is still running — messaging a live
@@ -5486,20 +5468,23 @@ internal fun SessionComposer(
     val shareSelection = remember(context) { com.exponential.app.ui.share.shareSelection(context) }
     val chatShare by shareSelection.pendingChatShare.collectAsStateWithLifecycle()
     val shareSessionId = session?.id
+    val shareScope = rememberCoroutineScope()
     LaunchedEffect(chatShare, shareSessionId) {
         val waiting = chatShare?.takeIf { it.sessionId != null && it.sessionId == shareSessionId } ?: return@LaunchedEffect
-        if (!shareSelection.takePendingChatShare(waiting)) return@LaunchedEffect
-        onExpandedChange(true)
-        com.exponential.app.ui.share.deliverChatShare(
-            context = context,
-            share = waiting.share,
-            currentDraft = composerField.text,
-            onText = { text ->
-                composerField = TextFieldValue(text, TextRange(text.length))
-                viewModel.setDraft(text)
-            },
-            onPick = addPick,
-        )
+        // The delivery outlives this effect (taking the share restarts it).
+        com.exponential.app.ui.share.takeChatShare(shareScope, { shareSelection.takePendingChatShare(waiting) }) {
+            onExpandedChange(true)
+            com.exponential.app.ui.share.deliverChatShare(
+                context = context,
+                share = waiting.share,
+                currentDraft = composerField.text,
+                onText = { text ->
+                    composerField = TextFieldValue(text, TextRange(text.length))
+                    viewModel.setDraft(text)
+                },
+                onPick = addPick,
+            )
+        }
     }
     promptCaret[0] = composerField.selection.min
     promptCaret[1] = composerField.selection.max
