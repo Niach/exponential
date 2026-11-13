@@ -43,8 +43,16 @@ import {
 } from "@/lib/notification-email-policy"
 import {
   getAgentMessageBlocklist,
+  getSourcePrefsMap,
   getTypePrefsMap,
 } from "@/lib/notification-prefs"
+import {
+  NOTIFICATION_DELIVERY_KEYS,
+  notificationSource,
+  notificationThread,
+  sourceAllowed,
+  type NotificationSource,
+} from "@exp/domain-contract/notification-delivery"
 import { peekAgentIssueActors } from "@/lib/integrations/pr-actor-claims"
 import { recordNotificationFanout } from "@/lib/metrics/registry"
 import { blockedBadgeLabel } from "@/lib/agent-usage"
@@ -57,6 +65,7 @@ import { kickLiveActivities } from "@/lib/integrations/live-activities"
 import { reporterFacingText } from "@/lib/reporter/report-text"
 import type { CodingSessionBlocked, MessageCard } from "@exp/db-schema/domain"
 import type { NotificationType } from "@/lib/domain"
+import { alias } from "drizzle-orm/pg-core"
 import { agentSignOutTitle, type AgentSignOut } from "@/lib/agent-sign-out"
 
 // The canonical push `data.type` discriminator vocabulary (D8/D13). The web
@@ -302,6 +311,13 @@ async function deliver(args: {
         identifier: args.issue.identifier,
         teamSlug: args.issue.teamSlug,
         boardSlug: args.issue.boardSlug,
+        // #EXP-1815: the issue's thread (notification-delivery.json).
+        [NOTIFICATION_DELIVERY_KEYS.thread]: notificationThread({
+          type: args.type,
+          issueId: args.issue.id,
+          sessionRootId: null,
+          deviceId: null,
+        }),
       },
     }
   ).catch((err) => {
@@ -747,6 +763,46 @@ export function fireAndForgetPrNotify(args: {
   })()
 }
 
+/** #EXP-1815: where a session's notifications come from (its ROOT's agent,
+ *  else the agent that started the root) and which chat they stack under. */
+export interface SessionOrigin {
+  rootId: string
+  source: NotificationSource
+  /** A team agent's name (Android names its channel after it). */
+  sourceName: string | null
+}
+
+export async function loadSessionOrigin(sessionId: string): Promise<SessionOrigin | null> {
+  const root = alias(sessions, `root`)
+  const ownAgent = alias(agents, `own_agent`)
+  const starter = alias(agents, `starter_agent`)
+  const [row] = await db
+    .select({
+      rootId: root.id,
+      agentId: root.agentId,
+      agentRole: ownAgent.role,
+      agentName: ownAgent.name,
+      startedByAgentId: root.startedByAgentId,
+      startedByAgentRole: starter.role,
+      startedByAgentName: starter.name,
+    })
+    .from(sessions)
+    .innerJoin(root, eq(root.id, sessions.rootId))
+    .leftJoin(ownAgent, eq(ownAgent.id, root.agentId))
+    .leftJoin(starter, eq(starter.id, root.startedByAgentId))
+    .where(eq(sessions.id, sessionId))
+    .limit(1)
+  if (!row) return null
+  const source = notificationSource(row)
+  return {
+    rootId: row.rootId,
+    source,
+    sourceName: source.startsWith(`agent:`)
+      ? (row.agentId ? row.agentName : row.startedByAgentName) ?? null
+      : null,
+  }
+}
+
 // Issue-less sibling of deliver(): the fan-out for events that have no
 // backing issue (`agent_message`, `session_blocked`). Same dedupe-insert
 // shape with `issue_id IS NULL` (the trigger-denormalized board_id stays
@@ -780,8 +836,21 @@ async function deliverToTeam(args: {
 
   const now = new Date()
 
+  // #EXP-1815 (notification-delivery.json): a row naming a session has a
+  // SOURCE (its root's agent); a recipient who switched that source off
+  // still gets the inbox row, with pushed_at NULL (desktop and web raise
+  // nothing), emailed_at stamped (the digest skips it) and no push. The
+  // lookups FAIL OPEN like the type prefs: an error must not silence push.
+  const origin = args.sessionId ? await loadSessionOrigin(args.sessionId).catch(() => null) : null
+  const sourcePrefs = origin
+    ? await getSourcePrefsMap(recipients).catch(() => new Map())
+    : new Map()
+  const muted = origin
+    ? recipients.filter((userId) => !sourceAllowed(sourcePrefs.get(userId), origin.source))
+    : []
+
   const inserted = await db.execute(sql`
-    insert into notifications (user_id, issue_id, team_id, session_id, type, title, body, pushed_at)
+    insert into notifications (user_id, issue_id, team_id, session_id, type, title, body, pushed_at, emailed_at)
     select
       r.user_id,
       ${args.issueId ?? null}::uuid,
@@ -790,7 +859,8 @@ async function deliverToTeam(args: {
       ${args.type}::notification_type,
       ${args.title},
       ${args.body},
-      ${now}::timestamptz
+      case when r.user_id = any(${sql.param(muted)}::text[]) then null else ${now}::timestamptz end,
+      case when r.user_id = any(${sql.param(muted)}::text[]) then ${now}::timestamptz else null end
     from unnest(${sql.param(recipients)}::text[]) as r(user_id)
     where not exists (
       select 1
@@ -817,8 +887,13 @@ async function deliverToTeam(args: {
 
   // Same EXP-264 contract as deliver(): each recipient's push carries the id
   // of the row that was actually written for them.
-  const pushable = await pushRecipients(delivered, args.type)
+  const mutedSet = new Set(muted)
+  const pushable = await pushRecipients(
+    delivered.filter((d) => !mutedSet.has(d.userId)),
+    args.type
+  )
   if (pushable.length === 0) return outcome
+  const keys = NOTIFICATION_DELIVERY_KEYS
   await sendToUsers(
     pushable.map((d) => ({
       userId: d.userId,
@@ -827,7 +902,20 @@ async function deliverToTeam(args: {
     {
       title: args.title,
       body: args.body ?? args.title,
-      data: { type: args.type, ...args.pushData },
+      data: {
+        type: args.type,
+        ...args.pushData,
+        // #EXP-1815: the thread it stacks and clears under, and (Android's
+        // channel) its source.
+        [keys.thread]: notificationThread({
+          type: args.type,
+          issueId: args.issueId ?? null,
+          sessionRootId: origin?.rootId ?? args.sessionId ?? null,
+          deviceId: null,
+        }),
+        ...(origin ? { [keys.source]: origin.source } : {}),
+        ...(origin?.sourceName ? { [keys.sourceName]: origin.sourceName } : {}),
+      },
     }
   ).catch((err) => {
     console.error(`[notify] push fan-out failed:`, err)
@@ -1224,7 +1312,16 @@ export async function notifyAgentSignOuts(args: {
       await sendToUsers([{ userId: row.userId, data: { notificationId: row.id } }], {
         title: row.title,
         body: row.title,
-        data: { type: `agent_signed_out`, deviceId: args.deviceId },
+        data: {
+          type: `agent_signed_out`,
+          deviceId: args.deviceId,
+          [NOTIFICATION_DELIVERY_KEYS.thread]: notificationThread({
+            type: `agent_signed_out`,
+            issueId: null,
+            sessionRootId: null,
+            deviceId: args.deviceId,
+          }),
+        },
       }).catch((err) => {
         console.error(`[notify] push fan-out failed:`, err)
       })

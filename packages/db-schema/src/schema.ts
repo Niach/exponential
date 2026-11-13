@@ -3933,6 +3933,14 @@ export const userNotificationPrefs = pgTable(`user_notification_prefs`, {
   // over MCP? False blocks the send outright (no inbox row, no push) — unlike
   // type_prefs, which only mutes delivery. The user's own agents always pass.
   allowAgentMessages: boolean(`allow_agent_messages`).notNull().default(true),
+  // #EXP-1815 (notification-delivery.json): the session-source switches
+  // (Personal Assistant, each team agent, Temporary sessions); absent = on.
+  // A muted source still writes the inbox row, with pushed_at NULL and no
+  // push, desktop toast or email.
+  sourcePrefs: jsonb(`source_prefs`)
+    .$type<{ assistant?: boolean; temporary?: boolean; agents?: Record<string, boolean> }>()
+    .notNull()
+    .default(sql`'{}'::jsonb`),
   // Stable per-user secret embedded in one-click List-Unsubscribe links.
   unsubscribeToken: varchar(`unsubscribe_token`, { length: 64 })
     .notNull()

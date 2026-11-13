@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-13-quieter-notifications`,
+    date: `2026-11-13`,
+    title: `Quieter notifications`,
+    summary: `While the app is open you get a short notice instead of a system notification, and nothing at all when you are already looking at it. Reading something on one device clears its notification everywhere.`,
+    body: `- **In the app**: a new notification shows as a toast with Open, or not at all when the chat or issue is already on screen.
+- **Read once, cleared everywhere**: opening a chat or an issue, or marking things read, removes its notifications from your other devices too.
+- **Choose who notifies you**: Settings › Notifications has a switch for your Personal Assistant, one per team agent and one for temporary sessions. They apply to push, desktop and email.`,
+  },
+  {
     id: `2026-11-13-repo-runs-ci-settings`,
     date: `2026-11-13`,
     title: `Runs and CI settings on the repository page`,

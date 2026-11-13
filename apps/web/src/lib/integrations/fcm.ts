@@ -31,6 +31,10 @@ export type FcmPayload = {
   // Sealed (/push) deliveries only: the relay maps it to apns-collapse-id /
   // FCM collapse_key so a newer push replaces an older one on the device.
   collapseId?: string
+  // #EXP-1815 (notification-delivery.json): a SILENT push (the dismiss of a
+  // read notification): the relay's POST /push/silent, APNs background +
+  // content-available, FCM data-only at normal priority. Never shows.
+  silent?: boolean
 }
 
 // One push recipient. Its optional `data` is merged OVER the shared payload
@@ -201,7 +205,7 @@ export async function sendToUsers(
       Buffer.from(req.pushPublicKey, `base64url`),
       sealedPlaintext(payload.title, payload.body, dataFor(req.userId))
     )
-    const res = await fetch(`${url}/push`, {
+    const res = await fetch(payload.silent ? `${url}/push/silent` : `${url}/push`, {
       method: `POST`,
       headers: {
         "Content-Type": `application/json`,
@@ -221,6 +225,12 @@ export async function sendToUsers(
     // expired: either way this row can never deliver again.
     if (res.status === 410 || res.status === 401) {
       goneCapabilities.push(req.capability)
+      requestsOk += 1
+      return
+    }
+    // A relay from before /push/silent answers 404: dismissing stays local
+    // until it is updated; nothing to count or log per request.
+    if (payload.silent && res.status === 404) {
       requestsOk += 1
       return
     }

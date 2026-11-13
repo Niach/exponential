@@ -420,7 +420,11 @@ export function mountPushApi(app: Hono, options: PushApiOptions) {
     return c.json({ error: status === 504 ? `Provider timeout` : `Provider error` }, status)
   }
 
-  app.post(`/push`, async (c) => {
+  // #EXP-1815 (notification-delivery.json CLEARING): `/push/silent` = the
+  // same sealed push that never shows: APNs `background` + content-available
+  // at priority 5 (the app's background handler opens it), FCM data-only at
+  // normal priority. The server sends a read notification's dismiss this way.
+  const pushRoute = (silent: boolean) => async (c: Context) => {
     stats.pushRequests += 1
     const token = bearer(c)
     if (!token?.startsWith(CAPABILITY_PREFIX)) return unauthorized(c)
@@ -434,7 +438,8 @@ export function mountPushApi(app: Hono, options: PushApiOptions) {
     if (read instanceof Response) return read
     const parsed = pushSchema.safeParse(read.body)
     if (!parsed.success) return c.json({ error: `Bad request`, issues: parsed.error.issues }, 400)
-    const { sealed, collapseId, urgency = `high`, ttlSeconds } = parsed.data
+    const { sealed, collapseId, ttlSeconds } = parsed.data
+    const urgency = silent ? `normal` : (parsed.data.urgency ?? `high`)
     if (!BASE64URL_RE.test(sealed)) return c.json({ error: `Bad request`, field: `sealed` }, 400)
     if (Buffer.from(sealed, `base64url`).length > MAX_SEALED_BYTES) {
       return c.json({ error: `Sealed payload too large` }, 413)
@@ -451,7 +456,7 @@ export function mountPushApi(app: Hono, options: PushApiOptions) {
       if (!apns) return c.json({ error: `APNs not configured` }, 503)
       const headers: Record<string, string> = {
         "apns-topic": install.topic ?? ``,
-        "apns-push-type": `alert`,
+        "apns-push-type": silent ? `background` : `alert`,
         "apns-priority": urgency === `high` ? `10` : `5`,
       }
       if (collapseId !== undefined) headers[`apns-collapse-id`] = collapseId
@@ -462,13 +467,17 @@ export function mountPushApi(app: Hono, options: PushApiOptions) {
       // The visible alert is a fixed placeholder: the Notification Service
       // Extension opens `s` on the device and replaces title and body, so the
       // relay (and Apple) never see the real text.
-      const payload = JSON.stringify({
-        aps: {
-          alert: { title: placeholderTitle, ...(placeholderBody ? { body: placeholderBody } : {}) },
-          "mutable-content": 1,
-        },
-        s: sealed,
-      })
+      const payload = JSON.stringify(
+        silent
+          ? { aps: { "content-available": 1 }, s: sealed }
+          : {
+              aps: {
+                alert: { title: placeholderTitle, ...(placeholderBody ? { body: placeholderBody } : {}) },
+                "mutable-content": 1,
+              },
+              s: sealed,
+            }
+      )
       try {
         const result = await withDeadline(
           apns.send({ token: install.token, environment: install.environment ?? `production`, headers, payload }),
@@ -515,7 +524,9 @@ export function mountPushApi(app: Hono, options: PushApiOptions) {
       if (err instanceof DeadlineError) return providerError(c, install, `deadline exceeded`, 504)
       return providerError(c, install, String(err))
     }
-  })
+  }
+  app.post(`/push`, pushRoute(false))
+  app.post(`/push/silent`, pushRoute(true))
 
   // #EXP-1639: start / update / end a Live Activity. APNs installs get a
   // `liveactivity` push whose content-state is ONLY the sealed blob (the

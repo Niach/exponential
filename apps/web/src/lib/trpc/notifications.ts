@@ -10,6 +10,10 @@ import {
   getOrCreateEmailPrefs,
   updateEmailPrefs,
 } from "@/lib/notification-prefs"
+import {
+  dismissReturning,
+  fireAndForgetDismiss,
+} from "@/lib/notification-dismiss"
 
 // Per-type email opt-outs: keys are notification_type values, value false =
 // opted out (absent/true = on). partialRecord: zod v4 records with enum keys
@@ -19,25 +23,39 @@ const typePrefsSchema = z.partialRecord(
   z.boolean()
 )
 
+// #EXP-1815 (notification-delivery.json): the session-source switches, the
+// WHOLE object (the client sends it after `toggleSourcePref`).
+const sourcePrefsSchema = z.object({
+  assistant: z.boolean().optional(),
+  temporary: z.boolean().optional(),
+  agents: z.record(z.string().uuid(), z.boolean()).optional(),
+})
+
 // Inbox mark-read. Ownership-guarded on user_id so a caller can only touch their
 // own rows. read_at updates re-stream over the per-user notifications shape.
 export const notificationsRouter = router({
   markRead: authedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      return await ctx.db.transaction(async (tx) => {
+      const userId = ctx.session.user.id
+      const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
-        await tx
+        // #EXP-1815: only a row that TURNS read is dismissed elsewhere.
+        const rows = await tx
           .update(notifications)
           .set({ readAt: new Date() })
           .where(
             and(
               eq(notifications.id, input.id),
-              eq(notifications.userId, ctx.session.user.id)
+              eq(notifications.userId, userId),
+              isNull(notifications.readAt)
             )
           )
-        return { txId }
+          .returning(dismissReturning)
+        return { txId, rows }
       })
+      fireAndForgetDismiss({ userId, rows: result.rows })
+      return { txId: result.txId }
     }),
 
   // Opening an issue clears its inbox entries (EXP-92): push taps and email
@@ -48,20 +66,24 @@ export const notificationsRouter = router({
   markReadByIssue: authedProcedure
     .input(z.object({ issueId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      return await ctx.db.transaction(async (tx) => {
+      const userId = ctx.session.user.id
+      const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
-        await tx
+        const rows = await tx
           .update(notifications)
           .set({ readAt: new Date() })
           .where(
             and(
               eq(notifications.issueId, input.issueId),
-              eq(notifications.userId, ctx.session.user.id),
+              eq(notifications.userId, userId),
               isNull(notifications.readAt)
             )
           )
-        return { txId }
+          .returning(dismissReturning)
+        return { txId, rows }
       })
+      fireAndForgetDismiss({ userId, rows: result.rows })
+      return { txId: result.txId }
     }),
 
   // Chats (phones show ONE active team): `teamId` = only that team's rows
@@ -72,10 +94,11 @@ export const notificationsRouter = router({
     .input(z.object({ teamId: z.string().uuid().optional() }).optional())
     .mutation(async ({ ctx, input }) => {
       const teamId = input?.teamId
-      if (teamId) await assertTeamMember(ctx.session.user.id, teamId)
-      return await ctx.db.transaction(async (tx) => {
+      const userId = ctx.session.user.id
+      if (teamId) await assertTeamMember(userId, teamId)
+      const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
-        await tx
+        const rows = await tx
           .update(notifications)
           .set({ readAt: new Date() })
           .where(
@@ -90,8 +113,11 @@ export const notificationsRouter = router({
                 : undefined
             )
           )
-        return { txId }
+          .returning(dismissReturning)
+        return { txId, rows }
       })
+      fireAndForgetDismiss({ userId, rows: result.rows, all: true, teamId: teamId ?? null })
+      return { txId: result.txId }
     }),
 
   // Email-notification prefs (user_notification_prefs is server-only — read
@@ -108,6 +134,7 @@ export const notificationsRouter = router({
       digest: prefs.digest,
       digestHour: prefs.digestHour,
       allowAgentMessages: prefs.allowAgentMessages,
+      sourcePrefs: prefs.sourcePrefs,
       transportConfigured: emailEnabled,
     }
   }),
@@ -124,6 +151,7 @@ export const notificationsRouter = router({
         // EXP-801: false BLOCKS other members' agents from messaging this
         // user over MCP (no inbox row, no push) — not a delivery mute.
         allowAgentMessages: z.boolean().optional(),
+        sourcePrefs: sourcePrefsSchema.optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -134,6 +162,7 @@ export const notificationsRouter = router({
         digest: prefs.digest,
         digestHour: prefs.digestHour,
         allowAgentMessages: prefs.allowAgentMessages,
+        sourcePrefs: prefs.sourcePrefs,
         transportConfigured: emailEnabled,
       }
     }),
