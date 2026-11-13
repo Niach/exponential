@@ -389,6 +389,24 @@ The Engine runner never links it (`eengine-runner/tests/dependency_gate.rs`
 forbids `sentry` and `tracing-subscriber`); `eengine` and `eengine-ffi` gain
 only `tracing` (MIT, no default features) for their spans.
 
+### Code: gitoxide in the `ecode` crate (EXP-1615, 2026-11-13)
+
+`apps/desktop/crates/ecode`'s `LocalRepo` (feature `repo`, on by default
+through `local`) links `gix` 0.90 (Sebastian Thiel and the gitoxide
+contributors, MIT OR Apache-2.0) with `default-features = false` and only
+`sha1` + `revision` (object and ref access, rev walks, merge bases; no network
+client, no index-backed status, no blob merge). The lock gains 54 third-party packages:
+the 45 `gix`/`gix-*` crates of that closure (all MIT OR Apache-2.0) plus `sha1dc`
+(MIT OR Apache-2.0), `defmt` and `heapless` (MIT OR Apache-2.0), `clru`,
+`faster-hex`, `nonempty`, `prodash` (MIT), `unicode-bom` (Apache-2.0) and
+`zlib-rs` (Zlib); every one is on deny.toml's allow-list. Size: about 2.4 MB of
+crate sources; the `repo` graph adds 78 crates the desktop app does not
+already build. The `coding` crate links `ecode` without default features
+(credentials only), so no client compiles gix yet; the inventory still lists
+it because the collector resolves the workspace with `--all-features` (what
+cargo-deny audits). `tests/dependency_gate.rs` pins the gix feature set:
+widening it needs a size note here.
+
 ### genUI: the conformance fonts (round 2, 2026-10-08)
 
 `packages/exponential-ui/conformance/fonts/` holds the fonts the conformance

@@ -304,6 +304,8 @@ jobs:
       - uses: taiki-e/install-action@nextest
       # #EXP-1504: eCore's size/dependency gate and its fixture replay (seconds);
       # #EXP-1613: eCode's pure core (ecode-core) replaying packages/ecode's fixtures;
+      # #EXP-1615: ecode (the forge.json replay on a real repo, the local_flow
+      # example as a test, the github/exponential providers on a mock server);
       # #VAPP-261: the Engine's dependency gate and its fixture replay;
       # #VAPP-263: its UniFFI facade; #VAPP-265: the desktop capabilities (fakes);
       # #VAPP-266: the desktop runner's glue (headless) and its dependency gate;
@@ -317,9 +319,9 @@ jobs:
         working-directory: apps/desktop
         run: >-
           cargo nextest run --locked --no-fail-fast
-          -p ecore -p ecode-core -p eengine -p eengine-ffi -p eengine-desktop -p eengine-runner -p eengine-bundle
+          -p ecore -p ecode-core -p ecode -p eengine -p eengine-ffi -p eengine-desktop -p eengine-runner -p eengine-bundle
           -p eagent -p coding -p ui -p engine -p elocal -p api -p exp-http -p exp-cli
-          --features eengine/sqlite,eengine/hub,eengine-ffi/hub,eagent/local-model
+          --features eengine/sqlite,eengine/hub,eengine-ffi/hub,eagent/local-model,ecode/github,ecode/exponential
           -E 'kind(lib) | not (package(eagent) | package(coding) | package(ui))'
       # #ERR-4: the vendored gpui-pre-linux's own patch tests, never upstream's
       # other tests (vendor/gpui-pre-linux/PATCHES.md). A path dependency

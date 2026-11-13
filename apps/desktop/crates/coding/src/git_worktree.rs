@@ -27,50 +27,63 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 /// The token-embedded remote URL. Construct once per launch from the freshly
-/// minted installation token; `Display`/`Debug` NEVER show the token.
+/// minted token; `Display`/`Debug` NEVER show the token. #EXP-1615: a thin
+/// wrapper over eCode's provider-neutral [`ecode::Credentials`], so any https
+/// host works ([`TokenUrl::from_credentials`], the server's
+/// `repositories.credentials`); [`TokenUrl::new`] keeps the GitHub form.
 #[derive(Clone)]
 pub struct TokenUrl {
+    credentials: ecode::Credentials,
+    /// The repository path on its host (`owner/name` on GitHub).
     full_name: String,
-    token: String,
 }
 
 impl TokenUrl {
-    /// `full_name` is `owner/name`; `token` is the raw JIT installation
-    /// token (§7.1 step 2 — never persisted, never logged).
+    /// A GitHub repository: `full_name` is `owner/name`; `token` is the raw
+    /// JIT installation token (§7.1 step 2 — never persisted, never logged).
     pub fn new(full_name: impl Into<String>, token: impl Into<String>) -> Self {
-        Self { full_name: full_name.into(), token: token.into() }
+        let full_name = full_name.into();
+        Self { credentials: ecode::Credentials::github(&full_name, token), full_name }
+    }
+
+    /// Any remote eCode accepts (`remote.json`: https, any host).
+    pub fn from_credentials(credentials: ecode::Credentials) -> Self {
+        let full_name = credentials.path();
+        Self { credentials, full_name }
     }
 
     /// The raw URL — crate-private: it exists only to be handed to git argv.
     pub(crate) fn raw(&self) -> String {
-        format!(
-            "https://x-access-token:{}@github.com/{}.git",
-            self.token, self.full_name
-        )
+        self.credentials.authed_url()
     }
 
     /// The loggable form: `https://x-access-token:***@github.com/<full>.git`.
     pub fn redacted(&self) -> String {
-        format!("https://x-access-token:***@github.com/{}.git", self.full_name)
+        self.credentials.redacted_url()
     }
 
     /// The tokenless remote URL — what `origin` is set to (EXP-73: the token
     /// never rides the remote; ambient auth is [`crate::git_credentials`]).
     pub fn bare(&self) -> String {
-        format!("https://github.com/{}.git", self.full_name)
+        self.credentials.remote_url().to_string()
     }
 
-    /// The `owner/name` this token is scoped to.
+    /// The repository path this token is scoped to (`owner/name`).
     pub fn full_name(&self) -> &str {
         &self.full_name
     }
 
+    /// The provider-neutral credentials underneath.
+    pub fn credentials(&self) -> &ecode::Credentials {
+        &self.credentials
+    }
+
     /// The git-credential protocol answer for this token — exactly what the
     /// repo-local helper emits on `get` (values are raw in the protocol;
-    /// installation tokens never contain newlines). Crate-private: only
+    /// tokens never contain newlines). Crate-private: only
     /// [`crate::git_credentials`] writes it.
     pub(crate) fn credential_file_contents(&self) -> String {
-        format!("username=x-access-token\npassword={}\n", self.token)
+        self.credentials.credential_answer()
     }
 
     /// Scrub the raw token and raw URL out of arbitrary text (git error
@@ -80,12 +93,7 @@ impl TokenUrl {
     /// present. `pub(crate)` so every runner in the crate shares this one
     /// canonical redaction ([`crate::scm`], [`crate::clone_manager`]).
     pub(crate) fn scrub(&self, text: &str) -> String {
-        let without_url = text.replace(&self.raw(), &self.redacted());
-        if self.token.is_empty() {
-            without_url
-        } else {
-            without_url.replace(&self.token, "***")
-        }
+        self.credentials.scrub(text)
     }
 }
 
