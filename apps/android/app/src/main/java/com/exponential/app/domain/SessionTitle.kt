@@ -48,9 +48,15 @@ object SessionTitle {
     /** #ERR-19: a body that can title a session ([firstPrompt] stops at it). */
     fun isUsablePrompt(body: String): Boolean = firstLine(body) != null
 
-    /** The first usable line of a body: non-blank, not an image embed. */
+    /** The composer's `[Image #N]` markers (EXP-698), with the spaces and tabs around a run of them. */
+    private val IMAGE_MARKERS = Regex("""[ \t]*(?:\[Image #[0-9]+][ \t]*)+""")
+
+    /** One line as a title reads it: trimmed, its image markers removed (one space each run). */
+    fun titleLine(line: String): String = line.trim().replace(IMAGE_MARKERS, " ").trim()
+
+    /** The first usable line of a body: non-blank once its image markers are gone, not an image embed. */
     private fun firstLine(body: String): String? =
-        body.split("\n").map { it.trim() }.firstOrNull { it.isNotEmpty() && !it.startsWith("![") }
+        body.split("\n").map(::titleLine).firstOrNull { it.isNotEmpty() && !it.startsWith("![") }
 
     /** The session's OWN rows, in link order (root or child alike, NEW-1). */
     fun sessionIssues(session: TitleSession, links: List<TitleLink>, issues: List<TitleIssue>): List<TitleIssue> {

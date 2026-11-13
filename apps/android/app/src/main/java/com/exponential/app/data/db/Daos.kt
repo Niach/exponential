@@ -573,6 +573,18 @@ abstract class MessageDao {
     abstract fun rawObserveQueued(sessionId: String): Flow<List<MessageEntity>>
     fun observeQueued(sessionId: String): Flow<List<MessageEntity>> = rawObserveQueued(sessionId).openedMessages()
 
+    // Android 0.14.134 (steer-enet.json SENT INPUTS): a session's NEWEST
+    // [limit] card-less person inputs the device consumed, oldest first:
+    // what a no-feed placeholder shows as the viewer's own bubbles.
+    @Query(
+        "SELECT * FROM (SELECT * FROM messages WHERE session_id = :sessionId AND author_kind = 'user' " +
+            "AND consumed_at IS NOT NULL AND (card IS NULL OR card = 'null') " +
+            "ORDER BY created_at DESC, id DESC LIMIT :limit) ORDER BY created_at, id",
+    )
+    abstract fun rawObserveConsumedInputs(sessionId: String, limit: Int): Flow<List<MessageEntity>>
+    fun observeConsumedInputs(sessionId: String, limit: Int): Flow<List<MessageEntity>> =
+        rawObserveConsumedInputs(sessionId, limit).openedMessages()
+
     // EXP-1459: one message RAW (sealed as synced): the answer re-seals its card.
     @Query("SELECT * FROM messages WHERE id = :id LIMIT 1")
     abstract suspend fun getById(id: String): MessageEntity?

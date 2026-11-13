@@ -497,6 +497,120 @@ describe(`connection lifecycle`, () => {
     store.dispose()
   })
 
+  // steer-enet.json ROW WAKE: the synced row saying the device has it now
+  // cuts the starting backoff short and restarts it at n = 0.
+  it(`ROW WAKE: a starting row whose synced row flips to running redials at once`, async () => {
+    let reachable = false
+    let dials = 0
+    const { store, sockets } = makeStore({
+      feed: () => {
+        dials++
+        return reachable
+      },
+    })
+    store.noteSessionStatus(`queued`, { busy: false, deviceId: `mac` })
+    store.connect()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.getSnapshot().phase).toEqual({ kind: `starting` })
+    // Walk the backoff up a few steps.
+    await vi.advanceTimersByTimeAsync(3_100)
+    await vi.advanceTimersByTimeAsync(6_100)
+    const before = dials
+    expect(before).toBeGreaterThanOrEqual(3)
+    // A row change that is no wake waits the backoff out.
+    store.noteSessionStatus(`queued`, { busy: false, deviceId: `mac` })
+    await vi.advanceTimersByTimeAsync(10)
+    expect(dials).toBe(before)
+    // The claim: queued → running redials NOW, no backoff step waited.
+    reachable = true
+    store.noteSessionStatus(`running`, { busy: false, deviceId: `mac` })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(dials).toBe(before + 1)
+    expect(sockets).toHaveLength(1)
+    sockets[0].open()
+    sockets[0].frame({ t: `activity_reset` })
+    sockets[0].frame({ t: `activity_synced` })
+    expect(store.getSnapshot().phase.kind).toBe(`live`)
+    store.dispose()
+  })
+
+  // steer-enet.json `rowWakeCases`: a starting row waiting out a long
+  // backoff step redials at once exactly when the case wakes.
+  for (const c of enetFixture.rowWakeCases) {
+    it(`rowWakeCases: ${c.name} = ${c.wake ? `redial now` : `wait`}`, async () => {
+      let dials = 0
+      const { store } = makeStore({
+        feed: () => {
+          dials++
+          return false
+        },
+      })
+      const from = c.from as { status: string; busy: boolean; deviceId: string | null } | null
+      const to = c.to as { status: string; busy: boolean; deviceId: string | null }
+      if (from) store.noteSessionStatus(from.status as never, { busy: from.busy, deviceId: from.deviceId })
+      store.connect()
+      await vi.advanceTimersByTimeAsync(0)
+      await vi.advanceTimersByTimeAsync(3_100)
+      expect(store.getSnapshot().phase).toEqual({ kind: `starting` })
+      const before = dials
+      store.noteSessionStatus(to.status as never, { busy: to.busy, deviceId: to.deviceId })
+      await vi.advanceTimersByTimeAsync(10)
+      expect(dials - before).toBe(c.wake ? 1 : 0)
+      store.dispose()
+    })
+  }
+
+  it(`ROW WAKE: the backoff restarts at n = 0 after a wake`, async () => {
+    let dials = 0
+    const { store } = makeStore({
+      feed: () => {
+        dials++
+        return false
+      },
+    })
+    store.noteSessionStatus(`running`, { busy: false, deviceId: `mac` })
+    store.connect()
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(3_100)
+    await vi.advanceTimersByTimeAsync(6_100)
+    await vi.advanceTimersByTimeAsync(12_100)
+    const before = dials
+    // A turn starts: redial at once, then the FIRST backoff step again.
+    store.noteSessionStatus(`running`, { busy: true, deviceId: `mac` })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(dials).toBe(before + 1)
+    await vi.advanceTimersByTimeAsync(3_100)
+    expect(dials).toBe(before + 2)
+    store.dispose()
+  })
+
+  it(`ROW WAKE: a wake while a dial is out redials as soon as it says no feed`, async () => {
+    let dials = 0
+    let answer: ((ok: null) => void) | null = null
+    const store = createSteerSessionStore(`session-1`, {
+      openFeed: () => {
+        dials++
+        return new Promise((resolve) => {
+          answer = resolve
+        })
+      },
+    })
+    store.noteSessionStatus(`queued`, { busy: false, deviceId: `mac` })
+    store.connect()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(dials).toBe(1)
+    // The device moves while the first dial is still out.
+    store.noteSessionStatus(`queued`, { busy: false, deviceId: `server` })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(dials).toBe(1)
+    answer!(null)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.getSnapshot().phase).toEqual({ kind: `starting` })
+    await vi.advanceTimersByTimeAsync(10)
+    expect(dials).toBe(2)
+    store.dispose()
+  })
+
   it(`#EXP-1703: no feed on a live row whose device is away redials every staleMs, not on the backoff`, async () => {
     let reachable = false
     let dials = 0
@@ -3437,6 +3551,30 @@ describe(`steer over eNet`, () => {
     await vi.advanceTimersByTimeAsync(3_100)
     expect(joins()).toBe(2)
     expect(store.getSnapshot().phase).toEqual({ kind: `starting` })
+    store.dispose()
+  })
+
+  // steer-enet.json NO FEED (`noFeed` "an idle chat"): a FRESH chat opened
+  // on another device before that device claimed it: the idle row's NO FEED
+  // keeps redialing on its backoff (never a cached "not publishing") and
+  // the first feed is the transcript.
+  it(`a fresh chat the device has not claimed yet redials until it publishes`, async () => {
+    let claimed = false
+    const { store, joins } = enetStore((frames) =>
+      frames[0]?.t !== `join` ? null : claimed ? replay : [{ t: `error`, code: `no_such_session` }]
+    )
+    store.noteSessionStatus(`idle`)
+    store.connect()
+    await vi.advanceTimersByTimeAsync(10)
+    expect(store.getSnapshot().phase).toEqual({ kind: `starting` })
+    await vi.advanceTimersByTimeAsync(3_100)
+    await vi.advanceTimersByTimeAsync(6_100)
+    expect(joins()).toBeGreaterThanOrEqual(3)
+    expect(store.getSnapshot().phase).toEqual({ kind: `starting` })
+    claimed = true
+    await vi.advanceTimersByTimeAsync(12_100 + REPLAY_QUIET_MS)
+    expect(store.getSnapshot().phase.kind).toBe(`live`)
+    expect(store.getSnapshot().feed.map((row) => (row as { text?: string }).text)).toEqual([`over enet`])
     store.dispose()
   })
 

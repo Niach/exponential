@@ -1,4 +1,5 @@
 import { isPersistent, linksIssues } from "@exp/domain-contract/session-kind"
+import { titleLine } from "@exp/domain-contract/session-title"
 import { isAssistantConversation, turnHasMemberInput } from "@/lib/agents/assistant-chat"
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
@@ -929,8 +930,9 @@ export const sessionsRouter = router({
             ...(input.account ? { account: input.account } : {}),
             ...(model ? { model } : {}),
             // The CLI's auto-name only fills a blank title (a person's or
-            // the agent's own title wins).
-            ...(input.title?.trim() && !session.title ? { title: input.title.trim() } : {}),
+            // the agent's own title wins); a name derived from a first
+            // prompt drops its `[Image #N]` markers (session-title.json).
+            ...(input.title && titleLine(input.title) && !session.title ? { title: titleLine(input.title) } : {}),
             ...(input.sealedTitle && !session.sealedTitle && !session.title ? { sealedTitle: input.sealedTitle } : {}),
             ...(turnEnded ? { lastTurnAt: now } : {}),
             // EXP-1413: working again = the Stop is settled.

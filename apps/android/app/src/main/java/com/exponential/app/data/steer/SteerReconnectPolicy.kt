@@ -139,3 +139,52 @@ fun steerNoFeedState(ended: Boolean, busy: Boolean, deviceOffline: Boolean = fal
     busy -> SteerNoFeedState.Starting
     else -> SteerNoFeedState.Idle
 }
+
+/** Android 0.14.134 (fixtures/steer-enet.json `noFeedInputsMax`, pinned by the fixture test). */
+internal const val STEER_NO_FEED_INPUTS_MAX = 10
+
+/** One synced message as [steerNoFeedInputs] reads it. */
+data class SteerInputRow(
+    val id: String,
+    val authorKind: String,
+    /** The row carries a card (`card` set and not JSON null). */
+    val hasCard: Boolean,
+    val consumedAt: String?,
+    val createdAt: String,
+)
+
+/**
+ * Android 0.14.134 (fixtures/steer-enet.json "SENT INPUTS", TS
+ * `steerNoFeedInputs`): what a no-feed placeholder of a live row draws as
+ * the viewer's own bubbles: the session's card-less person inputs the
+ * device already CONSUMED (a not-consumed one is the Dock's queue), oldest
+ * first (createdAt, then id), the newest [max]. The brief a claim consumes
+ * at once is the first, so a session started here shows what was sent
+ * before its device publishes.
+ */
+fun <T> steerNoFeedInputs(rows: List<T>, max: Int = STEER_NO_FEED_INPUTS_MAX, row: (T) -> SteerInputRow): List<T> {
+    val inputs = rows
+        .map { it to row(it) }
+        .filter { (_, r) -> r.authorKind == "user" && !r.hasCard && r.consumedAt != null }
+        .sortedWith(compareBy<Pair<T, SteerInputRow>>({ it.second.createdAt }, { it.second.id }))
+        .map { it.first }
+    return inputs.takeLast(max.coerceAtLeast(0))
+}
+
+/** The synced row fields [steerRowWakes] reads. */
+data class SteerWakeRow(val status: String, val busy: Boolean, val deviceId: String?)
+
+/**
+ * Android 0.14.134 (fixtures/steer-enet.json "ROW WAKE", TS `steerRowWakes`):
+ * whether a synced row change cuts a Starting row's backoff short: the
+ * device took it (status leaves `queued` or turns `running`), a turn
+ * started (`busy` turned true), or it moved (`deviceId` changed). Never an
+ * ending, never the first row seen (no edge).
+ */
+fun steerRowWakes(from: SteerWakeRow?, to: SteerWakeRow): Boolean = when {
+    from == null || to.status == "ended" -> false
+    from.status == "queued" && to.status != "queued" -> true
+    from.status != "running" && to.status == "running" -> true
+    !from.busy && to.busy -> true
+    else -> from.deviceId.orEmpty() != to.deviceId.orEmpty()
+}

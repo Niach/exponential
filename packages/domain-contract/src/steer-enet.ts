@@ -155,6 +155,51 @@ export function steerNoFeedState(row: { ended: boolean; busy: boolean; deviceOff
   return row.busy ? `starting` : `idle`
 }
 
+/** Android 0.14.134: how many consumed inputs a no-feed placeholder shows. */
+export const STEER_NO_FEED_INPUTS_MAX = fixture.noFeedInputsMax
+
+/** One synced message of the session, as `steerNoFeedInputs` reads it. */
+export type SteerNoFeedInputRow = {
+  id: string
+  authorKind: string
+  card: unknown
+  consumedAt: string | null
+  createdAt: string
+}
+
+/**
+ * Android 0.14.134 (steer-enet.json SENT INPUTS): under a no-feed
+ * placeholder of a live row, the session's card-less person inputs the
+ * device already consumed (a not-consumed one is the Dock's queue), oldest
+ * first (createdAt, then id), the newest [max] of them.
+ */
+export function steerNoFeedInputs<T extends SteerNoFeedInputRow>(
+  messages: readonly T[],
+  max: number = STEER_NO_FEED_INPUTS_MAX
+): T[] {
+  const inputs = messages
+    .filter((m) => m.authorKind === `user` && (m.card === null || m.card === undefined) && m.consumedAt !== null)
+    .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+  return inputs.slice(Math.max(0, inputs.length - max))
+}
+
+/** The synced row fields `steerRowWakes` reads. */
+export type SteerWakeRow = { status: string; busy: boolean; deviceId: string | null }
+
+/**
+ * Android 0.14.134 (steer-enet.json ROW WAKE): whether a synced row change
+ * cuts a `starting` row's backoff short: the device took it (status leaves
+ * `queued` or turns `running`), a turn started, or it moved; never an
+ * ending, never the first row seen.
+ */
+export function steerRowWakes(from: SteerWakeRow | null, to: SteerWakeRow): boolean {
+  if (from === null || to.status === `ended`) return false
+  if (from.status === `queued` && to.status !== `queued`) return true
+  if (from.status !== `running` && to.status === `running`) return true
+  if (!from.busy && to.busy) return true
+  return (from.deviceId ?? ``) !== (to.deviceId ?? ``)
+}
+
 // ── P2P stabilisation: the sealed relay FALLBACK (fixture `fallback`) ───────
 
 export const STEER_FALLBACK_STALL_MS = fixture.fallback.stallMs

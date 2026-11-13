@@ -373,6 +373,11 @@ class SteerConnection internal constructor(
     /** #EXP-1678: consecutive NO FEED redials (the starting backoff's n). */
     private var startingRetries = 0
 
+    /** Android 0.14.134 (ROW WAKE): the synced row said the device has the
+     *  session now since the last NO FEED wait; the next one is skipped and
+     *  the backoff restarts at n = 0. */
+    private val rowWoke = java.util.concurrent.atomic.AtomicBoolean(false)
+
     /** EXP-1487: when a LIVE feed dropped (null = no drop in progress) and how
      *  many redials since then failed. While [steerShowConnectionLost] says
      *  no, the loop redials silently under the held phase; a join resets. */
@@ -422,6 +427,26 @@ class SteerConnection internal constructor(
         // OFFLINE REDIAL: "a run that came back = live"), so the row flipping
         // running under that open feed promotes it. Keepalives alone (an idle
         // run's joined viewer) never re-evaluate the phase.
+        // Android 0.14.134 (fixtures/steer-enet.json ROW WAKE): the synced
+        // row saying the device has it now (the claim, a turn starting, a
+        // move) cuts a Starting backoff short: a session opened the moment
+        // it was sent dials before its device publishes, and must not then
+        // sit out a long backoff while the run streams.
+        scope.launch {
+            var seen: SteerWakeRow? = null
+            session.collect { row ->
+                if (row == null || closed) return@collect
+                val next = SteerWakeRow(row.status, row.busy, row.deviceId)
+                val wakes = steerRowWakes(seen, next)
+                seen = next
+                if (!wakes) return@collect
+                rowWoke.set(true)
+                if (_phase.value == AgentPhase.Starting && connectJob?.isActive == true) {
+                    Log.i(TAG, "[$sid] row ${row.status} busy=${row.busy}: cut the starting backoff short")
+                    wake.trySend(Unit)
+                }
+            }
+        }
         scope.launch {
             session.collect { row ->
                 if (row == null || row.isEnded || closed) return@collect
@@ -533,15 +558,23 @@ class SteerConnection internal constructor(
                         // meanwhile gets one more dial, which replays its
                         // stored journal or lands on the device-offline line.
                         setPhase(AgentPhase.Starting, "no feed")
-                        // #EXP-1703: an away host redials on the device-offline
-                        // cadence (presence online / a wakeup cut it short).
-                        delayOrWake(
-                            if (hostOffline) {
-                                timings.offlineRedialMs
-                            } else {
-                                steerStartingRetryDelayMs(startingRetries++, timings.startingRetryMs, timings.startingRetryMaxMs)
-                            },
-                        )
+                        // Android 0.14.134 (ROW WAKE): the device took the
+                        // session (or a turn started) while that dial was
+                        // out: redial at once, the backoff from n = 0.
+                        if (rowWoke.getAndSet(false)) {
+                            startingRetries = 0
+                        } else {
+                            // #EXP-1703: an away host redials on the device-offline
+                            // cadence (presence online / a wakeup cut it short).
+                            delayOrWake(
+                                if (hostOffline) {
+                                    timings.offlineRedialMs
+                                } else {
+                                    steerStartingRetryDelayMs(startingRetries++, timings.startingRetryMs, timings.startingRetryMaxMs)
+                                },
+                            )
+                            if (rowWoke.getAndSet(false)) startingRetries = 0
+                        }
                         if (connectJob !== me) return@launch
                     }
                     is DialOutcome.Ended -> {
@@ -898,6 +931,7 @@ class SteerConnection internal constructor(
                     clearDrop()
                     reconnectAttempts = 0
                     startingRetries = 0
+                    rowWoke.set(false)
                     if (sessionIsOver()) {
                         // VAPP-43: the device replays an ENDED row's stored
                         // journal and then says `bye {outcome:"history"}`;

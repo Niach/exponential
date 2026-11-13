@@ -39,7 +39,10 @@ import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.keyedMessages
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.data.electric.SyncStats
+import com.exponential.app.data.steer.STEER_NO_FEED_INPUTS_MAX
 import com.exponential.app.data.steer.SteerConnectionStore
+import com.exponential.app.data.steer.SteerInputRow
+import com.exponential.app.data.steer.steerNoFeedInputs
 import com.exponential.app.data.steer.stopHandingBackQueue
 import com.exponential.app.domain.ActivityFeedState
 import com.exponential.app.domain.SessionKind
@@ -944,6 +947,31 @@ class AgentSessionViewModel @AssistedInject constructor(
         }
         .distinctUntilChanged()
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * Android 0.14.134 (fixtures/steer-enet.json SENT INPUTS): the session's
+     * consumed person inputs, newest [STEER_NO_FEED_INPUTS_MAX] oldest first,
+     * drawn as the viewer's bubbles while a no-feed placeholder shows (the
+     * brief the claim consumed at once included). Opened like the queue.
+     */
+    val noFeedInputs: StateFlow<List<QueuedMessage>> =
+        dbFlow.scopedQuery(emptyList<MessageEntity>()) {
+            it.messageDao().observeConsumedInputs(codingSessionId, STEER_NO_FEED_INPUTS_MAX)
+        }.map { rows ->
+            steerNoFeedInputs(rows) { row ->
+                SteerInputRow(
+                    id = row.id,
+                    authorKind = row.authorKind,
+                    hasCard = row.card != null && row.card != "null",
+                    consumedAt = row.consumedAt,
+                    createdAt = row.createdAt,
+                )
+            }.mapNotNull { row ->
+                val opened = com.exponential.app.data.sealed.SealedContent.openMessage(row)
+                val text = opened.locked?.let(com.exponential.app.domain.SealedPlaceholder::copy) ?: opened.body
+                text.takeIf { it.isNotBlank() }?.let { QueuedMessage(id = row.id, text = it, sent = true) }
+            }
+        }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
      * EXP-1291: the viewer's OWN messages the server still holds for this

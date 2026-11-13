@@ -592,6 +592,70 @@ public enum SteerNoFeed {
         if deviceOffline { return .away }
         return busy ? .starting : .idle
     }
+
+    /// SENT INPUTS (Android 0.14.134, the fixture's `noFeedInputsMax`).
+    public static let inputsMax = 10
+
+    /// One synced message as `inputs` reads it.
+    public struct InputRow: Equatable, Sendable {
+        public let id: String
+        public let authorKind: String
+        /// The row carries a card (set and not JSON null).
+        public let hasCard: Bool
+        public let consumedAt: String?
+        public let createdAt: String
+
+        public init(id: String, authorKind: String, hasCard: Bool, consumedAt: String?, createdAt: String) {
+            self.id = id
+            self.authorKind = authorKind
+            self.hasCard = hasCard
+            self.consumedAt = consumedAt
+            self.createdAt = createdAt
+        }
+    }
+
+    /// SENT INPUTS (TS `steerNoFeedInputs`, `noFeedInputCases`): under a
+    /// no-feed placeholder of a live row, the session's card-less person
+    /// inputs the device already CONSUMED (a not-consumed one is the Dock's
+    /// queue), oldest first (createdAt, then id), the newest `max`.
+    public static func inputs<T>(_ rows: [T], max: Int = inputsMax, row: (T) -> InputRow) -> [T] {
+        var pairs: [(item: T, row: InputRow)] = []
+        for item in rows {
+            let r = row(item)
+            if r.authorKind == "user", !r.hasCard, r.consumedAt != nil { pairs.append((item, r)) }
+        }
+        pairs.sort { (a: (item: T, row: InputRow), b: (item: T, row: InputRow)) -> Bool in
+            if a.row.createdAt != b.row.createdAt { return a.row.createdAt < b.row.createdAt }
+            return a.row.id < b.row.id
+        }
+        let picked: [T] = pairs.map { $0.item }
+        return Array(picked.suffix(Swift.max(0, max)))
+    }
+
+    /// The synced row fields `rowWakes` reads.
+    public struct WakeRow: Equatable, Sendable {
+        public let status: String
+        public let busy: Bool
+        public let deviceId: String?
+
+        public init(status: String, busy: Bool, deviceId: String?) {
+            self.status = status
+            self.busy = busy
+            self.deviceId = deviceId
+        }
+    }
+
+    /// ROW WAKE (TS `steerRowWakes`, `rowWakeCases`): whether a synced row
+    /// change cuts a `starting` row's backoff short: the device took it
+    /// (status leaves `queued` or turns `running`), a turn started, or it
+    /// moved; never an ending, never the first row seen.
+    public static func rowWakes(from: WakeRow?, to: WakeRow) -> Bool {
+        guard let from, to.status != "ended" else { return false }
+        if from.status == "queued" && to.status != "queued" { return true }
+        if from.status != "running" && to.status == "running" { return true }
+        if !from.busy && to.busy { return true }
+        return (from.deviceId ?? "") != (to.deviceId ?? "")
+    }
 }
 
 /// The transport choice: `installs.forSession` → `join` the first endpoint →

@@ -1055,6 +1055,11 @@ final class AgentSessionModel {
     /// #EXP-1678: consecutive NO FEED redials (`fallback.startingRetry`);
     /// a feed resets it (`attachFeed`).
     private var startingRetries = 0
+    /// Android 0.14.134 (steer-enet.json ROW WAKE): the last synced row the
+    /// wake rule saw, and whether a wake landed while a dial was out (the
+    /// next NO FEED then redials at once, the backoff from n = 0).
+    @ObservationIgnored private var wakeRow: SteerNoFeed.WakeRow?
+    @ObservationIgnored private var rowWoke = false
     /// EXP-1487 LOST BANNER: when a feed that was joined dropped (nil = no
     /// drop pending), and how many redials since then failed. A successful
     /// join resets both (`attachFeed`).
@@ -1636,6 +1641,7 @@ final class AgentSessionModel {
                         // #EXP-1623: only what moved is written; an equal
                         // write still re-renders every view that reads it.
                         if row != self.session { self.session = row }
+                        if let row { self.observeRowWake(row) }
                         if root != self.root { self.root = root }
                         if hasSubSessions != self.hasSubSessions { self.hasSubSessions = hasSubSessions }
                         if let title, title != self.title { self.title = title }
@@ -2070,6 +2076,15 @@ final class AgentSessionModel {
             // at once on the presence flip online), not the starting backoff.
             if hostDeviceOffline {
                 scheduleAwayRedial()
+            } else if rowWoke {
+                // Android 0.14.134 (ROW WAKE): the device took the row while
+                // that dial was out: redial at once, the backoff from n = 0.
+                rowWoke = false
+                startingRetries = 0
+                retryTask?.cancel()
+                retryTask = nil
+                resetDialState()
+                Task { await dial() }
             } else {
                 scheduleStartingRetry()
             }
@@ -3165,6 +3180,7 @@ final class AgentSessionModel {
         failedRedialsSinceDrop = 0
         reconnectAttempts = 0
         startingRetries = 0
+        rowWoke = false
         // After a reconnect the replayed transcript is the only copy of a sent
         // message — it must render, so no stale echo may swallow it. The feed
         // is NOT wiped here (EXP-249): the device's `activity_reset` opens the
@@ -3297,6 +3313,26 @@ final class AgentSessionModel {
             self.resetDialState()
             await self.dial()
         }
+    }
+
+    /// Android 0.14.134 (fixtures/steer-enet.json ROW WAKE): the synced row
+    /// saying its device has the session now (the claim, a turn starting, a
+    /// move) cuts a `starting` backoff short: an armed wait redials at once
+    /// from n = 0; a dial in flight redials as soon as it says NO FEED.
+    private func observeRowWake(_ row: SessionEntity) {
+        let next = SteerNoFeed.WakeRow(status: row.status, busy: row.busy, deviceId: row.deviceId)
+        let wakes = SteerNoFeed.rowWakes(from: wakeRow, to: next)
+        wakeRow = next
+        guard wakes, !stopped else { return }
+        rowWoke = true
+        guard phase == .starting, retryArmed, !dialInFlight else { return }
+        logger.info("row \(row.status, privacy: .public) busy=\(row.busy): cut the starting backoff short")
+        rowWoke = false
+        startingRetries = 0
+        retryTask?.cancel()
+        retryTask = nil
+        resetDialState()
+        Task { await dial() }
     }
 
     /// Redial while no device feeds the live row — the phase stays
