@@ -18,11 +18,10 @@
 use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use serde_json::{json, Value};
 
-use crate::http::{client, send, with_json};
+use crate::http::{client, send, transfer_client, with_json};
 use crate::{Error, GitCommand, Result};
 
 /// The refs the server holds.
@@ -92,15 +91,7 @@ impl ExpGit {
     /// `server` = the instance (`https://app.exponential.at`), `token` = a
     /// repo token (`expg_…`).
     pub fn new(server: &str, token: impl Into<String>) -> Result<Self> {
-        let transfer = {
-            let _ = rustls::crypto::ring::default_provider().install_default();
-            reqwest::blocking::Client::builder()
-                .user_agent("git-remote-exp")
-                // A pack of a big repo over a slow link.
-                .timeout(Duration::from_secs(60 * 60))
-                .build()
-                .map_err(|e| Error::Http { status: 0, detail: e.to_string() })?
-        };
+        let transfer = transfer_client("git-remote-exp")?;
         Ok(Self { api: client("git-remote-exp")?, transfer, base: server.trim_end_matches('/').to_string(), token: token.into() })
     }
 
