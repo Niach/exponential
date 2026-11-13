@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { promptActions, removeRepositoryPrompt } from "@/lib/prompts"
-import { Link, useParams } from "@tanstack/react-router"
+import { Link, useNavigate, useParams } from "@tanstack/react-router"
+import { eq, useLiveQuery } from "@tanstack/react-db"
+import { REPO_PAGE_COPY, repoChecksRollup, type RepoPr } from "@exp/domain-contract/repo-page"
+import { pullRequestCollection } from "@/lib/collections"
+import { ProviderBadge } from "@/components/repo/repo-page"
+import { checksDotColor, checksLabel } from "@/components/repo/checks-dot"
+import { AddEcodeRepositoryForm } from "@/components/repo/add-ecode-repository"
 import {
   TriangleAlert,
   Building2,
@@ -58,6 +64,7 @@ import {
 import {
   Pill,
   Button,
+  ChoiceTiles,
   Prompt,
   ListRow,
   SETTINGS_LIST_CLASS,
@@ -123,7 +130,15 @@ export function TeamRepositoriesSection({
     [teamBoards]
   )
   const [repos, setRepos] = useState<RepoList | null>(null)
+  // #EXP-1616: each row's checks Chip{dot} rolls up its live PRs' checks.
+  const { data: teamPrs = [] } = useLiveQuery(
+    (q) => q.from({ prs: pullRequestCollection }).where(({ prs }) => eq(prs.teamId, teamId)),
+    [teamId]
+  )
+  const navigate = useNavigate()
   const [connectOpen, setConnectOpen] = useState(false)
+  // #EXP-1616 (repo-page.json `copy.add`): the Add dialog's provider tiles.
+  const [addProvider, setAddProvider] = useState<`github` | `ecode`>(`github`)
   const [removeTarget, setRemoveTarget] = useState<RepoRowData | null>(null)
   // Disconnecting GitHub (unlinking the viewer's account) confirms first.
   const [disconnectOpen, setDisconnectOpen] = useState(false)
@@ -371,6 +386,16 @@ export function TeamRepositoriesSection({
                 <RepoRow
                   key={repo.id}
                   repo={repo}
+                  checks={repoChecksRollup(teamPrs.filter((pr) => pr.repositoryId === repo.id) as unknown as RepoPr[])}
+                  onOpen={
+                    teamSlug
+                      ? () =>
+                          void navigate({
+                            to: `/t/$teamSlug/repos/$name`,
+                            params: { teamSlug, name: repo.fullName.split(`/`).pop()! },
+                          })
+                      : undefined
+                  }
                   boardRows={boardRows}
                   busy={busy}
                   canManage={
@@ -404,8 +429,32 @@ export function TeamRepositoriesSection({
             combo let cmdk's autofocus shove the header off-screen (EXP-365). */}
         <DialogContent className="overflow-hidden">
           <DialogHeader>
-            <DialogTitle>{GH_PICKER_TITLE}</DialogTitle>
+            <DialogTitle>{isOwner ? REPO_PAGE_COPY.add.title : GH_PICKER_TITLE}</DialogTitle>
           </DialogHeader>
+          {/* #EXP-1616: owners pick where the repo lives; GitHub keeps the
+              connect flow below, Exponential creates one on the team bucket. */}
+          {isOwner && (
+            <ChoiceTiles
+              data-testid="add-repo-provider"
+              columns={2}
+              value={addProvider}
+              onChange={(value) => setAddProvider(value === `ecode` ? `ecode` : `github`)}
+              options={[
+                { value: `github`, label: REPO_PAGE_COPY.add.github },
+                { value: `ecode`, label: REPO_PAGE_COPY.add.ecode },
+              ]}
+            />
+          )}
+          {isOwner && addProvider === `ecode` ? (
+            <AddEcodeRepositoryForm
+              teamId={teamId}
+              onCancel={() => handleConnectOpenChange(false)}
+              onCreated={async () => {
+                handleConnectOpenChange(false)
+                await refresh()
+              }}
+            />
+          ) : (
           <GithubRepoPicker
             teamId={teamId}
             onSelect={(repo) => void handleAdd(repo)}
@@ -415,6 +464,7 @@ export function TeamRepositoriesSection({
             listClassName="max-h-[min(20rem,40dvh)] max-sm:max-h-[50dvh]"
             variant="plain"
           />
+          )}
           {connectLimitError && (
             <div className="flex flex-wrap items-center gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-sm">
               <Sparkles className="h-3.5 w-3.5 shrink-0 text-primary" />
@@ -684,6 +734,8 @@ function GithubStatusLine({
 
 function RepoRow({
   repo,
+  checks,
+  onOpen,
   boardRows,
   busy,
   canManage,
@@ -693,6 +745,10 @@ function RepoRow({
   onSetDefaultBranch,
 }: {
   repo: RepoRowData
+  /** #EXP-1616: the rollup over its live PRs' checks (null = no chip). */
+  checks: string | null
+  /** #EXP-1616: opens the repo page. */
+  onOpen?: () => void
   /** The team's synced board rows, keyed by id — the "Used by" chips draw
    *  each board's own icon tinted with its colour (EXP-862, ×4), and the
    *  repo list only carries id/name/slug. */
@@ -713,10 +769,25 @@ function RepoRow({
     // `items-stretch` undoes the base row's centring so they fill the width.
     <ListRow className="flex-col items-stretch gap-2 px-3 py-2">
       <div className="flex items-center gap-2">
-        <Github className="h-4 w-4 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 flex-1 truncate text-sm font-medium">
+        {repo.provider === `ecode` ? (
+          <RepositoriesIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+        ) : (
+          <Github className="h-4 w-4 shrink-0 text-muted-foreground" />
+        )}
+        <button
+          type="button"
+          className="min-w-0 flex-1 truncate text-left text-sm font-medium hover:underline"
+          onClick={onOpen}
+          data-testid="repo-row-open"
+        >
           {repo.fullName}
-        </span>
+        </button>
+        <ProviderBadge provider={repo.provider} />
+        {checks && (
+          <Pill size="sm" className="shrink-0" dot={checksDotColor(checks)}>
+            {checksLabel(checks)}
+          </Pill>
+        )}
         {canManage ? (
           <DefaultBranchMenu
             repo={repo}

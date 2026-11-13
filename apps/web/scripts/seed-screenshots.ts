@@ -68,6 +68,8 @@ import {
   prompts,
   skills,
   pullRequests,
+  repoPacks,
+  repoRefs,
   repositories,
   sessionIssues,
   sessionReads,
@@ -2081,6 +2083,7 @@ async function main() {
   // EXP-1583: a second repository, so the composer "+" menu shows its
   // Repository › row (composer-menu.json `conditions.repositories`).
   await db.insert(repositories).values({ teamId: ws.id, fullName: `acme/web-app` })
+  await seedEcodeRepository(ws.id)
   const [board] = await db
     .insert(boards)
     .values({
@@ -3303,3 +3306,58 @@ main().catch((err) => {
   console.error(err)
   process.exit(1)
 })
+
+// #EXP-1616 (repo-page.json, view `repo`): an eCode repository on the team
+// bucket: refs, a PR tree of four (checks on three, one queued, one draft)
+// and two backups, so Settings › Repositories shows both providers and the
+// repo page every tab with content. Its objects are rows only (no pack in
+// the bucket: nothing here fetches it).
+async function seedEcodeRepository(teamId: string): Promise<void> {
+  const sha = (c: string) => c.repeat(40)
+  const [engine] = await db
+    .insert(repositories)
+    .values({
+      teamId,
+      provider: `ecode`,
+      fullName: `${TEAM_SLUG}/engine`,
+      remoteUrl: `exp://${TEAM_SLUG}/engine`,
+      defaultBranch: `main`,
+      private: true,
+      prSequence: 4,
+      providerConfig: { mirrorUrl: `https://github.com/acme/engine`, mirrorEnabled: true },
+    })
+    .returning()
+  const repositoryId = engine!.id
+  const heads: Record<string, string> = {
+    main: sha(`a`),
+    "exp/APP-31": sha(`b`),
+    "exp/APP-32": sha(`c`),
+    "exp/APP-33": sha(`d`),
+    "exp/docs": sha(`e`),
+  }
+  await db.insert(repoRefs).values(Object.entries(heads).map(([name, value]) => ({ repositoryId, ref: `refs/heads/${name}`, sha: value })))
+  const url = (n: number) => `https://app.exponential.at/t/${TEAM_SLUG}/repos/engine/pulls/${n}`
+  const pr = (n: number, title: string, head: string, base: string, extra: Partial<typeof pullRequests.$inferInsert>) => ({
+    teamId,
+    repositoryId,
+    number: n,
+    url: url(n),
+    title,
+    head,
+    base,
+    createdAt: daysAgo(5 - n),
+    updatedAt: hoursAgo(n),
+    ...extra,
+  })
+  await db.insert(pullRequests).values([
+    pr(1, `Pack cursor for incremental fetches`, `exp/APP-31`, `main`, { checksState: `success`, mergeState: `queued`, mergePosition: 1 }),
+    pr(2, `Repack once packs pile up`, `exp/APP-32`, `exp/APP-31`, { checksState: `pending` }),
+    pr(3, `Mirror prunes deleted branches`, `exp/APP-33`, `exp/APP-31`, { checksState: `failure` }),
+    pr(4, `Document exp:// remotes`, `exp/docs`, `main`, { state: `draft`, mergeState: `draft` }),
+  ])
+  await db.insert(repoPacks).values([
+    { teamId, repositoryId, kind: `pack`, key: `ecode/${teamId}/${repositoryId}/packs/seed.pack`, bytes: 1_843_200 },
+    { teamId, repositoryId, kind: `bundle`, key: `ecode/${teamId}/${repositoryId}/bundles/seed-1.bundle`, bytes: 1_310_720, refs: { "refs/heads/main": sha(`9`) }, createdAt: daysAgo(1) },
+    { teamId, repositoryId, kind: `bundle`, key: `ecode/${teamId}/${repositoryId}/bundles/seed-2.bundle`, bytes: 1_572_864, refs: { "refs/heads/main": sha(`a`) }, createdAt: hoursAgo(3) },
+  ])
+}
