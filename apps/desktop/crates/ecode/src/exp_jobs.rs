@@ -14,7 +14,7 @@ use std::path::Path;
 use serde_json::{json, Value};
 
 use crate::exp_git::{git_at, mirror_refs, scratch, ExpGit};
-use crate::{Credentials, Error, GitRemote, Identity, LocalRepo, PushSpec, Remote, Result};
+use crate::{Credentials, Error, GitRemote, Identity, LocalRepo, Result};
 
 /// The committer of the commits a job makes (squash, rebase).
 fn job_identity() -> Identity {
@@ -172,22 +172,16 @@ fn repack(git: &ExpGit, cache: &Path) -> Result<Value> {
     result
 }
 
-/// Every branch and tag to the mirror, forced (it equals the bucket).
+/// Every branch and tag to the mirror, forced and pruned: the mirror equals
+/// the bucket (a branch deleted here, a merged head included, goes there).
 fn mirror(repo: &LocalRepo, refs: &BTreeMap<String, String>, args: &Value) -> Result<Value> {
     let url = arg(args, "url")?;
-    let specs: Vec<PushSpec> = refs
-        .iter()
-        .filter(|(name, _)| name.starts_with("refs/heads/") || name.starts_with("refs/tags/"))
-        .map(|(name, sha)| PushSpec { src: sha.clone(), dst: name.clone(), force: true })
-        .collect();
-    if specs.is_empty() {
-        return Ok(json!({ "skipped": "empty repository" }));
-    }
+    let pushed = refs.keys().filter(|name| name.starts_with("refs/heads/") || name.starts_with("refs/tags/")).count();
     match (args["username"].as_str(), args["token"].as_str()) {
-        (Some(username), Some(token)) => GitRemote::new(Credentials::new(url, username, token, None)?)?.push(&repo.git_dir(), &specs)?,
-        _ => GitRemote::anonymous(url).push(&repo.git_dir(), &specs)?,
+        (Some(username), Some(token)) => GitRemote::new(Credentials::new(url, username, token, None)?)?.push_mirror(&repo.git_dir())?,
+        _ => GitRemote::anonymous(url).push_mirror(&repo.git_dir())?,
     }
-    Ok(json!({ "pushed": specs.len() }))
+    Ok(json!({ "pushed": pushed }))
 }
 
 /// The answer a job row carries: `{ok, result}` or `{ok: false, reason, message}`.

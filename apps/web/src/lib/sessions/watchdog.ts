@@ -77,6 +77,8 @@ export interface WatchdogRun {
   /** EXP-1709: repositories the merge train passed. */
   mergeTrainRepos: number
   commitChecksPruned: number
+  /** #EXP-1616: eCode uploads never committed, swept from the bucket. */
+  ecodeUploadsSwept: number
 }
 
 const LIVE = [`running`, `idle`] as const
@@ -748,6 +750,12 @@ export async function runWatchdog(now: Date = new Date()): Promise<WatchdogRun> 
       .then(() => 1)
       .catch((err) => {
         console.error(`[watchdog] commit checks prune failed`, err)
+        return 0
+      }),
+    ecodeUploadsSwept: await import(`@/lib/ecode/git-store`)
+      .then((m) => m.sweepOrphanUploads(now))
+      .catch((err) => {
+        console.error(`[watchdog] eCode upload sweep failed`, err)
         return 0
       }),
     prsReconciled: await import(`@/lib/integrations/pr-reconcile`)

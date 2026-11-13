@@ -18,6 +18,8 @@ const h = vi.hoisted(() => ({
   bundles: [] as unknown[],
   restores: [] as unknown[],
   storageChecks: [] as number[],
+  uploads: [] as unknown[],
+  published: [] as unknown[],
 }))
 
 vi.mock(`@/db/connection`, () => ({
@@ -42,6 +44,9 @@ vi.mock(`@/lib/ecode/git-store`, async (original) => ({
     h.pushes.push(args)
     return h.pushResult
   },
+  recordUpload: async (args: unknown) => {
+    h.uploads.push(args)
+  },
   recordBundle: async (args: unknown) => {
     h.bundles.push(args)
   },
@@ -59,7 +64,13 @@ vi.mock(`@/lib/billing`, () => ({
     h.storageChecks.push(bytes)
   },
 }))
-vi.mock(`@/lib/ecode/ecode-host`, () => ({ pgEcodeHost: { publish: async () => {} } }))
+vi.mock(`@/lib/ecode/ecode-host`, () => ({
+  pgEcodeHost: {
+    publish: async (_repo: unknown, events: unknown[]) => {
+      h.published.push(...events)
+    },
+  },
+}))
 
 process.env.BETTER_AUTH_SECRET = `test-secret`
 const { handleGitRequest } = await import(`@/lib/ecode/git-routes`)
@@ -87,6 +98,8 @@ beforeEach(() => {
   h.bundles = []
   h.restores = []
   h.storageChecks = []
+  h.uploads = []
+  h.published = []
 })
 
 describe(`the repo token`, () => {
@@ -125,6 +138,8 @@ describe(`/api/ecode/git (#EXP-1616)`, () => {
     expect(out.key).toMatch(new RegExp(`^ecode/${TEAM}/${REPO}/packs/[0-9a-f-]+\\.pack$`))
     expect(out.url).toContain(`sig=put`)
     expect(h.storageChecks).toEqual([99])
+    // Counted from the grant on (the sweep deletes it if never committed).
+    expect(h.uploads).toEqual([{ teamId: TEAM, repositoryId: REPO, key: out.key, bytes: 99 }])
     expect((await call(`upload`, member(), { body: { kind: `bundle`, bytes: 5 } })).status).toBe(403)
     expect((await call(`upload`, job(), { body: { kind: `bundle`, bytes: 5 } })).status).toBe(200)
   })
@@ -134,6 +149,10 @@ describe(`/api/ecode/git (#EXP-1616)`, () => {
     const ok = await call(`push`, member(), { body: { pack, updates: [{ ref: `refs/heads/topic`, old: null, new: SHA_B }] } })
     expect(ok.status).toBe(200)
     expect(h.pushes[0]).toMatchObject({ repositoryId: REPO, pack: { key: pack, bytes: 1234 }, updates: [{ ref: `refs/heads/topic`, old: null, new: SHA_B }] })
+    expect(h.published).toEqual([{ kind: `pushed`, branch: `topic`, sha: SHA_B }])
+    // A deleted branch goes on the bus (the mirror deletes it too).
+    await call(`push`, member(), { body: { updates: [{ ref: `refs/heads/topic`, old: SHA_B, new: null }] } })
+    expect(h.published.at(-1)).toEqual({ kind: `branch_deleted`, branch: `topic` })
     h.pushResult = { ok: false, rejected: `refs/heads/main` }
     const moved = await call(`push`, member(), { body: { pack: null, updates: [{ ref: `refs/heads/main`, old: SHA_B, new: SHA_A }] } })
     expect(moved.status).toBe(409)

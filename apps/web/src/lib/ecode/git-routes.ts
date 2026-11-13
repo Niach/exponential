@@ -26,6 +26,7 @@ import {
   pruneSuperseded,
   recordBundle,
   recordPush,
+  recordUpload,
   replaceRepository,
   repoObjectPrefix,
   swapPacks,
@@ -131,6 +132,8 @@ const routes: Record<string, Partial<Record<`GET` | `POST`, Handler>>> = {
       const { assertWithinStorageLimit } = await import(`@/lib/billing`)
       await assertWithinStorageLimit(caller.repo.teamId, input.bytes)
       const key = `${repoObjectPrefix(caller.repo.teamId, caller.repo.id)}${input.kind}s/${crypto.randomUUID()}.${input.kind}`
+      // Counted from the grant on; an upload never committed is swept.
+      await recordUpload({ teamId: caller.repo.teamId, repositoryId: caller.repo.id, key, bytes: input.bytes })
       const { presignPut } = await import(`@/lib/storage`)
       return { key, url: await presignPut(key, input.bytes) }
     },
@@ -201,8 +204,12 @@ async function afterPush(caller: Caller, updates: RefUpdate[]): Promise<void> {
   const { pgEcodeHost } = await import(`@/lib/ecode/ecode-host`)
   const repo = { id: caller.repo.id, fullName: caller.repo.fullName, provider: `ecode` as const }
   const events = updates
-    .filter((u) => u.new !== null && u.ref.startsWith(HEADS))
-    .map((u) => ({ kind: `pushed` as const, branch: u.ref.slice(HEADS.length), sha: u.new! }))
+    .filter((u) => u.ref.startsWith(HEADS))
+    .map((u) =>
+      u.new === null
+        ? { kind: `branch_deleted` as const, branch: u.ref.slice(HEADS.length) }
+        : { kind: `pushed` as const, branch: u.ref.slice(HEADS.length), sha: u.new }
+    )
   await pgEcodeHost.publish(repo, events).catch((err: unknown) => console.error(`[ecode] push events failed`, err))
   if ((await livePacks(caller.repo.id)).length >= REPACK_AT) {
     const { queueMaintenance } = await import(`@/lib/ecode/jobs`)

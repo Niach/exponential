@@ -1,14 +1,17 @@
 // @vitest-environment node
-import { afterAll, describe, expect, it } from "vitest"
-import { sql } from "drizzle-orm"
+import { afterAll, describe, expect, it, vi } from "vitest"
+import { eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { repositories, teams } from "@/db/schema"
+import { repoPacks, repositories, teams } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
 
 // #EXP-1616: eCode's refs and packs against the real migrated Postgres:
 // the CAS is all-or-nothing, a push records its pack and moves its refs in
 // one transaction, a restore replaces every pack and ref, repo bytes count
 // toward the team (superseded ones stop counting), bundles keep the newest.
+
+vi.mock(`@/lib/storage`, () => ({ deleteObject: async (key: string) => void deleted.push(key) }))
+const deleted: string[] = []
 
 const ready = await probeRealDb(`SELECT to_regclass('public.repo_refs') IS NOT NULL AS ok`)
 if (!ready.ok) console.info(`[git-store.real-db] skipped: ${ready.reason}`)
@@ -88,5 +91,29 @@ describe.skipIf(!ready.ok)(`eCode git store (#EXP-1616)`, () => {
     expect(kept[0]!.key).toContain(`/${store.BUNDLES_KEPT + 1}.bundle`)
     expect(await store.repositoryByRemote(slug, `app`)).toEqual({ id: repositoryId, teamId })
     expect(await store.repositoryByRemote(slug, `nope`)).toBeNull()
+  })
+
+  it(`an upload counts from its grant; a commit makes it a pack AFTER every earlier pack; an orphan is swept`, async () => {
+    const { teamId, repositoryId } = await repo()
+    const key = (n: string) => `ecode/${teamId}/${repositoryId}/packs/${n}.pack`
+    // Two pushes upload; the SECOND commits first.
+    await store.recordUpload({ teamId, repositoryId, key: key(`slow`), bytes: 40 })
+    await store.recordUpload({ teamId, repositoryId, key: key(`fast`), bytes: 10 })
+    await store.recordUpload({ teamId, repositoryId, key: key(`dead`), bytes: 5 })
+    expect(await store.teamRepoBytes(teamId)).toBe(55)
+    expect(await store.livePacks(repositoryId)).toEqual([])
+    await store.recordPush({ teamId, repositoryId, pack: { key: key(`fast`), bytes: 9 }, updates: [{ ref: `refs/heads/a`, old: null, new: A }] })
+    const cursor = (await store.livePacks(repositoryId))[0]!.seq
+    await store.recordPush({ teamId, repositoryId, pack: { key: key(`slow`), bytes: 39 }, updates: [{ ref: `refs/heads/b`, old: null, new: B }] })
+    // A fetcher past `fast` still gets `slow`.
+    expect((await store.livePacks(repositoryId, cursor)).map((p) => p.key)).toEqual([key(`slow`)])
+    expect(await store.teamRepoBytes(teamId)).toBe(9 + 39 + 5)
+    // Inside the grace nothing goes; past it the orphan does.
+    expect(await store.sweepOrphanUploads(new Date())).toBe(0)
+    const later = new Date(Date.now() + store.ORPHAN_UPLOAD_GRACE_MS + 60_000)
+    expect(await store.sweepOrphanUploads(later)).toBeGreaterThanOrEqual(1)
+    expect(deleted).toContain(key(`dead`))
+    expect(await db.select().from(repoPacks).where(eq(repoPacks.key, key(`dead`)))).toEqual([])
+    expect(await store.teamRepoBytes(teamId)).toBe(48)
   })
 })

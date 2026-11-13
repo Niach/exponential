@@ -60,6 +60,18 @@ export function mirrorOf(config: Record<string, unknown>): { url: string } | nul
   return url && config.mirrorEnabled !== false ? { url } : null
 }
 
+/** The mirror push (every branch and tag, forced, pruned), when the repo
+ *  has a mirror; best effort, one pending per repo. */
+function queueMirror(repo: ForgeRepo): void {
+  void (async () => {
+    const repoFacts = await facts(repo)
+    const mirror = mirrorOf(repoFacts.providerConfig)
+    if (!mirror) return
+    const { mirrorJob } = await import(`@/lib/ecode/mirror`)
+    await queueMaintenance(repoFacts, await mirrorJob(mirror.url))
+  })().catch((err: unknown) => console.error(`[ecode] queuing the mirror of ${repo.fullName} failed`, err))
+}
+
 export const pgEcodeHost: EcodeHost = {
   async branches(repo) {
     const refs = await listRefs(repo.id)
@@ -180,12 +192,14 @@ export const pgEcodeHost: EcodeHost = {
           await attributePush({ fullName: repo.fullName, branch: event.branch }).catch(() => null)
           break
         }
-        // `pr_opened` was recorded by `recordOpened`; `branch_deleted` is
-        // the ref row already gone.
+        // `pr_opened` was recorded by `recordOpened`.
         default:
           break
       }
     }
+    // A branch deleted here (a push, a merged head, deleteBranch) is
+    // deleted on the mirror too: its push prunes (#EXP-1616).
+    if (events.some((event) => event.kind === `branch_deleted`)) queueMirror(repo)
   },
 
   async job(repo, job) {
@@ -197,14 +211,9 @@ export const pgEcodeHost: EcodeHost = {
     // A bundle snapshot per landing, then the mirror push (best effort;
     // a device runs both when one is online).
     void (async () => {
-      const repoFacts = await facts(repo)
-      await queueMaintenance(repoFacts, { op: `backup` })
-      const mirror = mirrorOf(repoFacts.providerConfig)
-      if (mirror) {
-        const { mirrorJob } = await import(`@/lib/ecode/mirror`)
-        await queueMaintenance(repoFacts, await mirrorJob(mirror.url))
-      }
-    })().catch((err: unknown) => console.error(`[ecode] queuing the backup/mirror of ${repo.fullName} failed`, err))
+      await queueMaintenance(await facts(repo), { op: `backup` })
+    })().catch((err: unknown) => console.error(`[ecode] queuing the backup of ${repo.fullName} failed`, err))
+    queueMirror(repo)
   },
 
   async defaultBranch(repo) {

@@ -3470,7 +3470,9 @@ export const repoRefs = pgTable(
 // URLs). `bytes` = the stored object's size (read back from the bucket at
 // commit): it counts toward team storage (`billing.ts getTeamUsage`).
 // `kind`: `pack` (a push's objects; a fetch reads every live pack in `seq`
-// order) | `bundle` (a backup: every ref at one landing). `superseded_at` =
+// order) | `bundle` (a backup: every ref at one landing) | `upload` (granted,
+// not committed yet: it counts toward storage, and the watchdog's sweep
+// deletes it past a grace). `superseded_at` =
 // a repack replaced it (its bytes stop counting; the object goes next).
 export const repoPacks = pgTable(
   `repo_packs`,

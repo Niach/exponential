@@ -4,7 +4,7 @@
 // bucket (`repo_packs`, every pack a device ever pushed, until a repack or a
 // restore supersedes them). A fetch = every live pack in `seq` order; a push
 // = one new pack + a CAS over its ref updates, in one transaction.
-import { and, asc, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm"
+import { and, asc, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { repoPacks, repoRefs, repositories, teams } from "@/db/schema"
 
@@ -90,6 +90,69 @@ export async function compareAndSwapRefs(repositoryId: string, updates: RefUpdat
   }
 }
 
+/** A committed object over its upload row (`kind = upload`): its kind and
+ *  real size, and a FRESH `seq` (a pack committed after a later upload must
+ *  still sort after every pack a fetcher's cursor has passed). */
+function commitObject(
+  tx: Tx,
+  row: { teamId: string; repositoryId: string; kind: `pack` | `bundle`; key: string; bytes: number; refs?: Record<string, string> }
+) {
+  return tx
+    .insert(repoPacks)
+    .values({ ...row, refs: row.refs ?? null })
+    .onConflictDoUpdate({
+      target: repoPacks.key,
+      set: {
+        kind: row.kind,
+        bytes: row.bytes,
+        refs: row.refs ?? null,
+        seq: sql`nextval(pg_get_serial_sequence('repo_packs', 'seq'))`,
+        createdAt: new Date(),
+      },
+      // Only an upload row of THIS repo becomes the object; a committed one stays.
+      setWhere: and(eq(repoPacks.kind, `upload`), eq(repoPacks.repositoryId, row.repositoryId)),
+    })
+}
+
+/** An upload grant: the object counts toward storage from now on (as
+ *  `kind = upload`) until a commit turns it into a pack or bundle, or the
+ *  sweep deletes it (`sweepOrphanUploads`). */
+export async function recordUpload(args: { teamId: string; repositoryId: string; key: string; bytes: number }): Promise<void> {
+  await db.insert(repoPacks).values({ ...args, kind: `upload` }).onConflictDoNothing()
+}
+
+/** Uploads never committed within this grace are orphans. */
+export const ORPHAN_UPLOAD_GRACE_MS = 6 * 60 * 60_000
+
+/** The watchdog's sweep: orphan uploads (a push that died between its
+ *  upload and its commit) and superseded objects past their grace leave
+ *  the bucket and stop counting. */
+export async function sweepOrphanUploads(now = new Date()): Promise<number> {
+  const rows = await db
+    .select({ id: repoPacks.id, key: repoPacks.key })
+    .from(repoPacks)
+    .where(
+      or(
+        and(eq(repoPacks.kind, `upload`), lt(repoPacks.createdAt, new Date(now.getTime() - ORPHAN_UPLOAD_GRACE_MS))),
+        lt(repoPacks.supersededAt, new Date(now.getTime() - SUPERSEDED_GRACE_MS))
+      )
+    )
+    .limit(500)
+  if (rows.length === 0) return 0
+  const { deleteObject } = await import(`@/lib/storage`)
+  const gone: string[] = []
+  for (const row of rows) {
+    try {
+      await deleteObject(row.key)
+      gone.push(row.id)
+    } catch (err) {
+      console.warn(`[ecode] sweeping ${row.key} failed`, err)
+    }
+  }
+  if (gone.length > 0) await db.delete(repoPacks).where(inArray(repoPacks.id, gone))
+  return gone.length
+}
+
 export interface PackRow {
   id: string
   key: string
@@ -124,10 +187,7 @@ export async function recordPush(args: {
   try {
     await db.transaction(async (tx) => {
       if (args.pack) {
-        await tx
-          .insert(repoPacks)
-          .values({ teamId: args.teamId, repositoryId: args.repositoryId, kind: `pack`, key: args.pack.key, bytes: args.pack.bytes })
-          .onConflictDoNothing()
+        await commitObject(tx, { teamId: args.teamId, repositoryId: args.repositoryId, kind: `pack`, key: args.pack.key, bytes: args.pack.bytes })
       }
       await casInTx(tx, args.repositoryId, args.updates)
     })
@@ -146,10 +206,7 @@ export async function swapPacks(args: {
   replaces: string[]
 }): Promise<void> {
   await db.transaction(async (tx) => {
-    await tx
-      .insert(repoPacks)
-      .values({ teamId: args.teamId, repositoryId: args.repositoryId, kind: `pack`, key: args.pack.key, bytes: args.pack.bytes })
-      .onConflictDoNothing()
+    await commitObject(tx, { teamId: args.teamId, repositoryId: args.repositoryId, kind: `pack`, key: args.pack.key, bytes: args.pack.bytes })
     if (args.replaces.length > 0) {
       await tx
         .update(repoPacks)
@@ -172,9 +229,7 @@ export async function replaceRepository(args: {
       .update(repoPacks)
       .set({ supersededAt: new Date() })
       .where(and(eq(repoPacks.repositoryId, args.repositoryId), eq(repoPacks.kind, `pack`), isNull(repoPacks.supersededAt)))
-    await tx
-      .insert(repoPacks)
-      .values({ teamId: args.teamId, repositoryId: args.repositoryId, kind: `pack`, key: args.pack.key, bytes: args.pack.bytes })
+    await commitObject(tx, { teamId: args.teamId, repositoryId: args.repositoryId, kind: `pack`, key: args.pack.key, bytes: args.pack.bytes })
     await tx.delete(repoRefs).where(eq(repoRefs.repositoryId, args.repositoryId))
     const rows = Object.entries(args.refs).map(([ref, sha]) => ({ repositoryId: args.repositoryId, ref, sha }))
     if (rows.length > 0) await tx.insert(repoRefs).values(rows)
@@ -211,10 +266,7 @@ export async function recordBundle(args: {
   refs: Record<string, string>
 }): Promise<void> {
   await db.transaction(async (tx) => {
-    await tx
-      .insert(repoPacks)
-      .values({ teamId: args.teamId, repositoryId: args.repositoryId, kind: `bundle`, key: args.key, bytes: args.bytes, refs: args.refs })
-      .onConflictDoNothing()
+    await commitObject(tx, { teamId: args.teamId, repositoryId: args.repositoryId, kind: `bundle`, key: args.key, bytes: args.bytes, refs: args.refs })
     const kept = await tx
       .select({ id: repoPacks.id })
       .from(repoPacks)
