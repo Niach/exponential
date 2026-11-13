@@ -20,7 +20,7 @@ use std::io::{BufRead, BufReader, Read};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
 use ecode_core::{CheckConclusion, CheckStatus, PlannedJob};
@@ -169,10 +169,14 @@ pub const DEFAULT_PASSTHROUGH: &[&str] =
 pub struct ProcessSandbox {
     root: PathBuf,
     passthrough: Vec<String>,
-    /// One fetch per mirror at a time.
-    mirrors: Mutex<BTreeMap<PathBuf, Arc<Mutex<()>>>>,
     bash: bool,
 }
+
+/// One init/fetch/worktree change per mirror at a time, across EVERY sandbox
+/// of the process: the daemon builds one sandbox per job, so a per-sandbox
+/// lock let two parallel jobs `git init` the same new mirror at once (the
+/// dogfood's first run: "cannot copy … info/exclude: File exists").
+static MIRROR_LOCKS: LazyLock<Mutex<BTreeMap<PathBuf, Arc<Mutex<()>>>>> = LazyLock::new(|| Mutex::new(BTreeMap::new()));
 
 impl ProcessSandbox {
     pub fn new(root: impl Into<PathBuf>) -> Self {
@@ -185,7 +189,6 @@ impl ProcessSandbox {
         Self {
             root: root.into(),
             passthrough: DEFAULT_PASSTHROUGH.iter().map(|s| s.to_string()).collect(),
-            mirrors: Mutex::new(BTreeMap::new()),
             bash,
         }
     }
@@ -211,7 +214,7 @@ impl ProcessSandbox {
     }
 
     fn mirror_lock(&self, mirror: &Path) -> Arc<Mutex<()>> {
-        let mut locks = self.mirrors.lock().unwrap_or_else(|e| e.into_inner());
+        let mut locks = MIRROR_LOCKS.lock().unwrap_or_else(|e| e.into_inner());
         locks.entry(mirror.to_path_buf()).or_default().clone()
     }
 }
@@ -277,8 +280,15 @@ impl Sandbox for ProcessSandbox {
     }
 
     fn release(&self, job: &JobSpec, workspace: &Path) {
-        let lock_dirs = self.mirrors.lock().map(|m| m.keys().cloned().collect::<Vec<_>>()).unwrap_or_default();
+        // This sandbox's mirrors only (the lock map is process-wide).
+        let mirrors_dir = self.root.join("mirrors");
+        let lock_dirs = MIRROR_LOCKS
+            .lock()
+            .map(|m| m.keys().filter(|path| path.starts_with(&mirrors_dir)).cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
         for mirror in lock_dirs {
+            let lock = self.mirror_lock(&mirror);
+            let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
             let _ = GitCommand::new(Some(&mirror)).arg("worktree").arg("remove").arg("--force").arg(workspace).run();
             let _ = GitCommand::new(Some(&mirror)).args(["update-ref", "-d", &job_ref(job)]).run();
         }
@@ -673,6 +683,36 @@ mod tests {
             [Some(CheckConclusion::Success), Some(CheckConclusion::Failure), Some(CheckConclusion::Skipped)]
         );
         assert!(!root.0.join("jobs").join("job-1").exists(), "the workspace is released");
+    }
+
+    /// The daemon builds one sandbox per job: parallel jobs on a NEW mirror
+    /// must not race its `git init` (nor its fetches).
+    #[test]
+    fn parallel_jobs_with_their_own_sandboxes_share_one_mirror_safely() {
+        if !crate::git_available() {
+            return;
+        }
+        let (origin, sha) = origin();
+        let root = tempdir::Dir::new("root");
+        let url = origin.0.to_string_lossy().to_string();
+        let handles: Vec<_> = (0..6)
+            .map(|i| {
+                let (root, url, sha) = (root.0.clone(), url.clone(), sha.clone());
+                std::thread::spawn(move || {
+                    let mut spec = job(&sha, vec![step("read", "cat hello.txt")]);
+                    spec.id = format!("job-{i}");
+                    spec.secrets = vec![];
+                    let mut sink = MemorySink::default();
+                    let outcome =
+                        run_job(&ProcessSandbox::new(&root), &GitRemote::anonymous(url), &MapSecrets::default(), &spec, &mut sink);
+                    (outcome.conclusion, sink.text)
+                })
+            })
+            .collect();
+        for handle in handles {
+            let (conclusion, text) = handle.join().unwrap();
+            assert_eq!(conclusion, CheckConclusion::Success, "{text}");
+        }
     }
 
     #[test]

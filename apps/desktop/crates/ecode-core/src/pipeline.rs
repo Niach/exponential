@@ -102,7 +102,7 @@ fn is_matrix_key(key: &str) -> bool {
         && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
 }
 
-const TOP_KEYS: &[&str] = &["$schema", "version", "name", "on", "env", "secrets", "jobs", "required"];
+const TOP_KEYS: &[&str] = &["$schema", "$comment", "version", "name", "on", "env", "secrets", "jobs", "required"];
 const JOB_KEYS: &[&str] = &["name", "runsOn", "needs", "timeoutMin", "env", "secrets", "paths", "matrix", "steps"];
 const STEP_KEYS: &[&str] = &["name", "run", "env", "timeoutMin", "continueOnError", "workingDirectory"];
 

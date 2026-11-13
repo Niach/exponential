@@ -50,6 +50,10 @@ pub trait RunnerHost {
     fn token(&self, repository_id: &str, kind: &str) -> Result<String, String>;
 }
 
+/// How `config.sh` takes its `--token` without argv (actions/runner reads
+/// `ACTIONS_RUNNER_INPUT_<arg>` and removes it from its environment).
+const TOKEN_ENV: &str = "ACTIONS_RUNNER_INPUT_TOKEN";
+
 /// Puts a runner's files (config.sh, run.sh, …) into an empty directory.
 pub trait RunnerDist {
     fn install(&self, dir: &Path) -> Result<(), String>;
@@ -247,10 +251,14 @@ impl<H: RunnerHost, D: RunnerDist> Supervisor<H, D> {
             self.dist.install(dir)?;
         }
         let token = self.host.token(&target.repository_id, "registration")?;
+        // The token rides the environment (`ACTIONS_RUNNER_INPUT_TOKEN`, which
+        // the runner reads and clears), never argv: argv is world-readable in
+        // the process list (the dogfood saw it in `ps`).
         let status = Command::new(dir.join("config.sh"))
             .current_dir(dir)
+            .env(TOKEN_ENV, &token)
             .args(["--unattended", "--ephemeral", "--replace", "--disableupdate"])
-            .args(["--url", &target.url, "--token", &token, "--name", &target.name])
+            .args(["--url", &target.url, "--name", &target.name])
             .args(["--labels", &target.labels.join(","), "--work", "_work"])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -273,7 +281,8 @@ impl<H: RunnerHost, D: RunnerDist> Supervisor<H, D> {
             Ok(token) => {
                 let _ = Command::new(dir.join("config.sh"))
                     .current_dir(dir)
-                    .args(["remove", "--token", &token])
+                    .env(TOKEN_ENV, &token)
+                    .arg("remove")
                     .stdin(Stdio::null())
                     .stdout(Stdio::null())
                     .stderr(Stdio::null())
@@ -376,7 +385,7 @@ mod tests {
             std::fs::create_dir_all(dir).unwrap();
             let log = self.log.display();
             let config = format!(
-                "#!/bin/sh\necho \"config $*\" >> {log}\nif [ \"$1\" = remove ]; then rm -f .runner; else touch .runner; fi\n"
+                "#!/bin/sh\necho \"config $* token=$ACTIONS_RUNNER_INPUT_TOKEN\" >> {log}\nif [ \"$1\" = remove ]; then rm -f .runner; else touch .runner; fi\n"
             );
             let run = format!("#!/bin/sh\necho run >> {log}\n[ -f exit-now ] && exit 0\nexec sleep 30\n");
             for (name, body) in [("config.sh", config), ("run.sh", run)] {
@@ -416,7 +425,7 @@ mod tests {
         assert!(sup.served.contains_key("r1"));
         let text = std::fs::read_to_string(&log).unwrap();
         assert!(text.contains(
-            "config --unattended --ephemeral --replace --disableupdate --url https://github.com/o/r1 --token tok-registration --name mint-r1 --labels self-hosted,linux,exp-linux --work _work"
+            "config --unattended --ephemeral --replace --disableupdate --url https://github.com/o/r1 --name mint-r1 --labels self-hosted,linux,exp-linux --work _work token=tok-registration"
         ), "{text}");
         // The job ended: the next tick registers afresh and runs again.
         std::thread::sleep(Duration::from_millis(300));
@@ -439,7 +448,7 @@ mod tests {
         sup.reconcile();
         assert!(sup.served.is_empty());
         assert!(tokens.borrow().contains(&"remove:r1".to_string()));
-        assert!(std::fs::read_to_string(&log).unwrap().contains("config remove --token tok-remove"));
+        assert!(std::fs::read_to_string(&log).unwrap().contains("config remove token=tok-remove"));
         assert!(!root.join("runners/r1").exists());
         sup.stop();
         let _ = std::fs::remove_dir_all(&root);

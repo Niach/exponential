@@ -1,4 +1,5 @@
 {
+  "$comment": "The dogfood of #EXP-1617 (#EXP-1812): the cheap legs of the Actions `gate` only. `web unit` (4 vitest shards) is dropped: on mint, a loaded shared desktop (load 66 on 32 cores, the runner at SCHED_IDLE, 1 slot, 10G cap) each shard took 17-30 min and died on vitest worker timeouts, vs ~4 min on Actions. Heavy legs need a dedicated runner device; Actions keeps running them.",
   "version": 1,
   "name": "ecode",
   "on": {
@@ -30,35 +31,6 @@
           "run": "export PATH=\"$HOME/.bun/bin:$PATH\"\nbun run typecheck"
         }
       ]
-    },
-    "web-unit": {
-      "name": "ecode web unit",
-      "runsOn": [
-        "linux"
-      ],
-      "timeoutMin": 30,
-      "steps": [
-        {
-          "name": "Install",
-          "run": "export PATH=\"$HOME/.bun/bin:$PATH\"\nbun install --frozen-lockfile"
-        },
-        {
-          "name": "Web unit tests",
-          "run": "export PATH=\"$HOME/.bun/bin:$PATH\"\nbunx vitest run --config vitest.config.ts --shard=${MATRIX_SHARD}/4",
-          "workingDirectory": "apps/web",
-          "env": {
-            "DATABASE_URL": "postgresql://ci:ci@127.0.0.1:59999/ci"
-          }
-        }
-      ],
-      "matrix": {
-        "shard": [
-          "1",
-          "2",
-          "3",
-          "4"
-        ]
-      }
     },
     "contract-ts": {
       "name": "ecode contract-ts",
