@@ -307,6 +307,12 @@ struct RailRegistry {
 impl gpui::Global for RailRegistry {}
 
 /// The window's shared rail state, created on first access.
+/// #EXP-1616: the settings section a window's rail selects, without the
+/// window (the IDE sidebar's model lights the open repo page's rows).
+pub(crate) fn any_settings_section(cx: &App) -> Option<crate::settings::SettingsSection> {
+    cx.try_global::<RailRegistry>()?.by_window.values().next().map(|shared| shared.read(cx).settings_section.clone())
+}
+
 pub(crate) fn rail_shared_for_window(
     window: &mut Window,
     cx: &mut App,

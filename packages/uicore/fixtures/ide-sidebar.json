@@ -977,6 +977,155 @@
           }
         ]
       }
+    },
+    {
+      "name": "a PR row lights while the chat that opened it is open (a PR has no page of its own; its press opens the repo page)",
+      "input": {
+        "screen": "chat:s4",
+        "repos": [
+          {
+            "id": "r1",
+            "name": "engine",
+            "prs": [
+              {
+                "id": "p3",
+                "identifier": "#3",
+                "title": "Faster sync",
+                "subtitle": "sync → main",
+                "depth": 0
+              },
+              {
+                "id": "p4",
+                "identifier": "#4",
+                "title": "Sync tests",
+                "subtitle": "sync-tests → sync",
+                "depth": 1,
+                "session": "s4"
+              },
+              {
+                "id": "p1",
+                "identifier": "#1",
+                "title": "Docs",
+                "subtitle": "docs → main",
+                "depth": 0
+              }
+            ]
+          },
+          {
+            "id": "r2",
+            "name": "empty",
+            "prs": []
+          },
+          {
+            "id": "r3",
+            "name": "site",
+            "prs": [
+              {
+                "id": "p9",
+                "identifier": "#9",
+                "title": "Landing copy",
+                "subtitle": "copy → main",
+                "depth": 0
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "nav": [
+          {
+            "id": "chats",
+            "title": "Chats",
+            "icon": "nav-chats",
+            "selected": false,
+            "count": null,
+            "tone": null
+          },
+          {
+            "id": "devices",
+            "title": "Devices",
+            "icon": "nav-devices",
+            "selected": false,
+            "count": null,
+            "tone": null
+          }
+        ],
+        "pins": [],
+        "agents": {
+          "add": true,
+          "rows": []
+        },
+        "apps": {
+          "rows": []
+        },
+        "boards": {
+          "rows": [],
+          "empty": true
+        },
+        "active": [],
+        "prs": [
+          {
+            "id": "r1",
+            "repo": "r1",
+            "title": "engine",
+            "identifier": null,
+            "subtitle": null,
+            "icon": "ui-repository",
+            "depth": 0,
+            "selected": false
+          },
+          {
+            "id": "p3",
+            "repo": "r1",
+            "title": "Faster sync",
+            "identifier": "#3",
+            "subtitle": "sync → main",
+            "icon": null,
+            "depth": 1,
+            "selected": false
+          },
+          {
+            "id": "p4",
+            "repo": "r1",
+            "title": "Sync tests",
+            "identifier": "#4",
+            "subtitle": "sync-tests → sync",
+            "icon": null,
+            "depth": 2,
+            "selected": true
+          },
+          {
+            "id": "p1",
+            "repo": "r1",
+            "title": "Docs",
+            "identifier": "#1",
+            "subtitle": "docs → main",
+            "icon": null,
+            "depth": 1,
+            "selected": false
+          },
+          {
+            "id": "r3",
+            "repo": "r3",
+            "title": "site",
+            "identifier": null,
+            "subtitle": null,
+            "icon": "ui-repository",
+            "depth": 0,
+            "selected": false
+          },
+          {
+            "id": "p9",
+            "repo": "r3",
+            "title": "Landing copy",
+            "identifier": "#9",
+            "subtitle": "copy → main",
+            "icon": null,
+            "depth": 1,
+            "selected": false
+          }
+        ]
+      }
     }
   ],
   "tabs": [

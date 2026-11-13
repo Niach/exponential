@@ -55,6 +55,12 @@ fn screen_key(screen: Option<&Screen>, active_board: Option<&str>, cx: &App) -> 
         Some(Screen::AppRun { app } | Screen::App { app }) => format!("app:{app}"),
         Some(Screen::BoardIssues { board_id }) if board_id.is_empty() => format!("board:{}", active_board.unwrap_or_default()),
         Some(Screen::BoardIssues { board_id }) => format!("board:{board_id}"),
+        // #EXP-1616: a repo page (Settings › Repositories › one repo) lights
+        // that repo's Pull requests rows.
+        Some(Screen::Settings) => match crate::sidebar::any_settings_section(cx) {
+            Some(crate::settings::SettingsSection::Repository(id)) => format!("repo:{id}"),
+            _ => String::new(),
+        },
         _ => String::new(),
     }
 }
@@ -104,11 +110,15 @@ fn ecode_repo_name(url: &str) -> Option<&str> {
 fn ecode_repos<'a>(team_id: &str, pulls: impl IntoIterator<Item = &'a domain::rows::PullRequestRow>) -> Vec<IdeRepoInput> {
     use domain::repo_page::{repo_pr_tree, RepoPr};
     let mut repos: std::collections::BTreeMap<(String, String), Vec<RepoPr>> = std::collections::BTreeMap::new();
+    let mut sessions: HashMap<String, String> = HashMap::new();
     for pull in pulls {
         if pull.team_id.as_deref().is_some_and(|team| team != team_id) {
             continue;
         }
         let (Some(repo), Some(name)) = (pull.repository_id.as_deref(), pull.url.as_deref().and_then(ecode_repo_name)) else { continue };
+        if let Some(root) = pull.root_session_id.as_deref() {
+            sessions.insert(pull.id.clone(), root.to_string());
+        }
         repos.entry((name.to_string(), repo.to_string())).or_default().push(RepoPr::from_row(pull));
     }
     repos
@@ -116,7 +126,7 @@ fn ecode_repos<'a>(team_id: &str, pulls: impl IntoIterator<Item = &'a domain::ro
         .map(|((name, id), prs)| IdeRepoInput {
             id,
             name,
-            prs: repo_pr_tree(&prs).into_iter().map(|row| IdePrInput { id: row.id, identifier: row.identifier, title: row.title, subtitle: row.subtitle, depth: row.depth }).collect(),
+            prs: repo_pr_tree(&prs).into_iter().map(|row| IdePrInput { session: sessions.get(&row.id).cloned(), id: row.id, identifier: row.identifier, title: row.title, subtitle: row.subtitle, depth: row.depth }).collect(),
         })
         .collect()
 }
@@ -225,7 +235,8 @@ fn shaped(input: &IdeSidebarInput, glyphs: &HashMap<String, Glyph>, hover: Optio
 
 /// #EXP-1616: the Pull requests tree's rows as nodes. A Row's `depth`
 /// never binds (the tree guides are computed against its siblings), so the
-/// host writes them into the document's `Section{tree}` itself.
+/// host writes them into the document's `List{divided: false}` itself (the
+/// other sidebar sections' list: no dividers; `depth` indents).
 fn pr_tree_rows(prs: &Value) -> Vec<Value> {
     prs.as_array()
         .into_iter()
@@ -243,7 +254,7 @@ fn pr_tree_rows(prs: &Value) -> Vec<Value> {
         .collect()
 }
 
-/// The document with `prs` as the `ide_prs_tree` Section's rows.
+/// The document with `prs` as the `ide_prs_tree` List's rows.
 fn with_pr_tree(doc: &uicore_gpui::inline::Document, prs: &Value) -> Option<eui_core::types::NestedNode> {
     fn fill(node: &mut Value, rows: &[Value]) -> bool {
         if node["id"] == "ide_prs_tree" {
@@ -1126,7 +1137,7 @@ mod tests {
     fn the_pr_tree_fills_its_section() {
         let doc = uicore_gpui::inline::document(uicore_docs::doc("sidebar").expect("the sidebar"));
         let input = IdeSidebarInput {
-            repos: vec![IdeRepoInput { id: "r1".into(), name: "engine".into(), prs: vec![IdePrInput { id: "p1".into(), identifier: "#1".into(), title: "Sync".into(), subtitle: "sync → main".into(), depth: 0 }] }],
+            repos: vec![IdeRepoInput { id: "r1".into(), name: "engine".into(), prs: vec![IdePrInput { id: "p1".into(), identifier: "#1".into(), title: "Sync".into(), subtitle: "sync → main".into(), depth: 0, session: None }] }],
             ..Default::default()
         };
         let value = shaped(&input, &HashMap::new(), None, None);
@@ -1137,8 +1148,9 @@ mod tests {
             }
             node["children"].as_array().into_iter().flatten().chain(node["slots"].as_object().into_iter().flat_map(|slots| slots.values())).find_map(|c| find(c, id))
         }
-        let section = find(&tree, "ide_prs_tree").expect("the section");
-        assert_eq!(section["props"]["tree"], true);
+        let section = find(&tree, "ide_prs_tree").expect("the list");
+        assert_eq!(section["component"], "List");
+        assert_eq!(section["props"]["divided"], false);
         let rows = section["children"].as_array().unwrap();
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0]["props"]["title"], "engine");

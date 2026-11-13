@@ -94,6 +94,10 @@ pub struct IdePrInput {
     /// `<head> → <base>`.
     pub subtitle: String,
     pub depth: usize,
+    /// The chat (root session) that opened it: its row lights while that
+    /// chat is open (a PR has no page of its own).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
 }
 
 /// #EXP-1616: an Exponential (`ecode`) repository and its live PR tree.
@@ -287,7 +291,7 @@ pub fn ide_sidebar(input: &IdeSidebarInput) -> IdeSidebar {
                     subtitle: Some(p.subtitle.clone()),
                     icon: None,
                     depth: p.depth + 1,
-                    selected: false,
+                    selected: p.session.as_deref().is_some_and(|id| on("chat", id) || on("session", id)),
                 }))
             })
             .collect(),
