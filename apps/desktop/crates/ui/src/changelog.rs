@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-13-own-ci-run-page",
+    date: "2026-11-13",
+    title: "Our own CI: a run page and a runner on your devices",
+    summary: "A check from Exponential's own CI opens its run: the jobs, their steps and the log as it streams. Any desktop or server can run your team's jobs.",
+    body: r##"- **The run page**: a check's Details open the run in the app: status, duration, runner and commit, every job, the steps of the one you pick and its log following along live. Re-run the failed jobs or cancel a run from there.
+- **Runners on your devices**: a device's settings have a CI runner section: turn it on, add labels, choose how many jobs it runs at once and their timeout, and see its recent jobs. Phones set a runner up; jobs run on desktops and servers."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_272: ChangelogEntry = ChangelogEntry {
     id: "2026-11-13-android-memory-fix",
     date: "2026-11-13",
     title: "Android stays within memory in large chats",
