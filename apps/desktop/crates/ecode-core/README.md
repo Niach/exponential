@@ -19,6 +19,13 @@ A pure Rust port of `packages/ecode/src/{forge,checks,pipeline,runner,remote}.ts
   cancel and the clock's `tick` (timeouts, lost runners, queued too long).
 - **remote**: `parse_remote`, the scoped credential-helper key, token refresh
   and log redaction.
+- **train** (#EXP-1617): the merge train's pure half, a port of
+  `packages/domain-contract/src/merge-train.ts` (`train_glob_match`,
+  `resolve_conflicts`, `train_checks_mode`, the pipeline types) and of
+  `scripts/merge-train/strategies.ts` (`merge_json`/`json_union`,
+  `prepend_union` with the const renumbering, `file_number`,
+  `same_contents`), replaying `merge-train.json`'s `resolver` and
+  `pipeline.checksModes` plus every case of `strategies.test.ts`.
 
 The enums and constants are generated from `packages/ecode/contract.json`
 (`src/contract.generated.rs`; regenerate with

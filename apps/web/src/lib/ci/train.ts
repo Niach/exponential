@@ -1,24 +1,25 @@
 // #EXP-1617: the merge train's pipeline on an eCode repository (merge-train.json
 // `pipeline`, the provider-neutral contract GitHub runs as train.yml). The
-// batch is COMPOSED by device jobs (E3's `squash`: each PR of each unit, in
-// order, squashed onto the train tip; a unit that does not squash clean is a
-// `conflict` and the tip stays before it), the composed head is published as
-// `exp-train/<train_id>` (the server's ref CAS), and our CI plans its
-// `merge_train` run there. The outcome is the contract's
-// `TrainPipelineOutcome`; the worker reads our check rows at its head
-// (`commit_checks`) and gates on the repo's required checks, exactly like a
-// GitHub train; each squash is authored by its PR's author (`author`, the
-// job's identity when unknown). Not yet: the resolver rules (`generated`),
-// a conflict there bounces the unit.
+// batch is COMPOSED by ONE device job, `compose`: the same train engine as
+// GitHub's (scripts/merge-train/compose.ts, ported to `ecode::compose`), so
+// each PR of each unit is squashed onto the train tip with its author, the
+// generated-file resolver rules of the base's `.exponential/merge-train.json`
+// apply (prepend-union, renumber, regenerate, json-union, take-later), and
+// the engine picks the checks mode (dispatched, proven, skipped, none). The
+// composed head is published as `exp-train/<train_id>` (the server's ref
+// CAS) and, when the engine dispatched, our CI plans its `merge_train` run
+// there. The outcome is the contract's `TrainPipelineOutcome`; the worker
+// reads our check rows at its head (`commit_checks`) and gates on the repo's
+// required checks, exactly like a GitHub train.
 //
-// Composing takes minutes of device jobs, so dispatch answers at once and
-// composes in the background; the outcome is kept on the train row
-// (`merge_trains.run_ref` = `ecode:` + its JSON, server-only, display-only
-// otherwise) where `readPipeline` finds it, also after a restart.
+// Composing takes minutes, so dispatch answers at once and composes in the
+// background; the outcome is kept on the train row (`merge_trains.run_ref` =
+// `ecode:` + its JSON, server-only, display-only otherwise) where
+// `readPipeline` finds it, also after a restart.
 
 import { and, eq } from "drizzle-orm"
 import { PIPELINE_FILE } from "@exp/ecode"
-import type { TrainPipelineInputs, TrainPipelineOutcome, TrainPipelineUnit, TrainUnitOutcome } from "@exp/domain-contract/merge-train"
+import type { TrainPipelineInputs, TrainPipelineOutcome, TrainPipelineUnit } from "@exp/domain-contract/merge-train"
 import { db } from "@/db/connection"
 import { mergeTrains } from "@/db/schema"
 import type { ForgePipelineResult, ForgeRepo } from "@/lib/ecode/forge"
@@ -56,15 +57,18 @@ export async function dispatchEcodeTrain(host: EcodeHost, repo: ForgeRepo, input
   if (inputs.mode === `test` && !pipelineFires(text)) {
     return { ok: false, missing: true, message: `no ${PIPELINE_FILE} with an on.merge_train trigger at ${inputs.base}` }
   }
-  void compose(host, repo, inputs)
+  void compose(host, repo, inputs, pipelineFires(text) ? [PIPELINE_FILE] : [])
     .then((outcome) => record(inputs.train_id, outcome))
     .catch((err: unknown) => console.error(`[ci] train ${inputs.train_id} compose failed`, err))
   return { ok: true, runRef: PENDING }
 }
 
-/** Compose the batch and start our run on it. Never throws: a failure is the outcome's `error`. */
-export async function compose(host: EcodeHost, repo: ForgeRepo, inputs: TrainPipelineInputs): Promise<TrainPipelineOutcome> {
-  const outcome: TrainPipelineOutcome = {
+/** Compose the batch (one device job) and start our run on it. Never
+ *  throws: a failure is the outcome's `error`. `workflows` = our pipeline
+ *  when it fires on `merge_train`: the engine's CI when the repo's
+ *  `.exponential/merge-train.json` names none. */
+export async function compose(host: EcodeHost, repo: ForgeRepo, inputs: TrainPipelineInputs, workflows: string[] = []): Promise<TrainPipelineOutcome> {
+  let outcome: TrainPipelineOutcome = {
     train: inputs.train_id,
     base_sha: inputs.base_sha,
     head: null,
@@ -74,59 +78,29 @@ export async function compose(host: EcodeHost, repo: ForgeRepo, inputs: TrainPip
   }
   try {
     const units = JSON.parse(inputs.units) as TrainPipelineUnit[]
-    let tip = inputs.base_sha
-    for (const unit of units) {
-      const numbers = unit.prs.map((pr) => pr.number)
-      let unitTip = tip
-      let conflict: TrainUnitOutcome | null = null
-      for (const pr of unit.prs) {
-        const squash = await host.job(repo, {
-          op: `squash`,
-          base: unitTip,
-          head: pr.head_sha,
-          message: `${pr.title} (#${pr.number})`,
-          ...(pr.author ? { author: pr.author } : {}),
-        })
-        if (squash.ok) {
-          unitTip = squash.result.sha
-          continue
-        }
-        if (squash.reason !== `dirty`) throw new Error(squash.message)
-        const onTip = await host.job(repo, { op: `mergeability`, base: tip, head: pr.head_sha })
-        const onBase = await host.job(repo, { op: `mergeability`, base: inputs.base_sha, head: pr.head_sha })
-        conflict = {
-          prs: numbers,
-          outcome: `conflict`,
-          files: onTip.ok ? onTip.result.conflicts : [],
-          resolved: [],
-          ...(onBase.ok && onBase.result.mergeability === `clean` && tip !== inputs.base_sha ? { against: `batch` as const } : {}),
-        }
-        break
-      }
-      if (conflict) {
-        outcome.units.push(conflict)
-        continue
-      }
-      tip = unitTip
-      outcome.units.push({ prs: numbers, outcome: `composed`, files: [], resolved: [] })
-    }
-    if (!outcome.units.some((unit) => unit.outcome === `composed`)) return outcome
+    const job = await host.job(repo, {
+      op: `compose`,
+      train_id: inputs.train_id,
+      base_sha: inputs.base_sha,
+      mode: inputs.mode,
+      units,
+      ...(workflows.length > 0 ? { workflows } : {}),
+    })
+    if (!job.ok) throw new Error(job.message)
+    outcome = job.result.outcome
+    if (outcome.error || !outcome.head || !outcome.units.some((unit) => unit.outcome === `composed`)) return outcome
     const branch = `${TRAIN_REF_PREFIX}${inputs.train_id}`
-    if (!(await host.moveBranches(repo, [{ branch, expected: null, sha: tip }]))) {
+    if (!(await host.moveBranches(repo, [{ branch, expected: null, sha: outcome.head }]))) {
       throw new Error(`the train ref ${branch} already exists`)
     }
-    outcome.head = tip
-    if (inputs.mode === `untested`) {
-      outcome.checks = `skipped`
-      return outcome
-    }
+    // The engine's mode stands (skipped / proven / none); dispatched = our run.
+    if (outcome.checks !== `dispatched`) return outcome
     const { startRun } = await import(`@/lib/ci/runs`)
-    const run = await startRun({ repositoryId: repo.id, sha: tip, trigger: `merge_train`, ref: branch })
-    outcome.checks = run.started || run.reason === `exists` ? `dispatched` : `none`
+    const run = await startRun({ repositoryId: repo.id, sha: outcome.head, trigger: `merge_train`, ref: branch })
+    if (!run.started && run.reason !== `exists`) outcome.checks = `none`
     return outcome
   } catch (err) {
-    outcome.error = err instanceof Error ? err.message : String(err)
-    return outcome
+    return { ...outcome, error: err instanceof Error ? err.message : String(err) }
   }
 }
 

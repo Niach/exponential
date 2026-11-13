@@ -16,7 +16,10 @@
 //! [`LocalRepo`]), `github` (REST, a token or the device flow, polling) and
 //! `exponential` (credentials from the server's `repositories.credentials`;
 //! with `repo`, also [`exp_git`], the `exp://` transport `git-remote-exp`
-//! runs on, and [`exp_jobs`], the git jobs a team device runs).
+//! runs on, and [`exp_jobs`], the git jobs a team device runs). Feature
+//! `compose`: [`compose`], the merge train's engine (a port of
+//! `scripts/merge-train/compose.ts`, resolver rules included), which
+//! [`exp_jobs`]' `compose` job runs for an eCode repository's train.
 
 pub use ecode_core as core;
 
@@ -40,6 +43,10 @@ mod runner;
 
 #[cfg(feature = "workflows")]
 mod workflows;
+
+// #EXP-1617: the merge train's engine (compose.ts) on git argv.
+#[cfg(feature = "compose")]
+pub mod compose;
 
 #[cfg(feature = "github")]
 pub mod github;
