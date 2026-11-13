@@ -132,10 +132,12 @@ fun IssueDraftScreen(
     val toaster = LocalToaster.current
     var sheet by remember { mutableStateOf<DraftSheet?>(null) }
 
-    // Share mode: the last-used board (if it still exists), else the first.
+    // Share mode: the picked team's last-used board, else its first
+    // (share-targets.json `shareIssueBoards`); a board off the team re-points.
     LaunchedEffect(shareGroups, shareRecentBoardId) {
-        if (!shareMode || state.boardId != null) return@LaunchedEffect
+        if (!shareMode) return@LaunchedEffect
         val ids = shareGroups.flatMap { g -> g.boards.map { it.id } }
+        if (state.boardId != null && state.boardId in ids) return@LaunchedEffect
         (shareRecentBoardId?.takeIf { it in ids } ?: ids.firstOrNull())?.let(viewModel::setBoard)
     }
     LaunchedEffect(sharePrefill) {

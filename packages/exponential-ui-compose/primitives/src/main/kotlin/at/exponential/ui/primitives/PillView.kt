@@ -122,10 +122,12 @@ fun PillView(
             .padding(horizontal = horizontalPadding),
     ) {
         CompositionLocalProvider(LocalContentColor provides ink) {
-            leading?.invoke()
+            // EXP-1822: dot, THEN leading — the web `Pill` and SwiftUI
+            // `PillView` order; this one drew them the other way round.
             if (dot != null) {
                 Box(Modifier.size(style.dotSize).background(dot, CircleShape))
             }
+            leading?.invoke()
             if (label.isNotEmpty()) {
                 BasicText(
                     label,

@@ -84,4 +84,52 @@ class GlassPillDefaultsTest {
             )
         }
     }
+
+    /**
+     * EXP-1822: every pill number is the SHARED token (`tokens.json` `size`),
+     * the one web's `Pill` classes, iOS `GlassPillTokens` and the IDE's
+     * `glass_pill` are pinned to — never a figure typed here.
+     */
+    @Test
+    fun everyRungReadsTheSharedTokens() {
+        assertEquals(DesignTokens.Size.PillPaddingSm, GlassPillDefaults.SmHorizontalPadding)
+        assertEquals(DesignTokens.Size.PillPaddingMd, GlassPillDefaults.MdHorizontalPadding)
+        assertEquals(DesignTokens.Size.PillGapSm, GlassPillDefaults.SmSpacing)
+        assertEquals(DesignTokens.Size.PillGapMd, GlassPillDefaults.MdSpacing)
+        assertEquals(DesignTokens.Size.PillGlyphSm, GlassPillDefaults.SmGlyphSize)
+        assertEquals(DesignTokens.Size.PillGlyphMd, GlassPillDefaults.MdGlyphSize)
+        assertEquals(DesignTokens.Size.PillDot, GlassPillDefaults.DotSize)
+    }
+
+    /**
+     * EXP-1822: the assignee chip's face is 16dp ×4 (web `UserAvatar
+     * size={16}`, iOS, the IDE's XSmall). Android alone drew 18dp, which left
+     * 3dp above and below it in the 24dp capsule instead of 4.
+     */
+    @Test
+    fun theAssigneeFaceIsSixteenAndClearsTheCapsuleByFour() {
+        assertEquals(16.dp, GlassPillDefaults.AvatarSize)
+        assertEquals(DesignTokens.Size.PillAvatar, GlassPillDefaults.AvatarSize)
+        assertEquals(4.dp, (GlassPillDefaults.SmHeight - GlassPillDefaults.AvatarSize) / 2)
+    }
+
+    /**
+     * EXP-1822: the labels chip's colour dots are web's `h-2 w-2` LAYOUT box
+     * (the ring paints outside it). Android's were a 10dp box, so a labelled
+     * chip came out 2dp wider per dot than on the other clients.
+     */
+    @Test
+    fun theLabelsChipDotIsEightDp() {
+        assertEquals(8.dp, GlassPillDefaults.LabelDotSize)
+        assertEquals(DesignTokens.Size.PillLabelDot, GlassPillDefaults.LabelDotSize)
+    }
+
+    /** EXP-1822: the property chip box wraps at 6 and pads by 10 ×4. */
+    @Test
+    fun theChipBoxGapAndPaddingAreTheSharedOnes() {
+        assertEquals(6.dp, GlassPillDefaults.ChipBoxGap)
+        assertEquals(10.dp, GlassPillDefaults.ChipBoxPadding)
+        assertEquals(DesignTokens.Size.ChipBoxGap, GlassPillDefaults.ChipBoxGap)
+        assertEquals(DesignTokens.Size.ChipBoxPadding, GlassPillDefaults.ChipBoxPadding)
+    }
 }
