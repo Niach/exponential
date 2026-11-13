@@ -410,6 +410,10 @@ enum ToolRowMode {
 /// The steering view for ONE coding session — remote, local or replayed.
 pub(crate) struct SteerSessionView {
     session_id: String,
+    /// #FEED-219: the composer's synced draft (`session:<id>`) and the
+    /// field text it last knew (a difference = the person's edit).
+    composer_draft: crate::composer_drafts::DraftField,
+    draft_seen: String,
     /// The synced row, re-snapshotted whenever `sessions` notifies.
     row: Option<domain::rows::SessionRow>,
     /// #EXP-1715 (composer-menu.json `teamsPick`): the Assistant
@@ -880,7 +884,23 @@ impl SteerSessionView {
 
         let transport = crate::queries::attachment_transport(cx);
         let image_cache = cx.new(|_| crate::markdown::ImageCache::new(transport));
+        // #FEED-219: an untouched composer follows its synced draft
+        // (`sync_composer_draft` on the next frame); the view going away
+        // writes what is pending.
+        if let Some(store) = sync::Store::try_global(cx) {
+            let drafts = store.collections().composer_drafts.clone();
+            subscriptions.push(cx.observe(&drafts, |this, _, cx| {
+                this.composer_draft.reconcile(cx);
+                cx.notify();
+            }));
+        }
+        subscriptions.push(cx.on_release(|this, cx| this.composer_draft.leave(cx)));
         let mut this = Self {
+            composer_draft: crate::composer_drafts::DraftField::new(
+                Some(domain::composer_draft::Target::new(domain::composer_draft::Kind::Session, session_id.clone())),
+                None,
+            ),
+            draft_seen: String::new(),
             session_id: session_id.clone(),
             row: None,
             teams_picked: None,
@@ -4296,6 +4316,9 @@ impl SteerSessionView {
     /// stay.
     fn settle_sent(&mut self, sent: &ComposerContent, window: &mut Window, cx: &mut gpui::Context<Self>) {
         composer_images::settle_sent(&self.input, &mut self.pending_images, sent, window, cx);
+        // #FEED-219: the field the send leaves is written at once.
+        self.draft_seen = self.input.read(cx).value().to_string();
+        self.composer_draft.write_now(&self.draft_seen.clone(), cx);
         self.notice = None;
         if self.input.read(cx).value().is_empty() {
             self.slash = None;
