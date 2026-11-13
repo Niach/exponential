@@ -29,9 +29,22 @@ object SealedContent {
     /** Swapped in tests (the host build through JNA); the app's FFI otherwise. */
     @Volatile var crypto: SealedCrypto = SealedFfi
 
+    // #ERR-19: bounded by the CHARACTERS it holds, not only by count (4,096
+    // opened plans of 5–10 KB were tens of MB), and keyed by a digest of the
+    // ciphertext ([contentKey]), never by a copy of the ciphertext itself.
     private const val CACHE_MAX = 4096
-    private val cache = object : LinkedHashMap<String, String>(256, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?) = size > CACHE_MAX
+    internal const val CACHE_MAX_CHARS = 2_000_000
+    private val cache = CharBoundedLru<String>(CACHE_MAX, CACHE_MAX_CHARS) { it.length }
+
+    /** A content cache key: the kind, the root and the sealed text's length +
+     *  two independent hashes (32-bit `hashCode` + 64-bit FNV-1a), so the key
+     *  is a few dozen chars whatever the ciphertext weighs. */
+    internal fun contentKey(kind: Char, rootId: String, sealed: String): String {
+        var fnv = -0x340d631b7bdddcdbL
+        for (ch in sealed) {
+            fnv = (fnv xor ch.code.toLong()) * 0x100000001b3L
+        }
+        return "$kind|$rootId|${sealed.length}|${sealed.hashCode()}|$fnv"
     }
 
     // (root, epoch) → when a missing key was last requested, so a screen
@@ -63,7 +76,7 @@ object SealedContent {
     /** The text (or the body itself when it does not open) and the open status. */
     private fun bodyResult(rootId: String, body: String, keys: TreeKeys): BodyResult {
         if (!isSealedBody(body)) return BodyResult(body, SealStatus.Plain, null)
-        val cacheKey = "b|$rootId|$body"
+        val cacheKey = contentKey('b', rootId, body)
         // Only while the tree's keys are held (a signed-out account's are dropped).
         if (keys[rootId].isNullOrEmpty().not()) synchronized(cache) { cache[cacheKey] }?.let { return BodyResult(it, SealStatus.Opened, null) }
         val opened = try {
@@ -83,7 +96,7 @@ object SealedContent {
     /** The opened card JSON, or its clear part when it does not open, and the open status. */
     private fun cardResult(rootId: String, cardJson: String, keys: TreeKeys): CardResult {
         if (!cardJson.contains("\"$CARD_SEALED\"")) return CardResult(cardJson, SealStatus.Plain, null)
-        val cacheKey = "c|$rootId|$cardJson"
+        val cacheKey = contentKey('c', rootId, cardJson)
         if (keys[rootId].isNullOrEmpty().not()) synchronized(cache) { cache[cacheKey] }?.let { return CardResult(it, SealStatus.Opened, null) }
         val opened = try {
             crypto.openCard(cardJson, keys[rootId].orEmpty())
@@ -126,9 +139,12 @@ object SealedContent {
         val cardEpoch: Int?,
     )
 
+    // #ERR-19: bounded by the opened characters it holds too (32,768 opened
+    // bodies + cards of a long tree reached a large share of a 256 MB heap).
     private const val ROWS_MAX = 32_768
-    private val rows = object : LinkedHashMap<String, RowOpening>(1024, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, RowOpening>?) = size > ROWS_MAX
+    internal const val ROWS_MAX_CHARS = 4_000_000
+    private val rows = CharBoundedLru<RowOpening>(ROWS_MAX, ROWS_MAX_CHARS) {
+        (it.bodyText?.length ?: 0) + (it.cardJson?.length ?: 0)
     }
 
     private fun openRow(id: String, rootId: String, body: String, card: String?, keys: TreeKeys): Pair<BodyResult, CardResult?> {
@@ -296,8 +312,9 @@ object SealedContent {
     )
 
     private const val SESSIONS_MAX = 8_192
-    private val sessionRows = object : LinkedHashMap<String, SessionOpening>(256, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, SessionOpening>?) = size > SESSIONS_MAX
+    internal const val SESSIONS_MAX_CHARS = 2_000_000
+    private val sessionRows = CharBoundedLru<SessionOpening>(SESSIONS_MAX, SESSIONS_MAX_CHARS) {
+        (it.title?.length ?: 0) + (it.digest?.length ?: 0)
     }
 
     // The keyless epochs an opening meets ([askFor]), recorded so a cached
@@ -384,6 +401,13 @@ object SealedContent {
         }
         if (ask) SealedKeys.requestMissing()
     }
+
+    /** #ERR-19 (tests): the characters each cache holds now. */
+    internal fun cachedChars(): Triple<Long, Long, Long> = Triple(
+        synchronized(cache) { cache.chars },
+        synchronized(rows) { rows.chars },
+        synchronized(sessionRows) { sessionRows.chars },
+    )
 
     /** Test hook: forget opened results (keys changed under a test). */
     internal fun clearCache() {

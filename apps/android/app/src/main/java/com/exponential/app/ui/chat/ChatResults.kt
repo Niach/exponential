@@ -95,8 +95,8 @@ fun ChatResultsPage(
     /** THE fold ([ChatViewModel.results]: every result of the root's tree,
      *  never only the chat's loaded window), built off the main thread. */
     results: List<ResultsTab.Result>,
-    /** The tree's session-authored card rows ([ChatViewModel.resultCards]):
-     *  a result's inline surface. */
+    /** The tree's result cards ([ChatViewModel.resultCards]): a result's
+     *  inline surface. */
     cards: List<SessionTree.Message>,
     /** An inline surface's reply press (session id, text). */
     onReply: (String, String) -> Unit,

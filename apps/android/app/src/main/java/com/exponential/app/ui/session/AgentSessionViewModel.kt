@@ -1,5 +1,6 @@
 package com.exponential.app.ui.session
 
+import com.exponential.app.data.db.observeFirstTitleRowsByRoot
 import com.exponential.app.domain.ComposerSend
 import com.exponential.app.domain.ComposerDraft
 import com.exponential.app.data.composer.ComposerDraftBinding
@@ -811,7 +812,7 @@ class AgentSessionViewModel @AssistedInject constructor(
                     // Large chats: the titles (header / origin) read only the
                     // tree's title rows (session-title.json `firstPrompt`).
                     dbFlow.scopedQuery(emptyList<SessionTree.Message>()) { db ->
-                        db.keyedMessages(db.messageDao().observeTitleRowsByRoot(root))
+                        db.keyedMessages(db.messageDao().observeFirstTitleRowsByRoot(root))
                     },
                     dbFlow.scopedQuery(emptyList<SessionIssueEntity>()) { it.sessionIssueDao().observeByRoot(root) },
                     issues,
@@ -894,7 +895,7 @@ class AgentSessionViewModel @AssistedInject constructor(
                     // Large chats: the titles (header / origin) read only the
                     // tree's title rows (session-title.json `firstPrompt`).
                     dbFlow.scopedQuery(emptyList<SessionTree.Message>()) { db ->
-                        db.keyedMessages(db.messageDao().observeTitleRowsByRoot(root))
+                        db.keyedMessages(db.messageDao().observeFirstTitleRowsByRoot(root))
                     },
                     dbFlow.scopedQuery(emptyList<SessionIssueEntity>()) { it.sessionIssueDao().observeByRoot(root) },
                     issues,

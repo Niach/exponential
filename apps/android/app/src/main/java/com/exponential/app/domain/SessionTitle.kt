@@ -45,6 +45,9 @@ object SessionTitle {
     private fun clip(text: String, max: Int): String =
         if (text.length > max) "${text.substring(0, maxOf(0, max - 1)).trimEnd()}…" else text
 
+    /** #ERR-19: a body that can title a session ([firstPrompt] stops at it). */
+    fun isUsablePrompt(body: String): Boolean = firstLine(body) != null
+
     /** The first usable line of a body: non-blank, not an image embed. */
     private fun firstLine(body: String): String? =
         body.split("\n").map { it.trim() }.firstOrNull { it.isNotEmpty() && !it.startsWith("![") }

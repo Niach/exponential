@@ -393,7 +393,7 @@ class SyncManager @Inject constructor(
             // A rejected bearer (401, never 403) signs THIS account out
             // locally; the token disappearing is what the accounts collector
             // above reconciles into cancelling this pipeline.
-            onUnauthorized = { sessionInvalidator.invalidate(accountId) },
+            onUnauthorized = { presented -> sessionInvalidator.invalidate(accountId, presented) },
         )
 
         // Per-account credential providers: read the specific account's URL +
@@ -905,7 +905,7 @@ private class ShapeReporter(
     // An auto-reset of this shape has begun.
     val onRecovering: () -> Unit = {},
     // The server rejected this account's bearer token (HTTP 401 only).
-    val onUnauthorized: () -> Unit = {},
+    val onUnauthorized: (presentedToken: String) -> Unit = {},
 )
 
 // One schema cache for the whole process: every account's Room instance shares

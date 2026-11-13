@@ -487,15 +487,20 @@ abstract class MessageDao {
     fun observeNewestByRoot(rootId: String, limit: Int): Flow<List<MessageEntity>> =
         rawObserveNewestByRoot(rootId, limit).openedMessages()
 
-    // results-tab.json: a chat's result CANDIDATES = the tree's session-authored
-    // card rows, never the loaded window (the Results tab + its count).
+    // results-tab.json: a chat's result CANDIDATES = the tree's sessions' OWN
+    // card rows (author_session_id = session_id), never the loaded window
+    // (the Results tab + its count). #ERR-19: read as STAMPS (no body, no
+    // card), the rows themselves only when new or changed ([observeResultCards]).
     @Query(
-        "SELECT * FROM messages WHERE root_id = :rootId AND author_session_id IS NOT NULL " +
+        "SELECT id, (updated_at || '|' || IFNULL(answered_at, '') || '|' || IFNULL(consumed_at, '') || '|' || " +
+            "length(card) || '|' || length(body)) AS stamp FROM messages WHERE root_id = :rootId " +
+            "AND author_session_id IS NOT NULL AND author_session_id = session_id " +
             "AND card IS NOT NULL AND card != 'null' ORDER BY created_at, id",
     )
-    abstract fun rawObserveResultCardsByRoot(rootId: String): Flow<List<MessageEntity>>
-    fun observeResultCardsByRoot(rootId: String): Flow<List<MessageEntity>> =
-        rawObserveResultCardsByRoot(rootId).openedMessages()
+    abstract fun observeResultCardStamps(rootId: String): Flow<List<RowStamp>>
+
+    @Query("SELECT * FROM messages WHERE id IN (:ids) AND card IS NOT NULL AND card != 'null'")
+    abstract suspend fun resultCardsByIds(ids: List<String>): List<MessageEntity>
 
     // Large chats: the newest createdAt of a session's rows by one author kind
     // (the session view's "news arrived" stamp) — the max the whole session
@@ -517,26 +522,27 @@ abstract class MessageDao {
     fun observeCardRowsBySession(sessionId: String): Flow<List<MessageEntity>> =
         rawObserveCardRowsBySession(sessionId).openedMessages()
 
-    // Large chats (session-title.json `firstPrompt`): the rows of one tree a
-    // session TITLE can read — card-less, a person's or ANOTHER session's
-    // input — never the tree's whole transcript.
+    // Large chats (session-title.json `firstPrompt`): the rows a session TITLE
+    // can read — card-less, a person's or ANOTHER session's input. #ERR-19:
+    // summarized per session (count + newest stamp, no bodies), and only each
+    // session's OLDEST rows up to its first usable prompt are ever loaded
+    // ([observeFirstTitleRows] / [observeFirstTitleRowsByRoot]), never whole
+    // transcripts.
     @Query(
-        "SELECT * FROM messages WHERE root_id = :rootId AND (card IS NULL OR card = 'null') " +
-            "AND (author_kind = 'user' OR (author_session_id IS NOT NULL AND author_session_id != '' " +
-            "AND author_session_id != session_id)) ORDER BY created_at, id",
+        "SELECT session_id, (COUNT(*) || '|' || MAX(updated_at) || '|' || MIN(created_at)) AS stamp FROM messages " +
+            "WHERE session_id IN (:sessionIds) AND $TITLE_ROW GROUP BY session_id ORDER BY session_id",
     )
-    abstract fun rawObserveTitleRowsByRoot(rootId: String): Flow<List<MessageEntity>>
-    fun observeTitleRowsByRoot(rootId: String): Flow<List<MessageEntity>> =
-        rawObserveTitleRowsByRoot(rootId).openedMessages()
+    abstract fun observeTitleStamps(sessionIds: List<String>): Flow<List<TitleStamp>>
 
-    // #EXP-1380: the card-less rows of the given sessions —
-    // all a session TITLE reads (its first prompt), never a whole transcript.
     @Query(
-        "SELECT * FROM messages WHERE (card IS NULL OR card = 'null') AND session_id IN (:sessionIds) " +
-            "AND (author_kind = 'user' OR author_session_id IS NOT NULL) ORDER BY created_at, id",
+        "SELECT session_id, (COUNT(*) || '|' || MAX(updated_at) || '|' || MIN(created_at)) AS stamp FROM messages " +
+            "WHERE root_id = :rootId AND session_id IS NOT NULL AND session_id != '' AND $TITLE_ROW " +
+            "GROUP BY session_id ORDER BY session_id",
     )
-    abstract fun rawObserveTitleRows(sessionIds: List<String>): Flow<List<MessageEntity>>
-    fun observeTitleRows(sessionIds: List<String>): Flow<List<MessageEntity>> = rawObserveTitleRows(sessionIds).openedMessages()
+    abstract fun observeTitleStampsByRoot(rootId: String): Flow<List<TitleStamp>>
+
+    @Query("SELECT * FROM messages WHERE session_id = :sessionId AND $TITLE_ROW ORDER BY created_at, id LIMIT :limit OFFSET :offset")
+    abstract suspend fun titleRowsPage(sessionId: String, limit: Int, offset: Int): List<MessageEntity>
 
     // #EXP-1399: the given messages by id (an `ask` mirror's ORIGIN card,
     // which lives in another tree than the conversation drawing it).
@@ -590,6 +596,10 @@ interface SessionReadDao {
     @Query("DELETE FROM session_reads")
     suspend fun clear()
 }
+
+// session-title.json `firstPrompt`: a row a session title can read.
+private const val TITLE_ROW = "(card IS NULL OR card = 'null') AND (author_kind = 'user' OR " +
+    "(author_session_id IS NOT NULL AND author_session_id != '' AND author_session_id != session_id))"
 
 // EXP-1459 (sealed-content.json): the screens read OPENED rows; Room keeps
 // them as synced. Re-emits when this install gains a tree key; off the main
