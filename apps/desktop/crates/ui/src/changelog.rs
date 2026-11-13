@@ -57,6 +57,17 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
+const PREVIOUS_278: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-13-share-picked-team",
+    date: "2026-11-13",
+    title: "Shared items land in the team you pick",
+    summary: "Sharing into Exponential on Android or iPhone now files the new issue in the team you picked, on one of its boards. Issue chips have the same spacing on every platform.",
+    body: r##"- **Sharing**: picking a team on the Share to page now drives the whole new issue: that team's boards, its last used board as the default, and its members, labels and statuses.
+- **Issue chips**: the assignee picture and label dots in an issue's chips have the same size and spacing on Android, iPhone, web and desktop."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
 const PREVIOUS_277: ChangelogEntry = ChangelogEntry {
     id: "2026-11-13-quieter-notifications",
     date: "2026-11-13",

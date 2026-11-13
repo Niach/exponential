@@ -1,12 +1,12 @@
 package com.exponential.app.ui.issue
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Color
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import androidx.compose.foundation.layout.Arrangement
@@ -114,8 +114,8 @@ fun IssuePropertyChips(
     val pageMode = onOpenProperties == null
     val estimatesOn = estimationType != null && estimationType != DomainContract.issueEstimationNone
     FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(GlassPillDefaults.ChipBoxGap),
+        verticalArrangement = Arrangement.spacedBy(GlassPillDefaults.ChipBoxGap),
         modifier = Modifier
             .fillMaxWidth()
             .glassCard()
@@ -131,7 +131,7 @@ fun IssuePropertyChips(
             // EXP-698: no outer .alpha() — every pill in here already dims
             // itself to quaternary when it is not enabled, and the two dims
             // stacked into an unreadable box for non-moderators.
-            .padding(10.dp),
+            .padding(GlassPillDefaults.ChipBoxPadding),
     ) {
         GlassPill(
             status.name,
@@ -284,15 +284,9 @@ private fun LabelsChip(labels: List<LabelEntity>, isModerator: Boolean, onClick:
                 )
                 if (labels.isNotEmpty()) {
                     // web `-space-x-0.5`: each dot overlaps the previous by 2dp.
-                    Row(horizontalArrangement = Arrangement.spacedBy((-2).dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(-LabelDotOverlap)) {
                         labels.take(3).forEach { label ->
-                            Box(
-                                Modifier
-                                    .size(LabelDotSize)
-                                    .background(DesignTokens.Palette.Background, CircleShape)
-                                    .padding(1.dp)
-                                    .background(parseColor(label.color), CircleShape),
-                            )
+                            LabelChipDot(parseColor(label.color))
                         }
                     }
                 }
@@ -301,8 +295,31 @@ private fun LabelsChip(labels: List<LabelEntity>, isModerator: Boolean, onClick:
     )
 }
 
-/** web `h-2 w-2` + its `ring-1`: the 1dp ring is drawn inside these 10dp. */
-private val LabelDotSize = 10.dp
+/** web `-space-x-0.5`: how far each labels-chip dot overlaps the previous. */
+private val LabelDotOverlap = 2.dp
+
+/** web `ring-1 ring-background`: the page-coloured ring round each dot. */
+private val LabelDotRing = 1.dp
+
+/**
+ * EXP-1822: one labels-chip dot, web `h-2 w-2 rounded-full ring-1
+ * ring-background` exactly: an 8dp LAYOUT box ([GlassPillDefaults.LabelDotSize])
+ * filled in the label's colour, the 1dp ring painted OUTSIDE it (a box-shadow
+ * on web, so it never widens the chip). It used to be a 10dp box with the
+ * ring inside, 2dp wider per dot than every other client's.
+ */
+@Composable
+internal fun LabelChipDot(color: Color, modifier: Modifier = Modifier) {
+    val ring = DesignTokens.Palette.Background
+    Box(
+        modifier
+            .size(GlassPillDefaults.LabelDotSize)
+            .drawBehind {
+                drawCircle(ring, radius = size.minDimension / 2 + LabelDotRing.toPx())
+                drawCircle(color)
+            },
+    )
+}
 
 /** The empty chips' copy ×4 (P45, web `assignee-picker` / `label-picker`). */
 object IssuePropertyChipCopy {

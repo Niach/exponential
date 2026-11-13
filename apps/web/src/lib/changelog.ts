@@ -34,6 +34,14 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Android chats**: a session you start from the phone streams right away, images shared from other apps reach the composer, and pasted images no longer end up in session titles.`,
   },
   {
+    id: `2026-11-13-share-picked-team`,
+    date: `2026-11-13`,
+    title: `Shared items land in the team you pick`,
+    summary: `Sharing into Exponential on Android or iPhone now files the new issue in the team you picked, on one of its boards. Issue chips have the same spacing on every platform.`,
+    body: `- **Sharing**: picking a team on the Share to page now drives the whole new issue: that team's boards, its last used board as the default, and its members, labels and statuses.
+- **Issue chips**: the assignee picture and label dots in an issue's chips have the same size and spacing on Android, iPhone, web and desktop.`,
+  },
+  {
     id: `2026-11-13-quieter-notifications`,
     date: `2026-11-13`,
     title: `Quieter notifications`,

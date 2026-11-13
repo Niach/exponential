@@ -104,6 +104,17 @@ public enum DesignTokens {
         public static let controlSm: CGFloat = 24
         public static let inputHeight: CGFloat = 36
         public static let rowHeight: CGFloat = 32
+        public static let pillPaddingSm: CGFloat = 8
+        public static let pillPaddingMd: CGFloat = 12
+        public static let pillGapSm: CGFloat = 4
+        public static let pillGapMd: CGFloat = 6
+        public static let pillGlyphSm: CGFloat = 12
+        public static let pillGlyphMd: CGFloat = 16
+        public static let pillDot: CGFloat = 6
+        public static let pillAvatar: CGFloat = 16
+        public static let pillLabelDot: CGFloat = 8
+        public static let chipBoxGap: CGFloat = 6
+        public static let chipBoxPadding: CGFloat = 10
     }
 
     // Menu row geometry (EXP-1074), two density classes. iOS draws the TOUCH
