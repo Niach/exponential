@@ -1061,6 +1061,13 @@ pub fn extra_env() -> BTreeMap<String, String> {
     // `exponential_session_self {op: "quiet"}` (nothing to say) and
     // `exponential_show` (the card is the answer).
     env.insert(TERMINAL_MCP_TOOLS_ENV.to_string(), TERMINAL_MCP_TOOLS.join(","));
+    // #EXP-1828: Claude Code's own `silent_turn_reminder` ("The user hasn't
+    // heard from you in a while …") rides every tool result once the turn
+    // has been silent for a while, with no cap in its timed variant. A team
+    // agent answering a routine event with `quiet` read it as a fresh ask,
+    // called `quiet` again, got the reminder again: 17 quiet calls in one
+    // turn. Silence is a legitimate outcome here; the chat shows the work.
+    env.insert(SILENT_TURN_REMINDER_ENV.to_string(), "0".to_string());
     // #FEED-230: Fable is always 5.2, on every claude child the adapter
     // spawns (launcher sessions AND server-free local runs): a typed
     // `/model fable` resolves the CLI's alias through this var.
@@ -1075,6 +1082,46 @@ pub const TERMINAL_MCP_TOOLS_ENV: &str = "CLAUDE_CODE_TERMINAL_MCP_TOOLS";
 /// `exponential` (`inline_mcp_config`).
 pub const TERMINAL_MCP_TOOLS: [&str; 2] =
     ["mcp__exponential__exponential_session_self", "mcp__exponential__exponential_show"];
+
+/// #EXP-1828: Claude Code's switch for its silent-turn reminder (a tri-state
+/// boolean: `0` turns it off whatever the model's default).
+pub const SILENT_TURN_REMINDER_ENV: &str = "CLAUDE_CODE_SILENT_TURN_REMINDER";
+
+/// #EXP-1828: whether a main-thread assistant frame calls
+/// `exponential_session_self {op: "quiet"}`: the agent's "nothing to say,
+/// this turn is over".
+pub fn calls_quiet(blocks: &[Value]) -> bool {
+    blocks.iter().any(|block| {
+        block.get("type").and_then(Value::as_str) == Some("tool_use")
+            && block.get("name").and_then(Value::as_str) == Some(TERMINAL_MCP_TOOLS[0])
+            && block.get("input").and_then(|input| input.get("op")).and_then(Value::as_str)
+                == Some("quiet")
+    })
+}
+
+/// #EXP-1828: the guard against a turn that keeps going after `quiet` with
+/// no new inbound message. `quiet` ends the agent's answer; a SECOND one
+/// since the last prompt means something other than a person (a harness
+/// nudge, a self-started continuation) re-woke it, and the turn is stopped
+/// instead of looping. Only a prompt (a real message) re-arms it.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct QuietGuard {
+    quiet_calls: u32,
+}
+
+impl QuietGuard {
+    /// A real inbound message: the agent may go quiet once more.
+    pub fn on_prompt(&mut self) {
+        self.quiet_calls = 0;
+    }
+
+    /// A `quiet` call; `true` = it repeats one since the last prompt, so the
+    /// running turn must be interrupted.
+    pub fn on_quiet(&mut self) -> bool {
+        self.quiet_calls = self.quiet_calls.saturating_add(1);
+        self.quiet_calls > 1
+    }
+}
 
 // ---------------------------------------------------------------------------
 // argv spellings and the inline MCP document
@@ -1843,6 +1890,45 @@ mod tests {
         let server = config["mcpServers"].as_object().unwrap().keys().next().unwrap().clone();
         for tool in tools.split(',') {
             assert!(tool.starts_with(&format!("mcp__{server}__exponential_")), "{tool}");
+        }
+    }
+
+    /// #EXP-1828: Claude Code's silent-turn reminder is off on every claude
+    /// child, so a quiet turn is never nudged into speaking (or looping).
+    #[test]
+    fn extra_env_turns_the_silent_turn_reminder_off() {
+        assert_eq!(extra_env().get(SILENT_TURN_REMINDER_ENV).map(String::as_str), Some("0"));
+    }
+
+    /// #EXP-1828: only the `quiet` op of `exponential_session_self` counts.
+    #[test]
+    fn calls_quiet_reads_only_the_quiet_op() {
+        let quiet = json!({ "type": "tool_use", "id": "t1", "name": "mcp__exponential__exponential_session_self", "input": { "op": "quiet" } });
+        let suggest = json!({ "type": "tool_use", "id": "t2", "name": "mcp__exponential__exponential_session_self", "input": { "op": "suggest" } });
+        let show = json!({ "type": "tool_use", "id": "t3", "name": "mcp__exponential__exponential_show", "input": { "op": "quiet" } });
+        let text = json!({ "type": "text", "text": "quiet" });
+        assert!(calls_quiet(&[text.clone(), quiet]));
+        assert!(!calls_quiet(&[suggest, show, text]));
+        assert!(!calls_quiet(&[]));
+    }
+
+    /// #EXP-1828 regression: the FEED-240 loop. A routine event, the agent
+    /// answers quiet; a re-wake with no new message (the reminder, a
+    /// continuation) and a second quiet stops the turn; every further one
+    /// too. The next real message re-arms one quiet answer.
+    #[test]
+    fn a_second_quiet_without_a_new_message_stops_the_turn() {
+        let mut guard = QuietGuard::default();
+        guard.on_prompt();
+        assert!(!guard.on_quiet(), "the first quiet is the answer");
+        assert!(guard.on_quiet(), "a re-woken quiet is the loop");
+        assert!(guard.on_quiet());
+        guard.on_prompt();
+        assert!(!guard.on_quiet(), "a new message gets its own quiet answer");
+        // Back-to-back routine events, each answered quiet: never a stop.
+        for _ in 0..17 {
+            guard.on_prompt();
+            assert!(!guard.on_quiet());
         }
     }
 
