@@ -20,6 +20,21 @@ private object NotificationsEmptyInput
 @Serializable
 private data class NotificationsTeamInput(@SerialName("teamId") val teamId: String)
 
+/** #EXP-1815: `user_notification_prefs.source_prefs` on the wire; absent = on. */
+@Serializable
+data class SourcePrefsDto(
+    @SerialName("assistant") val assistant: Boolean? = null,
+    @SerialName("temporary") val temporary: Boolean? = null,
+    @SerialName("agents") val agents: Map<String, Boolean>? = null,
+)
+
+/** The part of `notifications.emailPrefs` the phones read (the rest is web's email card). */
+@Serializable
+data class NotificationPrefsDto(@SerialName("sourcePrefs") val sourcePrefs: SourcePrefsDto? = null)
+
+@Serializable
+private data class SourcePrefsInput(@SerialName("sourcePrefs") val sourcePrefs: SourcePrefsDto)
+
 @Singleton
 class NotificationsApi @Inject constructor(private val trpc: TrpcClient) {
 
@@ -60,5 +75,25 @@ class NotificationsApi @Inject constructor(private val trpc: TrpcClient) {
                 inputSerializer = NotificationsTeamInput.serializer(),
             )
         }
+    }
+
+    /** #EXP-1815: the member's source switches (`notifications.emailPrefs`). */
+    suspend fun sourcePrefs(accountId: String): SourcePrefsDto =
+        trpc.query(
+            accountId,
+            path = "notifications.emailPrefs",
+            input = NotificationsEmptyInput,
+            inputSerializer = NotificationsEmptyInput.serializer(),
+            outputSerializer = NotificationPrefsDto.serializer(),
+        ).sourcePrefs ?: SourcePrefsDto()
+
+    /** #EXP-1815: writes the WHOLE switches object (after `toggleSourcePref`). */
+    suspend fun updateSourcePrefs(accountId: String, prefs: SourcePrefsDto) {
+        trpc.mutationUnit(
+            accountId,
+            path = "notifications.updateEmailPrefs",
+            input = SourcePrefsInput(prefs),
+            inputSerializer = SourcePrefsInput.serializer(),
+        )
     }
 }

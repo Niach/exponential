@@ -59,6 +59,8 @@ class NotificationActionReceiver : BroadcastReceiver() {
         val accountId = intent.getStringExtra(EXTRA_ACCOUNT) ?: return
         val sessionId = intent.getStringExtra(EXTRA_SESSION) ?: return
         val notificationId = intent.getIntExtra(EXTRA_NOTIFICATION, 0)
+        // #EXP-1815: a push's notification is tagged by its thread.
+        val notificationTag = intent.getStringExtra(EXTRA_TAG)
         val text = RemoteInput.getResultsFromIntent(intent)?.getCharSequence(REMOTE_INPUT_KEY)?.toString()?.trim()
         val app = context.applicationContext
         val deps = EntryPointAccessors.fromApplication(app, Deps::class.java)
@@ -75,9 +77,9 @@ class NotificationActionReceiver : BroadcastReceiver() {
             }
             try {
                 if (ok) {
-                    NotificationManagerCompat.from(app).cancel(notificationId)
+                    NotificationManagerCompat.from(app).cancel(notificationTag, notificationId)
                 } else {
-                    showFailed(app, notificationId, sessionId, intent.getStringExtra(EXTRA_USER))
+                    showFailed(app, notificationTag, notificationId, sessionId, intent.getStringExtra(EXTRA_USER))
                 }
             } finally {
                 pending.finish()
@@ -140,7 +142,7 @@ class NotificationActionReceiver : BroadcastReceiver() {
         return true
     }
 
-    private fun showFailed(context: Context, notificationId: Int, sessionId: String, userId: String?) {
+    private fun showFailed(context: Context, notificationTag: String?, notificationId: Int, sessionId: String, userId: String?) {
         val open = PendingIntent.getActivity(
             context,
             notificationId,
@@ -155,7 +157,7 @@ class NotificationActionReceiver : BroadcastReceiver() {
             .setContentIntent(open)
             .build()
         try {
-            NotificationManagerCompat.from(context).notify(notificationId, notification)
+            NotificationManagerCompat.from(context).notify(notificationTag, notificationId, notification)
         } catch (err: SecurityException) {
             Log.w(TAG, "notify denied: ${err.message}")
         }
@@ -173,6 +175,7 @@ class NotificationActionReceiver : BroadcastReceiver() {
         private const val EXTRA_LABEL = "label"
         private const val EXTRA_SEALED = "sealed"
         private const val EXTRA_NOTIFICATION = "notificationId"
+        private const val EXTRA_TAG = "notificationTag"
         private const val REMOTE_INPUT_KEY = "text"
         private const val DECISION_APPROVED = "approved"
         private const val DECISION_REJECTED = "rejected"
@@ -202,6 +205,8 @@ class NotificationActionReceiver : BroadcastReceiver() {
             accountId: String?,
             notificationId: Int,
             contentIntent: PendingIntent,
+            /** #EXP-1815: the notification's tag (its thread). */
+            notificationTag: String? = null,
         ): List<NotificationCompat.Action> {
             val sessionId = data["sessionId"]?.takeIf { it.isNotEmpty() }
             if (accountId == null || sessionId == null) return emptyList()
@@ -221,6 +226,7 @@ class NotificationActionReceiver : BroadcastReceiver() {
                     putExtra(EXTRA_ROOT, data[QuestionPush.ROOT_ID_KEY])
                     putExtra(EXTRA_SEALED, data[NotificationActions.KEY_SEALED] == "1")
                     putExtra(EXTRA_NOTIFICATION, notificationId)
+                    putExtra(EXTRA_TAG, notificationTag)
                     if (action.id.startsWith(NotificationActions.OPTION_PREFIX)) putExtra(EXTRA_LABEL, action.title)
                 }
                 val text = action.kind == NotificationActions.Kind.Text

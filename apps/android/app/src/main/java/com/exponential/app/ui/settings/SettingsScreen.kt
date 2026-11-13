@@ -109,6 +109,8 @@ fun SettingsScreen(
     onOpenTeamSettings: (section: String) -> Unit,
     onOpenSyncDiagnostics: () -> Unit,
     onOpenAbout: () -> Unit,
+    /** #EXP-1815: Settings › Notifications (the source switches). */
+    onOpenNotifications: () -> Unit = {},
     onAddServer: () -> Unit,
     onBack: () -> Unit,
     /** EXP-1270: Getting started's "Start a run" — the Agent home. */
@@ -226,6 +228,12 @@ fun SettingsScreen(
                                     toaster.error("Couldn't open Google Play")
                                 }
                             },
+                        )
+                        // #EXP-1815: the Personal group's Notifications page.
+                        SettingsRow(
+                            icon = ExpIcons.settingsNotifications,
+                            title = "Notifications",
+                            onClick = onOpenNotifications,
                         )
                         // EXP-262: version + third-party licence notices.
                         SettingsRow(
@@ -537,6 +545,8 @@ fun TeamTabScreen(
     onOpenTeamSettings: (section: String) -> Unit,
     onOpenSyncDiagnostics: () -> Unit,
     onOpenAbout: () -> Unit,
+    /** #EXP-1815: Settings › Notifications (the source switches). */
+    onOpenNotifications: () -> Unit = {},
     onAddServer: () -> Unit,
     onOpenAgentHome: () -> Unit = {},
     /** S-3: the Agents group's Assistant row opens its page. */
@@ -692,6 +702,8 @@ fun TeamTabScreen(
                             if (!PlayStore.openListing(context)) toaster.error("Couldn't open Google Play")
                         },
                     )
+                    // #EXP-1815: the Personal group's Notifications page.
+                    SettingsRow(icon = ExpIcons.settingsNotifications, title = "Notifications", onClick = onOpenNotifications)
                     SettingsRow(icon = ExpIcons.settingsAbout, title = "About", onClick = onOpenAbout)
                 }
             }

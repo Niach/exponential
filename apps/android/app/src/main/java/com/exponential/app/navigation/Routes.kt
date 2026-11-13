@@ -71,6 +71,9 @@ object Routes {
     fun deviceSettings(deviceRowId: String): String =
         "team-settings/${com.exponential.app.domain.SettingsNav.DEVICES}?device=$deviceRowId"
 
+    /** #EXP-1815: Settings › Notifications (notification-delivery.json SETTINGS). */
+    const val NOTIFICATION_SETTINGS = "settings/notifications"
+
     /** #VAPP-185: Settings › MCP › Activity (settings-mcp.json `activityPage`). */
     const val MCP_ACTIVITY = "settings/mcp/activity"
 
