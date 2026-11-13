@@ -28,6 +28,7 @@ import {
   startRun,
 } from "@/lib/ci/runs"
 import { appendLog, CI_LOG_CHUNK_MAX, readLog } from "@/lib/ci/logs"
+import { actionsRunnerTargets, actionsRunnerToken } from "@/lib/ci/actions-runners"
 import { CI_SECRET_NAME, CI_SECRET_VALUE_MAX, deleteSecret, listSecretNames, setSecret, takeJobSecrets } from "@/lib/ci/secrets"
 
 const jobToken = z.object({ jobId: z.string().uuid(), token: z.string().min(16).max(128) })
@@ -158,6 +159,7 @@ export const ciRouter = router({
         repositoryId: z.string().uuid(),
         requiredChecks: z.array(z.string().min(1).max(255)).max(64).optional(),
         githubStatuses: z.boolean().optional(),
+        actionsRunners: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -167,6 +169,7 @@ export const ciRouter = router({
         ...(repo.ciConfig as RepositoryCiConfig),
         ...(input.requiredChecks ? { requiredChecks: [...new Set(input.requiredChecks)] } : {}),
         ...(input.githubStatuses !== undefined ? { githubStatuses: input.githubStatuses } : {}),
+        ...(input.actionsRunners !== undefined ? { actionsRunners: input.actionsRunners } : {}),
       }
       await ctx.db.update(repositories).set({ ciConfig: next }).where(eq(repositories.id, repo.id))
       return { config: next }
@@ -194,6 +197,18 @@ export const ciRouter = router({
       await assertRepoManager(ctx.session.user.id, repo)
       return { ok: await deleteSecret(repo.id, input.name) }
     }),
+
+  /** #EXP-1617: the GitHub repos this device serves Actions for (its daemon). */
+  actionsRunners: authedProcedure
+    .input(z.object({ deviceId: z.string().min(1).max(128) }))
+    .query(async ({ ctx, input }) => ({ targets: await actionsRunnerTargets(ctx.session.user.id, input.deviceId) })),
+
+  /** #EXP-1617: a runner registration (or removal) token for one target. */
+  actionsRunnerToken: authedProcedure
+    .input(z.object({ deviceId: z.string().min(1).max(128), repositoryId: z.string().uuid(), kind: z.enum([`registration`, `remove`]) }))
+    .mutation(async ({ ctx, input }) =>
+      actionsRunnerToken({ userId: ctx.session.user.id, deviceId: input.deviceId, repositoryId: input.repositoryId, kind: input.kind })
+    ),
 
   /** The device owner's runner settings (`devices.runner`). */
   setRunner: authedProcedure

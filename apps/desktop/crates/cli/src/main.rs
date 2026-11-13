@@ -9,6 +9,7 @@
 //! (`devices.register`, kind `server`) and runs the sessions queued for it
 //! (EXP-1292: picked up off its `sessions` / `messages` shapes).
 
+mod actions_runner;
 mod agent_login_host;
 mod ci_runner;
 mod commands;

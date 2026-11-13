@@ -364,5 +364,50 @@ describe.skipIf(!ready.ok)(`eCode CI`, { timeout: 30_000 }, () => {
       )
     }
   })
+
+  // Q6: runner devices also serve GitHub Actions for opted-in repos.
+  it(`an opted-in repo gets an Actions runner on every enabled runner device`, async () => {
+    const f = await fixture()
+    const ar = await import(`@/lib/ci/actions-runners`)
+    await db
+      .update(devices)
+      .set({ caps: [runs.CI_RUNNER_CAP, ar.ACTIONS_RUNNER_CAP], label: `Danny's Mint`, runner: { enabled: true, labels: [`exp-linux`], slots: 2, timeoutMin: 60 } })
+      .where(eq(devices.id, f.deviceRowId))
+    // Not opted in yet: nothing to serve, and no registration token.
+    expect(await ar.actionsRunnerTargets(f.userId, f.deviceId)).toEqual([])
+    await db.update(repositories).set({ ciConfig: { actionsRunners: true } }).where(eq(repositories.id, f.repositoryId))
+    const targets = await ar.actionsRunnerTargets(f.userId, f.deviceId)
+    expect(targets).toEqual([
+      {
+        repositoryId: f.repositoryId,
+        fullName: `org/${f.slug}`,
+        url: `https://github.com/org/${f.slug}`,
+        labels: [`self-hosted`, `linux`, `exp-linux`],
+        name: `danny-s-mint-${f.slug}`,
+      },
+    ])
+    const minted: string[] = []
+    ar.setRunnerTokenSourceForTests({
+      mint: async (repo, kind) => {
+        minted.push(`${kind}:${repo.fullName}`)
+        return { token: `T-${kind}`, expiresAt: null }
+      },
+    })
+    try {
+      expect(await ar.actionsRunnerToken({ userId: f.userId, deviceId: f.deviceId, repositoryId: f.repositoryId, kind: `registration` })).toEqual({
+        token: `T-registration`,
+        expiresAt: null,
+      })
+      // Switched off: no new registration, but the device may still deregister.
+      await db.update(repositories).set({ ciConfig: {} }).where(eq(repositories.id, f.repositoryId))
+      await expect(
+        ar.actionsRunnerToken({ userId: f.userId, deviceId: f.deviceId, repositoryId: f.repositoryId, kind: `registration` })
+      ).rejects.toThrow(/does not serve GitHub Actions/)
+      expect((await ar.actionsRunnerToken({ userId: f.userId, deviceId: f.deviceId, repositoryId: f.repositoryId, kind: `remove` })).token).toBe(`T-remove`)
+      expect(minted).toEqual([`registration:org/${f.slug}`, `remove:org/${f.slug}`])
+    } finally {
+      ar.setRunnerTokenSourceForTests(null)
+    }
+  })
 })
 

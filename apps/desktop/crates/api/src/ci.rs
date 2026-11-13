@@ -199,3 +199,46 @@ mod people_tests {
         );
     }
 }
+
+/// One GitHub repository this device serves Actions for (#EXP-1617 Q6).
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActionsRunnerTarget {
+    pub repository_id: String,
+    pub full_name: String,
+    pub url: String,
+    pub labels: Vec<String>,
+    pub name: String,
+}
+
+/// `ci.actionsRunners`: what this device registers `actions/runner` for.
+pub fn actions_runners(trpc: &TrpcClient, device_id: &str) -> Result<Vec<ActionsRunnerTarget>, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        device_id: &'a str,
+    }
+    #[derive(Deserialize)]
+    struct Out {
+        targets: Vec<ActionsRunnerTarget>,
+    }
+    let out: Out = trpc.query_with_input("ci.actionsRunners", &Input { device_id })?;
+    Ok(out.targets)
+}
+
+/// `ci.actionsRunnerToken`: `kind` = `registration` | `remove`.
+pub fn actions_runner_token(trpc: &TrpcClient, device_id: &str, repository_id: &str, kind: &str) -> Result<String, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        device_id: &'a str,
+        repository_id: &'a str,
+        kind: &'a str,
+    }
+    #[derive(Deserialize)]
+    struct Out {
+        token: String,
+    }
+    let out: Out = trpc.mutation("ci.actionsRunnerToken", &Input { device_id, repository_id, kind })?;
+    Ok(out.token)
+}
