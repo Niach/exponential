@@ -96,7 +96,7 @@ class LargeTreeHeapGuardTest {
         var stamps = rows.map { RowStamp(it.id, it.updatedAt) }
         var loads = 0
         val load: suspend (List<String>) -> List<MessageEntity> = { ids ->
-            assertTrue("loaded in pages", ids.size <= ResultCardsFold.LOAD_PAGE)
+            assertTrue("loaded in pages", ids.size <= CardRowsFold.LOAD_PAGE)
             loads += ids.size
             ids.map { byId.getValue(it) }
         }
@@ -121,6 +121,30 @@ class LargeTreeHeapGuardTest {
         loads = 0
         fold.update(stamps, SealedKeys.keys.value) { ids -> loads += ids.size; ids.map { all.getValue(it) } }
         assertEquals(3_001, loads)
+    }
+
+    @Test
+    fun `the session card fold keeps only the kinds its readers use`() = runBlocking {
+        // The Assistant root's own conversation: thousands of report / ask /
+        // thread_started cards, a few plans, questions, surfaces and replies.
+        val kinds = listOf("report", "ask", "thread_started", "report", "ask", "plan", "question", "surface", "replies", "report")
+        val rows = (0 until 4_000).map { i ->
+            MessageEntity(
+                id = "c$i", sessionId = root, rootId = root, authorKind = "agent", authorSessionId = "child-$i",
+                body = "", card = """{"kind":"${kinds[i % kinds.size]}","sealed":"$plan"}""", createdAt = ts(i), updatedAt = ts(i),
+            )
+        }
+        val byId = rows.associateBy { it.id }
+        val keep = setOf("replies", "plan", "question", "surface")
+        val fold = CardRowsFold { (it.card?.get("kind") as? kotlinx.serialization.json.JsonPrimitive)?.content in keep }
+        val stamps = rows.map { RowStamp(it.id, it.updatedAt) }
+        val kept = fold.update(stamps, SealedKeys.keys.value) { ids -> ids.map { byId.getValue(it) } }
+        assertEquals(1_600, kept.size)
+        // A write elsewhere in the session reads nothing again.
+        var loads = 0
+        val again = fold.update(stamps, SealedKeys.keys.value) { ids -> loads += ids.size; ids.map { byId.getValue(it) } }
+        assertEquals(0, loads)
+        assertTrue(kept.zip(again).all { (a, b) -> a === b })
     }
 
     @Test

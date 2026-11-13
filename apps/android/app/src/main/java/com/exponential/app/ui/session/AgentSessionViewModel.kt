@@ -1,5 +1,7 @@
 package com.exponential.app.ui.session
 
+import kotlinx.coroutines.flow.shareIn
+import com.exponential.app.data.db.observeCardRowsBySession
 import com.exponential.app.data.db.observeFirstTitleRowsByRoot
 import com.exponential.app.domain.ComposerSend
 import com.exponential.app.domain.ComposerDraft
@@ -737,14 +739,33 @@ class AgentSessionViewModel @AssistedInject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
+     * Large chats + #ERR-19: THE session's card rows the quick replies and the
+     * tool cards read (`replies`, `plan`, `question`, `surface`), opened ONCE
+     * and folded incrementally, shared by both. An Assistant root holds
+     * thousands of report / ask / `thread_started` cards: those are never kept,
+     * and an unchanged row is never re-read on a write.
+     */
+    private val cardRows: kotlinx.coroutines.flow.Flow<List<SessionTree.Message>> = dbFlow
+        .scopedQuery(emptyList<SessionTree.Message>()) {
+            it.messageDao().observeCardRowsBySession(
+                codingSessionId,
+                setOf(
+                    com.exponential.app.domain.DomainContract.messageCardKindReplies,
+                    com.exponential.app.domain.DomainContract.messageCardKindPlan,
+                    com.exponential.app.domain.DomainContract.messageCardKindQuestion,
+                    com.exponential.app.domain.DomainContract.messageCardKindSurface,
+                ),
+            )
+        }
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
+
+    /**
      * EXP-1211: the quick replies above THIS session's composer
      * ([SessionTree.composerReplies] over its synced messages; null = none).
      * The chat's composer reads its ROOT's, the raw view its own.
      */
-    val composerReplies: StateFlow<SessionTree.ComposerReplies?> = dbFlow
-        // Large chats: a replies card is a CARD row: the session's card rows only.
-        .scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeCardRowsBySession(codingSessionId) }
-        .map { rows -> SessionTree.composerReplies(codingSessionId, rows.map { SessionTree.message(it, codingSessionId) }) }
+    val composerReplies: StateFlow<SessionTree.ComposerReplies?> = cardRows
+        .map { rows -> SessionTree.composerReplies(codingSessionId, rows) }
         .distinctUntilChanged()
         // EXP-1521: per-message card JSON parsing, off the main thread.
         .flowOn(kotlinx.coroutines.Dispatchers.Default)
@@ -1542,10 +1563,8 @@ class AgentSessionViewModel @AssistedInject constructor(
      * answers through `sessions.answer` (the picks + the surface's data
      * model) and the device delivers the answer as the next turn.
      */
-    val sessionCards: StateFlow<List<Pair<AskDock.SessionCard, SessionTree.SessionChatRow>>> = dbFlow
-        // Large chats: [AskDock.sessionCards] reads card rows only.
-        .scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeCardRowsBySession(codingSessionId) }
-        .map { rows -> SessionTree.sessionCardRows(rows.map { SessionTree.message(it, codingSessionId) }) }
+    val sessionCards: StateFlow<List<Pair<AskDock.SessionCard, SessionTree.SessionChatRow>>> = cardRows
+        .map { rows -> SessionTree.sessionCardRows(rows) }
         .distinctUntilChanged()
         .flowOn(kotlinx.coroutines.Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())

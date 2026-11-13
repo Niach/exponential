@@ -500,7 +500,7 @@ abstract class MessageDao {
     abstract fun observeResultCardStamps(rootId: String): Flow<List<RowStamp>>
 
     @Query("SELECT * FROM messages WHERE id IN (:ids) AND card IS NOT NULL AND card != 'null'")
-    abstract suspend fun resultCardsByIds(ids: List<String>): List<MessageEntity>
+    abstract suspend fun cardRowsByIds(ids: List<String>): List<MessageEntity>
 
     // Large chats: the newest createdAt of a session's rows by one author kind
     // (the session view's "news arrived" stamp) — the max the whole session
@@ -513,14 +513,15 @@ abstract class MessageDao {
 
     // Large chats: a session's CARD rows (replies, plans, questions, surfaces):
     // everything the composer's quick replies and the session's own cards
-    // read; a card-less row can never carry a card once opened.
+    // read; a card-less row can never carry a card once opened. #ERR-19: as
+    // STAMPS, the rows loaded only when new or changed
+    // ([observeCardRowsBySession] with the kinds a reader keeps).
     @Query(
-        "SELECT * FROM messages WHERE session_id = :sessionId AND card IS NOT NULL AND card != 'null' " +
-            "ORDER BY created_at, id",
+        "SELECT id, (updated_at || '|' || IFNULL(answered_at, '') || '|' || IFNULL(consumed_at, '') || '|' || " +
+            "length(card) || '|' || length(body)) AS stamp FROM messages WHERE session_id = :sessionId " +
+            "AND card IS NOT NULL AND card != 'null' ORDER BY created_at, id",
     )
-    abstract fun rawObserveCardRowsBySession(sessionId: String): Flow<List<MessageEntity>>
-    fun observeCardRowsBySession(sessionId: String): Flow<List<MessageEntity>> =
-        rawObserveCardRowsBySession(sessionId).openedMessages()
+    abstract fun observeCardRowStampsBySession(sessionId: String): Flow<List<RowStamp>>
 
     // Large chats (session-title.json `firstPrompt`): the rows a session TITLE
     // can read — card-less, a person's or ANOTHER session's input. #ERR-19:

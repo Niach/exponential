@@ -41,7 +41,18 @@ data class TitleStamp(
  * kept them all. Now: a row is loaded only when its stamp is new or changed,
  * in pages, and only a RESULT card ([ResultsTab.isResultCard]) is kept.
  */
-internal class ResultCardsFold(private val page: Int = LOAD_PAGE) {
+internal class ResultCardsFold(page: Int = LOAD_PAGE) : CardRowsFold(page, { ResultsTab.isResultCard(it.card) })
+
+/**
+ * #ERR-19: card rows folded INCREMENTALLY: rows are read as [RowStamp]s, a row
+ * is loaded (in pages) and opened only when its stamp is new or changed, and
+ * only the messages [keep] accepts are kept. An unchanged kept message keeps
+ * its instance (no re-parse, no recomposition).
+ */
+internal open class CardRowsFold(
+    private val page: Int = LOAD_PAGE,
+    private val keep: (SessionTree.Message) -> Boolean,
+) {
     private var memo: Map<String, Pair<String, SessionTree.Message?>> = emptyMap()
     private var memoKeys: TreeKeys? = null
 
@@ -67,7 +78,7 @@ internal class ResultCardsFold(private val page: Int = LOAD_PAGE) {
             for (row in load(chunk.map { it.id })) {
                 lastLoaded++
                 val stamp = stampById[row.id] ?: continue
-                fresh[row.id] = stamp to resultMessage(row, keys)
+                fresh[row.id] = stamp to keptMessage(row, keys)
             }
         }
         val next = HashMap<String, Pair<String, SessionTree.Message?>>(stamps.size)
@@ -76,10 +87,10 @@ internal class ResultCardsFold(private val page: Int = LOAD_PAGE) {
         return stamps.mapNotNull { next[it.id]?.second }
     }
 
-    private fun resultMessage(row: MessageEntity, keys: TreeKeys): SessionTree.Message? {
+    private fun keptMessage(row: MessageEntity, keys: TreeKeys): SessionTree.Message? {
         val sessionId = row.sessionId?.takeIf { it.isNotEmpty() } ?: return null
         val message = SessionTree.message(SealedContent.message(row, keys), sessionId)
-        return message.takeIf { ResultsTab.isResultCard(it.card) }
+        return message.takeIf(keep)
     }
 
     companion object {
@@ -148,7 +159,24 @@ fun MessageDao.observeResultCards(rootId: String): Flow<List<SessionTree.Message
     val fold = ResultCardsFold()
     emitAll(
         combine(observeResultCardStamps(rootId).distinctUntilChanged(), SealedKeys.keys) { stamps, keys -> stamps to keys }
-            .map { (stamps, keys) -> fold.update(stamps, keys) { ids -> resultCardsByIds(ids) } },
+            .map { (stamps, keys) -> fold.update(stamps, keys) { ids -> cardRowsByIds(ids) } },
+    )
+}.distinctUntilChanged().flowOn(Dispatchers.Default)
+
+/**
+ * #ERR-19: one session's card rows of the given [kinds] (`card.kind`),
+ * opened, oldest first, folded incrementally ([CardRowsFold]): the session
+ * view's quick replies and tool cards. A busy root (an Assistant chat) holds
+ * thousands of report / ask / `thread_started` cards nobody of these reads.
+ */
+fun MessageDao.observeCardRowsBySession(sessionId: String, kinds: Set<String>): Flow<List<SessionTree.Message>> = flow {
+    val fold = CardRowsFold { message ->
+        val kind = (message.card?.get("kind") as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
+        kind != null && kind in kinds
+    }
+    emitAll(
+        combine(observeCardRowStampsBySession(sessionId).distinctUntilChanged(), SealedKeys.keys) { stamps, keys -> stamps to keys }
+            .map { (stamps, keys) -> fold.update(stamps, keys) { ids -> cardRowsByIds(ids) } },
     )
 }.distinctUntilChanged().flowOn(Dispatchers.Default)
 
