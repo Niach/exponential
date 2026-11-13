@@ -1,0 +1,184 @@
+{
+  "$comment": "#EXP-1617 / #EXP-1804 THE CI RUN PAGE (view `ci-run`, ×4: web /t/$teamSlug/ci/$runId?job=<jobId>, the desktop, iOS, Android; the target of every check's `details_url` our CI writes). genUI catalog only. DATA: the synced `ci_runs` row + its `ci_jobs` rows (shapes ci-runs/ci-jobs; never fetched), the runner devices from the devices shape, and the selected job's LOG fetched on demand (tRPC `ci.log{jobId, offset}` → {text, nextOffset, complete}; logs are never synced): read once from 0, then while `complete` is false read again from `nextOffset` every `liveTailMs` and append. LAYOUT, top to bottom: a `Heading` = copy.title with {number} and the run's `name` as its muted subtitle; a `Grid` of four `StatTile`s = `tiles` (label, value, tone; wide: 4 columns, phones: 2); the actions `Row` of `Button`s = `actions` (copy.rerunFailed = `ci.rerun{runId, failedOnly: true}` then open the new run; copy.cancel = `ci.cancel{runId}`, variant destructive-outline); when the run has an `error` (the pipeline file did not plan) an `Alert` type error titled copy.pipelineError with the error text as its message replaces the jobs; then the JOBS = `jobRows` in planner order (`position`): WIDE (web, desktop) a `Section` titled copy.jobs holding one `Row` per job (icon = glyph, title = check name, subtitle = reason text, meta = duration, selected = the selected job) beside the selected job's detail; PHONES one `Collapsible` per job (title = check name, count none) whose body is that job's detail, only the selected one open. The DETAIL of a job: its steps as a `Trace` of `TraceItem`s = `steps` (title, status, description = duration), then the log as ONE `CodeBlock{language: ansi, lineNumbers: true, wrap: false, copyable: true, maxLines: logMaxLines.wide | .phone, variant: destructive when the job's conclusion is failing, highlight: logView(text).highlight, follow: the job is not completed}` holding logView(text).code (copy.emptyLog when the job has no log and is not running). SELECTION (`defaultJob`): the `job` query param when it names a job of the run, else the first FAILING job, else the first RUNNING one, else the first; selecting a job rewrites `?job=`. RULES: `tiles` = Status (`runStatus`: queued = pending with nothing in progress, running = pending with a job in progress, passed = success, cancelled = failure whose failing jobs are ALL cancelled, failed = any other failure; tone neutral|primary|success|neutral|danger), Duration (pr-checks formatDuration of completedAt (or now) − startedAt; copy.none before it started), Runner (the distinct runner LABELS of the jobs that ran, in planner order, joined by `, `; copy.none when none ran), Commit (the sha's first 7 characters). `jobRows`: glyph/tone = pr-checks checkGlyph of the job; duration = pr-checks checkDuration (null while queued); subtitle = copy.reasons[reason] when the job completed with a reason, else null. `steps`: status queued → pending, in_progress → running, completed with success → done, with skipped or neutral → skipped, any other conclusion → error; description = the step's duration (formatDuration; null until it started). `logView`: the runner's markers become plain lines: `##[group]X` → `▸ X`, `##[endgroup]` lines are dropped, `##[error]X` → `Error: X` (its 1-based DISPLAYED line goes into `highlight`), `##[warning]X` → `Warning: X`; a trailing newline adds no empty last line. `actions`: rerunFailed when the run is completed and failed (state failure, not a pipeline error that a person must fix in the file: those re-plan, still rerunFailed), cancel when the run is pending. testIds name the parts for the e2e/shots.",
+  "copy": {
+    "title": "Run #{number}",
+    "jobs": "Jobs",
+    "steps": "Steps",
+    "log": "Log",
+    "rerunFailed": "Re-run failed",
+    "cancel": "Cancel",
+    "emptyLog": "No log yet.",
+    "pipelineError": "The pipeline file did not plan",
+    "none": "—",
+    "tiles": { "status": "Status", "duration": "Duration", "runner": "Runner", "commit": "Commit" },
+    "status": { "queued": "Queued", "running": "Running", "passed": "Passed", "failed": "Failed", "cancelled": "Cancelled" },
+    "reasons": {
+      "fork": "Not run: a pull request from a fork",
+      "paths": "Skipped: no changed path matches",
+      "needs": "Skipped: a job it needs did not pass",
+      "runner_lost": "The runner stopped answering",
+      "reused": "Kept from the run it re-runs"
+    }
+  },
+  "liveTailMs": 2000,
+  "logMaxLines": { "wide": 32, "phone": 20 },
+  "testIds": {
+    "page": "ci-run",
+    "tiles": "ci-run-tiles",
+    "jobRow": "ci-run-job",
+    "steps": "ci-run-steps",
+    "log": "ci-run-log",
+    "rerun": "ci-run-rerun",
+    "cancel": "ci-run-cancel"
+  },
+  "runStatus": [
+    { "name": "queued: pending, nothing running", "state": "pending", "jobs": [{ "status": "queued", "conclusion": null }], "expected": { "status": "queued", "tone": "neutral" } },
+    { "name": "running", "state": "pending", "jobs": [{ "status": "completed", "conclusion": "success" }, { "status": "in_progress", "conclusion": null }], "expected": { "status": "running", "tone": "primary" } },
+    { "name": "passed", "state": "success", "jobs": [{ "status": "completed", "conclusion": "success" }, { "status": "completed", "conclusion": "skipped" }], "expected": { "status": "passed", "tone": "success" } },
+    { "name": "failed", "state": "failure", "jobs": [{ "status": "completed", "conclusion": "failure" }, { "status": "completed", "conclusion": "cancelled" }], "expected": { "status": "failed", "tone": "danger" } },
+    { "name": "cancelled: every failing job was cancelled", "state": "failure", "jobs": [{ "status": "completed", "conclusion": "success" }, { "status": "completed", "conclusion": "cancelled" }], "expected": { "status": "cancelled", "tone": "neutral" } },
+    { "name": "a broken pipeline file has no jobs: failed", "state": "failure", "jobs": [], "expected": { "status": "failed", "tone": "danger" } }
+  ],
+  "tiles": [
+    {
+      "name": "a running run",
+      "now": "2026-11-13T10:05:00.000Z",
+      "run": { "state": "pending", "sha": "8f3c2a9d1e7b4c6a5f0e9d8c7b6a5f4e3d2c1b0a", "startedAt": "2026-11-13T10:00:00.000Z", "completedAt": null },
+      "jobs": [
+        { "status": "completed", "conclusion": "success", "runnerLabel": "mint" },
+        { "status": "in_progress", "conclusion": null, "runnerLabel": "macbook" },
+        { "status": "in_progress", "conclusion": null, "runnerLabel": "mint" },
+        { "status": "queued", "conclusion": null, "runnerLabel": null }
+      ],
+      "expected": [
+        { "label": "Status", "value": "Running", "tone": "primary" },
+        { "label": "Duration", "value": "5m 0s", "tone": "neutral" },
+        { "label": "Runner", "value": "mint, macbook", "tone": "neutral" },
+        { "label": "Commit", "value": "8f3c2a9", "tone": "neutral" }
+      ]
+    },
+    {
+      "name": "not started yet",
+      "now": "2026-11-13T10:05:00.000Z",
+      "run": { "state": "pending", "sha": "abcdef0123456789", "startedAt": null, "completedAt": null },
+      "jobs": [{ "status": "queued", "conclusion": null, "runnerLabel": null }],
+      "expected": [
+        { "label": "Status", "value": "Queued", "tone": "neutral" },
+        { "label": "Duration", "value": "—", "tone": "neutral" },
+        { "label": "Runner", "value": "—", "tone": "neutral" },
+        { "label": "Commit", "value": "abcdef0", "tone": "neutral" }
+      ]
+    },
+    {
+      "name": "a failed run keeps its own duration",
+      "now": "2026-11-13T12:00:00.000Z",
+      "run": { "state": "failure", "sha": "0123456789abcdef", "startedAt": "2026-11-13T10:00:00.000Z", "completedAt": "2026-11-13T10:12:40.000Z" },
+      "jobs": [{ "status": "completed", "conclusion": "failure", "runnerLabel": "mint" }],
+      "expected": [
+        { "label": "Status", "value": "Failed", "tone": "danger" },
+        { "label": "Duration", "value": "12m 40s", "tone": "neutral" },
+        { "label": "Runner", "value": "mint", "tone": "neutral" },
+        { "label": "Commit", "value": "0123456", "tone": "neutral" }
+      ]
+    }
+  ],
+  "jobRows": [
+    {
+      "name": "planner order, glyphs, reasons, durations",
+      "now": "2026-11-13T10:05:00.000Z",
+      "jobs": [
+        { "id": "j2", "check": "test (linux)", "position": 1, "status": "in_progress", "conclusion": null, "reason": null, "startedAt": "2026-11-13T10:03:00.000Z", "completedAt": null },
+        { "id": "j1", "check": "build", "position": 0, "status": "completed", "conclusion": "success", "reason": null, "startedAt": "2026-11-13T10:00:00.000Z", "completedAt": "2026-11-13T10:02:30.000Z" },
+        { "id": "j3", "check": "deploy", "position": 2, "status": "completed", "conclusion": "skipped", "reason": "needs", "startedAt": null, "completedAt": "2026-11-13T10:04:00.000Z" },
+        { "id": "j4", "check": "lint", "position": 3, "status": "queued", "conclusion": null, "reason": null, "startedAt": null, "completedAt": null },
+        { "id": "j5", "check": "e2e", "position": 4, "status": "completed", "conclusion": "failure", "reason": "runner_lost", "startedAt": "2026-11-13T10:00:00.000Z", "completedAt": "2026-11-13T10:04:00.000Z" }
+      ],
+      "expected": [
+        { "id": "j1", "title": "build", "subtitle": null, "glyph": "ci-passed", "tone": "green", "duration": "2m 30s" },
+        { "id": "j2", "title": "test (linux)", "subtitle": null, "glyph": "ci-running", "tone": "muted", "duration": "2m 0s" },
+        { "id": "j3", "title": "deploy", "subtitle": "Skipped: a job it needs did not pass", "glyph": "ci-skipped", "tone": "muted", "duration": null },
+        { "id": "j4", "title": "lint", "subtitle": null, "glyph": "ci-queued", "tone": "muted", "duration": null },
+        { "id": "j5", "title": "e2e", "subtitle": "The runner stopped answering", "glyph": "ci-failed", "tone": "red", "duration": "4m 0s" }
+      ]
+    }
+  ],
+  "defaultJob": [
+    { "name": "the query param wins", "requested": "j3", "jobs": [{ "id": "j1", "position": 0, "status": "completed", "conclusion": "failure" }, { "id": "j3", "position": 1, "status": "completed", "conclusion": "success" }], "expected": "j3" },
+    { "name": "an unknown param falls back to the first failing", "requested": "nope", "jobs": [{ "id": "j1", "position": 0, "status": "completed", "conclusion": "success" }, { "id": "j2", "position": 1, "status": "completed", "conclusion": "timed_out" }], "expected": "j2" },
+    { "name": "else the first running", "requested": null, "jobs": [{ "id": "j1", "position": 0, "status": "completed", "conclusion": "success" }, { "id": "j2", "position": 1, "status": "queued", "conclusion": null }, { "id": "j3", "position": 2, "status": "in_progress", "conclusion": null }], "expected": "j3" },
+    { "name": "else the first by position", "requested": null, "jobs": [{ "id": "j2", "position": 1, "status": "completed", "conclusion": "success" }, { "id": "j1", "position": 0, "status": "completed", "conclusion": "success" }], "expected": "j1" },
+    { "name": "no jobs", "requested": null, "jobs": [], "expected": null }
+  ],
+  "steps": [
+    {
+      "name": "every status",
+      "now": "2026-11-13T10:05:00.000Z",
+      "steps": [
+        { "name": "Checkout", "status": "completed", "conclusion": "success", "startedAt": 1794564000000, "completedAt": 1794564004000 },
+        { "name": "Install", "status": "completed", "conclusion": "failure", "startedAt": 1794564004000, "completedAt": 1794564065000 },
+        { "name": "Flaky", "status": "completed", "conclusion": "timed_out", "startedAt": 1794564065000, "completedAt": 1794564125000 },
+        { "name": "Docs", "status": "completed", "conclusion": "skipped", "startedAt": null, "completedAt": null },
+        { "name": "Test", "status": "in_progress", "conclusion": null, "startedAt": 1794564270000, "completedAt": null },
+        { "name": "Upload", "status": "queued", "conclusion": null, "startedAt": null, "completedAt": null }
+      ],
+      "expected": [
+        { "title": "Checkout", "status": "done", "description": "4s" },
+        { "title": "Install", "status": "error", "description": "1m 1s" },
+        { "title": "Flaky", "status": "error", "description": "1m 0s" },
+        { "title": "Docs", "status": "skipped", "description": null },
+        { "title": "Test", "status": "running", "description": "30s" },
+        { "title": "Upload", "status": "pending", "description": null }
+      ]
+    }
+  ],
+  "logView": [
+    {
+      "name": "markers become lines, errors are highlighted",
+      "text": "##[group]Checkout 8f3c2a9d1e7b\n##[endgroup]\n##[group]Test\nrunning 3 tests\ntest a ... ok\n##[warning]secrets not set: TOKEN\n##[error]exited with code 1\n##[endgroup]\n",
+      "expected": {
+        "code": "▸ Checkout 8f3c2a9d1e7b\n▸ Test\nrunning 3 tests\ntest a ... ok\nWarning: secrets not set: TOKEN\nError: exited with code 1",
+        "highlight": [6]
+      }
+    },
+    { "name": "empty", "text": "", "expected": { "code": "", "highlight": [] } },
+    {
+      "name": "ansi colours pass through, a partial last line stays",
+      "text": "\u001b[32mok\u001b[0m\n##[error]boom\npartial",
+      "expected": { "code": "\u001b[32mok\u001b[0m\nError: boom\npartial", "highlight": [2] }
+    }
+  ],
+  "actions": [
+    { "name": "pending: cancel only", "state": "pending", "error": null, "expected": { "rerunFailed": false, "cancel": true } },
+    { "name": "failed: re-run failed", "state": "failure", "error": null, "expected": { "rerunFailed": true, "cancel": false } },
+    { "name": "a broken pipeline file re-plans", "state": "failure", "error": "/jobs/Bad: invalid_name", "expected": { "rerunFailed": true, "cancel": false } },
+    { "name": "passed: nothing", "state": "success", "error": null, "expected": { "rerunFailed": false, "cancel": false } }
+  ],
+  "specimen": {
+    "$comment": "The page every platform renders for its shot (no server): run #12 of `ci` on mint, one job failed, `test (linux)` selected.",
+    "now": "2026-11-13T10:14:00.000Z",
+    "run": { "id": "r12", "number": 12, "name": "ci", "state": "failure", "error": null, "sha": "8f3c2a9d1e7b4c6a5f0e9d8c7b6a5f4e3d2c1b0a", "startedAt": "2026-11-13T10:00:00.000Z", "completedAt": "2026-11-13T10:12:40.000Z" },
+    "jobs": [
+      { "id": "j1", "check": "build", "position": 0, "status": "completed", "conclusion": "success", "reason": null, "runnerLabel": "mint", "startedAt": "2026-11-13T10:00:00.000Z", "completedAt": "2026-11-13T10:04:10.000Z", "steps": [] },
+      {
+        "id": "j2",
+        "check": "test (linux)",
+        "position": 1,
+        "status": "completed",
+        "conclusion": "failure",
+        "reason": null,
+        "runnerLabel": "mint",
+        "startedAt": "2026-11-13T10:04:15.000Z",
+        "completedAt": "2026-11-13T10:12:40.000Z",
+        "steps": [
+          { "name": "Checkout", "status": "completed", "conclusion": "success", "startedAt": 1794564255000, "completedAt": 1794564259000 },
+          { "name": "Install", "status": "completed", "conclusion": "success", "startedAt": 1794564259000, "completedAt": 1794564301000 },
+          { "name": "Unit tests", "status": "completed", "conclusion": "failure", "startedAt": 1794564301000, "completedAt": 1794564760000 },
+          { "name": "Upload report", "status": "completed", "conclusion": "skipped", "startedAt": null, "completedAt": null }
+        ]
+      },
+      { "id": "j3", "check": "deploy", "position": 2, "status": "completed", "conclusion": "skipped", "reason": "needs", "runnerLabel": null, "startedAt": null, "completedAt": "2026-11-13T10:12:40.000Z", "steps": [] }
+    ],
+    "selected": "j2",
+    "log": "##[group]Checkout 8f3c2a9d1e7b\n##[endgroup]\n##[group]Install\nbun install v1.3.14\n1652 packages installed [611.00ms]\n##[endgroup]\n##[group]Unit tests\n\u001b[32m✓\u001b[0m src/lib/ci/state.test.ts (6 tests) 12ms\n\u001b[32m✓\u001b[0m src/lib/ci/logs.test.ts (3 tests) 9ms\n\u001b[31m×\u001b[0m src/lib/ci/train.test.ts > squashes each PR in order\n  AssertionError: expected 'conflict' to be 'composed'\n Test Files  1 failed | 2 passed (3)\n##[error]exited with code 1\n##[endgroup]\n"
+  }
+}

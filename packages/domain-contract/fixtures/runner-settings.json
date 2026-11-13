@@ -1,0 +1,82 @@
+{
+  "$comment": "#EXP-1617 / #EXP-1804 THE CI RUNNER SECTION of a device's detail (view `machine-settings`, ×4), genUI catalog only. DATA: the device row (devices shape: `runner` = {enabled, labels, slots, timeoutMin} or null = never set up, `caps`, `platform`, `user_id`) and the `ci_jobs` rows it ran (`runner_device_id`, synced). WRITE: one `ci.setRunner{deviceId, enabled, labels, slots, timeoutMin}` per change (the whole settings object; `defaults` fill a null `runner`), the device OWNER only. LAYOUT inside a `Section` titled copy.section: first the `notice` as an `Alert` when it is not null; then a `SettingsRow` (label copy.enabled.label, description copy.enabled.description) holding a `Switch`; then, only while enabled, a `ChipInput` (label copy.labels.label, placeholder copy.labels.placeholder, max limits.labels; every entry through `normalizeLabel`, a null result is refused inline with copy.labels.invalid, a duplicate is dropped), a `NumberField` (label copy.slots, min limits.slots.min, max limits.slots.max, step 1) and a `Select` (label copy.timeout, options = `timeoutOptions`, value = String(timeoutMin)); the platform's OS label (`osLabel`) shows as the ChipInput's first suggestion; then copy.recent as a `Heading` level 4 and `recentJobs` as `Row`s (icon = pr-checks glyph, title = check, subtitle = copy.runSubtitle with {number} and {repo}, meta = duration), copy.noJobs as a muted `Text` when there are none. Every control is `disabled` for a viewer who is not the owner (a teammate's shared device). RULES: `normalizeLabel` trims and lowercases, then must match eCode's label rule `^[a-z0-9][a-z0-9._-]{0,31}$`; `notice` (one, in this order): a PHONE client (iOS, Android, web-mobile) gets copy.notice.phone (info: phones set a runner up, they never run jobs), a device without the `ci-runner` cap gets copy.notice.update (warning: its app is too old to run jobs), else null; `osLabel` maps the device platform: linux → linux, macos|darwin → mac, windows → windows, else null; `recentJobs` = the jobs with this runner, newest `startedAt` first (never started last), at most limits.recent.",
+  "copy": {
+    "section": "CI runner",
+    "enabled": { "label": "Run CI jobs", "description": "Runs your team's pipelines on this device." },
+    "labels": { "label": "Labels", "placeholder": "gpu, big", "invalid": "Use lowercase letters, digits, dots, dashes or underscores." },
+    "slots": "Parallel jobs",
+    "timeout": "Job timeout",
+    "recent": "Recent jobs",
+    "noJobs": "No jobs yet.",
+    "runSubtitle": "Run #{number} · {repo}",
+    "notice": {
+      "phone": { "type": "info", "title": "Set up here, runs on the device", "message": "A phone never runs CI jobs: this sets up the device's runner." },
+      "update": { "type": "warning", "title": "Update this device", "message": "Its app is too old to run CI jobs." }
+    }
+  },
+  "defaults": { "enabled": false, "labels": [], "slots": 1, "timeoutMin": 60 },
+  "limits": { "labels": 16, "slots": { "min": 1, "max": 16 }, "recent": 5 },
+  "testIds": { "section": "runner-settings", "switch": "runner-enabled", "labels": "runner-labels", "slots": "runner-slots", "timeout": "runner-timeout", "recent": "runner-recent" },
+  "timeoutOptions": [
+    { "value": "15", "label": "15 min" },
+    { "value": "30", "label": "30 min" },
+    { "value": "60", "label": "1 h" },
+    { "value": "120", "label": "2 h" },
+    { "value": "240", "label": "4 h" },
+    { "value": "360", "label": "6 h" }
+  ],
+  "normalizeLabel": [
+    { "input": "gpu", "expected": "gpu" },
+    { "input": "  Big-Disk ", "expected": "big-disk" },
+    { "input": "x64", "expected": "x64" },
+    { "input": "node.24_lts", "expected": "node.24_lts" },
+    { "input": "", "expected": null },
+    { "input": "-gpu", "expected": null },
+    { "input": "two words", "expected": null },
+    { "input": "a234567890123456789012345678901234", "expected": null }
+  ],
+  "notice": [
+    { "name": "a phone client", "client": "ios", "caps": ["ci-runner"], "expected": "phone" },
+    { "name": "android too", "client": "android", "caps": [], "expected": "phone" },
+    { "name": "web on a phone", "client": "web-mobile", "caps": ["ci-runner"], "expected": "phone" },
+    { "name": "an old daemon", "client": "web", "caps": ["update-check"], "expected": "update" },
+    { "name": "the desktop, a current daemon", "client": "desktop", "caps": ["ci-runner"], "expected": null }
+  ],
+  "osLabel": [
+    { "platform": "linux", "expected": "linux" },
+    { "platform": "macos", "expected": "mac" },
+    { "platform": "darwin", "expected": "mac" },
+    { "platform": "windows", "expected": "windows" },
+    { "platform": null, "expected": null },
+    { "platform": "freebsd", "expected": null }
+  ],
+  "recentJobs": [
+    {
+      "name": "this runner's newest first, at most five",
+      "deviceId": "d1",
+      "now": "2026-11-13T10:30:00.000Z",
+      "jobs": [
+        { "id": "a", "runnerDeviceId": "d1", "check": "build", "runNumber": 10, "repo": "niach/exponential", "status": "completed", "conclusion": "success", "startedAt": "2026-11-13T09:00:00.000Z", "completedAt": "2026-11-13T09:02:00.000Z" },
+        { "id": "b", "runnerDeviceId": "d2", "check": "build", "runNumber": 11, "repo": "niach/exponential", "status": "completed", "conclusion": "success", "startedAt": "2026-11-13T09:10:00.000Z", "completedAt": "2026-11-13T09:12:00.000Z" },
+        { "id": "c", "runnerDeviceId": "d1", "check": "test (linux)", "runNumber": 12, "repo": "niach/exponential", "status": "in_progress", "conclusion": null, "startedAt": "2026-11-13T10:20:00.000Z", "completedAt": null },
+        { "id": "d", "runnerDeviceId": "d1", "check": "lint", "runNumber": 12, "repo": "niach/exponential", "status": "completed", "conclusion": "failure", "startedAt": "2026-11-13T10:19:00.000Z", "completedAt": "2026-11-13T10:19:45.000Z" },
+        { "id": "e", "runnerDeviceId": "d1", "check": "e2e", "runNumber": 9, "repo": "niach/spezl", "status": "completed", "conclusion": "success", "startedAt": "2026-11-13T08:00:00.000Z", "completedAt": "2026-11-13T08:30:00.000Z" },
+        { "id": "f", "runnerDeviceId": "d1", "check": "docs", "runNumber": 8, "repo": "niach/spezl", "status": "completed", "conclusion": "success", "startedAt": "2026-11-13T07:00:00.000Z", "completedAt": "2026-11-13T07:00:20.000Z" },
+        { "id": "g", "runnerDeviceId": "d1", "check": "old", "runNumber": 7, "repo": "niach/spezl", "status": "completed", "conclusion": "success", "startedAt": "2026-11-13T06:00:00.000Z", "completedAt": "2026-11-13T06:00:20.000Z" }
+      ],
+      "expected": [
+        { "id": "c", "title": "test (linux)", "subtitle": "Run #12 · niach/exponential", "glyph": "ci-running", "tone": "muted", "duration": "10m 0s" },
+        { "id": "d", "title": "lint", "subtitle": "Run #12 · niach/exponential", "glyph": "ci-failed", "tone": "red", "duration": "45s" },
+        { "id": "a", "title": "build", "subtitle": "Run #10 · niach/exponential", "glyph": "ci-passed", "tone": "green", "duration": "2m 0s" },
+        { "id": "e", "title": "e2e", "subtitle": "Run #9 · niach/spezl", "glyph": "ci-passed", "tone": "green", "duration": "30m 0s" },
+        { "id": "f", "title": "docs", "subtitle": "Run #8 · niach/spezl", "glyph": "ci-passed", "tone": "green", "duration": "20s" }
+      ]
+    }
+  ],
+  "specimen": {
+    "$comment": "The section every platform renders for its shot: mint's enabled runner, owner viewing, one label, two slots, 1 h, the recent jobs of recentJobs[0] (now as there).",
+    "client": "desktop",
+    "device": { "id": "d1", "label": "mint", "platform": "linux", "caps": ["ci-runner"], "runner": { "enabled": true, "labels": ["gpu"], "slots": 2, "timeoutMin": 60 } },
+    "owner": true
+  }
+}
