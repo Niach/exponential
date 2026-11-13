@@ -10,6 +10,7 @@ import {
   devices,
   pullRequestChecks,
   pullRequests,
+  repoRefs,
   repositories,
   teamMembers,
   teams,
@@ -229,4 +230,63 @@ describe.skipIf(!ready.ok)(`eCode CI`, { timeout: 30_000 }, () => {
       .where(and(eq(commitChecks.repositoryId, f.repositoryId), eq(commitChecks.sha, `e`.repeat(40))))
     expect([check.name, check.conclusion]).toEqual([`pipeline`, `failure`])
   })
+
+  it(`an ecode repo push plans through a device read_file job and dispatches the run`, async () => {
+    // The real ecode forge (no GitHub): the pipeline is read by a device job.
+    setForgeForTests(null)
+    try {
+      const f = await fixture()
+      await db.update(repositories).set({ provider: `ecode` }).where(eq(repositories.id, f.repositoryId))
+      // The device runs eCode's git jobs too.
+      await db
+        .update(devices)
+        .set({ caps: [runs.CI_RUNNER_CAP, `ecode-jobs`] })
+        .where(eq(devices.id, f.deviceRowId))
+      const sha = `f`.repeat(40)
+      await db.insert(repoRefs).values({ repositoryId: f.repositoryId, ref: `refs/heads/main`, sha })
+
+      // The daemon's side of the read_file job: answer it from "the repo".
+      let asked: Record<string, unknown> | null = null
+      const device = (async () => {
+        for (let i = 0; i < 100; i++) {
+          const [job] = await db
+            .select()
+            .from(deviceCommands)
+            .where(and(eq(deviceCommands.deviceRowId, f.deviceRowId), eq(deviceCommands.kind, `ecode_job`), eq(deviceCommands.status, `pending`)))
+            .limit(1)
+          if (job) {
+            asked = JSON.parse(job.payload.args!) as Record<string, unknown>
+            await db
+              .update(deviceCommands)
+              .set({ status: `done`, completedAt: new Date(), result: JSON.stringify({ ok: true, result: { text: JSON.stringify(PIPELINE) } }) })
+              .where(eq(deviceCommands.id, job.id))
+            return
+          }
+          await new Promise((resolve) => setTimeout(resolve, 100))
+        }
+      })()
+
+      const { pgEcodeHost } = await import(`@/lib/ecode/ecode-host`)
+      const { drainCiTriggers } = await import(`@/lib/ci/triggers`)
+      const repo = { id: f.repositoryId, fullName: `org/${f.slug}`, provider: `ecode` as const }
+      await pgEcodeHost.publish(repo, [{ kind: `pushed`, branch: `main`, sha }])
+      await device
+      await drainCiTriggers()
+
+      expect(asked).toEqual({ op: `read_file`, sha, path: `.exponential/ci.json` })
+      const [run] = await db.select().from(ciRuns).where(eq(ciRuns.repositoryId, f.repositoryId))
+      expect([run.trigger, run.sha, run.ref, run.state]).toEqual([`push`, sha, `main`, `pending`])
+      const [build] = await jobsOf(run.id)
+      const dispatched = await db
+        .select()
+        .from(deviceCommands)
+        .where(and(eq(deviceCommands.deviceRowId, f.deviceRowId), eq(deviceCommands.kind, runs.CI_JOB_COMMAND)))
+      expect(dispatched.map((c) => c.payload.jobId)).toEqual([build.id])
+    } finally {
+      setForgeForTests(() =>
+        partialForgeForTests({ kind: `github`, requiredChecks: async () => [], reportStatus: async () => {}, readFile: async () => null })
+      )
+    }
+  })
 })
+

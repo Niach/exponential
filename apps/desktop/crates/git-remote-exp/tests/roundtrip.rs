@@ -252,8 +252,13 @@ fn clone_fetch_push_jobs_and_a_restored_backup() {
     assert_eq!(files["files"][0]["change"], "added");
     assert_eq!(files["files"][0]["additions"], 1);
     assert_eq!(run(json!({ "op": "is_ancestor", "ancestor": c1, "of": c3 })), json!({ "yes": true }));
-    let squash = run(json!({ "op": "squash", "base": c3, "head": t1, "message": "Topic (#1)" }));
+    // #EXP-1617: a file at a commit (our CI's pipeline read), and a missing one.
+    assert_eq!(run(json!({ "op": "read_file", "sha": c3, "path": "c.txt" })), json!({ "text": "three\n" }));
+    assert_eq!(run(json!({ "op": "read_file", "sha": c1, "path": "c.txt" })), json!({ "text": null }));
+    let squash = run(json!({ "op": "squash", "base": c3, "head": t1, "message": "Topic (#1)", "author": "Ada Lovelace <ada@example.com>" }));
     let merged = squash["sha"].as_str().unwrap().to_string();
+    // #EXP-1617: the PR's author, the job's identity as committer.
+    assert_eq!(ok(&cache, &["log", "-1", "--format=%an <%ae>|%cn", &merged], &server.url), "Ada Lovelace <ada@example.com>|Exponential");
     // The job moved no ref: the server's CAS does (as ecodeForge would).
     {
         let mut s = server.state.lock().unwrap();

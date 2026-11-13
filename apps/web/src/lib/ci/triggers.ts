@@ -6,9 +6,10 @@
 // gets its own run. Fire and forget: a webhook answers before the forge
 // read of `.exponential/ci.json`.
 
-import { and, eq } from "drizzle-orm"
+import { and, eq, inArray } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { pullRequests, repositories } from "@/db/schema"
+import { LIVE_PR_STATES } from "@/lib/pr-merge-guard"
 import { isTrainBranch } from "@/lib/merge-train/commit-checks"
 import { startRun } from "@/lib/ci/runs"
 
@@ -86,6 +87,63 @@ export function onForgePullRequest(args: {
           fork: args.fork,
         })
       }
+    })()
+  )
+}
+
+// ── eCode's own forge (#EXP-1616): our bus instead of webhooks ───────────
+
+/** A push to an ecode repo: `push` on the branch, and `pull_request` for
+ *  every live PR whose head it is. A train ref is not planned here: the
+ *  merge train's own dispatch starts its `merge_train` run. Never a fork. */
+export function onEcodePush(args: { repositoryId: string; branch: string; sha: string }): void {
+  if (isTrainBranch(args.branch) || ZERO_SHA.test(args.sha)) return
+  fire(
+    (async () => {
+      await startRun({ repositoryId: args.repositoryId, sha: args.sha, trigger: `push`, ref: args.branch })
+      const prs = await db
+        .select({ id: pullRequests.id, base: pullRequests.base })
+        .from(pullRequests)
+        .where(
+          and(
+            eq(pullRequests.repositoryId, args.repositoryId),
+            eq(pullRequests.head, args.branch),
+            inArray(pullRequests.state, [...LIVE_PR_STATES])
+          )
+        )
+      for (const pr of prs) {
+        await startRun({
+          repositoryId: args.repositoryId,
+          sha: args.sha,
+          trigger: `pull_request`,
+          ref: args.branch,
+          base: pr.base,
+          pullRequestId: pr.id,
+          fork: false,
+        })
+      }
+    })()
+  )
+}
+
+/** A PR opened on an ecode repo (its row exists): `pull_request` at its head. */
+export function onEcodePullRequestOpened(args: { repositoryId: string; number: number; head: string; base: string; sha: string }): void {
+  fire(
+    (async () => {
+      const [pr] = await db
+        .select({ id: pullRequests.id })
+        .from(pullRequests)
+        .where(and(eq(pullRequests.repositoryId, args.repositoryId), eq(pullRequests.number, args.number)))
+        .limit(1)
+      await startRun({
+        repositoryId: args.repositoryId,
+        sha: args.sha,
+        trigger: `pull_request`,
+        ref: args.head,
+        base: args.base,
+        pullRequestId: pr?.id ?? null,
+        fork: false,
+      })
     })()
   )
 }

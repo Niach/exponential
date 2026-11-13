@@ -461,6 +461,13 @@ impl LocalRepo {
     /// + `commit-tree`): one commit whose parent is `base`. Moves no ref;
     ///   refuses `dirty` when the trees conflict.
     pub fn squash_commit(&self, base: &str, head: &str, message: &str) -> Result<String> {
+        self.squash_commit_by(base, head, message, None)
+    }
+
+    /// [`Self::squash_commit`] authored by `author` (the PR's author, as the
+    /// merge train's squash does); `None` = this repo's identity. The
+    /// committer stays this repo's identity.
+    pub fn squash_commit_by(&self, base: &str, head: &str, message: &str, author: Option<&Identity>) -> Result<String> {
         let (base, head) = (self.commit_id(base)?.to_string(), self.commit_id(head)?.to_string());
         let mut merge = self.git().args(["merge-tree", "--write-tree", "--no-messages"]);
         merge = match self.merge_base(&base, &head)? {
@@ -472,7 +479,11 @@ impl LocalRepo {
             return Err(Error::refused(ecode_core::ForgeReason::Dirty));
         }
         let tree = out.stdout.lines().next().unwrap_or_default().trim().to_string();
-        let sha = self.git().args(["commit-tree", &tree, "-p", &base, "-m", message]).run()?;
+        let mut commit = self.git();
+        if let Some(author) = author {
+            commit = commit.env("GIT_AUTHOR_NAME", &author.name).env("GIT_AUTHOR_EMAIL", &author.email);
+        }
+        let sha = commit.args(["commit-tree", &tree, "-p", &base, "-m", message]).run()?;
         Ok(sha.trim().to_string())
     }
 
