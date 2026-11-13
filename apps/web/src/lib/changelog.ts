@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-13-phones-notifications-ticks`,
+    date: `2026-11-13`,
+    title: `Notifications and delivery ticks on your phone`,
+    summary: `Android 0.14.135 and iOS 0.14.126: quieter notifications that clear when read elsewhere, delivery ticks on what you send, and new Android sessions stream at once.`,
+    body: `- **Quieter notifications**: while the app is open a notification shows as a short notice, or not at all when that chat is on screen; reading it on another device clears it from your phone.
+- **Delivery ticks**: a message you send shows a clock until it is sent, then one tick, then two once its session has it.
+- **Android chats**: a session you start from the phone streams right away, images shared from other apps reach the composer, and pasted images no longer end up in session titles.`,
+  },
+  {
     id: `2026-11-13-quieter-notifications`,
     date: `2026-11-13`,
     title: `Quieter notifications`,

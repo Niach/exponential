@@ -1,0 +1,3 @@
+- Notifications clear when you read them on another device, and show as a short notice while the app is open
+- Sent messages show delivery ticks
+- A session you start from the phone streams right away; shared images reach the composer
