@@ -57,6 +57,19 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
+const PREVIOUS_276: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-13-desktop-ci-runner",
+    date: "2026-11-13",
+    title: "Desktop and CLI run your team's CI",
+    summary: "Desktop and CLI 0.14.157: the CLI daemon is a CI runner for your team, repositories show their CI runs and CI settings, and Exponential repositories work from the desktop app and the CLI.",
+    body: r##"- **A CI runner in the daemon**: `exponential daemon` runs your team's CI jobs once its device's CI runner is turned on in the device settings; it can also serve GitHub Actions for repositories that opt in.
+- **Runs on the repository page**: the Runs tab lists the repository's CI runs; open one for its jobs, steps and live log, and re-run or cancel it.
+- **CI settings**: a repository's Settings tab holds its pipelines, required checks, secrets and the GitHub switches.
+- **Exponential repositories**: `git clone exp://<team>/<name>` works through the CLI and the desktop app, and the IDE sidebar shows a repository's pull requests as a tree."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
 const PREVIOUS_275: ChangelogEntry = ChangelogEntry {
     id: "2026-11-13-repo-runs-ci-settings",
     date: "2026-11-13",
