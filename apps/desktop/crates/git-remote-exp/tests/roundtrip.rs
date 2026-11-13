@@ -260,6 +260,19 @@ fn clone_fetch_push_jobs_and_a_restored_backup() {
     let merged = squash["sha"].as_str().unwrap().to_string();
     // #EXP-1617: the PR's author, the job's identity as committer.
     assert_eq!(ok(&cache, &["log", "-1", "--format=%an <%ae>|%cn", &merged], &server.url), "Ada Lovelace <ada@example.com>|Exponential");
+    // #EXP-1617: the merge train's batch, composed like the GitHub train: one
+    // clean unit on main, the head's objects in the bucket, no ref moved.
+    let packs_before = server.state.lock().unwrap().packs.len();
+    let unit = json!([{ "prs": [{ "number": 1, "head_sha": t1, "title": "Topic", "author": "Ada Lovelace <ada@example.com>" }] }]);
+    let composed = run(json!({ "op": "compose", "train_id": "t1", "base_sha": c3, "mode": "test", "units": unit }));
+    let outcome = &composed["outcome"];
+    assert_eq!(outcome["units"], json!([{ "prs": [1], "outcome": "composed", "files": [], "resolved": [] }]), "{composed}");
+    assert_eq!((outcome["checks"].clone(), outcome["error"].clone(), composed["dispatch"].clone()), (json!("none"), Value::Null, json!([])));
+    let train_head = outcome["head"].as_str().unwrap().to_string();
+    assert_eq!(ok(&cache, &["log", "-1", "--format=%s|%an <%ae>|%cn", &train_head], &server.url), "Topic (#1)|Ada Lovelace <ada@example.com>|Exponential");
+    assert_eq!(ok(&cache, &["rev-parse", &format!("{train_head}^")], &server.url), c3);
+    assert_eq!(server.state.lock().unwrap().packs.len(), packs_before + 1, "the composed head went up as a pack");
+    assert_eq!(ok(&cache, &["worktree", "list", "--porcelain"], &server.url).matches("worktree ").count(), 1, "the throwaway worktree is gone");
     // The job moved no ref: the server's CAS does (as ecodeForge would).
     {
         let mut s = server.state.lock().unwrap();

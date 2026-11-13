@@ -21,6 +21,7 @@ const SOURCES: &[(&str, &str)] = &[
     ("pipeline.rs", include_str!("../src/pipeline.rs")),
     ("remote.rs", include_str!("../src/remote.rs")),
     ("runner.rs", include_str!("../src/runner.rs")),
+    ("train.rs", include_str!("../src/train.rs")),
     ("workflow.rs", include_str!("../src/workflow.rs")),
 ];
 

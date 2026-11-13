@@ -46,6 +46,7 @@ With the Exponential server, the team bucket IS the remote. No git process runs 
 - objects are packs in the team bucket (`repo_packs`, counted toward team storage), moved device ↔ bucket over presigned URLs;
 - `git-remote-exp` (shipped inside the CLI and the desktop app) makes `git clone/fetch/push exp://<team>/<repo>` work;
 - the server's `ecodeForge` (`apps/web/src/lib/ecode/forge-ecode.ts`) implements every op of `forge.json` natively: PRs are `pull_requests` rows, events go through the same writers as GitHub's webhooks, and anything that needs git (mergeability, squash merge, files, `rebase --onto`, backups, restores, repacks, the mirror push) runs as a job on a team device (`device_commands` kind `ecode_job`). `forge-ecode-conformance.test.ts` replays `forge.json` against it;
+- the merge train composes an ecode repository's batch with ONE device job, `compose` {train_id, base_sha, mode, units}: the same engine as the GitHub train (`scripts/merge-train/compose.ts`, ported to `ecode::compose`), generated-file resolver rules of `.exponential/merge-train.json` included; it answers the `TrainPipelineOutcome` + the dispatch list, and the server moves `exp-train/<id>` to its head (#EXP-1617);
 - a bundle backup lands in the bucket after every landing, and the optional mirror is pushed.
 
 ## The traits (crate `ecode`, #EXP-1615)

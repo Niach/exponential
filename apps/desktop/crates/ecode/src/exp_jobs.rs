@@ -123,12 +123,65 @@ pub fn run_job(git: &ExpGit, cache: &Path, args: &Value) -> Result<Value> {
             let any = tree.keys().any(|path| path.starts_with(&prefix));
             Ok(if any { json!({ "files": files }) } else { json!({ "files": null }) })
         }
+        // #EXP-1617: the merge train's batch, composed like the GitHub train
+        // (feature `compose`, `crate::compose`): answers the outcome + the
+        // dispatch list; the head's objects go to the bucket, no ref moves.
+        #[cfg(feature = "compose")]
+        "compose" => compose(git, cache, args),
         "backup" => backup(git, cache, &repo, &refs),
         "restore" => restore(git, arg(args, "bundle")?),
         "repack" => repack(git, cache),
         "mirror" => mirror(&repo, &refs, args),
         other => Err(Error::Invalid(format!("unknown eCode job `{other}`"))),
     }
+}
+
+/// `compose` {train_id, base_sha, mode, units, workflows?}: the batch
+/// composed in a THROWAWAY worktree of the cache (removed after), the repo's
+/// commands run there. `workflows` = the server's CI for the train when the
+/// base's `.exponential/merge-train.json` names none (`ci` absent): our
+/// pipeline file with an `on.merge_train` trigger. A compose that fails
+/// answers an outcome with its `error` (the TS engine's cli.ts), never a
+/// failed job.
+#[cfg(feature = "compose")]
+fn compose(git: &ExpGit, cache: &Path, args: &Value) -> Result<Value> {
+    use crate::compose::{compose, error_outcome, read_config, ComposeInput};
+    let train_id = arg(args, "train_id")?.to_string();
+    let base_sha = arg(args, "base_sha")?.to_string();
+    let mode = serde_json::from_value(args.get("mode").cloned().unwrap_or_else(|| json!("test")))
+        .map_err(|e| Error::Invalid(format!("the job's `mode`: {e}")))?;
+    // `units` as the list or as its JSON text (the dispatch inputs' form).
+    let units = match &args["units"] {
+        Value::String(text) => serde_json::from_str(text),
+        other => serde_json::from_value(other.clone()),
+    }
+    .map_err(|e| Error::Invalid(format!("the job's `units`: {e}")))?;
+    let identity = job_identity();
+    let workflows: Vec<String> = args["workflows"].as_array().map(|list| list.iter().filter_map(Value::as_str).map(str::to_string).collect()).unwrap_or_default();
+    let mut input = ComposeInput { train_id, base_sha, mode, units, config: None, identity: Some((identity.name, identity.email)) };
+    let dir = scratch("compose");
+    let dir_arg = dir.display().to_string();
+    git_at(cache).args(["worktree", "add", "--detach", "--quiet", &dir_arg, &input.base_sha]).run()?;
+    let composed = read_config(&dir, &input.base_sha).and_then(|mut config| {
+        if config.ci.is_none() && !workflows.is_empty() {
+            config.ci = Some(ecode_core::TrainCi { workflows });
+        }
+        input.config = Some(config);
+        compose(&dir, &input)
+    });
+    let _ = git_at(cache).args(["worktree", "remove", "--force", &dir_arg]).run();
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = git_at(cache).args(["worktree", "prune"]).run();
+    let (outcome, dispatch) = match composed {
+        Ok(result) => {
+            if let Some(head) = &result.outcome.head {
+                git.send_objects(cache, std::slice::from_ref(head))?;
+            }
+            (result.outcome, result.dispatch)
+        }
+        Err(error) => (error_outcome(&input.train_id, &input.base_sha, &error.to_string()), vec![]),
+    };
+    Ok(json!({ "outcome": outcome, "dispatch": dispatch }))
 }
 
 /// A bundle snapshot of every ref into the bucket.

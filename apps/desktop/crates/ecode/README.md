@@ -35,6 +35,7 @@ commit kept) and bundles (gix 0.90 has no bundle support).
 | `github` | `GithubForge` over REST with a token, `DeviceFlow` for OAuth without a server, events by polling the PR list with an ETag |
 | `exponential` | `ExponentialCredentials`: `repositories.credentials` (by id, or by `exp://` URL), cached until the refresh margin |
 | `exponential` + `repo` | `exp_git::ExpGit`: `exp://<team>/<repo>`, eCode's own git (#EXP-1616). The team bucket is the remote: refs are compare-and-swap rows on the server, packs move device ↔ bucket over presigned URLs (fetch = every pack past a cursor, `git index-pack`; push = `git pack-objects` of what the remote lacks, one CAS for every ref). `exp_jobs`: the git jobs a team device runs for the server's forge (mergeability, squash, files, `rebase --onto`, ancestry, bundle backup, restore, repack, mirror). `git-remote-exp` (crate beside this one) is git's remote helper on top. |
+| `compose` | `compose::compose`: the merge train's engine, a port of `scripts/merge-train/compose.ts` on git argv (squash per PR with its author, the `.exponential/merge-train.json` resolver rules, stale regenerates, lockfile drift, `against: batch`, proven/skipped/dispatched). With `exponential` + `repo`, `exp_jobs`' `compose` job runs it in a throwaway worktree of the job cache (#EXP-1617). `tests/compose.rs` ports every case of `compose.test.ts`. |
 
 ## The runner (feature `runner`, #EXP-1617)
 

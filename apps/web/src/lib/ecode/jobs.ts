@@ -39,6 +39,8 @@ const WAIT_MS: Record<EcodeJob[`op`], number> = {
   is_ancestor: 30_000,
   read_file: 60_000,
   list_dir: 60_000,
+  // #EXP-1617: a whole batch, the repo's setup + resolver commands included.
+  compose: 30 * 60_000,
 }
 
 export interface JobDevice {

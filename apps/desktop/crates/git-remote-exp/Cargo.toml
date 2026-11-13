@@ -18,3 +18,5 @@ ecode = { path = "../ecode", default-features = false, features = ["repo", "expo
 serde_json = { workspace = true }
 
 [dev-dependencies]
+# #EXP-1617: the roundtrip test runs the merge train's `compose` job too.
+ecode = { path = "../ecode", default-features = false, features = ["repo", "exponential", "compose"] }
