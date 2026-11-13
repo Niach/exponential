@@ -217,6 +217,8 @@ class AgentComposerViewModel @Inject constructor(
     private val issuesApi: IssuesApi,
     private val mcpServersApi: McpServersApi,
     private val agentsApi: com.exponential.app.data.api.AgentsApi,
+    // #FEED-219: the composer's synced draft.
+    composerDrafts: com.exponential.app.data.composer.ComposerDrafts,
 ) : ViewModel() {
 
     /** S-3: the viewer (the agent row's `me`). */
@@ -356,6 +358,29 @@ class AgentComposerViewModel @Inject constructor(
     /** The text — the screen owns the caret (`TextFieldValue`), this the string. */
     val draft: StateFlow<String> = _draft
 
+    // #FEED-219 (composer-draft.json): the field is the team's synced
+    // `newChat:<teamId>` draft (the home and the start sheet share it).
+    private val draftBinding = com.exponential.app.data.composer.ComposerDraftBinding(
+        viewModelScope, composerDrafts, _draft,
+    ) { _draft.value = it }
+
+    init {
+        viewModelScope.launch {
+            combine(auth.activeAccountId, teamId) { account, team -> account to team }.collect { (account, team) ->
+                draftBinding.bind(
+                    account,
+                    team?.let { com.exponential.app.domain.ComposerDraft.Target(com.exponential.app.domain.ComposerDraft.Kind.NewChat, it) },
+                    team,
+                )
+            }
+        }
+    }
+
+    override fun onCleared() {
+        draftBinding.flush()
+        super.onCleared()
+    }
+
     private val _images = MutableStateFlow<List<PendingAttachment>>(emptyList())
     val images: StateFlow<List<PendingAttachment>> = _images
 
@@ -456,11 +481,19 @@ class AgentComposerViewModel @Inject constructor(
      * files when Send was pressed; the subject clears if it is still the one
      * that went out.
      */
-    private fun settleSentDraft(text: String, sent: List<PendingAttachment>, subject: ComposerSubject?) {
+    private fun settleSentDraft(
+        text: String,
+        sent: List<PendingAttachment>,
+        subject: ComposerSubject?,
+        sentDraft: com.exponential.app.data.composer.ComposerDraftBinding.Bound?,
+    ) {
         val after = ComposerSend.settle(ComposerSend.Outcome.Sent, text, sent, _draft.value, _images.value)
-        _draft.value = after.text
+        // #FEED-219: another team's field meanwhile keeps its text.
+        if (draftBinding.bound?.id == sentDraft?.id) _draft.value = after.text
         _images.value = after.attachments
         if (_subject.value == subject) _subject.value = null
+        // Then the draft the send leaves is written.
+        draftBinding.settleSent(sentDraft, text)
     }
 
     /**
@@ -964,6 +997,7 @@ class AgentComposerViewModel @Inject constructor(
         val draftText = _draft.value
         val images = _images.value
         val subject = _subject.value
+        val sentDraft = draftBinding.bound
         // EXP-1537: on the store's scope, not the ViewModel's: leaving the
         // screen right after Send must not cancel the uploads or the start.
         store.launchDetached {
@@ -993,7 +1027,7 @@ class AgentComposerViewModel @Inject constructor(
                     subject = subject,
                 )
                 accepted = steerLaunch.send(input, label) != null
-                if (accepted) settleSentDraft(draftText, sent, subject)
+                if (accepted) settleSentDraft(draftText, sent, subject, sentDraft)
             } finally {
                 _sending.value = false
                 if (!accepted) _starting.value = null
@@ -1015,6 +1049,7 @@ class AgentComposerViewModel @Inject constructor(
         val draftText = _draft.value
         val images = _images.value
         val subject = _subject.value
+        val sentDraft = draftBinding.bound
         val me = auth.userId.value
         val teamsPicked = _teamsPick.value
         store.launchDetached {
@@ -1052,7 +1087,7 @@ class AgentComposerViewModel @Inject constructor(
                         scopeTeamIds = if (assistant) SessionsSendInput.scope(teamsPicked) else null,
                     ),
                 ) != null
-                if (accepted) settleSentDraft(draftText, sent, subject)
+                if (accepted) settleSentDraft(draftText, sent, subject, sentDraft)
             } finally {
                 _sending.value = false
             }
