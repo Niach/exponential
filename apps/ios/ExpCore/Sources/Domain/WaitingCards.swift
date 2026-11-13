@@ -4,7 +4,8 @@ import Foundation
 /// (`packages/domain-contract/fixtures/waiting-cards.json`, TS reference
 /// `src/waiting-cards.ts`): a card's state (waiting / answered / dismissed /
 /// superseded) and the chat header's waiting chips. `WaitingCardsTests`
-/// replays `stateCases`, `chipCases` and `targetCases`, comparing the WHOLE value.
+/// replays `stateCases`, `chipCases`, `targetCases` and `deepLinkCases`,
+/// comparing the WHOLE value.
 public enum WaitingCards {
     public enum State: String, Equatable, Sendable {
         case waiting, answered, dismissed, superseded
@@ -36,6 +37,8 @@ public enum WaitingCards {
         public static let labelMax = 24
         public static let ellipsis = "\u{2026}"
         public static let highlightMs = 1600
+        /// DEEP LINKS: a pending link gives up after this long.
+        public static let deepLinkMs = 10000
     }
 
     public enum TestIds {
@@ -147,5 +150,46 @@ public enum WaitingCards {
     /// The phone button's accessible name.
     public static func waitingCountLabel(_ count: Int) -> String {
         Copy.waitingCount.replacingOccurrences(of: "{count}", with: String(count))
+    }
+
+    // MARK: - DEEP LINKS
+
+    /// The deep link's next step (`deepLinkStep`).
+    public enum DeepLinkStep: String, Equatable, Sendable {
+        case ring, scroll, wait, page, missing
+    }
+
+    /// What a pending deep link into a message knows this frame.
+    public struct DeepLinkInput: Equatable, Sendable {
+        /// The target's row is in the view's LOADED rows.
+        public var found: Bool
+        /// That row was measured at its real height.
+        public var laidOut: Bool
+        /// As last laid out the row sits centred (or the list can go no further).
+        public var centred: Bool
+        /// An older page is in flight.
+        public var paging: Bool
+        /// Older rows can still page in.
+        public var more: Bool
+        /// Since the link was taken.
+        public var elapsedMs: Double
+
+        public init(found: Bool, laidOut: Bool, centred: Bool, paging: Bool, more: Bool, elapsedMs: Double) {
+            self.found = found
+            self.laidOut = laidOut
+            self.centred = centred
+            self.paging = paging
+            self.more = more
+            self.elapsedMs = elapsedMs
+        }
+    }
+
+    /// waiting-cards.json DEEP LINKS: ring it, scroll to it, wait a layout,
+    /// page one older page in, or give up (`missing`).
+    public static func deepLinkStep(_ input: DeepLinkInput) -> DeepLinkStep {
+        if input.elapsedMs >= Double(Constants.deepLinkMs) { return input.found ? .ring : .missing }
+        if input.found { return !input.laidOut ? .wait : input.centred ? .ring : .scroll }
+        if input.paging { return .wait }
+        return input.more ? .page : .missing
     }
 }
