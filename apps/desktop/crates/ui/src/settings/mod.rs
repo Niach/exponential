@@ -87,6 +87,8 @@ pub(crate) mod skills;
 pub(crate) mod board_detail;
 pub(crate) mod readiness;
 pub(crate) mod repositories;
+// #EXP-1616: one repository's page (repo-page.json).
+pub(crate) mod repo_page;
 pub(crate) mod sessions;
 pub(crate) mod storage;
 pub(crate) mod team_general;
@@ -166,6 +168,10 @@ pub(crate) enum SettingsSection {
     /// boards shape (EXP-500) and only owners can read them over tRPC.
     AllBoards,
     Repositories,
+    /// #EXP-1616: one repository's page (repo-page.json: Pull requests,
+    /// Runs, Branches, Settings); the payload is the repository id (or
+    /// `name:<name>`, the dev drive). The Repositories row stays lit.
+    Repository(String),
     /// EXP-771: the team's feedback widgets — a READ-ONLY list (name,
     /// submission count, disabled state) plus the "Manage on the web"
     /// hand-off. Owner-only, like the web's `canManageWidgets` gate and the
@@ -547,6 +553,9 @@ fn nav_lit(item: &SettingsSection, effective: &SettingsSection) -> bool {
             effective,
             SettingsSection::Skills | SettingsSection::Skill(_) | SettingsSection::NewSkill
         ),
+        SettingsSection::Repositories => {
+            matches!(effective, SettingsSection::Repositories | SettingsSection::Repository(_))
+        }
         _ => item == effective,
     }
 }
@@ -622,6 +631,9 @@ pub struct SettingsView {
     skills: Entity<SkillsPane>,
     skill_page: Option<(String, Entity<SkillPage>)>,
     repositories: Entity<RepositoriesPane>,
+    /// #EXP-1616: the open repo page, keyed by its repository key (rebuilt
+    /// on every switch).
+    repo_page: Option<(String, Entity<repo_page::RepoPage>)>,
     /// EXP-771 owner-only widget list (fetch-on-open server read —
     /// `widget_configs` is never synced).
     widget: Entity<WidgetPane>,
@@ -735,6 +747,7 @@ impl SettingsView {
             skills,
             skill_page: None,
             repositories,
+            repo_page: None,
             widget,
             mcp,
             mcp_activity,
@@ -978,6 +991,14 @@ impl Render for SettingsView {
             }
             SettingsSection::Skill(skill_id) => self.skill_pane(skill_id, window, cx),
             SettingsSection::Repositories => pane_of(&self.repositories),
+            SettingsSection::Repository(key) => {
+                if self.repo_page.as_ref().is_none_or(|(k, _)| k != key) {
+                    let nav = self.nav.clone();
+                    let page = cx.new(|cx| repo_page::RepoPage::new(nav, key.clone(), window, cx));
+                    self.repo_page = Some((key.clone(), page));
+                }
+                self.repo_page.as_ref().map(|(_, page)| pane_of(page)).unwrap_or_else(empty_pane)
+            }
             SettingsSection::Widget => pane_of(&self.widget),
             SettingsSection::Mcp => pane_of(&self.mcp),
             SettingsSection::McpActivity => pane_of(&self.mcp_activity),

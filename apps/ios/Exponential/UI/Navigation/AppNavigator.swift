@@ -87,6 +87,8 @@ enum AppRoute: Hashable {
     case teamSettingsSection(accountId: String, teamId: String, section: TeamSettingsSection)
     /// #VAPP-185: Settings › MCP › Activity (settings-mcp.json `activityPage`).
     case mcpActivity(accountId: String, teamId: String)
+    /// #EXP-1616 (repo-page.json): Settings › Repositories › a repo's page.
+    case repo(accountId: String, teamId: String, repositoryId: String, isOwner: Bool)
     case invite(token: String)
     case syncDebug
     /// About (EXP-262): the app's version surface, pushed from Settings →
@@ -1480,6 +1482,10 @@ extension MainNavigator {
                 .environment(\.accountId, accountId)
         case let .mcpActivity(accountId, teamId):
             McpActivityPage(teamId: teamId)
+                .environment(\.accountId, accountId)
+        case let .repo(accountId, teamId, repositoryId, isOwner):
+            RepoPageView(teamId: teamId, repositoryId: repositoryId, isOwner: isOwner)
+                .id(repositoryId)
                 .environment(\.accountId, accountId)
         case let .invite(token):
             InviteAcceptView(token: token)

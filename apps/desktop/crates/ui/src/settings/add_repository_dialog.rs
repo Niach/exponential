@@ -16,6 +16,11 @@
 //! unusable re-fetches with `refresh` as the fallback (the server caches
 //! discovery per user for a minute).
 //!
+//! #EXP-1616: owners first pick the provider (`ChoiceTiles` GitHub |
+//! Exponential, repo-page.json `copy.add`); Exponential is the create form
+//! (name, default branch, the optional GitHub mirror) over
+//! `repositories.create`; GitHub is the picker below, unchanged.
+//!
 //! #EXP-1629: the content is a document on the native binding (projection at
 //! `/pane`); the window around it stays native. #EXP-1787: the lookup field
 //! is a genUI `box` Input whose typed text takes the footer's muted ink
@@ -58,6 +63,15 @@ pub(crate) struct AddRepoShot {
     pub plan_limited: Option<&'static str>,
 }
 
+/// #EXP-1616: the Exponential form in a pinned state (`settings_bench`).
+#[cfg(test)]
+pub(crate) struct EcodeShot {
+    pub name: &'static str,
+    pub branch: &'static str,
+    pub mirror: bool,
+    pub mirror_url: &'static str,
+}
+
 /// The repo row's height (`py_1p5` around a `text_sm` line): the first
 /// load's skeleton rows take it.
 const REPO_ROW_H: f32 = 32.;
@@ -69,6 +83,7 @@ pub(super) fn open(
     window: &mut Window,
     cx: &mut App,
     team_id: String,
+    owner: bool,
     pane: WeakEntity<RepositoriesPane>,
 ) {
     // Same width as the other settings dialogs; the list owns the height, so
@@ -76,7 +91,7 @@ pub(super) fn open(
     let height = (window.viewport_size().height * 0.85).min(px(480.));
     let spec = DialogSpec::new(copy::PICKER_TITLE, size(px(416.), height));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
-        let view = cx.new(|cx| AddRepositoryDialogView::new(team_id, pane, window, cx));
+        let view = cx.new(|cx| AddRepositoryDialogView::new(team_id, owner, pane, window, cx));
         let busy = view.clone();
         DialogContent::new(view)
             // The search input stays pinned while only the list scrolls.
@@ -91,6 +106,16 @@ const NO_REPOSITORIES: &str = "No repositories";
 
 pub struct AddRepositoryDialogView {
     team_id: String,
+    /// #EXP-1616: owners pick the provider; members only connect GitHub.
+    owner: bool,
+    /// `github` | `ecode`.
+    kind: String,
+    /// The Exponential form: name, default branch, mirror on + its URL.
+    ecode_name: String,
+    ecode_branch: String,
+    ecode_mirror: bool,
+    ecode_mirror_url: String,
+    creating: bool,
     /// The pane to refetch once a repo is connected.
     pane: WeakEntity<RepositoriesPane>,
     query: String,
@@ -139,6 +164,7 @@ const LOOKUP_FIELD: &str = "lookup.field";
 impl AddRepositoryDialogView {
     fn new(
         team_id: String,
+        owner: bool,
         pane: WeakEntity<RepositoriesPane>,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
@@ -150,12 +176,12 @@ impl AddRepositoryDialogView {
         let binding = cx.new(|_| {
             let mut binding = Binding::new("/pane", Value::Null, |state: &Value, _| state.clone());
             binding.set_toasts(Rc::new(IdeToasts));
-            for name in ["edit", "focus_search", "clear", "lookup", "pick", "fix", "refresh", "recheck", "retry", "open"] {
+            for name in ["kind", "ecode_branch", "ecode_mirror", "create", "cancel", "edit", "focus_search", "clear", "lookup", "pick", "fix", "refresh", "recheck", "retry", "open"] {
                 let me = me.clone();
                 binding.on_action(name, move |_, event, cx| {
                     let context = |key: &str| event.context.get(key).and_then(Value::as_str).unwrap_or_default().to_string();
                     let (field, key) = (context("field"), context("key"));
-                    let value = event.payload.as_ref().and_then(|p| p.get("value")).and_then(Value::as_str).map(str::to_string);
+                    let value = event.payload.as_ref().and_then(|p| p.get("value").and_then(Value::as_str).map(str::to_string).or_else(|| p.get("checked").and_then(Value::as_bool).map(|on| on.to_string())));
                     let me = me.clone();
                     cx.defer(move |cx| {
                         let _ = handle.update(cx, |_, window, cx| {
@@ -230,6 +256,13 @@ impl AddRepositoryDialogView {
         ];
         let mut this = Self {
             team_id,
+            owner,
+            kind: "github".into(),
+            ecode_name: String::new(),
+            ecode_branch: "main".into(),
+            ecode_mirror: false,
+            ecode_mirror_url: String::new(),
+            creating: false,
             pane,
             query: String::new(),
             load: Load::Loading,
@@ -255,7 +288,18 @@ impl AddRepositoryDialogView {
 
     #[cfg(test)]
     pub(crate) fn for_shots(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
-        Self::new("t".into(), WeakEntity::new_invalid(), window, cx)
+        Self::new("t".into(), true, WeakEntity::new_invalid(), window, cx)
+    }
+
+    /// #EXP-1616: the Exponential form, filled.
+    #[cfg(test)]
+    pub(crate) fn show_ecode(&mut self, shot: EcodeShot, cx: &mut gpui::Context<Self>) {
+        self.kind = "ecode".into();
+        self.ecode_name = shot.name.into();
+        self.ecode_branch = shot.branch.into();
+        self.ecode_mirror = shot.mirror;
+        self.ecode_mirror_url = shot.mirror_url.into();
+        cx.notify();
     }
 
     #[cfg(test)]
@@ -277,6 +321,17 @@ impl AddRepositoryDialogView {
     /// and the footer's links.
     fn action(&mut self, name: &str, field: &str, key: &str, value: Option<String>, window: &mut Window, cx: &mut gpui::Context<Self>) {
         match name {
+            "kind" => {
+                if let Some(kind) = value.filter(|kind| kind == "github" || kind == "ecode") {
+                    self.kind = kind;
+                }
+            }
+            "edit" if field == "ecode_name" => self.ecode_name = value.unwrap_or_default(),
+            "edit" if field == "ecode_mirror_url" => self.ecode_mirror_url = value.unwrap_or_default(),
+            "ecode_branch" => self.ecode_branch = value.unwrap_or_else(|| "main".into()),
+            "ecode_mirror" => self.ecode_mirror = value.as_deref() == Some("true"),
+            "create" => self.create(window, cx),
+            "cancel" => native_dialog::close_dialog_window(window, cx),
             "edit" if field == "query" => self.query = value.unwrap_or_default(),
             // Typing clears a previous lookup failure (web parity).
             "edit" if field == "lookup" => {
@@ -559,6 +614,43 @@ impl AddRepositoryDialogView {
         .detach();
     }
 
+    /// #EXP-1616: `repositories.create` (owners) → close + refetch the pane;
+    /// a refusal (a taken or invalid name) is the error toast, the dialog
+    /// stays open.
+    fn create(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let name = self.ecode_name.trim().to_string();
+        if self.creating || !valid_ecode_name(&name) {
+            return;
+        }
+        let Some(trpc) = queries::trpc_client(cx) else {
+            crate::action_error::failed_action("create", "the repository", Some("Not signed in.".into()), cx);
+            return;
+        };
+        self.creating = true;
+        cx.notify();
+        let team_id = self.team_id.clone();
+        let branch = self.ecode_branch.clone();
+        let mirror = self.ecode_mirror.then(|| self.ecode_mirror_url.trim().to_string()).filter(|url| !url.is_empty());
+        let pane = self.pane.clone();
+        cx.spawn_in(window, async move |this, window| {
+            let result = window
+                .background_executor()
+                .spawn(async move { api::repositories::create(&trpc, &team_id, &name, Some(&branch), mirror.as_deref()) })
+                .await;
+            let _ = this.update_in(window, |this, window, cx| match result {
+                Ok(_) => native_dialog::close_then(window, cx, move |_, cx| {
+                    let _ = pane.update(cx, |pane, cx| pane.refresh(cx));
+                }),
+                Err(err) => {
+                    this.creating = false;
+                    crate::action_error::failed_action_err("create", "the repository", &err, cx);
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
     /// The state as the document binds it.
     fn project(&self, _cx: &App) -> Value {
         let (loading, failed) = (matches!(self.load, Load::Loading), matches!(self.load, Load::Failed));
@@ -605,7 +697,17 @@ impl AddRepositoryDialogView {
             .collect();
 
         let lookup_valid = is_repo_full_name(self.lookup.trim());
+        let ecode = self.owner && self.kind == "ecode";
         json!({
+            "kinds": self.owner,
+            "kind": if ecode { "ecode" } else { "github" },
+            "isGithub": !ecode,
+            "isEcode": ecode,
+            "ecodeName": self.ecode_name,
+            "ecodeBranch": self.ecode_branch,
+            "ecodeMirror": self.ecode_mirror,
+            "ecodeMirrorUrl": self.ecode_mirror_url,
+            "ecodeBusy": self.creating,
             "loading": loading,
             "failed": failed,
             "notConfigured": not_configured,
@@ -914,7 +1016,42 @@ fn document(ink: &Ink, chrome: &Chrome) -> Value {
         footer(ink, chrome),
         plan,
     ];
-    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "height": "100%", "minHeight": 0, "minWidth": 0, "gap": ink.r(0.75)}, "children": children})
+    let github = json!({"id": "github", "component": "Box", "visible": path("/pane/isGithub"), "style": {"display": "flex", "flexDirection": "column", "width": "100%", "flexGrow": 1, "flexShrink": 1, "flexBasis": 0, "minHeight": 0, "minWidth": 0, "gap": ink.r(0.75)}, "children": children});
+    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "height": "100%", "minHeight": 0, "minWidth": 0, "gap": ink.r(0.75)}, "children": [kinds(), github, ecode_form()]})
+}
+
+/// #EXP-1616: a repo name of `[A-Za-z0-9._-]` (repo-page.json `copy.add.name`).
+fn valid_ecode_name(name: &str) -> bool {
+    !name.is_empty() && name.len() <= 100 && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+}
+
+/// #EXP-1616: the provider pick (owners): `ChoiceTiles` GitHub | Exponential.
+fn kinds() -> Value {
+    let copy = &domain::repo_page::REPO_PAGE.copy.add;
+    json!({"id": "kinds", "component": "ChoiceTiles", "visible": path("/pane/kinds"),
+        "props": {"name": "kind", "value": path("/pane/kind"), "columns": 2, "options": [{"label": copy.github, "value": "github"}, {"label": copy.ecode, "value": "ecode"}]},
+        "on": {"change": {"event": {"name": "kind"}}}})
+}
+
+/// #EXP-1616: the Exponential form: name, default branch, the mirror switch
+/// revealing its URL, Cancel / Create.
+fn ecode_form() -> Value {
+    let copy = &domain::repo_page::REPO_PAGE.copy.add;
+    let branches: Vec<Value> = ["main", "master", "develop"].iter().map(|branch| json!({"label": branch, "value": branch})).collect();
+    json!({"id": "ecode", "component": "Form", "visible": path("/pane/isEcode"), "props": {"name": "ecode", "busy": path("/pane/ecodeBusy")},
+        "on": {"submit": {"event": {"name": "create"}}},
+        "children": [{"id": "ecode_fields", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "gap": 12}, "children": [
+            {"id": "ecode_name", "component": "Input", "props": {"label": copy.name, "name": "name", "placeholder": "my-repo", "value": path("/pane/ecodeName")},
+                "on": {"change": {"event": {"name": "edit", "context": {"field": "ecode_name"}}}}},
+            {"id": "ecode_branch", "component": "Select", "props": {"label": copy.default_branch, "name": "defaultBranch", "value": path("/pane/ecodeBranch"), "options": branches},
+                "on": {"change": {"event": {"name": "ecode_branch"}}}},
+            {"id": "ecode_mirror_row", "component": "SettingsRow", "props": {"label": copy.mirror, "stackBelow": "never"}, "children": [
+                {"id": "ecode_mirror", "component": "Switch", "props": {"label": "", "name": "mirror", "checked": path("/pane/ecodeMirror")}, "on": {"change": {"event": {"name": "ecode_mirror"}}}},
+            ]},
+            {"id": "ecode_mirror_url", "component": "Input", "visible": path("/pane/ecodeMirror"), "props": {"label": copy.mirror_url, "name": "mirrorUrl", "placeholder": "https://github.com/acme/repo.git", "value": path("/pane/ecodeMirrorUrl")},
+                "on": {"change": {"event": {"name": "edit", "context": {"field": "ecode_mirror_url"}}}}},
+            {"id": "ecode_actions", "component": "FormActions", "props": {"submit": copy.create, "cancel": true}, "on": {"cancel": {"event": {"name": "cancel"}}}},
+        ]}]})
 }
 
 #[cfg(test)]

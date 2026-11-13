@@ -89,6 +89,10 @@
       "reason": "A live run on every client; the `ci-run` view shoots the specimen (`?dev=ci-run`) so ×5 show the same run."
     },
     {
+      "route": "/t/$teamSlug/repos/$name_/pulls/$number",
+      "reason": "#EXP-1616: an eCode PR's url; a redirect to its repo page (the `repo` view), nothing of its own to draw."
+    },
+    {
       "route": "/",
       "reason": "Bare root is a resolver, not a view: it forwards to the last-visited team, the oldest membership, or onboarding."
     },
@@ -1635,6 +1639,42 @@
       "notes": {
         "ios": "EXP-1558: the phone's own Repositories page (settings-nav.json `phone`), opened from the Team tab's Repositories row by the live walk.",
         "android": "EXP-1558: the phone's own Repositories page (settings-nav.json `phone`), opened from the Team tab's Repositories row by the live walk."
+      }
+    },
+    {
+      "id": "repo",
+      "group": "settings",
+      "title": "Repository",
+      "blurb": "THE repo page (#EXP-1616, repo-page.json): an AppBar with the provider Badge over pill Tabs (Pull requests · Runs · Branches · Settings). The PR tree as a Section{tree} of Rows with the checks Chip{dot} and the merge-train pill; Runs waits for eCode CI. Opened from a Settings › Repositories row.",
+      "order": 26,
+      "web": {
+        "route": "/t/$teamSlug/repos/engine",
+        "anchor": {
+          "testId": "repo-page",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "repo:engine"
+        }
+      },
+      "ios": {
+        "shot": "sg_repo",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_repo",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "The seeded Exponential repo `acme/engine` (seed-screenshots.ts): a PR tree of four, checks on three, one queued.",
+        "ios": "The live walk taps the `acme/engine` row on the Repositories page; shot sg_repo.",
+        "android": "The live walk taps the `acme/engine` row on the Repositories page; shot sg_repo.",
+        "desktop": "EXP_DEV_SETTINGS=repo:engine opens the settings sub-page of the seeded `acme/engine`."
       }
     },
     {

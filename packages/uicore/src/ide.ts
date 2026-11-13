@@ -26,6 +26,20 @@ export interface IdeSidebarInput {
   apps: { id: string; slug: string; name: string; icon: string }[]
   boards: { id: string; name: string; icon: string }[]
   active: { id: string; title: string; icon: string; sessionIds: string[]; unread: boolean }[]
+  /** #EXP-1616: the Exponential repositories, each with its live PR tree (`repoPrTree`, placed by the host). */
+  repos?: { id: string; name: string; prs: { id: string; identifier: string; title: string; subtitle: string; depth: number; session?: string | null }[] }[]
+}
+
+/** #EXP-1616: a Pull requests tree row: a repository at depth 0, its PRs under it. */
+export interface IdePrRow {
+  id: string
+  repo: string
+  title: string
+  identifier: string | null
+  subtitle: string | null
+  icon: string | null
+  depth: number
+  selected: boolean
 }
 
 export interface IdeNavRow {
@@ -54,6 +68,7 @@ export interface IdeSidebar {
   apps: { rows: IdeRow[] }
   boards: { rows: IdeRow[]; empty: boolean }
   active: { id: string; title: string; icon: string; selected: boolean; unread: boolean }[]
+  prs: IdePrRow[]
 }
 
 export interface IdeTabInput {
@@ -118,6 +133,10 @@ export function ideSidebar(input: IdeSidebarInput): IdeSidebar {
       selected: screen === `chat:${a.id}` || a.sessionIds.some((id) => screen === `session:${id}`),
       unread: a.unread,
     })),
+    prs: (input.repos ?? []).filter((r) => r.prs.length > 0).flatMap((r): IdePrRow[] => [
+      { id: r.id, repo: r.id, title: r.name, identifier: null, subtitle: null, icon: `ui-repository`, depth: 0, selected: screen === `repo:${r.id}` },
+      ...r.prs.map((p) => ({ id: p.id, repo: r.id, title: p.title, identifier: p.identifier, subtitle: p.subtitle, icon: null, depth: p.depth + 1, selected: p.session != null && (screen === `chat:${p.session}` || screen === `session:${p.session}`) })),
+    ]),
   }
 }
 

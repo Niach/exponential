@@ -60,7 +60,43 @@ data class TeamRepo(
     // EXP-462: GitHub's own default (`defaultBranch` folds in the team pin);
     // picking it in the branch chip clears the pin.
     val githubDefaultBranch: String? = null,
+    // #EXP-1616: `github` | `ecode` (Exponential's own git); repo-page.json
+    // `copy.provider` names it on every row.
+    val provider: String = "github",
+    // #EXP-1616: `exp://<team>/<name>` for an ecode repo (its clone URL).
+    val remoteUrl: String? = null,
 )
+
+/** #EXP-1616 `repositories.settings`: one backup bundle of an ecode repo. */
+@Serializable
+data class RepoBackup(
+    val id: String,
+    val createdAt: String,
+    val bytes: Long = 0,
+    val refs: Int = 0,
+)
+
+/** #EXP-1616 `repositories.settings`: the repo page's Settings tab. */
+@Serializable
+data class RepoSettings(
+    val id: String,
+    val fullName: String,
+    val remoteUrl: String? = null,
+    val defaultBranch: String = "main",
+    val mirrorUrl: String? = null,
+    val mirrorEnabled: Boolean = false,
+    val backups: List<RepoBackup> = emptyList(),
+)
+
+/** #EXP-1616 `repositories.branches`: an ecode branch and its tip. */
+@Serializable
+data class RepoBranch(val name: String, val sha: String = "")
+
+@Serializable
+private data class RepoBranchesResult(val branches: List<RepoBranch> = emptyList())
+
+@Serializable
+private data class RestoreInput(val repositoryId: String, val backupId: String)
 
 @Serializable
 private data class RepoTeamIdInput(val teamId: String)
@@ -192,4 +228,64 @@ class RepositoriesApi @Inject constructor(private val trpc: TrpcClient) {
             inputSerializer = RepositoryIdInput.serializer(),
             outputSerializer = BranchesResult.serializer(),
         ).branches
+
+    /**
+     * #EXP-1616 (owners): create an EMPTY Exponential repo on the team
+     * bucket; its first `git push exp://<team>/<name>` fills it. Hand-built
+     * input: the literal `null` mirror must reach the server.
+     */
+    suspend fun create(accountId: String, teamId: String, name: String, defaultBranch: String, mirrorUrl: String?) =
+        trpc.mutationUnit(
+            accountId,
+            path = "repositories.create",
+            input = buildJsonObject {
+                put("teamId", teamId)
+                put("name", name)
+                put("defaultBranch", defaultBranch)
+                put("mirrorUrl", mirrorUrl?.let(::JsonPrimitive) ?: JsonNull)
+            },
+            inputSerializer = JsonElement.serializer(),
+        )
+
+    /** #EXP-1616 (members): an ecode repo's Settings tab. */
+    suspend fun settings(accountId: String, repositoryId: String): RepoSettings =
+        trpc.query(
+            accountId,
+            path = "repositories.settings",
+            input = RepositoryIdInput(repositoryId),
+            inputSerializer = RepositoryIdInput.serializer(),
+            outputSerializer = RepoSettings.serializer(),
+        )
+
+    /** #EXP-1616 (members): an ecode repo's branches with their tips. */
+    suspend fun branches(accountId: String, repositoryId: String): List<RepoBranch> =
+        trpc.query(
+            accountId,
+            path = "repositories.branches",
+            input = RepositoryIdInput(repositoryId),
+            inputSerializer = RepositoryIdInput.serializer(),
+            outputSerializer = RepoBranchesResult.serializer(),
+        ).branches
+
+    /** #EXP-1616 (owners): the optional GitHub mirror, pushed after each landing. */
+    suspend fun setMirror(accountId: String, repositoryId: String, mirrorUrl: String?, enabled: Boolean) =
+        trpc.mutationUnit(
+            accountId,
+            path = "repositories.setMirror",
+            input = buildJsonObject {
+                put("repositoryId", repositoryId)
+                put("mirrorUrl", mirrorUrl?.let(::JsonPrimitive) ?: JsonNull)
+                put("enabled", enabled)
+            },
+            inputSerializer = JsonElement.serializer(),
+        )
+
+    /** #EXP-1616 (owners): restore a backup bundle (a device job). */
+    suspend fun restore(accountId: String, repositoryId: String, backupId: String) =
+        trpc.mutationUnit(
+            accountId,
+            path = "repositories.restore",
+            input = RestoreInput(repositoryId, backupId),
+            inputSerializer = RestoreInput.serializer(),
+        )
 }

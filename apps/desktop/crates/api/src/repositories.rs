@@ -339,6 +339,123 @@ pub fn set_default_branch(
     Ok(())
 }
 
+/// #EXP-1616 `repositories.create`'s input: an EMPTY eCode repo on the team
+/// (owners); its first `git push exp://<team>/<name>` fills it.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateInput<'a> {
+    team_id: &'a str,
+    name: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    default_branch: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mirror_url: Option<&'a str>,
+}
+
+/// `repositories.create` — mutation (owner-gated). The server's refusal
+/// (a taken or invalid name) is user-presentable verbatim.
+pub fn create(
+    trpc: &TrpcClient,
+    team_id: &str,
+    name: &str,
+    default_branch: Option<&str>,
+    mirror_url: Option<&str>,
+) -> Result<AddedRepository, ApiError> {
+    trpc.mutation("repositories.create", &CreateInput { team_id, name, default_branch, mirror_url })
+}
+
+/// One bundle backup of an eCode repo (`repositories.settings`).
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoBackup {
+    pub id: String,
+    /// ISO timestamp.
+    #[serde(default)]
+    pub created_at: String,
+    #[serde(default)]
+    pub bytes: i64,
+    /// The refs the bundle holds.
+    #[serde(default)]
+    pub refs: i64,
+}
+
+/// `repositories.settings` — the repo page's Settings tab (eCode repos).
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoSettings {
+    pub id: String,
+    pub full_name: String,
+    #[serde(default)]
+    pub remote_url: Option<String>,
+    #[serde(default)]
+    pub default_branch: String,
+    #[serde(default)]
+    pub mirror_url: Option<String>,
+    #[serde(default)]
+    pub mirror_enabled: bool,
+    #[serde(default)]
+    pub backups: Vec<RepoBackup>,
+}
+
+/// One branch head of an eCode repo (`repositories.branches`).
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct RepoBranchHead {
+    pub name: String,
+    pub sha: String,
+}
+
+#[derive(Deserialize)]
+struct BranchHeads {
+    branches: Vec<RepoBranchHead>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RepositoryIdInput<'a> {
+    repository_id: &'a str,
+}
+
+/// `repositories.settings` — query (member-readable, eCode repos).
+pub fn settings(trpc: &TrpcClient, repository_id: &str) -> Result<RepoSettings, ApiError> {
+    trpc.query_with_input("repositories.settings", &RepositoryIdInput { repository_id })
+}
+
+/// `repositories.branches` — query (member-readable, eCode repos): every
+/// branch head with its sha.
+pub fn branch_heads(trpc: &TrpcClient, repository_id: &str) -> Result<Vec<RepoBranchHead>, ApiError> {
+    let out: BranchHeads = trpc.query_with_input("repositories.branches", &RepositoryIdInput { repository_id })?;
+    Ok(out.branches)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SetMirrorInput<'a> {
+    repository_id: &'a str,
+    mirror_url: Option<&'a str>,
+    enabled: bool,
+}
+
+/// `repositories.setMirror` — mutation (owners): the optional mirror pushed
+/// after each landing. `None` / blank clears it.
+pub fn set_mirror(trpc: &TrpcClient, repository_id: &str, mirror_url: Option<&str>, enabled: bool) -> Result<(), ApiError> {
+    let _: serde_json::Value = trpc.mutation("repositories.setMirror", &SetMirrorInput { repository_id, mirror_url, enabled })?;
+    Ok(())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RestoreInput<'a> {
+    repository_id: &'a str,
+    backup_id: &'a str,
+}
+
+/// `repositories.restore` — mutation (owners): a device job restores the
+/// bundle. `PRECONDITION_FAILED` (no device online) is user-presentable.
+pub fn restore(trpc: &TrpcClient, repository_id: &str, backup_id: &str) -> Result<(), ApiError> {
+    let _: serde_json::Value = trpc.mutation("repositories.restore", &RestoreInput { repository_id, backup_id })?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

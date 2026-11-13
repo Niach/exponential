@@ -21,6 +21,16 @@ const mockState = vi.hoisted(() => ({
   openGithubConnect: vi.fn(() => true),
   openGithubPopup: vi.fn(() => true),
   toastError: vi.fn(),
+  navigate: vi.fn(),
+  createMutate: vi.fn(),
+  prs: [] as Array<Record<string, unknown>>,
+}))
+
+// #EXP-1616: the rows' checks chips read the synced pull_requests.
+vi.mock(`@/lib/collections`, () => ({ pullRequestCollection: {} }))
+vi.mock(`@tanstack/react-db`, async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@tanstack/react-db")>()),
+  useLiveQuery: () => ({ data: mockState.prs }),
 }))
 
 vi.mock(`sonner`, async (importOriginal) => ({
@@ -33,6 +43,7 @@ vi.mock(`@/lib/trpc-client`, () => ({
     repositories: {
       list: { query: mockState.listQuery },
       add: { mutate: mockState.addMutate },
+      create: { mutate: mockState.createMutate },
       remove: { mutate: vi.fn() },
       listBranches: { query: mockState.listBranchesQuery },
       setDefaultBranch: { mutate: mockState.setDefaultBranchMutate },
@@ -54,6 +65,7 @@ vi.mock(`@/lib/github-connect`, () => ({
 
 vi.mock(`@tanstack/react-router`, () => ({
   useParams: () => ({ teamSlug: `acme` }),
+  useNavigate: () => mockState.navigate,
   Link: ({ children }: { children?: React.ReactNode }) => <a>{children}</a>,
 }))
 
@@ -431,5 +443,42 @@ describe(`TeamRepositoriesSection`, () => {
     expect(
       screen.getByText(/Repositories come from these accounts/)
     ).toBeTruthy()
+  })
+
+  // #EXP-1616 (repo-page.json): the provider Badge, the checks Chip{dot},
+  // the row opening the repo page, and an Exponential repo from the tiles.
+  it(`each row names its provider, rolls up its PRs' checks and opens the repo page`, async () => {
+    mockState.listQuery.mockResolvedValue([
+      repoRow(),
+      repoRow({ id: `repo-2`, fullName: `acme/engine`, provider: `ecode`, defaultBranch: `main`, installationId: null }),
+    ])
+    mockState.prs = [
+      { id: `p1`, repositoryId: `repo-2`, state: `open`, checksState: `success` },
+      { id: `p2`, repositoryId: `repo-2`, state: `open`, checksState: `failure` },
+    ]
+    renderSection()
+    expect(await screen.findByText(`Exponential`)).toBeTruthy()
+    expect(screen.getByText(`GitHub`)).toBeTruthy()
+    expect(screen.getByText(`Failing`)).toBeTruthy()
+    fireEvent.click(screen.getByText(`acme/engine`))
+    expect(mockState.navigate).toHaveBeenCalledWith({ to: `/t/$teamSlug/repos/$name`, params: { teamSlug: `acme`, name: `engine` } })
+    mockState.prs = []
+  })
+
+  it(`an owner adds an Exponential repository: name, default branch, Create`, async () => {
+    mockState.createMutate.mockReset().mockResolvedValue({ repository: {} })
+    renderSection()
+    fireEvent.click(await screen.findByRole(`button`, { name: /Add repository/ }))
+    fireEvent.click(await screen.findByRole(`radio`, { name: `Exponential` }))
+    fireEvent.change(await screen.findByLabelText(`Name`), { target: { value: `engine` } })
+    fireEvent.click(screen.getByRole(`button`, { name: `Create` }))
+    await waitFor(() => expect(mockState.createMutate).toHaveBeenCalledTimes(1))
+    expect(mockState.createMutate.mock.calls[0][0]).toEqual({ teamId: `team-1`, name: `engine`, defaultBranch: `main`, mirrorUrl: null })
+  })
+
+  it(`a member sees only the GitHub picker (owners create Exponential repositories)`, async () => {
+    renderSection({ isOwner: false })
+    fireEvent.click(await screen.findByRole(`button`, { name: /Add repository/ }))
+    expect(screen.queryByRole(`radio`, { name: `Exponential` })).toBeNull()
   })
 })

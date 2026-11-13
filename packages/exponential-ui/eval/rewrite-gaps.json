@@ -65,6 +65,7 @@
     { "id": "settings-storage", "class": "expressible", "with": "Table (name, size, referenced, date, slot action) + Button" },
     { "id": "settings-boards", "class": "expressible", "with": "Page + FieldGroup (icon, colour, name in one row) + Group + Select + FormActions" },
     { "id": "settings-repositories", "class": "expressible", "with": "Section + Row + Button; the GitHub connect is a host function" },
+    { "id": "repo", "class": "expressible", "with": "AppBar + Tabs{pill} + Section{tree} of Row{depth, identifier, subtitle} with Chip{dot} + Badge meta; Settings = SettingsRow + Select + Switch + AlertDialog (#EXP-1616, the desktop pane is this genUI document)" },
     { "id": "settings-widget", "class": "extension", "with": "the live whole-panel widget preview is an app component; Form + Input + ChipInput + Select + Switch for the rest" },
     { "id": "settings-account", "class": "expressible", "with": "Page + Group + Row (sign-in methods with trailing Buttons) + Select; FormActions" },
     { "id": "settings-notifications", "class": "expressible", "with": "Page + Group + Row with two Switches trailing (a Toolbar-like control row) + TimePicker; FormActions" },

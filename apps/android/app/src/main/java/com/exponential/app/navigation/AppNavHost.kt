@@ -1016,7 +1016,10 @@ private fun AuthenticatedNav(
                     onBack = back,
                     onOpenSkill = { id -> navController.navigate(Routes.skillSettings(id)) },
                 )
-                else -> TeamSettingsScreen(onBack = back)
+                else -> TeamSettingsScreen(
+                    onBack = back,
+                    onOpenRepo = { id -> navController.navigate(Routes.repo(id)) },
+                )
             }
             }
         }
@@ -1287,6 +1290,21 @@ private fun AuthenticatedNav(
                     navController.navigate(Routes.ciRun(id)) { popUpTo(Routes.CI_RUN_PATTERN) { inclusive = true } }
                 },
             )
+        }
+        // #EXP-1616 (repo-page.json): the repo page; the ViewModel reads
+        // `repositoryId` + `tab` off the SavedStateHandle.
+        composable(
+            Routes.REPO_PATTERN,
+            arguments = listOf(
+                navArgument("repositoryId") { type = NavType.StringType },
+                navArgument("tab") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) {
+            com.exponential.app.ui.repo.RepoPageScreen(onBack = { navController.popBackStack() })
         }
         composable(Routes.MCP_ACTIVITY) {
             McpActivityScreen(onBack = { navController.popBackStack() })

@@ -35,7 +35,7 @@ import XCTest
 ///   sg_share-targets · sg_share-composer · sg_composer-add-file ·
 ///   sg_add-server · sg_drafts · sg_composer-slash-menu · sg_session-slash-menu ·
 ///   sg_settings-assistant-meeting · sg_settings-general · sg_settings-members ·
-///   sg_settings-labels · sg_settings-repositories · sg_onboarding-join (EXP-1558) ·
+///   sg_settings-labels · sg_settings-repositories · sg_repo (EXP-1616) · sg_onboarding-join (EXP-1558) ·
 ///   sg_app-run (VAPP-242) ·
 ///   sg_app-record-table · sg_app-record-form · sg_app-calendar · sg_app-timeline · sg_app-connect ·
 ///   sg_app-publish · sg_app-versions-sweep · sg_app-version-preview ·
@@ -884,7 +884,7 @@ final class StyleguideScreenshots: XCTestCase {
             ("Members", "sg_settings-members", ScreenshotSeed.demoEmail),
             ("Labels", "sg_settings-labels", "Bug"),
             ("Repositories", "sg_settings-repositories", "acme/mobile-app"),
-        ] where ScreenshotShots.isWanted(shot) {
+        ] where ScreenshotShots.isWanted(shot) || (shot == "sg_settings-repositories" && ScreenshotShots.isWanted("sg_repo")) {
             let row = teamSettingsRow(app, label)
             scrollUntilVisible(app, row, attempts: 4)
             expect(row, within: Wait.nav, "The Team tab has no \(label) row")
@@ -896,7 +896,30 @@ final class StyleguideScreenshots: XCTestCase {
             case "sg_settings-general": snapshot("sg_settings-general", settle: 2)
             case "sg_settings-members": snapshot("sg_settings-members", settle: 2)
             case "sg_settings-labels": snapshot("sg_settings-labels", settle: 2)
-            default: snapshot("sg_settings-repositories", settle: 2)
+            default:
+                if ScreenshotShots.isWanted("sg_settings-repositories") {
+                    snapshot("sg_settings-repositories", settle: 2)
+                }
+                // ── sg_repo (#EXP-1616, repo-page.json): the seeded
+                // Exponential repo's page on its Pull requests tab, gated on
+                // the seeded PR tree's root title; Back returns here.
+                if ScreenshotShots.isWanted("sg_repo") {
+                    let open = app.buttons.matching(
+                        NSPredicate(format: "identifier == %@ AND label CONTAINS %@", "repo-row-open", "acme/engine")
+                    ).firstMatch
+                    scrollUntilVisible(app, open, attempts: 4)
+                    expect(open, within: Wait.nav, "The Repositories page lists no acme/engine row")
+                    open.tap()
+                    expect(anyElement(app, identified: "repo-page"), within: Wait.nav, "acme/engine opened no repo page")
+                    expect(
+                        anyElement(app, containing: "Pack cursor for incremental fetches"),
+                        within: Wait.sync,
+                        "The repo page never listed the seeded PR tree"
+                    )
+                    snapshot("sg_repo", settle: 2)
+                    goBack(app)
+                    expect(anyElement(app, identified: "team-settings-page"), within: Wait.nav, "Did not return to Repositories")
+                }
             }
             goBack(app)
             expect(teamSettingsRow(app, "Boards"), within: Wait.nav, "Did not return to the Team tab")

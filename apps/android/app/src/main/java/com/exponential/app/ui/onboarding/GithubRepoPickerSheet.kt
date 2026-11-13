@@ -87,6 +87,26 @@ fun GithubRepoPickerSheet(
     onDismiss: () -> Unit,
     viewModel: GithubRepoPickerViewModel = hiltViewModel(),
 ) {
+    GlassSheet(title = GithubCopy.PICKER_TITLE, onDismiss = onDismiss) {
+        GithubRepoPickerList(accountId, teamId, onAdd, onDone = onDismiss, viewModel = viewModel)
+    }
+}
+
+/**
+ * The picker's body without its sheet (#EXP-1616: Add repository's GitHub
+ * tile draws it inside its own sheet, under the provider tiles = [header]).
+ * [onDone] = a repo was added.
+ */
+@Composable
+fun GithubRepoPickerList(
+    accountId: String,
+    teamId: String,
+    onAdd: suspend (GithubPickerRepo) -> Unit,
+    onDone: () -> Unit,
+    header: (@Composable () -> Unit)? = null,
+    viewModel: GithubRepoPickerViewModel = hiltViewModel(),
+) {
+    val onDismiss = onDone
     val result by viewModel.result.collectAsStateWithLifecycle()
     val loading by viewModel.loading.collectAsStateWithLifecycle()
     val failure by viewModel.failure.collectAsStateWithLifecycle()
@@ -130,7 +150,7 @@ fun GithubRepoPickerSheet(
         }
     }
 
-    GlassSheet(title = GithubCopy.PICKER_TITLE, onDismiss = onDismiss) {
+    run {
         // Lazy so a hundreds-of-repos account scrolls instead of clipping
         // everything below the sheet fold (EXP-46).
         LazyColumn(
@@ -139,6 +159,7 @@ fun GithubRepoPickerSheet(
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            if (header != null) item(key = "header") { header() }
             // FEED-42: a FORBIDDEN add is a missing prerequisite: its notice
             // and its one fix, at the top (the list scrolls back to it).
             if (addForbidden) {
