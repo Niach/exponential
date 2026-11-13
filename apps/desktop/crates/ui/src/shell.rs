@@ -1276,7 +1276,7 @@ impl Render for Shell {
                     .child(toast_layer)
                     .children(blocking_layer),
             )
-            .into_any_element()
+            .map(|root| crate::diagnostics::frame_spans(root.into_any_element()))
     }
 }
 

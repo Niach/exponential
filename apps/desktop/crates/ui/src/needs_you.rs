@@ -80,17 +80,20 @@ fn input(team_id: &str, now: i64, cx: &App) -> NeedsYouInput {
         })
         .collect();
     let ids: std::collections::HashSet<&str> = team.iter().map(|session| session.id.as_str()).collect();
-    let messages: Vec<NeedsYouMessageInput> = crate::session_data::digest_messages(cx, |owner| ids.contains(owner))
-        .into_iter()
+    // #PERF-3: only the waiting cards are cloned (was every digest message
+    // of the team, on every sessions write).
+    let messages: Vec<NeedsYouMessageInput> = crate::session_data::digest_message_lists(cx, |owner| ids.contains(owner))
+        .iter()
+        .flat_map(|rows| rows.iter())
         .filter(|message| is_waiting_kind(message.card.as_ref()))
         .map(|message| NeedsYouMessageInput {
-            id: message.id,
-            session_id: message.session_id,
-            author_session_id: message.author_session_id,
-            body: message.body.unwrap_or_default(),
-            created_at: message.created_at.unwrap_or_default(),
-            answered_at: message.answered_at,
-            card: message.card,
+            id: message.id.clone(),
+            session_id: message.session_id.clone(),
+            author_session_id: message.author_session_id.clone(),
+            body: message.body.clone().unwrap_or_default(),
+            created_at: message.created_at.clone().unwrap_or_default(),
+            answered_at: message.answered_at.clone(),
+            card: message.card.clone(),
         })
         .collect();
     let pull_requests: Vec<NeedsYouPullRequestInput> = collections
@@ -264,8 +267,15 @@ pub(crate) fn rows_in_team(team_id: &str, cx: &mut App) -> Rc<NeedsYouRows> {
             return rows.clone();
         }
     }
-    let input = input(team_id, now, cx);
-    let stuck = stuck_rows(team_id, &input, owner, cx);
+    let input = {
+        let _span = tracing::trace_span!("needs_you.input").entered();
+        input(team_id, now, cx)
+    };
+    let stuck = {
+        let _span = tracing::trace_span!("needs_you.stuck").entered();
+        stuck_rows(team_id, &input, owner, cx)
+    };
+    let _span = tracing::trace_span!("needs_you.derive").entered();
     let rows = Rc::new(with_stuck_rows(needs_you(&input), stuck));
     cx.global_mut::<RowsMemo>().0.insert(team_id.to_string(), (key, rows.clone()));
     rows
