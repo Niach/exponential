@@ -176,6 +176,32 @@ public enum AppSources {
         }
     }
 
+    /// FEED-243: an issue's timeline row (`issue_events`), only who and when.
+    public struct IssueEvent: Sendable {
+        public let id: String
+        public let issueId: String
+        public let actorUserId: String?
+        public let createdAt: String
+
+        public init(id: String, issueId: String, actorUserId: String?, createdAt: String) {
+            self.id = id
+            self.issueId = issueId
+            self.actorUserId = actorUserId
+            self.createdAt = createdAt
+        }
+    }
+
+    /// FEED-243: a session linked to an issue (`session_issues`).
+    public struct SessionIssue: Sendable {
+        public let sessionId: String
+        public let issueId: String
+
+        public init(sessionId: String, issueId: String) {
+            self.sessionId = sessionId
+            self.issueId = issueId
+        }
+    }
+
     /// The synced rows of ONE team, as the host reads them.
     public struct Store: Sendable {
         public var boards: [Board]
@@ -185,10 +211,13 @@ public enum AppSources {
         public var sessions: [Session]
         public var comments: [Comment]
         public var attachments: [Attachment]
+        public var issueEvents: [IssueEvent]
+        public var sessionIssues: [SessionIssue]
 
         public init(
             boards: [Board] = [], issues: [Issue] = [], members: [Member] = [], users: [User] = [],
-            sessions: [Session] = [], comments: [Comment] = [], attachments: [Attachment] = []
+            sessions: [Session] = [], comments: [Comment] = [], attachments: [Attachment] = [],
+            issueEvents: [IssueEvent] = [], sessionIssues: [SessionIssue] = []
         ) {
             self.boards = boards
             self.issues = issues
@@ -197,6 +226,8 @@ public enum AppSources {
             self.sessions = sessions
             self.comments = comments
             self.attachments = attachments
+            self.issueEvents = issueEvents
+            self.sessionIssues = sessionIssues
         }
     }
 
@@ -259,6 +290,94 @@ public enum AppSources {
     private static func str(_ value: String?) -> CardJSON { value.map(CardJSON.string) ?? .null }
     private static func number(_ value: Double?) -> CardJSON { value.map(CardJSON.number) ?? .null }
 
+    // MARK: - FEED-243: touched (TS `boundOf`, `dayStart`, `touchesOf`)
+
+    private static let dayPattern = try! NSRegularExpression(pattern: #"^[0-9]{4}-[0-9]{2}-[0-9]{2}$"#)
+    private static let instantPattern = try! NSRegularExpression(
+        pattern: #"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$"#
+    )
+
+    private static func matches(_ pattern: NSRegularExpression, _ value: String) -> Bool {
+        pattern.firstMatch(in: value, range: NSRange(value.startIndex..., in: value)) != nil
+    }
+
+    /// JS `Date.parse` of a stored / bound timestamp, epoch ms (nil = NaN).
+    private static func epochMs(_ value: String) -> Double? {
+        WireTimestamps.parse(value).map { ($0.timeIntervalSince1970 * 1000).rounded() }
+    }
+
+    /// A `since` / `until` bound (epoch ms; `open` = exclusive).
+    private struct Bound {
+        let ms: Double
+        let open: Bool
+    }
+
+    /// A date-only bound reads in the zone: `since` = the day's start
+    /// (inclusive), `until` = the NEXT day's start (exclusive); an instant is
+    /// inclusive both ways; anything else = no bound.
+    private static func boundOf(_ raw: String?, end: Bool, zone: TimeZone) -> Bound? {
+        guard let v = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !v.isEmpty else { return nil }
+        if matches(dayPattern, v) {
+            guard epochMs("\(v)T00:00:00Z") != nil else { return nil }
+            let parts = v.split(separator: "-").compactMap { Int($0) }
+            guard parts.count == 3 else { return nil }
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = zone
+            guard let start = calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2])) else { return nil }
+            if !end { return Bound(ms: (start.timeIntervalSince1970 * 1000).rounded(), open: false) }
+            guard let next = calendar.date(byAdding: .day, value: 1, to: start) else { return nil }
+            return Bound(ms: (calendar.startOfDay(for: next).timeIntervalSince1970 * 1000).rounded(), open: true)
+        }
+        guard matches(instantPattern, v), let ms = epochMs(v) else { return nil }
+        return Bound(ms: ms, open: false)
+    }
+
+    /// One touched issue: the latest in-window touch and its kinds.
+    private struct Touch {
+        var at: String
+        var ms: Double
+        var touches: [String]
+    }
+
+    /// The issues `actor` touched inside [since, until]: an `issue_events`
+    /// row they acted, a comment they wrote, a session they started linked
+    /// to the issue (at its start and its last update).
+    private static func touchesOf(_ store: Store, actor: String, params: Params, timeZone: String?) -> [String: Touch] {
+        let zone = TeamZone.hostTimeZone(timeZone)
+        let since = boundOf(params["since"], end: false, zone: zone)
+        let until = boundOf(params["until"], end: true, zone: zone)
+        var out: [String: Touch] = [:]
+        func add(_ issueId: String, _ kind: String, _ at: String) {
+            guard let ms = epochMs(at) else { return }
+            if let since, ms < since.ms { return }
+            if let until, (until.open ? ms >= until.ms : ms > until.ms) { return }
+            guard var t = out[issueId] else {
+                out[issueId] = Touch(at: at, ms: ms, touches: [kind])
+                return
+            }
+            if !t.touches.contains(kind) { t.touches.append(kind) }
+            if ms > t.ms {
+                t.at = at
+                t.ms = ms
+            }
+            out[issueId] = t
+        }
+        for e in store.issueEvents where e.actorUserId == actor { add(e.issueId, "event", e.createdAt) }
+        for c in store.comments where c.authorId == actor { add(c.issueId, "comment", c.createdAt) }
+        var sessions: [String: Session] = [:]
+        for s in store.sessions { sessions[s.id] = s }
+        for link in store.sessionIssues {
+            guard let s = sessions[link.sessionId], s.userId == actor else { continue }
+            add(link.issueId, "session", s.createdAt)
+            add(link.issueId, "session", s.updatedAt)
+        }
+        return out.mapValues { t in
+            var sorted = t
+            sorted.touches.sort { cmp($0, $1) < 0 }
+            return sorted
+        }
+    }
+
     private static func page(_ rows: [CardJSON], _ params: Params, extra: [String: CardJSON] = [:]) -> CardJSON {
         var out = extra
         out["rows"] = .array(Array(rows.prefix(limitOf(params))))
@@ -268,7 +387,7 @@ public enum AppSources {
 
     // MARK: - The values
 
-    public static func issuesValue(_ store: Store, params: [String: String], me: String?) -> CardJSON {
+    public static func issuesValue(_ store: Store, params: [String: String], me: String?, timeZone: String? = nil) -> CardJSON {
         let boardRef = param(params, "board")
         let board = boardOf(store, boardRef)
         if boardRef != nil, board == nil { return .object(["rows": .array([]), "count": .number(0)]) }
@@ -277,7 +396,13 @@ public enum AppSources {
         let search = param(params, "search").map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
         let status = param(params, "status")
         let priority = param(params, "priority")
+        // FEED-243: `touched=me|<userId>` (signed out `me` = no rows).
+        let touched: [String: Touch]? = param(params, "touched").map { raw -> [String: Touch] in
+            guard let actor = raw == "me" ? me : raw else { return [:] }
+            return touchesOf(store, actor: actor, params: params, timeZone: timeZone)
+        }
         var rows = store.issues.filter { i in
+            if let touched, touched[i.id] == nil { return false }
             if let board, i.boardId != board.id { return false }
             if let status, i.status != status { return false }
             if let priority, (i.priority ?? "") != priority { return false }
@@ -287,12 +412,16 @@ public enum AppSources {
                !i.title.lowercased().contains(search), !i.identifier.lowercased().contains(search) { return false }
             return true
         }
-        let sort = params["sort"] == "updatedAt" || params["sort"] == "createdAt" ? params["sort"]! : "sortOrder"
+        let requested = params["sort"]
+        let explicit = requested == "updatedAt" || requested == "createdAt" || requested == "sortOrder"
+            || (touched != nil && requested == "touchedAt")
+        let sort = explicit ? requested! : touched != nil ? "touchedAt" : "sortOrder"
         let order = params["order"] == "desc" ? "desc" : params["order"] == "asc" ? "asc" : sort == "sortOrder" ? "asc" : "desc"
         rows.sort { a, b in
             let c: Int = switch sort {
             case "updatedAt": cmp(a.updatedAt, b.updatedAt)
             case "createdAt": cmp(a.createdAt, b.createdAt)
+            case "touchedAt": num(touched?[a.id]?.ms ?? 0, touched?[b.id]?.ms ?? 0)
             default: num(a.sortOrder, b.sortOrder)
             }
             if c != 0 { return order == "asc" ? c < 0 : c > 0 }
@@ -300,8 +429,8 @@ public enum AppSources {
         }
         var slugs: [String: String] = [:]
         for b in store.boards { slugs[b.id] = b.slug }
-        return page(rows.map { i in
-            .object([
+        return page(rows.map { i -> CardJSON in
+            var row: [String: CardJSON] = [
                 "id": .string(i.id),
                 "identifier": .string(i.identifier),
                 "title": .string(i.title),
@@ -316,7 +445,12 @@ public enum AppSources {
                 "boardSlug": .string(slugs[i.boardId] ?? ""),
                 "dueDate": str(i.dueDate),
                 "updatedAt": .string(i.updatedAt),
-            ])
+            ]
+            if let t = touched?[i.id] {
+                row["touchedAt"] = .string(t.at)
+                row["touches"] = .array(t.touches.map(CardJSON.string))
+            }
+            return .object(row)
         }, params)
     }
 
@@ -437,10 +571,10 @@ public enum AppSources {
     /// One `exp:<name>?params` over the store: the value the host emits at the
     /// bound path (nil = null: a name this module does not derive, or a
     /// comments / attachments source without a resolvable issue).
-    public static func sourceValue(name: String, params: [String: String], store: Store, me: String?, access: String? = nil) -> CardJSON? {
+    public static func sourceValue(name: String, params: [String: String], store: Store, me: String?, access: String? = nil, timeZone: String? = nil) -> CardJSON? {
         switch name {
         case "me": return meValue(store, me: me, access: access)
-        case "issues": return issuesValue(store, params: params, me: me)
+        case "issues": return issuesValue(store, params: params, me: me, timeZone: timeZone)
         case "boards": return boardsValue(store, params: params)
         case "members": return membersValue(store, params: params, me: me)
         case "sessions": return sessionsValue(store, params: params, me: me)

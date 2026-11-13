@@ -820,8 +820,13 @@ enum AppHostStore {
         var sessions = false
         var comments = false
         var attachments = false
+        /// FEED-243: `exp:issues?touched=…`'s actor: their issue events,
+        /// comments and linked sessions load too (nil = not touched, or
+        /// `touched=me` signed out).
+        var touchActor: String? = nil
 
-        init(_ name: String) {
+        init(_ name: String, touchActor: String? = nil) {
+            if name == "issues" { self.touchActor = touchActor }
             switch name {
             case "issues": boards = true; issues = true; users = true
             case "boards": boards = true
@@ -887,6 +892,32 @@ enum AppHostStore {
                       width: $0.width.map(Double.init), height: $0.height.map(Double.init), createdAt: iso($0.createdAt))
             }
         }
+        // FEED-243: only the actor's touches (events they acted, comments
+        // they wrote, sessions they started + the issue links).
+        if let actor = needs.touchActor {
+            store.issueEvents = try IssueEventEntity
+                .filter(Column("team_id") == teamId && Column("actor_user_id") == actor)
+                .fetchAll(db)
+                .map { .init(id: $0.id, issueId: $0.issueId, actorUserId: $0.actorUserId, createdAt: iso($0.createdAt)) }
+            store.comments = try CommentEntity
+                .filter(Column("team_id") == teamId && Column("author_id") == actor)
+                .fetchAll(db)
+                .map {
+                    .init(id: $0.id, issueId: $0.issueId, authorId: $0.authorId, parentId: $0.parentId,
+                          source: $0.source ?? "user", body: $0.body ?? "", createdAt: iso($0.createdAt))
+                }
+            store.sessions = try SessionEntity
+                .filter(Column("team_id") == teamId && Column("user_id") == actor)
+                .fetchAll(db)
+                .map {
+                    .init(id: $0.id, parentId: $0.parentId, agentId: $0.agentId, appId: $0.appId, userId: $0.userId,
+                          status: $0.status, busy: $0.busy, needsInput: $0.needsInput, title: $0.title,
+                          createdAt: iso($0.createdAt), updatedAt: iso($0.updatedAt))
+                }
+            store.sessionIssues = try SessionIssueEntity.filter(Column("team_id") == teamId).fetchAll(db).map {
+                .init(sessionId: $0.sessionId, issueId: $0.issueId)
+            }
+        }
         return store
     }
 
@@ -899,7 +930,9 @@ enum AppHostStore {
     ) -> (() -> Void)? {
         var last: String?
         let push = { (store: AppSources.Store) in
-            let json = AppSources.sourceValue(name: name, params: params, store: store, me: scope.me, access: scope.access)?.compactString ?? "null"
+            let json = AppSources.sourceValue(
+                name: name, params: params, store: store, me: scope.me, access: scope.access, timeZone: scope.teamZone
+            )?.compactString ?? "null"
             guard json != last else { return }
             last = json
             emit(JSONValue.parse(json))
@@ -908,7 +941,10 @@ enum AppHostStore {
             push(AppSources.Store())
             return nil
         }
-        let needs = SourceNeeds(name)
+        // FEED-243: a touched query observes the actor's events, comments,
+        // sessions and the session ↔ issue links too.
+        let touched = params["touched"].flatMap { $0.isEmpty ? nil : $0 }
+        let needs = SourceNeeds(name, touchActor: touched == "me" ? scope.me : touched)
         let observation = ValueObservation.tracking { db in
             try sourceStore(db, teamId: teamId, needs: needs)
         }

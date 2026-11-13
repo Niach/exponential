@@ -18,7 +18,7 @@ import { RECORDS_SCHEME, parseRecordsQuery, recordsValue, type RecordRow } from 
 import { APP_SOURCE_KINDS, sourceValue, type SourceStore } from "@exp/domain-contract/app-sources"
 import { UPSTREAM_BINDING } from "@exp/emcp/upstream"
 import { db as defaultDb } from "@/db/connection"
-import { attachments, boards, comments, issues, sessions, teamMembers, teams, users, type App } from "@/db/schema"
+import { attachments, boards, comments, issueEvents, issues, sessionIssues, sessions, teamMembers, teams, users, type App } from "@/db/schema"
 import { boardVisible, issueVisible } from "@/lib/board-visibility"
 import { assertTeamMember } from "@/lib/team-membership"
 import { resolveTeamUserRef } from "@/lib/team-user-ref"
@@ -82,6 +82,8 @@ const NEEDS: Record<string, (keyof SourceStore)[]> = {
   attachments: [`issues`, `attachments`, `users`],
 }
 
+const TOUCHED_NEEDS: (keyof SourceStore)[] = [`issueEvents`, `comments`, `sessions`, `sessionIssues`]
+
 const iso = (v: Date | string | null | undefined): string | null => (v == null ? null : v instanceof Date ? v.toISOString() : String(v))
 const day = (v: Date | string | null | undefined): string | null => (v == null ? null : v instanceof Date ? v.toISOString().slice(0, 10) : String(v).slice(0, 10))
 
@@ -90,7 +92,7 @@ const day = (v: Date | string | null | undefined): string | null => (v == null ?
  *  (shared, or the viewer's own). */
 export async function serverSourceStore(teamId: string, viewerId: string, wanted: ReadonlySet<keyof SourceStore>, executor: Executor = defaultDb): Promise<SourceStore> {
   const want = (t: keyof SourceStore) => wanted.has(t)
-  const [b, i, m, s, c, a] = await Promise.all([
+  const [b, i, m, s, c, a, e, l] = await Promise.all([
     want(`boards`)
       ? executor.select().from(boards).where(and(eq(boards.teamId, teamId), boardVisible()))
       : [],
@@ -108,6 +110,22 @@ export async function serverSourceStore(teamId: string, viewerId: string, wanted
       : [],
     want(`attachments`)
       ? executor.select().from(attachments).where(and(eq(attachments.teamId, teamId), isNull(attachments.boardDeletedAt), isNull(attachments.boardArchivedAt)))
+      : [],
+    want(`issueEvents`)
+      ? executor
+          .select({ id: issueEvents.id, issueId: issueEvents.issueId, actorUserId: issueEvents.actorUserId, createdAt: issueEvents.createdAt })
+          .from(issueEvents)
+          .where(and(eq(issueEvents.teamId, teamId), isNull(issueEvents.boardDeletedAt), isNull(issueEvents.boardArchivedAt)))
+          .orderBy(desc(issueEvents.createdAt))
+          .limit(20000)
+      : [],
+    // The session links the viewer syncs: shared sessions or their own.
+    want(`sessionIssues`)
+      ? executor
+          .select({ sessionId: sessionIssues.sessionId, issueId: sessionIssues.issueId })
+          .from(sessionIssues)
+          .innerJoin(sessions, eq(sessions.id, sessionIssues.sessionId))
+          .where(and(eq(sessionIssues.teamId, teamId), or(eq(sessions.shared, true), eq(sessions.userId, viewerId))))
       : [],
   ])
   return {
@@ -154,6 +172,8 @@ export async function serverSourceStore(teamId: string, viewerId: string, wanted
       height: r.height,
       createdAt: iso(r.createdAt)!,
     })),
+    issueEvents: e.map((r) => ({ id: r.id, issueId: r.issueId, actorUserId: r.actorUserId, createdAt: iso(r.createdAt)! })),
+    sessionIssues: l.map((r) => ({ sessionId: r.sessionId, issueId: r.issueId })),
   } as SourceStore
 }
 
@@ -206,10 +226,12 @@ export async function resolveAppScreen(input: ResolveAppScreenInput, executor: E
       return
     }
     for (const t of NEEDS[source.name] ?? []) wantedTables.add(t)
+    // #FEED-243: `touched` also reads the actor's events, comments and linked sessions.
+    if (source.name === `issues` && source.params.touched) for (const t of TOUCHED_NEEDS) wantedTables.add(t)
     pending.push(
       Promise.resolve().then(async () => {
         store ??= serverSourceStore(app.teamId, viewerId, wantedTables, executor)
-        emit(sourceValue(source.name, source.params, await store, { me: viewerId, access }))
+        emit(sourceValue(source.name, source.params, await store, { me: viewerId, access, timeZone: zoneName ?? null }))
       })
     )
   }

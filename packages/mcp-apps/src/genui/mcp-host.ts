@@ -136,6 +136,8 @@ export class McpDataStore {
       sessions: sessions as unknown as SourceStore[`sessions`],
       comments: [],
       attachments: [],
+      issueEvents: [],
+      sessionIssues: [],
     }
   }
 }

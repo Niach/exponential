@@ -248,8 +248,8 @@ export function recordKindSchema(pkg: unknown, kind: string): RecordSchema | nul
 export const APP_HOST_SOURCES: readonly { source: string; value: string }[] = [
   { source: `exp:devices`, value: `{rows: [{id, label, detail, icon, discTone, tone, status}], count, online}: the team's devices, live` },
   {
-    source: `exp:issues?board=<id|slug>&status=<anchor>&priority=<p>&assignee=<userId|me|none>&search=<text>&sort=sortOrder|updatedAt|createdAt&order=asc|desc&limit=<n>`,
-    value: `{rows: [{id, identifier, title, status, priority, assignee, assigneeName, board, boardSlug, dueDate, updatedAt, value, label}], count}: the team's issues (every filter optional), live; value + label make a row a Select option`,
+    source: `exp:issues?board=<id|slug>&status=<anchor>&priority=<p>&assignee=<userId|me|none>&search=<text>&touched=me|<userId>&since=<YYYY-MM-DD|ISO instant>&until=<same>&sort=sortOrder|updatedAt|createdAt|touchedAt&order=asc|desc&limit=<n>`,
+    value: `{rows: [{id, identifier, title, status, priority, assignee, assigneeName, board, boardSlug, dueDate, updatedAt, value, label, touchedAt?, touches?}], count}: the team's issues (every filter optional), live; value + label make a row a Select option; touched = only the issues that person touched (an event they acted, a comment they wrote, a session they started linked to it) between since and until (a bare date = that whole day in the team time zone), each row with touchedAt (latest touch) + touches (comment | event | session), newest touch first unless sort is given`,
   },
   { source: `exp:boards`, value: `{rows: [{id, slug, name, prefix, icon, color, value, label}], count}: the team's boards in sidebar order` },
   { source: `exp:members`, value: `{rows: [{id, name, email, avatar, role, value, label}], count, me}: the team's members by name; me = the viewer's user id` },

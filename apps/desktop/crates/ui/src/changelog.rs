@@ -58,6 +58,16 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
+const PREVIOUS_283: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-13-apps-touched-issues",
+    date: "2026-11-13",
+    title: "Apps can list the issues you touched",
+    summary: "App bindings to exp:issues can now list the issues a member worked on in a time window, newest touch first.",
+    body: r##"- **Touched issues**: `exp:issues?touched=me&since=…&until=…` lists the issues you changed, commented on or ran a session for in that window, with when and how you touched each one; a bare date covers that whole day in the team time zone."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
 const PREVIOUS_282: ChangelogEntry = ChangelogEntry {
     id: "2026-11-13-phones-one-native-library",
     date: "2026-11-13",
