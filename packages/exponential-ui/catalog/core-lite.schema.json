@@ -2187,6 +2187,11 @@
           "type": "number",
           "description": "Lines before it scrolls."
         },
+        "follow": {
+          "type": "boolean",
+          "description": "Sticks to the bottom while the code grows (a live log).",
+          "default": false
+        },
         "variant": {
           "oneOf": [
             {

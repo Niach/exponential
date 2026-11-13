@@ -1904,6 +1904,10 @@
         "maxLines": {
           "type": "number"
         },
+        "follow": {
+          "type": "boolean",
+          "default": false
+        },
         "variant": {
           "type": "enum",
           "enum": "codeBlockVariant",

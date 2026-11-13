@@ -315,6 +315,12 @@ data class SteerDevice(
      * off a relay / tRPC payload. Null = no report: no readiness block.
      */
     @kotlinx.serialization.Transient val doctor: DeviceDoctor? = null,
+    /**
+     * #EXP-1617 / #EXP-1804: the synced CI runner settings (`devices.runner`).
+     * Only the DeviceEntity → SteerDevice mapping stamps it. Null = never set
+     * up (the section shows `RunnerSettings.DEFAULTS`).
+     */
+    @kotlinx.serialization.Transient val runner: com.exponential.app.domain.RunnerSettings.Settings? = null,
 ) {
     /** A headless `exponential` daemon rather than the desktop IDE. */
     val isServer: Boolean get() = kind == KIND_SERVER

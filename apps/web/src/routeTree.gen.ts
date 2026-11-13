@@ -126,6 +126,7 @@ import { Route as TTeamSlugAppEditorAppSlugRouteImport } from './routes/t/$teamS
 import { Route as TTeamSlugAppsIndexRouteImport } from './routes/t/$teamSlug/apps/index'
 import { Route as TTeamSlugAppsAppSlugRouteImport } from './routes/t/$teamSlug/apps/$appSlug'
 import { Route as TTeamSlugChatsIndexRouteImport } from './routes/t/$teamSlug/chats/index'
+import { Route as TTeamSlugCiRunIdRouteImport } from './routes/t/$teamSlug/ci/$runId'
 import { Route as TTeamSlugDraftsIndexRouteImport } from './routes/t/$teamSlug/drafts/index'
 import { Route as TTeamSlugDraftsDraftIdRouteImport } from './routes/t/$teamSlug/drafts/$draftId'
 import { Route as TTeamSlugInboxIndexRouteImport } from './routes/t/$teamSlug/inbox/index'
@@ -777,6 +778,11 @@ const TTeamSlugChatsIndexRoute = TTeamSlugChatsIndexRouteImport.update({
   path: '/chats/',
   getParentRoute: () => TTeamSlugRouteRoute,
 } as any)
+const TTeamSlugCiRunIdRoute = TTeamSlugCiRunIdRouteImport.update({
+  id: '/ci/$runId',
+  path: '/ci/$runId',
+  getParentRoute: () => TTeamSlugRouteRoute,
+} as any)
 const TTeamSlugDraftsIndexRoute = TTeamSlugDraftsIndexRouteImport.update({
   id: '/drafts/',
   path: '/drafts/',
@@ -1139,6 +1145,7 @@ export interface FileRoutesByFullPath {
   '/t/$teamSlug/agents/$agentId': typeof TTeamSlugAgentsAgentIdRoute
   '/t/$teamSlug/app-editor/$appSlug': typeof TTeamSlugAppEditorAppSlugRoute
   '/t/$teamSlug/apps/$appSlug': typeof TTeamSlugAppsAppSlugRouteWithChildren
+  '/t/$teamSlug/ci/$runId': typeof TTeamSlugCiRunIdRoute
   '/t/$teamSlug/drafts/$draftId': typeof TTeamSlugDraftsDraftIdRoute
   '/t/$teamSlug/issues/$identifier': typeof TTeamSlugIssuesIdentifierRoute
   '/t/$teamSlug/repos/$name': typeof TTeamSlugReposNameRoute
@@ -1297,6 +1304,7 @@ export interface FileRoutesByTo {
   '/t/$teamSlug/agents/$agentId': typeof TTeamSlugAgentsAgentIdRoute
   '/t/$teamSlug/app-editor/$appSlug': typeof TTeamSlugAppEditorAppSlugRoute
   '/t/$teamSlug/apps/$appSlug': typeof TTeamSlugAppsAppSlugRouteWithChildren
+  '/t/$teamSlug/ci/$runId': typeof TTeamSlugCiRunIdRoute
   '/t/$teamSlug/drafts/$draftId': typeof TTeamSlugDraftsDraftIdRoute
   '/t/$teamSlug/issues/$identifier': typeof TTeamSlugIssuesIdentifierRoute
   '/t/$teamSlug/repos/$name': typeof TTeamSlugReposNameRoute
@@ -1460,6 +1468,7 @@ export interface FileRoutesById {
   '/t/$teamSlug/agents/$agentId': typeof TTeamSlugAgentsAgentIdRoute
   '/t/$teamSlug/app-editor/$appSlug': typeof TTeamSlugAppEditorAppSlugRoute
   '/t/$teamSlug/apps/$appSlug': typeof TTeamSlugAppsAppSlugRouteWithChildren
+  '/t/$teamSlug/ci/$runId': typeof TTeamSlugCiRunIdRoute
   '/t/$teamSlug/drafts/$draftId': typeof TTeamSlugDraftsDraftIdRoute
   '/t/$teamSlug/issues/$identifier': typeof TTeamSlugIssuesIdentifierRoute
   '/t/$teamSlug/repos/$name': typeof TTeamSlugReposNameRoute
@@ -1623,6 +1632,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/agents/$agentId'
     | '/t/$teamSlug/app-editor/$appSlug'
     | '/t/$teamSlug/apps/$appSlug'
+    | '/t/$teamSlug/ci/$runId'
     | '/t/$teamSlug/drafts/$draftId'
     | '/t/$teamSlug/issues/$identifier'
     | '/t/$teamSlug/repos/$name'
@@ -1781,6 +1791,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/agents/$agentId'
     | '/t/$teamSlug/app-editor/$appSlug'
     | '/t/$teamSlug/apps/$appSlug'
+    | '/t/$teamSlug/ci/$runId'
     | '/t/$teamSlug/drafts/$draftId'
     | '/t/$teamSlug/issues/$identifier'
     | '/t/$teamSlug/repos/$name'
@@ -1943,6 +1954,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/agents/$agentId'
     | '/t/$teamSlug/app-editor/$appSlug'
     | '/t/$teamSlug/apps/$appSlug'
+    | '/t/$teamSlug/ci/$runId'
     | '/t/$teamSlug/drafts/$draftId'
     | '/t/$teamSlug/issues/$identifier'
     | '/t/$teamSlug/repos/$name'
@@ -2909,6 +2921,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TTeamSlugChatsIndexRouteImport
       parentRoute: typeof TTeamSlugRouteRoute
     }
+    '/t/$teamSlug/ci/$runId': {
+      id: '/t/$teamSlug/ci/$runId'
+      path: '/ci/$runId'
+      fullPath: '/t/$teamSlug/ci/$runId'
+      preLoaderRoute: typeof TTeamSlugCiRunIdRouteImport
+      parentRoute: typeof TTeamSlugRouteRoute
+    }
     '/t/$teamSlug/drafts/': {
       id: '/t/$teamSlug/drafts/'
       path: '/drafts'
@@ -3356,6 +3375,7 @@ interface TTeamSlugRouteRouteChildren {
   TTeamSlugAgentsAgentIdRoute: typeof TTeamSlugAgentsAgentIdRoute
   TTeamSlugAppEditorAppSlugRoute: typeof TTeamSlugAppEditorAppSlugRoute
   TTeamSlugAppsAppSlugRoute: typeof TTeamSlugAppsAppSlugRouteWithChildren
+  TTeamSlugCiRunIdRoute: typeof TTeamSlugCiRunIdRoute
   TTeamSlugDraftsDraftIdRoute: typeof TTeamSlugDraftsDraftIdRoute
   TTeamSlugIssuesIdentifierRoute: typeof TTeamSlugIssuesIdentifierRoute
   TTeamSlugReposNameRoute: typeof TTeamSlugReposNameRoute
@@ -3380,6 +3400,7 @@ const TTeamSlugRouteRouteChildren: TTeamSlugRouteRouteChildren = {
   TTeamSlugAgentsAgentIdRoute: TTeamSlugAgentsAgentIdRoute,
   TTeamSlugAppEditorAppSlugRoute: TTeamSlugAppEditorAppSlugRoute,
   TTeamSlugAppsAppSlugRoute: TTeamSlugAppsAppSlugRouteWithChildren,
+  TTeamSlugCiRunIdRoute: TTeamSlugCiRunIdRoute,
   TTeamSlugDraftsDraftIdRoute: TTeamSlugDraftsDraftIdRoute,
   TTeamSlugIssuesIdentifierRoute: TTeamSlugIssuesIdentifierRoute,
   TTeamSlugReposNameRoute: TTeamSlugReposNameRoute,

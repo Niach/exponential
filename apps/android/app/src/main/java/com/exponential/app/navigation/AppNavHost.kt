@@ -1272,6 +1272,25 @@ private fun AuthenticatedNav(
         composable(Routes.SKILL_SETTINGS_PATTERN) {
             SkillSettingsScreen(onBack = { navController.popBackStack() })
         }
+        composable(
+            Routes.CI_RUN_PATTERN,
+            arguments = listOf(
+                navArgument("job") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) {
+            // #EXP-1804 (ci-run.json): THE run page of our own CI; Re-run
+            // failed opens the new run in its place.
+            com.exponential.app.ui.ci.CiRunScreen(
+                onBack = { navController.popBackStack() },
+                onOpenRun = { id ->
+                    navController.navigate(Routes.ciRun(id)) { popUpTo(Routes.CI_RUN_PATTERN) { inclusive = true } }
+                },
+            )
+        }
         // #EXP-1616 (repo-page.json): the repo page; the ViewModel reads
         // `repositoryId` + `tab` off the SavedStateHandle.
         composable(

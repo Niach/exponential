@@ -355,11 +355,11 @@ public final class SyncManager: @unchecked Sendable {
     // MARK: - Per-account shape launch
 
     private func launchPipeline(accountId: String, pool: DatabasePool) {
-        logger.info("Launching live shape sync (34 shapes) for account \(accountId, privacy: .public)")
+        logger.info("Launching live shape sync (37 shapes) for account \(accountId, privacy: .public)")
         // A visible "we got past pool open + migrations and started polling"
         // marker in the diagnostics log — the positive counterpart to the
         // fatal path above (§9.1: pipeline launched must never be ambiguous).
-        SyncDebug.shared.log("[pipeline] launched 34 shapes")
+        SyncDebug.shared.log("[pipeline] launched 37 shapes")
         SyncDebug.shared.clearFatal()
 
         let auth = self.auth
@@ -603,6 +603,19 @@ public final class SyncManager: @unchecked Sendable {
         tasks.append(makeShapeTask(
             name: "composer-drafts", path: "/api/shapes/composer-drafts", table: "composer_drafts",
             type: ComposerDraftEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
+            session: session
+        ))
+        // #EXP-1617 / #EXP-1804: eCode's own CI, member-only by team (36th and
+        // 37th shapes): the run page and a device's CI runner section read
+        // them; logs never sync (`ci.log`).
+        tasks.append(makeShapeTask(
+            name: "ci-runs", path: "/api/shapes/ci-runs", table: "ci_runs",
+            type: CiRunEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
+            session: session
+        ))
+        tasks.append(makeShapeTask(
+            name: "ci-jobs", path: "/api/shapes/ci-jobs", table: "ci_jobs",
+            type: CiJobEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
             session: session
         ))
 

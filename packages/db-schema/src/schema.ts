@@ -4895,6 +4895,10 @@ export const selectWidgetSubmissionSchema = createSelectSchema(
 )
 
 export const selectDeviceSchema = createSelectSchema(devices, {
+  // #EXP-1617: tolerant like `doctor` (clients skip what they cannot name).
+  runner: z
+    .custom<DeviceRunnerSettings>((value) => typeof value === `object` && value !== null)
+    .nullable(),
   agents: z.array(z.string()),
   caps: z.array(z.string()),
   unauthedAgents: z.array(z.string()),

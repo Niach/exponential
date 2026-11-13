@@ -159,6 +159,8 @@
     { "id": "phone-board-menu", "class": "expressible", "with": "Menu (check items with a leading icon) in a full-width bottom panel" },
     { "id": "phone-page-header", "class": "expressible", "with": "AppBar with a large title and two icon Buttons in its trailing slot" },
     { "id": "chat-header", "class": "expressible", "with": "AppBar with a leading ghost Button, an Avatar, a title over a subtitle and ghost icon Buttons in its trailing slot" },
+    { "id": "ci-run", "class": "expressible", "with": "#EXP-1804: a Grid of StatTile ×4 (status, duration, runner, commit) + Button Re-run failed / Cancel + a Section of job Rows (selected; Collapsible per job on phones) beside the job: a Trace of TraceItems + CodeBlock (ansi, lineNumbers, highlight, maxLines, follow) for the live log" },
+    { "id": "runner-settings", "class": "expressible", "with": "#EXP-1804: Section of SettingsRows (Switch Run CI jobs, ChipInput labels, NumberField parallel jobs, Select job timeout) + recent job Rows (status Icon + duration meta) + an Alert on phones or when the app must update" },
     { "id": "schedule-picker", "class": "expressible", "with": "Section of Rows with trailing Select values (Repeat, Every, Minute, Time, Days, Time zone) + a searchable Select" },
     { "id": "session", "class": "native", "with": "the session feed native; AppBar + Button Stop + Composer otherwise" },
     { "id": "agent-channel", "class": "native", "with": "the conversation feed native; Row + Markdown + Composer otherwise" },

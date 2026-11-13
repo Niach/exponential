@@ -1309,6 +1309,15 @@
           "description": "Lines before it scrolls."
         },
         {
+          "name": "follow",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "Sticks to the bottom while the code grows (a live log)."
+        },
+        {
           "name": "variant",
           "type": "default | destructive",
           "required": false,

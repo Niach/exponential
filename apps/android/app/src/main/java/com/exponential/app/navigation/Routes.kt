@@ -118,4 +118,10 @@ object Routes {
         val json = kotlinx.serialization.json.JsonObject(params.mapValues { kotlinx.serialization.json.JsonPrimitive(it.value) }).toString()
         return "app-run/$appId?screen=${com.exponential.app.domain.encodeRouteValue(screen)}&params=${com.exponential.app.domain.encodeRouteValue(json)}"
     }
+
+    /** #EXP-1804 (ci-run.json): THE run page of our own CI; `job` = the job
+     *  it opens on (absent = the rule's pick, `CiRun.defaultJob`). */
+    const val CI_RUN_PATTERN = "ci-run/{runId}?job={job}"
+    fun ciRun(runId: String, job: String? = null): String =
+        if (job.isNullOrEmpty()) "ci-run/$runId" else "ci-run/$runId?job=${com.exponential.app.domain.encodeRouteValue(job)}"
 }

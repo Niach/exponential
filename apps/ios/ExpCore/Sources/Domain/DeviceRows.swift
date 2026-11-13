@@ -101,7 +101,8 @@ public extension SteerDevice {
             // EXP-1196: NULL (an older build) and undecodable JSON both read
             // as "no report" — the readiness block simply doesn't render.
             doctor: DeviceDoctor.decode(json: entity.doctor),
-            rowId: entity.id
+            rowId: entity.id,
+            runner: RunnerSettings.Settings(json: entity.runner)
         )
     }
 

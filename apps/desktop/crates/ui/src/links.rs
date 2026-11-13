@@ -296,6 +296,20 @@ fn found(screen: Screen) -> Target {
 
 /// The link's target in `team_id` (`None` = no team of the viewer's).
 fn resolve(link: &AppLink, team_id: Option<&str>, cx: &App) -> Target {
+    // #EXP-1804: a CI run (every check's `details_url` our CI writes) opens
+    // its page here when the run is the team's synced one.
+    if let AppLink::App { path } = link {
+        if let Some(ci) = domain::ci_run::ci_run_link(path) {
+            let synced = team_id.is_some_and(|team_id| {
+                Store::try_global(cx).is_some_and(|store| {
+                    store.collections().ci_runs.read(cx).get(&ci.run_id).is_some_and(|run| run.team_id.as_deref().is_none_or(|team| team == team_id))
+                })
+            });
+            if synced {
+                return found(Screen::CiRun { run_id: ci.run_id, job: ci.job_id });
+            }
+        }
+    }
     // Every other page of this instance: this client has no screen for it.
     if matches!(link, AppLink::App { .. }) {
         return Target::WebOnly;

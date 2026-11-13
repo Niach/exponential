@@ -1677,6 +1677,22 @@
         "sha256": "7df1f1287b3cd1d53141ce5bc0cc1ec3d85f16d897b78640cf78bfa02980bb72"
       }
     },
+    "ci-run": {
+      "android": {
+        "file": "shots/ci-run/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 51120,
+        "sha256": "6cf73b2706b2c83bed9c09b8d14508233bf58325dc4d52ce7952cc1d55b3ed75"
+      },
+      "ios": {
+        "file": "shots/ci-run/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 51754,
+        "sha256": "a40c913ec8bf8ffd0c7c5d350889618d3eba885d2054eeb27ff986b9d2934206"
+      }
+    },
     "code-block": {
       "android": {
         "file": "shots/code-block/android.webp",
@@ -6533,6 +6549,22 @@
         "height": 1800,
         "bytes": 79586,
         "sha256": "3a4caa5e5bdf3eb04cb708b7a8e06eeea04cd9df315b6958ccf6da1a73893b1e"
+      }
+    },
+    "runner-settings": {
+      "android": {
+        "file": "shots/runner-settings/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 37592,
+        "sha256": "92073afdfe59d7adc12b27d5b5e64bd2d198336bcbe2e42cb1c2674c3d523328"
+      },
+      "ios": {
+        "file": "shots/runner-settings/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 40772,
+        "sha256": "e17e050f5ac1015e66bcda46e50b0475a802da93ac2e7208eddd47e93f04065e"
       }
     },
     "schedule-picker": {

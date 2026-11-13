@@ -24,6 +24,7 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
                 language,
                 destructive,
                 copyable: true,
+                follow: false,
             },
             cx,
         )

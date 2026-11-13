@@ -2859,6 +2859,36 @@
                 }
               }
             ]
+          },
+          {
+            "id": "specimen_code_block_case_5",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_code_block_case_5_label",
+                "component": "Text",
+                "props": {
+                  "text": "follow · a live log",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c5_code_block_log",
+                "component": "CodeBlock",
+                "props": {
+                  "title": "test · bun run test",
+                  "language": "ansi",
+                  "maxLines": 6,
+                  "follow": true,
+                  "code": "$ bun install --frozen-lockfile\n\u001b[2mResolved 1204 packages in 812ms\u001b[0m\n$ bun run typecheck\n\u001b[32m✓\u001b[0m apps/web\n\u001b[32m✓\u001b[0m packages/db-schema\n$ bun run test\n\u001b[32m✓\u001b[0m src/lib/sessions/send.test.ts \u001b[2m(42 tests)\u001b[0m\n\u001b[32m✓\u001b[0m src/lib/emcp/gate.test.ts \u001b[2m(18 tests)\u001b[0m\n\u001b[31m✗\u001b[0m src/lib/ci/runner.test.ts \u001b[2m(1 failed)\u001b[0m\n\u001b[1mTests\u001b[0m  \u001b[32m60 passed\u001b[0m, \u001b[31m1 failed\u001b[0m"
+                }
+              }
+            ]
           }
         ]
       }

@@ -90,6 +90,10 @@ import com.exponential.app.ui.styleguide.CallPillSpecimenTestId
 import com.exponential.app.ui.styleguide.VoiceCallSpecimenScreen
 import com.exponential.app.ui.styleguide.VoiceCallSpecimenTestId
 import com.exponential.app.ui.styleguide.DeviceReadinessSpecimenScreen
+import com.exponential.app.ui.styleguide.CiRunSpecimenScreen
+import com.exponential.app.ui.styleguide.CiRunSpecimenTestId
+import com.exponential.app.ui.styleguide.RunnerSettingsSpecimenScreen
+import com.exponential.app.ui.styleguide.RunnerSettingsSpecimenTestId
 import com.exponential.app.ui.styleguide.DeviceReadinessSpecimenTestId
 import com.exponential.app.ui.styleguide.PhoneTabBarSpecimenScreen
 import com.exponential.app.domain.SettingsNav
@@ -158,7 +162,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_issue-create · sg_search · sg_my-issues · sg_agents ·
  *   sg_chat · sg_composer-menu · sg_chat-issues ·
  *   sg_machine-settings · sg_chats ·
- *   sg_session-row · sg_pr-row · sg_pr-checks ·
+ *   sg_session-row · sg_pr-row · sg_pr-checks · sg_ci-run · sg_runner-settings ·
  *   sg_settings-root · sg_settings-team ·
  *   sg_settings-account · sg_onboarding · sg_onboarding-create-team ·
  *   sg_invite-accept · sg_onboarding-invite ·
@@ -261,6 +265,8 @@ class StyleguideScreenshotsTest {
             "sg_session-row",
             // #EXP-1611: the Merge pill's check states + the Checks submenu.
             "sg_pr-checks",
+            // #EXP-1804: THE CI run page + a device's CI runner section.
+            "sg_ci-run", "sg_runner-settings",
             // Session 58cb32df: the Chats pieces + the minutes schedule.
             // #EXP-1645: the team mark and the General row.
             "sg_team-avatar",
@@ -1954,6 +1960,16 @@ class StyleguideScreenshotsTest {
         // real MergeStatusPill / ChatMenuPanel.
         showChatCards(ChatCardsKind.PrChecks)
         flow.screenshot("sg_pr-checks")
+
+        // --- sg_ci-run · sg_runner-settings (#EXP-1617 / #EXP-1804):
+        // THE run page over ci-run.json `specimen` (phone: a Collapsible per job,
+        // `test (linux)` open on its steps and log) and the device's CI
+        // runner section over runner-settings.json `specimen` +
+        // recentJobs[0], as the genUI trees web builds (CiRunPage / RunnerSettingsView).
+        show(CiRunSpecimenTestId) { CiRunSpecimenScreen() }
+        flow.screenshot("sg_ci-run")
+        show(RunnerSettingsSpecimenTestId) { RunnerSettingsSpecimenScreen() }
+        flow.screenshot("sg_runner-settings")
 
         // --- Session 58cb32df (fixtures/chats.json): the Chats screen over
         // the phone tab bar, the tab bar's states, a chat's transcript as

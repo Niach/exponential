@@ -24,7 +24,16 @@ fn job_identity() -> Identity {
 /// Opens (or creates) the job cache at `cache` and brings it up to the
 /// remote: every object, and refs equal to the server's.
 pub fn sync_cache(git: &ExpGit, cache: &Path) -> Result<(LocalRepo, BTreeMap<String, String>)> {
-    let repo = if cache.join("HEAD").exists() { LocalRepo::open(cache)? } else { LocalRepo::init_bare(cache)? };
+    let repo = if cache.join("HEAD").exists() {
+        LocalRepo::open(cache)?
+    } else {
+        // #EXP-1617: gix's bare init creates only the last directory; on a
+        // fresh data dir the first job (our CI's `read_file`) failed.
+        if let Some(parent) = cache.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| crate::Error::Invalid(format!("job cache dir: {e}")))?;
+        }
+        LocalRepo::init_bare(cache)?
+    };
     let refs = git.refs()?;
     let wanted: Vec<&str> = refs.refs.values().map(String::as_str).collect();
     git.fetch_wanted(cache, &wanted)?;

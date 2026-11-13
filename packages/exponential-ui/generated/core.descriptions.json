@@ -429,6 +429,9 @@
         "maxLines": {
           "description": "Lines before it scrolls."
         },
+        "follow": {
+          "description": "Sticks to the bottom while the code grows (a live log)."
+        },
         "variant": {
           "description": "destructive = failed output."
         },

@@ -64,6 +64,8 @@ final class AppDependencies: @unchecked Sendable {
     let repositoriesApi: RepositoriesApi
     // The caller's registered machines (EXP-403) — polled, never synced.
     let devicesApi: DevicesApi
+    /// #EXP-1804: the CI run page's log tail + actions, the runner section's write.
+    let ciApi: CiApi
     // Team actions (EXP-253) = saved prompts — synced for reads; tRPC for
     // the prompt body and the owner-gated writes.
     let promptsApi: PromptsApi
@@ -203,6 +205,7 @@ final class AppDependencies: @unchecked Sendable {
         self.onboardingApi = OnboardingApi(trpc: trpc)
         self.repositoriesApi = RepositoriesApi(trpc: trpc)
         self.devicesApi = DevicesApi(trpc: trpc)
+        self.ciApi = CiApi(trpc: trpc)
         self.promptsApi = PromptsApi(trpc: trpc)
         self.skillsApi = SkillsApi(trpc: trpc)
         let appsApi = AppsApi(trpc: trpc)

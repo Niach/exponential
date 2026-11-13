@@ -244,7 +244,7 @@ export interface ComponentProps {
   Text: { text: string | Dynamic; variant?: TextVariantValue; align?: "start" | "center" | "end"; lines?: number; truncate?: "end" | "middle"; tone?: ToneValue; shimmer?: boolean; live?: LiveValue; style?: Style }
   Heading: { text: string | Dynamic; level?: HeadingLevelValue }
   Markdown: { text: string | Dynamic; profile?: "document" | "inline"; variant?: "body" | "caption"; lines?: number; style?: Style }
-  CodeBlock: { code: string | Dynamic; language?: CodeLanguageValue; title?: string; lineNumbers?: boolean; wrap?: boolean; copyable?: boolean; highlight?: number[]; maxLines?: number; variant?: CodeBlockVariantValue | Dynamic; size?: CodeBlockSizeValue }
+  CodeBlock: { code: string | Dynamic; language?: CodeLanguageValue; title?: string; lineNumbers?: boolean; wrap?: boolean; copyable?: boolean; highlight?: number[]; maxLines?: number; follow?: boolean; variant?: CodeBlockVariantValue | Dynamic; size?: CodeBlockSizeValue }
   Kbd: { keys: string }
   KbdGroup: { keys: string[] | Dynamic }
   Label: { text: string | Dynamic; for?: string; required?: boolean }

@@ -1,7 +1,7 @@
 // FEED-128: DOM parity of CodeBlock (natives/code.tsx) with React: every
 // catalog-components.json example (each language, lineNumbers, wrap,
 // copyable, variant, size), forced states, and the extras (title, highlight,
-// maxLines, an empty line, dark + rtl).
+// maxLines, an empty line, follow, dark + rtl).
 
 import { describe, it } from "vitest"
 import fixture from "@exponential_app/eui/fixtures/catalog-components.json"
@@ -21,6 +21,8 @@ describe(`DOM parity: CodeBlock`, { timeout: 60_000 }, () => {
         { id: `a`, component: `CodeBlock`, props: { code: `const x = 1 // hi\n\nreturn x`, language: `ts`, lineNumbers: true, highlight: [1, 3], title: `a.ts`, maxLines: 2, wrap: true } },
         { id: `b`, component: `CodeBlock`, props: { code: `plain text`, copyable: false } },
         { id: `c`, component: `CodeBlock`, props: { code: `\u001b[31mred\u001b[0m done`, language: `ansi`, variant: `destructive`, size: `sm` } },
+        // #EXP-1804: a following live log.
+        { id: `d`, component: `CodeBlock`, props: { code: `one\n\u001b[32mtwo\u001b[0m\nthree`, language: `ansi`, maxLines: 2, follow: true } },
       ],
     } as unknown as NestedNode
     await expectDomParity({ tree })

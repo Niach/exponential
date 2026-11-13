@@ -402,8 +402,17 @@ enum LinkOpener {
                 appSlug, screen: Apps.ScreenRequest(screen: screen, params: params),
                 teamId: teamId, accountId: accountId, pool: pool
             )
-        case .app:
-            return Target(webOnly: true, teamId: teamId)
+        case let .app(path):
+            // #EXP-1804 (ci-run.json): a run of our own CI synced for this
+            // team opens THE run page; every other `app` path is web-only.
+            guard let ci = CiRun.parsePath(path) else { return Target(webOnly: true, teamId: teamId) }
+            let id = await rowId(
+                #"SELECT "id" FROM "ci_runs" WHERE "team_id" = ? AND "id" = ? LIMIT 1"#, teamId, ci.runId, pool: pool
+            )
+            guard let id else { return Target(found: false, teamId: teamId) }
+            return Target(teamId: teamId, destination: .push(
+                .ciRun(accountId: accountId, runId: id, job: CiRun.jobParam(path)), over: nil
+            ))
         case .external, .ignore:
             return Target(found: false, teamId: teamId)
         }

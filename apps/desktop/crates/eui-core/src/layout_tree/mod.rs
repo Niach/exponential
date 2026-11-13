@@ -370,6 +370,10 @@ pub struct LocalState {
     pub lists: HashMap<String, ListWindow>,
     /// Any scroll container's offset by node id (x, y).
     pub scroll: HashMap<String, (f32, f32)>,
+    /// #EXP-1804: the `follow` scroll containers (a CodeBlock body) the
+    /// person scrolled up from the bottom: they stop following until
+    /// scrolled back to it.
+    pub unfollowed: std::collections::HashSet<String>,
     /// A searchable Select's query / a ChipInput's typed text.
     pub query: HashMap<String, String>,
     /// A calendar's visible month (year, month 1–12).

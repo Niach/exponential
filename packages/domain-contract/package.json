@@ -23,6 +23,7 @@
     "./diff-tree": "./src/diff-tree.ts",
     "./work-card": "./src/work-card.ts",
     "./pr-checks": "./src/pr-checks.ts",
+    "./ci-run": "./src/ci-run.ts",
     "./merge-train": "./src/merge-train.ts",
     "./script-card": "./src/script-card.ts",
     "./home-greeting": "./src/home-greeting.ts",

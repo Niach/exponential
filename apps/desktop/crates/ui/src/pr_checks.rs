@@ -134,9 +134,11 @@ pub(crate) fn check_menu_item(index: usize, row: CheckListRow) -> PopupMenuItem 
         )))
     })
     .disabled(disabled)
-    .on_click(move |_, _, cx| {
+    .on_click(move |_, window, cx| {
+        // #EXP-1804: our own CI's Details open its run page in-app (THE
+        // link opener); anything else goes to the browser as before.
         if let Some(url) = url.clone() {
-            crate::settings::open_url(cx, url);
+            crate::links::open_link(&url, None, window, cx);
         }
     })
 }

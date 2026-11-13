@@ -416,6 +416,9 @@ public struct SteerDevice: Sendable, Identifiable {
     /// resume probe. Set only when the value came off the devices shape
     /// (DeviceRows mapping); nil on a bare placeholder, which never resumes.
     public let rowId: String?
+    /// #EXP-1804: the CI runner settings (the synced `runner` column, the
+    /// fixture's `defaults` filling a NULL one).
+    public let runner: RunnerSettings.Settings
 
     public var id: String { deviceId }
 
@@ -443,7 +446,8 @@ public struct SteerDevice: Sendable, Identifiable {
         agentUsageAt: String? = nil,
         launchDefaults: DeviceLaunchDefaults? = nil,
         doctor: DeviceDoctor? = nil,
-        rowId: String? = nil
+        rowId: String? = nil,
+        runner: RunnerSettings.Settings = .defaults
     ) {
         self.deviceId = deviceId
         self.deviceLabel = deviceLabel
@@ -469,6 +473,7 @@ public struct SteerDevice: Sendable, Identifiable {
         self.launchDefaults = launchDefaults
         self.doctor = doctor
         self.rowId = rowId
+        self.runner = runner
     }
 
     /// EXP-432: whether this is one of the caller's OWN machines. A teammate's

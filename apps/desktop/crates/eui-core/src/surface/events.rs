@@ -17,6 +17,10 @@ fn js(v: &Value) -> String {
 }
 
 
+/// #EXP-1804: px above a following container's bottom that still count as
+/// at the bottom (sub-pixel offsets, a fling's last frame).
+const FOLLOW_SLACK: f32 = 4.0;
+
 /// The index suffix of a part id (`<owner>.item.3` → 3).
 fn suffix_index(id: &str) -> Option<usize> {
     id.rsplit('.').next().and_then(|s| s.parse().ok())
@@ -69,6 +73,16 @@ impl Surface {
         if let Some((max_x, max_y)) = self.scroll_max(id) {
             x = x.min(max_x);
             y = y.min(max_y);
+        }
+        // #EXP-1804: a following container (a `follow` CodeBlock's body)
+        // scrolled up from its bottom stops following; back at it, follows.
+        if self.slot_of.get(id).is_some_and(|&s| self.nodes[s as usize].props.get("follow") == Some(&Value::Bool(true))) {
+            let bottom = self.scroll_max(id).map(|m| m.1).filter(|m| m.is_finite()).unwrap_or(0.0);
+            if y >= bottom - FOLLOW_SLACK {
+                self.local.unfollowed.remove(id);
+            } else {
+                self.local.unfollowed.insert(id.to_string());
+            }
         }
         let current = self.local.scroll.get(id).copied().unwrap_or((0.0, 0.0));
         if (current.0 - x).abs() < 0.5 && (current.1 - y).abs() < 0.5 {

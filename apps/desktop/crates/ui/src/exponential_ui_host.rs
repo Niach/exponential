@@ -1207,6 +1207,7 @@ fn consent_hook(scope: Option<HostScope>) -> ConsentHook {
                             language: "json",
                             destructive: false,
                             copyable: false,
+                            follow: false,
                         },
                         cx,
                     )

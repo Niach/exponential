@@ -3065,6 +3065,10 @@ public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Eq
     /// decoded by `DeviceDoctor`. NULL = a build that reports none, which
     /// renders no readiness block. READ-ONLY here: the device is the writer.
     public let doctor: String?
+    /// #EXP-1804: the CI runner settings (`{enabled, labels, slots,
+    /// timeoutMin}`, fixture runner-settings.json), stored as JSON text; NULL =
+    /// never set up (`RunnerSettings.Settings(json:)` fills the defaults).
+    public let runner: String?
     public let activeSessions: Int
     public let lastSeenAt: String?
     /// FEED-33: the teams this machine is shared with (`uuid[]`, sorted +
@@ -3098,6 +3102,7 @@ public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Eq
         agentUsage: String? = nil,
         agentUsageAt: String? = nil,
         doctor: String? = nil,
+        runner: String? = nil,
         activeSessions: Int = 0,
         lastSeenAt: String? = nil,
         sharedTeamIds: [String] = [],
@@ -3124,6 +3129,7 @@ public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Eq
         self.agentUsage = agentUsage
         self.agentUsageAt = agentUsageAt
         self.doctor = doctor
+        self.runner = runner
         self.activeSessions = activeSessions
         self.lastSeenAt = lastSeenAt
         self.sharedTeamIds = sharedTeamIds
@@ -3134,7 +3140,7 @@ public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Eq
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, label, kind, icon, platform, version, agents, caps, doctor
+        case id, label, kind, icon, platform, version, agents, caps, doctor, runner
         case userId = "user_id"
         case deviceId = "device_id"
         case unauthedAgents = "unauthed_agents"
@@ -3188,6 +3194,8 @@ extension DeviceEntity: Codable {
         agentUsageAt = try c.decodeIfPresent(String.self, forKey: .agentUsageAt)
         // EXP-1196: jsonb like agent_accounts; nullable.
         doctor = c.decodeWireJsonString(forKey: .doctor)
+        // #EXP-1804: jsonb like doctor; absent on an older server.
+        runner = c.decodeWireJsonString(forKey: .runner)
         // SE-0230 flattens the try?-of-optional; unparseable text degrades to
         // 0 rather than dropping the row (activeSessions only gates a badge).
         activeSessions = (try? c.decodeWireInt(forKey: .activeSessions)) ?? 0

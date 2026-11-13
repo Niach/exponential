@@ -195,7 +195,8 @@ pub(crate) fn build_screen_content(
         // VAPP-90: the dev-only kitchen sink is never undocked.
         Screen::ExponentialUiKitchenSink
         | Screen::ExponentialUiSpecimen { .. }
-        | Screen::Specimen { .. } => {
+        | Screen::Specimen { .. }
+        | Screen::CiRun { .. } => {
             cx.new(|_| NeverUndocked).into()
         }
         Screen::Settings => cx.new(|cx| crate::settings::SettingsView::new(window, cx)).into(),
@@ -715,6 +716,8 @@ pub struct ScreensPanel {
     app_editor: Option<Entity<crate::app_screen::AppScreenView>>,
     /// VAPP-93: the open specimen (rebuilt when another id opens).
     exponential_ui_specimen: Option<Entity<crate::exponential_ui_screen::ExponentialUiSpecimen>>,
+    /// #EXP-1804: the open CI run page.
+    ci_run: Option<Entity<crate::ci_run::CiRunView>>,
     /// EXP-746: one session screen per session a tab SHOWS, keyed by the
     /// `sessions` row id. Not a shared single instance like the views above:
     /// each one owns a feed (a relay socket, or the local engine's drain), so
@@ -1064,6 +1067,7 @@ impl ScreensPanel {
             eui_core: None,
             app_editor: None,
             exponential_ui_specimen: None,
+            ci_run: None,
             sessions: HashMap::new(),
             chats: HashMap::new(),
             agents: HashMap::new(),
@@ -1392,6 +1396,7 @@ impl ScreensPanel {
             | Screen::ExponentialUiKitchenSink
             | Screen::ExponentialUiSpecimen { .. }
             | Screen::Specimen { .. }
+            | Screen::CiRun { .. }
             | Screen::Settings => {
                 unreachable!("filtered by is_detail")
             }
@@ -2717,6 +2722,15 @@ impl Render for ScreensPanel {
                     }));
                 }
                 self.exponential_ui_specimen.clone().expect("built above").into_any_element()
+            }
+            // #EXP-1804: one CI run, full page.
+            Some(Screen::CiRun { run_id, job }) => {
+                let stale = self.ci_run.as_ref().is_none_or(|view| !view.read(cx).shows(run_id, job.as_deref()));
+                if stale {
+                    let (run_id, job) = (run_id.clone(), job.clone());
+                    self.ci_run = Some(cx.new(|cx| crate::ci_run::CiRunView::new(run_id, job, window, cx)));
+                }
+                self.ci_run.clone().expect("built above").into_any_element()
             }
             // EXP-1259: one specimen, full-window (dev-only).
             Some(Screen::Specimen { id }) => match crate::specimens::entries::find(id) {

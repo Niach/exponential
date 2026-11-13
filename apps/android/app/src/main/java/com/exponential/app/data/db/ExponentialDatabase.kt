@@ -32,6 +32,8 @@ import androidx.room.TypeConverters
         PullRequestEntity::class,
         PullRequestIssueEntity::class,
         PullRequestCheckEntity::class,
+        CiRunEntity::class,
+        CiJobEntity::class,
         SessionReadEntity::class,
         AgentDefinitionEntity::class,
         EventEntity::class,
@@ -93,7 +95,10 @@ import androidx.room.TypeConverters
     //      (root_id), explicit [MIGRATION_122_123]; nothing refetches.
     // v124 (#FEED-219): the `composer_drafts` table (every composer's synced
     //      draft), explicit [MIGRATION_123_124]; the new shape starts fresh.
-    version = 124,
+    // v125 (#EXP-1617 / #EXP-1804): devices.runner + the ci_runs and ci_jobs
+    //      tables (our own CI's run page), explicit [MIGRATION_124_125]; only
+    //      the devices shape refetches (the new shapes start fresh).
+    version = 125,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)
@@ -124,6 +129,8 @@ abstract class ExponentialDatabase : RoomDatabase() {
     abstract fun pullRequestDao(): PullRequestDao
     abstract fun pullRequestIssueDao(): PullRequestIssueDao
     abstract fun pullRequestCheckDao(): PullRequestCheckDao
+    abstract fun ciRunDao(): CiRunDao
+    abstract fun ciJobDao(): CiJobDao
     abstract fun sessionReadDao(): SessionReadDao
     abstract fun agentDefinitionDao(): AgentDefinitionDao
     abstract fun eventDao(): EventDao

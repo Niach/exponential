@@ -434,6 +434,8 @@ pub struct DeviceSettingsView {
     remove_busy: bool,
     /// #EXP-1770: this machine's readiness block (the shared document).
     readiness: Entity<crate::settings::readiness::ReadinessBlock>,
+    /// #EXP-1804: the machine's CI runner section (runner-settings.json).
+    runner: Entity<crate::ci_run::RunnerSection>,
     /// EXP-909: the remove landed — the row this dialog configures is gone,
     /// so the dialog closes on the next frame.
     removed: bool,
@@ -483,6 +485,7 @@ impl DeviceSettingsView {
                 shared_team_ids: Vec::new(),
                 is_default: None,
                 update_requested_at: None,
+                runner: None,
                 created_at: None,
                 updated_at: None,
             });
@@ -616,6 +619,7 @@ impl DeviceSettingsView {
             update_busy: false,
             remove_busy: false,
             readiness: cx.new(|cx| crate::settings::readiness::ReadinessBlock::new("device-readiness", window, cx)),
+            runner: cx.new(|cx| crate::ci_run::RunnerSection::new("device-runner", window, cx)),
             removed: false,
             settings_scroll: ScrollHandle::new(),
             max_height: px(CONTENT_H),
@@ -2094,6 +2098,19 @@ impl Render for DeviceSettingsView {
             None => body,
         };
         let mut body = body.child(self.render_defaults_section(online, cx));
+        // #EXP-1804: the CI runner section (runner-settings.json): the owner
+        // writes `ci.setRunner`; a teammate's shared machine reads it.
+        if let Some(row) = row.clone() {
+            let input = crate::ci_run::RunnerInput {
+                jobs: crate::ci_run::runner_jobs(&row.id, window, cx),
+                device: row,
+                owner: mine,
+                now_ms: crate::session_data::now_ms(),
+                specimen: false,
+            };
+            self.runner.update(cx, |runner, cx| runner.set_input(input, cx));
+            body = body.child(self.runner.clone());
+        }
         // EXP-909: Update and Remove are the LAST two sections ×4 — the
         // device row carries one control now (the gear that opened this), so
         // these are the only place left that updates or removes a machine.

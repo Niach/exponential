@@ -187,6 +187,8 @@ mod pr_graph;
 mod pr_merge;
 // #EXP-1611: CI on the chat's PR (Checks submenu, failing-merge confirm).
 mod pr_checks;
+// #EXP-1804: the CI run page and a device's CI runner section (genUI documents).
+mod ci_run;
 // EXP-1248: THE pull-request row + the stack rail (web pr-row.tsx).
 mod pr_rows;
 mod queries;
