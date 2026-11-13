@@ -11,6 +11,12 @@ x-runner: &runner
   # keeps two jobs from starving each other (the Mint: 12 + 12 of its 32).
   cgroup_parent: expci.slice
   cpus: ${RUNNER_CPUS:-6}
+  # 2026-11-13 (two hard crashes with Dota + CI): each runner OOMs inside its
+  # own container at 12 GB (no swap on top), expci.slice caps both at 20 GB,
+  # and the kernel's OOM killer picks CI first if the machine still runs out.
+  mem_limit: ${RUNNER_MEMORY:-12g}
+  memswap_limit: ${RUNNER_MEMORY:-12g}
+  oom_score_adj: 1000
   environment: &env
     REPO_URL: https://github.com/Niach/exponential
     RUNNER_SCOPE: repo

@@ -1,0 +1,12 @@
+# ~/.config/systemd/user/exp-gaming.service (install-desktop-first.sh; the
+# script path is filled in there). Pulled in by every Steam game scope
+# (app-steam-game.conf), stopped with the last one.
+[Unit]
+Description=Exponential CI: one runner while a game runs
+StopWhenUnneeded=yes
+
+[Service]
+Type=simple
+ExecStart=/bin/bash @DEST@/gaming-ci.sh hold
+ExecStop=/bin/bash @DEST@/gaming-ci.sh release
+TimeoutStopSec=60
