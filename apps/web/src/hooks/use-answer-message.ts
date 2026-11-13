@@ -61,12 +61,20 @@ export function useAnswerMessage(): {
  *  failure toasts `Couldn't remove the message`. */
 export function useUnqueueMessage(): (messageId: string) => Promise<void> {
   return useCallback(async (messageId: string) => {
-    try {
-      const result = await trpc.sessions.unqueue.mutate({ messageId }, SKIP_ERROR_TOAST)
-      await messageCollection.utils.awaitTxId(result.txid).catch(() => undefined)
-    } catch (error) {
-      failedAction(`remove`, `the message`, error)
-    }
+    await unqueueMessage(messageId)
   }, [])
+}
+
+/** `useUnqueueMessage` outside a component (#FEED-237: an outbox bubble's
+ *  Cancel sending); true once removed. */
+export async function unqueueMessage(messageId: string): Promise<boolean> {
+  try {
+    const result = await trpc.sessions.unqueue.mutate({ messageId }, SKIP_ERROR_TOAST)
+    await messageCollection.utils.awaitTxId(result.txid).catch(() => undefined)
+    return true
+  } catch (error) {
+    failedAction(`remove`, `the message`, error)
+    return false
+  }
 }
 

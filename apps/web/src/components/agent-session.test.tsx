@@ -491,9 +491,10 @@ describe(`AgentSessionView as the Chat tab (#EXP-1732)`, () => {
     card: { kind: `suggestions`, items },
   })
 
-  it(`the viewer's queued message sits inline with its X (EXP-1317); a consumed one is the feed's`, () => {
+  it(`the viewer's queued message sits inline with its delivery mark (#FEED-237); a consumed one is the feed's`, () => {
     messages = [
       { ...base, id: `m-q`, authorKind: `user`, authorId: `u1`, body: `Also bump the CLI`, consumedAt: null, card: null },
+      { ...base, id: `m-d`, authorKind: `user`, authorId: `u1`, body: `And the docs`, consumedAt: null, deliveredAt: new Date().toISOString(), card: null },
       { ...base, id: `m-done`, authorKind: `user`, authorId: `u1`, body: `Done already`, consumedAt: new Date().toISOString(), card: null },
     ]
     snapshot = snap({ feed: [{ id: 1, seq: 1, kind: `narration`, text: `On it.` }] })
@@ -505,7 +506,9 @@ describe(`AgentSessionView as the Chat tab (#EXP-1732)`, () => {
     const extras = screen.getByTestId(`session-chat-extras`)
     expect(extras.textContent).toContain(`Also bump the CLI`)
     expect(extras.textContent).not.toContain(`Done already`)
-    expect(within(extras).getByTestId(`chat-unqueue`)).toBeTruthy()
+    const marks = within(extras).getAllByTestId(`message-status`).map((mark) => mark.getAttribute(`data-state`))
+    expect(marks).toEqual([`sent`, `sending`])
+    expect(within(extras).queryByText(`queued`)).toBeNull()
   })
 
   it(`open suggestions are THE Dock's card with the actions; settled ones stay inline`, () => {
