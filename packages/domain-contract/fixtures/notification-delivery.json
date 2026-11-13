@@ -1,0 +1,1071 @@
+{
+  "$comment": "#EXP-1815 (owner 2026-11-13, plan approved as drawn): WHERE A NOTIFICATION SHOWS, WHEN IT CLEARS, WHO MUTES IT ×4. Model = src/notification-delivery.ts; mirrors: desktop `domain::notification_delivery`, iOS ExpPush `NotificationDelivery.swift` (the Notification Service Extension links it), Android `domain/NotificationDelivery.kt`; every mirror replays every `*Cases` array. THREAD (`notificationThread`, `threadCases`): every notification belongs to ONE thread, the key it stacks and clears under: an issue row = `issue:<issueId>` (the issue wins, like inbox-route.json), a row naming a session = `session:<rootId>` (the CHAT, i.e. the session's root; a client that has not synced the session uses the session id), an `agent_signed_out` row = `device:<deviceId>`, anything else = `inbox`. The server puts it on every push as `dataKeys.thread`; iOS sets it as the content's `threadIdentifier` (the Notification Service Extension), Android as the notification's group AND tag (id = the notification id's hash), so one chat's notifications stack as one. A screen's own thread (`viewing`): an issue's page = `issue:<id>`, a chat or session page = `session:<rootId>`, a device's settings = `device:<id>`, the Inbox = `inbox`, which covers EVERY thread (it lists them all); any other screen = null. PRESENTATION (`notificationPresentation`, `presentCases`): `muted` (the source switches below) = `none` everywhere. The app ACTIVE (web: the page; desktop: a focused window; iOS/Android: foreground) and `viewing` equal to the thread or `inbox` = `none`: the content and the badge update, nothing pops. Active elsewhere = `toast`: THE toast (toast-stack.json), kind `info`, title = the row's title, description = its body, action `copy.toastAction` that opens the row like an inbox tap (inbox-route.json). Not active = `system`: desktop raises its OS notification, iOS and Android let the push show; web has no system channel, so it is `toast` there too (the toast waits behind the hidden tab). iOS: `willPresent` returns no presentation options while the app is in the foreground and the app shows the toast; Android: FcmService posts nothing to the NotificationManager while the app is in the foreground and hands the push to the app's toast. CLEARING (`dismissPayload`, `dismissCases`, `dismissMatches`, `matchCases`): reading a notification row on ANY device removes its system notification on EVERY device. The server marks rows read on `notifications.markRead` (the row), `markReadByIssue` (the issue's rows), `markAllRead` (all, or one team's), and NOW also on `sessions.markRead` (opening a chat or a session: that session's rows, plus the whole tree's when it is the root) and `sessions.setRead` read=true (each chat's tree); the rows that turned read in that write (never already-read ones) go out as ONE silent push per device of the reader: `{type: dismissType, ids}` (comma-joined notification ids, at most `limits.maxIds`), over that `{type, threads}` (distinct thread keys, at most `limits.maxThreads`), over that, or a mark-all, `{type, all: 1}` plus `teamId` when the write was one team's. Nothing turned read = no push. The silent push is the relay's `POST /push/silent` (APNs `apns-push-type: background`, `content-available: 1`, priority 5; FCM data-only, priority normal), sealed like every push (push-seal.json). A device removes each DELIVERED notification the payload matches: its `notificationId` in `ids`, its thread in `threads`, `all` with no `teamId`, or `all` with its `teamId` equal. iOS: the app's background-push handler (`application(_:didReceiveRemoteNotification:)`) opens it and removes the matching delivered requests (`removeDeliveredNotifications(withIdentifiers:)`); Android: FcmService cancels each matching active notification by tag and id; desktop gets no push and needs none: it removes its own OS notification when the synced row's `read_at` lands (same match by id). A dismiss push NEVER shows anything. SOURCE SWITCHES (`notificationSource`, `sourceCases`, `sourceAllowed`, `allowCases`): Settings › Notifications on all four platforms carries the member's switches, stored server-side in `user_notification_prefs.source_prefs` (`{assistant?, temporary?, agents?: {<agentId>: bool}}`, absent = on) and read/written with `notifications.emailPrefs` / `updateEmailPrefs` (`sourcePrefs`). A notification row naming a session has a SOURCE from that session's ROOT: its agent (`agentId`), else the agent that started it (`startedByAgentId`); an agent whose role is `assistant` = `assistant` (every one of the member's Assistants, one per team), any other agent (`agent`, `coordinator`) = `agent:<agentId>`, no agent = `temporary` (the composer's Temporary session). A row without a session has no source (null) and no switch applies (issue rows keep the per-type switches). The SERVER applies the switch when it writes the row, before push, desktop and email: a muted recipient still gets the inbox row, but with `pushed_at` NULL (and `emailed_at` stamped, so the digest never mails it) and no push; desktop and web raise nothing for a row whose `pushed_at` is NULL. SETTINGS (`settingsRows`, `settingsCases`): one group under the band `copy.sessionsBand`: `copy.assistant` then `copy.temporary`; then, when the member's teams have any team agents, a group under the band `copy.agentsBand`: one switch per agent (role `agent` or `coordinator`, never `assistant`), ordered by team name then agent name, label = the agent's name, detail = its team's name only when the member is in more than one team. The rows are the existing glass toggle rows inside glass groups under the section header (GlassSectionHeader / GlassGroup / GlassToggleRow and their native twins); no new component. They sit ABOVE the email card. ANDROID CHANNELS (`androidChannel`, `channelCases`): a push's `dataKeys.source` (+ `dataKeys.sourceName`, the agent's name) picks its channel: `assistant` = `channels.assistant`, `temporary` = `channels.temporary`, `agent:<id>` = `channels.agentPrefix` + id named after the agent inside the channel group `channels.agentsGroup`, no source = the app's existing issue channel (`channels.fallback`). The app creates a channel on first use; the system's channel settings keep sound and importance.",
+  "dataKeys": {
+    "thread": "thread",
+    "source": "source",
+    "sourceName": "sourceName",
+    "dismissType": "dismiss",
+    "ids": "ids",
+    "threads": "threads",
+    "all": "all",
+    "teamId": "teamId"
+  },
+  "limits": {
+    "maxIds": 60,
+    "maxThreads": 30
+  },
+  "copy": {
+    "toastAction": "Open",
+    "sessionsBand": "Sessions",
+    "assistant": "Personal Assistant",
+    "temporary": "Temporary sessions",
+    "agentsBand": "Team agents"
+  },
+  "channels": {
+    "assistant": {
+      "id": "source-assistant",
+      "name": "Personal Assistant"
+    },
+    "temporary": {
+      "id": "source-temporary",
+      "name": "Temporary sessions"
+    },
+    "agentPrefix": "source-agent-",
+    "agentsGroup": {
+      "id": "team-agents",
+      "name": "Team agents"
+    },
+    "fallback": "issues_default"
+  },
+  "threadCases": [
+    {
+      "name": "an issue row stacks under its issue",
+      "input": {
+        "type": "issue_comment",
+        "issueId": "i1",
+        "sessionRootId": null,
+        "deviceId": null
+      },
+      "expected": "issue:i1"
+    },
+    {
+      "name": "an agent message on an issue: the issue wins",
+      "input": {
+        "type": "agent_message",
+        "issueId": "i1",
+        "sessionRootId": "r1",
+        "deviceId": null
+      },
+      "expected": "issue:i1"
+    },
+    {
+      "name": "a session row stacks under its chat (the root)",
+      "input": {
+        "type": "agent_message",
+        "issueId": null,
+        "sessionRootId": "r1",
+        "deviceId": null
+      },
+      "expected": "session:r1"
+    },
+    {
+      "name": "a wall stacks under its chat",
+      "input": {
+        "type": "session_blocked",
+        "issueId": null,
+        "sessionRootId": "r2",
+        "deviceId": null
+      },
+      "expected": "session:r2"
+    },
+    {
+      "name": "a signed-out agent stacks under its device",
+      "input": {
+        "type": "agent_signed_out",
+        "issueId": null,
+        "sessionRootId": null,
+        "deviceId": "d1"
+      },
+      "expected": "device:d1"
+    },
+    {
+      "name": "anything else = the inbox",
+      "input": {
+        "type": "agent_message",
+        "issueId": null,
+        "sessionRootId": null,
+        "deviceId": null
+      },
+      "expected": "inbox"
+    }
+  ],
+  "presentCases": [
+    {
+      "name": "muted: nothing, even in the background",
+      "input": {
+        "platform": "ios",
+        "active": false,
+        "viewing": null,
+        "thread": "session:r1",
+        "muted": true
+      },
+      "expected": "none"
+    },
+    {
+      "name": "muted: nothing on the web",
+      "input": {
+        "platform": "web",
+        "active": true,
+        "viewing": null,
+        "thread": "session:r1",
+        "muted": true
+      },
+      "expected": "none"
+    },
+    {
+      "name": "ios: looking at the chat = nothing",
+      "input": {
+        "platform": "ios",
+        "active": true,
+        "viewing": "session:r1",
+        "thread": "session:r1",
+        "muted": false
+      },
+      "expected": "none"
+    },
+    {
+      "name": "ios: elsewhere in the app = toast",
+      "input": {
+        "platform": "ios",
+        "active": true,
+        "viewing": "session:r2",
+        "thread": "session:r1",
+        "muted": false
+      },
+      "expected": "toast"
+    },
+    {
+      "name": "ios: on a screen with no thread = toast",
+      "input": {
+        "platform": "ios",
+        "active": true,
+        "viewing": null,
+        "thread": "issue:i1",
+        "muted": false
+      },
+      "expected": "toast"
+    },
+    {
+      "name": "ios: background = the system notification",
+      "input": {
+        "platform": "ios",
+        "active": false,
+        "viewing": "session:r1",
+        "thread": "session:r1",
+        "muted": false
+      },
+      "expected": "system"
+    },
+    {
+      "name": "android: looking at the issue = nothing",
+      "input": {
+        "platform": "android",
+        "active": true,
+        "viewing": "issue:i1",
+        "thread": "issue:i1",
+        "muted": false
+      },
+      "expected": "none"
+    },
+    {
+      "name": "android: elsewhere = toast",
+      "input": {
+        "platform": "android",
+        "active": true,
+        "viewing": "issue:i2",
+        "thread": "issue:i1",
+        "muted": false
+      },
+      "expected": "toast"
+    },
+    {
+      "name": "android: background = the system notification",
+      "input": {
+        "platform": "android",
+        "active": false,
+        "viewing": null,
+        "thread": "issue:i1",
+        "muted": false
+      },
+      "expected": "system"
+    },
+    {
+      "name": "the inbox covers every thread",
+      "input": {
+        "platform": "android",
+        "active": true,
+        "viewing": "inbox",
+        "thread": "session:r1",
+        "muted": false
+      },
+      "expected": "none"
+    },
+    {
+      "name": "desktop focused, looking at it = nothing",
+      "input": {
+        "platform": "desktop",
+        "active": true,
+        "viewing": "session:r1",
+        "thread": "session:r1",
+        "muted": false
+      },
+      "expected": "none"
+    },
+    {
+      "name": "desktop focused on the Inbox = nothing",
+      "input": {
+        "platform": "desktop",
+        "active": true,
+        "viewing": "inbox",
+        "thread": "device:d1",
+        "muted": false
+      },
+      "expected": "none"
+    },
+    {
+      "name": "desktop focused on another screen = toast",
+      "input": {
+        "platform": "desktop",
+        "active": true,
+        "viewing": null,
+        "thread": "device:d1",
+        "muted": false
+      },
+      "expected": "toast"
+    },
+    {
+      "name": "desktop unfocused = the OS notification",
+      "input": {
+        "platform": "desktop",
+        "active": false,
+        "viewing": "session:r1",
+        "thread": "session:r1",
+        "muted": false
+      },
+      "expected": "system"
+    },
+    {
+      "name": "web: looking at it = nothing",
+      "input": {
+        "platform": "web",
+        "active": true,
+        "viewing": "issue:i1",
+        "thread": "issue:i1",
+        "muted": false
+      },
+      "expected": "none"
+    },
+    {
+      "name": "web: elsewhere = toast",
+      "input": {
+        "platform": "web",
+        "active": true,
+        "viewing": "session:r1",
+        "thread": "issue:i1",
+        "muted": false
+      },
+      "expected": "toast"
+    },
+    {
+      "name": "web: hidden tab has no system channel = toast",
+      "input": {
+        "platform": "web",
+        "active": false,
+        "viewing": "issue:i1",
+        "thread": "issue:i1",
+        "muted": false
+      },
+      "expected": "toast"
+    }
+  ],
+  "rowsOfRule": "A dismiss case may give `rowsOf` {count, threads? | threadCount?} instead of `rows`: row i (0-based) = {id: `n<i>`, thread: threads[i mod threads.length], or `t<i mod threadCount>`}.",
+  "dismissCases": [
+    {
+      "name": "nothing turned read = no push",
+      "input": {
+        "rows": [],
+        "all": false,
+        "teamId": null
+      },
+      "expected": null
+    },
+    {
+      "name": "a few rows = their ids",
+      "input": {
+        "rows": [
+          {
+            "id": "n1",
+            "thread": "session:r1"
+          },
+          {
+            "id": "n2",
+            "thread": "session:r1"
+          }
+        ],
+        "all": false,
+        "teamId": null
+      },
+      "expected": {
+        "type": "dismiss",
+        "ids": "n1,n2"
+      }
+    },
+    {
+      "name": "a duplicate id goes once",
+      "input": {
+        "rows": [
+          {
+            "id": "n1",
+            "thread": "issue:i1"
+          },
+          {
+            "id": "n1",
+            "thread": "issue:i1"
+          }
+        ],
+        "all": false,
+        "teamId": null
+      },
+      "expected": {
+        "type": "dismiss",
+        "ids": "n1"
+      }
+    },
+    {
+      "name": "over maxIds = the distinct threads",
+      "input": {
+        "rowsOf": {
+          "count": 61,
+          "threads": [
+            "issue:i1",
+            "session:r1"
+          ]
+        },
+        "all": false,
+        "teamId": null
+      },
+      "expected": {
+        "type": "dismiss",
+        "threads": "issue:i1,session:r1"
+      }
+    },
+    {
+      "name": "over maxThreads too = all",
+      "input": {
+        "rowsOf": {
+          "count": 61,
+          "threadCount": 31
+        },
+        "all": false,
+        "teamId": null
+      },
+      "expected": {
+        "type": "dismiss",
+        "all": "1"
+      }
+    },
+    {
+      "name": "mark all read = all",
+      "input": {
+        "rows": [
+          {
+            "id": "n1",
+            "thread": "issue:i1"
+          }
+        ],
+        "all": true,
+        "teamId": null
+      },
+      "expected": {
+        "type": "dismiss",
+        "all": "1"
+      }
+    },
+    {
+      "name": "one team's mark all read = all of that team",
+      "input": {
+        "rows": [
+          {
+            "id": "n1",
+            "thread": "issue:i1"
+          }
+        ],
+        "all": true,
+        "teamId": "t1"
+      },
+      "expected": {
+        "type": "dismiss",
+        "all": "1",
+        "teamId": "t1"
+      }
+    },
+    {
+      "name": "mark all with nothing unread = no push",
+      "input": {
+        "rows": [],
+        "all": true,
+        "teamId": "t1"
+      },
+      "expected": null
+    }
+  ],
+  "matchCases": [
+    {
+      "name": "its id",
+      "input": {
+        "payload": {
+          "type": "dismiss",
+          "ids": "n1,n2"
+        },
+        "delivered": {
+          "notificationId": "n2",
+          "thread": "session:r1",
+          "teamId": "t1"
+        }
+      },
+      "expected": true
+    },
+    {
+      "name": "another id",
+      "input": {
+        "payload": {
+          "type": "dismiss",
+          "ids": "n1,n2"
+        },
+        "delivered": {
+          "notificationId": "n3",
+          "thread": "session:r1",
+          "teamId": "t1"
+        }
+      },
+      "expected": false
+    },
+    {
+      "name": "its thread",
+      "input": {
+        "payload": {
+          "type": "dismiss",
+          "threads": "issue:i1,session:r1"
+        },
+        "delivered": {
+          "notificationId": "n9",
+          "thread": "session:r1",
+          "teamId": "t1"
+        }
+      },
+      "expected": true
+    },
+    {
+      "name": "another thread",
+      "input": {
+        "payload": {
+          "type": "dismiss",
+          "threads": "issue:i1"
+        },
+        "delivered": {
+          "notificationId": "n9",
+          "thread": "session:r1",
+          "teamId": "t1"
+        }
+      },
+      "expected": false
+    },
+    {
+      "name": "all",
+      "input": {
+        "payload": {
+          "type": "dismiss",
+          "all": "1"
+        },
+        "delivered": {
+          "notificationId": "n9",
+          "thread": "device:d1",
+          "teamId": null
+        }
+      },
+      "expected": true
+    },
+    {
+      "name": "all of its team",
+      "input": {
+        "payload": {
+          "type": "dismiss",
+          "all": "1",
+          "teamId": "t1"
+        },
+        "delivered": {
+          "notificationId": "n9",
+          "thread": "issue:i1",
+          "teamId": "t1"
+        }
+      },
+      "expected": true
+    },
+    {
+      "name": "all of another team",
+      "input": {
+        "payload": {
+          "type": "dismiss",
+          "all": "1",
+          "teamId": "t1"
+        },
+        "delivered": {
+          "notificationId": "n9",
+          "thread": "issue:i1",
+          "teamId": "t2"
+        }
+      },
+      "expected": false
+    },
+    {
+      "name": "a team-less notification under a team's all",
+      "input": {
+        "payload": {
+          "type": "dismiss",
+          "all": "1",
+          "teamId": "t1"
+        },
+        "delivered": {
+          "notificationId": "n9",
+          "thread": "device:d1",
+          "teamId": null
+        }
+      },
+      "expected": false
+    },
+    {
+      "name": "not a dismiss push",
+      "input": {
+        "payload": {
+          "type": "issue_comment",
+          "ids": "n1"
+        },
+        "delivered": {
+          "notificationId": "n1",
+          "thread": "issue:i1",
+          "teamId": "t1"
+        }
+      },
+      "expected": false
+    },
+    {
+      "name": "a delivered notification without an id still matches by thread",
+      "input": {
+        "payload": {
+          "type": "dismiss",
+          "threads": "issue:i1"
+        },
+        "delivered": {
+          "notificationId": null,
+          "thread": "issue:i1",
+          "teamId": null
+        }
+      },
+      "expected": true
+    }
+  ],
+  "sourceCases": [
+    {
+      "name": "the Assistant's conversation",
+      "input": {
+        "agentId": "a1",
+        "agentRole": "assistant",
+        "startedByAgentId": null,
+        "startedByAgentRole": null
+      },
+      "expected": "assistant"
+    },
+    {
+      "name": "a chat the Assistant started",
+      "input": {
+        "agentId": null,
+        "agentRole": null,
+        "startedByAgentId": "a1",
+        "startedByAgentRole": "assistant"
+      },
+      "expected": "assistant"
+    },
+    {
+      "name": "a team agent's conversation",
+      "input": {
+        "agentId": "a2",
+        "agentRole": "agent",
+        "startedByAgentId": null,
+        "startedByAgentRole": null
+      },
+      "expected": "agent:a2"
+    },
+    {
+      "name": "the coordinator is a team agent",
+      "input": {
+        "agentId": "a3",
+        "agentRole": "coordinator",
+        "startedByAgentId": null,
+        "startedByAgentRole": null
+      },
+      "expected": "agent:a3"
+    },
+    {
+      "name": "a chat a team agent started",
+      "input": {
+        "agentId": null,
+        "agentRole": null,
+        "startedByAgentId": "a2",
+        "startedByAgentRole": "agent"
+      },
+      "expected": "agent:a2"
+    },
+    {
+      "name": "the root's own agent wins over its starter",
+      "input": {
+        "agentId": "a2",
+        "agentRole": "agent",
+        "startedByAgentId": "a1",
+        "startedByAgentRole": "assistant"
+      },
+      "expected": "agent:a2"
+    },
+    {
+      "name": "no agent = a Temporary session",
+      "input": {
+        "agentId": null,
+        "agentRole": null,
+        "startedByAgentId": null,
+        "startedByAgentRole": null
+      },
+      "expected": "temporary"
+    },
+    {
+      "name": "an agent whose role is unknown = a team agent",
+      "input": {
+        "agentId": "a4",
+        "agentRole": null,
+        "startedByAgentId": null,
+        "startedByAgentRole": null
+      },
+      "expected": "agent:a4"
+    }
+  ],
+  "allowCases": [
+    {
+      "name": "no source = always",
+      "input": {
+        "prefs": {
+          "assistant": false,
+          "temporary": false
+        },
+        "source": null
+      },
+      "expected": true
+    },
+    {
+      "name": "defaults = on",
+      "input": {
+        "prefs": {},
+        "source": "assistant"
+      },
+      "expected": true
+    },
+    {
+      "name": "no prefs at all = on",
+      "input": {
+        "prefs": null,
+        "source": "temporary"
+      },
+      "expected": true
+    },
+    {
+      "name": "assistant off",
+      "input": {
+        "prefs": {
+          "assistant": false
+        },
+        "source": "assistant"
+      },
+      "expected": false
+    },
+    {
+      "name": "assistant off leaves temporary on",
+      "input": {
+        "prefs": {
+          "assistant": false
+        },
+        "source": "temporary"
+      },
+      "expected": true
+    },
+    {
+      "name": "temporary off",
+      "input": {
+        "prefs": {
+          "temporary": false
+        },
+        "source": "temporary"
+      },
+      "expected": false
+    },
+    {
+      "name": "one agent off",
+      "input": {
+        "prefs": {
+          "agents": {
+            "a2": false
+          }
+        },
+        "source": "agent:a2"
+      },
+      "expected": false
+    },
+    {
+      "name": "another agent stays on",
+      "input": {
+        "prefs": {
+          "agents": {
+            "a2": false
+          }
+        },
+        "source": "agent:a3"
+      },
+      "expected": true
+    },
+    {
+      "name": "an agent switched back on",
+      "input": {
+        "prefs": {
+          "agents": {
+            "a2": true
+          }
+        },
+        "source": "agent:a2"
+      },
+      "expected": true
+    }
+  ],
+  "settingsCases": [
+    {
+      "name": "one team, no agents: the sessions group alone",
+      "input": {
+        "teams": [
+          {
+            "id": "t1",
+            "name": "Acme"
+          }
+        ],
+        "agents": [
+          {
+            "id": "a1",
+            "teamId": "t1",
+            "name": "Assistant",
+            "role": "assistant"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "band": "Sessions",
+          "rows": [
+            {
+              "key": "assistant",
+              "label": "Personal Assistant",
+              "detail": null
+            },
+            {
+              "key": "temporary",
+              "label": "Temporary sessions",
+              "detail": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "one team: agents by name, no team detail",
+      "input": {
+        "teams": [
+          {
+            "id": "t1",
+            "name": "Acme"
+          }
+        ],
+        "agents": [
+          {
+            "id": "a3",
+            "teamId": "t1",
+            "name": "Triage",
+            "role": "agent"
+          },
+          {
+            "id": "a1",
+            "teamId": "t1",
+            "name": "Assistant",
+            "role": "assistant"
+          },
+          {
+            "id": "a2",
+            "teamId": "t1",
+            "name": "Coordinator",
+            "role": "coordinator"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "band": "Sessions",
+          "rows": [
+            {
+              "key": "assistant",
+              "label": "Personal Assistant",
+              "detail": null
+            },
+            {
+              "key": "temporary",
+              "label": "Temporary sessions",
+              "detail": null
+            }
+          ]
+        },
+        {
+          "band": "Team agents",
+          "rows": [
+            {
+              "key": "agent:a2",
+              "label": "Coordinator",
+              "detail": null
+            },
+            {
+              "key": "agent:a3",
+              "label": "Triage",
+              "detail": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "two teams: by team then name, the team as detail",
+      "input": {
+        "teams": [
+          {
+            "id": "t2",
+            "name": "Zeta"
+          },
+          {
+            "id": "t1",
+            "name": "Acme"
+          }
+        ],
+        "agents": [
+          {
+            "id": "a5",
+            "teamId": "t2",
+            "name": "Builder",
+            "role": "agent"
+          },
+          {
+            "id": "a4",
+            "teamId": "t1",
+            "name": "Reviewer",
+            "role": "agent"
+          },
+          {
+            "id": "a3",
+            "teamId": "t1",
+            "name": "Docs",
+            "role": "agent"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "band": "Sessions",
+          "rows": [
+            {
+              "key": "assistant",
+              "label": "Personal Assistant",
+              "detail": null
+            },
+            {
+              "key": "temporary",
+              "label": "Temporary sessions",
+              "detail": null
+            }
+          ]
+        },
+        {
+          "band": "Team agents",
+          "rows": [
+            {
+              "key": "agent:a3",
+              "label": "Docs",
+              "detail": "Acme"
+            },
+            {
+              "key": "agent:a4",
+              "label": "Reviewer",
+              "detail": "Acme"
+            },
+            {
+              "key": "agent:a5",
+              "label": "Builder",
+              "detail": "Zeta"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "an agent of a team not listed is skipped",
+      "input": {
+        "teams": [
+          {
+            "id": "t1",
+            "name": "Acme"
+          }
+        ],
+        "agents": [
+          {
+            "id": "a9",
+            "teamId": "tX",
+            "name": "Ghost",
+            "role": "agent"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "band": "Sessions",
+          "rows": [
+            {
+              "key": "assistant",
+              "label": "Personal Assistant",
+              "detail": null
+            },
+            {
+              "key": "temporary",
+              "label": "Temporary sessions",
+              "detail": null
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "toggleCases": [
+    {
+      "name": "assistant off",
+      "input": {
+        "prefs": {},
+        "key": "assistant",
+        "on": false
+      },
+      "expected": {
+        "assistant": false
+      }
+    },
+    {
+      "name": "temporary back on",
+      "input": {
+        "prefs": {
+          "temporary": false
+        },
+        "key": "temporary",
+        "on": true
+      },
+      "expected": {
+        "temporary": true
+      }
+    },
+    {
+      "name": "an agent off keeps the others",
+      "input": {
+        "prefs": {
+          "assistant": false,
+          "agents": {
+            "a2": false
+          }
+        },
+        "key": "agent:a3",
+        "on": false
+      },
+      "expected": {
+        "assistant": false,
+        "agents": {
+          "a2": false,
+          "a3": false
+        }
+      }
+    }
+  ],
+  "channelCases": [
+    {
+      "name": "the assistant",
+      "input": {
+        "source": "assistant",
+        "sourceName": null
+      },
+      "expected": {
+        "id": "source-assistant",
+        "name": "Personal Assistant",
+        "group": null
+      }
+    },
+    {
+      "name": "temporary",
+      "input": {
+        "source": "temporary",
+        "sourceName": null
+      },
+      "expected": {
+        "id": "source-temporary",
+        "name": "Temporary sessions",
+        "group": null
+      }
+    },
+    {
+      "name": "a team agent, in the group",
+      "input": {
+        "source": "agent:a2",
+        "sourceName": "Triage"
+      },
+      "expected": {
+        "id": "source-agent-a2",
+        "name": "Triage",
+        "group": "team-agents"
+      }
+    },
+    {
+      "name": "a team agent without a name",
+      "input": {
+        "source": "agent:a2",
+        "sourceName": null
+      },
+      "expected": {
+        "id": "source-agent-a2",
+        "name": "Team agents",
+        "group": "team-agents"
+      }
+    },
+    {
+      "name": "no source = the issue channel",
+      "input": {
+        "source": null,
+        "sourceName": null
+      },
+      "expected": {
+        "id": "issues_default",
+        "name": null,
+        "group": null
+      }
+    }
+  ]
+}
