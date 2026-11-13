@@ -31,8 +31,9 @@ updater = { path = "../updater" }
 observability = { path = "../observability" }
 # #EXP-1616: eCode's own git: the device jobs of its forge (`ecode_job`) and
 # git's `exp://` remote helper (this binary, started as `git-remote-exp`).
-# #EXP-1617: and the CI runner (a `ci_job` runs through ecode::run_job).
-ecode = { path = "../ecode", default-features = false, features = ["repo", "exponential", "runner"] }
+# #EXP-1617: and the CI runner (a `ci_job` runs through ecode::run_job), and
+# the merge train's `compose` job (ecode::compose, the TS train engine's port).
+ecode = { path = "../ecode", default-features = false, features = ["repo", "exponential", "runner", "compose"] }
 git-remote-exp = { path = "../git-remote-exp" }
 
 anyhow = { workspace = true }

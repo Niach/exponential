@@ -19,7 +19,7 @@
 // `pgEcodeHost` (`ecode-host.ts`); forge-ecode-conformance.test.ts replays
 // forge.json against an in-memory host whose device is eCode's reference
 // model.
-import type { TrainCheck } from "@exp/domain-contract/merge-train"
+import type { TrainCheck, TrainPipelineOutcome, TrainPipelineUnit } from "@exp/domain-contract/merge-train"
 import { capabilityValues, supports, type ForgeReason, type Mergeability, type PrState } from "@exp/ecode"
 import {
   ForgeError,
@@ -75,6 +75,12 @@ export type EcodeJob =
   | { op: `read_file`; sha: string; path: string }
   /** #EXP-1617: the files directly in a directory (our CI's workflows). */
   | { op: `list_dir`; sha: string; path: string }
+  /** #EXP-1617: the merge train's batch composed by the train engine
+   *  (`ecode::compose`, the port of scripts/merge-train/compose.ts), resolver
+   *  rules included; its head's objects go to the bucket, no ref moves.
+   *  `workflows` = our CI for the train when the base's
+   *  `.exponential/merge-train.json` names none (`ci` absent). */
+  | { op: `compose`; train_id: string; base_sha: string; mode: `test` | `untested`; units: TrainPipelineUnit[]; workflows?: string[] }
 
 export interface EcodeJobAnswers {
   mergeability: { mergeability: Mergeability; conflicts: string[] }
@@ -84,6 +90,8 @@ export interface EcodeJobAnswers {
   is_ancestor: { yes: boolean }
   read_file: { text: string | null }
   list_dir: { files: string[] | null }
+  /** `dispatch` = the repo's CI workflows when `outcome.checks` = dispatched. */
+  compose: { outcome: TrainPipelineOutcome; dispatch: string[] }
 }
 
 /** A device's answer: the result, or the spec's refusal. */

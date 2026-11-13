@@ -52,6 +52,9 @@ runner = ["dep:libc"]
 # `.github/workflows/*.yml` TEXT read into the pipeline model (the server
 # parses with `yaml`; this is the same step for a host without one).
 workflows = ["dep:yaml-rust2"]
+# The merge train's engine (#EXP-1617): compose.ts on git argv (squash, the
+# generated-file resolver rules, the checks mode); the `compose` device job.
+compose = []
 
 [dev-dependencies]
 toml = "0.8"
@@ -75,3 +78,7 @@ required-features = ["repo"]
 [[test]]
 name = "workflows"
 required-features = ["workflows"]
+
+[[test]]
+name = "compose"
+required-features = ["compose"]
