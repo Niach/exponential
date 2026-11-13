@@ -3,6 +3,7 @@ package com.exponential.app.ui.settings
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.domain.EmptyStateCopy
 import com.exponential.app.domain.SettingsNav
+import com.exponential.app.domain.SettingsNavGroups
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -109,6 +110,8 @@ fun SettingsScreen(
     onOpenTeamSettings: (section: String) -> Unit,
     onOpenSyncDiagnostics: () -> Unit,
     onOpenAbout: () -> Unit,
+    /** #EXP-1815: Settings › Notifications (the source switches). */
+    onOpenNotifications: () -> Unit = {},
     onAddServer: () -> Unit,
     onBack: () -> Unit,
     /** EXP-1270: Getting started's "Start a run" — the Agent home. */
@@ -148,26 +151,6 @@ fun SettingsScreen(
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
-                // Servers section — one row per server account, then "Add server".
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SectionHeader("Servers")
-                    Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp)) {
-                        // EXP-1320: an entity list = flat gapless rows, no dividers.
-                        accounts.forEach { account ->
-                            ServerRow(
-                                account = account,
-                                onClick = { onOpenServerDetail(account.id) },
-                            )
-                        }
-                        SettingsRow(
-                            icon = ExpIcons.uiAdd,
-                            title = "Add server",
-                            showChevron = false,
-                            onClick = onAddServer,
-                        )
-                    }
-                }
-
                 // Teams section — the switcher list: tapping a team
                 // selects it (and switches the active account for cross-server
                 // taps) before opening that team's settings.
@@ -227,14 +210,17 @@ fun SettingsScreen(
                                 }
                             },
                         )
-                        // EXP-262: version + third-party licence notices.
-                        SettingsRow(
-                            icon = ExpIcons.settingsAbout,
-                            title = "About",
-                            onClick = onOpenAbout,
-                        )
                     }
                 }
+
+                // #EXP-1815: settings-nav.json's Personal group, last.
+                PersonalGroup(
+                    accounts = accounts,
+                    onOpenServerDetail = onOpenServerDetail,
+                    onAddServer = onAddServer,
+                    onOpenNotifications = onOpenNotifications,
+                    onOpenAbout = onOpenAbout,
+                )
             }
         }
     }
@@ -311,6 +297,44 @@ internal fun SettingsRow(
                 modifier = Modifier.size(18.dp),
                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Quaternary),
             )
+        }
+    }
+}
+
+/**
+ * #EXP-1815: settings-nav.json's `personal` group, in its order: `account` =
+ * the account rows (one per signed-in server, then Add server),
+ * `notifications`, `about`; `security` has no Android page (sign-in methods
+ * live on the account's page).
+ */
+@Composable
+private fun PersonalGroup(
+    accounts: List<ServerAccount>,
+    onOpenServerDetail: (accountId: String) -> Unit,
+    onAddServer: () -> Unit,
+    onOpenNotifications: () -> Unit,
+    onOpenAbout: () -> Unit,
+) {
+    val group = SettingsNavGroups.GROUPS.first { it.id == "personal" }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionHeader(group.label)
+        Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp)) {
+            group.items.forEach { item ->
+                val page = SettingsNavGroups.PAGES[item]
+                val icon = page?.let { ExpIcons.byConcept(it.icon) } ?: ExpIcons.uiChevronRight
+                when (item) {
+                    "account" -> {
+                        // EXP-1320: an entity list = flat gapless rows, no dividers.
+                        accounts.forEach { account ->
+                            ServerRow(account = account, onClick = { onOpenServerDetail(account.id) })
+                        }
+                        SettingsRow(icon = ExpIcons.uiAdd, title = "Add server", showChevron = false, onClick = onAddServer)
+                    }
+                    "notifications" -> SettingsRow(icon = icon, title = page?.label ?: "Notifications", onClick = onOpenNotifications)
+                    // EXP-262: version + third-party licence notices.
+                    "about" -> SettingsRow(icon = icon, title = page?.label ?: "About", onClick = onOpenAbout)
+                }
+            }
         }
     }
 }
@@ -537,6 +561,8 @@ fun TeamTabScreen(
     onOpenTeamSettings: (section: String) -> Unit,
     onOpenSyncDiagnostics: () -> Unit,
     onOpenAbout: () -> Unit,
+    /** #EXP-1815: Settings › Notifications (the source switches). */
+    onOpenNotifications: () -> Unit = {},
     onAddServer: () -> Unit,
     onOpenAgentHome: () -> Unit = {},
     /** S-3: the Agents group's Assistant row opens its page. */
@@ -659,16 +685,8 @@ fun TeamTabScreen(
                 }
             }
 
-            // The old settings root: the servers (the account rows) + General.
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SectionHeader("Servers")
-                Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp)) {
-                    accounts.forEach { account ->
-                        ServerRow(account = account, onClick = { onOpenServerDetail(account.id) })
-                    }
-                    SettingsRow(icon = ExpIcons.uiAdd, title = "Add server", showChevron = false, onClick = onAddServer)
-                }
-            }
+            // The old settings root: General, then settings-nav.json's
+            // Personal group (the account rows, Notifications, About).
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 SectionHeader("General")
                 Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp)) {
@@ -692,9 +710,15 @@ fun TeamTabScreen(
                             if (!PlayStore.openListing(context)) toaster.error("Couldn't open Google Play")
                         },
                     )
-                    SettingsRow(icon = ExpIcons.settingsAbout, title = "About", onClick = onOpenAbout)
                 }
             }
+            PersonalGroup(
+                accounts = accounts,
+                onOpenServerDetail = onOpenServerDetail,
+                onAddServer = onAddServer,
+                onOpenNotifications = onOpenNotifications,
+                onOpenAbout = onOpenAbout,
+            )
         }
         }
     }
