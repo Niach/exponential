@@ -311,8 +311,16 @@ object SealedContent {
         val asks: List<Int?>,
     )
 
+    // #ERR-19: the opened titles + digests here are the SAME instances every
+    // session flow emits (a hit hands them out), so the cache costs ~nothing
+    // beyond the rows on screen, and it must hold the working set: when it
+    // could not (a 2M-char cap under ~1,100 sealed digests of ~24 KB), every
+    // `sessions` emission re-opened and re-parsed each digest in each of five
+    // flows, which each then KEPT its own copy (measured: ~110 MB of garbage per
+    // write, +30 MB floor). Bounded so a huge account still cannot grow it
+    // past the rows it syncs.
     private const val SESSIONS_MAX = 8_192
-    internal const val SESSIONS_MAX_CHARS = 2_000_000
+    internal const val SESSIONS_MAX_CHARS = 24_000_000
     private val sessionRows = CharBoundedLru<SessionOpening>(SESSIONS_MAX, SESSIONS_MAX_CHARS) {
         (it.title?.length ?: 0) + (it.digest?.length ?: 0)
     }

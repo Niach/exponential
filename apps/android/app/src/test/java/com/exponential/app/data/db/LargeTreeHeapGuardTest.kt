@@ -205,6 +205,28 @@ class LargeTreeHeapGuardTest {
     }
 
     @Test
+    fun `a big tree's sealed digests open once and stay shared across emissions`() {
+        // The measured Assistant tree: 300 children whose sealed digests are
+        // ~24 KB each (a sealed body is never cut) + 800 other roots' ~1.3 KB
+        // ones: every `sessions` emission of every flow must hit.
+        val rows = (0 until 1_100).map { i ->
+            val body = SealedContent.BODY_PREFIX + "d".repeat(if (i < 300) 24_000 else 1_300)
+            SessionEntity(
+                id = "s$i", rootId = root, teamId = "t", userId = "u",
+                digest = """{"first":{"id":"m$i","authorKind":"user","body":"$body","createdAt":"${ts(i)}"}}""",
+            )
+        }
+        val first = rows.map { SealedContent.session(it) }
+        val opens = crypto.opens
+        repeat(5) {
+            val again = rows.map { SealedContent.session(it.copy()) }
+            // Same opened digest INSTANCES (one copy whatever the flow count).
+            assertTrue(first.zip(again).all { (a, b) -> a.digest === b.digest })
+        }
+        assertEquals("no re-open on a re-emission", opens, crypto.opens)
+    }
+
+    @Test
     fun `the char-bounded LRU evicts the eldest and skips an oversized value`() {
         val lru = CharBoundedLru<String>(maxEntries = 100, maxChars = 1_000) { it.length }
         repeat(20) { lru["k$it"] = "v".repeat(100) }
