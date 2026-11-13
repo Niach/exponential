@@ -251,6 +251,35 @@ describe(`capabilities`, () => {
   })
 })
 
+describe(`POST /push/silent`, () => {
+  // #EXP-1815 (notification-delivery.json): a read notification's dismiss.
+  test(`APNs: a background push, content-available, priority 5, no alert`, async () => {
+    const relay = setup()
+    const { capability } = await mint(relay, await register(relay))
+    const blob = sealed(64)
+    const res = await call(relay, `POST`, `/push/silent`, { sealed: blob, urgency: `high` }, capability)
+    expect(res.status).toBe(202)
+    const [sent] = relay.apns!.calls
+    expect(sent.headers).toEqual({ "apns-topic": TOPIC, "apns-push-type": `background`, "apns-priority": `5` })
+    expect(JSON.parse(sent.payload)).toEqual({ aps: { "content-available": 1 }, s: blob })
+  })
+
+  test(`FCM: data-only at normal priority`, async () => {
+    const relay = setup()
+    const install = await register(relay, { platform: `fcm`, token: FCM_TOKEN })
+    const { capability } = await mint(relay, install)
+    const blob = sealed(32)
+    expect((await call(relay, `POST`, `/push/silent`, { sealed: blob }, capability)).status).toBe(202)
+    expect(relay.fcm!.calls).toEqual([{ tokens: [FCM_TOKEN], data: { s: blob }, android: { priority: `normal` } }])
+  })
+
+  test(`the capability guards it like /push`, async () => {
+    const relay = setup()
+    await register(relay)
+    expect((await call(relay, `POST`, `/push/silent`, { sealed: sealed() }, `cap_nope`)).status).toBe(401)
+  })
+})
+
 describe(`POST /push`, () => {
   test(`APNs: an alert placeholder with the sealed blob and the right headers`, async () => {
     const relay = setup()

@@ -69,6 +69,7 @@ import {
   notifyDeviceShareRemoved,
   notifySessionAsk,
   notifySessionBlocked,
+  notifySessionLeftover,
   sendAgentMessage,
 } from "./notifications"
 
@@ -251,6 +252,8 @@ describe(`notifySessionAsk — a root's question pushes its owner`, () => {
       cardKind: `question`,
       options: `["yes","no"]`,
       custom: `1`,
+      // #EXP-1815: the chat it stacks and clears under.
+      thread: `session:conv-1`,
     })
   })
 
@@ -481,6 +484,59 @@ describe(`notifySessionBlocked — the run's owner gets a row and a push that ro
       await notifySessionBlocked(`sess-2`, blocked)
       expect(executeState.calls).toBe(1)
       expect(sendToUsers).toHaveBeenCalledTimes(1)
+    })
+  })
+})
+
+// #EXP-1815 (notification-delivery.json SOURCE SWITCHES): the server mutes a
+// session's row per its root's source before any delivery. Select order in
+// notifySessionLeftover: session → membership → origin → source prefs →
+// (insert) → push type prefs.
+describe(`deliverToTeam — the source switches mute push, keep the row`, () => {
+  const session = { id: `child-1`, rootId: `r1`, title: `Fix login`, userId: `owner`, teamId: `team-1`, teamSlug: `acme` }
+  const origin = {
+    rootId: `r1`,
+    agentId: `a1`,
+    agentRole: `assistant`,
+    agentName: `Assistant`,
+    startedByAgentId: null,
+    startedByAgentRole: null,
+    startedByAgentName: null,
+  }
+
+  it(`a muted Assistant: the row is written with pushed_at NULL, nothing is pushed`, async () => {
+    selectResults.push([session])
+    selectResults.push([{ id: `owner` }]) // membership guard
+    selectResults.push([origin])
+    selectResults.push([{ userId: `owner`, sourcePrefs: { assistant: false } }])
+    executeState.rows = [{ id: `n-1`, user_id: `owner` }]
+
+    await notifySessionLeftover(`child-1`, `exp/leftover-1`)
+
+    // The inbox row is still written (its pushed_at NULL comes from the
+    // muted list bound into the insert).
+    expect(executeState.calls).toBe(1)
+    expect(sendToUsers).not.toHaveBeenCalled()
+  })
+
+  it(`an allowed team agent: the push names the chat's thread and the source`, async () => {
+    selectResults.push([session])
+    selectResults.push([{ id: `owner` }])
+    selectResults.push([{ ...origin, agentId: `a2`, agentRole: `agent`, agentName: `Triage` }])
+    selectResults.push([{ userId: `owner`, sourcePrefs: { assistant: false, agents: { a3: false } } }])
+    executeState.rows = [{ id: `n-1`, user_id: `owner` }]
+    selectResults.push([]) // push type prefs
+
+    await notifySessionLeftover(`child-1`, `exp/leftover-1`)
+
+    const [recipients, payload] = vi.mocked(sendToUsers).mock.calls[0]!
+    expect(recipients).toEqual([{ userId: `owner`, data: { notificationId: `n-1` } }])
+    expect(payload.data).toMatchObject({
+      type: `agent_message`,
+      sessionId: `child-1`,
+      thread: `session:r1`,
+      source: `agent:a2`,
+      sourceName: `Triage`,
     })
   })
 })
