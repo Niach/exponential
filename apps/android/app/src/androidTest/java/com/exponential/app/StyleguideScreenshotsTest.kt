@@ -178,7 +178,8 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_chat-results · sg_plan-page · sg_needs-you · sg_results-tab ·
  *   sg_add-server · sg_drafts · sg_composer-slash-menu · sg_session-slash-menu ·
  *   sg_settings-assistant-meeting · sg_settings-general · sg_settings-members ·
- *   sg_settings-labels · sg_settings-repositories · sg_onboarding-join (EXP-1558)
+ *   sg_settings-labels · sg_settings-repositories · sg_onboarding-join (EXP-1558) ·
+ *   sg_repo (#EXP-1616)
  *
  * EXP-1295 retired `sg_chat-action` and `sg_action-create` (the builtin
  * actions and the action create sheet left the catalog), renamed the
@@ -1528,6 +1529,21 @@ class StyleguideScreenshotsTest {
             if (ScreenshotFlow.anyRequested("sg_settings-repositories")) {
                 openTeamSettingsPage("Repositories", hasText("acme/mobile-app", substring = true))
                 flow.screenshot("sg_settings-repositories")
+                leaveTeamSettingsPage()
+            }
+            // #EXP-1616 sg_repo (repo-page.json): the Repositories page's
+            // seeded eCode repo `acme/engine` → its repo page, gated on the
+            // Pull requests tab's seeded tree.
+            if (ScreenshotFlow.anyRequested("sg_repo")) {
+                openTeamSettingsPage("Repositories", hasText("acme/engine", substring = true))
+                val engineRow = hasTestTag("repo-row-open") and hasText("acme/engine", substring = true)
+                tapClearOfBar(engineRow)
+                flow.waitFor(hasTestTag("repo-page"), NAV_TIMEOUT)
+                flow.waitFor(hasText("Pack cursor for incremental fetches", substring = true), SYNC_TIMEOUT)
+                flow.settle()
+                flow.screenshot("sg_repo")
+                Espresso.pressBack()
+                flow.waitFor(hasTestTag(SettingsNav.PAGE_TEST_ID), NAV_TIMEOUT)
                 leaveTeamSettingsPage()
             }
         }

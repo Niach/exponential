@@ -13,6 +13,7 @@ import {
   Button,
   EmptyState,
   GlassSectionHeader,
+  GlassGroup,
   GlassInputRow,
   GlassToggleRow,
   ListRow,
@@ -152,7 +153,9 @@ function PullsTab({ prs, member }: { prs: PrRow[]; member: boolean }) {
   const rows = repoPrTree(prs as unknown as RepoPr[])
   if (rows.length === 0) return <EmptyState size="list" title={COPY.pulls.empty} />
   return (
-    // Section{tree}: the rows nest with tree guides by depth.
+    // Section{tree}: the rows nest with tree guides by depth, on the
+    // grouped surface ×4.
+    <GlassGroup>
     <PrList
       rows={rows.map((row) => {
         const pr = byId.get(row.id)!
@@ -176,6 +179,7 @@ function PullsTab({ prs, member }: { prs: PrRow[]; member: boolean }) {
         }
       })}
     />
+    </GlassGroup>
   )
 }
 
@@ -204,7 +208,7 @@ function BranchesTab({ repo, prs }: { repo: Repo; prs: PrRow[] }) {
   const rows = repoBranches(branches, repo.defaultBranch, prs as unknown as RepoPr[])
   if (rows.length === 0) return <EmptyState size="list" title={COPY.branches.empty} />
   return (
-    <div className={SETTINGS_LIST_CLASS} data-testid="repo-branches">
+    <GlassGroup className={SETTINGS_LIST_CLASS} data-testid="repo-branches">
       {rows.map((row) => (
         <ListRow key={row.name} className="gap-2 px-3 py-2">
           <div className="min-w-0 flex-1">
@@ -215,7 +219,7 @@ function BranchesTab({ repo, prs }: { repo: Repo; prs: PrRow[] }) {
           {row.isDefault && <Pill size="sm">{COPY.branches.default}</Pill>}
         </ListRow>
       ))}
-    </div>
+    </GlassGroup>
   )
 }
 

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -89,6 +90,9 @@ fun PrRow(
     identifier: String? = null,
     /** A quiet trailing word (`stack` on a stack's top row, `draft`). */
     word: String? = null,
+    /** #EXP-1616: a second line under the title (genUI `Row.subtitle`: the
+     *  repo page's `head → base`); the row grows to two lines. */
+    subtitle: String? = null,
     depth: Int = 0,
     /** Tree shape: this row's connector geometry. */
     guide: TreeGuide? = null,
@@ -106,7 +110,7 @@ fun PrRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(ListItem.PR_ROW_PHONE_DP.dp)
+            .then(if (subtitle.isNullOrEmpty()) Modifier.height(ListItem.PR_ROW_PHONE_DP.dp) else Modifier.heightIn(min = 48.dp).padding(vertical = 6.dp))
             .testTag(testTag)
             .treeGuides(guide)
             .then(
@@ -143,10 +147,29 @@ fun PrRow(
                 fontFamily = ExpMono,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                 maxLines = 1,
-                modifier = Modifier.widthIn(min = 72.dp),
+                modifier = Modifier.widthIn(min = if (subtitle.isNullOrEmpty()) 72.dp else 32.dp),
             )
         }
-        Text(
+        if (!subtitle.isNullOrEmpty()) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    subtitle,
+                    fontSize = 11.5.sp,
+                    fontFamily = ExpMono,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.testTag("pr-row-subtitle"),
+                )
+            }
+        } else Text(
             title,
             style = if (base) MaterialTheme.typography.labelMedium else MaterialTheme.typography.bodyMedium,
             fontFamily = if (base) ExpMono else null,
@@ -180,6 +203,8 @@ data class PrListRow(
     val depth: Int = 0,
     val node: PrNodeState = PrNodeState.Open,
     val word: String? = null,
+    /** #EXP-1616: the row's second line ([PrRow] `subtitle`). */
+    val subtitle: String? = null,
     val active: Boolean = false,
     val onOpen: (() -> Unit)? = null,
     val testTag: String = PR_ROW_TAG,
@@ -198,6 +223,7 @@ fun PrList(rows: List<PrListRow>, modifier: Modifier = Modifier) {
                 node = row.node,
                 identifier = row.identifier,
                 word = row.word,
+                subtitle = row.subtitle,
                 depth = row.depth,
                 guide = guides.getOrNull(index),
                 active = row.active,

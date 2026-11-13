@@ -782,12 +782,7 @@ function RepoRow({
         >
           {repo.fullName}
         </button>
-        <ProviderBadge provider={repo.provider} />
-        {checks && (
-          <Pill size="sm" className="shrink-0" dot={checksDotColor(checks)}>
-            {checksLabel(checks)}
-          </Pill>
-        )}
+
         {canManage ? (
           <DefaultBranchMenu
             repo={repo}
@@ -863,6 +858,14 @@ function RepoRow({
       )}
 
       <div className="flex flex-wrap items-center gap-1.5 pl-6">
+        {/* #EXP-1616 (repo-page.json): the provider Badge and the checks
+            Chip{dot} lead the second line ×4, so the name keeps its width. */}
+        <ProviderBadge provider={repo.provider} />
+        {checks && (
+          <Pill size="sm" className="shrink-0" dot={checksDotColor(checks)}>
+            {checksLabel(checks)}
+          </Pill>
+        )}
         {inUse ? (
           <>
             <span className="text-xs text-muted-foreground">Used by</span>

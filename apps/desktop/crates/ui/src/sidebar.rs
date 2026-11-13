@@ -293,7 +293,9 @@ fn parse_dev_settings_section(spec: &str) -> Option<crate::settings::SettingsSec
             .map(|id| S::Board(id.to_string()))
             .or_else(|| spec.strip_prefix("agent:").map(|id| S::Agent(id.to_string())))
             .or_else(|| spec.strip_prefix("prompt:").map(|id| S::Prompt(id.to_string())))
-            .or_else(|| spec.strip_prefix("skill:").map(|id| S::Skill(id.to_string()))),
+            .or_else(|| spec.strip_prefix("skill:").map(|id| S::Skill(id.to_string())))
+            // #EXP-1616: the repo page of the repo whose full name ends in `/<name>`.
+            .or_else(|| spec.strip_prefix("repo:").map(|name| S::Repository(format!("{}{name}", crate::settings::repo_page::BY_NAME)))),
     }
 }
 

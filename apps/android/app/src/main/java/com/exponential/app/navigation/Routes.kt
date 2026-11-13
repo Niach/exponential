@@ -94,6 +94,10 @@ object Routes {
     /** #EXP-1661: one skill's read-only page (Settings › Skills). */
     const val SKILL_SETTINGS_PATTERN = "settings/skill/{skillId}"
     fun skillSettings(skillId: String): String = "settings/skill/$skillId"
+    /** #EXP-1616 (repo-page.json): one repository's page; `tab` = repoTab. */
+    const val REPO_PATTERN = "repo/{repositoryId}?tab={tab}"
+    fun repo(repositoryId: String, tab: String? = null): String =
+        "repo/$repositoryId" + (tab?.let { "?tab=$it" } ?: "")
 
     /** VAPP-110: the selected team's Apps (reached from the Chats tab). */
     const val APPS = "apps"
