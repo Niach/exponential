@@ -2042,6 +2042,14 @@ struct AgentSessionView: View {
                 ) {
                     composerCard(model)
                 }
+                // #FEED-219: the session's synced draft.
+                .composerDraft(
+                    .session(session.id),
+                    teamId: session.teamId,
+                    revision: model.draftText,
+                    read: { model.draftText },
+                    apply: { model.draftText = $0 }
+                )
             }
             .animation(motion.standard, value: composerExpanded)
         }

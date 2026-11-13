@@ -597,6 +597,15 @@ public final class SyncManager: @unchecked Sendable {
             session: session
         ))
 
+        // #FEED-219: every composer's draft — static per user like pins
+        // (35th shape). A server without it answers 404 and the shape just
+        // asks again later (#EXP-1623); the others never wait on it.
+        tasks.append(makeShapeTask(
+            name: "composer-drafts", path: "/api/shapes/composer-drafts", table: "composer_drafts",
+            type: ComposerDraftEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
+            session: session
+        ))
+
         lock.withLock { pipelines[accountId] = tasks }
     }
 
