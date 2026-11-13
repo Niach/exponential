@@ -108,6 +108,76 @@ fn shell_local_repositories() {
     std::mem::forget(root);
 }
 
+/// The band the top tab bar sits in: it records the left presses that
+/// reach it, as the titlebar's drag latch does.
+struct DragBand {
+    region: Entity<crate::shell_regions::TabBarRegion>,
+    presses: std::rc::Rc<std::cell::Cell<u32>>,
+}
+
+impl gpui::Render for DragBand {
+    fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl gpui::IntoElement {
+        use gpui::{InteractiveElement as _, ParentElement as _, Styled as _};
+        let presses = self.presses.clone();
+        gpui::div()
+            .size_full()
+            .on_mouse_down(gpui::MouseButton::Left, move |_, _, _| presses.set(presses.get() + 1))
+            .child(self.region.clone())
+    }
+}
+
+/// The top band drags the window (Danny, desktop 0.14.156: the whole bar
+/// was a pointer with an empty tooltip and swallowed the drag). Only the
+/// strip's tabs, closes, + and +N are pressable; nothing spans the band
+/// (the +N menu's anchor is a zero-width box at its end), and a press on
+/// the empty rest reaches the titlebar behind it while one on a tab never
+/// does.
+#[test]
+fn the_tab_band_is_pressable_only_on_its_controls() {
+    let mut cx = headless();
+    cx.update(seeded);
+    let presses = std::rc::Rc::new(std::cell::Cell::new(0));
+    let band_presses = presses.clone();
+    let handle = cx
+        .open_window(size(px(1100.), px(44.)), move |window: &mut Window, cx| {
+            let region = crate::shell_regions::TabBarRegion::new(window, cx);
+            cx.new(|_| DragBand { region, presses: band_presses })
+        })
+        .expect("a headless window");
+    let window: gpui::AnyWindowHandle = handle.into();
+    let region = cx.update(|cx| handle.update(cx, |band, _, _| band.region.clone()).expect("the band"));
+    let press = |cx: &mut HeadlessAppContext, x: f32| {
+        cx.update_window(window, |_, window, cx| {
+            let position = gpui::point(px(x), px(24.));
+            window.dispatch_event(gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent { position, pressed_button: None, modifiers: Default::default() }), cx);
+            window.dispatch_event(gpui::PlatformInput::MouseDown(gpui::MouseDownEvent { button: gpui::MouseButton::Left, position, modifiers: Default::default(), click_count: 1, first_mouse: false }), cx);
+            window.dispatch_event(gpui::PlatformInput::MouseUp(gpui::MouseUpEvent { button: gpui::MouseButton::Left, position, modifiers: Default::default(), click_count: 1 }), cx);
+        })
+        .expect("the window");
+    };
+    for titles in [&["Fix the login redirect", "zsh"][..], &["APP-1 Crash on launch", "Fix the login redirect", "APP-12 Offline queue for issue edits", "zsh", "Mobile App", "Release checklist", "APP-31 Rewrite the image cache", "npm run dev", "One more", "And another"][..]] {
+        cx.update(|cx| region.update(cx, |region, cx| region.show(titles, cx)));
+        for _ in 0..4 {
+            draw(window, &mut cx);
+            cx.run_until_parked();
+        }
+        let (spans, strip_right) = cx.update(|cx| region.read(cx).pressable_spans(cx));
+        assert!(strip_right > 0. && strip_right < 1100., "{titles:?}: the strip ends at {strip_right}");
+        for (id, left, right) in &spans {
+            assert!(id.starts_with("ide_tabs."), "{titles:?}: {id} is pressable");
+            assert!(*left >= 0. && *right <= strip_right + 0.5, "{titles:?}: {id} spans {left}..{right} past the strip's end {strip_right}");
+        }
+        presses.set(0);
+        press(&mut cx, 1090.);
+        assert_eq!(presses.get(), 1, "{titles:?}: a press on the empty band reaches the titlebar");
+        let (_, first_left, first_right) = spans.iter().find(|(id, ..)| id.starts_with("ide_tabs.tab.")).cloned().expect("a tab");
+        presses.set(0);
+        press(&mut cx, (first_left + first_right) / 2.);
+        assert_eq!(presses.get(), 0, "{titles:?}: a press on a tab is the tab's");
+    }
+    std::mem::forget(cx);
+}
+
 #[test]
 #[ignore]
 fn shell_tab_bar_frames() {

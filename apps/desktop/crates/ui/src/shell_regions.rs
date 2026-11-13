@@ -725,6 +725,21 @@ impl TabBarRegion {
             .fold(0., f32::max)
     }
 
+    /// The strip's pressable areas as laid out (region coordinates): each
+    /// pressable node or overlay trigger with its x span, and where the
+    /// controls end.
+    #[cfg(test)]
+    pub(crate) fn pressable_spans(&self, cx: &App) -> (Vec<(String, f32, f32)>, f32) {
+        let view = self.view.read(cx);
+        let spans = view
+            .placed_nodes()
+            .iter()
+            .filter(|n| n.pressable || n.trigger_for.is_some())
+            .filter_map(|n| view.frame(n.index).filter(|f| f.w > 0. && f.h > 0.).map(|f| (n.id.clone(), f.x, f.x + f.w)))
+            .collect();
+        (spans, self.strip_right(cx))
+    }
+
     /// The tab under the pointer, for the context menu and middle-click.
     fn hovered(&self) -> Option<Screen> {
         let index = (*self.hover.borrow())?;
