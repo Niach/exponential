@@ -147,6 +147,47 @@ fn a_send_with_attachments_appends_their_lines() {
 }
 
 /// #EXP-1727: a git working copy linked as the board's repository.
+/// F21: a send whose `clientMessageId` this desktop already stored (an
+/// outbox retry, also after a restart) answers that message again and
+/// writes nothing; another key, or none, sends anew.
+#[test]
+fn a_retried_send_with_its_client_message_id_stores_one_message() {
+    let dir = tempfile::tempdir().unwrap();
+    let desktops = Desktops::open(dir.path()).unwrap();
+    let id = desktops.current().unwrap().to_string();
+    let desktop = desktops.open_desktop(&id).unwrap();
+    let client = desktop.client();
+    let user_rows = |d: &elocal::LocalDesktop| d.store.rows("messages").unwrap().into_iter().filter(|m| m["author_kind"] == "user").count();
+
+    let mut start = api::sessions::SendInput::default();
+    start.team_id = Some(id.clone());
+    start.text = Some("Fix the login".into());
+    start.client_message_id = Some("c-1".into());
+    let first = api::sessions::send(&client, &start).unwrap();
+    let again = api::sessions::send(&client, &start).unwrap();
+    assert_eq!((again.session_id.as_str(), again.message_id.as_deref()), (first.session_id.as_str(), first.message_id.as_deref()));
+    assert_eq!(desktop.store.rows("sessions").unwrap().len(), 1);
+    assert_eq!(user_rows(&desktop), 1);
+
+    let mut follow = api::sessions::SendInput::message(&first.session_id, "And the logout", vec![]);
+    follow.client_message_id = Some("c-2".into());
+    let second = api::sessions::send(&client, &follow).unwrap();
+    assert_ne!(second.message_id, first.message_id);
+    assert_eq!(user_rows(&desktop), 2);
+
+    // The keys outlive the process (the sidecar): a retry after a restart.
+    drop(desktop);
+    let reopened = desktops.open_desktop(&id).unwrap();
+    let retried = api::sessions::send(&reopened.client(), &follow).unwrap();
+    assert_eq!(retried.message_id, second.message_id);
+    assert_eq!(user_rows(&reopened), 2);
+
+    // Without a key every send is its own message.
+    follow.client_message_id = None;
+    api::sessions::send(&reopened.client(), &follow).unwrap();
+    assert_eq!(user_rows(&reopened), 3);
+}
+
 #[test]
 fn a_linked_folder_is_the_boards_repository() {
     let (dir, desktop) = desktop();

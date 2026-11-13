@@ -6,7 +6,7 @@ import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/** #FEED-237: v126 adds `messages.delivered_at` + the LOCAL `outbox` table; only messages refetch. */
+/** #FEED-237: v126 adds `messages.delivered_at` + the LOCAL `outbox` table (only messages refetch); v127 its `pending_files`. */
 class MessageDeliveryMigrationTest {
     private fun recording(statements: MutableList<String>): SupportSQLiteDatabase =
         Proxy.newProxyInstance(
@@ -32,6 +32,15 @@ class MessageDeliveryMigrationTest {
         assert(statements[1].startsWith("CREATE TABLE IF NOT EXISTS `outbox`"))
         assert(statements[2].contains("index_outbox_session_id"))
         assert(statements[3].endsWith("WHERE `shape` = 'messages'"))
+    }
+
+    @Test
+    fun `v127 adds the outbox's pending files and refetches nothing`() {
+        assertEquals(126, MIGRATION_126_127.startVersion)
+        assertEquals(127, MIGRATION_126_127.endVersion)
+        val statements = mutableListOf<String>()
+        MIGRATION_126_127.migrate(recording(statements))
+        assertEquals(listOf("ALTER TABLE `outbox` ADD COLUMN `pending_files` TEXT"), statements)
     }
 
     @Test

@@ -12,6 +12,7 @@ export const MESSAGE_DELIVERY_MARKS = fixture.marks
 export const MESSAGE_DELIVERY_TEST_IDS = fixture.testIds
 export const MESSAGE_DELIVERY_MARK_SIZE = fixture.markSize
 export const MESSAGE_DELIVERY_MATCH_WINDOW_MS = fixture.matchWindowMs
+export const MESSAGE_DELIVERY_HANDOFF_MAX_MS = fixture.handoffMaxMs
 
 /** genUI's `messageStatus`: the clock, one check, two checks, the red mark. */
 export type DeliveryState = `sending` | `sent` | `read` | `failed`
@@ -103,4 +104,56 @@ export function bubbleActions(input: { state: DeliveryState; stored: boolean }):
   if (input.state === `failed`) return [`retry`, `delete`]
   if (input.state === `read`) return []
   return input.stored ? [`cancel`] : []
+}
+
+export interface HandoffRow {
+  id: string
+  authorKind: string
+  authorId: string | null
+  body: string
+  createdAt: string
+  consumedAt: string | null
+  card?: unknown
+}
+
+export interface HandoffEcho {
+  text: string
+  /** Epoch ms; null when the feed carries none. */
+  at: number | null
+}
+
+/** HANDOFF: the consumed own rows whose transcript echo has not arrived yet
+ *  (oldest first); each keeps its bubble so it never vanishes in between. */
+export function ownHandoff(input: {
+  viewerId: string
+  now: string
+  feedEmpty: boolean
+  rows: readonly HandoffRow[]
+  echoes: readonly HandoffEcho[]
+}): string[] {
+  if (input.feedEmpty) return []
+  const since = Date.parse(input.now) - MESSAGE_DELIVERY_HANDOFF_MAX_MS
+  const candidates = input.rows
+    .filter(
+      (row) =>
+        row.authorKind === `user` &&
+        row.authorId === input.viewerId &&
+        row.card == null &&
+        row.consumedAt != null &&
+        Date.parse(row.consumedAt) >= since
+    )
+    .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+  const taken = new Set<number>()
+  const kept: string[] = []
+  for (const row of candidates) {
+    const body = row.body.trim()
+    const from = Date.parse(row.createdAt) - MESSAGE_DELIVERY_MATCH_WINDOW_MS
+    const echo = input.echoes.findIndex(
+      (candidate, index) =>
+        !taken.has(index) && candidate.text.trim() === body && (candidate.at == null || candidate.at >= from)
+    )
+    if (echo >= 0) taken.add(echo)
+    else kept.push(row.id)
+  }
+  return kept
 }

@@ -21,8 +21,10 @@ import com.exponential.app.ui.markdown.MarkdownView
 
 /**
  * #FEED-237 (message-delivery.json): the viewer's OWN bubbles at the bottom
- * of a session's transcript: their synced rows the device has not consumed,
- * then the outbox entries, each with its delivery mark beside the `HH:mm`.
+ * of a session's transcript: the consumed rows whose echo has not reached
+ * the transcript yet (HANDOFF, `read`), their synced rows the device has not
+ * consumed, then the outbox entries, each with its delivery mark beside the
+ * `HH:mm`. Keyed by message id, so a row keeps one bubble across states.
  * A long-press opens the bubble's menu (`bubbleActions`: Retry + Delete on a
  * failed one, Cancel sending on a stored one), a failed mark opens it too.
  */

@@ -416,7 +416,7 @@ pub fn send_rows(input: &Row, ctx: &SendContext, next_id: &mut dyn FnMut() -> St
         "author_kind": "user", "author_id": ctx.identity.user_id, "author_session_id": null,
         "body": body_with_attachments(str_of(input, "text").unwrap_or(""), &attachment_ids, &ctx.attachments), "card": null,
         "attachment_ids": attachment_ids,
-        "issue_brief": null, "answered_at": null, "consumed_at": null, "created_at": ctx.now, "updated_at": ctx.now,
+        "issue_brief": null, "answered_at": null, "delivered_at": null, "consumed_at": null, "created_at": ctx.now, "updated_at": ctx.now,
     }))));
     if ctx.existing.is_none() {
         if let Some(issues) = input.get("issueIds").and_then(Value::as_array) {
@@ -426,6 +426,57 @@ pub fn send_rows(input: &Row, ctx: &SendContext, next_id: &mut dyn FnMut() -> St
         }
     }
     (rows, (session_id, message_id))
+}
+
+/// #FEED-237 (`sessions.wake.cases`): what the desktop's runner does with
+/// the person's rows no run took in yet (`consumed_at` NULL). A `running` /
+/// `idle` session of this device (an unset device = this one) with such
+/// rows: its live run gets them as sends (`send`), else its run starts
+/// again (`wake`: the CLI's conversation resumed when the desktop kept its
+/// id, the oldest row the prompt, the rest sent after it, in order); a
+/// session not live whose last start failed for exactly these rows waits
+/// for a new one (`refused`). Queued sessions wait for their claim (its
+/// brief takes the first row), ended ones never start again. Rows go
+/// oldest first (created_at, then id); sessions in the order of their
+/// oldest such row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Wake {
+    pub session_id: String,
+    /// The session's run is live: the rows are sends into it.
+    pub live: bool,
+    pub message_ids: Vec<String>,
+}
+
+pub fn wake_plan(device_id: &str, sessions: &[Row], messages: &[Row], live: &[String], refused: &std::collections::HashMap<String, Vec<String>>) -> Vec<Wake> {
+    let set = |row: &Row, key: &str| str_of(row, key).is_some_and(|v| !v.is_empty());
+    let mut plan: Vec<(String, Wake)> = Vec::new();
+    for session in sessions {
+        let Some(id) = str_of(session, "id") else { continue };
+        if !matches!(str_of(session, "status"), Some("running" | "idle")) {
+            continue;
+        }
+        if str_of(session, "device_id").is_some_and(|d| !d.is_empty() && d != device_id) {
+            continue;
+        }
+        let mut rows: Vec<&Row> = messages
+            .iter()
+            .filter(|m| str_of(m, "session_id").filter(|s| !s.is_empty()).or_else(|| str_of(m, "root_id")) == Some(id))
+            .filter(|m| str_of(m, "author_kind") == Some("user") && !set(m, "consumed_at"))
+            .collect();
+        if rows.is_empty() {
+            continue;
+        }
+        rows.sort_by(|a, b| (str_of(a, "created_at"), str_of(a, "id")).cmp(&(str_of(b, "created_at"), str_of(b, "id"))));
+        let message_ids: Vec<String> = rows.iter().filter_map(|m| str_of(m, "id")).map(str::to_string).collect();
+        let is_live = live.iter().any(|l| l == id);
+        if !is_live && refused.get(id).is_some_and(|ids| message_ids.iter().all(|m| ids.contains(m))) {
+            continue;
+        }
+        let oldest = str_of(rows[0], "created_at").unwrap_or("").to_string();
+        plan.push((oldest, Wake { session_id: id.to_string(), live: is_live, message_ids }));
+    }
+    plan.sort_by(|(a, x), (b, y)| (a, &x.session_id).cmp(&(b, &y.session_id)));
+    plan.into_iter().map(|(_, w)| w).collect()
 }
 
 /// `agents.ensureAssistant`: the identity's one assistant row.

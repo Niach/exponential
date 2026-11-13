@@ -257,6 +257,16 @@ final class AgentSessionModel {
     /// transcript's bottom: their synced rows the device has not consumed,
     /// then the outbox entries, each with its delivery mark.
     private(set) var ownPending: [OwnPendingBubble] = []
+    /// #FEED-237 HANDOFF (message-delivery.json `handoffCases`): the viewer's
+    /// consumed own rows whose transcript echo has not arrived yet, oldest
+    /// first, each still its own `read` bubble so it never vanishes between
+    /// the consume and the echo (`MessageDelivery.ownHandoff`).
+    private(set) var ownHeld: [OwnPendingBubble] = []
+    /// The own rows the handoff reads (the own observation's latest).
+    @ObservationIgnored private var ownHandoffRows: [MessageDelivery.HandoffRow] = []
+    /// Re-evaluates the handoff once `handoffMaxMs` after the newest held
+    /// row's consumedAt (nothing else would write when an echo never comes).
+    @ObservationIgnored private var handoffTimerTask: Task<Void, Never>?
     /// EXP-1321: the Queue's open waits — one per UNSETTLED `wait` call by
     /// call id (web/desktop count every open wait; two on one subject are
     /// two), derived ONCE per feed change in `reproject` (EXP-582: an O(feed)
@@ -832,6 +842,8 @@ final class AgentSessionModel {
         }
         let newest = Self.newestAgentMessageKey(feed)
         if newest != newestAgentMessageKey { newestAgentMessageKey = newest }
+        // #FEED-237 HANDOFF: the transcript moved, so an echo may have landed.
+        reevaluateHandoff()
     }
 
     /// #EXP-1623: what the O(feed) half of `reproject` is a function of.
@@ -1371,6 +1383,8 @@ final class AgentSessionModel {
         sessionObservationTask = nil
         ownObservationTask?.cancel()
         ownObservationTask = nil
+        handoffTimerTask?.cancel()
+        handoffTimerTask = nil
         deviceObservationTask?.cancel()
         deviceObservationTask = nil
         deviceLivenessTask?.cancel()
@@ -1623,7 +1637,16 @@ final class AgentSessionModel {
     /// The own bubbles the transcript draws: a stored row whose `user_message`
     /// already reached the live transcript is that echo (`read`) before its
     /// consumed stamp syncs, never a second bubble.
+    /// #FEED-237 HANDOFF: the held consumed rows first (oldest first), then
+    /// the not-consumed rows and the outbox; one bubble per message id.
     var ownBubbles: [OwnPendingBubble] {
+        let tail = ownTail
+        guard !ownHeld.isEmpty else { return tail }
+        let heldIds = Set(ownHeld.map(\.id))
+        return ownHeld + tail.filter { !heldIds.contains($0.id) }
+    }
+
+    private var ownTail: [OwnPendingBubble] {
         guard ownPending.contains(where: { $0.stored }) else { return ownPending }
         var echoes: [(text: String, at: Double)] = []
         for item in feed.suffix(40) {
@@ -1717,6 +1740,13 @@ final class AgentSessionModel {
                         guard let self else { return }
                         let built = OwnPendingBubble.build(viewerId: viewerId, rows: rows, outbox: outbox)
                         if built.bubbles != self.ownPending { self.ownPending = built.bubbles }
+                        self.ownHandoffRows = rows.map { row in
+                            MessageDelivery.HandoffRow(
+                                id: row.id, authorKind: row.authorKind, authorId: row.authorId, body: row.body,
+                                createdAt: row.createdAt, consumedAt: row.consumedAt, hasCard: row.card != nil
+                            )
+                        }
+                        self.reevaluateHandoff()
                         if !built.drop.isEmpty {
                             SessionOutbox.shared.remove(accountId: self.accountId, clientIds: built.drop, db: self.db)
                         }
@@ -1729,6 +1759,56 @@ final class AgentSessionModel {
                 }
             }
         }
+    }
+
+    /// #FEED-237 HANDOFF (message-delivery.json): which consumed own rows
+    /// still draw their own bubble: until the transcript's echo (a main-lane
+    /// person row) appears, never with no feed (SENT INPUTS draws them
+    /// then), never longer than `handoffMaxMs` after the consume. Runs when
+    /// the own rows or the feed change, and once more when the newest held
+    /// row would expire.
+    private func reevaluateHandoff() {
+        handoffTimerTask?.cancel()
+        handoffTimerTask = nil
+        let nowMs = Date().timeIntervalSince1970 * 1000
+        let since = nowMs - MessageDelivery.handoffMaxMs
+        func consumedMs(_ row: MessageDelivery.HandoffRow) -> Double? {
+            guard let consumedAt = row.consumedAt, let stamp = WireTimestamps.parse(consumedAt) else { return nil }
+            return stamp.timeIntervalSince1970 * 1000
+        }
+        // Nothing consumed lately (or no feed): no feed walk at all.
+        let recent = ownHandoffRows.contains { row in (consumedMs(row) ?? -Double.infinity) >= since }
+        var held: [OwnPendingBubble] = []
+        if recent, !feed.isEmpty, let viewerId = currentUserId {
+            var echoes: [MessageDelivery.HandoffEcho] = []
+            for item in feed {
+                if case let .userMessage(_, text, subagentId, at) = item, subagentId == nil {
+                    echoes.append(MessageDelivery.HandoffEcho(text: text, at: at.map { Double($0) }))
+                }
+            }
+            let kept = MessageDelivery.ownHandoff(
+                viewerId: viewerId, nowMs: nowMs, feedEmpty: false, rows: ownHandoffRows, echoes: echoes
+            )
+            let byId = Dictionary(ownHandoffRows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            var newestConsumed: Double?
+            for id in kept {
+                guard let row = byId[id] else { continue }
+                if let consumed = consumedMs(row) { newestConsumed = max(newestConsumed ?? consumed, consumed) }
+                held.append(OwnPendingBubble(
+                    id: row.id, text: row.body, at: WireTimestamps.parse(row.createdAt),
+                    state: .read, stored: true, clientId: nil, messageId: row.id
+                ))
+            }
+            if let newestConsumed {
+                let delayMs = max(0, newestConsumed + MessageDelivery.handoffMaxMs - nowMs) + 50
+                handoffTimerTask = Task { [weak self] in
+                    try? await Task.sleep(for: .milliseconds(Int(delayMs)))
+                    guard !Task.isCancelled else { return }
+                    self?.reevaluateHandoff()
+                }
+            }
+        }
+        if held != ownHeld { ownHeld = held }
     }
 
     // MARK: - Synced session row

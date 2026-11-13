@@ -401,3 +401,13 @@ val MIGRATION_125_126: Migration = object : Migration(125, 126) {
         )
     }
 }
+
+// v127 (#FEED-237, message-delivery.json FILES): `outbox.pending_files`, an
+// entry's picked files not uploaded yet (their bytes live under the app's
+// files dir), so a restart resumes the uploads instead of sending the text
+// without them. Local table: nothing refetches.
+val MIGRATION_126_127: Migration = object : Migration(126, 127) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `outbox` ADD COLUMN `pending_files` TEXT")
+    }
+}

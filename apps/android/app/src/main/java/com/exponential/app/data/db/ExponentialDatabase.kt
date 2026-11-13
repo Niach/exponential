@@ -102,7 +102,10 @@ import androidx.room.TypeConverters
     // v126 (#FEED-237): messages.delivered_at (the one check) + the LOCAL
     //      `outbox` table (a person's unsent messages), explicit
     //      [MIGRATION_125_126]; only the messages shape refetches.
-    version = 126,
+    // v127 (#FEED-237 FILES): outbox.pending_files (an entry's files not
+    //      uploaded yet survive a restart), explicit [MIGRATION_126_127];
+    //      nothing refetches.
+    version = 127,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

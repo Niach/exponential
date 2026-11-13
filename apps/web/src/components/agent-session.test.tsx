@@ -497,7 +497,12 @@ describe(`AgentSessionView as the Chat tab (#EXP-1732)`, () => {
       { ...base, id: `m-d`, authorKind: `user`, authorId: `u1`, body: `And the docs`, consumedAt: null, deliveredAt: new Date().toISOString(), card: null },
       { ...base, id: `m-done`, authorKind: `user`, authorId: `u1`, body: `Done already`, consumedAt: new Date().toISOString(), card: null },
     ]
-    snapshot = snap({ feed: [{ id: 1, seq: 1, kind: `narration`, text: `On it.` }] })
+    snapshot = snap({
+      feed: [
+        { id: 1, seq: 1, kind: `user_message`, text: `Done already` },
+        { id: 2, seq: 2, kind: `narration`, text: `On it.` },
+      ],
+    })
     render(
       <TooltipProvider>
         <AgentSessionView session={session} composer={<div data-testid="composer" />} />
@@ -509,6 +514,41 @@ describe(`AgentSessionView as the Chat tab (#EXP-1732)`, () => {
     const marks = within(extras).getAllByTestId(`message-status`).map((mark) => mark.getAttribute(`data-state`))
     expect(marks).toEqual([`sent`, `sending`])
     expect(within(extras).queryByText(`queued`)).toBeNull()
+  })
+
+  it(`HANDOFF (#FEED-237): a consumed own row with no echo yet keeps its bubble, reading read, before the queued ones; the echo takes it over`, () => {
+    const at = Date.now()
+    messages = [
+      { ...base, id: `m-held`, authorKind: `user`, authorId: `u1`, body: `Ship it`, createdAt: new Date(at - 2000).toISOString(), consumedAt: new Date(at - 1000).toISOString(), card: null },
+      { ...base, id: `m-q`, authorKind: `user`, authorId: `u1`, body: `Also bump the CLI`, createdAt: new Date(at).toISOString(), consumedAt: null, card: null },
+    ]
+    snapshot = snap({ feed: [{ id: 1, seq: 1, kind: `narration`, text: `On it.` }] })
+    const view = (
+      <TooltipProvider>
+        <AgentSessionView session={session} composer={<div />} />
+      </TooltipProvider>
+    )
+    const { rerender } = render(view)
+    const extras = screen.getByTestId(`session-chat-extras`)
+    const text = extras.textContent ?? ``
+    expect(text).toContain(`Ship it`)
+    expect(text.indexOf(`Ship it`)).toBeLessThan(text.indexOf(`Also bump the CLI`))
+    const marks = within(extras).getAllByTestId(`message-status`).map((mark) => mark.getAttribute(`data-state`))
+    expect(marks).toEqual([`read`, `sending`])
+    // The transcript's echo lands: the held bubble goes, one bubble per id.
+    snapshot = snap({
+      feed: [
+        { id: 1, seq: 1, kind: `narration`, text: `On it.` },
+        { id: 2, seq: 2, kind: `user_message`, text: `Ship it`, at },
+      ],
+    })
+    rerender(
+      <TooltipProvider>
+        <AgentSessionView session={session} composer={<div />} />
+      </TooltipProvider>
+    )
+    expect(screen.getByTestId(`session-chat-extras`).textContent).not.toContain(`Ship it`)
+    expect(screen.getAllByText(`Ship it`)).toHaveLength(1)
   })
 
   it(`open suggestions are THE Dock's card with the actions; settled ones stay inline`, () => {
