@@ -47,13 +47,15 @@ const inputs = (units: unknown, mode: `test` | `untested` = `test`): TrainPipeli
   units: JSON.stringify(units),
 })
 
-const pr = (number: number) => ({ number, head_sha: `head-${number}`, title: `PR ${number}` })
+const pr = (number: number) => ({ number, head_sha: `head-${number}`, title: `PR ${number}`, ...(number === 1 ? { author: `Ada <ada@example.com>` } : {}) })
 
 describe(`the ecode merge train`, () => {
   it(`squashes each PR in order, bounces a conflicting unit, publishes the head and starts our run`, async () => {
     const { fake, jobs, moves } = host()
     const outcome = await compose(fake, repo, inputs([{ prs: [pr(1), pr(2)] }, { prs: [pr(3)] }]))
     expect(jobs.filter((j) => j.op === `squash`).map((j) => (j as { head: string }).head)).toEqual([`head-1`, `head-2`, `head-3`])
+    // The PR's author rides along; unknown = none (the job's identity).
+    expect(jobs.filter((j) => j.op === `squash`).map((j) => (j as { author?: string }).author)).toEqual([`Ada <ada@example.com>`, undefined, undefined])
     const head = `${`${BASE.slice(0, 6)}+head-1`.slice(0, 6)}+head-2`
     expect(outcome).toEqual({
       train: `t1`,

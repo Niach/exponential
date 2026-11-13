@@ -32,6 +32,14 @@ pub fn sync_cache(git: &ExpGit, cache: &Path) -> Result<(LocalRepo, BTreeMap<Str
     Ok((repo.with_identity(job_identity()), refs.refs))
 }
 
+/// `Name <email>` → an identity; `None` when it is not that shape.
+pub fn parse_author(line: &str) -> Option<Identity> {
+    let (name, rest) = line.trim().rsplit_once('<')?;
+    let email = rest.strip_suffix('>')?.trim();
+    let name = name.trim();
+    (!name.is_empty() && email.contains('@')).then(|| Identity { name: name.to_string(), email: email.to_string() })
+}
+
 fn arg<'a>(args: &'a Value, name: &str) -> Result<&'a str> {
     args[name].as_str().ok_or_else(|| Error::Invalid(format!("the job has no `{name}`")))
 }
@@ -59,7 +67,10 @@ pub fn run_job(git: &ExpGit, cache: &Path, args: &Value) -> Result<Value> {
             Ok(serde_json::to_value(check).unwrap_or(Value::Null))
         }
         "squash" => {
-            let sha = repo.squash_commit(arg(args, "base")?, arg(args, "head")?, arg(args, "message")?)?;
+            // #EXP-1617: the PR's author (`Name <email>`, merge-train.json
+            // `units[].prs[].author`); the job's identity when unknown.
+            let author = args.get("author").and_then(Value::as_str).and_then(parse_author);
+            let sha = repo.squash_commit_by(arg(args, "base")?, arg(args, "head")?, arg(args, "message")?, author.as_ref())?;
             git.send_objects(cache, std::slice::from_ref(&sha))?;
             Ok(json!({ "sha": sha }))
         }
@@ -202,5 +213,19 @@ pub fn job_answer(outcome: Result<Value>) -> (bool, String) {
             };
             (false, answer.to_string())
         }
+    }
+}
+
+#[cfg(test)]
+mod author_tests {
+    use super::parse_author;
+
+    #[test]
+    fn parses_a_commit_author_line() {
+        let id = parse_author("Ada Lovelace <1+ada@users.noreply.github.com>").unwrap();
+        assert_eq!((id.name.as_str(), id.email.as_str()), ("Ada Lovelace", "1+ada@users.noreply.github.com"));
+        assert!(parse_author("nobody").is_none());
+        assert!(parse_author("<a@b>").is_none());
+        assert!(parse_author("Name <not-an-email>").is_none());
     }
 }

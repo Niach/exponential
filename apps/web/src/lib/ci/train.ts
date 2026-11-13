@@ -7,8 +7,9 @@
 // `merge_train` run there. The outcome is the contract's
 // `TrainPipelineOutcome`; the worker reads our check rows at its head
 // (`commit_checks`) and gates on the repo's required checks, exactly like a
-// GitHub train. Differences from train.yml, on purpose for now: no resolver
-// rules (`generated`), and the squash commit's author is the job's.
+// GitHub train; each squash is authored by its PR's author (`author`, the
+// job's identity when unknown). Not yet: the resolver rules (`generated`),
+// a conflict there bounces the unit.
 //
 // Composing takes minutes of device jobs, so dispatch answers at once and
 // composes in the background; the outcome is kept on the train row
@@ -79,7 +80,13 @@ export async function compose(host: EcodeHost, repo: ForgeRepo, inputs: TrainPip
       let unitTip = tip
       let conflict: TrainUnitOutcome | null = null
       for (const pr of unit.prs) {
-        const squash = await host.job(repo, { op: `squash`, base: unitTip, head: pr.head_sha, message: `${pr.title} (#${pr.number})` })
+        const squash = await host.job(repo, {
+          op: `squash`,
+          base: unitTip,
+          head: pr.head_sha,
+          message: `${pr.title} (#${pr.number})`,
+          ...(pr.author ? { author: pr.author } : {}),
+        })
         if (squash.ok) {
           unitTip = squash.result.sha
           continue

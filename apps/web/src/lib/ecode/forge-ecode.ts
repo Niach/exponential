@@ -66,7 +66,8 @@ export type EcodeEvent =
 /** A git job for a team device; each answers a JSON result or refuses. */
 export type EcodeJob =
   | { op: `mergeability`; base: string; head: string }
-  | { op: `squash`; base: string; head: string; message: string }
+  /** `author` = `Name <email>` (#EXP-1617: the train's PR author); absent = the job's identity. */
+  | { op: `squash`; base: string; head: string; message: string; author?: string }
   | { op: `files`; base: string; head: string }
   | { op: `rebase_onto`; tip: string; onto: string; upstream: string }
   | { op: `is_ancestor`; ancestor: string; of: string }
