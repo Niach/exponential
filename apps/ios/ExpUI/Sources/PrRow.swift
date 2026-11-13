@@ -66,8 +66,9 @@ public struct PrRow<Trailing: View>: View {
     ///     `base` row (mono, muted).
     ///   - word: a quiet trailing word (`stack` on a stack's top row).
     ///   - subtitle: #EXP-1616: a second line under the title (genUI
-    ///     `Row.subtitle`: the repo page's `head → base`), mono, small and
-    ///     muted; the row grows to two lines.
+    ///     `Row.subtitle`: the repo page's `head → base`) in the plain Row
+    ///     subtitle style (web `text-xs text-muted-foreground`), never mono;
+    ///     the row grows to two lines.
     ///   - guide: tree shape — this row's connector (its depth indents).
     ///   - rail: stack shape — the rail through the node centres.
     public init(
@@ -112,8 +113,8 @@ public struct PrRow<Trailing: View>: View {
                         .lineLimit(1)
                         .truncationMode(.tail)
                     Text(subtitle)
-                        .font(.expMono(size: 11.5))
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .font(.caption)
+                        .foregroundStyle(DesignTokens.Palette.mutedForeground)
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
