@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-13-composer-drafts-on-phones`,
+    date: `2026-11-13`,
+    title: `Drafts follow you to your phone`,
+    summary: `iPhone, iPad and Android keep what you type in any composer as a synced draft, links open right at their card, and tables fit their columns.`,
+    body: `- **Synced drafts**: text you type in a chat, comment or issue composer on a phone stays as a draft and shows up on your other devices until you send it.
+- **Links land on their card**: a notification, an inbox row or a link to a question, plan or result opens the chat scrolled to that card.
+- **Tables fit**: Markdown tables size their columns by the same rule on every app.`,
+  },
+  {
     id: `2026-11-13-desktop-drafts-badges`,
     date: `2026-11-13`,
     title: `Drafts follow you into the desktop app`,
