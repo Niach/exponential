@@ -1,0 +1,508 @@
+{
+  "$comment": "#EXP-1616 (eCode E3, #NEW-36) THE REPO PAGE ×4 + the Settings › Repositories additions; genUI catalogue components only, mockups approved. SETTINGS › REPOSITORIES (settings-repositories ×4): every row's SECOND line (the `Used by` line) starts with a `Badge` naming its provider (`copy.provider.github` | `copy.provider.ecode`) then, when `repoChecksRollup` over its PRs is non-null, a `Chip{dot}` for that state: `copy.checks[state]` gives its label and its dot tone (green | amber | red, the theme's semantic colours). Tapping a row opens its repo page. `Add repository` (owners) opens a `Dialog` (web, desktop) or a `Drawer` (phones): `ChoiceTiles` (`copy.add.github` | `copy.add.ecode`); for Exponential an `Input` (`copy.add.name`, a name of [A-Za-z0-9._-]), a `Select` (`copy.add.defaultBranch`, `main` default, `master`, `develop`), a `SettingsRow` + `Switch` (`copy.add.mirror`, revealing an `Input` for the mirror URL) and `FormActions` (`copy.add.cancel` / `copy.add.create`); GitHub keeps the existing connect flow. THE REPO PAGE (view `repo`, route `/t/$teamSlug/repos/$name?tab=`, `repoTab(tab)` picks the tab, unknown = pulls): `Page` + `AppBar` (back + the repo's full name, NOTHING else: the provider `Badge` lives in the Settings tab and on the list row) + `Tabs{pill}` over `tabs` in order. PULL REQUESTS = `Section{tree:true}` of `repoPrTree(prs)` rows: `Row{depth, identifier, title, subtitle, meta}`; a PR row is TWO lines ×4: the title, then the plain genUI `Row` subtitle under it (muted, small, NOT mono); `#n` before them; meta = the `Chip{dot}` of `checks` (`copy.checks`, none when null; on PHONES, web-mobile included, the dot alone, its label the accessibility label, so the title keeps the width) then the merge-train `Badge` (merge-train.json `statusPill`, from the row's merge fields); a draft row reads the draft pill. Only live PRs (open | draft). A PR's parent = the live PR whose head is its base (lowest number when two share a head); roots newest first, children oldest first, depth-first; a loop of live PRs (no root) starts at its newest member, depth 0, the others nested under it. BRANCHES = `Section` of `repoBranches` rows: `Row{title: name, subtitle: sha, meta}` with a `Badge` `copy.branches.default` on the default branch and the PR identifier `#n` of a live PR on it; the default first, then code-point order. RUNS = an `EmptyState` (`copy.runs.empty`) until eCode CI (#EXP-1617, E4) fills the tab; the tab and its route stay. SETTINGS = `SettingsRow`s: provider (`Badge`), default branch (`Select` over the branches, owners), the clone URL (`exp://<team>/<name>`, copyable), backups (`Row` per backup, newest first, + `copy.settings.restore` → `AlertDialog` `copy.settings.restoreTitle` / `copy.settings.restoreConfirm`, owners), mirror (`Switch` + `Input`, owners). Desktop also lists the PR tree in the IDE sidebar with the same Section/Row tree. FEEDBACK (feedback-states.json): skeleton rows on first load, an empty tab = its `EmptyState` (`copy.pulls.empty`, `copy.branches.empty`), a failed action = a toast. Replayed by packages/domain-contract (bun test), desktop domain::repo_page, iOS ExpCore RepoPage, Android domain RepoPage: every mirror replays `treeCases`, `branchCases`, `rollupCases` and `tabCases`, comparing the WHOLE result.",
+  "tabs": [
+    {
+      "id": "pulls",
+      "label": "Pull requests"
+    },
+    {
+      "id": "runs",
+      "label": "Runs"
+    },
+    {
+      "id": "branches",
+      "label": "Branches"
+    },
+    {
+      "id": "settings",
+      "label": "Settings"
+    }
+  ],
+  "copy": {
+    "provider": {
+      "github": "GitHub",
+      "ecode": "Exponential"
+    },
+    "add": {
+      "title": "Add repository",
+      "github": "GitHub",
+      "ecode": "Exponential",
+      "name": "Name",
+      "defaultBranch": "Default branch",
+      "mirror": "Mirror to GitHub",
+      "mirrorUrl": "Mirror URL",
+      "cancel": "Cancel",
+      "create": "Create"
+    },
+    "pulls": {
+      "empty": "No open pull requests"
+    },
+    "runs": {
+      "empty": "No runs yet"
+    },
+    "branches": {
+      "empty": "No branches yet",
+      "default": "Default"
+    },
+    "settings": {
+      "provider": "Provider",
+      "defaultBranch": "Default branch",
+      "cloneUrl": "Clone URL",
+      "backups": "Backups",
+      "noBackups": "No backups yet",
+      "restore": "Restore…",
+      "restoreTitle": "Restore this backup?",
+      "restoreConfirm": "Restore",
+      "mirror": "Mirror",
+      "mirrorUrl": "Mirror URL"
+    },
+    "checks": {
+      "success": {
+        "label": "Passing",
+        "tone": "green"
+      },
+      "pending": {
+        "label": "Running",
+        "tone": "amber"
+      },
+      "failure": {
+        "label": "Failing",
+        "tone": "red"
+      }
+    }
+  },
+  "treeCases": [
+    {
+      "name": "nothing: no rows",
+      "prs": [],
+      "expected": []
+    },
+    {
+      "name": "closed and merged PRs never show",
+      "prs": [
+        {
+          "id": "a",
+          "number": 1,
+          "title": "PR 1",
+          "head": "x",
+          "base": "main",
+          "state": "merged",
+          "checksState": "none"
+        },
+        {
+          "id": "b",
+          "number": 2,
+          "title": "PR 2",
+          "head": "y",
+          "base": "main",
+          "state": "closed",
+          "checksState": "none"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "name": "a tree: a root, two children oldest first, a grandchild; a second root above it (newest first)",
+      "prs": [
+        {
+          "id": "r",
+          "number": 10,
+          "title": "Root",
+          "head": "exp/root",
+          "base": "main",
+          "state": "open",
+          "checksState": "success"
+        },
+        {
+          "id": "c2",
+          "number": 12,
+          "title": "Second child",
+          "head": "exp/c2",
+          "base": "exp/root",
+          "state": "draft",
+          "checksState": "pending"
+        },
+        {
+          "id": "c1",
+          "number": 11,
+          "title": "First child",
+          "head": "exp/c1",
+          "base": "exp/root",
+          "state": "open",
+          "checksState": "failure"
+        },
+        {
+          "id": "g",
+          "number": 13,
+          "title": null,
+          "head": "exp/g",
+          "base": "exp/c1",
+          "state": "open",
+          "checksState": "none"
+        },
+        {
+          "id": "o",
+          "number": 20,
+          "title": "Other",
+          "head": "exp/other",
+          "base": "main",
+          "state": "open",
+          "checksState": "none"
+        }
+      ],
+      "expected": [
+        {
+          "id": "o",
+          "number": 20,
+          "identifier": "#20",
+          "title": "Other",
+          "depth": 0,
+          "subtitle": "exp/other → main",
+          "draft": false,
+          "checks": null
+        },
+        {
+          "id": "r",
+          "number": 10,
+          "identifier": "#10",
+          "title": "Root",
+          "depth": 0,
+          "subtitle": "exp/root → main",
+          "draft": false,
+          "checks": "success"
+        },
+        {
+          "id": "c1",
+          "number": 11,
+          "identifier": "#11",
+          "title": "First child",
+          "depth": 1,
+          "subtitle": "exp/c1 → exp/root",
+          "draft": false,
+          "checks": "failure"
+        },
+        {
+          "id": "g",
+          "number": 13,
+          "identifier": "#13",
+          "title": "",
+          "depth": 2,
+          "subtitle": "exp/g → exp/c1",
+          "draft": false,
+          "checks": null
+        },
+        {
+          "id": "c2",
+          "number": 12,
+          "identifier": "#12",
+          "title": "Second child",
+          "depth": 1,
+          "subtitle": "exp/c2 → exp/root",
+          "draft": true,
+          "checks": "pending"
+        }
+      ]
+    },
+    {
+      "name": "a child whose parent merged sits at the root",
+      "prs": [
+        {
+          "id": "p",
+          "number": 1,
+          "title": "PR 1",
+          "head": "exp/p",
+          "base": "main",
+          "state": "merged",
+          "checksState": "none"
+        },
+        {
+          "id": "c",
+          "number": 2,
+          "title": "PR 2",
+          "head": "exp/c",
+          "base": "exp/p",
+          "state": "open",
+          "checksState": "none"
+        }
+      ],
+      "expected": [
+        {
+          "id": "c",
+          "number": 2,
+          "identifier": "#2",
+          "title": "PR 2",
+          "depth": 0,
+          "subtitle": "exp/c → exp/p",
+          "draft": false,
+          "checks": null
+        }
+      ]
+    },
+    {
+      "name": "a loop of live PRs still lists every member",
+      "prs": [
+        {
+          "id": "a",
+          "number": 1,
+          "title": "PR 1",
+          "head": "a",
+          "base": "b",
+          "state": "open",
+          "checksState": "none"
+        },
+        {
+          "id": "b",
+          "number": 2,
+          "title": "PR 2",
+          "head": "b",
+          "base": "a",
+          "state": "open",
+          "checksState": "none"
+        }
+      ],
+      "expected": [
+        {
+          "id": "b",
+          "number": 2,
+          "identifier": "#2",
+          "title": "PR 2",
+          "depth": 0,
+          "subtitle": "b → a",
+          "draft": false,
+          "checks": null
+        },
+        {
+          "id": "a",
+          "number": 1,
+          "identifier": "#1",
+          "title": "PR 1",
+          "depth": 1,
+          "subtitle": "a → b",
+          "draft": false,
+          "checks": null
+        }
+      ]
+    }
+  ],
+  "branchCases": [
+    {
+      "name": "no branches",
+      "branches": [],
+      "defaultBranch": "main",
+      "prs": [],
+      "expected": []
+    },
+    {
+      "name": "the default first, then code-point order, with the live PR on a branch",
+      "branches": [
+        {
+          "name": "exp/b",
+          "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        {
+          "name": "Zeta",
+          "sha": "cccccccccccccccccccccccccccccccccccccccc"
+        },
+        {
+          "name": "main",
+          "sha": "0123456789abcdef0123456789abcdef01234567"
+        },
+        {
+          "name": "exp/a",
+          "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ],
+      "defaultBranch": "main",
+      "prs": [
+        {
+          "id": "x",
+          "number": 5,
+          "title": "PR 5",
+          "head": "exp/a",
+          "base": "main",
+          "state": "open",
+          "checksState": "none"
+        },
+        {
+          "id": "y",
+          "number": 3,
+          "title": "PR 3",
+          "head": "exp/b",
+          "base": "main",
+          "state": "merged",
+          "checksState": "none"
+        }
+      ],
+      "expected": [
+        {
+          "name": "main",
+          "sha": "0123456",
+          "isDefault": true,
+          "prNumber": null
+        },
+        {
+          "name": "Zeta",
+          "sha": "ccccccc",
+          "isDefault": false,
+          "prNumber": null
+        },
+        {
+          "name": "exp/a",
+          "sha": "aaaaaaa",
+          "isDefault": false,
+          "prNumber": 5
+        },
+        {
+          "name": "exp/b",
+          "sha": "bbbbbbb",
+          "isDefault": false,
+          "prNumber": null
+        }
+      ]
+    }
+  ],
+  "rollupCases": [
+    {
+      "name": "no PRs: no chip",
+      "prs": [],
+      "expected": null
+    },
+    {
+      "name": "PRs without checks: no chip",
+      "prs": [
+        {
+          "id": "a",
+          "number": 1,
+          "title": "PR 1",
+          "head": "a",
+          "base": "main",
+          "state": "open",
+          "checksState": "none"
+        }
+      ],
+      "expected": null
+    },
+    {
+      "name": "all green",
+      "prs": [
+        {
+          "id": "a",
+          "number": 1,
+          "title": "PR 1",
+          "head": "a",
+          "base": "main",
+          "state": "open",
+          "checksState": "success"
+        },
+        {
+          "id": "b",
+          "number": 2,
+          "title": "PR 2",
+          "head": "b",
+          "base": "main",
+          "state": "draft",
+          "checksState": "success"
+        }
+      ],
+      "expected": "success"
+    },
+    {
+      "name": "pending wins over success",
+      "prs": [
+        {
+          "id": "a",
+          "number": 1,
+          "title": "PR 1",
+          "head": "a",
+          "base": "main",
+          "state": "open",
+          "checksState": "success"
+        },
+        {
+          "id": "b",
+          "number": 2,
+          "title": "PR 2",
+          "head": "b",
+          "base": "main",
+          "state": "open",
+          "checksState": "pending"
+        }
+      ],
+      "expected": "pending"
+    },
+    {
+      "name": "failure wins",
+      "prs": [
+        {
+          "id": "a",
+          "number": 1,
+          "title": "PR 1",
+          "head": "a",
+          "base": "main",
+          "state": "open",
+          "checksState": "pending"
+        },
+        {
+          "id": "b",
+          "number": 2,
+          "title": "PR 2",
+          "head": "b",
+          "base": "main",
+          "state": "open",
+          "checksState": "failure"
+        }
+      ],
+      "expected": "failure"
+    },
+    {
+      "name": "a merged PR's checks do not count",
+      "prs": [
+        {
+          "id": "a",
+          "number": 1,
+          "title": "PR 1",
+          "head": "a",
+          "base": "main",
+          "state": "merged",
+          "checksState": "failure"
+        },
+        {
+          "id": "b",
+          "number": 2,
+          "title": "PR 2",
+          "head": "b",
+          "base": "main",
+          "state": "open",
+          "checksState": "success"
+        }
+      ],
+      "expected": "success"
+    }
+  ],
+  "tabCases": [
+    {
+      "param": "pulls",
+      "expected": "pulls"
+    },
+    {
+      "param": "runs",
+      "expected": "runs"
+    },
+    {
+      "param": "branches",
+      "expected": "branches"
+    },
+    {
+      "param": "settings",
+      "expected": "settings"
+    },
+    {
+      "param": "nope",
+      "expected": "pulls"
+    },
+    {
+      "param": null,
+      "expected": "pulls"
+    }
+  ]
+}

@@ -459,6 +459,12 @@ fn fullscreen_covers_the_panel_and_the_output_shows_only_that_window() {
 }
 
 /// Xwayland must be installed (CI installs it); skipped otherwise.
+///
+/// #EXP-1806: with `EDE_XWAYLAND_VERDICT=<file>` a missing Xwayland fails
+/// instead of skipping, and the test writes `passed` to that file as its
+/// last step. build-ede reads that verdict: Xwayland shares our stderr, so
+/// its `(EE)` lines can land inside libtest's `test … ok` line and a grep
+/// over the log is a race.
 #[cfg(feature = "xwayland")]
 #[test]
 fn an_x11_window_through_xwayland_opens_centred_takes_focus_and_is_drawn() {
@@ -467,7 +473,9 @@ fn an_x11_window_through_xwayland_opens_centred_takes_focus_and_is_drawn() {
         protocol::xproto::{AtomEnum, ConnectionExt as _, CreateWindowAux, PropMode, WindowClass},
         wrapper::ConnectionExt as _,
     };
+    let verdict = std::env::var_os("EDE_XWAYLAND_VERDICT");
     if std::process::Command::new("Xwayland").arg("-version").output().is_err() {
+        assert!(verdict.is_none(), "no Xwayland binary on PATH, and EDE_XWAYLAND_VERDICT requires one");
         eprintln!("skipped: no Xwayland binary");
         return;
     }
@@ -528,6 +536,9 @@ fn an_x11_window_through_xwayland_opens_centred_takes_focus_and_is_drawn() {
         std::thread::sleep(Duration::from_millis(50));
     }
     assert_eq!(h.capture(0).at(479, 400), BACKGROUND);
+    if let Some(path) = verdict {
+        std::fs::write(path, "passed\n").expect("write the verdict");
+    }
 }
 
 /// #EDE-16: a window that leaves decorations to the compositor gets a

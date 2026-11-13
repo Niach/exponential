@@ -7,7 +7,7 @@ use std::{borrow::Cow, path::PathBuf, sync::Arc};
 use gpui::{px, size, AppContext as _, AssetSource, Entity, HeadlessAppContext, SharedString, Window};
 use serde_json::json;
 
-use uicore_model::ide::{IdeActiveInput, IdeAgentInput, IdeAppInput, IdeBoardInput, IdeCount, IdePinInput, IdeSidebarInput, IdeTone};
+use uicore_model::ide::{IdeActiveInput, IdeAgentInput, IdeAppInput, IdeBoardInput, IdeCount, IdePinInput, IdePrInput, IdeRepoInput, IdeSidebarInput, IdeTone};
 
 use crate::navigation::nav_for_window;
 use crate::sidebar::RailView;
@@ -267,6 +267,7 @@ fn sample() -> IdeSidebarInput {
     let agent = |id: &str, name: &str, needs_you, unread| IdeAgentInput { id: id.into(), name: name.into(), icon: "settings-agents".into(), needs_you, unread };
     let board = |id: &str, name: &str| IdeBoardInput { id: id.into(), name: name.into(), icon: format!("ide:board:{id}") };
     let app = |id: &str, name: &str, icon: &str| IdeAppInput { id: id.into(), slug: id.into(), name: name.into(), icon: icon.into() };
+    let pr = |id: &str, n: u32, title: &str, subtitle: &str, depth| IdePrInput { id: id.into(), identifier: format!("#{n}"), title: title.into(), subtitle: subtitle.into(), depth, session: None };
     IdeSidebarInput {
         screen: "board:b1".into(),
         needs_you: 5,
@@ -278,6 +279,7 @@ fn sample() -> IdeSidebarInput {
         apps: vec![app("x1", "CRM", "ui-file"), app("x2", "Leave planner", "ui-file")],
         boards: vec![board("b1", "Mobile App"), board("b2", "Website"), board("b3", "Infrastructure")],
         active: vec![IdeActiveInput { id: "r1".into(), title: "Fix the login redirect".into(), icon: "nav-chats".into(), session_ids: vec!["r1".into()], unread: true }],
+        repos: vec![IdeRepoInput { id: "repo1".into(), name: "engine".into(), prs: vec![pr("p2", 2, "Faster sync", "sync → main", 0), pr("p3", 3, "Sync tests", "sync-tests → sync", 1)] }],
     }
 }
 

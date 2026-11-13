@@ -33,6 +33,15 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Runners on your devices**: a device's settings have a CI runner section: turn it on, add labels, choose how many jobs it runs at once and their timeout, and see its recent jobs. Phones set a runner up; jobs run on desktops and servers.`,
   },
   {
+    id: `2026-11-13-exponential-repositories`,
+    date: `2026-11-13`,
+    title: `Repositories without GitHub`,
+    summary: `Create a repository that lives on your team's storage: git push to exp://, open pull requests and let the merge queue land them, with backups after every merge and an optional GitHub mirror.`,
+    body: `- **Exponential repositories**: Settings › Repositories › Add repository now offers GitHub or Exponential. An Exponential repository lives in your team's storage and counts toward it; \`git clone exp://<team>/<name>\` works through the CLI and the desktop app.
+- **The repository page**: tap a repository to see its pull requests as a tree with checks and merge status, its branches, and its settings.
+- **Backups and mirror**: every merge saves a backup you can restore, and owners can mirror the repository to GitHub.`,
+  },
+  {
     id: `2026-11-13-android-memory-fix`,
     date: `2026-11-13`,
     title: `Android stays within memory in large chats`,

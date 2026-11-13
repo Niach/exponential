@@ -200,6 +200,7 @@ mod notifications;
 mod pending_pill;
 mod prompts;
 mod readiness;
+mod repo_page;
 mod repositories;
 mod resend_invite;
 mod row_parity;

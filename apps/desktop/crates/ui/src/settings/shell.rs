@@ -235,7 +235,7 @@ pub(crate) fn section_icon(section: &SettingsSection) -> &'static str {
         SettingsSection::Storage => "settings-storage",
         SettingsSection::AllBoards => "settings-boards",
         SettingsSection::Board(_) => "settings-boards",
-        SettingsSection::Repositories => "settings-repositories",
+        SettingsSection::Repositories | SettingsSection::Repository(_) => "settings-repositories",
         SettingsSection::Widget => "settings-widget",
         SettingsSection::Mcp | SettingsSection::McpActivity => "settings-mcp",
         SettingsSection::Tools => "settings-tools",

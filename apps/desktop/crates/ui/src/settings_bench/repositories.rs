@@ -42,7 +42,7 @@ fn boards() -> Vec<domain::rows::Board> {
 }
 
 fn shot(team: bool, owner: bool, busy: bool) -> RepoShot {
-    RepoShot { team: team.then(|| "t".to_string()), owner, me: Some("u-me".into()), local: None, boards: boards(), busy, branches: Vec::new() }
+    RepoShot { team: team.then(|| "t".to_string()), owner, me: Some("u-me".into()), local: None, boards: boards(), busy, branches: Vec::new(), pulls: Vec::new() }
 }
 
 fn repos(name: &str, shot: RepoShot, status: Option<Value>, list: Option<Result<Value, String>>, clicks: &'static [(f32, f32)]) {
@@ -179,3 +179,27 @@ fn settings_repositories_branch_loading() {
 
 /// The first row's branch pill (window points), read off `repositories-owner`.
 const BRANCH: (f32, f32) = (580., 291.);
+
+/// #EXP-1616: a synced PR of `repo` (`checks` = its `checks_state`).
+pub(super) fn pull(id: &str, repo: &str, number: i64, title: &str, head: &str, base: &str, state: &str, checks: &str) -> domain::rows::PullRequestRow {
+    serde_json::from_value(json!({"id": id, "repository_id": repo, "number": number, "title": title, "head": head, "base": base, "state": state, "checks_state": checks,
+        "url": format!("https://example.com/pull/{number}")})).expect("a pull request row")
+}
+
+/// #EXP-1616: both providers, each with its checks chip.
+#[test]
+#[ignore]
+fn settings_repositories_providers() {
+    let rows = json!([
+        {"id": "r1", "fullName": "acme/web", "provider": "github", "defaultBranch": "main", "githubDefaultBranch": "main", "private": true, "installationId": 1,
+            "sharedBy": {"id": "u-me", "name": "Dana Scully"}, "boards": [{"id": "b1", "name": "Web"}]},
+        {"id": "r4", "fullName": "acme/engine", "provider": "ecode", "defaultBranch": "main", "private": true, "boards": [{"id": "b2", "name": "Design"}]},
+        {"id": "r5", "fullName": "acme/docs", "provider": "ecode", "defaultBranch": "main", "private": true, "boards": []},
+    ]);
+    let pulls = vec![
+        pull("p1", "r1", 41, "Retry", "exp/retry", "main", "open", "success"),
+        pull("p2", "r4", 7, "Parser", "exp/parser", "main", "open", "pending"),
+        pull("p3", "r4", 8, "Lexer", "exp/lexer", "exp/parser", "draft", "failure"),
+    ];
+    repos("repositories-providers", RepoShot { pulls, ..shot(true, true, false) }, Some(linked(vec![installation(1, "acme", true, false)])), Some(Ok(rows)), &[]);
+}

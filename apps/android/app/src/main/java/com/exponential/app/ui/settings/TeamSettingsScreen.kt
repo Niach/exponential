@@ -136,6 +136,16 @@ import com.exponential.app.ui.components.TextFieldRow
 import com.exponential.app.ui.components.BranchPickerSheet
 import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.theme.glassGroup
+import com.exponential.app.domain.RepoPage
+import com.exponential.app.ui.repo.ChecksPill
+import com.exponential.app.ui.repo.ProviderPill
+import com.exponential.app.ui.onboarding.GithubRepoPickerList
+import androidx.compose.runtime.rememberCoroutineScope
+import at.exponential.ui.primitives.ChoiceTile
+import at.exponential.ui.primitives.ChoiceTiles
+import at.exponential.ui.primitives.ChoiceTilesStyle
+import at.exponential.ui.primitives.LocalPrimitiveTokens
+import kotlinx.coroutines.launch
 
 // One confirm target per destructive/consequential settings action. Each tab
 // holds a nullable [SettingsConfirm] and renders a single [SettingsConfirmDialog]
@@ -229,6 +239,8 @@ private fun SettingsConfirmDialog(
 @Composable
 fun TeamSettingsScreen(
     onBack: () -> Unit,
+    /** #EXP-1616: a repository row opens its repo page. */
+    onOpenRepo: (repositoryId: String) -> Unit = {},
     viewModel: TeamSettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -277,7 +289,7 @@ fun TeamSettingsScreen(
                 if (isOwner) PutAwayBoardsBands(viewModel)
                 DeletedIssuesBand(state, viewModel, isOwner, onConfirm = { confirm = it })
             }
-            if (all || section == SettingsNav.REPOSITORIES) RepositoriesSection(state, viewModel, isOwner, onConfirm = { confirm = it })
+            if (all || section == SettingsNav.REPOSITORIES) RepositoriesSection(state, viewModel, isOwner, onConfirm = { confirm = it }, onOpenRepo = onOpenRepo)
             if (all || section == SettingsNav.MEMBERS) {
                 MembersSection(
                     state,
@@ -782,8 +794,10 @@ private fun RepositoriesSection(
     viewModel: TeamSettingsViewModel,
     isOwner: Boolean,
     onConfirm: (SettingsConfirm) -> Unit,
+    onOpenRepo: (repositoryId: String) -> Unit,
 ) {
     var showAddRepo by remember { mutableStateOf(false) }
+    val repoChecks by viewModel.repoChecks.collectAsStateWithLifecycle()
 
     // Resume-refresh fallback (EXP-365): if the exponential://github-connected
     // deep link never arrives (swallowed handoff, user closed the
@@ -802,7 +816,7 @@ private fun RepositoriesSection(
         SectionHeader(GithubCopy.SECTION_TITLE, loading = state.reposRefreshing) {
             GlassPill(
                 GithubCopy.ADD_REPOSITORY,
-                icon = ExpIcons.uiGithub,
+                icon = if (isOwner) ExpIcons.uiAdd else ExpIcons.uiGithub,
                 size = PillSize.Sm, // P105: band pills are Sm (iOS)
                 onClick = { showAddRepo = true },
             )
@@ -845,6 +859,8 @@ private fun RepositoriesSection(
                     (state.currentUserId != null && repo.sharedBy?.id == state.currentUserId),
                 viewModel = viewModel,
                 onConfirm = onConfirm,
+                checks = repoChecks[repo.id],
+                onOpen = { onOpenRepo(repo.id) },
             )
         }
     }
@@ -853,7 +869,16 @@ private fun RepositoriesSection(
     // itself open with the failure inline, and dismisses on success.
     val accountId = state.accountId
     val teamId = state.team?.id
-    if (showAddRepo && accountId != null && teamId != null) {
+    if (showAddRepo && accountId != null && teamId != null && isOwner) {
+        // #EXP-1616 (repo-page.json `copy.add`): owners pick where the repo
+        // lives; GitHub keeps the picker, Exponential creates one.
+        AddRepositorySheet(
+            accountId = accountId,
+            teamId = teamId,
+            viewModel = viewModel,
+            onDismiss = { showAddRepo = false },
+        )
+    } else if (showAddRepo && accountId != null && teamId != null) {
         GithubRepoPickerSheet(
             accountId = accountId,
             teamId = teamId,
@@ -878,6 +903,10 @@ private fun RepositoryRow(
     canManage: Boolean,
     viewModel: TeamSettingsViewModel,
     onConfirm: (SettingsConfirm) -> Unit,
+    /** #EXP-1616: the rollup over its live PRs' checks (null = no chip). */
+    checks: String? = null,
+    /** #EXP-1616: opens the repo page. */
+    onOpen: () -> Unit = {},
 ) {
     val secondary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
     val tertiary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
@@ -901,14 +930,19 @@ private fun RepositoryRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Icon(ExpIcons.uiGithub, contentDescription = null, modifier = Modifier.size(16.dp), tint = secondary)
+            Icon(
+                if (repo.provider == RepoPage.PROVIDER_ECODE) ExpIcons.settingsRepositories else ExpIcons.uiGithub,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = secondary,
+            )
             Text(
                 repo.fullName,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).clickable(onClick = onOpen).testTag("repo-row-open"),
             )
             GlassPill(
                 repo.defaultBranch,
@@ -949,6 +983,10 @@ private fun RepositoryRow(
             itemVerticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(start = 24.dp),
         ) {
+            // #EXP-1616 (repo-page.json): the provider Badge and the checks
+            // Chip{dot} lead the second line ×4, so the name keeps its width.
+            ProviderPill(repo.provider)
+            checks?.let { ChecksPill(it) }
             Text(
                 if (inUse) "Used by" else "Not used by any board",
                 style = MaterialTheme.typography.labelMedium,
@@ -1857,5 +1895,126 @@ private fun ConnectedAccounts(
             onClick = { open(installUrl) },
             modifier = Modifier.padding(start = AccountIndent),
         )
+    }
+}
+
+/**
+ * #EXP-1616 (repo-page.json `copy.add`): Add repository for owners, the
+ * phones' Drawer: `ChoiceTiles` GitHub | Exponential. GitHub = the existing
+ * picker; Exponential = Name, Default branch (main | master | develop),
+ * Mirror to GitHub revealing its URL, and Create as the sheet's action.
+ */
+@Composable
+private fun AddRepositorySheet(
+    accountId: String,
+    teamId: String,
+    viewModel: TeamSettingsViewModel,
+    onDismiss: () -> Unit,
+) {
+    var provider by remember { mutableStateOf(RepoPage.PROVIDER_GITHUB) }
+    var name by remember { mutableStateOf("") }
+    var branch by remember { mutableStateOf(RepoPage.ADD_BRANCHES.first()) }
+    var mirror by remember { mutableStateOf(false) }
+    var mirrorUrl by remember { mutableStateOf("") }
+    var pending by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val ecode = provider == RepoPage.PROVIDER_ECODE
+    val valid = RepoPage.isValidName(name) && (!mirror || mirrorUrl.trim().startsWith("https://"))
+    val providers = listOf(RepoPage.PROVIDER_GITHUB, RepoPage.PROVIDER_ECODE)
+    val tiles = @Composable {
+        ChoiceTiles(
+            tiles = listOf(
+                ChoiceTile(RepoPage.Copy.Add.GITHUB, hasPicture = false, testTag = "add-repo-provider-github"),
+                ChoiceTile(RepoPage.Copy.Add.ECODE, hasPicture = false, testTag = "add-repo-provider-ecode"),
+            ),
+            selected = setOf(providers.indexOf(provider)),
+            onToggle = { index -> provider = providers[index] },
+            style = ChoiceTilesStyle.default(LocalPrimitiveTokens.current).copy(columns = 2),
+            modifier = Modifier.testTag("add-repo-provider"),
+        )
+    }
+    val create = {
+        if (valid && !pending) {
+            pending = true
+            scope.launch {
+                val ok = viewModel.createRepository(name, branch, if (mirror) mirrorUrl.trim() else null)
+                pending = false
+                if (ok) onDismiss()
+            }
+        }
+    }
+    GlassSheet(
+        title = RepoPage.Copy.Add.TITLE,
+        onDismiss = onDismiss,
+        primaryAction = if (ecode) {
+            SheetPrimaryAction(
+                label = RepoPage.Copy.Add.CREATE,
+                onClick = { create() },
+                enabled = valid,
+                loading = pending,
+                testTag = "add-repo-create",
+            )
+        } else {
+            null
+        },
+    ) {
+        if (!ecode) {
+            GithubRepoPickerList(
+                accountId = accountId,
+                teamId = teamId,
+                onAdd = { repo -> viewModel.addRepository(repo.fullName, repo.defaultBranch, repo.isPrivate) },
+                onDone = onDismiss,
+                header = tiles,
+            )
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp)
+                    .testTag("add-ecode-repository"),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                tiles()
+                Column(Modifier.fillMaxWidth().glassGroup()) {
+                    TextFieldRow(
+                        label = RepoPage.Copy.Add.NAME,
+                        value = name,
+                        onValueChange = { name = it.trim().take(100) },
+                        placeholder = "app",
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                        modifier = Modifier.testTag("ecode-repo-name"),
+                    )
+                    GroupDivider()
+                    com.exponential.app.ui.components.PickerRow(
+                        label = RepoPage.Copy.Add.DEFAULT_BRANCH,
+                        value = branch,
+                        options = RepoPage.ADD_BRANCHES,
+                        selected = branch,
+                        optionLabel = { it },
+                        onSelect = { branch = it },
+                    )
+                    GroupDivider()
+                    SwitchRow(
+                        title = RepoPage.Copy.Add.MIRROR,
+                        checked = mirror,
+                        onCheckedChange = { mirror = it },
+                        modifier = Modifier.testTag("ecode-repo-mirror"),
+                    )
+                    if (mirror) {
+                        GroupDivider()
+                        TextFieldRow(
+                            label = RepoPage.Copy.Add.MIRROR_URL,
+                            value = mirrorUrl,
+                            onValueChange = { mirrorUrl = it.take(400) },
+                            placeholder = "https://github.com/owner/name",
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
+                            keyboardActions = KeyboardActions(onDone = { create() }),
+                            modifier = Modifier.testTag("ecode-repo-mirror-url"),
+                        )
+                    }
+                }
+            }
+        }
     }
 }

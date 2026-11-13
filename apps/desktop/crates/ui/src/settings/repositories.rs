@@ -80,6 +80,9 @@ pub(super) struct RepoRow {
     /// (`boards.setRepository`) and this pane's per-row remove.
     pub id: String,
     pub full_name: String,
+    /// #EXP-1616: `github` | `ecode` (absent = github, older servers).
+    #[serde(default)]
+    pub provider: Option<String>,
     /// The EFFECTIVE default branch (EXP-462): the team's pinned branch when
     /// set, GitHub's default otherwise — the value every consumer acts on.
     #[serde(default)]
@@ -117,6 +120,13 @@ pub(super) struct RepoSharedBy {
     pub name: Option<String>,
     #[serde(default)]
     pub email: Option<String>,
+}
+
+impl RepoRow {
+    /// `github` | `ecode`.
+    pub fn provider(&self) -> &str {
+        self.provider.as_deref().unwrap_or("github")
+    }
 }
 
 impl RepoSharedBy {
@@ -227,6 +237,8 @@ pub(crate) struct RepoShot {
     pub busy: bool,
     /// Branch lists already fetched, by repo id.
     pub branches: Vec<(String, Vec<String>)>,
+    /// #EXP-1616: the synced PRs the rows' checks chips roll up.
+    pub pulls: Vec<domain::rows::PullRequestRow>,
 }
 
 impl RepositoriesPane {
@@ -240,7 +252,10 @@ impl RepositoriesPane {
         // the per-repo board chips mirror `boards.repository_id` — a
         // synced repo-link change drive the re-render/re-fetch (EXP-139).
         let boards = Store::global(cx).collections().boards.clone();
+        let pulls = Store::global(cx).collections().pull_requests.clone();
         let subscriptions = vec![
+            // #EXP-1616: the rows' checks chips follow the synced PRs.
+            cx.observe(&pulls, |_, _, cx| cx.notify()),
             cx.observe(&nav, |_, _, cx| cx.notify()),
             cx.observe(&boards, |this: &mut Self, _, cx| {
                 this.refresh_if_links_changed(cx);
@@ -304,7 +319,7 @@ impl RepositoriesPane {
         let binding = cx.new(|_| {
             let mut binding = Binding::new(PATH, Value::Null, |state: &Value, _| state.clone());
             binding.set_toasts(Rc::new(IdeToasts));
-            for name in ["add", "link_folder", "status_retry", "retry", "connect", "disconnect", "manage_suspended", "install", "configure", "regrant", "remove", "branches", "branch"] {
+            for name in ["open", "add", "link_folder", "status_retry", "retry", "connect", "disconnect", "manage_suspended", "install", "configure", "regrant", "remove", "branches", "branch"] {
                 let pane = pane.clone();
                 binding.on_action(name, move |_, event, cx| {
                     let key = event.context.get("key").and_then(Value::as_str).unwrap_or_default().to_string();
@@ -415,6 +430,22 @@ impl RepositoriesPane {
             return shot.me.clone();
         }
         queries::active_account(cx).map(|account| account.user_id)
+    }
+
+    /// #EXP-1616: the synced PRs of one repository (the checks chip).
+    fn repo_pulls(&self, repository_id: &str, cx: &gpui::App) -> Vec<domain::repo_page::RepoPr> {
+        #[cfg(test)]
+        if let Some(shot) = &self.shot {
+            return shot.pulls.iter().filter(|pull| pull.repository_id.as_deref() == Some(repository_id)).map(domain::repo_page::RepoPr::from_row).collect();
+        }
+        Store::global(cx)
+            .collections()
+            .pull_requests
+            .read(cx)
+            .iter()
+            .filter(|pull| pull.repository_id.as_deref() == Some(repository_id))
+            .map(domain::repo_page::RepoPr::from_row)
+            .collect()
     }
 
     /// The synced board a chip reads its glyph and tint off.
@@ -875,10 +906,14 @@ impl RepositoriesPane {
         let status = self.loaded().and_then(|loaded| loaded.status.clone());
         match name {
             // dialog stays native: `add_repository_dialog` is its own window (the searchable GitHub picker + by-name lookup).
+            // #EXP-1616: a row opens its repo page.
+            "open" => crate::sidebar::select_settings_section(window, cx, super::SettingsSection::Repository(key.to_string())),
             "add" => {
                 if let Some(team) = self.pane_team(cx) {
                     let pane = cx.entity().downgrade();
-                    super::add_repository_dialog::open(window, cx, team, pane);
+                    // Exponential repos are the owners' (the server enforces).
+                    let owner = self.pane_owner(&team, cx);
+                    super::add_repository_dialog::open(window, cx, team, owner, pane);
                 }
             }
             // dialog stays native: the system folder picker.
@@ -1019,9 +1054,14 @@ impl RepositoriesPane {
                                         .collect();
                                     let plural = if linked == 1 { "" } else { "s" };
                                     let sharer = repo.shared_by.as_ref().and_then(RepoSharedBy::label);
+                                    let copy = &domain::repo_page::REPO_PAGE.copy;
+                                    let checks = domain::repo_page::repo_checks_rollup(&self.repo_pulls(&repo.id, cx));
                                     json!({
                                         "key": repo.id,
                                         "name": repo.full_name,
+                                        "provider": copy.provider.label(repo.provider()),
+                                        "checks": checks.unwrap_or("none"),
+                                        "glyph": if repo.provider() == "ecode" { "ui-repository" } else { "ui-github" },
                                         "manage": manage,
                                         "branch": repo.default_branch,
                                         "branchLive": manage && !self.busy,
@@ -1282,7 +1322,15 @@ fn repo_row(ink: &Ink, tints: &Tints) -> Value {
     let mut lock = icon("row_private_icon", json!("ui-private"), 12., &ink.foreground);
     lock["style"]["opacity"] = json!(VALUE_ALPHA);
     private["children"].as_array_mut().expect("the pill's children").insert(0, lock);
-    let mut head = vec![icon("row_icon", json!("ui-github"), ink.r(0.875), &ink.muted), name, picker("branch", false, path("branchLive")), picker("branch_busy", true, path("branchBusy")), chip, private];
+    // #EXP-1616: the provider Badge and the checks Chip{dot} (one per
+    // state, its own dot; none = no chip), on the row's second line.
+    let provider = json!({"id": "row_provider", "component": "Badge", "props": {"text": path("provider"), "variant": "secondary"}, "style": {"flexShrink": 0, "alignSelf": "center"}});
+    let checks = &domain::repo_page::REPO_PAGE.copy.checks;
+    let checks_chip = |state: &str, dot: &str| {
+        let label = checks.of(state).map(|chip| chip.label.clone()).unwrap_or_default();
+        json!({"id": format!("row_checks_{state}"), "component": "Chip", "visible": eq(path("checks"), json!(state)), "props": {"label": label, "dot": dot}, "style": {"flexShrink": 0, "alignSelf": "center"}})
+    };
+    let mut head = vec![icon("row_icon", path("glyph"), ink.r(0.875), &ink.muted), name, picker("branch", false, path("branchLive")), picker("branch_busy", true, path("branchBusy")), chip, private];
     head.extend(ghost(ink, tints, "row_remove", "ui-delete", ink.r(0.875), "Remove repository", json!({"name": "remove", "context": {"key": path("key")}}), path("removeOn"), None, path("removeLinked"), Some(path("removeTip"))));
     // `row_remove_dim` stands in for both disabled faces: the busy one has
     // no tooltip.
@@ -1310,13 +1358,20 @@ fn repo_row(ink: &Ink, tints: &Tints) -> Value {
         "children": [board]});
     let links = json!({"id": "row_links", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "flexWrap": "wrap", "alignItems": "center", "width": "100%", "gap": ink.r(0.375), "paddingLeft": ink.r(1.5)},
         "children": [
+            // #EXP-1616 (repo-page.json): the provider Badge and the checks
+            // Chip{dot} lead the second line ×4, so the name keeps its width.
+            provider,
+            checks_chip("success", "$color.success"),
+            checks_chip("pending", "$color.warning"),
+            checks_chip("failure", "$color.destructive"),
             muted("row_unused", json!("Not used by any board"), path("noBoards")),
             muted("row_used_by", json!("Used by"), path("hasBoards")),
             boards,
             muted("row_shared", path("sharedText"), path("hasShared")),
         ]});
-    json!({"id": "row", "component": "Box",
-        "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "gap": ink.r(0.375), "paddingHorizontal": ink.r(0.75), "paddingVertical": ink.r(0.5), "borderRadius": ink.radius_md},
+    // #EXP-1616: the row opens its repo page (its controls keep their own presses).
+    json!({"id": "row", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": path("name")}, "on": {"press": {"event": {"name": "open", "context": {"key": path("key")}}}},
+        "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "gap": ink.r(0.375), "paddingHorizontal": ink.r(0.75), "paddingVertical": ink.r(0.5), "borderRadius": ink.radius_md, "cursor": "pointer", ":hover": {"backgroundColor": tints.list_hover}},
         "children": [head, banner, links]})
 }
 

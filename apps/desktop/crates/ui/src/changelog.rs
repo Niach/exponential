@@ -56,6 +56,18 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
+const PREVIOUS_273: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-13-exponential-repositories",
+    date: "2026-11-13",
+    title: "Repositories without GitHub",
+    summary: "Create a repository that lives on your team's storage: git push to exp://, open pull requests and let the merge queue land them, with backups after every merge and an optional GitHub mirror.",
+    body: r##"- **Exponential repositories**: Settings › Repositories › Add repository now offers GitHub or Exponential. An Exponential repository lives in your team's storage and counts toward it; `git clone exp://<team>/<name>` works through the CLI and the desktop app.
+- **The repository page**: tap a repository to see its pull requests as a tree with checks and merge status, its branches, and its settings.
+- **Backups and mirror**: every merge saves a backup you can restore, and owners can mirror the repository to GitHub."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
 const PREVIOUS_272: ChangelogEntry = ChangelogEntry {
     id: "2026-11-13-android-memory-fix",
     date: "2026-11-13",

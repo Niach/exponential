@@ -113,17 +113,23 @@ jobs:
           systemd-analyze verify /usr/lib/systemd/user/exponential-shell.service || true
           exponential-compositor doctor | tee doctor.txt || true
           grep -E '^ok +Xwayland +/usr/lib/exponential-desktop/bin/Xwayland 24\.1\.' doctor.txt
-      # Without the distro's xwayland this can only be the bundled one (the
-      # test skips when it finds none: a failure here).
+      # Without the distro's xwayland this can only be the bundled one. The
+      # verdict is cargo's exit code plus the file the test writes as its
+      # last step (EDE_XWAYLAND_VERDICT also turns its skip into a failure),
+      # never a grep of the log: Xwayland shares the test's stderr and its
+      # "(EE)" lines can split libtest's "test … ok" line (#EXP-1806).
       - name: Headless Xwayland test against the bundled one
         working-directory: apps/ede
         run: |
           set -euo pipefail
           sudo apt-get remove -y xwayland || true
           if command -v Xwayland; then echo "a distro Xwayland is still on PATH" >&2; exit 1; fi
-          PATH="/usr/lib/exponential-desktop/bin:$PATH" cargo test --locked -p ede-compositor an_x11_window_through_xwayland -- --nocapture 2>&1 | tee test.txt
-          if grep -q 'skipped: no Xwayland' test.txt; then exit 1; fi
-          grep -q '^test an_x11_window_through_xwayland.* ok$' test.txt
+          verdict="$RUNNER_TEMP/xwayland-verdict"
+          rm -f "$verdict"
+          PATH="/usr/lib/exponential-desktop/bin:$PATH" EDE_XWAYLAND_VERDICT="$verdict" \
+            cargo test --locked -p ede-compositor --test headless \
+            an_x11_window_through_xwayland_opens_centred_takes_focus_and_is_drawn -- --exact --nocapture 2>&1 | tee test.txt
+          test "$(cat "$verdict" 2>/dev/null)" = passed || { echo "the Xwayland test did not record a pass" >&2; exit 1; }
       - name: Keep the stage (modes intact)
         run: tar -C "$RUNNER_TEMP" -cf stage.tar stage
       - uses: actions/upload-artifact@v4

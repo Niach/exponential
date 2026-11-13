@@ -131,6 +131,7 @@ import { Route as TTeamSlugDraftsIndexRouteImport } from './routes/t/$teamSlug/d
 import { Route as TTeamSlugDraftsDraftIdRouteImport } from './routes/t/$teamSlug/drafts/$draftId'
 import { Route as TTeamSlugInboxIndexRouteImport } from './routes/t/$teamSlug/inbox/index'
 import { Route as TTeamSlugIssuesIdentifierRouteImport } from './routes/t/$teamSlug/issues/$identifier'
+import { Route as TTeamSlugReposNameRouteImport } from './routes/t/$teamSlug/repos/$name'
 import { Route as TTeamSlugSessionsSessionIdRouteImport } from './routes/t/$teamSlug/sessions/$sessionId'
 import { Route as TTeamSlugSettingsIndexRouteImport } from './routes/t/$teamSlug/settings/index'
 import { Route as TTeamSlugSettingsAccountRouteImport } from './routes/t/$teamSlug/settings/account'
@@ -167,6 +168,7 @@ import { Route as TTeamSlugSettingsSkillsIndexRouteImport } from './routes/t/$te
 import { Route as TTeamSlugSettingsSkillsSkillIdRouteImport } from './routes/t/$teamSlug/settings/skills/$skillId'
 import { Route as TTeamSlugSettingsSkillsNewRouteImport } from './routes/t/$teamSlug/settings/skills/new'
 import { Route as TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRouteImport } from './routes/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier'
+import { Route as TTeamSlugReposNamePullsNumberRouteImport } from './routes/t/$teamSlug/repos/$name_.pulls.$number'
 import { Route as TTeamSlugSessionsSessionIdPlanMessageIdRouteImport } from './routes/t/$teamSlug/sessions/$sessionId_.plan.$messageId'
 
 const IndexRoute = IndexRouteImport.update({
@@ -802,6 +804,11 @@ const TTeamSlugIssuesIdentifierRoute =
     path: '/issues/$identifier',
     getParentRoute: () => TTeamSlugRouteRoute,
   } as any)
+const TTeamSlugReposNameRoute = TTeamSlugReposNameRouteImport.update({
+  id: '/repos/$name',
+  path: '/repos/$name',
+  getParentRoute: () => TTeamSlugRouteRoute,
+} as any)
 const TTeamSlugSessionsSessionIdRoute =
   TTeamSlugSessionsSessionIdRouteImport.update({
     id: '/sessions/$sessionId',
@@ -1010,6 +1017,12 @@ const TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute =
     path: '/boards/$boardSlug/issues/$issueIdentifier',
     getParentRoute: () => TTeamSlugRouteRoute,
   } as any)
+const TTeamSlugReposNamePullsNumberRoute =
+  TTeamSlugReposNamePullsNumberRouteImport.update({
+    id: '/repos/$name_/pulls/$number',
+    path: '/repos/$name/pulls/$number',
+    getParentRoute: () => TTeamSlugRouteRoute,
+  } as any)
 const TTeamSlugSessionsSessionIdPlanMessageIdRoute =
   TTeamSlugSessionsSessionIdPlanMessageIdRouteImport.update({
     id: '/sessions/$sessionId_/plan/$messageId',
@@ -1135,6 +1148,7 @@ export interface FileRoutesByFullPath {
   '/t/$teamSlug/ci/$runId': typeof TTeamSlugCiRunIdRoute
   '/t/$teamSlug/drafts/$draftId': typeof TTeamSlugDraftsDraftIdRoute
   '/t/$teamSlug/issues/$identifier': typeof TTeamSlugIssuesIdentifierRoute
+  '/t/$teamSlug/repos/$name': typeof TTeamSlugReposNameRoute
   '/t/$teamSlug/sessions/$sessionId': typeof TTeamSlugSessionsSessionIdRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
   '/t/$teamSlug/settings/assistant': typeof TTeamSlugSettingsAssistantRoute
@@ -1175,6 +1189,7 @@ export interface FileRoutesByFullPath {
   '/t/$teamSlug/settings/prompts/': typeof TTeamSlugSettingsPromptsIndexRoute
   '/t/$teamSlug/settings/skills/': typeof TTeamSlugSettingsSkillsIndexRoute
   '/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier': typeof TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute
+  '/t/$teamSlug/repos/$name/pulls/$number': typeof TTeamSlugReposNamePullsNumberRoute
   '/t/$teamSlug/sessions/$sessionId/plan/$messageId': typeof TTeamSlugSessionsSessionIdPlanMessageIdRoute
 }
 export interface FileRoutesByTo {
@@ -1292,6 +1307,7 @@ export interface FileRoutesByTo {
   '/t/$teamSlug/ci/$runId': typeof TTeamSlugCiRunIdRoute
   '/t/$teamSlug/drafts/$draftId': typeof TTeamSlugDraftsDraftIdRoute
   '/t/$teamSlug/issues/$identifier': typeof TTeamSlugIssuesIdentifierRoute
+  '/t/$teamSlug/repos/$name': typeof TTeamSlugReposNameRoute
   '/t/$teamSlug/sessions/$sessionId': typeof TTeamSlugSessionsSessionIdRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
   '/t/$teamSlug/settings/assistant': typeof TTeamSlugSettingsAssistantRoute
@@ -1332,6 +1348,7 @@ export interface FileRoutesByTo {
   '/t/$teamSlug/settings/prompts': typeof TTeamSlugSettingsPromptsIndexRoute
   '/t/$teamSlug/settings/skills': typeof TTeamSlugSettingsSkillsIndexRoute
   '/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier': typeof TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute
+  '/t/$teamSlug/repos/$name/pulls/$number': typeof TTeamSlugReposNamePullsNumberRoute
   '/t/$teamSlug/sessions/$sessionId/plan/$messageId': typeof TTeamSlugSessionsSessionIdPlanMessageIdRoute
 }
 export interface FileRoutesById {
@@ -1454,6 +1471,7 @@ export interface FileRoutesById {
   '/t/$teamSlug/ci/$runId': typeof TTeamSlugCiRunIdRoute
   '/t/$teamSlug/drafts/$draftId': typeof TTeamSlugDraftsDraftIdRoute
   '/t/$teamSlug/issues/$identifier': typeof TTeamSlugIssuesIdentifierRoute
+  '/t/$teamSlug/repos/$name': typeof TTeamSlugReposNameRoute
   '/t/$teamSlug/sessions/$sessionId': typeof TTeamSlugSessionsSessionIdRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
   '/t/$teamSlug/settings/assistant': typeof TTeamSlugSettingsAssistantRoute
@@ -1494,6 +1512,7 @@ export interface FileRoutesById {
   '/t/$teamSlug/settings/prompts/': typeof TTeamSlugSettingsPromptsIndexRoute
   '/t/$teamSlug/settings/skills/': typeof TTeamSlugSettingsSkillsIndexRoute
   '/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier': typeof TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute
+  '/t/$teamSlug/repos/$name_/pulls/$number': typeof TTeamSlugReposNamePullsNumberRoute
   '/t/$teamSlug/sessions/$sessionId_/plan/$messageId': typeof TTeamSlugSessionsSessionIdPlanMessageIdRoute
 }
 export interface FileRouteTypes {
@@ -1616,6 +1635,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/ci/$runId'
     | '/t/$teamSlug/drafts/$draftId'
     | '/t/$teamSlug/issues/$identifier'
+    | '/t/$teamSlug/repos/$name'
     | '/t/$teamSlug/sessions/$sessionId'
     | '/t/$teamSlug/settings/account'
     | '/t/$teamSlug/settings/assistant'
@@ -1656,6 +1676,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/prompts/'
     | '/t/$teamSlug/settings/skills/'
     | '/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier'
+    | '/t/$teamSlug/repos/$name/pulls/$number'
     | '/t/$teamSlug/sessions/$sessionId/plan/$messageId'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -1773,6 +1794,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/ci/$runId'
     | '/t/$teamSlug/drafts/$draftId'
     | '/t/$teamSlug/issues/$identifier'
+    | '/t/$teamSlug/repos/$name'
     | '/t/$teamSlug/sessions/$sessionId'
     | '/t/$teamSlug/settings/account'
     | '/t/$teamSlug/settings/assistant'
@@ -1813,6 +1835,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/prompts'
     | '/t/$teamSlug/settings/skills'
     | '/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier'
+    | '/t/$teamSlug/repos/$name/pulls/$number'
     | '/t/$teamSlug/sessions/$sessionId/plan/$messageId'
   id:
     | '__root__'
@@ -1934,6 +1957,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/ci/$runId'
     | '/t/$teamSlug/drafts/$draftId'
     | '/t/$teamSlug/issues/$identifier'
+    | '/t/$teamSlug/repos/$name'
     | '/t/$teamSlug/sessions/$sessionId'
     | '/t/$teamSlug/settings/account'
     | '/t/$teamSlug/settings/assistant'
@@ -1974,6 +1998,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/prompts/'
     | '/t/$teamSlug/settings/skills/'
     | '/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier'
+    | '/t/$teamSlug/repos/$name_/pulls/$number'
     | '/t/$teamSlug/sessions/$sessionId_/plan/$messageId'
   fileRoutesById: FileRoutesById
 }
@@ -2931,6 +2956,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TTeamSlugIssuesIdentifierRouteImport
       parentRoute: typeof TTeamSlugRouteRoute
     }
+    '/t/$teamSlug/repos/$name': {
+      id: '/t/$teamSlug/repos/$name'
+      path: '/repos/$name'
+      fullPath: '/t/$teamSlug/repos/$name'
+      preLoaderRoute: typeof TTeamSlugReposNameRouteImport
+      parentRoute: typeof TTeamSlugRouteRoute
+    }
     '/t/$teamSlug/sessions/$sessionId': {
       id: '/t/$teamSlug/sessions/$sessionId'
       path: '/sessions/$sessionId'
@@ -3183,6 +3215,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRouteImport
       parentRoute: typeof TTeamSlugRouteRoute
     }
+    '/t/$teamSlug/repos/$name_/pulls/$number': {
+      id: '/t/$teamSlug/repos/$name_/pulls/$number'
+      path: '/repos/$name/pulls/$number'
+      fullPath: '/t/$teamSlug/repos/$name/pulls/$number'
+      preLoaderRoute: typeof TTeamSlugReposNamePullsNumberRouteImport
+      parentRoute: typeof TTeamSlugRouteRoute
+    }
     '/t/$teamSlug/sessions/$sessionId_/plan/$messageId': {
       id: '/t/$teamSlug/sessions/$sessionId_/plan/$messageId'
       path: '/sessions/$sessionId/plan/$messageId'
@@ -3339,6 +3378,7 @@ interface TTeamSlugRouteRouteChildren {
   TTeamSlugCiRunIdRoute: typeof TTeamSlugCiRunIdRoute
   TTeamSlugDraftsDraftIdRoute: typeof TTeamSlugDraftsDraftIdRoute
   TTeamSlugIssuesIdentifierRoute: typeof TTeamSlugIssuesIdentifierRoute
+  TTeamSlugReposNameRoute: typeof TTeamSlugReposNameRoute
   TTeamSlugSessionsSessionIdRoute: typeof TTeamSlugSessionsSessionIdRoute
   TTeamSlugAppsIndexRoute: typeof TTeamSlugAppsIndexRoute
   TTeamSlugChatsIndexRoute: typeof TTeamSlugChatsIndexRoute
@@ -3346,6 +3386,7 @@ interface TTeamSlugRouteRouteChildren {
   TTeamSlugInboxIndexRoute: typeof TTeamSlugInboxIndexRoute
   TTeamSlugBoardsBoardSlugIndexRoute: typeof TTeamSlugBoardsBoardSlugIndexRoute
   TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute: typeof TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute
+  TTeamSlugReposNamePullsNumberRoute: typeof TTeamSlugReposNamePullsNumberRoute
   TTeamSlugSessionsSessionIdPlanMessageIdRoute: typeof TTeamSlugSessionsSessionIdPlanMessageIdRoute
 }
 
@@ -3362,6 +3403,7 @@ const TTeamSlugRouteRouteChildren: TTeamSlugRouteRouteChildren = {
   TTeamSlugCiRunIdRoute: TTeamSlugCiRunIdRoute,
   TTeamSlugDraftsDraftIdRoute: TTeamSlugDraftsDraftIdRoute,
   TTeamSlugIssuesIdentifierRoute: TTeamSlugIssuesIdentifierRoute,
+  TTeamSlugReposNameRoute: TTeamSlugReposNameRoute,
   TTeamSlugSessionsSessionIdRoute: TTeamSlugSessionsSessionIdRoute,
   TTeamSlugAppsIndexRoute: TTeamSlugAppsIndexRoute,
   TTeamSlugChatsIndexRoute: TTeamSlugChatsIndexRoute,
@@ -3370,6 +3412,7 @@ const TTeamSlugRouteRouteChildren: TTeamSlugRouteRouteChildren = {
   TTeamSlugBoardsBoardSlugIndexRoute: TTeamSlugBoardsBoardSlugIndexRoute,
   TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute:
     TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute,
+  TTeamSlugReposNamePullsNumberRoute: TTeamSlugReposNamePullsNumberRoute,
   TTeamSlugSessionsSessionIdPlanMessageIdRoute:
     TTeamSlugSessionsSessionIdPlanMessageIdRoute,
 }
