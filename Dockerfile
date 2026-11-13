@@ -8,6 +8,7 @@ COPY packages/db-schema/package.json packages/db-schema/package.json
 COPY packages/design-tokens/package.json packages/design-tokens/package.json
 COPY packages/domain-contract/package.json packages/domain-contract/package.json
 COPY packages/eagent/package.json packages/eagent/package.json
+COPY packages/ecode/package.json packages/ecode/package.json
 COPY packages/ecore/package.json packages/ecore/package.json
 COPY packages/emcp/package.json packages/emcp/package.json
 COPY packages/eengine/package.json packages/eengine/package.json

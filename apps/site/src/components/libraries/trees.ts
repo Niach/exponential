@@ -199,6 +199,36 @@ export const CORE_LANGUAGES: Node = grid(
   4
 )
 
+/* Code ------------------------------------------------------------------ */
+
+/** The providers behind one interface (packages/ecode `capability.byProvider`). */
+export const CODE_PROVIDERS: Node = {
+  id: `code`,
+  component: `Stack`,
+  props: { gap: `md`, align: `stretch` },
+  children: [
+    box(`c-lib`, `git-branch`, `Remote · Forge · Ci`),
+    { id: `code-down`, component: `Stack`, props: { align: `center` }, children: [arrow(`code-a`, `arrow-down`)] },
+    grid(`c-providers`, [box(`c-github`, `github`, `GitHub`), box(`c-server`, `server`, `Our own, on the server`), box(`c-local`, `hard-drive`, `Our own, no server`)], 3),
+  ],
+}
+
+/** A PR tree from open to landed (forge.json). */
+export const CODE_TREE: Node = flow(`tree`, [
+  box(`t-open`, `git-pull-request`, `Open on any base`),
+  box(`t-checks`, `list-checks`, `Checks`),
+  box(`t-merge`, `git-merge`, `Squash merge`),
+  box(`t-retarget`, `git-compare-arrows`, `Children retargeted`),
+])
+
+/** Own CI: the pipeline file, the planner, runners on team devices (pipeline.json, runner.json). */
+export const CODE_CI: Node = flow(`ci`, [
+  box(`ci-file`, `workflow`, `.exponential/ci.json`),
+  box(`ci-plan`, `boxes`, `Planned jobs`),
+  box(`ci-run`, `play`, `Your devices run them`),
+  box(`ci-checks`, `list-checks`, `Check rows`),
+])
+
 /* Apps ------------------------------------------------------------------ */
 
 export const APPS_PARTS: Node = grid(

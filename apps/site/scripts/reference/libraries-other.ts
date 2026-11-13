@@ -169,4 +169,18 @@ export const REFERENCE: ReferenceSource[] = [
     title: `Contract (@exp/ecore)`,
     description: `contract.json, the one source of Core's types, and what it generates in Rust, TypeScript, Swift and Kotlin.`,
   },
+
+  /* Code */
+  {
+    source: `${CRATES}/ecode-core/README.md`,
+    slug: `docs/sdk/code/reference`,
+    title: `Code reference`,
+    description: `ecode-core: the forge's PR-tree model, checks, the pipeline file, runner scheduling and remotes; pure, server-free.`,
+  },
+  {
+    source: `packages/ecode/README.md`,
+    slug: `docs/sdk/code/reference/contract`,
+    title: `Contract (@exp/ecode)`,
+    description: `eCode's fixtures (forge, checks, pipeline, runner, remote), the provider capabilities and the traits a host implements.`,
+  },
 ]

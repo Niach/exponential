@@ -1,0 +1,31 @@
+---
+/* Code's product page (#EXP-1612). The docs: /docs/sdk/code/. */
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro"
+import Diagram from "../../components/libraries/Diagram.astro"
+import { CODE_CI, CODE_PROVIDERS, CODE_TREE } from "../../components/libraries/trees.ts"
+import "../../styles/libraries-other.css"
+---
+
+<StarlightPage
+  frontmatter={{
+    title: `Code`,
+    description: `Git and CI as one library: forge providers (GitHub or our own), PR trees, and pipelines that run on your own devices, with or without a server.`,
+    template: `splash`,
+    hero: {
+      tagline: `Git and CI on your own devices.`,
+      actions: [
+        { text: `Get started`, link: `/docs/sdk/code/guides/`, icon: `right-arrow` },
+        { text: `Docs`, link: `/docs/sdk/code/`, variant: `minimal` },
+      ],
+    },
+  }}
+>
+  <h2>One interface, any forge</h2>
+  <Diagram id="code-providers" tree={CODE_PROVIDERS} />
+
+  <h2>PR trees that land root first</h2>
+  <Diagram id="code-tree" tree={CODE_TREE} />
+
+  <h2>CI on your team's devices</h2>
+  <Diagram id="code-ci" tree={CODE_CI} />
+</StarlightPage>

@@ -1,0 +1,252 @@
+{
+  "$comment": "CHECKS (#EXP-1613; src/checks.ts, ecode-core checks.rs). A check row = one CI job's result at a PR's head: {name, status (contract checkStatus), conclusion (checkConclusion, null until completed)}. `rollup`: none (no rows) · failure (any completed row whose conclusion is in checkConclusion.failing; wins over pending) · pending (any not completed) · success; the same rule as domain-contract pr-checks `aggregateChecksState`, and apps/web/src/lib/ecode/ecode-spec.test.ts replays these rows on both. `gate` over the REQUIRED names (none named = every row gates; a required name without a row is `missing`): blocked (a gated row failed) · no_checks (nothing required, no rows) · waiting (a gated row not completed, or a required name missing) · ready; `failing`, `pending` and `missing` list names in row order (missing in required order). `checkName`: a job's check name is its name, plus its matrix values as ` (a, b)`. Our CI writes these rows into `commit_checks` + `pull_request_checks`, so the Merge pill, the wake-ups and the merge train read our CI and GitHub Actions alike.",
+  "rollup": [
+    {
+      "name": "no rows",
+      "checks": [],
+      "state": "none"
+    },
+    {
+      "name": "all passed or skipped",
+      "checks": [
+        {
+          "name": "lint",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "docs",
+          "status": "completed",
+          "conclusion": "skipped"
+        }
+      ],
+      "state": "success"
+    },
+    {
+      "name": "one running",
+      "checks": [
+        {
+          "name": "lint",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "e2e",
+          "status": "in_progress",
+          "conclusion": null
+        }
+      ],
+      "state": "pending"
+    },
+    {
+      "name": "failure wins over pending",
+      "checks": [
+        {
+          "name": "e2e",
+          "status": "queued",
+          "conclusion": null
+        },
+        {
+          "name": "gate",
+          "status": "completed",
+          "conclusion": "failure"
+        }
+      ],
+      "state": "failure"
+    },
+    {
+      "name": "timed out and cancelled are red",
+      "checks": [
+        {
+          "name": "a",
+          "status": "completed",
+          "conclusion": "timed_out"
+        },
+        {
+          "name": "b",
+          "status": "completed",
+          "conclusion": "cancelled"
+        }
+      ],
+      "state": "failure"
+    },
+    {
+      "name": "neutral and stale are not red",
+      "checks": [
+        {
+          "name": "a",
+          "status": "completed",
+          "conclusion": "neutral"
+        },
+        {
+          "name": "b",
+          "status": "completed",
+          "conclusion": "stale"
+        }
+      ],
+      "state": "success"
+    }
+  ],
+  "gate": [
+    {
+      "name": "nothing required, no rows",
+      "checks": [],
+      "required": [],
+      "result": {
+        "gate": "no_checks",
+        "failing": [],
+        "pending": [],
+        "missing": []
+      }
+    },
+    {
+      "name": "nothing required: every row gates",
+      "checks": [
+        {
+          "name": "lint",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "e2e",
+          "status": "in_progress",
+          "conclusion": null
+        }
+      ],
+      "required": [],
+      "result": {
+        "gate": "waiting",
+        "failing": [],
+        "pending": [
+          "e2e"
+        ],
+        "missing": []
+      }
+    },
+    {
+      "name": "required passed, an informational one failed",
+      "checks": [
+        {
+          "name": "gate",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "ios-core",
+          "status": "completed",
+          "conclusion": "failure"
+        }
+      ],
+      "required": [
+        "gate"
+      ],
+      "result": {
+        "gate": "ready",
+        "failing": [],
+        "pending": [],
+        "missing": []
+      }
+    },
+    {
+      "name": "a required name without a row is missing",
+      "checks": [
+        {
+          "name": "lint",
+          "status": "completed",
+          "conclusion": "success"
+        }
+      ],
+      "required": [
+        "lint",
+        "gate"
+      ],
+      "result": {
+        "gate": "waiting",
+        "failing": [],
+        "pending": [],
+        "missing": [
+          "gate"
+        ]
+      }
+    },
+    {
+      "name": "a required failure blocks",
+      "checks": [
+        {
+          "name": "gate",
+          "status": "completed",
+          "conclusion": "failure"
+        },
+        {
+          "name": "lint",
+          "status": "queued",
+          "conclusion": null
+        }
+      ],
+      "required": [
+        "gate",
+        "lint",
+        "docs"
+      ],
+      "result": {
+        "gate": "blocked",
+        "failing": [
+          "gate"
+        ],
+        "pending": [
+          "lint"
+        ],
+        "missing": [
+          "docs"
+        ]
+      }
+    },
+    {
+      "name": "required rows all passed",
+      "checks": [
+        {
+          "name": "gate",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "web (1)",
+          "status": "completed",
+          "conclusion": "skipped"
+        }
+      ],
+      "required": [
+        "gate",
+        "web (1)"
+      ],
+      "result": {
+        "gate": "ready",
+        "failing": [],
+        "pending": [],
+        "missing": []
+      }
+    }
+  ],
+  "checkName": [
+    {
+      "name": "gate",
+      "matrix": [],
+      "check": "gate"
+    },
+    {
+      "name": "web tests",
+      "matrix": [
+        "1"
+      ],
+      "check": "web tests (1)"
+    },
+    {
+      "name": "build",
+      "matrix": [
+        "linux",
+        "arm64"
+      ],
+      "check": "build (linux, arm64)"
+    }
+  ]
+}

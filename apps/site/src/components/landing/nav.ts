@@ -2,7 +2,7 @@
    the footer's columns and the home page's SDK wall all read it. A menu
    item = an icon and a name; the featured card = a picture and a name. */
 import type { LucideIcon } from "lucide-react"
-import { AppWindow, Bot, Brain, Cpu, Download, LayoutTemplate, Mic, Monitor, MousePointerClick, Network, Plug, Server, Sparkles } from "lucide-react"
+import { AppWindow, Bot, Brain, Cpu, Download, GitBranch, LayoutTemplate, Mic, Monitor, MousePointerClick, Network, Plug, Server, Sparkles } from "lucide-react"
 import { LIBRARIES } from "../../lib/libraries.ts"
 import { LINKS } from "./links.ts"
 
@@ -26,6 +26,7 @@ const MODULE_ICON: Record<string, LucideIcon> = {
   "mcp-proxy": Plug,
   agents: Brain,
   core: Cpu,
+  code: GitBranch,
 }
 
 /** The Exponential SDK: every module's product page, Apps last. */

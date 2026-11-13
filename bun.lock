@@ -109,6 +109,7 @@
         "@exp/db-schema": "workspace:*",
         "@exp/domain-contract": "workspace:*",
         "@exp/eagent": "workspace:*",
+        "@exp/ecode": "workspace:*",
         "@exp/emcp": "workspace:*",
         "@exp/emoji": "workspace:*",
         "@exp/etalk": "workspace:*",
@@ -217,6 +218,14 @@
       "dependencies": {
         "@exp/ecore": "workspace:*",
       },
+      "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "^7.0.2",
+      },
+    },
+    "packages/ecode": {
+      "name": "@exp/ecode",
+      "version": "0.0.0",
       "devDependencies": {
         "@types/bun": "latest",
         "typescript": "^7.0.2",
@@ -967,6 +976,8 @@
     "@exp/domain-contract": ["@exp/domain-contract@workspace:packages/domain-contract"],
 
     "@exp/eagent": ["@exp/eagent@workspace:packages/eagent"],
+
+    "@exp/ecode": ["@exp/ecode@workspace:packages/ecode"],
 
     "@exp/ecore": ["@exp/ecore@workspace:packages/ecore"],
 

@@ -1,0 +1,263 @@
+{
+  "$comment": "eCode (#EXP-1612, spec #EXP-1613): git and CI as one library. Forge providers (GitHub, eCode's own), own git, own CI. Types and pure rules only. `bun run --filter @exp/ecode generate` writes Rust (apps/desktop/crates/ecode-core), TS (src/contract.generated.ts), Swift (ExpCore) and Kotlin (com.exponential.app.ecode). The fixtures (forge, checks, pipeline, runner, remote) replay on the TS reference (src/) and on ecode-core; the server (apps/web/src/lib/ecode) and every Forge/Ci implementation conform to them.",
+  "version": 1,
+  "provider": {
+    "$comment": "Where a repository's forge lives. `github` = GitHub (App or token); `ecode` = our own: refs on the host (the Exponential server, or a local Store without a server), packs in the team bucket.",
+    "values": [
+      "github",
+      "ecode"
+    ]
+  },
+  "capability": {
+    "$comment": "What a provider supports. The UI and the playbook read these flags instead of assuming GitHub. `ordered_merge` = merges several PRs in one call in the given order (without it the caller loops); `native_stacks` = a PR's base may be another PR's head; `rebase_onto` = the host replays a branch onto a new base (without it a device does, with git); `webhooks` = events are pushed (without it they are polled or come from our own bus); `mirror` = pushes every landing to a second remote.",
+    "values": [
+      "retarget",
+      "squash_merge",
+      "ordered_merge",
+      "mergeability",
+      "native_stacks",
+      "rebase_onto",
+      "checks",
+      "pipelines",
+      "run_logs",
+      "required_checks",
+      "fast_forward",
+      "webhooks",
+      "mirror"
+    ],
+    "byProvider": {
+      "github": [
+        "retarget",
+        "squash_merge",
+        "mergeability",
+        "native_stacks",
+        "checks",
+        "pipelines",
+        "run_logs",
+        "required_checks",
+        "fast_forward",
+        "webhooks"
+      ],
+      "ecode": [
+        "retarget",
+        "squash_merge",
+        "ordered_merge",
+        "mergeability",
+        "native_stacks",
+        "rebase_onto",
+        "checks",
+        "pipelines",
+        "run_logs",
+        "required_checks",
+        "fast_forward",
+        "mirror"
+      ]
+    }
+  },
+  "prState": {
+    "$comment": "A review unit's (PR's) state; the same values as Exponential's `pull_requests.state`. `open` and `draft` are LIVE.",
+    "values": [
+      "open",
+      "draft",
+      "merged",
+      "closed"
+    ],
+    "live": [
+      "open",
+      "draft"
+    ]
+  },
+  "mergeability": {
+    "$comment": "A PR against its base: clean = a three-way merge has no conflicting path; dirty = it has one (rebase --onto the base, then push).",
+    "values": [
+      "clean",
+      "dirty"
+    ]
+  },
+  "forgeEvent": {
+    "$comment": "What a forge reports after an op. GitHub delivers these as webhooks; eCode posts them on our own bus; a server-free host emits them from its Store. `checks_changed` comes from CI, never from a forge op.",
+    "values": [
+      "pushed",
+      "branch_deleted",
+      "pr_opened",
+      "pr_retargeted",
+      "pr_merged",
+      "pr_closed",
+      "checks_changed"
+    ]
+  },
+  "forgeReason": {
+    "$comment": "Why a forge or runner op was refused, with the eCore error code each maps to.",
+    "values": [
+      "head",
+      "base",
+      "pr",
+      "parent",
+      "commit",
+      "runner",
+      "job",
+      "same_branch",
+      "exists",
+      "cycle",
+      "not_open",
+      "not_running",
+      "draft",
+      "duplicate",
+      "upstream",
+      "head_moved",
+      "dirty",
+      "non_fast_forward",
+      "commit_exists",
+      "unsupported"
+    ],
+    "codes": {
+      "not_found": [
+        "head",
+        "base",
+        "pr",
+        "parent",
+        "commit",
+        "runner",
+        "job"
+      ],
+      "invalid": [
+        "same_branch",
+        "cycle",
+        "not_open",
+        "not_running",
+        "draft",
+        "duplicate",
+        "upstream"
+      ],
+      "conflict": [
+        "exists",
+        "head_moved",
+        "dirty",
+        "non_fast_forward",
+        "commit_exists"
+      ],
+      "forbidden": [
+        "unsupported"
+      ]
+    }
+  },
+  "checkStatus": {
+    "$comment": "One check run's (= one CI job's) status. The same enum as domain-contract `prCheckStatus` (#EXP-1610), gated by apps/web/src/lib/ecode/ecode-spec.test.ts.",
+    "values": [
+      "queued",
+      "in_progress",
+      "completed"
+    ]
+  },
+  "checkConclusion": {
+    "$comment": "A completed check's conclusion; the same enum as domain-contract `prCheckConclusion`. `failing` turns a check (and the rollup) red; `satisfies` lets a job that `needs` it start.",
+    "values": [
+      "success",
+      "failure",
+      "neutral",
+      "cancelled",
+      "skipped",
+      "timed_out",
+      "action_required",
+      "startup_failure",
+      "stale"
+    ],
+    "failing": [
+      "failure",
+      "cancelled",
+      "timed_out",
+      "action_required",
+      "startup_failure"
+    ],
+    "satisfies": [
+      "success",
+      "neutral",
+      "skipped"
+    ]
+  },
+  "checksState": {
+    "$comment": "The rollup over a PR's checks at its head: none = no checks; failure = any failing (wins over pending); pending = any not completed; success. The same enum and rule as domain-contract `prChecksState`.",
+    "values": [
+      "none",
+      "pending",
+      "success",
+      "failure"
+    ]
+  },
+  "mergeGate": {
+    "$comment": "What the required checks say about merging: ready = all passed; waiting = some not reported or running; blocked = one failed; no_checks = the repo reports none (the merge train then lands without CI).",
+    "values": [
+      "ready",
+      "waiting",
+      "blocked",
+      "no_checks"
+    ]
+  },
+  "trigger": {
+    "$comment": "What starts a pipeline. push (branch filter), pull_request (filter on the BASE branch), tag (tag filter), merge_train (the train's composed ref), manual.",
+    "values": [
+      "push",
+      "pull_request",
+      "tag",
+      "merge_train",
+      "manual"
+    ]
+  },
+  "skip": {
+    "$comment": "Why a planned job does not run, and the conclusion its check gets. paths = no changed file matches the job's `paths`; fork = a PR from outside the team (fork PRs never run).",
+    "values": [
+      "paths",
+      "fork"
+    ],
+    "conclusions": {
+      "paths": "skipped",
+      "fork": "action_required"
+    }
+  },
+  "runnerEvent": {
+    "$comment": "What the runner scheduler emits. `kill` = stop the job's process tree on its runner; `queued_too_long` fires once per job.",
+    "values": [
+      "job_queued",
+      "job_started",
+      "job_completed",
+      "kill",
+      "queued_too_long"
+    ]
+  },
+  "pipeline": {
+    "$comment": "The pipeline file `.exponential/ci.json` (fixtures/pipeline.json is its spec). Limits count expanded jobs (after the matrix).",
+    "file": ".exponential/ci.json",
+    "version": 1,
+    "maxJobs": 64,
+    "maxSteps": 64,
+    "maxMatrix": 32,
+    "defaultTimeoutMin": 60,
+    "maxTimeoutMin": 360,
+    "nameMax": 64,
+    "matrixEnvPrefix": "MATRIX_"
+  },
+  "runner": {
+    "$comment": "Runner scheduling. A runner is lost after runnerLostMs without a beat (the daemon beats every 30 s); a job still queued after queuedFlagMinutes is flagged once (the same 30 min as domain-contract prChecks.queuedFlagMinutes). Labels: lowercase, `labelMax` at most; `os` and `arch` are the reserved ones a runner always reports.",
+    "runnerLostMs": 120000,
+    "queuedFlagMinutes": 30,
+    "labelMax": 32,
+    "os": [
+      "linux",
+      "mac",
+      "windows"
+    ],
+    "arch": [
+      "x64",
+      "arm64"
+    ]
+  },
+  "remote": {
+    "$comment": "Remotes: `https://host[:port]/path` (a git host; the device's credential helper is scoped to exactly that URL) or `exp://<team>/<repo>` (eCode's own, served by the `git-remote-exp` helper). Tokens are refreshed `refreshMarginMs` before they expire and never appear in logs (`redaction`).",
+    "schemes": [
+      "https",
+      "exp"
+    ],
+    "refreshMarginMs": 300000,
+    "redaction": "***"
+  }
+}

@@ -2,12 +2,12 @@
 
 Decided 2026-10-29 for the epic #EXP-1420, renamed 2026-10-30 (#EXP-1438) and
 2026-11-05 (Danny). The product is one **Exponential SDK** with the modules
-genUI, Motion, Voice, P2P, Computer Use, MCP Proxy, Agents, Core, Apps and Engine: that is
+genUI, Motion, Voice, P2P, Computer Use, MCP Proxy, Agents, Core, Apps, Engine and Code: that is
 what copy, docs and the front page say. The Agents crate is `eagent` (renamed from
 `exponential-agent-runtime` by #EXP-1505). The module was called ACP until
 2026-11-05; ACP now only ever means the Agent Client Protocol, written in full in copy. The **package names** keep their short
-scheme (`eui*`, `etalk*`, `epilot*`, `enet*`, `emcp`, `eagent`, `ecore`, `eengine*`) on every
-registry, and so do the tags (`eui-v*`, `etalk-v*`, `epilot-v*`, `enet-v*`, `eengine-v*`).
+scheme (`eui*`, `etalk*`, `epilot*`, `enet*`, `emcp`, `eagent`, `ecore`, `eengine*`, `ecode*`) on every
+registry, and so do the tags (`eui-v*`, `etalk-v*`, `epilot-v*`, `enet-v*`, `eengine-v*`, `ecode-v*`).
 The Engine's crate is `eengine` because `engine` is taken by the ACP engine crate. The
 bare crates.io names `eui` and `enet` are taken, so the core crates are `eui-core`
 and `enet-core`. Motion ships inside the genUI packages (`eui-motion`,
@@ -44,6 +44,7 @@ consumes them as dependencies.
 | **Agents** | `eagent` (from `coding` + `engine`, #EXP-1426; renamed from `exponential-agent-runtime` in #EXP-1505, which stays one release as a re-export shim; git dependency on the tag; `provider::AgentProvider` = one way to start a run: `AcpAgent`, `LocalModel` behind the `local-model` feature, `RemoteSession`, tools only as a hub grant, #VAPP-264) | `@exp/eagent` (the orchestration spec: fixtures + a pure TS reducer, `packages/eagent`, #EXP-1508; private for now; its Rust port `eagent-hub-core` + WASM `eagent-hub-core-wasm`, #EXP-1509, replay the same fixtures) | none | none | `eagent-v*` → `release-eagent.yml` (still accepts `agent-runtime-v*` for one release) | exponential.at/sdk/agents/ |
 | **MCP Proxy** | `emcp` (on rmcp, for the devices and spezl, #EXP-1492; the local hub and code mode (feature `codemode`), #EXP-1507; git dependency on the tag) | `emcp` (the contract + fixtures, `packages/emcp`, #EXP-1490; private for now) | none | none | `emcp-v*` → `release-emcp.yml` | exponential.at/sdk/mcp-proxy/ |
 | **Core** | `ecore` (types only, serde; #EXP-1504; git dependency) | `@exp/ecore` (the contract + generated TS, `packages/ecore`; private for now) | generated into the Android app (`com.exponential.app.ecore`) | generated into ExpCore (`ECore`) | none yet | exponential.at/sdk/core/ |
+| **Code** | `ecode-core` (#EXP-1613: the pure core: the forge's PR-tree model, checks, the pipeline file, runner scheduling, remotes; serde only, no I/O, no dependency on Exponential) and `ecode` (#EXP-1615, planned: the `Remote`/`Forge`/`Ci`/`Store`/`SecretSource` traits, `LocalRepo` on gix, the providers `github`, `local` and `exponential` behind features, the runner) (git dependencies on the tag) | `@exp/ecode` (the contract, fixtures and pure TS reference, `packages/ecode`; private for now) | generated into the Android app (`com.exponential.app.ecode`) | generated into ExpCore (`ECode`) | `ecode-v*` (none cut yet) | exponential.at/sdk/code/ |
 
 **The Engine's module map** (#VAPP-259, `docs/spec/apps.md` §13.1). Modules never depend on the Engine; the Engine depends on them, each optional behind a cargo feature; hosts depend on the Engine (or on single modules, as today); painters stay per platform.
 
@@ -133,6 +134,7 @@ How spezl (or anyone) depends on the `publish = false` crates:
 | MCP Proxy | `emcp-v*` | `emcp` | `release-emcp.yml` |
 | Agents | `eagent-v*` (+ `agent-runtime-v*` for one release) | `eagent`, `exponential-agent-runtime` (the shim, one release) | `release-eagent.yml` |
 | Engine | `eengine-v*` | `eengine` (features `sqlite`, `hub`; + npm `@exponential_app/engine`, SwiftPM `ExponentialEngine`, Maven `at.exponential:engine`, all three from `eengine-ffi` and `packages/eengine`) | `release-eengine.yml` |
+| Code | `ecode-v*` | `ecode-core`, `ecode` (#EXP-1612; Rerusted #RUST-9 consumes them) | `release-ecode.yml` (with the first tag) |
 
 Every new name was checked free on 2026-10-30: crates.io `eui-core`, `eui-gpui`,
 `enet-core`, `etalk`, `epilot`, and npm `@exponential_app/eui*`, `@exponential_app/enet`,
@@ -184,3 +186,4 @@ release after that removes the shim crate and the old tag pattern.
 | agent-runtime (old name of Agents) | 0.1.0 | GitHub release (git dependency on the tag) | `agent-runtime-v0.1.0` |
 | MCP Proxy | 0.2.0 | GitHub release (git dependency on the tag) | `emcp-v0.2.0` |
 | Core | unreleased | none (built: `ecore` + the generated TS/Swift/Kotlin) | none |
+| Code | unreleased | none (built: `ecode-core` + `@exp/ecode` + the generated Swift/Kotlin, #EXP-1613) | none |
