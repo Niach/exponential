@@ -109,6 +109,20 @@ pub fn run_job(git: &ExpGit, cache: &Path, args: &Value) -> Result<Value> {
             let bytes = repo.read_file(arg(args, "sha")?, arg(args, "path")?)?;
             Ok(json!({ "text": bytes.map(|b| String::from_utf8_lossy(&b).into_owned()) }))
         }
+        // #EXP-1617: the files directly in a directory at a commit (our CI
+        // lists `.github/workflows`). `null` = no such directory.
+        "list_dir" => {
+            let dir = arg(args, "path")?.trim_end_matches('/').to_string();
+            let prefix = format!("{dir}/");
+            let tree = repo.tree(Some(arg(args, "sha")?))?;
+            let files: Vec<&str> = tree
+                .keys()
+                .filter_map(|path| path.strip_prefix(&prefix))
+                .filter(|rest| !rest.is_empty() && !rest.contains('/'))
+                .collect();
+            let any = tree.keys().any(|path| path.starts_with(&prefix));
+            Ok(if any { json!({ "files": files }) } else { json!({ "files": null }) })
+        }
         "backup" => backup(git, cache, &repo, &refs),
         "restore" => restore(git, arg(args, "bundle")?),
         "repack" => repack(git, cache),

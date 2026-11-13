@@ -7,6 +7,7 @@ import forge from "@exp/ecode/fixtures/forge.json"
 import pipeline from "@exp/ecode/fixtures/pipeline.json"
 import remote from "@exp/ecode/fixtures/remote.json"
 import runner from "@exp/ecode/fixtures/runner.json"
+import workflow from "@exp/ecode/fixtures/workflow.json"
 import { REPLAYS } from "@exp/ecode/replay"
 import { rollup } from "@exp/ecode/checks"
 import { providerValues } from "@exp/ecode"
@@ -19,7 +20,7 @@ import { repositoryProviderValues } from "@exp/db-schema"
 // fixture is what `lib/ecode`'s Forge implementations conform to (#EXP-1614).
 
 describe(`ecode spec: the fixtures replay on the TS reference`, () => {
-  const files = { forge, runner, checks, pipeline, remote } as const
+  const files = { forge, runner, checks, pipeline, remote, workflow } as const
   for (const [name, file] of Object.entries(files)) {
     it(name, () => {
       const replay = REPLAYS[name as keyof typeof REPLAYS] as (fixture: unknown) => unknown

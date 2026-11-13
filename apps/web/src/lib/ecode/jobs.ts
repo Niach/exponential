@@ -38,6 +38,7 @@ const WAIT_MS: Record<EcodeJob[`op`], number> = {
   rebase_onto: 120_000,
   is_ancestor: 30_000,
   read_file: 60_000,
+  list_dir: 60_000,
 }
 
 export interface JobDevice {

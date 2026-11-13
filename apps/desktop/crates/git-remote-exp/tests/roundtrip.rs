@@ -255,6 +255,7 @@ fn clone_fetch_push_jobs_and_a_restored_backup() {
     // #EXP-1617: a file at a commit (our CI's pipeline read), and a missing one.
     assert_eq!(run(json!({ "op": "read_file", "sha": c3, "path": "c.txt" })), json!({ "text": "three\n" }));
     assert_eq!(run(json!({ "op": "read_file", "sha": c1, "path": "c.txt" })), json!({ "text": null }));
+    assert_eq!(run(json!({ "op": "list_dir", "sha": c3, "path": "nope" })), json!({ "files": null }));
     let squash = run(json!({ "op": "squash", "base": c3, "head": t1, "message": "Topic (#1)", "author": "Ada Lovelace <ada@example.com>" }));
     let merged = squash["sha"].as_str().unwrap().to_string();
     // #EXP-1617: the PR's author, the job's identity as committer.

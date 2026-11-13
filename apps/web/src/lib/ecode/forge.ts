@@ -206,6 +206,9 @@ export interface Forge {
   /** #EXP-1617: a file's text at `ref` (a sha or branch), null = no such
    *  file there. Throws when unreadable (no access, rate limited). */
   readFile(repo: ForgeRepo, path: string, ref: string): Promise<string | null>
+  /** #EXP-1617: the file NAMES directly in `dir` at `ref`, null = no such
+   *  directory. Throws when unreadable. */
+  listFiles(repo: ForgeRepo, dir: string, ref: string): Promise<string[] | null>
   /** #EXP-1617: report one of OUR checks on the forge's commit (GitHub:
    *  a commit status `context`), for a repo that asked for it. */
   reportStatus(

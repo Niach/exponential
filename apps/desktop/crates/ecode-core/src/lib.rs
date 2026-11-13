@@ -1,7 +1,7 @@
 //! eCode (#EXP-1612, spec #EXP-1613): git and CI as one library. This crate
 //! is its pure core, a port of `packages/ecode/src/*.ts` replaying the same
-//! fixtures: the forge's PR-tree model, checks, the pipeline file, runner
-//! scheduling and remotes. The enums, constants and rules are generated from
+//! fixtures: the forge's PR-tree model, checks, the pipeline file (and the
+//! GitHub workflow reader into it), runner scheduling and remotes. The enums, constants and rules are generated from
 //! `packages/ecode/contract.json`; no I/O, no clock, nothing of Exponential.
 
 #[path = "contract.generated.rs"]
@@ -13,6 +13,7 @@ pub mod forge;
 pub mod pipeline;
 pub mod remote;
 pub mod runner;
+pub mod workflow;
 
 pub use checks::*;
 pub use contract::*;
@@ -20,6 +21,7 @@ pub use forge::*;
 pub use pipeline::*;
 pub use remote::*;
 pub use runner::*;
+pub use workflow::*;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

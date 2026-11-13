@@ -288,5 +288,81 @@ describe.skipIf(!ready.ok)(`eCode CI`, { timeout: 30_000 }, () => {
       )
     }
   })
+
+  // #EXP-1807: a push whose pipeline cannot be read is a FAILED run with a
+  // `pipeline` check (the session hears it), never a silent no-op.
+  it(`a pipeline read that fails is a failed run with a pipeline check`, async () => {
+    const f = await fixture()
+    setForgeForTests(() =>
+      partialForgeForTests({
+        kind: `github`,
+        requiredChecks: async () => [],
+        reportStatus: async () => {},
+        readFile: async () => {
+          throw new Error(`No team device with eCode jobs is online to run read_file`)
+        },
+      })
+    )
+    try {
+      const sha = `9`.repeat(40)
+      const started = await runs.startRun({ repositoryId: f.repositoryId, sha, trigger: `push`, ref: `main` })
+      expect(started.started).toBe(true)
+      const [run] = await db.select().from(ciRuns).where(eq(ciRuns.id, (started as { runId: string }).runId))
+      expect(run.state).toBe(`failure`)
+      expect(run.error).toContain(`Could not read the pipeline: No team device`)
+      const [check] = await db
+        .select()
+        .from(commitChecks)
+        .where(and(eq(commitChecks.repositoryId, f.repositoryId), eq(commitChecks.sha, sha)))
+      expect([check.name, check.conclusion]).toEqual([`pipeline`, `failure`])
+    } finally {
+      setForgeForTests(() =>
+        partialForgeForTests({ kind: `github`, requiredChecks: async () => [], reportStatus: async () => {}, readFile: async () => null })
+      )
+    }
+  })
+
+  it(`an ecode repo without ci.json plans one run per GitHub workflow`, async () => {
+    const f = await fixture()
+    await db.update(repositories).set({ provider: `ecode` }).where(eq(repositories.id, f.repositoryId))
+    const files: Record<string, string> = {
+      ".github/workflows/ci.yml": `name: CI\non:\n  push:\n    branches: [main]\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: make\n`,
+      ".github/workflows/nightly.yaml": `on:\n  schedule:\n    - cron: "0 0 * * *"\njobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n`,
+    }
+    setForgeForTests(() =>
+      partialForgeForTests({
+        kind: `ecode`,
+        requiredChecks: async () => [],
+        reportStatus: async () => {},
+        readFile: async (_repo, path) => files[path] ?? null,
+        listFiles: async (_repo, dir) => (dir === `.github/workflows` ? [`ci.yml`, `nightly.yaml`, `README.md`] : null),
+      })
+    )
+    try {
+      const sha = `8`.repeat(40)
+      const started = await runs.startRun({ repositoryId: f.repositoryId, sha, trigger: `push`, ref: `main` })
+      expect(started.started).toBe(true)
+      const planned = await db.select().from(ciRuns).where(and(eq(ciRuns.repositoryId, f.repositoryId), eq(ciRuns.sha, sha)))
+      expect(planned.map((r) => [r.name, r.state]).sort()).toEqual([
+        [`CI`, `pending`],
+        [`nightly`, `failure`],
+      ])
+      const nightly = planned.find((r) => r.name === `nightly`)!
+      expect(nightly.error).toBe(`.github/workflows/nightly.yaml/on/schedule: unsupported_event`)
+      const ci = planned.find((r) => r.name === `CI`)!
+      expect((await jobsOf(ci.id)).map((j) => [j.check, j.runsOn])).toEqual([[`build`, [`linux`]]])
+      const checks = await db
+        .select({ name: commitChecks.name, conclusion: commitChecks.conclusion })
+        .from(commitChecks)
+        .where(and(eq(commitChecks.repositoryId, f.repositoryId), eq(commitChecks.sha, sha)))
+      expect(checks.map((c) => c.name).sort()).toEqual([`build`, `pipeline (nightly)`])
+      // A second delivery of the same push plans nothing new.
+      expect((await runs.startRun({ repositoryId: f.repositoryId, sha, trigger: `push`, ref: `main` })).started).toBe(false)
+    } finally {
+      setForgeForTests(() =>
+        partialForgeForTests({ kind: `github`, requiredChecks: async () => [], reportStatus: async () => {}, readFile: async () => null })
+      )
+    }
+  })
 })
 

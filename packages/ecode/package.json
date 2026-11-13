@@ -18,6 +18,7 @@
     "./pipeline": "./src/pipeline.ts",
     "./runner": "./src/runner.ts",
     "./remote": "./src/remote.ts",
+    "./workflow": "./src/workflow.ts",
     "./replay": "./src/replay.ts",
     "./contract": "./contract.json",
     "./fixtures/*": "./fixtures/*"
