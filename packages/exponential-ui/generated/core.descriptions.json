@@ -2835,7 +2835,7 @@
           "description": "Under the text."
         },
         "status": {
-          "description": "Delivery, out only."
+          "description": "Delivery mark, out only (MessageStatus)."
         },
         "author": {
           "description": "Caption above, in only."
@@ -3536,6 +3536,17 @@
         "path": "/recordTable/deals/editor/draft",
         "editorOpen": false,
         "deleteOpen": false
+      }
+    },
+    "MessageStatus": {
+      "props": {
+        "status": {
+          "description": "Delivery state."
+        }
+      },
+      "description": "A message's delivery mark: clock, check, double check (info), error (danger).",
+      "example": {
+        "status": "read"
       }
     }
   },

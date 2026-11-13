@@ -18099,6 +18099,128 @@
       }
     },
     {
+      "id": "exponential-ui-message-status",
+      "component": "MessageStatus",
+      "title": "MessageStatus",
+      "node": {
+        "id": "specimen_message_status",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen_message_status_case_0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen_message_status_case_0_label",
+                "component": "Text",
+                "props": {
+                  "text": "status · sending",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0_status",
+                "component": "MessageStatus",
+                "props": {
+                  "status": "sending"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_message_status_case_1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen_message_status_case_1_label",
+                "component": "Text",
+                "props": {
+                  "text": "status · sent",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1_status",
+                "component": "MessageStatus",
+                "props": {
+                  "status": "sent"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_message_status_case_2",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen_message_status_case_2_label",
+                "component": "Text",
+                "props": {
+                  "text": "status · read",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c2_status",
+                "component": "MessageStatus",
+                "props": {
+                  "status": "read"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_message_status_case_3",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen_message_status_case_3_label",
+                "component": "Text",
+                "props": {
+                  "text": "status · failed",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c3_status",
+                "component": "MessageStatus",
+                "props": {
+                  "status": "failed"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "id": "exponential-ui-demo",
       "component": null,
       "title": "Demo",
