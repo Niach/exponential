@@ -85,6 +85,10 @@
       "reason": "Live rows on every client; the `needs-you` view shoots the specimen (`?dev=needs-you`) so ×5 show the same state."
     },
     {
+      "route": "/t/$teamSlug/ci/$runId",
+      "reason": "A live run on every client; the `ci-run` view shoots the specimen (`?dev=ci-run`) so ×5 show the same run."
+    },
+    {
       "route": "/",
       "reason": "Bare root is a resolver, not a view: it forwards to the last-visited team, the oldest membership, or onboarding."
     },

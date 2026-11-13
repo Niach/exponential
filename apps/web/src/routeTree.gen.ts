@@ -52,7 +52,6 @@ import { Route as ApiAttachmentsAttachmentIdRouteImport } from './routes/api/att
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiEmailUnsubscribeRouteImport } from './routes/api/email/unsubscribe'
 import { Route as ApiGuideUploadsTokenRouteImport } from './routes/api/guide-uploads/$token'
-import { Route as ApiEcodeGitOpRouteImport } from './routes/api/ecode/git/$op'
 import { Route as ApiMcpOauthCallbackRouteImport } from './routes/api/mcp-oauth/callback'
 import { Route as ApiMcpOauthClientDotjsonRouteImport } from './routes/api/mcp-oauth/client[.]json'
 import { Route as ApiMcpAppsRouteImport } from './routes/api/mcp_/apps'
@@ -116,6 +115,7 @@ import { Route as AuthenticatedAdminUsersUserIdRouteImport } from './routes/_aut
 import { Route as ApiAppsAppIdFilesRouteImport } from './routes/api/apps/$appId/files'
 import { Route as ApiCliInstallTokenRedeemRouteImport } from './routes/api/cli/install-token/redeem'
 import { Route as ApiDownloadDesktopOsRouteImport } from './routes/api/download/desktop/$os'
+import { Route as ApiEcodeGitOpRouteImport } from './routes/api/ecode/git/$op'
 import { Route as ApiIssueDraftsDraftIdFilesRouteImport } from './routes/api/issue-drafts/$draftId/files'
 import { Route as ApiIssuesIssueIdFilesRouteImport } from './routes/api/issues/$issueId/files'
 import { Route as ApiSessionsSessionIdFilesRouteImport } from './routes/api/sessions/$sessionId/files'
@@ -126,6 +126,7 @@ import { Route as TTeamSlugAppEditorAppSlugRouteImport } from './routes/t/$teamS
 import { Route as TTeamSlugAppsIndexRouteImport } from './routes/t/$teamSlug/apps/index'
 import { Route as TTeamSlugAppsAppSlugRouteImport } from './routes/t/$teamSlug/apps/$appSlug'
 import { Route as TTeamSlugChatsIndexRouteImport } from './routes/t/$teamSlug/chats/index'
+import { Route as TTeamSlugCiRunIdRouteImport } from './routes/t/$teamSlug/ci/$runId'
 import { Route as TTeamSlugDraftsIndexRouteImport } from './routes/t/$teamSlug/drafts/index'
 import { Route as TTeamSlugDraftsDraftIdRouteImport } from './routes/t/$teamSlug/drafts/$draftId'
 import { Route as TTeamSlugInboxIndexRouteImport } from './routes/t/$teamSlug/inbox/index'
@@ -390,11 +391,6 @@ const ApiEmailUnsubscribeRoute = ApiEmailUnsubscribeRouteImport.update({
 const ApiGuideUploadsTokenRoute = ApiGuideUploadsTokenRouteImport.update({
   id: '/api/guide-uploads/$token',
   path: '/api/guide-uploads/$token',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiEcodeGitOpRoute = ApiEcodeGitOpRouteImport.update({
-  id: '/api/ecode/git/$op',
-  path: '/api/ecode/git/$op',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiMcpOauthCallbackRoute = ApiMcpOauthCallbackRouteImport.update({
@@ -721,6 +717,11 @@ const ApiDownloadDesktopOsRoute = ApiDownloadDesktopOsRouteImport.update({
   path: '/api/download/desktop/$os',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiEcodeGitOpRoute = ApiEcodeGitOpRouteImport.update({
+  id: '/api/ecode/git/$op',
+  path: '/api/ecode/git/$op',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiIssueDraftsDraftIdFilesRoute =
   ApiIssueDraftsDraftIdFilesRouteImport.update({
     id: '/api/issue-drafts/$draftId/files',
@@ -773,6 +774,11 @@ const TTeamSlugAppsAppSlugRoute = TTeamSlugAppsAppSlugRouteImport.update({
 const TTeamSlugChatsIndexRoute = TTeamSlugChatsIndexRouteImport.update({
   id: '/chats/',
   path: '/chats/',
+  getParentRoute: () => TTeamSlugRouteRoute,
+} as any)
+const TTeamSlugCiRunIdRoute = TTeamSlugCiRunIdRouteImport.update({
+  id: '/ci/$runId',
+  path: '/ci/$runId',
   getParentRoute: () => TTeamSlugRouteRoute,
 } as any)
 const TTeamSlugDraftsIndexRoute = TTeamSlugDraftsIndexRouteImport.update({
@@ -1054,7 +1060,6 @@ export interface FileRoutesByFullPath {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/email/unsubscribe': typeof ApiEmailUnsubscribeRoute
   '/api/guide-uploads/$token': typeof ApiGuideUploadsTokenRoute
-  '/api/ecode/git/$op': typeof ApiEcodeGitOpRoute
   '/api/mcp-oauth/callback': typeof ApiMcpOauthCallbackRoute
   '/api/mcp-oauth/client.json': typeof ApiMcpOauthClientDotjsonRoute
   '/api/mcp/apps': typeof ApiMcpAppsRoute
@@ -1118,6 +1123,7 @@ export interface FileRoutesByFullPath {
   '/api/apps/$appId/files': typeof ApiAppsAppIdFilesRoute
   '/api/cli/install-token/redeem': typeof ApiCliInstallTokenRedeemRoute
   '/api/download/desktop/$os': typeof ApiDownloadDesktopOsRoute
+  '/api/ecode/git/$op': typeof ApiEcodeGitOpRoute
   '/api/issue-drafts/$draftId/files': typeof ApiIssueDraftsDraftIdFilesRoute
   '/api/issues/$issueId/files': typeof ApiIssuesIssueIdFilesRoute
   '/api/sessions/$sessionId/files': typeof ApiSessionsSessionIdFilesRoute
@@ -1126,6 +1132,7 @@ export interface FileRoutesByFullPath {
   '/t/$teamSlug/agents/$agentId': typeof TTeamSlugAgentsAgentIdRoute
   '/t/$teamSlug/app-editor/$appSlug': typeof TTeamSlugAppEditorAppSlugRoute
   '/t/$teamSlug/apps/$appSlug': typeof TTeamSlugAppsAppSlugRouteWithChildren
+  '/t/$teamSlug/ci/$runId': typeof TTeamSlugCiRunIdRoute
   '/t/$teamSlug/drafts/$draftId': typeof TTeamSlugDraftsDraftIdRoute
   '/t/$teamSlug/issues/$identifier': typeof TTeamSlugIssuesIdentifierRoute
   '/t/$teamSlug/sessions/$sessionId': typeof TTeamSlugSessionsSessionIdRoute
@@ -1210,7 +1217,6 @@ export interface FileRoutesByTo {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/email/unsubscribe': typeof ApiEmailUnsubscribeRoute
   '/api/guide-uploads/$token': typeof ApiGuideUploadsTokenRoute
-  '/api/ecode/git/$op': typeof ApiEcodeGitOpRoute
   '/api/mcp-oauth/callback': typeof ApiMcpOauthCallbackRoute
   '/api/mcp-oauth/client.json': typeof ApiMcpOauthClientDotjsonRoute
   '/api/mcp/apps': typeof ApiMcpAppsRoute
@@ -1274,6 +1280,7 @@ export interface FileRoutesByTo {
   '/api/apps/$appId/files': typeof ApiAppsAppIdFilesRoute
   '/api/cli/install-token/redeem': typeof ApiCliInstallTokenRedeemRoute
   '/api/download/desktop/$os': typeof ApiDownloadDesktopOsRoute
+  '/api/ecode/git/$op': typeof ApiEcodeGitOpRoute
   '/api/issue-drafts/$draftId/files': typeof ApiIssueDraftsDraftIdFilesRoute
   '/api/issues/$issueId/files': typeof ApiIssuesIssueIdFilesRoute
   '/api/sessions/$sessionId/files': typeof ApiSessionsSessionIdFilesRoute
@@ -1282,6 +1289,7 @@ export interface FileRoutesByTo {
   '/t/$teamSlug/agents/$agentId': typeof TTeamSlugAgentsAgentIdRoute
   '/t/$teamSlug/app-editor/$appSlug': typeof TTeamSlugAppEditorAppSlugRoute
   '/t/$teamSlug/apps/$appSlug': typeof TTeamSlugAppsAppSlugRouteWithChildren
+  '/t/$teamSlug/ci/$runId': typeof TTeamSlugCiRunIdRoute
   '/t/$teamSlug/drafts/$draftId': typeof TTeamSlugDraftsDraftIdRoute
   '/t/$teamSlug/issues/$identifier': typeof TTeamSlugIssuesIdentifierRoute
   '/t/$teamSlug/sessions/$sessionId': typeof TTeamSlugSessionsSessionIdRoute
@@ -1371,7 +1379,6 @@ export interface FileRoutesById {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/email/unsubscribe': typeof ApiEmailUnsubscribeRoute
   '/api/guide-uploads/$token': typeof ApiGuideUploadsTokenRoute
-  '/api/ecode/git/$op': typeof ApiEcodeGitOpRoute
   '/api/mcp-oauth/callback': typeof ApiMcpOauthCallbackRoute
   '/api/mcp-oauth/client.json': typeof ApiMcpOauthClientDotjsonRoute
   '/api/mcp_/apps': typeof ApiMcpAppsRoute
@@ -1435,6 +1442,7 @@ export interface FileRoutesById {
   '/api/apps/$appId/files': typeof ApiAppsAppIdFilesRoute
   '/api/cli/install-token/redeem': typeof ApiCliInstallTokenRedeemRoute
   '/api/download/desktop/$os': typeof ApiDownloadDesktopOsRoute
+  '/api/ecode/git/$op': typeof ApiEcodeGitOpRoute
   '/api/issue-drafts/$draftId/files': typeof ApiIssueDraftsDraftIdFilesRoute
   '/api/issues/$issueId/files': typeof ApiIssuesIssueIdFilesRoute
   '/api/sessions/$sessionId/files': typeof ApiSessionsSessionIdFilesRoute
@@ -1443,6 +1451,7 @@ export interface FileRoutesById {
   '/t/$teamSlug/agents/$agentId': typeof TTeamSlugAgentsAgentIdRoute
   '/t/$teamSlug/app-editor/$appSlug': typeof TTeamSlugAppEditorAppSlugRoute
   '/t/$teamSlug/apps/$appSlug': typeof TTeamSlugAppsAppSlugRouteWithChildren
+  '/t/$teamSlug/ci/$runId': typeof TTeamSlugCiRunIdRoute
   '/t/$teamSlug/drafts/$draftId': typeof TTeamSlugDraftsDraftIdRoute
   '/t/$teamSlug/issues/$identifier': typeof TTeamSlugIssuesIdentifierRoute
   '/t/$teamSlug/sessions/$sessionId': typeof TTeamSlugSessionsSessionIdRoute
@@ -1532,7 +1541,6 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/email/unsubscribe'
     | '/api/guide-uploads/$token'
-    | '/api/ecode/git/$op'
     | '/api/mcp-oauth/callback'
     | '/api/mcp-oauth/client.json'
     | '/api/mcp/apps'
@@ -1596,6 +1604,7 @@ export interface FileRouteTypes {
     | '/api/apps/$appId/files'
     | '/api/cli/install-token/redeem'
     | '/api/download/desktop/$os'
+    | '/api/ecode/git/$op'
     | '/api/issue-drafts/$draftId/files'
     | '/api/issues/$issueId/files'
     | '/api/sessions/$sessionId/files'
@@ -1604,6 +1613,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/agents/$agentId'
     | '/t/$teamSlug/app-editor/$appSlug'
     | '/t/$teamSlug/apps/$appSlug'
+    | '/t/$teamSlug/ci/$runId'
     | '/t/$teamSlug/drafts/$draftId'
     | '/t/$teamSlug/issues/$identifier'
     | '/t/$teamSlug/sessions/$sessionId'
@@ -1688,7 +1698,6 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/email/unsubscribe'
     | '/api/guide-uploads/$token'
-    | '/api/ecode/git/$op'
     | '/api/mcp-oauth/callback'
     | '/api/mcp-oauth/client.json'
     | '/api/mcp/apps'
@@ -1752,6 +1761,7 @@ export interface FileRouteTypes {
     | '/api/apps/$appId/files'
     | '/api/cli/install-token/redeem'
     | '/api/download/desktop/$os'
+    | '/api/ecode/git/$op'
     | '/api/issue-drafts/$draftId/files'
     | '/api/issues/$issueId/files'
     | '/api/sessions/$sessionId/files'
@@ -1760,6 +1770,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/agents/$agentId'
     | '/t/$teamSlug/app-editor/$appSlug'
     | '/t/$teamSlug/apps/$appSlug'
+    | '/t/$teamSlug/ci/$runId'
     | '/t/$teamSlug/drafts/$draftId'
     | '/t/$teamSlug/issues/$identifier'
     | '/t/$teamSlug/sessions/$sessionId'
@@ -1848,7 +1859,6 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/email/unsubscribe'
     | '/api/guide-uploads/$token'
-    | '/api/ecode/git/$op'
     | '/api/mcp-oauth/callback'
     | '/api/mcp-oauth/client.json'
     | '/api/mcp_/apps'
@@ -1912,6 +1922,7 @@ export interface FileRouteTypes {
     | '/api/apps/$appId/files'
     | '/api/cli/install-token/redeem'
     | '/api/download/desktop/$os'
+    | '/api/ecode/git/$op'
     | '/api/issue-drafts/$draftId/files'
     | '/api/issues/$issueId/files'
     | '/api/sessions/$sessionId/files'
@@ -1920,6 +1931,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/agents/$agentId'
     | '/t/$teamSlug/app-editor/$appSlug'
     | '/t/$teamSlug/apps/$appSlug'
+    | '/t/$teamSlug/ci/$runId'
     | '/t/$teamSlug/drafts/$draftId'
     | '/t/$teamSlug/issues/$identifier'
     | '/t/$teamSlug/sessions/$sessionId'
@@ -1998,7 +2010,6 @@ export interface RootRouteChildren {
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiEmailUnsubscribeRoute: typeof ApiEmailUnsubscribeRoute
   ApiGuideUploadsTokenRoute: typeof ApiGuideUploadsTokenRoute
-  ApiEcodeGitOpRoute: typeof ApiEcodeGitOpRoute
   ApiMcpOauthCallbackRoute: typeof ApiMcpOauthCallbackRoute
   ApiMcpOauthClientDotjsonRoute: typeof ApiMcpOauthClientDotjsonRoute
   ApiMcpAppsRoute: typeof ApiMcpAppsRoute
@@ -2054,6 +2065,7 @@ export interface RootRouteChildren {
   ApiAppsAppIdFilesRoute: typeof ApiAppsAppIdFilesRoute
   ApiCliInstallTokenRedeemRoute: typeof ApiCliInstallTokenRedeemRoute
   ApiDownloadDesktopOsRoute: typeof ApiDownloadDesktopOsRoute
+  ApiEcodeGitOpRoute: typeof ApiEcodeGitOpRoute
   ApiIssueDraftsDraftIdFilesRoute: typeof ApiIssueDraftsDraftIdFilesRoute
   ApiIssuesIssueIdFilesRoute: typeof ApiIssuesIssueIdFilesRoute
   ApiSessionsSessionIdFilesRoute: typeof ApiSessionsSessionIdFilesRoute
@@ -2364,13 +2376,6 @@ declare module '@tanstack/react-router' {
       path: '/api/guide-uploads/$token'
       fullPath: '/api/guide-uploads/$token'
       preLoaderRoute: typeof ApiGuideUploadsTokenRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/ecode/git/$op': {
-      id: '/api/ecode/git/$op'
-      path: '/api/ecode/git/$op'
-      fullPath: '/api/ecode/git/$op'
-      preLoaderRoute: typeof ApiEcodeGitOpRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/mcp-oauth/callback': {
@@ -2814,6 +2819,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiDownloadDesktopOsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/ecode/git/$op': {
+      id: '/api/ecode/git/$op'
+      path: '/api/ecode/git/$op'
+      fullPath: '/api/ecode/git/$op'
+      preLoaderRoute: typeof ApiEcodeGitOpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/issue-drafts/$draftId/files': {
       id: '/api/issue-drafts/$draftId/files'
       path: '/api/issue-drafts/$draftId/files'
@@ -2882,6 +2894,13 @@ declare module '@tanstack/react-router' {
       path: '/chats'
       fullPath: '/t/$teamSlug/chats/'
       preLoaderRoute: typeof TTeamSlugChatsIndexRouteImport
+      parentRoute: typeof TTeamSlugRouteRoute
+    }
+    '/t/$teamSlug/ci/$runId': {
+      id: '/t/$teamSlug/ci/$runId'
+      path: '/ci/$runId'
+      fullPath: '/t/$teamSlug/ci/$runId'
+      preLoaderRoute: typeof TTeamSlugCiRunIdRouteImport
       parentRoute: typeof TTeamSlugRouteRoute
     }
     '/t/$teamSlug/drafts/': {
@@ -3317,6 +3336,7 @@ interface TTeamSlugRouteRouteChildren {
   TTeamSlugAgentsAgentIdRoute: typeof TTeamSlugAgentsAgentIdRoute
   TTeamSlugAppEditorAppSlugRoute: typeof TTeamSlugAppEditorAppSlugRoute
   TTeamSlugAppsAppSlugRoute: typeof TTeamSlugAppsAppSlugRouteWithChildren
+  TTeamSlugCiRunIdRoute: typeof TTeamSlugCiRunIdRoute
   TTeamSlugDraftsDraftIdRoute: typeof TTeamSlugDraftsDraftIdRoute
   TTeamSlugIssuesIdentifierRoute: typeof TTeamSlugIssuesIdentifierRoute
   TTeamSlugSessionsSessionIdRoute: typeof TTeamSlugSessionsSessionIdRoute
@@ -3339,6 +3359,7 @@ const TTeamSlugRouteRouteChildren: TTeamSlugRouteRouteChildren = {
   TTeamSlugAgentsAgentIdRoute: TTeamSlugAgentsAgentIdRoute,
   TTeamSlugAppEditorAppSlugRoute: TTeamSlugAppEditorAppSlugRoute,
   TTeamSlugAppsAppSlugRoute: TTeamSlugAppsAppSlugRouteWithChildren,
+  TTeamSlugCiRunIdRoute: TTeamSlugCiRunIdRoute,
   TTeamSlugDraftsDraftIdRoute: TTeamSlugDraftsDraftIdRoute,
   TTeamSlugIssuesIdentifierRoute: TTeamSlugIssuesIdentifierRoute,
   TTeamSlugSessionsSessionIdRoute: TTeamSlugSessionsSessionIdRoute,
@@ -3394,7 +3415,6 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiEmailUnsubscribeRoute: ApiEmailUnsubscribeRoute,
   ApiGuideUploadsTokenRoute: ApiGuideUploadsTokenRoute,
-  ApiEcodeGitOpRoute: ApiEcodeGitOpRoute,
   ApiMcpOauthCallbackRoute: ApiMcpOauthCallbackRoute,
   ApiMcpOauthClientDotjsonRoute: ApiMcpOauthClientDotjsonRoute,
   ApiMcpAppsRoute: ApiMcpAppsRoute,
@@ -3451,6 +3471,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAppsAppIdFilesRoute: ApiAppsAppIdFilesRoute,
   ApiCliInstallTokenRedeemRoute: ApiCliInstallTokenRedeemRoute,
   ApiDownloadDesktopOsRoute: ApiDownloadDesktopOsRoute,
+  ApiEcodeGitOpRoute: ApiEcodeGitOpRoute,
   ApiIssueDraftsDraftIdFilesRoute: ApiIssueDraftsDraftIdFilesRoute,
   ApiIssuesIssueIdFilesRoute: ApiIssuesIssueIdFilesRoute,
   ApiSessionsSessionIdFilesRoute: ApiSessionsSessionIdFilesRoute,

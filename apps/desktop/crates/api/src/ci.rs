@@ -105,3 +105,97 @@ pub fn finish(trpc: &TrpcClient, job_id: &str, token: &str, conclusion: &str, st
     let out: Out = trpc.mutation("ci.finish", &Input { job_id, token, conclusion, steps })?;
     Ok(out.ok)
 }
+
+// ── people (#EXP-1804: the run page and a device's CI runner section) ────
+
+/// One read of a job's log (`ci.log`): `text` from `offset`, the offset to
+/// read from next, and whether the log is whole (the job completed and
+/// every chunk was read).
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LogRead {
+    #[serde(default)]
+    pub text: String,
+    #[serde(default)]
+    pub next_offset: u64,
+    #[serde(default)]
+    pub complete: bool,
+}
+
+/// `ci.log{jobId, offset}`: logs are never synced; the run page reads them
+/// on demand and tails a running job.
+pub fn log(trpc: &TrpcClient, job_id: &str, offset: u64) -> Result<LogRead, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        job_id: &'a str,
+        offset: u64,
+    }
+    trpc.query_with_input("ci.log", &Input { job_id, offset })
+}
+
+/// `ci.rerun{runId, failedOnly}`: the new run's id.
+pub fn rerun(trpc: &TrpcClient, run_id: &str, failed_only: bool) -> Result<String, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        run_id: &'a str,
+        failed_only: bool,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Out {
+        run_id: String,
+    }
+    let out: Out = trpc.mutation("ci.rerun", &Input { run_id, failed_only })?;
+    Ok(out.run_id)
+}
+
+/// `ci.cancel{runId}`.
+pub fn cancel(trpc: &TrpcClient, run_id: &str) -> Result<(), ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        run_id: &'a str,
+    }
+    let _: Value = trpc.mutation("ci.cancel", &Input { run_id })?;
+    Ok(())
+}
+
+/// The runner settings `ci.setRunner` writes (the whole object).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunnerSettingsInput {
+    /// The steer device id (`devices.device_id`), not the row's id.
+    pub device_id: String,
+    pub enabled: bool,
+    pub labels: Vec<String>,
+    pub slots: u32,
+    pub timeout_min: u32,
+}
+
+/// `ci.setRunner`: the device OWNER only.
+pub fn set_runner(trpc: &TrpcClient, input: &RunnerSettingsInput) -> Result<(), ApiError> {
+    let _: Value = trpc.mutation("ci.setRunner", input)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod people_tests {
+    use super::*;
+
+    #[test]
+    fn a_log_read_decodes_the_wire() {
+        let read: LogRead = serde_json::from_str(r#"{"text":"ok\n","nextOffset":3,"complete":false}"#).unwrap();
+        assert_eq!(read, LogRead { text: "ok\n".into(), next_offset: 3, complete: false });
+    }
+
+    #[test]
+    fn set_runner_sends_the_whole_object() {
+        let input = RunnerSettingsInput { device_id: "dev-1".into(), enabled: true, labels: vec!["gpu".into()], slots: 2, timeout_min: 60 };
+        assert_eq!(
+            serde_json::to_value(&input).unwrap(),
+            serde_json::json!({"deviceId": "dev-1", "enabled": true, "labels": ["gpu"], "slots": 2, "timeoutMin": 60})
+        );
+    }
+}

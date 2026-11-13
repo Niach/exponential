@@ -147,6 +147,11 @@ pub enum Screen {
     /// the app (`feedback-states`). `id` = the entry id; reachable only
     /// through `EXP_DEV_SCREEN=specimen:<id>`.
     Specimen { id: String },
+    /// #EXP-1804 (ci-run.json): one run of our own CI — the in-app target
+    /// of every check's `details_url` (`/t/<team>/ci/<runId>?job=<jobId>`,
+    /// [`crate::ci_run::CiRunView`]). `job` = the job asked for. Tab-less
+    /// full-page mode like Devices.
+    CiRun { run_id: String, job: Option<String> },
 }
 
 impl Screen {
@@ -376,6 +381,14 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
         Screen::App { app } => crate::app_screen::app_tab_title(app, cx),
         Screen::ExponentialUiSpecimen { .. } => "genUI".into(),
         Screen::Specimen { .. } => "Specimen".into(),
+        Screen::CiRun { run_id, .. } => Store::global(cx)
+            .collections()
+            .ci_runs
+            .read(cx)
+            .get(run_id)
+            .and_then(|run| run.number)
+            .map(|number| gpui::SharedString::from(domain::ci_run::run_title(number)))
+            .unwrap_or_else(|| "CI".into()),
     }
 }
 

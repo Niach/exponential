@@ -31,6 +31,7 @@ fn output(id: &str, code: &str, destructive: bool, cx: &App) -> gpui::AnyElement
             language: "ansi",
             destructive,
             copyable: true,
+            follow: false,
         },
         cx,
     )

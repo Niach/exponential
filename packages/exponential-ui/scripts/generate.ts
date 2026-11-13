@@ -1012,6 +1012,34 @@ const AVATAR_PICTURE = `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACA
 const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
   // #FEED-232: past the cap (`99+`) on the muted tone.
   CountBadge: [{ label: `count 120 · muted`, node: { id: `count_badge_capped`, component: `CountBadge`, props: { count: 120, tone: `muted` } } }],
+  // #EXP-1804: a CI job's live log: ansi, six lines tall, sticks to the bottom.
+  CodeBlock: [
+    {
+      label: `follow · a live log`,
+      node: {
+        id: `code_block_log`,
+        component: `CodeBlock`,
+        props: {
+          title: `test · bun run test`,
+          language: `ansi`,
+          maxLines: 6,
+          follow: true,
+          code: [
+            `$ bun install --frozen-lockfile`,
+            `\u001b[2mResolved 1204 packages in 812ms\u001b[0m`,
+            `$ bun run typecheck`,
+            `\u001b[32m✓\u001b[0m apps/web`,
+            `\u001b[32m✓\u001b[0m packages/db-schema`,
+            `$ bun run test`,
+            `\u001b[32m✓\u001b[0m src/lib/sessions/send.test.ts \u001b[2m(42 tests)\u001b[0m`,
+            `\u001b[32m✓\u001b[0m src/lib/emcp/gate.test.ts \u001b[2m(18 tests)\u001b[0m`,
+            `\u001b[31m✗\u001b[0m src/lib/ci/runner.test.ts \u001b[2m(1 failed)\u001b[0m`,
+            `\u001b[1mTests\u001b[0m  \u001b[32m60 passed\u001b[0m, \u001b[31m1 failed\u001b[0m`,
+          ].join(`\n`),
+        },
+      },
+    },
+  ],
   // #EXP-1760: the open grids, in a box tall enough for them (an extra:
   // the wrapper keeps its own child).
   IconPicker: [

@@ -126,6 +126,8 @@
                 <data android:pathPattern="/t/.*/sessions/.*" />
                 <!-- VAPP-218: an app screen (`/t/{team}/apps/{app}/{screen}`). -->
                 <data android:pathPattern="/t/.*/apps/.*/.*" />
+                <!-- #EXP-1804: our own CI's run page (a check's Details link). -->
+                <data android:pathPattern="/t/.*/ci/.*" />
                 <data android:pathPrefix="/invite/" />
             </intent-filter>
 

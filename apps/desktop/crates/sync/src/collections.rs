@@ -47,7 +47,7 @@ use domain::rows::{
     AgentDefRow, Attachment, Board, Comment, ComposerDraftRow, DeviceRow, DeviceWorktreeRow, Issue, IssueDraftRow,
     IssueEvent, IssueLabel, IssueRelation, IssueStatusRow, IssueSubscriber, Label, MessageRow, ConversationRow,
     Notification, Pin, PullRequestCheckRow, PullRequestIssueRow, PullRequestRow, SessionIssueRow, SessionReadRow,
-    EventRow, PromptRow, SkillRow, AppRow, AppVersionRow, AppRecordRow, SessionRow, Team, TeamInvite, TeamMember, User,
+    EventRow, PromptRow, SkillRow, CiRunRow, CiJobRow, AppRow, AppVersionRow, AppRecordRow, SessionRow, Team, TeamInvite, TeamMember, User,
 };
 
 // ---------------------------------------------------------------------------
@@ -219,6 +219,8 @@ id_shape_row!(AppRow, "apps");
 id_shape_row!(AppVersionRow, "app_versions");
 id_shape_row!(AppRecordRow, "app_records");
 id_shape_row!(SkillRow, "skills");
+id_shape_row!(CiRunRow, "ci_runs");
+id_shape_row!(CiJobRow, "ci_jobs");
 
 /// EXP-1459: the three shapes that carry sealed content.
 macro_rules! sealed_shape_row {
@@ -696,6 +698,11 @@ pub struct Collections {
     pub app_records: Entity<Collection<AppRecordRow>>,
     /// #EXP-1656 the team's skills, body-less (the 34th shape).
     pub skills: Entity<Collection<SkillRow>>,
+    /// #EXP-1804 our own CI's runs (the 36th shape): the run page.
+    pub ci_runs: Entity<Collection<CiRunRow>>,
+    /// #EXP-1804 the runs' jobs (the 37th shape): the run page and a
+    /// device's CI runner section (its recent jobs).
+    pub ci_jobs: Entity<Collection<CiJobRow>>,
     /// #PERF-9: the heavy shapes ([`HYDRATE_OFF_MAIN`]) whose startup
     /// hydrate is still being read off the main thread; a delta of one waits
     /// for its install ([`Self::hydrated`]). Disconnects = installed.
@@ -780,6 +787,10 @@ macro_rules! for_each_collection {
         $body;
         let $entity = &$collections.skills;
         $body;
+        let $entity = &$collections.ci_runs;
+        $body;
+        let $entity = &$collections.ci_jobs;
+        $body;
     }};
 }
 
@@ -821,6 +832,8 @@ impl Collections {
             app_versions: cx.new(|_| Collection::new()),
             app_records: cx.new(|_| Collection::new()),
             skills: cx.new(|_| Collection::new()),
+            ci_runs: cx.new(|_| Collection::new()),
+            ci_jobs: cx.new(|_| Collection::new()),
             hydrating: Arc::default(),
             generation: Arc::default(),
         }
@@ -928,6 +941,8 @@ impl Collections {
             "app_versions" => prepare_for(|c| &c.app_versions, keys, full_replace, up_to_date, sqlite),
             "app_records" => prepare_for(|c| &c.app_records, keys, full_replace, up_to_date, sqlite),
             "skills" => prepare_for(|c| &c.skills, keys, full_replace, up_to_date, sqlite),
+            "ci_runs" => prepare_for(|c| &c.ci_runs, keys, full_replace, up_to_date, sqlite),
+            "ci_jobs" => prepare_for(|c| &c.ci_jobs, keys, full_replace, up_to_date, sqlite),
             other => {
                 log::warn!("[sync] delta for unknown shape {other}");
                 None
@@ -2049,6 +2064,8 @@ mod tests {
             AppVersionRow::spec().name,
             AppRecordRow::spec().name,
             SkillRow::spec().name,
+            CiRunRow::spec().name,
+            CiJobRow::spec().name,
         ];
         let registry: Vec<&str> = crate::shapes::SHAPES.iter().map(|s| s.name).collect();
         assert_eq!(bound.len(), registry.len());

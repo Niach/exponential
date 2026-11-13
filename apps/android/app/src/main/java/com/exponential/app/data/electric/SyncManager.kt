@@ -36,6 +36,8 @@ import com.exponential.app.data.db.ComposerDraftEntity
 import com.exponential.app.data.db.PinEntity
 import com.exponential.app.data.db.MessageEntity
 import com.exponential.app.data.db.PullRequestCheckEntity
+import com.exponential.app.data.db.CiJobEntity
+import com.exponential.app.data.db.CiRunEntity
 import com.exponential.app.data.db.PullRequestEntity
 import com.exponential.app.data.db.PullRequestIssueEntity
 import com.exponential.app.data.db.SessionEntity
@@ -433,6 +435,8 @@ class SyncManager @Inject constructor(
         val pullRequestDao = db.pullRequestDao()
         val pullRequestIssueDao = db.pullRequestIssueDao()
         val pullRequestCheckDao = db.pullRequestCheckDao()
+        val ciRunDao = db.ciRunDao()
+        val ciJobDao = db.ciJobDao()
         val sessionReadDao = db.sessionReadDao()
         val agentDefinitionDao = db.agentDefinitionDao()
         val eventDao = db.eventDao()
@@ -691,6 +695,27 @@ class SyncManager @Inject constructor(
                 onInsert = { pullRequestCheckDao.upsert(it) },
                 onDelete = { pullRequestCheckDao.deleteById(it.id) },
                 onRefetch = { pullRequestCheckDao.clear() },
+            ),
+            // #EXP-1617 / #EXP-1804: our own CI's runs and jobs (the run page,
+            // a runner's recent jobs), member-only by team. Optional like
+            // composer_drafts: a server without the shapes 404s here alone.
+            launchShape(
+                shape = "ci_runs", path = "/api/shapes/ci-runs", tableName = "ci_runs",
+                serializer = CiRunEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("ci_runs", optional = true),
+                onInsert = { ciRunDao.upsert(it) },
+                onDelete = { ciRunDao.deleteById(it.id) },
+                onRefetch = { ciRunDao.clear() },
+            ),
+            launchShape(
+                shape = "ci_jobs", path = "/api/shapes/ci-jobs", tableName = "ci_jobs",
+                serializer = CiJobEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("ci_jobs", optional = true),
+                onInsert = { ciJobDao.upsert(it) },
+                onDelete = { ciJobDao.deleteById(it.id) },
+                onRefetch = { ciJobDao.clear() },
             ),
             // EXP-1323: the viewer's read marks — static per user like pins.
             launchShape(

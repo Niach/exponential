@@ -2243,6 +2243,11 @@
           "type": "number",
           "description": "Lines before it scrolls."
         },
+        "follow": {
+          "type": "boolean",
+          "default": false,
+          "description": "Sticks to the bottom while the code grows (a live log)."
+        },
         "variant": {
           "type": "enum",
           "enum": "codeBlockVariant",

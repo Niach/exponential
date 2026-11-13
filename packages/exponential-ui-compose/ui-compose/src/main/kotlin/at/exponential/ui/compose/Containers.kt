@@ -24,6 +24,9 @@ import at.exponential.ui.theme.PaintStyle
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * A container's content: its visible children nested at their frames
@@ -84,13 +87,25 @@ internal fun ScrollContainer(node: NodeInfo, model: SurfaceModel, size: Size, ki
     val density = LocalDensity.current.density
     val id = node.id
     LaunchedEffect(id, sx, sy, density) {
-        snapshotFlow { sx.value to sy.value }.collect { (x, y) -> model.scrollTo(id, x / density, y / density, fromView = true) }
+        // Only MOVES report: the scrollers' first value is where they start
+        // (0, 0), not a scroll (#EXP-1804: it would unpin a `follow` CodeBlock
+        // the core already put at its bottom).
+        snapshotFlow { sx.value to sy.value }.drop(1).collect { (x, y) -> model.scrollTo(id, x / density, y / density, fromView = true) }
     }
     LaunchedEffect(scroll.offsetX, scroll.offsetY, model.scrollEpoch, density) {
         val ty = (scroll.offsetY * density).roundToInt()
         val tx = (scroll.offsetX * density).roundToInt()
-        if (scroll.scrollY && abs(sy.value - ty) > 1) sy.scrollTo(ty)
-        if (scroll.scrollX && abs(sx.value - tx) > 1) sx.scrollTo(tx)
+        // #EXP-1804: an offset past the scroller's current end (the content
+        // just grew: a `follow` CodeBlock's new bottom) waits for the measure
+        // that makes room, else the scroller clamps it short and reports that.
+        if (scroll.scrollY && abs(sy.value - ty) > 1) {
+            if (sy.maxValue < ty) withTimeoutOrNull(500) { snapshotFlow { sy.maxValue }.first { it >= ty } }
+            sy.scrollTo(ty)
+        }
+        if (scroll.scrollX && abs(sx.value - tx) > 1) {
+            if (sx.maxValue < tx) withTimeoutOrNull(500) { snapshotFlow { sx.maxValue }.first { it >= tx } }
+            sx.scrollTo(tx)
+        }
     }
     // EXP-1495: a Carousel's thumbnail strip keeps the current page's thumbnail in view.
     if (scroll.scrollX) ThumbnailStripFollow(node, model, sx, size)

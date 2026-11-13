@@ -92,6 +92,7 @@ import com.exponential.app.ui.markdown.MentionMember
 import com.exponential.app.ui.markdown.MentionResolver
 import com.exponential.app.ui.markdown.ProvideMarkdownToolbar
 import com.exponential.app.ui.markdown.rememberAppLinkHandler
+import com.exponential.app.ui.markdown.openHref
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.work.MergeStatusPill
 import com.exponential.app.ui.work.NeedsApprovalConfirm
@@ -346,7 +347,18 @@ fun ChatScreen(
     // #EXP-1710 (merge-train.json MENU, `mergeMenuEntries`): checks, Merge
     // now (owners, the `merge-now-pr` alert), Hold | Resume auto-merge
     // (members), Close PR.
-    val guideChecksItem = prChecksMenuItem(guideChecks, checksNow) { url -> runCatching { uriHandler.openUri(url) } }
+    // #EXP-1674: links in a chat's prose open like everywhere else.
+    val appLinkHandler = rememberAppLinkHandler(root?.teamId)
+    // #EXP-1804 (ci-run.json): our own CI's Details link opens THE run page
+    // in the app; any other check's logs open in the browser.
+    val guideChecksItem = prChecksMenuItem(guideChecks, checksNow) { url ->
+        val links = appLinkHandler
+        if (links != null && com.exponential.app.domain.isCiRunLink(url, links.origin)) {
+            links.openHref(url)
+        } else {
+            runCatching { uriHandler.openUri(url) }
+        }
+    }
     val guideMenuItems = guidePr?.let { pr ->
         com.exponential.app.domain.MergeTrain.mergeMenuEntries(
             state = pr.state,
@@ -574,8 +586,8 @@ fun ChatScreen(
         MentionResolver(teamUsers.map { MentionMember(it.name ?: it.email, it.email) })
     }
 
-    // #EXP-1674: links in a chat's prose open like everywhere else.
-    val appLinkHandler = rememberAppLinkHandler(root?.teamId)
+    // #EXP-1674: links in a chat's prose open like everywhere else
+    // (declared above, with the Checks submenu).
     val hazeState = rememberHazeState()
     val titleCollapse = remember { TitleCollapseState() }
     ProvideMarkdownToolbar {

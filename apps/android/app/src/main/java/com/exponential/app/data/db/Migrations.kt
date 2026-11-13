@@ -348,3 +348,36 @@ val MIGRATION_123_124: Migration = object : Migration(123, 124) {
         db.execSQL("CREATE INDEX IF NOT EXISTS `index_composer_drafts_key` ON `composer_drafts` (`key`)")
     }
 }
+
+// v125 (#EXP-1617 / #EXP-1804, ci-run.json + runner-settings.json):
+// `devices.runner` (the owner's CI runner settings) and the `ci_runs` +
+// `ci_jobs` tables (our own CI's run page). The devices shape refetches so
+// synced rows re-arrive with the column; the two new shapes start fresh.
+val MIGRATION_124_125: Migration = object : Migration(124, 125) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `devices` ADD COLUMN `runner` TEXT")
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `ci_runs` (`id` TEXT NOT NULL, `team_id` TEXT NOT NULL, " +
+                "`repository_id` TEXT NOT NULL, `number` INTEGER, `name` TEXT NOT NULL, `sha` TEXT NOT NULL, " +
+                "`ref` TEXT, `trigger` TEXT NOT NULL, `pull_request_id` TEXT, `state` TEXT NOT NULL, " +
+                "`error` TEXT, `rerun_of` TEXT, `created_by_user_id` TEXT, `started_at` TEXT, " +
+                "`completed_at` TEXT, `created_at` TEXT NOT NULL, `updated_at` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_ci_runs_team_id` ON `ci_runs` (`team_id`)")
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `ci_jobs` (`id` TEXT NOT NULL, `team_id` TEXT NOT NULL, " +
+                "`run_id` TEXT NOT NULL, `key` TEXT NOT NULL, `check` TEXT NOT NULL, `position` INTEGER, " +
+                "`runs_on` TEXT, `needs` TEXT, `matrix` TEXT, `timeout_min` INTEGER, `status` TEXT NOT NULL, " +
+                "`conclusion` TEXT, `reason` TEXT, `runner_device_id` TEXT, `steps` TEXT, `log_key` TEXT, " +
+                "`log_bytes` INTEGER, `queued_at` TEXT, `started_at` TEXT, `completed_at` TEXT, " +
+                "`created_at` TEXT NOT NULL, `updated_at` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_ci_jobs_run_id` ON `ci_jobs` (`run_id`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_ci_jobs_team_id` ON `ci_jobs` (`team_id`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_ci_jobs_runner_device_id` ON `ci_jobs` (`runner_device_id`)")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'devices'",
+        )
+    }
+}

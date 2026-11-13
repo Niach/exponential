@@ -1,4 +1,4 @@
-//! The 35 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
+//! The 37 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
 //! iterates and the store builds its schema from. gpui-free.
 //!
 //! Each [`ShapeSpec`] carries the SQLite table name, the kebab-case proxy URL
@@ -88,12 +88,13 @@ impl ShapeSpec {
     }
 }
 
-/// The 35 shapes, in §5.9 order (#EXP-1656 appended `skills`; #FEED-219
-/// added `composer_drafts` after `issue_drafts`). Column sets mirror `packages/db-schema`
+/// The 37 shapes, in §5.9 order (#EXP-1656 appended `skills`; #FEED-219
+/// added `composer_drafts` after `issue_drafts`; #EXP-1804 appended
+/// `ci_runs` + `ci_jobs`). Column sets mirror `packages/db-schema`
 /// (minus the §5.4 exclusions: no `email` on `issue_subscribers`, web-only
 /// billing fields dropped from `users`, no `body` on `actions`, no scoping
 /// mirrors on `device_worktrees`).
-pub const SHAPES: [ShapeSpec; 35] = [
+pub const SHAPES: [ShapeSpec; 37] = [
     ShapeSpec {
         name: "teams",
         path: "/api/shapes/teams",
@@ -700,6 +701,9 @@ pub const SHAPES: [ShapeSpec; 35] = [
             // "no default" — fixed with the EXP-484 columns.
             "is_default",
             "update_requested_at",
+            // #EXP-1617: the CI runner settings ({enabled, labels, slots,
+            // timeoutMin}, NULL = not a runner); healed onto old stores.
+            "runner",
             "created_at",
             "updated_at",
         ],
@@ -955,10 +959,69 @@ pub const SHAPES: [ShapeSpec; 35] = [
         columns: &["id", "team_id", "name", "description", "enabled_by_default", "builtin", "created_by_id", "created_at", "updated_at"],
         pk: PkKind::Id,
     },
+    ShapeSpec {
+        name: "ci_runs",
+        path: "/api/shapes/ci-runs",
+        // #EXP-1617 / #EXP-1804: our own CI's runs (the run page), member-
+        // only by `team_id`. Byte-matches the proxy's CI_RUN_COLUMNS.
+        columns: &[
+            "id",
+            "team_id",
+            "repository_id",
+            "number",
+            "name",
+            "sha",
+            "ref",
+            "trigger",
+            "pull_request_id",
+            "state",
+            "error",
+            "rerun_of",
+            "created_by_user_id",
+            "started_at",
+            "completed_at",
+            "created_at",
+            "updated_at",
+        ],
+        pk: PkKind::Id,
+    },
+    ShapeSpec {
+        name: "ci_jobs",
+        path: "/api/shapes/ci-jobs",
+        // #EXP-1617 / #EXP-1804: a run's jobs. Byte-matches the proxy's
+        // CI_JOB_COLUMNS: `spec`, the job token's hash, the dispatch/beat
+        // stamps and the log chunk index stay server-side; the log itself
+        // is read on demand (`ci.log`).
+        columns: &[
+            "id",
+            "team_id",
+            "run_id",
+            "key",
+            "check",
+            "position",
+            "runs_on",
+            "needs",
+            "matrix",
+            "timeout_min",
+            "status",
+            "conclusion",
+            "reason",
+            "runner_device_id",
+            "steps",
+            "log_key",
+            "log_bytes",
+            "queued_at",
+            "started_at",
+            "completed_at",
+            "created_at",
+            "updated_at",
+        ],
+        pk: PkKind::Id,
+    },
 ];
 
 /// Shapes a server older than this build may not serve (#FEED-219).
-pub const MAY_BE_ABSENT: &[&str] = &["composer_drafts"];
+pub const MAY_BE_ABSENT: &[&str] = &["composer_drafts", "ci_runs", "ci_jobs"];
 
 /// Look a shape up by its table name.
 pub fn shape_by_name(name: &str) -> Option<&'static ShapeSpec> {
@@ -971,7 +1034,7 @@ mod tests {
 
     #[test]
     fn registry_has_34_shapes_with_kebab_paths() {
-        assert_eq!(SHAPES.len(), 35);
+        assert_eq!(SHAPES.len(), 37);
         for spec in &SHAPES {
             assert!(spec.path.starts_with("/api/shapes/"), "{}", spec.name);
             assert!(!spec.path.contains('_'), "paths are kebab-case: {}", spec.path);
@@ -990,6 +1053,37 @@ mod tests {
             1,
             "issue_labels is the only composite-PK shape"
         );
+    }
+
+    /// #EXP-1804: the CI shapes byte-match the proxies' CI_RUN_COLUMNS /
+    /// CI_JOB_COLUMNS (`spec` and the token hash never sync), devices carry
+    /// `runner`, and an older server's 404 parks them.
+    #[test]
+    fn ci_shapes_match_the_proxies() {
+        let read = |file: &str| {
+            std::fs::read_to_string(format!("{}/../../../web/src/routes/api/shapes/{file}", env!("CARGO_MANIFEST_DIR")))
+                .expect("the proxy")
+        };
+        let allowlist = |source: &str, constant: &str| -> Vec<String> {
+            let start = source.find(&format!("export const {constant} = [")).expect("the constant");
+            let body = &source[start..];
+            let body = &body[body.find('[').unwrap() + 1..body.find(']').unwrap()];
+            body.split(',')
+                .map(|item| item.trim().trim_matches('`').to_string())
+                .filter(|item| !item.is_empty())
+                .collect()
+        };
+        for (name, file, constant) in [("ci_runs", "ci-runs.ts", "CI_RUN_COLUMNS"), ("ci_jobs", "ci-jobs.ts", "CI_JOB_COLUMNS")] {
+            let spec = shape_by_name(name).unwrap();
+            assert_eq!(spec.pk, PkKind::Id);
+            assert!(spec.may_be_absent(), "{name}");
+            let columns: Vec<String> = spec.columns.iter().map(|c| c.to_string()).collect();
+            assert_eq!(columns, allowlist(&read(file), constant), "{name}");
+        }
+        let jobs = shape_by_name("ci_jobs").unwrap();
+        assert!(!jobs.columns.contains(&"spec"));
+        assert!(!jobs.columns.contains(&"job_token_hash"));
+        assert!(shape_by_name("devices").unwrap().columns.contains(&"runner"));
     }
 
     /// EXP-824: the attachments column list is the server's allowlist byte
@@ -1280,6 +1374,7 @@ mod tests {
                 "shared_team_ids",
                 "is_default",
                 "update_requested_at",
+                "runner",
                 "created_at",
                 "updated_at",
             ]

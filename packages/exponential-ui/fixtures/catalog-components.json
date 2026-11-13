@@ -2856,6 +2856,32 @@
       }
     },
     {
+      "name": "CodeBlock/follow=true",
+      "node": {
+        "id": "code_block",
+        "component": "CodeBlock",
+        "props": {
+          "code": "const answer = 42 // the answer",
+          "language": "ts",
+          "lineNumbers": true,
+          "follow": true
+        }
+      }
+    },
+    {
+      "name": "CodeBlock/follow=false",
+      "node": {
+        "id": "code_block",
+        "component": "CodeBlock",
+        "props": {
+          "code": "const answer = 42 // the answer",
+          "language": "ts",
+          "lineNumbers": true,
+          "follow": false
+        }
+      }
+    },
+    {
       "name": "CodeBlock/variant=default",
       "node": {
         "id": "code_block",

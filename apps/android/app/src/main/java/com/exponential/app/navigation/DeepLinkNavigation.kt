@@ -181,5 +181,6 @@ fun NavHostController.openLinkDestination(destination: LinkDestination, uri: Uri
         LinkDestination.AppsList -> selectTab(MainTabs.APPS, tabSwitch, restore = false)
         is LinkDestination.AppRun -> navigate(Routes.appRun(destination.appId))
         is LinkDestination.AppScreen -> navigate(Routes.appScreen(destination.appId, destination.screen, destination.params))
+        is LinkDestination.CiRun -> navigate(Routes.ciRun(destination.runId, query("job")))
     }
 }

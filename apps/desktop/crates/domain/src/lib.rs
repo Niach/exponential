@@ -186,6 +186,8 @@ pub mod results_tab;
 pub mod placeholder_status;
 // #EXP-1611: CI on the chat's PR (Merge pill, Checks submenu), fixture-locked ×4.
 pub mod pr_checks;
+// #EXP-1804: the CI run page and a device's CI runner section, fixture-locked ×4.
+pub mod ci_run;
 pub mod pr_graph;
 pub mod pr_stack;
 // EXP-1230: every confirm/choice prompt's words + roles, fixture-locked ×4.

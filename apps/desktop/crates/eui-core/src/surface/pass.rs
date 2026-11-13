@@ -959,6 +959,18 @@ impl Surface {
                     }
                 }
             }
+            // #EXP-1804: a following container (a `follow` CodeBlock's body)
+            // sits at its bottom unless the person scrolled up from it.
+            let follows = sy && own_y && self.nodes[i as usize].props.get("follow") == Some(&serde_json::Value::Bool(true)) && !self.local.unfollowed.contains(&id);
+            let oy = if follows {
+                let bottom = (content_h - f.h).max(0.0);
+                if (oy - bottom).abs() > 0.01 {
+                    self.local.scroll.insert(id.clone(), (ox, bottom));
+                }
+                bottom
+            } else {
+                oy
+            };
             scrolls.push(ScrollOutput { index: i, offset_x: ox, offset_y: oy, content_width: content_w, content_height: content_h, scroll_x: sx, scroll_y: sy });
         }
         // Windowed lists (round 2): remember the items' real extents on the

@@ -77,6 +77,7 @@ import {
   modelChoices,
 } from "@/components/launch-dialog/launch-options-pane"
 import { requestAgentLogin } from "@/components/agent-login-dialog"
+import { RunnerSection } from "@/components/ci/runner-section"
 
 const RemoveIcon = conceptIcon(`ui-delete`)
 const OfflineIcon = conceptIcon(`ui-device-offline`)
@@ -945,6 +946,15 @@ export function DeviceSettingsDialog({
                 patchDraft({ autoRotateAccounts: value })
               }
             />
+            {/* ── CI runner (#EXP-1617, runner-settings.json): the switch,
+                labels, parallel jobs, timeout and the recent jobs; this
+                dialog only opens on the viewer's own devices. */}
+            {row && (
+              <RunnerSection
+                device={{ id: row.id, deviceId: row.deviceId, platform: row.platform ?? null, caps: row.caps ?? null, runner: row.runner ?? null }}
+                owner
+              />
+            )}
             {/* ── Update: the daemon row (server devices only — desktop apps
                 update themselves, EXP-420/FEED-36) plus one row per agent CLI
                 the machine reports, each with its own remote self-update. */}

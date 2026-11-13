@@ -6521,6 +6521,7 @@ impl SteerSessionView {
                     language: if kind == "execute" { "ansi" } else { "plain" },
                     destructive,
                     copyable: true,
+                    follow: false,
                 },
                 cx,
             )

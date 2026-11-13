@@ -852,6 +852,48 @@ interface PullRequestCheckDao {
     suspend fun clear()
 }
 
+// #EXP-1617 / #EXP-1804: our own CI's runs (the run page).
+@Dao
+interface CiRunDao {
+    @Query("SELECT * FROM ci_runs WHERE id = :id LIMIT 1")
+    fun observeById(id: String): Flow<CiRunEntity?>
+
+    @Query("SELECT * FROM ci_runs WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): CiRunEntity?
+
+    @Query("SELECT * FROM ci_runs WHERE id IN (:ids)")
+    fun observeByIds(ids: List<String>): Flow<List<CiRunEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: CiRunEntity)
+
+    @Query("DELETE FROM ci_runs WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM ci_runs")
+    suspend fun clear()
+}
+
+// #EXP-1617 / #EXP-1804: the jobs of every run (the run page, a runner's
+// recent jobs).
+@Dao
+interface CiJobDao {
+    @Query("SELECT * FROM ci_jobs WHERE run_id = :runId ORDER BY position, id")
+    fun observeByRun(runId: String): Flow<List<CiJobEntity>>
+
+    @Query("SELECT * FROM ci_jobs WHERE runner_device_id = :deviceRowId ORDER BY started_at DESC LIMIT :limit")
+    fun observeByRunner(deviceRowId: String, limit: Int): Flow<List<CiJobEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: CiJobEntity)
+
+    @Query("DELETE FROM ci_jobs WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM ci_jobs")
+    suspend fun clear()
+}
+
 // EXP-1291: which issues a PR closes.
 @Dao
 interface PullRequestIssueDao {

@@ -478,8 +478,11 @@ fun DeviceSettingsSheet(
                         editDraft(agentTab) { it.copy(autoRotateAccounts = next) }
                     },
                 )
+                // ── CI runner (#EXP-1617 / #EXP-1804, runner-settings.json) ─
+                Spacer(Modifier.height(16.dp))
+                com.exponential.app.ui.ci.RunnerSettingsSection(device = device, modifier = Modifier.padding(horizontal = 16.dp))
                 // Whatever follows (Update, else Remove) opens with its own
-                // 8dp gap — the card needs no second one.
+                // 8dp gap — the section needs no second one.
 
                 // ── Update (server daemons only) ─────────────────────────
                 // Self-update is a SERVER capability: the desktop app updates
