@@ -1273,6 +1273,8 @@ public struct MarkdownBlockBox: Equatable, Sendable {
     public var rows: [CGFloat]
     /// #VAPP-258: an image / video box's width (nil = the full width).
     public var width: CGFloat? = nil
+    /// #FEED-224: tables: each column's CONTENT width (`Markdown.tableColumns`).
+    public var cols: [CGFloat] = []
 }
 
 public struct MarkdownLayout: Equatable, Sendable {
@@ -1291,6 +1293,7 @@ public extension Markdown {
             let spec = s.spec(of: b.kind)
             var rows: [CGFloat] = []
             var boxWidth: CGFloat? = nil
+            var cols: [CGFloat] = []
             let height: CGFloat
             switch b.kind {
             case .paragraph, .heading:
@@ -1312,18 +1315,18 @@ public extension Markdown {
                 if type == .video { boxWidth = box.width }
                 height = box.height
             case let .table(header, trs):
-                let cols = max(header.count, trs.map(\.count).max() ?? 0, 1)
-                let cellW = max(width / CGFloat(cols) - 2 * s.cellPadH, 1)
+                // #FEED-224: each column its fitted width, not an equal share.
+                cols = tableColumns(header: header, rows: trs, s, width: width, text: text)
                 // #EXP-1728: the header row wraps in the semibold it paints in.
                 var head = s.body
                 head.weight = max(head.weight, 600)
                 for (r, row) in ([header] + trs).enumerated() {
-                    let h = row.map { text.height($0, r == 0 ? head : s.body, width: cellW) }.reduce(s.body.lineHeight, max)
+                    let h = row.enumerated().map { c, cell in text.height(cell, r == 0 ? head : s.body, width: max(c < cols.count ? cols[c] : 1, 1)) }.reduce(s.body.lineHeight, max)
                     rows.append(h + 2 * s.cellPadV + 1)
                 }
                 height = rows.reduce(0, +) + 1
             }
-            out.append(MarkdownBlockBox(y: y, height: height, rows: rows, width: boxWidth))
+            out.append(MarkdownBlockBox(y: y, height: height, rows: rows, width: boxWidth, cols: cols))
             y += height
         }
         return MarkdownLayout(blocks: out, height: y)
@@ -1351,11 +1354,42 @@ public extension Markdown {
                 return (first.text.components(separatedBy: "\n").map { text.width([MarkdownInline(text: $0, code: true, fenced: true)], spec) }.max() ?? 0) + 2 * (s.codePad + s.codeBorder)
             case .rule: return 0
             case let .table(header, rows):
-                let cols = CGFloat(max(header.count, 1))
-                let widest = ([header] + rows).flatMap { $0 }.map { text.width($0, s.body) }.max() ?? 0
-                return cols * (widest + 2 * s.cellPadH)
+                // #FEED-224: every column on one line.
+                return tableWidth(tableColumns(header: header, rows: rows, s, width: .infinity, text: text), s)
             }
         }.max().map { ceil($0) } ?? 0
+    }
+
+    /// A table's column count.
+    static func tableColumnCount(header: [[MarkdownInline]], rows: [[[MarkdownInline]]]) -> Int {
+        max(header.count, rows.map(\.count).max() ?? 0, 1)
+    }
+
+    /// #FEED-224 (`fixtures/table-fit.json`): each column's CONTENT width in
+    /// a box `width` wide (whole px): each column's min (its widest
+    /// unbreakable piece, a chip whole) and max (its widest cell on one
+    /// line), over the header in its semibold and the body, through
+    /// `MarkdownTableFit`; the cells' horizontal paddings come off the box
+    /// (no vertical borders).
+    static func tableColumns(header: [[MarkdownInline]], rows: [[[MarkdownInline]]], _ s: MarkdownStyles, width: CGFloat, text: MarkdownTextMeasure) -> [CGFloat] {
+        let n = tableColumnCount(header: header, rows: rows)
+        var head = s.body
+        head.weight = max(head.weight, 600)
+        var fit = Array(repeating: MarkdownTableFit.Column(min: 0, max: 0), count: n)
+        for (r, row) in ([header] + rows).enumerated() {
+            for (c, cell) in row.enumerated() where c < n && !cell.allSatisfy({ $0.text.isEmpty }) {
+                let spec = r == 0 ? head : s.body
+                fit[c].min = max(fit[c].min, Double(text.widestWord(cell, spec)))
+                fit[c].max = max(fit[c].max, Double(text.width(cell, spec)))
+            }
+        }
+        let available = Double(width) - Double(n) * 2 * Double(s.cellPadH)
+        return MarkdownTableFit.fit(fit, available: available).map { CGFloat($0) }
+    }
+
+    /// #FEED-224: a table's painted width from its column content widths.
+    static func tableWidth(_ cols: [CGFloat], _ s: MarkdownStyles) -> CGFloat {
+        cols.reduce(0) { $0 + $1 + 2 * s.cellPadH }
     }
 
     /// Min-content width: the widest word (code blocks never wrap).

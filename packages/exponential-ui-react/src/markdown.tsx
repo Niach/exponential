@@ -18,7 +18,7 @@
 // classifies is the Video / AudioPlayer native or the FileUpload file row.
 
 import { Fragment, createContext, createElement, memo, useContext, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from "react"
-import { linkedMarkdown, linkHref, markdownChipOverlay, markdownPartAttrs, markdownProfileHost, loadedImageSize, markdownCodeLines, markdownImageCap, markdownImageSizeOf, markdownImageStyle, mediaRequestOf, rememberImageSize, parseMarkdown, partClass, propAttribute, type MarkdownBlock, type MarkdownChip, type MarkdownInline, type MarkdownList } from "@exponential_app/eui/web"
+import { MARKDOWN_CELL_TEXT, watchMarkdownTable, linkedMarkdown, linkHref, markdownChipOverlay, markdownPartAttrs, markdownProfileHost, loadedImageSize, markdownCodeLines, markdownImageCap, markdownImageSizeOf, markdownImageStyle, mediaRequestOf, rememberImageSize, parseMarkdown, partClass, propAttribute, type MarkdownBlock, type MarkdownChip, type MarkdownInline, type MarkdownList } from "@exponential_app/eui/web"
 import type { MarkdownVariant } from "@exponential_app/eui/web"
 import type { ResolvedTheme, UiNode } from "@exponential_app/eui"
 import { SurfaceContext } from "./context"
@@ -225,6 +225,9 @@ function codeRuns(b: { lang?: string; text: string }, scope: string): ReactNode 
   ])
 }
 
+/** #FEED-224: a table scroller's fit, kept while it is mounted. */
+const tableRef = (el: HTMLDivElement | null) => (el ? watchMarkdownTable(el) : undefined)
+
 function block(b: MarkdownBlock, host: HostPlugin, key: number, scope: string, id: string): ReactNode {
   switch (b.type) {
     case `paragraph`:
@@ -242,11 +245,14 @@ function block(b: MarkdownBlock, host: HostPlugin, key: number, scope: string, i
     case `list`:
       return renderList(b.list, host, key, scope)
     case `table`:
+      // #FEED-224: the columns fit by fixtures/table-fit.json (web/table-fit.ts).
       return (
-        <table key={key} {...mdPart(host, scope, `table`)}>
-          <thead><tr>{b.head.map((h, c) => <th key={c} {...mdPart(host, scope, `headerCell`)} style={b.align[c] ? { textAlign: b.align[c] } : undefined}>{inline(h, host, scope)}</th>)}</tr></thead>
-          <tbody>{b.rows.map((r, ri) => <tr key={ri}>{r.map((cell, c) => <td key={c} {...mdPart(host, scope, `cell`)} style={b.align[c] ? { textAlign: b.align[c] } : undefined}>{inline(cell, host, scope)}</td>)}</tr>)}</tbody>
-        </table>
+        <div key={key} className="xui-Markdown-tableScroll" ref={tableRef}>
+          <table {...mdPart(host, scope, `table`)}>
+            <thead><tr>{b.head.map((h, c) => <th key={c} {...mdPart(host, scope, `headerCell`)} style={b.align[c] ? { textAlign: b.align[c] } : undefined}><div className={MARKDOWN_CELL_TEXT}>{inline(h, host, scope)}</div></th>)}</tr></thead>
+            <tbody>{b.rows.map((r, ri) => <tr key={ri}>{r.map((cell, c) => <td key={c} {...mdPart(host, scope, `cell`)} style={b.align[c] ? { textAlign: b.align[c] } : undefined}><div className={MARKDOWN_CELL_TEXT}>{inline(cell, host, scope)}</div></td>)}</tr>)}</tbody>
+          </table>
+        </div>
       )
     case `rule`:
       return <hr key={key} />

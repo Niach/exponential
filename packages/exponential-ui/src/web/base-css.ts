@@ -407,7 +407,9 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Markdown-codeBlock .xui-CodeBlock-token{font:inherit !important;letter-spacing:inherit !important;padding:0 !important;margin:0 !important;border:0 !important;background:none !important}
 .xui-Markdown-quote{margin:0 0 var(--xui-spacing-sm);padding-inline-start:var(--xui-spacing-md);border-inline-start:2px solid var(--xui-color-border);color:var(--xui-color-mutedForeground)}
 .xui-Markdown-link{color:var(--xui-color-primary);text-decoration:underline;text-underline-offset:3px}
-.xui-Markdown-table{border-collapse:collapse;margin:0 0 var(--xui-spacing-sm);width:100%}
+.xui-Markdown-tableScroll{display:block;max-width:100%;overflow-x:auto;margin:0 0 var(--xui-spacing-sm)}
+.xui-Markdown-table{border-collapse:collapse;margin:0}
+.xui-Markdown-cellText{overflow-wrap:break-word}
 .xui-Markdown-table th,.xui-Markdown-table td{border:1px solid var(--xui-color-border);padding:var(--xui-spacing-xs) var(--xui-spacing-sm);text-align:start}
 .xui-Markdown-image{height:160px;margin:0 0 var(--xui-spacing-sm);overflow:hidden}
 .xui-Markdown-image>img{display:block;width:100%;height:100%;object-fit:contain;object-position:0 0}
