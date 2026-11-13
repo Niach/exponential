@@ -150,6 +150,12 @@ export const pgEcodeHost: EcodeHost = {
         .set({ body: pr.body })
         .where(and(eq(pullRequests.repositoryId, repo.id), eq(pullRequests.number, pr.number)))
     }
+    // #EXP-1617: our CI on the new PR's head (GitHub's `opened` trigger).
+    const sha = (await pgEcodeHost.branches(repo))[pr.head]
+    if (sha) {
+      const { onEcodePullRequestOpened } = await import(`@/lib/ci/triggers`)
+      onEcodePullRequestOpened({ repositoryId: repo.id, number: pr.number, head: pr.head, base: pr.base, sha })
+    }
   },
 
   async annotate(repo, number, patch) {
@@ -190,6 +196,9 @@ export const pgEcodeHost: EcodeHost = {
           // GitHub's `push` webhook: the session on that branch gets the credit.
           const { attributePush } = await import(`@/lib/sessions/push-attribution`)
           await attributePush({ fullName: repo.fullName, branch: event.branch }).catch(() => null)
+          // #EXP-1617: and our CI plans its runs (fire and forget).
+          const { onEcodePush } = await import(`@/lib/ci/triggers`)
+          onEcodePush({ repositoryId: repo.id, branch: event.branch, sha: event.sha })
           break
         }
         // `pr_opened` was recorded by `recordOpened`.
