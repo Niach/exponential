@@ -9,7 +9,9 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.bodyAsText
+import io.ktor.utils.io.jvm.javaio.toInputStream
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.isSuccess
 import kotlinx.io.IOException
@@ -30,6 +32,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.decodeToSequence
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlin.coroutines.coroutineContext
@@ -145,8 +148,10 @@ class ShapeClient<T : Any>(
     private val onRecovering: () -> Unit = {},
     // The server rejected this loop's bearer token (HTTP 401 only — see
     // ShapeAuthException). Wired to SessionInvalidator, which signs the account
-    // out locally so the app routes to login instead of polling forever.
-    private val onUnauthorized: () -> Unit = {},
+    // out locally so the app routes to login instead of polling forever. Takes
+    // the bearer the rejected poll PRESENTED: a stale 401 must never clear a
+    // token the user signed in with after that poll left (compare-and-clear).
+    private val onUnauthorized: (presentedToken: String) -> Unit = {},
     // Mark this shape for an atomic refetch, so the next poll re-snapshots.
     private val onReset: suspend () -> Unit = {},
     // Monotonic clock (SystemClock.elapsedRealtime in production). Injected so
@@ -161,9 +166,6 @@ class ShapeClient<T : Any>(
     // wherever it is waiting; see [run].
     private val active: StateFlow<Boolean> = alwaysActive,
 ) {
-    private val rawMessageSerializer = kotlinx.serialization.builtins.ListSerializer(
-        kotlinx.serialization.serializer<RawMessage>()
-    )
 
     // Wake-ups from [kick]. CONFLATED: several kicks arriving while the loop is
     // busy collapse into one — the loop only ever needs to know that it should
@@ -300,9 +302,11 @@ class ShapeClient<T : Any>(
                 confirmFreshness = true
                 continue
             }
+            var presentedToken: String? = null
             try {
                 val baseUrl = baseUrlProvider()
                 val token = tokenProvider()
+                presentedToken = token
                 if (baseUrl == null || token == null) {
                     delayOrKick(2_000)
                     continue
@@ -365,7 +369,7 @@ class ShapeClient<T : Any>(
                 // is the dead-session signal that signs the account out (the
                 // pipeline is then cancelled by SyncManager's reconcile). A 403
                 // is a live session without access and keeps backing off.
-                if (auth.status == HttpStatusCode.Unauthorized.value) onUnauthorized()
+                if (auth.status == HttpStatusCode.Unauthorized.value) presentedToken?.let(onUnauthorized)
                 consecutiveSchemaErrors = 0
                 // Keep backing off (don't hammer) — an auth failure on a
                 // requireAuth shape won't fix itself by retrying immediately.
@@ -641,8 +645,12 @@ class ShapeClient<T : Any>(
         // Absent on a response that carries none — an older cursor is no more
         // useful than none at all.
         lastCursor = response.headers["electric-cursor"]
-        val body = response.bodyAsText()
-        val decoded = decodeMessages(body)
+        // #ERR-19: streamed, one message at a time — a snapshot chunk of the
+        // messages shape (many MB) used to sit in memory as ONE string AND a
+        // whole JsonElement tree before a single row was mapped.
+        val decoded = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            decodeMessages(response.bodyAsChannel().toInputStream())
+        }
 
         // An inline must-refetch inside a 200 body (iOS ShapeClient.swift
         // parity): strip it rather than forwarding the wipe, and mark the shape
@@ -710,10 +718,24 @@ class ShapeClient<T : Any>(
         it is ShapeMessage.Insert || it is ShapeMessage.PartialUpdate || it is ShapeMessage.Delete
     }
 
-    private fun decodeMessages(body: String): List<ShapeMessage<T>> {
-        if (body.isBlank()) return emptyList()
-        val raw = try {
-            json.decodeFromString(rawMessageSerializer, body)
+    @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+    internal fun decodeMessages(body: java.io.InputStream): List<ShapeMessage<T>> {
+        val input = java.io.BufferedInputStream(body, 64 * 1024)
+        // A blank body = no messages (never a decode error).
+        while (true) {
+            input.mark(1)
+            val b = input.read()
+            if (b == -1) return emptyList()
+            if (b != ' '.code && b != '\n'.code && b != '\r'.code && b != '\t'.code) {
+                input.reset()
+                break
+            }
+        }
+        return try {
+            val out = ArrayList<ShapeMessage<T>>()
+            json.decodeToSequence(input, RawMessage.serializer(), kotlinx.serialization.json.DecodeSequenceMode.ARRAY_WRAPPED)
+                .forEach { msg -> mapMessage(msg)?.let(out::add) }
+            out
         } catch (error: SerializationException) {
             // A 200 whose body won't decode (proxy/CDN mangling, a header/body
             // mismatch like the dev bridge's gzip bug) must be a poll ERROR,
@@ -724,8 +746,10 @@ class ShapeClient<T : Any>(
             // the SAME saved offset.
             throw IOException("Shape $shapeName body decode failed: ${error.message}", error)
         }
-        return raw.mapNotNull { msg -> mapMessage(msg) }
     }
+
+    /** [decodeMessages] of a whole body (tests). */
+    internal fun decodeMessages(body: String): List<ShapeMessage<T>> = decodeMessages(body.byteInputStream())
 
     private fun mapMessage(msg: RawMessage): ShapeMessage<T>? {
         val control = (msg.headers["control"] as? JsonElement)?.jsonPrimitive?.contentOrNull

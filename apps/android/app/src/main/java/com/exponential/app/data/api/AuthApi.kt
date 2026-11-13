@@ -565,7 +565,7 @@ class AuthApi @Inject constructor(
             sessionInvalidator.reportSessionRead(
                 accountId = accountId,
                 statusCode = read.statusCode,
-                tokenPresented = account.token != null,
+                presentedToken = account.token,
                 hasUser = read.hasUser,
             )
         }

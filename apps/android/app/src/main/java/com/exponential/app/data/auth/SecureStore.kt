@@ -11,29 +11,41 @@ import javax.inject.Singleton
 private const val PREFS_FILE = "exponential_secure_prefs"
 
 @Singleton
-class SecureStore @Inject constructor(
-    @ApplicationContext context: Context,
+open class SecureStore internal constructor(
+    private val prefsProvider: () -> SharedPreferences,
 ) {
-    private val prefs: SharedPreferences = run {
-        val masterKey = MasterKey.Builder(context)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .build()
+    @Inject constructor(@ApplicationContext context: Context) : this({ securePrefs(context) })
 
-        EncryptedSharedPreferences.create(
-            context,
-            PREFS_FILE,
-            masterKey,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-        )
-    }
+    private val prefs: SharedPreferences by lazy(prefsProvider)
 
-    fun get(key: String): String? = prefs.getString(key, null)
+    open fun get(key: String): String? = prefs.getString(key, null)
 
-    fun set(key: String, value: String?) {
+    open fun set(key: String, value: String?) {
         prefs.edit().apply {
             if (value == null) remove(key) else putString(key, value)
             apply()
         }
     }
+
+    /** Several keys in ONE edit, written through synchronously (`commit()`):
+     *  the account set and its active id must never land half-written. */
+    open fun setAll(values: Map<String, String?>) {
+        val editor = prefs.edit()
+        for ((key, value) in values) if (value == null) editor.remove(key) else editor.putString(key, value)
+        editor.commit()
+    }
+}
+
+private fun securePrefs(context: Context): SharedPreferences = run {
+    val masterKey = MasterKey.Builder(context)
+        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+        .build()
+
+    EncryptedSharedPreferences.create(
+        context,
+        PREFS_FILE,
+        masterKey,
+        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+    )
 }

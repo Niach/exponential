@@ -241,7 +241,7 @@ class TrpcClient @Inject constructor(
             sessionInvalidator.reportStatus(
                 accountId = accountId,
                 statusCode = response.status.value,
-                tokenPresented = token != null,
+                presentedToken = token,
             )
             val info = trpcErrorInfoFromBody(text)
             throw TrpcException(
@@ -299,7 +299,7 @@ class TrpcClient @Inject constructor(
             sessionInvalidator.reportStatus(
                 accountId = accountId,
                 statusCode = response.status.value,
-                tokenPresented = token != null,
+                presentedToken = token,
             )
             val info = trpcErrorInfoFromBody(text)
             throw TrpcException(

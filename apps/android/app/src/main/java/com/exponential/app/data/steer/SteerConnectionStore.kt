@@ -78,6 +78,9 @@ class SteerConnectionStore @Inject constructor(
     private val lock = Any()
     private val connections = mutableMapOf<String, SteerConnection>()
 
+    /** #ERR-19: when each connection lost its last screen (elapsed ms). */
+    private val detachedAt = mutableMapOf<String, Long>()
+
     // Pending park (see [setForeground]). Cancelled when we come back inside
     // the grace window, so a quick app switch costs nothing.
     private var parkJob: Job? = null
@@ -155,6 +158,7 @@ class SteerConnectionStore @Inject constructor(
             }
             connection.setBackground(!foreground)
             connection.refCount += 1
+            detachedAt.remove(codingSessionId)
             return connection
         }
     }
@@ -265,7 +269,9 @@ class SteerConnectionStore @Inject constructor(
         synchronized(lock) {
             val connection = connections[codingSessionId] ?: return
             connection.refCount = (connection.refCount - 1).coerceAtLeast(0)
+            if (connection.refCount == 0) detachedAt[codingSessionId] = SystemClock.elapsedRealtime()
             reapLocked()
+            trimDetachedLocked()
         }
     }
 
@@ -333,6 +339,7 @@ class SteerConnectionStore @Inject constructor(
         synchronized(lock) {
             connections.values.forEach { it.close() }
             connections.clear()
+            detachedAt.clear()
             connStats.flush()
         }
     }
@@ -347,9 +354,39 @@ class SteerConnectionStore @Inject constructor(
             Log.i(TAG, "reap ${id.take(8)}")
             connection.close()
             connections.remove(id)
+            detachedAt.remove(id)
+        }
+    }
+
+    /**
+     * #ERR-19: an idle root never finishes, so every session opened this
+     * process lifetime used to keep its socket AND its feed (up to
+     * `steerFeed.byteCap` of text each) forever. Only the
+     * [DETACHED_KEEP] most recently left connections stay warm; older ones
+     * nobody shows close (reopening re-joins and paints the stored tail). One
+     * holding a half-typed draft or pending files is never dropped.
+     */
+    private fun trimDetachedLocked() {
+        val idle = connections.filter { (id, c) ->
+            c.refCount == 0 && id in detachedAt && c.draft.value.isBlank() && c.pendingImages.value.isEmpty()
+        }
+        val drop = detachedIdsToClose(idle.keys.associateWith { detachedAt[it] ?: 0L }, DETACHED_KEEP)
+        drop.forEach { id ->
+            Log.i(TAG, "trim ${id.take(8)}")
+            connections.remove(id)?.close()
+            detachedAt.remove(id)
         }
     }
 }
+
+/** #ERR-19: how many connections no screen shows stay open (warm reopen). */
+internal const val DETACHED_KEEP = 2
+
+/** #ERR-19: of the detached connections ([detachedAt] = id → when it lost
+ *  its last screen), the ids to close so only the [keep] newest stay. */
+internal fun detachedIdsToClose(detachedAt: Map<String, Long>, keep: Int): List<String> =
+    detachedAt.entries.sortedWith(compareByDescending<Map.Entry<String, Long>> { it.value }.thenBy { it.key })
+        .drop(keep).map { it.key }
 
 // A quick app switch, a share sheet or the photo picker must not cost the live
 // session anything. Deliberately NOT the shape loops' behaviour, which park

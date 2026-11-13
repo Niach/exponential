@@ -50,6 +50,12 @@ object SessionInvalidation {
         else -> SessionSignal.Inconclusive
     }
 
+    /** Compare-and-clear: a rejected [presented] bearer clears the account
+     *  only while it still [held] exactly that token. A stale 401 (sent with
+     *  an OLD bearer, answered after a re-login) keeps the new token. */
+    fun shouldClear(held: String?, presented: String?): Boolean =
+        presented != null && held != null && held == presented
+
     const val HTTP_UNAUTHORIZED = 401
 }
 
@@ -82,38 +88,49 @@ class SessionInvalidator @Inject constructor(
     private val auth: AuthRepository,
 ) {
 
-    /** Report a non-2xx response from an authed call for [accountId]. */
-    fun reportStatus(accountId: String, statusCode: Int, tokenPresented: Boolean) {
-        if (SessionInvalidation.classifyStatus(statusCode, tokenPresented) == SessionSignal.Invalidated) {
-            invalidate(accountId)
+    /** Report a non-2xx response from an authed call for [accountId] that
+     *  presented [presentedToken] (null = no bearer was sent). */
+    fun reportStatus(accountId: String, statusCode: Int, presentedToken: String?) {
+        if (SessionInvalidation.classifyStatus(statusCode, presentedToken != null) == SessionSignal.Invalidated) {
+            invalidate(accountId, presentedToken)
         }
     }
 
-    /** Report a `get-session` read for [accountId]. */
+    /** Report a `get-session` read for [accountId] that presented [presentedToken]. */
     fun reportSessionRead(
         accountId: String,
         statusCode: Int,
-        tokenPresented: Boolean,
+        presentedToken: String?,
         hasUser: Boolean,
     ) {
-        if (SessionInvalidation.classifySessionRead(statusCode, tokenPresented, hasUser) ==
+        if (SessionInvalidation.classifySessionRead(statusCode, presentedToken != null, hasUser) ==
             SessionSignal.Invalidated
         ) {
-            invalidate(accountId)
+            invalidate(accountId, presentedToken)
         }
     }
 
     /**
-     * Clear [accountId]'s token locally. Idempotent: 16 shape loops can 401
-     * within the same instant, and only the first caller finds a token.
+     * Clear [accountId]'s token locally — COMPARE-AND-CLEAR: only while the
+     * account still holds [presentedToken], the bearer the server rejected. A
+     * stale 401 (a shape poll or a tRPC call that left with the OLD bearer and
+     * answers after a re-login) must never wipe the token the user just signed
+     * in with. Idempotent: 16 shape loops can 401 within the same instant, and
+     * only the first caller finds the token.
      */
-    fun invalidate(accountId: String) {
+    fun invalidate(accountId: String, presentedToken: String?) {
         val account = auth.accounts.value.firstOrNull { it.id == accountId } ?: return
-        if (account.token == null) return
+        if (!SessionInvalidation.shouldClear(account.token, presentedToken)) return
         android.util.Log.w(
             "SessionInvalidator",
             "session rejected on account $accountId; clearing the local token",
         )
+        auth.clearToken(accountId, expected = account.token)
+    }
+
+    /** The onboarding wizard's explicit escape hatch: clears whatever token
+     *  [accountId] holds, unconditionally (a person asked to sign out). */
+    fun signOut(accountId: String) {
         auth.clearToken(accountId)
     }
 }

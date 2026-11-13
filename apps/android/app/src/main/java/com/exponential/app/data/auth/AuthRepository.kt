@@ -187,8 +187,10 @@ class AuthRepository @Inject constructor(
     // Sign a SPECIFIC account out locally (keeping its row). The active
     // account's token is what AppNavHost's needsAuth gate reads, so clearing it
     // routes to login; a background account just stops syncing.
-    fun clearToken(id: String) {
-        accountStore.clearToken(id)
+    // [expected] non-null = compare-and-clear: only while the account still
+    // holds that token (SessionInvalidator: a stale 401 keeps a newer login).
+    fun clearToken(id: String, expected: String? = null) {
+        accountStore.clearToken(id, expected)
         republish()
     }
 

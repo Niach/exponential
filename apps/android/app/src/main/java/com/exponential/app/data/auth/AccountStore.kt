@@ -131,9 +131,13 @@ class AccountStore @Inject constructor(
     // the server has already rejected (SessionInvalidator), which can land on
     // any signed-in account's background shape loops. The row itself stays, so
     // the login screen keeps its server and the cached DB resumes on re-login.
-    fun clearToken(id: String) {
+    //
+    // [expected] non-null = compare-and-clear: the token is dropped only while
+    // the account still holds exactly that one (a 401 answering an OLD bearer
+    // must not sign out a login that happened since).
+    fun clearToken(id: String, expected: String? = null) {
         synchronized(lock) {
-            if (_accounts.value.none { it.id == id && it.token != null }) return
+            if (_accounts.value.none { it.id == id && it.token != null && (expected == null || it.token == expected) }) return
             _accounts.value = _accounts.value.map {
                 if (it.id == id) it.copy(token = null) else it
             }
@@ -163,9 +167,16 @@ class AccountStore @Inject constructor(
         }
     }
 
+    // The accounts and the active id land in ONE synchronous edit: two async
+    // `apply()`s could lose or split them on a process death right after a
+    // sign-in (a token without its active id, or the reverse).
     private fun persistLocked() {
-        store.set(KEY_ACCOUNTS, json.encodeToString(_accounts.value))
-        store.set(KEY_ACTIVE_ACCOUNT_ID, _activeAccountId.value)
+        store.setAll(
+            mapOf(
+                KEY_ACCOUNTS to json.encodeToString(_accounts.value),
+                KEY_ACTIVE_ACCOUNT_ID to _activeAccountId.value,
+            ),
+        )
     }
 
     private fun loadAccounts(): List<ServerAccount> {

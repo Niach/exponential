@@ -402,6 +402,20 @@ abstract class SessionDao {
 
     // NEW-2: the agents' CONVERSATION sessions (roots with `agent_id`; the
     // definitions live in `agents`), creation order.
+    // #ERR-19: [observeTree] / [observeAgents] / [observeLive] WITHOUT the
+    // digest, for readers that never read it (SESSION_COLUMNS_NO_DIGEST).
+    @Query("SELECT $SESSION_COLUMNS_NO_DIGEST FROM sessions WHERE root_id = :rootId OR id = :rootId ORDER BY created_at, id")
+    abstract fun rawObserveTreeNoDigest(rootId: String): Flow<List<SessionEntity>>
+    fun observeTreeNoDigest(rootId: String): Flow<List<SessionEntity>> = rawObserveTreeNoDigest(rootId).openedSessions()
+
+    @Query("SELECT $SESSION_COLUMNS_NO_DIGEST FROM sessions WHERE parent_id IS NULL AND agent_id IS NOT NULL ORDER BY created_at, id")
+    abstract fun rawObserveAgentsNoDigest(): Flow<List<SessionEntity>>
+    fun observeAgentsNoDigest(): Flow<List<SessionEntity>> = rawObserveAgentsNoDigest().openedSessions()
+
+    @Query("SELECT $SESSION_COLUMNS_NO_DIGEST FROM sessions WHERE status != 'ended' ORDER BY created_at, id")
+    abstract fun rawObserveLiveNoDigest(): Flow<List<SessionEntity>>
+    fun observeLiveNoDigest(): Flow<List<SessionEntity>> = rawObserveLiveNoDigest().openedSessions()
+
     @Query("SELECT * FROM sessions WHERE parent_id IS NULL AND agent_id IS NOT NULL ORDER BY created_at, id")
     abstract fun rawObserveAgents(): Flow<List<SessionEntity>>
     fun observeAgents(): Flow<List<SessionEntity>> = rawObserveAgents().openedSessions()
@@ -487,15 +501,20 @@ abstract class MessageDao {
     fun observeNewestByRoot(rootId: String, limit: Int): Flow<List<MessageEntity>> =
         rawObserveNewestByRoot(rootId, limit).openedMessages()
 
-    // results-tab.json: a chat's result CANDIDATES = the tree's session-authored
-    // card rows, never the loaded window (the Results tab + its count).
+    // results-tab.json: a chat's result CANDIDATES = the tree's sessions' OWN
+    // card rows (author_session_id = session_id), never the loaded window
+    // (the Results tab + its count). #ERR-19: read as STAMPS (no body, no
+    // card), the rows themselves only when new or changed ([observeResultCards]).
     @Query(
-        "SELECT * FROM messages WHERE root_id = :rootId AND author_session_id IS NOT NULL " +
+        "SELECT id, (updated_at || '|' || IFNULL(answered_at, '') || '|' || IFNULL(consumed_at, '') || '|' || " +
+            "length(card) || '|' || length(body)) AS stamp FROM messages WHERE root_id = :rootId " +
+            "AND author_session_id IS NOT NULL AND author_session_id = session_id " +
             "AND card IS NOT NULL AND card != 'null' ORDER BY created_at, id",
     )
-    abstract fun rawObserveResultCardsByRoot(rootId: String): Flow<List<MessageEntity>>
-    fun observeResultCardsByRoot(rootId: String): Flow<List<MessageEntity>> =
-        rawObserveResultCardsByRoot(rootId).openedMessages()
+    abstract fun observeResultCardStamps(rootId: String): Flow<List<RowStamp>>
+
+    @Query("SELECT * FROM messages WHERE id IN (:ids) AND card IS NOT NULL AND card != 'null'")
+    abstract suspend fun cardRowsByIds(ids: List<String>): List<MessageEntity>
 
     // Large chats: the newest createdAt of a session's rows by one author kind
     // (the session view's "news arrived" stamp) — the max the whole session
@@ -508,35 +527,37 @@ abstract class MessageDao {
 
     // Large chats: a session's CARD rows (replies, plans, questions, surfaces):
     // everything the composer's quick replies and the session's own cards
-    // read; a card-less row can never carry a card once opened.
+    // read; a card-less row can never carry a card once opened. #ERR-19: as
+    // STAMPS, the rows loaded only when new or changed
+    // ([observeCardRowsBySession] with the kinds a reader keeps).
     @Query(
-        "SELECT * FROM messages WHERE session_id = :sessionId AND card IS NOT NULL AND card != 'null' " +
-            "ORDER BY created_at, id",
+        "SELECT id, (updated_at || '|' || IFNULL(answered_at, '') || '|' || IFNULL(consumed_at, '') || '|' || " +
+            "length(card) || '|' || length(body)) AS stamp FROM messages WHERE session_id = :sessionId " +
+            "AND card IS NOT NULL AND card != 'null' ORDER BY created_at, id",
     )
-    abstract fun rawObserveCardRowsBySession(sessionId: String): Flow<List<MessageEntity>>
-    fun observeCardRowsBySession(sessionId: String): Flow<List<MessageEntity>> =
-        rawObserveCardRowsBySession(sessionId).openedMessages()
+    abstract fun observeCardRowStampsBySession(sessionId: String): Flow<List<RowStamp>>
 
-    // Large chats (session-title.json `firstPrompt`): the rows of one tree a
-    // session TITLE can read — card-less, a person's or ANOTHER session's
-    // input — never the tree's whole transcript.
+    // Large chats (session-title.json `firstPrompt`): the rows a session TITLE
+    // can read — card-less, a person's or ANOTHER session's input. #ERR-19:
+    // summarized per session (count + newest stamp, no bodies), and only each
+    // session's OLDEST rows up to its first usable prompt are ever loaded
+    // ([observeFirstTitleRows] / [observeFirstTitleRowsByRoot]), never whole
+    // transcripts.
     @Query(
-        "SELECT * FROM messages WHERE root_id = :rootId AND (card IS NULL OR card = 'null') " +
-            "AND (author_kind = 'user' OR (author_session_id IS NOT NULL AND author_session_id != '' " +
-            "AND author_session_id != session_id)) ORDER BY created_at, id",
+        "SELECT session_id, (COUNT(*) || '|' || MAX(updated_at) || '|' || MIN(created_at)) AS stamp FROM messages " +
+            "WHERE session_id IN (:sessionIds) AND $TITLE_ROW GROUP BY session_id ORDER BY session_id",
     )
-    abstract fun rawObserveTitleRowsByRoot(rootId: String): Flow<List<MessageEntity>>
-    fun observeTitleRowsByRoot(rootId: String): Flow<List<MessageEntity>> =
-        rawObserveTitleRowsByRoot(rootId).openedMessages()
+    abstract fun observeTitleStamps(sessionIds: List<String>): Flow<List<TitleStamp>>
 
-    // #EXP-1380: the card-less rows of the given sessions —
-    // all a session TITLE reads (its first prompt), never a whole transcript.
     @Query(
-        "SELECT * FROM messages WHERE (card IS NULL OR card = 'null') AND session_id IN (:sessionIds) " +
-            "AND (author_kind = 'user' OR author_session_id IS NOT NULL) ORDER BY created_at, id",
+        "SELECT session_id, (COUNT(*) || '|' || MAX(updated_at) || '|' || MIN(created_at)) AS stamp FROM messages " +
+            "WHERE root_id = :rootId AND session_id IS NOT NULL AND session_id != '' AND $TITLE_ROW " +
+            "GROUP BY session_id ORDER BY session_id",
     )
-    abstract fun rawObserveTitleRows(sessionIds: List<String>): Flow<List<MessageEntity>>
-    fun observeTitleRows(sessionIds: List<String>): Flow<List<MessageEntity>> = rawObserveTitleRows(sessionIds).openedMessages()
+    abstract fun observeTitleStampsByRoot(rootId: String): Flow<List<TitleStamp>>
+
+    @Query("SELECT * FROM messages WHERE session_id = :sessionId AND $TITLE_ROW ORDER BY created_at, id LIMIT :limit OFFSET :offset")
+    abstract suspend fun titleRowsPage(sessionId: String, limit: Int, offset: Int): List<MessageEntity>
 
     // #EXP-1399: the given messages by id (an `ask` mirror's ORIGIN card,
     // which lives in another tree than the conversation drawing it).
@@ -590,6 +611,18 @@ interface SessionReadDao {
     @Query("DELETE FROM session_reads")
     suspend fun clear()
 }
+
+// #ERR-19: every `sessions` column but the list digest (NULL): the readers
+// that never show a preview. A sealed digest keeps its bodies whole (~24 KB
+// a child of a busy tree), and Room re-runs every sessions query on any row's
+// write (a message's digest update): a digest-less reader no longer re-reads
+// them all per write.
+private const val SESSION_COLUMNS_NO_DIGEST =
+    "id, team_id, parent_id, root_id, user_id, device_id, cli, account, model, effort, plan_mode, computer_use, ultracode, repository_id, branch, status, busy, background, needs_input, blocked, started_at, last_turn_at, ended_at, shared, title, guide, created_at, updated_at, agent_id, app_id, agent_instructions_at, started_by_agent_id, seal_public_key, seal_epoch, sealed_title, via_app_id, scope_team_ids, NULL AS digest"
+
+// session-title.json `firstPrompt`: a row a session title can read.
+private const val TITLE_ROW = "(card IS NULL OR card = 'null') AND (author_kind = 'user' OR " +
+    "(author_session_id IS NOT NULL AND author_session_id != '' AND author_session_id != session_id))"
 
 // EXP-1459 (sealed-content.json): the screens read OPENED rows; Room keeps
 // them as synced. Re-emits when this install gains a tree key; off the main
