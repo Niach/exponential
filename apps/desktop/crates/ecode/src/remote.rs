@@ -82,6 +82,19 @@ impl<C: CredentialSource> GitRemote<C> {
     }
 }
 
+impl<C: CredentialSource> GitRemote<C> {
+    /// Makes the remote's branches and tags EQUAL this repository's: every
+    /// one pushed forced, and every one the repository lacks deleted
+    /// (`--prune`). A mirror push (#EXP-1616).
+    pub fn push_mirror(&self, repo: &Path) -> Result<()> {
+        self.git(repo)?
+            .args(["push", "--force", "--prune", "--porcelain", &self.url])
+            .args(["+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*"])
+            .run()?;
+        Ok(())
+    }
+}
+
 impl<C: CredentialSource> Remote for GitRemote<C> {
     fn url(&self) -> String {
         self.url.clone()

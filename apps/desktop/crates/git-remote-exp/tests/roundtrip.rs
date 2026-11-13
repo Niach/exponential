@@ -268,7 +268,17 @@ fn clone_fetch_push_jobs_and_a_restored_backup() {
     ok(&root, &["init", "-q", "--bare", mirror.to_str().unwrap()], &server.url);
     assert_eq!(run(json!({ "op": "mirror", "url": mirror.to_str().unwrap() }))["pushed"], 2);
     assert_eq!(ok(&mirror, &["rev-parse", "main"], &server.url), merged);
+    server.state.lock().unwrap().refs.insert("refs/heads/topic".into(), t1.clone());
     assert_eq!(ok(&mirror, &["rev-parse", "topic"], &server.url), t1);
+    // A branch deleted in Exponential (a merged head) goes on the mirror too.
+    {
+        let mut s = server.state.lock().unwrap();
+        s.refs.remove("refs/heads/topic");
+    }
+    assert_eq!(run(json!({ "op": "mirror", "url": mirror.to_str().unwrap() }))["pushed"], 1);
+    assert!(!git(&mirror, &["rev-parse", "--verify", "topic"], &server.url).0, "the mirror pruned topic");
+    assert_eq!(ok(&mirror, &["rev-parse", "main"], &server.url), merged);
+    server.state.lock().unwrap().refs.insert("refs/heads/topic".into(), t1.clone());
     let repacked = run(json!({ "op": "repack" }));
     assert!(repacked["replaced"].as_u64().unwrap() >= 4, "{repacked}");
     assert_eq!(server.state.lock().unwrap().packs.iter().filter(|p| !p.3).count(), 1);

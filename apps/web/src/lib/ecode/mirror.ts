@@ -1,6 +1,8 @@
 // #EXP-1616: the optional mirror of an `ecode` repo (`provider_config.
-// mirrorUrl`), pushed by a team device after each landing (`ecode_job` op
-// `mirror`: every branch, forced, so the mirror equals the bucket). A GitHub
+// mirrorUrl`), pushed by a team device after each landing and each branch
+// deletion (`ecode_job` op
+// `mirror`: every branch and tag, forced and pruned, so the mirror equals
+// the bucket: a branch deleted here, a merged head included, goes there too). A GitHub
 // mirror the team's GitHub App covers gets a fresh installation token in the
 // job (short-lived, read only by the device that runs it); any other https
 // remote is pushed with the device's own git credentials.
