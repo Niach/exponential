@@ -1688,10 +1688,10 @@ Applies to the following 10 components:
   agent-client-protocol 5.0.0
   agent-client-protocol-derive 5.0.0
   agent-client-protocol-schema 1.15.1
-  ede-observability 0.2.21
-  ede-services 0.2.21
-  ede-theme 0.2.21
-  ede-ui 0.2.21
+  ede-observability 0.2.22
+  ede-services 0.2.22
+  ede-theme 0.2.22
+  ede-ui 0.2.22
   spirv 0.4.0+sdk-1.4.341.0  [x86_64-unknown-linux-gnu]
   stacksafe 1.0.3
   stacksafe-macro 1.0.3
