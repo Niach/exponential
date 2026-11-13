@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-13-tabs-on-top",
+    date: "2026-11-13",
+    title: "Tabs are back on top in the desktop app",
+    summary: "The desktop app draws its tabs on top again, terminals included, in one strip; inside Exponential Desktop they stay at the bottom.",
+    body: r##"- **Tabs on top**: on macOS, Windows and Linux the desktop app's tabs sit in the top band again, next to the window controls; the empty space beside them still moves the window.
+- **Terminals are tabs like any other**: a terminal sits in the same strip as issues and chats, and Close others and Close all take terminals too; closing a terminal that still runs something asks first.
+- **Exponential Desktop**: inside Exponential Desktop the tabs stay at the bottom."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const COUNT_BADGES: ChangelogEntry = ChangelogEntry {
     id: "2026-11-12-phones-todo-title-cards",
     date: "2026-11-12",
     title: "Tidier session sheets on phones",
