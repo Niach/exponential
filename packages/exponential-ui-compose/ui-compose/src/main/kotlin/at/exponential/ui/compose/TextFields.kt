@@ -455,7 +455,10 @@ internal fun InlineFieldLeaf(cx: LeafContext) {
             index = cx.index,
             model = cx.model,
             multiline = false,
-            placeholder = cx.props.str("placeholder").ifEmpty { owner.str("placeholder") },
+            // #EXP-1813: the part's own placeholder only (the core blanks a
+            // ChipInput's once it holds chips; React, Solid, Swift and gpui
+            // read the part, never the owner's prop).
+            placeholder = cx.props.str("placeholder"),
             textStyle = cx.composeTextStyle(),
             placeholderColor = placeholder.color ?: cx.themeColor("mutedForeground") ?: cx.ink.copy(alpha = cx.ink.alpha * 0.5f),
             disabled = disabled,
