@@ -125,7 +125,25 @@ export interface StartRunInput {
 
 export type StartRunResult =
   | { started: true; runId: string }
-  | { started: false; reason: `no_pipeline` | `not_triggered` | `exists` }
+  | { started: false; reason: `no_pipeline` | `not_triggered` | `exists` | `disabled` | `no_runner` }
+
+/** Our CI is opt-in on a GitHub repo (Actions is its CI) and on by default
+ *  for an ecode repo: `ci_config.enabled`, unset = the provider's default. */
+export function ciEnabled(repo: { provider: string; ciConfig: RepositoryCiConfig | null }): boolean {
+  return repo.ciConfig?.enabled ?? repo.provider === `ecode`
+}
+
+/** Whether any member of the team has a device that runs our CI. No runner =
+ *  no run is planned: queued rows nobody can take only hold pending checks. */
+async function teamHasRunner(teamId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: devices.id })
+    .from(devices)
+    .innerJoin(teamMembers, and(eq(teamMembers.userId, devices.userId), eq(teamMembers.teamId, teamId)))
+    .where(and(sql`(${devices.runner}->>'enabled')::boolean IS TRUE`, sql`${devices.caps} ? ${CI_RUNNER_CAP}`))
+    .limit(1)
+  return Boolean(row)
+}
 
 /** The planned job's spec as a runner gets it. */
 function specOf(job: PlannedJob): CiJobSpec {
@@ -212,6 +230,8 @@ async function pipelineSources(repo: RepoRow, sha: string): Promise<PipelineSour
 export async function startRun(input: StartRunInput): Promise<StartRunResult> {
   const repo = await loadRepo(input.repositoryId)
   if (!repo) return { started: false, reason: `no_pipeline` }
+  if (!ciEnabled(repo)) return { started: false, reason: `disabled` }
+  if (!(await teamHasRunner(repo.teamId))) return { started: false, reason: `no_runner` }
   const sources: PipelineSource[] = input.file !== undefined ? [{ fallbackName: `ci`, file: input.file }] : await pipelineSources(repo, input.sha)
   if (sources.length === 0) return { started: false, reason: `no_pipeline` }
   const results: StartRunResult[] = []

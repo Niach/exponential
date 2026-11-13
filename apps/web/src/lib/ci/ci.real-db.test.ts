@@ -73,7 +73,7 @@ async function fixture() {
   await db.insert(teamMembers).values({ teamId: team!.id, userId, role: `owner` })
   const [repo] = await db
     .insert(repositories)
-    .values({ teamId: team!.id, fullName: `org/${slug}` })
+    .values({ teamId: team!.id, fullName: `org/${slug}`, ciConfig: { enabled: true } })
     .returning({ id: repositories.id })
   const deviceId = `dev-${slug}`
   const [device] = await db
@@ -96,6 +96,25 @@ async function jobsOf(runId: string) {
 }
 
 describe.skipIf(!ready.ok)(`eCode CI`, { timeout: 30_000 }, () => {
+  it(`plans nothing on a GitHub repo that did not opt in, nor without a runner device`, async () => {
+    const f = await fixture()
+    const plan = (sha: string) => runs.startRun({ repositoryId: f.repositoryId, sha, trigger: `push`, ref: `main`, file: PIPELINE })
+    const runsOf = () => db.select({ id: ciRuns.id }).from(ciRuns).where(eq(ciRuns.repositoryId, f.repositoryId))
+    // A GitHub repo is opt-in: unset = off.
+    await db.update(repositories).set({ ciConfig: {} }).where(eq(repositories.id, f.repositoryId))
+    expect(await plan(`b`.repeat(40))).toEqual({ started: false, reason: `disabled` })
+    // An ecode repo is on unless switched off.
+    await db.update(repositories).set({ provider: `ecode` }).where(eq(repositories.id, f.repositoryId))
+    expect(runs.ciEnabled({ provider: `ecode`, ciConfig: {} })).toBe(true)
+    expect(runs.ciEnabled({ provider: `ecode`, ciConfig: { enabled: false } })).toBe(false)
+    // On, but no member's device runs CI: no queued rows nobody can take.
+    await db.update(devices).set({ runner: { enabled: false, labels: [], slots: 1, timeoutMin: 60 } }).where(eq(devices.id, f.deviceRowId))
+    expect(await plan(`c`.repeat(40))).toEqual({ started: false, reason: `no_runner` })
+    expect(await runsOf()).toEqual([])
+    await db.update(devices).set({ runner: { enabled: true, labels: [], slots: 1, timeoutMin: 60 } }).where(eq(devices.id, f.deviceRowId))
+    expect((await plan(`c`.repeat(40))).started).toBe(true)
+  })
+
   it(`plans, dispatches, claims, runs the chain and writes check rows`, async () => {
     const f = await fixture()
     const started = await runs.startRun({ repositoryId: f.repositoryId, sha: `a`.repeat(40), trigger: `push`, ref: `main`, file: PIPELINE })
@@ -375,7 +394,7 @@ describe.skipIf(!ready.ok)(`eCode CI`, { timeout: 30_000 }, () => {
       .where(eq(devices.id, f.deviceRowId))
     // Not opted in yet: nothing to serve, and no registration token.
     expect(await ar.actionsRunnerTargets(f.userId, f.deviceId)).toEqual([])
-    await db.update(repositories).set({ ciConfig: { actionsRunners: true } }).where(eq(repositories.id, f.repositoryId))
+    await db.update(repositories).set({ ciConfig: { enabled: true, actionsRunners: true } }).where(eq(repositories.id, f.repositoryId))
     const targets = await ar.actionsRunnerTargets(f.userId, f.deviceId)
     expect(targets).toEqual([
       {
@@ -399,7 +418,7 @@ describe.skipIf(!ready.ok)(`eCode CI`, { timeout: 30_000 }, () => {
         expiresAt: null,
       })
       // Switched off: no new registration, but the device may still deregister.
-      await db.update(repositories).set({ ciConfig: {} }).where(eq(repositories.id, f.repositoryId))
+      await db.update(repositories).set({ ciConfig: { enabled: true } }).where(eq(repositories.id, f.repositoryId))
       await expect(
         ar.actionsRunnerToken({ userId: f.userId, deviceId: f.deviceId, repositoryId: f.repositoryId, kind: `registration` })
       ).rejects.toThrow(/does not serve GitHub Actions/)

@@ -166,10 +166,16 @@ public enum RepoCiView {
                 }))
             }
             if manager {
+                // #EXP-1813: a Button in a stretch column fills it; in a row
+                // it keeps its own width, like web's Dialog trigger.
                 children.append(node(
-                    ids.addSecret, "Button",
-                    props: ["label": .string(RepoCi.Copy.Secrets.add), "variant": .string("outline"), "size": .string("sm")],
-                    extra: on("press", Events.addSecret)
+                    "\(ids.addSecret)-row", "Stack",
+                    props: ["direction": .string("horizontal")],
+                    children: [node(
+                        ids.addSecret, "Button",
+                        props: ["label": .string(RepoCi.Copy.Secrets.add), "variant": .string("outline"), "size": .string("sm")],
+                        extra: on("press", Events.addSecret)
+                    )]
                 ))
             }
         }
