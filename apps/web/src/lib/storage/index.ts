@@ -22,9 +22,14 @@ const storageRegion = process.env.S3_REGION || `garage`
 
 let bucketReadyPromise: Promise<void> | null = null
 
-function createStorageClient(endpoint = storageEndpoint) {
+function createStorageClient(endpoint = storageEndpoint, opts: { presign?: boolean } = {}) {
   return new S3Client({
     endpoint,
+    // #EXP-1617: a presigned PUT must not carry the SDK's default
+    // `x-amz-checksum-crc32` of an EMPTY body: Garage verifies it against
+    // the pack the device uploads and answers 400 InvalidDigest (every
+    // `git push exp://` failed on self-host and local stacks).
+    ...(opts.presign ? { requestChecksumCalculation: `WHEN_REQUIRED` as const } : {}),
     region: storageRegion,
     forcePathStyle: true,
     credentials:
@@ -53,7 +58,7 @@ export const PRESIGN_TTL_SECONDS = 15 * 60
 /** #EXP-1616: a URL a device PUTs exactly `contentLength` bytes to. */
 export async function presignPut(key: string, contentLength: number, ttlSeconds = PRESIGN_TTL_SECONDS): Promise<string> {
   await ensureBucketReady()
-  presignClient ??= createStorageClient(publicEndpoint)
+  presignClient ??= createStorageClient(publicEndpoint, { presign: true })
   return getSignedUrl(
     presignClient,
     new PutObjectCommand({ Bucket: storageBucket, Key: key, ContentLength: contentLength, ContentType: `application/octet-stream` }),
@@ -63,7 +68,7 @@ export async function presignPut(key: string, contentLength: number, ttlSeconds 
 
 /** #EXP-1616: a URL a device GETs one stored object from. */
 export async function presignGet(key: string, ttlSeconds = PRESIGN_TTL_SECONDS): Promise<string> {
-  presignClient ??= createStorageClient(publicEndpoint)
+  presignClient ??= createStorageClient(publicEndpoint, { presign: true })
   return getSignedUrl(presignClient, new GetObjectCommand({ Bucket: storageBucket, Key: key }), { expiresIn: ttlSeconds })
 }
 
