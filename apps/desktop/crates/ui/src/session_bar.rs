@@ -445,6 +445,33 @@ impl SessionBar {
 
     /// Close `tab` — kill its child and drop it (the screens panel's close
     /// for a terminal tab; `TabClosed` then echoes back as a no-op).
+    /// What still runs under the shells of `tabs` (their shells' child
+    /// processes, by name, first seen first, each once): a bulk close
+    /// confirms before it kills them. Empty where the process table cannot
+    /// be read (Windows).
+    pub(crate) fn running_processes(&self, tabs: &[TabId], cx: &App) -> Vec<String> {
+        let manager = self.manager.read(cx);
+        let shells: Vec<u32> = tabs
+            .iter()
+            .filter_map(|id| manager.tab(*id))
+            .filter(|tab| tab.is_running())
+            .filter_map(|tab| tab.view.read(cx).session().borrow().process_id())
+            .collect();
+        if shells.is_empty() {
+            return Vec::new();
+        }
+        let table = process_table();
+        let mut names: Vec<String> = Vec::new();
+        for shell in shells {
+            for name in descendants(&table, shell) {
+                if !names.contains(&name) {
+                    names.push(name);
+                }
+            }
+        }
+        names
+    }
+
     pub(crate) fn close_terminal(&mut self, tab: TabId, cx: &mut gpui::Context<Self>) {
         self.manager
             .update(cx, |manager, cx| manager.close_tab(tab, cx));
@@ -818,3 +845,68 @@ pub(crate) fn exit_strip(code: i32, cx: &App) -> impl IntoElement {
         )))
 }
 
+
+/// One row of the process table: pid, parent pid, command name.
+type ProcessRow = (u32, u32, String);
+
+/// The machine's process table (`ps`, macOS and Linux); empty elsewhere or
+/// when it cannot be read.
+fn process_table() -> Vec<ProcessRow> {
+    if !cfg!(unix) {
+        return Vec::new();
+    }
+    let Ok(out) = std::process::Command::new("ps").args(["-A", "-o", "pid=,ppid=,comm="]).output() else { return Vec::new() };
+    parse_process_table(&String::from_utf8_lossy(&out.stdout))
+}
+
+fn parse_process_table(text: &str) -> Vec<ProcessRow> {
+    text.lines()
+        .filter_map(|line| {
+            let mut parts = line.split_whitespace();
+            let pid = parts.next()?.parse().ok()?;
+            let ppid = parts.next()?.parse().ok()?;
+            let comm: Vec<&str> = parts.collect();
+            let comm = comm.join(" ");
+            let name = comm.rsplit('/').next().unwrap_or(&comm).to_string();
+            (!name.is_empty()).then_some((pid, ppid, name))
+        })
+        .collect()
+}
+
+/// Every process under `root` (not `root` itself), breadth first, by name.
+fn descendants(table: &[ProcessRow], root: u32) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut queue = vec![root];
+    let mut seen = vec![root];
+    while let Some(parent) = queue.pop() {
+        for (pid, ppid, name) in table {
+            if *ppid == parent && !seen.contains(pid) {
+                seen.push(*pid);
+                queue.insert(0, *pid);
+                names.push(name.clone());
+            }
+        }
+    }
+    names
+}
+
+/// The bulk-close confirm's body: what keeps running.
+pub(crate) fn running_processes_body(names: &[String]) -> String {
+    format!("Closing them ends what still runs in them: {}.", names.join(", "))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A bulk close names what runs under a terminal's shell: its children
+    /// and theirs, never the shell itself or an unrelated process.
+    #[test]
+    fn a_shells_descendants_are_what_runs_in_it() {
+        let table = parse_process_table("  100     1 /bin/zsh\n  200   100 npm\n  201   200 node\n  300   100 vim\n  400     1 /usr/bin/Xorg\n");
+        assert_eq!(descendants(&table, 100), vec!["npm", "vim", "node"]);
+        assert!(descendants(&table, 400).is_empty());
+        assert!(descendants(&table, 999).is_empty());
+        assert_eq!(running_processes_body(&["npm".into(), "vim".into()]), "Closing them ends what still runs in them: npm, vim.");
+    }
+}

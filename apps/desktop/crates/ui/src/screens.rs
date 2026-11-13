@@ -1769,13 +1769,64 @@ impl ScreensPanel {
     }
 
     pub(crate) fn close_others_of(&mut self, screen: &Screen, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        if let Some(ix) = self.tabs.iter().position(|tab| &tab.screen == screen) {
-            self.close_other_tabs(ix, window, cx);
-        }
+        let keep = screen.clone();
+        let swept: Vec<Screen> = self.tabs.iter().filter(|tab| tab.swept_by_bulk_close(Some(&keep))).map(|tab| tab.screen.clone()).collect();
+        self.confirm_bulk_close(&swept, window, cx, move |panel, window, cx| {
+            if let Some(ix) = panel.tabs.iter().position(|tab| tab.screen == keep) {
+                panel.close_other_tabs(ix, window, cx);
+            }
+        });
     }
 
     pub(crate) fn close_every_tab(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        self.close_all_tabs(window, cx);
+        let swept: Vec<Screen> = self.tabs.iter().map(|tab| tab.screen.clone()).collect();
+        self.confirm_bulk_close(&swept, window, cx, |panel, window, cx| panel.close_all_tabs(window, cx));
+    }
+
+    /// A bulk close ends the shells of the terminals it takes: while one of
+    /// them still runs a process (anything under its shell), the app's
+    /// confirm alert names what would be killed first; else it just closes.
+    fn confirm_bulk_close(
+        &mut self,
+        swept: &[Screen],
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+        close: impl Fn(&mut Self, &mut Window, &mut gpui::Context<Self>) + 'static,
+    ) {
+        let terminals: Vec<terminal::TabId> = swept
+            .iter()
+            .filter_map(|screen| match screen {
+                Screen::Terminal { tab } => Some(*tab),
+                _ => None,
+            })
+            .collect();
+        let running = crate::session_bar::host_for_window(window, cx)
+            .map(|host| host.read(cx).running_processes(&terminals, cx))
+            .unwrap_or_default();
+        if running.is_empty() {
+            close(self, window, cx);
+            return;
+        }
+        let panel = cx.weak_entity();
+        let handle = window.window_handle();
+        let close = std::rc::Rc::new(close);
+        let spec = crate::native_dialog::AlertSpec::new(
+            "Close terminals",
+            crate::session_bar::running_processes_body(&running),
+            "Close",
+        )
+        .question("Close running terminals?")
+        .ok_variant(gpui_component::button::ButtonVariant::Danger)
+        .on_ok(move |_, cx| {
+            let (panel, close) = (panel.clone(), close.clone());
+            cx.defer(move |cx| {
+                let _ = handle.update(cx, |_, window, cx| {
+                    let _ = panel.update(cx, |panel, cx| close(panel, window, cx));
+                });
+            });
+            true
+        });
+        crate::native_dialog::open_alert(window, cx, spec);
     }
 
     /// #EXP-1726: a tab into its own window (a terminal, an undockable tab).
