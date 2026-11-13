@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-13-own-ci-run-page`,
+    date: `2026-11-13`,
+    title: `Our own CI: a run page and a runner on your devices`,
+    summary: `A check from Exponential's own CI opens its run: the jobs, their steps and the log as it streams. Any desktop or server can run your team's jobs.`,
+    body: `- **The run page**: a check's Details open the run in the app: status, duration, runner and commit, every job, the steps of the one you pick and its log following along live. Re-run the failed jobs or cancel a run from there.
+- **Runners on your devices**: a device's settings have a CI runner section: turn it on, add labels, choose how many jobs it runs at once and their timeout, and see its recent jobs. Phones set a runner up; jobs run on desktops and servers.`,
+  },
+  {
     id: `2026-11-13-android-memory-fix`,
     date: `2026-11-13`,
     title: `Android stays within memory in large chats`,
