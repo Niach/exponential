@@ -151,6 +151,43 @@ mod tests {
         assert!(results[0].card.as_ref().is_some_and(|card| card["kind"] == "surface"));
     }
 
+    /// #EXP-1821: the daemon's pickup reads the messages of ITS sessions,
+    /// by `session_id` (a tree's other sessions and other trees stay on
+    /// disk), off the session index.
+    #[test]
+    fn messages_of_sessions_read_only_those_sessions() {
+        let temp = TempStore::new();
+        let store = &temp.1;
+        let rows: Vec<Value> = (0..30)
+            .map(|n| {
+                let session = ["r1", "c1", "r2"][n % 3];
+                let root = if session == "r2" { "r2" } else { "r1" };
+                json!({"id": format!("m{n:03}"), "session_id": session, "root_id": root, "body": "x", "created_at": at(n)})
+            })
+            .collect();
+        insert(store, rows);
+        let read = |ids: &[&str]| -> Vec<String> {
+            let spec = shape_by_name("messages").unwrap();
+            let mut ids: Vec<String> = store
+                .read_where_in(spec, "session_id", ids)
+                .unwrap()
+                .into_iter()
+                .map(|row| row["session_id"].as_str().unwrap().to_string())
+                .collect();
+            ids.sort_unstable();
+            ids.dedup();
+            ids
+        };
+        assert_eq!(read(&["c1"]), ["c1"]);
+        assert_eq!(read(&["c1", "r2"]), ["c1", "r2"]);
+        assert!(read(&[]).is_empty());
+        let spec = shape_by_name("messages").unwrap();
+        assert_eq!(store.read_where_in(spec, "session_id", &["r1"]).unwrap().len(), 10);
+        assert!(store.read_where_in(spec, "session_id); DROP TABLE messages; --", &["r1"]).is_err(), "allowlisted columns only");
+        let plan = store.explain(r#"SELECT * FROM "messages" WHERE "session_id" IN ('c1', 'r2')"#).unwrap();
+        assert!(plan.contains("messages_session"), "{plan}");
+    }
+
     /// The page's index: every store has it, one opened before it existed
     /// too, and both chat reads use it (never a scan of `messages`).
     #[test]
