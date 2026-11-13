@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-13-desktop-notifications-ticks`,
+    date: `2026-11-13`,
+    title: `Desktop notifications, delivery ticks and a lighter daemon`,
+    summary: `Desktop and CLI 0.14.158: notifications in the desktop app follow the new rules, sent messages show delivery ticks, the window drags by its tab band again, and the CLI daemon uses far less memory.`,
+    body: `- **Desktop notifications**: while the app has focus you get a short in-app notice instead of a system notification; reading something clears its notification, and each source can be switched off.
+- **Delivery ticks**: a message you send is your own bubble right away, with ticks for received by the device and processed by the agent; a failed send offers Retry, and an unprocessed one can be cancelled.
+- **The window drags again**: the desktop app's top tab band moves the window again, and its +N menu opens below the band.
+- **CI runner fixes**: a new push supersedes a repository's pending runs, and the runner keeps its token out of the process list.
+- **A lighter daemon**: the CLI daemon idles at a fraction of its old memory, and \`exponential devices\` lists your devices as clean rows.`,
+  },
+  {
     id: `2026-11-13-android-8-notifications-fix`,
     date: `2026-11-13`,
     title: `Notifications work on Android 8`,
