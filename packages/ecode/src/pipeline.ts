@@ -74,7 +74,7 @@ const JOB_KEY = /^[a-z][a-z0-9_-]{0,63}$/
 const ENV_NAME = /^[A-Z_][A-Z0-9_]*$/
 const MATRIX_KEY = /^[a-z][a-z0-9_]*$/
 
-const TOP_KEYS = [`$schema`, `version`, `name`, `on`, `env`, `secrets`, `jobs`, `required`]
+const TOP_KEYS = [`$schema`, `$comment`, `version`, `name`, `on`, `env`, `secrets`, `jobs`, `required`]
 const JOB_KEYS = [`name`, `runsOn`, `needs`, `timeoutMin`, `env`, `secrets`, `paths`, `matrix`, `steps`]
 const STEP_KEYS = [`name`, `run`, `env`, `timeoutMin`, `continueOnError`, `workingDirectory`]
 const TRIGGER_KEYS: Record<Trigger, string[]> = {

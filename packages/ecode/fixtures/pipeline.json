@@ -87,6 +87,30 @@
       "errors": []
     },
     {
+      "name": "a top-level $comment is allowed (JSON has no comments: why a leg is missing)",
+      "file": {
+        "$comment": "web unit runs on Actions only",
+        "version": 1,
+        "on": {
+          "pull_request": {}
+        },
+        "jobs": {
+          "test": {
+            "runsOn": [
+              "linux"
+            ],
+            "steps": [
+              {
+                "name": "Test",
+                "run": "bun test"
+              }
+            ]
+          }
+        }
+      },
+      "errors": []
+    },
+    {
       "name": "not an object",
       "file": [
         "jobs"

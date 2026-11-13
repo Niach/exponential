@@ -115,6 +115,32 @@ describe.skipIf(!ready.ok)(`eCode CI`, { timeout: 30_000 }, () => {
     expect((await plan(`c`.repeat(40))).started).toBe(true)
   })
 
+  it(`a push to a PR cancels the older head's unfinished run`, async () => {
+    const f = await fixture()
+    const [pr] = await db
+      .insert(pullRequests)
+      .values({ teamId: f.teamId, repositoryId: f.repositoryId, number: 7, url: `https://github.com/org/${f.slug}/pull/7`, title: `t`, head: `feat`, base: `main` })
+      .returning({ id: pullRequests.id })
+    const plan = (sha: string) =>
+      runs.startRun({ repositoryId: f.repositoryId, sha, trigger: `pull_request`, ref: `feat`, base: `main`, pullRequestId: pr!.id, fork: false, file: PIPELINE })
+    const first = (await plan(`d`.repeat(40))) as { runId: string }
+    const second = (await plan(`e`.repeat(40))) as { runId: string }
+    const state = async (id: string) => (await db.select({ state: ciRuns.state }).from(ciRuns).where(eq(ciRuns.id, id)))[0]!.state
+    // The old run is over (its jobs cancelled); the new one waits for a runner.
+    expect(await state(first.runId)).not.toBe(`pending`)
+    expect(new Set((await jobsOf(first.runId)).map((job) => job.conclusion))).toEqual(new Set([`cancelled`]))
+    expect(await state(second.runId)).toBe(`pending`)
+    // The old head's rows are gone, never left red; the new head's are the PR's.
+    const prRows = await db.select({ sha: pullRequestChecks.headSha }).from(pullRequestChecks).where(eq(pullRequestChecks.pullRequestId, pr!.id))
+    expect(prRows.length).toBeGreaterThan(0)
+    expect(new Set(prRows.map((row) => row.sha))).toEqual(new Set([`e`.repeat(40)]))
+    const oldCommitRows = await db
+      .select({ id: commitChecks.id })
+      .from(commitChecks)
+      .where(and(eq(commitChecks.repositoryId, f.repositoryId), eq(commitChecks.sha, `d`.repeat(40))))
+    expect(oldCommitRows).toEqual([])
+  })
+
   it(`plans, dispatches, claims, runs the chain and writes check rows`, async () => {
     const f = await fixture()
     const started = await runs.startRun({ repositoryId: f.repositoryId, sha: `a`.repeat(40), trigger: `push`, ref: `main`, file: PIPELINE })

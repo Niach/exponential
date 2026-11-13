@@ -34,7 +34,9 @@ import { db } from "@/db/connection"
 import {
   ciJobs,
   ciRuns,
+  commitChecks,
   devices,
+  pullRequestChecks,
   pullRequests,
   repositories,
   teamMembers,
@@ -350,9 +352,56 @@ async function startOneRun(repo: RepoRow, input: StartRunInput, source: Pipeline
     return run.id
   })
 
+  if (input.trigger === `pull_request` && input.pullRequestId && !input.rerunOf) {
+    await supersedeOlderRuns({ repositoryId: repo.id, pullRequestId: input.pullRequestId, name: runName, sha: input.sha, keep: runId })
+  }
   await reportRun(runId, { all: true })
   await dispatchQueued({ teamId: repo.teamId })
   return { started: true, runId }
+}
+
+/** A push to a PR supersedes its older heads (like GitHub's `concurrency`
+ *  with cancel-in-progress): their unfinished runs of the same pipeline are
+ *  cancelled (a running job stops at its next log or beat), so a busy runner
+ *  never works through stale heads; the dogfood queued three heads of one PR.
+ *  Their check rows are DELETED, never reported `cancelled`: a cancelled row
+ *  counts as failing and would paint the PR's checks red. Runs before the new
+ *  run reports, so its rows are the PR's. */
+async function supersedeOlderRuns(args: { repositoryId: string; pullRequestId: string; name: string; sha: string; keep: string }): Promise<void> {
+  const older = await db
+    .select({ id: ciRuns.id, sha: ciRuns.sha })
+    .from(ciRuns)
+    .where(
+      and(
+        eq(ciRuns.repositoryId, args.repositoryId),
+        eq(ciRuns.pullRequestId, args.pullRequestId),
+        eq(ciRuns.trigger, `pull_request`),
+        eq(ciRuns.name, args.name),
+        eq(ciRuns.state, `pending`),
+        sql`${ciRuns.sha} <> ${args.sha}`,
+        sql`${ciRuns.id} <> ${args.keep}`
+      )
+    )
+  const now = new Date()
+  for (const run of older) {
+    await applyToRun(run.id, `cancel`, {}, now)
+    const checks = (await db.select({ check: ciJobs.check }).from(ciJobs).where(eq(ciJobs.runId, run.id))).map((job) => job.check)
+    if (checks.length === 0) continue
+    await db.transaction(async (tx) => {
+      await tx
+        .delete(commitChecks)
+        .where(and(eq(commitChecks.repositoryId, args.repositoryId), eq(commitChecks.sha, run.sha), inArray(commitChecks.name, checks)))
+      await tx
+        .delete(pullRequestChecks)
+        .where(
+          and(
+            eq(pullRequestChecks.pullRequestId, args.pullRequestId),
+            eq(pullRequestChecks.headSha, run.sha),
+            inArray(pullRequestChecks.name, checks)
+          )
+        )
+    })
+  }
 }
 
 // ── results → check rows ────────────────────────────────────────────────
