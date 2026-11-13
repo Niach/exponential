@@ -422,6 +422,7 @@ const CASES: Record<string, Case> = {
   [`apps.publish`]: wr(`apps.publish`, (w) => ({ op: `publish`, slug: w.b.appSlug, teamId: w.b.teamId })),
   [`apps.delete`]: wr(`apps.delete`, (w) => ({ op: `delete`, slug: w.b.appSlug, teamId: w.b.teamId })),
   [`apps.catalog`]: r(`apps.catalog`, () => ({ op: `catalog` })),
+  [`apps.render`]: r(`apps.render`, (w) => ({ op: `render`, slug: w.b.appSlug, teamId: w.b.teamId })),
   [`apps.records_list`]: r(`apps.records_list`, (w) => ({ op: `records_list`, slug: w.b.appSlug, teamId: w.b.teamId })),
   [`apps.records_upsert`]: wr(`apps.records_upsert`, (w) => ({ op: `records_upsert`, slug: w.b.appSlug, teamId: w.b.teamId, kind: `note`, data: { text: `leak` } })),
   [`apps.records_delete`]: wr(`apps.records_delete`, (w) => ({ op: `records_delete`, slug: w.b.appSlug, teamId: w.b.teamId, id: w.b.recordId })),
