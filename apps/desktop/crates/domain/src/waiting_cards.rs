@@ -36,6 +36,7 @@ pub struct WaitingCardsConstants {
     pub label_max: usize,
     pub ellipsis: String,
     pub highlight_ms: u64,
+    pub deep_link_ms: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -200,6 +201,57 @@ pub fn waiting_target(kind: AskDockKind, session_id: &str, root_id: &str) -> Wai
     WaitingTarget { open, session_id: session_id.to_string() }
 }
 
+/// waiting-cards.json DEEP LINKS: a pending jump into a message's next step.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DeepLinkStep {
+    /// Found, laid out and centred: ring it, the link settles.
+    Ring,
+    /// Found and laid out: scroll it to the centre.
+    Scroll,
+    /// A layout or a page in flight: run again.
+    Wait,
+    /// Not loaded, older rows exist: page ONE older page in.
+    Page,
+    /// Not loaded and nothing older (or past `deepLinkMs`): settle.
+    Missing,
+}
+
+/// What a pending deep link knows this frame (waiting-cards.json DEEP LINKS).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeepLinkInput {
+    pub found: bool,
+    pub laid_out: bool,
+    pub centred: bool,
+    pub paging: bool,
+    pub more: bool,
+    pub elapsed_ms: u64,
+}
+
+/// The deep link's next step (`deepLinkStep`).
+pub fn deep_link_step(input: DeepLinkInput) -> DeepLinkStep {
+    if input.elapsed_ms >= WAITING_CARDS.constants.deep_link_ms {
+        return if input.found { DeepLinkStep::Ring } else { DeepLinkStep::Missing };
+    }
+    if input.found {
+        return if !input.laid_out {
+            DeepLinkStep::Wait
+        } else if input.centred {
+            DeepLinkStep::Ring
+        } else {
+            DeepLinkStep::Scroll
+        };
+    }
+    if input.paging {
+        DeepLinkStep::Wait
+    } else if input.more {
+        DeepLinkStep::Page
+    } else {
+        DeepLinkStep::Missing
+    }
+}
+
 /// The phone button's accessible name.
 pub fn waiting_count_label(count: usize) -> String {
     WAITING_CARDS.copy.waiting_count.replace("{count}", &count.to_string())
@@ -245,6 +297,14 @@ mod tests {
             let kind: AskDockKind = serde_json::from_value(card["kind"].clone()).unwrap();
             let got = waiting_target(kind, card["sessionId"].as_str().unwrap(), case["rootId"].as_str().unwrap());
             assert_eq!(serde_json::to_value(got).unwrap(), case["expected"], "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn deep_link_cases() {
+        for case in cases("deepLinkCases") {
+            let input: DeepLinkInput = serde_json::from_value(case["input"].clone()).unwrap();
+            assert_eq!(serde_json::to_value(deep_link_step(input)).unwrap(), case["expected"], "{}", case["name"]);
         }
     }
 }

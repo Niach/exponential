@@ -201,6 +201,13 @@ struct AgentSessionView: View {
     /// #EXP-1562: the chat header's waiting pick and the card it lit.
     @Environment(\.waitingFocus) private var waitingFocus
     @State private var highlightId: String?
+    /// waiting-cards.json DEEP LINKS: THE pending deep link into a card
+    /// (`DeepLinkScroll`), the pick it came from, its row's frame.
+    @State private var deepLink: WaitingCards.DeepLink?
+    @State private var deepLinkTaken: WaitingFocus?
+    @State private var deepLinkFrame: CGRect?
+    /// The session's cards have been read once (a link waits for them).
+    @State private var cardsLoaded = false
     /// EXP-1398: the `surface` cards' rows, by message id.
     @State private var surfaceRows: [String: SessionChatRow] = [:]
     /// EXP-1323 / #EXP-1732: a ROOT's suggested tasks rows (`buildSessionChat`
@@ -680,8 +687,10 @@ struct AgentSessionView: View {
                         }
                         .frame(minHeight: geo.size.height)
                     }
-                    .modifier(WaitingFocusScroll(
-                        focus: waitingFocus, proxy: proxy, highlight: $highlightId
+                    .modifier(DeepLinkScroll(
+                        focus: waitingFocus, taken: $deepLinkTaken, link: $deepLink,
+                        highlight: $highlightId, targetFrame: deepLinkFrame, proxy: proxy,
+                        ready: cardsLoaded, found: { waitingIds.contains($0) }
                     ))
                 }
             }
@@ -976,6 +985,7 @@ struct AgentSessionView: View {
                 .modifier(FollowPinTracker(
                     atBottom: $atBottom,
                     slack: AgentSessionLayout.followSlack,
+                    hold: deepLink != nil,
                     repin: { proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom) }
                 ))
                 // steer-enet.json REPLAY TAIL: within one viewport of the
@@ -983,7 +993,8 @@ struct AgentSessionView: View {
                 // Load earlier, no new UI); the reader stays on the row they
                 // were reading once the page lands above it.
                 .modifier(LoadEarlierNearTop(
-                    enabled: agentTab == nil && !atBottom && model.canLoadEarlier,
+                    // A pending deep link pages for itself, one page at a time.
+                    enabled: agentTab == nil && !atBottom && model.canLoadEarlier && deepLink == nil,
                     load: {
                         let anchor = model.transcript.first?.id
                         loadEarlierMessages()
@@ -995,18 +1006,39 @@ struct AgentSessionView: View {
                     earlierAnchor = nil
                     Task { @MainActor in proxy.scrollTo(anchor, anchor: .top) }
                 }
-                // #EXP-1562: the chat header's waiting pick (an embedded
-                // session page) scrolls here and lights the card.
-                .modifier(WaitingFocusScroll(
-                    focus: waitingFocus, proxy: proxy, highlight: $highlightId, onScroll: { atBottom = false }
+                // waiting-cards.json DEEP LINKS: a jump into a card (a
+                // Needs you row, a waiting pick) pages older rows in until
+                // the card is loaded, centres it, then lights it; the follow
+                // pin stays off while it is pending.
+                .modifier(DeepLinkScroll(
+                    focus: waitingFocus, taken: $deepLinkTaken, link: $deepLink,
+                    highlight: $highlightId, targetFrame: deepLinkFrame, proxy: proxy,
+                    ready: cardsLoaded, found: { drawsCard($0, model: model) },
+                    more: model.canLoadEarlier || transcriptRows?.messagesMore == true,
+                    arrival: "\(model.transcript.first?.id ?? -1)|\(transcriptRows?.messages.count ?? -1)",
+                    page: {
+                        let more = transcriptRows?.messagesMore == true
+                        loadEarlierMessages()
+                        return model.loadEarlier() || more
+                    },
+                    onTake: {
+                        atBottom = false
+                        agentTab = nil
+                    },
+                    onMissing: {
+                        atBottom = true
+                        proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
+                    }
                 ))
                 .onAppear {
-                    proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
+                    if deepLink == nil {
+                        proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
+                    }
                     // Lazy rows can still be sizing on the first pass, landing
                     // the scroll short — re-assert once layout has settled.
                     Task { @MainActor in
                         try? await Task.sleep(for: .milliseconds(50))
-                        if atBottom {
+                        if atBottom, deepLink == nil {
                             proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
                         }
                     }
@@ -1036,6 +1068,8 @@ struct AgentSessionView: View {
                     model.noteAtBottom(now)
                 }
                 .onChange(of: agentTab) { _, _ in
+                    // A deep link taken closes the tab to reach its card.
+                    guard deepLink == nil else { return }
                     atBottom = true
                     proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
                 }
@@ -1058,6 +1092,7 @@ struct AgentSessionView: View {
                                 // (EXP-306). With atBottom set here the button
                                 // hides at once and the growth observer keeps
                                 // chasing the bottom.
+                                deepLink = nil
                                 atBottom = true
                                 withAnimation(motion.standard) {
                                     proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
@@ -1547,6 +1582,19 @@ struct AgentSessionView: View {
         }
     }
 
+    /// waiting-cards.json DEEP LINKS `found`: the card draws in the main
+    /// transcript now, at the head (`unanchored`) or after a rendered row.
+    private func drawsCard(_ id: String, model: AgentSessionModel) -> Bool {
+        guard agentTab == nil, toolAsks.contains(where: { $0.id == id }) || surfaceRows[id] != nil else {
+            return false
+        }
+        let placed = AskDock.anchorSessionCards(model.feedCalls, cards: sessionCards)
+        if placed.unanchored.contains(id) { return true }
+        return model.transcript.contains { entry in
+            Self.rowItemIds(entry.row).contains { placed.anchors[$0]?.contains(id) == true }
+        }
+    }
+
     /// EXP-1280: the session cards with these message ids, inline as THE
     /// chat card (`ChatAskCard`): a waiting one answerable by a viewer
     /// who may post, an answered one
@@ -1563,6 +1611,9 @@ struct AgentSessionView: View {
                     animate: false,
                     onReply: canAnswerCards ? { text in replyFromSurface(text) } : nil
                 )
+                .waitingHighlight(highlightId == id)
+                .deepLinkRow(deepLink?.target == id, frame: $deepLinkFrame)
+                .id(id)
                 .padding(.top, DesignTokens.Transcript.gapBlock)
                 .accessibilityIdentifier("session-surface-card")
             } else if let row = toolAsks.first(where: { $0.id == id }) {
@@ -1574,6 +1625,7 @@ struct AgentSessionView: View {
                     onSubmit: submitToolAnswer
                 )
                 .waitingHighlight(highlightId == id)
+                .deepLinkRow(deepLink?.target == id, frame: $deepLinkFrame)
                 .id(id)
                 .padding(.top, DesignTokens.Transcript.gapBlock)
                 .accessibilityIdentifier("session-tool-card")
@@ -1681,6 +1733,7 @@ struct AgentSessionView: View {
                 sessionCards = cards.filter { $0.kind != .surface || surfaces[$0.id] != nil }
                 toolAsks = asks
                 surfaceRows = surfaces
+                if !cardsLoaded { cardsLoaded = true }
             }
         } catch {}
     }
@@ -4568,6 +4621,9 @@ struct FollowPinTracker: ViewModifier {
     @Binding var atBottom: Bool
     /// Within this many points of the bottom still counts as pinned.
     let slack: CGFloat
+    /// waiting-cards.json DEEP LINKS: a pending link holds the pin off — no
+    /// re-arm, no repin, whatever arrives or measures under it.
+    var hold = false
     /// Re-assert the bottom pin (a scrollTo) after the CONTENT grew while
     /// pinned — in-place feed mutations (a question card filling in, a tool
     /// group's live tail) change no row count, so the feed-count follow
@@ -4630,7 +4686,7 @@ struct FollowPinTracker: ViewModifier {
         growthRepins += 1
         Task { @MainActor in
             repinQueued = false
-            guard stranded || atBottom, !userScrolling else { return }
+            guard stranded || atBottom, !userScrolling, !hold else { return }
             repin()
         }
     }
@@ -4652,7 +4708,7 @@ struct FollowPinTracker: ViewModifier {
                     // The growth observer skips repins during user scrolls
                     // (EXP-306); catch up once the gesture settles so a
                     // followed feed never idles a few points shy of its end.
-                    if newPhase == .idle, atBottom, !lastPinned {
+                    if newPhase == .idle, atBottom, !lastPinned, !hold {
                         repin()
                     }
                 }
@@ -4691,7 +4747,7 @@ struct FollowPinTracker: ViewModifier {
                         heightDelta: Double(new.height - old.height)
                     ) {
                     case .rearm:
-                        if !atBottom { atBottom = true }
+                        if !atBottom, !hold { atBottom = true }
                     case .unpin:
                         atBottom = false
                     case .hold:

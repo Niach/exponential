@@ -3582,38 +3582,28 @@ impl SessionChatScreenView {
         }
     }
 
-    /// #EXP-1785: the pending reveal in the session opened in place, once
-    /// its feed holds the card (the ring alone once the wait ran out).
+    /// #EXP-1785: the pending reveal in the session opened in place: once
+    /// that session's view is the focus it takes the deep link
+    /// (waiting-cards.json DEEP LINKS: it pages, waits and rings itself).
     fn take_waiting_reveal(&mut self, cx: &mut gpui::Context<Self>) {
         let Some((session_id, card_id, at)) = self.waiting_reveal.clone() else { return };
-        let Some((focus_id, view)) = self.focus.clone() else {
-            if at.elapsed() > WAITING_REVEAL_WAIT {
+        match self.focus.clone() {
+            Some((focus_id, view)) if focus_id == session_id => {
                 self.waiting_reveal = None;
+                let inner = view.read(cx).inner().clone();
+                inner.update(cx, |inner, cx| inner.open_deep_link(&card_id, cx));
             }
-            return;
-        };
-        if focus_id != session_id {
-            if at.elapsed() > WAITING_REVEAL_WAIT {
-                self.waiting_reveal = None;
-            }
-            return;
-        }
-        let inner = view.read(cx).inner().clone();
-        let found = inner.update(cx, |inner, cx| inner.try_reveal_card(&card_id, cx));
-        if found {
-            self.waiting_reveal = None;
-        } else if at.elapsed() > WAITING_REVEAL_WAIT {
-            self.waiting_reveal = None;
-            crate::waiting_cards::highlight(&card_id, cx);
+            _ if at.elapsed() > WAITING_REVEAL_WAIT => self.waiting_reveal = None,
+            _ => {}
         }
     }
 
-    /// #EXP-1562 (`?card=`): the pending reveal, scrolled to and ringed in
-    /// the root's session view.
+    /// #EXP-1562 (`?card=`, Needs you): the root's session view takes the
+    /// deep link to the card (waiting-cards.json DEEP LINKS).
     fn take_reveal(&mut self, cx: &mut gpui::Context<Self>) {
         let Some(id) = self.reveal.take() else { return };
         let inner = self.root_view.read(cx).inner().clone();
-        inner.update(cx, |inner, cx| inner.reveal_card(&id, cx));
+        inner.update(cx, |inner, cx| inner.open_deep_link(&id, cx));
     }
 
     // ── render ───────────────────────────────────────────────────────────
@@ -4322,6 +4312,10 @@ impl Render for SessionChatScreenView {
 #[cfg(test)]
 #[path = "long_chat_bench.rs"]
 mod long_chat_bench;
+
+#[cfg(test)]
+#[path = "deep_link_test.rs"]
+mod deep_link_test;
 
 #[cfg(test)]
 #[path = "big_journal_bench.rs"]

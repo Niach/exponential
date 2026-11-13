@@ -120,6 +120,7 @@ vi.mock(`@/hooks/use-follow-scroll`, () => ({
     onScroll: () => {},
     atBottom: true,
     jumpToBottom: () => {},
+    hold: () => {},
   }),
 }))
 vi.mock(`@/lib/page-title`, () => ({

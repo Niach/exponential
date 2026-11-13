@@ -99,3 +99,31 @@ export function waitingTarget(
 export function waitingCountLabel(count: number): string {
   return fixture.copy.waitingCount.replace(`{count}`, String(count))
 }
+
+export type DeepLinkStep = `ring` | `scroll` | `wait` | `page` | `missing`
+
+/** What a pending deep link into a message knows this frame
+ *  (waiting-cards.json DEEP LINKS). */
+export interface DeepLinkInput {
+  /** The target's row is in the view's loaded rows. */
+  found: boolean
+  /** That row was measured at its real height. */
+  laidOut: boolean
+  /** As last laid out the row sits centred (or the list can go no further). */
+  centred: boolean
+  /** An older page is in flight. */
+  paging: boolean
+  /** Older rows can still page in. */
+  more: boolean
+  /** Since the link was taken. */
+  elapsedMs: number
+}
+
+/** The deep link's next step: ring it, scroll to it, wait a layout, page one
+ *  older page in, or give up (`missing`). */
+export function deepLinkStep(input: DeepLinkInput): DeepLinkStep {
+  if (input.elapsedMs >= fixture.constants.deepLinkMs) return input.found ? `ring` : `missing`
+  if (input.found) return !input.laidOut ? `wait` : input.centred ? `ring` : `scroll`
+  if (input.paging) return `wait`
+  return input.more ? `page` : `missing`
+}

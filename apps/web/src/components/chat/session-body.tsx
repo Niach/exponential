@@ -1,9 +1,11 @@
+import { useEffect } from "react"
 import type { ComponentProps, ReactNode } from "react"
 import { viaAppCaption } from "@exp/domain-contract/via-app"
 import { useAppName } from "@/hooks/use-apps"
 import { Link } from "@tanstack/react-router"
 import {
   Button,
+  CardHighlightContext,
   conceptIcon,
   FloatingComposer,
   useIsMobile,
@@ -19,6 +21,7 @@ import {
   useSessionChat,
 } from "@/hooks/use-session-tree"
 import { useAgentRow } from "@/hooks/use-agent-row"
+import { DeepLinkContext, useDeepLinkHost } from "@/hooks/use-deep-link"
 import { useSessionNav } from "@/hooks/use-session-nav"
 import type { SessionXref as SessionXrefModel } from "@exp/domain-contract/session-tree"
 import { useMarkRead, useNewestAgentMessageAt } from "@/hooks/use-mark-read"
@@ -192,13 +195,21 @@ export function SessionScreen({
   teamSlug,
   row,
   back,
+  card: cardId,
 }: {
   teamSlug: string
   row: SessionRow
   /** S-3: the route's `back` stack. */
   back?: string
+  /** waiting-cards.json DEEP LINKS: `?card=`, a card of this session. */
+  card?: string
 }) {
   useOpenedSessionRead(row.id)
+  const deepLinkHost = useDeepLinkHost()
+  const takeDeepLink = deepLinkHost.take
+  useEffect(() => {
+    if (cardId) takeDeepLink(cardId, row.id)
+  }, [cardId, row.id, takeDeepLink])
   const isMobile = useIsMobile()
   const rootId = row.rootId ?? row.id
   const isRoot = rootId === row.id
@@ -262,6 +273,8 @@ export function SessionScreen({
   )
 
   return (
+    <DeepLinkContext.Provider value={deepLinkHost}>
+    <CardHighlightContext.Provider value={deepLinkHost.highlight}>
     <AgentSessionView
       session={row}
       header={header}
@@ -282,5 +295,7 @@ export function SessionScreen({
         )
       }
     />
+    </CardHighlightContext.Provider>
+    </DeepLinkContext.Provider>
   )
 }

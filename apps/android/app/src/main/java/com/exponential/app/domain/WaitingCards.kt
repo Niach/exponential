@@ -9,8 +9,8 @@ import kotlinx.serialization.json.JsonPrimitive
  * `packages/domain-contract/src/waiting-cards.ts`, desktop
  * `domain::waiting_cards`, iOS ExpCore `WaitingCards.swift`): a card's state,
  * the dismiss ×, the session screen header's waiting chips and a pick's
- * target. `WaitingCardsTest` replays `stateCases`, `chipCases` and
- * `targetCases`, comparing whole values.
+ * target, and THE deep link's step. `WaitingCardsTest` replays `stateCases`,
+ * `chipCases`, `targetCases` and `deepLinkCases`, comparing whole values.
  */
 object WaitingCards {
 
@@ -35,6 +35,7 @@ object WaitingCards {
         const val LABEL_MAX = 24
         const val ELLIPSIS = "…"
         const val HIGHLIGHT_MS = 1600L
+        const val DEEP_LINK_MS = 10_000L
     }
 
     object TestIds {
@@ -135,6 +136,43 @@ object WaitingCards {
         kind == AskDock.Kind.Plan -> Target(Open.Plan, sessionId)
         sessionId == rootId -> Target(Open.Card, sessionId)
         else -> Target(Open.Session, sessionId)
+    }
+
+    /** DEEP LINKS (`deepLinkCases`): what a pending jump into a message does next. */
+    enum class DeepLinkStep(val wire: String) {
+        Ring("ring"),
+        Scroll("scroll"),
+        Wait("wait"),
+        Page("page"),
+        Missing("missing"),
+    }
+
+    /** [found] = the target's row is LOADED; [laidOut] = measured at its real
+     *  height; [centred] = its centre sits within 2 px of the viewport's (or
+     *  the list cannot scroll further toward it); [paging] = an older page is
+     *  in flight; [more] = older rows can still page in. */
+    data class DeepLinkInput(
+        val found: Boolean,
+        val laidOut: Boolean,
+        val centred: Boolean,
+        val paging: Boolean,
+        val more: Boolean,
+        val elapsedMs: Long,
+    )
+
+    /** TS `deepLinkStep`: past [Constants.DEEP_LINK_MS] a found row rings
+     *  where it stands, else `missing`. */
+    fun deepLinkStep(input: DeepLinkInput): DeepLinkStep {
+        if (input.elapsedMs >= Constants.DEEP_LINK_MS) return if (input.found) DeepLinkStep.Ring else DeepLinkStep.Missing
+        if (input.found) {
+            return when {
+                !input.laidOut -> DeepLinkStep.Wait
+                input.centred -> DeepLinkStep.Ring
+                else -> DeepLinkStep.Scroll
+            }
+        }
+        if (input.paging) return DeepLinkStep.Wait
+        return if (input.more) DeepLinkStep.Page else DeepLinkStep.Missing
     }
 
     /** The phone button's accessible name. */

@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-13-deep-links-land",
+    date: "2026-11-13",
+    title: "Jumps to a plan or question land on it",
+    summary: "Opening a plan or question from Needs you, a link or a waiting chip now loads the chat around it, scrolls it into view and rings it, on every platform.",
+    body: r##"- **Older messages too**: a card older than what the chat has loaded pages the earlier messages in first, then scrolls to it.
+- **Holds still**: while it gets there the chat no longer jumps back to the newest message; scrolling yourself cancels the jump.
+- **Select text in the desktop chat**: dragging across a message selects its text again instead of scrolling the chat; the chat only scrolls once you drag to its edge."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_268: ChangelogEntry = ChangelogEntry {
     id: "2026-11-13-tabs-on-top",
     date: "2026-11-13",
     title: "Tabs are back on top in the desktop app",

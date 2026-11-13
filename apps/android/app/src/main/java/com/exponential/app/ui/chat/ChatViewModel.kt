@@ -230,15 +230,24 @@ class ChatViewModel @Inject constructor(
     /** #EXP-1380 (chats.json PERF): the tree's messages, keyed through
      *  their conversations — the transcript reads THIS tree, never every
      *  synced message. */
+    private val sharedPage: Flow<Chats.MessagePage> =
+        messagePage.flowOn(Dispatchers.Default).shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
+
     private val treeMessages: Flow<List<SessionTree.Message>> =
         // Only the account's REAL rows (never the signed-out placeholder): the
         // view's first build already holds the whole tree, so the window's
         // first paint pins on the loaded transcript (chats.json WINDOW).
-        messagePage.map { it.rows }
+        sharedPage.map { it.rows }
             // One query + one card parse per change, shared by the view and
             // the referenced-session lookup.
             .flowOn(Dispatchers.Default)
             .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
+
+    /** waiting-cards.json DEEP LINKS: older messages exist beyond the loaded
+     *  page (a deep link's target pages in through [loadEarlierMessages]). */
+    val messagesMore: StateFlow<Boolean> =
+        sharedPage.map { it.more }.distinctUntilChanged()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /** THE chat's Load earlier: one `windowStep` more messages (TS `loadEarlierMessages`). */
     fun loadEarlierMessages() = Chats.loadEarlierMessages(rootId)

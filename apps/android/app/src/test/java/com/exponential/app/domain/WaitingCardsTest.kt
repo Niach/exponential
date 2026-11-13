@@ -16,7 +16,7 @@ import org.junit.Test
 
 /**
  * [WaitingCards] replays `fixtures/waiting-cards.json` (`stateCases`,
- * `chipCases`, `targetCases`; `dismissCases` are the server's), comparing
+ * `chipCases`, `targetCases`, `deepLinkCases`; `dismissCases` are the server's), comparing
  * WHOLE values.
  */
 class WaitingCardsTest {
@@ -54,6 +54,7 @@ class WaitingCardsTest {
                 "labelMax" to WaitingCards.Constants.LABEL_MAX.toString(),
                 "ellipsis" to WaitingCards.Constants.ELLIPSIS,
                 "highlightMs" to WaitingCards.Constants.HIGHLIGHT_MS.toString(),
+                "deepLinkMs" to WaitingCards.Constants.DEEP_LINK_MS.toString(),
             ),
             map("constants"),
         )
@@ -130,6 +131,28 @@ class WaitingCardsTest {
                 put("sessionId", target.sessionId)
             }
             assertEquals(name, case.getValue("expected"), actual)
+        }
+    }
+
+    @Test
+    fun `every deep link case matches the fixture`() {
+        val cases = cases("deepLinkCases")
+        assertEquals(true, cases.isNotEmpty())
+        for (case in cases) {
+            val name = case.getValue("name").jsonPrimitive.content
+            val input = case.getValue("input").jsonObject
+            fun flag(key: String) = input.getValue(key).jsonPrimitive.boolean
+            val step = WaitingCards.deepLinkStep(
+                WaitingCards.DeepLinkInput(
+                    found = flag("found"),
+                    laidOut = flag("laidOut"),
+                    centred = flag("centred"),
+                    paging = flag("paging"),
+                    more = flag("more"),
+                    elapsedMs = input.getValue("elapsedMs").jsonPrimitive.content.toLong(),
+                ),
+            )
+            assertEquals(name, case["expected"].strOrNull(), step.wire)
         }
     }
 

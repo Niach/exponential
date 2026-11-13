@@ -239,6 +239,9 @@ pub(crate) const FEED_WINDOW_FOR_TEST: usize = FEED_WINDOW;
 /// #LOGS-7: a session's conversation cards and (a root's) tree suggestions.
 type ConvMemo = (Rc<Vec<domain::session_tree::SessionChatRow>>, Option<Rc<Vec<domain::session_tree::SessionChatRow>>>);
 
+/// DEEP LINKS: how often a deep link waiting on a page looks again.
+const DEEP_LINK_POLL: Duration = Duration::from_millis(250);
+
 /// How much older transcript one "scrolled to the top" extension pulls in.
 const FEED_WINDOW_STEP: usize = domain::contract::STEER_FEED_WINDOW_STEP;
 
@@ -629,6 +632,11 @@ pub(crate) struct SteerSessionView {
     /// gpui rebases the scroll anchor across, so the reader stays put and row
     /// 0 leaves the viewport — endless scroll that terminates on its own.
     extend_window: bool,
+    /// DEEP LINKS: the synced page widened for a deep link (`(message id,
+    /// the page version it was widened at)`): in flight until it moves.
+    deep_link_page: Option<(String, u64)>,
+    /// DEEP LINKS: the pending jump into a card (message id, taken at).
+    deep_link: Option<(String, Instant)>,
     /// EXP-783: the `history_page` request in flight, if any — a chunk for
     /// any other id is not ours.
     history_request: Option<String>,
@@ -975,6 +983,8 @@ impl SteerSessionView {
             pruned_before: 0,
             window_from: None,
             extend_window: false,
+            deep_link_page: None,
+            deep_link: None,
             history_request: None,
             history_truncated: false,
             history_exhausted: false,
@@ -2067,6 +2077,13 @@ impl SteerSessionView {
         // the gap alone; a band that grows shrinks the viewport and the
         // following list holds its newest row.
         self.chat.set_tail(crate::dock::DOCK_GAP, cx);
+        // DEEP LINKS: the pending jump steps before the scroll is applied.
+        if let Some((id, at)) = self.deep_link.clone() {
+            self.chat.note_layout();
+            if self.deep_link_tick(&id, at.elapsed(), cx) {
+                self.deep_link = None;
+            }
+        }
         self.chat.sync_scroll(cx)
     }
 
@@ -2922,26 +2939,17 @@ impl SteerSessionView {
         self.answer_via_server(&key, Vec::new(), Vec::new(), input, item_id, cx);
     }
 
-    /// #EXP-1562 (`?card=`): a waiting card in this view (a tool-posted
-    /// Conversation card, or an engine ask's feed card by its row): its
-    /// list row scrolled to the centre and the card ringed.
-    pub(crate) fn reveal_card(&mut self, message_id: &str, cx: &mut gpui::Context<Self>) {
-        if !self.try_reveal_card(message_id, cx) {
-            crate::waiting_cards::highlight(message_id, cx);
-        }
-    }
-
-    /// [`Self::reveal_card`] only when the card's row is in the list yet
-    /// (#EXP-1785: a session just opened in place replays its feed first);
-    /// `false` = not there, nothing done.
-    pub(crate) fn try_reveal_card(&mut self, message_id: &str, cx: &mut gpui::Context<Self>) -> bool {
+    /// The list row holding the card `message_id` (a tool-posted
+    /// Conversation card, or an engine ask's feed card by its row), when it
+    /// is in the window yet.
+    fn card_row(&self, message_id: &str, cx: &gpui::Context<Self>) -> Option<usize> {
         let items = self.feed.items();
         let row_holding = |hit: &dyn Fn(&FeedItem) -> bool| {
             self.rows
                 .iter()
                 .position(|spec| spec.item_indices().iter().filter_map(|&index| items.get(index)).any(|item| hit(item)))
         };
-        let ix = match self.conv_cards.iter().position(|row| row.id() == message_id) {
+        match self.conv_cards.iter().position(|row| row.id() == message_id) {
             Some(card) if self.conv_head().contains(&card) => Some(0),
             Some(card) => match self.conv_tail().iter().position(|&tail| tail == card) {
                 Some(at) => Some(self.rows.len() + self.orphan_workflows.len() + at),
@@ -2954,13 +2962,122 @@ impl SteerSessionView {
                         .is_some_and(|card| card_row_id(&messages, &card.question_id).as_deref() == Some(message_id))
                 })
             }
-        };
-        let Some(ix) = ix else { return false };
-        // #EDE-65 lane O: the document centres the row.
-        self.chat.reveal(ix, "center");
+        }
+    }
+
+    /// waiting-cards.json DEEP LINKS (`?card=`, Needs you, a waiting chip,
+    /// a notification): jump to the card `message_id` once it is loaded and
+    /// laid out, then ring it ([`Self::deep_link_tick`] steps every frame).
+    pub(crate) fn open_deep_link(&mut self, message_id: &str, cx: &mut gpui::Context<Self>) {
+        self.deep_link = Some((message_id.to_string(), Instant::now()));
+        self.chat.pin(true);
         cx.notify();
-        crate::waiting_cards::highlight(message_id, cx);
-        true
+    }
+
+    /// The transcript (tests).
+    #[cfg(test)]
+    pub(crate) fn chat_for_test(&self) -> &crate::chat_tab_transcript::ChatTranscript {
+        &self.chat
+    }
+
+    /// The pending deep link's target (tests).
+    #[cfg(test)]
+    pub(crate) fn deep_link_target(&self) -> Option<&str> {
+        self.deep_link.as_ref().map(|(id, _)| id.as_str())
+    }
+
+    /// waiting-cards.json DEEP LINKS: one step of the pending deep link to
+    /// the card `message_id`, taken `elapsed` ago; `true` = it settled (rung,
+    /// missing, or dropped by the reader's own scroll). The list holds its
+    /// place while it is pending: older rows page in ONE page a step until
+    /// the card's row is loaded, the row is scrolled to the centre until a
+    /// layout leaves it there, then it is ringed.
+    pub(crate) fn deep_link_tick(&mut self, message_id: &str, elapsed: Duration, cx: &mut gpui::Context<Self>) -> bool {
+        use domain::waiting_cards::{deep_link_step, DeepLinkInput, DeepLinkStep};
+        if self.chat.take_reader_scrolled() {
+            self.end_deep_link();
+            return true;
+        }
+        self.chat.pin(true);
+        let row = self.card_row(message_id, cx);
+        let page = crate::chat_window::chat_messages(&self.session_id, cx);
+        let paging = self.extend_window
+            || self.history_request.is_some()
+            || self.deep_link_page.as_ref().is_some_and(|(id, version)| id == message_id && *version == page.version);
+        let input = DeepLinkInput {
+            found: row.is_some(),
+            laid_out: row.is_some() && self.chat.laid_out(cx),
+            centred: row.is_some() && self.chat.reveal_settled(),
+            paging,
+            more: self.can_grow_window() || page.more,
+            elapsed_ms: elapsed.as_millis() as u64,
+        };
+        match deep_link_step(input) {
+            DeepLinkStep::Ring => {
+                self.end_deep_link();
+                crate::waiting_cards::highlight(message_id, cx);
+                return true;
+            }
+            DeepLinkStep::Missing => {
+                // Not in this chat's transcript: the ring still finds it
+                // where else it shows (THE Dock's waiting card).
+                self.end_deep_link();
+                crate::waiting_cards::highlight(message_id, cx);
+                return true;
+            }
+            DeepLinkStep::Scroll => {
+                if let Some(ix) = row {
+                    // #EDE-65 lane O: the document centres the row.
+                    self.chat.reveal(ix, "center");
+                }
+            }
+            DeepLinkStep::Page => {
+                if self.can_grow_window() {
+                    self.extend_window = true;
+                } else if crate::chat_window::load_earlier(&self.session_id, cx) {
+                    self.deep_link_page = Some((message_id.to_string(), page.version));
+                }
+            }
+            DeepLinkStep::Wait if row.is_none() => {
+                // A page in flight: its arrival renders again; a stalled one
+                // still reaches `deepLinkMs` on this poll.
+                cx.spawn(async move |this, cx| {
+                    cx.background_executor().timer(DEEP_LINK_POLL).await;
+                    let _ = this.update(cx, |_, cx| cx.notify());
+                })
+                .detach();
+                return false;
+            }
+            DeepLinkStep::Wait => {}
+        }
+        // The next step runs on the next frame (the layout it asked for).
+        cx.notify();
+        false
+    }
+
+    /// DEEP LINKS under a no-feed placeholder (waiting-cards.json NO FEED):
+    /// no transcript to page or scroll. A waiting card drawn under it rings;
+    /// anything else waits for the feed until `deepLinkMs`, then settles.
+    fn placeholder_deep_link(&mut self, waiting: &[usize], cx: &mut gpui::Context<Self>) {
+        let Some((id, at)) = self.deep_link.clone() else { return };
+        let shown = waiting.iter().any(|&index| self.conv_cards.get(index).is_some_and(|row| row.id() == id));
+        if shown || at.elapsed().as_millis() as u64 >= domain::waiting_cards::WAITING_CARDS.constants.deep_link_ms {
+            self.deep_link = None;
+            self.end_deep_link();
+            crate::waiting_cards::highlight(&id, cx);
+            return;
+        }
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(DEEP_LINK_POLL).await;
+            let _ = this.update(cx, |_, cx| cx.notify());
+        })
+        .detach();
+    }
+
+    /// The deep link settled: the list follows again from where it is.
+    fn end_deep_link(&mut self) {
+        self.deep_link_page = None;
+        self.chat.pin(false);
     }
 
     /// EXP-1294 — `sessions.answer` for a card's row. The card locks at once
@@ -5499,6 +5616,7 @@ impl SteerSessionView {
                 })
                 .map(|(index, _)| index)
                 .collect();
+            self.placeholder_deep_link(&waiting, cx);
             if waiting.is_empty() {
                 return div().flex_1().min_h_0().child(body).into_any_element();
             }

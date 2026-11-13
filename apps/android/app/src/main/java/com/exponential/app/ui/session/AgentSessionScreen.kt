@@ -1769,7 +1769,6 @@ private fun ActivityFeed(
     // first row whatever it is. An id rather than an index, so a byte-budget
     // eviction or a replay swap cannot slide the window under the reader.
     var windowFrom by remember { mutableStateOf<Long?>(null) }
-    val followState = rememberUpdatedState(follow)
     val windowStart = remember(feed, windowFrom) {
         val tail = maxOf(0, feed.size - FEED_WINDOW)
         val from = windowFrom ?: return@remember tail
@@ -1814,11 +1813,6 @@ private fun ActivityFeed(
         }
         workflows.filter { it.id !in shown }
     }
-    // While the reader follows the tail the window may SLIDE with the stream
-    // (invisible, and it keeps the projection bounded). The moment they scroll
-    // up it stays pinned: rows vanishing above a reader is exactly the jump
-    // this change exists to avoid.
-    LaunchedEffect(follow) { if (follow) windowFrom = null }
     val canLoadEarlier = windowStart > 0 || onCanLoadEarlier()
     // THE Load earlier action (chats.json WINDOW): grow the window by a step,
     // and past the feed's own first row ask the device for an older page.
@@ -1842,6 +1836,51 @@ private fun ActivityFeed(
     val agents = remember(feed) { collectSubagents(feed) }
     val visibleTabs = remember(agents, agentTab) { visibleSubagentTabs(agents, agentTab) }
     val focused = visibleTabs.firstOrNull { it.subagentId == agentTab }
+    // waiting-cards.json DEEP LINKS: THE pending jump into a card (a Needs you
+    // row, a waiting chip, `?card=`), driven frame by frame: one older page
+    // at a time until the card is loaded, its layout, the centre, the ring.
+    // The main stream only: feed-header · load-earlier · the head cards · the
+    // rows, each row carrying the cards its calls posted.
+    val chatMessagesMore = LocalChatMessagesMore.current
+    val deepLink = rememberDeepLink(
+        listState = listState,
+        request = LocalCardScrollRequest.current,
+        indexOf = { id ->
+            if (focused != null) {
+                null
+            } else {
+                val lead = if (canLoadEarlier) 1 else 0
+                val head = sessionCards.head.indexOfFirst { it.id == id }
+                if (head >= 0) {
+                    lead + head
+                } else {
+                    val at = rows.indexOfFirst { row -> sessionCards.after(row).any { it.id == id } }
+                    if (at < 0) null else lead + sessionCards.head.size + at
+                }
+            }
+        },
+        more = { canLoadEarlier || chatMessagesMore },
+        loadedMark = { listOf(feed.size, windowStart, rows.size, sessionCards.head.size).hashCode() },
+        page = loadEarlier,
+        onTake = {
+            onFollowChange(false)
+            if (agentTab != null) onAgentTabChange(null)
+        },
+    )
+    // While a link is pending the transcript never follows its newest row.
+    val following = follow && !deepLink.pending
+    val followState = rememberUpdatedState(following)
+    val linkPending = rememberUpdatedState(deepLink.pending)
+    // While the reader follows the tail the window may SLIDE with the stream
+    // (invisible, and it keeps the projection bounded). The moment they scroll
+    // up it stays pinned: rows vanishing above a reader is exactly the jump
+    // this change exists to avoid.
+    LaunchedEffect(following) { if (following) windowFrom = null }
+    // THE ring: the card the link settled on wears the highlight.
+    val ringing = deepLink.ringing
+    val ringCard: @Composable (SessionTree.SessionChatRow) -> Unit = remember(ringing, renderCard) {
+        { card -> CompositionLocalProvider(LocalCardHighlight provides ringing) { renderCard(card) } }
+    }
     // A HOLDING lock counts as answered for stepper advance — a Sending lock
     // advances the stepper the moment the tap goes out (claude-TUI-snappy; web
     // parity). A Failed lock (5s no-ack timeout, EXP-334) does NOT: its step
@@ -1880,7 +1919,10 @@ private fun ActivityFeed(
                 // pinned transcript never pages by itself.
                 scrolledUp = !followState.value && listState.canScrollForward,
             )
-        }.distinctUntilChanged().collect { near -> if (near) loadEarlierState.value() }
+        }.distinctUntilChanged().collect { near ->
+            // A pending deep link pages ONE page at a time itself.
+            if (near && !linkPending.value) loadEarlierState.value()
+        }
     }
 
     // Only user drags flip follow-mode; programmatic scrolls keep it.
@@ -1901,6 +1943,11 @@ private fun ActivityFeed(
         snapshotFlow { listState.isScrollInProgress to listState.isNearBottom(followSlackPx) }
             .distinctUntilChanged()
             .collect { (scrolling, nearBottom) ->
+                // A deep link's own scrolls never re-arm follow.
+                if (linkPending.value) {
+                    wasScrolling = scrolling
+                    return@collect
+                }
                 if (scrolling && !nearBottom) onFollowChange(false)
                 if (!scrolling && wasScrolling) onFollowChange(nearBottom)
                 wasScrolling = scrolling
@@ -1912,29 +1959,25 @@ private fun ActivityFeed(
     // scrollBy finishes the scroll to the true bottom (EXP-197). agentTab is a
     // key too: switching conversations re-pins to the newest event (EXP-356),
     // and `working` re-pins when the EXP-389 footer appears/disappears.
-    LaunchedEffect(feed.size, follow, agentTab, working, orphanWorkflows.size) {
+    LaunchedEffect(feed.size, following, agentTab, working, orphanWorkflows.size) {
         val visible = if (focused != null) {
             focused.items.size + 1
         } else {
             rows.size + orphanWorkflows.size + (if (working) 1 else 0)
         }
-        if (follow && visible > 0) {
+        if (following && visible > 0) {
             listState.scrollToItem(visible - 1)
             listState.scrollBy(1_000_000f)
         }
     }
 
-    // #EXP-1562 (waiting-cards.json CHIPS): a waiting chip's pick centres
-    // that card (the main stream only: feed-header · load-earlier · the head
-    // cards · the rows, each row carrying the cards its calls posted).
-    val cardScroll = LocalCardScrollRequest.current
     val feedFooter = LocalFeedFooter.current
     // #PERF-9: the FIRST layout of a following feed starts at its newest row.
     // Started at index 0 it composed and measured the window's oldest rows
     // (never on screen) before the re-pin above moved to the end; requested
     // here, in composition, the first measure already lands on the end.
     val firstPin = remember(listState) { booleanArrayOf(false) }
-    if (!firstPin[0] && follow && focused == null && rows.isNotEmpty()) {
+    if (!firstPin[0] && following && focused == null && rows.isNotEmpty()) {
         firstPin[0] = true
         if (listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0) {
             val count = (if (canLoadEarlier) 1 else 0) + sessionCards.head.size + rows.size +
@@ -1942,27 +1985,10 @@ private fun ActivityFeed(
             listState.requestScrollToItem(count - 1, Int.MAX_VALUE / 2)
         }
     }
-    // #FEED-191: a way in (a Needs you row) may ask before the rows load: the
-    // request is live for its highlight, so a row landing in that time retries.
-    LaunchedEffect(cardScroll, rows.size, sessionCards.head.size) {
-        val request = cardScroll ?: return@LaunchedEffect
-        if (focused != null) return@LaunchedEffect
-        val lead = if (canLoadEarlier) 1 else 0
-        val head = sessionCards.head.indexOfFirst { it.id == request.id }
-        val index = if (head >= 0) {
-            lead + head
-        } else {
-            val at = rows.indexOfFirst { row -> sessionCards.after(row).any { it.id == request.id } }
-            if (at < 0) return@LaunchedEffect
-            lead + sessionCards.head.size + at
-        }
-        onFollowChange(false)
-        listState.centreOnItem(index)
-    }
     // EXP-1162: the bottom band grew or shrank (a banner, the queue, the
     // keyboard's composer), so the list did — a follower stays on the true end.
     LaunchedEffect(bottomInset) {
-        if (follow) listState.scrollBy(1_000_000f)
+        if (following) listState.scrollBy(1_000_000f)
     }
     // EXP-1316: a follower sits on the TRUE end whatever moved it off: the
     // newest row growing after its first layout (a card's markdown, a late
@@ -2063,7 +2089,7 @@ private fun ActivityFeed(
             }
             // EXP-1398: the session cards whose call is not in the feed.
             items(sessionCards.head, key = { "session-card-${it.id}" }, contentType = { "session-card" }) { card ->
-                SessionCardRow(card, renderCard)
+                SessionCardRow(card, ringCard)
             }
             // EXP-787: the row's space comes from the row BEFORE it — the one
             // gap ladder, shared with web, iOS and the desktop. Keys stay the
@@ -2227,7 +2253,7 @@ private fun ActivityFeed(
                     }
                 }
                 // EXP-1398: the session cards the row's calls posted.
-                for (card in sessionCards.after(row)) SessionCardRow(card, renderCard)
+                for (card in sessionCards.after(row)) SessionCardRow(card, ringCard)
                 }
             }
             // EXP-850 (S3): a card whose `Workflow` tool row is not in the
@@ -4018,8 +4044,23 @@ internal val LocalCardDismiss =
 internal val LocalCardHighlight = androidx.compose.runtime.compositionLocalOf<String?> { null }
 
 /** #EXP-1562: a waiting chip's pick: scroll the conversation to card [id]
- *  ([nonce] = a fresh pick of the same card scrolls again). */
-data class CardScrollRequest(val id: String, val nonce: Int)
+ *  ([nonce] = a fresh pick of the same card scrolls again). waiting-cards.json
+ *  DEEP LINKS: THE pending deep link, taken at [takenAtMs] (uptime): the
+ *  transcript drives it ([rememberDeepLink]) and reports it settled through
+ *  [LocalCardScrollSettled]. */
+data class CardScrollRequest(
+    val id: String,
+    val nonce: Int,
+    val takenAtMs: Long = android.os.SystemClock.uptimeMillis(),
+)
+
+/** DEEP LINKS: the transcript's word that the pending link settled (rang,
+ *  missing, or dropped by the reader's own scroll); the host clears it. */
+internal val LocalCardScrollSettled = androidx.compose.runtime.compositionLocalOf<((CardScrollRequest) -> Unit)?> { null }
+
+/** DEEP LINKS: whether the chat around this feed holds older MESSAGES than it
+ *  loaded (a card older than the newest page pages in through Load earlier). */
+val LocalChatMessagesMore = androidx.compose.runtime.compositionLocalOf { false }
 
 /** #EXP-1562: the pending scroll request the conversation list consumes. */
 /** #EXP-1732: rows a host draws at the END of a session view's main
@@ -4032,15 +4073,6 @@ internal val LocalFeedFooter = androidx.compose.runtime.compositionLocalOf<(@Com
 val LocalLoadEarlierMessages = androidx.compose.runtime.compositionLocalOf<(() -> Unit)?> { null }
 
 internal val LocalCardScrollRequest = androidx.compose.runtime.compositionLocalOf<CardScrollRequest?> { null }
-
-/** #EXP-1562: scroll item [index] to the CENTRE of the list's viewport. */
-internal suspend fun androidx.compose.foundation.lazy.LazyListState.centreOnItem(index: Int) {
-    animateScrollToItem(index)
-    val info = layoutInfo.visibleItemsInfo.firstOrNull { it.index == index } ?: return
-    val viewportCentre = (layoutInfo.viewportStartOffset + layoutInfo.viewportEndOffset) / 2
-    val delta = info.offset + info.size / 2 - viewportCentre
-    if (delta != 0) animateScrollBy(delta.toFloat())
-}
 
 // An interactive question (EXP-78): AskUserQuestion step / plan approval. While
 // the card is answerable, option rows send their keys in ONE semantic `answer`
