@@ -1,8 +1,7 @@
 import { inArray } from "drizzle-orm"
-import { attachments, ciJobs } from "@/db/schema"
+import { attachments } from "@/db/schema"
 import type { db as Database } from "@/db/connection"
 import { collectAttachmentStorageKeys } from "@/lib/storage/issue-attachments"
-import { logObjectKeys } from "@/lib/ci/logs"
 
 // Works over the root db or a transaction — structurally typed so callers
 // can collect inside their own delete transaction.
@@ -26,11 +25,6 @@ export async function collectTeamStorageKeys(
     })
     .from(attachments)
     .where(inArray(attachments.teamId, teamIds))
-  // #EXP-1617: and every CI log chunk.
-  const logs = await tx
-    .select({ logKey: ciJobs.logKey, logChunks: ciJobs.logChunks, reason: ciJobs.reason })
-    .from(ciJobs)
-    .where(inArray(ciJobs.teamId, teamIds))
   // EXP-824: video rows own a poster blob too — collected by the helper.
-  return [...collectAttachmentStorageKeys(rows), ...logObjectKeys(logs)]
+  return collectAttachmentStorageKeys(rows)
 }

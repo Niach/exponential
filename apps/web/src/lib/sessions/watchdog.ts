@@ -72,6 +72,8 @@ export interface WatchdogRun {
   checksSwept: number
   /** #EXP-1617: our CI's jobs the runner clock moved (timeouts, lost runners, the queued flag). */
   ciJobs: number
+  /** #EXP-1617: CI log chunks of deleted teams/jobs removed (hourly). */
+  ciLogsPruned: number
   /** EXP-1706: live PRs whose state the reconciler re-read. */
   prsReconciled: number
   /** #EXP-1797: issues purged from the trash past its retention. */
@@ -740,6 +742,12 @@ export async function runWatchdog(now: Date = new Date()): Promise<WatchdogRun> 
       .then((m) => m.ciTick(now))
       .catch((err) => {
         console.error(`[watchdog] CI tick failed`, err)
+        return 0
+      }),
+    ciLogsPruned: await import(`@/lib/ci/logs`)
+      .then((m) => m.sweepOrphanLogs(now))
+      .catch((err) => {
+        console.error(`[watchdog] CI log sweep failed`, err)
         return 0
       }),
     // EXP-1706 (issue-lifecycle.json `reconcile`): a lost `closed` delivery
