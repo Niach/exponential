@@ -13,6 +13,7 @@ import {
   S3ServiceException,
   type GetObjectCommandOutput,
 } from "@aws-sdk/client-s3"
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner"
 import { StorageThrottledError } from "@/lib/storage/errors"
 
 const storageBucket = process.env.S3_BUCKET || `exponential-attachments`
@@ -21,9 +22,9 @@ const storageRegion = process.env.S3_REGION || `garage`
 
 let bucketReadyPromise: Promise<void> | null = null
 
-function createStorageClient() {
+function createStorageClient(endpoint = storageEndpoint) {
   return new S3Client({
-    endpoint: storageEndpoint,
+    endpoint,
     region: storageRegion,
     forcePathStyle: true,
     credentials:
@@ -37,6 +38,34 @@ function createStorageClient() {
 }
 
 const storageClient = createStorageClient()
+
+// #EXP-1616: presigned URLs are handed to DEVICES (eCode's packs move
+// device ↔ bucket without this process), so they are signed for the address
+// a device reaches the bucket at: `S3_PUBLIC_ENDPOINT` when the server talks
+// to the store over an internal name (self-host compose: `http://garage:3900`),
+// else the same endpoint. The host is part of the signature.
+const publicEndpoint = process.env.S3_PUBLIC_ENDPOINT || storageEndpoint
+let presignClient: S3Client | null = null
+
+/** The default lifetime of a presigned URL (a pack upload of a big repo). */
+export const PRESIGN_TTL_SECONDS = 15 * 60
+
+/** #EXP-1616: a URL a device PUTs exactly `contentLength` bytes to. */
+export async function presignPut(key: string, contentLength: number, ttlSeconds = PRESIGN_TTL_SECONDS): Promise<string> {
+  await ensureBucketReady()
+  presignClient ??= createStorageClient(publicEndpoint)
+  return getSignedUrl(
+    presignClient,
+    new PutObjectCommand({ Bucket: storageBucket, Key: key, ContentLength: contentLength, ContentType: `application/octet-stream` }),
+    { expiresIn: ttlSeconds, signableHeaders: new Set([`content-length`, `content-type`]) }
+  )
+}
+
+/** #EXP-1616: a URL a device GETs one stored object from. */
+export async function presignGet(key: string, ttlSeconds = PRESIGN_TTL_SECONDS): Promise<string> {
+  presignClient ??= createStorageClient(publicEndpoint)
+  return getSignedUrl(presignClient, new GetObjectCommand({ Bucket: storageBucket, Key: key }), { expiresIn: ttlSeconds })
+}
 
 // FEED-75: the store's "slow down" answers. S3 proper says `SlowDown` (503);
 // Ceph RGW (Hetzner) the same; other fronts spell it 429 or `Throttling`.

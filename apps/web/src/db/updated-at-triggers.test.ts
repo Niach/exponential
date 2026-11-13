@@ -23,6 +23,9 @@ const triggersSql = readFileSync(
 const APP_STAMPED: Record<string, string> = {
   // Better Auth owns these tables and its Drizzle adapter applies its own
   // onUpdate hook to the declared updatedAt field on every write.
+  // #EXP-1616: every ref move is the CAS in lib/ecode/git-store.ts, which
+  // sets updated_at itself (no other writer).
+  repo_refs: `git-store's compare-and-swap stamps it`,
   users: `better-auth adapter stamps it`,
   auth_sessions: `better-auth adapter stamps it`,
   accounts: `better-auth adapter stamps it`,

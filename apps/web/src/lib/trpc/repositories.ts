@@ -30,6 +30,7 @@ import {
   resolveRepoInstallationTokenInfo,
 } from "@/lib/integrations/github-app"
 import { forgeFor, type ForgeRepo } from "@/lib/ecode/forge"
+import { branchName, ecodeRepoName } from "@/lib/ecode/repo-names"
 
 /** The open-PR list's row (desktop 0.14.65 reads exactly this shape). */
 export interface OpenPull {
@@ -466,7 +467,10 @@ export async function resolveGatedRepoToken(repo: {
   teamId: string
   fullName: string
   installationId: number | null
+  provider?: string | null
 }): Promise<string | null> {
+  // #EXP-1616: eCode's own forge needs no GitHub token.
+  if (repo.provider === `ecode`) return null
   if (!githubAppConfigured()) return null
   const resolved = await resolveRepoInstallationTokenInfo(repo.fullName, {
     fallbackInstallationId: repo.installationId,
@@ -528,12 +532,12 @@ async function mintRepoCredentials(
   input: { repositoryId: string; boardId?: string }
 ) {
   const repo = await loadRepository(input.repositoryId)
-  if (repo.provider && repo.provider !== `github`) {
-    await assertRepoCapability(userId, repo.teamId)
-    throw new TRPCError({
-      code: `PRECONDITION_FAILED`,
-      message: `${repo.fullName} is on the ${repo.provider} forge, which this server does not serve yet`,
-    })
+  if (repo.provider === `ecode`) {
+    // #EXP-1616: eCode's own git: a repo-scoped token for git-remote-exp.
+    const { ecodeCredentials } = await import(`@/lib/ecode/repos`)
+    const minted = await ecodeCredentials(userId, repo.id)
+    const boardBranch = input.boardId ? await boardBranchOverride(input.boardId, repo.fullName) : null
+    return { ...minted, defaultBranch: boardBranch ?? minted.defaultBranch }
   }
   // Team coding: any member of the repo's team may mint a JIT token
   // (assertRepoCapability = plain team membership).
@@ -665,7 +669,8 @@ export const repositoriesRouter = router({
       // the returned rows always carry the live value when known. A successful
       // lookup doubles as an accessibility proof and clears a stale no-access
       // flag.
-      const repos = await healRepoDefaultBranches(rawRepos, (id, patch) =>
+      // #EXP-1616: an ecode repo has no GitHub to heal from.
+      const healed = await healRepoDefaultBranches(rawRepos.filter((repo) => repo.provider !== `ecode`), (id, patch) =>
         ctx.db
           .update(repositories)
           .set({
@@ -677,6 +682,8 @@ export const repositoriesRouter = router({
           .where(eq(repositories.id, id))
           .then(() => {})
       )
+      const healedById = new Map(healed.map((repo) => [repo.id, repo]))
+      const repos = rawRepos.map((repo) => healedById.get(repo.id) ?? repo)
 
       // Boards that point at these repos, computed from boards.repositoryId.
       const boardRows = await ctx.db
@@ -845,6 +852,12 @@ export const repositoriesRouter = router({
     .input(z.object({ repositoryId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const repo = await loadRepository(input.repositoryId)
+      if (repo.provider === `ecode`) {
+        // #EXP-1616: owners only; the bucket objects go with it.
+        const { removeEcodeRepository } = await import(`@/lib/ecode/repos`)
+        await removeEcodeRepository(ctx.session.user.id, repo.id)
+        return { ok: true as const }
+      }
       await assertRepoManager(ctx.session.user.id, repo)
       try {
         await ctx.db
@@ -873,6 +886,10 @@ export const repositoriesRouter = router({
     .input(z.object({ repositoryId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const repo = await loadRepository(input.repositoryId)
+      if (repo.provider === `ecode`) {
+        const { ecodeBranches } = await import(`@/lib/ecode/repos`)
+        return { branches: (await ecodeBranches(ctx.session.user.id, repo.id)).map((b) => b.name) }
+      }
       await assertRepoCapability(ctx.session.user.id, repo.teamId)
       const token = await resolveGatedRepoToken(repo)
       let branches: string[]
@@ -901,6 +918,18 @@ export const repositoriesRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const repo = await loadRepository(input.repositoryId)
+      if (repo.provider === `ecode`) {
+        // #EXP-1616: no forge default to follow: the branch IS the default.
+        const { setEcodeDefaultBranch } = await import(`@/lib/ecode/repos`)
+        const updated = await setEcodeDefaultBranch(ctx.session.user.id, repo.id, input.branch ?? `main`)
+        return {
+          repository: {
+            ...clientRepository(updated),
+            defaultBranch: effectiveDefaultBranch(updated),
+            githubDefaultBranch: updated.defaultBranch,
+          },
+        }
+      }
       await assertRepoManager(ctx.session.user.id, repo)
 
       let override = input.branch
@@ -960,6 +989,55 @@ export const repositoriesRouter = router({
           githubDefaultBranch: updated.defaultBranch,
         },
       }
+    }),
+
+  // #EXP-1616 (eCode's own git): an owner creates an EMPTY repo on the
+  // team bucket; its first `git push exp://<team>/<name>` fills it.
+  create: authedProcedure
+    .input(
+      z.object({
+        teamId: z.string().uuid(),
+        name: ecodeRepoName,
+        defaultBranch: branchName.optional(),
+        mirrorUrl: z.string().max(400).nullable().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { createEcodeRepository } = await import(`@/lib/ecode/repos`)
+      const row = await createEcodeRepository(ctx.session.user.id, input)
+      return { repository: clientRepository(row) }
+    }),
+
+  // #EXP-1616: the repo page's Settings tab (member-readable).
+  settings: authedProcedure
+    .input(z.object({ repositoryId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const { ecodeRepositorySettings } = await import(`@/lib/ecode/repos`)
+      return ecodeRepositorySettings(ctx.session.user.id, input.repositoryId)
+    }),
+
+  // #EXP-1616: the repo page's Branches tab (member-readable).
+  branches: authedProcedure
+    .input(z.object({ repositoryId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const { ecodeBranches } = await import(`@/lib/ecode/repos`)
+      return { branches: await ecodeBranches(ctx.session.user.id, input.repositoryId) }
+    }),
+
+  // #EXP-1616: owner: the optional mirror, pushed after each landing.
+  setMirror: authedProcedure
+    .input(z.object({ repositoryId: z.string().uuid(), mirrorUrl: z.string().max(400).nullable(), enabled: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const { setEcodeMirror } = await import(`@/lib/ecode/repos`)
+      return setEcodeMirror(ctx.session.user.id, input)
+    }),
+
+  // #EXP-1616: owner: restore a bundle backup (a device job).
+  restore: authedProcedure
+    .input(z.object({ repositoryId: z.string().uuid(), backupId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const { restoreEcodeBackup } = await import(`@/lib/ecode/repos`)
+      return restoreEcodeBackup(ctx.session.user.id, input)
     }),
 
   // The launcher's clone-target resolution: issue → board → repositoryId.
@@ -1047,15 +1125,23 @@ export const repositoriesRouter = router({
   // `https://github.com/<full>.git`, `x-access-token` + the installation
   // token), so devices stop building GitHub URLs. Same gate as
   // installationToken (team membership; the row is the authorization).
+  // #EXP-1616: `remote` (an `exp://<team>/<repo>` URL) instead of the id:
+  // git-remote-exp knows only the URL git gave it.
   credentials: authedProcedure
     .input(
-      z.object({
-        repositoryId: z.string().uuid(),
-        boardId: z.string().uuid().optional(),
-      })
+      z
+        .object({
+          repositoryId: z.string().uuid().optional(),
+          remote: z.string().max(400).optional(),
+          boardId: z.string().uuid().optional(),
+        })
+        .refine((v) => Boolean(v.repositoryId) !== Boolean(v.remote), `Pass repositoryId or remote`)
     )
     .mutation(async ({ ctx, input }) => {
-      const minted = await mintRepoCredentials(ctx.db, ctx.session.user.id, input)
+      const repositoryId =
+        input.repositoryId ??
+        (await (await import(`@/lib/ecode/repos`)).ecodeRepositoryIdForRemote(input.remote!))
+      const minted = await mintRepoCredentials(ctx.db, ctx.session.user.id, { repositoryId, boardId: input.boardId })
       return {
         remoteUrl: minted.remoteUrl,
         username: minted.username,

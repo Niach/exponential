@@ -312,7 +312,9 @@ jobs:
       # the suites that hold launch behaviour and the shared fixtures (the full
       # `cargo test` stays in release-suite.yml); #EDE-55: the Local desktop
       # store, its parity replay and the api Transport seam; the CLI's own
-      # tests (exp-cli: unit + `tests/data_dir.rs`, EXP_DATA_DIR isolation).
+      # tests (exp-cli: unit + `tests/data_dir.rs`, EXP_DATA_DIR isolation);
+      # #EXP-1616: git-remote-exp (real git against a stand-in server: push,
+      # clone, the forge jobs, and backup → wipe → restore).
       # #EXP-76: ONE invocation, ONE feature set, so every crate builds once;
       # eagent, coding and ui stay lib-only. None of these crates has a doc test.
       - name: eCore, Engine, coding and UI tests
@@ -320,7 +322,7 @@ jobs:
         run: >-
           cargo nextest run --locked --no-fail-fast
           -p ecore -p ecode-core -p ecode -p eengine -p eengine-ffi -p eengine-desktop -p eengine-runner -p eengine-bundle
-          -p eagent -p coding -p ui -p engine -p elocal -p api -p exp-http -p exp-cli
+          -p eagent -p coding -p ui -p engine -p elocal -p api -p exp-http -p exp-cli -p git-remote-exp
           --features eengine/sqlite,eengine/hub,eengine-ffi/hub,eagent/local-model,ecode/github,ecode/exponential
           -E 'kind(lib) | not (package(eagent) | package(coding) | package(ui))'
       # #ERR-4: the vendored gpui-pre-linux's own patch tests, never upstream's

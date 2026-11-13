@@ -35,6 +35,18 @@ vi.mock(`@/db/connection`, () => ({
   },
 }))
 vi.mock(`@/lib/auth`, () => ({ auth: {} }))
+const { ecodeCredentials, ecodeRepositoryIdForRemote } = vi.hoisted(() => ({
+  ecodeCredentials: vi.fn(async () => ({
+    token: `expg_test`,
+    expiresAt: new Date(0),
+    remoteUrl: `exp://team/app`,
+    username: `exp`,
+    fullName: `team/app`,
+    defaultBranch: `main`,
+  })),
+  ecodeRepositoryIdForRemote: vi.fn(async () => `00000000-0000-4000-8000-000000000001`),
+}))
+vi.mock(`@/lib/ecode/repos`, () => ({ ecodeCredentials, ecodeRepositoryIdForRemote }))
 vi.mock(`@/lib/team-membership`, () => ({
   assertTeamMember: vi.fn(async () => ({ role: `member` })),
   getIssueTeamContext: vi.fn(),
@@ -117,8 +129,17 @@ describe(`repositories.credentials (#EXP-1614)`, () => {
     expect(h.writes[0]!.providerConfig).toBeDefined()
   })
 
-  it(`an eCode repository is refused until its forge lands`, async () => {
-    h.selectQueue.push([row({ provider: `ecode` })])
-    await expect(caller.credentials({ repositoryId: REPO_ID })).rejects.toThrow(/ecode forge/)
+  it(`an eCode repository gets its exp:// remote and a repo token (#EXP-1616)`, async () => {
+    h.selectQueue.push([row({ provider: `ecode`, fullName: `team/app` })])
+    const out = await caller.credentials({ repositoryId: REPO_ID })
+    expect(ecodeCredentials).toHaveBeenCalledWith(expect.any(String), REPO_ID)
+    expect(out).toMatchObject({ remoteUrl: `exp://team/app`, username: `exp`, token: `expg_test`, defaultBranch: `main` })
+  })
+
+  it(`git-remote-exp names the repo by its exp:// URL (#EXP-1616)`, async () => {
+    h.selectQueue.push([row({ provider: `ecode`, fullName: `team/app` })])
+    await caller.credentials({ remote: `exp://team/app` })
+    expect(ecodeRepositoryIdForRemote).toHaveBeenCalledWith(`exp://team/app`)
+    await expect(caller.credentials({} as never)).rejects.toThrow()
   })
 })

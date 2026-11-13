@@ -19,6 +19,19 @@ pub(crate) fn client(user_agent: &str) -> Result<reqwest::blocking::Client> {
         .map_err(|e| Error::Http { status: 0, detail: e.to_string() })
 }
 
+/// A client for object transfers (#EXP-1616: a pack to or from the bucket
+/// over a presigned URL): the same stack, a timeout for a big repo on a
+/// slow link.
+#[cfg(all(feature = "exponential", feature = "repo"))]
+pub(crate) fn transfer_client(user_agent: &str) -> Result<reqwest::blocking::Client> {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    reqwest::blocking::Client::builder()
+        .user_agent(user_agent)
+        .timeout(Duration::from_secs(60 * 60))
+        .build()
+        .map_err(|e| Error::Http { status: 0, detail: e.to_string() })
+}
+
 /// A JSON body (the workspace's reqwest has no `json` feature).
 pub(crate) fn with_json(request: reqwest::blocking::RequestBuilder, body: &Value) -> reqwest::blocking::RequestBuilder {
     request.header("content-type", "application/json").body(body.to_string())

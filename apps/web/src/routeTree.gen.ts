@@ -52,6 +52,7 @@ import { Route as ApiAttachmentsAttachmentIdRouteImport } from './routes/api/att
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiEmailUnsubscribeRouteImport } from './routes/api/email/unsubscribe'
 import { Route as ApiGuideUploadsTokenRouteImport } from './routes/api/guide-uploads/$token'
+import { Route as ApiEcodeGitOpRouteImport } from './routes/api/ecode/git/$op'
 import { Route as ApiMcpOauthCallbackRouteImport } from './routes/api/mcp-oauth/callback'
 import { Route as ApiMcpOauthClientDotjsonRouteImport } from './routes/api/mcp-oauth/client[.]json'
 import { Route as ApiMcpAppsRouteImport } from './routes/api/mcp_/apps'
@@ -389,6 +390,11 @@ const ApiEmailUnsubscribeRoute = ApiEmailUnsubscribeRouteImport.update({
 const ApiGuideUploadsTokenRoute = ApiGuideUploadsTokenRouteImport.update({
   id: '/api/guide-uploads/$token',
   path: '/api/guide-uploads/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiEcodeGitOpRoute = ApiEcodeGitOpRouteImport.update({
+  id: '/api/ecode/git/$op',
+  path: '/api/ecode/git/$op',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiMcpOauthCallbackRoute = ApiMcpOauthCallbackRouteImport.update({
@@ -1048,6 +1054,7 @@ export interface FileRoutesByFullPath {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/email/unsubscribe': typeof ApiEmailUnsubscribeRoute
   '/api/guide-uploads/$token': typeof ApiGuideUploadsTokenRoute
+  '/api/ecode/git/$op': typeof ApiEcodeGitOpRoute
   '/api/mcp-oauth/callback': typeof ApiMcpOauthCallbackRoute
   '/api/mcp-oauth/client.json': typeof ApiMcpOauthClientDotjsonRoute
   '/api/mcp/apps': typeof ApiMcpAppsRoute
@@ -1203,6 +1210,7 @@ export interface FileRoutesByTo {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/email/unsubscribe': typeof ApiEmailUnsubscribeRoute
   '/api/guide-uploads/$token': typeof ApiGuideUploadsTokenRoute
+  '/api/ecode/git/$op': typeof ApiEcodeGitOpRoute
   '/api/mcp-oauth/callback': typeof ApiMcpOauthCallbackRoute
   '/api/mcp-oauth/client.json': typeof ApiMcpOauthClientDotjsonRoute
   '/api/mcp/apps': typeof ApiMcpAppsRoute
@@ -1363,6 +1371,7 @@ export interface FileRoutesById {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/email/unsubscribe': typeof ApiEmailUnsubscribeRoute
   '/api/guide-uploads/$token': typeof ApiGuideUploadsTokenRoute
+  '/api/ecode/git/$op': typeof ApiEcodeGitOpRoute
   '/api/mcp-oauth/callback': typeof ApiMcpOauthCallbackRoute
   '/api/mcp-oauth/client.json': typeof ApiMcpOauthClientDotjsonRoute
   '/api/mcp_/apps': typeof ApiMcpAppsRoute
@@ -1523,6 +1532,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/email/unsubscribe'
     | '/api/guide-uploads/$token'
+    | '/api/ecode/git/$op'
     | '/api/mcp-oauth/callback'
     | '/api/mcp-oauth/client.json'
     | '/api/mcp/apps'
@@ -1678,6 +1688,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/email/unsubscribe'
     | '/api/guide-uploads/$token'
+    | '/api/ecode/git/$op'
     | '/api/mcp-oauth/callback'
     | '/api/mcp-oauth/client.json'
     | '/api/mcp/apps'
@@ -1837,6 +1848,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/email/unsubscribe'
     | '/api/guide-uploads/$token'
+    | '/api/ecode/git/$op'
     | '/api/mcp-oauth/callback'
     | '/api/mcp-oauth/client.json'
     | '/api/mcp_/apps'
@@ -1986,6 +1998,7 @@ export interface RootRouteChildren {
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiEmailUnsubscribeRoute: typeof ApiEmailUnsubscribeRoute
   ApiGuideUploadsTokenRoute: typeof ApiGuideUploadsTokenRoute
+  ApiEcodeGitOpRoute: typeof ApiEcodeGitOpRoute
   ApiMcpOauthCallbackRoute: typeof ApiMcpOauthCallbackRoute
   ApiMcpOauthClientDotjsonRoute: typeof ApiMcpOauthClientDotjsonRoute
   ApiMcpAppsRoute: typeof ApiMcpAppsRoute
@@ -2351,6 +2364,13 @@ declare module '@tanstack/react-router' {
       path: '/api/guide-uploads/$token'
       fullPath: '/api/guide-uploads/$token'
       preLoaderRoute: typeof ApiGuideUploadsTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/ecode/git/$op': {
+      id: '/api/ecode/git/$op'
+      path: '/api/ecode/git/$op'
+      fullPath: '/api/ecode/git/$op'
+      preLoaderRoute: typeof ApiEcodeGitOpRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/mcp-oauth/callback': {
@@ -3374,6 +3394,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiEmailUnsubscribeRoute: ApiEmailUnsubscribeRoute,
   ApiGuideUploadsTokenRoute: ApiGuideUploadsTokenRoute,
+  ApiEcodeGitOpRoute: ApiEcodeGitOpRoute,
   ApiMcpOauthCallbackRoute: ApiMcpOauthCallbackRoute,
   ApiMcpOauthClientDotjsonRoute: ApiMcpOauthClientDotjsonRoute,
   ApiMcpAppsRoute: ApiMcpAppsRoute,

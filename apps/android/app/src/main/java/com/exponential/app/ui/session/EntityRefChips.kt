@@ -1,5 +1,6 @@
 package com.exponential.app.ui.session
 
+import com.exponential.app.data.db.observeFirstTitleRowsByRoot
 import com.exponential.app.data.db.keyedMessages
 import android.text.format.Formatter
 import androidx.compose.foundation.layout.Arrangement
@@ -401,7 +402,7 @@ private fun SessionCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
     val rootId = row.rootId.ifEmpty { row.id }
     val links by observeScoped(rootId, emptyList()) { it.sessionIssueDao().observeByRoot(rootId) }
     // Large chats: the title reads the tree's title rows, never its transcript.
-    val messages by observeScoped(rootId, emptyList()) { it.keyedMessages(it.messageDao().observeTitleRowsByRoot(rootId)) }
+    val messages by observeScoped(rootId, emptyList()) { it.keyedMessages(it.messageDao().observeFirstTitleRowsByRoot(rootId)) }
     val issues by observeScoped(Unit, emptyList()) { it.issueDao().observeAll() }
     val title = remember(row, links, messages, issues) {
         val ids = links.map { it.issueId }.toSet()

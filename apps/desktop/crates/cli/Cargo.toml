@@ -19,8 +19,6 @@ path = "src/main.rs"
 api = { path = "../api" }
 domain = { path = "../domain" }
 coding = { path = "../coding" }
-# #EXP-1617: the CI runner (a `ci_job` runs through ecode::run_job).
-ecode = { path = "../ecode", default-features = false, features = ["runner", "exponential"] }
 steer = { path = "../steer" }
 # EXP-746: the ACP session engine — the daemon runs an Acp-transport session
 # through it instead of the PTY host, sharing one lifecycle with the IDE.
@@ -31,6 +29,11 @@ sync = { path = "../sync", default-features = false }
 terminal = { path = "../terminal", default-features = false }
 updater = { path = "../updater" }
 observability = { path = "../observability" }
+# #EXP-1616: eCode's own git: the device jobs of its forge (`ecode_job`) and
+# git's `exp://` remote helper (this binary, started as `git-remote-exp`).
+# #EXP-1617: and the CI runner (a `ci_job` runs through ecode::run_job).
+ecode = { path = "../ecode", default-features = false, features = ["repo", "exponential", "runner"] }
+git-remote-exp = { path = "../git-remote-exp" }
 
 anyhow = { workspace = true }
 # EXP-530: the automation host's local clock (schedule occurrences are

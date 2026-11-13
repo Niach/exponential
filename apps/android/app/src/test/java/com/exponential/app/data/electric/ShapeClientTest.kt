@@ -84,7 +84,7 @@ class ShapeClientTest {
         onError: (Boolean, String?, Boolean) -> Unit = { _, _, _ -> },
         onSuccess: () -> Unit = {},
         onReset: suspend () -> Unit = {},
-        onUnauthorized: () -> Unit = {},
+        onUnauthorized: (String) -> Unit = {},
         // A real advancing clock by default, so kicks behave as in production;
         // the freshness test swaps in a clock it can hold still.
         nowMs: () -> Long = { System.currentTimeMillis() },
@@ -125,11 +125,15 @@ class ShapeClientTest {
         val signOuts = java.util.concurrent.atomic.AtomicInteger(0)
         val requests = java.util.concurrent.atomic.AtomicInteger(0)
         val signOutsAfterForbidden = java.util.concurrent.atomic.AtomicInteger(-1)
+        val presented = java.util.concurrent.CopyOnWriteArrayList<String>()
 
         val shapeClient = client(
             dao = dao,
             onMessages = {},
-            onUnauthorized = { signOuts.incrementAndGet() },
+            onUnauthorized = { token ->
+                presented.add(token)
+                signOuts.incrementAndGet()
+            },
             handler = {
                 val n = requests.incrementAndGet()
                 if (n == 1) {
@@ -153,6 +157,8 @@ class ShapeClientTest {
 
         assertEquals("a 403 must not sign anyone out", 0, signOutsAfterForbidden.get())
         assertTrue("a 401 must sign the account out", signOuts.get() >= 1)
+        // Compare-and-clear: the sign-out names the bearer the rejected poll sent.
+        assertEquals(listOf("token"), presented.distinct())
     }
 
     @Test
@@ -941,5 +947,18 @@ class ShapeClientTest {
         val partial = applied.filterIsInstance<ShapeMessage.PartialUpdate>().single()
         assertEquals("\"public\".\"rows\"/\"r1\"", partial.key)
         assertEquals("""{"id":"r1","name":"two"}""", partial.columns)
+    }
+
+    /** #ERR-19: the body is decoded as a STREAM, one message at a time; a
+     *  blank body is no messages and a mangled one still fails the poll. */
+    @Test
+    fun streamedDecodeKeepsTheBatchSemantics() {
+        val shapeClient = client(dao = FakeOffsetDao(), onMessages = {}) { respond("", HttpStatusCode.OK) }
+        assertEquals(emptyList<ShapeMessage<Row>>(), shapeClient.decodeMessages(" \n "))
+        val rows = (1..500).joinToString(",") { """{"headers":{"operation":"insert"},"key":"k$it","value":{"id":"r$it","name":"n$it"}}""" }
+        val decoded = shapeClient.decodeMessages("[$rows,{\"headers\":{\"control\":\"up-to-date\"}}]")
+        assertEquals(501, decoded.size)
+        assertEquals(ShapeMessage.UpToDate, decoded.last())
+        assertTrue(runCatching { shapeClient.decodeMessages("[{\"headers\":") }.exceptionOrNull() is kotlinx.io.IOException)
     }
 }

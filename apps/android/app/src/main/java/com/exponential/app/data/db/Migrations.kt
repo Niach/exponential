@@ -323,7 +323,7 @@ val MIGRATION_121_122: Migration = object : Migration(121, 122) {
 }
 
 // v123 (large chats): a chat's newest page (`observeNewestByRoot`) and its
-// result cards (`observeResultCardsByRoot`) read the tree in transcript order:
+// result cards (`observeResultCardStamps`) read the tree in transcript order:
 // one (root_id, created_at, id) index makes both range reads; it covers the
 // old (root_id) prefix, which goes. Local only: nothing refetches.
 val MIGRATION_122_123: Migration = object : Migration(122, 123) {

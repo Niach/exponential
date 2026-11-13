@@ -289,6 +289,6 @@ class OnboardingViewModel @Inject constructor(
      */
     fun signOut() {
         val accountId = auth.activeAccountId.value ?: return
-        sessionInvalidator.invalidate(accountId)
+        sessionInvalidator.signOut(accountId)
     }
 }

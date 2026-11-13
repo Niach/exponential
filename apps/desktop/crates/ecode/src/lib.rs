@@ -14,7 +14,9 @@
 //! [`LocalRepo`] (feature `repo`) is the local git on gitoxide. Providers sit
 //! behind features: `local` (a [`LocalForge`] over a file [`Store`] plus
 //! [`LocalRepo`]), `github` (REST, a token or the device flow, polling) and
-//! `exponential` (credentials from the server's `repositories.credentials`).
+//! `exponential` (credentials from the server's `repositories.credentials`;
+//! with `repo`, also [`exp_git`], the `exp://` transport `git-remote-exp`
+//! runs on, and [`exp_jobs`], the git jobs a team device runs).
 
 pub use ecode_core as core;
 
@@ -44,6 +46,14 @@ pub mod exponential;
 
 #[cfg(any(feature = "github", feature = "exponential"))]
 mod http;
+
+// #EXP-1616: `exp://` (the team bucket as the remote) and the device jobs of
+// eCode's own forge: the exponential provider over a local repo.
+#[cfg(all(feature = "exponential", feature = "repo"))]
+pub mod exp_git;
+
+#[cfg(all(feature = "exponential", feature = "repo"))]
+pub mod exp_jobs;
 
 pub use ci::*;
 pub use credentials::*;

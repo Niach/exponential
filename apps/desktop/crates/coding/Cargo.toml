@@ -47,6 +47,8 @@ updater = { path = "../updater" }
 # #EXP-1615: eCode's provider-neutral remotes and credentials (the scoped
 # credential-helper key, redaction). No default features: no gix here.
 ecode = { path = "../ecode", default-features = false }
+# #EXP-1616: git's exp:// remote helper, shipped inside the CLI and the app.
+git-remote-exp = { path = "../git-remote-exp" }
 serde = { workspace = true }
 # EXP-530: automations schedule math (latest/next occurrence in the device's
 # local zone, DST-aware) — same trimmed feature set as crates/ui.
