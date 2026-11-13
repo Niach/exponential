@@ -1,7 +1,8 @@
 /* ui.exponential.at: every request answers 301, straight to its final URL
    on exponential.at (one hop: the old /ui/ section's pages moved into the
    docs, src/redirects.ts). Root files keep their path; a path already under
-   /ui/ is not prefixed twice. The Coolify app `exponential-ui-site` runs:
+   /ui/ is not prefixed twice. The Coolify app `exponential-ui-site` builds
+   Dockerfile.ui-redirect (this file + src/redirects.ts on bun alpine, :3000):
 
      bun apps/site/scripts/ui-redirect.ts        # PORT defaults to 80 */
 import { redirectFor } from "../src/redirects.ts"
