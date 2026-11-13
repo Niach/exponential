@@ -70,6 +70,18 @@ public enum SteerImageMessage {
     /// The cap copy ×4 once a message already carries `maxFiles` files.
     public static let filesFullMessage = "Up to 4 files per message"
 
+    /// The cap copy once a message already carries `maxImages` images
+    /// (Android `STEER_IMAGES_CAP`).
+    public static let imagesFullMessage = "Up to \(maxImages) images per message"
+
+    /// A share handed more than one message takes (EXP-1635, the extension's
+    /// composer): the cap it hit, images first; nil = everything fits.
+    public static func capNote(images: Int, files: Int, moreFiles: Bool = false) -> String? {
+        if images > maxImages { return imagesFullMessage }
+        if moreFiles || files > maxFiles { return filesFullMessage }
+        return nil
+    }
+
     /// One file line: `[<name>](/api/attachments/<id>)`, never preceded by
     /// `!`. The name is backslash-escaped (`]` and `\`) on the way out.
     private static let fileLinePattern =

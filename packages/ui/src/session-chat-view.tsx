@@ -68,7 +68,12 @@ import { SessionRow, SessionRowDevice } from "./session-row"
 import type { UserAvatarAgent, UserAvatarUser } from "./user-avatar"
 import { treeGuides } from "./tree-guides"
 import { conceptIcon } from "./icons.generated"
-import { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip"
+import {
+  MESSAGE_DELIVERY_COPY,
+  bubbleActions,
+  deliveryState,
+  type DeliveryState,
+} from "@exp/domain-contract/message-delivery"
 import { MessageBubble, SenderAvatar, TranscriptRow, transcriptSenderName } from "./user-message-bubble"
 import { CHAT_BUBBLE_ENTER_CLASS, SurfaceCard, TranscriptDivider, TranscriptMarker, useLiveArrivals } from "./surface-card"
 import {
@@ -300,8 +305,13 @@ export interface ChatConversationProps {
   arrived?: (rowId: string) => boolean
   /** The viewer: their OWN queued rows carry the Remove from queue X. */
   viewerId?: string | null
-  /** EXP-1317: revoke a queued row (absent = no X). */
+  /** EXP-1317: revoke a queued row (#FEED-237: the bubble menu's Cancel
+   *  sending; absent = no menu). */
   onUnqueue?: (rowId: string) => void
+  /** #FEED-237: the viewer's own row's delivery state (message-delivery.json
+   *  `deliveryState` off the synced row); absent = consumed reads `read`,
+   *  unconsumed `sending`. */
+  deliveryOf?: (row: Extract<SessionChatRow, { type: `message` }>) => DeliveryState | null
   /** EXP-1323: the suggested tasks cards' actions (absent = read-only). */
   suggestions?: ChatSuggestionActions
   /** EXP-1323: a filed suggestion's issue (absent = its identifier). */
@@ -419,6 +429,7 @@ export function ChatConversation(props: ChatConversationProps) {
     docked,
     viewerId,
     onUnqueue,
+    deliveryOf,
     suggestions,
     renderIssueRef,
     tail,
@@ -508,7 +519,13 @@ export function ChatConversation(props: ChatConversationProps) {
         }
         const time = messageTime?.(row) ?? null
         if (layout?.side === `own`) {
-          const own = row.queued && onUnqueue && viewerId && row.authorId === viewerId
+          // #FEED-237 (message-delivery.json): the viewer's own row wears
+          // its delivery mark; the menu's Cancel sending revokes it.
+          const mine = Boolean(viewerId && row.authorId === viewerId)
+          const state: DeliveryState =
+            deliveryOf?.(row) ??
+            deliveryState({ local: null, stored: true, deliveredAt: null, consumedAt: row.queued ? null : `consumed`, echoed: false })
+          const actions = mine && onUnqueue ? bubbleActions({ state, stored: true }) : []
           return (
             <MessageBubble
               key={row.id}
@@ -516,8 +533,14 @@ export function ChatConversation(props: ChatConversationProps) {
               text={row.body}
               renderText={renderText}
               time={time}
-              caption={row.queued ? `queued` : null}
-              action={own ? <UnqueueButton onClick={() => latest.current.onUnqueue?.(row.id)} /> : undefined}
+              status={mine ? state : null}
+              menu={actions.map((action) => ({
+                kind: `item` as const,
+                id: action,
+                label: MESSAGE_DELIVERY_COPY.menu[action],
+                destructive: action === `cancel`,
+                onSelect: () => latest.current.onUnqueue?.(row.id),
+              }))}
               className={enter}
             />
           )
@@ -538,7 +561,6 @@ export function ChatConversation(props: ChatConversationProps) {
             author={layout?.name ? transcriptSenderName(layout.sender) : null}
             relay={relay}
             time={time}
-            caption={row.queued ? `queued` : null}
             className={enter}
           />
         )
@@ -768,6 +790,7 @@ export function ChatConversation(props: ChatConversationProps) {
             row.type === `message` ? (messageTime?.(row) ?? null) : null,
             viewerId ?? null,
             !onUnqueue,
+            row.type === `message` ? (deliveryOf?.(row) ?? null) : null,
             !onAnswer,
             !onDecide,
             !onDismiss,
@@ -1089,29 +1112,6 @@ export function ChatSuggestionsSheet({
         </DockSheetFooter>
       )}
     </>
-  )
-}
-
-/** The queued row's X: ghost icon-xs, THE tooltip (Radix drops it with the
- *  trigger, so it never outlives the row flipping to consumed). */
-function UnqueueButton({ onClick }: { onClick: () => void }) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-xs"
-          aria-label={CHAT_UNQUEUE_LABEL}
-          data-testid="chat-unqueue"
-          className="shrink-0 text-muted-foreground hover:text-foreground"
-          onClick={onClick}
-        >
-          <CloseIcon className="size-3" />
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>{CHAT_UNQUEUE_LABEL}</TooltipContent>
-    </Tooltip>
   )
 }
 

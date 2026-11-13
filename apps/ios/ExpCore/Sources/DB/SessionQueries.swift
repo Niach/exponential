@@ -172,6 +172,18 @@ public enum SessionQueries {
             """, arguments: [sessionId])
     }
 
+    /// steer-enet.json SENT INPUTS: one session's consumed card-less person
+    /// inputs, the newest `limit` (newest first; `SteerNoFeed.inputs` orders).
+    public static func consumedInputRows(db: Database, sessionId: String, limit: Int) throws -> [SessionMessage] {
+        try SessionMessage.fetchAll(db, sql: """
+            \(keyedMessagesSQL) AND "messages"."session_id" = ?
+                AND "messages"."author_kind" = 'user' AND "messages"."consumed_at" IS NOT NULL
+                AND ("messages"."card" IS NULL OR "messages"."card" = 'null')
+            ORDER BY "messages"."created_at" DESC, "messages"."id" DESC
+            LIMIT ?
+            """, arguments: [sessionId, limit])
+    }
+
     /// One session's own messages, oldest first.
     public static func messages(db: Database, sessionId: String) throws -> [SessionMessage] {
         try SessionMessage.fetchAll(db, sql: """

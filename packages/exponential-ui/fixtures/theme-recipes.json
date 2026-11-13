@@ -86798,48 +86798,48 @@
         "neutral": {
           "light": {
             "default": {
-              "color": "#737373"
+              "color": "#2563eb"
             }
           },
           "dark": {
             "default": {
-              "color": "#a1a1a1"
+              "color": "#3b82f6"
             }
           }
         },
         "exponential": {
           "light": {
             "default": {
-              "color": "#737373"
+              "color": "#3b82f6"
             }
           },
           "dark": {
             "default": {
-              "color": "#a1a1a1"
+              "color": "#3b82f6"
             }
           }
         },
         "playful": {
           "light": {
             "default": {
-              "color": "#6b5b8a"
+              "color": "#0284c7"
             }
           },
           "dark": {
             "default": {
-              "color": "#c4b5fd"
+              "color": "#38bdf8"
             }
           }
         },
         "orange": {
           "light": {
             "default": {
-              "color": "#737373"
+              "color": "#3b82f6"
             }
           },
           "dark": {
             "default": {
-              "color": "#a1a1a1"
+              "color": "#3b82f6"
             }
           }
         }
@@ -86948,6 +86948,122 @@
       }
     },
     {
+      "component": "MessageBubble",
+      "part": "status",
+      "props": {
+        "side": "out",
+        "status": "sending"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#6b5b8a"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#c4b5fd"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "MessageBubble",
+      "part": "status",
+      "props": {
+        "side": "out",
+        "status": "failed"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#e7000b"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#ff6467"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#e7000b"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#ff6467"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#e11d48"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#fb7185"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#e7000b"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#ff6467"
+            }
+          }
+        }
+      }
+    },
+    {
       "component": "Timeline",
       "part": "root",
       "props": {},
@@ -86997,6 +87113,177 @@
           "dark": {
             "default": {
               "borderColor": "#ffffff1a"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "MessageStatus",
+      "part": "root",
+      "props": {
+        "status": "read"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#2563eb"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#3b82f6"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#3b82f6"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#3b82f6"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#0284c7"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#38bdf8"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#3b82f6"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#3b82f6"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "MessageStatus",
+      "part": "root",
+      "props": {
+        "status": "sending"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#6b5b8a"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#c4b5fd"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "MessageStatus",
+      "part": "root",
+      "props": {
+        "status": "failed"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#e7000b"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#ff6467"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#e7000b"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#ff6467"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#e11d48"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#fb7185"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#e7000b"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#ff6467"
             }
           }
         }

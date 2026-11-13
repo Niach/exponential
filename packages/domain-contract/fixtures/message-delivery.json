@@ -1,0 +1,210 @@
+{
+  "$comment": "#FEED-237 (Danny: 'like whatsapp'): a person's OWN message in a session or chat ×4 (web `components/agent-session.tsx` + `hooks/use-session-outbox.ts`, desktop `ui::steer_viewer` + `ui::session_chat` + `domain::message_delivery`, iOS ExpCore `MessageDelivery.swift` + `AgentSessionView`, Android `domain/MessageDelivery.kt` + `AgentSessionScreen`) is ONE bubble at the bottom of the transcript from the moment Send is pressed; NOTHING about it sits above the composer (dock.json has no `queued` card any more). SEND: the session composer (a `sessionId`: a live or idle session, a chat, an agent's conversation) clears its field AND its synced draft (composer-draft.json) at the press and puts an OUTBOX entry {clientId (a fresh UUID, also the `sessions.send` `clientMessageId`), text (trimmed), createdAt (the press), state `sending`, messageId null} at the bottom; the send (uploads, then `sessions.send`) runs on a scope that outlives the screen. The server took it = the entry's messageId = the result's; it failed = state `failed` (no toast: the bubble says so). The outbox is PERSISTED per session on the device (web localStorage `exp-outbox:<sessionId>`, desktop the data dir's `outbox.json`, iOS the GRDB `outbox` table, Android the `outbox` Room table) so a reload or an app restart keeps every entry; on start a `sending` entry with no messageId is SENT AGAIN with the same clientMessageId (F21: the server returns the row it already stored, never a second one), a `failed` one waits for its Retry. A composer without a session (the launch composer that STARTS a chat, a comment) keeps composer-send.json. STATE = deliveryState(input) (`stateCases`): input {local: the outbox entry's state (`sending` | `failed`) or null (no entry: a synced row alone), stored: the server holds the row (an entry's messageId set, or a synced row), deliveredAt / consumedAt: the synced row's (null without one), echoed: the bubble IS the live transcript's echo of the turn (the device replayed it into the agent's conversation)}; first match wins: echoed or consumedAt = `read` (TWO checks: processed into the session), deliveredAt = `sent` (ONE check: the device received it and holds it in its queue while a turn runs), local `failed` and not stored = `failed`, anything else = `sending` (the CLOCK: not stored yet, or stored while the session's device has not received it: offline, a slow link, a device that has not picked it up). DELIVERED: `messages.delivered_at` (synced) is stamped by the DEVICE the moment its pickup receives a pending row, before the turn takes it (`sessions.delivered {sessionId, messageIds}`, idempotent, only rows still NULL; `sessions.consume` stamps it too when it is still NULL, `sessions.claim` with the first message); a server without the column reads as never delivered (`sending` until consumed). DEDUPE (`outboxCases`, outboxMerge(input) → {drop: clientIds, keep: clientIds}): an entry is superseded, and DROPS from the outbox (its synced row's bubble takes its place, same position), once a synced row carries its messageId; an entry still without a messageId (a send in flight, a reload before the answer) matches the OLDEST unmatched own row (authorKind user, authorId = the viewer) whose body equals its text and whose createdAt is no earlier than the entry's createdAt minus `matchWindowMs`, each row matching at most one entry, entries oldest first; a `failed` entry never matches (the server has nothing). Everything else is kept, in createdAt order (ties by clientId). ORDER: the transcript's rows (with NO feed yet: steer-enet.json SENT INPUTS, the consumed person inputs, drawn as these same own bubbles reading `read`, above the placeholder's copy), then the viewer's own synced rows the device has not consumed (oldest first), then the kept outbox entries; a consumed row is the transcript's echo from then on (that bubble reads `read`). MARK: beside the bubble's `HH:mm`, inside the bubble at its bottom right, the time first: genUI `MessageStatus` (the catalogue's MessageBubble `status`), `marks[state]` = the icon concept and the tone (muted = the time's ink, info = the read blue, danger = destructive), 14 px, its accessibility label `copy.status[state]`. The `HH:mm` = the row's createdAt, an outbox entry's own until its row arrives. Every OTHER sender's bubble has no mark. ACTIONS (`actionCases`, bubbleActions({state, stored}) → ids in order, `copy.menu` labels): the bubble's menu (a pointer: right-click or the hover `…`; touch: long-press; the shared context menu / DropdownMenu, nothing new) offers `retry` + `delete` on a `failed` bubble (retry = send again with the SAME clientId, state back to `sending`; delete = drop the entry, its text gone), `cancel` on a stored `sending` or `sent` one (`sessions.unqueue`: the row is deleted and the device drops what it holds; once consumed the server refuses with CONFLICT and a toast reads `Couldn't remove the message`), nothing on an unstored `sending` one or a `read` one; a `failed` bubble's mark is itself a press target opening that menu. testIds: the mark `testIds.status` with `data-state` = the state, the menu `testIds.menu`.",
+  "copy": {
+    "status": {
+      "sending": "Sending",
+      "sent": "Sent",
+      "read": "Read",
+      "failed": "Not sent"
+    },
+    "menu": {
+      "retry": "Retry",
+      "delete": "Delete",
+      "cancel": "Cancel sending"
+    }
+  },
+  "marks": {
+    "sending": { "icon": "ui-clock", "tone": "muted" },
+    "sent": { "icon": "ui-check", "tone": "muted" },
+    "read": { "icon": "ui-read", "tone": "info" },
+    "failed": { "icon": "ui-error", "tone": "danger" }
+  },
+  "markSize": 14,
+  "matchWindowMs": 60000,
+  "testIds": {
+    "status": "message-status",
+    "menu": "message-menu"
+  },
+  "stateCases": [
+    {
+      "name": "just pressed: the clock",
+      "input": { "local": "sending", "stored": false, "deliveredAt": null, "consumedAt": null, "echoed": false },
+      "expected": "sending"
+    },
+    {
+      "name": "stored, the device has not received it (offline, slow link): still the clock",
+      "input": { "local": "sending", "stored": true, "deliveredAt": null, "consumedAt": null, "echoed": false },
+      "expected": "sending"
+    },
+    {
+      "name": "a synced row alone, not delivered: the clock",
+      "input": { "local": null, "stored": true, "deliveredAt": null, "consumedAt": null, "echoed": false },
+      "expected": "sending"
+    },
+    {
+      "name": "the device received it, a turn still runs: one check",
+      "input": { "local": null, "stored": true, "deliveredAt": "2026-11-13T10:00:01.000Z", "consumedAt": null, "echoed": false },
+      "expected": "sent"
+    },
+    {
+      "name": "consumed into the session: two checks",
+      "input": { "local": null, "stored": true, "deliveredAt": "2026-11-13T10:00:01.000Z", "consumedAt": "2026-11-13T10:00:05.000Z", "echoed": false },
+      "expected": "read"
+    },
+    {
+      "name": "consumed without a delivered stamp (an older device): two checks",
+      "input": { "local": null, "stored": true, "deliveredAt": null, "consumedAt": "2026-11-13T10:00:05.000Z", "echoed": false },
+      "expected": "read"
+    },
+    {
+      "name": "the live transcript's echo: two checks",
+      "input": { "local": null, "stored": false, "deliveredAt": null, "consumedAt": null, "echoed": true },
+      "expected": "read"
+    },
+    {
+      "name": "the send failed: the red mark",
+      "input": { "local": "failed", "stored": false, "deliveredAt": null, "consumedAt": null, "echoed": false },
+      "expected": "failed"
+    },
+    {
+      "name": "a failed entry whose row exists after all reads off the row",
+      "input": { "local": "failed", "stored": true, "deliveredAt": "2026-11-13T10:00:01.000Z", "consumedAt": null, "echoed": false },
+      "expected": "sent"
+    },
+    {
+      "name": "a stale local entry never hides a consumed row",
+      "input": { "local": "sending", "stored": true, "deliveredAt": null, "consumedAt": "2026-11-13T10:00:05.000Z", "echoed": false },
+      "expected": "read"
+    }
+  ],
+  "outboxCases": [
+    {
+      "name": "nothing synced yet: every entry stays",
+      "input": {
+        "viewerId": "u1",
+        "outbox": [
+          { "clientId": "c1", "text": "ship it", "createdAt": "2026-11-13T10:00:00.000Z", "state": "sending", "messageId": null },
+          { "clientId": "c2", "text": "and the docs", "createdAt": "2026-11-13T10:00:02.000Z", "state": "failed", "messageId": null }
+        ],
+        "rows": []
+      },
+      "expected": { "drop": [], "keep": ["c1", "c2"] }
+    },
+    {
+      "name": "the synced row carrying the entry's messageId replaces it",
+      "input": {
+        "viewerId": "u1",
+        "outbox": [
+          { "clientId": "c1", "text": "ship it", "createdAt": "2026-11-13T10:00:00.000Z", "state": "sending", "messageId": "m1" }
+        ],
+        "rows": [
+          { "id": "m1", "authorKind": "user", "authorId": "u1", "body": "ship it", "createdAt": "2026-11-13T10:00:00.400Z" }
+        ]
+      },
+      "expected": { "drop": ["c1"], "keep": [] }
+    },
+    {
+      "name": "an acked entry whose row has not synced stays",
+      "input": {
+        "viewerId": "u1",
+        "outbox": [
+          { "clientId": "c1", "text": "ship it", "createdAt": "2026-11-13T10:00:00.000Z", "state": "sending", "messageId": "m1" }
+        ],
+        "rows": [
+          { "id": "m0", "authorKind": "user", "authorId": "u1", "body": "ship it", "createdAt": "2026-11-13T09:00:00.000Z" }
+        ]
+      },
+      "expected": { "drop": [], "keep": ["c1"] }
+    },
+    {
+      "name": "no messageId yet (a reload mid-send): the matching own row inside the window replaces it",
+      "input": {
+        "viewerId": "u1",
+        "outbox": [
+          { "clientId": "c1", "text": "ship it", "createdAt": "2026-11-13T10:00:00.000Z", "state": "sending", "messageId": null }
+        ],
+        "rows": [
+          { "id": "m1", "authorKind": "user", "authorId": "u1", "body": "ship it", "createdAt": "2026-11-13T09:59:30.000Z" }
+        ]
+      },
+      "expected": { "drop": ["c1"], "keep": [] }
+    },
+    {
+      "name": "a row older than the window, another sender's, or another text never matches",
+      "input": {
+        "viewerId": "u1",
+        "outbox": [
+          { "clientId": "c1", "text": "ship it", "createdAt": "2026-11-13T10:00:00.000Z", "state": "sending", "messageId": null }
+        ],
+        "rows": [
+          { "id": "m1", "authorKind": "user", "authorId": "u1", "body": "ship it", "createdAt": "2026-11-13T09:58:59.000Z" },
+          { "id": "m2", "authorKind": "user", "authorId": "u2", "body": "ship it", "createdAt": "2026-11-13T10:00:01.000Z" },
+          { "id": "m3", "authorKind": "agent", "authorId": null, "body": "ship it", "createdAt": "2026-11-13T10:00:01.000Z" },
+          { "id": "m4", "authorKind": "user", "authorId": "u1", "body": "ship it now", "createdAt": "2026-11-13T10:00:01.000Z" }
+        ]
+      },
+      "expected": { "drop": [], "keep": ["c1"] }
+    },
+    {
+      "name": "two identical texts: each row matches one entry, oldest first",
+      "input": {
+        "viewerId": "u1",
+        "outbox": [
+          { "clientId": "c2", "text": "ok", "createdAt": "2026-11-13T10:00:03.000Z", "state": "sending", "messageId": null },
+          { "clientId": "c1", "text": "ok", "createdAt": "2026-11-13T10:00:00.000Z", "state": "sending", "messageId": null }
+        ],
+        "rows": [
+          { "id": "m1", "authorKind": "user", "authorId": "u1", "body": "ok", "createdAt": "2026-11-13T10:00:00.300Z" }
+        ]
+      },
+      "expected": { "drop": ["c1"], "keep": ["c2"] }
+    },
+    {
+      "name": "a row matched by messageId is not matched again by text",
+      "input": {
+        "viewerId": "u1",
+        "outbox": [
+          { "clientId": "c1", "text": "ok", "createdAt": "2026-11-13T10:00:00.000Z", "state": "sending", "messageId": null },
+          { "clientId": "c2", "text": "ok", "createdAt": "2026-11-13T10:00:01.000Z", "state": "sending", "messageId": "m1" }
+        ],
+        "rows": [
+          { "id": "m1", "authorKind": "user", "authorId": "u1", "body": "ok", "createdAt": "2026-11-13T10:00:01.200Z" }
+        ]
+      },
+      "expected": { "drop": ["c2"], "keep": ["c1"] }
+    },
+    {
+      "name": "a failed entry never matches by text",
+      "input": {
+        "viewerId": "u1",
+        "outbox": [
+          { "clientId": "c1", "text": "ship it", "createdAt": "2026-11-13T10:00:00.000Z", "state": "failed", "messageId": null }
+        ],
+        "rows": [
+          { "id": "m1", "authorKind": "user", "authorId": "u1", "body": "ship it", "createdAt": "2026-11-13T10:00:01.000Z" }
+        ]
+      },
+      "expected": { "drop": [], "keep": ["c1"] }
+    },
+    {
+      "name": "kept entries come back in createdAt order, ties by clientId",
+      "input": {
+        "viewerId": "u1",
+        "outbox": [
+          { "clientId": "c3", "text": "c", "createdAt": "2026-11-13T10:00:02.000Z", "state": "sending", "messageId": null },
+          { "clientId": "c2", "text": "b", "createdAt": "2026-11-13T10:00:01.000Z", "state": "failed", "messageId": null },
+          { "clientId": "c1", "text": "a", "createdAt": "2026-11-13T10:00:01.000Z", "state": "sending", "messageId": null }
+        ],
+        "rows": []
+      },
+      "expected": { "drop": [], "keep": ["c1", "c2", "c3"] }
+    }
+  ],
+  "actionCases": [
+    { "name": "failed: retry, then delete", "input": { "state": "failed", "stored": false }, "expected": ["retry", "delete"] },
+    { "name": "in flight, not stored: nothing", "input": { "state": "sending", "stored": false }, "expected": [] },
+    { "name": "stored, not delivered: cancel", "input": { "state": "sending", "stored": true }, "expected": ["cancel"] },
+    { "name": "delivered, queued on the device: cancel", "input": { "state": "sent", "stored": true }, "expected": ["cancel"] },
+    { "name": "read: nothing", "input": { "state": "read", "stored": true }, "expected": [] }
+  ]
+}

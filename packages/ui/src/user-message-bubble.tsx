@@ -1,9 +1,13 @@
-import type { ReactNode } from "react"
+import { useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from "react"
+import type { DeliveryState } from "@exp/domain-contract/message-delivery"
+import { MESSAGE_DELIVERY_TEST_IDS } from "@exp/domain-contract/message-delivery"
 import type { TranscriptRowLayout, TranscriptSender } from "@exp/domain-contract/transcript-grouping"
 import { TRANSCRIPT_COPY, TRANSCRIPT_LAYOUT } from "@exp/domain-contract/transcript-grouping"
 import { AttachmentFileLink } from "./attachment-thumb"
 import { cn } from "./cn"
 import { conceptIcon } from "./icons.generated"
+import { Menu, type MenuEntry } from "./menu"
+import { MessageStatusMark } from "./message-status-mark"
 import { UserAvatar, type UserAvatarAgent, type UserAvatarUser } from "./user-avatar"
 
 // #EXP-1736 (transcript-grouping.json): THE message bubble ×4, every chat a
@@ -44,6 +48,10 @@ export function userMessageCaption(input: {
 }
 
 const SessionIcon = conceptIcon(`coding-assistant`)
+const MoreIcon = conceptIcon(`ui-more`)
+
+/** #FEED-237: a touch long-press opens the bubble's menu after this long. */
+const LONG_PRESS_MS = 500
 
 /** The bubble's width cap: phones `maxWidth.phone` (an `in` bubble
  *  `maxWidth.phoneIn`), md+ `maxWidth.wide` (Tailwind needs the literal
@@ -63,6 +71,8 @@ export function MessageBubble({
   caption,
   action,
   relay = null,
+  status = null,
+  menu,
   variant = `chat`,
   className,
 }: {
@@ -93,12 +103,42 @@ export function MessageBubble({
   caption?: string | null
   /** EXP-1317: a trailing control on the caption line (a queued row's X). */
   action?: ReactNode
+  /** #FEED-237 `out` only: the delivery mark beside the time
+   *  (message-delivery.json); null = none. */
+  status?: DeliveryState | null
+  /** #FEED-237: the bubble's menu (right-click, the hover `…`, a touch
+   *  long-press; a `failed` mark opens it too). Empty/absent = none. */
+  menu?: readonly MenuEntry[]
   /** @deprecated #EXP-1736: one bubble everywhere; kept for old call sites. */
   variant?: `transcript` | `chat`
   className?: string
 }) {
   void variant
   const out = side === `out`
+  const [menuOpen, setMenuOpen] = useState(false)
+  const pressTimer = useRef<number | null>(null)
+  const hasMenu = Boolean(menu && menu.length > 0)
+  const mark = out && status ? status : null
+  const clearPress = () => {
+    if (pressTimer.current !== null) window.clearTimeout(pressTimer.current)
+    pressTimer.current = null
+  }
+  const menuGestures = hasMenu
+    ? {
+        onContextMenu: (event: MouseEvent) => {
+          event.preventDefault()
+          setMenuOpen(true)
+        },
+        onPointerDown: (event: PointerEvent) => {
+          if (event.pointerType !== `touch`) return
+          clearPress()
+          pressTimer.current = window.setTimeout(() => setMenuOpen(true), LONG_PRESS_MS)
+        },
+        onPointerUp: clearPress,
+        onPointerCancel: clearPress,
+        onPointerLeave: clearPress,
+      }
+    : {}
   const name = !out && author && !relay ? author : null
   const inner = (
     <>
@@ -124,9 +164,43 @@ export function MessageBubble({
           ))}
         </div>
       ) : null}
-      {time ? (
-        <div data-slot="user-message-time" className="mt-1 text-right text-[0.6875rem] text-muted-foreground tabular-nums">
-          {time}
+      {time || mark ? (
+        <div data-slot="user-message-footer" className="mt-1 flex items-center justify-end gap-1">
+          {time ? (
+            <span data-slot="user-message-time" className="text-[0.6875rem] text-muted-foreground tabular-nums">
+              {time}
+            </span>
+          ) : null}
+          {mark === `failed` && hasMenu ? (
+            <button
+              type="button"
+              className="inline-flex rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              onClick={() => setMenuOpen(true)}
+            >
+              <MessageStatusMark state={mark} />
+            </button>
+          ) : mark ? (
+            <MessageStatusMark state={mark} />
+          ) : null}
+          {hasMenu ? (
+            <Menu
+              entries={menu}
+              open={menuOpen}
+              onOpenChange={setMenuOpen}
+              align="end"
+              data-testid={MESSAGE_DELIVERY_TEST_IDS.menu}
+              trigger={
+                <button
+                  type="button"
+                  aria-label="Message actions"
+                  data-slot="user-message-more"
+                  className="absolute top-1/2 -left-7 inline-flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground opacity-0 outline-none transition-opacity group-hover/bubble:opacity-100 hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/50 [@media(hover:none)]:hidden"
+                >
+                  <MoreIcon className="size-3.5" aria-hidden />
+                </button>
+              }
+            />
+          ) : null}
         </div>
       ) : null}
     </>
@@ -168,7 +242,9 @@ export function MessageBubble({
           {inner}
         </div>
       ) : (
-        <div className={bubbleClass}>{inner}</div>
+        <div className={cn(bubbleClass, hasMenu && `group/bubble relative`)} {...menuGestures}>
+          {inner}
+        </div>
       )}
       {caption || action ? (
         <div className="flex items-center gap-1">

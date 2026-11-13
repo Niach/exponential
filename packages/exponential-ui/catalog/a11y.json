@@ -729,7 +729,7 @@
     },
     "MessageBubble": {
       "role": "group",
-      "notes": "group labelled by `author`, else `time` (a button when pressable: `on.press` or `href`); the avatar slot is the author's node; the delivery icon is labelled `sending`/`sent`/`read`",
+      "notes": "group labelled by `author`, else `time` (a button when pressable: `on.press` or `href`); the avatar slot is the author's node; the delivery icon is labelled `sending`/`sent`/`read`/`notSent` (MessageStatus)",
       "keys": [
         "Enter, Space: press (pressable only)"
       ]
@@ -843,6 +843,11 @@
         "ArrowLeft: close an open branch, else its parent",
         "Enter, Space: select a leaf, fold a branch"
       ]
+    },
+    "MessageStatus": {
+      "role": "img",
+      "notes": "img labelled `sending`/`sent`/`read`/`notSent` by its status",
+      "keys": []
     }
   }
 }

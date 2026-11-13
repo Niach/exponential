@@ -2,7 +2,9 @@ package com.exponential.app.ui.chat
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -29,11 +31,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.exponential.app.data.db.UserEntity
+import com.exponential.app.domain.MessageDelivery
 import com.exponential.app.domain.TranscriptGrouping
 import com.exponential.app.ui.components.AgentAvatar
 import com.exponential.app.ui.components.ExponentialMark
@@ -58,9 +63,13 @@ private val BubbleMuted: Color @Composable get() = MaterialTheme.colorScheme.onS
  * = the viewer's (right, the active glass fill under the strong hairline, no
  * name); else anyone else's (left, THE card surface) with the sender's name
  * line [author] (12sp medium, muted; the group's first bubble only) and, for
- * a cross-session sender, [onClick] on the whole bubble (that session). A
- * person's queued message reads `queued` with the revoke ✕ (mine only).
+ * a cross-session sender, [onClick] on the whole bubble (that session).
+ * #FEED-237 (message-delivery.json): the viewer's own bubble carries its
+ * delivery mark [status] right after the `HH:mm` (the clock, one check, two
+ * checks, the red mark; every other sender's has none); [onLongClick] opens
+ * its menu, a failed mark is itself a press target ([onStatusClick]).
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MessageBubble(
     own: Boolean,
@@ -71,6 +80,9 @@ fun MessageBubble(
     queued: Boolean = false,
     onUnqueue: (() -> Unit)? = null,
     testTag: String = if (own) "chat-message-bubble" else "chat-agent-message",
+    status: MessageDelivery.State? = null,
+    onLongClick: (() -> Unit)? = null,
+    onStatusClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
@@ -83,7 +95,13 @@ fun MessageBubble(
                 .clip(shape)
                 .background(if (own) GlassTokens.RowFillActive else GlassTokens.OpaqueCardFill, shape)
                 .border(GlassTokens.Hairline, if (own) GlassTokens.StrokeStrong else GlassTokens.StrokeCard, shape)
-                .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
+                .then(
+                    when {
+                        onLongClick != null -> Modifier.combinedClickable(onClick = onClick ?: {}, onLongClick = onLongClick)
+                        onClick != null -> Modifier.clickable(role = Role.Button, onClick = onClick)
+                        else -> Modifier
+                    },
+                )
                 .padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 10.dp)
                 .testTag(testTag),
         ) {
@@ -102,11 +120,12 @@ fun MessageBubble(
                 )
             }
             content()
+            val mark = status?.takeIf { own }
             val caption = listOfNotNull(
                 time?.takeIf { it.isNotEmpty() },
-                ChatUiCopy.QUEUED.takeIf { queued },
+                ChatUiCopy.QUEUED.takeIf { queued && mark == null },
             ).joinToString(" · ")
-            if (caption.isNotEmpty() || onUnqueue != null) {
+            if (caption.isNotEmpty() || onUnqueue != null || mark != null) {
                 Row(
                     modifier = Modifier.align(Alignment.End).padding(top = 2.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -116,13 +135,38 @@ fun MessageBubble(
                         style = MaterialTheme.typography.labelSmall,
                         color = BubbleMuted,
                         maxLines = 1,
-                        modifier = Modifier.testTag(if (queued) "chat-message-queued" else "chat-bubble-time"),
+                        modifier = Modifier.testTag(if (queued && mark == null) "chat-message-queued" else "chat-bubble-time"),
                     )
+                    if (mark != null) MessageStatusMark(mark, onClick = onStatusClick)
                     if (onUnqueue != null) UnqueueButton(onUnqueue)
                 }
             }
         }
     }
+}
+
+/** #FEED-237: genUI's `MessageStatus`: the state's concept icon at
+ *  `markSize`, in its tone (muted = the time's ink, info = the read blue,
+ *  danger = destructive), labelled `copy.status[state]`. */
+@Composable
+fun MessageStatusMark(state: MessageDelivery.State, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
+    val tint = when (state.tone) {
+        MessageDelivery.Tone.Muted -> BubbleMuted
+        MessageDelivery.Tone.Info -> DesignTokens.Semantic.Blue
+        MessageDelivery.Tone.Danger -> DesignTokens.Palette.Destructive
+    }
+    val icon = ExpIcons.byConcept(state.icon) ?: ExpIcons.uiCheck
+    Icon(
+        icon,
+        contentDescription = state.label,
+        tint = tint,
+        modifier = modifier
+            .padding(start = 4.dp)
+            .size(MessageDelivery.MARK_SIZE.dp)
+            .then(if (onClick != null) Modifier.clip(CircleShape).clickable(role = Role.Button, onClick = onClick) else Modifier)
+            .testTag(MessageDelivery.TestIds.STATUS)
+            .semantics { stateDescription = state.wire },
+    )
 }
 
 /** [MessageBubble] over markdown text (the conversation's rows). */
@@ -136,6 +180,7 @@ fun MessageBubble(
     onClick: (() -> Unit)? = null,
     queued: Boolean = false,
     onUnqueue: (() -> Unit)? = null,
+    status: MessageDelivery.State? = null,
 ) {
     MessageBubble(
         own = own,
@@ -145,6 +190,7 @@ fun MessageBubble(
         onClick = onClick,
         queued = queued,
         onUnqueue = onUnqueue,
+        status = status,
     ) {
         MarkdownView(markdown = text, softBreaksAsNewlines = true)
     }

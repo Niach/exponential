@@ -32,6 +32,10 @@ protocol SessionComposerDraft: AnyObject {
     /// Send one message; true once it is out (the caller clears the draft
     /// only then). A refusal surfaces through the owner's own toast.
     func sendMessage(_ text: String, attachmentIds: [String]?) async -> Bool
+    /// #FEED-237 (message-delivery.json): hand the message to the session's
+    /// outbox (its bubble at the transcript's bottom); false = this composer
+    /// sends the old way (composer-send.json).
+    func sendThroughOutbox(_ text: String, attachmentIds: [String]) -> Bool
 }
 
 extension SessionComposerDraft {
@@ -55,6 +59,8 @@ extension SessionComposerDraft {
 
     var hasContent: Bool { !trimmedDraft.isEmpty || hasPendingAttachments }
 
+    func sendThroughOutbox(_ text: String, attachmentIds: [String]) -> Bool { false }
+
     /// Send what is in the box. The field stays editable while the send is
     /// out (EXP-1537, `composer-send.json`): what Send saw (the UNTRIMMED
     /// text, the picks) is snapshotted, and once the message is out
@@ -70,6 +76,12 @@ extension SessionComposerDraft {
         let sentText = draftText
         guard hasPendingAttachments else {
             guard !trimmedDraft.isEmpty else { return }
+            // #FEED-237: a session composer clears field and synced draft
+            // at the press; the message is a bubble from then on.
+            if sendThroughOutbox(sentText, attachmentIds: []) {
+                draftText = ""
+                return
+            }
             if await sendMessage(sentText, attachmentIds: nil) {
                 draftText = ComposerSend.textAfterSend(sent: sentText, current: draftText)
             }
@@ -102,12 +114,17 @@ extension SessionComposerDraft {
         }
         restampPending(images: images, files: files)
         let imageIds = images.compactMap(\.uploadedId)
-        let sent = await sendMessage(
-            SteerImageMessage.buildMessage(
-                text: sentText, imageIds: imageIds, files: files.compactMap(\.wireFile)
-            ),
-            attachmentIds: imageIds + files.compactMap(\.uploadedId)
+        let message = SteerImageMessage.buildMessage(
+            text: sentText, imageIds: imageIds, files: files.compactMap(\.wireFile)
         )
+        let attachmentIds = imageIds + files.compactMap(\.uploadedId)
+        // #FEED-237: once the picks are up, the message is an outbox bubble.
+        let sent: Bool
+        if sendThroughOutbox(message, attachmentIds: attachmentIds) {
+            sent = true
+        } else {
+            sent = await sendMessage(message, attachmentIds: attachmentIds)
+        }
         guard sent else { return }
         let after = ComposerSend.afterSend(
             outcome: .sent,

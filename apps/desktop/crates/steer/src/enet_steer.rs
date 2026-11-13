@@ -108,6 +108,65 @@ pub fn no_feed_away(device_name: Option<&str>) -> (String, &'static str) {
     (NO_FEED_AWAY_TITLE.replace("{device}", device), NO_FEED_AWAY_TEXT)
 }
 
+/// Android 0.14.134 (`noFeedInputsMax`): how many consumed inputs a no-feed
+/// placeholder shows.
+pub const NO_FEED_INPUTS_MAX: usize = 10;
+
+/// One synced message as [`no_feed_inputs`] reads it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NoFeedInputRow<'a> {
+    pub id: &'a str,
+    pub author_kind: &'a str,
+    /// The row carries a card (`card` set and not JSON null).
+    pub has_card: bool,
+    pub consumed_at: Option<&'a str>,
+    pub created_at: &'a str,
+}
+
+/// Android 0.14.134 (steer-enet.json SENT INPUTS, TS `steerNoFeedInputs`):
+/// under a no-feed placeholder of a live row, the session's card-less person
+/// inputs the device already CONSUMED (a not-consumed one is the Dock's
+/// queue), oldest first (`createdAt`, then `id`), the newest `max`.
+pub fn no_feed_inputs<'r, T>(rows: &'r [T], max: usize, row: impl Fn(&'r T) -> NoFeedInputRow<'r>) -> Vec<&'r T> {
+    let mut inputs: Vec<(NoFeedInputRow<'r>, &'r T)> = rows
+        .iter()
+        .map(|item| (row(item), item))
+        .filter(|(r, _)| r.author_kind == "user" && !r.has_card && r.consumed_at.is_some())
+        .collect();
+    inputs.sort_by(|(a, _), (b, _)| a.created_at.cmp(b.created_at).then_with(|| a.id.cmp(b.id)));
+    let skip = inputs.len().saturating_sub(max);
+    inputs.into_iter().skip(skip).map(|(_, item)| item).collect()
+}
+
+/// The synced row fields [`row_wakes`] reads.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WakeRow {
+    pub status: String,
+    pub busy: bool,
+    pub device_id: Option<String>,
+}
+
+/// Android 0.14.134 (steer-enet.json ROW WAKE, TS `steerRowWakes`): whether
+/// a synced row change cuts a `starting` row's backoff short: the device took
+/// it (status leaves `queued` or turns `running`), a turn started, or it
+/// moved; never an ending, never the first row seen.
+pub fn row_wakes(from: Option<&WakeRow>, to: &WakeRow) -> bool {
+    let Some(from) = from else { return false };
+    if to.status == "ended" {
+        return false;
+    }
+    if from.status == "queued" && to.status != "queued" {
+        return true;
+    }
+    if from.status != "running" && to.status == "running" {
+        return true;
+    }
+    if !from.busy && to.busy {
+        return true;
+    }
+    from.device_id.as_deref().unwrap_or("") != to.device_id.as_deref().unwrap_or("")
+}
+
 /// EXP-1487 (`noFeedIdle`): the idle empty state's copy.
 pub const NO_FEED_IDLE_TITLE: &str = "No live transcript";
 pub const NO_FEED_IDLE_TEXT: &str =
@@ -1068,6 +1127,42 @@ mod tests {
         assert_eq!(list("viewerFrames"), VIEWER_FRAMES);
         assert_eq!(list("deviceFrames"), DEVICE_FRAMES);
         assert_eq!(list("errorCodes"), [ERROR_NO_SUCH_SESSION, ERROR_UNAUTHORIZED]);
+    }
+
+    /// Android 0.14.134: `noFeedInputsMax` + `noFeedInputCases` (SENT INPUTS).
+    #[test]
+    fn no_feed_input_cases() {
+        let f = fixture();
+        assert_eq!(f["noFeedInputsMax"], NO_FEED_INPUTS_MAX as u64);
+        for case in f["noFeedInputCases"].as_array().unwrap() {
+            let messages = case["messages"].as_array().unwrap();
+            let max = case["max"].as_u64().map_or(NO_FEED_INPUTS_MAX, |max| max as usize);
+            let picked = no_feed_inputs(messages, max, |m| NoFeedInputRow {
+                id: m["id"].as_str().unwrap(),
+                author_kind: m["authorKind"].as_str().unwrap(),
+                has_card: !m["card"].is_null(),
+                consumed_at: m["consumedAt"].as_str(),
+                created_at: m["createdAt"].as_str().unwrap(),
+            });
+            let ids: Vec<&str> = picked.iter().map(|m| m["id"].as_str().unwrap()).collect();
+            let expected: Vec<&str> = case["expected"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
+            assert_eq!(ids, expected, "{}", case["name"]);
+        }
+    }
+
+    /// Android 0.14.134: `rowWakeCases` (ROW WAKE).
+    #[test]
+    fn row_wake_cases() {
+        let wake_row = |v: &Value| WakeRow {
+            status: v["status"].as_str().unwrap().to_string(),
+            busy: v["busy"].as_bool().unwrap(),
+            device_id: v["deviceId"].as_str().map(str::to_string),
+        };
+        for case in fixture()["rowWakeCases"].as_array().unwrap() {
+            let from = (!case["from"].is_null()).then(|| wake_row(&case["from"]));
+            let to = wake_row(&case["to"]);
+            assert_eq!(row_wakes(from.as_ref(), &to), case["wake"].as_bool().unwrap(), "{}", case["name"]);
+        }
     }
 
     #[test]

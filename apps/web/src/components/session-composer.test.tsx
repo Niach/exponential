@@ -425,39 +425,32 @@ describe(`SessionComposer send in flight (EXP-1537)`, () => {
     return { resolve: (value = { txid: 1, sessionId: `s1` }) => resolve(value), reject: (error: Error) => reject(error) }
   }
 
-  it(`text typed while the send was in flight stays`, async () => {
+  // #FEED-237 (message-delivery.json): a session composer clears at the
+  // press; the message is an outbox bubble from then on.
+  it(`the field clears at the press and the send carries a clientMessageId`, async () => {
     const pending = deferredSend()
     const field = renderComposer()
     type(field, `Ship it`)
     pressEnter(field)
     await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1))
-    type(field, `Ship it and then the docs`)
+    expect(field.value).toBe(``)
+    expect(mocks.send.mock.calls[0]![0]).toMatchObject({ text: `Ship it` })
+    expect(typeof (mocks.send.mock.calls[0]![0] as { clientMessageId?: unknown }).clientMessageId).toBe(`string`)
+    type(field, `and then the docs`)
     await act(async () => pending.resolve())
-    await waitFor(() => expect(mocks.send.mock.calls[0]![0]).toMatchObject({ text: `Ship it` }))
-    expect(field.value).toBe(`Ship it and then the docs`)
+    expect(field.value).toBe(`and then the docs`)
   })
 
-  it(`an untouched field clears once the send lands`, async () => {
+  it(`a failed send raises no toast and leaves the field alone`, async () => {
     const pending = deferredSend()
     const field = renderComposer()
     type(field, `Ship it`)
     pressEnter(field)
     await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1))
-    expect(field.value).toBe(`Ship it`)
-    await act(async () => pending.resolve())
-    await waitFor(() => expect(field.value).toBe(``))
-  })
-
-  it(`a failed send keeps what is in the field now`, async () => {
-    const pending = deferredSend()
-    const field = renderComposer()
-    type(field, `Ship it`)
-    pressEnter(field)
-    await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1))
-    type(field, `Ship it now`)
+    type(field, `next`)
     await act(async () => pending.reject(new Error(`down`)))
-    await waitFor(() => expect(mocks.toastError).toHaveBeenCalled())
-    expect(field.value).toBe(`Ship it now`)
+    expect(mocks.toastError).not.toHaveBeenCalled()
+    expect(field.value).toBe(`next`)
   })
 })
 

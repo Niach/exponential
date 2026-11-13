@@ -31,6 +31,9 @@ const cases: { name: string; body: string }[] = [
   { name: `a first line longer than the cut`, body: `${longLine} ${longLine}` },
   { name: `astral characters around the cut`, body: `😀`.repeat(DIGEST_TEXT_MAX + 20) },
   { name: `a line of one v (no escape trims it)`, body: `v\n${longLine}` },
+  // EXP-698: a line of only `[Image #N]` markers is no title line.
+  { name: `a marker-only line after image lines past the cut`, body: `${images}\n[Image #1] [Image #2]\n\n${longLine}` },
+  { name: `a body of only markers and embeds`, body: `[Image #1]\n\n![shot](/api/attachments/a1)` },
 ]
 
 async function seedConversation(tx: Parameters<Parameters<typeof inRollback>[0]>[0]) {

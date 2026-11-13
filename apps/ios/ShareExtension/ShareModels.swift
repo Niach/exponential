@@ -23,6 +23,8 @@ struct SharedPayload: Sendable {
     var descriptionText: String
     var images: [SharedImage]
     var files: [SharedFile] = []
+    /// Files past the extractor's cap, left unread: the composer's cap note.
+    var moreFiles = false
     /// EXP-1635: the raw share, what `ShareTargets.shareChatText` reads.
     var text: String = ""
     var subject: String?
