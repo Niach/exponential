@@ -31,6 +31,10 @@ enum AppRoute: Hashable {
     /// PUBLISHED package full screen (a list row tap); `screen` = an app
     /// screen link's screen.
     case appRun(accountId: String, appId: String, screen: Apps.ScreenRequest? = nil)
+    /// #EXP-1617 / #EXP-1804 (ci-run.json): THE run page of our own CI (a
+    /// check's `details_url`, `/t/<team>/ci/<runId>?job=`); `job` = the
+    /// requested job (nil = the default one).
+    case ciRun(accountId: String, runId: String, job: String? = nil)
     /// The Inbox page (EXP-1373: pushed from the Chats header's inbox
     /// circle, notifications only — My issues and Drafts moved to the board).
     case myWork
@@ -1391,6 +1395,10 @@ extension MainNavigator {
         case let .appRun(accountId, appId, screen):
             AppRunScreen(appId: appId, screen: screen)
                 .id(appId)
+                .environment(\.accountId, accountId)
+        case let .ciRun(accountId, runId, job):
+            CiRunScreen(runId: runId, requestedJob: job)
+                .id(runId)
                 .environment(\.accountId, accountId)
         case .myWork:
             InboxPage()

@@ -3320,7 +3320,76 @@ public final class DatabaseManager: @unchecked Sendable {
             try createComposerDraftsTable(db)
         }
 
+        // v106 (#EXP-1617 / #EXP-1804): eCode's own CI — the synced `ci_runs`
+        // and `ci_jobs` tables (brand-new, no cursor yet) and `devices.runner`
+        // (the CI runner settings). The devices cursor resets only when the
+        // column was added, so synced rows re-arrive carrying it.
+        migrator.registerMigration("v106_ci_runs") { db in
+            try createCiTables(db)
+            guard try db.tableExists("devices") else { return }
+            guard try db.columns(in: "devices").contains(where: { $0.name == "runner" }) == false else { return }
+            try db.alter(table: "devices") { t in
+                t.add(column: "runner", .text)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'devices'
+                    """)
+            }
+        }
+
         return migrator
+    }
+
+    /// #EXP-1617 / #EXP-1804: the `ci_runs` / `ci_jobs` tables, mirroring the
+    /// shape allowlists (`/api/shapes/ci-runs`, `/api/shapes/ci-jobs`); jsonb
+    /// columns as JSON text.
+    static func createCiTables(_ db: Database) throws {
+        try db.create(table: "ci_runs", ifNotExists: true) { t in
+            t.primaryKey("id", .text)
+            t.column("team_id", .text).notNull().indexed()
+            t.column("repository_id", .text).notNull().defaults(to: "")
+            t.column("number", .integer).notNull().defaults(to: 0)
+            t.column("name", .text).notNull().defaults(to: "")
+            t.column("sha", .text).notNull().defaults(to: "")
+            t.column("ref", .text)
+            t.column("trigger", .text).notNull().defaults(to: "push")
+            t.column("pull_request_id", .text)
+            t.column("state", .text).notNull().defaults(to: "pending")
+            t.column("error", .text)
+            t.column("rerun_of", .text)
+            t.column("created_by_user_id", .text)
+            t.column("started_at", .text)
+            t.column("completed_at", .text)
+            t.column("created_at", .text).notNull()
+            t.column("updated_at", .text).notNull()
+        }
+        try db.create(table: "ci_jobs", ifNotExists: true) { t in
+            t.primaryKey("id", .text)
+            t.column("team_id", .text).notNull().indexed()
+            t.column("run_id", .text).notNull().indexed()
+            t.column("key", .text).notNull().defaults(to: "")
+            t.column("check", .text).notNull().defaults(to: "")
+            t.column("position", .integer).notNull().defaults(to: 0)
+            t.column("runs_on", .text)
+            t.column("needs", .text)
+            t.column("matrix", .text)
+            t.column("timeout_min", .integer).notNull().defaults(to: 60)
+            t.column("status", .text).notNull().defaults(to: "queued")
+            t.column("conclusion", .text)
+            t.column("reason", .text)
+            t.column("runner_device_id", .text).indexed()
+            t.column("steps", .text)
+            t.column("log_key", .text)
+            t.column("log_bytes", .integer).notNull().defaults(to: 0)
+            t.column("queued_at", .text)
+            t.column("started_at", .text)
+            t.column("completed_at", .text)
+            t.column("created_at", .text).notNull()
+            t.column("updated_at", .text).notNull()
+        }
     }
 
     /// #FEED-219: the `composer_drafts` table, mirroring the shape allowlist
@@ -3655,6 +3724,9 @@ public final class DatabaseManager: @unchecked Sendable {
             try db.execute(sql: "DELETE FROM pull_request_issues")
             // #EXP-1611: a PR's CI rows, wiped with their PR.
             try db.execute(sql: "DELETE FROM pull_request_checks")
+            // #EXP-1804: eCode's CI, jobs before their runs.
+            try db.execute(sql: "DELETE FROM ci_jobs")
+            try db.execute(sql: "DELETE FROM ci_runs")
             try db.execute(sql: "DELETE FROM pull_requests")
             try db.execute(sql: "DELETE FROM messages")
             try db.execute(sql: "DELETE FROM session_issues")

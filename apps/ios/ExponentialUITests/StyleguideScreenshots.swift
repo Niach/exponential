@@ -1209,6 +1209,7 @@ final class StyleguideScreenshots: XCTestCase {
         // schedule-picker.json) · sg_voice-call (NEW-69, voice-call.json) ·
         // sg_call-controls (S-3, the round call buttons) · sg_call-pill (EXP-1681) ·
         // sg_device-readiness (EXP-1375) · sg_pr-checks (#EXP-1611) ·
+        // sg_ci-run · sg_runner-settings (#EXP-1804) ·
         // sg_needs-you · sg_results-tab (#FEED-191): the
         // styleguide entries' specimens.
         walkSpecimens(app)
@@ -1258,7 +1259,7 @@ final class StyleguideScreenshots: XCTestCase {
         "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-header", "chat-transcript",
         "chat-menus", "chat-selection", "schedule-picker", "mention-pill", "voice-call",
         "call-controls", "call-pill", "device-readiness",
-        "sealed-locked", "plan-page", "pr-row", "pr-checks", "session-row",
+        "sealed-locked", "plan-page", "pr-row", "pr-checks", "ci-run", "runner-settings", "session-row",
         "team-avatar", "device-attention", "share-targets", "share-composer", "composer-add-file",
         "needs-you", "results-tab", "record-form-field-states",
         "os-live-activity", "os-live-activity-island", "os-notification-actions",
@@ -1310,6 +1311,10 @@ final class StyleguideScreenshots: XCTestCase {
             case "session-row": snapshot("sg_session-row", settle: 2)
             // #EXP-1611: the four Merge pills + the open Checks submenu.
             case "pr-checks": snapshot("sg_pr-checks", settle: 2)
+            // #EXP-1804: the CI run page + the CI runner section (fixtures'
+            // `specimen`s).
+            case "ci-run": snapshot("sg_ci-run", settle: 2)
+            case "runner-settings": snapshot("sg_runner-settings", settle: 2)
             // #EXP-1645 / #EXP-1643: the specimens of states no seed draws.
             case "team-avatar": snapshot("sg_team-avatar", settle: 2)
             case "device-attention": snapshot("sg_device-attention", settle: 2)

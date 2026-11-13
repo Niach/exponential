@@ -1677,6 +1677,15 @@
         "sha256": "7df1f1287b3cd1d53141ce5bc0cc1ec3d85f16d897b78640cf78bfa02980bb72"
       }
     },
+    "ci-run": {
+      "android": {
+        "file": "shots/ci-run/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 58528,
+        "sha256": "e32874ad971b62cbc4ecd2e232b2b64e6cd801e6e74c9f9dd6d47ef43ac32992"
+      }
+    },
     "code-block": {
       "android": {
         "file": "shots/code-block/android.webp",
@@ -6503,6 +6512,15 @@
         "height": 1800,
         "bytes": 79586,
         "sha256": "3a4caa5e5bdf3eb04cb708b7a8e06eeea04cd9df315b6958ccf6da1a73893b1e"
+      }
+    },
+    "runner-settings": {
+      "android": {
+        "file": "shots/runner-settings/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 37592,
+        "sha256": "92073afdfe59d7adc12b27d5b5e64bd2d198336bcbe2e42cb1c2674c3d523328"
       }
     },
     "schedule-picker": {
