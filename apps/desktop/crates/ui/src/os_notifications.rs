@@ -24,9 +24,19 @@
 //! - **Coalesced.** A batch PR merge or a busy issue lands several rows
 //!   within seconds; rows arriving inside [`COALESCE_WINDOW`] collapse into
 //!   ONE toast ("3 new notifications" + the first titles) routed to the Inbox.
-//! - **Redundancy-suppressed.** With the app focused and the row's issue open
-//!   in the active window, or the Inbox tab up, nothing is raised — the user
-//!   is already looking at it.
+//! - **Presented per #EXP-1815** (`notification-delivery.json`,
+//!   [`domain::notification_delivery::notification_presentation`], platform
+//!   desktop): every row has a THREAD (its issue, its session's chat = the
+//!   synced root, its device, else the Inbox). A focused window showing that
+//!   thread (or the Inbox) raises nothing; a focused window elsewhere shows
+//!   THE in-app toast ([`crate::toast`], kind info, the row's title + body,
+//!   `Open` routing like an OS click); an unfocused app raises the OS
+//!   notification. A row whose `pushed_at` is NULL was muted by the member's
+//!   source switches (the server stamps every other row) and raises nothing.
+//! - **Cleared when read.** Each raised row remembers its OS tag / in-app
+//!   toast; when the synced row's `read_at` lands (read on ANY device: the
+//!   server marks rows read on every read write, `sessions.markRead`
+//!   included) both are taken back (`App::dismiss_system_notification`).
 //! - **Honours the per-type prefs.** The server writes the inbox row for
 //!   EVERY type and applies `user_notification_prefs.type_prefs` only at
 //!   push/email delivery (`notificationTypeAllowed`), so a muted type still
@@ -59,6 +69,9 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, FixedOffset};
+use domain::notification_delivery::{
+    self as delivery, DeliveryPlatform, Presentation,
+};
 use domain::rows::Notification;
 use gpui::{
     AnyWindowHandle, App, AppContext as _, Context, Entity, Global, SharedString,
@@ -260,23 +273,73 @@ fn compose(rows: &[Notification]) -> Option<Toast> {
     }
 }
 
-/// What the FOCUSED shell window shows — the redundancy check's input.
-#[derive(Debug)]
+/// What the app shows right now — the presentation's input.
+#[derive(Debug, Default)]
 struct FocusedSurface {
-    screen: Option<Screen>,
-    /// #FEED-191: the Inbox popover is up (the notification stream is on screen).
-    inbox_open: bool,
+    /// One of the app's windows is focused.
+    active: bool,
+    /// The focused shell window's thread (#EXP-1815 `viewing`): its issue,
+    /// its chat, or `inbox` while the Inbox is up; None = a screen without
+    /// one (or no shell window focused).
+    viewing: Option<String>,
 }
 
-/// Whether raising `row` would only repeat what the user is looking at.
-fn is_redundant(row: &Notification, focus: &FocusedSurface) -> bool {
-    if let Some(issue_id) = &row.issue_id {
-        if matches!(&focus.screen, Some(Screen::IssueDetail { issue_id: shown }) if shown == issue_id)
-        {
-            return true;
+/// A row's thread: its session's chat is the synced root (`root_of`), else
+/// the session id itself (notification-delivery.json THREAD).
+fn row_thread(row: &Notification, root_of: &dyn Fn(&str) -> Option<String>) -> String {
+    let root = row
+        .session_id
+        .as_deref()
+        .filter(|id| !id.is_empty())
+        .map(|id| root_of(id).unwrap_or_else(|| id.to_string()));
+    delivery::notification_thread(
+        row.kind.as_deref(),
+        row.issue_id.as_deref(),
+        root.as_deref(),
+        row.device_id.as_deref(),
+    )
+}
+
+/// Where each fresh row goes: `(toast, system)`; the rest raise nothing.
+fn present(
+    rows: Vec<Notification>,
+    focus: &FocusedSurface,
+    root_of: &dyn Fn(&str) -> Option<String>,
+) -> (Vec<Notification>, Vec<Notification>) {
+    let mut toast = Vec::new();
+    let mut system = Vec::new();
+    for row in rows {
+        let thread = row_thread(&row, root_of);
+        match delivery::notification_presentation(
+            DeliveryPlatform::Desktop,
+            focus.active,
+            focus.viewing.as_deref(),
+            &thread,
+            row.pushed_at.is_none(),
+        ) {
+            Presentation::None => {}
+            Presentation::Toast => toast.push(row),
+            Presentation::System => system.push(row),
         }
     }
-    focus.inbox_open
+    (toast, system)
+}
+
+/// The thread a shell screen shows (#EXP-1815 `viewing`).
+fn screen_thread(
+    screen: &Screen,
+    root_of: &dyn Fn(&str) -> Option<String>,
+    agent_root: &dyn Fn(&str) -> Option<String>,
+) -> Option<String> {
+    match screen {
+        Screen::IssueDetail { issue_id } => Some(format!("issue:{issue_id}")),
+        Screen::Chat { session_id } | Screen::Session { session_id } => Some(format!(
+            "session:{}",
+            root_of(session_id).unwrap_or_else(|| session_id.clone())
+        )),
+        Screen::Agent { agent_id } => agent_root(agent_id).map(|root| format!("session:{root}")),
+        _ => None,
+    }
 }
 
 /// The server's `notificationTypeAllowed`: missing = allowed; only an
@@ -309,6 +372,19 @@ pub struct OsNotifier {
     route_order: VecDeque<SharedString>,
     seq: u64,
     prefs: Option<TypePrefsCache>,
+    /// #EXP-1815: what each raised row put up (notification id → the OS
+    /// tag / the in-app toast), taken back when the row turns read.
+    raised: HashMap<String, Raised>,
+    raised_order: VecDeque<String>,
+}
+
+/// What one raised row put up.
+#[derive(Clone)]
+enum Raised {
+    /// The OS notification's tag (a bundle shares one tag across its rows).
+    Os(SharedString),
+    /// The in-app toast.
+    Toast(crate::toast::ShownToast),
 }
 
 struct OsNotifierGlobal(Entity<OsNotifier>);
@@ -333,6 +409,8 @@ pub fn install(cx: &mut App) {
             route_order: VecDeque::new(),
             seq: 0,
             prefs: None,
+            raised: HashMap::new(),
+            raised_order: VecDeque::new(),
         }
     });
     cx.set_global(OsNotifierGlobal(notifier.clone()));
@@ -367,10 +445,14 @@ impl OsNotifier {
         collection: &Entity<Collection<Notification>>,
         cx: &mut Context<Self>,
     ) {
-        let fresh = {
+        let (fresh, read) = {
             let collection = collection.read(cx);
-            self.gate.observe(collection.is_ready(), collection.iter())
+            let fresh = self.gate.observe(collection.is_ready(), collection.iter());
+            (fresh, self.turned_read(|id| collection.get(id).map(|row| row.read_at.is_some())))
         };
+        for raised in read {
+            raised.take_back(cx);
+        }
         if fresh.is_empty() {
             return;
         }
@@ -403,20 +485,8 @@ impl OsNotifier {
         if pending.is_empty() {
             return;
         }
-        // The per-machine switch.
-        if !CodingHub::global(cx).read(cx).settings.os_notifications {
-            return;
-        }
-        // Redundancy: drop what the focused window already shows.
-        let focus = focused_surface(cx);
-        let rows: Vec<Notification> = pending
-            .into_iter()
-            .filter(|row| !focus.as_ref().is_some_and(|focus| is_redundant(row, focus)))
-            .collect();
-        if rows.is_empty() {
-            return;
-        }
         // Per-type prefs: the cached snapshot, or a fetch first.
+        let rows = pending;
         let account_id = Store::global(cx)
             .session(cx)
             .account_id()
@@ -474,23 +544,52 @@ impl OsNotifier {
         .detach();
     }
 
+    /// #EXP-1815: split the burst by presentation (read at raise time, so a
+    /// focus change during the prefs fetch counts) and raise each part: the
+    /// in-app toast in the focused window, the OS notification when the
+    /// per-machine switch is on.
     fn show(
         entity: &Entity<Self>,
         rows: Vec<Notification>,
         prefs: Option<&HashMap<String, bool>>,
         cx: &mut App,
     ) {
-        let rows: Vec<Notification> = rows
-            .into_iter()
-            .filter(|row| type_allowed(prefs, row.kind.as_deref()))
-            .collect();
-        let Some(toast) = compose(&rows) else {
+        // A row read while the burst waited raises nothing.
+        let rows: Vec<Notification> = {
+            let notifications = Store::global(cx).collections().notifications.read(cx);
+            rows.into_iter()
+                .filter(|row| type_allowed(prefs, row.kind.as_deref()))
+                .filter(|row| {
+                    notifications
+                        .get(&row.id)
+                        .is_none_or(|synced| synced.read_at.is_none())
+                })
+                .collect()
+        };
+        if rows.is_empty() {
+            return;
+        }
+        let root_of = session_roots(cx);
+        let focus = focused_surface(cx);
+        let (toast_rows, system_rows) = present(rows, &focus, &root_of);
+        if let Some(toast) = compose(&toast_rows) {
+            Self::raise_toast(entity, toast, &toast_rows, cx);
+        }
+        // The per-machine switch gates the OS channel.
+        if !CodingHub::global(cx).read(cx).settings.os_notifications {
+            return;
+        }
+        let Some(toast) = compose(&system_rows) else {
             return;
         };
-        let tag = entity.update(cx, |this, _| this.register_route(toast.route));
+        let tag = entity.update(cx, |this, _| {
+            let tag = this.register_route(toast.route);
+            this.remember(&system_rows, Raised::Os(tag.clone()));
+            tag
+        });
         log::info!(
             "[ui] os-notifications: raising {tag} ({} row(s))",
-            rows.len()
+            system_rows.len()
         );
         cx.show_system_notification(SystemNotification {
             tag,
@@ -498,6 +597,68 @@ impl OsNotifier {
             body: toast.body.into(),
             actions: Vec::new(),
         });
+    }
+
+    /// THE toast (toast-stack.json), kind info, in the focused window: the
+    /// row's title + body, `Open` = the OS click's route.
+    fn raise_toast(entity: &Entity<Self>, toast: Toast, rows: &[Notification], cx: &mut App) {
+        let Some(window) = cx.active_window() else {
+            return;
+        };
+        let route = toast.route;
+        let mut card = crate::toast::Toast::info(toast.title).action(
+            delivery::copy::TOAST_ACTION,
+            move |_, cx| {
+                let route = route.clone();
+                // Outside the toast's own window update: the route may land
+                // in this very window.
+                cx.defer(move |cx| route_to(route, cx));
+            },
+        );
+        if !toast.body.trim().is_empty() {
+            card = card.description(toast.body);
+        }
+        let shown = window.update(cx, |_, window, cx| crate::toast::show_dismissible(card, window, cx));
+        if let Ok(shown) = shown {
+            log::info!("[ui] os-notifications: in-app toast ({} row(s))", rows.len());
+            entity.update(cx, |this, _| this.remember(rows, Raised::Toast(shown)));
+        }
+    }
+
+    /// Remember what `rows` put up, bounded like the routes.
+    fn remember(&mut self, rows: &[Notification], raised: Raised) {
+        for row in rows {
+            if self.raised.insert(row.id.clone(), raised.clone()).is_none() {
+                self.raised_order.push_back(row.id.clone());
+            }
+        }
+        while self.raised_order.len() > ROUTE_MEMORY {
+            if let Some(old) = self.raised_order.pop_front() {
+                self.raised.remove(&old);
+            }
+        }
+    }
+
+    /// The raised rows that turned read (`is_read`: None = the row left the
+    /// shape, which forgets it quietly). A bundle goes once its first row
+    /// is read (the dismiss rule matches by id).
+    fn turned_read(&mut self, is_read: impl Fn(&str) -> Option<bool>) -> Vec<Raised> {
+        let mut out: Vec<Raised> = Vec::new();
+        let ids: Vec<String> = self.raised_order.iter().cloned().collect();
+        for id in ids {
+            match is_read(&id) {
+                Some(false) => continue,
+                gone_or_read => {
+                    self.raised_order.retain(|other| other != &id);
+                    if let Some(raised) = self.raised.remove(&id) {
+                        if gone_or_read == Some(true) && !out.iter().any(|seen| seen.same(&raised)) {
+                            out.push(raised);
+                        }
+                    }
+                }
+            }
+        }
+        out
     }
 
     fn register_route(&mut self, route: Route) -> SharedString {
@@ -514,26 +675,90 @@ impl OsNotifier {
     }
 }
 
+impl Raised {
+    fn same(&self, other: &Raised) -> bool {
+        match (self, other) {
+            (Raised::Os(a), Raised::Os(b)) => a == b,
+            (Raised::Toast(a), Raised::Toast(b)) => a.same(b),
+            _ => false,
+        }
+    }
+
+    /// Take it back: the OS notification out of the notification center
+    /// (gpui: XDG `CloseNotification` on Linux, the WinRT history on
+    /// Windows, `removeDeliveredNotifications` on macOS), the toast off its
+    /// stack.
+    fn take_back(self, cx: &mut App) {
+        match self {
+            Raised::Os(tag) => {
+                log::info!("[ui] os-notifications: {tag} read, dismissing");
+                cx.dismiss_system_notification(&tag);
+            }
+            Raised::Toast(shown) => shown.dismiss(cx),
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Window plumbing
 // ---------------------------------------------------------------------------
 
-/// The active window's surface — `None` unless it is a focused shell window
-/// (dialogs, undocked terminals and an unfocused app suppress nothing).
-fn focused_surface(cx: &mut App) -> Option<FocusedSurface> {
-    let window = cx.active_window()?;
-    let window_id = window.window_id();
-    let nav = navigation::nav_for_window_id(window_id, cx)?;
+/// The synced sessions' roots (`id` → its chat): a root maps to itself, a
+/// session not synced to None.
+fn session_roots(cx: &App) -> impl Fn(&str) -> Option<String> + 'static {
+    let sessions = Store::global(cx).collections().sessions.read(cx);
+    let roots: HashMap<String, String> = sessions
+        .iter()
+        .map(|session| {
+            let root = session
+                .root_id
+                .clone()
+                .filter(|root| !root.is_empty())
+                .unwrap_or_else(|| session.id.clone());
+            (session.id.clone(), root)
+        })
+        .collect();
+    move |id: &str| roots.get(id).cloned()
+}
+
+/// The viewer's own conversation with an agent (the Agent page's chat): the
+/// root session carrying that agent and the viewer's user id.
+fn agent_conversation(agent_id: &str, cx: &App) -> Option<String> {
+    let user_id = queries::active_account(cx)?.user_id;
+    let sessions = Store::global(cx).collections().sessions.read(cx);
+    sessions
+        .iter()
+        .find(|session| {
+            session.agent_id.as_deref() == Some(agent_id)
+                && session.user_id.as_deref() == Some(user_id.as_str())
+                && session.parent_id.is_none()
+        })
+        .map(|session| session.id.clone())
+}
+
+/// What the app shows: focused or not, and the focused shell window's
+/// thread (dialogs and undocked terminals show none).
+fn focused_surface(cx: &mut App) -> FocusedSurface {
+    let Some(window) = cx.active_window() else {
+        return FocusedSurface::default();
+    };
     let active = window
         .update(cx, |_, window, _| window.is_window_active())
         .unwrap_or(false);
     if !active {
-        return None;
+        return FocusedSurface::default();
     }
-    Some(FocusedSurface {
-        screen: navigation::resolved_screen(&nav, cx),
-        inbox_open: nav.read(cx).inbox_open,
-    })
+    let Some(nav) = navigation::nav_for_window_id(window.window_id(), cx) else {
+        return FocusedSurface { active, viewing: None };
+    };
+    if nav.read(cx).inbox_open {
+        return FocusedSurface { active, viewing: Some(delivery::INBOX_THREAD.to_string()) };
+    }
+    let root_of = session_roots(cx);
+    let viewing = navigation::resolved_screen(&nav, cx).and_then(|screen| {
+        screen_thread(&screen, &root_of, &|agent_id| agent_conversation(agent_id, cx))
+    });
+    FocusedSurface { active, viewing }
 }
 
 /// A shell window to land a click in: the active one when it is a shell,
@@ -771,10 +996,6 @@ mod tests {
         assert_eq!(route_for(&signed_out_row("b", None)), Route::Inbox);
     }
 
-    fn focus(inbox_open: bool, screen: Option<Screen>) -> FocusedSurface {
-        FocusedSurface { screen, inbox_open }
-    }
-
     /// #EXP-1456 (inbox-route.json): an issue-less agent message (an
     /// Assistant's decision, a mention) opens the session it names; one
     /// about an issue opens the issue, and an issue-less, session-less one
@@ -939,29 +1160,120 @@ mod tests {
         assert!(compose(&[]).is_none());
     }
 
+    fn pushed(mut row: Notification) -> Notification {
+        row.pushed_at = Some("2026-11-13T10:00:00+00:00".to_string());
+        row
+    }
+
+    fn ids(rows: &[Notification]) -> Vec<&str> {
+        rows.iter().map(|row| row.id.as_str()).collect()
+    }
+
+    /// #EXP-1815 (notification-delivery.json, platform desktop): focused on
+    /// the row's thread or the Inbox = nothing, focused elsewhere = THE
+    /// toast, unfocused = the OS notification, muted (`pushed_at` NULL) =
+    /// nothing anywhere.
     #[test]
-    fn redundancy_rules_match_what_the_focused_window_shows() {
-        let comment = row("a", "2026-08-27T09:00:00+00:00");
-        let showing_it = focus(
-            false,
-            Some(Screen::IssueDetail {
-                issue_id: "issue-a".to_string(),
-            }),
-        );
-        assert!(is_redundant(&comment, &showing_it));
-        let showing_other = focus(
-            false,
-            Some(Screen::IssueDetail {
-                issue_id: "issue-z".to_string(),
-            }),
-        );
-        assert!(!is_redundant(&comment, &showing_other));
-        // The Inbox popover up = everything is redundant.
-        assert!(is_redundant(&comment, &focus(true, None)));
-        assert!(!is_redundant(&comment, &focus(false, None)));
-        // SLOP-4: a reporter's reply is redundant exactly where a comment is
-        // — with ITS issue up, never on another one.
-        assert!(!is_redundant(&reporter_row("r"), &showing_other));
+    fn presentation_splits_toast_system_and_nothing() {
+        let roots = |id: &str| (id == "child").then(|| "root".to_string());
+        let comment = pushed(row("a", "2026-11-13T10:00:00+00:00"));
+        let chat = pushed(Notification {
+            issue_id: None,
+            session_id: Some("child".to_string()),
+            kind: Some(NOTIFICATION_TYPE_AGENT_MESSAGE.to_string()),
+            ..row("c", "2026-11-13T10:00:00+00:00")
+        });
+        let muted = row("m", "2026-11-13T10:00:00+00:00");
+        let all = || vec![comment.clone(), chat.clone(), muted.clone()];
+
+        let away = FocusedSurface { active: false, viewing: Some("issue:issue-a".to_string()) };
+        let (toast, system) = present(all(), &away, &roots);
+        assert!(toast.is_empty());
+        assert_eq!(ids(&system), ["a", "c"]);
+
+        // On the chat's ROOT: the child's row is that thread.
+        let on_chat = FocusedSurface { active: true, viewing: Some("session:root".to_string()) };
+        let (toast, system) = present(all(), &on_chat, &roots);
+        assert_eq!(ids(&toast), ["a"]);
+        assert!(system.is_empty());
+
+        let on_issue = FocusedSurface { active: true, viewing: Some("issue:issue-a".to_string()) };
+        assert_eq!(ids(&present(all(), &on_issue, &roots).0), ["c"]);
+
+        let inbox = FocusedSurface { active: true, viewing: Some("inbox".to_string()) };
+        let (toast, system) = present(all(), &inbox, &roots);
+        assert!(toast.is_empty() && system.is_empty());
+
+        let elsewhere = FocusedSurface { active: true, viewing: None };
+        assert_eq!(ids(&present(all(), &elsewhere, &roots).0), ["a", "c"]);
+    }
+
+    #[test]
+    fn a_rows_thread_is_its_issue_chat_or_device() {
+        let roots = |id: &str| (id == "child").then(|| "root".to_string());
+        assert_eq!(row_thread(&row("a", "2026-11-13T10:00:00+00:00"), &roots), "issue:issue-a");
+        assert_eq!(row_thread(&blocked_row("b", Some("child")), &roots), "session:root");
+        // Not synced: the session id itself.
+        assert_eq!(row_thread(&blocked_row("b", Some("s-9")), &roots), "session:s-9");
+        assert_eq!(row_thread(&signed_out_row("d", Some("d-1")), &roots), "device:d-1");
+        assert_eq!(row_thread(&blocked_row("b", None), &roots), "inbox");
+    }
+
+    #[test]
+    fn a_screens_thread() {
+        let roots = |id: &str| (id == "child").then(|| "root".to_string());
+        let agent = |id: &str| (id == "ag").then(|| "conv".to_string());
+        let thread = |screen: Screen| screen_thread(&screen, &roots, &agent);
+        assert_eq!(thread(Screen::IssueDetail { issue_id: "i".into() }).as_deref(), Some("issue:i"));
+        assert_eq!(thread(Screen::Chat { session_id: "root".into() }).as_deref(), Some("session:root"));
+        assert_eq!(thread(Screen::Session { session_id: "child".into() }).as_deref(), Some("session:root"));
+        assert_eq!(thread(Screen::Agent { agent_id: "ag".into() }).as_deref(), Some("session:conv"));
+        assert_eq!(thread(Screen::Agent { agent_id: "other".into() }), None);
+        assert_eq!(thread(Screen::Settings), None);
+    }
+
+    fn notifier() -> OsNotifier {
+        OsNotifier {
+            gate: Gate::new(),
+            pending: Vec::new(),
+            flush_scheduled: false,
+            routes: HashMap::new(),
+            route_order: VecDeque::new(),
+            seq: 0,
+            prefs: None,
+            raised: HashMap::new(),
+            raised_order: VecDeque::new(),
+        }
+    }
+
+    /// #EXP-1815 CLEARING: a raised row's notification goes when its
+    /// `read_at` lands; a bundle once (its first read row); a row that left
+    /// the shape is forgotten without a dismiss.
+    #[test]
+    fn read_rows_take_back_what_they_raised() {
+        let mut notifier = notifier();
+        let rows = |names: &[&str]| -> Vec<Notification> {
+            names.iter().map(|id| row(id, "2026-11-13T10:00:00+00:00")).collect()
+        };
+        notifier.remember(&rows(&["a", "b"]), Raised::Os("bundle".into()));
+        notifier.remember(&rows(&["c"]), Raised::Os("single".into()));
+        notifier.remember(&rows(&["gone"]), Raised::Os("gone".into()));
+        let read: HashSet<&str> = ["a", "b"].into_iter().collect();
+        let taken = notifier.turned_read(|id| match id {
+            "gone" => None,
+            id => Some(read.contains(id)),
+        });
+        let tags: Vec<String> = taken
+            .iter()
+            .map(|raised| match raised {
+                Raised::Os(tag) => tag.to_string(),
+                Raised::Toast(_) => unreachable!(),
+            })
+            .collect();
+        assert_eq!(tags, ["bundle"]);
+        assert_eq!(notifier.raised_order.iter().map(String::as_str).collect::<Vec<_>>(), ["c"]);
+        // Nothing turned read since: nothing more.
+        assert!(notifier.turned_read(|_| Some(false)).is_empty());
     }
 
     #[test]
@@ -981,20 +1293,17 @@ mod tests {
 
     #[test]
     fn route_memory_is_bounded() {
-        let mut notifier = OsNotifier {
-            gate: Gate::new(),
-            pending: Vec::new(),
-            flush_scheduled: false,
-            routes: HashMap::new(),
-            route_order: VecDeque::new(),
-            seq: 0,
-            prefs: None,
-        };
+        let mut notifier = notifier();
         let first = notifier.register_route(Route::Inbox);
         for _ in 0..ROUTE_MEMORY {
             notifier.register_route(Route::Inbox);
         }
         assert_eq!(notifier.routes.len(), ROUTE_MEMORY);
         assert!(!notifier.routes.contains_key(&first));
+        for ix in 0..=ROUTE_MEMORY {
+            notifier.remember(&[row(&ix.to_string(), "2026-11-13T10:00:00+00:00")], Raised::Os("t".into()));
+        }
+        assert_eq!(notifier.raised.len(), ROUTE_MEMORY);
+        assert!(!notifier.raised.contains_key("0"));
     }
 }

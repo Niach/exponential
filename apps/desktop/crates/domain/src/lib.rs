@@ -84,6 +84,9 @@
 //! * [`inbox_route`] — #EXP-1456: where an inbox row / toast opens (issue,
 //!   session, nothing) and where a session opens (agent page, chat,
 //!   session), byte-locked ×4 by `fixtures/inbox-route.json`;
+//! * [`notification_delivery`] — #EXP-1815: a notification's thread, where
+//!   it shows (nothing, the toast, the OS), when it clears and the source
+//!   switches, byte-locked ×4 by `fixtures/notification-delivery.json`;
 //! * [`chat_row_action`] — #EXP-1464: what a conversation's session row
 //!   does when tapped (expand into its card, open, nothing), byte-locked ×4
 //!   by `fixtures/chat-row-action.json`;
@@ -157,6 +160,8 @@ pub mod hydrate;
 pub mod image_message;
 // #EXP-1456: where an inbox row (and its toast) opens, fixture-locked ×4.
 pub mod inbox_route;
+// #EXP-1815: where a notification shows, when it clears, who mutes it, fixture-locked ×4.
+pub mod notification_delivery;
 pub mod issue_draft;
 pub mod issue_estimate;
 pub mod issue_graph;

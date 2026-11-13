@@ -71,6 +71,10 @@ pub struct EmailPrefs {
     /// hides/disables email affordances then (web parity).
     #[serde(default)]
     pub transport_configured: bool,
+    /// #EXP-1815 (notification-delivery.json): the session-source switches,
+    /// absent = on (`null` from an older server = all on).
+    #[serde(default)]
+    pub source_prefs: Option<domain::notification_delivery::SourcePrefs>,
 }
 
 /// `notifications.emailPrefs` — query.
@@ -99,6 +103,10 @@ pub struct UpdateEmailPrefsInput {
     /// EXP-801: the "messages from teammates' agents" block.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub allow_agent_messages: Option<bool>,
+    /// #EXP-1815: the session-source switches, the WHOLE object (after
+    /// `toggle_source_pref`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_prefs: Option<domain::notification_delivery::SourcePrefs>,
 }
 
 /// `notifications.updateEmailPrefs` — mutation; returns the updated prefs.
@@ -202,6 +210,29 @@ mod tests {
         assert!(!prefs.allow_agent_messages);
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(r#"{"allowAgentMessages":false}"#));
+    }
+
+    /// #EXP-1815: the source switches round-trip as the whole object.
+    #[test]
+    fn source_prefs_round_trip() {
+        use domain::notification_delivery::SourcePrefs;
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"emailEnabled":true,"typePrefs":{},"digest":"off","digestHour":8,"allowAgentMessages":true,"transportConfigured":true,"sourcePrefs":{"assistant":false,"agents":{"a2":false}}}}}"#,
+        );
+        let next = SourcePrefs {
+            assistant: Some(false),
+            agents: Some([("a2".to_string(), false)].into_iter().collect()),
+            ..Default::default()
+        };
+        let input = UpdateEmailPrefsInput {
+            source_prefs: Some(next.clone()),
+            ..Default::default()
+        };
+        let prefs = notifications_update_email_prefs(&client(&base), &input).unwrap();
+        assert_eq!(prefs.source_prefs, Some(next));
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(r#"{"sourcePrefs":{"assistant":false,"agents":{"a2":false}}}"#));
     }
 
     #[test]
