@@ -24,6 +24,7 @@
     "./work-card": "./src/work-card.ts",
     "./pr-checks": "./src/pr-checks.ts",
     "./ci-run": "./src/ci-run.ts",
+    "./repo-ci": "./src/repo-ci.ts",
     "./merge-train": "./src/merge-train.ts",
     "./script-card": "./src/script-card.ts",
     "./home-greeting": "./src/home-greeting.ts",
