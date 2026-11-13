@@ -1762,16 +1762,18 @@ impl ScreensPanel {
             .collect()
     }
 
-    /// #EXP-1726: the tab bar's × and middle-click: a terminal's kills it.
+    /// #EXP-1726: the tab bar's ×, middle-click, Close and cmd-w: a
+    /// terminal's kills it, confirming first while something runs in it
+    /// (the bulk closes' confirm).
     pub(crate) fn close_screen(&mut self, screen: &Screen, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let close = self.dock_close_action(screen, cx);
-        self.run_dock_close(&close, window, cx);
+        self.confirm_terminal_close(std::slice::from_ref(screen), window, cx, move |panel, window, cx| panel.run_dock_close(&close, window, cx));
     }
 
     pub(crate) fn close_others_of(&mut self, screen: &Screen, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let keep = screen.clone();
         let swept: Vec<Screen> = self.tabs.iter().filter(|tab| tab.swept_by_bulk_close(Some(&keep))).map(|tab| tab.screen.clone()).collect();
-        self.confirm_bulk_close(&swept, window, cx, move |panel, window, cx| {
+        self.confirm_terminal_close(&swept, window, cx, move |panel, window, cx| {
             if let Some(ix) = panel.tabs.iter().position(|tab| tab.screen == keep) {
                 panel.close_other_tabs(ix, window, cx);
             }
@@ -1780,13 +1782,14 @@ impl ScreensPanel {
 
     pub(crate) fn close_every_tab(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let swept: Vec<Screen> = self.tabs.iter().map(|tab| tab.screen.clone()).collect();
-        self.confirm_bulk_close(&swept, window, cx, |panel, window, cx| panel.close_all_tabs(window, cx));
+        self.confirm_terminal_close(&swept, window, cx, |panel, window, cx| panel.close_all_tabs(window, cx));
     }
 
-    /// A bulk close ends the shells of the terminals it takes: while one of
-    /// them still runs a process (anything under its shell), the app's
-    /// confirm alert names what would be killed first; else it just closes.
-    fn confirm_bulk_close(
+    /// Every close ends the shells of the terminals it takes (one ×, or a
+    /// bulk close): while one of them still runs a process (anything under
+    /// its shell), the app's confirm alert names what would be killed
+    /// first; else it just closes.
+    fn confirm_terminal_close(
         &mut self,
         swept: &[Screen],
         window: &mut Window,

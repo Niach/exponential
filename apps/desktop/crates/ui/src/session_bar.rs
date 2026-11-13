@@ -575,10 +575,18 @@ impl SessionBar {
     fn on_close_tab(
         &mut self,
         _: &CloseTerminalTab,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        self.manager.update(cx, |manager, cx| manager.close_active(cx));
+        // The tab bar's close path: it confirms while something runs.
+        let active = self.manager.read(cx).active_tab().map(|tab| tab.id);
+        match (active, crate::screens::screens_for_window(window, cx)) {
+            (Some(tab), Some(screens)) => {
+                let screen = Screen::Terminal { tab };
+                screens.update(cx, |screens, cx| screens.close_screen(&screen, window, cx));
+            }
+            _ => self.manager.update(cx, |manager, cx| manager.close_active(cx)),
+        }
     }
 
     fn on_next_tab(
