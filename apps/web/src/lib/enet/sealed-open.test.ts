@@ -2,6 +2,7 @@
 import { describe, expect, it, vi } from "vitest"
 import fixture from "@exp/domain-contract/fixtures/sealed-content.json"
 import type { TreeKeys } from "@exp/domain-contract/sealed-content"
+import { isResultCard } from "@exp/domain-contract/results-tab"
 import { openCardCached, openDigestMessages, openMessageWith, openTitleWith, resolveSealedMirrors, type KeySource } from "./sealed-open"
 
 // EXP-1459: the web's opening layer replays fixtures/sealed-content.json
@@ -48,6 +49,26 @@ describe(`openMessageWith`, () => {
     // The server flips a clear flag without re-sealing: the clear value wins.
     const superseded = { ...fixture.card.splits[2]!.envelope, decision: `superseded` }
     expect(openCardCached(superseded, keys).card.decision).toBe(`superseded`)
+  })
+
+  // The cached opener is THE reference `openCard`: every fixture card case
+  // (a picture uploaded after sealing takes its label's clear id).
+  for (const c of fixture.cardCases) {
+    it(`cardCases: ${c.name}`, () => {
+      const keys = keysOf({ 1: fixture.tree.secret })
+      const opened = openCardCached(c.card as Record<string, unknown>, keys)
+      expect(opened.status).toBe(c.status)
+      if (c.status === `opened`) expect(opened.card).toEqual(c.opened)
+      // Memoized: the second read answers the same.
+      expect(openCardCached(c.card as Record<string, unknown>, keys)).toEqual(opened)
+    })
+  }
+
+  it(`a sealed show card whose pictures were uploaded after sealing is a result once opened`, () => {
+    const c = fixture.cardCases.find((x) => x.card.kind === `surface` && Array.isArray(x.card.pictures))!
+    const opened = openMessageWith({ body: ``, card: c.card as Record<string, unknown> }, ROOT, source(keysOf({ 1: fixture.tree.secret })))
+    expect(opened.locked).toBeNull()
+    expect(isResultCard(opened.card)).toBe(true)
   })
 
   it(`a key arriving (a new keys map) re-opens what was locked`, () => {
