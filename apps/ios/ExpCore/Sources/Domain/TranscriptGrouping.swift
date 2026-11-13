@@ -18,6 +18,8 @@ public enum TranscriptGrouping {
         public static let gapBetween: CGFloat = 12
         /// A bubble's share of its column on a phone / a wide screen.
         public static let maxWidthPhone: CGFloat = 0.78
+        /// Anyone but the viewer's bubble on a phone.
+        public static let maxWidthPhoneIn: CGFloat = 1
         public static let maxWidthWide: CGFloat = 0.62
         public static let radius: CGFloat = 16
         public static let nameSize: CGFloat = 12

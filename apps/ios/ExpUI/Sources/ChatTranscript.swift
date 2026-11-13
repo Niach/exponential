@@ -117,7 +117,7 @@ public struct MessageBubble<Content: View, Footer: View>: View {
         .padding(.vertical, 10)
         .background(own ? GlassTokens.fillActive : GlassTokens.opaqueCardFill, in: shape)
         .overlay(shape.stroke(own ? GlassTokens.strokeStrong : GlassTokens.strokeCard, lineWidth: GlassTokens.hairline))
-        BubbleWidthCap(fraction: TranscriptGrouping.Layout.maxWidthPhone, trailing: own) {
+        BubbleWidthCap(fraction: own ? TranscriptGrouping.Layout.maxWidthPhone : TranscriptGrouping.Layout.maxWidthPhoneIn, trailing: own) {
             if let onPress, !own {
                 VStack(alignment: .leading, spacing: 4) {
                     if let name {

@@ -17,8 +17,11 @@ const TRANSCRIPT_GROUPING_JSON: &str =
 
 /// `layout.maxWidth`: the bubble's width cap as a fraction of the column.
 #[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TranscriptMaxWidth {
     pub phone: f32,
+    /// Anyone but the viewer's bubble on a phone.
+    pub phone_in: f32,
     pub wide: f32,
 }
 
@@ -695,6 +698,7 @@ mod tests {
         assert_eq!(layout.gap_between, 12.);
         assert_eq!(layout.max_width.wide, 0.62);
         assert_eq!(layout.max_width.phone, 0.78);
+        assert_eq!(layout.max_width.phone_in, 1.0);
         assert_eq!(copy().link_chevron, "›");
     }
 

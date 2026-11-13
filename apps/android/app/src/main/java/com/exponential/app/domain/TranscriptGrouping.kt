@@ -14,6 +14,7 @@ object TranscriptGrouping {
         const val GAP_IN_GROUP = 3
         const val GAP_BETWEEN = 12
         const val MAX_WIDTH_PHONE = 0.78f
+        const val MAX_WIDTH_PHONE_IN = 1f
         const val MAX_WIDTH_WIDE = 0.62f
         const val RADIUS = 16
         const val NAME_SIZE = 12
