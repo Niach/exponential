@@ -27,18 +27,7 @@ import {
   missingPlatformPictures,
   uiPlatformsOfPaths,
 } from "@/lib/pr-ui-guard"
-import {
-  closePullRequest as closeOnGithub,
-  createPullRequest,
-  findOpenPullByHead,
-  getPullRequest,
-  GitHubMergeError,
-  PullAlreadyExistsError,
-  retargetPullRequest as retargetOnGithub,
-  setPullRequestDraft,
-} from "@/lib/integrations/github-pr"
-import { resolveRepoDefaultBranchCached } from "@/lib/integrations/github-app"
-import { loadPrFiles } from "@/lib/integrations/pr-files"
+import { ForgeError, forgeFor, type Forge, type ForgeRepo } from "@/lib/ecode/forge"
 import {
   claimPrOpen,
   releasePrOpenClaim,
@@ -58,7 +47,6 @@ import {
   newestLivePullRequestForSession,
   recordPullRequestOpened,
   repoFromPrUrl,
-  leaveGithubStack,
 } from "@/lib/integrations/pr-sync"
 import {
   isLivePrState,
@@ -66,7 +54,6 @@ import {
   stackStopBranches,
 } from "@/lib/pr-merge-guard"
 import { prLinks } from "@exp/domain-contract/issue-lifecycle"
-import { inferBaseBranch } from "@/lib/pr-stacks"
 import { patchPullDescription } from "@/lib/trpc/pr-update"
 import {
   effectiveDefaultBranch,
@@ -98,6 +85,18 @@ async function assertPrAccess(userId: string, teamId: string): Promise<void> {
   } catch {
     fail(`NOT_FOUND`, `Pull request not found`)
   }
+}
+
+/** #EXP-1614: the repo's forge, acting with the gated `token`. */
+async function forgeOf(repo: Repo, token: string): Promise<{ forge: Forge; at: ForgeRepo }> {
+  const at: ForgeRepo = {
+    id: repo.id,
+    fullName: repo.fullName,
+    installationId: repo.installationId,
+    ...(repo.provider ? { provider: repo.provider } : {}),
+    token,
+  }
+  return { forge: await forgeFor(at), at }
 }
 
 async function repoToken(repo: Repo): Promise<string> {
@@ -209,21 +208,23 @@ function issueForPrSelect() {
     .innerJoin(boards, eq(boards.id, issues.boardId))
 }
 
-/** Create the PR, or adopt the one GitHub already holds open on `head`
+/** Create the PR, or adopt the one the forge already holds open on `head`
  *  (FEED-59: GitHub's 422 only fires for the same head AND base, so the
  *  lookup runs first and ignores the base). */
-async function createOrAdoptOnGithub(opts: {
-  repo: string
-  head: string
-  base: string
-  title: string
-  body: string
-  token: string
-  draft?: boolean
-}): Promise<{ url: string; number: number; base: string; adopted: boolean }> {
+async function createOrAdoptOnForge(
+  forge: Forge,
+  at: ForgeRepo,
+  opts: {
+    head: string
+    base: string
+    title: string
+    body: string
+    draft?: boolean
+  }
+): Promise<{ url: string; number: number; base: string; adopted: boolean }> {
   const lookup = async (base?: string) => {
     try {
-      return await findOpenPullByHead(opts.repo, opts.head, opts.token, undefined, base)
+      return await forge.findOpenByHead(at, opts.head, base)
     } catch {
       return null
     }
@@ -231,10 +232,10 @@ async function createOrAdoptOnGithub(opts: {
   const open = await lookup()
   if (open) return { url: open.url, number: open.number, base: open.baseRef || opts.base, adopted: true }
   try {
-    const created = await createPullRequest(opts)
+    const created = await forge.openPullRequest(at, opts)
     return { ...created, base: opts.base, adopted: false }
   } catch (e) {
-    if (!(e instanceof PullAlreadyExistsError)) {
+    if (!(e instanceof ForgeError) || e.reason !== `exists`) {
       return fail(`BAD_GATEWAY`, e instanceof Error ? e.message : String(e))
     }
     const raced = await lookup(opts.base)
@@ -333,6 +334,7 @@ export async function openPullRequest(args: {
     .filter((issue, index, all) => all.findIndex((other) => other.id === issue.id) === index)
   const linkedIdentifiers = linked.map((issue) => issue.identifier)
   const token = await repoToken(repo)
+  const { forge, at } = await forgeOf(repo, token)
   const existing = await loadLivePullRequestByHead(repo.id, head!)
   // #NEW-20: a head that only DEFAULTED to the session's recorded branch never
   // takes over another session's PR (its title, links and body); naming
@@ -412,7 +414,7 @@ export async function openPullRequest(args: {
       },
     })
     if (args.draft !== undefined && args.draft !== (existing.state === `draft`)) {
-      await setPullRequestDraft({ repo: repo.fullName, prNumber: existing.number, draft: args.draft, token })
+      await forge.setDraft(at, { number: existing.number, draft: args.draft })
       await applyPullRequestDraft({ pullRequestId: existing.id, draft: args.draft })
     }
     await record({ url: existing.url, number: existing.number, base: existing.base, title: args.title })
@@ -426,9 +428,7 @@ export async function openPullRequest(args: {
   const base =
     args.base ??
     (
-      await inferBaseBranch({
-        repo: repo.fullName,
-        token,
+      await forge.inferBase(at, {
         head: head!,
         defaultBranch,
         candidates: (await livePullRequestsOfRepo(repo.id))
@@ -443,15 +443,13 @@ export async function openPullRequest(args: {
   // EXP-494: the initiator is claimed BEFORE the GitHub call, so the
   // `opened` webhook (which beats our own write) fires attributed.
   claimPrOpen(repo.fullName, head!, { userId: args.userId, viaAgent: Boolean(caller) })
-  let created: Awaited<ReturnType<typeof createOrAdoptOnGithub>>
+  let created: Awaited<ReturnType<typeof createOrAdoptOnForge>>
   try {
-    created = await createOrAdoptOnGithub({
-      repo: repo.fullName,
+    created = await createOrAdoptOnForge(forge, at, {
       head: head!,
       base,
       title: args.title,
       body: body.slice(0, PR_BODY_MAX),
-      token,
       ...(args.draft ? { draft: true } : {}),
     })
   } catch (e) {
@@ -551,13 +549,14 @@ export async function resolvePullRequest(args: {
 async function adoptByNumber(userId: string, repositoryId: string, number: number): Promise<PullRequest | null> {
   const repo = await loadRepository(repositoryId)
   await assertPrAccess(userId, repo.teamId)
-  const token = await repoToken(repo)
-  let pull: Awaited<ReturnType<typeof getPullRequest>>
+  const { forge, at } = await forgeOf(repo, await repoToken(repo))
+  let pull: Awaited<ReturnType<Forge[`readPullRequest`]>>
   try {
-    pull = await getPullRequest(repo.fullName, number, token)
+    pull = await forge.readPullRequest(at, number)
   } catch {
     return null
   }
+  if (!pull) return null
   const recorded = await recordPullRequestOpened({
     teamId: repo.teamId,
     rootSessionId: null,
@@ -565,10 +564,10 @@ async function adoptByNumber(userId: string, repositoryId: string, number: numbe
     repositoryId: repo.id,
     repoFullName: repo.fullName,
     number,
-    url: pull.url,
+    url: pull.url ?? `https://github.com/${repo.fullName}/pull/${number}`,
     title: pull.title || null,
-    head: pull.headRef,
-    base: pull.baseRef,
+    head: pull.headRef ?? ``,
+    base: pull.baseRef ?? ``,
     ...(pull.draft ? { draft: true } : {}),
     issueIds: [],
     actorUserId: null,
@@ -616,7 +615,7 @@ export async function retargetPullRequestTx(args: {
     fail(`PRECONDITION_FAILED`, `The pull request is ${pr.state}. Only open pull requests can be retargeted.`)
   }
   const repo = await loadRepository(pr.repositoryId)
-  const token = await repoToken(repo)
+  const { forge, at } = await forgeOf(repo, await repoToken(repo))
   const [pin] = await db
     .select({ defaultBranch: boards.defaultBranch })
     .from(pullRequestIssues)
@@ -629,18 +628,18 @@ export async function retargetPullRequestTx(args: {
     args.base ??
     pin?.defaultBranch ??
     effectiveDefaultBranch(repo) ??
-    (await resolveRepoDefaultBranchCached(repo.fullName))
+    (await forge.defaultBranch(at))
   if (!base) return fail(`PRECONDITION_FAILED`, `Could not resolve the default branch of ${repo.fullName}`)
   try {
-    await retargetOnGithub({ repo: repo.fullName, prNumber: pr.number, base, token }).catch(async (err: unknown) => {
+    await forge.retarget(at, { number: pr.number, base }).catch(async (err: unknown) => {
       // #EXP-1711: GitHub refuses a stack member a new base: this retarget
       // is an explicit ask to leave the line, so leave the stack and retry.
-      if (!(err instanceof GitHubMergeError) || err.status !== 422 || !/stack/i.test(err.message)) throw err
-      await leaveGithubStack({ repo: repo.fullName, prNumber: pr.number, token })
-      await retargetOnGithub({ repo: repo.fullName, prNumber: pr.number, base, token })
+      if (!(err instanceof ForgeError) || err.status !== 422 || !/stack/i.test(err.message)) throw err
+      await forge.leaveNativeStack(at, pr.number)
+      await forge.retarget(at, { number: pr.number, base })
     })
   } catch (err) {
-    if (err instanceof GitHubMergeError) {
+    if (err instanceof ForgeError) {
       if (err.status === 422) {
         fail(`PRECONDITION_FAILED`, `'${base}' is not a valid base branch on ${repo.fullName}: ${err.message}`)
       }
@@ -690,7 +689,8 @@ export async function updatePullRequest(args: {
   }
   if (args.draft !== undefined && args.draft !== (pr.state === `draft`)) {
     try {
-      await setPullRequestDraft({ repo: repo.fullName, prNumber: pr.number, draft: args.draft, token })
+      const { forge, at } = await forgeOf(repo, token)
+      await forge.setDraft(at, { number: pr.number, draft: args.draft })
     } catch (err) {
       fail(`BAD_GATEWAY`, `GitHub refused the draft change: ${err instanceof Error ? err.message : String(err)}`)
     }
@@ -737,11 +737,11 @@ export async function closePullRequestTx(args: {
   if (pr.state === `closed`) return {}
   if (pr.state === `merged`) fail(`PRECONDITION_FAILED`, `The pull request is merged. Only open pull requests can be closed.`)
   const repo = await loadRepository(pr.repositoryId)
-  const token = await repoToken(repo)
+  const { forge, at } = await forgeOf(repo, await repoToken(repo))
   try {
-    await closeOnGithub({ repo: repo.fullName, prNumber: pr.number, token })
+    await forge.close(at, { number: pr.number })
   } catch (err) {
-    if (err instanceof GitHubMergeError) {
+    if (err instanceof ForgeError) {
       if (err.status === 404) fail(`NOT_FOUND`, `Pull request not found on GitHub`)
       fail(`INTERNAL_SERVER_ERROR`, `GitHub close failed (HTTP ${err.status}): ${err.message}`)
     }
@@ -757,10 +757,21 @@ export async function pullRequestFiles(args: {
   pullRequestId: string
 }): Promise<{ files: { path: string; additions: number; deletions: number; patch: string | null }[] }> {
   const pr = await resolvePullRequest({ userId: args.userId, pullRequestId: args.pullRequestId })
-  const answer = await loadPrFiles(pr.url, pr.number)
+  // The repo comes from the PR's URL (no PR row without one); the diff
+  // view's read is cached per PR, so no token is resolved here.
+  const fullName = repoFromPrUrl(pr.url)
+  if (!fullName) return { files: [] }
+  const at: ForgeRepo = { id: pr.repositoryId, fullName }
+  let files: Awaited<ReturnType<Forge[`files`]>>
+  try {
+    files = await (await forgeFor(at)).files(at, pr.number)
+  } catch (err) {
+    if (err instanceof TRPCError) throw err
+    return fail(`BAD_GATEWAY`, err instanceof Error ? err.message : `Failed to load the changes`)
+  }
   return {
-    files: answer.files.map((file) => ({
-      path: file.filename,
+    files: files.map((file) => ({
+      path: file.path,
       additions: file.additions,
       deletions: file.deletions,
       patch: file.patch ?? null,

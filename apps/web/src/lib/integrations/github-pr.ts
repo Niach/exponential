@@ -51,8 +51,10 @@ export async function createPullRequest(opts: {
   token: string
   /** EXP-1291: open it as a GitHub draft. */
   draft?: boolean
+  fetchImpl?: GitHubFetch
 }): Promise<CreatedPull> {
-  const res = await githubFetch(`https://api.github.com/repos/${opts.repo}/pulls`, {
+  const doFetch = opts.fetchImpl ?? (githubFetch as unknown as GitHubFetch)
+  const res = await doFetch(`https://api.github.com/repos/${opts.repo}/pulls`, {
     method: `POST`,
     headers: {
       ...githubApiHeaders(opts.token),
@@ -140,8 +142,10 @@ export async function closePullRequest(opts: {
   repo: string
   prNumber: number
   token: string
+  fetchImpl?: GitHubFetch
 }): Promise<void> {
-  const res = await githubFetch(`https://api.github.com/repos/${opts.repo}/pulls/${opts.prNumber}`,
+  const doFetch = opts.fetchImpl ?? (githubFetch as unknown as GitHubFetch)
+  const res = await doFetch(`https://api.github.com/repos/${opts.repo}/pulls/${opts.prNumber}`,
     {
       method: `PATCH`,
       headers: {

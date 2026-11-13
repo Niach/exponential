@@ -29,18 +29,7 @@ import { fireAndForgetPrNotify } from "@/lib/integrations/notifications"
 import { BUS_COPY, busLine } from "@/lib/sessions/bus"
 import { postSystemCard } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
-import {
-  deleteBranch,
-  fetchPullStack,
-  listOpenPullsByBase,
-  retargetPullRequest,
-  unstack,
-} from "@/lib/integrations/github-pr"
-import {
-  githubAppConfigured,
-  resolveRepoDefaultBranchCached,
-  resolveRepoInstallationTokenInfo,
-} from "@/lib/integrations/github-app"
+import { forgeFor, type Forge, type ForgeRepo } from "@/lib/ecode/forge"
 import {
   isRepoDefaultBranch,
   LIVE_PR_STATES,
@@ -57,6 +46,13 @@ import {
 // Merging NEVER ends a session (EXP-1291 dropped EXP-498's merge sweep).
 
 export type PullRequestRow = typeof pullRequests.$inferSelect
+
+/** #EXP-1614: the forge's clock of the last applied PR state, in
+ *  `provider_updated_at` and (one release, #NEW-14) its shim
+ *  `github_updated_at`. */
+function providerUpdated(at: Date): { providerUpdatedAt: Date; githubUpdatedAt: Date } {
+  return { providerUpdatedAt: at, githubUpdatedAt: at }
+}
 
 /** `owner/repo` out of a GitHub PR URL. */
 export function repoFromPrUrl(prUrl: string): string | null {
@@ -972,7 +968,7 @@ export async function recordPullRequestOpened(
           // (it beat pr_open) learns it here.
           rootSessionId: existing.rootSessionId ?? args.rootSessionId,
           sessionId: existing.sessionId ?? args.sessionId,
-          ...(existing.state === `closed` ? { state, githubUpdatedAt: new Date() } : {}),
+          ...(existing.state === `closed` ? { state, ...providerUpdated(new Date()) } : {}),
           updatedAt: new Date(),
         })
         .where(eq(pullRequests.id, existing.id))
@@ -1209,22 +1205,22 @@ export async function deleteMergedHeadBranch(opts: {
     if (!repo) return `kept`
     if (!opts.anyBranch && !merged.head.startsWith(`exp/`)) return `kept`
     const defaults = await loadRepoDefaultBranches(db, { teamId: merged.teamId, repoFullName: repo })
-    const githubDefault = await resolveRepoDefaultBranchCached(repo).catch(() => null)
-    const token = opts.token ?? (await resolveRepoInstallationTokenInfo(repo))?.token ?? null
-    if (!token) return `kept`
+    const { forge, at } = await forgeOfPr(merged.repositoryId, repo, opts.token)
+    const forgeDefault = await forge.defaultBranch(at).catch(() => null)
+    if (!at.token) return `kept`
     const [children, sameHead] = await Promise.all([
-      listOpenPullsByBase(repo, merged.head, token),
+      forge.listOpenByBase(at, merged.head),
       loadLivePullRequestByHead(merged.repositoryId, merged.head),
     ])
     const deletable = mergedHeadDeletable({
       head: merged.head,
       anyBranch: opts.anyBranch ?? false,
-      isDefaultBranch: isRepoDefaultBranch(defaults, merged.head) || merged.head === githubDefault,
+      isDefaultBranch: isRepoDefaultBranch(defaults, merged.head) || merged.head === forgeDefault,
       openChildren: children.length,
       liveOnSameHead: sameHead != null && sameHead.id !== merged.id,
     })
     if (!deletable) return `kept`
-    return await deleteBranch({ repo, branch: merged.head, token })
+    return await forge.deleteBranch(at, merged.head)
   } catch (err) {
     console.error(`deleting the merged head of ${opts.pullRequestId} failed:`, err)
     return `failed`
@@ -1264,8 +1260,8 @@ export async function applyPullRequestReopened(opts: {
   pullRequestId: string
   base?: string | null
   draft?: boolean
-  /** The delivery's `updated_at` (GitHub's clock); omitted = now. */
-  githubUpdatedAt?: Date
+  /** The delivery's `updated_at` (the forge's clock); omitted = now. */
+  providerUpdatedAt?: Date
 }): Promise<void> {
   await db.transaction(async (tx) => {
     await generateTxId(tx)
@@ -1273,7 +1269,7 @@ export async function applyPullRequestReopened(opts: {
       .update(pullRequests)
       .set({
         state: opts.draft ? `draft` : `open`,
-        githubUpdatedAt: opts.githubUpdatedAt ?? new Date(),
+        ...providerUpdated(opts.providerUpdatedAt ?? new Date()),
         updatedAt: new Date(),
       })
       .where(and(eq(pullRequests.id, opts.pullRequestId), eq(pullRequests.state, `closed`)))
@@ -1288,11 +1284,11 @@ export async function applyPullRequestReopened(opts: {
 export async function applyPullRequestDraft(opts: {
   pullRequestId: string
   draft: boolean
-  /** GitHub's `updated_at` of this state, stored as `github_updated_at`
+  /** The forge's `updated_at` of this state, stored as `provider_updated_at`
    *  (omitted = now: our own flip). */
-  githubUpdatedAt?: Date
+  providerUpdatedAt?: Date
   /** A generic delivery's `updated_at`: the row flips only when its last
-   *  applied PR state (`github_updated_at`, never the row's `updated_at`,
+   *  applied PR state (`provider_updated_at`, never the row's `updated_at`,
    *  which any write moves) is no newer (an older delivery never wins). */
   notBefore?: Date
 }): Promise<{ rootSessionId: string | null } | null> {
@@ -1300,7 +1296,7 @@ export async function applyPullRequestDraft(opts: {
     .update(pullRequests)
     .set({
       state: opts.draft ? `draft` : `open`,
-      githubUpdatedAt: opts.githubUpdatedAt ?? opts.notBefore ?? new Date(),
+      ...providerUpdated(opts.providerUpdatedAt ?? opts.notBefore ?? new Date()),
       updatedAt: new Date(),
     })
     .where(
@@ -1308,7 +1304,7 @@ export async function applyPullRequestDraft(opts: {
         eq(pullRequests.id, opts.pullRequestId),
         eq(pullRequests.state, opts.draft ? `open` : `draft`),
         opts.notBefore
-          ? or(isNull(pullRequests.githubUpdatedAt), lte(pullRequests.githubUpdatedAt, opts.notBefore))
+          ? or(isNull(pullRequests.providerUpdatedAt), lte(pullRequests.providerUpdatedAt, opts.notBefore))
           : undefined
       )
     )
@@ -1378,7 +1374,7 @@ export async function retargetChildrenOfMergedPr(
   const merged = await loadPullRequest(pullRequestId)
   if (!merged) return
   const repo = repoFromPrUrl(merged.url)
-  if (!repo || !merged.head || !githubAppConfigured()) return
+  if (!repo || !merged.head) return
   const [repoRow] = await db
     .select({
       defaultBranch: repositories.defaultBranch,
@@ -1400,20 +1396,20 @@ export async function retargetChildrenOfMergedPr(
   // default-based PR in the repo (a merged `develop → main` promotion too).
   if (isRepoDefaultBranch(defaults, merged.head)) return
   if (repoRow && merged.head === repoRow.defaultBranch) return
+  const { forge, at } = await forgeOfPr(merged.repositoryId, repo)
+  if (!at.token) return
   const target =
     boardPin?.defaultBranch ??
     repoRow?.defaultBranchOverride ??
     repoRow?.defaultBranch ??
-    (await resolveRepoDefaultBranchCached(repo))
+    (await forge.defaultBranch(at))
   if (!target || target === merged.head) return
-  const resolved = await resolveRepoInstallationTokenInfo(repo)
-  if (!resolved) return
-  const children = await listOpenPullsByBase(repo, merged.head, resolved.token)
+  const children = await forge.listOpenByBase(at, merged.head)
   for (const child of children) {
     try {
-      if (opts.trainLanding) await leaveGithubStack({ repo, prNumber: child.number, token: resolved.token })
-      else if (await inNativeStack(repo, child.number, resolved.token)) continue
-      await retargetPullRequest({ repo, prNumber: child.number, base: target, token: resolved.token })
+      if (opts.trainLanding) await forge.leaveNativeStack(at, child.number)
+      else if (await inNativeStack(forge, at, child.number)) continue
+      await forge.retarget(at, { number: child.number, base: target })
       const row = await loadPullRequestByUrl(child.url)
       if (row) await applyPullRequestBase({ pullRequestId: row.id, base: target })
     } catch (err) {
@@ -1422,19 +1418,27 @@ export async function retargetChildrenOfMergedPr(
   }
 }
 
-/** #EXP-1711: take a PR out of its native stack, when it is in one. */
-export async function leaveGithubStack(opts: { repo: string; prNumber: number; token: string }): Promise<void> {
-  const stack = await fetchPullStack(opts)
-  if (stack) await unstack({ repo: opts.repo, stackNumber: stack.number, token: opts.token })
+/** #EXP-1614: a merged PR's repo on its forge, with a credential: the one
+ *  the caller holds, else the forge's own (null token = the forge cannot
+ *  act there: no App, no access). */
+async function forgeOfPr(
+  repositoryId: string,
+  fullName: string,
+  token?: string | null
+): Promise<{ forge: Forge; at: ForgeRepo }> {
+  const bare: ForgeRepo = { id: repositoryId, fullName }
+  const forge = await forgeFor(bare)
+  const resolved = token ?? (await forge.credentials(bare))?.token ?? null
+  return { forge, at: { ...bare, token: resolved } }
 }
 
 /** Read live (the webhook's `stack` is not stored). An unreadable PR counts
  *  as plain: the retarget is the pre-stacks behaviour. */
-async function inNativeStack(repo: string, prNumber: number, token: string): Promise<boolean> {
+async function inNativeStack(forge: Forge, at: ForgeRepo, prNumber: number): Promise<boolean> {
   try {
-    return (await fetchPullStack({ repo, prNumber, token })) !== null
+    return await forge.inNativeStack(at, prNumber)
   } catch (err) {
-    console.error(`stack read of ${repo}#${prNumber} failed:`, err)
+    console.error(`stack read of ${at.fullName}#${prNumber} failed:`, err)
     return false
   }
 }

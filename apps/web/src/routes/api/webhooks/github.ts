@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router"
 import { and, eq, inArray, isNull, or } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { repositories, sessions } from "@/db/schema"
+import { providerConfigWithInstallation } from "@/lib/ecode/provider-config"
 import { touchSessionActivity } from "@/lib/sessions/watchdog"
 import { attributePush, pushedRepositoryIds, pushTime } from "@/lib/sessions/push-attribution"
 import { checkFromGithubStatus } from "@/lib/ecode/github-status"
@@ -155,7 +156,11 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
         // its own token mint, which verifies access.
         await db
           .update(repositories)
-          .set({ inaccessibleAt: null, installationId: installation.id })
+          .set({
+            inaccessibleAt: null,
+            installationId: installation.id,
+            providerConfig: providerConfigWithInstallation(installation.id),
+          })
           .where(
             and(
               inArray(repositories.fullName, added),
@@ -387,7 +392,7 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
     }
 
     // FEED-160: GitHub's own clock for this delivery's PR state; stored as
-    // the row's `github_updated_at`, the only thing a late delivery is
+    // the row's `provider_updated_at`, the only thing a late delivery is
     // compared with (our `updated_at` moves on any unrelated write).
     const parsedAt = pr.updated_at ? new Date(pr.updated_at) : null
     const changedAt = parsedAt && !Number.isNaN(parsedAt.getTime()) ? parsedAt : null
@@ -398,7 +403,7 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
           pullRequestId: row.id,
           base: pr.base?.ref ?? null,
           draft: pr.draft === true,
-          ...(changedAt ? { githubUpdatedAt: changedAt } : {}),
+          ...(changedAt ? { providerUpdatedAt: changedAt } : {}),
         })
       }
       return jsonResponse(200, { ok: true })
@@ -425,7 +430,7 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
         // not older than the last PR state we applied (a late `synchronize`
         // must not undo a newer `ready_for_review`). An explicit flip always
         // applies and records its time.
-        ...(changedAt ? (explicit ? { githubUpdatedAt: changedAt } : { notBefore: changedAt }) : {}),
+        ...(changedAt ? (explicit ? { providerUpdatedAt: changedAt } : { notBefore: changedAt }) : {}),
       })
       // A draft readied is a merge-train edge (readiness re-reads it).
       if (flipped && !draft) mergeTrainEdge({ pullRequestId: row.id })
