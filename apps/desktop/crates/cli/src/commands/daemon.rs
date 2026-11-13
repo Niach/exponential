@@ -293,7 +293,40 @@ fn lock_sessions(sessions: &Sessions) -> std::sync::MutexGuard<'_, Vec<LiveSessi
     }
 }
 
+/// #EXP-1821: glibc hands every allocating thread its own arena (up to 8 per
+/// core, 64 MB reservations) and keeps what a pass freed, so a long-lived
+/// daemon with ~25 threads sits on every peak it ever had. Two arenas are
+/// plenty for a process that mostly waits.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+fn tune_allocator() {
+    // SAFETY: mallopt only adjusts allocator parameters; called once,
+    // before the daemon's threads start.
+    unsafe {
+        libc::mallopt(libc::M_ARENA_MAX, 2);
+    }
+}
+
+#[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+fn tune_allocator() {}
+
+/// #EXP-1821: hand the pages a pass freed back to the OS (glibc keeps them
+/// otherwise), at most every [`TRIM_EVERY`].
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+fn trim_allocator() {
+    // SAFETY: malloc_trim only releases free memory; any thread may call it.
+    unsafe {
+        libc::malloc_trim(0);
+    }
+}
+
+#[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+fn trim_allocator() {}
+
+/// How often the worker returns freed memory ([`trim_allocator`]).
+const TRIM_EVERY: Duration = Duration::from_secs(30);
+
 fn run_daemon(args: &[String]) -> CommandResult {
+    tune_allocator();
     let mut args = args.to_vec();
     let label_flag = take_value(&mut args, "--label");
     // Always runs in the foreground — systemd/launchd own daemonization.
@@ -3058,11 +3091,18 @@ fn spawn_daemon_worker(
     std::thread::Builder::new()
         .name("exp-daemon-worker".to_string())
         .spawn(move || {
+            let mut trimmed = Instant::now();
             while rx.recv().is_ok() {
                 // Coalesce a burst (a refetch is thousands of rows in a
                 // handful of batches) into ONE pass.
                 while rx.try_recv().is_ok() {}
                 host.beat();
+                // #EXP-1821: the pass's (and the sync threads') freed pages
+                // go back; the 30s tick makes this the idle cadence too.
+                if trimmed.elapsed() >= TRIM_EVERY {
+                    trim_allocator();
+                    trimmed = Instant::now();
+                }
             }
         })
         .expect("spawn the daemon worker");
@@ -3115,7 +3155,9 @@ impl DaemonHost {
         };
         if self.synced.ready(PICKUP_SHAPES) {
             let rows = read_shape_rows::<SessionRow>(&store, "sessions");
-            let mut messages = read_keyed_messages(&store);
+            // #EXP-1821: only the messages of the sessions this pass acts on.
+            let held = self.pickup.live.live_views().into_keys().chain(self.pickup.excluded());
+            let mut messages = read_keyed_messages(&store, &pickup_session_ids(&rows, &self.pickup.device_id, held));
             // EXP-1458: who an engine reply's `@email` names.
             coding::sealing::note_users(
                 read_shape_rows::<domain::rows::User>(&store, "users").into_iter().filter_map(|user| Some((user.id, user.email?))),
@@ -3125,7 +3167,7 @@ impl DaemonHost {
             coding::direct_inbox::merge(&mut messages);
             // EXP-1542: the server's move records (empty until synced).
             let moves = if self.synced.ready(&["events"]) {
-                coding::pickup::move_records(&read_shape_rows::<domain::rows::EventRow>(&store, "events"))
+                read_move_records(&store)
             } else {
                 Vec::new()
             };
@@ -3518,12 +3560,69 @@ pub(crate) fn read_shape_rows<T: serde::de::DeserializeOwned>(
     }
 }
 
-/// #EXP-1730: every synced message that lives in a session, keyed by its
-/// own `session_id` (`domain::message_session::key_messages_by_session`); a
-/// session-less dm/channel row is held back.
-pub(crate) fn read_keyed_messages(store: &sync::store::ShapeStore) -> Vec<MessageRow> {
-    let messages = read_shape_rows::<MessageRow>(store, "messages");
+/// #EXP-1730: the synced messages of `session_ids`, keyed by their own
+/// `session_id` (`domain::message_session::key_messages_by_session`).
+/// #EXP-1821: never the whole table: hydrating every message the team ever
+/// wrote on each pass held the daemon near 1 GB at idle.
+pub(crate) fn read_keyed_messages(store: &sync::store::ShapeStore, session_ids: &[String]) -> Vec<MessageRow> {
+    let ids: Vec<&str> = session_ids.iter().map(String::as_str).collect();
+    let messages = read_shape_rows_where::<MessageRow>(store, "messages", "session_id", &ids);
     domain::message_session::key_messages_by_session(&messages)
+}
+
+/// #EXP-1821: [`read_shape_rows`] narrowed to the rows whose `column` is one
+/// of `values` (`ShapeStore::read_where_in`).
+pub(crate) fn read_shape_rows_where<T: serde::de::DeserializeOwned>(
+    store: &sync::store::ShapeStore,
+    shape: &str,
+    column: &str,
+    values: &[&str],
+) -> Vec<T> {
+    let Some(spec) = sync::shapes::shape_by_name(shape) else {
+        return Vec::new();
+    };
+    match store.read_where_in(spec, column, values) {
+        Ok(rows) => rows
+            .into_iter()
+            .filter_map(|row| serde_json::from_value(serde_json::Value::Object(row)).ok())
+            .collect(),
+        Err(err) => {
+            log::debug!("daemon sync: reading the {shape} table failed: {err}");
+            Vec::new()
+        }
+    }
+}
+
+/// #EXP-1821: the server's move records (`coding::pickup::move_records`)
+/// from the only two event names they read, not the whole team stream.
+pub(crate) fn read_move_records(store: &sync::store::ShapeStore) -> Vec<coding::pickup::MoveRecord> {
+    coding::pickup::move_records(&read_shape_rows_where::<domain::rows::EventRow>(
+        store,
+        "events",
+        "name",
+        &[coding::pickup::SESSION_MOVED_EVENT, coding::pickup::SESSION_HANDED_OFF_EVENT],
+    ))
+}
+
+/// #EXP-1821: the sessions a pickup pass reads messages for. `plan` and the
+/// re-claim only ever act on a row naming this device that is not ended
+/// (launch, resume, revive, continue, re-claim) or on a session whose
+/// engine runs here (`held`: deliveries, answers, revokes, the kill's
+/// hand-off), so every other session's messages change nothing.
+pub(crate) fn pickup_session_ids(
+    rows: &[SessionRow],
+    device_id: &str,
+    held: impl IntoIterator<Item = String>,
+) -> Vec<String> {
+    let mut ids: Vec<String> = rows
+        .iter()
+        .filter(|row| row.on_device(device_id) && !row.status_is(domain::contract::SESSION_STATUS_ENDED))
+        .map(|row| row.id.clone())
+        .chain(held)
+        .collect();
+    ids.sort_unstable();
+    ids.dedup();
+    ids
 }
 
 /// One column of one issue, point-read by primary key (§5.8).
@@ -3902,6 +4001,69 @@ fn status(args: &[String]) -> CommandResult {
             println!("{}", super::account::NOT_REGISTERED_HINT);
             Ok(ExitCode::FAILURE)
         }
+    }
+}
+
+/// #EXP-1821: the pickup's reads replayed over a COPY of a daemon's store,
+/// reporting the process's resident memory — the before/after measure of
+/// the idle daemon (run one mode per process: `--release`, `--ignored`).
+/// `EXP_PROBE_MODE=all` is the old pass (every message and event, each
+/// pass), `scoped` the current one; `EXP_PROBE_TRIM=0` skips the allocator
+/// tuning.
+#[cfg(test)]
+mod memory_probe {
+    use super::*;
+
+    fn status(key: &str) -> String {
+        std::fs::read_to_string("/proc/self/status")
+            .unwrap_or_default()
+            .lines()
+            .find(|line| line.starts_with(key))
+            .map(|line| line.split_whitespace().nth(1).unwrap_or("?").to_string())
+            .unwrap_or_default()
+    }
+
+    #[test]
+    #[ignore = "EXP_PROBE_STORE=<copy of sync-cli.sqlite> EXP_PROBE_DEVICE=<id> EXP_PROBE_MODE=all|scoped"]
+    fn pickup_reads_resident_memory() {
+        let path = std::env::var("EXP_PROBE_STORE").expect("EXP_PROBE_STORE");
+        let device = std::env::var("EXP_PROBE_DEVICE").unwrap_or_default();
+        let all = std::env::var("EXP_PROBE_MODE").as_deref() == Ok("all");
+        let tune = std::env::var("EXP_PROBE_TRIM").as_deref() != Ok("0");
+        if tune {
+            tune_allocator();
+        }
+        let store = Arc::new(sync::store::ShapeStore::open(std::path::Path::new(&path)).unwrap());
+        println!("open: VmRSS {} kB", status("VmRSS"));
+        let mut kept = 0;
+        // The worker thread (one pass per beat), like the daemon's.
+        for pass in 0..20 {
+            let store = Arc::clone(&store);
+            let device = device.clone();
+            kept = std::thread::spawn(move || {
+                let rows = read_shape_rows::<SessionRow>(&store, "sessions");
+                let (messages, moves) = if all {
+                    let messages = read_shape_rows::<MessageRow>(&store, "messages");
+                    let messages = domain::message_session::key_messages_by_session(&messages);
+                    let moves = coding::pickup::move_records(&read_shape_rows::<domain::rows::EventRow>(&store, "events"));
+                    (messages, moves)
+                } else {
+                    let ids = pickup_session_ids(&rows, &device, Vec::new());
+                    (read_keyed_messages(&store, &ids), read_move_records(&store))
+                };
+                let users = read_shape_rows::<domain::rows::User>(&store, "users").len();
+                rows.len() + messages.len() + moves.len() + users
+            })
+            .join()
+            .unwrap();
+            if tune {
+                trim_allocator();
+            }
+            if pass % 5 == 4 {
+                println!("pass {}: VmRSS {} kB", pass + 1, status("VmRSS"));
+            }
+        }
+        println!("rows read per pass: {kept}; VmHWM {} kB; final VmRSS {} kB", status("VmHWM"), status("VmRSS"));
     }
 }
 
@@ -4364,6 +4526,26 @@ mod tests {
     /// The daemon's shapes are real shapes (the v2 pickup trio once
     /// #EXP-1294's specs land — until then the pipeline skips them), and
     /// deliberately NOT the desktop's whole set.
+    /// #EXP-1821: a pass reads the messages of this device's live rows and
+    /// of the engines it holds, never the whole team's.
+    #[test]
+    fn a_pass_reads_only_its_own_sessions_messages() {
+        let row = |id: &str, device: &str, status: &str| -> SessionRow {
+            serde_json::from_value(serde_json::json!({"id": id, "device_id": device, "status": status})).unwrap()
+        };
+        let rows = vec![
+            row("queued-here", "d1", "queued"),
+            row("idle-here", "d1", "idle"),
+            row("ended-here", "d1", "ended"),
+            row("elsewhere", "d2", "running"),
+            row("moved-away", "d2", "running"),
+        ];
+        assert_eq!(
+            pickup_session_ids(&rows, "d1", ["moved-away".to_string(), "idle-here".to_string()]),
+            ["idle-here", "moved-away", "queued-here"]
+        );
+    }
+
     #[test]
     fn daemon_shapes_are_a_real_subset() {
         assert!(DAEMON_SHAPES.len() < 20);

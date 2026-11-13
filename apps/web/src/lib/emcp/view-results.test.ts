@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { compactViewResult, isViewListOp, viewListSummary } from "./view-results"
+import devicesListFixture from "../../../../desktop/crates/api/fixtures/devices-list-result.json"
 
 const json = (data: unknown) => ({ content: [{ type: `text`, text: JSON.stringify(data, null, 2) }] })
 
@@ -47,5 +48,17 @@ describe(`compactViewResult (#VAPP-292)`, () => {
     expect(isViewListOp(`issues`, `create`)).toBe(false)
     expect(isViewListOp(`notifications`, `list`)).toBe(true)
     expect(isViewListOp(`labels`, `list`)).toBe(false)
+  })
+})
+
+describe(`the CLI's devices list contract (#EXP-1821)`, () => {
+  // The Rust CLI decodes this exact answer (crates/api mcp_tools tests): the
+  // rows ride structuredContent.items, the text is prose.
+  const fixture = devicesListFixture as { arguments: Record<string, unknown>; result: { structuredContent: { items: unknown[] } } }
+
+  it(`compactViewResult produces the pinned answer from the JSON rows`, () => {
+    const rows = fixture.result.structuredContent.items
+    const out = compactViewResult(`devices`, fixture.arguments, json(rows))
+    expect(out).toEqual(fixture.result)
   })
 })

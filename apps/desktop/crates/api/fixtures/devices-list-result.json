@@ -1,0 +1,75 @@
+{
+  "$comment": "#EXP-1821: exponential_devices {op: \"list\"} called from outside a session (the CLI) as the server answers it since #VAPP-292: content = the model's prose summary, structuredContent = {items, page}. apps/web/src/lib/emcp/view-results.test.ts proves compactViewResult(arguments, the JSON rows) produces `result`; crates/api mcp_tools tests decode `result` into RemoteDevice rows. Change both sides together.",
+  "arguments": {
+    "op": "list",
+    "limit": 200
+  },
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "2 devices (1–2), shown to the person in the Exponential view.\n- mint-ci · online · linux · agents claude, codex (deviceId 71d0370e-0000-4000-8000-000000000001)\n- m5-devops · offline · linux · no agent · shared by Teammate (deviceId 22222222-0000-4000-8000-000000000002)"
+      }
+    ],
+    "structuredContent": {
+      "items": [
+        {
+          "deviceId": "71d0370e-0000-4000-8000-000000000001",
+          "label": "mint-ci",
+          "kind": "server",
+          "platform": "linux",
+          "online": true,
+          "lastSeenAt": "2026-11-13T09:00:00.000Z",
+          "agents": [
+            "claude",
+            "codex"
+          ],
+          "unauthedAgents": [],
+          "caps": [
+            "ci"
+          ],
+          "version": "0.14.157",
+          "sharedTeamIds": [
+            "11111111-0000-4000-8000-000000000001"
+          ],
+          "isDefault": true,
+          "agentAccounts": null,
+          "agentUsage": null,
+          "agentUsageAt": null,
+          "doctor": null
+        },
+        {
+          "deviceId": "22222222-0000-4000-8000-000000000002",
+          "label": "m5-devops",
+          "kind": "server",
+          "platform": "linux",
+          "online": false,
+          "lastSeenAt": "2026-11-12T18:30:00.000Z",
+          "agents": [],
+          "unauthedAgents": [
+            "claude"
+          ],
+          "caps": [],
+          "version": null,
+          "sharedTeamIds": [
+            "11111111-0000-4000-8000-000000000001"
+          ],
+          "isDefault": false,
+          "agentAccounts": null,
+          "agentUsage": null,
+          "agentUsageAt": null,
+          "doctor": null,
+          "owner": {
+            "id": "33333333-0000-4000-8000-000000000003",
+            "name": "Teammate"
+          }
+        }
+      ],
+      "page": {
+        "offset": 0,
+        "limit": 200,
+        "nextOffset": null
+      }
+    }
+  }
+}
