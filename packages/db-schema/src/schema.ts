@@ -1436,6 +1436,9 @@ export interface DeviceRunnerSettings {
 
 // #EXP-1617: `repositories.ci_config`.
 export interface RepositoryCiConfig {
+  /** Our CI plans runs at all: opt-in on GitHub repos (unset = off there),
+   *  on by default for ecode repos (unset = on). `ciEnabled` reads it. */
+  enabled?: boolean
   requiredChecks?: string[]
   githubStatuses?: boolean
   /** GitHub repos: the team's runner devices also serve its Actions as
