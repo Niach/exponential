@@ -1028,6 +1028,11 @@ pub struct MessageRow {
     pub answered_at: Option<String>,
     #[serde(default)]
     pub consumed_at: Option<String>,
+    /// #FEED-237: the device's pickup received the pending row (one check,
+    /// `crate::message_delivery`); None = not yet, or a server without the
+    /// column.
+    #[serde(default)]
+    pub delivered_at: Option<String>,
     /// EXP-1323: the session that posted it (a child asking its parent,
     /// a report, a suggestions card); `None` = a person or the root itself.
     #[serde(default)]

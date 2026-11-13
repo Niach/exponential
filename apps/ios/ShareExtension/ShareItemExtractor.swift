@@ -22,6 +22,7 @@ enum ShareItemExtractor {
         var images: [SharedImage] = []
         var files: [SharedFile] = []
         var subject: String?
+        var moreFiles = false
 
         for item in items {
             if subject == nil {
@@ -37,7 +38,9 @@ enum ShareItemExtractor {
                         if url.isFileURL {
                             if UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true {
                                 if images.count < maxImages, let image = loadImageFromFile(url) { images.append(image) }
-                            } else if files.count < maxFiles, let file = loadFile(url) {
+                            } else if files.count >= maxFiles {
+                                moreFiles = true
+                            } else if let file = loadFile(url) {
                                 files.append(file)
                             }
                         } else {
@@ -46,15 +49,19 @@ enum ShareItemExtractor {
                     }
                 } else if provider.hasItemConformingToTypeIdentifier(UTType.text.identifier) {
                     if let text = await loadText(provider) { texts.append(text) }
-                } else if files.count < maxFiles,
-                          !provider.hasItemConformingToTypeIdentifier(UTType.image.identifier),
+                } else if !provider.hasItemConformingToTypeIdentifier(UTType.image.identifier),
                           provider.hasItemConformingToTypeIdentifier(UTType.data.identifier) {
-                    if let file = await loadFile(provider) { files.append(file) }
+                    // Over the cap: left unread (memory), but the composer says so.
+                    if files.count >= maxFiles {
+                        moreFiles = true
+                    } else if let file = await loadFile(provider) {
+                        files.append(file)
+                    }
                 }
             }
         }
 
-        if texts.isEmpty, webURL == nil, images.isEmpty, files.isEmpty { return nil }
+        if texts.isEmpty, webURL == nil, images.isEmpty, files.isEmpty, !moreFiles { return nil }
 
         let (title, description) = composeText(texts: texts, webURL: webURL)
         return SharedPayload(
@@ -62,6 +69,7 @@ enum ShareItemExtractor {
             descriptionText: description,
             images: images,
             files: files,
+            moreFiles: moreFiles,
             text: texts.joined(separator: "\n"),
             subject: subject,
             url: webURL?.absoluteString
@@ -114,8 +122,51 @@ enum ShareItemExtractor {
                 continuation.resume(returning: data)
             }
         }
-        guard let data else { return nil }
-        return normalizeImage(data: data, utType: UTType(typeId) ?? .image, suggestedName: provider.suggestedName)
+        if let data {
+            return normalizeImage(data: data, utType: UTType(typeId) ?? .image, suggestedName: provider.suggestedName)
+        }
+        // A provider registered through the legacy `loadItem` API (the
+        // screenshot editor's Share, many apps' "share image") has no data
+        // representation: it hands over a file URL, a UIImage or raw Data.
+        // Without this fallback such an image never reached the composer.
+        // Read inside the callback: only Sendable values leave it.
+        let item: LegacyImageItem? = await withCheckedContinuation { continuation in
+            provider.loadItem(forTypeIdentifier: typeId, options: nil) { item, _ in
+                switch item {
+                case let url as URL where url.isFileURL:
+                    // The file is readable while the callback runs.
+                    continuation.resume(returning: (try? Data(contentsOf: url)).map { .file($0, url) })
+                case let image as UIImage:
+                    continuation.resume(returning: image.pngData().map(LegacyImageItem.png))
+                case let data as Data:
+                    continuation.resume(returning: .data(data))
+                default:
+                    continuation.resume(returning: nil)
+                }
+            }
+        }
+        switch item {
+        case let .file(data, url):
+            let utType = UTType(filenameExtension: url.pathExtension) ?? UTType(typeId) ?? .image
+            return normalizeImage(data: data, utType: utType, suggestedName: url.lastPathComponent)
+        case let .png(png):
+            return SharedImage(data: png, filename: "\(baseName(provider.suggestedName)).png", contentType: "image/png")
+        case let .data(data):
+            return normalizeImage(data: data, utType: UTType(typeId) ?? .image, suggestedName: provider.suggestedName)
+        case nil:
+            return nil
+        }
+    }
+
+    private enum LegacyImageItem: Sendable {
+        case file(Data, URL)
+        case png(Data)
+        case data(Data)
+    }
+
+    private static func baseName(_ suggestedName: String?) -> String {
+        suggestedName.map { ($0 as NSString).deletingPathExtension }
+            .flatMap { $0.isEmpty ? nil : $0 } ?? "shared-image"
     }
 
     private static func loadImageFromFile(_ url: URL) -> SharedImage? {

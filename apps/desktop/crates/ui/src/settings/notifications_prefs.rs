@@ -27,6 +27,14 @@
 //! the email controls disable and the notice shows. EXP-369: the per-type
 //! switches gate PUSH as well as email, so they stay live with the master
 //! email switch off — only the digest controls follow it.
+//!
+//! #EXP-1815 (notification-delivery.json SETTINGS): the session-source
+//! switches sit ABOVE the list — band Sessions (Personal Assistant,
+//! Temporary sessions), then band Team agents (one per agent of the
+//! member's teams, the team as the row's hint only with more than one team),
+//! the pane's own band + glass group + toggle rows. They write the WHOLE
+//! `sourcePrefs` object (`toggle_source_pref`); the server applies them
+//! before push, desktop and email.
 
 use std::rc::Rc;
 
@@ -39,6 +47,7 @@ use gpui::{div, App, AppContext as _, Entity, IntoElement, ParentElement as _, R
 use serde_json::{json, Value};
 
 use api::notifications::{EmailPrefs, UpdateEmailPrefsInput};
+use domain::notification_delivery::{self as delivery, SettingsAgent, SettingsTeam};
 use domain::contract::{
     NOTIFICATION_TYPE_AGENT_SIGNED_OUT, NOTIFICATION_TYPE_ISSUE_ASSIGNED, NOTIFICATION_TYPE_ISSUE_COMMENT,
     NOTIFICATION_TYPE_ISSUE_CREATED, NOTIFICATION_TYPE_ISSUE_MENTION, NOTIFICATION_TYPE_ISSUE_STATUS_CHANGED,
@@ -110,6 +119,10 @@ pub(crate) struct Prefs {
     retry_pressed: bool,
     /// EXP-638: the per-machine OS-notification switch (`CodingHub`).
     os_notifications: bool,
+    /// #EXP-1815: the member's teams and their agents (synced), the source
+    /// switches' rows.
+    teams: Vec<SettingsTeam>,
+    agents: Vec<SettingsAgent>,
 }
 
 impl Prefs {
@@ -130,6 +143,35 @@ impl Prefs {
 
 fn row(key: &str, label: &str, hint: &str, checked: bool, disabled: bool) -> Value {
     json!({"key": key, "label": label, "hint": hint, "checked": checked, "disabled": disabled})
+}
+
+/// #EXP-1815: the source switches' groups (`settings_rows`): the Sessions
+/// rows and the Team agents rows (empty = no band).
+fn project_sources(state: &Prefs) -> Value {
+    let prefs = state.ready().and_then(|p| p.source_prefs.as_ref());
+    let groups = delivery::settings_rows(&state.teams, &state.agents);
+    let rows = |ix: usize| -> Vec<Value> {
+        groups.get(ix).map_or_else(Vec::new, |group| {
+            group
+                .rows
+                .iter()
+                .enumerate()
+                .map(|(row_ix, r)| {
+                    json!({
+                        "key": r.key,
+                        "label": r.label,
+                        "hint": r.detail.clone().unwrap_or_default(),
+                        "hasHint": r.detail.is_some(),
+                        "checked": delivery::source_allowed(prefs, Some(&r.key)),
+                        "disabled": false,
+                        "first": row_ix == 0,
+                    })
+                })
+                .collect()
+        })
+    };
+    let agents = rows(1);
+    json!({"sessions": rows(0), "hasAgents": !agents.is_empty(), "agents": agents})
 }
 
 /// The state as the document binds it.
@@ -175,18 +217,46 @@ fn project(state: &Prefs) -> Value {
         "noTransport": prefs.is_some() && !transport,
         "rows": rows,
         "digest": digest,
+        "sources": project_sources(state),
     })
 }
 
 /// One switch row of the list (a template instance over `/pane/rows`).
 fn toggle_row(ink: &Ink, dim: bool) -> Value {
-    let id = if dim { "row_dim" } else { "row_live" };
+    toggle_row_with(ink, "row", dim, "toggle", false)
+}
+
+/// [`toggle_row`] under `prefix`, raising `action`; `optional_hint` hides
+/// the hint where `hasHint` is false (a source row's team detail).
+fn toggle_row_with(ink: &Ink, prefix: &str, dim: bool, action: &str, optional_hint: bool) -> Value {
+    let id = if dim { format!("{prefix}_dim") } else { format!("{prefix}_live") };
     let visible = if dim { path("disabled") } else { not(path("disabled")) };
-    ink.shell(id, dim, visible, vec![
-        ink.label_column(&format!("{id}_text"), path("label"), path("hint"), true),
+    let mut column = ink.label_column(&format!("{id}_text"), path("label"), path("hint"), true);
+    if optional_hint {
+        column["children"][1]["visible"] = path("hasHint");
+    }
+    ink.shell(&id, dim, visible, vec![
+        column,
         json!({"id": format!("{id}_switch"), "component": "Switch", "props": {"label": "", "name": "pref", "checked": path("checked"), "disabled": path("disabled")},
-            "on": {"change": {"event": {"name": "toggle", "context": {"key": path("key")}}}}}),
+            "on": {"change": {"event": {"name": action, "context": {"key": path("key")}}}}}),
     ])
+}
+
+/// #EXP-1815: one source group: the band over a glass group of switch rows
+/// (a template over `/pane/sources/<key>`), shown where `visible`.
+fn source_block(ink: &Ink, key: &str, band: &str, visible: Value) -> Value {
+    let prefix = format!("source_{key}");
+    let row_children: Vec<Value> = ink
+        .row_dividers(&format!("{prefix}_divider"), not(path("first")), path("disabled"))
+        .into_iter()
+        .chain([toggle_row_with(ink, &prefix, false, "source", true), toggle_row_with(ink, &prefix, true, "source", true)])
+        .collect();
+    let group = ink.group(&format!("{prefix}_group"), vec![json!({"id": format!("{prefix}_list"), "component": "List", "props": {"gap": "none"},
+        "template": {"component": format!("{prefix}_row"), "path": format!("/pane/sources/{key}"), "key": "key"},
+        "children": [{"id": format!("{prefix}_row"), "component": "Box", "style": {"display": "flex", "flexDirection": "column"},
+            "children": row_children}]})]);
+    json!({"id": prefix, "component": "Box", "visible": visible, "style": {"display": "flex", "flexDirection": "column", "width": "100%"},
+        "children": [ink.band(&format!("{prefix}_band"), band, None), group]})
 }
 
 /// The pane's tree.
@@ -231,7 +301,12 @@ fn document(ink: &Ink) -> Value {
 
     // `settings::section`: `gap_2`.
     json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.5), "width": "100%"},
-        "children": [alert, rows, skeleton, failed, digest]})
+        "children": [
+            alert,
+            source_block(ink, "sessions", delivery::copy::SESSIONS_BAND, path("/pane/ready")),
+            source_block(ink, "agents", delivery::copy::AGENTS_BAND, and(path("/pane/ready"), path("/pane/sources/hasAgents"))),
+            rows, skeleton, failed, digest,
+        ]})
 }
 
 /// The optimistic write of `edit` with the mutation carrying only what
@@ -296,6 +371,20 @@ fn toggle(state: &Prefs, event: &ActionEvent, cx: &mut App) -> Option<Mutation<P
     }
 }
 
+/// #EXP-1815: one source switch flipped: the WHOLE `sourcePrefs` after
+/// `toggle_source_pref` goes to the server.
+fn toggle_source(state: &Prefs, event: &ActionEvent, cx: &mut App) -> Option<Mutation<Prefs>> {
+    let key = event.context.get("key").and_then(Value::as_str)?.to_string();
+    let next = event.payload.as_ref().and_then(|p| p.get("checked")).and_then(Value::as_bool)?;
+    write(
+        state,
+        "sources",
+        move |p| p.source_prefs = Some(delivery::toggle_source_pref(&p.source_prefs.clone().unwrap_or_default(), &key, next)),
+        |p| UpdateEmailPrefsInput { source_prefs: Some(p.source_prefs.clone().unwrap_or_default()), ..Default::default() },
+        cx,
+    )
+}
+
 fn selected(event: &ActionEvent) -> Option<String> {
     event.payload.as_ref().and_then(|p| p.get("value")).and_then(Value::as_str).map(str::to_string)
 }
@@ -313,6 +402,22 @@ fn set_hour(state: &Prefs, event: &ActionEvent, cx: &mut App) -> Option<Mutation
     write(state, "digestHour", move |p| p.digest_hour = hour, |_| UpdateEmailPrefsInput { digest_hour: Some(hour), ..Default::default() }, cx)
 }
 
+/// #EXP-1815: the member's synced teams and their agents, as
+/// `settings_rows` takes them.
+fn source_inputs(cx: &App) -> (Vec<SettingsTeam>, Vec<SettingsAgent>) {
+    let collections = sync::Store::global(cx).collections();
+    let teams = collections.teams.read(cx).iter().map(|team| SettingsTeam { id: team.id.clone(), name: team.name.clone() }).collect();
+    let agents = collections
+        .agents
+        .read(cx)
+        .iter()
+        .filter_map(|agent| {
+            Some(SettingsAgent { id: agent.id.clone(), team_id: agent.team_id.clone()?, name: agent.name.clone().unwrap_or_default(), role: agent.role.clone() })
+        })
+        .collect();
+    (teams, agents)
+}
+
 pub struct NotificationsPrefsPane {
     view: Entity<SurfaceView>,
     binding: Entity<Binding<Prefs>>,
@@ -324,10 +429,12 @@ impl NotificationsPrefsPane {
         let pane = cx.weak_entity();
         let hub = CodingHub::global(cx);
         let os_notifications = hub.read(cx).settings.os_notifications;
+        let (teams, agents) = source_inputs(cx);
         let binding = cx.new(|_| {
-            let mut binding = Binding::new(PATH, Prefs { load: Load::Idle, generation: 0, account_id: None, retry_pressed: false, os_notifications }, |state, _| project(state));
+            let mut binding = Binding::new(PATH, Prefs { load: Load::Idle, generation: 0, account_id: None, retry_pressed: false, os_notifications, teams, agents }, |state, _| project(state));
             binding.set_toasts(Rc::new(IdeToasts));
             binding.on_action("toggle", toggle);
+            binding.on_action("source", toggle_source);
             binding.on_action("digest", set_digest);
             binding.on_action("hour", set_hour);
             binding.on_action("retry", move |_, _, cx| {
@@ -342,11 +449,33 @@ impl NotificationsPrefsPane {
             binding
         });
         let view = mount("settings-notifications", document(&Ink::of(cx)), &binding, window, cx);
-        let subscriptions = vec![cx.observe(&hub, |this, hub, cx| {
-            let on = hub.read(cx).settings.os_notifications;
-            this.binding.update(cx, |binding, cx| binding.update_state(|state| state.os_notifications = on, cx));
-        })];
+        let collections = sync::Store::global(cx).collections();
+        let (team_rows, agent_rows) = (collections.teams.clone(), collections.agents.clone());
+        let subscriptions = vec![
+            cx.observe(&hub, |this, hub, cx| {
+                let on = hub.read(cx).settings.os_notifications;
+                this.binding.update(cx, |binding, cx| binding.update_state(|state| state.os_notifications = on, cx));
+            }),
+            // #EXP-1815: the source rows follow the synced teams and agents.
+            cx.observe(&team_rows, |this, _, cx| this.refresh_sources(cx)),
+            cx.observe(&agent_rows, |this, _, cx| this.refresh_sources(cx)),
+        ];
         Self { view, binding, _subscriptions: subscriptions }
+    }
+
+    fn refresh_sources(&mut self, cx: &mut gpui::Context<Self>) {
+        let (teams, agents) = source_inputs(cx);
+        self.binding.update(cx, |binding, cx| {
+            if binding.state().teams != teams || binding.state().agents != agents {
+                binding.update_state(
+                    |state| {
+                        state.teams = teams;
+                        state.agents = agents;
+                    },
+                    cx,
+                );
+            }
+        });
     }
 
     #[cfg(test)]
@@ -365,6 +494,21 @@ impl NotificationsPrefsPane {
                         ShotLoad::Ready(prefs) => Load::Ready(prefs),
                         ShotLoad::Failed => Load::Error,
                     };
+                },
+                cx,
+            )
+        });
+    }
+
+    /// #EXP-1815: the source rows' teams and agents for a picture (the
+    /// headless store syncs none).
+    #[cfg(test)]
+    pub(crate) fn show_sources(&mut self, teams: Vec<SettingsTeam>, agents: Vec<SettingsAgent>, cx: &mut gpui::Context<Self>) {
+        self.binding.update(cx, |binding, cx| {
+            binding.update_state(
+                |state| {
+                    state.teams = teams;
+                    state.agents = agents;
                 },
                 cx,
             )
@@ -471,11 +615,39 @@ mod tests {
     use super::*;
 
     fn prefs(transport: bool) -> EmailPrefs {
-        EmailPrefs { email_enabled: true, type_prefs: HashMap::from([(NOTIFICATION_TYPE_ISSUE_COMMENT.to_string(), false)]), digest: Some(DIGEST_DAILY.into()), digest_hour: 9, allow_agent_messages: false, transport_configured: transport }
+        EmailPrefs { email_enabled: true, type_prefs: HashMap::from([(NOTIFICATION_TYPE_ISSUE_COMMENT.to_string(), false)]), digest: Some(DIGEST_DAILY.into()), digest_hour: 9, allow_agent_messages: false, transport_configured: transport, source_prefs: None }
     }
 
     fn state(load: Load) -> Prefs {
-        Prefs { load, generation: 0, account_id: None, retry_pressed: false, os_notifications: true }
+        Prefs { load, generation: 0, account_id: None, retry_pressed: false, os_notifications: true, teams: Vec::new(), agents: Vec::new() }
+    }
+
+    /// #EXP-1815: the Sessions rows always; the Team agents band only with
+    /// team agents; a switched-off source projects unchecked.
+    #[test]
+    fn sources_project_the_settings_rows() {
+        let mut ready = prefs(true);
+        ready.source_prefs = Some(delivery::SourcePrefs { temporary: Some(false), agents: Some([("a2".to_string(), false)].into_iter().collect()), ..Default::default() });
+        let mut state = state(Load::Ready(ready));
+        let sources = &project(&state)["sources"];
+        assert_eq!(sources["hasAgents"], json!(false));
+        let sessions = sources["sessions"].as_array().unwrap();
+        assert_eq!(sessions.iter().map(|r| r["label"].clone()).collect::<Vec<_>>(), [json!("Personal Assistant"), json!("Temporary sessions")]);
+        assert_eq!(sessions[0]["checked"], json!(true));
+        assert_eq!(sessions[1]["checked"], json!(false));
+        assert_eq!(sessions[0]["hasHint"], json!(false));
+
+        let team = |id: &str, name: &str| SettingsTeam { id: id.into(), name: name.into() };
+        let agent = |id: &str, team: &str, name: &str, role: &str| SettingsAgent { id: id.into(), team_id: team.into(), name: name.into(), role: role.into() };
+        state.teams = vec![team("t1", "Acme"), team("t2", "Zeta")];
+        state.agents = vec![agent("a1", "t1", "Assistant", "assistant"), agent("a2", "t2", "Builder", "agent"), agent("a3", "t1", "Triage", "coordinator")];
+        let sources = &project(&state)["sources"];
+        assert_eq!(sources["hasAgents"], json!(true));
+        let agents = sources["agents"].as_array().unwrap();
+        assert_eq!(agents.iter().map(|r| r["key"].clone()).collect::<Vec<_>>(), [json!("agent:a3"), json!("agent:a2")]);
+        assert_eq!(agents[0]["hint"], json!("Acme"));
+        assert_eq!(agents[1]["checked"], json!(false));
+        assert_eq!(agents.iter().filter(|r| r["first"] == json!(true)).count(), 1);
     }
 
     #[test]

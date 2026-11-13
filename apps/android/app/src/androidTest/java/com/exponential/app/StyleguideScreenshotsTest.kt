@@ -1484,7 +1484,7 @@ class StyleguideScreenshotsTest {
         // hold whichever case SectionHeader renders (sentence case since EXP-698).
         step("settings-root") {
             openTeamRoot()
-            flow.waitFor(hasText("Servers", ignoreCase = true), NAV_TIMEOUT)
+            flow.waitFor(hasText("Personal", ignoreCase = true), NAV_TIMEOUT)
             flow.waitFor(hasText(TEAM_NAME), SYNC_TIMEOUT)
             flow.settle()
             flow.screenshot("sg_settings-root")
@@ -1720,8 +1720,8 @@ class StyleguideScreenshotsTest {
                     )
                 ) {
                     composeRule.onNode(hasContentDescription("Back")).performClick()
-                    flow.waitFor(hasText("Servers", ignoreCase = true), NAV_TIMEOUT)
-                    composeRule.onAllNodes(hasText("Add server")).onFirst().performClick()
+                    flow.waitFor(hasText("Personal", ignoreCase = true), NAV_TIMEOUT)
+                    composeRule.onAllNodes(hasText("Add server")).onFirst().performScrollTo().performClick()
                     flow.chooseInstance(instanceUrl)
                     flow.awaitLoginScreen()
                     flow.submitLogin(ScreenshotFlow.NEWCOMER_EMAIL, ScreenshotFlow.NEWCOMER_PASSWORD)
@@ -1823,8 +1823,8 @@ class StyleguideScreenshotsTest {
                             composeRule.onNode(hasContentDescription("Issues")).performClick()
                             flow.waitFor(hasContentDescription("Settings"), NAV_TIMEOUT)
                             composeRule.onNode(hasContentDescription("Settings")).performClick()
-                            flow.waitFor(hasText("Servers", ignoreCase = true), NAV_TIMEOUT)
-                            composeRule.onAllNodes(hasText("Add server")).onFirst().performClick()
+                            flow.waitFor(hasText("Personal", ignoreCase = true), NAV_TIMEOUT)
+                            composeRule.onAllNodes(hasText("Add server")).onFirst().performScrollTo().performClick()
                             flow.chooseInstance(instanceUrl)
                         }
                     }

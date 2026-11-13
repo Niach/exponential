@@ -805,6 +805,11 @@ impl LocalExecutor {
         if existing.is_none() && text(&input, "text").map(str::trim).unwrap_or("").is_empty() && text(&input, "name").is_none() {
             return Err(bad("A message needs text"));
         }
+        // F21: a key this desktop already stored answers that message again.
+        let client_message_id = text(&input, "clientMessageId").filter(|k| !k.is_empty()).map(str::to_string);
+        if let Some(sent) = client_message_id.as_deref().and_then(|key| self.client_message(key)) {
+            return Ok(sent);
+        }
         let identity = self.identity();
         let device_id = self.device_id();
         let now = time::now();
@@ -818,7 +823,24 @@ impl LocalExecutor {
         for (table, row) in rows {
             self.write(table, row)?;
         }
+        if let Some(key) = client_message_id {
+            self.with_meta(|meta| {
+                meta.client_messages.retain(|c| c.client_message_id != key);
+                meta.client_messages.push(crate::desktops::ClientMessage { client_message_id: key, message_id: message_id.clone() });
+                let over = meta.client_messages.len().saturating_sub(crate::desktops::CLIENT_MESSAGES_KEPT);
+                meta.client_messages.drain(..over);
+            });
+        }
         Ok(json!({"sessionId": session_id, "messageId": message_id, "txid": self.txid(), "deliverTo": null}))
+    }
+
+    /// F21: the result of the send already stored under `key`, `None` when
+    /// none is (or its message is gone: the send runs anew).
+    fn client_message(&self, key: &str) -> Option<Value> {
+        let message_id = self.meta.lock().expect("meta").client_messages.iter().find(|c| c.client_message_id == key)?.message_id.clone();
+        let message = self.store.row("messages", &message_id).ok().flatten()?;
+        let session_id = text(&message, "session_id").or_else(|| text(&message, "root_id"))?.to_string();
+        Some(json!({"sessionId": session_id, "messageId": message_id, "txid": self.txid(), "deliverTo": null}))
     }
 
     fn sessions_end(&self, input: Row) -> Out {

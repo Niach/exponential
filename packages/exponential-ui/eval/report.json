@@ -469,7 +469,8 @@
       "Calendar",
       "Timeline",
       "RecordForm",
-      "RecordTable"
+      "RecordTable",
+      "MessageStatus"
     ]
   },
   "rows": [

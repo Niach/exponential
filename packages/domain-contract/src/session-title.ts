@@ -53,14 +53,24 @@ function clip(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, Math.max(0, max - 1)).trimEnd()}…` : text
 }
 
-/** The first usable line of a body: non-blank, not an image embed. */
+/** The composer's positional image markers (EXP-698), with the spaces and
+ *  tabs around a run of them: one space in a title line. */
+const IMAGE_MARKERS = /[ \t]*(?:\[Image #\d+\][ \t]*)+/g
+
+/** One line as a title reads it: trimmed, `[Image #N]` markers removed. */
+export function titleLine(line: string): string {
+  return line.trim().replace(IMAGE_MARKERS, ` `).trim()
+}
+
+/** Whether a title line can name a session: non-blank, not an image embed. */
+export function usableTitleLine(line: string): boolean {
+  return line.length > 0 && !line.startsWith(`![`)
+}
+
+/** The first usable line of a body: non-blank once its image markers are
+ *  gone, not an image embed. */
 function firstLine(body: string): string | null {
-  return (
-    body
-      .split(`\n`)
-      .map((part) => part.trim())
-      .find((part) => part.length > 0 && !part.startsWith(`![`)) ?? null
-  )
+  return body.split(`\n`).map(titleLine).find(usableTitleLine) ?? null
 }
 
 /** The session's OWN rows, in link order (root or child alike, NEW-1). */

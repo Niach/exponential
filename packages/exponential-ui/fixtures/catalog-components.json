@@ -12773,6 +12773,19 @@
       }
     },
     {
+      "name": "MessageBubble/status=failed",
+      "node": {
+        "id": "message_bubble",
+        "component": "MessageBubble",
+        "props": {
+          "text": "Is the printer fixed?",
+          "side": "out",
+          "time": "18:00",
+          "status": "failed"
+        }
+      }
+    },
+    {
       "name": "MessageBubble/pressable=true",
       "node": {
         "id": "message_bubble",
@@ -16951,6 +16964,56 @@
           "editorOpen": false,
           "deleteOpen": false,
           "missing": false
+        }
+      }
+    },
+    {
+      "name": "MessageStatus/example",
+      "node": {
+        "id": "message_status",
+        "component": "MessageStatus",
+        "props": {
+          "status": "read"
+        }
+      }
+    },
+    {
+      "name": "MessageStatus/status=sending",
+      "node": {
+        "id": "message_status",
+        "component": "MessageStatus",
+        "props": {
+          "status": "sending"
+        }
+      }
+    },
+    {
+      "name": "MessageStatus/status=sent",
+      "node": {
+        "id": "message_status",
+        "component": "MessageStatus",
+        "props": {
+          "status": "sent"
+        }
+      }
+    },
+    {
+      "name": "MessageStatus/status=read",
+      "node": {
+        "id": "message_status",
+        "component": "MessageStatus",
+        "props": {
+          "status": "read"
+        }
+      }
+    },
+    {
+      "name": "MessageStatus/status=failed",
+      "node": {
+        "id": "message_status",
+        "component": "MessageStatus",
+        "props": {
+          "status": "failed"
         }
       }
     }

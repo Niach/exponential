@@ -118,6 +118,8 @@ describe(`fireAndForgetNewIssueNotify (EXP-53)`, () => {
           // The deep link a tap needs, without a synced issue row.
           teamSlug: `acme`,
           boardSlug: `feedback`,
+          // #EXP-1815: the issue's thread.
+          thread: `issue:${issueMeta.id}`,
         },
       }
     )
@@ -204,6 +206,8 @@ describe(`fireAndForgetReporterReplyNotify push payload (SLOP-4)`, () => {
           identifier: `EXP-7`,
           teamSlug: `acme`,
           boardSlug: `feedback`,
+          // #EXP-1815: the issue's thread.
+          thread: `issue:${issueMeta.id}`,
         },
       }
     )

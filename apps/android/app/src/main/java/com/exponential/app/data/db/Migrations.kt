@@ -381,3 +381,33 @@ val MIGRATION_124_125: Migration = object : Migration(124, 125) {
         )
     }
 }
+
+// v126 (#FEED-237, message-delivery.json): `messages.delivered_at` (the device
+// received a pending person message: one check) and the LOCAL `outbox` table
+// (a person's message from the press until its row syncs; no shape). Only the
+// messages shape refetches, so synced rows re-arrive carrying the stamp.
+val MIGRATION_125_126: Migration = object : Migration(125, 126) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `messages` ADD COLUMN `delivered_at` TEXT")
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `outbox` (`client_id` TEXT NOT NULL, `session_id` TEXT NOT NULL, " +
+                "`text` TEXT NOT NULL, `created_at` TEXT NOT NULL, `state` TEXT NOT NULL, `message_id` TEXT, " +
+                "`attachment_ids` TEXT, PRIMARY KEY(`client_id`))",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_outbox_session_id` ON `outbox` (`session_id`)")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'messages'",
+        )
+    }
+}
+
+// v127 (#FEED-237, message-delivery.json FILES): `outbox.pending_files`, an
+// entry's picked files not uploaded yet (their bytes live under the app's
+// files dir), so a restart resumes the uploads instead of sending the text
+// without them. Local table: nothing refetches.
+val MIGRATION_126_127: Migration = object : Migration(126, 127) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `outbox` ADD COLUMN `pending_files` TEXT")
+    }
+}

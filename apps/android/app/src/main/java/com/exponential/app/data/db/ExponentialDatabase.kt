@@ -43,6 +43,7 @@ import androidx.room.TypeConverters
         AppVersionEntity::class,
         AppRecordEntity::class,
         AppRecordOutboxEntity::class,
+        OutboxEntity::class,
         ElectricOffsetEntity::class,
     ],
     // v105 (EXP-1459): sessions.seal_public_key, seal_epoch, sealed_title
@@ -98,7 +99,13 @@ import androidx.room.TypeConverters
     // v125 (#EXP-1617 / #EXP-1804): devices.runner + the ci_runs and ci_jobs
     //      tables (our own CI's run page), explicit [MIGRATION_124_125]; only
     //      the devices shape refetches (the new shapes start fresh).
-    version = 125,
+    // v126 (#FEED-237): messages.delivered_at (the one check) + the LOCAL
+    //      `outbox` table (a person's unsent messages), explicit
+    //      [MIGRATION_125_126]; only the messages shape refetches.
+    // v127 (#FEED-237 FILES): outbox.pending_files (an entry's files not
+    //      uploaded yet survive a restart), explicit [MIGRATION_126_127];
+    //      nothing refetches.
+    version = 127,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)
@@ -140,5 +147,6 @@ abstract class ExponentialDatabase : RoomDatabase() {
     abstract fun appVersionDao(): AppVersionDao
     abstract fun appRecordDao(): AppRecordDao
     abstract fun appRecordOutboxDao(): AppRecordOutboxDao
+    abstract fun outboxDao(): OutboxDao
     abstract fun electricOffsetDao(): ElectricOffsetDao
 }

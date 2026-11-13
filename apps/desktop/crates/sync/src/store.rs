@@ -127,6 +127,12 @@ const OUTBOX_DDL: &str = r#"CREATE TABLE IF NOT EXISTS app_record_outbox (
 pub const MESSAGES_ROOT_INDEX: &str =
     r#"CREATE INDEX IF NOT EXISTS "messages_root_created" ON "messages" ("root_id", "created_at", "id")"#;
 
+/// #EXP-1821: the CLI daemon's pickup reads only the messages of the
+/// sessions it runs ([`ShapeStore::read_where_in`]), never the
+/// whole table.
+pub const MESSAGES_SESSION_INDEX: &str =
+    r#"CREATE INDEX IF NOT EXISTS "messages_session" ON "messages" ("session_id")"#;
+
 /// The per-account SQLite store. One writer connection behind a `Mutex` (WAL
 /// single-writer) plus a separate read-only WAL connection for hydration
 /// queries that never block on the writer (§5.4).
@@ -170,6 +176,7 @@ impl ShapeStore {
         // #EXP-1380: every store, a new one or an existing one (IF NOT
         // EXISTS), gets the chat page's index.
         writer.execute_batch(MESSAGES_ROOT_INDEX)?;
+        writer.execute_batch(MESSAGES_SESSION_INDEX)?;
         let reader = Connection::open_with_flags(
             path,
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
@@ -397,6 +404,31 @@ impl ShapeStore {
             let marks = (1..=chunk.len()).map(|n| format!("?{n}")).collect::<Vec<_>>().join(", ");
             let params: Vec<&dyn rusqlite::ToSql> = chunk.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
             out.extend(self.read_rows(&format!(r#"SELECT * FROM "messages" WHERE "id" IN ({marks})"#), &params)?);
+        }
+        Ok(out)
+    }
+
+    /// #EXP-1821: the rows whose TEXT `column` is one of `values` — a
+    /// daemon pass's narrow read (the messages of its sessions, off
+    /// [`MESSAGES_SESSION_INDEX`]; the move events) instead of hydrating
+    /// the whole table with [`Self::read_all`]. No values = no rows.
+    pub fn read_where_in(
+        &self,
+        spec: &ShapeSpec,
+        column: &str,
+        values: &[&str],
+    ) -> Result<Vec<Map<String, Value>>> {
+        // The column name is interpolated into the SQL: the shape's own
+        // allowlist only, never a caller's string.
+        if !spec.columns.contains(&column) {
+            return Err(StoreError::Sqlite(rusqlite::Error::InvalidColumnName(column.to_string())));
+        }
+        let mut out = Vec::new();
+        // Under SQLite's bound-parameter cap.
+        for chunk in values.chunks(500) {
+            let marks = (1..=chunk.len()).map(|n| format!("?{n}")).collect::<Vec<_>>().join(", ");
+            let params: Vec<&dyn rusqlite::ToSql> = chunk.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
+            out.extend(self.read_rows(&format!(r#"SELECT * FROM "{}" WHERE "{column}" IN ({marks})"#, spec.name), &params)?);
         }
         Ok(out)
     }

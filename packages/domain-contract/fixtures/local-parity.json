@@ -1,5 +1,5 @@
 {
-  "$comment": "#EDE-55 LOCAL PARITY (Local desktops, #EDE-54): the rules a LOCAL DESKTOP replays without a server. A Local desktop is one team in its own SQLite store (the IDE's synced-shape layout, every column TEXT, the same 34 tables), authoritative and offline; elocal's executor answers the tRPC procedures the clients call (`procedures.local`, the exact wire names) over that store, and refuses every other one with `procedures.refusal` (HTTP 501 on the Transport, so a client shows it as a plain refusal, never a sign-in). IDENTITY: the person at the machine is the one member and owner; their user id is minted once per desktop, their email is `<login>@<identity.emailDomain>` (`identity.cases`: lowercase, runs of anything but a-z 0-9 . _ - become one dash, trimmed, empty = local), which is what mentions and the team import rewrite. SEED (`seed.cases`, ids from the caller's id source in order): a new desktop holds its team row (id = the desktop id, slug = `seed.slugPrefix` + the first 8 characters of the desktop id), the identity's user row and owner membership, the contract's builtin statuses (`issueStatusDefaults`, in order) and one board (`seed.board`). ISSUES: numbers count per board from 1 (`issues.numberCases`: the next = max + 1), the identifier is `<prefix>-<number>` (`issues.identifierCases`), the status anchor follows the row's category (`issues.anchorByCategory`, the server's CATEGORY_ANCHOR) and `issues.create.cases` give the whole created row (status from `statusId`, else from the anchor `status`, else the builtin backlog; the assignee = the input's, else the identity (the sole member rule); creator = the identity; priority none; sort_order = the number; source user; created and updated = now); `issues.update.cases` apply a patch (a key present = set, null = cleared, a status by id dual-writes the anchor). A created issue keeps the input's `draftId` as `draft_id` (the draft it was filed from; that draft row goes). DRAFTS (#EDE-65, `drafts`): `issueDrafts.upsert` writes the person's draft row (`drafts.upsert.cases`: keyed by the client's id, user = the identity, title and description default empty, priority none, labels the full set, an agent assignee clears the person, a re-save keeps created_at), refused with `drafts.consumedRefusal` when an issue already carries that `draft_id`; `issueDrafts.delete` removes it (`deleted`: was there one); `issueDrafts.listAttachments` = none (a Local desktop's files ride an issue, never a draft). COMPOSER DRAFTS (#EXP-1800, composer-draft.json, the server's `composerDrafts` router): `composerDrafts.upsert {teamId, key, text}` writes the identity's one row per `key` (`composerDrafts.upsert.cases`: a new key mints the row's id, user = the identity, team = the input's, the text verbatim, created and updated = now; a re-save keeps the id and created_at and replaces team and text), refused with `composerDrafts.emptyRefusal` when the text is empty or only whitespace (that is a delete) and when the key does not parse (composer-draft.json `unparsable`); `composerDrafts.delete {key}` removes the identity's row for the key (`deleted`: was there one; deleting nothing is fine). The rows sit in the store's `composer_drafts` table, the shape's columns, so the composer reads them as it reads the server's. COMMENTS (`comments.cases`): author = the identity, audience team, source user, one level deep: a reply to a reply lands under the top comment. SESSIONS (`sessions.send.cases`): a send without a session makes a ROOT session (status queued until a local agent run takes it, #EDE-58; device = the desktop's device id; title = the name, else the text's first line cut at 80), its conversation (kind session) and the person's message (author user); a send into a session adds only the message; a send's `attachmentIds` ride the message, and the body gets the server's line for every one it does not name yet (`attachmentLine`: `![name](/api/attachments/{id})` for the five inline image types, else `[name](/api/attachments/{id})`, the name without brackets; the lines after the trimmed text, joined by blank lines; `attachments` = those rows as the desktop stores them, the bytes in its blob store), so the desktop's agent run reads them as the server's devices do (#EDE-65 lane L); `issueIds` link through session_issues (source user). AGENTS (`agents.assistant`): `ensureAssistant` makes the identity's one assistant row (name Assistant, role assistant, device = the desktop's) and answers it again after. Everything else a procedure writes keeps the server's column names; a local id is a uuid the client mints. ISSUE TRASH (#EXP-1799, issue-lifecycle.json `trash`, the server's semantics): `issues.delete` / `bulkDelete` move a live issue into the desktop's trash, stamping `deleted_at` (now), `deleted_by` (the identity) and `deleted_by_agent_id` (the calling session's agent, else null); nothing cascades: the issue row and its children (comments, attachments and their bytes, issue_labels, issue_subscribers, issue_events, notifications, session_issues, pull_request_issues, issue_relations on EITHER side) leave the synced tables for the sidecar's trash, so every local read (the shapes, issues.get, issues.search, the agent tools) hides them. `issues.listDeleted` = the trash, newest deleted first, `purgeAt` = deleted_at + retentionDays, an issue of a removed board not listed; `issues.restore` puts every row back (minus a label, session or related issue gone since; a relation whose other side is still trashed rides that issue) and clears the three columns; `issues.purge` (the identity is the owner) drops it now, the sweep (on open and on every trash read) once `isPurgeDue`; removing a board purges its trashed issues with it. Each writes the team stream's `issue.deleted` / `issue.restored` / `issue.purged` row (`events`, payload = the trash `eventPayload`; emitted by the session for a call that names one, `viaMcp` then, else the identity, the sweep = server with null actors). REPOSITORIES (#EXP-1727): a Local desktop links git working copies on the machine (`repositories.linkFolder {path, boardId?}`: the folder's name, the branch its HEAD names, the board pointed at it; `repositories.listLocal`; `repositories.forIssue` = the issue's board's linked folder or null). They live in the desktop's sidecar, never in a shape, and nothing clones or fetches: the folder is the clone.",
+  "$comment": "#EDE-55 LOCAL PARITY (Local desktops, #EDE-54): the rules a LOCAL DESKTOP replays without a server. A Local desktop is one team in its own SQLite store (the IDE's synced-shape layout, every column TEXT, the same 34 tables), authoritative and offline; elocal's executor answers the tRPC procedures the clients call (`procedures.local`, the exact wire names) over that store, and refuses every other one with `procedures.refusal` (HTTP 501 on the Transport, so a client shows it as a plain refusal, never a sign-in). IDENTITY: the person at the machine is the one member and owner; their user id is minted once per desktop, their email is `<login>@<identity.emailDomain>` (`identity.cases`: lowercase, runs of anything but a-z 0-9 . _ - become one dash, trimmed, empty = local), which is what mentions and the team import rewrite. SEED (`seed.cases`, ids from the caller's id source in order): a new desktop holds its team row (id = the desktop id, slug = `seed.slugPrefix` + the first 8 characters of the desktop id), the identity's user row and owner membership, the contract's builtin statuses (`issueStatusDefaults`, in order) and one board (`seed.board`). ISSUES: numbers count per board from 1 (`issues.numberCases`: the next = max + 1), the identifier is `<prefix>-<number>` (`issues.identifierCases`), the status anchor follows the row's category (`issues.anchorByCategory`, the server's CATEGORY_ANCHOR) and `issues.create.cases` give the whole created row (status from `statusId`, else from the anchor `status`, else the builtin backlog; the assignee = the input's, else the identity (the sole member rule); creator = the identity; priority none; sort_order = the number; source user; created and updated = now); `issues.update.cases` apply a patch (a key present = set, null = cleared, a status by id dual-writes the anchor). A created issue keeps the input's `draftId` as `draft_id` (the draft it was filed from; that draft row goes). DRAFTS (#EDE-65, `drafts`): `issueDrafts.upsert` writes the person's draft row (`drafts.upsert.cases`: keyed by the client's id, user = the identity, title and description default empty, priority none, labels the full set, an agent assignee clears the person, a re-save keeps created_at), refused with `drafts.consumedRefusal` when an issue already carries that `draft_id`; `issueDrafts.delete` removes it (`deleted`: was there one); `issueDrafts.listAttachments` = none (a Local desktop's files ride an issue, never a draft). COMPOSER DRAFTS (#EXP-1800, composer-draft.json, the server's `composerDrafts` router): `composerDrafts.upsert {teamId, key, text}` writes the identity's one row per `key` (`composerDrafts.upsert.cases`: a new key mints the row's id, user = the identity, team = the input's, the text verbatim, created and updated = now; a re-save keeps the id and created_at and replaces team and text), refused with `composerDrafts.emptyRefusal` when the text is empty or only whitespace (that is a delete) and when the key does not parse (composer-draft.json `unparsable`); `composerDrafts.delete {key}` removes the identity's row for the key (`deleted`: was there one; deleting nothing is fine). The rows sit in the store's `composer_drafts` table, the shape's columns, so the composer reads them as it reads the server's. COMMENTS (`comments.cases`): author = the identity, audience team, source user, one level deep: a reply to a reply lands under the top comment. SESSIONS (`sessions.send.cases`): a send without a session makes a ROOT session (status queued until a local agent run takes it, #EDE-58; device = the desktop's device id; title = the name, else the text's first line cut at 80), its conversation (kind session) and the person's message (author user); a send into a session adds only the message; a send's `attachmentIds` ride the message, and the body gets the server's line for every one it does not name yet (`attachmentLine`: `![name](/api/attachments/{id})` for the five inline image types, else `[name](/api/attachments/{id})`, the name without brackets; the lines after the trimmed text, joined by blank lines; `attachments` = those rows as the desktop stores them, the bytes in its blob store), so the desktop's agent run reads them as the server's devices do (#EDE-65 lane L); `issueIds` link through session_issues (source user). WAKE (#FEED-237, `sessions.wake.cases`, the cloud pickup's Resume): the desktop's runner hands every person row no run took in yet (`consumed_at` null) to a run: a `running`/`idle` session of this device whose run is live gets them as sends; one without a live run (its process exited, the app restarted, rows sent before the claim's run) starts its run again, resuming the CLI's own conversation when the desktop kept its id, the oldest row as the prompt and the rest sent after it in order, each stamped `consumed_at` as the run takes it; a start that failed waits for a new row; a queued session waits for its claim (whose brief takes the first row) and an ended one never starts again (a person's message into an ended root revives it first, the hub's rule). A send's `clientMessageId` (F21, the sender's idempotency key, server-only as on the server) is kept in the desktop's sidecar with the message it stored: a send under a key this desktop already stored writes nothing and answers that message's `{sessionId, messageId}` again (a key whose message is gone sends anew). The person's message row carries `delivered_at` and `consumed_at` null; the desktop's run stamps them (message-delivery.json DELIVERED). AGENTS (`agents.assistant`): `ensureAssistant` makes the identity's one assistant row (name Assistant, role assistant, device = the desktop's) and answers it again after. Everything else a procedure writes keeps the server's column names; a local id is a uuid the client mints. ISSUE TRASH (#EXP-1799, issue-lifecycle.json `trash`, the server's semantics): `issues.delete` / `bulkDelete` move a live issue into the desktop's trash, stamping `deleted_at` (now), `deleted_by` (the identity) and `deleted_by_agent_id` (the calling session's agent, else null); nothing cascades: the issue row and its children (comments, attachments and their bytes, issue_labels, issue_subscribers, issue_events, notifications, session_issues, pull_request_issues, issue_relations on EITHER side) leave the synced tables for the sidecar's trash, so every local read (the shapes, issues.get, issues.search, the agent tools) hides them. `issues.listDeleted` = the trash, newest deleted first, `purgeAt` = deleted_at + retentionDays, an issue of a removed board not listed; `issues.restore` puts every row back (minus a label, session or related issue gone since; a relation whose other side is still trashed rides that issue) and clears the three columns; `issues.purge` (the identity is the owner) drops it now, the sweep (on open and on every trash read) once `isPurgeDue`; removing a board purges its trashed issues with it. Each writes the team stream's `issue.deleted` / `issue.restored` / `issue.purged` row (`events`, payload = the trash `eventPayload`; emitted by the session for a call that names one, `viaMcp` then, else the identity, the sweep = server with null actors). REPOSITORIES (#EXP-1727): a Local desktop links git working copies on the machine (`repositories.linkFolder {path, boardId?}`: the folder's name, the branch its HEAD names, the board pointed at it; `repositories.listLocal`; `repositories.forIssue` = the issue's board's linked folder or null). They live in the desktop's sidecar, never in a shape, and nothing clones or fetches: the folder is the clone.",
   "procedures": {
     "refusal": "{procedure} is not available on a Local desktop",
     "local": [
@@ -851,6 +851,7 @@
                 "attachment_ids": [],
                 "issue_brief": null,
                 "answered_at": null,
+                "delivered_at": null,
                 "consumed_at": null,
                 "created_at": "2026-11-07T01:00:00.000Z",
                 "updated_at": "2026-11-07T01:00:00.000Z"
@@ -948,6 +949,7 @@
                 ],
                 "issue_brief": null,
                 "answered_at": null,
+                "delivered_at": null,
                 "consumed_at": null,
                 "created_at": "2026-11-07T02:00:00.000Z",
                 "updated_at": "2026-11-07T02:00:00.000Z"
@@ -1010,6 +1012,7 @@
                 ],
                 "issue_brief": null,
                 "answered_at": null,
+                "delivered_at": null,
                 "consumed_at": null,
                 "created_at": "2026-11-07T02:00:00.000Z",
                 "updated_at": "2026-11-07T02:00:00.000Z"
@@ -1030,6 +1033,355 @@
               "id": "a-2",
               "filename": "spec.pdf",
               "content_type": "application/pdf"
+            }
+          ]
+        }
+      ]
+    },
+    "wake": {
+      "cases": [
+        {
+          "name": "an idle session without a run wakes with its pending rows, oldest first",
+          "sessions": [
+            {
+              "id": "s-1",
+              "status": "idle",
+              "device_id": "dev-local"
+            }
+          ],
+          "messages": [
+            {
+              "id": "m-2",
+              "session_id": "s-1",
+              "author_kind": "user",
+              "consumed_at": null,
+              "created_at": "2026-11-13T10:00:02.000Z"
+            },
+            {
+              "id": "m-1",
+              "session_id": "s-1",
+              "author_kind": "user",
+              "consumed_at": null,
+              "created_at": "2026-11-13T10:00:01.000Z"
+            },
+            {
+              "id": "m-0",
+              "session_id": "s-1",
+              "author_kind": "user",
+              "consumed_at": "2026-11-13T10:00:01.000Z",
+              "created_at": "2026-11-13T10:00:00.000Z"
+            }
+          ],
+          "live": [],
+          "refused": {},
+          "expected": [
+            {
+              "sessionId": "s-1",
+              "mode": "wake",
+              "messageIds": [
+                "m-1",
+                "m-2"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "a running session whose process exited wakes too",
+          "sessions": [
+            {
+              "id": "s-1",
+              "status": "running",
+              "device_id": "dev-local"
+            }
+          ],
+          "messages": [
+            {
+              "id": "m-1",
+              "session_id": "s-1",
+              "author_kind": "user",
+              "consumed_at": null,
+              "created_at": "2026-11-13T10:00:01.000Z"
+            }
+          ],
+          "live": [],
+          "refused": {},
+          "expected": [
+            {
+              "sessionId": "s-1",
+              "mode": "wake",
+              "messageIds": [
+                "m-1"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "a live run gets the pending rows as sends (the ones heard before the claim's run too)",
+          "sessions": [
+            {
+              "id": "s-1",
+              "status": "running",
+              "device_id": "dev-local"
+            }
+          ],
+          "messages": [
+            {
+              "id": "m-1",
+              "session_id": "s-1",
+              "author_kind": "user",
+              "consumed_at": "2026-11-13T10:00:02.000Z",
+              "created_at": "2026-11-13T10:00:01.000Z"
+            },
+            {
+              "id": "m-2",
+              "session_id": "s-1",
+              "author_kind": "user",
+              "consumed_at": null,
+              "created_at": "2026-11-13T10:00:02.000Z"
+            },
+            {
+              "id": "m-3",
+              "session_id": "s-1",
+              "author_kind": "user",
+              "consumed_at": null,
+              "created_at": "2026-11-13T10:00:03.000Z"
+            }
+          ],
+          "live": [
+            "s-1"
+          ],
+          "refused": {},
+          "expected": [
+            {
+              "sessionId": "s-1",
+              "mode": "send",
+              "messageIds": [
+                "m-2",
+                "m-3"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "nothing pending: nothing to do",
+          "sessions": [
+            {
+              "id": "s-1",
+              "status": "idle",
+              "device_id": "dev-local"
+            }
+          ],
+          "messages": [
+            {
+              "id": "m-1",
+              "session_id": "s-1",
+              "author_kind": "user",
+              "consumed_at": "2026-11-13T10:00:02.000Z",
+              "created_at": "2026-11-13T10:00:01.000Z"
+            },
+            {
+              "id": "a-1",
+              "session_id": "s-1",
+              "author_kind": "agent",
+              "consumed_at": null,
+              "created_at": "2026-11-13T10:00:03.000Z"
+            }
+          ],
+          "live": [],
+          "refused": {},
+          "expected": []
+        },
+        {
+          "name": "an ended session never starts again",
+          "sessions": [
+            {
+              "id": "s-1",
+              "status": "ended",
+              "device_id": "dev-local"
+            }
+          ],
+          "messages": [
+            {
+              "id": "m-1",
+              "session_id": "s-1",
+              "author_kind": "user",
+              "consumed_at": null,
+              "created_at": "2026-11-13T10:00:01.000Z"
+            }
+          ],
+          "live": [],
+          "refused": {},
+          "expected": []
+        },
+        {
+          "name": "a queued session waits for its claim (its brief takes the first row)",
+          "sessions": [
+            {
+              "id": "s-1",
+              "status": "queued",
+              "device_id": "dev-local"
+            }
+          ],
+          "messages": [
+            {
+              "id": "m-1",
+              "session_id": "s-1",
+              "author_kind": "user",
+              "consumed_at": null,
+              "created_at": "2026-11-13T10:00:01.000Z"
+            }
+          ],
+          "live": [],
+          "refused": {},
+          "expected": []
+        },
+        {
+          "name": "another device's session is not this desktop's to run; an unset device is",
+          "sessions": [
+            {
+              "id": "s-1",
+              "status": "idle",
+              "device_id": "dev-other"
+            },
+            {
+              "id": "s-2",
+              "status": "idle",
+              "device_id": null
+            }
+          ],
+          "messages": [
+            {
+              "id": "m-1",
+              "session_id": "s-1",
+              "author_kind": "user",
+              "consumed_at": null,
+              "created_at": "2026-11-13T10:00:01.000Z"
+            },
+            {
+              "id": "m-2",
+              "session_id": "s-2",
+              "author_kind": "user",
+              "consumed_at": null,
+              "created_at": "2026-11-13T10:00:02.000Z"
+            }
+          ],
+          "live": [],
+          "refused": {},
+          "expected": [
+            {
+              "sessionId": "s-2",
+              "mode": "wake",
+              "messageIds": [
+                "m-2"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "a start that failed for these rows waits for a new one",
+          "sessions": [
+            {
+              "id": "s-1",
+              "status": "idle",
+              "device_id": "dev-local"
+            },
+            {
+              "id": "s-2",
+              "status": "idle",
+              "device_id": "dev-local"
+            }
+          ],
+          "messages": [
+            {
+              "id": "m-1",
+              "session_id": "s-1",
+              "author_kind": "user",
+              "consumed_at": null,
+              "created_at": "2026-11-13T10:00:01.000Z"
+            },
+            {
+              "id": "m-2",
+              "session_id": "s-2",
+              "author_kind": "user",
+              "consumed_at": null,
+              "created_at": "2026-11-13T10:00:02.000Z"
+            },
+            {
+              "id": "m-3",
+              "session_id": "s-2",
+              "author_kind": "user",
+              "consumed_at": null,
+              "created_at": "2026-11-13T10:00:03.000Z"
+            }
+          ],
+          "live": [],
+          "refused": {
+            "s-1": [
+              "m-1"
+            ],
+            "s-2": [
+              "m-2"
+            ]
+          },
+          "expected": [
+            {
+              "sessionId": "s-2",
+              "mode": "wake",
+              "messageIds": [
+                "m-2",
+                "m-3"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "sessions go in the order of their oldest pending row",
+          "sessions": [
+            {
+              "id": "s-a",
+              "status": "idle",
+              "device_id": "dev-local"
+            },
+            {
+              "id": "s-b",
+              "status": "running",
+              "device_id": "dev-local"
+            }
+          ],
+          "messages": [
+            {
+              "id": "m-a",
+              "session_id": "s-a",
+              "author_kind": "user",
+              "consumed_at": null,
+              "created_at": "2026-11-13T10:00:05.000Z"
+            },
+            {
+              "id": "m-b",
+              "session_id": "s-b",
+              "author_kind": "user",
+              "consumed_at": null,
+              "created_at": "2026-11-13T10:00:01.000Z"
+            }
+          ],
+          "live": [
+            "s-b"
+          ],
+          "refused": {},
+          "expected": [
+            {
+              "sessionId": "s-b",
+              "mode": "send",
+              "messageIds": [
+                "m-b"
+              ]
+            },
+            {
+              "sessionId": "s-a",
+              "mode": "wake",
+              "messageIds": [
+                "m-a"
+              ]
             }
           ]
         }

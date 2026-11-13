@@ -124,4 +124,24 @@ final class ShareTargetsTests: XCTestCase {
             XCTAssertEqual(parsed, expected["kind"] == "agent" ? .agent(id) : .chat(id), name)
         }
     }
+
+    func testReplaysEveryIssueBoardCase() throws {
+        let cases = try XCTUnwrap(try fixture()["issueBoardCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let input = try XCTUnwrap(testCase["input"] as? [String: Any])
+            let boards = try XCTUnwrap(input["boards"] as? [[String: String]])
+            let result = ShareTargets.shareIssueBoards(
+                teamId: input["teamId"] as? String,
+                boards: boards,
+                lastBoardId: input["lastBoardId"] as? String,
+                id: { $0["id"] ?? "" },
+                team: { $0["teamId"] ?? "" }
+            )
+            let expected = try XCTUnwrap(testCase["expected"] as? [String: Any])
+            XCTAssertEqual(result.boards.map { $0["id"] ?? "" }, try XCTUnwrap(expected["boards"] as? [String]), name)
+            XCTAssertEqual(result.board?["id"], expected["board"] as? String, name)
+        }
+    }
 }

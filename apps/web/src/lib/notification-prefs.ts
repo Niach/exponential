@@ -8,6 +8,7 @@ import { and, eq, inArray } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { userNotificationPrefs } from "@/db/schema"
 import type { NotificationType } from "@/lib/domain"
+import type { SourcePrefs } from "@exp/domain-contract/notification-delivery"
 import type {
   DigestCadence,
   EmailPrefsLike,
@@ -19,6 +20,8 @@ export interface EmailPrefs extends EmailPrefsLike {
   unsubscribeToken: string
   // EXP-801: may OTHER members' agents message this user over MCP?
   allowAgentMessages: boolean
+  // #EXP-1815: the session-source switches (notification-delivery.json).
+  sourcePrefs: SourcePrefs
 }
 
 // Mint prefs rows for users that don't have one yet (lazy default + token).
@@ -48,6 +51,7 @@ export async function getOrCreateEmailPrefs(userId: string): Promise<EmailPrefs>
     digestHour: row.digestHour,
     unsubscribeToken: row.unsubscribeToken,
     allowAgentMessages: row.allowAgentMessages,
+    sourcePrefs: row.sourcePrefs,
   }
 }
 
@@ -59,6 +63,7 @@ export async function updateEmailPrefs(
     digest?: DigestCadence
     digestHour?: number
     allowAgentMessages?: boolean
+    sourcePrefs?: SourcePrefs
   }
 ): Promise<EmailPrefs> {
   await ensurePrefsRows([userId])
@@ -108,6 +113,7 @@ export async function getEmailPrefsMap(
         digestHour: row.digestHour,
         unsubscribeToken: row.unsubscribeToken,
         allowAgentMessages: row.allowAgentMessages,
+        sourcePrefs: row.sourcePrefs,
       },
     ])
   )
@@ -148,4 +154,21 @@ export async function getAgentMessageBlocklist(
       )
     )
   return new Set(rows.map((row) => row.userId))
+}
+
+// #EXP-1815: the session-source switches keyed by userId — the session
+// fan-out's gate. READ-ONLY like getTypePrefsMap; a user with no row is
+// absent (all on).
+export async function getSourcePrefsMap(
+  userIds: string[]
+): Promise<Map<string, SourcePrefs>> {
+  if (userIds.length === 0) return new Map()
+  const rows = await db
+    .select({
+      userId: userNotificationPrefs.userId,
+      sourcePrefs: userNotificationPrefs.sourcePrefs,
+    })
+    .from(userNotificationPrefs)
+    .where(inArray(userNotificationPrefs.userId, userIds))
+  return new Map(rows.map((row) => [row.userId, row.sourcePrefs]))
 }

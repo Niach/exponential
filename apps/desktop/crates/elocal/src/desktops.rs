@@ -84,6 +84,23 @@ pub struct DesktopMeta {
     /// drops them. An older sidecar without it reads as an empty trash.
     #[serde(default)]
     pub issue_trash: Vec<TrashedIssue>,
+    /// F21 (#FEED-237): `sessions.send`'s idempotency keys with the message
+    /// each stored (the server's server-only `messages.client_message_id`),
+    /// oldest first, the newest [`CLIENT_MESSAGES_KEPT`] kept.
+    #[serde(default)]
+    pub client_messages: Vec<ClientMessage>,
+}
+
+/// How many `clientMessageId`s a desktop remembers (a retry comes within
+/// minutes or one restart of its send).
+pub const CLIENT_MESSAGES_KEPT: usize = 500;
+
+/// F21: one send's idempotency key and the message it stored.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientMessage {
+    pub client_message_id: String,
+    pub message_id: String,
 }
 
 /// #EXP-1799: one issue in a Local desktop's trash.
@@ -397,7 +414,7 @@ impl LocalDesktop {
         let meta_path = dir.join("desktop.json");
         let fresh = !meta_path.exists();
         let meta: DesktopMeta = if fresh {
-            DesktopMeta { identity: LocalIdentity::for_machine(), device_id: format!("local-{}", &entry.id[..entry.id.len().min(8)]), prompt_bodies: Default::default(), agent_instructions: Default::default(), agent_prompt: String::new(), repositories: Vec::new(), issue_trash: Vec::new() }
+            DesktopMeta { identity: LocalIdentity::for_machine(), device_id: format!("local-{}", &entry.id[..entry.id.len().min(8)]), prompt_bodies: Default::default(), agent_instructions: Default::default(), agent_prompt: String::new(), repositories: Vec::new(), issue_trash: Vec::new(), client_messages: Vec::new() }
         } else {
             let text = std::fs::read_to_string(&meta_path).map_err(|e| e.to_string())?;
             serde_json::from_str(&text).map_err(|e| format!("desktop.json: {e}"))?

@@ -396,6 +396,12 @@ fun ChatConversation(
     chat: TranscriptGrouping.Chat? = null,
     /** #EXP-1736: the viewer (their own bubbles sit right). */
     viewerId: String? = null,
+    /** #FEED-237: an own row's delivery mark (message-delivery.json); null =
+     *  from the row (queued = the clock, else two checks). */
+    deliveryState: ((SessionTree.SessionChatRow.MessageRow) -> com.exponential.app.domain.MessageDelivery.State?)? = null,
+    /** A specimen showing the transcript's head: opens at the top, no
+     *  follow and no jump button. */
+    startAtTop: Boolean = false,
 ) {
     // #EXP-1464 (chat-row-action.json): the expanded session rows (by row
     // id) and the sessions the viewer answered from one (client-held).
@@ -417,7 +423,7 @@ fun ChatConversation(
     // and follows new rows while the reader sits within `followSlack` of the
     // bottom; a drag further up stops following and shows THE jump-to-bottom
     // button. Only user drags flip follow-mode.
-    var follow by rememberSaveable(rootId) { mutableStateOf(true) }
+    var follow by rememberSaveable(rootId) { mutableStateOf(!startAtTop) }
     val followSlackPx = with(LocalDensity.current) { Chats.Transcript.FOLLOW_SLACK.dp.toPx() }
     val jumpScope = rememberCoroutineScope()
     // chats.json WINDOW (#EXP-1380, review of #1218: `windowCases`): the
@@ -552,6 +558,13 @@ fun ChatConversation(
                                 time = rowMeta?.time,
                                 queued = row.queued,
                                 onUnqueue = if (row.queued && canUnqueue(row)) ({ onUnqueue(row.id) }) else null,
+                                // #FEED-237: the viewer's bubble carries its
+                                // delivery mark, never a `queued` caption.
+                                status = deliveryState?.invoke(row) ?: if (row.queued) {
+                                    com.exponential.app.domain.MessageDelivery.State.Sending
+                                } else {
+                                    com.exponential.app.domain.MessageDelivery.State.Read
+                                },
                             )
                             TranscriptGrouping.Side.Other -> {
                                 val link = sender?.link
@@ -691,7 +704,7 @@ fun ChatConversation(
             }
         }
         JumpToBottomButton(
-            visible = !follow && shown.isNotEmpty(),
+            visible = !follow && !startAtTop && shown.isNotEmpty(),
             // #EXP-1383 (owner 2026-10-24: "exactly as in sessions"): the run
             // view's tap — animate to the newest row (the pinned window still
             // ends on it), finish on the true end and resume following; the

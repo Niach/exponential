@@ -75,6 +75,9 @@ import com.exponential.app.domain.SettingsNav
 import com.exponential.app.data.electric.SyncHealth
 import androidx.browser.customtabs.CustomTabsIntent
 import com.exponential.app.data.push.DeepLinkBus
+import com.exponential.app.data.push.InAppNotifications
+import com.exponential.app.domain.NotificationDelivery
+import com.exponential.app.domain.ToastAction
 import com.exponential.app.data.push.PushDeepLinks
 import com.exponential.app.domain.InboxRoute
 import com.exponential.app.domain.AppShortcuts
@@ -205,6 +208,21 @@ fun AppNavHost() {
     // ToastHost at the top (below the status bar), where no bottom sheet,
     // nav bar or keyboard ever covers it.
     val toaster = remember { Toaster() }
+    // #EXP-1815: a push that lands while the app is up is THE toast (kind
+    // info, its title and body, `Open` = the push tap's route); FcmService
+    // posts nothing to the shade then.
+    val inAppNotifications = applicationInAppNotifications()
+    LaunchedEffect(inAppNotifications, toaster) {
+        inAppNotifications.toasts.collect { push ->
+            toaster.info(
+                push.title,
+                push.body,
+                ToastAction(NotificationDelivery.Copy.TOAST_ACTION) {
+                    runCatching { context.startActivity(push.open) }
+                },
+            )
+        }
+    }
 
     // EXP-980 / #EXP-1456: a session push tap or inbox row (a wall, an
     // agent's decision, an @mention) opens where that session lives
@@ -542,6 +560,13 @@ private fun AuthenticatedNav(
     // and settings screens get the full height back.
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+    // #EXP-1815: the screen on top's thread, for FcmService's presentation.
+    val inAppNotifications = applicationInAppNotifications()
+    DisposableEffect(backStackEntry) {
+        inAppNotifications.setViewing(ViewingThreads.of(currentRoute) { backStackEntry?.arguments?.getString(it) })
+        onDispose { }
+    }
+    DisposableEffect(Unit) { onDispose { inAppNotifications.setViewing(null) } }
     // EXP-1210: the tab whose stack is up — a detail pushed inside a tab
     // still lights that tab.
     val currentTab = remember(backStackEntry) { navController.currentTab() }
@@ -863,6 +888,7 @@ private fun AuthenticatedNav(
                 onOpenTeamSettings = { section -> navController.navigate(Routes.teamSettings(section)) },
                 onOpenSyncDiagnostics = { navController.navigate("sync-diagnostics") },
                 onOpenAbout = { navController.navigate("about") },
+                onOpenNotifications = { navController.navigate(Routes.NOTIFICATION_SETTINGS) },
                 onAddServer = { navController.navigate("add-server") },
                 onOpenAgentHome = { navController.selectTab(MainTabs.AGENT, tabSwitch) },
             )
@@ -919,10 +945,14 @@ private fun AuthenticatedNav(
                 onOpenTeamSettings = { section -> navController.navigate(Routes.teamSettings(section)) },
                 onOpenSyncDiagnostics = { navController.navigate("sync-diagnostics") },
                 onOpenAbout = { navController.navigate("about") },
+                onOpenNotifications = { navController.navigate(Routes.NOTIFICATION_SETTINGS) },
                 onAddServer = { navController.navigate("add-server") },
                 onBack = { navController.popBackStack() },
                 onOpenAgentHome = { navController.selectTab(MainTabs.AGENT, tabSwitch) },
             )
+        }
+        composable(Routes.NOTIFICATION_SETTINGS) {
+            com.exponential.app.ui.settings.NotificationSettingsScreen(onBack = { navController.popBackStack() })
         }
         composable("sync-diagnostics") {
             SyncDiagnosticsScreen(onBack = { navController.popBackStack() })
@@ -1675,6 +1705,18 @@ private fun OfflineBanner(
 private fun applicationDeepLinkBus(): DeepLinkBus {
     val app = LocalContext.current.applicationContext as ExponentialApp
     return EntryPointAccessors.fromApplication(app, DeepLinkEntryPoint::class.java).deepLinkBus()
+}
+
+@Composable
+private fun applicationInAppNotifications(): InAppNotifications {
+    val app = LocalContext.current.applicationContext as ExponentialApp
+    return EntryPointAccessors.fromApplication(app, InAppNotificationsEntryPoint::class.java).inAppNotifications()
+}
+
+@dagger.hilt.EntryPoint
+@dagger.hilt.InstallIn(dagger.hilt.components.SingletonComponent::class)
+private interface InAppNotificationsEntryPoint {
+    fun inAppNotifications(): InAppNotifications
 }
 
 @Composable

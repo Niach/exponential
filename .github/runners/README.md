@@ -60,13 +60,14 @@ On the Mint, an IDE frame that needed 180 ms of CPU took 2.1 s at load average
 25–50. The Mint has 32 cores. Most of that load is background work, ranked
 so the desktop always wins:
 
-| What | Where | Priority |
-| --- | --- | --- |
-| CI runners | `expci.slice` (root level) | `CPUWeight=idle`, `IOWeight=10`, 12 + 12 cores max |
-| Agent runs + their builds | `user@1000.service/app.slice/run-*.scope` | `CPUWeight=idle` + nice 10 (the desktop and CLI set both from the release after PERF-4, `crates/eagent` `run_scope`; `run-scope-background.conf` until then) |
-| Lane builds (`scripts/lanes/lane.sh`) | inside the agent's scope | nice 19, `ionice -c 3` |
-| Cinnamon session (desktop app, browser) | `session-<id>.scope` | `CPUWeight=1000` (`session-interactive.conf`) |
-| Everything else in user@ (games, flatpaks, pipewire) | `user@1000.service` | default 100; pipewire's RT threads ignore weights |
+| What | Where | Priority | Memory |
+| --- | --- | --- | --- |
+| CI runners | `expci.slice` (root level) | `CPUWeight=idle`, `IOWeight=10`, 12 + 12 cores max | `MemoryHigh=16G`, `MemoryMax=20G`; 12 GB per container, no swap; `oom_score_adj` 1000 |
+| Agent runs + their builds, lane builds, emulators | `user@1000.service/expbg.slice/run-*.scope` (`run-scope-background.conf` moves every `systemd-run --user --scope` there) | `CPUWeight=idle` + nice 10; lanes nice 19, `ionice -c 3` | the slice: `MemoryHigh=16G`, `MemoryMax=20G` |
+| mint-ci daemon (eCode CI) + its jobs | `user@1000.service/expbg.slice/exponential-ci-daemon.service` | idle, nice 19 | `MemoryMax=10G` inside the slice; `OOMScoreAdjust=1000` |
+| Cinnamon session (desktop app, browser, the Steam client) | `session-<id>.scope` | `CPUWeight=1000` (`session-interactive.conf`) | uncapped |
+| Steam games (Dota 2 = `app-steam-app570-*`) | `user@1000.service/app.slice/app-steam-app*.scope` (Steam makes them; not movable) | `CPUWeight=1000` against app.slice (`app-steam-game.conf`); idle background never wins a core | uncapped |
+| Everything else in user@ (flatpaks, pipewire) | `user@1000.service` | default 100; pipewire's RT threads ignore weights | uncapped |
 
 The measurements (`/proc/<pid>/task/<pid>/schedstat`, a probe burning 180 ms of
 CPU every 50 ms, 48 busy threads as the "build"):
@@ -88,6 +89,56 @@ CPU every 50 ms, 48 busy threads as the "build"):
 No CPU quota beyond `RUNNER_CPUS`: an idle-weight group gives a core back the
 moment anything else wants it. A quota would only slow CI while the desktop
 sits idle.
+
+#### Memory and games (2026-11-13)
+
+The Mint hard-reset with no log twice (2026-11-10, 2026-11-13 12:45) while
+Dota 2 ran next to CI. It has 62 GB of RAM and 2 GB of swap, no zram, and had
+no memory cap anywhere. Measured: both runners peaked at 27 GB together
+(18 + 16), one agent run with gradle daemons and an Android emulator held 23 GB
+(14 GB anon), Dota 6–15 GB, the Cinnamon session 5.5–8 GB. Together that is
+more than the machine has. Now the background can never take more than 40 GB
+(expci.slice 20 + expbg.slice 20), so the desktop and a game always keep
+≥ 22 GB. At `MemoryHigh` a build gets slower (the kernel reclaims and
+throttles it); at `MemoryMax` the kernel OOM-kills inside that slice only, so
+a gradle or link step fails rather than the machine. systemd-oomd kills a
+background slice's job after 20 s at ≥ 80% memory pressure, and never watches
+`user@` as a whole (`oomd-user-service-defaults.conf` replaces Ubuntu's
+default, which could pick Dota). IO weights do nothing here: the NVMe drives use
+the `none` scheduler and user@ does not delegate `io`, so `IOWeight` is
+documentation only.
+
+While a game runs, CI drops to ONE Docker runner instead of stopping. Every
+`app-steam-*.scope` pulls in `exp-gaming.service`. Its `gaming-ci.sh hold`
+stops one runner, runner-2 first, as soon as that runner is between jobs, never
+mid-job. When the last game scope ends, systemd stops the unit and
+`gaming-ci.sh release` starts the runner again. A stopped runner is offline, so
+`pick-runner.yml` overflows to GitHub-hosted sooner. The mint-ci daemon is held
+to one job by its device runner settings. Log:
+`~/.local/state/exponential/gaming-ci.log`.
+
+```bash
+bash .github/runners/linux/install-desktop-first.sh   # user half, no root; rerun to upgrade; --uninstall
+systemctl --user restart exponential-ci-daemon        # between jobs: moves it into expbg.slice
+```
+
+The root half, once (fish-compatible). The two files are copied to `~/exp-runners/` first:
+
+```bash
+sudo sh -c 'install -m644 /home/niach/exp-runners/expci.slice /etc/systemd/system/expci.slice && mkdir -p /etc/systemd/system/user@.service.d && install -m644 /home/niach/exp-runners/oomd-user-service-defaults.conf /etc/systemd/system/user@.service.d/10-oomd-user-service-defaults.conf && apt-get install -y systemd-oomd && systemctl daemon-reload && systemctl enable --now systemd-oomd.service' && systemctl --user daemon-reload
+# verify: 17179869184 / 21474836480, then expci.slice and expbg.slice under "Memory Pressure Monitored CGroups"
+cat /sys/fs/cgroup/expci.slice/memory.high /sys/fs/cgroup/expci.slice/memory.max; oomctl | grep -E 'Path: .*(expci|expbg)'
+```
+
+Recreating a runner (compose changes) also drops its job. Check
+`docker top <c> -eo pid,comm | grep Runner.Worker` first (`-eo comm` alone
+errors) or use `recreate-when-idle.sh`.
+
+A hard reset with nothing in the journal can also be the hardware: run
+memtest86+ overnight from the GRUB menu (Esc at boot on UEFI, Shift on BIOS; `sudo apt install memtest86+` if it is missing), check
+`sudo dmesg | grep -iE 'edac|mce|hardware error'` for corrected memory errors,
+and if XMP/EXPO is on, try one boot at JEDEC speed or one step lower: 64 GB at the XMP/EXPO rating is often only
+marginally stable.
 
 Overflow: when the exp-linux jobs already waiting exceed two per online
 runner, `pick-runner.yml` sends the run to GitHub-hosted instead (input

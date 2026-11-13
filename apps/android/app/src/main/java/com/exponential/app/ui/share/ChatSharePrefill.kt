@@ -9,7 +9,9 @@ import com.exponential.app.domain.STEER_ATTACHMENT_REJECTED
 import com.exponential.app.ui.agent.ComposerPick
 import com.exponential.app.ui.agent.readComposerPick
 import com.exponential.app.ui.markdown.MarkdownMediaUtils
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @dagger.hilt.EntryPoint
@@ -31,6 +33,19 @@ fun chatShareText(share: DeepLinkBus.Target.ShareContent): String = ShareTargets
     url = null,
     hasImages = share.imageUris.isNotEmpty() || share.files.isNotEmpty(),
 )
+
+/**
+ * Takes the waiting share once ([take]) and runs its [deliver] in [scope],
+ * the SCREEN's scope, never the effect that noticed it: taking it nulls
+ * `pendingChatShare`, which restarts an effect keyed on it, and a delivery
+ * running there was cancelled at its first suspension (the first image's
+ * read), so the text landed and every attachment was dropped.
+ */
+fun takeChatShare(scope: CoroutineScope, take: () -> Boolean, deliver: suspend () -> Unit): Boolean {
+    if (!take()) return false
+    scope.launch { deliver() }
+    return true
+}
 
 /**
  * The prefill ([ChatShare]): the text, then each image and file as an ordinary

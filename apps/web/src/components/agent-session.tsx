@@ -100,6 +100,7 @@ import {
   TranscriptRow,
   transcriptSenderName,
   type WorkCardLaneTarget,
+  type MenuEntry,
 } from "@exp/ui"
 import {
   feedInput,
@@ -137,9 +138,6 @@ import {
   nestedWorkflowId,
   orphanWorkflowIds,
   pendingAnswerable,
-  QUEUE_REMOVE_LABEL,
-  QUEUE_STRIP_TITLE,
-  type QueuedMessage,
   rateLimitBanner,
   rateLimitDetail,
   rowClass,
@@ -173,7 +171,21 @@ import {
 import { anchorSessionCards, sessionCards } from "@exp/domain-contract/ask-dock"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { loadEarlierMessages, useSessionCard, useSessionMessages } from "@/hooks/use-session-tree"
-import { useAnswerMessage, useUnqueueMessage } from "@/hooks/use-answer-message"
+import { unqueueMessage, useAnswerMessage, useUnqueueMessage } from "@/hooks/use-answer-message"
+import {
+  deleteOutboxEntry,
+  retryOutboxEntry,
+  useSessionOutbox,
+  type WebOutboxEntry,
+} from "@/hooks/use-session-outbox"
+import { sessionOwnHandoff } from "@/lib/own-handoff"
+import {
+  MESSAGE_DELIVERY_COPY,
+  bubbleActions,
+  deliveryState,
+  type DeliveryState,
+  type OutboxRow,
+} from "@exp/domain-contract/message-delivery"
 import { useSession } from "@/hooks/use-session"
 import { useOpenPlan } from "@/hooks/use-open-plan"
 import { renderChatText } from "@/components/chat/chat-markdown"
@@ -219,7 +231,13 @@ import {
   type SessionChatRow,
 } from "@/lib/session-tree"
 import { cn } from "@/lib/utils"
-import { STEER_ENET_NO_FEED_IDLE, steerNoFeedAway, steerNoFeedState } from "@exp/domain-contract/steer-enet"
+import {
+  STEER_ENET_NO_FEED_IDLE,
+  STEER_NO_FEED_INPUTS_MAX,
+  steerNoFeedAway,
+  steerNoFeedInputs,
+  steerNoFeedState,
+} from "@exp/domain-contract/steer-enet"
 
 // EXP-317: the session glyphs the native clients also draw resolve through
 // the shared registry (packages/icons/icons.json).
@@ -234,8 +252,6 @@ const UiRefreshIcon = conceptIcon(`ui-refresh`)
 const UiWarningIcon = conceptIcon(`ui-warning`)
 const TraceChevronIcon = conceptIcon(`trace-chevron`)
 const TraceToolIcon = conceptIcon(`trace-tool`)
-const UiQueuedIcon = conceptIcon(`ui-queued`)
-const UiCloseIcon = conceptIcon(`ui-close`)
 /** EXP-1321: the Queue's test ids, the fixture's (×4). */
 const TASK_QUEUE_TEST_IDS = taskQueueSpec.testIds
 // EXP-529: multi-select options carry an explicit checkbox state (Android
@@ -375,9 +391,10 @@ export function AgentSessionView({
   const compactingNow = compacting !== null
   useEffect(() => store.connect(), [store])
   // The synced row is the truth for "still running" inside the redial loops.
+  // steer-enet.json ROW WAKE: `busy` + `deviceId` cut a starting backoff short.
   useEffect(
-    () => store.noteSessionStatus(session.status),
-    [store, session.status]
+    () => store.noteSessionStatus(session.status, { busy: session.busy, deviceId: session.deviceId }),
+    [store, session.status, session.busy, session.deviceId]
   )
 
   /** EXP-356: the selected conversation tab — `null` is the main agent; a
@@ -448,12 +465,65 @@ export function AgentSessionView({
   const unqueue = useUnqueueMessage()
   const { data: auth } = useSession()
   const viewerId = auth?.user?.id ?? null
+  // steer-enet.json SENT INPUTS: the session's consumed person inputs (the
+  // newest few, oldest first), drawn above a no-feed placeholder.
+  const sentInputIds = useMemo(() => noFeedSentIds(sessionMessages), [sessionMessages])
+  // #FEED-237 (message-delivery.json HANDOFF): a consumed own row keeps its
+  // bubble (reading `read`) until the live transcript's echo of it arrives,
+  // so it never vanishes in between; re-evaluated when the rows or the feed
+  // change, and once `handoffMaxMs` after the newest held row's consumedAt.
+  const [handoffTick, setHandoffTick] = useState(0)
+  const handoffInput = useMemo(
+    () =>
+      sessionMessages.map((message) => {
+        const row = toTreeMessage(message)
+        return {
+          id: row.id,
+          authorKind: row.authorKind,
+          authorId: row.authorId ?? null,
+          body: row.body,
+          createdAt: row.createdAt,
+          consumedAt: row.consumedAt ?? null,
+          card: row.card,
+        }
+      }),
+    [sessionMessages]
+  )
+  const handoff = useMemo(
+    () => sessionOwnHandoff({ viewerId, now: Date.now(), feedEmpty: feed.length === 0, rows: handoffInput, feed }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the tick re-reads the clock
+    [viewerId, feed, handoffInput, handoffTick]
+  )
+  useEffect(() => {
+    if (handoff.expiresAt === null) return
+    const timer = window.setTimeout(() => setHandoffTick((tick) => tick + 1), Math.max(0, handoff.expiresAt - Date.now()) + 1)
+    return () => window.clearTimeout(timer)
+  }, [handoff.expiresAt])
+  const extraIds = useMemo(
+    () => (handoff.ids.size === 0 ? sentInputIds : new Set([...sentInputIds, ...handoff.ids])),
+    [sentInputIds, handoff.ids]
+  )
   const chatRows = useMemo(
-    () => chatExtraRows(session, sessionMessages, tree ?? NO_TREE, issues ?? NO_ISSUES),
-    [session, sessionMessages, tree, issues]
+    () => chatExtraRows(session, sessionMessages, tree ?? NO_TREE, issues ?? NO_ISSUES, extraIds),
+    [session, sessionMessages, tree, issues, extraIds]
   )
   const suggestionRows = useMemo(() => chatRows.filter((row) => row.type === `suggestions`), [chatRows])
-  const queuedRows = useMemo(() => chatRows.filter((row) => row.type === `message`), [chatRows])
+  // HANDOFF: the held rows sit after the transcript, before the not-consumed
+  // ones, oldest first; a message id draws once (never also as SENT INPUTS:
+  // nothing is held while the feed is empty).
+  const handoffRows = useMemo(
+    () =>
+      handoff.order.flatMap((id) => {
+        const row = chatRows.find((candidate) => candidate.id === id && (candidate.type === `message` || candidate.type === `locked`))
+        return row ? [row] : []
+      }),
+    [chatRows, handoff.order]
+  )
+  const queuedRows = useMemo(
+    () => chatRows.filter((row) => row.type === `message` && !sentInputIds.has(row.id) && !handoff.ids.has(row.id)),
+    [chatRows, sentInputIds, handoff.ids]
+  )
+  const sentRows = useMemo(() => chatRows.filter((row) => sentInputIds.has(row.id)), [chatRows, sentInputIds])
   // #EXP-1756: a queued bubble's `HH:mm`, off its synced row.
   const messageTime = useCallback(
     (row: { id: string }) => {
@@ -462,6 +532,37 @@ export function AgentSessionView({
     },
     [sessionMessages]
   )
+  // #FEED-237 (message-delivery.json): the viewer's own row's mark off its
+  // synced lifecycle (the device's `delivered_at`, `consumed_at`).
+  const deliveryOf = useCallback(
+    (row: { id: string }): DeliveryState | null => {
+      const message = sessionMessages.find((candidate) => candidate.id === row.id)
+      if (!message) return null
+      return deliveryState({
+        local: null,
+        stored: true,
+        deliveredAt: message.deliveredAt ? String(message.deliveredAt) : null,
+        consumedAt: message.consumedAt ? String(message.consumedAt) : null,
+        echoed: false,
+      })
+    },
+    [sessionMessages]
+  )
+  // #FEED-237: the composer's outbox, minus what a synced row replaced.
+  const outboxRows = useMemo<OutboxRow[]>(
+    () =>
+      sessionMessages
+        .filter((message) => message.authorKind === `user` && message.authorId === viewerId && !message.card)
+        .map((message) => ({
+          id: message.id,
+          authorKind: message.authorKind,
+          authorId: message.authorId ?? null,
+          body: toTreeMessage(message).body,
+          createdAt: new Date(message.createdAt).toISOString(),
+        })),
+    [sessionMessages, viewerId]
+  )
+  const outbox = useSessionOutbox(session.id, viewerId, outboxRows)
   const dockedIds = useMemo(
     () => (suggestions ? chatDockedIds(suggestionRows, noSessionName) : NO_DOCKED),
     [suggestions, suggestionRows]
@@ -695,7 +796,10 @@ export function AgentSessionView({
    *  "Starting on <device>"; there is no status row over the feed, the live
    *  row at its bottom is the working signal (needs-you = the Dock's card).
    *  S-3: an offline host looks like any idle session (no Paused state). */
-  const starting = !awaitingInput && !working && session.status === `queued`
+  //  steer-enet.json SENT INPUTS: a QUEUED row with NO FEED reads this,
+  //  never the idle "No live transcript" state.
+  const starting =
+    session.status === `queued` && (phase.kind !== `live` || (!awaitingInput && !working))
   const startingCaption = STARTING_COPY.label.replace(`{device}`, deviceName)
 
   const ownerName =
@@ -870,6 +974,8 @@ export function AgentSessionView({
             }
             fold={!link}
             time={item.at ? userMessageTime(item.at) : null}
+            // #FEED-237: the transcript's echo = processed into the session.
+            status={layout?.side === `other` ? null : `read`}
           />
         )
       }
@@ -962,6 +1068,7 @@ export function AgentSessionView({
   const noFeedIdle =
     feedPlaceholder &&
     phase.kind === `starting` &&
+    session.status !== `queued` &&
     steerNoFeedState({ ended: sessionEnded, busy: Boolean(session.busy) }) === `idle`
   // #EXP-1703 (steer-enet.json A DEVICE THAT IS AWAY): a live row whose host
   // is offline says so at once, never "starting"; a cached feed shows instead.
@@ -986,22 +1093,26 @@ export function AgentSessionView({
   // Dock's) and the viewer's queued messages (a person's FIRST message
   // included) show under any empty-feed placeholder too, same column.
   const chatExtras =
-    suggestionRows.length + queuedRows.length > 0 ? (
+    suggestionRows.length + handoffRows.length + queuedRows.length + outbox.length > 0 ? (
       <div className={TRANSCRIPT_GAP_CLASS.gapBlock} data-testid="session-chat-extras">
         <ChatConversation
-          rows={[...suggestionRows, ...queuedRows]}
+          rows={[...suggestionRows, ...handoffRows, ...queuedRows]}
           renderText={renderChatText}
           attachmentSrc={attachmentUrl}
           chat={{ sessionId: session.id, title: sessionCardModel?.name ?? session.title ?? ``, agentId: session.agentId ?? null }}
           viewerId={viewerId}
           messageTime={messageTime}
           onUnqueue={(rowId) => void unqueue(rowId)}
+          deliveryOf={deliveryOf}
           onOpenSession={onOpenSession}
           suggestions={suggestions}
           docked={dockedIds}
           renderIssueRef={renderIssueRef}
           pending={cardsPending}
         />
+        {outbox.map((entry) => (
+          <OutboxBubble key={entry.clientId} sessionId={session.id} entry={entry} />
+        ))}
       </div>
     ) : null
   // #EXP-1785 (waiting-cards.json NO FEED): a placeholder has no transcript
@@ -1018,6 +1129,7 @@ export function AgentSessionView({
     (feedPlaceholder && (phase.kind === `connecting` || phase.kind === `starting`)) ||
     (feedPlaceholder && live) ||
     (feedPlaceholder && deviceOffline && phase.kind === `ended`)
+  const sentShown = placeholderShown && !sessionEnded && sentRows.length > 0
   /** The transcript STREAMS: a live publisher mid-turn (`TranscriptStreamingContext`). */
   const streaming = live && !sessionEnded && turnState === `started`
 
@@ -1150,6 +1262,22 @@ export function AgentSessionView({
             )}
             style={{ bottom: dockHeight, ...edgeFadeStyle(follow.scrolled) }}
           >
+            {/* steer-enet.json SENT INPUTS: what was sent (the brief the
+                claim consumed included) above the placeholder's copy. */}
+            {sentShown && (
+              <div className={cn(`shrink-0 pt-2`, TRANSCRIPT_COLUMN)} data-testid="transcript-sent-inputs">
+                <ChatConversation
+                  rows={sentRows}
+                  renderText={renderChatText}
+                  attachmentSrc={attachmentUrl}
+                  chat={{ sessionId: session.id, title: sessionCardModel?.name ?? session.title ?? ``, agentId: session.agentId ?? null }}
+                  viewerId={viewerId}
+                  messageTime={messageTime}
+                  onOpenSession={onOpenSession}
+                  renderIssueRef={renderIssueRef}
+                />
+              </div>
+            )}
             {noFeedAway ? (
               <CenteredState>
                 <div data-testid="transcript-device-away">
@@ -1343,18 +1471,56 @@ const NO_TREE: readonly SessionRow[] = []
 const NO_ISSUES: readonly TreeIssue[] = []
 const NO_DOCKED: ReadonlySet<string> = new Set()
 
+/** #FEED-237 (message-delivery.json): an outbox entry = the viewer's own
+ *  bubble with the clock, or the red mark whose menu retries or deletes. */
+function OutboxBubble({ sessionId, entry }: { sessionId: string; entry: WebOutboxEntry }) {
+  const state = deliveryState({
+    local: entry.state,
+    stored: entry.messageId !== null,
+    deliveredAt: null,
+    consumedAt: null,
+    echoed: false,
+  })
+  const actions = bubbleActions({ state, stored: entry.messageId !== null })
+  return (
+    <UserMessageBubble
+      text={entry.text}
+      time={userMessageTime(new Date(entry.createdAt))}
+      status={state}
+      menu={actions.map((action) => ({
+        kind: `item` as const,
+        id: action,
+        label: MESSAGE_DELIVERY_COPY.menu[action],
+        destructive: action !== `retry`,
+        onSelect: () => {
+          if (action === `retry`) retryOutboxEntry(sessionId, entry.clientId)
+          else if (action === `delete`) deleteOutboxEntry(sessionId, entry.clientId)
+          else if (entry.messageId) {
+            const messageId = entry.messageId
+            void unqueueMessage(messageId).then((removed) => {
+              if (removed) deleteOutboxEntry(sessionId, entry.clientId)
+            })
+          }
+        },
+      }))}
+    />
+  )
+}
+
 /** #EXP-1732: the session's suggested-tasks cards and the person's queued
  *  messages (`consumedAt` null) in THE chat row form, oldest first. */
-function chatExtraRows(
+export function chatExtraRows(
   session: SessionRow,
   messages: readonly MessageRowLike[],
   tree: readonly SessionRow[],
-  issues: readonly TreeIssue[]
+  issues: readonly TreeIssue[],
+  sentIds: ReadonlySet<string> = NO_SENT_IDS
 ): SessionChatRow[] {
   const picks = messages.filter(
     (message) =>
       (message.card as { kind?: unknown } | null)?.kind === `suggestions` ||
-      (message.authorKind === `user` && message.consumedAt === null)
+      (message.authorKind === `user` && message.consumedAt === null) ||
+      sentIds.has(message.id)
   )
   if (picks.length === 0) return []
   return buildSessionChat({
@@ -1365,7 +1531,34 @@ function chatExtraRows(
     messages: picks.map(toTreeMessage),
     pullRequests: [],
     now: new Date().toISOString(),
-  }).rows.filter((row) => row.type === `suggestions` || (row.type === `message` && row.queued))
+  }).rows.filter(
+    (row) =>
+      row.type === `suggestions` ||
+      (row.type === `message` && row.queued) ||
+      ((row.type === `message` || row.type === `locked`) && sentIds.has(row.id))
+  )
+}
+
+const NO_SENT_IDS: ReadonlySet<string> = new Set()
+
+/** steer-enet.json SENT INPUTS: the ids of the session's card-less person
+ *  inputs the device consumed, the newest `noFeedInputsMax` (the messages
+ *  are this session's own, `useSessionMessages`). */
+export function noFeedSentIds(
+  messages: readonly MessageRowLike[],
+  max: number = STEER_NO_FEED_INPUTS_MAX
+): ReadonlySet<string> {
+  const ids = steerNoFeedInputs(
+    messages.map((message) => ({
+      id: message.id,
+      authorKind: message.authorKind,
+      card: message.card,
+      consumedAt: message.consumedAt == null ? null : String(message.consumedAt),
+      createdAt: new Date(message.createdAt).toISOString(),
+    })),
+    max
+  ).map((message) => message.id)
+  return ids.length === 0 ? NO_SENT_IDS : new Set(ids)
 }
 const NO_DOCK_SLOTS: SteerDockSlots = { taskList: [], backgroundTasks: [], queue: [], compacting: null, rateLimit: null }
 
@@ -1503,7 +1696,10 @@ export function SessionLiveTail({ session }: { session: SessionRow }) {
     runningWorkflow,
   } = useSyncExternalStore(store.subscribe, store.getSnapshot)
   useEffect(() => store.connect(), [store])
-  useEffect(() => store.noteSessionStatus(session.status), [store, session.status])
+  useEffect(
+    () => store.noteSessionStatus(session.status, { busy: session.busy, deviceId: session.deviceId }),
+    [store, session.status, session.busy, session.deviceId]
+  )
   const live = phase.kind === `live`
   const questionIds = useMemo(() => activeQuestionIds(feed), [feed])
   const working = sessionIsWorking({
@@ -1713,60 +1909,6 @@ function TaskQueueLines({
   })
 }
 
-/** EXP-861: the strip directly below the background one — one line per
- *  message the agent has not read yet (the queue is on the DEVICE; this is
- *  its latest-wins mirror). A held line carries an X that revokes it; a
- *  `sent` one (EXP-873, already with the agent) draws none. Absent when
- *  nothing is queued. The composer is never disabled by it. */
-function QueueStrip({
-  messages,
-  onRemove,
-  plain = false,
-}: {
-  messages: QueuedMessage[]
-  onRemove: (entry: QueuedMessage) => void
-  /** N-12: inside THE Dock's sheet (no column). */
-  plain?: boolean
-}) {
-  if (messages.length === 0) return null
-  return (
-    <div
-      className={plain ? undefined : `py-1.5`}
-      aria-label={QUEUE_STRIP_TITLE}
-      data-testid="session-queue-strip"
-    >
-      {/* EXP-927: the transcript's reading column, like the strip above. */}
-      <div className={cn(plain ? undefined : TRANSCRIPT_COLUMN, `flex flex-col gap-0.5`)}>
-      {messages.map((entry) => (
-        <div
-          key={entry.id}
-          className={cn(
-            `flex min-w-0 items-center gap-1.5 text-muted-foreground`,
-            TRANSCRIPT_TOOL_TEXT
-          )}
-        >
-          <UiQueuedIcon className="size-3 shrink-0" />
-          <span className="min-w-0 flex-1 truncate" title={entry.text}>
-            {entry.text}
-          </span>
-          {entry.sent !== true && (
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              className="shrink-0"
-              aria-label={QUEUE_REMOVE_LABEL}
-              title={QUEUE_REMOVE_LABEL}
-              onClick={() => onRemove(entry)}
-            >
-              <UiCloseIcon className="size-3" />
-            </Button>
-          )}
-        </div>
-      ))}
-      </div>
-    </div>
-  )
-}
 
 /** EXP-916: ONE lane's items — a subagent's fold or a subagent's own
  *  conversation TAB (EXP-1225: a workflow agent's too) — through the same
@@ -2003,6 +2145,8 @@ const UserMessageBubble = memo(function UserMessageBubble({
   relay = null,
   fold = true,
   time = null,
+  status = null,
+  menu,
 }: {
   /** #EXP-1772: a relay's session name above the bubble (its one link). */
   relay?: { name: string; onPress?: () => void } | null
@@ -2015,6 +2159,10 @@ const UserMessageBubble = memo(function UserMessageBubble({
   onPress?: () => void
   /** #EXP-1756: the bubble's `HH:mm` (transcript-grouping.json). */
   time?: string | null
+  /** #FEED-237: the viewer's own bubble's delivery mark. */
+  status?: DeliveryState | null
+  /** #FEED-237: the bubble's menu (an outbox entry's Retry / Delete). */
+  menu?: readonly MenuEntry[]
 }) {
   const { text: body, attachmentIds, files, markers } = parseSteerMessage(text)
   const hasImages = attachmentIds.length > 0
@@ -2035,7 +2183,7 @@ const UserMessageBubble = memo(function UserMessageBubble({
     <>
       {/* #EXP-1736: THE message bubble (EXP-696's neutral glass for the
           viewer's own turn). */}
-      <MessageBubble side={side} author={author} onPress={onPress} relay={relay} time={time}>
+      <MessageBubble side={side} author={author} onPress={onPress} relay={relay} time={time} status={status} menu={menu}>
       <div className={TRANSCRIPT_BODY_TEXT}>
         {/* A height clamp, not `line-clamp`: line clamping needs a plain text
             flow, and a markdown body is a stack of blocks. */}
@@ -2498,7 +2646,8 @@ export function useSessionDock(
   const hintSource = agentHint.source
   const sources = useMemo<DockSource[]>(() => {
     const out: DockSource[] = [
-      { kind: `queued`, messages: queue.map((entry) => ({ id: entry.id, text: entry.text })) },
+      // #FEED-237: no `queued` card: a sent message is its own bubble at
+      // the transcript's bottom (message-delivery.json).
       { kind: `tasks`, sessionName: queueOwner.sessionName, queue: queueOwner.model },
     ]
     if (stateBanner) out.push({ kind: `banner`, ...stateBanner })
@@ -2578,13 +2727,6 @@ export function useSessionDock(
             completedOpen={completedOpen}
             onCompletedOpenChange={setCompletedOpen}
           />
-        </DockSheetBody>
-      )
-    }
-    if (row.kind === `queued`) {
-      return (
-        <DockSheetBody>
-          <QueueStrip messages={queue} onRemove={(entry) => store.unqueue(entry.id)} plain />
         </DockSheetBody>
       )
     }

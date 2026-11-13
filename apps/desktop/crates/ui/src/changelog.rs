@@ -46,6 +46,51 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-13-android-8-notifications-fix",
+    date: "2026-11-13",
+    title: "Notifications work on Android 8",
+    summary: "Android 0.14.136 fixes a crash on Android 8.0 and 8.1 when the first agent notification arrived.",
+    body: r##"- **Android 8.0 and 8.1**: the first notification from an agent no longer crashes the app while it sets up its notification channels."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_279: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-13-phones-notifications-ticks",
+    date: "2026-11-13",
+    title: "Notifications and delivery ticks on your phone",
+    summary: "Android 0.14.135 and iOS 0.14.126: quieter notifications that clear when read elsewhere, delivery ticks on what you send, and new Android sessions stream at once.",
+    body: r##"- **Quieter notifications**: while the app is open a notification shows as a short notice, or not at all when that chat is on screen; reading it on another device clears it from your phone.
+- **Delivery ticks**: a message you send shows a clock until it is sent, then one tick, then two once its session has it.
+- **Android chats**: a session you start from the phone streams right away, images shared from other apps reach the composer, and pasted images no longer end up in session titles."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_278: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-13-share-picked-team",
+    date: "2026-11-13",
+    title: "Shared items land in the team you pick",
+    summary: "Sharing into Exponential on Android or iPhone now files the new issue in the team you picked, on one of its boards. Issue chips have the same spacing on every platform.",
+    body: r##"- **Sharing**: picking a team on the Share to page now drives the whole new issue: that team's boards, its last used board as the default, and its members, labels and statuses.
+- **Issue chips**: the assignee picture and label dots in an issue's chips have the same size and spacing on Android, iPhone, web and desktop."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_277: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-13-quieter-notifications",
+    date: "2026-11-13",
+    title: "Quieter notifications",
+    summary: "While the app is open you get a short notice instead of a system notification, and nothing at all when you are already looking at it. Reading something on one device clears its notification everywhere.",
+    body: r##"- **In the app**: a new notification shows as a toast with Open, or not at all when the chat or issue is already on screen.
+- **Read once, cleared everywhere**: opening a chat or an issue, or marking things read, removes its notifications from your other devices too.
+- **Choose who notifies you**: Settings › Notifications has a switch for your Personal Assistant, one per team agent and one for temporary sessions. They apply to push, desktop and email."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_276: ChangelogEntry = ChangelogEntry {
     id: "2026-11-13-desktop-ci-runner",
     date: "2026-11-13",
     title: "Desktop and CLI run your team's CI",

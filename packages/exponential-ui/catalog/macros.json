@@ -6532,7 +6532,8 @@
                           "cases": {
                             "sending": "ui-clock",
                             "sent": "ui-check",
-                            "read": "ui-read"
+                            "read": "ui-read",
+                            "failed": "ui-error"
                           },
                           "default": "ui-check"
                         }
@@ -6544,7 +6545,8 @@
                           "cases": {
                             "sending": "$string.sending",
                             "sent": "$string.sent",
-                            "read": "$string.read"
+                            "read": "$string.read",
+                            "failed": "$string.notSent"
                           },
                           "default": "$string.sent"
                         }
@@ -9450,6 +9452,47 @@
             }
           }
         ]
+      }
+    },
+    "MessageStatus": {
+      "recipeProps": [
+        "status"
+      ],
+      "root": {
+        "part": "root",
+        "component": "Icon",
+        "props": {
+          "name": {
+            "$map": {
+              "from": "props.status",
+              "cases": {
+                "sending": "ui-clock",
+                "sent": "ui-check",
+                "read": "ui-read",
+                "failed": "ui-error"
+              },
+              "default": "ui-check"
+            }
+          },
+          "size": "sm",
+          "label": {
+            "$map": {
+              "from": "props.status",
+              "cases": {
+                "sending": "$string.sending",
+                "sent": "$string.sent",
+                "read": "$string.read",
+                "failed": "$string.notSent"
+              },
+              "default": "$string.sent"
+            }
+          }
+        },
+        "style": {
+          "width": 14,
+          "height": 14,
+          "flexShrink": 0
+        }
       }
     }
   }

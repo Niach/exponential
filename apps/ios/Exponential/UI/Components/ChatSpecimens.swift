@@ -520,7 +520,9 @@ struct ChatHeaderSpecimens: View {
 /// mark, a child session's report as that session's bubble (`›`), each time
 /// inside bottom-right; the superseded plan card, the agent's inline preview
 /// (THE surface card through the real renderer, its two `reply` presses),
-/// the divider pills.
+/// the divider pills. #FEED-237 (message-delivery.json): the viewer's own
+/// bubbles carry their delivery mark: two checks on the consumed ones, one
+/// check (sent), the clock (sending) and the red mark (failed).
 struct ChatTranscriptSpecimens: View {
     @Environment(AppDependencies.self) private var deps
     @State private var replied: String?
@@ -566,14 +568,22 @@ struct ChatTranscriptSpecimens: View {
         let time: String?
         /// #EXP-1772: an `event` row's line (THE inline marker).
         var marker: String? = nil
+        /// #FEED-237: an own bubble's delivery mark.
+        var status: MessageDelivery.State? = nil
     }
 
     private static let member = UserEntity(
         id: "u2", name: "Dana Reyes", email: "dana@example.com", image: nil, createdAt: "", updatedAt: ""
     )
 
-    private static func message(_ id: String, _ kind: String, author: String? = nil, session: String? = nil, _ text: String, _ time: String) -> Row {
-        Row(item: TranscriptGrouping.Item(id: id, kind: .message, authorKind: kind, authorId: author, authorSessionId: session), text: text, time: time)
+    private static func message(
+        _ id: String, _ kind: String, author: String? = nil, session: String? = nil, _ text: String, _ time: String,
+        status: MessageDelivery.State? = nil
+    ) -> Row {
+        Row(
+            item: TranscriptGrouping.Item(id: id, kind: .message, authorKind: kind, authorId: author, authorSessionId: session),
+            text: text, time: time, status: status
+        )
     }
 
     private static func card(_ id: String) -> Row {
@@ -585,7 +595,12 @@ struct ChatTranscriptSpecimens: View {
     }
 
     private static let rows: [Row] = [
-        message("m1", "user", author: "u1", "Cold start is at 1.4 s on the Pixel 6a. Profile the launch path and cut the sync bootstrap out of it.", "21:02"),
+        message("m1", "user", author: "u1", "Cold start is at 1.4 s on the Pixel 6a. Profile the launch path and cut the sync bootstrap out of it.", "21:02", status: .read),
+        // #FEED-237: the viewer's own bubbles in every delivery state, high
+        // enough to sit in the captured viewport.
+        message("o1", "user", author: "u1", "Use the Pixel 6a numbers as the baseline.", "21:02", status: .sent),
+        message("o2", "user", author: "u1", "And keep the cache behind a flag.", "21:03", status: .sending),
+        message("o3", "user", author: "u1", "Ping me when it's under a second.", "21:03", status: .failed),
         message("m2", "user", author: "u2", "Seeing the same on the Galaxy A54.", "21:04"),
         message("m3", "agent", "Deferred the shape subscribe until after the first frame and added a board snapshot cache.", "21:14"),
         message("m4", "agent", "Here's where the time went:", "21:14"),
@@ -593,7 +608,7 @@ struct ChatTranscriptSpecimens: View {
         message("m5", "agent", session: "c1", "Measured on the Galaxy A54: 760 ms cold, 310 ms warm.", "21:31"),
         card("superseded"),
         card("compact"),
-        message("m6", "user", author: "u1", "Anything new overnight?", "09:02"),
+        message("m6", "user", author: "u1", "Anything new overnight?", "09:02", status: .read),
         message("m7", "agent", "Three reports, all about the iPad sign-in. I linked them to #APP-19.", "09:03"),
         // #EXP-1772: a busy agent chat: a schedule fire above the reply it
         // got, a merge event, a session's relay.
@@ -631,7 +646,10 @@ struct ChatTranscriptSpecimens: View {
     private func rowContent(_ row: Row, layout: TranscriptGrouping.RowLayout?) -> some View {
         if let text = row.text {
             if layout?.side == .own {
-                UserMessageBubble(text: text, context: context, caption: row.time)
+                UserMessageBubble(
+                    text: text, context: context, caption: row.time, status: row.status,
+                    actions: row.status.map { MessageDelivery.bubbleActions(state: $0, stored: $0 != .failed) } ?? []
+                )
             } else {
                 MessageBubble(
                     side: .other,

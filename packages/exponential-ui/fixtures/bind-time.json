@@ -71070,7 +71070,8 @@
                           "cases": {
                             "sending": "ui-clock",
                             "sent": "ui-check",
-                            "read": "ui-read"
+                            "read": "ui-read",
+                            "failed": "ui-error"
                           },
                           "default": "ui-check"
                         }
@@ -71085,7 +71086,8 @@
                           "cases": {
                             "sending": "$string.sending",
                             "sent": "$string.sent",
-                            "read": "$string.read"
+                            "read": "$string.read",
+                            "failed": "$string.notSent"
                           },
                           "default": "$string.sent"
                         }
@@ -105586,6 +105588,152 @@
               ]
             }
           ]
+        }
+      ]
+    },
+    {
+      "name": "MessageStatus/bound:status",
+      "input": {
+        "id": "message_status",
+        "component": "MessageStatus",
+        "props": {
+          "status": {
+            "@path": "/status"
+          }
+        }
+      },
+      "expanded": {
+        "id": "message_status",
+        "component": "Icon",
+        "props": {
+          "name": {
+            "@call": "map",
+            "args": {
+              "value": {
+                "@path": "/status"
+              },
+              "cases": {
+                "sending": "ui-clock",
+                "sent": "ui-check",
+                "read": "ui-read",
+                "failed": "ui-error"
+              },
+              "default": "ui-check"
+            }
+          },
+          "size": "sm",
+          "label": {
+            "@call": "map",
+            "args": {
+              "value": {
+                "@path": "/status"
+              },
+              "cases": {
+                "sending": "$string.sending",
+                "sent": "$string.sent",
+                "read": "$string.read",
+                "failed": "$string.notSent"
+              },
+              "default": "$string.sent"
+            }
+          }
+        },
+        "children": [],
+        "style": {
+          "width": 14,
+          "height": 14,
+          "flexShrink": 0
+        },
+        "recipe": {
+          "macro": "MessageStatus",
+          "part": "root",
+          "props": {
+            "status": {
+              "@path": "/status"
+            }
+          }
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "status": "read"
+          },
+          "bound": {
+            "id": "message_status",
+            "component": "Icon",
+            "props": {
+              "name": "ui-read",
+              "size": "sm",
+              "label": "Read"
+            },
+            "children": [],
+            "style": {
+              "width": 14,
+              "height": 14,
+              "flexShrink": 0
+            },
+            "recipe": {
+              "macro": "MessageStatus",
+              "part": "root",
+              "props": {
+                "status": "read"
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "status": ""
+          },
+          "bound": {
+            "id": "message_status",
+            "component": "Icon",
+            "props": {
+              "name": "ui-check",
+              "size": "sm",
+              "label": "Sent"
+            },
+            "children": [],
+            "style": {
+              "width": 14,
+              "height": 14,
+              "flexShrink": 0
+            },
+            "recipe": {
+              "macro": "MessageStatus",
+              "part": "root",
+              "props": {
+                "status": ""
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "message_status",
+            "component": "Icon",
+            "props": {
+              "name": "ui-check",
+              "size": "sm",
+              "label": "Sent"
+            },
+            "children": [],
+            "style": {
+              "width": 14,
+              "height": 14,
+              "flexShrink": 0
+            },
+            "recipe": {
+              "macro": "MessageStatus",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
         }
       ]
     }

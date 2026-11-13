@@ -46,6 +46,12 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
             // placeholder carries none.
             content.sound = .default
         }
+        // #EXP-1815 (notification-delivery.json THREAD): one chat's (issue's,
+        // device's) notifications stack as one; `notificationId`, `thread`
+        // and `teamId` stay in userInfo for the dismiss push's match.
+        if let thread = content.userInfo[NotificationDelivery.DataKeys.thread] as? String, !thread.isEmpty {
+            content.threadIdentifier = thread
+        }
         // #EXP-1641 (notification-actions.json): the push's own actions, as
         // a category registered for this action set before it is drawn.
         let actions = Self.actions(content.userInfo)

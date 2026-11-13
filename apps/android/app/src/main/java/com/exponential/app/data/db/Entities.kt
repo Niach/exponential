@@ -993,6 +993,31 @@ data class AppRecordOutboxEntity(
     @ColumnInfo(name = "acked_at") val ackedAt: String? = null,
 )
 
+// #FEED-237 (message-delivery.json): the LOCAL session outbox (no shape): a
+// person's message from the press until its synced row takes its place.
+// [state] = `sending` | `failed`; [messageId] = the row the server stored
+// (null until `sessions.send` answers); [attachmentIds] = the uploads that
+// already landed, comma-joined (a resend after a restart carries them);
+// [pendingFiles] (v127) = the picked files not uploaded yet, a JSON list of
+// `OutboxFile` {filename, contentType, path} whose bytes sit under the app's
+// files dir (`outbox/<clientId>/<n>`), so a restart resumes the uploads.
+@Entity(
+    tableName = "outbox",
+    indices = [Index("session_id")],
+)
+data class OutboxEntity(
+    @PrimaryKey @ColumnInfo(name = "client_id") val clientId: String,
+    @ColumnInfo(name = "session_id") val sessionId: String,
+    val text: String,
+    @ColumnInfo(name = "created_at") val createdAt: String,
+    val state: String,
+    @ColumnInfo(name = "message_id") val messageId: String? = null,
+    @ColumnInfo(name = "attachment_ids") val attachmentIds: String? = null,
+    @ColumnInfo(name = "pending_files") val pendingFiles: String? = null,
+) {
+    val attachmentIdList: List<String> get() = attachmentIds?.split(',')?.filter { it.isNotBlank() }.orEmpty()
+}
+
 // NEW-2: a saved prompt (replaces actions): name + curated icon; the body is
 // server-only (tRPC `prompts.get`).
 @Entity(
@@ -1095,6 +1120,9 @@ data class MessageEntity(
     @Serializable(with = JsonAsStringSerializer::class) val attachmentIds: String? = null,
     @ColumnInfo(name = "answered_at") @SerialName("answered_at") @JsonNames("answeredAt") val answeredAt: String? = null,
     @ColumnInfo(name = "consumed_at") @SerialName("consumed_at") @JsonNames("consumedAt") val consumedAt: String? = null,
+    // #FEED-237 ([MIGRATION_125_126], message-delivery.json): the DEVICE
+    // received the pending person message (its one check); NULL = not yet.
+    @ColumnInfo(name = "delivered_at") @SerialName("delivered_at") @JsonNames("deliveredAt") val deliveredAt: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
 ) {

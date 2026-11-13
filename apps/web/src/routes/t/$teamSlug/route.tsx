@@ -1,3 +1,4 @@
+import { useNotificationToasts } from "@/hooks/use-notification-toasts"
 import {
   createFileRoute,
   Outlet,
@@ -160,6 +161,9 @@ function TeamLayout() {
   useKeyHolder(user?.id)
   // #FEED-232: the OS app icon's count (every team's Needs you rows).
   useAppIconBadge(user?.id)
+  // #EXP-1815: a new notification while the app is open = THE toast,
+  // unless this page already shows it (notification-delivery.json).
+  useNotificationToasts(user?.id)
 
   // Linear-style global search shortcut: Cmd/Ctrl+F always opens the app
   // search, unconditionally (EXP-870: the app's one navigation chord).

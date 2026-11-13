@@ -191,7 +191,8 @@ describe(`ChatConversation`, () => {
   it(`renders every row kind and answers in the card`, () => {
     const { onAnswer, onOpenSession } = renderRows()
     expect(screen.getByText(`Do it`)).toBeTruthy()
-    expect(screen.getByText(`queued`)).toBeTruthy()
+    // #FEED-237: no `queued` caption; the viewer's own row wears its mark.
+    expect(screen.queryByText(`queued`)).toBeNull()
     expect(screen.getByText(`On it`)).toBeTruthy()
     expect(screen.getByText(`Linked APP-5`)).toBeTruthy()
     fireEvent.click(screen.getByTestId(`session-card`))
@@ -411,22 +412,21 @@ describe(`ChatConversation`, () => {
     expect(screen.getByText(`Yes, and start with a fresh context`)).toBeTruthy()
   })
 
-  it(`puts the X only on the viewer's own queued row, and its tooltip leaves with it`, async () => {
+  it(`marks only the viewer's own rows and their menu cancels a queued one (#FEED-237)`, async () => {
     const onUnqueue = vi.fn()
     const rows: SessionChatRow[] = [
       { type: `message`, id: `m1`, author: `user`, authorId: `u1`, body: `Mine`, queued: true, authorSessionId: null, xref: null },
       { type: `message`, id: `m3`, author: `user`, authorId: `u2`, body: `Theirs`, queued: true, authorSessionId: null, xref: null },
     ]
     const { rerender } = renderRows(rows, { viewerId: `u1`, onUnqueue })
-    const buttons = screen.getAllByTestId(`chat-unqueue`)
-    expect(buttons).toHaveLength(1)
-    fireEvent.click(buttons[0]!)
-    expect(onUnqueue).toHaveBeenCalledWith(`m1`)
+    const marks = screen.getAllByTestId(`message-status`)
+    expect(marks.map((mark) => mark.getAttribute(`data-state`))).toEqual([`sending`])
     await act(async () => {
-      fireEvent.focus(buttons[0]!)
+      fireEvent.contextMenu(screen.getByText(`Mine`))
     })
-    expect(document.querySelector(`[data-slot="tooltip-content"]`)).not.toBeNull()
-    // The device consumed it: the row flips, the button unmounts.
+    fireEvent.click(await screen.findByText(`Cancel sending`))
+    expect(onUnqueue).toHaveBeenCalledWith(`m1`)
+    // The device consumed it: two checks, no menu.
     rerender(
       <TooltipProvider>
         <ChatConversation
@@ -438,8 +438,8 @@ describe(`ChatConversation`, () => {
         />
       </TooltipProvider>
     )
-    expect(screen.queryByTestId(`chat-unqueue`)).toBeNull()
-    expect(document.querySelector(`[data-slot="tooltip-content"]`)).toBeNull()
+    expect(screen.getAllByTestId(`message-status`).map((mark) => mark.getAttribute(`data-state`))).toEqual([`read`])
+    expect(document.querySelector(`[data-slot="user-message-more"]`)).toBeNull()
   })
 })
 

@@ -126,6 +126,32 @@ fn call_typed<T: serde::de::DeserializeOwned>(
     serde_json::from_value(value).map_err(|e| ApiError::Decode(format!("{name}: {e}")))
 }
 
+/// #EXP-1821: a list op's rows. Outside a session the server answers a view
+/// list op (`devices`, `issues`, `notifications` list, #VAPP-292) with prose
+/// in `content` for the model and the rows in `structuredContent.items`;
+/// every other list (and an older server) answers the JSON rows as the text.
+/// The structured rows win; the text is the fallback.
+pub fn decode_list_result(result: &Value) -> Result<Value, ApiError> {
+    if result["isError"] != true {
+        if let Some(items) = result.get("structuredContent").and_then(|structured| structured.get("items")) {
+            if items.is_array() {
+                return Ok(items.clone());
+            }
+        }
+    }
+    decode_tool_result(result)
+}
+
+/// [`call_typed`] for a list op: the rows via [`decode_list_result`].
+fn call_list<T: serde::de::DeserializeOwned>(
+    trpc: &TrpcClient,
+    name: &str,
+    arguments: &Value,
+) -> Result<Vec<T>, ApiError> {
+    let value = decode_list_result(&call_tool_result(trpc, name, arguments)?)?;
+    serde_json::from_value(value).map_err(|e| ApiError::Decode(format!("{name}: {e}")))
+}
+
 // ---------------------------------------------------------------------------
 // Devices
 // ---------------------------------------------------------------------------
@@ -175,7 +201,7 @@ pub fn devices_list(
     if let Some(team_id) = team_id {
         arguments["teamId"] = Value::String(team_id.to_string());
     }
-    call_typed(trpc, "exponential_devices", &with_op("list", arguments))
+    call_list(trpc, "exponential_devices", &with_op("list", arguments))
 }
 
 // ---------------------------------------------------------------------------
@@ -198,7 +224,7 @@ pub struct RemoteTeam {
 
 /// `exponential_teams_list` — every team the caller belongs to, by name.
 pub fn teams_list(trpc: &TrpcClient) -> Result<Vec<RemoteTeam>, ApiError> {
-    call_typed(trpc, "exponential_teams", &serde_json::json!({ "op": "list", "limit": MAX_PAGE }))
+    call_list(trpc, "exponential_teams", &serde_json::json!({ "op": "list", "limit": MAX_PAGE }))
 }
 
 /// One `exponential_agents {op: "list"}` row (a team agent's
@@ -214,7 +240,7 @@ pub struct RemoteAgent {
 /// `exponential_agents {op: "list"}` — one team's agents (EXP-1657: the
 /// retired `exponential_team_config {op: "agents_list"}`).
 pub fn agents_list(trpc: &TrpcClient, team_id: &str) -> Result<Vec<RemoteAgent>, ApiError> {
-    call_typed(
+    call_list(
         trpc,
         "exponential_agents",
         &serde_json::json!({ "op": "list", "teamId": team_id, "limit": MAX_PAGE }),
@@ -360,7 +386,7 @@ pub fn sessions_list(
     query: &SessionsQuery,
 ) -> Result<Vec<RemoteSession>, ApiError> {
     let arguments = serde_json::to_value(query).map_err(|e| ApiError::Decode(e.to_string()))?;
-    call_typed(trpc, "exponential_sessions", &with_op("list", arguments))
+    call_list(trpc, "exponential_sessions", &with_op("list", arguments))
 }
 
 /// `exponential_sessions_get` — the tree `session_id` belongs to (no
@@ -485,6 +511,9 @@ mod tests {
 
         fn call(&self, _caller: &emcp::Caller, name: &str, arguments: Value) -> Value {
             self.seen.lock().unwrap().push((name.to_string(), arguments));
+            if let Some(raw) = self.text.strip_prefix("RAW ") {
+                return serde_json::from_str(raw).unwrap();
+            }
             if self.text.starts_with("ERR ") {
                 return serde_json::json!({ "content": [{ "type": "text", "text": &self.text[4..] }], "isError": true });
             }
@@ -540,6 +569,44 @@ mod tests {
         assert!(devices[0].online && devices[0].is_default);
         assert_eq!(devices[0].agents, vec!["claude".to_string()]);
         assert_eq!(last(&seen), ("exponential_devices".to_string(), serde_json::json!({"limit": 200, "op": "list"})));
+    }
+
+    /// #EXP-1821: the server's real answer to a CLI `devices list` (prose
+    /// for the model, rows in `structuredContent`), pinned in a fixture the
+    /// web's view-results test regenerates from `compactViewResult`.
+    const DEVICES_LIST_RESULT: &str = include_str!("../fixtures/devices-list-result.json");
+
+    #[test]
+    fn devices_list_reads_the_structured_rows_of_the_real_response() {
+        let fixture: Value = serde_json::from_str(DEVICES_LIST_RESULT).unwrap();
+        let result = &fixture["result"];
+        assert!(result["content"][0]["text"].as_str().unwrap().contains("shown to the person"), "the text is prose");
+        let (client, seen) = fake(&format!("RAW {result}"));
+        let devices = devices_list(&client, None).unwrap();
+        assert_eq!(devices.len(), 2);
+        assert_eq!(devices[0].label, "mint-ci");
+        assert!(devices[0].online && devices[0].is_default);
+        assert_eq!(devices[0].agents, vec!["claude".to_string(), "codex".to_string()]);
+        assert_eq!(devices[1].label, "m5-devops");
+        assert!(!devices[1].online && devices[1].owner.is_some());
+        assert_eq!(devices[1].unauthed_agents, vec!["claude".to_string()]);
+        let (tool, mut arguments) = last(&seen);
+        assert_eq!(tool, "exponential_devices");
+        // The fixture's arguments are what the CLI sends (no team).
+        arguments.as_object_mut().unwrap().retain(|key, _| key != "teamId");
+        assert_eq!(arguments, fixture["arguments"]);
+    }
+
+    #[test]
+    fn a_list_falls_back_to_the_json_text_and_keeps_errors() {
+        // An older server (and every non-view list) answers the rows as text.
+        let text = serde_json::json!({ "content": [{ "type": "text", "text": "[{\"id\":\"t1\"}]" }] });
+        assert_eq!(decode_list_result(&text).unwrap(), serde_json::json!([{ "id": "t1" }]));
+        // A structuredContent that is not a page of rows is ignored.
+        let other = serde_json::json!({ "content": [{ "type": "text", "text": "[]" }], "structuredContent": { "value": 1 } });
+        assert_eq!(decode_list_result(&other).unwrap(), serde_json::json!([]));
+        let error = serde_json::json!({ "isError": true, "content": [{ "type": "text", "text": "Pass teamId" }], "structuredContent": { "items": [] } });
+        assert!(matches!(decode_list_result(&error), Err(ApiError::Http { status: 400, message }) if message == "Pass teamId"));
     }
 
     #[test]
