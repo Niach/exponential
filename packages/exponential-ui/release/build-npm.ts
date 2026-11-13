@@ -49,6 +49,7 @@ export const ENTRIES: Record<string, Record<string, string>> = {
     // VAPP-189: the records evaluator alone (a server broker needs no router).
     "host/query": `src/host/query.ts`,
     web: `src/web/index.ts`,
+    "web/motion": `src/web/motion.ts`,
     "web/primitives": `src/web/primitives/index.ts`,
   },
   "@exponential_app/eui-react": { index: `src/index.ts`, primitives: `src/primitives/index.ts` },
