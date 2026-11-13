@@ -34,7 +34,7 @@ CONTENTS
 1. Open-source components
 ==============================================================================
 
-1227 third-party components are distributed as part of this build. They are
+1228 third-party components are distributed as part of this build. They are
 grouped below by the licence text that applies to them; each group reproduces
 that text once, in full, and lists every component it covers together with
 that component's own copyright notice.
@@ -48,7 +48,7 @@ section for the policy.
 MIT
 ------------------------------------------------------------------------------
 
-Applies to the following 130 components:
+Applies to the following 131 components:
 
   accesskit 0.24.1
     MIT elected from `MIT OR Apache-2.0`
@@ -251,6 +251,8 @@ Applies to the following 130 components:
   tree-sitter-zig 1.1.2
   xim-ctext 0.3.0  [x86_64-unknown-linux-gnu]
   xim-parser 0.2.2  [x86_64-unknown-linux-gnu]
+  yaml-rust2 0.13.0
+    MIT elected from `MIT OR Apache-2.0`
   zune-core 0.4.12
     MIT elected from `MIT OR Apache-2.0 OR Zlib`
   zune-inflate 0.2.54
@@ -25857,6 +25859,8 @@ Elections made in this build
   xkeysym 0.2.1
     MIT elected from `MIT OR Apache-2.0 OR Zlib`
   xml5ever 0.18.1
+    MIT elected from `MIT OR Apache-2.0`
+  yaml-rust2 0.13.0
     MIT elected from `MIT OR Apache-2.0`
   yazi 0.2.1
     MIT elected from `Apache-2.0 OR MIT`

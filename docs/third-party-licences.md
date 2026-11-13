@@ -407,6 +407,16 @@ it because the collector resolves the workspace with `--all-features` (what
 cargo-deny audits). `tests/dependency_gate.rs` pins the gix feature set:
 widening it needs a size note here.
 
+### Code: yaml-rust2 in the `ecode` crate (EXP-1617, 2026-11-13)
+
+`ecode`'s feature `workflows` reads GitHub workflow YAML text on a device
+(a host without a server, e.g. Rerusted) with `yaml-rust2` 0.13 (Ethiraric,
+MIT OR Apache-2.0; MIT elected, like the rest of the inventory). Its own
+dependencies were already in the tree, so the lockfile gains this one crate.
+The inventory (`collect:rust`) and the NOTICES carry it; no app crate turns the
+feature on today. The server parses the same text with the `yaml` npm package
+(ISC), already in the web app's inventory.
+
 ### genUI: the conformance fonts (round 2, 2026-10-08)
 
 `packages/exponential-ui/conformance/fonts/` holds the fonts the conformance

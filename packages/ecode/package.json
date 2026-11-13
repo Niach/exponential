@@ -19,9 +19,13 @@
     "./runner": "./src/runner.ts",
     "./remote": "./src/remote.ts",
     "./workflow": "./src/workflow.ts",
+    "./workflow-text": "./src/workflow-text.ts",
     "./replay": "./src/replay.ts",
     "./contract": "./contract.json",
     "./fixtures/*": "./fixtures/*"
+  },
+  "dependencies": {
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@types/bun": "latest",
