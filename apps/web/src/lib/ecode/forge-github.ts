@@ -444,6 +444,16 @@ export const githubForge: Forge & {
     return data.encoding === `base64` ? Buffer.from(data.content, `base64`).toString(`utf8`) : data.content
   },
 
+  async listFiles(repo, dir, ref) {
+    const dirPath = dir.split(`/`).map(encodeURIComponent).join(`/`)
+    const { res } = await call(repo, `/repos/${repo.fullName}/contents/${dirPath}?ref=${encodeURIComponent(ref)}`)
+    if (res.status === 404) return null
+    if (!res.ok) throw new Error(`GitHub returned ${res.status} listing ${repo.fullName}:${dir}@${ref}: ${await githubErrorMessage(res)}`)
+    const data = (await res.json()) as unknown
+    if (!Array.isArray(data)) return null
+    return data.flatMap((entry: { type?: string; name?: string }) => (entry.type === `file` && entry.name ? [entry.name] : []))
+  },
+
   async reportStatus(repo, sha, status) {
     const { res } = await call(repo, `/repos/${repo.fullName}/statuses/${encodeURIComponent(sha)}`, {
       method: `POST`,

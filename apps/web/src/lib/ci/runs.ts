@@ -23,12 +23,14 @@ import {
   PIPELINE_FILE,
   RUNNER_LOST_MS,
   planPipeline,
+  readWorkflow,
   schedule,
   validatePipeline,
   type PlannedJob,
   type RunnerState,
   type Trigger,
 } from "@exp/ecode"
+import { parse as parseYaml } from "yaml"
 import { db } from "@/db/connection"
 import {
   ciJobs,
@@ -154,10 +156,82 @@ async function nextRunNumber(tx: Tx, repositoryId: string): Promise<number> {
 /** Plan and queue a run. Reads the pipeline file at `sha` through the forge;
  *  a file that does not validate is a FAILED run naming its errors (a
  *  `pipeline` check), never a silent no-op. */
+/** One pipeline to plan: a parsed file, or why there is none to plan. */
+interface PipelineSource {
+  /** The run's name when the file has none (a workflow's file name). */
+  fallbackName: string
+  file?: unknown
+  /** Reading or converting failed: the run fails with these lines. */
+  failure?: string[]
+}
+
+const WORKFLOW_DIR = `.github/workflows`
+
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text)
+  } catch (err) {
+    return { __unparsable: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/** What to plan at a commit: `.exponential/ci.json`, else (an ecode repo
+ *  without one) every GitHub workflow in `.github/workflows` through the
+ *  workflow reader (packages/ecode fixtures/workflow.json). A read that
+ *  fails (the forge, no device for the job) is a source that FAILS (#EXP-1807):
+ *  a push never plans silently. [] = no pipeline at all. */
+async function pipelineSources(repo: RepoRow, sha: string): Promise<PipelineSource[]> {
+  try {
+    const forge = await forgeFor(forgeRepo(repo))
+    const text = await forge.readFile(forgeRepo(repo), PIPELINE_FILE, sha)
+    if (text !== null) return [{ fallbackName: `ci`, file: parseJson(text) }]
+    if (repo.provider !== `ecode`) return []
+    const names = ((await forge.listFiles(forgeRepo(repo), WORKFLOW_DIR, sha)) ?? [])
+      .filter((name) => /\.ya?ml$/.test(name))
+      .sort()
+    const sources: PipelineSource[] = []
+    for (const name of names) {
+      const fallbackName = name.replace(/\.ya?ml$/, ``).slice(0, 64)
+      const workflowText = await forge.readFile(forgeRepo(repo), `${WORKFLOW_DIR}/${name}`, sha)
+      if (workflowText === null) continue
+      let parsed: unknown
+      try {
+        parsed = parseYaml(workflowText)
+      } catch (err) {
+        sources.push({ fallbackName, failure: [`${WORKFLOW_DIR}/${name}: ${err instanceof Error ? err.message : String(err)}`] })
+        continue
+      }
+      const read = readWorkflow(parsed)
+      sources.push(
+        read.file
+          ? { fallbackName, file: read.file }
+          : { fallbackName, failure: read.errors.map((e) => `${WORKFLOW_DIR}/${name}${e.path || ``}: ${e.code}`) }
+      )
+    }
+    return sources
+  } catch (err) {
+    return [{ fallbackName: `ci`, failure: [`Could not read the pipeline: ${err instanceof Error ? err.message : String(err)}`] }]
+  }
+}
+
+/** Plan and queue a run per pipeline at the commit. A file that does not
+ *  validate, a workflow the reader refuses or a read that fails is a FAILED
+ *  run naming the cause (a `pipeline` check), never a silent no-op. */
 export async function startRun(input: StartRunInput): Promise<StartRunResult> {
   const repo = await loadRepo(input.repositoryId)
   if (!repo) return { started: false, reason: `no_pipeline` }
-  // One run per (commit, trigger, PR) unless it is a re-run or a manual one.
+  const sources: PipelineSource[] = input.file !== undefined ? [{ fallbackName: `ci`, file: input.file }] : await pipelineSources(repo, input.sha)
+  if (sources.length === 0) return { started: false, reason: `no_pipeline` }
+  const results: StartRunResult[] = []
+  for (const source of sources) results.push(await startOneRun(repo, input, source))
+  return results.find((r) => r.started) ?? results.find((r) => !r.started && r.reason === `exists`) ?? results[0]!
+}
+
+async function startOneRun(repo: RepoRow, input: StartRunInput, source: PipelineSource): Promise<StartRunResult> {
+  const file = source.file
+  const named = file && typeof file === `object` && typeof (file as { name?: unknown }).name === `string` ? (file as { name: string }).name : null
+  const runName = (named ?? source.fallbackName).slice(0, 64)
+  // One run per (commit, trigger, PR, pipeline) unless a re-run or a manual one.
   if (!input.rerunOf && input.trigger !== `manual`) {
     const [existing] = await db
       .select({ id: ciRuns.id })
@@ -167,6 +241,7 @@ export async function startRun(input: StartRunInput): Promise<StartRunResult> {
           eq(ciRuns.repositoryId, repo.id),
           eq(ciRuns.sha, input.sha),
           eq(ciRuns.trigger, input.trigger),
+          eq(ciRuns.name, runName),
           input.pullRequestId ? eq(ciRuns.pullRequestId, input.pullRequestId) : isNull(ciRuns.pullRequestId)
         )
       )
@@ -174,22 +249,12 @@ export async function startRun(input: StartRunInput): Promise<StartRunResult> {
     if (existing) return { started: false, reason: `exists` }
   }
 
-  let file: unknown = input.file
-  if (file === undefined) {
-    const forge = await forgeFor(forgeRepo(repo))
-    const text = await forge.readFile(forgeRepo(repo), PIPELINE_FILE, input.sha)
-    if (text === null) return { started: false, reason: `no_pipeline` }
-    try {
-      file = JSON.parse(text)
-    } catch (err) {
-      file = { __unparsable: err instanceof Error ? err.message : String(err) }
-    }
-  }
-
-  const errors =
-    file && typeof file === `object` && `__unparsable` in (file as object)
-      ? [{ path: ``, code: `invalid_json` }]
-      : validatePipeline(file as never)
+  const errorLines: string[] | null = source.failure
+    ? source.failure
+    : file && typeof file === `object` && `__unparsable` in (file as object)
+      ? [`/: invalid_json`]
+      : validatePipeline(file as never).map((e) => `${e.path || `/`}: ${e.code}`)
+  const errors = errorLines ?? []
   const plan = errors.length === 0 ? planPipeline(file as never, {
     kind: input.trigger,
     branch: input.trigger === `push` ? input.ref ?? null : null,
@@ -209,13 +274,13 @@ export async function startRun(input: StartRunInput): Promise<StartRunResult> {
         teamId: repo.teamId,
         repositoryId: repo.id,
         number,
-        name: (plan?.name ?? (typeof (file as { name?: unknown })?.name === `string` ? (file as { name: string }).name : `ci`)).slice(0, 64),
+        name: (plan?.name ?? runName).slice(0, 64),
         sha: input.sha,
         ref: input.ref ?? null,
         trigger: input.trigger,
         pullRequestId: input.pullRequestId ?? null,
         state: errors.length > 0 ? `failure` : `pending`,
-        error: errors.length > 0 ? errors.map((e) => `${e.path || `/`}: ${e.code}`).join(`\n`).slice(0, 4000) : null,
+        error: errors.length > 0 ? errors.join(`\n`).slice(0, 4000) : null,
         rerunOf: input.rerunOf ?? null,
         createdByUserId: input.createdByUserId ?? null,
         completedAt: errors.length > 0 ? now : null,
@@ -282,6 +347,13 @@ export async function startRun(input: StartRunInput): Promise<StartRunResult> {
 
 const PIPELINE_CHECK = `pipeline`
 
+/** The check a run that could not plan reports as: `pipeline` for
+ *  `.exponential/ci.json`, `pipeline (<name>)` for a workflow, so two broken
+ *  workflows never share one row. */
+export function pipelineCheckName(runName: string): string {
+  return runName === `ci` ? PIPELINE_CHECK : `${PIPELINE_CHECK} (${runName})`
+}
+
 function checkInputOf(job: CiJob, detailsUrl: string): CheckInput {
   return {
     name: job.check,
@@ -314,7 +386,7 @@ export async function reportRun(runId: string, which: { all: true } | { jobIds: 
   const inputs: CheckInput[] = jobs.map((job) => checkInputOf(job, ciRunUrl(team.slug, run.id, job.id)))
   if (`all` in which && run.error) {
     inputs.push({
-      name: PIPELINE_CHECK,
+      name: pipelineCheckName(run.name),
       status: `completed`,
       conclusion: `failure`,
       startedAt: run.createdAt,

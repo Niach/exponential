@@ -28,6 +28,7 @@ After a deliberate spec change, run `bun run --filter @exp/ecode bless` and revi
 | `checks.json` | The rollup over check rows (`none`, `pending`, `success`, `failure`), the merge gate over the required names (`ready`, `waiting`, `blocked`, `no_checks`) and check names for matrix jobs. |
 | `pipeline.json` | `.exponential/ci.json`: validation with JSON-pointer errors, the glob rule, and the planner. The planner handles triggers and filters, `needs` order, the matrix, env and secrets, and skips by `paths` or for a fork. |
 | `runner.json` | Runner scheduling: claim by labels and slots, needs, timeouts, lost runners, the queued-too-long flag, cancel, and the skip chain under a failure. |
+| `workflow.json` | A GitHub Actions workflow (parsed YAML) read into the pipeline model: the subset (`on` push/pull_request/workflow_dispatch/merge_group, `runs-on`, `needs`, `strategy.matrix`, `env`, `timeout-minutes`, `run` steps, `uses` only checkout and cache, `${{ matrix/env/secrets }}`), every other key an error with its JSON pointer. An ecode repository without `.exponential/ci.json` plans one run per `.github/workflows/*.yml`. |
 | `remote.json` | Remote URLs (`https://…`, `exp://team/repo`), the credential-helper scope, token refresh and log redaction. |
 
 ## Providers and capabilities

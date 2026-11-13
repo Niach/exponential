@@ -1,0 +1,529 @@
+{
+  "$comment": "GITHUB WORKFLOW YAML → THE PIPELINE MODEL (#EXP-1617; src/workflow.ts, ecode-core workflow.rs). `readWorkflow(workflow)` takes a GitHub Actions workflow ALREADY PARSED from YAML (the host parses the text) and returns {file, errors}: `file` = the `.exponential/ci.json` it reads as (pipeline.json's shape; every file here also passes pipeline.json `validate`), null when there are errors; `errors` = EVERY reason it cannot, as {path (JSON pointer INTO THE WORKFLOW), code}, sorted by path then code, each (path, code) once. A SUBSET, strict: a key not read below is `unknown_field` unless listed as ignored. TOP: `name` (no expression; sliced to the pipeline name limit), `on`, `env`, `jobs`; ignored `permissions`, `concurrency`, `run-name`. ON: a string, a list or a mapping of events: `push` {branches?, tags?, paths?} → push {branches} (when branches are given or tags are not) and tag {tags} (when tags are given: a tags-only filter never fires on branch pushes); `pull_request` {branches?, paths?, types? (ignored)} → pull_request {branches}; `workflow_dispatch` {inputs? (ignored)} → manual {}; `merge_group` → merge_train {}; any other event = `unsupported_event`; event `paths` become every job's `paths` (two events with different lists = `invalid_value`). ENV (top, job, step): scalar values become strings; `NAME: ${{ secrets.NAME }}` (the same name) makes NAME a secret of that scope (top → `secrets`, job and step → the job's `secrets`), any other expression = `expression`; names must be env names (`invalid_name`). JOBS: an id lowercased must be a job key and unique (`invalid_name`); `name` (no expression); `runs-on` (required; a string or a list; expressions = `expression`): `self-hosted` is dropped, ubuntu-*/linux → linux, macos-*/mac → mac, windows-* → windows, any other label lowercased if it is a valid label else `invalid_label`, deduplicated; `needs` (ids, lowercased); `timeout-minutes` → timeoutMin; `env`; `strategy` {matrix, fail-fast and max-parallel ignored}: matrix keys must be matrix keys (`invalid_name`), values scalar lists (`type`), `include`/`exclude` = `unknown_field`; ignored `permissions`, `concurrency`; anything else (if, container, services, outputs, environment, defaults…) = `unknown_field`. STEPS: `uses` only `actions/checkout` and `actions/cache` (any ref; `with` ignored; dropped: our runner checks the commit out, caches are a no-op) else `unsupported_action`, `uses` with `run` = `invalid_value`; a `run` step: `name` (else its first non-empty line, 64 chars), `run` where `${{ matrix.K }}` → `${MATRIX_K}`, `${{ env.NAME }}` → `${NAME}`, `${{ secrets.NAME }}` → `${NAME}` (and NAME becomes a job secret), any other expression = `expression`; `env`, `timeout-minutes`, `continue-on-error`, `working-directory`; `shell` only bash or sh; ignored `id`; `with` on a run step = `unknown_field`. The host plans one run per workflow file (`.github/workflows/*.yml`) on an ecode repository without `.exponential/ci.json`.",
+  "cases": [
+    {
+      "name": "a typical workflow",
+      "workflow": {
+        "name": "CI",
+        "on": {
+          "push": {
+            "branches": [
+              "master"
+            ]
+          },
+          "pull_request": {
+            "branches": [
+              "master"
+            ],
+            "types": [
+              "opened",
+              "synchronize"
+            ]
+          },
+          "workflow_dispatch": null
+        },
+        "permissions": {
+          "contents": "read"
+        },
+        "concurrency": {
+          "group": "ci",
+          "cancel-in-progress": true
+        },
+        "env": {
+          "NODE_ENV": "test",
+          "RETRIES": 3,
+          "TOKEN": "${{ secrets.TOKEN }}"
+        },
+        "jobs": {
+          "build": {
+            "runs-on": "ubuntu-latest",
+            "timeout-minutes": 20,
+            "steps": [
+              {
+                "uses": "actions/checkout@v4",
+                "with": {
+                  "fetch-depth": 0
+                }
+              },
+              {
+                "uses": "actions/cache@v4",
+                "with": {
+                  "path": "~/.bun",
+                  "key": "bun"
+                }
+              },
+              {
+                "name": "Install",
+                "run": "bun install"
+              },
+              {
+                "run": "bun run build\nbun run typecheck",
+                "working-directory": "apps/web",
+                "shell": "bash"
+              }
+            ]
+          },
+          "Test": {
+            "name": "test",
+            "runs-on": [
+              "self-hosted",
+              "exp-linux"
+            ],
+            "needs": "build",
+            "strategy": {
+              "fail-fast": false,
+              "matrix": {
+                "shard": [
+                  1,
+                  2
+                ]
+              }
+            },
+            "env": {
+              "API_KEY": "${{ secrets.API_KEY }}",
+              "CI_SHARD_TOTAL": "2"
+            },
+            "steps": [
+              {
+                "id": "t",
+                "name": "Unit tests",
+                "run": "bun test --shard=${{ matrix.shard }}/2 --key=${{ secrets.API_KEY }} --env=${{ env.NODE_ENV }}",
+                "timeout-minutes": 10,
+                "continue-on-error": true
+              }
+            ]
+          }
+        }
+      },
+      "file": {
+        "version": 1,
+        "name": "CI",
+        "on": {
+          "push": {
+            "branches": [
+              "master"
+            ]
+          },
+          "pull_request": {
+            "branches": [
+              "master"
+            ]
+          },
+          "manual": {}
+        },
+        "env": {
+          "NODE_ENV": "test",
+          "RETRIES": "3"
+        },
+        "secrets": [
+          "TOKEN"
+        ],
+        "jobs": {
+          "build": {
+            "runsOn": [
+              "linux"
+            ],
+            "timeoutMin": 20,
+            "steps": [
+              {
+                "name": "Install",
+                "run": "bun install"
+              },
+              {
+                "name": "bun run build",
+                "run": "bun run build\nbun run typecheck",
+                "workingDirectory": "apps/web"
+              }
+            ]
+          },
+          "test": {
+            "name": "test",
+            "runsOn": [
+              "exp-linux"
+            ],
+            "needs": [
+              "build"
+            ],
+            "env": {
+              "CI_SHARD_TOTAL": "2"
+            },
+            "matrix": {
+              "shard": [
+                "1",
+                "2"
+              ]
+            },
+            "steps": [
+              {
+                "name": "Unit tests",
+                "run": "bun test --shard=${MATRIX_SHARD}/2 --key=${API_KEY} --env=${NODE_ENV}",
+                "timeoutMin": 10,
+                "continueOnError": true
+              }
+            ],
+            "secrets": [
+              "API_KEY"
+            ]
+          }
+        }
+      },
+      "errors": []
+    },
+    {
+      "name": "a tags-only push is a tag trigger, never a branch push",
+      "workflow": {
+        "on": {
+          "push": {
+            "tags": [
+              "v*"
+            ]
+          }
+        },
+        "jobs": {
+          "release": {
+            "runs-on": "macos-14",
+            "steps": [
+              {
+                "run": "make release"
+              }
+            ]
+          }
+        }
+      },
+      "file": {
+        "version": 1,
+        "on": {
+          "tag": {
+            "tags": [
+              "v*"
+            ]
+          }
+        },
+        "jobs": {
+          "release": {
+            "runsOn": [
+              "mac"
+            ],
+            "steps": [
+              {
+                "name": "make release",
+                "run": "make release"
+              }
+            ]
+          }
+        }
+      },
+      "errors": []
+    },
+    {
+      "name": "`on` as one event name",
+      "workflow": {
+        "on": "pull_request",
+        "jobs": {
+          "lint": {
+            "runs-on": [
+              "self-hosted",
+              "Linux",
+              "X64"
+            ],
+            "steps": [
+              {
+                "run": "make lint"
+              }
+            ]
+          }
+        }
+      },
+      "file": {
+        "version": 1,
+        "on": {
+          "pull_request": {}
+        },
+        "jobs": {
+          "lint": {
+            "runsOn": [
+              "linux",
+              "x64"
+            ],
+            "steps": [
+              {
+                "name": "make lint",
+                "run": "make lint"
+              }
+            ]
+          }
+        }
+      },
+      "errors": []
+    },
+    {
+      "name": "on as a list, workflow paths on every job, a merge queue is the merge train",
+      "workflow": {
+        "on": [
+          "push",
+          "merge_group"
+        ],
+        "jobs": {
+          "a": {
+            "runs-on": "windows-latest",
+            "steps": [
+              {
+                "run": "echo a"
+              }
+            ]
+          },
+          "b": {
+            "runs-on": "ubuntu-24.04",
+            "steps": [
+              {
+                "run": "echo b"
+              }
+            ]
+          }
+        }
+      },
+      "file": {
+        "version": 1,
+        "on": {
+          "push": {},
+          "merge_train": {}
+        },
+        "jobs": {
+          "a": {
+            "runsOn": [
+              "windows"
+            ],
+            "steps": [
+              {
+                "name": "echo a",
+                "run": "echo a"
+              }
+            ]
+          },
+          "b": {
+            "runsOn": [
+              "linux"
+            ],
+            "steps": [
+              {
+                "name": "echo b",
+                "run": "echo b"
+              }
+            ]
+          }
+        }
+      },
+      "errors": []
+    },
+    {
+      "name": "paths filters apply to every job",
+      "workflow": {
+        "on": {
+          "push": {
+            "paths": [
+              "apps/**"
+            ]
+          },
+          "pull_request": {
+            "paths": [
+              "apps/**"
+            ]
+          }
+        },
+        "jobs": {
+          "a": {
+            "runs-on": "ubuntu-latest",
+            "steps": [
+              {
+                "run": "true"
+              }
+            ]
+          }
+        }
+      },
+      "file": {
+        "version": 1,
+        "on": {
+          "push": {},
+          "pull_request": {}
+        },
+        "jobs": {
+          "a": {
+            "runsOn": [
+              "linux"
+            ],
+            "steps": [
+              {
+                "name": "true",
+                "run": "true"
+              }
+            ],
+            "paths": [
+              "apps/**"
+            ]
+          }
+        }
+      },
+      "errors": []
+    },
+    {
+      "name": "what the subset refuses",
+      "workflow": {
+        "name": "x ${{ github.ref }}",
+        "on": {
+          "schedule": [
+            {
+              "cron": "0 0 * * *"
+            }
+          ],
+          "push": {
+            "branches-ignore": [
+              "main"
+            ]
+          },
+          "pull_request": {
+            "paths": [
+              "a/**"
+            ]
+          },
+          "workflow_dispatch": null
+        },
+        "defaults": {
+          "run": {
+            "shell": "bash"
+          }
+        },
+        "env": {
+          "GH": "${{ secrets.TOKEN }}"
+        },
+        "jobs": {
+          "my job": {
+            "runs-on": "ubuntu-latest",
+            "steps": [
+              {
+                "run": "true"
+              }
+            ]
+          },
+          "a": {
+            "runs-on": "${{ matrix.os }}",
+            "if": "github.event_name == 'push'",
+            "container": "node:24",
+            "strategy": {
+              "matrix": {
+                "os": [
+                  "ubuntu-latest"
+                ],
+                "include": [
+                  {
+                    "os": "macos-latest"
+                  }
+                ]
+              }
+            },
+            "steps": [
+              {
+                "uses": "docker/build-push-action@v6"
+              },
+              {
+                "run": "echo ${{ github.sha }}",
+                "shell": "pwsh"
+              },
+              {
+                "name": "x",
+                "with": {
+                  "a": 1
+                },
+                "run": "true"
+              }
+            ]
+          },
+          "b": {
+            "steps": "nope"
+          }
+        }
+      },
+      "file": null,
+      "errors": [
+        {
+          "path": "/defaults",
+          "code": "unknown_field"
+        },
+        {
+          "path": "/env/GH",
+          "code": "expression"
+        },
+        {
+          "path": "/jobs/a/container",
+          "code": "unknown_field"
+        },
+        {
+          "path": "/jobs/a/if",
+          "code": "unknown_field"
+        },
+        {
+          "path": "/jobs/a/runs-on",
+          "code": "expression"
+        },
+        {
+          "path": "/jobs/a/steps/0/uses",
+          "code": "unsupported_action"
+        },
+        {
+          "path": "/jobs/a/steps/1/run",
+          "code": "expression"
+        },
+        {
+          "path": "/jobs/a/steps/1/shell",
+          "code": "invalid_value"
+        },
+        {
+          "path": "/jobs/a/steps/2/with",
+          "code": "unknown_field"
+        },
+        {
+          "path": "/jobs/a/strategy/matrix/include",
+          "code": "unknown_field"
+        },
+        {
+          "path": "/jobs/b/runs-on",
+          "code": "missing"
+        },
+        {
+          "path": "/jobs/b/steps",
+          "code": "type"
+        },
+        {
+          "path": "/jobs/my job",
+          "code": "invalid_name"
+        },
+        {
+          "path": "/name",
+          "code": "expression"
+        },
+        {
+          "path": "/on/push/branches-ignore",
+          "code": "unknown_field"
+        },
+        {
+          "path": "/on/schedule",
+          "code": "unsupported_event"
+        }
+      ]
+    },
+    {
+      "name": "not a mapping",
+      "workflow": [
+        "on",
+        "push"
+      ],
+      "file": null,
+      "errors": [
+        {
+          "path": "",
+          "code": "type"
+        }
+      ]
+    }
+  ]
+}

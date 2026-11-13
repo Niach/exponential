@@ -73,6 +73,8 @@ export type EcodeJob =
   | { op: `is_ancestor`; ancestor: string; of: string }
   /** #EXP-1617: a file at a commit (our CI's `.exponential/ci.json`). */
   | { op: `read_file`; sha: string; path: string }
+  /** #EXP-1617: the files directly in a directory (our CI's workflows). */
+  | { op: `list_dir`; sha: string; path: string }
 
 export interface EcodeJobAnswers {
   mergeability: { mergeability: Mergeability; conflicts: string[] }
@@ -81,6 +83,7 @@ export interface EcodeJobAnswers {
   rebase_onto: { sha: string }
   is_ancestor: { yes: boolean }
   read_file: { text: string | null }
+  list_dir: { files: string[] | null }
 }
 
 /** A device's answer: the result, or the spec's refusal. */
@@ -431,6 +434,11 @@ export function createEcodeForge(host: EcodeHost): Forge {
       const sha = /^[0-9a-f]{40}$/.test(ref) ? ref : ((await host.branches(repo))[ref] ?? null)
       if (!sha) return null
       return unwrap(await host.job(repo, { op: `read_file`, sha, path })).text
+    },
+    async listFiles(repo, dir, ref) {
+      const sha = /^[0-9a-f]{40}$/.test(ref) ? ref : ((await host.branches(repo))[ref] ?? null)
+      if (!sha) return null
+      return unwrap(await host.job(repo, { op: `list_dir`, sha, path: dir })).files
     },
     // Our CI's check rows ARE this forge's checks: nothing to mirror.
     async reportStatus() {},

@@ -10,6 +10,7 @@ import { byCodePoint, forge, hydrate, type ForgeGiven, type ForgeState } from ".
 import { globMatch, planPipeline, validatePipeline, type TriggerInput } from "./pipeline"
 import { credentialHelperKey, needsRefresh, parseRemote, redact } from "./remote"
 import { emptyRunnerState, runConclusion, schedule, type RunnerState } from "./runner"
+import { readWorkflow } from "./workflow"
 
 type Json = Record<string, unknown>
 
@@ -135,12 +136,33 @@ export function replayRemote(fixture: RemoteFixture) {
   }
 }
 
+interface WorkflowFixture extends Json {
+  cases: Array<{ name: string; workflow: unknown; file?: unknown; errors?: unknown }>
+}
+
+/** workflow.json: every case's {file, errors}; a file that reads must also
+ *  be a VALID pipeline (pipeline.json `validate`). */
+export function replayWorkflow(fixture: WorkflowFixture) {
+  return {
+    ...fixture,
+    cases: fixture.cases.map((row) => {
+      const read = readWorkflow(row.workflow)
+      if (read.file) {
+        const invalid = validatePipeline(read.file)
+        if (invalid.length > 0) throw new Error(`workflow case "${row.name}" reads as an invalid pipeline: ${JSON.stringify(invalid)}`)
+      }
+      return { name: row.name, workflow: row.workflow, file: read.file, errors: read.errors }
+    }),
+  }
+}
+
 export const REPLAYS = {
   forge: replayForge,
   runner: replayRunner,
   checks: replayChecks,
   pipeline: replayPipeline,
   remote: replayRemote,
+  workflow: replayWorkflow,
 } as const
 
 export type FixtureName = keyof typeof REPLAYS

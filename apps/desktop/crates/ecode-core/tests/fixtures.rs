@@ -10,6 +10,7 @@ const CHECKS: &str = include_str!("../../../../../packages/ecode/fixtures/checks
 const PIPELINE: &str = include_str!("../../../../../packages/ecode/fixtures/pipeline.json");
 const RUNNER: &str = include_str!("../../../../../packages/ecode/fixtures/runner.json");
 const REMOTE: &str = include_str!("../../../../../packages/ecode/fixtures/remote.json");
+const WORKFLOW: &str = include_str!("../../../../../packages/ecode/fixtures/workflow.json");
 
 fn parse(src: &str) -> Value {
     serde_json::from_str(src).expect("fixture parses")
@@ -184,4 +185,18 @@ fn refusals_leave_the_state_alone() {
     assert_eq!(outcome.failure, Some(Failure::new(ForgeReason::Head)));
     assert_eq!(forge(&state, "nope", &json!({})), Err(OpError::UnknownOp("nope".into())));
     assert_eq!(schedule(&RunnerState::default(), "nope", &json!({}), 0), Err(OpError::UnknownOp("nope".into())));
+}
+
+#[test]
+fn workflow_rows() {
+    let fixture = parse(WORKFLOW);
+    for row in rows(&fixture, "cases") {
+        let name = &row["name"];
+        let read = read_workflow(&row["workflow"]);
+        assert_eq!(read.file.clone().unwrap_or(serde_json::Value::Null), row["file"], "workflow.json file: {name}");
+        assert_eq!(to_json(read.errors), row["errors"], "workflow.json errors: {name}");
+        if let Some(file) = &read.file {
+            assert!(validate_pipeline(file).is_empty(), "workflow.json {name} reads as an invalid pipeline");
+        }
+    }
 }
