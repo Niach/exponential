@@ -312,18 +312,21 @@ jobs:
       # tests (exp-cli: unit + `tests/data_dir.rs`, EXP_DATA_DIR isolation).
       # #EXP-76: ONE invocation, ONE feature set, so every crate builds once;
       # eagent, coding and ui stay lib-only. None of these crates has a doc test.
-      # #ERR-4: the vendored gpui-pre-linux's own patch tests (uri_list) ride
-      # along, never upstream's other tests (vendor/gpui-pre-linux/PATCHES.md);
-      # the vendored gpui-pre-windows' run in check-desktop-windows.yml.
       - name: eCore, Engine, coding and UI tests
         working-directory: apps/desktop
         run: >-
           cargo nextest run --locked --no-fail-fast
           -p ecore -p eengine -p eengine-ffi -p eengine-desktop -p eengine-runner -p eengine-bundle
           -p eagent -p coding -p ui -p engine -p elocal -p api -p exp-http -p exp-cli
-          -p gpui-pre-linux
           --features eengine/sqlite,eengine/hub,eengine-ffi/hub,eagent/local-model
-          -E '(package(gpui-pre-linux) & kind(lib) & test(uri_list)) | (not package(gpui-pre-linux) & (kind(lib) | not (package(eagent) | package(coding) | package(ui))))'
+          -E 'kind(lib) | not (package(eagent) | package(coding) | package(ui))'
+      # #ERR-4: the vendored gpui-pre-linux's own patch tests, never upstream's
+      # other tests (vendor/gpui-pre-linux/PATCHES.md). A path dependency
+      # outside the workspace, so nextest's package filters cannot name it.
+      # The vendored gpui-pre-windows' run in check-desktop-windows.yml.
+      - name: Vendored gpui-pre-linux patch tests
+        working-directory: apps/desktop
+        run: cargo test --locked -p gpui-pre-linux --lib uri_list
 
   # systemd 258 expands `${VAR}` in a scope's argv, which would put agent
   # secrets on `ps`. The Mint's runner container has no systemd, so this runs
