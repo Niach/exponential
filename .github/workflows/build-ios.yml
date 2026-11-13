@@ -97,21 +97,16 @@ jobs:
         with:
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
-      - name: Build the Exponential UI xcframework
-        working-directory: ${{ github.workspace }}
-        # EXP-1364: the App Store archive links the device slice only.
-        env:
-          EXPONENTIAL_UI_APPLE_TARGETS: aarch64-apple-ios
-        run: bash apps/desktop/crates/exponential-ui-ffi/build-ios.sh
-      # #VAPP-272: the Engine holds the apps' record outbox (Project.swift
-      # links it only when built).
-      - name: Build the Engine xcframework
+      # #PERF-11: the app's ONE Rust library (genUI's core, the Engine's record
+      # outbox #VAPP-272, the FULL eNet node VAPP-40 / EXP-1457) linked into
+      # ExpCore, plus the header-only link stubs of the ExponentialUI and
+      # ExponentialEngine packages (Project.swift). EXP-1364: the App Store
+      # archive links the device slice only.
+      - name: Build the app's Rust library
         working-directory: ${{ github.workspace }}
         env:
-          EENGINE_APPLE_TARGETS: aarch64-apple-ios
-          # No bundled sqlite: the app's is the system's (GRDB).
-          EENGINE_FFI_FEATURES: ""
-        run: bash apps/desktop/crates/eengine-ffi/build-ios.sh
+          MOBILE_APPLE_TARGETS: aarch64-apple-ios
+        run: bash apps/desktop/crates/exponential-mobile-ffi/build-ios.sh
       # EXP-1435: the push-only eNet facade (device slice): the Notification
       # Service Extension opens the relay's sealed pushes with it. Without it
       # the app still builds, but every sealed push would show its placeholder.
@@ -119,14 +114,6 @@ jobs:
         working-directory: ${{ github.workspace }}
         env:
           ENET_PUSH_ONLY: "1"
-          ENET_APPLE_TARGETS: aarch64-apple-ios
-        run: bash apps/desktop/crates/exponential-net-ffi/build-ios.sh
-
-      # VAPP-40 / EXP-1457: the FULL eNet node in ExpCore (the install's node
-      # + registry entry). Device slice only, like the push build.
-      - name: Build the full eNet xcframework
-        working-directory: ${{ github.workspace }}
-        env:
           ENET_APPLE_TARGETS: aarch64-apple-ios
         run: bash apps/desktop/crates/exponential-net-ffi/build-ios.sh
 

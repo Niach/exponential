@@ -58,9 +58,10 @@ jobs:
         with:
           packages: 'platforms;android-36 build-tools;35.0.0 ndk;28.2.13676358'
 
-      # EXP-1280: the app links the Exponential UI Compose painter (`:ui-compose`),
-      # whose AAR bundles the Rust core as the `exponential-ui-ffi` `.so`: build it
-      # for every shipped ABI before gradle runs (the same steps as exponential-ui.yml).
+      # #PERF-11: the app ships ONE Rust library, `libexponential_mobile_ffi.so`
+      # (genUI's painter core, the Engine and the eNet node linked together),
+      # built for every shipped ABI by the app's `buildMobileFfi` gradle task
+      # (cargo-ndk before merge*JniLibs, needs ANDROID_NDK_HOME).
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
@@ -70,17 +71,9 @@ jobs:
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - run: cargo install cargo-ndk --locked
-      - name: Build the Exponential UI facade for Android
-        env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
-          SKIP_BINDINGS: '1'
-        run: bash apps/desktop/crates/exponential-ui-ffi/build-android.sh
-      # VAPP-40 / EXP-1457: the app links the FULL eNet node (`exponential-net-ffi`,
-      # also what FcmService opens sealed pushes with). Its `.so` per ABI is built
-      # by the app's `buildEnetFfi` gradle task (cargo-ndk before merge*JniLibs,
-      # needs ANDROID_NDK_HOME); the host build below is what the JVM unit tests
-      # (PushSealFixtureTest, InstallRegistrationTest, InstallNodeEnetTest) load
-      # through JNA.
+      # VAPP-40 / EXP-1457: the eNet facade's host build is what the JVM unit
+      # tests (PushSealFixtureTest, InstallRegistrationTest, InstallNodeEnetTest)
+      # load through JNA.
       - name: Build the eNet facade for the JVM unit tests
         working-directory: apps/desktop
         run: cargo build -p exponential-net-ffi --release --features cli
@@ -140,7 +133,7 @@ jobs:
         # Signed when the RELEASE_* / ANDROID_KEYSTORE_B64 secrets are present,
         # otherwise unsigned (keeps CI green pre-keystore).
         env:
-          # buildEnetFfi (cargo-ndk) runs before merge*JniLibFolders.
+          # buildMobileFfi (cargo-ndk) runs before merge*JniLibFolders.
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
           RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}

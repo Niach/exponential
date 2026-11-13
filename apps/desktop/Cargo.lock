@@ -3702,6 +3702,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "exponential-mobile-ffi"
+version = "0.1.0"
+dependencies = [
+ "eengine-ffi",
+ "exponential-net-ffi",
+ "exponential-ui-ffi",
+]
+
+[[package]]
 name = "exponential-net-ffi"
 version = "0.1.0"
 dependencies = [
