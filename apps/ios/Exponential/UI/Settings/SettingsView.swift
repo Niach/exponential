@@ -18,8 +18,8 @@ private struct TeamCounts: Equatable, Sendable {
 /// avatar (84) + name + `copy.team.meta`, a glass group of the viewer's
 /// teams (the active one checked, another team its needs-you count badge,
 /// #FEED-232; a tap switches — the ONLY place a phone switches team), then
-/// the team's settings rows, the account rows (each server's signed-in
-/// account) and the rest of the old root (Getting started, About).
+/// the team's settings rows, Getting started, then settings-nav's Personal
+/// group (each server's signed-in account, Notifications, About).
 struct TeamTabView: View {
     /// A team row's tap: `(accountId, teamId)`.
     var onSwitchTeam: (String, String) -> Void = { _, _ in }
@@ -51,8 +51,8 @@ struct TeamTabView: View {
                     teamHeader
                     teamsSection
                     teamSettingsSection
-                    serversSection
                     generalSection
+                    personalSection
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
@@ -256,39 +256,58 @@ struct TeamTabView: View {
         } catch {}
     }
 
-    // EXP-721: ONE grouped card per section (Android's SettingsScreen) — the
-    // gapped stack of individually-filled rows is gone; rows sit flat inside
-    // a single `.glassSection()`, no dividers (EXP-1320). "Add server" is the last row
-    // of the Servers card, not a floating pill.
-    private var serversSection: some View {
-        sectionStack(title: "Account") {
-            VStack(spacing: 0) {
-                ForEach(deps.auth.accounts, id: \.id) { account in
-                    NavigationLink(value: AppRoute.serverDetail(accountId: account.id)) {
-                        serverRow(account)
+    /// #EXP-1815 (settings-nav.json `nav`, S-3): the PERSONAL group, its
+    /// items in the spec's iOS order (`visibleGroups(platform: .ios)`):
+    /// account = each server's signed-in account + Add server, then
+    /// Notifications, then About. `security` has no page of its own on iOS:
+    /// its rows (sign-in methods, passkeys) live on the account page.
+    /// EXP-721: ONE grouped card, rows flat inside it, no dividers (EXP-1320).
+    @ViewBuilder
+    private var personalSection: some View {
+        if let group = SettingsNav.visibleGroups(platform: .ios, isOwner: counts.isOwner).first(where: { $0.id == "personal" }) {
+            sectionStack(title: group.label) {
+                VStack(spacing: 0) {
+                    ForEach(group.items, id: \.self) { item in
+                        personalItem(item)
                     }
-                    .buttonStyle(.plain)
                 }
-                Button {
-                    previousActiveAccountId = deps.auth.activeAccountId
-                    showAddServer = true
-                } label: {
-                    HStack(spacing: 12) {
-                        AppIcon(AppIcons.uiAdd, size: AppIcon.Size.medium)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                            .frame(width: 22)
-                        Text("Add server")
-                            .font(.body)
-                            .foregroundStyle(.white)
-                        Spacer()
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    .contentShape(Rectangle())
+                .glassSection()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func personalItem(_ item: String) -> some View {
+        switch item {
+        case "account":
+            ForEach(deps.auth.accounts, id: \.id) { account in
+                NavigationLink(value: AppRoute.serverDetail(accountId: account.id)) {
+                    serverRow(account)
                 }
                 .buttonStyle(.plain)
             }
-            .glassSection()
+            Button {
+                previousActiveAccountId = deps.auth.activeAccountId
+                showAddServer = true
+            } label: {
+                settingsRow(icon: AppIcons.uiAdd, title: "Add server", chevron: false)
+            }
+            .buttonStyle(.plain)
+        case "notifications":
+            if let page = SettingsNav.page(item), !activeAccountId.isEmpty {
+                NavigationLink(value: AppRoute.notificationSettings(accountId: activeAccountId)) {
+                    settingsRow(icon: AppIcons.conceptOrName(page.icon) ?? AppIcons.settingsNotifications, title: page.label)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("settings-notifications-row")
+            }
+        case "about":
+            NavigationLink(value: AppRoute.about) {
+                settingsRow(icon: AppIcons.settingsAbout, title: SettingsNav.page(item)?.label ?? "About")
+            }
+            .buttonStyle(.plain)
+        default:
+            EmptyView()
         }
     }
 
@@ -324,42 +343,35 @@ struct TeamTabView: View {
         .contentShape(Rectangle())
     }
 
+    /// The app's own rows outside settings-nav (Getting started, the
+    /// staging Sync diagnostics); gone when it has none.
+    @ViewBuilder
     private var generalSection: some View {
-        sectionStack(title: "General") {
-            VStack(spacing: 0) {
-                // EXP-1270: the block's entry, gone once every step is done.
-                if !gettingStarted.loading, !gettingStarted.complete, !gettingStarted.entries.isEmpty {
-                    Button {
-                        showGettingStarted = true
-                    } label: {
-                        settingsRow(icon: AppIcons.navGettingStarted, title: GettingStarted.title)
+        let showGettingStarted = !gettingStarted.loading && !gettingStarted.complete && !gettingStarted.entries.isEmpty
+        if showGettingStarted || AppConstants.isStaging {
+            sectionStack(title: "General") {
+                VStack(spacing: 0) {
+                    // EXP-1270: the block's entry, gone once every step is done.
+                    if showGettingStarted {
+                        Button {
+                            self.showGettingStarted = true
+                        } label: {
+                            settingsRow(icon: AppIcons.navGettingStarted, title: GettingStarted.title)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier(GettingStarted.TestId.entry)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier(GettingStarted.TestId.entry)
-                }
-                // EXP-232: staging-only — exposes live shape status and a
-                // "Resync now" data-wipe hatch, not for store builds.
-                if AppConstants.isStaging {
-                    NavigationLink(value: AppRoute.syncDebug) {
-                        settingsRow(icon: AppIcons.settingsSync, title: "Sync diagnostics")
+                    // EXP-232: staging-only — exposes live shape status and a
+                    // "Resync now" data-wipe hatch, not for store builds.
+                    if AppConstants.isStaging {
+                        NavigationLink(value: AppRoute.syncDebug) {
+                            settingsRow(icon: AppIcons.settingsSync, title: "Sync diagnostics")
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
-                // #EXP-1815 (settings-nav.json `personal`: account,
-                // notifications, …, about): the source switches.
-                if let page = SettingsNav.page("notifications"), !activeAccountId.isEmpty {
-                    NavigationLink(value: AppRoute.notificationSettings(accountId: activeAccountId)) {
-                        settingsRow(icon: AppIcons.conceptOrName(page.icon) ?? AppIcons.settingsNotifications, title: page.label)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("settings-notifications-row")
-                }
-                NavigationLink(value: AppRoute.about) {
-                    settingsRow(icon: AppIcons.settingsAbout, title: "About")
-                }
-                .buttonStyle(.plain)
+                .glassSection()
             }
-            .glassSection()
         }
     }
 
