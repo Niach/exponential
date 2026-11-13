@@ -24,7 +24,7 @@ use gpui::{
 use serde_json::{json, Value};
 use sync::Store;
 
-use domain::ci_run::{self as model, CiJobListRow, CiLogView, CiTile, CiTraceItem, RunnerJob, RunnerNotice, RunnerSettings};
+use domain::ci_run::{self as model, CiJobListRow, RunnerJob, RunnerSettings};
 use domain::pr_checks::CheckTone;
 use domain::rows::{CiJobRow, CiRunRow, DeviceRow};
 
@@ -99,237 +99,245 @@ fn set_data(view: &Entity<SurfaceView>, path: &str, value: Value, cx: &mut App) 
     });
 }
 
-fn press(name: &str, context: Value) -> Value {
-    json!({"press": {"event": {"name": name, "context": context}}})
+/// ci-run-view.json `ICON_TONE`: a check tone as the Icon's tone.
+fn icon_tone(tone: CheckTone) -> &'static str {
+    match tone {
+        CheckTone::Muted => "neutral",
+        CheckTone::Green => "success",
+        CheckTone::Red => "danger",
+    }
 }
 
-/// A job row's glyph: the pr-checks concept, red / green as the tone.
+/// A job row's leading glyph, tinted by its tone.
 fn glyph(id: &str, row: &CiJobListRow) -> Value {
-    let mut props = json!({"name": row.glyph.concept()});
-    match row.tone {
-        CheckTone::Red => props["tone"] = json!("danger"),
-        CheckTone::Green => props["tone"] = json!("success"),
-        CheckTone::Muted => {}
-    }
-    json!({"id": id, "component": "Icon", "props": props})
+    json!({"id": id, "component": "Icon", "props": {"name": row.glyph.concept(), "tone": icon_tone(row.tone), "size": "sm"}})
 }
 
-fn job_row(id: &str, row: &CiJobListRow, selected: bool, on: Option<Value>) -> Value {
-    let mut props = json!({"title": row.title, "selected": selected});
-    if let Some(subtitle) = &row.subtitle {
-        props["subtitle"] = json!(subtitle);
+/// The `props` of a job's Row: title, then subtitle and meta when present.
+fn row_props(row: &CiJobListRow) -> serde_json::Map<String, Value> {
+    let mut props = serde_json::Map::new();
+    props.insert("title".into(), json!(row.title));
+    if let Some(subtitle) = row.subtitle.as_ref().filter(|s| !s.is_empty()) {
+        props.insert("subtitle".into(), json!(subtitle));
     }
-    if let Some(duration) = &row.duration {
-        props["meta"] = json!(duration);
+    if let Some(duration) = row.duration.as_ref().filter(|d| !d.is_empty()) {
+        props.insert("meta".into(), json!(duration));
     }
-    let mut node = json!({
-        "id": id,
-        "component": "Row",
-        "props": props,
-        "slots": {"leading": glyph(&format!("{id}-glyph"), row)},
-    });
-    if let Some(on) = on {
-        node["props"]["pressable"] = json!(true);
-        node["on"] = on;
-    }
-    node
+    props
 }
 
 // ---------------------------------------------------------------------------
 // The run page
 // ---------------------------------------------------------------------------
 
-/// What the run page shows (pure; [`page_tree`] draws it).
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct PageModel {
-    pub number: i64,
-    pub name: String,
-    pub tiles: Vec<CiTile>,
-    pub rerun_failed: bool,
-    pub cancel: bool,
-    pub error: Option<String>,
-    pub jobs: Vec<CiJobListRow>,
-    pub selected: Option<String>,
-    pub steps: Vec<CiTraceItem>,
-    /// The selected job's log as shown; `None` = copy.emptyLog.
-    pub log: Option<CiLogView>,
-    pub failing: bool,
-    pub follow: bool,
+/// The page's events (web `CI_RUN_EVENTS`).
+pub(crate) const EVENT_SELECT: &str = "ci-select-job";
+pub(crate) const EVENT_RERUN: &str = "ci-rerun";
+pub(crate) const EVENT_CANCEL: &str = "ci-cancel";
+
+/// The run page's input (ci-run-view.json `ciRun`).
+pub(crate) struct PageInput<'a> {
+    pub run: &'a CiRunRow,
+    pub jobs: &'a [CiJobRow],
+    /// The SELECTED job (`defaultJob` already applied).
+    pub selected: Option<&'a str>,
+    /// The selected job's log as read so far (`None` = not read).
+    pub log: Option<&'a str>,
+    pub now_ms: i64,
+    pub phone: bool,
+    /// The button in flight: `rerun` | `cancel`.
+    pub busy: Option<&'a str>,
+    pub runner_label: &'a dyn Fn(&CiJobRow) -> Option<String>,
 }
 
-impl PageModel {
-    /// The page over `run` and its `jobs` with the selected job's `log`
-    /// text (`None` = not read yet).
-    pub(crate) fn new(
-        run: &CiRunRow,
-        jobs: &[CiJobRow],
-        requested: Option<&str>,
-        log: Option<&str>,
-        runner_label: &dyn Fn(&CiJobRow) -> Option<String>,
-        now_ms: i64,
-    ) -> Self {
-        let selected = model::ci_default_job(jobs, requested);
-        let job = selected.as_deref().and_then(|id| jobs.iter().find(|job| job.id == id));
-        let actions = model::ci_run_actions(&run.state);
-        let running = job.is_some_and(|job| job.status != "completed");
-        let log = log.filter(|text| !text.is_empty() || running).map(model::ci_log_view);
-        Self {
-            number: run.number.unwrap_or_default(),
-            name: run.name.clone(),
-            tiles: model::ci_run_tiles(run, jobs, runner_label, now_ms),
-            rerun_failed: actions.rerun_failed,
-            cancel: actions.cancel,
-            error: run.error.clone().filter(|error| !error.is_empty()),
-            jobs: model::ci_job_rows(jobs, now_ms),
-            steps: job.map(|job| model::ci_steps(&model::ci_steps_of(job.steps.as_ref()), now_ms)).unwrap_or_default(),
-            log,
-            failing: job.is_some_and(|job| domain::pr_checks::is_failing(&job.status, job.conclusion.as_deref())),
-            follow: running,
-            selected,
-        }
-    }
-}
-
-/// The page as ONE document (ci-run.json LAYOUT, wide): the heading with the
-/// run's name muted, the four tiles, the actions, then the jobs Section
-/// beside the selected job's steps and log (or the pipeline error).
-pub(crate) fn page_tree(page: &PageModel) -> Value {
+/// One job's detail: its steps as a Trace, then its log.
+fn job_detail(input: &PageInput, job: &CiJobRow, log: Option<&str>) -> Value {
     let id = model::test_id;
-    // The same tree as web's (`apps/web/src/lib/ci-run-view.ts`): the title over its muted name.
-    let heading = json!({
-        "id": "ci-run-title",
+    let steps = model::ci_steps(&model::ci_steps_of(job.steps.as_ref()), input.now_ms);
+    let view = model::ci_log_view(log.unwrap_or_default());
+    let mut children = Vec::new();
+    if !steps.is_empty() {
+        let items: Vec<Value> = steps
+            .iter()
+            .enumerate()
+            .map(|(index, step)| {
+                let mut props = json!({"title": step.title, "status": step.status.id()});
+                if let Some(description) = step.description.as_ref().filter(|d| !d.is_empty()) {
+                    props["description"] = json!(description);
+                }
+                json!({"id": format!("{}.{}.{index}", id("steps"), job.id), "component": "TraceItem", "props": props})
+            })
+            .collect();
+        children.push(json!({"id": format!("{}.{}", id("steps"), job.id), "component": "Trace", "children": items}));
+    }
+    let log_id = format!("{}.{}", id("log"), job.id);
+    if view.code.is_empty() && job.status != "in_progress" {
+        children.push(json!({"id": log_id, "component": "Text", "props": {"text": model::copy("emptyLog"), "variant": "muted"}}));
+    } else {
+        let max_lines = model::CI_RUN["logMaxLines"][if input.phone { "phone" } else { "wide" }].clone();
+        let failing = domain::pr_checks::is_failing(&job.status, job.conclusion.as_deref());
+        children.push(json!({
+            "id": log_id,
+            "component": "CodeBlock",
+            "props": {
+                "code": view.code,
+                "title": model::copy("log"),
+                "language": "ansi",
+                "lineNumbers": true,
+                "wrap": false,
+                "copyable": true,
+                "maxLines": max_lines,
+                "variant": if failing { "destructive" } else { "default" },
+                "highlight": view.highlight,
+                "follow": job.status != "completed",
+            },
+        }));
+    }
+    json!({
+        "id": format!("ci-run-detail.{}", job.id),
         "component": "Stack",
-        "props": {"direction": "vertical", "gap": "xs", "align": "stretch"},
-        "children": [
-            {"id": "ci-run-heading", "component": "Heading", "props": {"text": model::run_title(page.number), "level": "h2"}},
-            {"id": "ci-run-name", "component": "Text", "props": {"text": page.name, "variant": "muted"}},
-        ],
-    });
-    let tiles: Vec<Value> = page
-        .tiles
+        "props": {"direction": "vertical", "gap": "md", "align": "stretch"},
+        "children": children,
+    })
+}
+
+/// The run page as ONE document (ci-run.json LAYOUT; node for node web's
+/// `ciRunTree`, ci-run-view.json).
+pub(crate) fn page_tree(input: &PageInput) -> Value {
+    let id = model::test_id;
+    let run = input.run;
+    let tiles = model::ci_run_tiles(run, input.jobs, input.runner_label, input.now_ms);
+    let actions = model::ci_run_actions(&run.state);
+    let tiles: Vec<Value> = tiles
         .iter()
         .enumerate()
         .map(|(index, tile)| {
             json!({
-                "id": format!("{}-{index}", id("tiles")),
+                "id": format!("{}.{index}", id("tiles")),
                 "component": "StatTile",
                 "props": {"label": tile.label, "value": tile.value, "tone": tile.tone.id()},
             })
         })
         .collect();
     let mut children = vec![
-        heading,
-        json!({"id": id("tiles"), "component": "Grid", "props": {"columns": 4, "gap": "md"}, "children": tiles}),
+        json!({
+            "id": "ci-run-title",
+            "component": "Stack",
+            "props": {"direction": "vertical", "gap": "xs", "align": "stretch"},
+            "children": [
+                {"id": "ci-run-heading", "component": "Heading", "props": {"text": model::run_title(run.number.unwrap_or_default()), "level": "h2"}},
+                {"id": "ci-run-name", "component": "Text", "props": {"text": run.name, "variant": "muted"}},
+            ],
+        }),
+        json!({"id": id("tiles"), "component": "Grid", "props": {"columns": if input.phone { 2 } else { 4 }, "gap": "md"}, "children": tiles}),
     ];
-    let mut buttons = Vec::new();
-    if page.rerun_failed {
-        buttons.push(json!({
-            "id": id("rerun"),
-            "component": "Button",
-            "props": {"label": model::copy("rerunFailed")},
-            "on": press("rerun", json!({})),
-        }));
-    }
-    if page.cancel {
-        // ci-run.json: destructive-outline; the catalog's `variant` has
-        // `destructive` as its one danger form.
-        buttons.push(json!({
-            "id": id("cancel"),
-            "component": "Button",
-            "props": {"label": model::copy("cancel"), "variant": "destructive"},
-            "on": press("cancel", json!({})),
-        }));
-    }
-    if !buttons.is_empty() {
+    if actions.rerun_failed || actions.cancel {
+        let mut buttons = Vec::new();
+        let busy = input.busy.is_some();
+        if actions.rerun_failed {
+            buttons.push(json!({
+                "id": id("rerun"),
+                "component": "Button",
+                "props": {"label": model::copy("rerunFailed"), "loading": input.busy == Some("rerun"), "disabled": busy},
+                "on": {"press": {"event": {"name": EVENT_RERUN}}},
+            }));
+        }
+        if actions.cancel {
+            // ci-run.json: destructive-outline; the catalog's `variant` has
+            // `destructive` as its one danger form.
+            buttons.push(json!({
+                "id": id("cancel"),
+                "component": "Button",
+                "props": {"label": model::copy("cancel"), "variant": "destructive", "loading": input.busy == Some("cancel"), "disabled": busy},
+                "on": {"press": {"event": {"name": EVENT_CANCEL}}},
+            }));
+        }
         children.push(json!({
             "id": "ci-run-actions",
             "component": "Stack",
-            "props": {"direction": "horizontal", "gap": "sm"},
+            "props": {"direction": "horizontal", "gap": "sm", "align": "center"},
             "children": buttons,
         }));
     }
-    if let Some(error) = &page.error {
+    if let Some(error) = run.error.as_ref().filter(|error| !error.is_empty()) {
         children.push(json!({
             "id": "ci-run-error",
             "component": "Alert",
             "props": {"type": "error", "title": model::copy("pipelineError"), "message": error},
         }));
-    } else {
-        let rows: Vec<Value> = page
-            .jobs
-            .iter()
-            .enumerate()
-            .map(|(index, row)| {
-                job_row(
-                    &format!("{}-{index}", id("jobRow")),
-                    row,
-                    page.selected.as_deref() == Some(row.id.as_str()),
-                    Some(press("select", json!({"job": row.id}))),
-                )
-            })
-            .collect();
-        let jobs = json!({
-            "id": "ci-run-jobs",
-            "component": "Section",
-            "props": {"title": model::copy("jobs")},
-            "style": {"width": 280, "flexShrink": 0},
-            "children": rows,
-        });
-        let mut detail = Vec::new();
-        if !page.steps.is_empty() {
-            let items: Vec<Value> = page
-                .steps
+    } else if !input.jobs.is_empty() {
+        let rows = model::ci_job_rows(input.jobs, input.now_ms);
+        let job_of = |row_id: &str| input.jobs.iter().find(|job| job.id == row_id);
+        let select = |job: &str| json!({"event": {"name": EVENT_SELECT, "context": {"job": job}}});
+        if input.phone {
+            let folds: Vec<Value> = rows
                 .iter()
-                .enumerate()
-                .map(|(index, step)| {
-                    let mut props = json!({"title": step.title, "status": step.status.id()});
-                    if let Some(description) = &step.description {
-                        props["description"] = json!(description);
-                    }
-                    json!({"id": format!("{}-{index}", id("steps")), "component": "TraceItem", "props": props})
+                .filter_map(|row| {
+                    let job = job_of(&row.id)?;
+                    let selected = input.selected == Some(row.id.as_str());
+                    Some(json!({
+                        "id": format!("{}.{}", id("jobRow"), row.id),
+                        "component": "Collapsible",
+                        "props": {"title": row.title, "open": selected},
+                        "on": {"change": select(&row.id)},
+                        "children": [job_detail(input, job, if selected { input.log } else { None })],
+                    }))
                 })
                 .collect();
-            detail.push(json!({"id": id("steps"), "component": "Trace", "children": items}));
-        }
-        detail.push(match &page.log {
-            Some(log) => json!({
-                "id": id("log"),
-                "component": "CodeBlock",
-                "props": {
-                    "code": log.code,
-                    "language": "ansi",
-                    "title": model::copy("log"),
-                    "lineNumbers": true,
-                    "wrap": false,
-                    "copyable": true,
-                    "maxLines": model::log_max_lines(),
-                    "variant": if page.failing { "destructive" } else { "default" },
-                    "highlight": log.highlight,
-                    "follow": page.follow,
-                },
-            }),
-            None => json!({"id": id("log"), "component": "Text", "props": {"text": model::copy("emptyLog"), "variant": "muted"}}),
-        });
-        children.push(json!({
-            "id": "ci-run-body",
-            "component": "Stack",
-            "props": {"direction": "horizontal", "gap": "lg", "align": "start"},
-            "children": [
-                jobs,
-                {
+            children.push(json!({
+                "id": "ci-run-jobs",
+                "component": "Stack",
+                "props": {"direction": "vertical", "gap": "sm", "align": "stretch"},
+                "children": folds,
+            }));
+        } else {
+            let job_rows: Vec<Value> = rows
+                .iter()
+                .map(|row| {
+                    let row_id = format!("{}.{}", id("jobRow"), row.id);
+                    let mut props = row_props(row);
+                    props.insert("selected".into(), json!(input.selected == Some(row.id.as_str())));
+                    props.insert("pressable".into(), json!(true));
+                    json!({
+                        "id": row_id,
+                        "component": "Row",
+                        "props": props,
+                        "slots": {"leading": glyph(&format!("{row_id}.glyph"), row)},
+                        "on": {"press": select(&row.id)},
+                    })
+                })
+                .collect();
+            let mut grid = vec![json!({
+                "id": "ci-run-jobs-list",
+                "component": "Box",
+                "style": {"flexDirection": "column"},
+                "children": [{
+                    "id": "ci-run-jobs-section",
+                    "component": "Section",
+                    "props": {"title": model::copy("jobs")},
+                    "children": job_rows,
+                }],
+            })];
+            if let Some(job) = input.selected.and_then(job_of) {
+                grid.push(json!({
                     "id": "ci-run-detail",
-                    "component": "Stack",
-                    "props": {"direction": "vertical", "gap": "md"},
-                    "style": {"flexGrow": 1, "flexShrink": 1, "minWidth": 0},
-                    "children": detail,
-                },
-            ],
-        }));
+                    "component": "Box",
+                    "style": {"minWidth": 0, "flexDirection": "column"},
+                    "children": [job_detail(input, job, input.log)],
+                }));
+            }
+            children.push(json!({
+                "id": "ci-run-jobs",
+                "component": "Box",
+                "style": {"display": "grid", "gridTemplateColumns": "300px minmax(0, 1fr)", "gap": "$spacing.lg", "alignItems": "start"},
+                "children": grid,
+            }));
+        }
     }
     json!({
         "id": id("page"),
         "component": "Stack",
-        "props": {"direction": "vertical", "gap": "lg"},
+        "props": {"direction": "vertical", "gap": "lg", "align": "stretch"},
         "children": children,
     })
 }
@@ -337,6 +345,7 @@ pub(crate) fn page_tree(page: &PageModel) -> Value {
 /// Where the page's data comes from.
 #[derive(Clone, PartialEq)]
 enum Source {
+
     /// The synced run `run_id`.
     Live(String),
     /// ci-run.json `specimen` (the shot).
@@ -359,6 +368,8 @@ pub(crate) struct CiRunView {
     logs: std::collections::HashMap<String, LogState>,
     /// The tail of the log being read (`None` = none).
     tail: Option<(String, Task<()>)>,
+    /// The button in flight (`rerun` | `cancel`).
+    busy: Option<&'static str>,
     view: Entity<SurfaceView>,
     last: Value,
     _subscriptions: Vec<Subscription>,
@@ -394,7 +405,7 @@ impl CiRunView {
                 subscriptions.push(cx.observe(&collections.devices, |_, _, cx| cx.notify()));
             }
         }
-        Self { source, requested, logs: Default::default(), tail: None, view, last: Value::Null, _subscriptions: subscriptions }
+        Self { source, requested, logs: Default::default(), tail: None, busy: None, view, last: Value::Null, _subscriptions: subscriptions }
     }
 
     /// Whether this view shows `run_id` with `job` asked for.
@@ -404,12 +415,15 @@ impl CiRunView {
 
     fn on_action(&mut self, event: ActionEvent, cx: &mut Context<Self>) {
         match event.name.as_str() {
-            "select" => {
-                self.requested = event.context["job"].as_str().map(str::to_string);
-                cx.notify();
+            EVENT_SELECT => {
+                // A phone fold closing selects nothing new.
+                if event.context["open"].as_bool() != Some(false) {
+                    self.requested = event.context["job"].as_str().map(str::to_string);
+                    cx.notify();
+                }
             }
-            "rerun" => self.rerun(cx),
-            "cancel" => self.cancel(cx),
+            EVENT_RERUN if self.busy.is_none() => self.rerun(cx),
+            EVENT_CANCEL if self.busy.is_none() => self.cancel(cx),
             _ => {}
         }
     }
@@ -423,8 +437,14 @@ impl CiRunView {
 
     fn rerun(&mut self, cx: &mut Context<Self>) {
         let (Some(run_id), Some(trpc)) = (self.run_id(), queries::trpc_client(cx)) else { return };
-        cx.spawn(async move |_, cx| {
+        self.busy = Some("rerun");
+        cx.notify();
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
             let result = cx.background_executor().spawn(async move { api::ci::rerun(&trpc, &run_id, true) }).await;
+            let _ = this.update(cx, |this, cx| {
+                this.busy = None;
+                cx.notify();
+            });
             let _ = cx.update(|cx| match result {
                 Ok(run_id) => crate::navigation::on_active_window(cx, move |window, cx| {
                     crate::navigation::navigate(window, cx, crate::navigation::Screen::CiRun { run_id, job: None });
@@ -437,8 +457,14 @@ impl CiRunView {
 
     fn cancel(&mut self, cx: &mut Context<Self>) {
         let (Some(run_id), Some(trpc)) = (self.run_id(), queries::trpc_client(cx)) else { return };
-        cx.spawn(async move |_, cx| {
+        self.busy = Some("cancel");
+        cx.notify();
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
             let result = cx.background_executor().spawn(async move { api::ci::cancel(&trpc, &run_id) }).await;
+            let _ = this.update(cx, |this, cx| {
+                this.busy = None;
+                cx.notify();
+            });
             if let Err(err) = result {
                 let _ = cx.update(|cx| crate::action_error::failed_action_err("cancel", "the run", &err, cx));
             }
@@ -496,7 +522,7 @@ impl CiRunView {
         self.tail = Some((id, task));
     }
 
-    fn page(&mut self, cx: &mut Context<Self>) -> Option<PageModel> {
+    fn page(&mut self, cx: &mut Context<Self>) -> Option<Value> {
         match self.source.clone() {
             Source::Specimen => {
                 let specimen = &model::CI_RUN["specimen"];
@@ -504,8 +530,17 @@ impl CiRunView {
                 let run = model::fixture_run(&specimen["run"]);
                 let jobs = model::fixture_jobs(&specimen["jobs"]);
                 let selected = model::ci_default_job(&jobs, self.requested.as_deref());
-                let log = selected.and_then(|id| self.logs.get(&id)).map(|log| log.text.clone());
-                Some(PageModel::new(&run, &jobs, self.requested.as_deref(), log.as_deref(), &|job| job.runner_device_id.clone(), now))
+                let log = selected.as_ref().and_then(|id| self.logs.get(id)).map(|log| log.text.clone());
+                Some(page_tree(&PageInput {
+                    run: &run,
+                    jobs: &jobs,
+                    selected: selected.as_deref(),
+                    log: log.as_deref(),
+                    now_ms: now,
+                    phone: false,
+                    busy: self.busy,
+                    runner_label: &|job| job.runner_device_id.clone(),
+                }))
             }
             Source::Live(run_id) => {
                 let store = Store::try_global(cx)?;
@@ -519,7 +554,16 @@ impl CiRunView {
                 };
                 let selected = model::ci_default_job(&jobs, self.requested.as_deref());
                 let log = selected.as_ref().and_then(|id| self.logs.get(id)).map(|log| log.text.clone());
-                let page = PageModel::new(&run, &jobs, self.requested.as_deref(), log.as_deref(), &label, crate::session_data::now_ms());
+                let page = page_tree(&PageInput {
+                    run: &run,
+                    jobs: &jobs,
+                    selected: selected.as_deref(),
+                    log: log.as_deref(),
+                    now_ms: crate::session_data::now_ms(),
+                    phone: false,
+                    busy: self.busy,
+                    runner_label: &label,
+                });
                 if let Some(job) = selected.as_ref().and_then(|id| jobs.iter().find(|job| &job.id == id)) {
                     if job.status != "queued" || job.log_key.is_some() {
                         let id = job.id.clone();
@@ -536,7 +580,7 @@ impl Render for CiRunView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "CiRunView").entered();
         let tree = match self.page(cx) {
-            Some(page) => page_tree(&page),
+            Some(tree) => tree,
             // Not synced (yet): skeleton rows (feedback-states.json).
             None => json!({
                 "id": model::test_id("page"),
@@ -561,40 +605,39 @@ impl Render for CiRunView {
 /// What the runner section shows (pure; [`runner_tree`] draws it).
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct RunnerModel {
-    pub notice: Option<RunnerNotice>,
+    /// `web` | `web-mobile` | `desktop` | `ios` | `android`.
+    pub client: String,
+    pub caps: Vec<String>,
+    pub platform: Option<String>,
     pub settings: RunnerSettings,
-    pub os_label: Option<&'static str>,
+    pub owner: bool,
+    /// The last labels entry was refused (copy.labels.invalid).
+    pub refused: bool,
     pub recent: Vec<CiJobListRow>,
-    /// Not the owner: every control disabled.
-    pub disabled: bool,
-    /// The last label typed was refused (copy.labels.invalid).
-    pub invalid: bool,
 }
 
-/// The section's bound values (`/runner/...`).
-fn runner_data(settings: &RunnerSettings) -> Value {
-    json!({
-        "enabled": settings.enabled,
-        "labels": settings.labels,
-        "slots": settings.slots,
-        "timeout": settings.timeout_min.to_string(),
-    })
-}
+/// The section's events (web `RUNNER_EVENTS`).
+pub(crate) const EVENT_ENABLED: &str = "runner-enabled";
+pub(crate) const EVENT_LABELS: &str = "runner-labels";
+pub(crate) const EVENT_SLOTS: &str = "runner-slots";
+pub(crate) const EVENT_TIMEOUT: &str = "runner-timeout";
 
-fn bound(path: &str) -> Value {
-    json!({"@path": path})
-}
+/// The pointer the ChipInput's `values` is bound to (the host writes the
+/// normalized list back, so a refused entry leaves the field).
+pub(crate) const LABELS_PATH: &str = "/labels";
 
 fn change(name: &str) -> Value {
     json!({"change": {"event": {"name": name}}})
 }
 
-/// The section as ONE document (runner-settings.json LAYOUT).
+/// The section as ONE document (runner-settings.json LAYOUT; node for node
+/// web's `runnerSectionTree`, ci-run-view.json).
 pub(crate) fn runner_tree(runner: &RunnerModel) -> Value {
     let id = model::runner_test_id;
     let copy = model::runner_copy;
+    let disabled = !runner.owner;
     let mut children = Vec::new();
-    if let Some(notice) = runner.notice {
+    if let Some(notice) = model::runner_notice(&runner.client, &runner.caps) {
         let key = format!("notice.{}", notice.id());
         children.push(json!({
             "id": "runner-notice",
@@ -605,63 +648,66 @@ pub(crate) fn runner_tree(runner: &RunnerModel) -> Value {
     children.push(json!({
         "id": "runner-enabled-row",
         "component": "SettingsRow",
-        "props": {"label": copy("enabled.label"), "description": copy("enabled.description"), "stackBelow": "never"},
+        "props": {"label": copy("enabled.label"), "description": copy("enabled.description")},
         "children": [{
             "id": id("switch"),
             "component": "Switch",
-            "props": {"label": "", "name": "enabled", "checked": bound("/runner/enabled"), "disabled": runner.disabled},
-            "on": change("enabled"),
+            "props": {"label": "", "name": id("switch"), "checked": runner.settings.enabled, "disabled": disabled},
+            "on": change(EVENT_ENABLED),
         }],
     }));
     if runner.settings.enabled {
-        let (min, max) = model::runner_slot_limits();
-        let suggestions: Vec<Value> = runner
-            .os_label
-            .filter(|label| !runner.settings.labels.iter().any(|have| have == label))
-            .map(|label| json!({"label": label, "value": label}))
+        let limits = &model::RUNNER_SETTINGS["limits"];
+        let suggestions: Vec<Value> = model::runner_os_label(runner.platform.as_deref())
+            .map(|os| json!({"label": os, "value": os}))
             .into_iter()
             .collect();
-        let options: Vec<Value> =
-            model::runner_timeout_options().into_iter().map(|(value, label)| json!({"value": value, "label": label})).collect();
-        let mut fields = vec![json!({
+        children.push(json!({
             "id": id("labels"),
             "component": "ChipInput",
             "props": {
                 "label": copy("labels.label"),
-                "name": "labels",
+                "name": id("labels"),
+                "values": {"@path": LABELS_PATH},
                 "placeholder": copy("labels.placeholder"),
-                "values": bound("/runner/labels"),
+                "max": limits["labels"],
                 "suggestions": suggestions,
-                "max": model::runner_max_labels(),
-                "disabled": runner.disabled,
+                "disabled": disabled,
             },
-            "on": change("labels"),
-        })];
-        if runner.invalid {
-            fields.push(json!({
+            "on": change(EVENT_LABELS),
+        }));
+        if runner.refused {
+            children.push(json!({
                 "id": "runner-labels-invalid",
                 "component": "Text",
                 "props": {"text": copy("labels.invalid"), "variant": "caption", "tone": "danger"},
             }));
         }
-        fields.push(json!({
+        children.push(json!({
             "id": id("slots"),
             "component": "NumberField",
-            "props": {"label": copy("slots"), "name": "slots", "value": bound("/runner/slots"), "min": min, "max": max, "step": 1, "disabled": runner.disabled},
-            "on": change("slots"),
-        }));
-        fields.push(json!({
-            "id": id("timeout"),
-            "component": "Select",
-            "props": {"label": copy("timeout"), "name": "timeout", "options": options, "value": bound("/runner/timeout"), "disabled": runner.disabled},
-            "on": change("timeout"),
+            "props": {
+                "label": copy("slots"),
+                "name": id("slots"),
+                "value": runner.settings.slots,
+                "min": limits["slots"]["min"],
+                "max": limits["slots"]["max"],
+                "step": 1,
+                "disabled": disabled,
+            },
+            "on": change(EVENT_SLOTS),
         }));
         children.push(json!({
-            "id": "runner-fields",
-            "component": "Stack",
-            "props": {"direction": "vertical", "gap": "md"},
-            "style": {"paddingTop": 8, "paddingBottom": 8},
-            "children": fields,
+            "id": id("timeout"),
+            "component": "Select",
+            "props": {
+                "label": copy("timeout"),
+                "name": id("timeout"),
+                "options": model::RUNNER_SETTINGS["timeoutOptions"],
+                "value": runner.settings.timeout_min.to_string(),
+                "disabled": disabled,
+            },
+            "on": change(EVENT_TIMEOUT),
         }));
     }
     children.push(json!({"id": "runner-recent-heading", "component": "Heading", "props": {"text": copy("recent"), "level": "h4"}}));
@@ -671,10 +717,22 @@ pub(crate) fn runner_tree(runner: &RunnerModel) -> Value {
         let rows: Vec<Value> = runner
             .recent
             .iter()
-            .enumerate()
-            .map(|(index, row)| job_row(&format!("{}-{index}", id("recent")), row, false, None))
+            .map(|row| {
+                let row_id = format!("{}.{}", id("recent"), row.id);
+                json!({
+                    "id": row_id,
+                    "component": "Row",
+                    "props": row_props(row),
+                    "slots": {"leading": glyph(&format!("{row_id}.glyph"), row)},
+                })
+            })
             .collect();
-        children.push(json!({"id": id("recent"), "component": "Stack", "props": {"direction": "vertical", "gap": "none"}, "children": rows}));
+        children.push(json!({
+            "id": id("recent"),
+            "component": "Stack",
+            "props": {"direction": "vertical", "gap": "none", "align": "stretch"},
+            "children": rows,
+        }));
     }
     json!({
         "id": id("section"),
@@ -682,6 +740,59 @@ pub(crate) fn runner_tree(runner: &RunnerModel) -> Value {
         "props": {"title": copy("section")},
         "children": children,
     })
+}
+
+/// A ChipInput's entries as stored: each through `normalizeLabel`,
+/// duplicates dropped, at most `limits.labels`; `true` = an entry was
+/// refused (web `runnerLabelsFrom`).
+pub(crate) fn runner_labels_from(entries: &[String]) -> (Vec<String>, bool) {
+    let mut labels: Vec<String> = Vec::new();
+    let mut refused = false;
+    for entry in entries {
+        match model::normalize_runner_label(entry) {
+            None => refused = true,
+            Some(label) if !labels.contains(&label) && labels.len() < model::runner_max_labels() => labels.push(label),
+            Some(_) => {}
+        }
+    }
+    (labels, refused)
+}
+
+/// The settings a control event writes (`None` = nothing to write) and
+/// whether a labels entry was refused (web `runnerSettingsAfter`).
+pub(crate) fn runner_settings_after(current: &RunnerSettings, event: &str, payload: &Value) -> (Option<RunnerSettings>, bool) {
+    match event {
+        EVENT_ENABLED => match payload["checked"].as_bool() {
+            Some(checked) => ((checked != current.enabled).then(|| RunnerSettings { enabled: checked, ..current.clone() }), false),
+            None => (None, false),
+        },
+        EVENT_LABELS => match payload["values"].as_array() {
+            Some(values) => {
+                let entries: Vec<String> =
+                    values.iter().map(|value| value.as_str().map(str::to_string).unwrap_or_else(|| value.to_string())).collect();
+                let (labels, refused) = runner_labels_from(&entries);
+                ((labels != current.labels).then(|| RunnerSettings { labels, ..current.clone() }), refused)
+            }
+            None => (None, false),
+        },
+        EVENT_SLOTS => match payload["value"].as_f64().filter(|value| value.is_finite()) {
+            Some(value) => {
+                let (min, max) = model::runner_slot_limits();
+                let slots = (value.round() as i64).clamp(min as i64, max as i64) as u32;
+                ((slots != current.slots).then(|| RunnerSettings { slots, ..current.clone() }), false)
+            }
+            None => (None, false),
+        },
+        EVENT_TIMEOUT => match payload["value"].as_str() {
+            Some(value) => {
+                let known = model::runner_timeout_options().iter().any(|(option, _)| option == value);
+                let timeout = value.parse::<u32>().ok().filter(|timeout| known && *timeout != current.timeout_min);
+                (timeout.map(|timeout_min| RunnerSettings { timeout_min, ..current.clone() }), false)
+            }
+            None => (None, false),
+        },
+        _ => (None, false),
+    }
 }
 
 /// The section's input: the device and who looks.
@@ -701,7 +812,7 @@ pub(crate) struct RunnerSection {
     input: Option<RunnerInput>,
     /// The settings as last written here, until the row echoes them.
     pending: Option<RunnerSettings>,
-    invalid: bool,
+    refused: bool,
     view: Entity<SurfaceView>,
     last: Value,
     last_data: Value,
@@ -714,7 +825,7 @@ impl RunnerSection {
             let _ = weak.update(cx, |this, cx| this.on_action(event, cx));
         });
         let view = mount(surface_id, on_action, window, cx);
-        Self { input: None, pending: None, invalid: false, view, last: Value::Null, last_data: Value::Null }
+        Self { input: None, pending: None, refused: false, view, last: Value::Null, last_data: Value::Null }
     }
 
     /// The device to show (every render of the host).
@@ -742,44 +853,18 @@ impl RunnerSection {
         if !input.owner {
             return;
         }
-        let mut next = self.settings();
-        let context = &event.context;
-        match event.name.as_str() {
-            "enabled" => next.enabled = context["checked"].as_bool().unwrap_or(!next.enabled),
-            "labels" => {
-                let typed: Vec<String> = context["values"]
-                    .as_array()
-                    .map(|values| values.iter().filter_map(|value| value.as_str().map(str::to_string)).collect())
-                    .unwrap_or_default();
-                let mut labels: Vec<String> = Vec::new();
-                self.invalid = false;
-                for label in typed {
-                    match model::normalize_runner_label(&label) {
-                        Some(label) if !labels.contains(&label) => labels.push(label),
-                        Some(_) => {}
-                        None => self.invalid = true,
-                    }
-                }
-                labels.truncate(model::runner_max_labels());
-                next.labels = labels;
-                // The refused entry leaves the field.
-                set_data(&self.view, "/runner/labels", json!(next.labels), cx);
-            }
-            "slots" => {
-                let Some(slots) = context["value"].as_f64() else { return };
-                let (min, max) = model::runner_slot_limits();
-                next.slots = (slots.round() as i64).clamp(min as i64, max as i64) as u32;
-            }
-            "timeout" => {
-                let Some(timeout) = context["value"].as_str().and_then(|value| value.parse().ok()) else { return };
-                next.timeout_min = timeout;
-            }
-            _ => return,
+        let current = self.settings();
+        let (next, refused) = runner_settings_after(&current, &event.name, &event.context);
+        if event.name == EVENT_LABELS {
+            self.refused = refused;
+            // The stored list goes back into the field: a refused entry leaves it.
+            let labels = next.as_ref().map(|next| next.labels.clone()).unwrap_or(current.labels);
+            set_data(&self.view, LABELS_PATH, json!(labels), cx);
         }
-        if next == self.settings() {
+        let Some(next) = next else {
             cx.notify();
             return;
-        }
+        };
         self.pending = Some(next.clone());
         cx.notify();
         if input.specimen {
@@ -808,14 +893,14 @@ impl RunnerSection {
 
     fn model(&self) -> Option<RunnerModel> {
         let input = self.input.as_ref()?;
-        let caps = input.device.cap_ids();
         Some(RunnerModel {
-            notice: model::runner_notice("desktop", &caps),
+            client: "desktop".into(),
+            caps: input.device.cap_ids(),
+            platform: input.device.platform.clone(),
             settings: self.settings(),
-            os_label: model::runner_os_label(input.device.platform.as_deref()),
+            owner: input.owner,
+            refused: self.refused,
             recent: model::runner_recent_jobs(&input.device.id, &input.jobs, input.now_ms),
-            disabled: !input.owner,
-            invalid: self.invalid,
         })
     }
 }
@@ -824,11 +909,11 @@ impl Render for RunnerSection {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "RunnerSection").entered();
         if let Some(runner) = self.model() {
-            let data = runner_data(&runner.settings);
+            let data = json!(runner.settings.labels);
             show(&self.view, &mut self.last, runner_tree(&runner), cx);
             if data != self.last_data {
                 self.last_data = data.clone();
-                set_data(&self.view, "/runner", data, cx);
+                set_data(&self.view, LABELS_PATH, data, cx);
             }
         }
         div().w_full().min_w_0().child(self.view.clone())
@@ -904,17 +989,124 @@ pub(crate) fn runner_specimen_input() -> RunnerInput {
 mod tests {
     use super::*;
 
-    fn specimen_page() -> PageModel {
-        let specimen = &model::CI_RUN["specimen"];
-        let now = specimen["now"].as_str().and_then(domain::instant::parse_instant).unwrap();
-        PageModel::new(
-            &model::fixture_run(&specimen["run"]),
-            &model::fixture_jobs(&specimen["jobs"]),
-            None,
-            specimen["log"].as_str(),
-            &|job| job.runner_device_id.clone(),
-            now,
-        )
+    const VIEW_FIXTURE: &str = include_str!("../../../../../packages/domain-contract/fixtures/ci-run-view.json");
+
+    fn view_fixture() -> Value {
+        serde_json::from_str(VIEW_FIXTURE).expect("ci-run-view.json parses")
+    }
+
+    /// Numbers as f64 (`2` == `2.0`), so a tree compares node for node.
+    fn normalized(value: &Value) -> Value {
+        match value {
+            Value::Number(number) => json!(number.as_f64().unwrap_or_default()),
+            Value::Array(items) => Value::Array(items.iter().map(normalized).collect()),
+            Value::Object(map) => Value::Object(map.iter().map(|(key, value)| (key.clone(), normalized(value))).collect()),
+            other => other.clone(),
+        }
+    }
+
+    /// The first path where `got` and `want` part (for a readable failure).
+    fn first_drift(path: &str, got: &Value, want: &Value) -> Option<String> {
+        match (got, want) {
+            (Value::Object(a), Value::Object(b)) => {
+                let mut keys: Vec<&String> = a.keys().chain(b.keys()).collect();
+                keys.sort();
+                keys.dedup();
+                keys.into_iter().find_map(|key| {
+                    first_drift(&format!("{path}.{key}"), a.get(key).unwrap_or(&Value::Null), b.get(key).unwrap_or(&Value::Null))
+                })
+            }
+            (Value::Array(a), Value::Array(b)) if a.len() == b.len() => {
+                a.iter().zip(b).enumerate().find_map(|(index, (a, b))| first_drift(&format!("{path}[{index}]"), a, b))
+            }
+            (a, b) if a == b => None,
+            (a, b) => Some(format!("{path}: desktop {a} ≠ web {b}")),
+        }
+    }
+
+    fn assert_same(name: &str, got: &Value, want: &Value) {
+        let (got, want) = (normalized(got), normalized(want));
+        if let Some(drift) = first_drift("", &got, &want) {
+            panic!("{name}: {drift}");
+        }
+    }
+
+    fn page_of(case: &Value) -> Value {
+        let model_json = &case["model"];
+        let run = model::fixture_run(&model_json["run"]);
+        let jobs = model::fixture_jobs(&model_json["jobs"]);
+        let now = case["now"].as_str().and_then(domain::instant::parse_instant).unwrap();
+        page_tree(&PageInput {
+            run: &run,
+            jobs: &jobs,
+            selected: case["selected"].as_str(),
+            log: case["log"].as_str(),
+            now_ms: now,
+            phone: case["phone"].as_bool() == Some(true),
+            busy: case["busy"].as_str(),
+            runner_label: &|job| job.runner_device_id.clone(),
+        })
+    }
+
+    fn settings_of(value: &Value) -> RunnerSettings {
+        model::runner_settings(Some(value))
+    }
+
+    fn settings_json(settings: &RunnerSettings) -> Value {
+        json!({"enabled": settings.enabled, "labels": settings.labels, "slots": settings.slots, "timeoutMin": settings.timeout_min})
+    }
+
+    /// #EXP-1804: ci-run-view.json `ciRun` — the run page node for node as
+    /// web builds it.
+    #[test]
+    fn the_run_page_replays_ci_run_view() {
+        let fixture = view_fixture();
+        let cases = fixture["ciRun"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            assert_same(case["name"].as_str().unwrap_or("ciRun"), &page_of(case), &case["tree"]);
+        }
+    }
+
+    /// ci-run-view.json `runner` (`recent: true` = runner-settings.json
+    /// `recentJobs[0]`'s rows).
+    #[test]
+    fn the_runner_section_replays_ci_run_view() {
+        let fixture = view_fixture();
+        let sample = &model::RUNNER_SETTINGS["recentJobs"][0];
+        let sample_now = sample["now"].as_str().and_then(domain::instant::parse_instant).unwrap();
+        for case in fixture["runner"].as_array().unwrap() {
+            let recent = if case["recent"].as_bool() == Some(true) {
+                model::runner_recent_jobs(sample["deviceId"].as_str().unwrap(), &model::fixture_runner_jobs(&sample["jobs"]), sample_now)
+            } else {
+                Vec::new()
+            };
+            let runner = RunnerModel {
+                client: case["client"].as_str().unwrap().to_string(),
+                caps: case["caps"].as_array().unwrap().iter().filter_map(|cap| cap.as_str().map(str::to_string)).collect(),
+                platform: case["platform"].as_str().map(str::to_string),
+                settings: settings_of(&case["settings"]),
+                owner: case["owner"].as_bool() == Some(true),
+                refused: case["refused"].as_bool() == Some(true),
+                recent,
+            };
+            assert_same(case["name"].as_str().unwrap_or("runner"), &runner_tree(&runner), &case["tree"]);
+        }
+    }
+
+    /// ci-run-view.json `after`: a control event → the settings to write.
+    #[test]
+    fn the_settings_change_rule_replays_ci_run_view() {
+        let fixture = view_fixture();
+        let cases = fixture["after"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for (index, case) in cases.iter().enumerate() {
+            let (settings, refused) =
+                runner_settings_after(&settings_of(&case["current"]), case["event"].as_str().unwrap(), &case["payload"]);
+            let got = json!({"settings": settings.as_ref().map(settings_json), "refused": refused});
+            let want = json!({"settings": case["settings"], "refused": case["refused"]});
+            assert_same(&format!("after[{index}] {}", case["event"]), &got, &want);
+        }
     }
 
     fn parses(tree: &Value) {
@@ -926,47 +1118,18 @@ mod tests {
     }
 
     #[test]
-    fn the_specimen_page_selects_the_failing_job() {
-        let page = specimen_page();
-        assert_eq!(page.selected.as_deref(), Some("j2"));
-        assert_eq!(page.tiles[0].value, "Failed");
-        assert_eq!(page.tiles[2].value, "mint");
-        assert!(page.rerun_failed && !page.cancel);
-        assert!(page.failing && !page.follow);
-        assert_eq!(page.steps.len(), 4);
-        assert_eq!(page.log.as_ref().unwrap().highlight.len(), 1);
-        let tree = page_tree(&page);
-        assert_eq!(tree["id"], "ci-run");
-        parses(&tree);
+    fn every_fixture_tree_mounts() {
+        let fixture = view_fixture();
+        for case in fixture["ciRun"].as_array().unwrap().iter().chain(fixture["runner"].as_array().unwrap()) {
+            parses(&case["tree"]);
+        }
     }
 
     #[test]
-    fn a_pipeline_error_replaces_the_jobs() {
-        let mut page = specimen_page();
-        page.error = Some("/jobs/Bad: invalid_name".into());
-        let tree = page_tree(&page).to_string();
-        assert!(tree.contains("The pipeline file did not plan"));
-        assert!(!tree.contains("ci-run-jobs"));
-    }
-
-    #[test]
-    fn the_runner_specimen_draws_its_section() {
+    fn the_runner_specimen_is_the_owner_on_mint() {
         let input = runner_specimen_input();
-        let runner = RunnerModel {
-            notice: model::runner_notice("desktop", &input.device.cap_ids()),
-            settings: model::runner_settings(input.device.runner.as_ref()),
-            os_label: model::runner_os_label(input.device.platform.as_deref()),
-            recent: model::runner_recent_jobs(&input.device.id, &input.jobs, input.now_ms),
-            disabled: !input.owner,
-            invalid: false,
-        };
-        assert_eq!(runner.notice, None);
-        assert_eq!(runner.recent.len(), 5);
-        assert_eq!(runner.os_label, Some("linux"));
-        let tree = runner_tree(&runner);
-        assert_eq!(tree["id"], "runner-settings");
-        parses(&tree);
-        let off = runner_tree(&RunnerModel { settings: model::runner_settings(None), ..runner });
-        assert!(!off.to_string().contains("runner-labels"));
+        assert!(input.owner);
+        assert_eq!(model::runner_recent_jobs(&input.device.id, &input.jobs, input.now_ms).len(), 5);
+        assert_eq!(model::runner_settings(input.device.runner.as_ref()).slots, 2);
     }
 }
