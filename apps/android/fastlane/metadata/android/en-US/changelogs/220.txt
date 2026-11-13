@@ -1,0 +1,3 @@
+- A smaller download: the app ships one native library instead of three
+- Fixes a crash on Android 8.0 and 8.1 when the first agent notification arrived
+- Sent messages show delivery ticks

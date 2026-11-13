@@ -905,6 +905,9 @@ async fn the_argv_pins_the_permission_mode_and_the_reaper_anchor() {
     // #FEED-227: a turn that called session_self (quiet) or show may end silently.
     assert!(run.argv.iter().any(|arg| arg
         == "env:CLAUDE_CODE_TERMINAL_MCP_TOOLS=mcp__exponential__exponential_session_self,mcp__exponential__exponential_show"));
+    // #EXP-1828: Claude Code's silent-turn reminder is off (it looped a quiet
+    // team agent 17 times).
+    assert!(run.argv.iter().any(|arg| arg == "env:CLAUDE_CODE_SILENT_TURN_REMINDER=0"));
     // Never SET by the adapter (the SDK claims `sdk-ts`; we do not): whatever
     // the child reports is what it inherited from this process.
     let inherited = std::env::var("CLAUDE_CODE_ENTRYPOINT").unwrap_or_default();
@@ -1465,6 +1468,61 @@ async fn a_cancel_interrupts_the_running_turn_and_settles_it_cancelled() {
     // `cancel_queued` is what makes one Stop halt the whole session rather
     // than only the turn in flight.
     assert_eq!(interrupt["request"]["cancel_queued"], serde_json::json!(true));
+}
+
+/// #EXP-1828 regression (FEED-240): a team agent answered a routine event
+/// with `quiet`, got re-woken without a new message, and answered `quiet`
+/// again, 17 times. The second `quiet` since the prompt interrupts the turn
+/// itself: it settles as an ordinary end (no Stop banner), and the
+/// interrupt keeps whatever the CLI holds queued.
+#[tokio::test]
+async fn a_second_quiet_without_a_new_message_ends_the_turn() {
+    let _session = one_session_at_a_time();
+    let work = workdir("quiet-loop");
+    let adapter = ClaudeAgent::new(spec("quiet-loop", &work.0, false)).expect("the adapter builds");
+    let stop_reason = Client
+        .v1()
+        .name("exp746-test-client")
+        .on_receive_notification(
+            async move |_notification: SessionNotification, _cx| Ok(()),
+            on_receive_notification!(),
+        )
+        .connect_with(adapter, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(engine::client_capabilities()),
+            )
+            .block_task()
+            .await?;
+            let session = cx
+                .send_request(NewSessionRequest::new(std::env::temp_dir()))
+                .block_task()
+                .await?;
+            // The fixture's turn carries no `result`: only the adapter's own
+            // interrupt ends it.
+            let response = cx
+                .send_request(PromptRequest::new(
+                    session.session_id.clone(),
+                    vec![ContentBlock::Text(TextContent::new("Dismissed: the ask card."))],
+                ))
+                .block_task()
+                .await?;
+            Ok::<_, Error>(response.stop_reason)
+        })
+        .await
+        .expect("the connection runs cleanly");
+    assert_eq!(stop_reason, StopReason::EndTurn);
+    let stdin: Vec<Value> = std::fs::read_to_string(work.0.join("stdin.jsonl"))
+        .expect("the fake logged stdin")
+        .lines()
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .collect();
+    let interrupts: Vec<&Value> = stdin
+        .iter()
+        .filter(|line| line["request"]["subtype"] == serde_json::json!("interrupt"))
+        .collect();
+    assert_eq!(interrupts.len(), 1, "one interrupt for the repeated quiet");
+    assert_eq!(interrupts[0]["request"]["cancel_queued"], serde_json::json!(false));
 }
 
 /// EXP-784: the stall watchdog's interrupt says `cancel_queued: false` on
