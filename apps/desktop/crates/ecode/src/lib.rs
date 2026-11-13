@@ -5,7 +5,8 @@
 //!
 //! - [`Remote`]: where objects go (credentials, fetch, push);
 //! - [`Forge`]: the review unit, every op of `forge.json`;
-//! - [`Ci`]: pipelines, runs, jobs and logs (types only until E4);
+//! - [`Ci`]: pipelines, runs, jobs and logs (feature `runner`: [`run_job`]
+//!   runs one job behind a [`Sandbox`], #EXP-1617);
 //! - [`Store`]: review and run objects; [`Store::update_ref`] is the ONE
 //!   serialization point (compare-and-swap);
 //! - [`SecretSource`]: injects secrets into a process, never returns them.
@@ -32,6 +33,9 @@ mod repo;
 #[cfg(feature = "local")]
 mod local;
 
+#[cfg(feature = "runner")]
+mod runner;
+
 #[cfg(feature = "github")]
 pub mod github;
 
@@ -55,3 +59,6 @@ pub use repo::*;
 
 #[cfg(feature = "local")]
 pub use local::*;
+
+#[cfg(feature = "runner")]
+pub use runner::*;

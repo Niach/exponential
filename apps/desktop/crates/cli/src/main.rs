@@ -10,6 +10,7 @@
 //! (EXP-1292: picked up off its `sessions` / `messages` shapes).
 
 mod agent_login_host;
+mod ci_runner;
 mod commands;
 mod context;
 mod launch;

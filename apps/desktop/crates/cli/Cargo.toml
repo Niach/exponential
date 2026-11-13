@@ -19,6 +19,8 @@ path = "src/main.rs"
 api = { path = "../api" }
 domain = { path = "../domain" }
 coding = { path = "../coding" }
+# #EXP-1617: the CI runner (a `ci_job` runs through ecode::run_job).
+ecode = { path = "../ecode", default-features = false, features = ["runner", "exponential"] }
 steer = { path = "../steer" }
 # EXP-746: the ACP session engine — the daemon runs an Acp-transport session
 # through it instead of the PTY host, sharing one lifecycle with the IDE.

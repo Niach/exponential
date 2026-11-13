@@ -489,7 +489,7 @@ function deviceReportsProfile(
  * CONFLICT; `requestUpdate({endSessions})` reuses the pending row instead
  * (FEED-36: a second "Update now" click is the same wish, not an error).
  */
-async function queueDeviceCommand(
+export async function queueDeviceCommand(
   db: Context[`db`],
   args: {
     deviceRowId: string

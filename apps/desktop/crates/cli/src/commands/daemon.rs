@@ -65,6 +65,9 @@ const ADVERT_CONFIRM_RECHECK: Duration = Duration::from_secs(30);
 fn device_caps(advertised: &coding::AgentAdvertisement) -> Vec<String> {
     let mut caps = coding::device_caps(advertised);
     caps.push(UPDATE_CHECK_CAP.to_string());
+    // #EXP-1617: this build runs `ci_job` commands (the server dispatches
+    // only to a device whose owner enabled its runner).
+    caps.push(crate::ci_runner::CI_RUNNER_CAP.to_string());
     caps
 }
 
@@ -2421,6 +2424,16 @@ fn run_device_command(
         // must not start a second updater. Live sessions keep running (the
         // binary they hold stays mapped); the doctor re-probes right after
         // so the next beat's `agent_accounts.<agent>.version` moves.
+        // #EXP-1617: one CI job; its own thread claims, runs and finishes it.
+        crate::ci_runner::CI_JOB_COMMAND => {
+            match command.payload["jobId"].as_str() {
+                Some(job_id) => crate::ci_runner::spawn(ctx, &command.id, job_id, logins_inflight),
+                None => {
+                    let _ = api::devices::complete_command(&ctx.trpc, &command.id, false, Some("Malformed command payload."));
+                }
+            }
+            return;
+        }
         coding::AGENT_UPDATE_COMMAND => {
             let agent = command.payload["agent"].as_str().unwrap_or_default();
             let Some(agent) = coding::CodingAgent::parse(agent) else {
@@ -4283,6 +4296,7 @@ mod tests {
         // The shared list, then this daemon's own `update-check` (#EXP-1628).
         let mut shared = coding::device_caps(&advert(&["claude"]));
         shared.push(UPDATE_CHECK_CAP.to_string());
+        shared.push(crate::ci_runner::CI_RUNNER_CAP.to_string());
         assert_eq!(device_caps(&advert(&["claude"])), shared);
         let caps = device_caps(&advert(&["claude"]));
         for cap in coding::DEVICE_CAPS {
@@ -4293,7 +4307,7 @@ mod tests {
         }
         // Nothing runnable = build caps only.
         let signed_out = device_caps(&advert(&[]));
-        assert_eq!(signed_out.len(), coding::DEVICE_CAPS.len() + 1);
+        assert_eq!(signed_out.len(), coding::DEVICE_CAPS.len() + 2);
         assert!(signed_out.contains(&"agent-login".to_string()));
         assert!(!signed_out.contains(&"triggers".to_string()));
         assert!(!signed_out.contains(&"automations".to_string()), "nor the legacy trigger cap");

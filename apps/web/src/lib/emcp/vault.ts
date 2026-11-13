@@ -177,6 +177,11 @@ export function clientSecretSlot(id: string): VaultSlot {
   return { table: `mcp_oauth_clients`, column: `client_secret_ciphertext`, rowId: id }
 }
 
+/** #EXP-1617: a repository's CI secret. */
+export function ciSecretSlot(id: string): VaultSlot {
+  return { table: `ci_secrets`, column: `value_ciphertext`, rowId: id }
+}
+
 export const ACCOUNT_TOKEN_COLUMNS = [`access_token`, `refresh_token`, `id_token`] as const
 export type AccountTokenColumn = (typeof ACCOUNT_TOKEN_COLUMNS)[number]
 

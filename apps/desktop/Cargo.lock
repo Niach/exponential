@@ -2843,6 +2843,7 @@ version = "0.1.0"
 dependencies = [
  "ecode-core",
  "gix",
+ "libc",
  "reqwest",
  "rustls",
  "serde",
@@ -3660,6 +3661,7 @@ dependencies = [
  "coding",
  "dirs 6.0.0",
  "domain",
+ "ecode",
  "eengine-bundle",
  "engine",
  "epilot",

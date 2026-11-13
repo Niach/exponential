@@ -17,6 +17,7 @@ import {
   teams,
   appRecords,
   attachments,
+  ciJobs,
   creem_subscriptions,
   teamInvites,
   users,
@@ -247,7 +248,7 @@ export async function getTeamUsage(
 ): Promise<TeamUsage> {
   // EXP-1291: conversation files and Guide pictures are `attachments` rows
   // too, so the one sum covers them.
-  const [memberCount, [storageSum], [widgetCount]] =
+  const [memberCount, [storageSum], [widgetCount], [ciLogSum]] =
     await Promise.all([
       countTeamMembers(teamId),
       // A media row's poster frame is a second blob on the same row
@@ -263,9 +264,14 @@ export async function getTeamUsage(
         .select({ count: sql<number>`count(*)::int` })
         .from(widgetConfigs)
         .where(eq(widgetConfigs.teamId, teamId)),
+      // #EXP-1617: CI logs are chunk objects in the bucket too.
+      db
+        .select({ totalBytes: sql<string>`coalesce(sum(${ciJobs.logBytes}), 0)::bigint` })
+        .from(ciJobs)
+        .where(eq(ciJobs.teamId, teamId)),
     ])
 
-  const totalBytes = Number(storageSum.totalBytes)
+  const totalBytes = Number(storageSum.totalBytes) + Number(ciLogSum?.totalBytes ?? 0)
 
   return {
     members: memberCount,

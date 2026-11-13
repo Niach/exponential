@@ -17,6 +17,8 @@ import {
   prompts,
   skills,
   pullRequestChecks,
+  ciRuns,
+  ciJobs,
   pullRequestIssues,
   pullRequests,
   sessionIssues,
@@ -34,6 +36,8 @@ import { SESSION_READ_COLUMNS } from "./session-reads"
 import { PULL_REQUEST_COLUMNS } from "./pull-requests"
 import { PULL_REQUEST_ISSUE_COLUMNS } from "./pull-request-issues"
 import { PULL_REQUEST_CHECK_COLUMNS } from "./pull-request-checks"
+import { CI_RUN_COLUMNS } from "./ci-runs"
+import { CI_JOB_COLUMNS } from "./ci-jobs"
 import { AGENT_COLUMNS } from "./agents"
 import { EVENT_COLUMNS } from "./events"
 import { PROMPT_COLUMNS } from "./prompts"
@@ -62,6 +66,9 @@ const lists = {
   pull_request_issues: [PULL_REQUEST_ISSUE_COLUMNS, pullRequestIssues],
   // EXP-1610
   pull_request_checks: [PULL_REQUEST_CHECK_COLUMNS, pullRequestChecks],
+  // #EXP-1617
+  ci_runs: [CI_RUN_COLUMNS, ciRuns],
+  ci_jobs: [CI_JOB_COLUMNS, ciJobs],
   // EXP-1323
   session_reads: [SESSION_READ_COLUMNS, sessionReads],
   // NEW-2
@@ -171,5 +178,13 @@ describe(`sessions allowlist`, () => {
   })
   it(`keeps a send's idempotency key server-only (F21)`, () => {
     expect(MESSAGE_COLUMNS).not.toContain(`client_message_id`)
+  })
+})
+
+describe(`ci_jobs allowlist`, () => {
+  it(`keeps the spec, the job token and the dispatch stamps server-only`, () => {
+    for (const hidden of [`spec`, `job_token_hash`, `secrets_fetched_at`, `dispatched_device_id`, `dispatched_at`, `last_beat_at`, `queued_flagged_at`, `log_chunks`]) {
+      expect(CI_JOB_COLUMNS).not.toContain(hidden)
+    }
   })
 })

@@ -434,6 +434,29 @@ export const githubForge: Forge & {
     return [...names]
   },
 
+  async readFile(repo, path, ref) {
+    const filePath = path.split(`/`).map(encodeURIComponent).join(`/`)
+    const { res } = await call(repo, `/repos/${repo.fullName}/contents/${filePath}?ref=${encodeURIComponent(ref)}`)
+    if (res.status === 404) return null
+    if (!res.ok) throw new Error(`GitHub returned ${res.status} reading ${repo.fullName}:${path}@${ref}: ${await githubErrorMessage(res)}`)
+    const data = (await res.json()) as { type?: string; encoding?: string; content?: string }
+    if (data.type !== `file` || typeof data.content !== `string`) return null
+    return data.encoding === `base64` ? Buffer.from(data.content, `base64`).toString(`utf8`) : data.content
+  },
+
+  async reportStatus(repo, sha, status) {
+    const { res } = await call(repo, `/repos/${repo.fullName}/statuses/${encodeURIComponent(sha)}`, {
+      method: `POST`,
+      body: {
+        state: status.state,
+        context: status.context,
+        ...(status.description ? { description: status.description.slice(0, 140) } : {}),
+        ...(status.targetUrl ? { target_url: status.targetUrl } : {}),
+      },
+    })
+    if (!res.ok) throw new Error(`GitHub returned ${res.status} posting a status on ${repo.fullName}@${sha}: ${await githubErrorMessage(res)}`)
+  },
+
   async dispatchPipeline(repo, inputs) {
     const { res } = await call(repo, `/repos/${repo.fullName}/actions/workflows/${GITHUB_TRAIN_WORKFLOW}/dispatches`, {
       method: `POST`,
