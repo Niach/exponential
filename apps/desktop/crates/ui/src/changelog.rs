@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-13-phones-notifications-ticks",
+    date: "2026-11-13",
+    title: "Notifications and delivery ticks on your phone",
+    summary: "Android 0.14.135 and iOS 0.14.126: quieter notifications that clear when read elsewhere, delivery ticks on what you send, and new Android sessions stream at once.",
+    body: r##"- **Quieter notifications**: while the app is open a notification shows as a short notice, or not at all when that chat is on screen; reading it on another device clears it from your phone.
+- **Delivery ticks**: a message you send shows a clock until it is sent, then one tick, then two once its session has it.
+- **Android chats**: a session you start from the phone streams right away, images shared from other apps reach the composer, and pasted images no longer end up in session titles."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_278: ChangelogEntry = ChangelogEntry {
     id: "2026-11-13-share-picked-team",
     date: "2026-11-13",
     title: "Shared items land in the team you pick",
