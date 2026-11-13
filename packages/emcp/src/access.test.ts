@@ -12,7 +12,10 @@ describe(`grantErrors`, () => {
 
 describe(`memberPolicy`, () => {
   for (const entry of fixture.policyCases) {
-    test(String(entry.row), () => expect(memberPolicy(entry.row as Level | null)).toBe(entry.expected as Level))
+    const e = entry as { row: Level | null; default?: Level; exempt?: boolean; expected: Level }
+    const name = `${e.row} ${e.default ?? `-`} ${e.exempt ?? `-`}`
+    const context = `default` in e ? { default: e.default, exempt: e.exempt } : undefined
+    test(name, () => expect(memberPolicy(e.row, context)).toBe(e.expected))
   }
 })
 

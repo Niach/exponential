@@ -25,6 +25,7 @@ import {
 import { argsHash, callStatus, type CallStatus } from "@exp/emcp/audit"
 import { contract } from "@exp/domain-contract"
 import { db } from "@/db/connection"
+import { levelOf } from "@/lib/apps/app-access-level"
 import { appAccess, apps, events, mcpCalls, teamMembers, teams, users, type App, type Event } from "@/db/schema"
 import { latestCronMatch, parseCron } from "@/lib/agents/cron"
 import { actingAgentSlug } from "@/lib/apps/agent-handoff"
@@ -74,10 +75,12 @@ export async function sponsorOf(app: Pick<App, `id` | `teamId` | `publishedBy`>,
     .innerJoin(users, eq(users.id, teamMembers.userId))
     .leftJoin(appAccess, and(eq(appAccess.appId, app.id), eq(appAccess.userId, teamMembers.userId)))
     .where(eq(teamMembers.teamId, app.teamId))
+  // #FEED-242: no row = creator/owner write, else the app's default.
+  const [policy] = await db.select({ createdBy: apps.createdBy, defaultAccess: apps.defaultAccess }).from(apps).where(eq(apps.id, app.id)).limit(1)
   return resolveSponsor({
     declared: automation.sponsor ?? null,
     publishedBy: app.publishedBy,
-    members: members.map((m) => ({ id: m.id, email: m.email, role: m.role, level: m.level ?? `write` })),
+    members: members.map((m) => ({ id: m.id, email: m.email, role: m.role, level: policy ? levelOf(policy, m.id, m.role, m.level) : (m.level ?? `write`) })),
   })
 }
 

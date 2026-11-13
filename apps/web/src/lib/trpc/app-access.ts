@@ -2,7 +2,7 @@ import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { and, asc, eq, inArray, isNull } from "drizzle-orm"
 import { MAX_SHARE_EXPIRES_DAYS } from "@exponential_app/eui"
-import { POLICY_LEVELS, memberPolicy, type Level } from "@exp/emcp/access"
+import { POLICY_LEVELS, type Level } from "@exp/emcp/access"
 import { resolveUpstreamServer } from "@exp/emcp/upstream"
 import { runVia, type Expose } from "@exp/emcp/exposes"
 import { appAccess, apps, mcpCredentials, mcpServers, teamMembers } from "@/db/schema"
@@ -13,6 +13,7 @@ import { recordMcpCalls } from "@/lib/emcp/audit"
 import { connectionFor } from "@/lib/emcp/upstream/credentials"
 import { authedProcedure, router } from "@/lib/trpc"
 import { invalidateAppShapeRules } from "@/lib/apps/records-shape"
+import { appAccessLevel, levelOf, memberLevels } from "@/lib/apps/app-access-level"
 import { automationRows } from "@/lib/apps/automations"
 import { bindingsOf, writeUpstreamMappings } from "@/lib/apps/upstream-mapping"
 import { hookRows, rotateHookSecret } from "@/lib/apps/webhooks"
@@ -20,7 +21,8 @@ import { enableShareLink, expireShareLink, revokeShareLink, rotateShareLink, sha
 
 // #VAPP-183: who may use which app's MCP tools (@exp/emcp access.json).
 // The member × app POLICY (Settings › MCP Access): owners set a level per
-// member and app, None | Read only | Full; no row = Full; a member reads
+// member and app, None | Read only | Full; no row = the app's default
+// (#FEED-242, "Everyone else"; creator + owners Full); a member reads
 // only their own row. The per-tool switch (an app's settings page, Tools):
 // owners switch an exposed tool off for every client. The broker
 // (lib/emcp/apps-broker.ts) enforces both.
@@ -63,15 +65,18 @@ export const appAccessRouter = router({
   list: authedProcedure.input(z.object({ teamId: uuid })).query(async ({ ctx, input }) => {
     const me = await memberOrNotFound(ctx.session.user.id, input.teamId)
     const appRows = await ctx.db
-      .select({ id: apps.id, slug: apps.slug, name: apps.name, icon: apps.icon, color: apps.color, package: apps.package })
+      .select({ id: apps.id, slug: apps.slug, name: apps.name, icon: apps.icon, color: apps.color, package: apps.package, createdBy: apps.createdBy, defaultAccess: apps.defaultAccess })
       .from(apps)
       .where(and(eq(apps.teamId, input.teamId), isNull(apps.deletedAt)))
       .orderBy(asc(apps.name))
     const toolApps = appRows
       .filter((a) => exposesOf(a.package).length > 0)
       // Settings › MCP: the open Team apps row lists each app's tools.
-      .map(({ package: pkg, ...a }) => ({
+      .map(({ package: pkg, createdBy, defaultAccess, ...a }) => ({
         ...a,
+        createdBy,
+        // #FEED-242: the "Everyone else" row (owners set it).
+        defaultAccess: defaultAccess as Level,
         toolCount: exposesOf(pkg).length,
         tools: exposesOf(pkg).map((e) => ({ name: e.name, title: e.title || e.name, blurb: (e.description ?? ``).trim().split(/\r?\n/)[0] ?? `` })),
       }))
@@ -87,12 +92,12 @@ export const appAccessRouter = router({
       .select({ appId: appAccess.appId, userId: appAccess.userId, level: appAccess.level })
       .from(appAccess)
       .where(owner ? eq(appAccess.teamId, input.teamId) : and(eq(appAccess.teamId, input.teamId), eq(appAccess.userId, ctx.session.user.id)))
-    const levelOf = new Map(policies.map((p) => [`${p.appId}:${p.userId}`, p.level as Level]))
+    const rowOf = new Map(policies.map((p) => [`${p.appId}:${p.userId}`, p.level as Level]))
     const rows: AccessRow[] = members.map((m) => ({
       ...m,
-      levels: Object.fromEntries(toolApps.map((a) => [a.id, memberPolicy(levelOf.get(`${a.id}:${m.userId}`))])),
+      levels: Object.fromEntries(toolApps.map((a) => [a.id, levelOf(a, m.userId, m.role, rowOf.get(`${a.id}:${m.userId}`))])),
     }))
-    return { canEdit: owner, apps: toolApps, rows }
+    return { canEdit: owner, apps: toolApps.map(({ createdBy: _c, ...a }) => a), rows }
   }),
 
   /** eApps R3: the caller's OWN level for one app (no row = write): the
@@ -102,25 +107,43 @@ export const appAccessRouter = router({
     const [app] = await ctx.db.select({ teamId: apps.teamId }).from(apps).where(and(eq(apps.id, input.appId), isNull(apps.deletedAt))).limit(1)
     if (!app) throw new TRPCError({ code: `NOT_FOUND`, message: `App not found` })
     await memberOrNotFound(ctx.session.user.id, app.teamId)
-    const [row] = await ctx.db
-      .select({ level: appAccess.level })
-      .from(appAccess)
-      .where(and(eq(appAccess.appId, input.appId), eq(appAccess.userId, ctx.session.user.id)))
-      .limit(1)
-    return { level: memberPolicy(row?.level as Level | undefined) }
+    return { level: await appAccessLevel(ctx.db, input.appId, ctx.session.user.id) }
   }),
 
   /** VAPP-198: every member's level for one app that is not Full (owners:
-   *  the editor's "Run as <member>" previews under the member's access). */
+   *  the editor's "Run as <member>" previews under the member's access);
+   *  #FEED-242: `default` = the app's "Everyone else" level. */
   levels: authedProcedure.input(z.object({ appId: uuid })).query(async ({ ctx, input }) => {
+    const [app] = await ctx.db
+      .select({ id: apps.id, teamId: apps.teamId, createdBy: apps.createdBy, defaultAccess: apps.defaultAccess })
+      .from(apps)
+      .where(and(eq(apps.id, input.appId), isNull(apps.deletedAt)))
+      .limit(1)
+    if (!app) throw new TRPCError({ code: `NOT_FOUND`, message: `App not found` })
+    assertOwner((await memberOrNotFound(ctx.session.user.id, app.teamId)).role)
+    const members = await ctx.db.select({ userId: teamMembers.userId, role: teamMembers.role }).from(teamMembers).where(eq(teamMembers.teamId, app.teamId))
+    const levels = await memberLevels(ctx.db, app, members)
+    return {
+      default: app.defaultAccess as Level,
+      levels: Object.fromEntries([...levels].filter(([, level]) => level !== `write`)) as Record<string, Level>,
+    }
+  }),
+
+  /** #FEED-242: the app's default level for members without a row (the
+   *  "Everyone else" row; owners). The creator and owners stay Full. */
+  setDefault: authedProcedure.input(z.object({ appId: uuid, level: levelSchema })).mutation(async ({ ctx, input }) => {
     const [app] = await ctx.db.select({ teamId: apps.teamId }).from(apps).where(and(eq(apps.id, input.appId), isNull(apps.deletedAt))).limit(1)
     if (!app) throw new TRPCError({ code: `NOT_FOUND`, message: `App not found` })
     assertOwner((await memberOrNotFound(ctx.session.user.id, app.teamId)).role)
-    const rows = await ctx.db.select({ userId: appAccess.userId, level: appAccess.level }).from(appAccess).where(eq(appAccess.appId, input.appId))
-    return { levels: Object.fromEntries(rows.map((r) => [r.userId, r.level as Level])) as Record<string, Level> }
+    await ctx.db.update(apps).set({ defaultAccess: input.level }).where(eq(apps.id, input.appId))
+    // The app shapes follow the default at the members' next renewal.
+    invalidateAppShapeRules()
+    return { ok: true as const }
   }),
 
-  /** Set one member's level for one app (owners). Full removes the row. */
+  /** Set one member's level for one app (owners). The level the member
+   *  would have without a row removes the row (#FEED-242: Full while the
+   *  default is Full, else an explicit row). */
   set: authedProcedure
     .input(z.object({ appId: uuid, userId: z.string().min(1), level: levelSchema }))
     .mutation(async ({ ctx, input }) => {
@@ -128,7 +151,9 @@ export const appAccessRouter = router({
       if (!app) throw new TRPCError({ code: `NOT_FOUND`, message: `App not found` })
       assertOwner((await memberOrNotFound(ctx.session.user.id, app.teamId)).role)
       if (!(await getTeamMember(input.userId, app.teamId))) throw new TRPCError({ code: `NOT_FOUND`, message: `Member not found` })
-      if (input.level === `write`) {
+      const [policy] = await ctx.db.select({ createdBy: apps.createdBy, defaultAccess: apps.defaultAccess }).from(apps).where(eq(apps.id, input.appId)).limit(1)
+      const target = await getTeamMember(input.userId, app.teamId)
+      if (policy && input.level === levelOf(policy, input.userId, target?.role ?? null, null)) {
         await ctx.db.delete(appAccess).where(and(eq(appAccess.appId, input.appId), eq(appAccess.userId, input.userId)))
       } else {
         await ctx.db
