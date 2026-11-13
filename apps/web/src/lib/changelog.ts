@@ -34,6 +34,14 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Backups and mirror**: every merge saves a backup you can restore, and owners can mirror the repository to GitHub.`,
   },
   {
+    id: `2026-11-13-android-memory-fix`,
+    date: `2026-11-13`,
+    title: `Android stays within memory in large chats`,
+    summary: `The Android app fixes a crash from running out of memory, and a sign-out race.`,
+    body: `- **No more out-of-memory crash**: Android keeps a chat's memory bounded however large its session tree grows, so long chats no longer crash the app.
+- **No surprise sign-out**: a late answer from an old login no longer signs you out of a newer one.`,
+  },
+  {
     id: `2026-11-13-composer-drafts-on-phones`,
     date: `2026-11-13`,
     title: `Drafts follow you to your phone`,

@@ -6,6 +6,7 @@ import {
   GetObjectCommand,
   HeadBucketCommand,
   HeadObjectCommand,
+  ListObjectsV2Command,
   NoSuchKey,
   PutObjectCommand,
   S3Client,
@@ -264,6 +265,33 @@ export async function deleteObject(key: string) {
       })
     )
   )
+}
+
+/** #EXP-1617: one level of "directories" under `prefix` (keys grouped by
+ *  `/`), e.g. the team ids under `ci-logs/`. Capped at `max`. */
+export async function listPrefixes(prefix: string, max = 1000): Promise<string[]> {
+  await ensureBucketReady()
+  const out: string[] = []
+  let token: string | undefined
+  do {
+    const page = await sendWithThrottleRetry(() =>
+      storageClient.send(
+        new ListObjectsV2Command({ Bucket: storageBucket, Prefix: prefix, Delimiter: `/`, ContinuationToken: token })
+      )
+    )
+    for (const entry of page.CommonPrefixes ?? []) if (entry.Prefix) out.push(entry.Prefix)
+    token = page.IsTruncated ? page.NextContinuationToken : undefined
+  } while (token && out.length < max)
+  return out.slice(0, max)
+}
+
+/** #EXP-1617: every key under `prefix` (one page per call, up to 1000). */
+export async function listKeys(prefix: string): Promise<string[]> {
+  await ensureBucketReady()
+  const page = await sendWithThrottleRetry(() =>
+    storageClient.send(new ListObjectsV2Command({ Bucket: storageBucket, Prefix: prefix }))
+  )
+  return (page.Contents ?? []).flatMap((entry) => (entry.Key ? [entry.Key] : []))
 }
 
 export async function toResponseBody(

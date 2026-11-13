@@ -28,6 +28,8 @@ import { Route as pullRequestsRoute } from "@/routes/api/shapes/pull-requests"
 import { Route as pullRequestIssuesRoute } from "@/routes/api/shapes/pull-request-issues"
 import { Route as pullRequestChecksRoute } from "@/routes/api/shapes/pull-request-checks"
 import { Route as skillsRoute } from "@/routes/api/shapes/skills"
+import { Route as ciRunsRoute } from "@/routes/api/shapes/ci-runs"
+import { Route as ciJobsRoute } from "@/routes/api/shapes/ci-jobs"
 
 const {
   resolveSession,
@@ -973,7 +975,7 @@ describe(`every shape proxy pins a columns allowlist (REV-49)`, () => {
     proxyElectricRequest.mockResolvedValue(new Response(`ok`))
   })
 
-  // ALL 23 shape routes (the file list in routes/api/shapes/ IS the list).
+  // ALL 29 shape routes (the file list in routes/api/shapes/ IS the list).
   // The pin is what makes adding a server-only column to a synced table safe
   // — an unpinned proxy would stream it to every client on the next deploy
   // with no code change and no test failure. A new route added without a
@@ -981,6 +983,8 @@ describe(`every shape proxy pins a columns allowlist (REV-49)`, () => {
   // pins one.
   const allRoutes = [
     [`attachments`, attachmentsRoute],
+    [`ci-jobs`, ciJobsRoute],
+    [`ci-runs`, ciRunsRoute],
     [`boards`, boardsRoute],
     [`comments`, commentsRoute],
     [`device-worktrees`, deviceWorktreesRoute],

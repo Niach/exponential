@@ -13,11 +13,12 @@ import { and, eq, isNotNull, or, sql, type SQL } from "drizzle-orm"
 import type { PgColumn } from "drizzle-orm/pg-core"
 import { db } from "@/db/connection"
 import { accounts } from "@/db/auth-schema"
-import { appHooks, mcpCredentials, mcpOauthClients, mcpOauthFlows } from "@/db/schema"
+import { appHooks, ciSecrets, mcpCredentials, mcpOauthClients, mcpOauthFlows } from "@/db/schema"
 import { hookSlot } from "@/lib/apps/hook-slot"
 import { reportSchedulerRun } from "@/lib/metrics/registry"
 import {
   accountSlot,
+  ciSecretSlot,
   clientSecretSlot,
   credentialSlot,
   flowVerifierSlot,
@@ -95,6 +96,30 @@ export async function sweepMcpCredentials(database: Db = db): Promise<VaultSweep
           .update(mcpCredentials)
           .set({ ciphertext: next })
           .where(and(eq(mcpCredentials.id, row.id), eq(mcpCredentials.ciphertext, row.ciphertext)))
+      }
+      return tally(next)
+    }
+  )
+}
+
+/** #EXP-1617: the CI secrets (always `ev1`, no legacy form). */
+export async function sweepCiSecrets(database: Db = db): Promise<VaultSweepResult> {
+  return sweepTable(
+    (after) =>
+      database
+        .select({ id: ciSecrets.id, secret: ciSecrets.valueCiphertext })
+        .from(ciSecrets)
+        .where(and(staleCondition(ciSecrets.valueCiphertext), sql`${ciSecrets.id}::text > ${after}`))
+        .orderBy(sql`${ciSecrets.id}::text`)
+        .limit(BATCH),
+    async (row) => {
+      const plain = isSealed(row.secret) ? openSecret(row.secret, ciSecretSlot(row.id)) : null
+      const next = plain === null ? null : sealSecret(plain, ciSecretSlot(row.id))
+      if (next !== null) {
+        await database
+          .update(ciSecrets)
+          .set({ valueCiphertext: next })
+          .where(and(eq(ciSecrets.id, row.id), eq(ciSecrets.valueCiphertext, row.secret)))
       }
       return tally(next)
     }
@@ -236,6 +261,7 @@ export async function runVaultSweep(database: Db = db): Promise<VaultSweepResult
     mcp_oauth_clients: await sweepMcpOauthClients(database),
     mcp_oauth_flows: await sweepMcpOauthFlows(database),
     app_hooks: await sweepAppHooks(database),
+    ci_secrets: await sweepCiSecrets(database),
   }
   const values = Object.values(byTable)
   return {

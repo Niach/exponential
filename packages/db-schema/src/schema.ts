@@ -1423,6 +1423,48 @@ export interface DeviceDisplay {
   height: number
   primary: boolean
 }
+// #EXP-1617: a device's CI runner settings (`devices.runner`). `labels` =
+// what its jobs' `runsOn` may ask for (lowercase, eCode's label rule; the
+// OS and arch labels are added by the daemon); `slots` = parallel jobs;
+// `timeoutMin` = the cap on any job's own timeout.
+export interface DeviceRunnerSettings {
+  enabled: boolean
+  labels: string[]
+  slots: number
+  timeoutMin: number
+}
+
+// #EXP-1617: `repositories.ci_config`.
+export interface RepositoryCiConfig {
+  requiredChecks?: string[]
+  githubStatuses?: boolean
+}
+
+// #EXP-1617: one step of a CI job as the runner reports it.
+export interface CiStepState {
+  name: string
+  status: `queued` | `in_progress` | `completed`
+  conclusion: string | null
+  startedAt: number | null
+  completedAt: number | null
+}
+
+// #EXP-1617: what a runner runs for one job (server-only `ci_jobs.spec`):
+// the planner's steps with their merged env, the secret NAMES and the job's
+// env. Values of secrets never live here.
+export interface CiJobSpec {
+  env: Record<string, string>
+  secrets: string[]
+  steps: Array<{
+    name: string
+    run: string
+    env: Record<string, string>
+    timeoutMin: number | null
+    continueOnError: boolean
+    workingDirectory: string | null
+  }>
+}
+
 export interface DeviceDoctor {
   checkedAt: string
   items: DeviceDoctorItem[]
@@ -1638,6 +1680,11 @@ export const devices = pgTable(
     // the machine's pin (`device_keys`): an account that only knows a box's
     // id cannot share it. NULL = registered without a proof (a desktop).
     publicKey: varchar(`public_key`, { length: 64 }),
+    // #EXP-1617: the CI runner settings the OWNER picked on the device
+    // detail ({enabled, labels, slots, timeoutMin}). NULL = never set up
+    // (not a runner). The server dispatches `ci_job` commands only to an
+    // enabled runner whose caps carry `ci-runner` (a build that runs jobs).
+    runner: jsonb().$type<DeviceRunnerSettings>(),
     ...timestamps,
   },
   (table) => [
@@ -3195,6 +3242,145 @@ export const commitChecks = pgTable(
   (table) => [unique(`uniq_commit_checks_name`).on(table.repositoryId, table.sha, table.name)]
 )
 
+// #EXP-1617 eCode's own CI. One run = one pipeline plan (`.exponential/ci.json`,
+// packages/ecode fixtures/pipeline.json) at one commit for one trigger; its
+// jobs are the planner's checks, scheduled by fixtures/runner.json's rules
+// (`lib/ci`). Synced (member-only, `team_id`); results ALSO land in
+// `commit_checks` + `pull_request_checks`, so the Merge pill, wake-ups and
+// the merge train read them like any provider's. `state` = the run's rollup
+// (checks.json: pending | success | failure); `error` = why the pipeline
+// file could not be planned (then the run is a failure with no jobs).
+export const ciRuns = pgTable(
+  `ci_runs`,
+  {
+    id: uuidPk(),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    repositoryId: uuid(`repository_id`)
+      .notNull()
+      .references(() => repositories.id, { onDelete: `cascade` }),
+    // Per repository, from 1 (the run page's `#12`).
+    number: integer().notNull(),
+    // The pipeline's `name` (the file's, or `ci`).
+    name: varchar({ length: 64 }).notNull(),
+    sha: varchar({ length: 64 }).notNull(),
+    // The branch or tag that triggered it (null = a bare commit).
+    ref: varchar({ length: 255 }),
+    // eCode trigger: push | pull_request | tag | merge_train | manual.
+    trigger: varchar({ length: 16 }).notNull(),
+    pullRequestId: uuid(`pull_request_id`).references(() => pullRequests.id, {
+      onDelete: `set null`,
+    }),
+    // pending | success | failure (the rollup over the jobs).
+    state: varchar({ length: 16 }).notNull().default(`pending`),
+    error: text(),
+    // The run this one re-runs (Re-run failed).
+    rerunOf: uuid(`rerun_of`).references((): AnyPgColumn => ciRuns.id, {
+      onDelete: `set null`,
+    }),
+    createdByUserId: text(`created_by_user_id`).references(() => users.id, {
+      onDelete: `set null`,
+    }),
+    startedAt: timestamp(`started_at`, { withTimezone: true }),
+    completedAt: timestamp(`completed_at`, { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [
+    unique(`uniq_ci_runs_number`).on(table.repositoryId, table.number),
+    index(`idx_ci_runs_team`).on(table.teamId),
+    index(`idx_ci_runs_repo_sha`).on(table.repositoryId, table.sha),
+  ]
+)
+
+// #EXP-1617: one planned check of a run (a job × one matrix combination).
+// `needs` = job ids of this run. `steps` = [{name, status, conclusion,
+// startedAt, completedAt}] as the runner reports them (the run page's
+// trace). The log lives in the bucket as chunks under `log_key`
+// (`lib/ci/logs.ts`); `log_bytes` counts toward the team's storage. Server
+// only (outside the shape allowlist): `spec` (the planned steps with their
+// scripts, env and secret NAMES), the job token's hash, the dispatch and
+// beat stamps and the chunk index.
+export const ciJobs = pgTable(
+  `ci_jobs`,
+  {
+    id: uuidPk(),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    runId: uuid(`run_id`)
+      .notNull()
+      .references(() => ciRuns.id, { onDelete: `cascade` }),
+    // The job's key in the file and its check name (`name (v1, v2)`).
+    key: varchar({ length: 64 }).notNull(),
+    check: varchar({ length: 255 }).notNull(),
+    // Queue order inside the run (the planner's order).
+    position: integer().notNull(),
+    runsOn: jsonb(`runs_on`).$type<string[]>().notNull().default([]),
+    needs: jsonb().$type<string[]>().notNull().default([]),
+    matrix: jsonb().$type<Record<string, string>>().notNull().default({}),
+    timeoutMin: integer(`timeout_min`).notNull().default(60),
+    status: prCheckStatusEnum().notNull().default(`queued`),
+    conclusion: prCheckConclusionEnum(),
+    // Why it completed without running: a planned skip (`fork`, `paths`),
+    // `needs`, `runner_lost`, `reused` (a re-run kept the old success).
+    reason: varchar({ length: 32 }),
+    runnerDeviceId: uuid(`runner_device_id`).references(() => devices.id, {
+      onDelete: `set null`,
+    }),
+    steps: jsonb().$type<CiStepState[]>().notNull().default([]),
+    logKey: text(`log_key`),
+    logBytes: bigint(`log_bytes`, { mode: `number` }).notNull().default(0),
+    queuedAt: timestamp(`queued_at`, { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp(`started_at`, { withTimezone: true }),
+    completedAt: timestamp(`completed_at`, { withTimezone: true }),
+    // Server-only from here.
+    spec: jsonb().$type<CiJobSpec>().notNull(),
+    jobTokenHash: text(`job_token_hash`),
+    secretsFetchedAt: timestamp(`secrets_fetched_at`, { withTimezone: true }),
+    dispatchedDeviceId: uuid(`dispatched_device_id`),
+    dispatchedAt: timestamp(`dispatched_at`, { withTimezone: true }),
+    lastBeatAt: timestamp(`last_beat_at`, { withTimezone: true }),
+    queuedFlaggedAt: timestamp(`queued_flagged_at`, { withTimezone: true }),
+    // Byte length of each log chunk object, in order.
+    logChunks: jsonb(`log_chunks`).$type<number[]>().notNull().default([]),
+    ...timestamps,
+  },
+  (table) => [
+    index(`idx_ci_jobs_run`).on(table.runId),
+    index(`idx_ci_jobs_team`).on(table.teamId),
+    index(`idx_ci_jobs_open`)
+      .on(table.status)
+      .where(sql`status <> 'completed'`),
+    index(`idx_ci_jobs_runner`).on(table.runnerDeviceId),
+  ]
+)
+
+// #EXP-1617 (SERVER-ONLY, no shape): a repository's CI secrets, sealed with
+// the eMCP vault (slot `ci_secrets.value_ciphertext.<id>`). A runner gets
+// the ones its job names ONCE, at job start, with the job's one-time token
+// (`ci.jobSecrets`); they never enter `device_commands` payloads, a log
+// (the runner redacts them) or a client.
+export const ciSecrets = pgTable(
+  `ci_secrets`,
+  {
+    id: uuidPk(),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    repositoryId: uuid(`repository_id`)
+      .notNull()
+      .references(() => repositories.id, { onDelete: `cascade` }),
+    name: varchar({ length: 128 }).notNull(),
+    valueCiphertext: text(`value_ciphertext`).notNull(),
+    updatedByUserId: text(`updated_by_user_id`).references(() => users.id, {
+      onDelete: `set null`,
+    }),
+    ...timestamps,
+  },
+  (table) => [unique(`uniq_ci_secrets_name`).on(table.repositoryId, table.name)]
+)
+
 // #EXP-1540 (SERVER-ONLY, no shape): the latest push of each branch (GitHub
 // `push` webhook, `lib/sessions/push-attribution.ts`), dated by its payload,
 // and the session credited with it (null = nobody). Only ever moves forward,
@@ -3433,6 +3619,13 @@ export const repositories = pgTable(
     }),
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),
     archivedAt: timestamp(`archived_at`, { withTimezone: true }),
+    // #EXP-1617: the repo's CI settings: `requiredChecks` (check names that
+    // gate the merge train, ON TOP of the forge's own protection) and
+    // `githubStatuses` (our CI also reports as GitHub commit statuses).
+    ciConfig: jsonb(`ci_config`)
+      .$type<RepositoryCiConfig>()
+      .notNull()
+      .default({}),
     // #EXP-1616: an `ecode` repo numbers its own PRs (the last number
     // handed out; `ecodeForge.openPullRequest` bumps it atomically).
     prSequence: integer(`pr_sequence`).notNull().default(0),
@@ -4650,6 +4843,30 @@ export const selectPullRequestCheckSchema = createSelectSchema(pullRequestChecks
   queuedFlaggedAt: true,
 })
 export const selectPullRequestIssueSchema = createSelectSchema(pullRequestIssues)
+// #EXP-1617: the synced projections of eCode's CI (server-only columns omitted).
+const ciStepStateSchema = z.object({
+  name: z.string(),
+  status: z.string(),
+  conclusion: z.string().nullable(),
+  startedAt: z.number().nullable(),
+  completedAt: z.number().nullable(),
+})
+export const selectCiRunSchema = createSelectSchema(ciRuns)
+export const selectCiJobSchema = createSelectSchema(ciJobs, {
+  runsOn: z.array(z.string()),
+  needs: z.array(z.string()),
+  matrix: z.record(z.string(), z.string()),
+  steps: z.array(ciStepStateSchema),
+}).omit({
+  spec: true,
+  jobTokenHash: true,
+  secretsFetchedAt: true,
+  dispatchedDeviceId: true,
+  dispatchedAt: true,
+  lastBeatAt: true,
+  queuedFlaggedAt: true,
+  logChunks: true,
+})
 export const selectSyncedPullRequestIssueSchema = selectPullRequestIssueSchema.omit({
   boardId: true,
   boardDeletedAt: true,
@@ -4745,6 +4962,8 @@ export type ConversationMember = InferSelectModel<typeof conversationMembers>
 export type PullRequest = InferSelectModel<typeof pullRequests>
 export type PullRequestIssue = InferSelectModel<typeof pullRequestIssues>
 export type PullRequestCheck = InferSelectModel<typeof pullRequestChecks>
+export type CiRun = InferSelectModel<typeof ciRuns>
+export type CiJob = InferSelectModel<typeof ciJobs>
 export type Repository = InferSelectModel<typeof repositories>
 export type McpServer = InferSelectModel<typeof mcpServers>
 export type McpDeviceCall = InferSelectModel<typeof mcpDeviceCalls>

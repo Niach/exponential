@@ -66,10 +66,13 @@ export type EcodeEvent =
 /** A git job for a team device; each answers a JSON result or refuses. */
 export type EcodeJob =
   | { op: `mergeability`; base: string; head: string }
-  | { op: `squash`; base: string; head: string; message: string }
+  /** `author` = `Name <email>` (#EXP-1617: the train's PR author); absent = the job's identity. */
+  | { op: `squash`; base: string; head: string; message: string; author?: string }
   | { op: `files`; base: string; head: string }
   | { op: `rebase_onto`; tip: string; onto: string; upstream: string }
   | { op: `is_ancestor`; ancestor: string; of: string }
+  /** #EXP-1617: a file at a commit (our CI's `.exponential/ci.json`). */
+  | { op: `read_file`; sha: string; path: string }
 
 export interface EcodeJobAnswers {
   mergeability: { mergeability: Mergeability; conflicts: string[] }
@@ -77,6 +80,7 @@ export interface EcodeJobAnswers {
   files: { files: ForgeFile[] }
   rebase_onto: { sha: string }
   is_ancestor: { yes: boolean }
+  read_file: { text: string | null }
 }
 
 /** A device's answer: the result, or the spec's refusal. */
@@ -420,11 +424,26 @@ export function createEcodeForge(host: EcodeHost): Forge {
 
     // The merge train's pipeline is eCode CI's (#EXP-1617, E4): until a repo
     // has one, the train lands directly (`squashMerge`, a device job).
-    async dispatchPipeline() {
-      return { ok: false, missing: true, message: `This repository has no eCode pipeline yet` }
+    // #EXP-1617: a file at a commit is a device job (the packs live in the
+    // bucket, a team device reads them with LocalRepo). A branch name is
+    // resolved here first: the device reads commits only.
+    async readFile(repo, path, ref) {
+      const sha = /^[0-9a-f]{40}$/.test(ref) ? ref : ((await host.branches(repo))[ref] ?? null)
+      if (!sha) return null
+      return unwrap(await host.job(repo, { op: `read_file`, sha, path })).text
     },
-    async readPipeline() {
-      return { outcome: null, finished: false }
+    // Our CI's check rows ARE this forge's checks: nothing to mirror.
+    async reportStatus() {},
+
+    // #EXP-1617: our own CI runs the train (lib/ci/train.ts): the batch
+    // composed by device jobs, then a `merge_train` run on its head.
+    async dispatchPipeline(repo, inputs) {
+      const { dispatchEcodeTrain } = await import(`@/lib/ci/train`)
+      return dispatchEcodeTrain(host, repo, inputs)
+    },
+    async readPipeline(_repo, _trainId, runRef) {
+      const { readEcodeTrain } = await import(`@/lib/ci/train`)
+      return readEcodeTrain(runRef)
     },
 
     checksAt: (repo, sha) => host.checksAt(repo, sha),

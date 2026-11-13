@@ -41,6 +41,8 @@ pub(crate) fn with_json(request: reqwest::blocking::RequestBuilder, body: &Value
 pub(crate) struct Response {
     pub status: u16,
     pub body: Value,
+    /// Read by the `github` provider's polling only.
+    #[cfg_attr(not(feature = "github"), allow(dead_code))]
     pub etag: Option<String>,
 }
 

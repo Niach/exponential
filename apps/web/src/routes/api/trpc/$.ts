@@ -47,6 +47,7 @@ import { pinsRouter } from "@/lib/trpc/pins"
 import { sessionsRouter } from "@/lib/trpc/sessions"
 import { pullRequestsRouter } from "@/lib/trpc/pull-requests"
 import { importsRouter } from "@/lib/trpc/imports"
+import { ciRouter } from "@/lib/trpc/ci"
 
 export const appRouter = router({
   sessions: sessionsRouter,
@@ -63,6 +64,8 @@ export const appRouter = router({
   comments: commentsRouter,
   attachments: attachmentsRouter,
   repositories: repositoriesRouter,
+  // #EXP-1617: eCode's own CI.
+  ci: ciRouter,
   prompts: promptsRouter,
   skills: skillsRouter,
   apps: appsRouter,

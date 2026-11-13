@@ -203,6 +203,16 @@ export interface Forge {
   defaultBranch(repo: ForgeRepo): Promise<string | null>
   /** The base branch's REQUIRED check names (never hard-coded). */
   requiredChecks(repo: ForgeRepo, base: string): Promise<string[]>
+  /** #EXP-1617: a file's text at `ref` (a sha or branch), null = no such
+   *  file there. Throws when unreadable (no access, rate limited). */
+  readFile(repo: ForgeRepo, path: string, ref: string): Promise<string | null>
+  /** #EXP-1617: report one of OUR checks on the forge's commit (GitHub:
+   *  a commit status `context`), for a repo that asked for it. */
+  reportStatus(
+    repo: ForgeRepo,
+    sha: string,
+    status: { context: string; state: `pending` | `success` | `failure` | `error`; description?: string; targetUrl?: string | null }
+  ): Promise<void>
   /** Start ONE pipeline run (merge-train.json `pipeline.inputs`). `missing` =
    *  the repo has no pipeline installed, or the forge lets this App run none
    *  there (#FEED-223): the train then lands directly. */
