@@ -9,6 +9,8 @@ import remote from "@exp/ecode/fixtures/remote.json"
 import runner from "@exp/ecode/fixtures/runner.json"
 import { REPLAYS } from "@exp/ecode/replay"
 import { rollup } from "@exp/ecode/checks"
+import { providerValues } from "@exp/ecode"
+import { repositoryProviderValues } from "@exp/db-schema"
 
 // #EXP-1613: eCode's spec (packages/ecode) replays here, inside the gate, and
 // stays bound to what this server already does: the check enums and the
@@ -34,6 +36,10 @@ describe(`ecode spec: bound to domain-contract's checks`, () => {
     expect(ecodeContract.checksState.values).toEqual(contract.prChecksState.values)
     expect(ecodeContract.runner.queuedFlagMinutes).toBe(contract.prChecks.queuedFlagMinutes)
     expect([...ecodeContract.prState.values].sort()).toEqual([...contract.prState.values].sort())
+  })
+
+  it(`repositories.provider is the contract's provider enum (#EXP-1614)`, () => {
+    expect([...repositoryProviderValues]).toEqual([...providerValues])
   })
 
   it(`the rollup is aggregateChecksState`, () => {

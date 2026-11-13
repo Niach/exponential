@@ -2,6 +2,8 @@ import { z } from "zod"
 import { REPO_FULL_NAME_RE } from "@/lib/repo-full-name"
 import { TRPCError } from "@trpc/server"
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm"
+import { githubProviderConfig, providerConfigWithInstallation } from "@/lib/ecode/provider-config"
+import { githubRemote } from "@/lib/ecode/forge-github"
 import type { db } from "@/db/connection"
 import { router, authedProcedure } from "@/lib/trpc"
 import { boardVisible } from "@/lib/board-visibility"
@@ -116,6 +118,7 @@ export async function connectRepositoryInTx(
       defaultBranch,
       private: resolved.private || (input.private ?? false),
       installationId,
+      providerConfig: githubProviderConfig(installationId),
       inaccessibleAt: null,
       // EXP-557: the connector becomes the repo's sharer (manages it
       // alongside owners).
@@ -138,6 +141,7 @@ export async function connectRepositoryInTx(
     .set({
       archivedAt: null,
       installationId,
+      providerConfig: providerConfigWithInstallation(installationId),
       inaccessibleAt: null,
       sharedByUserId: sql`case when ${repositories.archivedAt} is not null or ${repositories.sharedByUserId} is null then ${input.userId} else ${repositories.sharedByUserId} end`,
     })
@@ -321,7 +325,9 @@ export async function loadRepository(repositoryId: string) {
     .select({
       id: repositories.id,
       teamId: repositories.teamId,
+      provider: repositories.provider,
       fullName: repositories.fullName,
+      remoteUrl: repositories.remoteUrl,
       defaultBranch: repositories.defaultBranch,
       defaultBranchOverride: repositories.defaultBranchOverride,
       installationId: repositories.installationId,
@@ -467,7 +473,9 @@ export async function loadRepositoryByFullName(
     .select({
       id: repositories.id,
       teamId: repositories.teamId,
+      provider: repositories.provider,
       fullName: repositories.fullName,
+      remoteUrl: repositories.remoteUrl,
       defaultBranch: repositories.defaultBranch,
       defaultBranchOverride: repositories.defaultBranchOverride,
       installationId: repositories.installationId,
@@ -491,6 +499,124 @@ export async function loadRepositoryByFullName(
     })
   }
   return repo
+}
+
+/** The JIT credential behind `installationToken` and `credentials`
+ *  (#EXP-1614): the gated mint, the row's bookkeeping, the effective
+ *  default branch, and where git reaches the repo. */
+async function mintRepoCredentials(
+  db: Pick<typeof import("@/db/connection")[`db`], `update`>,
+  userId: string,
+  input: { repositoryId: string; boardId?: string }
+) {
+  const repo = await loadRepository(input.repositoryId)
+  if (repo.provider && repo.provider !== `github`) {
+    await assertRepoCapability(userId, repo.teamId)
+    throw new TRPCError({
+      code: `PRECONDITION_FAILED`,
+      message: `${repo.fullName} is on the ${repo.provider} forge, which this server does not serve yet`,
+    })
+  }
+  // Team coding: any member of the repo's team may mint a JIT token
+  // (assertRepoCapability = plain team membership).
+  // Per-installer attribution is intentionally NOT required here: the repo
+  // is only present in this team because a member legitimately
+  // connected it (connectRepositoryInTx proved their push access). The
+  // team's ownership of the repo row is the authorization; requiring the
+  // caller to also be the original connector would break coding for every
+  // other teammate.
+  await assertRepoCapability(userId, repo.teamId)
+  if (!githubAppConfigured()) {
+    throw new TRPCError({
+      code: `PRECONDITION_FAILED`,
+      message: `GitHub App is not configured on this instance`,
+    })
+  }
+
+  // Fall back to the installation persisted at connect time when GitHub's
+  // per-repo lookup misses — see resolveRepoInstallationTokenInfo (fixes
+  // the spurious 412 when the repo IS covered by a known installation). The
+  // fallback token is VERIFIED against the repo, so a null here means the
+  // App genuinely lost access (repo removed from the installation's
+  // selection, or uninstalled) — stamp the row so the settings UI shows the
+  // no-access badge, and tell the caller how to fix it. A repo GitHub now
+  // places under a DIFFERENT installation is refused the same way
+  // (installationDrifted): the team reconnects it.
+  const resolved = await resolveRepoInstallationTokenInfo(repo.fullName, {
+    fallbackInstallationId: repo.installationId,
+  })
+  if (
+    !resolved ||
+    installationDrifted(repo.installationId, resolved.installationId)
+  ) {
+    await db
+      .update(repositories)
+      .set({ inaccessibleAt: new Date() })
+      .where(
+        and(
+          eq(repositories.id, repo.id),
+          isNull(repositories.inaccessibleAt)
+        )
+      )
+    throw new TRPCError({
+      code: `PRECONDITION_FAILED`,
+      message: resolved
+        ? `${repo.fullName} now belongs to a different GitHub App installation. Reconnect it in team settings → Repositories, then retry.`
+        : `The GitHub App no longer has access to ${repo.fullName}. Re-grant it on GitHub (team settings → Repositories), then retry.`,
+    })
+  }
+  const token = resolved.token
+  // The mint just proved access — fill a legacy NULL installation id and
+  // clear a stale no-access flag (best-effort bookkeeping). A different
+  // stored id was refused above.
+  if (repo.installationId == null || repo.inaccessibleAt != null) {
+    await db
+      .update(repositories)
+      .set({
+        installationId: resolved.installationId,
+        providerConfig: providerConfigWithInstallation(resolved.installationId),
+        inaccessibleAt: null,
+      })
+      .where(eq(repositories.id, repo.id))
+  }
+  // GitHub is authoritative on the default branch — a stale/misseeded row
+  // (e.g. `main` for a `master` repo) would break the launcher's
+  // `git worktree add … origin/<default>`. Prefer the live value; heal the
+  // row when it drifted; fall back to the stored value if the lookup fails.
+  // A team-chosen override (EXP-462) wins over both — the launcher must
+  // base worktrees on the branch the team actually develops on.
+  const liveDefaultBranch = await resolveRepoDefaultBranch(repo.fullName)
+  if (liveDefaultBranch && liveDefaultBranch !== repo.defaultBranch) {
+    await db
+      .update(repositories)
+      .set({ defaultBranch: liveDefaultBranch })
+      .where(eq(repositories.id, repo.id))
+  }
+  const boardBranch = input.boardId
+    ? await boardBranchOverride(input.boardId, repo.fullName)
+    : null
+  return {
+    token,
+    fullName: repo.fullName,
+    defaultBranch:
+      boardBranch ??
+      repo.defaultBranchOverride ??
+      liveDefaultBranch ??
+      repo.defaultBranch,
+    // GitHub's REAL expiry for the (possibly cache-served) token — EXP-73:
+    // a synthetic now+55min here once labeled a nearly-dead cached token
+    // "fresh", and every desktop freshness check trusted the fiction. The
+    // desktop schedules its credential refresh from this value.
+    expiresAt: new Date(resolved.expiresAt),
+    remoteUrl: repo.remoteUrl ?? githubRemote(repo.fullName).remoteUrl,
+    username: githubRemote(repo.fullName).username,
+  }
+}
+
+/** #EXP-1614: a row as clients see it: `provider_config` is server-only. */
+function clientRepository<T extends { providerConfig?: unknown }>(row: T): Omit<T, `providerConfig`> {
+  const { providerConfig: _serverOnly, ...rest } = row
+  return rest
 }
 
 export const repositoriesRouter = router({
@@ -568,7 +694,7 @@ export const repositoriesRouter = router({
       // (old desktop builds included); the raw healed GitHub value rides along
       // as `githubDefaultBranch` for the settings picker.
       return repos.map((repo) => ({
-        ...repo,
+        ...clientRepository(repo),
         defaultBranch: effectiveDefaultBranch(repo),
         githubDefaultBranch: repo.defaultBranch,
         sharedBy: repo.sharedByUserId
@@ -677,7 +803,7 @@ export const repositoriesRouter = router({
           .from(repositories)
           .where(eq(repositories.id, repositoryId))
           .limit(1)
-        return row
+        return row ? clientRepository(row) : row
       })
       return { repository }
     }),
@@ -798,7 +924,7 @@ export const repositoriesRouter = router({
       }
       return {
         repository: {
-          ...updated,
+          ...clientRepository(updated),
           defaultBranch: effectiveDefaultBranch(updated),
           githubDefaultBranch: updated.defaultBranch,
         },
@@ -874,97 +1000,38 @@ export const repositoriesRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const repo = await loadRepository(input.repositoryId)
-      // Team coding: any member of the repo's team may mint a JIT token
-      // (assertRepoCapability = plain team membership).
-      // Per-installer attribution is intentionally NOT required here: the repo
-      // is only present in this team because a member legitimately
-      // connected it (connectRepositoryInTx proved their push access). The
-      // team's ownership of the repo row is the authorization; requiring the
-      // caller to also be the original connector would break coding for every
-      // other teammate.
-      await assertRepoCapability(ctx.session.user.id, repo.teamId)
-      if (!githubAppConfigured()) {
-        throw new TRPCError({
-          code: `PRECONDITION_FAILED`,
-          message: `GitHub App is not configured on this instance`,
-        })
-      }
-
-      // Fall back to the installation persisted at connect time when GitHub's
-      // per-repo lookup misses — see resolveRepoInstallationTokenInfo (fixes
-      // the spurious 412 when the repo IS covered by a known installation). The
-      // fallback token is VERIFIED against the repo, so a null here means the
-      // App genuinely lost access (repo removed from the installation's
-      // selection, or uninstalled) — stamp the row so the settings UI shows the
-      // no-access badge, and tell the caller how to fix it. A repo GitHub now
-      // places under a DIFFERENT installation is refused the same way
-      // (installationDrifted): the team reconnects it.
-      const resolved = await resolveRepoInstallationTokenInfo(repo.fullName, {
-        fallbackInstallationId: repo.installationId,
-      })
-      if (
-        !resolved ||
-        installationDrifted(repo.installationId, resolved.installationId)
-      ) {
-        await ctx.db
-          .update(repositories)
-          .set({ inaccessibleAt: new Date() })
-          .where(
-            and(
-              eq(repositories.id, repo.id),
-              isNull(repositories.inaccessibleAt)
-            )
-          )
-        throw new TRPCError({
-          code: `PRECONDITION_FAILED`,
-          message: resolved
-            ? `${repo.fullName} now belongs to a different GitHub App installation. Reconnect it in team settings → Repositories, then retry.`
-            : `The GitHub App no longer has access to ${repo.fullName}. Re-grant it on GitHub (team settings → Repositories), then retry.`,
-        })
-      }
-      const token = resolved.token
-      // The mint just proved access — fill a legacy NULL installation id and
-      // clear a stale no-access flag (best-effort bookkeeping). A different
-      // stored id was refused above.
-      if (repo.installationId == null || repo.inaccessibleAt != null) {
-        await ctx.db
-          .update(repositories)
-          .set({
-            installationId: resolved.installationId,
-            inaccessibleAt: null,
-          })
-          .where(eq(repositories.id, repo.id))
-      }
-      // GitHub is authoritative on the default branch — a stale/misseeded row
-      // (e.g. `main` for a `master` repo) would break the launcher's
-      // `git worktree add … origin/<default>`. Prefer the live value; heal the
-      // row when it drifted; fall back to the stored value if the lookup fails.
-      // A team-chosen override (EXP-462) wins over both — the launcher must
-      // base worktrees on the branch the team actually develops on.
-      const liveDefaultBranch = await resolveRepoDefaultBranch(repo.fullName)
-      if (liveDefaultBranch && liveDefaultBranch !== repo.defaultBranch) {
-        await ctx.db
-          .update(repositories)
-          .set({ defaultBranch: liveDefaultBranch })
-          .where(eq(repositories.id, repo.id))
-      }
-      const boardBranch = input.boardId
-        ? await boardBranchOverride(input.boardId, repo.fullName)
-        : null
+      // #EXP-1614: the one-release shim (#NEW-14) of `credentials`; old
+      // desktop builds read exactly these four fields.
+      const minted = await mintRepoCredentials(ctx.db, ctx.session.user.id, input)
       return {
-        token,
-        fullName: repo.fullName,
-        defaultBranch:
-          boardBranch ??
-          repo.defaultBranchOverride ??
-          liveDefaultBranch ??
-          repo.defaultBranch,
-        // GitHub's REAL expiry for the (possibly cache-served) token — EXP-73:
-        // a synthetic now+55min here once labeled a nearly-dead cached token
-        // "fresh", and every desktop freshness check trusted the fiction. The
-        // desktop schedules its credential refresh from this value.
-        expiresAt: new Date(resolved.expiresAt),
+        token: minted.token,
+        fullName: minted.fullName,
+        defaultBranch: minted.defaultBranch,
+        expiresAt: minted.expiresAt,
+      }
+    }),
+
+  // #EXP-1614: how a device reaches the repo's git remote, provider-neutral:
+  // the remote URL and an HTTP basic credential for it (GitHub:
+  // `https://github.com/<full>.git`, `x-access-token` + the installation
+  // token), so devices stop building GitHub URLs. Same gate as
+  // installationToken (team membership; the row is the authorization).
+  credentials: authedProcedure
+    .input(
+      z.object({
+        repositoryId: z.string().uuid(),
+        boardId: z.string().uuid().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const minted = await mintRepoCredentials(ctx.db, ctx.session.user.id, input)
+      return {
+        remoteUrl: minted.remoteUrl,
+        username: minted.username,
+        token: minted.token,
+        expiresAt: minted.expiresAt,
+        fullName: minted.fullName,
+        defaultBranch: minted.defaultBranch,
       }
     }),
 })

@@ -6,7 +6,7 @@ import { db } from "@/db/connection"
 import { agents, boards, devices, mergeTrains, messages, pullRequestChecks, pullRequests, repositories, sessions, teamMembers, teams } from "@/db/schema"
 import { probeRealDb, retryingConflict } from "@/test/real-db"
 import { inSession } from "@/lib/sessions/messages"
-import type { Forge } from "@/lib/ecode/forge"
+import { partialForgeForTests, type Forge } from "@/lib/ecode/forge"
 
 // EXP-1709 against the REAL migrated Postgres with an in-memory forge: the
 // worker composes, dispatches, reads the verdict, re-runs, bisects,
@@ -94,8 +94,8 @@ class FakeForge {
   private checks = new Map<string, TrainCheck[]>()
 
   forge(): Forge {
-    return {
-      kind: `fake`,
+    return partialForgeForTests({
+      kind: `github`,
       readPullRequest: async (_repo, number) => {
         const pr = this.prs.get(number)
         if (!pr) return null
@@ -178,7 +178,7 @@ class FakeForge {
         this.history.add(`sq-${number}`)
         return { ok: true, sha: `sq-${number}` }
       },
-    }
+    })
   }
 }
 

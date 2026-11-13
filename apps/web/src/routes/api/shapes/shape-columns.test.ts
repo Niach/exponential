@@ -153,6 +153,7 @@ describe(`sessions allowlist`, () => {
   })
   it(`keeps the FEED-160 PR-state guard server-only`, () => {
     expect(PULL_REQUEST_COLUMNS).not.toContain(`github_updated_at`)
+    expect(PULL_REQUEST_COLUMNS).not.toContain(`provider_updated_at`)
   })
   it(`syncs the EXP-1610 CI state, never the queued flag`, () => {
     expect(PULL_REQUEST_COLUMNS).toContain(`checks_state`)

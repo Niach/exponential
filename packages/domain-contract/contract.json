@@ -1257,6 +1257,17 @@
         "result": "none"
       },
       {
+        "name": "repositories_credentials",
+        "title": "Get repository credentials",
+        "blurb": "Mints the git remote and a short-lived credential for a repository.",
+        "progressive": "Getting repository credentials",
+        "done": "Got repository credentials",
+        "progressiveMany": "Getting repository credentials {n} times",
+        "doneMany": "Got repository credentials {n} times",
+        "subjectKey": "repositoryId",
+        "result": "none"
+      },
+      {
         "name": "devices_list",
         "title": "List devices",
         "blurb": "Lists the machines that can run coding sessions for you.",
@@ -2133,6 +2144,7 @@
       { "name": "people_invites_revoke", "refs": "" },
       { "name": "repositories_list", "refs": "list:repository@" },
       { "name": "repositories_create", "refs": "repository@" },
+      { "name": "repositories_credentials", "refs": "" },
       { "name": "devices_list", "refs": "list:device@" },
       { "name": "devices_account_login", "refs": "" },
       { "name": "agents_list", "refs": "list:agent@" },

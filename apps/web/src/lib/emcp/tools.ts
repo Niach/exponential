@@ -3911,6 +3911,26 @@ export function registerExponentialTools(
     }
   )
 
+  // #EXP-1614: how a machine reaches a repository's git remote,
+  // provider-neutral (GitHub: the https remote, x-access-token and a
+  // short-lived installation token). Full access only: a raw credential sits
+  // outside any selectable grant.
+  server.registerTool(
+    `exponential_repositories_credentials`,
+    {
+      description: `Mint the git remote and a short-lived credential for a team repository: {remoteUrl, username, token, expiresAt} (+ fullName, defaultBranch; boardId = that board's branch). Use it as HTTP basic auth for git fetch/push; refresh before expiresAt. Any member; full access only.`,
+      inputSchema: strictInput({ repositoryId: uuidString, boardId: uuidString.optional() }),
+    },
+    async (input) => {
+      try {
+        assertFullAccess(access)
+        return ok(await caller(user, request).repositories.credentials(input))
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
   // -----------------------------------------------------------------------
   // Prompts (NEW-2: actions became saved PROMPTS; run one with
   // exponential_sessions_send {promptId, text})

@@ -120,6 +120,10 @@ export const notificationTypeEnum = pgEnum(
 export const teamMemberRoleEnum = pgEnum(`team_member_role`, teamRoleValues)
 
 export const prStateEnum = pgEnum(`pr_state`, prStateValues)
+// #EXP-1614: the forge a repository lives on (eCode's contract `provider`,
+// bound by apps/web lib/ecode/ecode-spec.test.ts).
+export const repositoryProviderValues = [`github`, `ecode`] as const
+export const repositoryProviderEnum = pgEnum(`repository_provider`, repositoryProviderValues)
 export const prChecksStateEnum = pgEnum(`pr_checks_state`, prChecksStateValues)
 export const prCheckStatusEnum = pgEnum(`pr_check_status`, prCheckStatusValues)
 export const prCheckConclusionEnum = pgEnum(`pr_check_conclusion`, prCheckConclusionValues)
@@ -3020,9 +3024,13 @@ export const pullRequests = pgTable(
     ),
     state: prStateEnum().notNull().default(`open`),
     mergedAt: timestamp(`merged_at`, { withTimezone: true }),
-    // FEED-160: GitHub's `updated_at` of the last PR state (draft/open) we
-    // applied; a generic delivery older than it never flips the draft flag.
-    // `updated_at` moves on any write, so it cannot guard. Server-only.
+    // FEED-160: the forge's `updated_at` of the last PR state (draft/open)
+    // we applied; a generic delivery older than it never flips the draft
+    // flag. `updated_at` moves on any write, so it cannot guard. Server-only.
+    // #EXP-1614: renamed from `github_updated_at`.
+    providerUpdatedAt: timestamp(`provider_updated_at`, { withTimezone: true }),
+    // The one-release shim (#NEW-14): still written with the same value;
+    // nothing reads it. Drop it after.
     githubUpdatedAt: timestamp(`github_updated_at`, { withTimezone: true }),
     // S-3: `pr_open`'s notRun (the UI screens the agent could not run,
     // `<platform>: <screen>`): the body renders it, a later open keeps it.
@@ -3384,8 +3392,20 @@ export const repositories = pgTable(
     teamId: uuid(`team_id`)
       .notNull()
       .references(() => teams.id, { onDelete: `cascade` }),
-    // `owner/name` as GitHub reports it.
+    // #EXP-1614: the forge it lives on; every pre-eCode row is GitHub's.
+    provider: repositoryProviderEnum().notNull().default(`github`),
+    // The repo's name on its forge (`owner/name` on GitHub).
     fullName: text(`full_name`).notNull(),
+    // The git remote devices fetch and push (`repositories.credentials`
+    // hands it out). NULL = the provider's default (GitHub:
+    // `https://github.com/<full_name>.git`).
+    remoteUrl: text(`remote_url`),
+    // Provider-specific settings (GitHub: `{installationId}`). SERVER-ONLY:
+    // never returned by `repositories.list` nor synced.
+    providerConfig: jsonb(`provider_config`)
+      .$type<{ installationId?: number | null } & Record<string, unknown>>()
+      .notNull()
+      .default({}),
     defaultBranch: text(`default_branch`).notNull().default(`main`),
     // Team-chosen default branch (EXP-462, e.g. `develop` while GitHub's
     // default stays `master`). NULL = follow GitHub. When set, it wins
@@ -3395,6 +3415,8 @@ export const repositories = pgTable(
     private: boolean().notNull().default(false),
     // Cached GitHub App installation id; nullable — the App JWT can still
     // resolve it on demand (github-app.ts is storage-free).
+    // #EXP-1614: moved into `provider_config.installationId`; this column is
+    // the one-release shim (#NEW-14), still written alongside. Drop it after.
     installationId: bigint(`installation_id`, { mode: `number` }),
     // The App lost access to this repo (installation_repositories webhook, or a
     // verified token mint failed). NULL = accessible as far as we know. Cleared
@@ -4562,10 +4584,11 @@ export const selectSyncedMessageSchema = selectMessageSchema.omit({
   clientMessageId: true,
 })
 export const selectSessionReadSchema = createSelectSchema(sessionReads)
-// FEED-160: `github_updated_at` is server-only (outside the shape allowlist).
+// FEED-160: `provider_updated_at` (and its shim `github_updated_at`) are
+// server-only (outside the shape allowlist).
 export const selectPullRequestSchema = createSelectSchema(pullRequests, {
   state: prStateSchema,
-}).omit({ githubUpdatedAt: true })
+}).omit({ githubUpdatedAt: true, providerUpdatedAt: true })
 // EXP-1610: `queued_flagged_at` is server-only (outside the shape allowlist).
 export const selectPullRequestCheckSchema = createSelectSchema(pullRequestChecks).omit({
   queuedFlaggedAt: true,

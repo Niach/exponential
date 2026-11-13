@@ -56,6 +56,8 @@ vi.mock(`@/lib/integrations/github-pr`, () => ({
   PullAlreadyExistsError: class extends Error {},
   retargetPullRequest: vi.fn(async () => {}),
   setPullRequestDraft: vi.fn(async () => {}),
+  fetchPullStack: vi.fn(async () => ({ number: 3, size: 2, position: 1, baseRef: `master` })),
+  unstack: vi.fn(async () => {}),
 }))
 vi.mock(`@/lib/integrations/github-app`, () => ({
   resolveRepoDefaultBranchCached: vi.fn(async () => `master`),
@@ -72,7 +74,6 @@ vi.mock(`@/lib/integrations/pr-sync`, () => ({
   applyPullRequestClosed: vi.fn(async () => ({ applied: true, txid: 6 })),
   applyPullRequestDraft: vi.fn(async () => {}),
   applyPullRequestMerged: vi.fn(async () => ({ applied: true, txid: 7 })),
-  leaveGithubStack: vi.fn(async () => {}),
   livePullRequestsOfRepo: vi.fn(async () => []),
   livePullRequestsOfRoot: vi.fn(async () => []),
   loadLivePullRequestByHead: vi.fn(async () => null),
@@ -460,7 +461,8 @@ describe(`retargetPullRequest`, () => {
       new gh.GitHubMergeError(422, `Pull request is part of a stack`)
     )
     await expect(retargetPullRequest({ userId: `u-1`, pullRequestId: `pr-1`, base: `master` })).resolves.toEqual({ base: `master` })
-    expect(sync.leaveGithubStack).toHaveBeenCalledWith({ repo: `o/r`, prNumber: 7, token: `tok` })
+    expect(gh.fetchPullStack).toHaveBeenCalledWith({ repo: `o/r`, prNumber: 7, token: `tok` })
+    expect(gh.unstack).toHaveBeenCalledWith({ repo: `o/r`, stackNumber: 3, token: `tok` })
     expect(gh.retargetPullRequest).toHaveBeenCalledTimes(2)
     expect(sync.applyPullRequestBase).toHaveBeenCalledWith({ pullRequestId: `pr-1`, base: `master` })
   })
@@ -469,7 +471,7 @@ describe(`retargetPullRequest`, () => {
     h.selectQueue.push([])
     vi.mocked(gh.retargetPullRequest).mockRejectedValueOnce(new gh.GitHubMergeError(422, `No such base`))
     await expect(retargetPullRequest({ userId: `u-1`, pullRequestId: `pr-1`, base: `nope` })).rejects.toThrow(/not a valid base/)
-    expect(sync.leaveGithubStack).not.toHaveBeenCalled()
+    expect(gh.unstack).not.toHaveBeenCalled()
   })
 })
 

@@ -397,7 +397,7 @@ describe(`github webhook — pull_request routing (EXP-1291)`, () => {
     expect(prSyncMock.applyPullRequestDraft).toHaveBeenLastCalledWith({
       pullRequestId: PR_ID,
       draft: false,
-      githubUpdatedAt: new Date(at),
+      providerUpdatedAt: new Date(at),
     })
   })
 
@@ -408,7 +408,7 @@ describe(`github webhook — pull_request routing (EXP-1291)`, () => {
       request: webhookRequest(`pull_request`, pullRequestPayload({ action: `reopened`, draft: true, updated_at: at })),
     })
     expect(prSyncMock.applyPullRequestReopened).toHaveBeenCalledWith(
-      expect.objectContaining({ pullRequestId: PR_ID, draft: true, githubUpdatedAt: new Date(at) })
+      expect.objectContaining({ pullRequestId: PR_ID, draft: true, providerUpdatedAt: new Date(at) })
     )
   })
 

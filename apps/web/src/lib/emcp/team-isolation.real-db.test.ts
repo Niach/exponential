@@ -413,6 +413,7 @@ const CASES: Record<string, Case> = {
   [`mcp_servers.delete`]: wr(`mcp_servers.delete`, (w) => ({ op: `delete`, id: w.b.mcpServerId })),
   [`repositories.list`]: r(`repositories.list`, (w) => ({ op: `list`, teamId: w.b.teamId })),
   [`repositories.create`]: wr(`repositories.create`, (w) => ({ op: `create`, teamId: w.b.teamId, fullName: `leak/leak` })),
+  [`repositories.credentials`]: wr(`repositories.credentials`, (w) => ({ op: `credentials`, repositoryId: w.b.repositoryId })),
   // apps
   [`apps.list teamId`]: r(`apps.list`, (w) => ({ op: `list`, teamId: w.b.teamId })),
   [`apps.list unfiltered`]: r(`apps.list`, () => ({ op: `list` })),
