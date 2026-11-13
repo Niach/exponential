@@ -15,6 +15,7 @@ public enum CiRun {
         public static let rerunFailed = "Re-run failed"
         public static let cancel = "Cancel"
         public static let emptyLog = "No log yet."
+        public static let failedJobs = "{count} failed"
         public static let pipelineError = "The pipeline file did not plan"
         public static let none = "—"
         public static let tileStatus = "Status"
@@ -130,6 +131,8 @@ public enum CiRun {
         public let label: String
         public let value: String
         public let tone: Tone
+        /// The Status tile of a failed run: `{count} failed` (red); else nil.
+        public var delta: String? = nil
     }
 
     public struct JobRow: Equatable, Sendable {
@@ -212,8 +215,10 @@ public enum CiRun {
         for job in jobs {
             if let label = job.runnerLabel, !label.isEmpty, !runners.contains(label) { runners.append(label) }
         }
+        let failing = jobs.filter { isFailing(status: $0.status, conclusion: $0.conclusion) }.count
+        let delta = status == .failed && failing > 0 ? Copy.failedJobs.replacingOccurrences(of: "{count}", with: String(failing)) : nil
         return [
-            Tile(label: Copy.tileStatus, value: statusLabel(status), tone: tone),
+            Tile(label: Copy.tileStatus, value: statusLabel(status), tone: tone, delta: delta),
             Tile(
                 label: Copy.tileDuration,
                 value: ms(startedAt).map { PrChecks.formatDuration(ms: end - $0) } ?? Copy.none,

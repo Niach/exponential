@@ -90,6 +90,7 @@ final class CiRunTests: XCTestCase {
         XCTAssertEqual(copy["rerunFailed"] as? String, CiRun.Copy.rerunFailed)
         XCTAssertEqual(copy["cancel"] as? String, CiRun.Copy.cancel)
         XCTAssertEqual(copy["emptyLog"] as? String, CiRun.Copy.emptyLog)
+        XCTAssertEqual(copy["failedJobs"] as? String, CiRun.Copy.failedJobs)
         XCTAssertEqual(copy["pipelineError"] as? String, CiRun.Copy.pipelineError)
         XCTAssertEqual(copy["none"] as? String, CiRun.Copy.none)
         XCTAssertEqual(copy["reasons"] as? [String: String], CiRun.Copy.reasons)
@@ -126,7 +127,7 @@ final class CiRunTests: XCTestCase {
                 startedAt: ciString(run["startedAt"]), completedAt: ciString(run["completedAt"]),
                 jobs: jobs, now: try ciDate(item["now"])
             )
-            let actual = tiles.map { ["label": $0.label, "value": $0.value, "tone": $0.tone.rawValue] }
+            let actual = tiles.map { ["label": $0.label, "value": $0.value, "tone": $0.tone.rawValue, "delta": $0.delta.map { $0 as Any } ?? NSNull()] as [String: Any] }
             XCTAssertEqual(actual as NSArray, item["expected"] as? NSArray, "\(item["name"] ?? "")")
         }
     }
