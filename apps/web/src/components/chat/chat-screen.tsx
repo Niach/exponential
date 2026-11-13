@@ -1,5 +1,5 @@
 import { chatPendingAsks, chatSessionNames } from "@exp/domain-contract/ask-dock"
-import { WAITING_CARDS_CONSTANTS, waitingTarget } from "@exp/domain-contract/waiting-cards"
+import { waitingTarget } from "@exp/domain-contract/waiting-cards"
 import type { ChatLead } from "@exp/domain-contract/chats"
 import {
   SESSION_SCREEN_COPY,
@@ -11,7 +11,7 @@ import {
   type SessionScreenOpen,
   type SessionScreenTab,
 } from "@exp/domain-contract/session-screen"
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
 import { useNavigate } from "@tanstack/react-router"
 import {
@@ -50,6 +50,7 @@ import {
   type SessionIssueEntry,
 } from "@/components/chat/session-screen-bodies"
 import { useDeviceGlyphs } from "@/hooks/use-device-glyphs"
+import { DeepLinkContext, useDeepLinkDriver, useDeepLinkHost } from "@/hooks/use-deep-link"
 import { InPlaceSession } from "@/components/chat/session-body"
 import { useSessionNav } from "@/hooks/use-session-nav"
 import type { ChatSearch } from "@/lib/session-screen-search"
@@ -199,8 +200,34 @@ export function ChatScreen({
   // #EXP-1732: the root's own work IS the Chat tab; `open=session` naming
   // the root is just that.
   const openSessionRow = search.open === `session` && focused && focused.id !== root.id ? focused : null
+  // waiting-cards.json DEEP LINKS / plan-page.json: a plan link waits for
+  // its plan's message (paging older ones in) before it draws a plan;
+  // only once it is missing does the tab's own target stand in.
+  const requestedPlan = search.open === `plan` ? (search.plan ?? null) : null
+  const [missingPlan, setMissingPlan] = useState<string | null>(null)
+  const planLoaded = requestedPlan !== null && planRows.some((row) => row.id === requestedPlan)
+  const planPending = requestedPlan !== null && !planLoaded && missingPlan !== requestedPlan
+  const planTakenAt = useMemo(() => Date.now(), [requestedPlan])
+  const planRowsRef = useRef(planRows)
+  planRowsRef.current = planRows
+  const planPageRef = useRef(messagePage)
+  planPageRef.current = messagePage
+  useDeepLinkDriver(
+    planPending && requestedPlan ? { key: requestedPlan, takenAt: planTakenAt } : null,
+    () => {
+      const found = planRowsRef.current.some((row) => row.id === requestedPlan)
+      const page = planPageRef.current
+      return { found, laidOut: found, centred: found, paging: !page.ready, more: page.more, mark: page.loaded }
+    },
+    {
+      page: () => planPageRef.current.loadMore(),
+      scroll: () => {},
+      ring: () => {},
+      missing: () => setMissingPlan(requestedPlan),
+    }
+  )
   const openPlan =
-    search.open === `plan`
+    search.open === `plan` && !planPending
       ? (planRows.find((row) => row.id === search.plan) ??
         planRows.find((row) => row.id === planTabTarget(planRows, null)) ??
         null)
@@ -209,7 +236,7 @@ export function ChatScreen({
     ? `issue`
     : openSessionRow
       ? `session`
-      : openPlan
+      : openPlan || planPending
         ? `plan`
         : search.open === `settings` && agent
           ? `settings`
@@ -272,45 +299,60 @@ export function ChatScreen({
     )
   )
 
-  // #EXP-1562 / #FEED-191 (needs-you.json): `?card=` scrolls the Chat tab
-  // (the root's session view: its cards carry `data-card-id`) to that card
-  // and rings it (phones: the Chat tab first).
-  const [scrollTo, setScrollTo] = useState<{ id: string; at: number } | null>(null)
-  const [highlight, setHighlight] = useState<string | null>(null)
+  // waiting-cards.json DEEP LINKS (#EXP-1562 / #FEED-191): `?card=`, a
+  // waiting chip, a Needs you row = ONE pending deep link. This screen
+  // finds the card's message first (paging older messages in, one page at
+  // a time), opens the session that draws it (the root's: the Chat tab; a
+  // child's: in place), then hands the link to that session's view
+  // (`DeepLinkContext`), which scrolls it to the centre once laid out and
+  // rings it (`hooks/use-deep-link.ts`).
+  const deepLinkHost = useDeepLinkHost()
+  const [seeking, setSeeking] = useState<{ id: string; takenAt: number; nonce: number; push: boolean } | null>(null)
+  const seekNonce = useRef(0)
+  const seek = (id: string, push: boolean) => {
+    deepLinkHost.drop()
+    setSeeking({ id, takenAt: Date.now(), nonce: ++seekNonce.current, push })
+  }
   useEffect(() => {
-    if (!scrollTo) return
-    // The session view may still be mounting: look for the card a few frames.
-    let frames = 0
-    let raf = 0
-    const find = () => {
-      const card = document.querySelector(`[data-card-id="${CSS.escape(scrollTo.id)}"]`)
-      if (card) {
-        card.scrollIntoView({ block: `center`, behavior: `smooth` })
-        setHighlight(scrollTo.id)
-      } else if (frames++ < 120) raf = requestAnimationFrame(find)
-    }
-    raf = requestAnimationFrame(find)
-    return () => cancelAnimationFrame(raf)
-  }, [scrollTo])
-  // A card (or `?plan=`) older than the loaded page pages it in.
-  const deepLink = search.card ?? (search.open === `plan` ? search.plan : undefined)
-  const deepLinkHere = deepLink ? view.rows.some((row) => row.id === deepLink) : false
-  useEffect(() => {
-    if (!search.card || !deepLinkHere) return
-    setScrollTo({ id: search.card, at: Date.now() })
+    if (!search.card) return
+    seek(search.card, false)
     const { card: _card, ...rest } = search
-    onNavigate(isMobile && screen.layout !== `chat` ? { tab: `chat`, ...keepBack } : rest, { replace: true })
+    onNavigate(rest, { replace: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search.card, deepLinkHere])
-  useEffect(() => {
-    if (deepLink && !deepLinkHere && messagePage.ready && messagePage.more) messagePage.loadMore()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deepLink, deepLinkHere, messagePage.ready, messagePage.more, messagePage.loaded])
-  useEffect(() => {
-    if (!highlight) return
-    const timer = setTimeout(() => setHighlight(null), WAITING_CARDS_CONSTANTS.highlightMs)
-    return () => clearTimeout(timer)
-  }, [highlight, scrollTo])
+  }, [search.card])
+  const viewRowsRef = useRef(view.rows)
+  viewRowsRef.current = view.rows
+  const messagePageRef = useRef(messagePage)
+  messagePageRef.current = messagePage
+  /** The card's message is loaded: open the session that draws it. */
+  const handOff = (link: { id: string; takenAt: number; push: boolean }) => {
+    setSeeking(null)
+    const row = view.rows.find((entry) => entry.id === link.id) as { sessionId?: string } | undefined
+    const owner = row?.sessionId && rowsById.has(row.sessionId) ? row.sessionId : root.id
+    const navigateOptions = link.push ? undefined : { replace: true }
+    if (owner !== root.id) {
+      if (openSessionRow?.id !== owner) onNavigate({ tab: screen.active, open: `session`, session: owner, ...keepBack }, navigateOptions)
+    } else if (isMobile && screen.layout !== `chat`) onNavigate({ tab: `chat`, ...keepBack }, navigateOptions)
+    deepLinkHost.take(link.id, owner, link.takenAt)
+  }
+  useDeepLinkDriver(
+    seeking ? { key: seeking.nonce, takenAt: seeking.takenAt } : null,
+    () => {
+      const found = seeking ? viewRowsRef.current.some((row) => row.id === seeking.id) : false
+      const page = messagePageRef.current
+      // Finding the message is this screen's half: the session's view
+      // waits for the layout and centres it.
+      return { found, laidOut: found, centred: found, paging: !page.ready, more: page.more, mark: page.loaded }
+    },
+    {
+      page: () => messagePageRef.current.loadMore(),
+      scroll: () => {},
+      ring: () => {
+        if (seeking) handOff(seeking)
+      },
+      missing: () => setSeeking(null),
+    }
+  )
 
   // #EXP-1785 (waiting-cards.json): the header's WAITING chips = every
   // waiting plan and question of the TREE (the root and every session under
@@ -338,9 +380,9 @@ export function ChatScreen({
       openItem({ open: `plan`, plan: id })
       return
     }
-    if (target.open === `session` && rowsById.has(target.sessionId)) openSession(target.sessionId)
-    else if (isMobile && screen.layout !== `chat`) onNavigate({ tab: `chat`, ...keepBack })
-    setScrollTo({ id, at: Date.now() })
+    // DEEP LINKS: the card's session opens (a child's in place) and its view
+    // scrolls to the card once it is laid out.
+    seek(id, true)
   }
 
   // EXP-1323 / #EXP-1545: the Chat tab's suggested tasks (Start, Start all,
@@ -436,6 +478,13 @@ export function ChatScreen({
         origin={view.origin}
         onOpenXref={nav.open}
       />
+    )
+  } else if (screen.open === `plan` && planPending) {
+    itemTitle = PLAN_PAGE_COPY.title
+    item = (
+      <div className="p-6" data-testid="plan-page-pending">
+        <SkeletonRows />
+      </div>
     )
   } else if (screen.open === `plan` && openPlan) {
     itemTitle = PLAN_PAGE_COPY.title
@@ -549,7 +598,8 @@ export function ChatScreen({
     // EXP-1347: an issue pill of one of this chat's issues opens it in place.
     <IssueRefOutlet issueIds={issueIds} onOpen={openIssue}>
       <MenuGestureHost menus={issueMenus}>
-          <CardHighlightContext.Provider value={highlight}>
+          <DeepLinkContext.Provider value={deepLinkHost}>
+          <CardHighlightContext.Provider value={deepLinkHost.highlight}>
           <SessionScreenFrame
             screen={screen}
             testId="chat-page"
@@ -589,6 +639,7 @@ export function ChatScreen({
             overlay={agent?.overlay}
           />
           </CardHighlightContext.Provider>
+          </DeepLinkContext.Provider>
       </MenuGestureHost>
       {chatActions.dialog}
     </IssueRefOutlet>

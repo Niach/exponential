@@ -112,6 +112,7 @@ import type { SessionXref as SessionXrefModel, TreeIssue } from "@exp/domain-con
 import { codeText } from "@exponential_app/eui"
 import { Empty } from "@/components/empty"
 import { useFollowScroll } from "@/hooks/use-follow-scroll"
+import { cardElement, DeepLinkContext, measureCard, useDeepLinkDriver, useReaderScrollDrops } from "@/hooks/use-deep-link"
 import { useSessionDevice } from "@/hooks/use-session-device"
 import { SessionDeviceMoveButton } from "@/components/session-device-move"
 import { useTeamUsers } from "@/hooks/use-team-data"
@@ -1015,6 +1016,70 @@ export function AgentSessionView({
   /** The transcript STREAMS: a live publisher mid-turn (`TranscriptStreamingContext`). */
   const streaming = live && !sessionEnded && turnState === `started`
 
+  // waiting-cards.json DEEP LINKS: THE pending link into one of this
+  // session's cards (a Needs you row, a waiting chip, `?card=`). It pages
+  // the window / the messages in until the card mounts, waits for the feed
+  // and the card's real layout, scrolls it to the centre, then rings it.
+  // While it is pending the feed never follows its newest row; the reader's
+  // own scroll drops it.
+  const deepLinks = useContext(DeepLinkContext)
+  const deepLink = deepLinks?.link && deepLinks.link.sessionId === session.id ? deepLinks.link : null
+  const settleDeepLink = deepLinks?.settle
+  const holdFollow = follow.hold
+  useEffect(() => {
+    holdFollow(deepLink !== null)
+  }, [deepLink, holdFollow])
+  useEffect(() => () => holdFollow(false), [holdFollow])
+  // The feed still dialing in (its replay lands next): a card drawn under
+  // the placeholder now moves once it does, so the link waits for it.
+  const feedSettling =
+    feedPlaceholder &&
+    (phase.kind === `connecting` || phase.kind === `starting`) &&
+    !noFeedAway &&
+    !noFeedIdle &&
+    !(waitingForRoom && stalled)
+  useDeepLinkDriver(
+    deepLink ? { key: deepLink.nonce, takenAt: deepLink.takenAt } : null,
+    () => {
+      const scroller = scrollRef.current
+      const el = deepLink ? cardElement(scroller, deepLink.id) : null
+      const loaded = deepLink ? sessionMessages.some((message) => message.id === deepLink.id) : false
+      const base = {
+        paging:
+          feedSettling ||
+          (anchorRef.current !== null && performance.now() - loadingSinceRef.current < 2_000),
+        more: canLoadEarlier || !loaded,
+        mark: `${feed.length}:${windowStart}:${sessionMessages.length}`,
+      }
+      if (!scroller || !el) return { ...base, found: false, laidOut: false, centred: false }
+      const measured = measureCard(scroller, el)
+      return {
+        ...base,
+        found: true,
+        laidOut: measured.laidOut && !feedSettling,
+        centred: measured.centred,
+      }
+    },
+    {
+      page: loadEarlier,
+      scroll: () => {
+        const scroller = scrollRef.current
+        const el = deepLink ? cardElement(scroller, deepLink.id) : null
+        if (scroller && el) scroller.scrollTop += measureCard(scroller, el).delta
+      },
+      ring: () => {
+        if (deepLink) settleDeepLink?.(deepLink, `ring`)
+      },
+      missing: () => {
+        if (deepLink) settleDeepLink?.(deepLink, `missing`)
+      },
+    }
+  )
+  const dropDeepLink = () => {
+    if (deepLink) settleDeepLink?.(deepLink, `dropped`)
+  }
+  useReaderScrollDrops(scrollRef, deepLink !== null, dropDeepLink)
+
   return (
     <SessionResultsRawContext.Provider value={session.guide}>
     <RunCardsContext.Provider value={runCards}>
@@ -1211,7 +1276,10 @@ export function AgentSessionView({
             visible={!atBottom && feed.length > 0}
             className="absolute left-1/2 z-30 -translate-x-1/2"
             style={{ bottom: dockHeight + JUMP_TO_BOTTOM_GAP }}
-            onClick={jumpToBottom}
+            onClick={() => {
+              dropDeepLink()
+              jumpToBottom()
+            }}
           />
           {/* N-12: THE Dock over the transcript's bottom edge: the waiting
               cards (the relay's, the tool-posted ones), THE Queue, the

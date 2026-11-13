@@ -24,6 +24,10 @@ export interface FollowScroll {
   onScroll: () => void
   /** Back to the newest row, pinned again. */
   jumpToBottom: () => void
+  /** waiting-cards.json DEEP LINKS: while a deep link is pending the feed
+   *  never follows its newest row (no pin on arrival or growth); release
+   *  leaves the reader where the link put them. */
+  hold: (on: boolean) => void
 }
 
 /** `deps` = what makes rows land (the pin effect re-runs on each change). */
@@ -41,15 +45,35 @@ export function useFollowScroll(deps: readonly unknown[]): FollowScroll {
   // leaves the tail, never a scroll that moved down or stayed.
   const lastTopRef = useRef(0)
   const scrolledRef = useRef(false)
+  // DEEP LINKS: a pending link holds the feed off its tail.
+  const heldRef = useRef(false)
+  // A mouse press in the feed (the reader drag-selecting text) never has the
+  // rows moved under it: no pin while the button is down.
+  const pressedRef = useRef(false)
+  const hold = useCallback((on: boolean) => {
+    if (heldRef.current === on) return
+    heldRef.current = on
+    if (!on) return
+    if (atBottomRef.current) setAtBottom(false)
+    atBottomRef.current = false
+  }, [])
   const onScroll = useCallback(() => {
     const el = scrollRef.current
     if (!el) return
     const up = el.scrollTop < lastTopRef.current
     lastTopRef.current = el.scrollTop
+    if (heldRef.current) {
+      const scrolledNow = el.scrollTop > 0
+      if (scrolledNow !== scrolledRef.current) {
+        scrolledRef.current = scrolledNow
+        setScrolled(scrolledNow)
+      }
+      return
+    }
     const atTail = el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_SCROLL_SLACK
     const bottom = atTail || (atBottomRef.current && !up)
     // Still following but short of the tail: the content outgrew the pin.
-    if (bottom && !atTail) {
+    if (bottom && !atTail && !pressedRef.current) {
       el.scrollTop = el.scrollHeight
       lastTopRef.current = el.scrollTop
     }
@@ -71,17 +95,41 @@ export function useFollowScroll(deps: readonly unknown[]): FollowScroll {
       else el.scrollTop = el.scrollHeight
       lastTopRef.current = el.scrollTop
     }
+    heldRef.current = false
     atBottomRef.current = true
     setAtBottom(true)
   }, [])
 
   const observerRef = useRef<ResizeObserver | null>(null)
+  const unpressRef = useRef<(() => void) | null>(null)
   const contentRef = useCallback((node: HTMLDivElement | null) => {
     observerRef.current?.disconnect()
     observerRef.current = null
-    if (!node || typeof ResizeObserver === `undefined`) return
+    unpressRef.current?.()
+    unpressRef.current = null
+    pressedRef.current = false
+    if (!node) return
+    const pressScroller = scrollRef.current ?? node.parentElement
+    if (pressScroller) {
+      // A press on the scroller itself is its scrollbar: that one scrolls.
+      const press = (event: PointerEvent) => {
+        if (event.pointerType === `mouse` && event.button === 0 && event.target !== pressScroller) pressedRef.current = true
+      }
+      const release = () => {
+        pressedRef.current = false
+      }
+      pressScroller.addEventListener(`pointerdown`, press, { passive: true })
+      document.addEventListener(`pointerup`, release, { passive: true })
+      document.addEventListener(`pointercancel`, release, { passive: true })
+      unpressRef.current = () => {
+        pressScroller.removeEventListener(`pointerdown`, press)
+        document.removeEventListener(`pointerup`, release)
+        document.removeEventListener(`pointercancel`, release)
+      }
+    }
+    if (typeof ResizeObserver === `undefined`) return
     const observer = new ResizeObserver(() => {
-      if (!atBottomRef.current) return
+      if (!atBottomRef.current || heldRef.current || pressedRef.current) return
       const el = scrollRef.current
       if (el) {
         el.scrollTop = el.scrollHeight
@@ -98,10 +146,16 @@ export function useFollowScroll(deps: readonly unknown[]): FollowScroll {
     if (scroller) observer.observe(scroller)
     observerRef.current = observer
   }, [])
-  useEffect(() => () => observerRef.current?.disconnect(), [])
+  useEffect(
+    () => () => {
+      observerRef.current?.disconnect()
+      unpressRef.current?.()
+    },
+    []
+  )
 
   useEffect(() => {
-    if (!atBottom) return
+    if (!atBottom || heldRef.current || pressedRef.current) return
     const el = scrollRef.current
     if (el) {
       el.scrollTop = el.scrollHeight
@@ -110,5 +164,5 @@ export function useFollowScroll(deps: readonly unknown[]): FollowScroll {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [atBottom, ...deps])
 
-  return { scrollRef, contentRef, atBottom, scrolled, onScroll, jumpToBottom }
+  return { scrollRef, contentRef, atBottom, scrolled, onScroll, jumpToBottom, hold }
 }

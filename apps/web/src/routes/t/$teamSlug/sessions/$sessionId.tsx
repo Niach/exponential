@@ -111,13 +111,14 @@ function ChildSession({
             tab: `sessions` as const,
             open: `session` as const,
             session: row.id,
+            ...(search.card ? { card: search.card } : {}),
             ...(search.back ? { back: search.back } : {}),
           }}
           replace
         />
       )
     }
-    return <SessionScreen key={row.id} teamSlug={teamSlug} row={row} back={search.back} />
+    return <SessionScreen key={row.id} teamSlug={teamSlug} row={row} back={search.back} card={search.card} />
   }
   return (
     <Navigate
@@ -130,6 +131,8 @@ function ChildSession({
               tab: `sessions` as const,
               open: `session` as const,
               session: row.id,
+              // DEEP LINKS: a card in the child rides along to its chat.
+              ...(search.card ? { card: search.card } : {}),
               ...(search.from ? { from: search.from } : {}),
               ...(search.back ? { back: search.back } : {}),
             }
