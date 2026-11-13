@@ -46,6 +46,22 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-13-desktop-drafts-badges",
+    date: "2026-11-13",
+    title: "Drafts follow you into the desktop app",
+    summary: "Desktop and CLI 0.14.156: unsent text syncs between your devices, every count is a number, tabs are back on top, tables fit their columns and Windows notifications no longer stall the app.",
+    body: r##"- **Synced composer drafts**: text you start in any composer (a chat, a comment, a new issue) is kept as a draft and picks up where you left it on the web, the desktop app, your phones and Local desktops.
+- **Count badges**: Needs you, Chats, the Inbox and the rest show a number in one badge instead of a dot.
+- **Tabs on top**: the desktop app's tabs sit in the top band again, terminals included; inside Exponential Desktop they stay at the bottom.
+- **Jumps land on their card**: opening a plan or question from Needs you or a link scrolls to it, and dragging in the desktop chat selects text again.
+- **Tables fit**: Markdown tables size their columns by one shared rule on every platform.
+- **Windows fixes**: notifications no longer block the window, and a window closed from the taskbar no longer crashes the app.
+- **Faster and lighter**: agent usage refreshes for every login in parallel, agent runs and builds run at background priority, and the desktop app hangs less on busy frames."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_269: ChangelogEntry = ChangelogEntry {
     id: "2026-11-13-deep-links-land",
     date: "2026-11-13",
     title: "Jumps to a plan or question land on it",
