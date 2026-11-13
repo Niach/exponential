@@ -208,6 +208,10 @@ struct AgentSessionView: View {
     @State private var deepLinkFrame: CGRect?
     /// The session's cards have been read once (a link waits for them).
     @State private var cardsLoaded = false
+    /// Android 0.14.134 (steer-enet.json SENT INPUTS): the session's consumed
+    /// person inputs, oldest first, drawn as the viewer's bubbles under a
+    /// no-feed placeholder.
+    @State private var noFeedInputs: [NoFeedInput] = []
     /// EXP-1398: the `surface` cards' rows, by message id.
     @State private var surfaceRows: [String: SessionChatRow] = [:]
     /// EXP-1323 / #EXP-1732: a ROOT's suggested tasks rows (`buildSessionChat`
@@ -437,6 +441,7 @@ struct AgentSessionView: View {
     private func withLifecycle(_ content: some View) -> some View {
         content
             .task(id: session.id) { await observeToolAsks() }
+            .task(id: session.id) { await observeNoFeedInputs() }
             // #EXP-1380: a widened message limit (Load earlier) re-reads.
             .task(id: "\(session.id)#\(messageLimit)") { await observeTranscriptSenders() }
             .onReceive(NotificationCenter.default.publisher(for: Chats.MessageLimits.changed)) { note in
@@ -637,6 +642,7 @@ struct AgentSessionView: View {
     private enum NoFeedPlaceholder {
         case history(String)
         case deviceAway
+        case queued
         case idle
         case loading
         case waitingForActivity
@@ -651,6 +657,13 @@ struct AgentSessionView: View {
                deviceOffline: model.hostDevice.offline
            ) == .away {
             return .deviceAway
+        }
+        // Android 0.14.134 (steer-enet.json SENT INPUTS): a QUEUED row (sent,
+        // its device not on it yet) reads "Starting on {device}", never the
+        // idle state below.
+        if !model.sessionEnded, (model.session ?? session).status == "queued",
+           model.phase == .connecting || model.phase == .starting || model.phase == .idle {
+            return .queued
         }
         if model.phase == .starting,
            SteerNoFeed.state(
@@ -671,13 +684,28 @@ struct AgentSessionView: View {
     @ViewBuilder
     private func noFeedBody(_ placeholder: NoFeedPlaceholder, model: AgentSessionModel) -> some View {
         let waitingIds = sessionCards.filter(\.waiting).map(\.id)
-        if waitingIds.isEmpty {
+        // Android 0.14.134 (steer-enet.json SENT INPUTS): what was sent shows
+        // at once above the placeholder's copy, until the feed lands.
+        let inputs = model.sessionEnded ? [] : noFeedInputs
+        if waitingIds.isEmpty && inputs.isEmpty {
             noFeedPlaceholderView(placeholder, model: model)
         } else {
             GeometryReader { geo in
                 ScrollViewReader { proxy in
                     ScrollView {
                         VStack(spacing: 0) {
+                            if !inputs.isEmpty {
+                                VStack(alignment: .trailing, spacing: 8) {
+                                    ForEach(inputs) { input in
+                                        UserMessageBubble(text: input.text, context: markdownContext)
+                                    }
+                                }
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+                                .padding(.top, 8)
+                                .transcriptColumn()
+                                .accessibilityElement(children: .contain)
+                                .accessibilityIdentifier("transcript-sent-inputs")
+                            }
                             noFeedPlaceholderView(placeholder, model: model)
                             VStack(alignment: .leading, spacing: 0) {
                                 inlineToolCards(waitingIds, model: model)
@@ -726,6 +754,17 @@ struct AgentSessionView: View {
             centeredState {
                 EmptyState(title: SteerNoFeed.idleTitle, description: SteerNoFeed.idleText)
             }
+        case .queued:
+            VStack(alignment: .leading, spacing: 8) {
+                SkeletonRows(rows: 3, rowHeight: 28, dividers: false)
+                Text(FeedbackStates.Starting.label(device: hostLabel))
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
+            .transcriptColumn()
+            .frame(maxHeight: .infinity, alignment: .top)
+            .padding(.top, 8)
+            .accessibilityIdentifier("transcript-placeholder")
         case .loading:
             // EXP-1275 (D8): a first load is skeleton rows, never a spinner.
             SkeletonRows(rows: 3, rowHeight: 28, dividers: false)
@@ -1734,6 +1773,33 @@ struct AgentSessionView: View {
                 toolAsks = asks
                 surfaceRows = surfaces
                 if !cardsLoaded { cardsLoaded = true }
+            }
+        } catch {}
+    }
+
+    /// Android 0.14.134 (steer-enet.json SENT INPUTS): the session's consumed
+    /// card-less person inputs (`SteerNoFeed.inputs`), opened off main; a
+    /// locked body reads the sealed placeholder copy.
+    private func observeNoFeedInputs() async {
+        guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+        let id = session.id
+        let observation = ValueObservation.tracking { db in
+            try SessionQueries.consumedInputRows(db: db, sessionId: id, limit: SteerNoFeed.inputsMax)
+                .map(TreeMessage.init(messageRow:))
+        }
+        do {
+            for try await rows in observation.values(in: pool) {
+                let picked = SteerNoFeed.inputs(rows) { m in
+                    SteerNoFeed.InputRow(
+                        id: m.id, authorKind: m.authorKind, hasCard: m.card != nil,
+                        consumedAt: m.consumedAt, createdAt: m.createdAt
+                    )
+                }
+                let inputs: [NoFeedInput] = picked.compactMap { m in
+                    let text = m.locked.map(SealedPlaceholder.copy) ?? m.body
+                    return text.isEmpty ? nil : NoFeedInput(id: m.id, text: text)
+                }
+                if inputs != noFeedInputs { noFeedInputs = inputs }
             }
         } catch {}
     }
@@ -4918,4 +4984,11 @@ private struct InitialBottomOffset: ViewModifier {
             content
         }
     }
+}
+
+/// Android 0.14.134 (steer-enet.json SENT INPUTS): one consumed person input
+/// drawn under a no-feed placeholder.
+struct NoFeedInput: Identifiable, Equatable {
+    let id: String
+    let text: String
 }

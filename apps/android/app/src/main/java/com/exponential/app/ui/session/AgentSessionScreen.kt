@@ -767,6 +767,8 @@ private fun RunFaceContent(
             activity.localAnswerSummary(key)?.let { key to it }
         }.toMap()
     }
+    // Android 0.14.134 (steer-enet.json SENT INPUTS): under a no-feed placeholder.
+    val noFeedInputs by viewModel.noFeedInputs.collectAsStateWithLifecycle()
     val pendingImages by viewModel.pendingImages.collectAsStateWithLifecycle()
     // EXP-621: the draft lives with the connection, not in a `remember` — so a
     // half-typed message survives a reconnect, a back-tap and a rotation.
@@ -1013,6 +1015,11 @@ private fun RunFaceContent(
                     textAlign = TextAlign.Center,
                 )
             }
+            // Android 0.14.134 (steer-enet.json SENT INPUTS, web parity): a
+            // QUEUED row (sent, its device not on it yet) reads "Starting on
+            // {device}", never the idle state below.
+            startingRun ->
+                TranscriptPlaceholder(FeedbackStates.startingLabel(hostDevice.displayLabel))
             // EXP-1487 (steer-enet.json "NO FEED, EMPTY TRANSCRIPT"): NO
             // FEED on a row that is neither busy nor ended (idle, or on an
             // open question) is never "starting": the idle empty state, no
@@ -1031,8 +1038,6 @@ private fun RunFaceContent(
                     textAlign = TextAlign.Center,
                 )
             }
-            startingRun ->
-                TranscriptPlaceholder(FeedbackStates.startingLabel(hostDevice.displayLabel))
             feed.isEmpty() && (phase == AgentPhase.Connecting || phase == AgentPhase.Starting) ->
                 TranscriptPlaceholder(
                     if (phase == AgentPhase.Starting) {
@@ -1173,6 +1178,19 @@ private fun RunFaceContent(
                         .fillMaxWidth()
                         .weight(1f),
                 ) {
+                    // Android 0.14.134 (steer-enet.json SENT INPUTS): what
+                    // was sent shows at once, the brief a claim consumed
+                    // included, until the feed (its replay holds them) lands.
+                    if (!sessionEnded && noFeedInputs.isNotEmpty()) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp).testTag("transcript-sent-inputs"),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            for (input in noFeedInputs) {
+                                key(input.id) { MessageBubble(own = true, time = null) { UserMessageBody(input.text) } }
+                            }
+                        }
+                    }
                     Box(Modifier.fillMaxWidth().weight(1f)) { placeholderBody() }
                     if (waitingCardRows.isNotEmpty()) {
                         Column(Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState())) {
@@ -5486,20 +5504,23 @@ internal fun SessionComposer(
     val shareSelection = remember(context) { com.exponential.app.ui.share.shareSelection(context) }
     val chatShare by shareSelection.pendingChatShare.collectAsStateWithLifecycle()
     val shareSessionId = session?.id
+    val shareScope = rememberCoroutineScope()
     LaunchedEffect(chatShare, shareSessionId) {
         val waiting = chatShare?.takeIf { it.sessionId != null && it.sessionId == shareSessionId } ?: return@LaunchedEffect
-        if (!shareSelection.takePendingChatShare(waiting)) return@LaunchedEffect
-        onExpandedChange(true)
-        com.exponential.app.ui.share.deliverChatShare(
-            context = context,
-            share = waiting.share,
-            currentDraft = composerField.text,
-            onText = { text ->
-                composerField = TextFieldValue(text, TextRange(text.length))
-                viewModel.setDraft(text)
-            },
-            onPick = addPick,
-        )
+        // The delivery outlives this effect (taking the share restarts it).
+        com.exponential.app.ui.share.takeChatShare(shareScope, { shareSelection.takePendingChatShare(waiting) }) {
+            onExpandedChange(true)
+            com.exponential.app.ui.share.deliverChatShare(
+                context = context,
+                share = waiting.share,
+                currentDraft = composerField.text,
+                onText = { text ->
+                    composerField = TextFieldValue(text, TextRange(text.length))
+                    viewModel.setDraft(text)
+                },
+                onPick = addPick,
+            )
+        }
     }
     promptCaret[0] = composerField.selection.min
     promptCaret[1] = composerField.selection.max
