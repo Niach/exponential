@@ -52,10 +52,32 @@ extension View {
     /// leaves the lazy stack. Always attached, so the row's identity (and a
     /// card's draft) never changes when it becomes the target.
     func deepLinkRow(_ target: Bool, frame: Binding<CGRect?>) -> some View {
-        onGeometryChange(for: CGRect?.self, of: { target ? $0.frame(in: .scrollView) : nil }) { rect in
-            if target { frame.wrappedValue = rect }
-        }
-        .onDisappear { if target { frame.wrappedValue = nil } }
+        modifier(DeepLinkRowFrame(target: target, frame: frame))
+    }
+}
+
+/// `deepLinkRow`: the geometry reports CHANGES only, so a row that never
+/// moves reports its last frame the moment it becomes the target. The frame
+/// is kept by reference: a scroll never re-renders the row.
+private struct DeepLinkRowFrame: ViewModifier {
+    let target: Bool
+    @Binding var frame: CGRect?
+    @State private var last = LastFrame()
+
+    private final class LastFrame {
+        var rect: CGRect?
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .scrollView) }) { rect in
+                last.rect = rect
+                if target { frame = rect }
+            }
+            .onChange(of: target) { _, target in
+                if target { frame = last.rect }
+            }
+            .onDisappear { if target { frame = nil } }
     }
 }
 
@@ -66,6 +88,9 @@ private final class DeepLinkViewport {
     var height: CGFloat?
     var atTop = false
     var atBottom = false
+    /// The target row's frame as last reported: a deferred step reads it
+    /// here, never from the copy of the modifier that scheduled it.
+    var target: CGRect?
 }
 
 /// waiting-cards.json DEEP LINKS: THE pending deep link of a transcript.
@@ -108,7 +133,28 @@ struct DeepLinkScroll: ViewModifier {
     func body(content: Content) -> some View {
         let tracked = content
             .onChange(of: focus, initial: true) { _, focus in take(focus) }
-            .onChange(of: targetFrame) { _, _ in schedule() }
+            // A link another list took (the transcript, before the no-feed
+            // placeholder replaced it on a cold open) runs on here: a page
+            // that list asked for is not this one's to wait on.
+            .onAppear {
+                guard var current = link else { return }
+                if current.paging {
+                    current.pageLanded()
+                    link = current
+                }
+                schedule()
+            }
+            .onChange(of: targetFrame, initial: true) { _, frame in
+                viewport.target = frame
+                schedule()
+            }
+            // The scroll geometry reports CHANGES only: a list that never
+            // moves (the no-feed placeholder's cards) still has a height.
+            .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
+                guard viewport.height == nil else { return }
+                viewport.height = height
+                if link != nil { schedule() }
+            }
             .onChange(of: ready) { _, _ in schedule() }
             .onChange(of: more) { _, _ in schedule() }
             .onChange(of: arrival) { _, _ in
@@ -176,7 +222,7 @@ struct DeepLinkScroll: ViewModifier {
         guard Date() >= animatingUntil else { return }
         let target = current.target
         let centre = viewport.top + (viewport.height ?? 0) / 2
-        let distance = viewport.height == nil ? nil : targetFrame.map { Double($0.midY - centre) }
+        let distance = viewport.height == nil ? nil : viewport.target.map { Double($0.midY - centre) }
         let atEdge = distance.map { ($0 < 0 && viewport.atTop) || ($0 > 0 && viewport.atBottom) } ?? false
         let action = current.step(
             .init(found: found(target), distance: distance, atEdge: atEdge, more: more),

@@ -27,7 +27,9 @@ class DeepLinkBus @Inject constructor() {
 
         // exponential://session/{id} — a session_blocked push tap (EXP-980):
         // straight to the run that hit the wall.
-        data class Session(val id: String) : Target
+        // waiting-cards.json DEEP LINKS: [card] = the card a push is about
+        // (null = the session's own waiting card, if any).
+        data class Session(val id: String, val card: PushDeepLinks.Card? = null) : Target
 
         // exponential://device/{id} — an agent_signed_out push tap or inbox
         // row (#EXP-1534): the Devices page with that device's (devices row
@@ -98,8 +100,8 @@ class DeepLinkBus @Inject constructor() {
         _target.value = Target.Inbox
     }
 
-    fun openSession(id: String) {
-        _target.value = Target.Session(id)
+    fun openSession(id: String, card: PushDeepLinks.Card? = null) {
+        _target.value = Target.Session(id, card)
     }
 
     fun openDevice(deviceId: String) {

@@ -113,6 +113,12 @@ class FcmService : FirebaseMessagingService() {
             issueId = data["issueId"],
             sessionId = data["sessionId"],
             deviceId = data["deviceId"],
+            // waiting-cards.json DEEP LINKS: a question / plan push lands on its card.
+            card = PushDeepLinks.card(
+                data[NotificationActions.KEY_MESSAGE_ID],
+                data[NotificationActions.KEY_CARD_KIND],
+                data[QuestionPush.ROOT_ID_KEY],
+            ),
         )
 
         // The push carries its recipient's server user id. A push for a

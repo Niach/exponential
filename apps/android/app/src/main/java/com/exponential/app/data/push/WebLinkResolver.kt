@@ -3,6 +3,8 @@ package com.exponential.app.data.push
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.domain.AppLink
+import com.exponential.app.domain.ChatRowAction
+import com.exponential.app.domain.Chats
 import com.exponential.app.domain.InboxRoute
 import com.exponential.app.domain.PlanPage
 import com.exponential.app.domain.SessionTree
@@ -215,6 +217,16 @@ class WebLinkResolver @Inject constructor(
             )
         }
         PlanPage.planPageFor(sessionId, messages)
+    }
+
+    /** waiting-cards.json DEEP LINKS: the session's own NEWEST waiting card
+     *  ([ChatRowAction.sessionWaitingCard] over ALL its synced messages, never
+     *  the chat's newest-200 window, + its digest's `waits`: the messages
+     *  sync on demand, the digest always) an inbox row lands on; null = none. */
+    suspend fun waitingCard(sessionId: String): String? = activeDb(null) { db ->
+        val messages = db.messageDao().observeBySession(sessionId).first().map { SessionTree.message(it, sessionId) }
+        val digest = db.sessionDao().getById(sessionId)?.digest
+        ChatRowAction.sessionWaitingCard(sessionId, messages + Chats.digestMessages(sessionId, Chats.parseDigest(digest)))
     }
 
     /**

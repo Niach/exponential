@@ -120,11 +120,43 @@ extension AppRoute {
     /// (`PlanPage.planPageFor`) opens its chat's plan tab; else
     /// `openingSession`.
     /// #PERF-5: these read the store off main (async), never on a tap.
-    @MainActor static func openingInbox(_ sessionId: String, accountId: String, deps: AppDependencies) async -> AppRoute {
-        if let messageId = await planPageTarget(sessionId, accountId: accountId, deps: deps) {
+    /// waiting-cards.json DEEP LINKS: a push's `card` (its `messageId`), else
+    /// the session's own waiting question, opens its chat AT that card
+    /// (`.card`, THE pending deep link: paged in, centred, rung).
+    @MainActor static func openingInbox(
+        _ sessionId: String, card: NotificationRouting.Card? = nil, accountId: String, deps: AppDependencies
+    ) async -> AppRoute {
+        if card == nil, let messageId = await planPageTarget(sessionId, accountId: accountId, deps: deps) {
             return await openingPlan(sessionId, messageId: messageId, accountId: accountId, deps: deps)
         }
-        return await openingSession(sessionId, accountId: accountId, deps: deps)
+        let viewerId = deps.auth.accounts.first { $0.id == accountId }?.userId
+        let read = try? await deps.db.pool(forAccountId: accountId).read { db -> (InboxRoute.SessionTarget, String, String?)? in
+            guard let session = try SessionEntity.fetchOne(db, key: sessionId) else { return nil }
+            let target = try InboxRoute.sessionTarget(db: db, sessionId: sessionId, viewerId: viewerId)
+            // The synced messages + the session's digest (its `waits`): the
+            // messages sync on demand, the digest always (web's inbox reads it).
+            let waiting = card == nil
+                ? ChatRowAction.sessionWaitingCard(
+                    sessionId: sessionId,
+                    messages: try SessionQueries.cardRows(db: db, sessionId: sessionId).map(TreeMessage.init(messageRow:))
+                        + Chats.digestMessages(sessionId: sessionId, digest: session.digest, rootId: session.rootId)
+                )
+                : nil
+            return (target, session.rootId.isEmpty ? session.id : session.rootId, waiting)
+        }
+        // Not synced yet (a cold push tap): the push's own `rootId`.
+        let landing = InboxRoute.landing(
+            target: read?.0, rootId: read?.1 ?? card?.rootId,
+            messageId: card?.messageId ?? read?.2, plan: card?.plan ?? false
+        )
+        switch landing {
+        case let .plan(rootId, messageId):
+            return .chat(accountId: accountId, chatId: rootId, child: .plan(messageId))
+        case let .card(rootId, messageId):
+            return .chat(accountId: accountId, chatId: rootId, child: .card(messageId))
+        case .session:
+            return await openingSession(sessionId, accountId: accountId, deps: deps)
+        }
     }
 
     /// #EXP-1662: a plan opens as a tab of its session's root (a chat or an
@@ -714,11 +746,12 @@ struct MainNavigator: View {
         .onChange(of: deps.deepLinkBus.pendingSessionId) { _, sessionId in
             if let sessionId {
                 let accountId = issueAccountId(forUserId: deps.deepLinkBus.pendingSessionUserId)
+                let card = deps.deepLinkBus.pendingSessionCard
                 _ = deps.deepLinkBus.consumeSession()
                 navigate {
                     Task { @MainActor in
                         await activateTeam(forSession: sessionId, accountId: accountId)
-                        path.append(await AppRoute.openingInbox(sessionId, accountId: accountId, deps: deps))
+                        path.append(await AppRoute.openingInbox(sessionId, card: card, accountId: accountId, deps: deps))
                     }
                 }
             }
@@ -767,10 +800,11 @@ struct MainNavigator: View {
                 path.append(AppRoute.invite(token: token))
             }
             let sessionUserId = deps.deepLinkBus.pendingSessionUserId
+            let sessionCard = deps.deepLinkBus.pendingSessionCard
             if let sessionId = deps.deepLinkBus.consumeSession() {
                 let accountId = issueAccountId(forUserId: sessionUserId)
                 await activateTeam(forSession: sessionId, accountId: accountId)
-                path.append(await AppRoute.openingInbox(sessionId, accountId: accountId, deps: deps))
+                path.append(await AppRoute.openingInbox(sessionId, card: sessionCard, accountId: accountId, deps: deps))
             }
             if deps.deepLinkBus.pendingInbox { openInboxFromPush() }
             if deps.deepLinkBus.pendingDeviceRowId != nil { openDeviceFromLink() }

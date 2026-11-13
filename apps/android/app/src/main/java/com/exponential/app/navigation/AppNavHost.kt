@@ -75,6 +75,8 @@ import com.exponential.app.domain.SettingsNav
 import com.exponential.app.data.electric.SyncHealth
 import androidx.browser.customtabs.CustomTabsIntent
 import com.exponential.app.data.push.DeepLinkBus
+import com.exponential.app.data.push.PushDeepLinks
+import com.exponential.app.domain.InboxRoute
 import com.exponential.app.domain.AppShortcuts
 import com.exponential.app.data.push.WebLinkResolver
 import com.exponential.app.domain.AGENT_ROUTE
@@ -210,13 +212,19 @@ fun AppNavHost() {
     // chat root = the chat, else the session view. Same snapshot hazard
     // as the issue route — the screens read their id from SavedStateHandle
     // once. #EXP-1638: a recent-chat app shortcut rides the same open.
-    suspend fun openSession(id: String) {
+    suspend fun openSession(id: String, card: PushDeepLinks.Card? = null) {
         // #EXP-1662: a session with a waiting plan of its own = its
-        // chat's plan tab, on that plan.
-        val planRoot = webLinkResolver.planChat(id)
-        val route = planRoot?.let { root ->
-            webLinkResolver.planPageTarget(id)?.let { Routes.chatPlan(root, it) }
-        } ?: sessionTargetRoute(id, webLinkResolver.sessionTarget(id))
+        // chat's plan tab, on that plan. waiting-cards.json DEEP LINKS: a
+        // push's card (its `messageId`), else the session's waiting
+        // question, lands its chat on that card.
+        val target = webLinkResolver.sessionTarget(id)
+        val root = webLinkResolver.planChat(id) ?: card?.rootId
+        val landing = when {
+            card != null -> InboxRoute.landing(target, root, card.messageId, card.plan)
+            else -> webLinkResolver.planPageTarget(id)?.let { InboxRoute.landing(target, root, it, plan = true) }
+                ?: InboxRoute.landing(target, root, webLinkResolver.waitingCard(id), plan = false)
+        }
+        val route = landingRoute(landing) ?: sessionTargetRoute(id, target)
         val teamSwitch = viewModel.planTeamSwitch(null, webLinkResolver.teamOfSession(id))
         guarded {
             teamSwitch?.let(viewModel::applyTeamSwitch)
@@ -255,7 +263,7 @@ fun AppNavHost() {
                 navController.selectTab(MainTabs.CHATS, tabSwitch, restore = false)
                 navController.navigate(MainTabs.INBOX) { launchSingleTop = true }
             }
-            is DeepLinkBus.Target.Session -> openSession(target.id)
+            is DeepLinkBus.Target.Session -> openSession(target.id, target.card)
             // #EXP-1638 (app-shortcuts.json): the app icon's long-press menu,
             // onto the pages the app already has.
             is DeepLinkBus.Target.AppShortcut -> when (val shortcut = target.target) {

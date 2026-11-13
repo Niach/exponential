@@ -923,11 +923,18 @@ fun ChatContent(
     }
     var initialCardDone by rememberSaveable { mutableStateOf(false) }
     val chatLoaded = view != null
-    LaunchedEffect(initialCard, chatLoaded) {
-        if (initialCard != null && chatLoaded && !initialCardDone) {
-            initialCardDone = true
-            pickWaiting(initialCard)
-        }
+    LaunchedEffect(initialCard, chatLoaded, waitingChips) {
+        if (initialCard == null || !chatLoaded || initialCardDone) return@LaunchedEffect
+        // A cold open loads the tree's cards after the chat: a waiting card
+        // is taken once its chip is there (a new chip list restarts this
+        // wait), anything else after a beat.
+        val chip = waitingChips.firstOrNull { it.id == initialCard }
+        if (chip == null) kotlinx.coroutines.delay(INITIAL_CARD_WAIT_MS)
+        initialCardDone = true
+        // A descendant's waiting card opens THAT session in place, at
+        // its card (`waitingTarget`, a push or inbox row naming it);
+        // anything else is the Conversation's pending deep link.
+        chip?.let(pickWaitingChip) ?: pickWaiting(initialCard)
     }
     // plan-page.json (#FEED-191): a decision taken ON the opened plan returns
     // to the Conversation once it succeeds, so the agent is seen working on;
@@ -1226,3 +1233,7 @@ private fun ChatHeaderMerge(
         }
     }
 }
+
+/** waiting-cards.json DEEP LINKS: how long a way in's card that names no
+ *  waiting chip waits for the chat's cards before it is taken. */
+private const val INITIAL_CARD_WAIT_MS = 2_000L

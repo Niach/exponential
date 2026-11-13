@@ -8,8 +8,10 @@ import Foundation
 public enum NotificationRouting {
     /// Where a push tap goes.
     public enum PushTarget: Equatable, Sendable {
-        /// A session (EXP-980 wall, #EXP-1456 any push carrying `sessionId`).
-        case session(id: String)
+        /// A session (EXP-980 wall, #EXP-1456 any push carrying `sessionId`);
+        /// `card` = the question / plan it is about (waiting-cards.json
+        /// DEEP LINKS).
+        case session(id: String, card: Card? = nil)
         /// My Work → Inbox (an issue-less agent message, or a blocked session
         /// whose row was pruned).
         case inbox
@@ -19,6 +21,31 @@ public enum NotificationRouting {
         case device(id: String)
         /// Nothing to open.
         case none
+    }
+
+    /// waiting-cards.json DEEP LINKS: the card a session push is about (its
+    /// `messageId`), the tree's `rootId`; `plan` = a plan card (its page).
+    public struct Card: Equatable, Sendable {
+        public let messageId: String
+        public let rootId: String?
+        public let plan: Bool
+
+        public init(messageId: String, rootId: String?, plan: Bool) {
+            self.messageId = messageId
+            self.rootId = rootId
+            self.plan = plan
+        }
+    }
+
+    /// The push data's card (notification-actions.json `dataKeys` +
+    /// question-push.json `rootId`), else nil.
+    public static func card(_ userInfo: [AnyHashable: Any]) -> Card? {
+        guard let messageId = nonEmpty(userInfo["messageId"]) else { return nil }
+        return Card(
+            messageId: messageId,
+            rootId: nonEmpty(userInfo["rootId"]),
+            plan: userInfo["cardKind"] as? String == "plan"
+        )
     }
 
     private static func nonEmpty(_ value: Any?) -> String? {
@@ -41,7 +68,7 @@ public enum NotificationRouting {
         // #EXP-1456 (inbox-route.json): a push naming a session opens it
         // whatever its type (an agent's decision, a mention, a wall); the
         // navigator resolves where (`InboxRoute.sessionTarget`).
-        if let sessionId = nonEmpty(userInfo["sessionId"]) { return .session(id: sessionId) }
+        if let sessionId = nonEmpty(userInfo["sessionId"]) { return .session(id: sessionId, card: card(userInfo)) }
         if type == DomainContract.notificationTypeSessionBlocked { return .inbox }
         // An issue-less agent message renders in the inbox alone.
         if type == DomainContract.notificationTypeAgentMessage { return .inbox }

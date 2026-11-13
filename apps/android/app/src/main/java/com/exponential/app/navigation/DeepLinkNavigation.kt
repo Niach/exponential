@@ -130,6 +130,14 @@ fun sessionTargetRoute(sessionId: String, target: InboxRoute.SessionTarget?): St
         null -> Routes.session(sessionId)
     }
 
+/** waiting-cards.json DEEP LINKS: the route of an [InboxRoute.Landing]
+ *  (null = the session's own, [sessionTargetRoute]). */
+fun landingRoute(landing: InboxRoute.Landing): String? = when (landing) {
+    is InboxRoute.Landing.Plan -> Routes.chatPlan(landing.rootId, landing.messageId)
+    is InboxRoute.Landing.Card -> Routes.chatCard(landing.rootId, landing.messageId)
+    InboxRoute.Landing.Session -> null
+}
+
 /** results-tab.json: what `?tab=` lands on the Results tab. */
 private val LEGACY_RESULTS_TABS = setOf(Routes.CHAT_TAB_RESULTS, "stories", Routes.CHAT_TAB_GUIDE)
 
