@@ -14,6 +14,13 @@ fn page(name: &str, tab: &'static str, owner: bool) {
         pull("p5", "r1", 20, "Other: the repo page", "exp/other", "main", "open", "pending"),
         pull("p6", "r1", 3, "Merged long ago", "exp/old", "main", "merged", "success"),
     ];
+    // #EXP-1617: repo-ci.json's runs as this repo's.
+    let case = &domain::repo_ci::REPO_CI["runRows"][0];
+    let mut runs = domain::repo_ci::fixture_runs(&case["runs"]);
+    for run in &mut runs {
+        run.repository_id = Some("r1".into());
+    }
+    let jobs = domain::repo_ci::fixture_jobs(&case["jobs"]);
     let shot = RepoPageShot {
         repo: json!({"id": "r1", "fullName": "acme/engine", "provider": "ecode", "defaultBranch": "main", "boards": []}),
         owner,
@@ -22,6 +29,10 @@ fn page(name: &str, tab: &'static str, owner: bool) {
         branches: Some(vec![("exp/c1", "aaaaaaaaaaaa"), ("main", "0123456789ab"), ("exp/root", "bbbbbbbbbbbb"), ("Zeta", "cccccccccccc")]),
         settings: Some(json!({"id": "r1", "fullName": "acme/engine", "remoteUrl": "exp://acme/engine", "defaultBranch": "main", "mirrorUrl": "https://github.com/acme/engine.git", "mirrorEnabled": true,
             "backups": [{"id": "k1", "createdAt": "2026-11-10T08:00:00Z", "bytes": 48213, "refs": 4}, {"id": "k2", "createdAt": "2026-11-12T08:00:00Z", "bytes": 51022, "refs": 5}]})),
+        runs,
+        jobs,
+        ci: Some(json!({"config": {"requiredChecks": ["build"]}, "secrets": [{"name": "NPM_TOKEN", "updatedAt": "2026-11-12T09:00:00.000Z"}]})),
+        now_ms: case["now"].as_str().and_then(domain::instant::parse_instant),
     };
     shoot_pane(name, RepoPage::for_shots, move |page, cx| page.show(shot, cx));
 }
@@ -48,4 +59,10 @@ fn settings_repo_page_settings() {
 #[ignore]
 fn settings_repo_page_runs() {
     page("repo-page-runs", "runs", false);
+}
+
+#[test]
+#[ignore]
+fn settings_repo_page_ci_member() {
+    page("repo-page-ci-member", "settings", false);
 }

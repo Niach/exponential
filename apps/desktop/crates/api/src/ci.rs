@@ -242,3 +242,117 @@ pub fn actions_runner_token(trpc: &TrpcClient, device_id: &str, repository_id: &
     let out: Out = trpc.mutation("ci.actionsRunnerToken", &Input { device_id, repository_id, kind })?;
     Ok(out.token)
 }
+
+// ── the repo page's CI section (#EXP-1617 E4 part 4, repo-ci.json) ───────
+
+/// A repository's `ci_config` (every field optional on the wire).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoCiConfig {
+    #[serde(default)]
+    pub required_checks: Option<Vec<String>>,
+    #[serde(default)]
+    pub github_statuses: Option<bool>,
+    #[serde(default)]
+    pub actions_runners: Option<bool>,
+}
+
+/// One secret's NAME (values are never read back).
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoCiSecret {
+    pub name: String,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
+/// `ci.repoSettings`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+pub struct RepoCiSettings {
+    #[serde(default, deserialize_with = "config_or_default")]
+    pub config: RepoCiConfig,
+    #[serde(default)]
+    pub secrets: Vec<RepoCiSecret>,
+}
+
+fn config_or_default<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<RepoCiConfig, D::Error> {
+    Ok(Option::<RepoCiConfig>::deserialize(deserializer)?.unwrap_or_default())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RepoRef<'a> {
+    repository_id: &'a str,
+}
+
+/// `ci.repoSettings{repositoryId}`: the config and the secret names.
+pub fn repo_settings(trpc: &TrpcClient, repository_id: &str) -> Result<RepoCiSettings, ApiError> {
+    trpc.query_with_input("ci.repoSettings", &RepoRef { repository_id })
+}
+
+/// What `ci.setRepoConfig` changes (`None` = left as is).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoCiConfigInput {
+    pub repository_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub required_checks: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub github_statuses: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub actions_runners: Option<bool>,
+}
+
+/// `ci.setRepoConfig`: the repo's managers only.
+pub fn set_repo_config(trpc: &TrpcClient, input: &RepoCiConfigInput) -> Result<(), ApiError> {
+    let _: Value = trpc.mutation("ci.setRepoConfig", input)?;
+    Ok(())
+}
+
+/// `ci.setSecret{repositoryId, name, value}`: create or replace.
+pub fn set_secret(trpc: &TrpcClient, repository_id: &str, name: &str, value: &str) -> Result<(), ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        repository_id: &'a str,
+        name: &'a str,
+        value: &'a str,
+    }
+    let _: Value = trpc.mutation("ci.setSecret", &Input { repository_id, name, value })?;
+    Ok(())
+}
+
+/// `ci.deleteSecret{repositoryId, name}`.
+pub fn delete_secret(trpc: &TrpcClient, repository_id: &str, name: &str) -> Result<(), ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        repository_id: &'a str,
+        name: &'a str,
+    }
+    let _: Value = trpc.mutation("ci.deleteSecret", &Input { repository_id, name })?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod repo_ci_tests {
+    use super::*;
+
+    #[test]
+    fn repo_settings_decode_the_wire() {
+        let out: RepoCiSettings =
+            serde_json::from_str(r#"{"config":{"requiredChecks":["build"],"githubStatuses":true},"secrets":[{"name":"NPM_TOKEN","updatedAt":"2026-11-13T09:00:00.000Z","updatedByUserId":"u1"}]}"#).unwrap();
+        assert_eq!(out.config.required_checks.as_deref(), Some(&["build".to_string()][..]));
+        assert_eq!(out.config.github_statuses, Some(true));
+        assert_eq!(out.config.actions_runners, None);
+        assert_eq!(out.secrets[0].name, "NPM_TOKEN");
+        let empty: RepoCiSettings = serde_json::from_str(r#"{"config":null,"secrets":[]}"#).unwrap();
+        assert_eq!(empty, RepoCiSettings::default());
+    }
+
+    #[test]
+    fn set_repo_config_sends_only_what_changed() {
+        let input = RepoCiConfigInput { repository_id: "r1".into(), github_statuses: Some(false), ..Default::default() };
+        assert_eq!(serde_json::to_value(&input).unwrap(), serde_json::json!({"repositoryId": "r1", "githubStatuses": false}));
+    }
+}

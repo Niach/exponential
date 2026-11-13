@@ -25,6 +25,8 @@ pub(crate) mod plan_card;
 pub(crate) mod plan_page;
 pub(crate) mod pr_checks;
 pub(crate) mod pr_row;
+pub(crate) mod repo_ci;
+pub(crate) mod repo_runs;
 pub(crate) mod results_tab;
 pub(crate) mod runner_settings;
 pub(crate) mod schedule_picker;
@@ -77,6 +79,8 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: plan_page::ID, owner: plan_page::OWNER, render: plan_page::render },
     Entry { id: pr_checks::ID, owner: pr_checks::OWNER, render: pr_checks::render },
     Entry { id: pr_row::ID, owner: pr_row::OWNER, render: pr_row::render },
+    Entry { id: repo_ci::ID, owner: repo_ci::OWNER, render: repo_ci::render },
+    Entry { id: repo_runs::ID, owner: repo_runs::OWNER, render: repo_runs::render },
     Entry { id: results_tab::ID, owner: results_tab::OWNER, render: results_tab::render },
     Entry { id: runner_settings::ID, owner: runner_settings::OWNER, render: runner_settings::render },
     Entry { id: schedule_picker::ID, owner: schedule_picker::OWNER, render: schedule_picker::render },

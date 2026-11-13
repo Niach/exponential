@@ -35,6 +35,9 @@ import { trpc } from "@/lib/trpc-client"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { PullRequestStatusPill } from "@/components/session-merge-button"
 import { checksDotColor, checksLabel } from "@/components/repo/checks-dot"
+import { RepoCiSection, RepoRunsTab } from "@/components/repo/repo-ci"
+import { useSession } from "@/hooks/use-session"
+import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 
 const UiBackIcon = conceptIcon(`ui-back`)
 const RepositoriesIcon = conceptIcon(`settings-repositories`)
@@ -114,7 +117,7 @@ export function RepoPage({
 
   return (
     <div className="h-full overflow-y-auto" data-testid="repo-page">
-      <div className="mx-auto w-full max-w-3xl space-y-4 px-4 py-4 md:max-w-4xl">
+      <div className={`mx-auto w-full max-w-3xl space-y-4 px-4 py-4 md:max-w-4xl ${TAB_BAR_CLEARANCE}`}>
         {/* THE AppBar: back + the repo's full name only (the provider lives in Settings). */}
         <div className="flex min-w-0 items-center gap-2">
           {back}
@@ -134,7 +137,7 @@ export function RepoPage({
         ) : tab === `pulls` ? (
           <PullsTab prs={prRows} member={isMember} />
         ) : tab === `runs` ? (
-          <EmptyState size="list" title={COPY.runs.empty} />
+          <RepoRunsTab repositoryId={repo.id} teamSlug={teamSlug} />
         ) : tab === `branches` ? (
           <BranchesTab repo={repo} prs={prRows} />
         ) : (
@@ -222,7 +225,15 @@ function BranchesTab({ repo, prs }: { repo: Repo; prs: PrRow[] }) {
   )
 }
 
+/** repo-ci.json: the repo's managers = the member who shared it or a team
+ *  owner (the server's `assertRepoManager`). */
+export function isRepoManager(repo: { sharedByUserId?: string | null }, userId: string | null | undefined, isOwner: boolean): boolean {
+  return isOwner || (Boolean(userId) && repo.sharedByUserId === userId)
+}
+
 function SettingsTab({ repo, isOwner }: { repo: Repo; isOwner: boolean }) {
+  const { data: session } = useSession()
+  const manager = isRepoManager(repo, session?.user?.id, isOwner)
   const [settings, setSettings] = useState<Settings | null>(null)
   const [branches, setBranches] = useState<string[]>([])
   const [restoreId, setRestoreId] = useState<string | null>(null)
@@ -358,6 +369,8 @@ function SettingsTab({ repo, isOwner }: { repo: Repo; isOwner: boolean }) {
           </div>
         </>
       )}
+
+      <RepoCiSection repositoryId={repo.id} provider={repo.provider ?? `github`} manager={manager} />
 
       <Prompt
         open={restoreId !== null}

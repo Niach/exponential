@@ -195,6 +195,8 @@ pub mod prompts;
 pub mod relations;
 // #EXP-1616: THE repo page (PR tree, branches, checks rollup, tabs), fixture-locked ×4.
 pub mod repo_page;
+// #EXP-1617 E4 part 4: the repo page's Runs tab + CI settings, fixture-locked ×4.
+pub mod repo_ci;
 // EXP-1097: the issue detail's relations view (parent line, sub-issues, bands).
 pub mod relations_view;
 pub mod reporter_reply;

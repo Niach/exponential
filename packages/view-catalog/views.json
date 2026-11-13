@@ -1726,6 +1726,7 @@
           "testId": "repo-ci",
           "timeoutMs": 20000
         },
+        "recipe": "scrollToRepoCi",
         "settleMs": 800
       },
       "webMobile": "inherit",

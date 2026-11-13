@@ -1304,7 +1304,11 @@ private fun AuthenticatedNav(
                 },
             ),
         ) {
-            com.exponential.app.ui.repo.RepoPageScreen(onBack = { navController.popBackStack() })
+            com.exponential.app.ui.repo.RepoPageScreen(
+                onBack = { navController.popBackStack() },
+                // #EXP-1617 (repo-ci.json): a run row opens THE run page.
+                onOpenRun = { runId -> navController.navigate(Routes.ciRun(runId)) },
+            )
         }
         composable(Routes.MCP_ACTIVITY) {
             McpActivityScreen(onBack = { navController.popBackStack() })

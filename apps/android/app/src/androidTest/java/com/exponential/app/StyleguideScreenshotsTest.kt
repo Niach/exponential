@@ -94,6 +94,10 @@ import com.exponential.app.ui.styleguide.CiRunSpecimenScreen
 import com.exponential.app.ui.styleguide.CiRunSpecimenTestId
 import com.exponential.app.ui.styleguide.RunnerSettingsSpecimenScreen
 import com.exponential.app.ui.styleguide.RunnerSettingsSpecimenTestId
+import com.exponential.app.ui.styleguide.RepoCiSpecimenScreen
+import com.exponential.app.ui.styleguide.RepoCiSpecimenTestId
+import com.exponential.app.ui.styleguide.RepoRunsSpecimenScreen
+import com.exponential.app.ui.styleguide.RepoRunsSpecimenTestId
 import com.exponential.app.ui.styleguide.DeviceReadinessSpecimenTestId
 import com.exponential.app.ui.styleguide.PhoneTabBarSpecimenScreen
 import com.exponential.app.domain.SettingsNav
@@ -183,7 +187,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_add-server · sg_drafts · sg_composer-slash-menu · sg_session-slash-menu ·
  *   sg_settings-assistant-meeting · sg_settings-general · sg_settings-members ·
  *   sg_settings-labels · sg_settings-repositories · sg_onboarding-join (EXP-1558) ·
- *   sg_repo (#EXP-1616)
+ *   sg_repo (#EXP-1616) · sg_repo-runs · sg_repo-ci (#EXP-1617)
  *
  * EXP-1295 retired `sg_chat-action` and `sg_action-create` (the builtin
  * actions and the action create sheet left the catalog), renamed the
@@ -267,6 +271,8 @@ class StyleguideScreenshotsTest {
             "sg_pr-checks",
             // #EXP-1804: THE CI run page + a device's CI runner section.
             "sg_ci-run", "sg_runner-settings",
+            // #EXP-1617: the repo page's Runs tab + its CI settings section.
+            "sg_repo-runs", "sg_repo-ci",
             // Session 58cb32df: the Chats pieces + the minutes schedule.
             // #EXP-1645: the team mark and the General row.
             "sg_team-avatar",
@@ -1970,6 +1976,14 @@ class StyleguideScreenshotsTest {
         flow.screenshot("sg_ci-run")
         show(RunnerSettingsSpecimenTestId) { RunnerSettingsSpecimenScreen() }
         flow.screenshot("sg_runner-settings")
+
+        // --- sg_repo-runs · sg_repo-ci (#EXP-1617, repo-ci.json): the repo
+        // page's Runs tab over runRows[0] (phone Rows) and the Settings tab's
+        // CI section of a GitHub repo over the same runs (RepoCi specimen).
+        show(RepoRunsSpecimenTestId) { RepoRunsSpecimenScreen() }
+        flow.screenshot("sg_repo-runs")
+        show(RepoCiSpecimenTestId) { RepoCiSpecimenScreen() }
+        flow.screenshot("sg_repo-ci")
 
         // --- Session 58cb32df (fixtures/chats.json): the Chats screen over
         // the phone tab bar, the tab bar's states, a chat's transcript as
