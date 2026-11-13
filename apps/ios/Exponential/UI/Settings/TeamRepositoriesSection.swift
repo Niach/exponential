@@ -1,6 +1,7 @@
 import Combine
 import ExpCore
 import ExpUI
+import GRDB
 import SwiftUI
 
 /// The server-only repositories registry (masterplan §6 / §5.3). v4: a pure
@@ -56,6 +57,9 @@ struct TeamRepositoriesSection: View {
     // "Add repository" picker sheet (EXP-225): the add runs inside the sheet
     // (FEED-42), which shows its own failures.
     @State private var showAddRepo = false
+    // #EXP-1616: each row's checks chip rolls up its live PRs' checks
+    // (`RepoPage.checksRollup` over the synced `pull_requests`).
+    @State private var checksByRepo: [String: String] = [:]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -80,6 +84,7 @@ struct TeamRepositoriesSection: View {
             }
         }
         .task(id: team?.id) { await reload() }
+        .task(id: team?.id) { await observeChecks() }
         // An install/connect that finishes in an EXTERNAL browser comes back
         // via the app-level `exponential://github-connected` deep link. An
         // error slug means the connect FAILED: surface it (EXP-390).
@@ -105,22 +110,30 @@ struct TeamRepositoriesSection: View {
         // a throw keeps the picker open with the error inline.
         .sheet(isPresented: $showAddRepo) {
             if let teamId = team?.id {
-                GithubRepoPicker(
+                // #EXP-1616: owners pick GitHub | Exponential first.
+                AddRepositorySheet(
                     accountId: accountId,
                     teamId: teamId,
-                    integrationsApi: integrationsApi
-                ) { repo in
-                    try await repositoriesApi.add(
-                        accountId: accountId,
-                        teamId: teamId,
-                        fullName: repo.fullName,
-                        defaultBranch: repo.defaultBranch,
-                        isPrivate: repo.`private`
-                    )
-                    // Registry changed — drop the per-team name cache.
-                    RepositoryDirectory.invalidate(accountId: accountId, teamId: teamId)
-                    Task { await reload() }
-                }
+                    isOwner: isOwner,
+                    integrationsApi: integrationsApi,
+                    repositoriesApi: repositoriesApi,
+                    onAddGithub: { repo in
+                        try await repositoriesApi.add(
+                            accountId: accountId,
+                            teamId: teamId,
+                            fullName: repo.fullName,
+                            defaultBranch: repo.defaultBranch,
+                            isPrivate: repo.`private`
+                        )
+                        // Registry changed — drop the per-team name cache.
+                        RepositoryDirectory.invalidate(accountId: accountId, teamId: teamId)
+                        Task { await reload() }
+                    },
+                    onCreated: {
+                        RepositoryDirectory.invalidate(accountId: accountId, teamId: teamId)
+                        Task { await reload() }
+                    }
+                )
             }
         }
         // EXP-1215: the app's own alert card (`GlassAlert`), ×4. Each card on
@@ -176,12 +189,28 @@ struct TeamRepositoriesSection: View {
         let inUse = !repo.boards.isEmpty
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                githubGlyph
-                Text(repo.fullName)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                // #EXP-1616: the glyph + name open the repo page.
+                NavigationLink(value: AppRoute.repo(
+                    accountId: accountId, teamId: team?.id ?? "", repositoryId: repo.id, isOwner: isOwner
+                )) {
+                    HStack(spacing: 8) {
+                        if repo.isEcode {
+                            AppIcon(AppIcons.settingsRepositories, size: AppIcon.Size.small)
+                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        } else {
+                            githubGlyph
+                        }
+                        Text(repo.fullName)
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer(minLength: 0)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier(RepoPage.TestIds.rowOpen)
                 Spacer(minLength: 8)
                 if canManage(repo) {
                     RepoDefaultBranchChip(accountId: accountId, repo: repo) { branch in
@@ -219,6 +248,12 @@ struct TeamRepositoriesSection: View {
             }
 
             FlowLayout(spacing: 6, centersLines: true) {
+                // #EXP-1616: the provider pill and, when its live PRs carry
+                // checks, the rollup chip lead the row's second line.
+                RepoProviderPill(provider: repo.provider)
+                if let checks = checksByRepo[repo.id] {
+                    RepoChecksPill(state: checks)
+                }
                 if inUse {
                     Text("Used by")
                         .font(.caption)
@@ -511,6 +546,20 @@ struct TeamRepositoriesSection: View {
     }
 
     // MARK: - Data (server-only registry; refetched after every mutation)
+
+    /// The team's synced PRs → each repo's checks rollup.
+    private func observeChecks() async {
+        guard let teamId = team?.id, let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+        let observation = ValueObservation.tracking { db in
+            try PullRequestEntity.filter(Column("team_id") == teamId).fetchAll(db)
+        }
+        do {
+            for try await rows in observation.removeDuplicates().values(in: pool) {
+                let byRepo = Dictionary(grouping: rows, by: \.repositoryId)
+                checksByRepo = byRepo.compactMapValues { RepoPage.checksRollup($0.map(RepoPage.Pr.init)) }
+            }
+        } catch {}
+    }
 
     /// `retried` = the person's own Retry tap: its failure toasts (D10);
     /// the loads on appear and after writes stay quiet.
