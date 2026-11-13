@@ -4,8 +4,8 @@ import GRDB
 import SwiftUI
 
 /// #EXP-1616 THE REPO PAGE (repo-page.json, view `repo`; web
-/// `repo-page.tsx`): the AppBar (back, the repo's name, its provider pill)
-/// over the pill tabs Pull requests · Runs · Branches · Settings. The PRs
+/// `repo-page.tsx`): the AppBar (back + the repo's full name ONLY; the
+/// provider lives in Settings and on the Repositories row) over the pill tabs Pull requests · Runs · Branches · Settings. The PRs
 /// are the synced `pull_requests` rows; branches and settings load on demand.
 struct RepoPageView: View {
     let teamId: String
@@ -37,16 +37,11 @@ struct RepoPageView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
-                HStack(spacing: 8) {
-                    Text(repo?.fullName ?? "")
-                        .font(.headline)
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    if let repo {
-                        RepoProviderPill(provider: repo.provider)
-                    }
-                }
+                Text(repo?.fullName ?? "")
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
         }
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
