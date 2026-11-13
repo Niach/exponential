@@ -6498,6 +6498,24 @@
         "sha256": "f3ce63f588b502b7caae5e3f6aeb4f3caeb89b1c19420c25520ca16a7bda3ef4"
       }
     },
+    "repo-ci": {
+      "ios": {
+        "file": "shots/repo-ci/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 32212,
+        "sha256": "cf9ecbb0f8ed1455f16e40e9558a22927963621e6444f9a672de7e1b5889586a"
+      }
+    },
+    "repo-runs": {
+      "ios": {
+        "file": "shots/repo-runs/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 18312,
+        "sha256": "cf241c0c90afafc98e0d10701af176c39cd4c9269e0cad67ff9de1b2894f1d66"
+      }
+    },
     "results-tab": {
       "android": {
         "file": "shots/results-tab/android.webp",
