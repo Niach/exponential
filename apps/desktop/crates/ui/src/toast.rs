@@ -193,6 +193,7 @@ pub(crate) fn show(toast: Toast, window: &mut Window, cx: &mut App) {
 }
 
 /// A shown toast its caller may take back early ([`show_dismissible`]).
+#[derive(Clone)]
 pub(crate) struct ShownToast {
     layer: gpui::WeakEntity<ToastLayer>,
     id: u64,
@@ -200,6 +201,11 @@ pub(crate) struct ShownToast {
 
 impl ShownToast {
     /// Start the toast's exit (a no-op once it is gone).
+    /// The same toast on the same stack.
+    pub(crate) fn same(&self, other: &ShownToast) -> bool {
+        self.id == other.id && self.layer == other.layer
+    }
+
     pub(crate) fn dismiss(&self, cx: &mut App) {
         if let Some(layer) = self.layer.upgrade() {
             layer.update(cx, |layer, cx| layer.dismiss(self.id, cx));
