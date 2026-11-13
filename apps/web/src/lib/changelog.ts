@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-13-repo-runs-ci-settings`,
+    date: `2026-11-13`,
+    title: `Runs and CI settings on the repository page`,
+    summary: `A repository's Runs tab lists its CI runs, and its Settings tab holds the CI setup: required checks, secrets and the GitHub switches.`,
+    body: `- **Runs**: every run of the repository's CI, newest first, with its status, commit, branch, trigger and duration. Open one to see its jobs and log.
+- **CI settings**: the repository's pipelines with their state, the checks the merge queue waits for, and secrets your pipelines can use (values are never shown again).
+- **GitHub repositories**: report our checks to GitHub as commit statuses, and let team devices with a CI runner also run the repository's GitHub Actions jobs.`,
+  },
+  {
     id: `2026-11-13-own-ci-run-page`,
     date: `2026-11-13`,
     title: `Our own CI: a run page and a runner on your devices`,
