@@ -449,6 +449,8 @@ describe(`teams.delete (EXP-188: no last-team guard)`, () => {
   it(`purges the team's orphaned placeholder members after the cascade (EXP-1132)`, async () => {
     deletePlaceholdersIfOrphaned.mockClear()
     selectQueue.push([{ storageKey: `attachments/a.png` }])
+    // #EXP-1616: the team's eCode repo objects (none).
+    selectQueue.push([])
     // The roster's placeholders, read before the delete (deduped).
     selectQueue.push([{ id: `ph-1` }, { id: `ph-2` }, { id: `ph-1` }])
 

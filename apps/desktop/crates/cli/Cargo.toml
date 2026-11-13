@@ -29,6 +29,10 @@ sync = { path = "../sync", default-features = false }
 terminal = { path = "../terminal", default-features = false }
 updater = { path = "../updater" }
 observability = { path = "../observability" }
+# #EXP-1616: eCode's own git: the device jobs of its forge (`ecode_job`) and
+# git's `exp://` remote helper (this binary, started as `git-remote-exp`).
+ecode = { path = "../ecode", default-features = false, features = ["repo", "exponential"] }
+git-remote-exp = { path = "../git-remote-exp" }
 
 anyhow = { workspace = true }
 # EXP-530: the automation host's local clock (schedule occurrences are

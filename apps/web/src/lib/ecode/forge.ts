@@ -5,7 +5,7 @@
 // this (forge-seam.test.ts greps it). The ops are eCode's PR-tree primitives
 // (packages/ecode `fixtures/forge.json`, every implementation conforms:
 // forge-conformance.test.ts). GitHub is the one implementation today
-// (`forge-github.ts`); eCode's own forge plugs in behind `forgeFor` (E3).
+// (`forge-github.ts`) and eCode's own (`forge-ecode.ts`, #EXP-1616).
 import type {
   TrainCheck,
   TrainPipelineInputs,
@@ -232,13 +232,13 @@ export interface Forge {
 
 let override: ((repo: ForgeRepo) => Forge | null) | null = null
 
-/** The forge of a repository. Every repository is a GitHub one today;
- *  eCode's own forge lands with E3 (#EXP-1612). */
+/** The forge of a repository: GitHub's, or eCode's own (#EXP-1616). */
 export async function forgeFor(repo: ForgeRepo): Promise<Forge> {
   const forged = override?.(repo)
   if (forged) return forged
-  if (repo.provider && repo.provider !== `github`) {
-    throw new ForgeError(501, `The ${repo.provider} forge is not available on this server yet`, `unsupported`)
+  if (repo.provider === `ecode`) {
+    const { ecodeForge } = await import(`@/lib/ecode/forge-ecode`)
+    return ecodeForge()
   }
   const { githubForge } = await import(`@/lib/ecode/forge-github`)
   return githubForge

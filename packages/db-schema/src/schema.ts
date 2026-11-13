@@ -1,6 +1,7 @@
 import {
   type AnyPgColumn,
   bigint,
+  bigserial,
   doublePrecision,
   index,
   integer,
@@ -3064,6 +3065,13 @@ export const pullRequests = pgTable(
     // EXP-1709 (server-only): the head the train last composed; a bounced
     // (conflict/failing) PR re-queues only once its head moved (a push).
     mergeHeadSha: varchar(`merge_head_sha`, { length: 64 }),
+    // #EXP-1616 (eCode's own forge, SERVER-ONLY): on an `ecode` repo the row
+    // IS the PR, so the forge's own fields live here. `body` = the PR text
+    // (GitHub holds it elsewhere), `head_sha` = the head's commit when it
+    // merged or closed, `merged_sha` = the squash commit on the base.
+    body: text(),
+    headSha: varchar(`head_sha`, { length: 64 }),
+    mergedSha: varchar(`merged_sha`, { length: 64 }),
     ...timestamps,
   },
   (table) => [
@@ -3425,6 +3433,9 @@ export const repositories = pgTable(
     }),
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),
     archivedAt: timestamp(`archived_at`, { withTimezone: true }),
+    // #EXP-1616: an `ecode` repo numbers its own PRs (the last number
+    // handed out; `ecodeForge.openPullRequest` bumps it atomically).
+    prSequence: integer(`pr_sequence`).notNull().default(0),
     ...timestamps,
   },
   (table) => [
@@ -3433,6 +3444,56 @@ export const repositories = pgTable(
     // EXP-835: the admin console's per-user correlated subqueries filter on
     // the sharer alone — without this they seq-scan the whole registry.
     index(`idx_repositories_shared_by`).on(table.sharedByUserId),
+  ]
+)
+
+// #EXP-1616 (eCode's own git, SERVER-ONLY, never a shape): the team bucket
+// IS the remote. A `repo_refs` row = one ref of an `ecode` repo; every move
+// is a compare-and-swap on `sha` (`lib/ecode/git-store.ts`), the ONE
+// serialization point (Store::update_ref). No git process runs here.
+export const repoRefs = pgTable(
+  `repo_refs`,
+  {
+    repositoryId: uuid(`repository_id`)
+      .notNull()
+      .references(() => repositories.id, { onDelete: `cascade` }),
+    // The full ref name (`refs/heads/main`).
+    ref: varchar({ length: 255 }).notNull(),
+    sha: varchar({ length: 64 }).notNull(),
+    updatedAt: timestamp(`updated_at`, { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.repositoryId, table.ref] })]
+)
+
+// #EXP-1616 (SERVER-ONLY): the objects of an `ecode` repo, as packs and
+// bundle snapshots in the team bucket (devices move them over presigned
+// URLs). `bytes` = the stored object's size (read back from the bucket at
+// commit): it counts toward team storage (`billing.ts getTeamUsage`).
+// `kind`: `pack` (a push's objects; a fetch reads every live pack in `seq`
+// order) | `bundle` (a backup: every ref at one landing). `superseded_at` =
+// a repack replaced it (its bytes stop counting; the object goes next).
+export const repoPacks = pgTable(
+  `repo_packs`,
+  {
+    id: uuidPk(),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    repositoryId: uuid(`repository_id`)
+      .notNull()
+      .references(() => repositories.id, { onDelete: `cascade` }),
+    kind: varchar({ length: 16 }).notNull().default(`pack`),
+    key: text().notNull().unique(),
+    bytes: bigint({ mode: `number` }).notNull(),
+    seq: bigserial({ mode: `number` }).notNull(),
+    // A bundle: the refs it holds (ref → sha).
+    refs: jsonb().$type<Record<string, string>>(),
+    supersededAt: timestamp(`superseded_at`, { withTimezone: true }),
+    createdAt: timestamp(`created_at`, { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index(`idx_repo_packs_repo`).on(table.repositoryId, table.kind, table.seq),
+    index(`idx_repo_packs_team`).on(table.teamId),
   ]
 )
 

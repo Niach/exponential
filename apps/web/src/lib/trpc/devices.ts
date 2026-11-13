@@ -1690,7 +1690,8 @@ export const devicesRouter = router({
       z.object({
         commandId: z.string().uuid(),
         ok: z.boolean(),
-        message: z.string().max(2000).optional(),
+        // #EXP-1616: an `ecode_job` answers JSON (a PR's file list).
+        message: z.string().max(256_000).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {

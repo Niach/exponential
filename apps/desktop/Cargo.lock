@@ -355,6 +355,7 @@ dependencies = [
  "etalk",
  "etalk-engine",
  "flume 0.11.1",
+ "git-remote-exp",
  "gpui-component",
  "gpui-kit-assets",
  "gpui-pre",
@@ -1766,6 +1767,7 @@ dependencies = [
  "eui-core",
  "exp-http",
  "flate2",
+ "git-remote-exp",
  "libc",
  "log",
  "reqwest",
@@ -3660,12 +3662,14 @@ dependencies = [
  "coding",
  "dirs 6.0.0",
  "domain",
+ "ecode",
  "eengine-bundle",
  "engine",
  "epilot",
  "eui-motion",
  "flume 0.11.1",
  "gif 0.13.3",
+ "git-remote-exp",
  "libc",
  "log",
  "observability",
@@ -4339,6 +4343,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0bf7f043f89559805f8c7cacc432749b2fa0d0a0a9ee46ce47164ed5ba7f126c"
 dependencies = [
  "stable_deref_trait",
+]
+
+[[package]]
+name = "git-remote-exp"
+version = "0.1.0"
+dependencies = [
+ "ecode",
+ "serde_json",
 ]
 
 [[package]]

@@ -65,6 +65,8 @@ const ADVERT_CONFIRM_RECHECK: Duration = Duration::from_secs(30);
 fn device_caps(advertised: &coding::AgentAdvertisement) -> Vec<String> {
     let mut caps = coding::device_caps(advertised);
     caps.push(UPDATE_CHECK_CAP.to_string());
+    // #EXP-1616: this daemon runs eCode's git jobs (`ecode_job`).
+    caps.push(crate::ecode_jobs::ECODE_JOBS_CAP.to_string());
     caps
 }
 
@@ -305,6 +307,8 @@ fn run_daemon(args: &[String]) -> CommandResult {
     std::fs::write(pidfile(&ctx.data_dir), std::process::id().to_string())
         .context("write the daemon pidfile")?;
     install_signal_handler();
+    // #EXP-1616: `git … exp://` works in every session this daemon starts.
+    coding::ecode_helper::install_git_helper(&ctx.data_dir);
     // #EXP-1618: the device's background pusher: every session branch and
     // its uncommitted work reach origin while the run goes on.
     coding::auto_push::ensure_started(&ctx.data_dir);
@@ -2477,6 +2481,38 @@ fn run_device_command(
             }
             return;
         }
+        // #EXP-1616: an eCode git job (merge, mergeability, backup, …) on
+        // its OWN thread, completing itself: a squash of a big repo must not
+        // hold the commands queued behind it. The claim set makes a
+        // redelivered id a no-op.
+        "ecode_job" => {
+            {
+                let Ok(mut guard) = logins_inflight.lock() else {
+                    return;
+                };
+                if !guard.insert(command.id.clone()) {
+                    return;
+                }
+            }
+            let (ctx, command_id, payload) = (Arc::clone(ctx), command.id.clone(), command.payload.clone());
+            let claimed = Arc::clone(logins_inflight);
+            let spawned = std::thread::Builder::new().name("exp-ecode-job".to_string()).spawn(move || {
+                let (ok, message) = crate::ecode_jobs::run(&ctx.account.instance_url, &ctx.data_dir, &payload);
+                if let Err(err) = api::devices::complete_command(&ctx.trpc, &command_id, ok, Some(&message)) {
+                    log::debug!("completeCommand failed (redelivery will retry): {err}");
+                }
+                if let Ok(mut guard) = claimed.lock() {
+                    guard.remove(&command_id);
+                }
+            });
+            if spawned.is_ok() {
+                return;
+            }
+            if let Ok(mut guard) = logins_inflight.lock() {
+                guard.remove(&command.id);
+            }
+            (false, "This machine could not start the eCode job.".to_string())
+        }
         other => {
             log::info!("device command {other:?} unsupported — reported back");
             (false, "This machine's app doesn't support that command yet.".to_string())
@@ -4283,6 +4319,7 @@ mod tests {
         // The shared list, then this daemon's own `update-check` (#EXP-1628).
         let mut shared = coding::device_caps(&advert(&["claude"]));
         shared.push(UPDATE_CHECK_CAP.to_string());
+        shared.push(crate::ecode_jobs::ECODE_JOBS_CAP.to_string());
         assert_eq!(device_caps(&advert(&["claude"])), shared);
         let caps = device_caps(&advert(&["claude"]));
         for cap in coding::DEVICE_CAPS {
@@ -4293,7 +4330,8 @@ mod tests {
         }
         // Nothing runnable = build caps only.
         let signed_out = device_caps(&advert(&[]));
-        assert_eq!(signed_out.len(), coding::DEVICE_CAPS.len() + 1);
+        // + update-check + ecode-jobs (#EXP-1616).
+        assert_eq!(signed_out.len(), coding::DEVICE_CAPS.len() + 2);
         assert!(signed_out.contains(&"agent-login".to_string()));
         assert!(!signed_out.contains(&"triggers".to_string()));
         assert!(!signed_out.contains(&"automations".to_string()), "nor the legacy trigger cap");

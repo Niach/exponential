@@ -82,6 +82,7 @@ pub mod pickup;
 pub mod prune;
 pub mod remote_admin;
 pub mod reaper;
+pub mod ecode_helper;
 pub mod run_cleanup;
 pub mod run_registry;
 pub mod scratch;

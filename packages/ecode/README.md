@@ -37,6 +37,16 @@ A provider declares what it supports in `capability.byProvider`. The UI and the 
 - **github**: retarget, squash merge, mergeability, native stacks, checks, pipelines (Actions), run logs, required checks, fast-forward, webhooks.
 - **ecode**: GitHub's set except webhooks, plus ordered merge, `rebase --onto` on the host and a mirror remote. Its events come from our own bus, or from the host's store when there is no server.
 
+## eCode's own git (#EXP-1616)
+
+With the Exponential server, the team bucket IS the remote. No git process runs on the server:
+
+- refs are `repo_refs` rows moved only by compare-and-swap (the one serialization point);
+- objects are packs in the team bucket (`repo_packs`, counted toward team storage), moved device ↔ bucket over presigned URLs;
+- `git-remote-exp` (shipped inside the CLI and the desktop app) makes `git clone/fetch/push exp://<team>/<repo>` work;
+- the server's `ecodeForge` (`apps/web/src/lib/ecode/forge-ecode.ts`) implements every op of `forge.json` natively: PRs are `pull_requests` rows, events go through the same writers as GitHub's webhooks, and anything that needs git (mergeability, squash merge, files, `rebase --onto`, backups, restores, repacks, the mirror push) runs as a job on a team device (`device_commands` kind `ecode_job`). `forge-ecode-conformance.test.ts` replays `forge.json` against it;
+- a bundle backup lands in the bucket after every landing, and the optional mirror is pushed.
+
 ## The traits (crate `ecode`, #EXP-1615)
 
 `ecode-core` is the pure half: serde and serde_json only, no I/O. The `ecode` crate puts the I/O behind five traits, so a host plugs in its own transport and storage:

@@ -10,7 +10,7 @@ type SelectCapable = Pick<typeof Database, `select`>
 /**
  * Every S3 object a team-cascade delete would strand: every `attachments`
  * row of the team (issue and draft files, and since EXP-1291 conversation
- * files and Guide pictures). Collect INSIDE the deleting transaction BEFORE
+ * files and Guide pictures), and every eCode repo object (#EXP-1616). Collect INSIDE the deleting transaction BEFORE
  * the cascade drops the rows — the cascade never touches S3. Deduped.
  */
 export async function collectTeamStorageKeys(
@@ -25,6 +25,9 @@ export async function collectTeamStorageKeys(
     })
     .from(attachments)
     .where(inArray(attachments.teamId, teamIds))
+  // #EXP-1616: the team's eCode repos (packs, backups) are bucket objects too.
+  const { collectRepoStorageKeys } = await import(`@/lib/ecode/git-store`)
+  const repoKeys = await collectRepoStorageKeys(tx, { teamIds })
   // EXP-824: video rows own a poster blob too — collected by the helper.
-  return collectAttachmentStorageKeys(rows)
+  return [...new Set([...collectAttachmentStorageKeys(rows), ...repoKeys])]
 }

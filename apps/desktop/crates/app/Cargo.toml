@@ -33,6 +33,8 @@ theme = { path = "../theme" }
 domain = { path = "../domain" }
 sync = { path = "../sync" }
 api = { path = "../api" }
+# #EXP-1616: this binary also answers as git's exp:// remote helper.
+git-remote-exp = { path = "../git-remote-exp" }
 terminal = { path = "../terminal" }
 steer = { path = "../steer" }
 coding = { path = "../coding" }
