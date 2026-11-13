@@ -209,7 +209,9 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     }
     v_flex()
         // #EXP-1547: THE chat column's content box (the token inside the gutter).
-        .w(px(crate::work_header::CHAT_COLUMN_W - 2. * crate::work_header::WORK_GUTTER))
+        // Bounded, not fixed: the 1600 token is wider than the capture window.
+        .w_full()
+        .max_w(px(crate::work_header::CHAT_COLUMN_W - 2. * crate::work_header::WORK_GUTTER))
         .gap_5()
         .children(rows)
 }
