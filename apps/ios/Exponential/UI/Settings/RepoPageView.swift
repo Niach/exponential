@@ -15,11 +15,14 @@ struct RepoPageView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(\.toaster) private var toaster
+    @Environment(\.pushRoute) private var pushRoute
     @State private var tab: RepoPage.Tab = .pulls
     /// nil = the first load is in flight (skeletons).
     @State private var repo: TeamRepo?
     @State private var loaded = false
     @State private var prs: [PullRequestEntity] = []
+    /// #EXP-1617 (repo-ci.json): the synced runs + jobs and `ci.repoSettings`.
+    @State private var ci = RepoCiModel()
 
     var body: some View {
         ZStack {
@@ -32,6 +35,8 @@ struct RepoPageView: View {
                     }
                     .padding(16)
                 }
+                // Add secret and the switches clear the floating tab bar.
+                .tabBarBottomInset()
             }
         }
         .navigationBarTitleDisplayMode(.inline)
@@ -48,6 +53,10 @@ struct RepoPageView: View {
         .accessibilityIdentifier(RepoPage.TestIds.page)
         .task(id: "\(accountId)/\(repositoryId)") { await loadRepo() }
         .task(id: "\(accountId)/\(repositoryId)/prs") { await observePrs() }
+        .task(id: "\(accountId)/\(repositoryId)/ci") {
+            guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+            await ci.observe(pool: pool, repositoryId: repositoryId)
+        }
     }
 
     // MARK: - Tabs
@@ -81,15 +90,27 @@ struct RepoPageView: View {
             case .pulls:
                 RepoPullsTab(prs: prs)
             case .runs:
-                EmptyState(title: RepoPage.Copy.Runs.empty, size: .list)
+                // #EXP-1617 (repo-ci.json): a row opens THE run page.
+                RepoRunsLive(model: ci) { runId in
+                    pushRoute(.ciRun(accountId: accountId, runId: runId))
+                }
             case .branches:
                 RepoBranchesTab(repo: repo, prs: prs)
             case .settings:
-                RepoSettingsTab(repo: repo, isOwner: isOwner)
+                RepoSettingsTab(repo: repo, isOwner: isOwner, ci: ci, ciManager: isManager(repo))
             }
         } else {
             EmptyState(title: "Repository not found", icon: AppIcons.settingsRepositories, size: .list)
         }
+    }
+
+    /// repo-ci.json: the repo's managers (a team owner, or the member who
+    /// shared it) change its CI settings; for others every control is off.
+    private func isManager(_ repo: TeamRepo) -> Bool {
+        if isOwner { return true }
+        let me = deps.auth.accounts.first { $0.id == accountId }?.userId
+        guard let me, let sharer = repo.sharedBy?.id else { return false }
+        return sharer == me
     }
 
     // MARK: - Data
@@ -292,6 +313,8 @@ private struct RepoBranchesTab: View {
 private struct RepoSettingsTab: View {
     let repo: TeamRepo
     let isOwner: Bool
+    let ci: RepoCiModel
+    let ciManager: Bool
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -314,6 +337,8 @@ private struct RepoSettingsTab: View {
                         backupsSection(settings)
                         mirrorSection(settings)
                     }
+                    // #EXP-1617: the CI section, after the repo's own rows.
+                    RepoCiLive(model: ci, repositoryId: repo.id, provider: repo.provider, manager: ciManager)
                 }
                 .accessibilityIdentifier("repo-settings")
             }
