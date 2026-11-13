@@ -14,7 +14,7 @@ export const Route = createFileRoute(`/api/sessions/$sessionId/files`)({
         try {
           return await handleSessionAttachmentUpload(context)
         } catch (error) {
-          return errorToResponse(error)
+          return errorToResponse(error, context.request)
         }
       },
     },

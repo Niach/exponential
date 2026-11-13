@@ -292,7 +292,7 @@ export const Route = createFileRoute(`/api/attachments/$attachmentId`)({
         try {
           return await getAttachment(context)
         } catch (error) {
-          return errorToResponse(error)
+          return errorToResponse(error, context.request)
         }
       },
     },

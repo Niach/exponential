@@ -66,6 +66,7 @@ import {
   captureLanding,
   captureReturnVisit,
 } from "@/lib/conversion/capture"
+import { isClientAbort, markRequestStart } from "@/lib/client-abort"
 import { MAX_REQUEST_BODY_BYTES } from "@/lib/request-body-limit"
 import { buildSecurityHeaders, fontAssetHeaders } from "@/lib/security-headers"
 import {
@@ -184,7 +185,9 @@ const key = process.env.NITRO_SSL_KEY
 const nitroApp = useNitroApp()
 // #LOGS-2: an error a route handler threw (h3 turns it into a 500) still
 // reaches diagnostics. Server functions report theirs in start.tsx.
-nitroApp.hooks?.hook(`error`, (error) => {
+// A client that hung up mid-request is expected traffic, not a fault.
+nitroApp.hooks?.hook(`error`, (error, context) => {
+  if (isClientAbort(error, context?.event?.req)) return
   captureException(error)
 })
 const securityHeadersEnabled = process.env.SECURITY_HEADERS_ENABLED === `true`
@@ -285,6 +288,7 @@ async function handleRequest(req: Request): Promise<Response> {
   captureReturnVisit(req)
   const url = new URL(req.url)
   const start = performance.now()
+  markRequestStart(req, start)
   try {
     return withNoindexHeader(
       withSecurityHeaders(

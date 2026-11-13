@@ -23,6 +23,7 @@ import {
 } from "./config"
 import { WEB_RELEASE } from "./release"
 import { DATA_COLLECTION, scrubBreadcrumb, scrubEvent, scrubLog } from "./scrub"
+import { isClientAbortEvent } from "@/lib/client-abort"
 import { isProductionBuild } from "@/lib/production-build"
 
 export function initServerObservability(env = process.env): boolean {
@@ -46,7 +47,9 @@ export function initServerObservability(env = process.env): boolean {
     // Creem, push relay, …); only the client → server hop carries it.
     tracePropagationTargets: [],
     integrations: [Sentry.consoleLoggingIntegration({ levels: [`warn`, `error`] })],
-    beforeSend: (event) => scrubEvent(event),
+    // A client that hung up mid-request (Bun's connection-closed AbortError)
+    // is expected traffic: never an error issue.
+    beforeSend: (event) => (isClientAbortEvent(event) ? null : scrubEvent(event)),
     beforeSendTransaction: (event) => scrubEvent(event),
     beforeSendLog: (log) => scrubLog(log),
     beforeBreadcrumb: (crumb) => scrubBreadcrumb(crumb),

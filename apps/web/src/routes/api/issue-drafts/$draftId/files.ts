@@ -14,7 +14,7 @@ export const Route = createFileRoute(`/api/issue-drafts/$draftId/files`)({
         try {
           return await handleDraftAttachmentUpload(context)
         } catch (error) {
-          return errorToResponse(error)
+          return errorToResponse(error, context.request)
         }
       },
     },

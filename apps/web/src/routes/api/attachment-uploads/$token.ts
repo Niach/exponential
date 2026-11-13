@@ -258,7 +258,7 @@ async function handle(context: { params: { token: string }; request: Request }) 
     if (error instanceof UploadStatusError) {
       return Response.json({ error: error.message }, { status: error.status })
     }
-    return errorToResponse(error)
+    return errorToResponse(error, context.request)
   }
 }
 
