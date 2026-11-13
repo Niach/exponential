@@ -401,6 +401,10 @@ jobs:
       - uses: ./.github/actions/cargo-fetch
       - name: Cargo tests
         working-directory: apps/desktop
+        # #EXP-1825: the Mint has a GPU, so a missing headless adapter fails
+        # there; on the GitHub-hosted fallback the GPU tests skip.
+        env:
+          EXP_REQUIRE_GPU: ${{ runner.environment == 'self-hosted' && '1' || '' }}
         # EXP-519: --locked is load-bearing — the workspace manifest FLOATS the zed
         # git deps (upstream gpui-component's discipline) and Cargo.lock is the one
         # true pin; an accidental re-resolve must fail loudly, never build zed HEAD.

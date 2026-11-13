@@ -319,6 +319,10 @@ jobs:
       # eagent, coding and ui stay lib-only. None of these crates has a doc test.
       - name: eCore, Engine, coding and UI tests
         working-directory: apps/desktop
+        # #EXP-1825: the Mint has a GPU, so a missing headless adapter fails
+        # there; on the GitHub-hosted fallback the GPU tests skip.
+        env:
+          EXP_REQUIRE_GPU: ${{ runner.environment == 'self-hosted' && '1' || '' }}
         run: >-
           cargo nextest run --locked --no-fail-fast
           -p ecore -p ecode-core -p ecode -p eengine -p eengine-ffi -p eengine-desktop -p eengine-runner -p eengine-bundle

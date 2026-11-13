@@ -134,6 +134,9 @@ impl gpui::Render for DragBand {
 /// does.
 #[test]
 fn the_tab_band_is_pressable_only_on_its_controls() {
+    if !gpu_or_skip("the_tab_band_is_pressable_only_on_its_controls") {
+        return;
+    }
     let mut cx = headless();
     cx.update(seeded);
     let presses = std::rc::Rc::new(std::cell::Cell::new(0));
@@ -183,6 +186,9 @@ fn the_tab_band_is_pressable_only_on_its_controls() {
 /// are placed against the window, not the 44px region.
 #[test]
 fn the_more_menu_opens_below_the_top_band() {
+    if !gpu_or_skip("the_more_menu_opens_below_the_top_band") {
+        return;
+    }
     let mut cx = headless();
     cx.update(seeded);
     let presses = std::rc::Rc::new(std::cell::Cell::new(0));
@@ -262,6 +268,23 @@ impl AssetSource for Assets {
     fn list(&self, path: &str) -> gpui::Result<Vec<SharedString>> {
         gpui_component_assets::Assets.list(path)
     }
+}
+
+/// #EXP-1825: the GPU tests that run in `gate` need a headless adapter, and
+/// a GitHub-hosted runner (pick-runner's fallback) has none. Without one the
+/// test SKIPS with a message, unless `EXP_REQUIRE_GPU=1` (set on the Mint's
+/// self-hosted runners), where a missing adapter is a real failure.
+pub(crate) fn gpu_or_skip(test: &str) -> bool {
+    let error = match gpui_platform::current_headless_renderer() {
+        Ok(Some(_)) => return true,
+        Ok(None) => "this platform has no headless renderer".to_string(),
+        Err(error) => format!("{error:#}"),
+    };
+    if std::env::var("EXP_REQUIRE_GPU").is_ok_and(|v| v == "1") {
+        panic!("{test}: EXP_REQUIRE_GPU=1 but no headless GPU adapter: {error}");
+    }
+    eprintln!("SKIPPED {test}: no headless GPU adapter ({error}); set EXP_REQUIRE_GPU=1 to fail instead");
+    false
 }
 
 pub(crate) fn headless() -> HeadlessAppContext {
