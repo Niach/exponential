@@ -45,9 +45,10 @@ export function userMessageCaption(input: {
 
 const SessionIcon = conceptIcon(`coding-assistant`)
 
-/** The bubble's width cap: phones `maxWidth.phone`, md+ `maxWidth.wide`
- *  (Tailwind needs the literal classes). */
-const BUBBLE_WIDTH = `max-w-[78%] md:max-w-[62%]`
+/** The bubble's width cap: phones `maxWidth.phone` (an `in` bubble
+ *  `maxWidth.phoneIn`), md+ `maxWidth.wide` (Tailwind needs the literal
+ *  classes). */
+const BUBBLE_WIDTH = { out: `max-w-[78%] md:max-w-[62%]`, in: `max-w-full md:max-w-[62%]` }
 
 export function MessageBubble({
   side = `out`,
@@ -132,7 +133,7 @@ export function MessageBubble({
   )
   const bubbleClass = cn(
     `min-w-0 rounded-2xl border px-3.5 py-2.5 text-sm`,
-    BUBBLE_WIDTH,
+    BUBBLE_WIDTH[out ? `out` : `in`],
     out
       ? `border-glass-stroke-strong bg-glass-active text-foreground/90`
       : `border-glass-stroke-card bg-glass-card-opaque text-foreground`

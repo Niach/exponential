@@ -53,7 +53,8 @@ private val BubbleMuted: Color @Composable get() = MaterialTheme.colorScheme.onS
 
 /**
  * THE message bubble: the glass card bubble (16dp radius, its `HH:mm`
- * bottom-right inside), at most `layout.maxWidth.phone` of its column. [own]
+ * bottom-right inside), at most `layout.maxWidth.phone` of its column
+ * (`maxWidth.phoneIn` unless [own]). [own]
  * = the viewer's (right, the active glass fill under the strong hairline, no
  * name); else anyone else's (left, THE card surface) with the sender's name
  * line [author] (12sp medium, muted; the group's first bubble only) and, for
@@ -73,7 +74,7 @@ fun MessageBubble(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
-        val max = maxWidth * TranscriptGrouping.Layout.MAX_WIDTH_PHONE
+        val max = maxWidth * if (own) TranscriptGrouping.Layout.MAX_WIDTH_PHONE else TranscriptGrouping.Layout.MAX_WIDTH_PHONE_IN
         val shape = RoundedCornerShape(TranscriptGrouping.Layout.RADIUS.dp)
         Column(
             modifier = Modifier
