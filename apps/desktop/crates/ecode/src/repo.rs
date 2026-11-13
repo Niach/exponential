@@ -423,7 +423,11 @@ impl LocalRepo {
         let full_name: gix::refs::FullName =
             full.as_str().try_into().map_err(|_| Error::Invalid(format!("invalid branch name {name}")))?;
         let edit = RefEdit { change, name: full_name, deref: false };
-        match self.repo().edit_reference(edit) {
+        // The reflog names the committer: ours, never the host's git config
+        // (a CI runner or a fresh device has none).
+        let signature = self.signature();
+        let mut time = gix::date::parse::TimeBuf::default();
+        match self.repo().edit_references_as([edit], Some(signature.to_ref(&mut time))) {
             Ok(_) => Ok(()),
             Err(e) => {
                 let actual = self.branch(name)?;
