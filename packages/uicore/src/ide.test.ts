@@ -21,7 +21,7 @@ describe(`ide-sidebar.json tabs`, () => {
 describe(`ide-sidebar.json placement`, () => {
   for (const c of fixture.placement) {
     test(c.name, () => {
-      expect(ideTabPlacement(c.ede)).toEqual(c.expected)
+      expect(ideTabPlacement(c.ede)).toEqual(c.expected as ReturnType<typeof ideTabPlacement>)
     })
   }
 })
