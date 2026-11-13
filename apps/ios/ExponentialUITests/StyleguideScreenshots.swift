@@ -1056,8 +1056,9 @@ final class StyleguideScreenshots: XCTestCase {
         // identity, sign out and delete account live on the server row's
         // detail view. The row is titled by the SERVER, with the email below,
         // so match on the email.
+        // #EXP-1815: the account rows sit in settings-nav's Personal group.
         expect(
-            app.staticTexts["Account"],
+            app.staticTexts["Personal"],
             within: Wait.nav,
             "Did not return to the Team tab"
         )

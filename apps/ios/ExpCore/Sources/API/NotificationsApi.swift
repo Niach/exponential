@@ -38,6 +38,20 @@ public final class NotificationsApi: Sendable {
         )
     }
 
+    /// #EXP-1815: the member's notification prefs (the source switches).
+    public func emailPrefs(accountId: String) async throws -> NotificationEmailPrefs {
+        try await trpc.query(accountId: accountId, path: "notifications.emailPrefs")
+    }
+
+    /// #EXP-1815: writes the WHOLE source-switch object (after `toggleSourcePref`).
+    public func updateSourcePrefs(accountId: String, _ prefs: NotificationSourcePrefs) async throws {
+        let _: NotificationEmailPrefs = try await trpc.mutation(
+            accountId: accountId,
+            path: "notifications.updateEmailPrefs",
+            input: UpdateSourcePrefsInput(sourcePrefs: prefs)
+        )
+    }
+
     /// EXP-1373: `teamId` = only that team's rows (the phone inbox shows ONE
     /// active team); nil = every team (the input-less call).
     public func markAllRead(accountId: String, teamId: String? = nil) async throws {
@@ -55,6 +69,32 @@ public final class NotificationsApi: Sendable {
             )
         }
     }
+}
+
+/// #EXP-1815 (notification-delivery.json SOURCE SWITCHES): the session-source
+/// switches `{assistant?, temporary?, agents?: {<agentId>: bool}}`, absent = on
+/// (the wire twin of ExpPush `NotificationDelivery.SourcePrefs`; ExpCore never
+/// links ExpPush).
+public struct NotificationSourcePrefs: Codable, Equatable, Sendable {
+    public var assistant: Bool?
+    public var temporary: Bool?
+    public var agents: [String: Bool]?
+
+    public init(assistant: Bool? = nil, temporary: Bool? = nil, agents: [String: Bool]? = nil) {
+        self.assistant = assistant
+        self.temporary = temporary
+        self.agents = agents
+    }
+}
+
+/// The part of `notifications.emailPrefs` the phones read.
+public struct NotificationEmailPrefs: Decodable, Equatable, Sendable {
+    public let sourcePrefs: NotificationSourcePrefs?
+}
+
+/// `notifications.updateEmailPrefs({ sourcePrefs })`: the WHOLE object.
+public struct UpdateSourcePrefsInput: Encodable, Equatable, Sendable {
+    public let sourcePrefs: NotificationSourcePrefs
 }
 
 /// `notifications.markAllRead({ teamId })`.

@@ -271,6 +271,11 @@ struct AgentsView: View {
         // into it, and EXP-909 its update and remove actions too. EXP-490: it
         // takes the view model and the device id, not a snapshot — the sheet
         // renders the live row and auto-saves.
+        // #EXP-1815: an open device's settings = the screen's thread.
+        .onChange(of: settingsTarget?.id) { _, deviceId in
+            let rowId = deviceId.flatMap { id in viewModel?.devices?.first { $0.deviceId == id && $0.isMine }?.rowId }
+            ViewingThread.shared.device = rowId.map { "device:\($0)" }
+        }
         .sheet(item: $settingsTarget) { target in
             if let viewModel {
                 DeviceSettingsSheet(
