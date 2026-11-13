@@ -158,3 +158,30 @@ Bun container on the same network, Postgres removed and recreated on a new IP
 (the old one held by a placeholder container). The old pool stayed on
 `ECONNREFUSED` to the old IP; the new one answered from the new IP 2–3 s after
 Postgres was up, Electric 3 s after.
+
+# 504s from "OnePlus8Pro" right after an Android release
+
+On 2026-11-12/13 GlitchTip's android project filled with empty 504s
+(`SentryHttpClientException`, ANDROID-4..9, 13, 17) on `/api/auth-config`,
+`/api/monitoring/config`, passkey and email-otp, in bursts at 11:51–11:55,
+18:33–18:37, 07:40–07:45 and 15:23–15:24 UTC. Not ours:
+
+- Nothing sits in front of Traefik: `app.exponential.at` resolves straight to
+  hetzner-1 (A only, no AAAA, no Cloudflare, so no cf-ray). The web app never
+  answers 504, and Traefik's own 504 carries a `Gateway Timeout` body; these
+  had `Content-Length: 0` and came back in 13–70 ms, faster than the same
+  device's 200s (115–490 ms), between successful requests.
+- The web container was up and serving other sign-ins in the same seconds. The
+  "AbortError" burst in its log is Bun's `The connection was closed.`
+  (`ABORT_ERR`; `TIMEOUT_ERR: 23` is only the constant table Bun prints with
+  every DOMException): clients hanging up long-polls.
+- The device is a Play pre-launch report robot (Firebase Test Lab): 288×448 px
+  at density 0.66, 2 CPUs, 4 GB storage, timezone Asia/Singapore, booted
+  minutes before, foreground/background every 2–5 s, signed in with the Play
+  Console app-access account, sometimes a clock weeks ahead. Each burst
+  followed an `android-v*` tag (Play upload) by 30–50 min.
+
+Since 2026-11-13 the Android app reports from a Test Lab device
+(`Settings.System` `firebase.test.lab = true`) as environment `prelaunch` and
+skips its HTTP-error events; filter GlitchTip by environment `prod` for real
+users.
