@@ -317,13 +317,19 @@ export function ChatScreen({
     deepLinkHost.drop()
     setSeeking({ id, takenAt: Date.now(), nonce: ++seekNonce.current, push })
   }
+  // `?card=` stays in the URL until the card is found (or missing): a
+  // remount on the way (the first render mounts twice) seeks it again.
   useEffect(() => {
     if (!search.card) return
     seek(search.card, false)
-    const { card: _card, ...rest } = search
-    onNavigate(rest, { replace: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search.card])
+  const searchRef = useRef(search)
+  searchRef.current = search
+  const dropCardParam = () => {
+    const { card, ...rest } = searchRef.current
+    if (card) onNavigate(rest, { replace: true })
+  }
   const viewRowsRef = useRef(view.rows)
   viewRowsRef.current = view.rows
   const messagePageRef = useRef(messagePage)
@@ -336,7 +342,9 @@ export function ChatScreen({
     const navigateOptions = link.push ? undefined : { replace: true }
     if (owner !== root.id) {
       if (openSessionRow?.id !== owner) onNavigate({ tab: screen.active, open: `session`, session: owner, ...keepBack }, navigateOptions)
+      else dropCardParam()
     } else if (isMobile && screen.layout !== `chat`) onNavigate({ tab: `chat`, ...keepBack }, navigateOptions)
+    else dropCardParam()
     deepLinkHost.take(link.id, owner, link.takenAt)
   }
   useDeepLinkDriver(
@@ -357,7 +365,10 @@ export function ChatScreen({
       ring: () => {
         if (seeking) handOff(seeking)
       },
-      missing: () => setSeeking(null),
+      missing: () => {
+        setSeeking(null)
+        dropCardParam()
+      },
     }
   )
 

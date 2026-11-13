@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { createFileRoute, Link, Navigate, redirect, useNavigate } from "@tanstack/react-router"
 import { Button, SkeletonRows } from "@exp/ui"
 import { Empty } from "@/components/empty"
@@ -167,6 +167,8 @@ function ChatPage({
   // A chat opened right after its start may land before its row: wait a
   // beat before saying it is gone.
   const [graceOver, setGraceOver] = useState(false)
+  /** The chat this page last rendered (the title hold latches off). */
+  const shownRef = useRef<string | null>(null)
   useEffect(() => {
     setGraceOver(false)
     const timer = setTimeout(() => setGraceOver(true), SYNC_GRACE_MS)
@@ -225,7 +227,10 @@ function ChatPage({
   // hold the page on its placeholder — but only for the sync grace: a shape
   // that never reports ready must not leave a permanent skeleton, so past it
   // the page renders with whatever it has (the title settles in place).
-  const titleHeld = !chat.titleReady && !graceOver
+  // Once the chat showed, the hold never comes back: Load earlier (a deep
+  // link paging older messages in) flips the messages back to loading, and
+  // dropping to the placeholder would unmount the chat and its pending link.
+  const titleHeld = !chat.titleReady && !graceOver && shownRef.current !== sessionId
   if (!team || !chat.view || !chat.root || titleHeld) {
     if (team && chat.isReady && !chat.root && graceOver) {
       return (
@@ -242,6 +247,7 @@ function ChatPage({
     }
     return <Loading />
   }
+  shownRef.current = sessionId
   const { view: _view, ...chatSearch } = search
   return (
     <ChatScreen
