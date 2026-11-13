@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-12-phones-todo-title-cards",
+    date: "2026-11-12",
+    title: "Tidier session sheets on phones",
+    summary: "A session's to-do sheet shows its title once on every app, question cards stay with the step that posted them, and iPhone chats full of issue links no longer stall.",
+    body: r##"- **One to-do title**: a session's to-do sheet lists its items under one title instead of repeating it, on the web, the desktop app, iPhone, iPad and Android.
+- **Cards stay put**: a question or plan card stays next to the step that posted it, even after the Assistant edits its status card.
+- **No stall on iPhone**: a chat with many issue links no longer freezes the iPhone or iPad app while it syncs."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_267: ChangelogEntry = ChangelogEntry {
     id: "2026-11-12-count-badges",
     date: "2026-11-12",
     title: "One count badge everywhere",
