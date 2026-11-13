@@ -252,6 +252,9 @@ fn clone_fetch_push_jobs_and_a_restored_backup() {
     assert_eq!(files["files"][0]["change"], "added");
     assert_eq!(files["files"][0]["additions"], 1);
     assert_eq!(run(json!({ "op": "is_ancestor", "ancestor": c1, "of": c3 })), json!({ "yes": true }));
+    // #EXP-1617: a file at a commit (our CI's pipeline read), and a missing one.
+    assert_eq!(run(json!({ "op": "read_file", "sha": c3, "path": "c.txt" })), json!({ "text": "three\n" }));
+    assert_eq!(run(json!({ "op": "read_file", "sha": c1, "path": "c.txt" })), json!({ "text": null }));
     let squash = run(json!({ "op": "squash", "base": c3, "head": t1, "message": "Topic (#1)" }));
     let merged = squash["sha"].as_str().unwrap().to_string();
     // The job moved no ref: the server's CAS does (as ecodeForge would).

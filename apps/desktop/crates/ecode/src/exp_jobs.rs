@@ -83,6 +83,12 @@ pub fn run_job(git: &ExpGit, cache: &Path, args: &Value) -> Result<Value> {
             Ok(json!({ "files": files }))
         }
         "is_ancestor" => Ok(json!({ "yes": repo.is_ancestor(arg(args, "ancestor")?, arg(args, "of")?)? })),
+        // #EXP-1617: a file at a commit (our CI reads `.exponential/ci.json`
+        // to plan a run). `null` = no such file; non-UTF-8 bytes are replaced.
+        "read_file" => {
+            let bytes = repo.read_file(arg(args, "sha")?, arg(args, "path")?)?;
+            Ok(json!({ "text": bytes.map(|b| String::from_utf8_lossy(&b).into_owned()) }))
+        }
         "backup" => backup(git, cache, &repo, &refs),
         "restore" => restore(git, arg(args, "bundle")?),
         "repack" => repack(git, cache),
