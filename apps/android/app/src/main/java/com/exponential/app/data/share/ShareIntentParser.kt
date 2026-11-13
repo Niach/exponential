@@ -3,6 +3,7 @@ package com.exponential.app.data.share
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.webkit.MimeTypeMap
 import androidx.core.content.IntentCompat
 import androidx.core.net.toUri
 import com.exponential.app.domain.MAX_FILE_UPLOAD_BYTES
@@ -58,104 +59,92 @@ object ShareIntentParser {
     private const val MAX_IMAGES = 10
     private val STALE_AGE_MS = 24L * 60 * 60 * 1000 // prune cache entries older than a day
 
-    fun isShareIntent(intent: Intent?): Boolean =
-        intent?.action == Intent.ACTION_SEND || intent?.action == Intent.ACTION_SEND_MULTIPLE ||
-            intent?.action == Intent.ACTION_PROCESS_TEXT
+    fun isShareIntent(intent: Intent?): Boolean = ShareIntentPlan.isShareAction(intent?.action)
 
     suspend fun parse(context: Context, intent: Intent): SharedPayload? {
-        if (!isShareIntent(intent)) return null
-
-        // EXP-1635: text selected in any app, the same flow with `text` only.
-        if (intent.action == Intent.ACTION_PROCESS_TEXT) {
-            val selected = intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT)?.toString()
-                ?.takeIf { it.isNotBlank() } ?: return null
-            return SharedPayload(text = selected, subject = null, imageUris = emptyList())
-        }
-
-        val text = intent.getStringExtra(Intent.EXTRA_TEXT)?.takeIf { it.isNotBlank() }
-        val subject = intent.getStringExtra(Intent.EXTRA_SUBJECT)?.takeIf { it.isNotBlank() }
-
         // IntentCompat picks the typed getParcelableExtra(name, Class) on API 33+
         // and the deprecated overload below it — no manual SDK_INT branch needed.
-        val rawUris: List<Uri> = when (intent.action) {
-            Intent.ACTION_SEND ->
-                listOfNotNull(IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java))
-            Intent.ACTION_SEND_MULTIPLE ->
-                IntentCompat.getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
-            else -> emptyList()
-        }
-
-        // Some senders populate only ClipData, not EXTRA_STREAM.
-        val clipUris = intent.clipData?.let { clip ->
-            (0 until clip.itemCount).mapNotNull { clip.getItemAt(it).uri }
-        }.orEmpty()
+        // Text rides getCharSequenceExtra: a sender's styled text is a
+        // CharSequence, which getStringExtra answers with null.
+        val plan = ShareIntentPlan.plan(
+            ShareIntentPlan.Fields(
+                action = intent.action,
+                text = intent.getCharSequenceExtra(Intent.EXTRA_TEXT),
+                subject = intent.getCharSequenceExtra(Intent.EXTRA_SUBJECT),
+                processText = intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT),
+                streams = when (intent.action) {
+                    Intent.ACTION_SEND ->
+                        listOfNotNull(IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java))
+                    Intent.ACTION_SEND_MULTIPLE ->
+                        IntentCompat.getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
+                            .orEmpty().filterNotNull()
+                    else -> emptyList()
+                },
+                // Some senders populate only ClipData, not EXTRA_STREAM; the
+                // system grants read on every ClipData Uri.
+                clipUris = intent.clipData?.let { clip ->
+                    (0 until clip.itemCount).mapNotNull { clip.getItemAt(it).uri }
+                }.orEmpty(),
+                shortcutId = intent.getStringExtra(Intent.EXTRA_SHORTCUT_ID),
+            ),
+        ) ?: return null
 
         // Everything past here talks to ContentResolver or the disk — even
         // getType() is a binder round-trip into the sending app's provider —
         // so it all rides IO (same rule as the markdown image picker).
         var oversizeFiles = false
-        val (imageUris, files) = withContext(Dispatchers.IO) {
+        val imageUris = mutableListOf<Uri>()
+        val files = mutableListOf<SharedFile>()
+        withContext(Dispatchers.IO) {
             pruneStaleInbox(context)
-            val (images, others) = (rawUris + clipUris).distinct().partition { isImage(context, it) }
-            val cachedImages = images.take(MAX_IMAGES).mapNotNull { copyToCache(context, it) }
-            val cachedFiles = others.take(MAX_IMAGES).mapNotNull { uri ->
+            for (uri in plan.streams) {
+                val displayName = runCatching { MarkdownMediaUtils.guessFilename(context, uri) }.getOrNull()
+                val mime = ShareIntentPlan.mimeOf(
+                    resolverType = runCatching { context.contentResolver.getType(uri) }.getOrNull(),
+                    displayName = displayName,
+                    intentType = intent.type,
+                    mimeForExtension = { MimeTypeMap.getSingleton().getMimeTypeFromExtension(it) },
+                )
+                val image = ShareIntentPlan.isImage(mime)
+                if (if (image) imageUris.size >= MAX_IMAGES else files.size >= MAX_IMAGES) continue
                 val size = MarkdownMediaUtils.querySize(context, uri)
-                if (size != null && size > MAX_FILE_UPLOAD_BYTES) {
+                if (!image && size != null && size > MAX_FILE_UPLOAD_BYTES) {
                     oversizeFiles = true
-                    null
-                } else {
-                    copyFileToCache(context, uri)
+                    continue
                 }
+                val cached = copyToCache(context, uri, displayName, mime) ?: continue
+                if (image) imageUris += cached.uri else files += cached
             }
-            cachedImages to cachedFiles
         }
 
-        if (text == null && imageUris.isEmpty() && files.isEmpty() && !oversizeFiles) return null
+        if (plan.text == null && imageUris.isEmpty() && files.isEmpty() && !oversizeFiles) return null
         return SharedPayload(
-            text = text,
-            subject = subject,
+            text = plan.text,
+            subject = plan.subject,
             imageUris = imageUris,
             files = files,
             oversizeFiles = oversizeFiles,
-            directShareId = intent.getStringExtra(Intent.EXTRA_SHORTCUT_ID),
+            directShareId = plan.directShareId,
         )
     }
 
-    private fun isImage(context: Context, uri: Uri): Boolean =
-        context.contentResolver.getType(uri)?.startsWith("image/") == true
-
-    /** Copy [src] into `cacheDir/share-inbox`, returning a stable `file://` Uri. */
-    private fun copyToCache(context: Context, src: Uri): Uri? = runCatching {
-        val dir = File(context.cacheDir, INBOX_DIR).apply { mkdirs() }
-        // Preserve the extension so downstream filename/MIME inference still works.
-        val ext = context.contentResolver.getType(src)
-            ?.substringAfterLast('/', "")
-            ?.takeIf { it.isNotBlank() }
-            ?: "img"
-        val dest = File(dir, "${UUID.randomUUID()}.$ext")
-        val copied = context.contentResolver.openInputStream(src)?.use { input ->
-            dest.outputStream().use { input.copyTo(it) }
-            true
-        } ?: false
-        if (copied) dest.toUri() else null
-    }.getOrNull()
-
     /**
-     * Copy a non-image [src] under its own display name (each in its own UUID
-     * dir, the name is what the composer tile and the upload show). The name
-     * comes from the sending app, so only its last path segment is used.
+     * Copy [src] into its own UUID dir under `cacheDir/share-inbox`, named
+     * after the sender's display name with an extension its type implies
+     * ([ShareIntentPlan.cachedName]): the composer reads the file:// copy
+     * and infers the same name and type from it.
      */
-    private fun copyFileToCache(context: Context, src: Uri): SharedFile? = runCatching {
-        val filename = File(MarkdownMediaUtils.guessFilename(context, src)).name
-            .takeIf { it.isNotBlank() && it != "." && it != ".." } ?: "file"
-        val mime = MarkdownMediaUtils.guessMimeType(context, src, fallback = "application/octet-stream")
+    private fun copyToCache(context: Context, src: Uri, displayName: String?, mime: String?): SharedFile? = runCatching {
+        val filename = ShareIntentPlan.cachedName(displayName, mime) {
+            MimeTypeMap.getSingleton().getExtensionFromMimeType(it)
+        }
         val dir = File(File(context.cacheDir, INBOX_DIR), UUID.randomUUID().toString()).apply { mkdirs() }
         val dest = File(dir, filename)
         val copied = context.contentResolver.openInputStream(src)?.use { input ->
             dest.outputStream().use { input.copyTo(it) }
             true
         } ?: false
-        if (copied) SharedFile(dest.toUri(), filename, mime) else null
+        if (copied) SharedFile(dest.toUri(), filename, mime ?: "application/octet-stream") else null
     }.getOrNull()
 
     private fun pruneStaleInbox(context: Context) {

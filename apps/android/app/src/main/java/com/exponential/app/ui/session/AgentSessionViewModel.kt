@@ -39,7 +39,10 @@ import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.keyedMessages
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.data.electric.SyncStats
+import com.exponential.app.data.steer.STEER_NO_FEED_INPUTS_MAX
 import com.exponential.app.data.steer.SteerConnectionStore
+import com.exponential.app.data.steer.SteerInputRow
+import com.exponential.app.data.steer.steerNoFeedInputs
 import com.exponential.app.data.steer.stopHandingBackQueue
 import com.exponential.app.domain.ActivityFeedState
 import com.exponential.app.domain.SessionKind
@@ -946,6 +949,44 @@ class AgentSessionViewModel @AssistedInject constructor(
         }
         .distinctUntilChanged()
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * Android 0.14.134 (fixtures/steer-enet.json SENT INPUTS): the session's
+     * consumed person inputs, newest [STEER_NO_FEED_INPUTS_MAX] oldest first,
+     * drawn as the viewer's bubbles while a no-feed placeholder shows (the
+     * brief the claim consumed at once included). Opened like the queue.
+     */
+    val noFeedInputs: StateFlow<List<com.exponential.app.domain.MessageDelivery.Bubble>> =
+        dbFlow.scopedQuery(emptyList<MessageEntity>()) {
+            it.messageDao().observeConsumedInputs(codingSessionId, STEER_NO_FEED_INPUTS_MAX)
+        }.map { rows ->
+            steerNoFeedInputs(rows) { row ->
+                SteerInputRow(
+                    id = row.id,
+                    authorKind = row.authorKind,
+                    hasCard = row.card != null && row.card != "null",
+                    consumedAt = row.consumedAt,
+                    createdAt = row.createdAt,
+                )
+            }.mapNotNull { row ->
+                val opened = com.exponential.app.data.sealed.SealedContent.openMessage(row)
+                val text = opened.locked?.let(com.exponential.app.domain.SealedPlaceholder::copy) ?: opened.body
+                // #FEED-237 (message-delivery.json): ONE own-bubble
+                // mechanism: a consumed input = processed (`read`), drawn
+                // like the own tail that follows it.
+                text.takeIf { it.isNotBlank() }?.let {
+                    com.exponential.app.domain.MessageDelivery.Bubble(
+                        key = row.id,
+                        text = it,
+                        createdAt = row.createdAt,
+                        state = com.exponential.app.domain.MessageDelivery.State.Read,
+                        stored = true,
+                        clientId = null,
+                        messageId = row.id,
+                    )
+                }
+            }
+        }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
      * #FEED-237 (message-delivery.json): the viewer's OWN bubbles at the

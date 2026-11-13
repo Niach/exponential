@@ -74,7 +74,9 @@ struct ShareChatComposerPage: View {
         }
         _draft = State(initialValue: text)
         _attachments = State(initialValue: pending)
-        _capNote = State(initialValue: payload.files.count > SteerImageMessage.maxFiles ? SteerImageMessage.filesFullMessage : nil)
+        _capNote = State(initialValue: SteerImageMessage.capNote(
+            images: payload.images.count, files: payload.files.count, moreFiles: payload.moreFiles
+        ))
     }
 
     private var rowState: ComposerAgentRow.State<MirroredAgent> {

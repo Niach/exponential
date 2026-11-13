@@ -315,6 +315,8 @@ enum ViewerCmd {
     Frames(Vec<String>),
     /// Abandon the current socket and redial NOW (cutting short any backoff).
     Kick,
+    /// The synced row says the device has the session now (ROW WAKE).
+    RowWake,
     /// Stop for good.
     Shutdown,
 }
@@ -443,6 +445,15 @@ impl ViewerHandle {
     /// Mirrors the web store's `kick`.
     pub fn kick(&self) {
         let _ = self.cmd_tx.send(ViewerCmd::Kick);
+    }
+
+    /// Android 0.14.134 (steer-enet.json ROW WAKE): the synced row says the
+    /// device has the session now ([`crate::enet_steer::row_wakes`]: the
+    /// claim, a turn starting, a move). A NO FEED backoff is cut short and
+    /// restarts at n = 0; a dial in flight redials as soon as it reports no
+    /// feed. A carrier with a feed is left alone.
+    pub fn note_row_wake(&self) {
+        let _ = self.cmd_tx.send(ViewerCmd::RowWake);
     }
 
     /// The synced `sessions` row says the run ended. The redial loops
@@ -771,6 +782,9 @@ struct Run {
     /// EXP-1487: since when NEITHER carrier is active after a live feed,
     /// and how many redials (of both) failed since.
     lost: Option<(Instant, u32)>,
+    /// ROW WAKE landed while an eNet dial was out: that dial's NO FEED
+    /// redials at once (cleared by a feed).
+    row_woke: bool,
     stats: ViewStats,
 }
 
@@ -812,6 +826,7 @@ async fn run_viewer_loop(
         enet_failed: false,
         relay_failed: false,
         lost: None,
+        row_woke: false,
         stats: ViewStats::new(),
     };
     run.phases.set(ViewerPhase::Connecting);
@@ -832,6 +847,7 @@ async fn run_viewer_loop(
                     }
                 }
                 Ok(ViewerCmd::Kick) => run.kick(),
+                Ok(ViewerCmd::RowWake) => run.row_wake(),
                 Ok(ViewerCmd::Shutdown) | Err(_) => {
                     run.running.store(false, Ordering::SeqCst);
                     run.close();
@@ -1081,6 +1097,16 @@ impl Run {
                     log::info!("steer viewer: eNet feed of {} dropped ({}); falling back", self.session_id, failure.class());
                 }
                 self.step(event);
+                // ROW WAKE: the row said the device has it while this dial
+                // was out: redial now, the backoff from n = 0.
+                if carrier == Carrier::Enet
+                    && self.carriers.active.is_none()
+                    && self.enet_leg.is_none()
+                    && std::mem::take(&mut self.row_woke)
+                {
+                    self.backoff.reset();
+                    self.enet_redial_at = Some(Instant::now());
+                }
                 if event == CarrierEvent::EnetRefused && self.carriers.active.is_none() && !self.carriers.relay_open {
                     // #EXP-1678: no relay leg (it reaches the same device):
                     // NO FEED at once, and no stall opening one later.
@@ -1130,6 +1156,7 @@ impl Run {
             if !self.phases.is(&ViewerPhase::Live) {
                 self.phases.set(ViewerPhase::Live);
                 self.backoff.reset();
+                self.row_woke = false;
             }
             if self.stats.first.is_none() {
                 self.stats.first = Some((self.stats.opened.elapsed().as_millis() as u64, path));
@@ -1174,6 +1201,24 @@ impl Run {
         }
         if self.relay_reopen_at.is_some() {
             self.relay_reopen_at = Some(now);
+        }
+    }
+
+    /// ROW WAKE ([`ViewerHandle::note_row_wake`]): with no feed, the
+    /// starting backoff restarts at n = 0 and a pending eNet redial runs
+    /// now; a dial still out redials as soon as it reports NO FEED.
+    fn row_wake(&mut self) {
+        if self.carriers.active.is_some() {
+            return;
+        }
+        self.backoff.reset();
+        if self.enet_leg.is_some() {
+            self.row_woke = true;
+        } else {
+            self.enet_redial_at = Some(Instant::now());
+        }
+        if self.relay_reopen_at.is_some() {
+            self.relay_reopen_at = Some(Instant::now());
         }
     }
 

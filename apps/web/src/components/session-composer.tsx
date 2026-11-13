@@ -154,8 +154,8 @@ function useComposerSession(sessionId: string | null) {
   // The chat and the agent channel render no feed of their own: the
   // composer is what keeps the root's relay state (model, usage) current.
   useEffect(() => {
-    if (row) store.noteSessionStatus(row.status)
-  }, [store, row?.status])
+    if (row) store.noteSessionStatus(row.status, { busy: row.busy, deviceId: row.deviceId })
+  }, [store, row?.status, row?.busy, row?.deviceId])
   useEffect(() => {
     if (live) store.connect()
   }, [store, live])
