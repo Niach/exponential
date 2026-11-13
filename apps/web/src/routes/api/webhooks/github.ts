@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto"
+import { onForgePullRequest, onForgePush } from "@/lib/ci/triggers"
 import { createFileRoute } from "@tanstack/react-router"
 import { and, eq, inArray, isNull, or } from "drizzle-orm"
 import { db } from "@/db/connection"
@@ -181,6 +182,7 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
     if (event === `push`) {
       const payload = JSON.parse(rawBody) as {
         ref?: string
+        after?: string
         deleted?: boolean
         repository?: { full_name?: string; default_branch?: string; pushed_at?: number | string }
         head_commit?: { timestamp?: string } | null
@@ -188,6 +190,10 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
       }
       const branch = payload.ref?.startsWith(`refs/heads/`) ? payload.ref.slice(`refs/heads/`.length) : null
       const fullName = payload.repository?.full_name
+      // #EXP-1617: our own CI plans `push` / `tag` / `merge_train` runs.
+      if (fullName && payload.ref) {
+        onForgePush({ fullName, ref: payload.ref, sha: payload.after ?? null, deleted: payload.deleted === true })
+      }
       if (branch && fullName && !payload.deleted && branch !== payload.repository?.default_branch) {
         // #EXP-1540: the same full name may be registered by several teams;
         // only this installation's rows (or still unbound ones) count.
@@ -317,9 +323,9 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
         // When GitHub last changed the PR: a generic draft sync never lets
         // an older delivery overwrite a newer state.
         updated_at?: string
-        head?: { ref?: string; sha?: string }
+        head?: { ref?: string; sha?: string; repo?: { full_name?: string } | null }
         // The base GitHub reports on every delivery.
-        base?: { ref?: string }
+        base?: { ref?: string; repo?: { full_name?: string } | null }
         // EXP-617: the GitHub identity behind the event. `user` is the PR
         // author, `merged_by` whoever pressed Merge; both are the App bot for
         // anything our own server did, which is exactly why they complement
@@ -395,6 +401,26 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
     // compared with (our `updated_at` moves on any unrelated write).
     const parsedAt = pr.updated_at ? new Date(pr.updated_at) : null
     const changedAt = parsedAt && !Number.isNaN(parsedAt.getTime()) ? parsedAt : null
+
+    // #EXP-1617: our own CI on a new or moved head. A head from another
+    // repository (a fork, or a deleted one) never runs.
+    if (
+      (payload.action === `opened` || payload.action === `synchronize` || payload.action === `reopened`) &&
+      repoFullName &&
+      pr.number &&
+      pr.head?.sha &&
+      pr.base?.ref
+    ) {
+      const headRepo = pr.head.repo?.full_name ?? null
+      onForgePullRequest({
+        fullName: repoFullName,
+        number: pr.number,
+        headSha: pr.head.sha,
+        headRef: pr.head.ref ?? null,
+        base: pr.base.ref,
+        fork: headRepo === null || headRepo.toLowerCase() !== (pr.base.repo?.full_name ?? repoFullName).toLowerCase(),
+      })
+    }
 
     if (payload.action === `reopened`) {
       if (row) {

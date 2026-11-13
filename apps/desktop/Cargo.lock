@@ -2845,6 +2845,7 @@ version = "0.1.0"
 dependencies = [
  "ecode-core",
  "gix",
+ "libc",
  "reqwest",
  "rustls",
  "serde",

@@ -64,6 +64,8 @@ import { Route as ApiShapesAppVersionsRouteImport } from './routes/api/shapes/ap
 import { Route as ApiShapesAppsRouteImport } from './routes/api/shapes/apps'
 import { Route as ApiShapesAttachmentsRouteImport } from './routes/api/shapes/attachments'
 import { Route as ApiShapesBoardsRouteImport } from './routes/api/shapes/boards'
+import { Route as ApiShapesCiJobsRouteImport } from './routes/api/shapes/ci-jobs'
+import { Route as ApiShapesCiRunsRouteImport } from './routes/api/shapes/ci-runs'
 import { Route as ApiShapesCommentsRouteImport } from './routes/api/shapes/comments'
 import { Route as ApiShapesComposerDraftsRouteImport } from './routes/api/shapes/composer-drafts'
 import { Route as ApiShapesConversationsRouteImport } from './routes/api/shapes/conversations'
@@ -449,6 +451,16 @@ const ApiShapesAttachmentsRoute = ApiShapesAttachmentsRouteImport.update({
 const ApiShapesBoardsRoute = ApiShapesBoardsRouteImport.update({
   id: '/api/shapes/boards',
   path: '/api/shapes/boards',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesCiJobsRoute = ApiShapesCiJobsRouteImport.update({
+  id: '/api/shapes/ci-jobs',
+  path: '/api/shapes/ci-jobs',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesCiRunsRoute = ApiShapesCiRunsRouteImport.update({
+  id: '/api/shapes/ci-runs',
+  path: '/api/shapes/ci-runs',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiShapesCommentsRoute = ApiShapesCommentsRouteImport.update({
@@ -1053,6 +1065,8 @@ export interface FileRoutesByFullPath {
   '/api/shapes/apps': typeof ApiShapesAppsRoute
   '/api/shapes/attachments': typeof ApiShapesAttachmentsRoute
   '/api/shapes/boards': typeof ApiShapesBoardsRoute
+  '/api/shapes/ci-jobs': typeof ApiShapesCiJobsRoute
+  '/api/shapes/ci-runs': typeof ApiShapesCiRunsRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/composer-drafts': typeof ApiShapesComposerDraftsRoute
   '/api/shapes/conversations': typeof ApiShapesConversationsRoute
@@ -1207,6 +1221,8 @@ export interface FileRoutesByTo {
   '/api/shapes/apps': typeof ApiShapesAppsRoute
   '/api/shapes/attachments': typeof ApiShapesAttachmentsRoute
   '/api/shapes/boards': typeof ApiShapesBoardsRoute
+  '/api/shapes/ci-jobs': typeof ApiShapesCiJobsRoute
+  '/api/shapes/ci-runs': typeof ApiShapesCiRunsRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/composer-drafts': typeof ApiShapesComposerDraftsRoute
   '/api/shapes/conversations': typeof ApiShapesConversationsRoute
@@ -1366,6 +1382,8 @@ export interface FileRoutesById {
   '/api/shapes/apps': typeof ApiShapesAppsRoute
   '/api/shapes/attachments': typeof ApiShapesAttachmentsRoute
   '/api/shapes/boards': typeof ApiShapesBoardsRoute
+  '/api/shapes/ci-jobs': typeof ApiShapesCiJobsRoute
+  '/api/shapes/ci-runs': typeof ApiShapesCiRunsRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/composer-drafts': typeof ApiShapesComposerDraftsRoute
   '/api/shapes/conversations': typeof ApiShapesConversationsRoute
@@ -1525,6 +1543,8 @@ export interface FileRouteTypes {
     | '/api/shapes/apps'
     | '/api/shapes/attachments'
     | '/api/shapes/boards'
+    | '/api/shapes/ci-jobs'
+    | '/api/shapes/ci-runs'
     | '/api/shapes/comments'
     | '/api/shapes/composer-drafts'
     | '/api/shapes/conversations'
@@ -1679,6 +1699,8 @@ export interface FileRouteTypes {
     | '/api/shapes/apps'
     | '/api/shapes/attachments'
     | '/api/shapes/boards'
+    | '/api/shapes/ci-jobs'
+    | '/api/shapes/ci-runs'
     | '/api/shapes/comments'
     | '/api/shapes/composer-drafts'
     | '/api/shapes/conversations'
@@ -1837,6 +1859,8 @@ export interface FileRouteTypes {
     | '/api/shapes/apps'
     | '/api/shapes/attachments'
     | '/api/shapes/boards'
+    | '/api/shapes/ci-jobs'
+    | '/api/shapes/ci-runs'
     | '/api/shapes/comments'
     | '/api/shapes/composer-drafts'
     | '/api/shapes/conversations'
@@ -1985,6 +2009,8 @@ export interface RootRouteChildren {
   ApiShapesAppsRoute: typeof ApiShapesAppsRoute
   ApiShapesAttachmentsRoute: typeof ApiShapesAttachmentsRoute
   ApiShapesBoardsRoute: typeof ApiShapesBoardsRoute
+  ApiShapesCiJobsRoute: typeof ApiShapesCiJobsRoute
+  ApiShapesCiRunsRoute: typeof ApiShapesCiRunsRoute
   ApiShapesCommentsRoute: typeof ApiShapesCommentsRoute
   ApiShapesComposerDraftsRoute: typeof ApiShapesComposerDraftsRoute
   ApiShapesConversationsRoute: typeof ApiShapesConversationsRoute
@@ -2422,6 +2448,20 @@ declare module '@tanstack/react-router' {
       path: '/api/shapes/boards'
       fullPath: '/api/shapes/boards'
       preLoaderRoute: typeof ApiShapesBoardsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/ci-jobs': {
+      id: '/api/shapes/ci-jobs'
+      path: '/api/shapes/ci-jobs'
+      fullPath: '/api/shapes/ci-jobs'
+      preLoaderRoute: typeof ApiShapesCiJobsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/ci-runs': {
+      id: '/api/shapes/ci-runs'
+      path: '/api/shapes/ci-runs'
+      fullPath: '/api/shapes/ci-runs'
+      preLoaderRoute: typeof ApiShapesCiRunsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/shapes/comments': {
@@ -3365,6 +3405,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiShapesAppsRoute: ApiShapesAppsRoute,
   ApiShapesAttachmentsRoute: ApiShapesAttachmentsRoute,
   ApiShapesBoardsRoute: ApiShapesBoardsRoute,
+  ApiShapesCiJobsRoute: ApiShapesCiJobsRoute,
+  ApiShapesCiRunsRoute: ApiShapesCiRunsRoute,
   ApiShapesCommentsRoute: ApiShapesCommentsRoute,
   ApiShapesComposerDraftsRoute: ApiShapesComposerDraftsRoute,
   ApiShapesConversationsRoute: ApiShapesConversationsRoute,

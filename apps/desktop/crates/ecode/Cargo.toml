@@ -27,6 +27,10 @@ gix = { version = "0.90", default-features = false, features = ["sha1", "revisio
 reqwest = { workspace = true, optional = true }
 rustls = { workspace = true, optional = true }
 
+# `runner`: the process-group kill of a job's step tree (#EXP-1617).
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true, optional = true }
+
 [features]
 default = ["local"]
 # LocalRepo on gix; push, squash merge, rebase --onto and bundles on git argv.
@@ -37,6 +41,10 @@ local = ["repo"]
 github = ["dep:reqwest", "dep:rustls"]
 # Credentials from an Exponential server's `repositories.credentials` op.
 exponential = ["dep:reqwest", "dep:rustls"]
+# The CI runner (#EXP-1617): one planned job in a clean worktree behind a
+# `Sandbox` (process backend), env allowlist, secrets via `SecretSource`,
+# redacted logs to a `LogSink`, timeouts and a process-tree kill.
+runner = ["dep:libc"]
 
 [dev-dependencies]
 toml = "0.8"

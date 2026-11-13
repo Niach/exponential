@@ -420,6 +420,14 @@ export function createEcodeForge(host: EcodeHost): Forge {
 
     // The merge train's pipeline is eCode CI's (#EXP-1617, E4): until a repo
     // has one, the train lands directly (`squashMerge`, a device job).
+    // #EXP-1617: reading a file at a commit needs a device job (the packs
+    // live in the bucket); until that op exists our CI cannot plan here.
+    async readFile() {
+      throw new ForgeError(501, `Reading a file of an eCode repository is not available yet`, `unsupported`)
+    },
+    // Our CI's check rows ARE this forge's checks: nothing to mirror.
+    async reportStatus() {},
+
     async dispatchPipeline() {
       return { ok: false, missing: true, message: `This repository has no eCode pipeline yet` }
     },

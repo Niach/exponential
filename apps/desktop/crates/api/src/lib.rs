@@ -88,6 +88,7 @@ pub mod prompts;
 pub mod pull_requests;
 pub mod relations;
 pub mod boards;
+pub mod ci;
 pub mod device_identity;
 pub mod device_store;
 pub mod devices;

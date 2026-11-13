@@ -10,7 +10,7 @@ It is server-free: eDE, Spezl and Rerusted (#RUST-9) link it as is.
 |---|---|
 | `Remote` | credentials, fetch, push (`GitRemote`: git argv, a helper scoped to exactly the remote, the token in the child's env only) |
 | `Forge` | every op of `packages/ecode/fixtures/forge.json`, its refusals as `Error::Refused`, events by polling (`events(cursor)`) |
-| `Ci` | plan, runs, jobs, log, rerun, cancel: types only, E4 (#EXP-1617) implements it |
+| `Ci` | plan, runs, jobs, log, rerun, cancel (the trait; feature `runner` runs one job) |
 | `Store` | content-addressed review and run objects; `update_ref(name, expected, new)` is the ONE compare-and-swap point (`MemoryStore`, `FileStore`) |
 | `SecretSource` | injects secrets into a `Command`; there is no getter (`MapSecrets`) |
 
@@ -36,6 +36,26 @@ commit kept) and bundles (gix 0.90 has no bundle support).
 | `exponential` | `ExponentialCredentials`: `repositories.credentials` (by id, or by `exp://` URL), cached until the refresh margin |
 | `exponential` + `repo` | `exp_git::ExpGit`: `exp://<team>/<repo>`, eCode's own git (#EXP-1616). The team bucket is the remote: refs are compare-and-swap rows on the server, packs move device ↔ bucket over presigned URLs (fetch = every pack past a cursor, `git index-pack`; push = `git pack-objects` of what the remote lacks, one CAS for every ref). `exp_jobs`: the git jobs a team device runs for the server's forge (mergeability, squash, files, `rebase --onto`, ancestry, bundle backup, restore, repack, mirror). `git-remote-exp` (crate beside this one) is git's remote helper on top. |
 
+## The runner (feature `runner`, #EXP-1617)
+
+`run_job(sandbox, remote, secrets, job, sink)` runs ONE planned job
+(`JobSpec`, built from ecode-core's `PlannedJob`) and returns its conclusion
+and step states. Scheduling stays in ecode-core (`schedule`, `runner.json`);
+the host claims jobs.
+
+- `Sandbox`: a clean workspace at the job's commit and the shell a step runs
+  in. `ProcessSandbox` = a bare mirror per remote plus a detached git worktree
+  per job, steps in `bash --noprofile --norc -eo pipefail` (`sh -e` without
+  bash). Containers can implement the same trait later.
+- The step's env is an allowlist: the sandbox's passthrough names (`PATH`,
+  `HOME`, …), the job's planned env, `CI=true`; never the host's whole env.
+- Secrets: only the job's declared names, injected through `SecretSource`;
+  every log line is redacted with `ecode_core::redact`.
+- Timeouts (the job's and each step's) and cancels kill the step's whole
+  process group (SIGTERM, 5 s, SIGKILL), grandchildren included.
+- `LogSink` gets redacted log text and step transitions, and is polled about
+  every 250 ms for a cancel (the host flushes and beats there).
+
 ## Tests
 
 - `tests/forge_replay.rs` replays `forge.json` on a real git repository:
@@ -44,6 +64,8 @@ commit kept) and bundles (gix 0.90 has no bundle support).
 - `examples/local_flow.rs` (run as `tests/local_flow.rs`): init → branches →
   a PR on a non-default base → retarget → ordered merge, no server.
 - `tests/dependency_gate.rs`: no Exponential app crate, gix's features pinned.
+- `runner` unit tests: a real checkout, redaction, the env allowlist,
+  `continueOnError`, and a cancel that kills a backgrounded grandchild.
 - `crates/git-remote-exp/tests/roundtrip.rs`: real git through the helper
   against a stand-in server (push, clone, fetch, a refused non-fast-forward),
   the device jobs, and the backup test: back up, wipe, restore, verify every
