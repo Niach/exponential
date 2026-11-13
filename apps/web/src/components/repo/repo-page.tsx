@@ -115,11 +115,10 @@ export function RepoPage({
   return (
     <div className="h-full overflow-y-auto" data-testid="repo-page">
       <div className="mx-auto w-full max-w-3xl space-y-4 px-4 py-4 md:max-w-4xl">
-        {/* THE AppBar: back, the repo's name, its provider. */}
+        {/* THE AppBar: back + the repo's full name only (the provider lives in Settings). */}
         <div className="flex min-w-0 items-center gap-2">
           {back}
           <h1 className="min-w-0 truncate text-lg font-semibold">{repo?.fullName ?? name}</h1>
-          {repo && <ProviderBadge provider={repo.provider} />}
         </div>
         <SegmentedControl
           value={tab}

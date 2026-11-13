@@ -556,8 +556,9 @@ fn document(ink: &Ink, data: &Value) -> Value {
         Some("failed") => return root(vec![failed_state(ink, "failed", "settings-repositories", &REPO_PAGE.copy.pulls.empty, json!(true))]),
         _ => return root(vec![json!({"id": "skeleton", "component": "Skeleton", "props": {"rows": crate::feedback::SKELETON_ROWS}})]),
     }
-    let bar = json!({"id": "bar", "component": "AppBar", "props": {"title": data["name"], "back": true}, "on": {"back": {"event": {"name": "back"}}},
-        "slots": {"trailing": {"id": "bar_provider", "component": "Badge", "props": {"text": data["provider"], "variant": "secondary"}, "style": {"alignSelf": "center"}}}});
+    // The bar holds the title only (repo-page.json): the provider lives in
+    // the Settings tab.
+    let bar = json!({"id": "bar", "component": "AppBar", "props": {"title": data["name"], "back": true}, "on": {"back": {"event": {"name": "back"}}}});
     let tabs: Vec<Value> = REPO_PAGE.tabs.iter().map(|tab| json!({"label": tab.label, "value": tab.id})).collect();
     let panels: Vec<Value> = REPO_PAGE
         .tabs

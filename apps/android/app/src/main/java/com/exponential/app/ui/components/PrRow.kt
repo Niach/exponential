@@ -161,8 +161,7 @@ fun PrRow(
                 )
                 Text(
                     subtitle,
-                    fontSize = 11.5.sp,
-                    fontFamily = ExpMono,
+                    style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

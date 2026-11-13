@@ -127,10 +127,9 @@ fun RepoPageScreen(
         topBar = {
             CenterAlignedTopAppBar(
                 title = {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TopBarTitle(repo?.fullName.orEmpty(), modifier = Modifier.weight(1f, fill = false))
-                        if (repo != null) ProviderPill(repo.provider)
-                    }
+                    // The bar holds the title only (repo-page.json): the
+                    // provider lives in the Settings tab.
+                    TopBarTitle(repo?.fullName.orEmpty())
                 },
                 navigationIcon = { TopBarBackButton(onClick = onBack) },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),

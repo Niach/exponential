@@ -164,7 +164,7 @@ export function PrRow({
         {subtitle ? (
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="truncate text-sm">{title}</span>
-            <span data-slot="pr-row-subtitle" className="truncate font-mono text-[11.5px] text-muted-foreground">
+            <span data-slot="pr-row-subtitle" className="truncate text-xs text-muted-foreground">
               {subtitle}
             </span>
           </span>
