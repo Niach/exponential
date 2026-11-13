@@ -791,6 +791,62 @@
         ],
         "plan": "## Plan\n![After](/api/attachments/00000000-0000-4000-8000-0000000000a3)"
       }
+    },
+    {
+      "name": "a show card whose pictures were ALL uploaded after sealing (no result flag, a surface with null data, unsized pictures): every picture takes its label's clear id, so it opens as a result",
+      "card": {
+        "kind": "surface",
+        "pictures": [
+          {
+            "label": "desktop-default",
+            "attachmentId": "00000000-0000-4000-8000-0000000000b1"
+          },
+          {
+            "label": "desktop-onboarding",
+            "attachmentId": "00000000-0000-4000-8000-0000000000b2"
+          }
+        ],
+        "sealed": "v1:1:AWdd1XTtd4kxCz0udoHzeQtGbHc7FSH-zzZXeVg3HqUvkZAwXYHl8CyeLIueSMBaCukmj8Y5TQQbLEPhXU3ISJsorN7zmlnmRG7HIptLuCeSTa21qEFDTd6L19ZE6nVYFB-5bjt_W6IdJOFiaeZyye4Ngn_9YAYgZvhMB8wUO6PjchpUp9d3PH0rSALNe_7Z6BgDoQN7kXrijPWl-4t9re42jww0wOePHk2YybE8OJbNl9lbg7mS2MtykQu7yXJU1-wYrf2w4_N69PeWCPLNZOLaLj6Ci_S3VhBkWAJspe-kF-fxZlrjw-cJ_uqmwn956zsQhpn5qGcVdqhUZmsj0Y4mOoZX3o75TuQeDxbSNynjH6nzzzqhjZQfrUwhxdUq7BfCx-G8wa1NLs3if0eMzpaw_fNvhkr4z282rSgHuyZRlRlf_nshA3b8jRq17CtXLfop7fpdA-Fj79euFjYbtgHs9QLFDHgWhiYaOFsfp9VnLL4VoqqYJTraiwtODiMXR9LdMCVT3Ex_XC2co3d1Mp71bPJc8zdGUJNICKMD1hE-cHczOgVy9zkvYOV5xw"
+      },
+      "status": "opened",
+      "epoch": 1,
+      "opened": {
+        "kind": "surface",
+        "surface": {
+          "root": {
+            "id": "s",
+            "component": "Stack",
+            "children": [
+              {
+                "id": "h",
+                "component": "Heading",
+                "props": {
+                  "text": "Sample UI"
+                }
+              }
+            ]
+          },
+          "data": null
+        },
+        "title": "Sample UI",
+        "description": "Two mockups.",
+        "pictures": [
+          {
+            "label": "desktop-default",
+            "width": null,
+            "height": null,
+            "caption": "Default desktop",
+            "attachmentId": "00000000-0000-4000-8000-0000000000b1"
+          },
+          {
+            "label": "desktop-onboarding",
+            "width": null,
+            "height": null,
+            "caption": "Onboarding",
+            "attachmentId": "00000000-0000-4000-8000-0000000000b2"
+          }
+        ]
+      }
     }
   ],
   "inlineImageTypes": ["image/png", "image/jpeg", "image/webp", "image/gif", "image/avif"],
