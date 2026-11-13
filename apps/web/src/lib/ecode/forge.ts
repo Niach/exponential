@@ -49,6 +49,16 @@ export interface ForgePullRef {
   baseRef: string
 }
 
+/** A live PR as the repo's open-PR list shows it (the Reviews queue). */
+export interface ForgeOpenPull extends ForgePullRef {
+  title: string
+  draft: boolean
+  authorLogin: string | null
+  authorAvatarUrl: string | null
+  /** ISO time. */
+  createdAt: string
+}
+
 /** One changed file, head against the merge base (`pr.files`). */
 export interface ForgeFile {
   path: string
@@ -138,7 +148,7 @@ export interface Forge {
   /** `pr.list_by_base`: the live PRs based on `base` (a stack parent's children). */
   listOpenByBase(repo: ForgeRepo, base: string): Promise<ForgePullRef[]>
   /** Every live PR of the repo (the base inference's candidates). */
-  listOpen(repo: ForgeRepo): Promise<ForgePullRef[]>
+  listOpen(repo: ForgeRepo): Promise<ForgeOpenPull[]>
   /** `pr.retarget`: a new base for a live PR. */
   retarget(repo: ForgeRepo, args: { number: number; base: string }): Promise<void>
   /** Flip a live PR between draft and ready. */
@@ -157,6 +167,11 @@ export interface Forge {
   /** `pr.files`: head against the merge base, in code-point path order.
    *  `fresh` skips any cache (a reader that must see a push from seconds ago). */
   files(repo: ForgeRepo, number: number, opts?: { fresh?: boolean }): Promise<ForgeFile[]>
+  /** A branch's changes against `base` (no PR needed), null = the branch
+   *  is not on the forge (not pushed, or gone). */
+  branchFiles(repo: ForgeRepo, args: { base: string; branch: string }): Promise<ForgeFile[] | null>
+  /** Rewrite a live PR's title and/or body (an omitted field keeps its value). */
+  update(repo: ForgeRepo, args: { number: number; title?: string; body?: string }): Promise<void>
   /** Where `head` sits on top of the live PRs (`candidates`): the nearest
    *  one whose head is an ancestor of it, else `defaultBranch`. */
   inferBase(

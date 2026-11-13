@@ -43,28 +43,19 @@ describe(`the forge seam (#EXP-1614)`, () => {
     expect(offenders).toEqual([])
   })
 
-  it(`the PR-tree calls are reached only through lib/ecode (plus a list that only shrinks)`, () => {
-    // Each of these moves behind the forge when its feature meets a second
-    // provider (#EXP-1612); the list only ever shrinks.
-    const NOT_YET = new Set([
-      `lib/bootstrap-self-hosted.ts`, // the GITHUB_POLLING poller (GitHub-only by nature)
-      `lib/pr-merge-guard.ts`,
-      `lib/session-guide-diff.ts`,
-      `lib/trpc/pr-update.ts`,
-      `lib/trpc/repositories.ts`, // the GitHub repo picker (open PRs, branch check)
-    ])
+  it(`the PR-tree calls are reached only through lib/ecode`, () => {
+    // No allow-list: every server path reaches GitHub's PR calls through
+    // the forge. Only the webhook (GitHub's own deliveries) and GitHub's
+    // integration modules, which build on each other, import them.
+    // Identity uses of GitHub (sign-in, account linking) never touch them.
     const allowed = (file: string) =>
       file.startsWith(`lib/ecode/`) ||
       file === `routes/api/webhooks/github.ts` ||
-      // GitHub's own integration modules build on each other.
       /^lib\/integrations\/(github-[a-z-]+|pr-files)\.ts$/.test(file) ||
-      file === `lib/pr-stacks.ts` ||
-      NOT_YET.has(file)
-    const importers = [...sources(`lib`), ...sources(`routes`)].filter((file) =>
+      file === `lib/pr-stacks.ts`
+    const importers = [...sources(`lib`), ...sources(`routes`), ...sources(`components`)].filter((file) =>
       importsOf(file).some((m) => FORGE_MODULES.test(m))
     )
     expect(importers.filter((file) => !allowed(file))).toEqual([])
-    // A file that stopped importing them leaves the list.
-    expect([...NOT_YET].filter((file) => !importers.includes(file))).toEqual([])
   })
 })

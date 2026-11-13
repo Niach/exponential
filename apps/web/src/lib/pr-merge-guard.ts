@@ -24,7 +24,7 @@ import {
   repositories,
 } from "@/db/schema"
 import type { Context } from "@/lib/trpc"
-import { getPullRequest } from "@/lib/integrations/github-pr"
+import { forgeFor, type ForgePullRequest } from "@/lib/ecode/forge"
 
 type ReadDb = Pick<Context[`db`], `select`>
 
@@ -396,11 +396,15 @@ export async function awaitRebaseOffMergedBranch(
     token: string
   }
 ): Promise<void> {
-  let pull: Awaited<ReturnType<typeof getPullRequest>> | null = null
+  // #EXP-1614: through the repo's forge.
+  const at = { id: ``, fullName: opts.repoFullName, token: opts.token }
+  const forge = await forgeFor(at)
+  let pull: ForgePullRequest | null = null
   for (const delay of [0, ...REBASE_SETTLE_MS]) {
     if (delay) await sleep(delay)
     try {
-      pull = await getPullRequest(opts.repoFullName, opts.prNumber, opts.token)
+      pull = await forge.readPullRequest(at, opts.prNumber)
+      if (!pull) throw new Error(`gone`)
     } catch {
       throw new TRPCError({
         code: `PRECONDITION_FAILED`,

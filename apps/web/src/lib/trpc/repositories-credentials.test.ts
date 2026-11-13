@@ -110,10 +110,10 @@ describe(`repositories.credentials (#EXP-1614)`, () => {
     })
   })
 
-  it(`a legacy row learns its installation in both places (provider_config + the shim column)`, async () => {
+  it(`a legacy row learns its installation (provider_config)`, async () => {
     h.selectQueue.push([row({ installationId: null })])
     await caller.credentials({ repositoryId: REPO_ID })
-    expect(h.writes[0]).toMatchObject({ installationId: 77, inaccessibleAt: null })
+    expect(h.writes[0]).toMatchObject({ inaccessibleAt: null })
     expect(h.writes[0]!.providerConfig).toBeDefined()
   })
 

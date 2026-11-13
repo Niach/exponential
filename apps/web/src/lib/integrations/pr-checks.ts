@@ -1,3 +1,4 @@
+import { repoInstallationId } from "@/lib/ecode/provider-config"
 import { and, desc, eq, gt, inArray, isNull, lt, ne, notInArray, or, sql } from "drizzle-orm"
 import {
   aggregateChecksState,
@@ -555,7 +556,7 @@ export async function repairPullRequestChecks(
         base: pullRequests.base,
         state: pullRequests.state,
         fullName: repositories.fullName,
-        installationId: repositories.installationId,
+        installationId: repoInstallationId(),
       })
       .from(pullRequests)
       .innerJoin(repositories, eq(repositories.id, pullRequests.repositoryId))
@@ -639,7 +640,7 @@ export async function sweepUnsettledChecks(now: Date = new Date()): Promise<numb
       id: pullRequests.id,
       head: pullRequests.head,
       fullName: repositories.fullName,
-      installationId: repositories.installationId,
+      installationId: repoInstallationId(),
     })
     .from(pullRequests)
     .innerJoin(repositories, eq(repositories.id, pullRequests.repositoryId))

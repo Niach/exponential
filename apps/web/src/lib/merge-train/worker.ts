@@ -15,6 +15,7 @@
 //   4. the queue positions (`Queued · 2nd`).
 // Every outcome posts ONE waking `pr_merge` line (messages.ts). The train is
 // the only merge, for every team and every repository (#EXP-1711).
+import { repoInstallationId } from "@/lib/ecode/provider-config"
 import { and, asc, desc, eq, inArray, isNotNull, ne, notInArray, sql } from "drizzle-orm"
 import { requiredChecksState } from "@exp/domain-contract/pr-checks"
 import {
@@ -79,8 +80,8 @@ type PrRow = typeof pullRequests.$inferSelect
 type RunRow = typeof mergeTrains.$inferSelect
 type RepoRow = Pick<
   typeof repositories.$inferSelect,
-  `id` | `teamId` | `fullName` | `installationId` | `defaultBranch` | `defaultBranchOverride`
->
+  `id` | `teamId` | `fullName` | `defaultBranch` | `defaultBranchOverride`
+> & { installationId: number | null }
 
 const backoff = new Map<string, number>()
 
@@ -831,7 +832,7 @@ export async function advanceRepository(repositoryId: string, now: Date = new Da
       id: repositories.id,
       teamId: repositories.teamId,
       fullName: repositories.fullName,
-      installationId: repositories.installationId,
+      installationId: repoInstallationId(),
       defaultBranch: repositories.defaultBranch,
       defaultBranchOverride: repositories.defaultBranchOverride,
     })
@@ -1119,7 +1120,7 @@ export async function landDirectForTests(repositoryId: string, runId: string): P
       id: repositories.id,
       teamId: repositories.teamId,
       fullName: repositories.fullName,
-      installationId: repositories.installationId,
+      installationId: repoInstallationId(),
       defaultBranch: repositories.defaultBranch,
       defaultBranchOverride: repositories.defaultBranchOverride,
     })

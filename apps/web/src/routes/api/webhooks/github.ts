@@ -3,7 +3,7 @@ import { createFileRoute } from "@tanstack/react-router"
 import { and, eq, inArray, isNull, or } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { repositories, sessions } from "@/db/schema"
-import { providerConfigWithInstallation } from "@/lib/ecode/provider-config"
+import { providerConfigWithInstallation, repoInstallationId } from "@/lib/ecode/provider-config"
 import { touchSessionActivity } from "@/lib/sessions/watchdog"
 import { attributePush, pushedRepositoryIds, pushTime } from "@/lib/sessions/push-attribution"
 import { checkFromGithubStatus } from "@/lib/ecode/github-status"
@@ -105,7 +105,7 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
         await db
           .update(repositories)
           .set({ inaccessibleAt: new Date() })
-          .where(eq(repositories.installationId, installation.id))
+          .where(eq(repoInstallationId(), installation.id))
       }
       return jsonResponse(200, { ok: true })
     }
@@ -141,7 +141,7 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
           .set({ inaccessibleAt: new Date() })
           .where(
             and(
-              eq(repositories.installationId, installation.id),
+              eq(repoInstallationId(), installation.id),
               inArray(repositories.fullName, removed)
             )
           )
@@ -158,15 +158,14 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
           .update(repositories)
           .set({
             inaccessibleAt: null,
-            installationId: installation.id,
             providerConfig: providerConfigWithInstallation(installation.id),
           })
           .where(
             and(
               inArray(repositories.fullName, added),
               or(
-                isNull(repositories.installationId),
-                eq(repositories.installationId, installation.id)
+                isNull(repoInstallationId()),
+                eq(repoInstallationId(), installation.id)
               )
             )
           )

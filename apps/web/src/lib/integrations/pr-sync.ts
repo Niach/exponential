@@ -47,11 +47,9 @@ import {
 
 export type PullRequestRow = typeof pullRequests.$inferSelect
 
-/** #EXP-1614: the forge's clock of the last applied PR state, in
- *  `provider_updated_at` and (one release, #NEW-14) its shim
- *  `github_updated_at`. */
-function providerUpdated(at: Date): { providerUpdatedAt: Date; githubUpdatedAt: Date } {
-  return { providerUpdatedAt: at, githubUpdatedAt: at }
+/** #EXP-1614: the forge's clock of the last applied PR state. */
+function providerUpdated(at: Date): { providerUpdatedAt: Date } {
+  return { providerUpdatedAt: at }
 }
 
 /** `owner/repo` out of a GitHub PR URL. */

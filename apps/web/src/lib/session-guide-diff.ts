@@ -43,45 +43,21 @@ export async function loadGuideDiff(
     if (pr) {
       // FRESH, never the 60s PR-files cache: an agent that fixed its paths
       // and pushed seconds ago must not be told they are still missing.
-      const [{ fetchPullFiles }, { resolveRepoInstallationTokenInfo }] =
-        await Promise.all([
-          import(`@/lib/integrations/github-pr`),
-          import(`@/lib/integrations/github-app`),
-        ])
-      const resolved = await resolveRepoInstallationTokenInfo(pr.repo)
-      const files = await fetchPullFiles(
-        pr.repo,
-        pr.number,
-        resolved?.token,
-        undefined,
-        { fresh: true }
-      )
-      return files.map((file) => ({
-        path: file.filename,
-        previousPath: file.previous_filename ?? null,
-      }))
+      // #EXP-1614: through the repo's forge.
+      const { forgeFor } = await import(`@/lib/ecode/forge`)
+      const at = { id: ``, fullName: pr.repo }
+      const files = await (await forgeFor(at)).files(at, pr.number, { fresh: true })
+      return files.map((file) => ({ path: file.path, previousPath: file.previousPath }))
     }
     if (!run.branch || !run.boardId) return null
     const { resolveBoardRepository } = await import(`@/lib/trpc/repositories`)
     const repo = await resolveBoardRepository(run.boardId)
     if (!repo) return null
-    const { fetchBranchDiff, resolveRepoInstallationTokenInfo } = await import(
-      `@/lib/integrations/github-app`
-    )
-    const resolved = await resolveRepoInstallationTokenInfo(repo.fullName, {
-      fallbackInstallationId: repo.installationId,
-    })
-    const diff = await fetchBranchDiff({
-      repo: repo.fullName,
-      base: repo.defaultBranch,
-      branch: run.branch,
-      token: resolved?.token ?? null,
-    })
-    if (!diff) return null
-    return diff.files.map((file) => ({
-      path: file.filename,
-      previousPath: file.previous_filename ?? null,
-    }))
+    const { forgeFor } = await import(`@/lib/ecode/forge`)
+    const at = { id: repo.repositoryId, fullName: repo.fullName, installationId: repo.installationId }
+    const files = await (await forgeFor(at)).branchFiles(at, { base: repo.defaultBranch, branch: run.branch })
+    if (!files) return null
+    return files.map((file) => ({ path: file.path, previousPath: file.previousPath }))
   } catch (err) {
     console.warn(`[session-guide-diff] diff read failed`, err)
     return null
