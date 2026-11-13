@@ -1,4 +1,5 @@
 import ExpCore
+import ExpPush
 import ExpUI
 import SwiftUI
 import UIKit
@@ -64,6 +65,26 @@ final class ExponentialAppDelegate: NSObject, UIApplicationDelegate {
         let configuration = UISceneConfiguration(name: nil, sessionRole: connectingSceneSession.role)
         configuration.delegateClass = ExponentialSceneDelegate.self
         return configuration
+    }
+
+    /// #EXP-1815 (notification-delivery.json CLEARING): a silent push. A
+    /// dismiss (rows read on any device) removes the delivered notifications
+    /// it matches; it never shows anything.
+    func application(
+        _ application: UIApplication,
+        didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+        fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+    ) {
+        let payload = NotificationDismiss.payload(userInfo)
+        guard payload["type"] == NotificationDelivery.DataKeys.dismissType else {
+            completionHandler(.noData)
+            return
+        }
+        nonisolated(unsafe) let done = completionHandler
+        Task {
+            let removed = await NotificationDismiss.removeDelivered(matching: payload)
+            done(removed ? .newData : .noData)
+        }
     }
 }
 

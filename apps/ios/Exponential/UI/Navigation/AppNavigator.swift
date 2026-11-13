@@ -82,6 +82,8 @@ enum AppRoute: Hashable {
     case serverDetail(accountId: String)
     /// NEW-67: the account's Settings → Voice page (`voice.json`).
     case voiceSettings(accountId: String)
+    /// #EXP-1815: the account's Settings › Notifications (the source switches).
+    case notificationSettings(accountId: String)
     /// #EXP-1381 (settings-nav.json): a Team page row → that category's
     /// OWN page (Devices included: it left the tab bar for the Team page).
     case teamSettingsSection(accountId: String, teamId: String, section: TeamSettingsSection)
@@ -608,6 +610,10 @@ struct MainNavigator: View {
         .onChange(of: currentBoard) { _, board in
             if case .board = sidebar, let board { sidebar = .board(board.boardId) }
         }
+        // #EXP-1815: the screen's thread (`willPresent` stays quiet on it).
+        .onChange(of: viewingRoute, initial: true) { _, route in
+            ViewingThread.shared.publish(route, deps: deps)
+        }
         .environment(teamState)
         .environment(sessionLists)
         .environment(tabBarChrome)
@@ -926,6 +932,18 @@ struct MainNavigator: View {
 
     /// #FEED-232: the page header's Inbox count: the unread rows of the
     /// ACTIVE team (or team-less ones).
+    /// #EXP-1815: the screen on top (the split layout's chat / agent entry
+    /// is its detail root when nothing is pushed over it).
+    private var viewingRoute: AppRoute? {
+        if let top = path.last { return top }
+        guard isSplit, let accountId = deps.auth.activeAccountId else { return nil }
+        switch sidebar {
+        case let .chat(rootId): return .chat(accountId: accountId, chatId: rootId)
+        case let .agentChannel(agentId): return .agentChannel(accountId: accountId, agentId: agentId)
+        default: return nil
+        }
+    }
+
     private var activeInboxUnreadCount: Int {
         unreadTeamIds.filter { $0 == nil || $0 == teamState.activeTeamId }.count
     }
@@ -1476,6 +1494,9 @@ extension MainNavigator {
             ServerDetailView(accountId: accountId)
         case let .voiceSettings(accountId):
             VoiceSettingsPage(accountId: accountId)
+                .environment(\.accountId, accountId)
+        case let .notificationSettings(accountId):
+            NotificationSettingsPage(accountId: accountId)
                 .environment(\.accountId, accountId)
         case let .teamSettingsSection(accountId, teamId, section):
             TeamSettingsPage(teamId: teamId, section: section)

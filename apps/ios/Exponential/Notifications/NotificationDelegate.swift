@@ -1,4 +1,6 @@
 import ExpCore
+import ExpPush
+import ExpUI
 import FirebaseMessaging
 import Foundation
 import UIKit
@@ -59,7 +61,45 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate, Me
             }
             return
         }
-        let userInfo = response.notification.request.content.userInfo
+        open(response.notification.request.content.userInfo)
+        completionHandler()
+    }
+
+    // Notification received while app in foreground
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        // #EXP-1815 (notification-delivery.json PRESENTATION): in the
+        // foreground nothing pops from the system; the app shows THE toast
+        // (kind info, the row's title + body, `Open` = the tap's route)
+        // unless the screen on top is the push's thread or the Inbox.
+        completionHandler([])
+        let content = notification.request.content
+        let title = content.title
+        let body = content.body
+        let thread = (content.userInfo[NotificationDelivery.DataKeys.thread] as? String)
+            .flatMap { $0.isEmpty ? nil : $0 } ?? content.threadIdentifier
+        // The push's string data (all a route reads), Sendable.
+        let data = NotificationDelivery.data(content.userInfo)
+        Task { @MainActor in
+            let presentation = NotificationDelivery.presentation(
+                platform: .ios, active: true, viewing: ViewingThread.shared.current, thread: thread, muted: false
+            )
+            guard presentation == .toast, !title.isEmpty else { return }
+            Toaster.shared.info(
+                title,
+                description: body.isEmpty ? nil : body,
+                action: ToastAction(label: NotificationDelivery.Copy.toastAction) { [self] in
+                    open(data as [AnyHashable: Any])
+                }
+            )
+        }
+    }
+
+    /// A tap's route (the notification or the toast's `Open`).
+    nonisolated func open(_ userInfo: [AnyHashable: Any]) {
         // The payload's userId identifies which signed-in account the push
         // was for; the navigator opens it under that account instead of
         // whichever one is active.
@@ -84,15 +124,5 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate, Me
         case .none:
             break
         }
-        completionHandler()
-    }
-
-    // Notification received while app in foreground
-    nonisolated func userNotificationCenter(
-        _ center: UNUserNotificationCenter,
-        willPresent notification: UNNotification,
-        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
-    ) {
-        completionHandler([.banner, .badge, .sound])
     }
 }

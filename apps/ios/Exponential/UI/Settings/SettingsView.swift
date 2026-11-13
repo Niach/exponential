@@ -345,6 +345,15 @@ struct TeamTabView: View {
                     }
                     .buttonStyle(.plain)
                 }
+                // #EXP-1815 (settings-nav.json `personal`: account,
+                // notifications, …, about): the source switches.
+                if let page = SettingsNav.page("notifications"), !activeAccountId.isEmpty {
+                    NavigationLink(value: AppRoute.notificationSettings(accountId: activeAccountId)) {
+                        settingsRow(icon: AppIcons.conceptOrName(page.icon) ?? AppIcons.settingsNotifications, title: page.label)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("settings-notifications-row")
+                }
                 NavigationLink(value: AppRoute.about) {
                     settingsRow(icon: AppIcons.settingsAbout, title: "About")
                 }
