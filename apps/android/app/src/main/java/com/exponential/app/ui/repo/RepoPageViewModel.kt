@@ -4,15 +4,21 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
+import com.exponential.app.data.api.CiApi
+import com.exponential.app.data.api.RepoCiConfig
+import com.exponential.app.data.api.RepoCiSettings
 import com.exponential.app.data.api.RepoSettings
 import com.exponential.app.data.api.RepositoriesApi
 import com.exponential.app.data.api.TeamRepo
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
+import com.exponential.app.data.db.CiJobEntity
+import com.exponential.app.data.db.CiRunEntity
 import com.exponential.app.data.db.PullRequestEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.RepoCi
 import com.exponential.app.domain.RepoPage
 import com.exponential.app.ui.components.FailedAction
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -43,6 +49,21 @@ internal fun PullRequestEntity.toRepoPr() = RepoPage.Pr(
     checksState = checksState,
 )
 
+/** A synced CI run / job as repo-ci.json's folds read them. */
+internal fun CiRunEntity.toRepoCiRun() = RepoCi.Run(
+    id = id,
+    number = number ?: 0,
+    name = name,
+    sha = sha,
+    ref = ref,
+    trigger = trigger,
+    state = state,
+    startedAt = startedAt,
+    completedAt = completedAt,
+)
+
+internal fun CiJobEntity.toRepoCiJob() = RepoCi.Job(runId = runId, status = status, conclusion = conclusion, check = check)
+
 /** The repo page's server reads (repositories are never synced). */
 data class RepoPageState(
     /** False until the first `repositories.list` returned. */
@@ -52,6 +73,8 @@ data class RepoPageState(
     val branches: List<Pair<String, String>>? = null,
     /** ecode only; null = still loading (or a GitHub repo). */
     val settings: RepoSettings? = null,
+    /** #EXP-1617 `ci.repoSettings`; null = still loading. */
+    val ci: RepoCiSettings? = null,
     val busy: Boolean = false,
 )
 
@@ -68,6 +91,7 @@ class RepoPageViewModel @Inject constructor(
     holder: DatabaseHolder,
     private val selection: TeamSelection,
     private val api: RepositoriesApi,
+    private val ciApi: CiApi,
 ) : ViewModel() {
 
     val repositoryId: String = savedStateHandle.get<String>("repositoryId").orEmpty()
@@ -83,6 +107,21 @@ class RepoPageViewModel @Inject constructor(
         }
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** #EXP-1617 (repo-ci.json): the repo's synced CI runs + their jobs. */
+    val ciRuns: StateFlow<List<RepoCi.Run>> = dbFlow
+        .flatMapLatest { db ->
+            if (db == null) flowOf(emptyList())
+            else db.ciRunDao().observeByRepository(repositoryId).map { rows -> rows.map { it.toRepoCiRun() } }
+        }
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val ciJobs: StateFlow<List<RepoCi.Job>> = dbFlow
+        .flatMapLatest { db ->
+            if (db == null) flowOf(emptyList())
+            else db.ciJobDao().observeByRepository(repositoryId).map { rows -> rows.map { it.toRepoCiJob() } }
+        }
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     /** Owners own the default branch, the backups' Restore and the mirror. */
     val isOwner: StateFlow<Boolean> = combine(dbFlow, selection.selectedId, auth.userId) { db, team, user -> Triple(db, team, user) }
         .flatMapLatest { (db, team, user) ->
@@ -95,6 +134,12 @@ class RepoPageViewModel @Inject constructor(
 
     private val _state = MutableStateFlow(RepoPageState())
     val state: StateFlow<RepoPageState> = _state
+
+    /** repo-ci.json: the repo's managers (the member who shared it, or a
+     *  team owner) change its CI settings; for others every control is off. */
+    val isManager: StateFlow<Boolean> = combine(isOwner, _state, auth.userId) { owner, s, user ->
+        owner || (user != null && s.repo?.sharedBy?.id == user)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     private val _failure = MutableStateFlow<FailedAction?>(null)
     val failure: StateFlow<FailedAction?> = _failure
@@ -156,8 +201,69 @@ class RepoPageViewModel @Inject constructor(
         } else {
             null
         }
-        _state.value = _state.value.copy(branches = branches.await(), settings = settings?.await())
+        val ci = viewModelScope.async {
+            try {
+                ciApi.repoSettings(accountId, repo.id)
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                fail("load", "the CI settings", t)
+                RepoCiSettings()
+            }
+        }
+        _state.value = _state.value.copy(branches = branches.await(), settings = settings?.await(), ci = ci.await())
     }
+
+    /** One CI write (no busy lock, the toggles answer at once), then a
+     *  re-read of `ci.repoSettings`; a failure toasts with Retry and puts
+     *  the stored values back. */
+    private fun ciAct(verb: String, thing: String, onDone: (Boolean) -> Unit = {}, block: suspend (accountId: String) -> Unit) {
+        val accountId = auth.activeAccountId.value ?: return onDone(false)
+        viewModelScope.launch {
+            val ok = try {
+                block(accountId)
+                true
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                fail(verb, thing, t) { ciAct(verb, thing, onDone, block) }
+                false
+            }
+            val fresh = runCatching { ciApi.repoSettings(accountId, repositoryId) }.getOrNull()
+            if (fresh != null) _state.value = _state.value.copy(ci = fresh)
+            onDone(ok)
+        }
+    }
+
+    private fun patchConfig(change: (RepoCiConfig) -> RepoCiConfig) {
+        val ci = _state.value.ci ?: return
+        _state.value = _state.value.copy(ci = ci.copy(config = change(ci.config)))
+    }
+
+    fun setRequiredChecks(checks: List<String>) {
+        patchConfig { it.copy(requiredChecks = checks) }
+        ciAct("save", "the required checks") { ciApi.setRepoConfig(it, repositoryId, requiredChecks = checks) }
+    }
+
+    fun setCiSwitch(switch: RepoCi.Switch, on: Boolean) {
+        patchConfig {
+            when (switch) {
+                RepoCi.Switch.GithubStatuses -> it.copy(githubStatuses = on)
+                RepoCi.Switch.ActionsRunners -> it.copy(actionsRunners = on)
+            }
+        }
+        ciAct("save", "the CI settings") {
+            when (switch) {
+                RepoCi.Switch.GithubStatuses -> ciApi.setRepoConfig(it, repositoryId, githubStatuses = on)
+                RepoCi.Switch.ActionsRunners -> ciApi.setRepoConfig(it, repositoryId, actionsRunners = on)
+            }
+        }
+    }
+
+    /** [onDone] = saved (the sheet closes) or not (it stays, the toast says why). */
+    fun setSecret(name: String, value: String, onDone: (Boolean) -> Unit) =
+        ciAct("save", "the secret", onDone) { ciApi.setSecret(it, repositoryId, name, value) }
+
+    fun deleteSecret(name: String) =
+        ciAct("delete", "the secret") { ciApi.deleteSecret(it, repositoryId, name) }
 
     /** One owner write, then a re-read; a failure toasts with Retry. */
     private fun act(verb: String, thing: String, block: suspend (accountId: String) -> Unit) {

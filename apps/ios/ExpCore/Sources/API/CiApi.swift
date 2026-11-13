@@ -53,6 +53,77 @@ private struct CiSetRunnerInput: Encodable {
     let timeoutMin: Int
 }
 
+/// #EXP-1617 (repo-ci.json): a repository's `ci_config`; absent keys = off / none.
+public struct RepoCiConfig: Decodable, Sendable, Equatable {
+    public var requiredChecks: [String]
+    public var githubStatuses: Bool
+    public var actionsRunners: Bool
+
+    public init(requiredChecks: [String] = [], githubStatuses: Bool = false, actionsRunners: Bool = false) {
+        self.requiredChecks = requiredChecks
+        self.githubStatuses = githubStatuses
+        self.actionsRunners = actionsRunners
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        requiredChecks = (try? c.decodeIfPresent([String].self, forKey: .requiredChecks)) ?? []
+        githubStatuses = (try? c.decodeIfPresent(Bool.self, forKey: .githubStatuses)) ?? false
+        actionsRunners = (try? c.decodeIfPresent(Bool.self, forKey: .actionsRunners)) ?? false
+    }
+
+    enum CodingKeys: String, CodingKey { case requiredChecks, githubStatuses, actionsRunners }
+}
+
+/// `ci.repoSettings`'s answer: the config + the secret NAMES (values are
+/// never read back).
+public struct RepoCiSettings: Decodable, Sendable, Equatable {
+    public var config: RepoCiConfig
+    public var secrets: [RepoCi.Secret]
+
+    public init(config: RepoCiConfig = RepoCiConfig(), secrets: [RepoCi.Secret] = []) {
+        self.config = config
+        self.secrets = secrets
+    }
+
+    private struct SecretJSON: Decodable {
+        let name: String
+        let updatedAt: String?
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        config = (try? c.decodeIfPresent(RepoCiConfig.self, forKey: .config)) ?? RepoCiConfig()
+        secrets = (try c.decodeIfPresent([SecretJSON].self, forKey: .secrets) ?? [])
+            .map { RepoCi.Secret(name: $0.name, updatedAt: $0.updatedAt ?? "") }
+    }
+
+    enum CodingKeys: String, CodingKey { case config, secrets }
+}
+
+private struct CiRepoInput: Encodable {
+    let repositoryId: String
+}
+
+/// Nil keys drop off the wire: only the given keys change.
+private struct CiSetRepoConfigInput: Encodable {
+    let repositoryId: String
+    let requiredChecks: [String]?
+    let githubStatuses: Bool?
+    let actionsRunners: Bool?
+}
+
+private struct CiSetSecretInput: Encodable {
+    let repositoryId: String
+    let name: String
+    let value: String
+}
+
+private struct CiDeleteSecretInput: Encodable {
+    let repositoryId: String
+    let name: String
+}
+
 public final class CiApi: Sendable {
     private let trpc: TrpcClient
 
@@ -87,6 +158,44 @@ public final class CiApi: Sendable {
                 deviceId: deviceId, enabled: settings.enabled, labels: settings.labels,
                 slots: settings.slots, timeoutMin: settings.timeoutMin
             )
+        )
+    }
+
+    /// `ci.repoSettings{repositoryId}`: the repo's CI config + secret names (members).
+    public func repoSettings(accountId: String, repositoryId: String) async throws -> RepoCiSettings {
+        try await trpc.query(accountId: accountId, path: "ci.repoSettings", input: CiRepoInput(repositoryId: repositoryId))
+    }
+
+    /// `ci.setRepoConfig`: only the non-nil keys change (the repo's managers).
+    public func setRepoConfig(
+        accountId: String,
+        repositoryId: String,
+        requiredChecks: [String]? = nil,
+        githubStatuses: Bool? = nil,
+        actionsRunners: Bool? = nil
+    ) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId, path: "ci.setRepoConfig",
+            input: CiSetRepoConfigInput(
+                repositoryId: repositoryId, requiredChecks: requiredChecks,
+                githubStatuses: githubStatuses, actionsRunners: actionsRunners
+            )
+        )
+    }
+
+    /// `ci.setSecret{repositoryId, name, value}` (creates or replaces).
+    public func setSecret(accountId: String, repositoryId: String, name: String, value: String) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId, path: "ci.setSecret",
+            input: CiSetSecretInput(repositoryId: repositoryId, name: name, value: value)
+        )
+    }
+
+    /// `ci.deleteSecret{repositoryId, name}`.
+    public func deleteSecret(accountId: String, repositoryId: String, name: String) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId, path: "ci.deleteSecret",
+            input: CiDeleteSecretInput(repositoryId: repositoryId, name: name)
         )
     }
 }

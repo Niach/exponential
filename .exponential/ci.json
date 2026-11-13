@@ -1,0 +1,130 @@
+{
+  "version": 1,
+  "name": "ecode",
+  "on": {
+    "pull_request": {},
+    "push": {
+      "branches": [
+        "master"
+      ]
+    },
+    "manual": {}
+  },
+  "env": {
+    "CI": "true"
+  },
+  "jobs": {
+    "typecheck": {
+      "name": "ecode typecheck",
+      "runsOn": [
+        "linux"
+      ],
+      "timeoutMin": 30,
+      "steps": [
+        {
+          "name": "Install",
+          "run": "export PATH=\"$HOME/.bun/bin:$PATH\"\nbun install --frozen-lockfile"
+        },
+        {
+          "name": "Typecheck",
+          "run": "export PATH=\"$HOME/.bun/bin:$PATH\"\nbun run typecheck"
+        }
+      ]
+    },
+    "web-unit": {
+      "name": "ecode web unit",
+      "runsOn": [
+        "linux"
+      ],
+      "timeoutMin": 30,
+      "steps": [
+        {
+          "name": "Install",
+          "run": "export PATH=\"$HOME/.bun/bin:$PATH\"\nbun install --frozen-lockfile"
+        },
+        {
+          "name": "Web unit tests",
+          "run": "export PATH=\"$HOME/.bun/bin:$PATH\"\nbunx vitest run --config vitest.config.ts --shard=${MATRIX_SHARD}/4",
+          "workingDirectory": "apps/web",
+          "env": {
+            "DATABASE_URL": "postgresql://ci:ci@127.0.0.1:59999/ci"
+          }
+        }
+      ],
+      "matrix": {
+        "shard": [
+          "1",
+          "2",
+          "3",
+          "4"
+        ]
+      }
+    },
+    "contract-ts": {
+      "name": "ecode contract-ts",
+      "runsOn": [
+        "linux"
+      ],
+      "timeoutMin": 30,
+      "steps": [
+        {
+          "name": "Install",
+          "run": "export PATH=\"$HOME/.bun/bin:$PATH\"\nbun install --frozen-lockfile"
+        },
+        {
+          "name": "Contract tests",
+          "run": "export PATH=\"$HOME/.bun/bin:$PATH\"\nbun test ./src",
+          "workingDirectory": "packages/domain-contract"
+        }
+      ]
+    },
+    "merge-train": {
+      "name": "ecode merge-train",
+      "runsOn": [
+        "linux"
+      ],
+      "timeoutMin": 30,
+      "steps": [
+        {
+          "name": "Install",
+          "run": "export PATH=\"$HOME/.bun/bin:$PATH\"\nbun install --frozen-lockfile"
+        },
+        {
+          "name": "Merge train engine",
+          "run": "export PATH=\"$HOME/.bun/bin:$PATH\"\nbun run test:merge-train"
+        }
+      ]
+    },
+    "release-scripts": {
+      "name": "ecode release-scripts",
+      "runsOn": [
+        "linux"
+      ],
+      "timeoutMin": 10,
+      "steps": [
+        {
+          "name": "Tag keeping",
+          "run": "bash scripts/release/test-tagkeep.sh"
+        }
+      ]
+    },
+    "rewrite-gaps": {
+      "name": "ecode rewrite-gaps",
+      "runsOn": [
+        "linux"
+      ],
+      "timeoutMin": 30,
+      "steps": [
+        {
+          "name": "Install",
+          "run": "export PATH=\"$HOME/.bun/bin:$PATH\"\nbun install --frozen-lockfile"
+        },
+        {
+          "name": "Rewrite gaps",
+          "run": "export PATH=\"$HOME/.bun/bin:$PATH\"\nbun test eval/gaps.test.ts",
+          "workingDirectory": "packages/exponential-ui"
+        }
+      ]
+    }
+  }
+}

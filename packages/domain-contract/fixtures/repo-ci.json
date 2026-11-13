@@ -1,0 +1,387 @@
+{
+  "$comment": "#EXP-1617 E4 part 4: THE REPO PAGE'S RUNS TAB AND ITS CI SETTINGS ×4 (repo-page.json's page; genUI catalogue components only, mockups approved). DATA: the synced `ci_runs` + `ci_jobs` of the repository (shapes ci-runs / ci-jobs), the repo row (provider, `ci_config` from tRPC `ci.repoSettings`) and its secret NAMES (`ci.repoSettings` → secrets [{name, updatedAt}]; values are never read back). RUNS TAB (replaces the EmptyState): `runRows(runs, jobs, now)` newest run number first, at most `limits.runs`: WIDE (web, desktop) a `Table` with the columns `copy.runs.columns` in that order (status = the glyph `Icon` tinted by its tone + `copy.status[status]`; run = `#n name`; commit = the sha's 7; ref; trigger = `copy.triggers[trigger]`; duration; started = relative time), PHONES one `Row` per run (leading glyph, identifier `#n`, title = name, subtitle = `ref · sha7 · trigger label`, meta = duration); a row or table row opens the run page (`/t/$teamSlug/ci/$runId`); no runs = `EmptyState` (repo-page.json `copy.runs.empty`). The status of a run is ci-run.json `runStatus` over its jobs; glyph/tone: queued → ci-queued muted, running → ci-running muted, passed → ci-passed green, failed → ci-failed red, cancelled → ci-skipped muted. Duration = pr-checks formatDuration of (completedAt or now) − startedAt, null before it started; ref = the run's ref, else copy.runs.noRef. SETTINGS TAB, a `Section` titled `copy.ci.section` after the repo's own rows: (1) the pipelines: `pipelineRows(runs, jobs)` = one `Row` per pipeline NAME (its newest run), title = the name, meta = a `Chip{dot}` of repo-page.json `copy.checks[state]` for that run's state (pending | success | failure); none = one muted `Text` copy.ci.noPipeline; (2) `copy.ci.required.label` as a `SettingsRow` holding a `ChipInput` (values = ci_config.requiredChecks, suggestions = `requiredSuggestions`, placeholder copy.ci.required.placeholder) writing `ci.setRepoConfig{requiredChecks}`; (3) `copy.ci.secrets.title` as a `Heading` level h4, then: WIDE a `Table` (columns copy.ci.secrets.columns: name, updated) PHONES `Row`s (title = name, meta = updated, relative), each with a delete action (a `Button{variant: ghost, size: sm}` labelled copy.ci.secrets.delete, no icon, opening an `AlertDialog` copy.ci.secrets.deleteTitle / deleteConfirm → `ci.deleteSecret`), then a `Button{variant: outline, size: sm}` copy.ci.secrets.add (no icon) opening a `Dialog` (phones: a `Drawer`) with an `Input` copy.ci.secrets.name (validated by `secretName`, invalid = inline copy.ci.secrets.invalid), an `Input{type:password}` copy.ci.secrets.value and `FormActions` (copy.ci.secrets.cancel / copy.ci.secrets.save → `ci.setSecret`); none = muted `Text` copy.ci.secrets.empty; (4) `switches(provider)` as `SettingsRow` + `Switch` each (label/description from copy.ci[switch]), writing `ci.setRepoConfig{githubStatuses | actionsRunners}`. Only the repo's managers (the member who shared it, or a team owner) can change anything: for others every control is disabled and the secret actions are hidden. Replayed by packages/domain-contract (bun test), desktop domain::repo_ci, iOS ExpCore RepoCi, Android domain RepoCi: every mirror replays runRows, pipelineRows, requiredSuggestions, secretName and switches, comparing the WHOLE result.",
+  "copy": {
+    "runs": {
+      "noRef": "—",
+      "columns": {
+        "status": "Status",
+        "run": "Run",
+        "commit": "Commit",
+        "ref": "Branch",
+        "trigger": "Trigger",
+        "duration": "Duration",
+        "started": "Started"
+      }
+    },
+    "triggers": {
+      "push": "Push",
+      "pull_request": "Pull request",
+      "tag": "Tag",
+      "merge_train": "Merge train",
+      "manual": "Manual"
+    },
+    "status": {
+      "queued": "Queued",
+      "running": "Running",
+      "passed": "Passed",
+      "failed": "Failed",
+      "cancelled": "Cancelled"
+    },
+    "ci": {
+      "section": "CI",
+      "noPipeline": "No runs yet. Add .exponential/ci.json to run CI here.",
+      "required": {
+        "label": "Required checks",
+        "description": "Checks that must pass before the merge train lands a pull request.",
+        "placeholder": "Check name"
+      },
+      "secrets": {
+        "title": "Secrets",
+        "columns": {
+          "name": "Name",
+          "updated": "Updated"
+        },
+        "add": "Add secret",
+        "name": "Name",
+        "value": "Value",
+        "save": "Save",
+        "cancel": "Cancel",
+        "delete": "Delete",
+        "deleteTitle": "Delete this secret?",
+        "deleteConfirm": "Delete",
+        "empty": "No secrets yet.",
+        "invalid": "Use A–Z, 0–9 and _, not starting with a digit."
+      },
+      "githubStatuses": {
+        "label": "Report to GitHub",
+        "description": "Our checks also show on GitHub as commit statuses."
+      },
+      "actionsRunners": {
+        "label": "GitHub Actions on team devices",
+        "description": "Team devices with a CI runner also run this repository's GitHub Actions jobs."
+      }
+    }
+  },
+  "limits": {
+    "runs": 50
+  },
+  "testIds": {
+    "runs": "repo-runs",
+    "runRow": "repo-run",
+    "ci": "repo-ci",
+    "pipelines": "repo-ci-pipelines",
+    "required": "repo-ci-required",
+    "secrets": "repo-ci-secrets",
+    "addSecret": "repo-ci-add-secret",
+    "githubStatuses": "repo-ci-github-statuses",
+    "actionsRunners": "repo-ci-actions-runners"
+  },
+  "runRows": [
+    {
+      "name": "newest first, every status, a missing ref",
+      "now": "2026-11-13T10:30:00.000Z",
+      "runs": [
+        {
+          "id": "r10",
+          "number": 10,
+          "name": "ci",
+          "sha": "aaaaaaa1111111",
+          "ref": "main",
+          "trigger": "push",
+          "state": "success",
+          "startedAt": "2026-11-13T09:00:00.000Z",
+          "completedAt": "2026-11-13T09:04:30.000Z"
+        },
+        {
+          "id": "r12",
+          "number": 12,
+          "name": "ci",
+          "sha": "ccccccc3333333",
+          "ref": "feat/x",
+          "trigger": "pull_request",
+          "state": "pending",
+          "startedAt": "2026-11-13T10:25:00.000Z",
+          "completedAt": null
+        },
+        {
+          "id": "r11",
+          "number": 11,
+          "name": "nightly",
+          "sha": "bbbbbbb2222222",
+          "ref": null,
+          "trigger": "manual",
+          "state": "failure",
+          "startedAt": "2026-11-13T10:00:00.000Z",
+          "completedAt": "2026-11-13T10:01:00.000Z"
+        },
+        {
+          "id": "r13",
+          "number": 13,
+          "name": "ci",
+          "sha": "ddddddd4444444",
+          "ref": "main",
+          "trigger": "merge_train",
+          "state": "pending",
+          "startedAt": null,
+          "completedAt": null
+        },
+        {
+          "id": "r9",
+          "number": 9,
+          "name": "ci",
+          "sha": "eeeeeee5555555",
+          "ref": "v1.0",
+          "trigger": "tag",
+          "state": "failure",
+          "startedAt": "2026-11-13T08:00:00.000Z",
+          "completedAt": "2026-11-13T08:00:10.000Z"
+        }
+      ],
+      "jobs": [
+        {
+          "runId": "r12",
+          "status": "in_progress",
+          "conclusion": null
+        },
+        {
+          "runId": "r12",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "runId": "r11",
+          "status": "completed",
+          "conclusion": "failure"
+        },
+        {
+          "runId": "r13",
+          "status": "queued",
+          "conclusion": null
+        },
+        {
+          "runId": "r9",
+          "status": "completed",
+          "conclusion": "cancelled"
+        },
+        {
+          "runId": "r10",
+          "status": "completed",
+          "conclusion": "success"
+        }
+      ],
+      "expected": [
+        {
+          "id": "r13",
+          "identifier": "#13",
+          "title": "ci",
+          "status": "queued",
+          "statusLabel": "Queued",
+          "glyph": "ci-queued",
+          "tone": "muted",
+          "commit": "ddddddd",
+          "ref": "main",
+          "trigger": "Merge train",
+          "subtitle": "main · ddddddd · Merge train",
+          "duration": null,
+          "startedAt": null
+        },
+        {
+          "id": "r12",
+          "identifier": "#12",
+          "title": "ci",
+          "status": "running",
+          "statusLabel": "Running",
+          "glyph": "ci-running",
+          "tone": "muted",
+          "commit": "ccccccc",
+          "ref": "feat/x",
+          "trigger": "Pull request",
+          "subtitle": "feat/x · ccccccc · Pull request",
+          "duration": "5m 0s",
+          "startedAt": "2026-11-13T10:25:00.000Z"
+        },
+        {
+          "id": "r11",
+          "identifier": "#11",
+          "title": "nightly",
+          "status": "failed",
+          "statusLabel": "Failed",
+          "glyph": "ci-failed",
+          "tone": "red",
+          "commit": "bbbbbbb",
+          "ref": "—",
+          "trigger": "Manual",
+          "subtitle": "— · bbbbbbb · Manual",
+          "duration": "1m 0s",
+          "startedAt": "2026-11-13T10:00:00.000Z"
+        },
+        {
+          "id": "r10",
+          "identifier": "#10",
+          "title": "ci",
+          "status": "passed",
+          "statusLabel": "Passed",
+          "glyph": "ci-passed",
+          "tone": "green",
+          "commit": "aaaaaaa",
+          "ref": "main",
+          "trigger": "Push",
+          "subtitle": "main · aaaaaaa · Push",
+          "duration": "4m 30s",
+          "startedAt": "2026-11-13T09:00:00.000Z"
+        },
+        {
+          "id": "r9",
+          "identifier": "#9",
+          "title": "ci",
+          "status": "cancelled",
+          "statusLabel": "Cancelled",
+          "glyph": "ci-skipped",
+          "tone": "muted",
+          "commit": "eeeeeee",
+          "ref": "v1.0",
+          "trigger": "Tag",
+          "subtitle": "v1.0 · eeeeeee · Tag",
+          "duration": "10s",
+          "startedAt": "2026-11-13T08:00:00.000Z"
+        }
+      ]
+    }
+  ],
+  "pipelineRows": [
+    {
+      "name": "the newest run of each pipeline, by name",
+      "runs": [
+        {
+          "id": "r10",
+          "number": 10,
+          "name": "ci",
+          "state": "success"
+        },
+        {
+          "id": "r12",
+          "number": 12,
+          "name": "ci",
+          "state": "pending"
+        },
+        {
+          "id": "r11",
+          "number": 11,
+          "name": "nightly",
+          "state": "failure"
+        }
+      ],
+      "expected": [
+        {
+          "name": "ci",
+          "runId": "r12",
+          "state": "pending"
+        },
+        {
+          "name": "nightly",
+          "runId": "r11",
+          "state": "failure"
+        }
+      ]
+    },
+    {
+      "name": "no runs",
+      "runs": [],
+      "expected": []
+    }
+  ],
+  "requiredSuggestions": [
+    {
+      "name": "the newest run's checks of every pipeline, minus the required ones",
+      "required": [
+        "build"
+      ],
+      "runs": [
+        {
+          "id": "r1",
+          "number": 1,
+          "name": "ci"
+        },
+        {
+          "id": "r2",
+          "number": 2,
+          "name": "ci"
+        },
+        {
+          "id": "r3",
+          "number": 3,
+          "name": "lint"
+        }
+      ],
+      "jobs": [
+        {
+          "runId": "r1",
+          "check": "old-job"
+        },
+        {
+          "runId": "r2",
+          "check": "test (linux)"
+        },
+        {
+          "runId": "r2",
+          "check": "build"
+        },
+        {
+          "runId": "r3",
+          "check": "eslint"
+        },
+        {
+          "runId": "r2",
+          "check": "test (linux)"
+        }
+      ],
+      "expected": [
+        "eslint",
+        "test (linux)"
+      ]
+    }
+  ],
+  "secretName": [
+    {
+      "input": "NPM_TOKEN",
+      "valid": true
+    },
+    {
+      "input": "_X1",
+      "valid": true
+    },
+    {
+      "input": "npm_token",
+      "valid": false
+    },
+    {
+      "input": "1TOKEN",
+      "valid": false
+    },
+    {
+      "input": "",
+      "valid": false
+    },
+    {
+      "input": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "valid": false
+    },
+    {
+      "input": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "valid": true
+    }
+  ],
+  "switches": [
+    {
+      "provider": "github",
+      "expected": [
+        "githubStatuses",
+        "actionsRunners"
+      ]
+    },
+    {
+      "provider": "ecode",
+      "expected": []
+    }
+  ]
+}

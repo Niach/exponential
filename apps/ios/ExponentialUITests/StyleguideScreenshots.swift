@@ -1233,6 +1233,7 @@ final class StyleguideScreenshots: XCTestCase {
         // sg_call-controls (S-3, the round call buttons) · sg_call-pill (EXP-1681) ·
         // sg_device-readiness (EXP-1375) · sg_pr-checks (#EXP-1611) ·
         // sg_ci-run · sg_runner-settings (#EXP-1804) ·
+        // sg_repo-runs · sg_repo-ci (#EXP-1617) ·
         // sg_needs-you · sg_results-tab (#FEED-191): the
         // styleguide entries' specimens.
         walkSpecimens(app)
@@ -1282,7 +1283,7 @@ final class StyleguideScreenshots: XCTestCase {
         "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-header", "chat-transcript",
         "chat-menus", "chat-selection", "schedule-picker", "mention-pill", "voice-call",
         "call-controls", "call-pill", "device-readiness",
-        "sealed-locked", "plan-page", "pr-row", "pr-checks", "ci-run", "runner-settings", "session-row",
+        "sealed-locked", "plan-page", "pr-row", "pr-checks", "ci-run", "runner-settings", "repo-runs", "repo-ci", "session-row",
         "team-avatar", "device-attention", "share-targets", "share-composer", "composer-add-file",
         "needs-you", "results-tab", "record-form-field-states",
         "os-live-activity", "os-live-activity-island", "os-notification-actions",
@@ -1338,6 +1339,10 @@ final class StyleguideScreenshots: XCTestCase {
             // `specimen`s).
             case "ci-run": snapshot("sg_ci-run", settle: 2)
             case "runner-settings": snapshot("sg_runner-settings", settle: 2)
+            // #EXP-1617: the repo page's Runs tab + the CI section of a
+            // GitHub repo (repo-ci.json runRows[0]).
+            case "repo-runs": snapshot("sg_repo-runs", settle: 2)
+            case "repo-ci": snapshot("sg_repo-ci", settle: 2)
             // #EXP-1645 / #EXP-1643: the specimens of states no seed draws.
             case "team-avatar": snapshot("sg_team-avatar", settle: 2)
             case "device-attention": snapshot("sg_device-attention", settle: 2)

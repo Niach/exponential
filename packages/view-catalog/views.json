@@ -1678,6 +1678,81 @@
       }
     },
     {
+      "id": "repo-runs",
+      "group": "settings",
+      "title": "Repository runs",
+      "blurb": "The repo page's Runs tab (#EXP-1617, repo-ci.json): our own CI's runs newest first, a Table on wide screens (status, run, commit, branch, trigger, duration, started) and Rows on phones; a run opens its run page.",
+      "order": 32,
+      "web": {
+        "route": "/t/$teamSlug/repos/engine?tab=runs",
+        "anchor": {
+          "testId": "repo-runs",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "repo:engine:runs"
+        }
+      },
+      "ios": {
+        "shot": "sg_repo-runs",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_repo-runs",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "The seeded repo `acme/engine` with its seeded CI runs (seed-screenshots.ts).",
+        "web-mobile": "Inherits web.",
+        "desktop": "The repo page's Runs tab over the seeded runs.",
+        "ios": "The specimen in StyleguideScreenshots over repo-ci.json runRows, shot sg_repo-runs.",
+        "android": "See ios: the same specimen in StyleguideScreenshotsTest."
+      }
+    },
+    {
+      "id": "repo-ci",
+      "group": "settings",
+      "title": "Repository CI settings",
+      "blurb": "The CI section of the repo page's Settings tab (#EXP-1617, repo-ci.json): its pipelines with their state, the required checks, the secrets (names only; Add secret opens a dialog with a password field) and, for GitHub repos, Report to GitHub and GitHub Actions on team devices.",
+      "order": 33,
+      "web": {
+        "route": "/t/$teamSlug/repos/engine?tab=settings",
+        "anchor": {
+          "testId": "repo-ci",
+          "timeoutMs": 20000
+        },
+        "recipe": "scrollToRepoCi",
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "repo:engine:settings"
+        }
+      },
+      "ios": {
+        "shot": "sg_repo-ci",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_repo-ci",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "The seeded repo `acme/engine`'s Settings tab, scrolled to its CI section (seeded runs and secrets).",
+        "web-mobile": "Inherits web.",
+        "desktop": "The repo page's Settings tab.",
+        "ios": "The specimen in StyleguideScreenshots, shot sg_repo-ci.",
+        "android": "See ios: the same specimen in StyleguideScreenshotsTest."
+      }
+    },
+    {
       "id": "settings-widget",
       "group": "settings",
       "title": "Settings · Widget",

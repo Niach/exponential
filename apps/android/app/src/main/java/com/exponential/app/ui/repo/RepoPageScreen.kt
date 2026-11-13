@@ -44,7 +44,9 @@ import com.exponential.app.data.api.RepoSettings
 import com.exponential.app.data.api.TeamRepo
 import com.exponential.app.data.db.PullRequestEntity
 import com.exponential.app.domain.MergeTrain
+import com.exponential.app.domain.RepoCi
 import com.exponential.app.domain.RepoPage
+import com.exponential.app.ui.components.rememberTickingNow
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.GlassAlert
@@ -112,12 +114,16 @@ internal fun ChecksPill(state: String, dotOnly: Boolean = false) {
 @Composable
 fun RepoPageScreen(
     onBack: () -> Unit,
+    onOpenRun: (String) -> Unit = {},
     viewModel: RepoPageViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val prs by viewModel.prs.collectAsStateWithLifecycle()
     val isOwner by viewModel.isOwner.collectAsStateWithLifecycle()
     val failure by viewModel.failure.collectAsStateWithLifecycle()
+    val isManager by viewModel.isManager.collectAsStateWithLifecycle()
+    val ciRuns by viewModel.ciRuns.collectAsStateWithLifecycle()
+    val ciJobs by viewModel.ciJobs.collectAsStateWithLifecycle()
     FailedActionToast(failure, onShown = viewModel::clearFailure)
     var tab by rememberSaveable { mutableStateOf(viewModel.initialTab) }
     val repo = state.repo
@@ -160,7 +166,12 @@ fun RepoPageScreen(
                     size = EmptyStateSize.List,
                 )
                 tab == RepoPage.TAB_PULLS -> PullsTab(prs)
-                tab == RepoPage.TAB_RUNS -> EmptyState(title = RepoPage.Copy.Runs.EMPTY, size = EmptyStateSize.List)
+                tab == RepoPage.TAB_RUNS -> {
+                    // A pending run's duration ticks.
+                    val now = rememberTickingNow(ciRuns.any { it.state == "pending" && it.startedAt != null })
+                    val rows = remember(ciRuns, ciJobs, now) { RepoCi.runRows(ciRuns, ciJobs, now) }
+                    RepoRunsTab(rows, onOpenRun)
+                }
                 tab == RepoPage.TAB_BRANCHES -> BranchesTab(repo, state.branches, prs)
                 else -> SettingsTab(
                     repo = repo,
@@ -171,6 +182,19 @@ fun RepoPageScreen(
                     onSetDefaultBranch = viewModel::setDefaultBranch,
                     onSetMirror = viewModel::setMirror,
                     onRestore = viewModel::restore,
+                    ci = {
+                        RepoCiSection(
+                            provider = repo.provider,
+                            runs = ciRuns,
+                            jobs = ciJobs,
+                            ci = state.ci,
+                            canManage = isManager,
+                            onSetRequired = viewModel::setRequiredChecks,
+                            onSetSwitch = viewModel::setCiSwitch,
+                            onSaveSecret = viewModel::setSecret,
+                            onDeleteSecret = viewModel::deleteSecret,
+                        )
+                    },
                 )
             }
         }
@@ -280,6 +304,8 @@ private fun SettingsTab(
     onSetDefaultBranch: (String) -> Unit,
     onSetMirror: (String?, Boolean) -> Unit,
     onRestore: (String) -> Unit,
+    /** #EXP-1617: the CI section, after the repo's own rows. */
+    ci: @Composable () -> Unit = {},
 ) {
     val ecode = repo.provider == RepoPage.PROVIDER_ECODE
     if (ecode && settings == null) {
@@ -405,6 +431,7 @@ private fun SettingsTab(
                 }
             }
         }
+        ci()
     }
 
     restoreId?.let { backupId ->

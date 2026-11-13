@@ -864,6 +864,10 @@ interface CiRunDao {
     @Query("SELECT * FROM ci_runs WHERE id IN (:ids)")
     fun observeByIds(ids: List<String>): Flow<List<CiRunEntity>>
 
+    /** #EXP-1617 (repo-ci.json): a repository's runs (the Runs tab, the CI section). */
+    @Query("SELECT * FROM ci_runs WHERE repository_id = :repositoryId ORDER BY number DESC")
+    fun observeByRepository(repositoryId: String): Flow<List<CiRunEntity>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: CiRunEntity)
 
@@ -880,6 +884,10 @@ interface CiRunDao {
 interface CiJobDao {
     @Query("SELECT * FROM ci_jobs WHERE run_id = :runId ORDER BY position, id")
     fun observeByRun(runId: String): Flow<List<CiJobEntity>>
+
+    /** #EXP-1617 (repo-ci.json): the jobs of a repository's runs. */
+    @Query("SELECT * FROM ci_jobs WHERE run_id IN (SELECT id FROM ci_runs WHERE repository_id = :repositoryId) ORDER BY position, id")
+    fun observeByRepository(repositoryId: String): Flow<List<CiJobEntity>>
 
     @Query("SELECT * FROM ci_jobs WHERE runner_device_id = :deviceRowId ORDER BY started_at DESC LIMIT :limit")
     fun observeByRunner(deviceRowId: String, limit: Int): Flow<List<CiJobEntity>>

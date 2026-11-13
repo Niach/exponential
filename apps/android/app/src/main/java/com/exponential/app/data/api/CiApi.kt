@@ -39,6 +39,48 @@ internal data class CiSetRunnerInput(
     @SerialName("timeoutMin") val timeoutMin: Int,
 )
 
+/** #EXP-1617 (repo-ci.json): a repository's `ci_config`; absent keys = off / none. */
+@Serializable
+data class RepoCiConfig(
+    @SerialName("requiredChecks") val requiredChecks: List<String>? = null,
+    @SerialName("githubStatuses") val githubStatuses: Boolean? = null,
+    @SerialName("actionsRunners") val actionsRunners: Boolean? = null,
+)
+
+/** One secret's NAME (values are never read back). */
+@Serializable
+data class RepoCiSecret(@SerialName("name") val name: String, @SerialName("updatedAt") val updatedAt: String = "")
+
+/** `ci.repoSettings`'s answer. */
+@Serializable
+data class RepoCiSettings(
+    @SerialName("config") val config: RepoCiConfig = RepoCiConfig(),
+    @SerialName("secrets") val secrets: List<RepoCiSecret> = emptyList(),
+)
+
+@Serializable
+private data class CiRepoInput(@SerialName("repositoryId") val repositoryId: String)
+
+/** Nulls drop off the wire (the client's `explicitNulls = false`): only the
+ *  given keys change. */
+@Serializable
+private data class CiSetRepoConfigInput(
+    @SerialName("repositoryId") val repositoryId: String,
+    @SerialName("requiredChecks") val requiredChecks: List<String>? = null,
+    @SerialName("githubStatuses") val githubStatuses: Boolean? = null,
+    @SerialName("actionsRunners") val actionsRunners: Boolean? = null,
+)
+
+@Serializable
+private data class CiSetSecretInput(
+    @SerialName("repositoryId") val repositoryId: String,
+    @SerialName("name") val name: String,
+    @SerialName("value") val value: String,
+)
+
+@Serializable
+private data class CiDeleteSecretInput(@SerialName("repositoryId") val repositoryId: String, @SerialName("name") val name: String)
+
 @Singleton
 class CiApi @Inject constructor(private val trpc: TrpcClient) {
 
@@ -79,5 +121,47 @@ class CiApi @Inject constructor(private val trpc: TrpcClient) {
             path = "ci.setRunner",
             input = CiSetRunnerInput(deviceId, enabled, labels, slots, timeoutMin),
             inputSerializer = CiSetRunnerInput.serializer(),
+        )
+
+    /** `ci.repoSettings{repositoryId}`: the repo's CI config + secret names (members). */
+    suspend fun repoSettings(accountId: String, repositoryId: String): RepoCiSettings =
+        trpc.query(
+            accountId,
+            path = "ci.repoSettings",
+            input = CiRepoInput(repositoryId),
+            inputSerializer = CiRepoInput.serializer(),
+            outputSerializer = RepoCiSettings.serializer(),
+        )
+
+    /** `ci.setRepoConfig`: only the non-null keys change (the repo's managers). */
+    suspend fun setRepoConfig(
+        accountId: String,
+        repositoryId: String,
+        requiredChecks: List<String>? = null,
+        githubStatuses: Boolean? = null,
+        actionsRunners: Boolean? = null,
+    ) = trpc.mutationUnit(
+        accountId,
+        path = "ci.setRepoConfig",
+        input = CiSetRepoConfigInput(repositoryId, requiredChecks, githubStatuses, actionsRunners),
+        inputSerializer = CiSetRepoConfigInput.serializer(),
+    )
+
+    /** `ci.setSecret{repositoryId, name, value}` (creates or replaces). */
+    suspend fun setSecret(accountId: String, repositoryId: String, name: String, value: String) =
+        trpc.mutationUnit(
+            accountId,
+            path = "ci.setSecret",
+            input = CiSetSecretInput(repositoryId, name, value),
+            inputSerializer = CiSetSecretInput.serializer(),
+        )
+
+    /** `ci.deleteSecret{repositoryId, name}`. */
+    suspend fun deleteSecret(accountId: String, repositoryId: String, name: String) =
+        trpc.mutationUnit(
+            accountId,
+            path = "ci.deleteSecret",
+            input = CiDeleteSecretInput(repositoryId, name),
+            inputSerializer = CiDeleteSecretInput.serializer(),
         )
 }

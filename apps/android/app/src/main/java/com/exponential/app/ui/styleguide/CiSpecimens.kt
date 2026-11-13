@@ -14,11 +14,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.exponential.app.data.api.RepoCiConfig
+import com.exponential.app.data.api.RepoCiSecret
+import com.exponential.app.data.api.RepoCiSettings
 import com.exponential.app.domain.CiRun
+import com.exponential.app.domain.RepoCi
+import com.exponential.app.domain.RepoPage
 import com.exponential.app.domain.RunnerSettings
 import com.exponential.app.domain.WireTimestamps
 import com.exponential.app.ui.ci.CiRunPage
 import com.exponential.app.ui.ci.RunnerSettingsView
+import com.exponential.app.ui.repo.RepoCiSection
+import com.exponential.app.ui.repo.RepoRunsTab
 import com.exponential.app.ui.theme.AppBackground
 
 // #EXP-1617 / #EXP-1804: the two CI specimens the styleguide lane shoots
@@ -74,6 +81,73 @@ fun RunnerSettingsSpecimenScreen() {
                 owner = true,
                 recent = recent,
                 onChange = { settings = it },
+            )
+        }
+    }
+}
+
+const val RepoRunsSpecimenTestId = "repo-runs-specimen"
+const val RepoCiSpecimenTestId = "repo-ci-specimen"
+
+/** #EXP-1617 (repo-ci.json, shot sg_repo-runs): the repo page's Runs tab
+ *  over runRows[0] as a phone draws it (one Row per run). */
+@Composable
+fun RepoRunsSpecimenScreen() {
+    val now = WireTimestamps.parseEpochMs(RepoCi.SPECIMEN_NOW) ?: 0L
+    val rows = remember { RepoCi.runRows(RepoCi.SPECIMEN_RUNS, RepoCi.SPECIMEN_JOBS, now) }
+    AppBackground {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp)
+                .testTag(RepoRunsSpecimenTestId),
+        ) {
+            RepoRunsTab(rows, onOpenRun = {})
+        }
+    }
+}
+
+/** #EXP-1617 (repo-ci.json, shot sg_repo-ci): the Settings tab's CI section
+ *  of a GitHub repo over the same runs, a manager viewing (required `build`,
+ *  two secrets, Report to GitHub on). */
+@Composable
+fun RepoCiSpecimenScreen() {
+    var ci by remember {
+        mutableStateOf(
+            RepoCiSettings(
+                config = RepoCiConfig(requiredChecks = RepoCi.SPECIMEN_REQUIRED, githubStatuses = true, actionsRunners = false),
+                secrets = RepoCi.SPECIMEN_SECRETS.map { (name, at) -> RepoCiSecret(name, at) },
+            ),
+        )
+    }
+    AppBackground {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp)
+                .testTag(RepoCiSpecimenTestId),
+        ) {
+            RepoCiSection(
+                provider = RepoPage.PROVIDER_GITHUB,
+                runs = RepoCi.SPECIMEN_RUNS,
+                jobs = RepoCi.SPECIMEN_JOBS,
+                ci = ci,
+                canManage = true,
+                onSetRequired = { ci = ci.copy(config = ci.config.copy(requiredChecks = it)) },
+                onSetSwitch = { switch, on ->
+                    ci = ci.copy(
+                        config = when (switch) {
+                            RepoCi.Switch.GithubStatuses -> ci.config.copy(githubStatuses = on)
+                            RepoCi.Switch.ActionsRunners -> ci.config.copy(actionsRunners = on)
+                        },
+                    )
+                },
+                onSaveSecret = { _, _, done -> done(true) },
+                onDeleteSecret = {},
             )
         }
     }

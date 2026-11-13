@@ -6,11 +6,19 @@
 //! - Pull requests: `Section{tree}` of `repo_pr_tree` rows over the synced
 //!   `pull_requests` (`Row{depth, identifier, title, subtitle}`, the checks
 //!   `Chip{dot}` and the merge-train pill as its trailing meta);
-//! - Runs: the `EmptyState` until eCode CI (E4) fills it;
+//! - Runs (#EXP-1617 E4, repo-ci.json): a `Table` of `repo_ci::run_rows`
+//!   over the synced `ci_runs` / `ci_jobs` (the glyph `Icon` tinted by its
+//!   tone), a row opens the CI run page; none = the `EmptyState`;
 //! - Branches: `repo_branches` rows (`repositories.branches` for eCode,
 //!   `repositories.listBranches` names for GitHub);
 //! - Settings: `SettingsRow`s (provider, default branch, clone URL,
-//!   backups + Restore… behind an `AlertDialog`, mirror `Switch` + `Input`).
+//!   backups + Restore… behind an `AlertDialog`, mirror `Switch` + `Input`),
+//!   then the `CI` `Section` (repo-ci.json): the pipelines' `Row`s with the
+//!   checks `Chip{dot}`, the required checks `ChipInput`, the secrets `Table`
+//!   (delete behind an `AlertDialog`, Add secret = a `Dialog` with a password
+//!   `Input`) and the GitHub-only `Switch`es. Only the repo's managers (its
+//!   sharer or a team owner) change anything (`ci.repoSettings`,
+//!   `ci.setRepoConfig`, `ci.setSecret`, `ci.deleteSecret`).
 //!
 //! The tree is rebuilt whenever its data moves (the voice pane's way); the
 //! tab, the mirror draft, the switch and the alert stay bound at `/pane`.
@@ -24,7 +32,9 @@ use sync::Store;
 use eui_gpui::binding::Binding;
 use eui_gpui::view::SurfaceView;
 
+use domain::repo_ci;
 use domain::repo_page::{repo_branches, repo_pr_tree, RepoBranch, RepoPr, REPO_PAGE};
+use domain::rows::{CiJobRow, CiRunRow, PullRequestRow};
 
 use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
@@ -34,7 +44,8 @@ use super::repositories::{fetch_repositories, RepoRow};
 use super::SettingsSection;
 
 /// The dev drive's prefix: `name:<name>` = the repo whose full name ends in
-/// `/<name>` (`EXP_DEV_SETTINGS=repo:<name>`).
+/// `/<name>` (`EXP_DEV_SETTINGS=repo:<name>`; `repo:<name>:<tab>` opens
+/// that tab, the view-catalog's `repo-runs` / `repo-ci` drives).
 pub(crate) const BY_NAME: &str = "name:";
 
 /// What the page fetched (`None` = still loading).
@@ -45,17 +56,34 @@ struct Fetched {
     branches: Option<Result<Vec<RepoBranch>, String>>,
     /// eCode only (`repositories.settings`).
     settings: Option<Result<api::repositories::RepoSettings, String>>,
+    /// #EXP-1617: `ci.repoSettings` (the CI config and the secret names).
+    ci: Option<Result<api::ci::RepoCiSettings, String>>,
 }
 
-/// A pinned state for the headless bench.
-#[cfg(test)]
+/// A pinned state (the headless bench, the `repo-runs` / `repo-ci`
+/// specimens).
 pub(crate) struct RepoPageShot {
     pub repo: Value,
     pub owner: bool,
     pub tab: &'static str,
-    pub pulls: Vec<domain::rows::PullRequestRow>,
+    pub pulls: Vec<PullRequestRow>,
     pub branches: Option<Vec<(&'static str, &'static str)>>,
     pub settings: Option<Value>,
+    pub runs: Vec<CiRunRow>,
+    pub jobs: Vec<CiJobRow>,
+    /// `ci.repoSettings`'s answer.
+    pub ci: Option<Value>,
+    /// The clock of a running run's duration (`None` = the real one).
+    pub now_ms: Option<i64>,
+}
+
+/// The rows a pinned page shows instead of the synced ones.
+struct Pinned {
+    owner: bool,
+    pulls: Vec<PullRequestRow>,
+    runs: Vec<CiRunRow>,
+    jobs: Vec<CiJobRow>,
+    now_ms: Option<i64>,
 }
 
 pub struct RepoPage {
@@ -66,8 +94,7 @@ pub struct RepoPage {
     started: bool,
     /// The data the current tree was built from.
     built: Option<Value>,
-    #[cfg(test)]
-    shot: Option<(bool, Vec<domain::rows::PullRequestRow>)>,
+    shot: Option<Pinned>,
     binding: Entity<Binding<Value>>,
     view: Entity<SurfaceView>,
     _subscriptions: Vec<Subscription>,
@@ -77,15 +104,33 @@ const PATH: &str = "/pane";
 
 impl RepoPage {
     pub fn new(nav: Entity<Navigation>, key: String, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
-        let pulls = Store::global(cx).collections().pull_requests.clone();
-        let subscriptions = vec![cx.observe(&pulls, |_, _, cx| cx.notify()), cx.observe(&nav, |_, _, cx| cx.notify())];
+        let mut subscriptions = vec![cx.observe(&nav, |_, _, cx| cx.notify())];
+        if let Some(store) = Store::try_global(cx) {
+            let collections = store.collections().clone();
+            subscriptions.push(cx.observe(&collections.pull_requests, |_, _, cx| cx.notify()));
+            subscriptions.push(cx.observe(&collections.ci_runs, |_, _, cx| cx.notify()));
+            subscriptions.push(cx.observe(&collections.ci_jobs, |_, _, cx| cx.notify()));
+        }
         let page = cx.weak_entity();
         let handle = window.window_handle();
-        let tab = domain::repo_page::repo_tab(None);
+        // `name:<name>:<tab>` (the dev drive) opens on that tab.
+        let (key, tab) = match key.strip_prefix(BY_NAME).and_then(|rest| rest.split_once(':')) {
+            Some((name, tab)) => (format!("{BY_NAME}{name}"), domain::repo_page::repo_tab(Some(tab))),
+            None => (key, domain::repo_page::repo_tab(None)),
+        };
         let binding = cx.new(|_| {
-            let mut binding = Binding::new(PATH, json!({"tab": tab, "mirrorUrl": "", "mirrorEnabled": false, "restoreOpen": false}), |state: &Value, _| state.clone());
+            let mut binding = Binding::new(
+                PATH,
+                json!({"tab": tab, "mirrorUrl": "", "mirrorEnabled": false, "restoreOpen": false,
+                    "required": [], "githubStatuses": false, "actionsRunners": false,
+                    "secretOpen": false, "secretName": "", "secretValue": "", "secretInvalid": false, "deleteOpen": false, "deleteName": ""}),
+                |state: &Value, _| state.clone(),
+            );
             binding.set_toasts(Rc::new(IdeToasts));
-            for name in ["back", "retry", "tab", "pr", "copy", "branch", "restore", "restore_confirm", "restore_cancel", "mirror_edit", "mirror_save", "mirror_toggle"] {
+            for name in [
+                "back", "retry", "tab", "pr", "copy", "branch", "restore", "restore_confirm", "restore_cancel", "mirror_edit", "mirror_save", "mirror_toggle",
+                "run", "required", "ci_switch", "secret_add", "secret_edit", "secret_save", "secret_cancel", "secret_dialog", "secret_delete", "delete_confirm", "delete_cancel",
+            ] {
                 let page = page.clone();
                 binding.on_action(name, move |_, event, cx| {
                     let key = event.context.get("key").and_then(Value::as_str).unwrap_or_default().to_string();
@@ -102,7 +147,7 @@ impl RepoPage {
             binding
         });
         let view = mount_with("settings-repo", document(&Ink::of(cx), &json!({"phase": "loading"})), &binding, Rc::new(super::doc::ide_plugin()), true, window, cx);
-        Self { nav, key, fetched: Fetched::default(), started: false, built: None, #[cfg(test)] shot: None, binding, view, _subscriptions: subscriptions }
+        Self { nav, key, fetched: Fetched::default(), started: false, built: None, shot: None, binding, view, _subscriptions: subscriptions }
     }
 
     #[cfg(test)]
@@ -110,7 +155,39 @@ impl RepoPage {
         Self::new(crate::navigation::nav_for_window(window, cx), "r1".into(), window, cx)
     }
 
-    #[cfg(test)]
+    /// The `repo-runs` / `repo-ci` specimens: `acme/engine` over
+    /// repo-ci.json's runs, on `tab`.
+    pub(crate) fn specimen(tab: &'static str, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        let mut page = Self::new(crate::navigation::nav_for_window(window, cx), "r1".into(), window, cx);
+        let case = &repo_ci::REPO_CI["runRows"][0];
+        let mut runs = repo_ci::fixture_runs(&case["runs"]);
+        for run in &mut runs {
+            run.repository_id = Some("r1".into());
+        }
+        let mut jobs = repo_ci::fixture_jobs(&case["jobs"]);
+        for (index, (job, check)) in jobs.iter_mut().zip(["test (linux)", "build", "lint", "build", "build", "build"]).enumerate() {
+            job.id = format!("j{index}");
+            job.check = check.into();
+        }
+        page.show(
+            RepoPageShot {
+                repo: json!({"id": "r1", "fullName": "acme/engine", "provider": "github", "defaultBranch": "main", "boards": []}),
+                owner: true,
+                tab,
+                pulls: Vec::new(),
+                branches: Some(vec![("main", "")]),
+                settings: None,
+                runs,
+                jobs,
+                ci: Some(json!({"config": {"requiredChecks": ["build"], "githubStatuses": true, "actionsRunners": false},
+                    "secrets": [{"name": "NPM_TOKEN", "updatedAt": "2026-11-12T09:00:00.000Z"}, {"name": "SENTRY_AUTH_TOKEN", "updatedAt": "2026-11-13T08:15:00.000Z"}]})),
+                now_ms: case["now"].as_str().and_then(domain::instant::parse_instant),
+            },
+            cx,
+        );
+        page
+    }
+
     pub(crate) fn show(&mut self, shot: RepoPageShot, cx: &mut gpui::Context<Self>) {
         self.started = true;
         self.fetched.repo = Some(Ok(serde_json::from_value(shot.repo).expect("a repository row")));
@@ -123,34 +200,79 @@ impl RepoPage {
                 state["mirrorEnabled"] = json!(enabled);
             }, cx));
         }
+        self.fetched.ci = shot.ci.map(|ci| Ok(serde_json::from_value(ci).expect("CI settings")));
+        self.adopt_ci(cx);
         let tab = shot.tab;
         self.binding.update(cx, |binding, cx| binding.update_state(|state| state["tab"] = json!(tab), cx));
-        self.shot = Some((shot.owner, shot.pulls));
+        // A pinned clock: the Started / Updated relative times read off it.
+        if let Some(now) = shot.now_ms {
+            self.view.update(cx, |view, cx| view.set_clock(Some(now as f64), cx));
+        }
+        self.shot = Some(Pinned { owner: shot.owner, pulls: shot.pulls, runs: shot.runs, jobs: shot.jobs, now_ms: shot.now_ms });
         cx.notify();
     }
 
     fn pinned(&self) -> bool {
-        #[cfg(test)]
-        if self.shot.is_some() {
-            return true;
-        }
-        false
+        self.shot.is_some()
     }
 
     fn owner(&self, cx: &App) -> bool {
-        #[cfg(test)]
-        if let Some((owner, _)) = &self.shot {
-            return *owner;
+        if let Some(pinned) = &self.shot {
+            return pinned.owner;
         }
         active_team_id(&self.nav, cx).is_some_and(|team| super::is_owner(cx, &team))
     }
 
-    fn pull_rows(&self, repository_id: &str, cx: &App) -> Vec<domain::rows::PullRequestRow> {
-        #[cfg(test)]
-        if let Some((_, pulls)) = &self.shot {
-            return pulls.iter().filter(|pull| pull.repository_id.as_deref() == Some(repository_id)).cloned().collect();
+    /// #EXP-1617: the repo's managers = its sharer or a team owner.
+    fn manager(&self, cx: &App) -> bool {
+        if self.owner(cx) {
+            return true;
+        }
+        if self.pinned() {
+            return false;
+        }
+        let me = queries::active_account(cx).map(|account| account.user_id);
+        self.repo().and_then(|repo| repo.shared_by.as_ref()).is_some_and(|shared| me.as_deref() == Some(shared.id.as_str()))
+    }
+
+    fn pull_rows(&self, repository_id: &str, cx: &App) -> Vec<PullRequestRow> {
+        if let Some(pinned) = &self.shot {
+            return pinned.pulls.iter().filter(|pull| pull.repository_id.as_deref() == Some(repository_id)).cloned().collect();
         }
         Store::global(cx).collections().pull_requests.read(cx).iter().filter(|pull| pull.repository_id.as_deref() == Some(repository_id)).cloned().collect()
+    }
+
+    /// #EXP-1617: the repository's synced CI runs and their jobs.
+    fn ci_rows(&self, repository_id: &str, cx: &App) -> (Vec<CiRunRow>, Vec<CiJobRow>) {
+        let (runs, jobs): (Vec<CiRunRow>, Vec<CiJobRow>) = match &self.shot {
+            Some(pinned) => (pinned.runs.clone(), pinned.jobs.clone()),
+            None => match Store::try_global(cx) {
+                Some(store) => {
+                    let collections = store.collections();
+                    (collections.ci_runs.read(cx).iter().cloned().collect(), collections.ci_jobs.read(cx).iter().cloned().collect())
+                }
+                None => (Vec::new(), Vec::new()),
+            },
+        };
+        let runs: Vec<CiRunRow> = runs.into_iter().filter(|run| run.repository_id.as_deref() == Some(repository_id)).collect();
+        let jobs = jobs.into_iter().filter(|job| runs.iter().any(|run| run.id == job.run_id)).collect();
+        (runs, jobs)
+    }
+
+    fn now_ms(&self) -> i64 {
+        self.shot.as_ref().and_then(|pinned| pinned.now_ms).unwrap_or_else(crate::session_data::now_ms)
+    }
+
+    /// The loaded CI config into the bound controls (required checks, the
+    /// switches).
+    fn adopt_ci(&mut self, cx: &mut gpui::Context<Self>) {
+        let Some(Ok(ci)) = &self.fetched.ci else { return };
+        let config = ci.config.clone();
+        self.binding.update(cx, |binding, cx| binding.update_state(|state| {
+            state["required"] = json!(config.required_checks.clone().unwrap_or_default());
+            state["githubStatuses"] = json!(config.github_statuses.unwrap_or(false));
+            state["actionsRunners"] = json!(config.actions_runners.unwrap_or(false));
+        }, cx));
     }
 
     fn repo(&self) -> Option<&RepoRow> {
@@ -184,6 +306,7 @@ impl RepoPage {
                         if repo.provider() == "ecode" {
                             fetched.settings = Some(api::repositories::settings(&trpc, &repo.id).map_err(|err| err.user_message()));
                         }
+                        fetched.ci = Some(api::ci::repo_settings(&trpc, &repo.id).map_err(|err| err.user_message()));
                     }
                     fetched
                 })
@@ -197,6 +320,7 @@ impl RepoPage {
                     }, cx));
                 }
                 this.fetched = fetched;
+                this.adopt_ci(cx);
                 cx.notify();
             });
         })
@@ -207,17 +331,23 @@ impl RepoPage {
     fn reload(&mut self, cx: &mut gpui::Context<Self>) {
         let (Some(repo), Some(trpc)) = (self.repo().cloned(), queries::trpc_client(cx)) else { return };
         cx.spawn(async move |this, cx| {
-            let (branches, settings) = cx
+            let (branches, settings, ci) = cx
                 .background_executor()
                 .spawn(async move {
                     let settings = (repo.provider() == "ecode").then(|| api::repositories::settings(&trpc, &repo.id).map_err(|err| err.user_message()));
-                    (load_branches(&trpc, &repo), settings)
+                    let ci = api::ci::repo_settings(&trpc, &repo.id).map_err(|err| err.user_message());
+                    (load_branches(&trpc, &repo), settings, ci)
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 this.fetched.branches = Some(branches);
                 if settings.is_some() {
                     this.fetched.settings = settings;
+                }
+                // A failed re-read keeps what the page shows.
+                if ci.is_ok() || this.fetched.ci.is_none() {
+                    this.fetched.ci = Some(ci);
+                    this.adopt_ci(cx);
                 }
                 cx.notify();
             });
@@ -292,6 +422,105 @@ impl RepoPage {
                 let url = state["mirrorUrl"].as_str().unwrap_or_default().trim().to_string();
                 let enabled = state["mirrorEnabled"].as_bool().unwrap_or(false);
                 self.write("save", "the mirror", cx, move |trpc| api::repositories::set_mirror(trpc, &repo.id, (!url.is_empty()).then_some(url.as_str()), enabled));
+            }
+            _ => self.ci_action(name, key, payload, window, cx),
+        }
+    }
+
+    /// #EXP-1617: the Runs tab and the CI section's events.
+    fn ci_action(&mut self, name: &str, key: &str, payload: &Value, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let value = payload.get("value").and_then(Value::as_str).map(str::to_string);
+        let set = |page: &mut Self, cx: &mut gpui::Context<Self>, apply: &dyn Fn(&mut Value)| page.binding.update(cx, |binding, cx| binding.update_state(|state| apply(state), cx));
+        match name {
+            // A table row: the run page.
+            "run" => {
+                let run_id = payload.get("key").and_then(Value::as_str).filter(|id| !id.is_empty()).unwrap_or(key).to_string();
+                if !run_id.is_empty() && !self.pinned() {
+                    crate::navigation::navigate(window, cx, crate::navigation::Screen::CiRun { run_id, job: None });
+                }
+            }
+            "required" => {
+                let Some(values) = payload.get("values").and_then(Value::as_array) else { return };
+                let mut checks: Vec<String> = Vec::new();
+                for entry in values.iter().filter_map(Value::as_str).map(str::trim).filter(|entry| !entry.is_empty()) {
+                    if !checks.iter().any(|check| check == entry) {
+                        checks.push(entry.to_string());
+                    }
+                }
+                let bound = json!(checks.clone());
+                set(self, cx, &|state| state["required"] = bound.clone());
+                let Some(repo) = self.repo().cloned() else { return };
+                let input = api::ci::RepoCiConfigInput { repository_id: repo.id, required_checks: Some(checks), ..Default::default() };
+                self.write("save", "the required checks", cx, move |trpc| api::ci::set_repo_config(trpc, &input));
+            }
+            "ci_switch" => {
+                let checked = payload.get("checked").and_then(Value::as_bool).unwrap_or(false);
+                let field = key.to_string();
+                let Some(repo) = self.repo().cloned() else { return };
+                let mut input = api::ci::RepoCiConfigInput { repository_id: repo.id, ..Default::default() };
+                match field.as_str() {
+                    "githubStatuses" => input.github_statuses = Some(checked),
+                    "actionsRunners" => input.actions_runners = Some(checked),
+                    _ => return,
+                }
+                set(self, cx, &|state| state[field.as_str()] = json!(checked));
+                self.write("save", "the CI setting", cx, move |trpc| api::ci::set_repo_config(trpc, &input));
+            }
+            "secret_add" => set(self, cx, &|state| {
+                state["secretOpen"] = json!(true);
+                state["secretName"] = json!("");
+                state["secretValue"] = json!("");
+                state["secretInvalid"] = json!(false);
+            }),
+            "secret_edit" => {
+                let text = value.unwrap_or_default();
+                let field = if key == "value" { "secretValue" } else { "secretName" };
+                set(self, cx, &|state| {
+                    state[field] = json!(text);
+                    if field == "secretName" {
+                        state["secretInvalid"] = json!(false);
+                    }
+                });
+            }
+            "secret_cancel" => set(self, cx, &|state| state["secretOpen"] = json!(false)),
+            "secret_dialog" => {
+                if payload.get("open").and_then(Value::as_bool) == Some(false) {
+                    set(self, cx, &|state| state["secretOpen"] = json!(false));
+                }
+            }
+            "secret_save" => {
+                let state = self.binding.read(cx).state();
+                let (name, secret) = (state["secretName"].as_str().unwrap_or_default().trim().to_string(), state["secretValue"].as_str().unwrap_or_default().to_string());
+                if !repo_ci::secret_name(&name) {
+                    set(self, cx, &|state| state["secretInvalid"] = json!(true));
+                    return;
+                }
+                if secret.is_empty() {
+                    return;
+                }
+                set(self, cx, &|state| {
+                    state["secretOpen"] = json!(false);
+                    state["secretValue"] = json!("");
+                });
+                let Some(repo) = self.repo().cloned() else { return };
+                self.write("save", "the secret", cx, move |trpc| api::ci::set_secret(trpc, &repo.id, &name, &secret));
+            }
+            "secret_delete" => {
+                let secret = key.to_string();
+                set(self, cx, &|state| {
+                    state["deleteOpen"] = json!(true);
+                    state["deleteName"] = json!(secret.clone());
+                });
+            }
+            "delete_cancel" => set(self, cx, &|state| state["deleteOpen"] = json!(false)),
+            "delete_confirm" => {
+                let secret = self.binding.read(cx).state()["deleteName"].as_str().unwrap_or_default().to_string();
+                set(self, cx, &|state| state["deleteOpen"] = json!(false));
+                let Some(repo) = self.repo().cloned() else { return };
+                if secret.is_empty() {
+                    return;
+                }
+                self.write("delete", "the secret", cx, move |trpc| api::ci::delete_secret(trpc, &repo.id, &secret));
             }
             _ => {}
         }
@@ -379,12 +608,37 @@ impl RepoPage {
                 json!({"key": backup.id, "title": backup.created_at.get(..16).unwrap_or(&backup.created_at).replace('T', " "), "subtitle": format!("{refs} \u{b7} {}", crate::issue_files::format_bytes(backup.bytes))})
             })
             .collect();
+        let (runs, jobs) = self.ci_rows(&repo.id, cx);
+        let run_rows: Vec<Value> = repo_ci::run_rows(&runs, &jobs, self.now_ms())
+            .into_iter()
+            .map(|row| {
+                json!({"id": row.id, "glyph": row.glyph.concept(), "tone": icon_tone(row.tone), "statusLabel": row.status_label,
+                    "run": format!("{} {}", row.identifier, row.title), "commit": row.commit, "ref": row.r#ref, "trigger": row.trigger,
+                    "duration": row.duration.unwrap_or_default(), "started": row.started_at})
+            })
+            .collect();
+        let pipelines: Vec<Value> = repo_ci::pipeline_rows(&runs).into_iter().map(|row| json!({"name": row.name, "state": row.state})).collect();
+        let ci = match &self.fetched.ci {
+            None => Value::Null,
+            Some(Err(_)) => json!({"failed": true}),
+            Some(Ok(ci)) => {
+                let required = ci.config.required_checks.clone().unwrap_or_default();
+                let suggestions: Vec<Value> = repo_ci::required_suggestions(&runs, &jobs, &required).into_iter().map(|name| json!({"label": name, "value": name})).collect();
+                let secrets: Vec<Value> = ci.secrets.iter().map(|secret| json!({"name": secret.name, "updated": secret.updated_at})).collect();
+                json!({"suggestions": suggestions, "secrets": secrets})
+            }
+        };
         json!({
             "phase": "ready",
             "name": repo.full_name,
             "provider": copy.provider.label(repo.provider()),
             "ecode": ecode,
             "owner": owner,
+            "manager": self.manager(cx),
+            "runs": run_rows,
+            "pipelines": pipelines,
+            "ci": ci,
+            "switches": repo_ci::switches(repo.provider()),
             "pulls": pulls,
             "branches": branches,
             "defaultBranch": default_branch,
@@ -512,6 +766,126 @@ fn branches_tab(data: &Value) -> Value {
     column("branches", vec![json!({"id": "branches_list", "component": "Section", "children": rows})])
 }
 
+/// A pr-checks tone as the `Icon`'s (ci_run's `ICON_TONE`).
+fn icon_tone(tone: domain::pr_checks::CheckTone) -> &'static str {
+    match tone {
+        domain::pr_checks::CheckTone::Muted => "neutral",
+        domain::pr_checks::CheckTone::Green => "success",
+        domain::pr_checks::CheckTone::Red => "danger",
+    }
+}
+
+/// #EXP-1617 the Runs tab: a `Table` of the runs (a row opens its run
+/// page), or the empty state.
+fn runs_tab(data: &Value) -> Value {
+    let rows = data["runs"].as_array().cloned().unwrap_or_default();
+    if rows.is_empty() {
+        return column("runs", vec![empty("runs_empty", "ci-queued", &REPO_PAGE.copy.runs.empty)]);
+    }
+    let columns: Vec<Value> = repo_ci::run_columns()
+        .into_iter()
+        .map(|(key, label)| match key {
+            "status" => json!({"key": key, "label": label, "type": "slot", "slot": "status", "width": 128}),
+            "run" => json!({"key": key, "label": label, "truncate": true}),
+            "commit" => json!({"key": key, "label": label, "width": 84}),
+            "ref" => json!({"key": key, "label": label, "truncate": true}),
+            "trigger" => json!({"key": key, "label": label, "width": 112}),
+            "duration" => json!({"key": key, "label": label, "width": 88, "align": "end"}),
+            _ => json!({"key": key, "label": label, "type": "relativeTime", "width": 144, "truncate": true}),
+        })
+        .collect();
+    let status = json!({"id": "runs_status", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": 6, "minWidth": 0},
+        "children": [
+            {"id": "runs_status_glyph", "component": "Icon", "props": {"name": {"@path": "glyph"}, "tone": {"@path": "tone"}, "size": "sm"}},
+            {"id": "runs_status_label", "component": "Text", "props": {"text": {"@path": "statusLabel"}, "lines": 1}},
+        ]});
+    column("runs", vec![json!({"id": "runs_table", "component": "Table", "props": {"columns": columns, "rows": rows, "density": "compact"},
+        "on": {"rowPress": {"event": {"name": "run"}}}, "slots": {"status": status}})])
+}
+
+/// #EXP-1617 the Settings tab's `CI` `Section`: pipelines, required checks,
+/// secrets, the GitHub-only switches.
+fn ci_section(data: &Value) -> Value {
+    let copy = |path: &str| repo_ci::copy(path);
+    let manager = data["manager"].as_bool() == Some(true);
+    let mut children = Vec::new();
+    let pipelines = data["pipelines"].as_array().cloned().unwrap_or_default();
+    if pipelines.is_empty() {
+        children.push(json!({"id": "ci_pipelines_none", "component": "Text", "props": {"text": copy("ci.noPipeline"), "variant": "muted"}}));
+    } else {
+        let rows: Vec<Value> = pipelines
+            .iter()
+            .enumerate()
+            .map(|(ix, row)| {
+                let id = format!("ci_pipeline_{ix}");
+                let mut node = json!({"id": id, "component": "Row", "props": {"title": row["name"]}});
+                if let Some(chip) = checks_chip(&format!("{id}_checks"), row["state"].as_str()) {
+                    node["slots"] = json!({"trailing": chip});
+                }
+                node
+            })
+            .collect();
+        children.push(json!({"id": "ci_pipelines", "component": "Section", "style": {"width": "100%"}, "children": rows}));
+    }
+    let ci = &data["ci"];
+    if ci.is_null() {
+        children.push(json!({"id": "ci_skeleton", "component": "Skeleton", "props": {"rows": 2}}));
+    } else if ci["failed"].as_bool() != Some(true) {
+        children.push(json!({"id": "ci_required", "component": "SettingsRow", "props": {"label": copy("ci.required.label"), "description": copy("ci.required.description"), "stackBelow": "md"},
+            "children": [{"id": "ci_required_input", "component": "ChipInput",
+                "props": {"name": "requiredChecks", "values": {"@path": "/pane/required"}, "placeholder": copy("ci.required.placeholder"), "suggestions": ci["suggestions"], "disabled": !manager},
+                "on": {"change": {"event": {"name": "required"}}}}]}));
+        // The secrets (web `secretsNodes`): an h4 `Heading`, the `Table` (a
+        // ghost "Delete" per row for managers) or the muted empty line, then
+        // the outline Add secret.
+        children.push(json!({"id": "ci_secrets_heading", "component": "Heading", "props": {"text": copy("ci.secrets.title"), "level": "h4"}}));
+        let secrets = ci["secrets"].as_array().cloned().unwrap_or_default();
+        if secrets.is_empty() {
+            children.push(json!({"id": "ci_secrets_none", "component": "Text", "props": {"text": copy("ci.secrets.empty"), "variant": "muted"}}));
+        } else {
+            let mut columns = vec![
+                json!({"key": "name", "label": copy("ci.secrets.columns.name"), "truncate": true}),
+                json!({"key": "updated", "label": copy("ci.secrets.columns.updated"), "type": "relativeTime", "width": 160}),
+            ];
+            let mut table = json!({"id": "ci_secrets_table", "component": "Table", "props": {"rows": secrets, "rowKey": "name"}, "style": {"width": "100%"}});
+            if manager {
+                columns.push(json!({"key": "actions", "label": "", "type": "slot", "slot": "actions", "width": 104, "align": "end"}));
+                table["slots"] = json!({"actions": {"id": "ci_secret_delete", "component": "Button", "props": {"label": copy("ci.secrets.delete"), "variant": "ghost", "size": "sm"},
+                    "on": {"press": {"event": {"name": "secret_delete", "context": {"key": {"@path": "name"}}}}}}});
+            }
+            table["props"]["columns"] = json!(columns);
+            children.push(table);
+        }
+        if manager {
+            children.push(json!({"id": "ci_secret_add", "component": "Button", "props": {"label": copy("ci.secrets.add"), "variant": "outline", "size": "sm"},
+                "style": {"alignSelf": "flex-start"}, "on": {"press": {"event": {"name": "secret_add"}}}}));
+        }
+        for switch in data["switches"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+            children.push(json!({"id": format!("ci_{switch}"), "component": "SettingsRow", "props": {"label": copy(&format!("ci.{switch}.label")), "description": copy(&format!("ci.{switch}.description"))},
+                "children": [{"id": format!("ci_{switch}_switch"), "component": "Switch", "props": {"label": "", "name": switch, "checked": {"@path": format!("/pane/{switch}")}, "disabled": !manager},
+                    "on": {"change": {"event": {"name": "ci_switch", "context": {"key": switch}}}}}]}));
+        }
+    }
+    json!({"id": "ci", "component": "Section", "props": {"title": copy("ci.section")}, "children": children})
+}
+
+/// The Add secret `Dialog`: name (validated), the value as a password,
+/// Cancel / Save.
+fn secret_dialog() -> Value {
+    let copy = |path: &str| repo_ci::copy(path);
+    json!({"id": "secret_dialog", "component": "Dialog", "props": {"title": copy("ci.secrets.add"), "open": {"@path": "/pane/secretOpen"}},
+        "on": {"change": {"event": {"name": "secret_dialog"}}},
+        "children": [{"id": "secret_form", "component": "Form", "props": {"name": "secret"}, "on": {"submit": {"event": {"name": "secret_save"}}},
+            "children": [{"id": "secret_fields", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "gap": 12}, "children": [
+                {"id": "secret_name", "component": "Input", "props": {"label": copy("ci.secrets.name"), "name": "name", "placeholder": "NPM_TOKEN", "value": {"@path": "/pane/secretName"}},
+                    "on": {"change": {"event": {"name": "secret_edit", "context": {"key": "name"}}}}},
+                {"id": "secret_invalid", "component": "Text", "visible": {"@path": "/pane/secretInvalid"}, "props": {"text": copy("ci.secrets.invalid"), "variant": "caption", "tone": "danger"}},
+                {"id": "secret_value", "component": "Input", "props": {"type": "password", "label": copy("ci.secrets.value"), "name": "value", "value": {"@path": "/pane/secretValue"}},
+                    "on": {"change": {"event": {"name": "secret_edit", "context": {"key": "value"}}}}},
+                {"id": "secret_actions", "component": "FormActions", "props": {"submit": copy("ci.secrets.save"), "cancel": true}, "on": {"cancel": {"event": {"name": "secret_cancel"}}}},
+            ]}]}]})
+}
+
 /// A `SettingsRow` over `children`.
 fn setting(id: &str, label: &str, children: Vec<Value>) -> Value {
     json!({"id": id, "component": "SettingsRow", "props": {"label": label}, "children": children})
@@ -559,6 +933,7 @@ fn settings_tab(data: &Value) -> Value {
             "style": {"width": 320, "maxWidth": "100%"},
             "on": {"change": {"event": {"name": "mirror_edit"}}, "submit": {"event": {"name": "mirror_save"}}}})]));
     }
+    rows.push(ci_section(data));
     column("settings", rows)
 }
 
@@ -581,14 +956,17 @@ fn document(ink: &Ink, data: &Value) -> Value {
             "pulls" => pulls_tab(data),
             "branches" => branches_tab(data),
             "settings" => settings_tab(data),
-            _ => column("runs", vec![empty("runs_empty", "ci-queued", &REPO_PAGE.copy.runs.empty)]),
+            _ => runs_tab(data),
         })
         .collect();
     let tabs = json!({"id": "tabs", "component": "Tabs", "props": {"tabs": tabs, "value": {"@path": "/pane/tab"}, "variant": "pill"}, "on": {"change": {"event": {"name": "tab"}}}, "children": panels});
     let restore = json!({"id": "restore_alert", "component": "AlertDialog",
         "props": {"open": {"@path": "/pane/restoreOpen"}, "title": REPO_PAGE.copy.settings.restore_title, "confirmLabel": REPO_PAGE.copy.settings.restore_confirm, "destructive": true},
         "on": {"confirm": {"event": {"name": "restore_confirm"}}, "cancel": {"event": {"name": "restore_cancel"}}}});
-    root(vec![bar, tabs, restore])
+    let delete = json!({"id": "secret_delete_alert", "component": "AlertDialog",
+        "props": {"open": {"@path": "/pane/deleteOpen"}, "title": repo_ci::copy("ci.secrets.deleteTitle"), "confirmLabel": repo_ci::copy("ci.secrets.deleteConfirm"), "cancelLabel": repo_ci::copy("ci.secrets.cancel"), "destructive": true},
+        "on": {"confirm": {"event": {"name": "delete_confirm"}}, "cancel": {"event": {"name": "delete_cancel"}}}});
+    root(vec![bar, tabs, restore, delete, secret_dialog()])
 }
 
 #[cfg(test)]
@@ -601,7 +979,12 @@ mod tests {
                       {"key": "p2", "identifier": "#3", "title": "Child", "subtitle": "exp/b → exp/a", "depth": 1, "checks": null, "pill": "Draft", "pillGlyph": "pr-draft"}],
             "branches": [{"name": "main", "sha": "0123456", "isDefault": true, "pr": null}],
             "defaultBranch": "main", "branchNames": ["main"], "cloneUrl": "exp://acme/web",
-            "backups": [{"key": "b1", "title": "2026-11-12 10:00", "subtitle": "3 refs · 4 KB"}]})
+            "backups": [{"key": "b1", "title": "2026-11-12 10:00", "subtitle": "3 refs · 4 KB"}],
+            "manager": true, "switches": ["githubStatuses", "actionsRunners"],
+            "runs": [{"id": "r12", "glyph": "ci-running", "tone": "neutral", "statusLabel": "Running", "run": "#12 ci", "commit": "ccccccc", "ref": "feat/x", "trigger": "Pull request", "duration": "5m 0s", "started": "2026-11-13T10:25:00.000Z"},
+                     {"id": "r13", "glyph": "ci-queued", "tone": "neutral", "statusLabel": "Queued", "run": "#13 ci", "commit": "ddddddd", "ref": "main", "trigger": "Merge train", "duration": "", "started": null}],
+            "pipelines": [{"name": "ci", "state": "pending"}, {"name": "nightly", "state": "failure"}],
+            "ci": {"suggestions": [{"label": "lint", "value": "lint"}], "secrets": [{"name": "NPM_TOKEN", "updated": "2026-11-12T09:00:00.000Z"}]}})
     }
 
     #[test]
@@ -612,9 +995,17 @@ mod tests {
         bare["branches"] = json!([]);
         bare["backups"] = json!([]);
         bare["ecode"] = json!(false);
+        bare["runs"] = json!([]);
+        bare["pipelines"] = json!([]);
+        bare["ci"] = json!({"suggestions": [], "secrets": []});
+        bare["manager"] = json!(false);
+        bare["switches"] = json!([]);
         let mut skeleton = ready();
         skeleton["branches"] = Value::Null;
-        for data in [ready(), bare, skeleton, json!({"phase": "loading"}), json!({"phase": "failed"})] {
+        skeleton["ci"] = Value::Null;
+        let mut failed_ci = ready();
+        failed_ci["ci"] = json!({"failed": true});
+        for data in [ready(), bare, skeleton, failed_ci, json!({"phase": "loading"}), json!({"phase": "failed"})] {
             let tree = document(&ink, &data);
             let bound = super::super::doc::bound_values(&tree);
             let mut surface = eui_core::surface::Surface::new("settings-repo", Default::default());

@@ -249,6 +249,32 @@ async function recipeScrollAppSettingsEnd(page: Page): Promise<void> {
   await row.scrollIntoViewIfNeeded()
 }
 
+/** #EXP-1617 (repo-ci.json): the repo page's Settings tab scrolled so its CI
+ *  section (after the repo's own rows) starts the frame. */
+async function recipeScrollToRepoCi(page: Page): Promise<void> {
+  const section = page.getByTestId(`repo-ci`).filter({ visible: true }).first()
+  await section.waitFor({ state: `visible`, timeout: 30_000 })
+  // The secrets arrive after the section mounts (ci.repoSettings): until
+  // then the page is too short to bring the section up to the top.
+  await section.getByText(`Secrets`, { exact: true }).first().waitFor({ state: `visible`, timeout: 30_000 })
+  // The scroller that actually scrolls: the repo page's own box on wide
+  // screens, the DOCUMENT on phones (the page grows there). As far as it
+  // goes: on a short phone page that is the end, Add secret clear of the
+  // tab bar (TAB_BAR_CLEARANCE).
+  await section.evaluate((node) => {
+    let scroller: HTMLElement = (document.scrollingElement as HTMLElement | null) ?? document.documentElement
+    for (let el = node.parentElement; el; el = el.parentElement) {
+      const overflow = getComputedStyle(el).overflowY
+      if ((overflow === `auto` || overflow === `scroll`) && el.scrollHeight > el.clientHeight + 1) {
+        scroller = el
+        break
+      }
+    }
+    const top = scroller === document.scrollingElement ? 0 : scroller.getBoundingClientRect().top
+    scroller.scrollTop += node.getBoundingClientRect().top - top - 16
+  })
+}
+
 /**
  * EXP-1558: THE consent card (VAPP-120, app-actions.json) the way a person
  * raises it, as the natives' specimen words it: the seeded Working hours
@@ -1034,6 +1060,7 @@ export const RECIPES: Record<string, Recipe> = {
   openCsvImport: recipeOpenCsvImport,
   openAppVersionPreview: recipeOpenAppVersionPreview,
   scrollAppSettingsEnd: recipeScrollAppSettingsEnd,
+  scrollToRepoCi: recipeScrollToRepoCi,
   openAppConsent: recipeOpenAppConsent,
   openOnboardingJoin: recipeOpenOnboardingJoin,
   openOnboardingInvite: recipeOpenOnboardingInvite,
