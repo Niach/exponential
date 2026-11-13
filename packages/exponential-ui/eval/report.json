@@ -448,6 +448,7 @@
       "Ring",
       "Spinner",
       "VoiceWave",
+      "CountBadge",
       "CallSurface",
       "Sparkline",
       "Toggle",

@@ -1,7 +1,54 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
+
+// #FEED-219: the composer's field is a synced draft; the shape and the
+// tRPC writes are faked here (`synced` = the shape's rows).
+const drafts = vi.hoisted(() => ({
+  synced: [] as Array<{ key: string; text: string }>,
+  upsert: vi.fn(),
+  remove: vi.fn(),
+  echo: true,
+}))
+vi.mock(`@tanstack/react-db`, async (importOriginal) => {
+  const actual = (await importOriginal()) as Record<string, unknown>
+  return {
+    ...actual,
+    useLiveQuery: (build: (query: unknown) => unknown) => {
+      // Read the key the hook narrows by off its `eq(d.key, key)`.
+      let key: string | null = null
+      const query = {
+        from: () => ({
+          where: (fn: (row: { d: { key: string } }) => { args?: Array<{ value?: unknown }> }) => {
+            const clause = fn({ d: { key: `key` } })
+            key = (clause.args?.[1]?.value as string | undefined) ?? null
+            return query
+          },
+        }),
+      }
+      const built = build(query)
+      if (!built) return { data: undefined }
+      return { data: drafts.synced.filter((row) => key === null || row.key === key) }
+    },
+  }
+})
+vi.mock(`@/lib/collections`, () => ({
+  composerDraftCollection: {
+    utils: {
+      awaitTxId: () => (drafts.echo ? Promise.resolve(true) : new Promise(() => undefined)),
+    },
+  },
+}))
+vi.mock(`@/lib/trpc-client`, () => ({
+  trpc: {
+    composerDrafts: {
+      upsert: { mutate: (input: unknown) => (drafts.upsert(input), Promise.resolve({ txId: 1 })) },
+      delete: { mutate: (input: unknown) => (drafts.remove(input), Promise.resolve({ txId: 2 })) },
+    },
+  },
+}))
+
 import { CommentComposer } from "@/components/comment-composer"
-import { readTabMemory, resetTabMemory } from "@/lib/work-tab-memory"
+import { resetComposerDrafts } from "@/lib/composer-drafts"
 
 // EXP-568 — the composer grew the same four insert affordances the editor rail
 // carries, so the action row is a cross-client contract now. The `#` button in
@@ -136,44 +183,76 @@ describe(`CommentComposer onEmptyBlur`, () => {
   })
 })
 
-// EXP-894: a work-tab switch unmounts the issue route — the draft must come
-// back with it, and leave once it is posted.
-describe(`CommentComposer draft memory`, () => {
-  const draft = { owner: `issue:issue-draft`, slot: `comment` }
+// #FEED-219 (composer-draft.json): a tab switch unmounts the issue route, a
+// reload starts the page over — the text must come back from the draft, and
+// leave once it is posted.
+describe(`CommentComposer synced draft`, () => {
+  const draft = { target: { kind: `comment` as const, id: `issue-1` }, teamId: `team-1` }
+  const reset = () => {
+    resetComposerDrafts()
+    drafts.synced = []
+    drafts.upsert.mockClear()
+    drafts.remove.mockClear()
+    drafts.echo = true
+  }
+  const field = () => screen.getByPlaceholderText(`Leave a reply…`) as HTMLTextAreaElement
 
-  it(`restores typed text after an unmount`, () => {
-    resetTabMemory()
+  it(`restores typed text after an unmount before the write echoes`, async () => {
+    reset()
+    drafts.echo = false
     const first = render(
       <CommentComposer issueId="issue-1" users={[]} onSubmit={vi.fn()} draft={draft} />
     )
-    fireEvent.change(screen.getByPlaceholderText(`Leave a reply…`), {
-      target: { value: `half typed` },
-    })
+    fireEvent.change(field(), { target: { value: `half typed` } })
     first.unmount()
-
-    render(
-      <CommentComposer issueId="issue-1" users={[]} onSubmit={vi.fn()} draft={draft} />
+    // The unmount flushed the pending write at once.
+    await waitFor(() =>
+      expect(drafts.upsert).toHaveBeenCalledWith({
+        teamId: `team-1`,
+        key: `comment:issue-1`,
+        text: `half typed`,
+      })
     )
-    expect(
-      (screen.getByPlaceholderText(`Leave a reply…`) as HTMLTextAreaElement)
-        .value
-    ).toBe(`half typed`)
+
+    render(<CommentComposer issueId="issue-1" users={[]} onSubmit={vi.fn()} draft={draft} />)
+    expect(field().value).toBe(`half typed`)
   })
 
-  it(`forgets the draft once the comment posts`, async () => {
-    resetTabMemory()
+  it(`shows the synced draft on a fresh load`, () => {
+    reset()
+    drafts.synced = [{ key: `comment:issue-1`, text: `from the phone` }]
+    render(<CommentComposer issueId="issue-1" users={[]} onSubmit={vi.fn()} draft={draft} />)
+    expect(field().value).toBe(`from the phone`)
+  })
+
+  it(`deletes the draft once the comment posts`, async () => {
+    reset()
     const onSubmit = vi.fn().mockResolvedValue(undefined)
-    render(
-      <CommentComposer issueId="issue-1" users={[]} onSubmit={onSubmit} draft={draft} />
-    )
-    fireEvent.change(screen.getByPlaceholderText(`Leave a reply…`), {
-      target: { value: `ship it` },
-    })
+    render(<CommentComposer issueId="issue-1" users={[]} onSubmit={onSubmit} draft={draft} />)
+    fireEvent.change(field(), { target: { value: `ship it` } })
     fireEvent.click(screen.getByLabelText(`Send comment`))
     await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(`ship it`, [], `team`))
-    await waitFor(() =>
-      expect(readTabMemory(draft.owner, draft.slot)).toBeUndefined()
+    await waitFor(() => expect(drafts.remove).toHaveBeenCalledWith({ key: `comment:issue-1` }))
+    expect(field().value).toBe(``)
+  })
+
+  it(`Cancel discards a reply draft`, async () => {
+    reset()
+    drafts.synced = [{ key: `reply:c-1`, text: `a reply` }]
+    const onCancel = vi.fn()
+    render(
+      <CommentComposer
+        issueId="issue-1"
+        users={[]}
+        onSubmit={vi.fn()}
+        onCancel={onCancel}
+        draft={{ target: { kind: `reply`, id: `c-1` }, teamId: `team-1` }}
+      />
     )
+    expect(field().value).toBe(`a reply`)
+    fireEvent.click(screen.getByText(`Cancel`))
+    expect(onCancel).toHaveBeenCalled()
+    await waitFor(() => expect(drafts.remove).toHaveBeenCalledWith({ key: `reply:c-1` }))
   })
 })
 

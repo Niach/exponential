@@ -76,6 +76,15 @@ describe(`githubForge`, () => {
     expect(await githubForge.dispatchPipeline(repo, inputs)).toMatchObject({ ok: false, missing: true })
   })
 
+  it(`#FEED-223: an installation without Actions has no pipeline; any other refusal stays an error`, async () => {
+    const inputs = { train_id: `t1`, base: `develop`, base_sha: `b0`, mode: `untested` as const, units: `[]` }
+    on(`POST`, `/actions/workflows/train.yml/dispatches`, 403, { message: `Resource not accessible by integration` })
+    expect(await githubForge.dispatchPipeline(repo, inputs)).toMatchObject({ ok: false, missing: true })
+    routes = []
+    on(`POST`, `/actions/workflows/train.yml/dispatches`, 422, { message: `Unexpected inputs provided` })
+    expect(await githubForge.dispatchPipeline(repo, inputs)).toMatchObject({ ok: false, missing: false })
+  })
+
   it(`reads the exp-train report; a finished run without one is finished with no outcome`, async () => {
     const outcome = { train: `t1`, base_sha: `b0`, head: `c1`, checks: `dispatched`, units: [], error: null }
     on(`GET`, `/commits/exp-train/t1/check-runs`, 200, {

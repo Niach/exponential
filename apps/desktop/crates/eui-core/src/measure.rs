@@ -283,6 +283,8 @@ impl FixedMeasure {
                 (FIXED_CHAR_WIDTH * widest, leaf.text_style.line_height.max(FIXED_LINE_HEIGHT) * lines)
             }
             "Text" | "Link" => (FIXED_CHAR_WIDTH * Self::chars(text), leaf.text_style.line_height.max(FIXED_LINE_HEIGHT)),
+            // #FEED-232: the label (the core put it in `text`) + the side padding.
+            "CountBadge" => (FIXED_CHAR_WIDTH * Self::chars(text) + 2.0 * c.padding_horizontal, c.height.unwrap_or(16.0)),
             "Markdown" => {
                 let lines = text.lines().count().max(1) as f32;
                 let widest = text.lines().map(Self::chars).fold(0.0, f32::max);

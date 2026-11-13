@@ -14,8 +14,6 @@ import {
   chatRunMarkState,
 } from "@exp/ui"
 import { sessionCollection } from "@/lib/collections"
-import { chatsUnread } from "@exp/domain-contract/chats"
-import type { TreeSessionRead } from "@exp/domain-contract/session-tree"
 import {
   CHATS_LIST_COPY,
   railChats,
@@ -74,23 +72,6 @@ export interface SidebarChats {
   groups: ChatsListGroup[]
   /** A row's quiet word (its root's PRs), what keeps a Recent row Active. */
   wordOf: (row: ChatsListRow) => ChatRowWord | null
-}
-
-/** The nav's live state for the Chats entry: green while anything runs,
- *  yellow while something needs you; EXP-1323: else the unread dot while a
- *  chat holds a reply the viewer has not read; #EXP-1388: an archived
- *  chat never lights it (`chatsUnread(groups, reads)`). */
-export function chatsNavState(
-  groups: readonly ChatsListGroup[],
-  reads: readonly TreeSessionRead[] = []
-): {
-  live: boolean
-  needsYou: boolean
-  unread: boolean
-} {
-  const needsYou = groups.some((group) => group.key === `needs_you` && group.rows.length > 0)
-  const running = groups.some((group) => group.key === `running` && group.rows.length > 0)
-  return { live: needsYou || running, needsYou, unread: chatsUnread(groups, reads) }
 }
 
 /** A chat row's mark state (EXP-1312): THE one in `@exp/ui`. */

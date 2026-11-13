@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- `CountBadge` (#FEED-232): `CountBadgeNative`, one span with `countBadgeLabel`, nothing at 0 or below; `count-badge.test.tsx`.
 - `accessibility.selected` / `.expanded` (#EXP-1629): aria-selected (+ aria-current without a selection role), aria-expanded; `a11y-states.test.tsx` replays the fixture.
 - Input / Textarea `style.color` colours the typed text (#EXP-1787): the shared node sheet's rule on the field element (`color`, `caret-color` pinned to the `field` recipe's; the placeholder untouched); `interactions-fixture.test.tsx` replays `fieldInk`.
 - Style key `fontVariantNumeric: tabular-nums`: CSS `font-variant-numeric` through the shared node sheet.

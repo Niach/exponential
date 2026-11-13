@@ -1,8 +1,10 @@
-import type * as React from "react"
+import { useMemo } from "react"
 import { Link } from "@tanstack/react-router"
+import { agentChatRows } from "@exp/domain-contract/chats"
+import { rowBadge, type CountBadgeValue } from "@exp/domain-contract/nav-badges"
 import {
   AGENT_ROW_MENU_KIND,
-  ClaudeSpinner,
+  Badge,
   conceptIcon,
   ExponentialLogo,
   getActionIcon,
@@ -14,17 +16,19 @@ import {
   SidebarMenu,
   SidebarMenuAction,
   SidebarMenuButton,
-  SidebarMenuDot,
   SidebarMenuItem,
   SidebarMenuTrailing,
 } from "@exp/ui"
 import { CHATS_LIST_COPY, type AgentRow } from "@/lib/session-tree"
 import { cn } from "@/lib/utils"
+import { useTeamAgentRows } from "@/hooks/use-agent-row"
+import { useDigestMessages, useSessionReads, useTeamSessions } from "@/hooks/use-session-tree"
 
 // EXP-1293: the rail's AGENTS section, ABOVE Boards and drawn like them —
 // one row per team agent (`listAgents`, fixture-locked: sortOrder, then
-// name): its icon in its color + its name, a spinner while it works, an
-// yellow dot while it needs you. A row opens the agent's channel; owners get
+// name): its icon in its color + its name, and (#FEED-232) THE count badge
+// `rowBadge` of the viewer's conversation with it (unread agent messages,
+// yellow while it needs you; busy alone = no badge). A row opens the agent's channel; owners get
 // the gear to its settings, and the "+" files a new agent.
 
 const UiAddIcon = conceptIcon(`ui-add`)
@@ -49,36 +53,53 @@ export function AgentIcon({
   return <Icon className={cn(`size-4 shrink-0`, className)} style={{ color: agent.color }} />
 }
 
-/** The trailing state: the spinner while busy, else yellow when it needs you,
- *  in the row's trailing column (EXP-1477). */
-function AgentState({
-  agent,
+/** #FEED-232: each agent row's count badge (`rowBadge` over the viewer's
+ *  conversation's unread agent messages, `agentChatRows`), keyed by agent.
+ *  The scope adds the viewer's global Assistant's personal team. */
+export function useAgentBadges(
+  teamId: string | undefined,
+  agents: readonly AgentRow[],
+  me: string | null | undefined
+): ReadonlyMap<string, CountBadgeValue> {
+  const teamAgents = useTeamAgentRows(teamId ? [teamId] : [], me)
+  const personal = teamAgents.find((agent) => agent.teamId !== teamId)?.teamId ?? null
+  const scope = useMemo(() => (teamId ? (personal ? [teamId, personal] : [teamId]) : []), [teamId, personal])
+  const { tree } = useTeamSessions(scope)
+  const { messages } = useDigestMessages({ teamIds: scope })
+  const reads = useSessionReads()
+  return useMemo(() => {
+    const rows = agentChatRows({
+      agents,
+      sessions: tree,
+      messages,
+      reads,
+      me: me ?? null,
+      now: new Date(0).toISOString(),
+      utcOffsetMinutes: 0,
+    })
+    return new Map(rows.map((row) => [row.agentId, rowBadge(row)]))
+  }, [agents, tree, messages, reads, me])
+}
+
+/** The trailing count badge, in the row's trailing column (EXP-1477). */
+function AgentBadge({
+  badge,
   yieldsOnHover = false,
 }: {
-  agent: Pick<AgentRow, `busy` | `needsYou`>
+  badge: CountBadgeValue | undefined
   /** The owner's hover gear takes the same column. */
   yieldsOnHover?: boolean
 }) {
-  let mark: React.ReactNode = null
-  if (agent.needsYou) {
-    mark = (
-      <SidebarMenuDot
-        aria-hidden
-        tone="needsYou"
-        data-testid="agent-needs-you"
-        className="pointer-events-none"
-      />
-    )
-  } else if (agent.busy) {
-    mark = <ClaudeSpinner className="size-3.5" />
-  }
-  if (!mark) return null
+  if (!badge || badge.count <= 0) return null
   return (
     <SidebarMenuTrailing
-      aria-hidden
       className={cn(`pointer-events-none`, yieldsOnHover && `group-hover/menu-item:opacity-0`)}
     >
-      {mark}
+      <Badge
+        count={badge.count}
+        tone={badge.tone}
+        data-testid={badge.tone === `attention` ? `agent-needs-you` : `agent-unread`}
+      />
     </SidebarMenuTrailing>
   )
 }
@@ -88,9 +109,12 @@ export function SidebarAgentsSection({
   agents,
   isOwner,
   activeAgentId,
+  badges,
 }: {
   teamSlug: string
   agents: readonly AgentRow[]
+  /** #FEED-232: `useAgentBadges`, by agent id. */
+  badges?: ReadonlyMap<string, CountBadgeValue>
   isOwner: boolean
   activeAgentId: string | null
 }) {
@@ -128,7 +152,7 @@ export function SidebarAgentsSection({
                   <span className="min-w-0 flex-1 truncate">{agent.name}</span>
                 </Link>
               </SidebarMenuButton>
-              <AgentState agent={agent} yieldsOnHover={isOwner} />
+              <AgentBadge badge={badges?.get(agent.agentId)} yieldsOnHover={isOwner} />
               {isOwner && (
                 <SidebarMenuAction asChild showOnHover title="Agent settings">
                   <Link

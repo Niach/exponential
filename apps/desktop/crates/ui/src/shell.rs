@@ -253,11 +253,10 @@ pub struct Shell {
     /// window's size (see [`crate::window_size::WindowSizeTracker`]). Only
     /// ordinal 0 observes bounds, so it is inert on further windows.
     size_tracker: crate::window_size::WindowSizeTracker,
-    /// EXP-1075/EXP-1294: my own live chats per team — what the fixed
-    /// header's team switcher draws its dot from. Held (not derived per
-    /// paint) so the switcher repaints only when a team's tally actually
-    /// moves.
-    team_live_runs: BTreeMap<String, crate::session_data::TeamLiveRuns>,
+    /// #FEED-232: each team's needs-you count — the team switcher's badges
+    /// and the OS app icon. Held (not derived per paint) so the switcher
+    /// repaints only when a count actually moves.
+    team_needs_you: BTreeMap<String, usize>,
 }
 
 impl Shell {
@@ -295,10 +294,13 @@ impl Shell {
         let shared = Store::global(cx).state();
         cx.observe(&shared, |_, _, cx| cx.notify()).detach();
 
-        // EXP-1075/EXP-1294: the team switcher's live dot — its only input
-        // is the synced `sessions` rows (`session_data::own_live_roots_by_team`).
+        // #FEED-232: the team switcher's counts (`needs_you::counts_by_team`).
         let collections = Store::global(cx).collections().clone();
         cx.observe(&collections.sessions, |this: &mut Self, _, cx| {
+            this.refresh_team_runs(cx)
+        })
+        .detach();
+        cx.observe(&collections.pull_requests, |this: &mut Self, _, cx| {
             this.refresh_team_runs(cx)
         })
         .detach();
@@ -313,7 +315,8 @@ impl Shell {
         }) {
             subscription.detach();
         }
-        let team_live_runs = crate::session_data::own_live_roots_by_team(cx);
+        let team_needs_you = crate::needs_you::counts_by_team(cx);
+        crate::app_badge::set(domain::nav_badges::app_icon_badge(team_needs_you.values().map(|n| *n as i64)));
 
         // Re-render when the launch-time update check flips the "update
         // available" flag (§11.2) so the dismissible banner appears without a
@@ -529,18 +532,19 @@ impl Shell {
             size_tracker: crate::window_size::WindowSizeTracker::new(
                 crate::window_size::launch_size(),
             ),
-            team_live_runs,
+            team_needs_you,
         }
     }
 
-    /// EXP-1075 — re-derive the team switcher's live tally
-    /// ([`crate::session_data::own_live_roots_by_team`]). Notifies ONLY when
-    /// the map moved: every session delta fires far more often than a dot
+    /// #FEED-232 — re-derive each team's needs-you count
+    /// ([`crate::needs_you::counts_by_team`]). Notifies ONLY when the map
+    /// moved: every session delta fires far more often than a count
     /// changes, and the fixed header repaints the whole column.
     fn refresh_team_runs(&mut self, cx: &mut gpui::Context<Self>) {
-        let next = crate::session_data::own_live_roots_by_team(cx);
-        if next != self.team_live_runs {
-            self.team_live_runs = next;
+        let next = crate::needs_you::counts_by_team(cx);
+        if next != self.team_needs_you {
+            crate::app_badge::set(domain::nav_badges::app_icon_badge(next.values().map(|n| *n as i64)));
+            self.team_needs_you = next;
             cx.notify();
         }
     }
@@ -616,7 +620,7 @@ impl Shell {
             cx,
         );
         let nav = navigation::nav_for_window(window, cx);
-        let live = self.team_live_runs.clone();
+        let live = self.team_needs_you.clone();
         self.header.update(cx, |header, cx| header.refresh(&nav, &live, cx));
         let header = self.header.clone();
 

@@ -340,6 +340,28 @@ pub fn save(data_dir: &Path, cache: &UsageCache) {
     save_unlocked(data_dir, cache);
 }
 
+/// #FEED-211 — write ONE login's entry: load, replace that key, save, under
+/// the process lock. A collection pass runs its logins on parallel threads,
+/// and each persists its own claim before its slow step; a whole-cache
+/// [`save`] from one of them would roll its siblings' claims back.
+pub fn store_entry(data_dir: &Path, key: &str, entry: &AgentCacheEntry) {
+    store_entries(data_dir, &[(key.to_string(), entry.clone())]);
+}
+
+/// [`store_entry`] for several logins in one load-modify-save. Nothing to
+/// write = no write at all.
+pub fn store_entries(data_dir: &Path, entries: &[(String, AgentCacheEntry)]) {
+    if entries.is_empty() {
+        return;
+    }
+    let _guard = locked();
+    let mut cache = load_unlocked(data_dir);
+    for (key, entry) in entries {
+        cache.insert(key.clone(), entry.clone());
+    }
+    save_unlocked(data_dir, &cache);
+}
+
 fn save_unlocked(data_dir: &Path, cache: &UsageCache) {
     let mut object = serde_json::Map::new();
     for (agent, entry) in &cache.entries {

@@ -32,7 +32,7 @@ struct IssueRefSearchSheetModifier: ViewModifier {
             .sheet(item: $presented, onDismiss: finish) { request in
                 IssueRefSearchSheet(
                     initialQuery: request.query,
-                    local: model.issueRefSearch,
+                    local: model.issueRefLocalSearch ?? model.issueRefSearch.map { search in { search($0) } },
                     remote: model.issueRefRemoteSearch,
                     onPick: { candidate in
                         pick = candidate
@@ -69,7 +69,7 @@ extension View {
 /// The sheet's body: the search list over the editor's issue scope.
 struct IssueRefSearchSheet: View {
     let initialQuery: String
-    let local: ((String) -> [IssueRefCandidate])?
+    let local: ((String) async -> [IssueRefCandidate])?
     let remote: ((String) async -> [IssueRefCandidate])?
     let onPick: (IssueRefCandidate) -> Void
     let onBackspaceEmpty: () -> Void
@@ -79,7 +79,7 @@ struct IssueRefSearchSheet: View {
 
     init(
         initialQuery: String,
-        local: ((String) -> [IssueRefCandidate])?,
+        local: ((String) async -> [IssueRefCandidate])?,
         remote: ((String) async -> [IssueRefCandidate])?,
         onPick: @escaping (IssueRefCandidate) -> Void,
         onBackspaceEmpty: @escaping () -> Void
@@ -112,10 +112,12 @@ struct IssueRefSearchSheet: View {
         .task(id: query) { await search(query) }
     }
 
-    /// Local first (instant), then the server splice once the keystrokes
-    /// settle — applied only while the query it answered is still typed.
+    /// Local first (read off main, #PERF-5), then the server splice once the
+    /// keystrokes settle — applied only while the query it answered is still typed.
     private func search(_ query: String) async {
-        results = local?(query) ?? []
+        let rows = await local?(query) ?? []
+        guard !Task.isCancelled else { return }
+        results = rows
         guard let remote, !IssueSearch.normalizeQuery(query).isEmpty else { return }
         try? await Task.sleep(nanoseconds: 250_000_000)
         guard !Task.isCancelled else { return }

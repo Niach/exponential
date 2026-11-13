@@ -1,0 +1,27 @@
+{
+  "$comment": "#FEED-219: EVERY composer keeps its own DRAFT, synced across the person's devices like the issue drafts (issue-draft.json), x4 (web `lib/composer-drafts.ts` + `hooks/use-composer-draft.ts`; desktop, iOS ExpCore `ComposerDraft.swift`, Android `domain/ComposerDraft.kt` replay this file in their own PRs). Model = pure `src/composer-draft.ts`; every mirror replays `keys`, `writes` and `fields` and compares the WHOLE expected value. STORAGE: one `composer_drafts` row per (user, key), private to its author (the shape is the static `user_id = me`, like `issue_drafts` and `pins`), carrying the team the target lives in, the key and the TEXT (attachments are never kept: a picked file stays only while the composer is open). KEYS (`keys`): the target the composer writes to, `<kind>:<id>`: `comment` = the issue's bottom comment composer (wide and the phones' sheet share it), `reply` = the reply composer under a comment card (the thread's top comment), `session` = a session's composer (a chat, an agent's conversation, a raw session, an app editor's session), `agent` = an agent's composer before its conversation exists, `app` = an app editor's composer before its first session, `newChat` = the team's New chat composer (the home and the start dialog share it). Editing an existing comment keeps no draft. An unknown kind or a missing id parses to null (a client ignores that row). WRITES (`writes`): the field's text, written `debounceMs` after the last keystroke, at once when the composer goes away (a tab switch, navigation, the page hiding) and after a send settles; a text that is empty or only whitespace DELETES the row (a send that cleared the field, an emptied field, a reply's Cancel = discard), anything else upserts it verbatim. A failed write is silent: the field keeps its text and the next write retries. FIELD (`fields`): what the field shows. Once the person has EDITED the field since the composer opened, the field is theirs (no synced row, no other device ever overwrites it); until then it shows this client's own write not yet echoed back (`local`, so a remount right after typing never flashes an older copy), else the synced row's text, else empty; so a cold load whose row arrives late fills in, and a draft sent or discarded on another device empties an untouched field. A send applies composer-send.json, then writes the field it leaves.",
+  "debounceMs": 800,
+  "keys": [
+    { "name": "the issue's comment composer", "target": { "kind": "comment", "id": "6f1c2a40-0000-4000-8000-000000000001" }, "key": "comment:6f1c2a40-0000-4000-8000-000000000001" },
+    { "name": "a reply under a comment", "target": { "kind": "reply", "id": "6f1c2a40-0000-4000-8000-000000000002" }, "key": "reply:6f1c2a40-0000-4000-8000-000000000002" },
+    { "name": "a session's composer", "target": { "kind": "session", "id": "6f1c2a40-0000-4000-8000-000000000003" }, "key": "session:6f1c2a40-0000-4000-8000-000000000003" },
+    { "name": "an agent before its conversation", "target": { "kind": "agent", "id": "6f1c2a40-0000-4000-8000-000000000004" }, "key": "agent:6f1c2a40-0000-4000-8000-000000000004" },
+    { "name": "an app editor before its session", "target": { "kind": "app", "id": "6f1c2a40-0000-4000-8000-000000000005" }, "key": "app:6f1c2a40-0000-4000-8000-000000000005" },
+    { "name": "the team's New chat composer", "target": { "kind": "newChat", "id": "6f1c2a40-0000-4000-8000-000000000006" }, "key": "newChat:6f1c2a40-0000-4000-8000-000000000006" }
+  ],
+  "unparsable": ["", "comment", "comment:", "thread:6f1c2a40-0000-4000-8000-000000000001", ":6f1c2a40-0000-4000-8000-000000000001"],
+  "writes": [
+    { "name": "text upserts verbatim", "text": "  looks good, one nit\n", "expected": { "op": "upsert", "text": "  looks good, one nit\n" } },
+    { "name": "an empty field deletes", "text": "", "expected": { "op": "delete" } },
+    { "name": "whitespace only deletes", "text": " \n\t ", "expected": { "op": "delete" } }
+  ],
+  "fields": [
+    { "name": "a fresh composer with no draft is empty", "input": { "field": "", "edited": false, "local": null, "synced": null }, "expected": "" },
+    { "name": "a reload shows the synced draft", "input": { "field": "", "edited": false, "local": null, "synced": "half a thought" }, "expected": "half a thought" },
+    { "name": "a remount right after typing shows its own unechoed write", "input": { "field": "", "edited": false, "local": "half a thought, more", "synced": "half a thought" }, "expected": "half a thought, more" },
+    { "name": "an untouched field follows another device's edit", "input": { "field": "old", "edited": false, "local": null, "synced": "new from the phone" }, "expected": "new from the phone" },
+    { "name": "an untouched field empties when the draft was sent elsewhere", "input": { "field": "old", "edited": false, "local": null, "synced": null }, "expected": "" },
+    { "name": "an edited field is never overwritten", "input": { "field": "mine", "edited": true, "local": "mine", "synced": "from the phone" }, "expected": "mine" },
+    { "name": "an edited field emptied stays empty", "input": { "field": "", "edited": true, "local": null, "synced": "from the phone" }, "expected": "" }
+  ]
+}

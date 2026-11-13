@@ -1,5 +1,6 @@
 import { agentForwardText } from "@exp/domain-contract/session-brief"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useComposerDraft } from "@/hooks/use-composer-draft"
 import { sendSessionMessage } from "@/lib/enet/send-sealed"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
 import { useNavigate } from "@tanstack/react-router"
@@ -320,7 +321,9 @@ export function useLaunchComposer({
 }): LaunchComposerModel {
   const navigate = useNavigate()
   const [subject, setSubject] = useState<LaunchSubject>(null)
-  const [text, setText] = useState(``)
+  // #FEED-219 (composer-draft.json): the field IS the team's New chat draft
+  // (`newChat:<teamId>`, the home and the start dialog share it), synced.
+  const { text, setText } = useComposerDraft({ kind: `newChat`, id: teamId }, teamId)
   const [images, setImages] = useState<PendingAttachment[]>([])
   const [repoId, setRepoId] = useState(``)
   const [sending, setSending] = useState(false)
@@ -502,7 +505,9 @@ export function useLaunchComposer({
     if (seed.deviceId) launch.requestDevice(seed.deviceId)
     // The text lands only in an EMPTY draft: a seed never stomps typing.
     const seededText = seed.text && !text.trim() ? seed.text : text
-    setText(seededText)
+    // Only a seed that brings text edits the field (an edit of the untouched
+    // field would write the draft before its synced row arrived).
+    if (seededText !== text) setText(seededText)
     // EXP-1635: a share's files are ordinary pending attachments (their
     // markers behind the text, the composer's own caps and toasts).
     if (seed.files?.length) stageFiles(seed.files, seededText, seededText.length)
@@ -671,7 +676,7 @@ export function useLaunchComposer({
     const gone = new Set(sentImages.map((image) => image.url))
     for (const url of gone) URL.revokeObjectURL(url)
     setImages((images) => images.filter((image) => !gone.has(image.url)))
-    setText((current) => composerTextAfterSend(sentText, current))
+    setText((current) => composerTextAfterSend(sentText, current), { now: true })
     setSubject(null)
   }
 

@@ -199,11 +199,20 @@ struct EntityRefPreviewSheet: View {
     let context: AgentIssueRefContext?
     let accountId: String
     let onNavigate: (EntityNavigation) -> Void
+    /// #PERF-5: the resolved card, read off main; nil = the slim card meanwhile.
+    @State private var resolved: EntityPreviewModel?
 
     var body: some View {
-        let model = EntityRefResolver.resolve(
-            group: group, teamId: context?.teamId, db: context?.db, accountId: accountId
-        )
+        let model = resolved ?? EntityRefResolver.slim(group)
+        card(model)
+            .task(id: group.ref.id) {
+                resolved = await EntityRefResolver.resolve(
+                    group: group, teamId: context?.teamId, db: context?.db, accountId: accountId
+                )
+            }
+    }
+
+    private func card(_ model: EntityPreviewModel) -> some View {
         EntityPreviewCard(
             eyebrow: model.eyebrow,
             title: model.title,
@@ -257,21 +266,26 @@ struct EntityRefPreviewSheet: View {
 
 // MARK: - Resolution
 
-/// One synchronous read per presentation: the sheet is short-lived, and the
+/// One async read per presentation (#PERF-5): the sheet is short-lived, and the
 /// rows it lists are a handful. Every branch degrades to the SLIM card — the
 /// ref's own label under the kind's glyph — when the row has not synced.
-@MainActor
 enum EntityRefResolver {
+    /// The card before (or without) a read: the ref's own label.
+    static func slim(_ group: EntityPreview.Group) -> EntityPreviewModel {
+        slimModel(group.ref)
+    }
+
+    /// #PERF-5: GRDB's async read, never on main.
     static func resolve(
         group: EntityPreview.Group, teamId: String?, db: DatabaseManager?, accountId: String
-    ) -> EntityPreviewModel {
+    ) async -> EntityPreviewModel {
         let ref = group.ref
         let slim = slimModel(ref)
         guard let db, let pool = try? db.pool(forAccountId: accountId) else { return slim }
         if ref.kind == "list" {
-            return listModel(group, pool: pool, teamId: teamId) ?? slim
+            return await listModel(group, pool: pool, teamId: teamId) ?? slim
         }
-        let resolved: EntityPreviewModel? = try? pool.read { db in
+        let resolved: EntityPreviewModel? = try? await pool.read { db in
             switch ref.kind {
             case "issue": try issueModel(ref, db: db, teamId: teamId)
             case "board": try boardModel(ref, db: db)
@@ -631,10 +645,10 @@ enum EntityRefResolver {
     /// says lie beyond the refs it sent.
     private static func listModel(
         _ group: EntityPreview.Group, pool: DatabasePool, teamId: String?
-    ) -> EntityPreviewModel? {
+    ) async -> EntityPreviewModel? {
         let ref = group.ref
         let count = max(0, ref.count ?? 0)
-        let rows: [EntityPreviewModel.Row] = (try? pool.read { db in
+        let rows: [EntityPreviewModel.Row] = (try? await pool.read { db in
             try group.members.map { member in try memberRow(member, db: db, teamId: teamId) }
         }) ?? group.members.map { memberRow($0) }
         return EntityPreviewModel(

@@ -77,6 +77,26 @@ impl SealingTransform {
         sealing::root_of(session_id)
     }
 
+    /// #FEED-215: the root of a session in ANOTHER tree whose row this
+    /// install never synced (another member's unshared chat, a team agent's
+    /// thread): the server resolves it (`sessions get`, no messages read, so
+    /// nothing is marked read) and the keyring keeps it. Without this a child
+    /// failed "unknown session root" where its root, having read that tree
+    /// once, could send.
+    fn lookup_root(&self, upstream: &dyn GatewayUpstream, session_id: &str) -> Option<String> {
+        let result = upstream.call(SESSIONS_TOOL, json!({ "op": "get", "id": session_id, "messages": 0 })).ok()?;
+        if result.get("isError") == Some(&Value::Bool(true)) {
+            return None;
+        }
+        let tree = result_json(&result)?;
+        self.learn(&tree);
+        let root = tree.pointer("/root/id").and_then(Value::as_str).filter(|r| !r.is_empty())?.to_string();
+        if let Some(service) = sealing::service() {
+            service.keyring().note_root(session_id, &root);
+        }
+        Some(root)
+    }
+
     /// A body for `root`: its current key, else one this install creates
     /// (#FEED-188; another tree it may not key = `SealError::NotReader`).
     fn seal_text(&self, root: &str, text: &str) -> Result<String, SealError> {
@@ -138,7 +158,7 @@ impl SealingTransform {
         let other = obj.get("agentId").or_else(|| obj.get("appId")).is_some();
         let sealed = match (target, other) {
             (Some(target), _) => {
-                let Some(root) = self.root_for(&target) else {
+                let Some(root) = self.root_for(&target).or_else(|| self.lookup_root(upstream?, &target)) else {
                     unsealed("sessions_send", &no_root())?;
                     return Ok(args);
                 };
@@ -2010,6 +2030,47 @@ mod tests {
         assert_eq!(calls_of(&server, SEND_TOOL).len(), sends);
         assert!(server.calls.lock().unwrap().iter().any(|(t, url)| t == "trpc:sessions.sendTarget" && url.as_str().unwrap_or_default().contains("a1")));
         codemode::revoke("s-own");
+        sealing::uninstall();
+    }
+
+    /// #FEED-215: a child sends into another tree whose row this install
+    /// never synced (the real key holder has no root lookup of its own): the
+    /// gateway asks the server for the tree (`sessions get`, 0 messages) and
+    /// seals with that tree's key instead of failing "unknown session root".
+    #[test]
+    fn a_child_resolves_an_unsynced_trees_root_through_the_server() {
+        let _serial = serial();
+        let install = enet_core::PushKeypair::generate();
+        let fake = Arc::new(crate::sealing::test_support::FakeService { install_public: Some(install.public()), ..Default::default() });
+        sealing::install(fake.clone());
+        let far = enet_core::sealed::generate_tree_key();
+        fake.keyring.set_current("root-far", 2, far.public);
+        let answer: Answer = Arc::new(|tool, args| match tool {
+            SESSIONS_TOOL if args["op"] == "get" && args["id"] == "s-far" => json!({
+                "root": { "id": "root-far", "title": "Lead" },
+                "children": [{ "id": "s-far", "rootId": "root-far" }],
+                "messages": [],
+            }),
+            SESSIONS_TOOL if args["op"] == "get" => json!("Session not found"),
+            _ => json!({ "sessionId": args["sessionId"], "messageId": "m", "status": "running", "deliverTo": null }),
+        });
+        let server = fake_server(answer, json!({}));
+        let grant = gateway(&server, "c-1", "root-own");
+
+        let out = call(&grant, SEND_TOOL, json!({ "sessionId": "s-far", "text": "hello lead" }));
+        assert_eq!(out["messageId"], "m", "{out}");
+        let sent = calls_of(&server, SEND_TOOL).pop().unwrap();
+        let opened = enet_core::sealed::open_body(sent["text"].as_str().unwrap(), &|_| Some(far.secret));
+        assert_eq!(opened.text.as_deref(), Some("hello lead"));
+        let gets = calls_of(&server, SESSIONS_TOOL);
+        assert_eq!(gets.len(), 1, "{gets:?}");
+        assert_eq!(gets[0]["messages"], 0, "the lookup reads no messages (marks nothing read)");
+        assert_eq!(fake.keyring.root_of("s-far").as_deref(), Some("root-far"));
+
+        // Learned: the next send needs no lookup.
+        call(&grant, SEND_TOOL, json!({ "sessionId": "s-far", "text": "again" }));
+        assert_eq!(calls_of(&server, SESSIONS_TOOL).len(), 1);
+        codemode::revoke("c-1");
         sealing::uninstall();
     }
 

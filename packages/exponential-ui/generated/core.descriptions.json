@@ -1528,6 +1528,24 @@
         "size": "lg"
       }
     },
+    "CountBadge": {
+      "props": {
+        "count": {
+          "description": "How many; above max reads `max+`."
+        },
+        "tone": {
+          "description": "attention = waiting on the viewer."
+        },
+        "max": {
+          "description": "Cap before `+`."
+        }
+      },
+      "description": "Count capsule on a nav entry or row; 0 or less shows nothing.",
+      "example": {
+        "count": 3,
+        "tone": "attention"
+      }
+    },
     "CallSurface": {
       "props": {
         "name": {

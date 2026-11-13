@@ -7653,6 +7653,39 @@
       }
     },
     {
+      "name": "CountBadge/example",
+      "node": {
+        "id": "count_badge",
+        "component": "CountBadge",
+        "props": {
+          "count": 3,
+          "tone": "attention"
+        }
+      }
+    },
+    {
+      "name": "CountBadge/tone=attention",
+      "node": {
+        "id": "count_badge",
+        "component": "CountBadge",
+        "props": {
+          "count": 3,
+          "tone": "attention"
+        }
+      }
+    },
+    {
+      "name": "CountBadge/tone=muted",
+      "node": {
+        "id": "count_badge",
+        "component": "CountBadge",
+        "props": {
+          "count": 3,
+          "tone": "muted"
+        }
+      }
+    },
+    {
       "name": "CallSurface/example",
       "node": {
         "id": "call_surface",

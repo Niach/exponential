@@ -84,6 +84,15 @@ export async function fetchSessionOnce(): Promise<SessionData | null> {
   return inflight
 }
 
+/** #PERF-7: the cached session when it is at most `maxAgeMs` old (past the
+ *  fetch TTL too), else null: a caller that refreshes it in the background
+ *  (`fetchSessionOnce`) need not wait for the round trip. Never a session
+ *  from before an invalidation (sign-out clears the cache). */
+export function peekSession(maxAgeMs: number): SessionData | null {
+  if (!cachedSession || Date.now() - cacheTimestamp > maxAgeMs) return null
+  return cachedSession
+}
+
 export function invalidateSessionCache() {
   cachedSession = null
   cacheTimestamp = 0

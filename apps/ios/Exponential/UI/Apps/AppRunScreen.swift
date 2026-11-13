@@ -156,7 +156,7 @@ struct AppRunScreen: View {
         Button {
             menuOpen = true
         } label: {
-            PageHeaderGlyph(icon: AppIcons.uiMore, dot: false)
+            PageHeaderGlyph(icon: AppIcons.uiMore)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("More")

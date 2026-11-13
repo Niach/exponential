@@ -7,19 +7,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * #PERF-9: the Chats tab's dots, derived without building the list, say
- * exactly what the list says ([SessionTree.partitionChats] + `chatsUnread`
- * and its Running / Needs you groups), over randomized trees that cross
- * Recent's cut, the 24 h window, archive marks and read marks.
+ * #PERF-9 / #FEED-232: the Chats tab's count badge, derived without building
+ * the list, says exactly what `NavBadges.chatsBadge` says over
+ * [SessionTree.partitionChats], over randomized trees that cross Recent's
+ * cut, the 24 h window, archive marks and read marks.
  */
-class ChatsNavDotsTest {
+class ChatsNavBadgeTest {
     private val now = Instant.parse("2026-11-12T12:00:00Z")
 
     private fun iso(minutesAgo: Long) = now.minusSeconds(minutesAgo * 60).toString()
 
     @Test
-    fun theDotsMatchTheList() {
-        var unreadSeen = 0
+    fun theBadgeMatchesTheList() {
+        var mutedSeen = 0
+        var attentionSeen = 0
         repeat(400) { round ->
             val rnd = Random(round)
             val sessions = mutableListOf<SessionTree.Session>()
@@ -81,14 +82,12 @@ class ChatsNavDotsTest {
             }
             val team = if (round % 5 == 0) null else "team"
             val groups = SessionTree.partitionChats(sessions, emptyList(), emptyList(), messages, team, reads, now.toString())
-            val expected = SessionTree.ChatsNavDots(
-                unread = Chats.chatsUnread(groups, reads),
-                running = groups.any { it.key == SessionTree.ChatsGroupKey.Running && it.rows.isNotEmpty() },
-                needsYou = groups.any { it.key == SessionTree.ChatsGroupKey.NeedsYou && it.rows.isNotEmpty() },
-            )
-            if (expected.unread) unreadSeen++
-            assertEquals("round $round", expected, SessionTree.chatsNavDots(sessions, messages, team, reads, now.toString()))
+            val expected = NavBadges.chatsBadge(groups, reads)
+            if (expected.count > 1 && expected.tone == NavBadges.Tone.Muted) mutedSeen++
+            if (expected.count > 1 && expected.tone == NavBadges.Tone.Attention) attentionSeen++
+            assertEquals("round $round", expected, SessionTree.chatsNavBadge(sessions, messages, team, reads, now.toString()))
         }
-        assertTrue("the rounds exercise an unread dot", unreadSeen > 20)
+        assertTrue("the rounds exercise a muted count", mutedSeen > 20)
+        assertTrue("the rounds exercise an attention count", attentionSeen > 20)
     }
 }

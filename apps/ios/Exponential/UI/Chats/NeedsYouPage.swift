@@ -46,7 +46,7 @@ struct NeedsYouPage: View {
                         if row.needsApproval {
                             askApproval(row)
                         } else {
-                            pushRoute(AppRoute.openingNeedsYou(row, accountId: accountId, deps: deps))
+                            Task { pushRoute(await AppRoute.openingNeedsYou(row, accountId: accountId, deps: deps)) }
                         }
                     },
                     onAction: { row, action in run(action, on: row) }

@@ -18,6 +18,7 @@ import com.exponential.app.data.api.SessionsApi
 import com.exponential.app.data.api.SessionsSendInput
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.domain.Chats
+import com.exponential.app.domain.NavBadges
 import com.exponential.app.domain.NeedsYou
 import com.exponential.app.data.db.PullRequestEntity
 import kotlinx.serialization.json.JsonPrimitive
@@ -64,7 +65,7 @@ import kotlinx.coroutines.launch
  * 5 s grace kept the whole list recomputing on every sync tick of the chat
  * just opened, on the cold open's busiest CPU. The state keeps its last
  * value, so returning shows the last list at once while it recomputes; the
- * nav dots ([SessionTree.chatsNavDots]) are the only derivation that runs
+ * nav badge ([SessionTree.chatsNavBadge]) is the only derivation that runs
  * under an open chat.
  */
 private val LIST_SHARING = SharingStarted.WhileSubscribed(stopTimeoutMillis = 0)
@@ -171,15 +172,15 @@ class ChatsViewModel @Inject constructor(
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, LIST_SHARING, emptyList())
 
     /**
-     * #PERF-9: the Chats tab's three dots, derived on their own. The nav bar
-     * collects them under an open chat, so off [groups] they kept the whole
-     * list (titles included) recomputing on every sync tick of that chat;
-     * [SessionTree.chatsNavDots] reads the same rule without building it and
+     * #PERF-9 / #FEED-232: the Chats tab's count badge (`chatsBadge`), derived
+     * on its own: the nav bar collects it under an open chat, so off [groups]
+     * it kept the whole list recomputing on every sync tick of that chat;
+     * [SessionTree.chatsNavBadge] reads the same rule without building it and
      * emits only on a change.
      */
-    private val dots: StateFlow<SessionTree.ChatsNavDots> = combine(inputs, activeTeam) { input, team ->
-        com.exponential.app.domain.perfTrace("ChatsViewModel.dots") {
-            SessionTree.chatsNavDots(
+    val chatsBadge: StateFlow<NavBadges.Badge> = combine(inputs, activeTeam) { input, team ->
+        com.exponential.app.domain.perfTrace("ChatsViewModel.chatsBadge") {
+            SessionTree.chatsNavBadge(
                 input.sessions,
                 input.messages,
                 teamId = team,
@@ -188,12 +189,7 @@ class ChatsViewModel @Inject constructor(
             )
         }
     }.distinctUntilChanged().flowOn(Dispatchers.Default)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SessionTree.ChatsNavDots())
-
-    /** #EXP-1388: the Chats nav dot (`chatsUnread`): an unread chat outside
-     *  the viewer's archive (one that needs you counts anyway). */
-    val unread: StateFlow<Boolean> = dots.map { it.unread }.distinctUntilChanged()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), NavBadges.NONE)
 
     /** Each listed row's glyph + identifier, keyed by root session id. */
     val rowMeta: StateFlow<Map<String, ChatRowMeta>> = combine(
@@ -562,13 +558,30 @@ class ChatsViewModel @Inject constructor(
     val teams: StateFlow<List<TeamEntity>> = dbFlow.scopedQuery(emptyList()) { it.teamDao().observeAll() }
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** EXP-1327: whether ANY chat runs (the tab's green dot, ×4). */
-    val anyRunning: StateFlow<Boolean> = dots.map { it.running }.distinctUntilChanged()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
-
-    /** Whether ANY chat needs a person (the tab's amber dot). */
-    val needsYou: StateFlow<Boolean> = dots.map { it.needsYou }.distinctUntilChanged()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    /**
+     * #FEED-232: team id → that team's needs-you rows' length (the team
+     * picker's attention badge), off every team's digests, not just the
+     * active one's.
+     */
+    val needsYouByTeam: StateFlow<Map<String, Int>> = combine(
+        combine(sessions, sessionRows) { s, rows ->
+            s to rows.flatMap { row -> Chats.digestMessages(row.id, Chats.parseDigest(row.digest)) }
+        },
+        dbFlow.scopedQuery(emptyList()) { it.teamDao().observeAll() },
+        agentDefinitions,
+        pullRequestRows,
+        combine(auth.userId, minuteClock) { me, now -> me to now },
+    ) { (s, messages), teamRows, definitions, prs, (me, now) ->
+        val teamIds = teamRows.map { it.id }
+        teamRows.associate { team ->
+            team.id to needsYouFold(
+                s, emptyList(), emptyList(), messages, definitions, prs, team.id, me, now,
+                teamIds = teamIds,
+                mergeMode = team.mergeMode,
+            ).size
+        }
+    }.distinctUntilChanged().flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 }
 
 /** #FEED-191: [NeedsYou.needsYou] over the synced rows of [team] (null = every

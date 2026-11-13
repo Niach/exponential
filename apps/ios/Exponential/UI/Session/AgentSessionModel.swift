@@ -2013,14 +2013,16 @@ final class AgentSessionModel {
     private func tunnelDialer() -> SteerTunnelDialing? {
         guard let steerTunnel else { return nil }
         let rootId = session?.rootId ?? root?.id ?? sessionId
-        var key = root.flatMap { $0.id == rootId ? $0.sealKey : nil }
-        if key == nil, let pool = try? db.pool(forAccountId: accountId) {
-            key = (try? pool.read { try SessionEntity.fetchOne($0, key: rootId) })??.sealKey
-        }
+        let rootKey = root.flatMap { $0.id == rootId ? $0.sealKey : nil }
         let opener = SealedOpener.shared
-        let rootKey = key
+        let db = db, accountId = accountId
         return SteerTunnelDialer(accountId: accountId, api: steerTunnel, sealer: {
-            SteerTreeSealer(crypto: opener.crypto, ring: opener.ring, rootId: rootId, key: rootKey)
+            var key = rootKey
+            // #PERF-5: a root not held here reads off main, as the tunnel opens.
+            if key == nil, let pool = try? db.pool(forAccountId: accountId) {
+                key = (try? await pool.read { try SessionEntity.fetchOne($0, key: rootId) })??.sealKey
+            }
+            return SteerTreeSealer(crypto: opener.crypto, ring: opener.ring, rootId: rootId, key: key)
         })
     }
 
@@ -2437,19 +2439,6 @@ final class AgentSessionModel {
 
     // MARK: - Stored tail (#PERF-9)
 
-    /// The tree the stored tail is sealed for: the root, its current key (nil
-    /// = keyless) and whether its row is known here (an unknown one stores
-    /// nothing and opens only a sealed tail).
-    private func storedTailTree() -> (rootId: String, key: TreeSealKey?, known: Bool) {
-        let rootId = session?.rootId ?? root?.id ?? sessionId
-        if let root, root.id == rootId { return (rootId, root.sealKey, true) }
-        if let pool = try? db.pool(forAccountId: accountId),
-           let row = (try? pool.read { try SessionEntity.fetchOne($0, key: rootId) }) ?? nil {
-            return (rootId, row.sealKey, true)
-        }
-        return (rootId, nil, false)
-    }
-
     /// STORED TAIL: paint what this viewer last held of the session at once,
     /// while discovery and the join run (read, opened and parsed off main,
     /// usually already under way since the chat screen opened). A tail that
@@ -2588,16 +2577,27 @@ final class AgentSessionModel {
     }
 
     /// Hands the tail to the store, which seals (a keyed tree) and writes it
-    /// off main. An unknown root stores nothing.
+    /// off main. It is sealed for the tree's root and its current key (nil =
+    /// keyless); an unknown root stores nothing.
     private func writeTail() {
         tailWriteTask?.cancel()
         tailWriteTask = nil
-        let tree = storedTailTree()
-        guard tree.known, !tail.isEmpty, let generation = tailGeneration else { return }
-        SteerStoredTailStore.shared.write(
-            accountId: accountId, sessionId: sessionId, frames: tail.frames,
-            key: tree.key, crypto: SealedOpener.shared.crypto, generation: generation
-        )
+        guard !tail.isEmpty, let generation = tailGeneration else { return }
+        let rootId = session?.rootId ?? root?.id ?? sessionId
+        let frames = tail.frames, accountId = accountId, sessionId = sessionId
+        let write = { (key: TreeSealKey?) in
+            SteerStoredTailStore.shared.write(
+                accountId: accountId, sessionId: sessionId, frames: frames,
+                key: key, crypto: SealedOpener.shared.crypto, generation: generation
+            )
+        }
+        if let root, root.id == rootId { return write(root.sealKey) }
+        // #PERF-5: a root not held here reads off main.
+        guard let pool = try? db.pool(forAccountId: accountId) else { return }
+        Task {
+            guard let row = (try? await pool.read { try SessionEntity.fetchOne($0, key: rootId) }) ?? nil else { return }
+            write(row.sealKey)
+        }
     }
 
     // MARK: - Staged join replay (EXP-656)

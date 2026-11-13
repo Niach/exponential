@@ -15,7 +15,6 @@ import {
 import { getCommentBodyText } from "@/lib/domain"
 import { cn } from "@/lib/utils"
 import { CommentComposer } from "@/components/comment-composer"
-import { issueMemoryOwner } from "@/lib/work-tab-memory"
 import { ReadMarkdown } from "@/components/read-markdown"
 import { CommentAttachments } from "@/components/comment-rows/attachments"
 import { TimelineRow } from "@/components/comment-rows/timeline-row"
@@ -296,10 +295,10 @@ export function RegularCommentRow({
                   issueId={comment.issueId}
                   users={users}
                   placeholder="Leave a reply…"
-                  // EXP-894: a half-typed reply survives a tab switch.
+                  // #FEED-219: a half-typed reply is a synced draft.
                   draft={{
-                    owner: issueMemoryOwner(comment.issueId),
-                    slot: `reply:${comment.id}`,
+                    target: { kind: `reply`, id: comment.id },
+                    teamId: comment.teamId,
                   }}
                   onCancel={onCancelReply}
                   onSubmit={async (text, attachmentIds) => {

@@ -49,6 +49,7 @@ import com.exponential.app.ui.apps.AppGlyph
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.parseColor
+import com.exponential.app.domain.NavBadges
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -62,9 +63,6 @@ import com.exponential.app.ui.theme.TextEmphasis
 
 /** The lead disc's fill (`bg muted`). */
 private val DiscFill: Color = DesignTokens.Palette.Muted
-
-/** The inbox circle's unread dot. */
-val ChatsInboxDot: Color = DesignTokens.Semantic.Blue
 
 /** The 52 lead DISC of a chat row (`lead`): S-3 needs_you = the chat glyph
  *  (`shell.chatLead`) with the amber badge, working = the working mark, open
@@ -204,9 +202,10 @@ fun ChatRow(
                         Spacer(Modifier.width(8.dp))
                         ChatRowWord(word)
                     }
-                    if (unread) {
+                    val badge = NavBadges.rowBadge(row.unreadCount, row.needsYou)
+                    if (badge.count > 0) {
                         Spacer(Modifier.width(8.dp))
-                        UnreadBadge(row.unreadCount, amber = row.needsYou)
+                        CountBadge(badge, testTag = "chat-row-badge")
                     }
                 }
             }
@@ -392,9 +391,10 @@ private fun PinnedChatRow(
                 Spacer(Modifier.height(3.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     ChatPreviewText(preview, Modifier.weight(1f))
-                    if (unread) {
+                    val badge = NavBadges.rowBadge(unreadCount, needsYou)
+                    if (badge.count > 0) {
                         Spacer(Modifier.width(8.dp))
-                        UnreadBadge(unreadCount, amber = needsYou)
+                        CountBadge(badge, testTag = "chat-row-badge")
                     }
                 }
             }
@@ -616,26 +616,6 @@ private fun ChatRowWord(word: SessionTree.ChatRowWord) {
         val icon = if (word == SessionTree.ChatRowWord.Stack) ExpIcons.prStack else null
         if (icon != null) Icon(icon, contentDescription = null, tint = muted, modifier = Modifier.size(14.dp))
         Text(word.text.orEmpty(), style = MaterialTheme.typography.labelMedium, color = muted, maxLines = 1)
-    }
-}
-
-/** The unread badge: amber with black text while it needs you, else the
- *  foreground with the background's text. */
-@Composable
-fun UnreadBadge(count: Int, amber: Boolean, modifier: Modifier = Modifier) {
-    val fill = if (amber) NeedsInputAmber else MaterialTheme.colorScheme.onSurface
-    val ink = if (amber) Color.Black else DesignTokens.Palette.Background
-    Box(
-        modifier = modifier
-            .heightIn(min = 22.dp)
-            .widthIn(min = 22.dp)
-            .clip(CircleShape)
-            .background(fill, CircleShape)
-            .padding(horizontal = 6.dp)
-            .testTag("chat-row-badge"),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(count.toString(), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, color = ink)
     }
 }
 
