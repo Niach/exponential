@@ -4,7 +4,7 @@ import XCTest
 
 // #FEED-237: a person's own message, WhatsApp-style, locked ×4 against
 // `packages/domain-contract/fixtures/message-delivery.json` (`stateCases`,
-// `outboxCases`, `actionCases`, the copy, the marks and the testIds).
+// `outboxCases`, `actionCases`, `handoffCases`, the copy, the marks and the testIds).
 final class MessageDeliveryTests: XCTestCase {
     private func fixture() throws -> [String: Any] {
         let url = URL(fileURLWithPath: #filePath)
@@ -32,6 +32,7 @@ final class MessageDeliveryTests: XCTestCase {
         XCTAssertEqual(copy["menu"], Dictionary(uniqueKeysWithValues: actions.map { ($0.rawValue, MessageDelivery.Copy.menu($0)) }))
         XCTAssertEqual(fixture["markSize"] as? Double, MessageDelivery.markSize)
         XCTAssertEqual(fixture["matchWindowMs"] as? Double, MessageDelivery.matchWindowMs)
+        XCTAssertEqual(fixture["handoffMaxMs"] as? Double, MessageDelivery.handoffMaxMs)
         XCTAssertEqual(fixture["testIds"] as? [String: String], [
             "status": MessageDelivery.TestIds.status,
             "menu": MessageDelivery.TestIds.menu,
@@ -100,6 +101,40 @@ final class MessageDeliveryTests: XCTestCase {
             let state = try XCTUnwrap(MessageDelivery.State(rawValue: try XCTUnwrap(input["state"] as? String)), name)
             let result = MessageDelivery.bubbleActions(state: state, stored: try XCTUnwrap(input["stored"] as? Bool))
             XCTAssertEqual(result.map(\.rawValue), testCase["expected"] as? [String], name)
+        }
+    }
+
+    func testReplaysEveryHandoffCase() throws {
+        let cases = try XCTUnwrap(try fixture()["handoffCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = testCase["name"] as? String ?? ""
+            let input = try XCTUnwrap(testCase["input"] as? [String: Any])
+            let rows = try XCTUnwrap(input["rows"] as? [[String: Any]]).map { row in
+                MessageDelivery.HandoffRow(
+                    id: try XCTUnwrap(row["id"] as? String),
+                    authorKind: try XCTUnwrap(row["authorKind"] as? String),
+                    authorId: row["authorId"] as? String,
+                    body: try XCTUnwrap(row["body"] as? String),
+                    createdAt: try XCTUnwrap(row["createdAt"] as? String),
+                    consumedAt: row["consumedAt"] as? String,
+                    hasCard: row["card"].map { !($0 is NSNull) } ?? false
+                )
+            }
+            let echoes = try XCTUnwrap(input["echoes"] as? [[String: Any]]).map { echo in
+                MessageDelivery.HandoffEcho(
+                    text: try XCTUnwrap(echo["text"] as? String),
+                    at: (echo["at"] as? NSNumber)?.doubleValue
+                )
+            }
+            let result = MessageDelivery.ownHandoff(
+                viewerId: try XCTUnwrap(input["viewerId"] as? String),
+                now: try XCTUnwrap(input["now"] as? String),
+                feedEmpty: try XCTUnwrap(input["feedEmpty"] as? Bool),
+                rows: rows,
+                echoes: echoes
+            )
+            XCTAssertEqual(result, testCase["expected"] as? [String], name)
         }
     }
 }

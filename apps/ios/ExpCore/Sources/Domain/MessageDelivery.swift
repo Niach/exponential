@@ -68,6 +68,9 @@ public enum MessageDelivery {
 
     public static let markSize: Double = 14
     public static let matchWindowMs: Double = 60_000
+    /// Fixture `handoffMaxMs`: how long a consumed own row may wait for its
+    /// transcript echo before its held bubble goes.
+    public static let handoffMaxMs: Double = 60_000
 
     /// Fixture `testIds`.
     public enum TestIds {
@@ -196,5 +199,75 @@ public enum MessageDelivery {
         case .read: return []
         case .sending, .sent: return stored ? [.cancel] : []
         }
+    }
+
+    public struct HandoffRow: Equatable, Sendable {
+        public let id: String
+        public let authorKind: String
+        public let authorId: String?
+        public let body: String
+        public let createdAt: String
+        public let consumedAt: String?
+        /// The row carries a card (a question, a plan…): never held.
+        public let hasCard: Bool
+
+        public init(id: String, authorKind: String, authorId: String?, body: String, createdAt: String, consumedAt: String?, hasCard: Bool) {
+            self.id = id
+            self.authorKind = authorKind
+            self.authorId = authorId
+            self.body = body
+            self.createdAt = createdAt
+            self.consumedAt = consumedAt
+            self.hasCard = hasCard
+        }
+    }
+
+    /// A person row of the transcript's main lane.
+    public struct HandoffEcho: Equatable, Sendable {
+        public let text: String
+        /// Epoch ms; nil when the feed carries none.
+        public let at: Double?
+
+        public init(text: String, at: Double?) {
+            self.text = text
+            self.at = at
+        }
+    }
+
+    /// HANDOFF: the consumed own rows whose transcript echo has not arrived
+    /// yet (oldest first); each keeps its bubble so it never vanishes in
+    /// between. `now` is an ISO stamp like the rows'.
+    public static func ownHandoff(viewerId: String, now: String, feedEmpty: Bool, rows: [HandoffRow], echoes: [HandoffEcho]) -> [String] {
+        ownHandoff(viewerId: viewerId, nowMs: millis(now), feedEmpty: feedEmpty, rows: rows, echoes: echoes)
+    }
+
+    public static func ownHandoff(viewerId: String, nowMs: Double, feedEmpty: Bool, rows: [HandoffRow], echoes: [HandoffEcho]) -> [String] {
+        if feedEmpty { return [] }
+        let since = nowMs - handoffMaxMs
+        let candidates = rows
+            .filter { row in
+                guard row.authorKind == "user", row.authorId == viewerId, !row.hasCard,
+                      let consumedAt = row.consumedAt else { return false }
+                return millis(consumedAt) >= since
+            }
+            .sorted { a, b in
+                let at = millis(a.createdAt), bt = millis(b.createdAt)
+                return at != bt ? at < bt : a.id < b.id
+            }
+        var taken = Set<Int>()
+        var kept: [String] = []
+        for row in candidates {
+            let body = row.body.trimmingCharacters(in: .whitespacesAndNewlines)
+            let from = millis(row.createdAt) - matchWindowMs
+            let echo = echoes.indices.first { index in
+                let candidate = echoes[index]
+                if taken.contains(index) { return false }
+                if candidate.text.trimmingCharacters(in: .whitespacesAndNewlines) != body { return false }
+                guard let at = candidate.at else { return true }
+                return at >= from
+            }
+            if let echo { taken.insert(echo) } else { kept.append(row.id) }
+        }
+        return kept
     }
 }

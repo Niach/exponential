@@ -345,6 +345,7 @@ export function sendRows(input: Row, ctx: SendContext): { rows: Written[]; outpu
       attachment_ids: attachmentIds,
       issue_brief: null,
       answered_at: null,
+      delivered_at: null,
       consumed_at: null,
       created_at: ctx.now,
       updated_at: ctx.now,

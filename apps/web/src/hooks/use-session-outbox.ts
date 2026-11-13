@@ -8,6 +8,13 @@ import {
 import { messageCollection } from "@/lib/collections"
 import { sendSessionMessage } from "@/lib/enet/send-sealed"
 import { SKIP_ERROR_TOAST } from "@/lib/action-error"
+import { uploadTeamSessionImageFile } from "@/lib/storage/issue-image-upload"
+import {
+  outboxFileAsFile,
+  outboxFileStore,
+  toOutboxFiles,
+  type OutboxFile,
+} from "@/lib/outbox-files"
 
 // #FEED-237 (message-delivery.json): THE session composer's outbox. A send
 // is an entry the moment Send is pressed (the field and its synced draft
@@ -18,6 +25,11 @@ import { SKIP_ERROR_TOAST } from "@/lib/action-error"
 // entry is sent AGAIN on load with the same clientMessageId (F21: the server
 // returns the row it already stored). An entry drops once its synced row
 // arrives (`outboxMerge`), that row's bubble taking its place.
+// FILES: a send with files is an entry like any other. The bytes + names sit
+// in IndexedDB under the clientId (`lib/outbox-files.ts`), the entry keeps
+// the keys still to upload (`pending`) and every landed id as it lands
+// (`attachmentIds`); a load resumes a `sending` entry's remaining uploads,
+// then sends it; a file that is gone fails the entry (Retry tries again).
 
 export interface WebOutboxEntry extends OutboxEntry {
   teamId: string
@@ -25,7 +37,9 @@ export interface WebOutboxEntry extends OutboxEntry {
   /** The send's other picks (an Assistant's Teams pick, an agent chat's
    *  MCP servers), sent again on a retry. */
   extra?: Record<string, unknown>
-  /** Files still uploading when the page went away: never resent blind. */
+  /** The picked files' keys still to upload (`lib/outbox-files.ts`). */
+  pending?: string[]
+  /** Uploads running in this page (a reload resumes them from `pending`). */
   uploading?: boolean
 }
 
@@ -60,8 +74,13 @@ function load(sessionId: string): WebOutboxEntry[] {
             typeof entry.text === `string` &&
             typeof entry.createdAt === `string`
         )
-        // Uploads die with the page: such an entry waits for its Retry.
-        .map((entry) => (entry.uploading && !entry.messageId ? { ...entry, state: `failed`, uploading: false } : entry))
+        // Uploads die with the page; `pending` resumes them. An entry of an
+        // older build carries no `pending`: it waits for its Retry.
+        .map((entry) =>
+          entry.uploading
+            ? { ...entry, uploading: false, ...(entry.pending || entry.messageId ? {} : { state: `failed` as const }) }
+            : entry
+        )
     }
   } catch {
     list = []
@@ -96,19 +115,52 @@ function subscribe(listener: () => void) {
   return () => listeners.delete(listener)
 }
 
+/** This page's picked files per clientId (the store may be unavailable). */
+const pickedFiles = new Map<string, OutboxFile[]>()
+
+class OutboxFileGone extends Error {}
+
+/** Upload the entry's remaining files, keeping each landed id as it lands. */
+async function uploadPending(sessionId: string, clientId: string) {
+  const entry = find(sessionId, clientId)
+  if (!entry?.pending || entry.pending.length === 0) return
+  patch(sessionId, clientId, { uploading: true })
+  const files = pickedFiles.get(clientId) ?? (await outboxFileStore().get(clientId).catch(() => undefined))
+  for (const key of entry.pending) {
+    const file = files?.find((candidate) => candidate.key === key)
+    if (!file) throw new OutboxFileGone(key)
+    const { id } = await uploadTeamSessionImageFile(entry.teamId, outboxFileAsFile(file))
+    const now = find(sessionId, clientId)
+    if (!now) return
+    patch(sessionId, clientId, {
+      attachmentIds: [...(now.attachmentIds ?? []), id],
+      pending: (now.pending ?? []).filter((candidate) => candidate !== key),
+    })
+  }
+  dropFiles(clientId)
+}
+
+function find(sessionId: string, clientId: string): WebOutboxEntry | undefined {
+  return load(sessionId).find((candidate) => candidate.clientId === clientId)
+}
+
+function dropFiles(clientId: string) {
+  pickedFiles.delete(clientId)
+  void outboxFileStore().delete(clientId).catch(() => undefined)
+}
+
 /** Send (or resend) one entry; the entry carries the outcome. */
-async function deliver(sessionId: string, clientId: string, upload?: () => Promise<string[]>) {
+async function deliver(sessionId: string, clientId: string) {
   if (inFlight.has(clientId)) return
-  const entry = load(sessionId).find((candidate) => candidate.clientId === clientId)
-  if (!entry || entry.messageId) return
+  const first = find(sessionId, clientId)
+  if (!first || first.messageId) return
   inFlight.add(clientId)
   try {
-    let attachmentIds = entry.attachmentIds
-    if (upload) {
-      patch(sessionId, clientId, { uploading: true })
-      attachmentIds = await upload()
-      patch(sessionId, clientId, { uploading: false, attachmentIds })
-    }
+    if (first.pending && first.pending.length > 0) await uploadPending(sessionId, clientId)
+    // Deleted while its files uploaded: nothing to send.
+    const entry = find(sessionId, clientId)
+    if (!entry) return
+    const attachmentIds = entry.attachmentIds
     const input = {
       ...(entry.extra ?? {}),
       teamId: entry.teamId,
@@ -127,16 +179,17 @@ async function deliver(sessionId: string, clientId: string, upload?: () => Promi
   }
 }
 
-/** The press: a new entry at the bottom, sent at once. `upload` runs the
- *  composer's file uploads inside the send (null = none). */
+/** The press: a new entry at the bottom, sent at once; its picked files
+ *  are stored with it and upload inside the send. */
 export function sendThroughOutbox(input: {
   teamId: string
   sessionId: string
   text: string
-  upload?: () => Promise<string[]>
+  files?: readonly File[]
   extra?: Record<string, unknown>
 }): string {
   const clientId = crypto.randomUUID()
+  const files = toOutboxFiles(input.files ?? [])
   const entry: WebOutboxEntry = {
     clientId,
     teamId: input.teamId,
@@ -145,9 +198,15 @@ export function sendThroughOutbox(input: {
     state: `sending`,
     messageId: null,
     ...(input.extra && Object.keys(input.extra).length > 0 ? { extra: input.extra } : {}),
+    ...(files.length > 0 ? { pending: files.map((file) => file.key) } : {}),
+  }
+  if (files.length > 0) {
+    pickedFiles.set(clientId, files)
+    // A store that fails (private mode, quota) keeps this page's copy.
+    void outboxFileStore().put(clientId, files).catch(() => undefined)
   }
   save(input.sessionId, [...load(input.sessionId), entry])
-  void deliver(input.sessionId, clientId, input.upload)
+  void deliver(input.sessionId, clientId)
   return clientId
 }
 
@@ -159,6 +218,7 @@ export function retryOutboxEntry(sessionId: string, clientId: string) {
 
 /** The failed bubble's Delete. */
 export function deleteOutboxEntry(sessionId: string, clientId: string) {
+  dropFiles(clientId)
   save(
     sessionId,
     load(sessionId).filter((entry) => entry.clientId !== clientId)
@@ -184,6 +244,7 @@ export function useSessionOutbox(
   useEffect(() => {
     if (!sessionId || !merged || merged.drop.length === 0) return
     const gone = new Set(merged.drop)
+    for (const clientId of gone) dropFiles(clientId)
     save(
       sessionId,
       load(sessionId).filter((entry) => !gone.has(entry.clientId))
@@ -208,4 +269,5 @@ export function useSessionOutbox(
 export function resetOutboxForTests() {
   entries.clear()
   inFlight.clear()
+  pickedFiles.clear()
 }

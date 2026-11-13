@@ -788,8 +788,9 @@ interface OutboxDao {
     @Query("UPDATE outbox SET message_id = :messageId WHERE client_id = :clientId")
     suspend fun setMessageId(clientId: String, messageId: String)
 
-    @Query("UPDATE outbox SET attachment_ids = :attachmentIds WHERE client_id = :clientId")
-    suspend fun setAttachmentIds(clientId: String, attachmentIds: String?)
+    // One file landed: its id joins the landed ones, it leaves the pending list.
+    @Query("UPDATE outbox SET attachment_ids = :attachmentIds, pending_files = :pendingFiles WHERE client_id = :clientId")
+    suspend fun setUploads(clientId: String, attachmentIds: String?, pendingFiles: String?)
 
     @Query("DELETE FROM outbox WHERE client_id IN (:clientIds)")
     suspend fun delete(clientIds: List<String>)

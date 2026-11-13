@@ -473,7 +473,9 @@ impl LocalRuns {
         for m in self.desktop.store.rows("messages")? {
             let (Some(id), Some(root)) = (m.get("id").and_then(Value::as_str), m.get("root_id").and_then(Value::as_str)) else { continue };
             let done = answered.get(root).zip(m.get("created_at").and_then(Value::as_str)).is_some_and(|(turn, at)| domain::instant::parse_instant(at) <= domain::instant::parse_instant(turn));
-            if done && m.get("author_kind").and_then(Value::as_str) == Some("user") {
+            // #FEED-237: a row a run already took in (`consumed_at`) is heard too.
+            let consumed = m.get("consumed_at").and_then(Value::as_str).is_some_and(|at| !at.is_empty());
+            if (done || consumed) && m.get("author_kind").and_then(Value::as_str) == Some("user") {
                 ids.insert(format!("store:{id}"), id.to_string());
             }
         }
@@ -553,7 +555,7 @@ impl LocalRuns {
         let row = json!({
             "id": id, "conversation_id": conversation, "session_id": session, "root_id": session, "team_id": self.desktop.executor.team_id(),
             "author_kind": author_kind, "author_id": author_id, "author_session_id": author_session_id, "body": body, "card": card,
-            "attachment_ids": [], "issue_brief": null, "answered_at": null, "consumed_at": null, "created_at": now, "updated_at": now,
+            "attachment_ids": [], "issue_brief": null, "answered_at": null, "delivered_at": null, "consumed_at": null, "created_at": now, "updated_at": now,
         });
         self.desktop.store.write("messages", row.as_object().cloned()?).ok()?;
         let _ = self.changes.0.send(Changed { session_id: session.to_string() });
@@ -590,13 +592,18 @@ impl LocalRuns {
                 }
             }
             Effect::Brief { session_id, message_id, .. } => {
-                let text = message_id
+                let store_id = message_id.as_ref().and_then(|m| self.ids.lock().expect("ids").get(m).cloned());
+                let text = store_id
                     .as_ref()
-                    .and_then(|m| self.ids.lock().expect("ids").get(m).cloned())
-                    .and_then(|id| self.desktop.store.row("messages", &id).ok().flatten())
+                    .and_then(|id| self.desktop.store.row("messages", id).ok().flatten())
                     .and_then(|m| m.get("body").and_then(Value::as_str).map(str::to_string))
                     .unwrap_or_default();
-                self.launch(session_id, &text);
+                // #FEED-237: the brief IS the run taking the message in: two checks.
+                if self.launch(session_id, &text) {
+                    if let Some(id) = store_id {
+                        self.stamp(&id, true);
+                    }
+                }
             }
             Effect::Nudge { .. } => {}
             Effect::Kill { session_id } => {
@@ -608,13 +615,39 @@ impl LocalRuns {
         log::debug!("hub {kind}: {effect:?}");
     }
 
-    /// Starts the CLI for `session_id` with `text` as its first prompt.
-    fn launch(&self, session_id: &str, text: &str) {
+    /// #FEED-237 (message-delivery.json, DELIVERED): a person's row the
+    /// runner heard gets `delivered_at` (one check), one the run took in
+    /// gets `consumed_at` too (two checks); each only while still NULL, so a
+    /// row is written at most twice and the delta it raises finds it known.
+    fn stamp(&self, message_id: &str, consumed: bool) {
+        let unset = |row: &Map<String, Value>, key: &str| row.get(key).and_then(Value::as_str).is_none_or(str::is_empty);
+        let mut session = None;
+        let _ = self.desktop.store.modify("messages", message_id, |row| {
+            let columns: Vec<&str> = ["delivered_at", "consumed_at"].into_iter().filter(|c| (*c == "delivered_at" || consumed) && unset(row, c)).collect();
+            if columns.is_empty() {
+                return None;
+            }
+            let now = time::now();
+            let mut next = row.clone();
+            for column in columns {
+                next.insert(column.into(), json!(now));
+            }
+            session = row.get("session_id").or_else(|| row.get("root_id")).and_then(Value::as_str).map(str::to_string);
+            Some(next)
+        });
+        if let Some(session_id) = session {
+            let _ = self.changes.0.send(Changed { session_id });
+        }
+    }
+
+    /// Starts the CLI for `session_id` with `text` as its first prompt;
+    /// `true` = the run started.
+    fn launch(&self, session_id: &str, text: &str) -> bool {
         let (cwd, worktree_note) = match worktree_for(&self.desktop, session_id) {
             Some((dir, repo, branch)) => (dir, Some(format!("You work in a git worktree of {} on the branch {branch}; commit there, nothing pushes.", repo.name))),
             None => (self.cwd.clone(), None),
         };
-        let Ok(sid) = SessionId::new(session_id) else { return };
+        let Ok(sid) = SessionId::new(session_id) else { return false };
         let token = self.server.grant(&sid, "local");
         let endpoint = format!("{}", self.server.url());
         let identity = self.desktop.executor.identity();
@@ -637,11 +670,13 @@ impl LocalRuns {
         match runner.start(brief, grant, sink) {
             Ok(run) => {
                 self.live.lock().expect("live").insert(session_id.to_string(), Live { run, turn_text: String::new(), turn_row: None, in_turn: false });
+                true
             }
             Err(e) => {
                 log::warn!("run {session_id}: {e}");
                 self.step("device.report", json!({"sessionId": session_id, "deviceId": self.desktop.executor.device_id(), "status": "idle", "busy": false, "blocked": {"kind": "start_failed"}}));
                 let _ = self.post(session_id, "system", None, &format!("The agent could not start: {e}"), None);
+                false
             }
         }
     }
@@ -713,11 +748,18 @@ impl LocalRuns {
                     // Refused or silent: remembered as handled all the same.
                     self.ids.lock().expect("ids").insert(format!("store:{message_id}"), message_id.clone());
                 }
-                // A message into a live run goes to the CLI as the next prompt.
-                if let Some(live) = self.live.lock().expect("live").get(id) {
-                    if !text.trim().is_empty() {
+                // #FEED-237: heard (known now, so its own write never re-hears it): one check.
+                self.stamp(&message_id, false);
+                // A message into a live run goes to the CLI as the next prompt: two checks.
+                let taken = match self.live.lock().expect("live").get(id) {
+                    Some(live) if !text.trim().is_empty() => {
                         live.run.send(&localize_attachments(&self.desktop, &text));
+                        true
                     }
+                    _ => false,
+                };
+                if taken {
+                    self.stamp(&message_id, true);
                 }
             }
             if first {
@@ -984,7 +1026,7 @@ impl ToolProvider for LocalTools {
                 let conversation = self.desktop.store.rows_where("conversations", "session_id", session).unwrap_or_default().into_iter().next();
                 let Some(conversation) = conversation.and_then(|c| c.get("id").and_then(Value::as_str).map(str::to_string)) else { return refused("no conversation for this session") };
                 let now = time::now();
-                let row = json!({"id": uuid::Uuid::new_v4().to_string(), "conversation_id": conversation, "session_id": session, "root_id": session, "team_id": self.desktop.executor.team_id(), "author_kind": "agent", "author_id": null, "author_session_id": session, "body": text, "card": {"kind": "show", "title": title}, "attachment_ids": [], "issue_brief": null, "answered_at": null, "consumed_at": null, "created_at": now, "updated_at": now});
+                let row = json!({"id": uuid::Uuid::new_v4().to_string(), "conversation_id": conversation, "session_id": session, "root_id": session, "team_id": self.desktop.executor.team_id(), "author_kind": "agent", "author_id": null, "author_session_id": session, "body": text, "card": {"kind": "show", "title": title}, "attachment_ids": [], "issue_brief": null, "answered_at": null, "delivered_at": null, "consumed_at": null, "created_at": now, "updated_at": now});
                 match self.desktop.store.write("messages", row.as_object().cloned().unwrap_or_default()) {
                     Ok(()) => content(json!({"ok": true})),
                     Err(e) => refused(&e),
@@ -1201,6 +1243,51 @@ mod tests {
         api::sessions::end(&client, &session).unwrap();
         wait_for(&changes, || !runs.is_running(&session));
         assert_eq!(runs.hub.lock().unwrap().sessions[&session].status, Status::Ended);
+        runs.stop_all();
+    }
+
+    /// #FEED-237 (message-delivery.json, DELIVERED): a Local desktop's
+    /// device stamps the person's rows like a cloud pickup: `delivered_at`
+    /// when its hub hears one, `consumed_at` when the run takes it in (the
+    /// launch's brief, a send into the live run), each once.
+    #[test]
+    fn a_sent_message_reads_delivered_then_consumed() {
+        let dir = tempfile::tempdir().unwrap();
+        let desktops = crate::Desktops::open(dir.path()).unwrap();
+        let desktop = Arc::new(desktops.open_desktop(desktops.current().unwrap()).unwrap());
+        let prompts = Arc::new(Mutex::new(Vec::new()));
+        let runner = Arc::new(FakeRunner { prompts: prompts.clone(), grants: Arc::new(Mutex::new(Vec::new())) });
+        let runs = LocalRuns::start(desktop.clone(), runner, dir.path().to_path_buf()).unwrap();
+        let changes = runs.changes();
+        let client = desktop.client();
+        let stamps = |id: &str| {
+            let row = desktop.store.row("messages", id).unwrap().unwrap();
+            (row.get("delivered_at").and_then(Value::as_str).map(str::to_string), row.get("consumed_at").and_then(Value::as_str).map(str::to_string))
+        };
+        let read = |id: &str| matches!(stamps(id), (Some(_), Some(_)));
+
+        let mut send = api::sessions::SendInput::default();
+        send.team_id = Some(desktop.executor.team_id().to_string());
+        send.text = Some("Fix the login".into());
+        let out = api::sessions::send(&client, &send).unwrap();
+        let (session, first) = (out.session_id.clone(), out.message_id.clone().expect("the stored row"));
+        wait_for(&changes, || read(&first));
+        let (delivered, consumed) = stamps(&first);
+        assert!(delivered.unwrap() <= consumed.unwrap());
+        wait_for(&changes, || desktop.store.row("sessions", &session).unwrap().unwrap()["status"] == json!("idle"));
+
+        // A second message into the live run: one check, then two.
+        let second = api::sessions::send(&client, &api::sessions::SendInput::message(&session, "And the logout", vec![])).unwrap().message_id.expect("the stored row");
+        wait_for(&changes, || read(&second));
+        assert_eq!(prompts.lock().unwrap().as_slice(), ["Fix the login", "And the logout"]);
+
+        // The stamps are written once: the deltas they raise settle, the first row's stay.
+        let before = (stamps(&first), stamps(&second));
+        while changes.recv_timeout(Duration::from_millis(500)).is_ok() {}
+        assert_eq!((stamps(&first), stamps(&second)), before);
+        // The agent's own rows carry no stamp.
+        let agent: Vec<Map<String, Value>> = desktop.store.rows_where("messages", "root_id", &session).unwrap().into_iter().filter(|m| m["author_kind"] == json!("agent")).collect();
+        assert!(agent.iter().all(|m| m.get("delivered_at").is_none_or(Value::is_null) && m.get("consumed_at").is_none_or(Value::is_null)), "{agent:?}");
         runs.stop_all();
     }
 

@@ -1,5 +1,6 @@
 package com.exponential.app.data.outbox
 
+import android.content.Context
 import com.exponential.app.Observability
 import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.SessionsApi
@@ -10,6 +11,8 @@ import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.OutboxEntity
 import com.exponential.app.domain.MessageDelivery
 import com.exponential.app.domain.PendingAttachment
+import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.File
 import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -34,9 +37,17 @@ import kotlinx.coroutines.launch
  * start every `sending` entry the server never answered is sent AGAIN with
  * the same clientMessageId (F21: the server returns the row it already
  * stored); a `failed` one waits for its Retry.
+ *
+ * FILES: the picks not uploaded yet are part of the entry: their bytes are
+ * copied under the app's files dir (`outbox/<clientId>/<n>`) at the press
+ * and listed in its `pending_files`; the send uploads them one by one (each
+ * landed id joins `attachment_ids`, the file leaves the list and the disk),
+ * then sends, so a restart resumes the remaining uploads. A file that is
+ * gone fails the entry (Retry tries again, Delete drops it).
  */
 @Singleton
 class SessionOutbox @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val auth: AuthRepository,
     private val holder: DatabaseHolder,
     private val sessionsApi: SessionsApi,
@@ -54,9 +65,6 @@ class SessionOutbox @Inject constructor(
             CoroutineExceptionHandler { _, e -> Observability.nonFatal(TAG, "outbox send failed", e) },
     )
 
-    /** The picked files not uploaded yet, per entry (memory only: a restart
-     *  resends what already landed, [OutboxEntity.attachmentIds]). */
-    private val held = ConcurrentHashMap<String, List<PendingAttachment>>()
     private val builders = ConcurrentHashMap<String, Builder>()
     private val inFlight = ConcurrentHashMap.newKeySet<String>()
     private val resent = ConcurrentHashMap.newKeySet<String>()
@@ -93,9 +101,18 @@ class SessionOutbox @Inject constructor(
         val clientId = UUID.randomUUID().toString()
         val landed = images.mapNotNull { it.uploadedId }
         val waiting = images.filter { it.uploadedId == null }
-        if (waiting.isNotEmpty()) held[clientId] = waiting
         builders[clientId] = builder
         scope.launch {
+            // The bytes go to disk first: the entry never lists a file that
+            // was not written (one that failed to write fails the send).
+            val files = OutboxFiles.plan(filesDir(clientId), waiting.map { it.filename to it.contentType })
+            for ((file, pick) in files.zip(waiting)) {
+                try {
+                    File(file.path).apply { parentFile?.mkdirs() }.writeBytes(pick.bytes)
+                } catch (t: Throwable) {
+                    Observability.nonFatal(TAG, "outbox file write failed", t)
+                }
+            }
             holder.database(accountId).outboxDao().upsert(
                 OutboxEntity(
                     clientId = clientId,
@@ -105,6 +122,7 @@ class SessionOutbox @Inject constructor(
                     state = MessageDelivery.Local.Sending.wire,
                     messageId = null,
                     attachmentIds = landed.takeIf { it.isNotEmpty() }?.joinToString(","),
+                    pendingFiles = OutboxFiles.encode(files),
                 ),
             )
             run(accountId, clientId)
@@ -122,19 +140,21 @@ class SessionOutbox @Inject constructor(
 
     /** A failed bubble's Delete: the entry goes, its text with it. */
     fun delete(accountId: String, clientId: String) {
-        held.remove(clientId)
         builders.remove(clientId)
-        scope.launch { holder.database(accountId).outboxDao().delete(listOf(clientId)) }
+        scope.launch {
+            holder.database(accountId).outboxDao().delete(listOf(clientId))
+            removeFiles(clientId)
+        }
     }
 
     /** `outboxMerge`'s `drop`: their synced rows took their place. */
     fun drop(accountId: String, clientIds: List<String>) {
         if (clientIds.isEmpty()) return
-        clientIds.forEach {
-            held.remove(it)
-            builders.remove(it)
+        clientIds.forEach { builders.remove(it) }
+        scope.launch {
+            holder.database(accountId).outboxDao().delete(clientIds)
+            clientIds.forEach(::removeFiles)
         }
-        scope.launch { holder.database(accountId).outboxDao().delete(clientIds) }
     }
 
     private suspend fun run(accountId: String, clientId: String) {
@@ -142,18 +162,19 @@ class SessionOutbox @Inject constructor(
         val dao = holder.database(accountId).outboxDao()
         try {
             val entry = dao.get(clientId) ?: return
-            val ids = entry.attachmentIdList.toMutableList()
-            var waiting = held[clientId].orEmpty()
-            while (waiting.isNotEmpty()) {
-                val image = waiting.first()
+            var uploads = OutboxFiles.Uploads(entry.attachmentIdList, OutboxFiles.decode(entry.pendingFiles))
+            while (uploads.pending.isNotEmpty()) {
+                val file = uploads.pending.first()
+                // Gone or unreadable = the catch below fails the entry.
+                val bytes = File(file.path).readBytes()
                 val uploaded = issueImagesApi.uploadSessionImage(
-                    accountId, entry.sessionId, image.bytes, image.filename, image.contentType,
+                    accountId, entry.sessionId, bytes, file.filename, file.contentType,
                 )
-                ids += uploaded.id
-                waiting = waiting.drop(1)
-                if (waiting.isEmpty()) held.remove(clientId) else held[clientId] = waiting
-                dao.setAttachmentIds(clientId, ids.joinToString(","))
+                uploads = uploads.landed(file, uploaded.id)
+                dao.setUploads(clientId, uploads.attachmentIdsWire, uploads.pendingWire)
+                File(file.path).delete()
             }
+            val ids = uploads.attachmentIds
             val builder = builders[clientId]
             val input = builder?.input?.invoke(entry.text, ids)
                 ?: SessionsSendInput.message(entry.sessionId, entry.text, ids.takeIf { it.isNotEmpty() })
@@ -168,12 +189,19 @@ class SessionOutbox @Inject constructor(
                 // An older server answers no id: the text match takes over.
                 else -> Unit
             }
+            removeFiles(clientId)
         } catch (t: Throwable) {
             if (t is CancellationException) throw t
             dao.setState(clientId, MessageDelivery.Local.Failed.wire)
         } finally {
             inFlight.remove(clientId)
         }
+    }
+
+    private fun filesDir(clientId: String): File = OutboxFiles.dir(context.filesDir, clientId)
+
+    private fun removeFiles(clientId: String) {
+        runCatching { filesDir(clientId).deleteRecursively() }
     }
 
     private companion object {

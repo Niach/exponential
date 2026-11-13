@@ -577,16 +577,10 @@ export function SessionComposer({
           sessionId,
           text: sentText,
           extra,
-          upload:
-            sentFiles.length > 0
-              ? async () => {
-                  const ids: string[] = []
-                  for (const entry of sentFiles) ids.push((await uploadTeamSessionImageFile(teamId, entry.file)).id)
-                  for (const entry of sentFiles) if (entry.previewUrl) URL.revokeObjectURL(entry.previewUrl)
-                  return ids
-                }
-              : undefined,
+          // FILES: the entry keeps them (IndexedDB) and uploads them itself.
+          files: sentFiles.map((entry) => entry.file),
         })
+        for (const entry of sentFiles) if (entry.previewUrl) URL.revokeObjectURL(entry.previewUrl)
         if (sentMcpPick) mcpPick?.sent(sentMcpPick)
         setText(``, { now: true })
         heldRef.current = null

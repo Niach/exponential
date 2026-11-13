@@ -416,7 +416,7 @@ pub fn send_rows(input: &Row, ctx: &SendContext, next_id: &mut dyn FnMut() -> St
         "author_kind": "user", "author_id": ctx.identity.user_id, "author_session_id": null,
         "body": body_with_attachments(str_of(input, "text").unwrap_or(""), &attachment_ids, &ctx.attachments), "card": null,
         "attachment_ids": attachment_ids,
-        "issue_brief": null, "answered_at": null, "consumed_at": null, "created_at": ctx.now, "updated_at": ctx.now,
+        "issue_brief": null, "answered_at": null, "delivered_at": null, "consumed_at": null, "created_at": ctx.now, "updated_at": ctx.now,
     }))));
     if ctx.existing.is_none() {
         if let Some(issues) = input.get("issueIds").and_then(Value::as_array) {

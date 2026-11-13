@@ -997,7 +997,10 @@ data class AppRecordOutboxEntity(
 // person's message from the press until its synced row takes its place.
 // [state] = `sending` | `failed`; [messageId] = the row the server stored
 // (null until `sessions.send` answers); [attachmentIds] = the uploads that
-// already landed, comma-joined (a resend after a restart carries them).
+// already landed, comma-joined (a resend after a restart carries them);
+// [pendingFiles] (v127) = the picked files not uploaded yet, a JSON list of
+// `OutboxFile` {filename, contentType, path} whose bytes sit under the app's
+// files dir (`outbox/<clientId>/<n>`), so a restart resumes the uploads.
 @Entity(
     tableName = "outbox",
     indices = [Index("session_id")],
@@ -1010,6 +1013,7 @@ data class OutboxEntity(
     val state: String,
     @ColumnInfo(name = "message_id") val messageId: String? = null,
     @ColumnInfo(name = "attachment_ids") val attachmentIds: String? = null,
+    @ColumnInfo(name = "pending_files") val pendingFiles: String? = null,
 ) {
     val attachmentIdList: List<String> get() = attachmentIds?.split(',')?.filter { it.isNotBlank() }.orEmpty()
 }
