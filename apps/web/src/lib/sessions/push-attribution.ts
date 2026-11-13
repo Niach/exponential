@@ -1,3 +1,4 @@
+import { repoInstallationId } from "@/lib/ecode/provider-config"
 import { and, eq, gte, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { branchPushes, repositories, sessions } from "@/db/schema"
@@ -69,7 +70,7 @@ export function pushedRepositoryIds(args: { fullName: string; installationId?: n
     .where(
       args.installationId == null
         ? name
-        : and(name, or(isNull(repositories.installationId), eq(repositories.installationId, args.installationId)))
+        : and(name, or(isNull(repoInstallationId()), eq(repoInstallationId(), args.installationId)))
     )
 }
 

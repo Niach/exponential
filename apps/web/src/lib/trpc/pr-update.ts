@@ -1,10 +1,7 @@
 import { TRPCError } from "@trpc/server"
 import { z } from "zod"
 import { PR_BODY_MAX } from "@/lib/pr-body"
-import {
-  GitHubMergeError,
-  updatePullRequest,
-} from "@/lib/integrations/github-pr"
+import { ForgeError, forgeFor } from "@/lib/ecode/forge"
 
 // EXP-1139: rewriting a pull request's title/body on GitHub, for
 // `updatePullRequest`, `openPullRequest`'s idempotent re-open and the Guide
@@ -48,16 +45,16 @@ export async function patchPullDescription(opts: {
   token: string
   fields: PrUpdateFields
 }): Promise<void> {
+  // #EXP-1614: through the repo's forge.
+  const at = { id: ``, fullName: opts.repoFullName, token: opts.token }
   try {
-    await updatePullRequest({
-      repo: opts.repoFullName,
-      prNumber: opts.prNumber,
+    await (await forgeFor(at)).update(at, {
+      number: opts.prNumber,
       title: opts.fields.title,
       body: opts.fields.body,
-      token: opts.token,
     })
   } catch (err) {
-    if (err instanceof GitHubMergeError) {
+    if (err instanceof ForgeError) {
       if (err.status === 404) {
         throw new TRPCError({
           code: `NOT_FOUND`,

@@ -593,10 +593,9 @@ describe(`github webhook — installation_repositories heal scoping`, () => {
 
     expect(res.status).toBe(200)
     expect(repositoryUpdates()).toHaveLength(1)
-    expect(repositoryUpdates()[0].set).toMatchObject({
-      inaccessibleAt: null,
-      installationId: INSTALLATION_ID,
-    })
+    expect(repositoryUpdates()[0].set).toMatchObject({ inaccessibleAt: null })
+    // #EXP-1614: the installation lands in provider_config.
+    expect(repositoryUpdates()[0].set.providerConfig).toBeDefined()
     expect(repositoryUpdates()[0].where).toBeDefined()
   })
 

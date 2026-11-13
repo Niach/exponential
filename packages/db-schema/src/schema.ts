@@ -3027,11 +3027,8 @@ export const pullRequests = pgTable(
     // FEED-160: the forge's `updated_at` of the last PR state (draft/open)
     // we applied; a generic delivery older than it never flips the draft
     // flag. `updated_at` moves on any write, so it cannot guard. Server-only.
-    // #EXP-1614: renamed from `github_updated_at`.
+    // #EXP-1614: replaced `github_updated_at` (dropped by a contract step).
     providerUpdatedAt: timestamp(`provider_updated_at`, { withTimezone: true }),
-    // The one-release shim (#NEW-14): still written with the same value;
-    // nothing reads it. Drop it after.
-    githubUpdatedAt: timestamp(`github_updated_at`, { withTimezone: true }),
     // S-3: `pr_open`'s notRun (the UI screens the agent could not run,
     // `<platform>: <screen>`): the body renders it, a later open keeps it.
     // Server-only (never in the shape's columns).
@@ -3400,8 +3397,10 @@ export const repositories = pgTable(
     // hands it out). NULL = the provider's default (GitHub:
     // `https://github.com/<full_name>.git`).
     remoteUrl: text(`remote_url`),
-    // Provider-specific settings (GitHub: `{installationId}`). SERVER-ONLY:
-    // never returned by `repositories.list` nor synced.
+    // Provider-specific settings (GitHub: `{installationId}`, the cached App
+    // installation; nullable, the App JWT can still resolve it on demand).
+    // SERVER-ONLY: never synced; `repositories.list` returns only its
+    // `installationId`. Replaced the `installation_id` column (#EXP-1614).
     providerConfig: jsonb(`provider_config`)
       .$type<{ installationId?: number | null } & Record<string, unknown>>()
       .notNull()
@@ -3413,11 +3412,6 @@ export const repositories = pgTable(
     // maintaining `default_branch` underneath it.
     defaultBranchOverride: text(`default_branch_override`),
     private: boolean().notNull().default(false),
-    // Cached GitHub App installation id; nullable — the App JWT can still
-    // resolve it on demand (github-app.ts is storage-free).
-    // #EXP-1614: moved into `provider_config.installationId`; this column is
-    // the one-release shim (#NEW-14), still written alongside. Drop it after.
-    installationId: bigint(`installation_id`, { mode: `number` }),
     // The App lost access to this repo (installation_repositories webhook, or a
     // verified token mint failed). NULL = accessible as far as we know. Cleared
     // by connect, a webhook re-grant, and the list heal pass.
@@ -4584,11 +4578,10 @@ export const selectSyncedMessageSchema = selectMessageSchema.omit({
   clientMessageId: true,
 })
 export const selectSessionReadSchema = createSelectSchema(sessionReads)
-// FEED-160: `provider_updated_at` (and its shim `github_updated_at`) are
-// server-only (outside the shape allowlist).
+// FEED-160: `provider_updated_at` is server-only (outside the shape allowlist).
 export const selectPullRequestSchema = createSelectSchema(pullRequests, {
   state: prStateSchema,
-}).omit({ githubUpdatedAt: true, providerUpdatedAt: true })
+}).omit({ providerUpdatedAt: true })
 // EXP-1610: `queued_flagged_at` is server-only (outside the shape allowlist).
 export const selectPullRequestCheckSchema = createSelectSchema(pullRequestChecks).omit({
   queuedFlaggedAt: true,

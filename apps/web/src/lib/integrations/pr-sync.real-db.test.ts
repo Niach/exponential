@@ -97,12 +97,6 @@ describe.skipIf(!ready.ok)(`FEED-160: the provider_updated_at guard`, () => {
     const id = await pr(`closed`, at(`2026-10-01T00:00:00Z`))
     await applyPullRequestReopened({ pullRequestId: id, draft: false, providerUpdatedAt: at(`2026-10-03T00:00:00Z`) })
     expect(await read(id)).toEqual({ state: `open`, providerUpdatedAt: at(`2026-10-03T00:00:00Z`) })
-    // #EXP-1614: the one-release shim column follows it.
-    const [shim] = await db
-      .select({ githubUpdatedAt: pullRequests.githubUpdatedAt })
-      .from(pullRequests)
-      .where(eq(pullRequests.id, id))
-    expect(shim?.githubUpdatedAt).toEqual(at(`2026-10-03T00:00:00Z`))
     expect(await applyPullRequestDraft({ pullRequestId: id, draft: true, notBefore: at(`2026-10-02T00:00:00Z`) })).toBeNull()
     expect((await read(id)).state).toBe(`open`)
   })

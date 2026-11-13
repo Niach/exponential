@@ -2,7 +2,12 @@ import { z } from "zod"
 import { REPO_FULL_NAME_RE } from "@/lib/repo-full-name"
 import { TRPCError } from "@trpc/server"
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm"
-import { githubProviderConfig, providerConfigWithInstallation } from "@/lib/ecode/provider-config"
+import {
+  githubProviderConfig,
+  installationIdOf,
+  providerConfigWithInstallation,
+  repoInstallationId,
+} from "@/lib/ecode/provider-config"
 import { githubRemote } from "@/lib/ecode/forge-github"
 import type { db } from "@/db/connection"
 import { router, authedProcedure } from "@/lib/trpc"
@@ -24,11 +29,26 @@ import {
   resolveRepoDefaultBranchCached,
   resolveRepoInstallationTokenInfo,
 } from "@/lib/integrations/github-app"
-import {
-  branchExists,
-  listOpenPulls,
-  type OpenPull,
-} from "@/lib/integrations/github-pr"
+import { forgeFor, type ForgeRepo } from "@/lib/ecode/forge"
+
+/** The open-PR list's row (desktop 0.14.65 reads exactly this shape). */
+export interface OpenPull {
+  number: number
+  url: string
+  title: string
+  branch: string
+  baseBranch: string
+  draft: boolean
+  authorLogin: string | null
+  authorAvatarUrl: string | null
+  createdAt: string
+}
+
+/** #EXP-1614: a row on its forge, acting with `token`. */
+async function forgeAt(repo: { id: string; fullName: string; installationId?: number | null }, token: string | null) {
+  const at: ForgeRepo = { id: repo.id, fullName: repo.fullName, installationId: repo.installationId ?? null, token }
+  return { forge: await forgeFor(at), at }
+}
 import { resolveRepoForConnect } from "@/lib/trpc/integrations"
 
 // The default branch-name prefix for issue worktrees: `exp/<IDENTIFIER>`.
@@ -117,7 +137,6 @@ export async function connectRepositoryInTx(
       fullName: input.fullName,
       defaultBranch,
       private: resolved.private || (input.private ?? false),
-      installationId,
       providerConfig: githubProviderConfig(installationId),
       inaccessibleAt: null,
       // EXP-557: the connector becomes the repo's sharer (manages it
@@ -140,7 +159,6 @@ export async function connectRepositoryInTx(
     .update(repositories)
     .set({
       archivedAt: null,
-      installationId,
       providerConfig: providerConfigWithInstallation(installationId),
       inaccessibleAt: null,
       sharedByUserId: sql`case when ${repositories.archivedAt} is not null or ${repositories.sharedByUserId} is null then ${input.userId} else ${repositories.sharedByUserId} end`,
@@ -302,7 +320,7 @@ export async function resolveBoardRepository(boardId: string) {
       defaultBranch: repositories.defaultBranch,
       defaultBranchOverride: repositories.defaultBranchOverride,
       boardDefaultBranch: boards.defaultBranch,
-      installationId: repositories.installationId,
+      installationId: repoInstallationId(),
     })
     .from(boards)
     .innerJoin(repositories, eq(repositories.id, boards.repositoryId))
@@ -330,7 +348,7 @@ export async function loadRepository(repositoryId: string) {
       remoteUrl: repositories.remoteUrl,
       defaultBranch: repositories.defaultBranch,
       defaultBranchOverride: repositories.defaultBranchOverride,
-      installationId: repositories.installationId,
+      installationId: repoInstallationId(),
       inaccessibleAt: repositories.inaccessibleAt,
       sharedByUserId: repositories.sharedByUserId,
       archivedAt: repositories.archivedAt,
@@ -478,7 +496,7 @@ export async function loadRepositoryByFullName(
       remoteUrl: repositories.remoteUrl,
       defaultBranch: repositories.defaultBranch,
       defaultBranchOverride: repositories.defaultBranchOverride,
-      installationId: repositories.installationId,
+      installationId: repoInstallationId(),
       inaccessibleAt: repositories.inaccessibleAt,
       sharedByUserId: repositories.sharedByUserId,
       archivedAt: repositories.archivedAt,
@@ -573,7 +591,6 @@ async function mintRepoCredentials(
     await db
       .update(repositories)
       .set({
-        installationId: resolved.installationId,
         providerConfig: providerConfigWithInstallation(resolved.installationId),
         inaccessibleAt: null,
       })
@@ -614,9 +631,13 @@ async function mintRepoCredentials(
 }
 
 /** #EXP-1614: a row as clients see it: `provider_config` is server-only. */
-function clientRepository<T extends { providerConfig?: unknown }>(row: T): Omit<T, `providerConfig`> {
-  const { providerConfig: _serverOnly, ...rest } = row
-  return rest
+function clientRepository<T extends { providerConfig?: unknown }>(
+  row: T
+): Omit<T, `providerConfig`> & { installationId: number | null } {
+  const { providerConfig, ...rest } = row
+  // The installation stays on the wire (the settings rows name it) though
+  // the column moved into provider_config.
+  return { ...rest, installationId: installationIdOf(providerConfig) }
 }
 
 export const repositoriesRouter = router({
@@ -726,7 +747,7 @@ export const repositoriesRouter = router({
           id: repositories.id,
           fullName: repositories.fullName,
           teamId: repositories.teamId,
-          installationId: repositories.installationId,
+          installationId: repoInstallationId(),
         })
         .from(repositories)
         .where(
@@ -749,8 +770,18 @@ export const repositoriesRouter = router({
       const results = await Promise.all(
         repos.map(async (repo) => {
           try {
-            const token = await resolveGatedRepoToken(repo)
-            const pulls = await listOpenPulls(repo.fullName, token)
+            const { forge, at } = await forgeAt(repo, await resolveGatedRepoToken(repo))
+            const pulls: OpenPull[] = (await forge.listOpen(at)).map((pull) => ({
+              number: pull.number,
+              url: pull.url,
+              title: pull.title,
+              branch: pull.headRef,
+              baseBranch: pull.baseRef,
+              draft: pull.draft,
+              authorLogin: pull.authorLogin,
+              authorAvatarUrl: pull.authorAvatarUrl,
+              createdAt: pull.createdAt,
+            }))
             return {
               repositoryId: repo.id,
               fullName: repo.fullName,
@@ -878,10 +909,10 @@ export const repositoriesRouter = router({
         // Validate against GitHub so a typo can't brick every worktree/PR
         // base. Verified with the same gated token the reads use; an
         // unreachable repo surfaces as a real error, not a silent save.
-        const token = await resolveGatedRepoToken(repo)
+        const { forge, at } = await forgeAt(repo, await resolveGatedRepoToken(repo))
         let exists: boolean
         try {
-          exists = await branchExists(repo.fullName, override, token)
+          exists = (await forge.readBranch(at, override)) !== null
         } catch {
           throw new TRPCError({
             code: `BAD_GATEWAY`,

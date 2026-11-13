@@ -12,8 +12,8 @@ import { byCodePoint, capabilityValues, supports, type ForgeReason } from "@exp/
 import {
   githubApiHeaders,
   githubAppConfigured,
+  fetchBranchDiff,
   resolveRepoDefaultBranchCached,
-  resolveRepoInstallationToken,
   resolveRepoInstallationTokenInfo,
 } from "@/lib/integrations/github-app"
 import { githubFetch, type GithubClientDeps } from "@/lib/integrations/github-client"
@@ -21,6 +21,7 @@ import { githubErrorMessage } from "@/lib/integrations/github-error"
 import {
   closePullRequest,
   createPullRequest,
+  updatePullRequest,
   deleteBranch,
   fetchPullFiles,
   fetchPullStack,
@@ -53,8 +54,10 @@ import { checkFromGithubStatus } from "@/lib/ecode/github-status"
 export const GITHUB_TRAIN_WORKFLOW = `train.yml`
 
 let deps: GithubClientDeps = {}
-let tokenFor: (repo: ForgeRepo) => Promise<string | null> = (repo) =>
-  resolveRepoInstallationToken(repo.fullName, { fallbackInstallationId: repo.installationId ?? null })
+const resolveToken = async (repo: ForgeRepo): Promise<string | null> =>
+  (await resolveRepoInstallationTokenInfo(repo.fullName, { fallbackInstallationId: repo.installationId ?? null }))?.token ??
+  null
+let tokenFor: (repo: ForgeRepo) => Promise<string | null> = resolveToken
 
 /** Tests: a stub fetch and a fixed token. */
 export function setGithubForgeDepsForTests(next: {
@@ -65,7 +68,7 @@ export function setGithubForgeDepsForTests(next: {
   prFetch = next?.deps?.fetch ? (url, init) => githubFetch(url, init, deps) : undefined
   tokenFor = next
     ? async () => next.token ?? null
-    : (repo) => resolveRepoInstallationToken(repo.fullName, { fallbackInstallationId: repo.installationId ?? null })
+    : resolveToken
 }
 
 /** The stub behind the `integrations/github-pr` calls (tests only). */
@@ -150,7 +153,9 @@ async function call(
     {
       method: init.method ?? `GET`,
       headers: {
-        ...githubApiHeaders(token ?? undefined),
+        // A read without an App token falls back to a self-hoster's PAT
+        // (GITHUB_TOKEN), like every github-pr read.
+        ...githubApiHeaders(token || ((init.method ?? `GET`) === `GET` ? process.env.GITHUB_TOKEN : undefined) || undefined),
         ...(init.body !== undefined ? { "content-type": `application/json` } : {}),
       },
       ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
@@ -228,8 +233,19 @@ export const githubForge: Forge & {
   },
 
   async listOpen(repo) {
-    const pulls = await listOpenPulls(repo.fullName, await tokenOf(repo), prFetch)
-    return pulls.map((pull) => ({ number: pull.number, url: pull.url, headRef: pull.branch, baseRef: pull.baseBranch }))
+    const token = await tokenOf(repo)
+    const pulls = prFetch ? await listOpenPulls(repo.fullName, token, prFetch) : await listOpenPulls(repo.fullName, token)
+    return pulls.map((pull) => ({
+      number: pull.number,
+      url: pull.url,
+      headRef: pull.branch,
+      baseRef: pull.baseBranch,
+      title: pull.title,
+      draft: pull.draft,
+      authorLogin: pull.authorLogin,
+      authorAvatarUrl: pull.authorAvatarUrl,
+      createdAt: pull.createdAt,
+    }))
   },
 
   async retarget(repo, { number, base }) {
@@ -303,6 +319,25 @@ export const githubForge: Forge & {
       : opts?.fresh || repo.token !== undefined
         ? await fetchPullFiles(repo.fullName, number, await tokenOf(repo), undefined, opts)
         : (await loadPrFiles(`https://github.com/${repo.fullName}/pull/${number}`, number)).files
+  },
+
+  async branchFiles(repo, { base, branch }) {
+    const diff = await fetchBranchDiff({ repo: repo.fullName, base, branch, token: await tokenOf(repo) })
+    return diff ? diff.files.map(forgeFileOf).sort((a, b) => byCodePoint(a.path, b.path)) : null
+  },
+
+  async update(repo, { number, title, body }) {
+    const token = await requireToken(repo)
+    await mapped(() =>
+      updatePullRequest({
+        repo: repo.fullName,
+        prNumber: number,
+        title,
+        body,
+        token,
+        ...(prFetch ? { fetchImpl: prFetch } : {}),
+      })
+    )
   },
 
   async inferBase(repo, args) {

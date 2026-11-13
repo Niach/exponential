@@ -1,3 +1,4 @@
+import { repoInstallationId } from "@/lib/ecode/provider-config"
 import { and, asc, eq, inArray, lt } from "drizzle-orm"
 import { PR_RECONCILE } from "@exp/domain-contract/issue-lifecycle"
 import { db } from "@/db/connection"
@@ -25,7 +26,7 @@ export async function reconcileStaleLivePullRequests(now: Date = new Date()): Pr
       state: pullRequests.state,
       base: pullRequests.base,
       fullName: repositories.fullName,
-      installationId: repositories.installationId,
+      installationId: repoInstallationId(),
     })
     .from(pullRequests)
     .innerJoin(repositories, eq(repositories.id, pullRequests.repositoryId))

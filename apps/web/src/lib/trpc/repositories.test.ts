@@ -353,7 +353,7 @@ describe(`connectRepositoryInTx`, () => {
     // The gate runs on the CALLER (their token proves push access).
     expect(mockResolveRepo).toHaveBeenCalledWith(`u1`, `acme/app`)
     // The persisted id is GitHub's authoritative one, never a client claim.
-    expect(captured.values?.installationId).toBe(7)
+    expect(captured.values?.providerConfig).toEqual({ installationId: 7 })
     expect(captured.values?.private).toBe(true)
     // EXP-557: the connector becomes the sharer.
     expect(captured.values?.sharedByUserId).toBe(`u1`)
