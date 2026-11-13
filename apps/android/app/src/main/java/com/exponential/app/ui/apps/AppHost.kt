@@ -639,8 +639,18 @@ fun rememberAppHost(
         val teamSessions = teamRows { d, t -> d.sessionDao().observeByTeam(t) }.map { it.map(AppSources::session) }
         val teamComments = teamRows { d, t -> d.commentDao().observeByTeam(t) }.map { it.map(AppSources::comment) }
         val teamAttachments = teamRows { d, t -> d.attachmentDao().observeByTeam(t) }.map { it.map(AppSources::attachment) }
-        fun sourceStore(name: String): Flow<AppSources.Store> = when (name) {
-            "issues" -> combine(teamBoards, teamIssues, sourceUsers) { b, i, u -> AppSources.Store(boards = b, issues = i, users = u) }
+        // FEED-243: `exp:issues?touched=` also reads the timeline, the session
+        // links, the sessions and the comments (only when it asks).
+        val teamIssueEvents = teamRows { d, t -> d.issueEventDao().observeByTeam(t) }.map { it.map(AppSources::issueEvent) }
+        val teamSessionIssues = teamRows { d, t -> d.sessionIssueDao().observeByTeam(t) }.map { it.map(AppSources::sessionIssue) }
+        fun sourceStore(name: String, params: Map<String, String> = emptyMap()): Flow<AppSources.Store> = when (name) {
+            "issues" -> {
+                val base = combine(teamBoards, teamIssues, sourceUsers) { b, i, u -> AppSources.Store(boards = b, issues = i, users = u) }
+                if (params["touched"].isNullOrEmpty()) base
+                else combine(base, teamIssueEvents, teamSessionIssues, teamSessions, teamComments) { s, e, l, ss, c ->
+                    s.copy(issueEvents = e, sessionIssues = l, sessions = ss, comments = c)
+                }
+            }
             "boards" -> teamBoards.map { AppSources.Store(boards = it) }
             "members", "me" -> combine(teamMembers, sourceUsers) { m, u -> AppSources.Store(members = m, users = u) }
             "sessions" -> teamSessions.map { AppSources.Store(sessions = it) }
@@ -655,13 +665,11 @@ fun rememberAppHost(
         // VAPP-201 (team-zone.json): dates in the TEAM zone, read live off
         // the synced team row; the device's without one.
         val zone = TeamHostZone()
+        val teamZoneName: Flow<String?> =
+            if (teamId == null) flowOf(null)
+            else db.scopedQuery(null) { it.teamDao().observeById(teamId) }.map { it?.timeZone }.distinctUntilChanged()
         if (teamId != null) {
-            scope.launch {
-                db.scopedQuery(null) { it.teamDao().observeById(teamId) }
-                    .map { it?.timeZone }
-                    .distinctUntilChanged()
-                    .collect { zone.teamZone(it) }
-            }
+            scope.launch { teamZoneName.collect { zone.teamZone(it) } }
         }
 
         val outbox = deps.appRecordOutbox()
@@ -761,8 +769,9 @@ fun rememberAppHost(
                 "devices" -> combine(devices, DeviceLiveness.ticker(AppHostValues.LIVENESS_TICK_MS)) { rows, now ->
                     AppHostValues.devices(rows, now)
                 }
-                in AppSources.SOURCES -> sourceStore(source.name).map { store ->
-                    AppSources.sourceValue(source.name, source.params, store, me, if (readOnly) "read" else "write")
+                // FEED-243: date-only `since` / `until` read in the team zone.
+                in AppSources.SOURCES -> combine(sourceStore(source.name, source.params), teamZoneName) { store, tz ->
+                    AppSources.sourceValue(source.name, source.params, store, me, if (readOnly) "read" else "write", tz)
                 }
                 else -> flowOf(null)
             }

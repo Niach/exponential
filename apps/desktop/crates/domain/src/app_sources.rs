@@ -124,8 +124,27 @@ pub struct SourceAttachment {
     pub created_at: String,
 }
 
+/// FEED-243: an issue's timeline row (`issue_events`), only who and when.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceIssueEvent {
+    pub id: String,
+    pub issue_id: String,
+    pub actor_user_id: Option<String>,
+    pub created_at: String,
+}
+
+/// FEED-243: a session linked to an issue (`session_issues`).
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceSessionIssue {
+    pub session_id: String,
+    pub issue_id: String,
+}
+
 /// The synced rows of ONE team, as the host reads them.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SourceStore {
     pub boards: Vec<SourceBoard>,
     pub issues: Vec<SourceIssue>,
@@ -134,6 +153,10 @@ pub struct SourceStore {
     pub sessions: Vec<SourceSession>,
     pub comments: Vec<SourceComment>,
     pub attachments: Vec<SourceAttachment>,
+    #[serde(default)]
+    pub issue_events: Vec<SourceIssueEvent>,
+    #[serde(default)]
+    pub session_issues: Vec<SourceSessionIssue>,
 }
 
 type Params = BTreeMap<String, String>;
@@ -191,7 +214,145 @@ fn issue_of<'a>(store: &'a SourceStore, reference: Option<&str>) -> Option<&'a S
     store.issues.iter().find(|i| i.id == reference || i.identifier.to_uppercase() == upper)
 }
 
+/// An ISO instant (RFC 3339) as epoch ms.
+fn instant_ms(text: &str) -> Option<i64> {
+    chrono::DateTime::parse_from_rfc3339(text.trim()).ok().map(|t| t.timestamp_millis())
+}
+
+/// A zone as its offset at an instant (minutes east): the team zone, else
+/// the machine's.
+type Offset = dyn Fn(i64) -> i64;
+
+fn zone_offset_fn(time_zone: Option<&str>) -> Box<Offset> {
+    match crate::team_zone::resolve_zone(time_zone) {
+        Some(zone) => Box::new(move |ms| crate::team_zone::zone_offset(&zone, ms as f64) as i64),
+        None => Box::new(|ms| {
+            use chrono::{Offset as _, TimeZone as _};
+            chrono::Local.timestamp_millis_opt(ms).single().map_or(0, |t| t.offset().fix().local_minus_utc() as i64 / 60)
+        }),
+    }
+}
+
+/// The instant a calendar day (`YYYY-MM-DD`) starts at under a zone (the
+/// reference's two-pass `dayStart`).
+fn day_start(day: &str, offset: &Offset) -> Option<i64> {
+    let wall = instant_ms(&format!("{day}T00:00:00Z"))?;
+    Some(wall - offset(wall - offset(wall) * 60_000) * 60_000)
+}
+
+/// `YYYY-MM-DD` exactly.
+fn is_day(v: &str) -> bool {
+    v.len() == 10 && v.bytes().enumerate().all(|(i, b)| if i == 4 || i == 7 { b == b'-' } else { b.is_ascii_digit() })
+}
+
+/// `YYYY-MM-DDTHH:MM:SS[.f](Z|±HH:MM)` exactly.
+fn is_instant(v: &str) -> bool {
+    let b = v.as_bytes();
+    let digits = |r: std::ops::Range<usize>| r.into_iter().all(|i| b.get(i).is_some_and(u8::is_ascii_digit));
+    if b.len() < 20 || !is_day(&v[..10]) || b[10] != b'T' || !digits(11..13) || b[13] != b':' || !digits(14..16) || b[16] != b':' || !digits(17..19) {
+        return false;
+    }
+    let mut i = 19;
+    if b[i] == b'.' {
+        let start = i + 1;
+        i = start;
+        while i < b.len() && b[i].is_ascii_digit() {
+            i += 1;
+        }
+        if i == start {
+            return false;
+        }
+    }
+    let rest = &b[i..];
+    rest == b"Z" || (rest.len() == 6 && (rest[0] == b'+' || rest[0] == b'-') && digits(i + 1..i + 3) && rest[3] == b':' && digits(i + 4..i + 6))
+}
+
+/// FEED-243: a `since` / `until` bound (epoch ms, exclusive?). A date-only
+/// bound reads in the zone: `since` = the day's start (inclusive), `until` =
+/// the NEXT day's start (exclusive); an instant is inclusive; anything else =
+/// no bound.
+fn bound_of(raw: Option<&str>, end: bool, offset: &Offset) -> Option<(i64, bool)> {
+    let v = raw?.trim();
+    if is_day(v) {
+        let day = chrono::NaiveDate::parse_from_str(v, "%Y-%m-%d").ok()?;
+        return if end {
+            Some((day_start(&day.succ_opt()?.format("%Y-%m-%d").to_string(), offset)?, true))
+        } else {
+            Some((day_start(v, offset)?, false))
+        };
+    }
+    if !is_instant(v) {
+        return None;
+    }
+    instant_ms(v).map(|ms| (ms, false))
+}
+
+/// The latest touch of an issue in the window.
+struct Touch {
+    at: String,
+    ms: i64,
+    touches: Vec<&'static str>,
+}
+
+/// FEED-243: the issues `actor` touched inside [since, until]: an
+/// `issue_events` row they acted, a comment they wrote, a session they
+/// started linked to the issue (at its start and its last update).
+fn touches_of(store: &SourceStore, actor: &str, params: &Params, time_zone: Option<&str>) -> HashMap<String, Touch> {
+    let offset = zone_offset_fn(time_zone);
+    let since = bound_of(param(params, "since"), false, &offset);
+    let until = bound_of(param(params, "until"), true, &offset);
+    let mut out: HashMap<String, Touch> = HashMap::new();
+    let mut add = |issue_id: &str, kind: &'static str, at: &str| {
+        let Some(ms) = instant_ms(at) else { return };
+        if since.is_some_and(|(s, _)| ms < s) {
+            return;
+        }
+        if until.is_some_and(|(u, open)| if open { ms >= u } else { ms > u }) {
+            return;
+        }
+        match out.get_mut(issue_id) {
+            None => {
+                out.insert(issue_id.to_string(), Touch { at: at.to_string(), ms, touches: vec![kind] });
+            }
+            Some(t) => {
+                if !t.touches.contains(&kind) {
+                    t.touches.push(kind);
+                }
+                if ms > t.ms {
+                    t.at = at.to_string();
+                    t.ms = ms;
+                }
+            }
+        }
+    };
+    for e in store.issue_events.iter().filter(|e| e.actor_user_id.as_deref() == Some(actor)) {
+        add(&e.issue_id, "event", &e.created_at);
+    }
+    for c in store.comments.iter().filter(|c| c.author_id.as_deref() == Some(actor)) {
+        add(&c.issue_id, "comment", &c.created_at);
+    }
+    let mut sessions: HashMap<&str, &SourceSession> = HashMap::new();
+    for s in &store.sessions {
+        sessions.entry(s.id.as_str()).or_insert(s);
+    }
+    for link in &store.session_issues {
+        let Some(s) = sessions.get(link.session_id.as_str()).filter(|s| s.user_id.as_deref() == Some(actor)) else { continue };
+        add(&link.issue_id, "session", &s.created_at);
+        add(&link.issue_id, "session", &s.updated_at);
+    }
+    for t in out.values_mut() {
+        t.touches.sort_unstable();
+    }
+    out
+}
+
 pub fn issues_value(store: &SourceStore, params: &Params, me: Option<&str>) -> Value {
+    issues_value_in(store, params, me, None)
+}
+
+/// [`issues_value`] with the team zone date-only `since` / `until` read in
+/// (`None` = the machine's).
+pub fn issues_value_in(store: &SourceStore, params: &Params, me: Option<&str>, time_zone: Option<&str>) -> Value {
     let board_ref = param(params, "board");
     let board = board_of(store, board_ref);
     if board_ref.is_some() && board.is_none() {
@@ -202,10 +363,17 @@ pub fn issues_value(store: &SourceStore, params: &Params, me: Option<&str>) -> V
     let status = param(params, "status");
     let priority = param(params, "priority");
     let search = params.get("search").map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty());
+    let touched: Option<HashMap<String, Touch>> = param(params, "touched").map(|t| {
+        let actor = if t == "me" { me } else { Some(t) };
+        actor.map(|a| touches_of(store, a, params, time_zone)).unwrap_or_default()
+    });
     let mut rows: Vec<&SourceIssue> = store
         .issues
         .iter()
         .filter(|i| {
+            if touched.as_ref().is_some_and(|t| !t.contains_key(&i.id)) {
+                return false;
+            }
             if board.is_some_and(|b| i.board_id != b.id) {
                 return false;
             }
@@ -234,6 +402,8 @@ pub fn issues_value(store: &SourceStore, params: &Params, me: Option<&str>) -> V
     let sort = match params.get("sort").map(String::as_str) {
         Some("updatedAt") => "updatedAt",
         Some("createdAt") => "createdAt",
+        Some("sortOrder") => "sortOrder",
+        _ if touched.is_some() => "touchedAt",
         _ => "sortOrder",
     };
     let asc = match params.get("order").map(String::as_str) {
@@ -245,6 +415,10 @@ pub fn issues_value(store: &SourceStore, params: &Params, me: Option<&str>) -> V
         let c = match sort {
             "updatedAt" => a.updated_at.cmp(&b.updated_at),
             "createdAt" => a.created_at.cmp(&b.created_at),
+            "touchedAt" => {
+                let t = touched.as_ref().expect("touchedAt sorts a touched query");
+                t[&a.id].ms.cmp(&t[&b.id].ms)
+            }
             _ => num_cmp(a.sort_order, b.sort_order),
         };
         let c = if asc { c } else { c.reverse() };
@@ -257,7 +431,7 @@ pub fn issues_value(store: &SourceStore, params: &Params, me: Option<&str>) -> V
         .into_iter()
         .take(limit_of(params))
         .map(|i| {
-            json!({
+            let mut row = json!({
                 "id": i.id,
                 "identifier": i.identifier,
                 "title": i.title,
@@ -272,7 +446,12 @@ pub fn issues_value(store: &SourceStore, params: &Params, me: Option<&str>) -> V
                 "boardSlug": boards.get(i.board_id.as_str()).map(|b| b.slug.as_str()).unwrap_or(""),
                 "dueDate": i.due_date,
                 "updatedAt": i.updated_at,
-            })
+            });
+            if let Some(t) = touched.as_ref().and_then(|t| t.get(&i.id)) {
+                row["touchedAt"] = json!(t.at);
+                row["touches"] = json!(t.touches);
+            }
+            row
         })
         .collect();
     json!({ "rows": rows, "count": count })
@@ -434,9 +613,22 @@ pub fn source_value(name: &str, params: &Params, store: &SourceStore, me: Option
 
 /// [`source_value`] with the viewer's app access (`exp:me`).
 pub fn source_value_as(name: &str, params: &Params, store: &SourceStore, me: Option<&str>, access: Option<&str>) -> Value {
+    source_value_in(name, params, store, me, access, None)
+}
+
+/// [`source_value_as`] in the team zone (FEED-243: date-only `since` /
+/// `until`; `None` = the machine's).
+pub fn source_value_in(
+    name: &str,
+    params: &Params,
+    store: &SourceStore,
+    me: Option<&str>,
+    access: Option<&str>,
+    time_zone: Option<&str>,
+) -> Value {
     match name {
         "me" => me_value(store, me, access),
-        "issues" => issues_value(store, params, me),
+        "issues" => issues_value_in(store, params, me, time_zone),
         "boards" => boards_value(store, params),
         "members" => members_value(store, params, me),
         "sessions" => sessions_value(store, params, me),
@@ -473,7 +665,14 @@ mod tests {
         assert!(cases.len() >= 17);
         for case in cases {
             let name = case["source"].as_str().unwrap();
-            let got = source_value_as(name, &params_of(&case["params"]), &store, case["me"].as_str(), case["access"].as_str());
+            let got = source_value_in(
+                name,
+                &params_of(&case["params"]),
+                &store,
+                case["me"].as_str(),
+                case["access"].as_str(),
+                case["timeZone"].as_str(),
+            );
             assert_eq!(got, case["expected"], "{}", case["name"]);
         }
     }
@@ -491,6 +690,16 @@ mod tests {
         }
         assert_eq!(source_value("devices", &Params::new(), &store, None), Value::Null);
         assert!(!is_source("devices") && !is_source("records"));
+    }
+
+    #[test]
+    fn bounds_parse_days_and_instants_only() {
+        assert!(is_day("2026-10-23") && !is_day("2026-10-2") && !is_day("yesterday"));
+        assert!(is_instant("2026-10-23T08:00:00Z") && is_instant("2026-10-23T08:00:00.120+02:00"));
+        assert!(!is_instant("2026-10-23T08:00Z") && !is_instant("2026-10-23 08:00:00Z") && !is_instant("2026-10-23T08:00:00.Z"));
+        let utc = |_| 0;
+        assert_eq!(bound_of(Some("2026-10-23"), true, &utc), Some((instant_ms("2026-10-24T00:00:00Z").unwrap(), true)));
+        assert_eq!(bound_of(Some("2026-10-23T08:00:00+02:00"), false, &utc), Some((instant_ms("2026-10-23T06:00:00Z").unwrap(), false)));
     }
 
     #[test]
