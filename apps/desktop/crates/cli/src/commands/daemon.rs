@@ -4544,6 +4544,10 @@ mod tests {
         if crate::actions_runner::platform_asset().is_some() {
             shared.push(crate::actions_runner::ACTIONS_RUNNER_CAP.to_string());
         }
+        // #FEED-244: the app screenshot renderer, where this machine has one.
+        if updater::app_shot::capable() {
+            shared.push(updater::app_shot::CAP.to_string());
+        }
         assert_eq!(device_caps(&advert(&["claude"])), shared);
         let caps = device_caps(&advert(&["claude"]));
         for cap in coding::DEVICE_CAPS {
@@ -4556,7 +4560,9 @@ mod tests {
         let signed_out = device_caps(&advert(&[]));
         // + update-check + ecode-jobs (#EXP-1616) + ci-runner (+ actions-runner) (#EXP-1617).
         let actions = usize::from(crate::actions_runner::platform_asset().is_some());
-        assert_eq!(signed_out.len(), coding::DEVICE_CAPS.len() + 3 + actions);
+        // + app-screenshot where a renderer is (#FEED-244).
+        let shot = usize::from(updater::app_shot::capable());
+        assert_eq!(signed_out.len(), coding::DEVICE_CAPS.len() + 3 + actions + shot);
         assert!(signed_out.contains(&"agent-login".to_string()));
         assert!(!signed_out.contains(&"triggers".to_string()));
         assert!(!signed_out.contains(&"automations".to_string()), "nor the legacy trigger cap");
