@@ -139,7 +139,14 @@ export const ciRouter = router({
       if (!result.started) {
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
-          message: result.reason === `no_pipeline` ? `This repository has no .exponential/ci.json` : `The pipeline has no manual trigger`,
+          message:
+            result.reason === `no_pipeline`
+              ? `This repository has no .exponential/ci.json`
+              : result.reason === `disabled`
+                ? `CI is off for this repository`
+                : result.reason === `no_runner`
+                  ? `No device of this team runs CI`
+                  : `The pipeline has no manual trigger`,
         })
       }
       return { runId: result.runId }
@@ -157,6 +164,7 @@ export const ciRouter = router({
     .input(
       z.object({
         repositoryId: z.string().uuid(),
+        enabled: z.boolean().optional(),
         requiredChecks: z.array(z.string().min(1).max(255)).max(64).optional(),
         githubStatuses: z.boolean().optional(),
         actionsRunners: z.boolean().optional(),
@@ -167,6 +175,7 @@ export const ciRouter = router({
       await assertRepoManager(ctx.session.user.id, repo)
       const next: RepositoryCiConfig = {
         ...(repo.ciConfig as RepositoryCiConfig),
+        ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
         ...(input.requiredChecks ? { requiredChecks: [...new Set(input.requiredChecks)] } : {}),
         ...(input.githubStatuses !== undefined ? { githubStatuses: input.githubStatuses } : {}),
         ...(input.actionsRunners !== undefined ? { actionsRunners: input.actionsRunners } : {}),

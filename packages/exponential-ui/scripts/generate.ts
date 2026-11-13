@@ -1014,6 +1014,8 @@ const AVATAR_PICTURE = `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACA
 const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
   // #FEED-232: past the cap (`99+`) on the muted tone.
   CountBadge: [{ label: `count 120 · muted`, node: { id: `count_badge_capped`, component: `CountBadge`, props: { count: 120, tone: `muted` } } }],
+  // #EXP-1813: the placeholder shows only while no chip is in (Compose kept it beside the chips).
+  ChipInput: [{ label: `chips · the placeholder hides`, node: { id: `chip_input_hint`, component: `ChipInput`, props: { label: `Required checks`, name: `required`, values: [`build`], placeholder: `Check name` } } }],
   // #EXP-1804: a CI job's live log: ansi, six lines tall, sticks to the bottom.
   CodeBlock: [
     {
@@ -1491,6 +1493,12 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
       { id: `tool`, component: `Button`, props: { label: `Add`, icon: `ui-add`, variant: `ghost`, size: `icon-xs`, tone: `muted` } },
       { id: `dismiss`, component: `Button`, props: { label: `Dismiss`, icon: `ui-close`, variant: `ghost`, size: `icon-xs` } },
     ] },
+  }, {
+    // #EXP-1813: a Button is a flex item like any other: a stretch column (a
+    // Section's rows, a vertical Stack) stretches it; a row, `align: start`
+    // or a trigger slot keeps its own width (every other case here).
+    label: `in a stretch column`,
+    node: { id: `stretch`, component: `Stack`, props: { direction: `vertical`, gap: `xs` }, style: { alignSelf: `stretch` }, children: [{ id: `add`, component: `Button`, props: { label: `Add secret`, variant: `outline`, size: `sm` } }] },
   }],
   // VAPP-162: a conversation (in, out, the three delivery states).
   MessageBubble: [{

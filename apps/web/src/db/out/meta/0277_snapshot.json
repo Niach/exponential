@@ -1,5 +1,5 @@
 {
-  "id": "c21a05b1-8ad9-4e1f-8377-191dbde1e043",
+  "id": "06159818-4dda-4c6a-94b5-fa8e848c89b6",
   "prevId": "80de4063-9708-4dff-88ba-6a8e039af1d3",
   "version": "7",
   "dialect": "postgresql",
@@ -9752,12 +9752,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "delivered_at": {
-          "name": "delivered_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
         "expires_at": {
           "name": "expires_at",
           "type": "timestamp with time zone",
@@ -14157,6 +14151,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": true
+        },
+        "source_prefs": {
+          "name": "source_prefs",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
         },
         "unsubscribe_token": {
           "name": "unsubscribe_token",

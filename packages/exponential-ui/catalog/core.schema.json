@@ -10244,7 +10244,7 @@
     },
     "Button": {
       "type": "object",
-      "description": "Press target: label + optional icon, or one custom child.",
+      "description": "Press target: label + optional icon, or one custom child. A stretch column (Section rows, a vertical Stack) stretches it; a row, `align: start` or a trigger slot keeps its own width.",
       "allOf": [
         {
           "$ref": "common_types.json#/$defs/Checkable"

@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { trpc } from "@/lib/trpc-client"
 import { EmailNotificationsCard } from "@/components/account/email-notifications-card"
+import { NotificationSourcesCard } from "@/components/account/notification-sources-card"
 import { pageTitle } from "@/lib/page-title"
 
 export const Route = createFileRoute(`/t/$teamSlug/settings/notifications`)({
@@ -19,5 +20,11 @@ export const Route = createFileRoute(`/t/$teamSlug/settings/notifications`)({
 function SettingsNotifications() {
   const { emailPrefs } = Route.useLoaderData()
 
-  return <EmailNotificationsCard emailPrefs={emailPrefs} />
+  // #EXP-1815: the session-source switches sit above the email card.
+  return (
+    <div className="space-y-6">
+      <NotificationSourcesCard initial={emailPrefs.sourcePrefs} />
+      <EmailNotificationsCard emailPrefs={emailPrefs} />
+    </div>
+  )
 }

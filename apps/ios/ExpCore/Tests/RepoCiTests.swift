@@ -225,14 +225,16 @@ final class RepoCiTests: XCTestCase {
         XCTAssertEqual(object(object(tree)["props"])["title"], .string("CI"))
         XCTAssertEqual(children(tree).map(id), [
             "repo-ci-pipelines", "repo-ci-required-row", "repo-ci-secrets-heading", "repo-ci-secrets",
-            "repo-ci-add-secret", "repo-ci-github-statuses-row", "repo-ci-actions-runners-row",
+            "repo-ci-add-secret-row", "repo-ci-github-statuses-row", "repo-ci-actions-runners-row",
         ])
         let pipelines = children(children(tree)[0])
         XCTAssertEqual(pipelines.map(id), ["repo-ci-pipelines.r13", "repo-ci-pipelines.r11"])
         let chip = object(object(object(pipelines[0])["slots"])["trailing"])
         XCTAssertEqual(object(chip["props"])["label"], .string("Running"))
         XCTAssertEqual(object(chip["props"])["dot"], .string("$color.warning"))
-        let add = object(children(tree)[4])
+        // #EXP-1813: the button keeps its own width in a horizontal row.
+        XCTAssertEqual(object(object(children(tree)[4])["props"]), ["direction": .string("horizontal")])
+        let add = object(children(children(tree)[4])[0])
         XCTAssertEqual(object(add["props"]), ["label": .string("Add secret"), "variant": .string("outline"), "size": .string("sm")])
         let secret = children(children(tree)[3])[0]
         let delete = object(object(object(secret)["slots"])["trailing"])

@@ -6503,15 +6503,15 @@
         "file": "shots/repo-ci/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 32636,
-        "sha256": "c712d97b1d5290eb49faaa31f942c4ae2e8ed7671ccbe5a02802f1d82c3e59d7"
+        "bytes": 32334,
+        "sha256": "a189a4e9e2a551fb76b6eddc15415df467c151aa4a656021ce17b86e890a3916"
       },
       "ios": {
         "file": "shots/repo-ci/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 32212,
-        "sha256": "cf9ecbb0f8ed1455f16e40e9558a22927963621e6444f9a672de7e1b5889586a"
+        "bytes": 32238,
+        "sha256": "6615e76ea7061d22da0263b274d86007c0f3cf837ecf4572cddb22b676a7b7ee"
       }
     },
     "repo-runs": {

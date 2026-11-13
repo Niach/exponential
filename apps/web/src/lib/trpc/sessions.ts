@@ -44,6 +44,7 @@ import {
   type SessionMoveState,
 } from "@/lib/sessions/move"
 import { markConsumedLinesRead } from "@/lib/sessions/reads"
+import { fireAndForgetDismiss, markSessionNotificationsRead } from "@/lib/notification-dismiss"
 import { configureSession, mcpPicks, skillPicks } from "@/lib/sessions/configure"
 import { sessionSkillIds } from "@/lib/skills/builtin"
 import {
@@ -222,7 +223,7 @@ export const sessionsRouter = router({
     .mutation(async ({ ctx, input }): Promise<{ txid: number }> => {
       const userId = ctx.session.user.id
       const session = await loadSessionForUser(userId, input.sessionId)
-      return ctx.db.transaction(async (tx) => {
+      const result = await ctx.db.transaction(async (tx) => {
         const txid = await generateTxId(tx)
         const now = new Date()
         await tx
@@ -232,8 +233,12 @@ export const sessionsRouter = router({
             target: [sessionReads.userId, sessionReads.sessionId],
             set: { readAt: now, updatedAt: now },
           })
-        return { txid }
+        // #EXP-1815: opening a chat (or a session) reads its notifications.
+        const rows = await markSessionNotificationsRead(tx, userId, [session], now)
+        return { txid, rows }
       })
+      fireAndForgetDismiss({ userId, rows: result.rows })
+      return { txid: result.txid }
     }),
 
   /** Tolerated for clients from before #FEED-191 (one more release); a later
@@ -271,9 +276,11 @@ export const sessionsRouter = router({
       const userId = ctx.session.user.id
       const chats: Session[] = []
       for (const id of new Set(input.sessionIds)) chats.push(await loadSessionForUser(userId, id))
-      return ctx.db.transaction(async (tx) => {
+      const result = await ctx.db.transaction(async (tx) => {
         const txid = await generateTxId(tx)
         const now = new Date()
+        // #EXP-1815: Mark read reads the chats' notifications too.
+        const rows = input.read ? await markSessionNotificationsRead(tx, userId, chats, now) : []
         for (const chat of chats) {
           let readAt = now
           if (!input.read) {
@@ -300,8 +307,10 @@ export const sessionsRouter = router({
               set: { readAt, updatedAt: now },
             })
         }
-        return { txid }
+        return { txid, rows }
       })
+      fireAndForgetDismiss({ userId, rows: result.rows })
+      return { txid: result.txid }
     }),
 
   /** #EXP-1388: archive / unarchive chats for the caller (per viewer, on
