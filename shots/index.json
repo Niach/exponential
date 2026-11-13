@@ -1682,15 +1682,15 @@
         "file": "shots/ci-run/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 58528,
-        "sha256": "e32874ad971b62cbc4ecd2e232b2b64e6cd801e6e74c9f9dd6d47ef43ac32992"
+        "bytes": 51120,
+        "sha256": "6cf73b2706b2c83bed9c09b8d14508233bf58325dc4d52ce7952cc1d55b3ed75"
       },
       "ios": {
         "file": "shots/ci-run/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 58974,
-        "sha256": "c0415bbfc41542d6f0838f24130465d29c7dd25bbcd3c0b241724b9a5b6512f4"
+        "bytes": 51754,
+        "sha256": "a40c913ec8bf8ffd0c7c5d350889618d3eba885d2054eeb27ff986b9d2934206"
       }
     },
     "code-block": {
