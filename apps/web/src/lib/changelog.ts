@@ -25,6 +25,13 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-13-android-8-notifications-fix`,
+    date: `2026-11-13`,
+    title: `Notifications work on Android 8`,
+    summary: `Android 0.14.136 fixes a crash on Android 8.0 and 8.1 when the first agent notification arrived.`,
+    body: `- **Android 8.0 and 8.1**: the first notification from an agent no longer crashes the app while it sets up its notification channels.`,
+  },
+  {
     id: `2026-11-13-phones-notifications-ticks`,
     date: `2026-11-13`,
     title: `Notifications and delivery ticks on your phone`,

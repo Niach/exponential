@@ -5,6 +5,7 @@ import android.app.NotificationChannelGroup
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
+import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -76,7 +77,8 @@ object PushNotifier {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return channel.id
         if (channel.name == null || manager.getNotificationChannel(channel.id) != null) return channel.id
         channel.group?.let { group ->
-            if (manager.getNotificationChannelGroup(group) == null) {
+            // getNotificationChannelGroup is API 28; creating an existing group is a no-op rename on 26-27.
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P || manager.getNotificationChannelGroup(group) == null) {
                 manager.createNotificationChannelGroup(
                     NotificationChannelGroup(group, NotificationDelivery.Channels.AGENTS_GROUP_NAME),
                 )
