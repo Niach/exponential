@@ -308,6 +308,11 @@ function transcriptGapClass(prev: RowClass | null, cur: RowClass): string {
 
 // ── The raw session view: structured activity feed over the relay ──────────
 
+
+/** waiting-cards.json DEEP LINKS: how long a link waits for a placeholder
+ *  to give way to the transcript before it settles on the placeholder's copy. */
+const DEEP_LINK_PLACEHOLDER_GRACE_MS = 4_000
+
 export function AgentSessionView({
   session,
   header,
@@ -1044,15 +1049,28 @@ export function AgentSessionView({
       const scroller = scrollRef.current
       const el = deepLink ? cardElement(scroller, deepLink.id) : null
       const loaded = deepLink ? sessionMessages.some((message) => message.id === deepLink.id) : false
+      // Any placeholder may still give way to the transcript (a live room
+      // whose replay lands next shows `Waiting for activity` first): the
+      // card under it moves then, so a young link waits for the feed and
+      // only settles on the placeholder's copy past the grace.
+      const placeholderFinal = noFeedAway || noFeedIdle || (deviceOffline && phase.kind === `ended`)
+      const placeholderYoung = placeholderShown && !placeholderFinal && deepLink !== null && Date.now() - deepLink.takenAt < DEEP_LINK_PLACEHOLDER_GRACE_MS
       const base = {
         paging:
           feedSettling ||
+          placeholderYoung ||
           (anchorRef.current !== null && performance.now() - loadingSinceRef.current < 2_000),
         more: canLoadEarlier || !loaded,
         mark: `${feed.length}:${windowStart}:${sessionMessages.length}`,
       }
-      if (!scroller || !el) return { ...base, found: false, laidOut: false, centred: false }
+      if (!scroller || !el || placeholderYoung) return { ...base, found: false, laidOut: false, centred: false }
       const measured = measureCard(scroller, el)
+      // A card drawn above a window that can still grow (its anchor rows
+      // are older than the window) sits pinned at the top, never centred:
+      // the window pages in first.
+      if (!measured.centred && canLoadEarlier && scroller.scrollTop <= 1) {
+        return { ...base, found: false, laidOut: false, centred: false, more: true }
+      }
       return {
         ...base,
         found: true,
