@@ -787,7 +787,7 @@ fn hint(glyph: crate::icons::ExpIcon, copy: &'static str, cx: &App) -> AnyElemen
 }
 
 impl Render for SessionBar {
-    /// #EXP-1726: nothing of its own: the terminals are tabs of the bottom
+    /// #EXP-1726: nothing of its own: the terminals are tabs of the one
     /// tab bar; the entity stays for its `TerminalManager`.
     fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
         gpui::Empty

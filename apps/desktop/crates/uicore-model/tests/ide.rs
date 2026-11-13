@@ -2,7 +2,7 @@
 //! TypeScript reference.
 
 use serde_json::Value;
-use uicore_model::ide::{ide_sidebar, ide_tabs, IdeSidebarInput, IdeTabInput};
+use uicore_model::ide::{ide_sidebar, ide_tab_placement, ide_tabs, IdeSidebarInput, IdeTabInput};
 
 #[test]
 fn every_ide_sidebar_case_replays() {
@@ -27,5 +27,15 @@ fn every_ide_tabs_case_replays() {
         let name = case["name"].as_str().unwrap_or("?");
         let tabs: Vec<IdeTabInput> = serde_json::from_value(case["tabs"].clone()).unwrap_or_else(|e| panic!("{name}: {e}"));
         assert_eq!(serde_json::to_value(ide_tabs(&tabs, case["active"].as_str())).unwrap(), case["expected"], "{name}");
+    }
+}
+
+#[test]
+fn every_ide_tab_placement_case_replays() {
+    let f: Value = serde_json::from_str(include_str!("../../../../../packages/uicore/fixtures/ide-sidebar.json")).expect("ide-sidebar.json");
+    for case in f["placement"].as_array().expect("placement") {
+        let name = case["name"].as_str().unwrap_or("?");
+        let ede = case["ede"].as_bool().expect("ede");
+        assert_eq!(serde_json::to_value(ide_tab_placement(ede)).unwrap(), case["expected"], "{name}");
     }
 }

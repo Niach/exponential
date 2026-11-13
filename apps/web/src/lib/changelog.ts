@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-13-tabs-on-top`,
+    date: `2026-11-13`,
+    title: `Tabs are back on top in the desktop app`,
+    summary: `The desktop app draws its tabs on top again, terminals included, in one strip; inside Exponential Desktop they stay at the bottom.`,
+    body: `- **Tabs on top**: on macOS, Windows and Linux the desktop app's tabs sit in the top band again, next to the window controls; the empty space beside them still moves the window.
+- **Terminals are tabs like any other**: a terminal sits in the same strip as issues and chats, and Close others and Close all take terminals too.
+- **Exponential Desktop**: inside Exponential Desktop the tabs stay at the bottom.`,
+  },
+  {
     id: `2026-11-12-count-badges`,
     date: `2026-11-12`,
     title: `One count badge everywhere`,

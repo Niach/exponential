@@ -311,3 +311,62 @@ fn shell_sidebar_frames() {
     // `Store::open` holds its handles past gpui's exit-time leak check.
     std::mem::forget(cx);
 }
+
+/// The whole IDE window with three tabs open, for the tab placement
+/// pictures: run once plain (tabs on top, the standalone IDE) and once with
+/// `XDG_CURRENT_DESKTOP=Exponential` (tabs at the bottom, eDE).
+/// `EXP_SKIP_ONBOARDING=1` keeps the first-run wizard away.
+#[test]
+#[ignore]
+fn shell_tab_placement() {
+    let Some(dir) = std::env::var_os("EXP_SHELL_SHOTS") else { return };
+    let mut cx = headless();
+    let root = tempfile::tempdir().unwrap();
+    let data = root.path().to_path_buf();
+    std::fs::write(data.join("accounts.json"), json!({"accounts": [{"id": "acc", "instanceUrl": "https://app.exponential.at", "userId": "u1", "email": "demo@exponential.at", "name": "Demo", "onboardingCompletedAt": "2026-01-01T00:00:00Z"}]}).to_string()).unwrap();
+    let (_changes, rx) = flume::unbounded::<(String, Vec<String>)>();
+    cx.update(|cx| {
+        crate::init(cx);
+        let auth = api::AuthStore::load_with_token_store(data.clone(), api::TokenStore::file_only(data.clone()));
+        cx.set_global(crate::AuthContext { auth, client: Arc::new(api::AuthClient::new()), data_dir: data.clone() });
+        let store = sync::Store::open(cx, None, None);
+        cx.set_global(store);
+        sync::Store::global(cx).clone().connect_local("acc", &data.join("sync.sqlite"), rx, cx).expect("the store");
+        let c = sync::Store::global(cx).collections().clone();
+        seed(&c.teams, json!([{"id": "t1", "name": "Exponential", "slug": "exponential"}]), cx);
+        seed(&c.boards, json!([
+            {"id": "b1", "team_id": "t1", "name": "Mobile App", "slug": "mobile-app", "prefix": "APP", "color": "#22c55e", "sort_order": 1},
+            {"id": "b2", "team_id": "t1", "name": "Website", "slug": "website", "prefix": "WEB", "color": "#3b82f6", "sort_order": 2}
+        ]), cx);
+        seed(&c.issues, json!([
+            {"id": "i1", "board_id": "b1", "number": 1, "identifier": "APP-1", "title": "Crash on launch", "status": "todo", "description": "The app closes right after the splash screen on a cold start."},
+            {"id": "i2", "board_id": "b1", "number": 12, "identifier": "APP-12", "title": "Offline queue for issue edits", "status": "in_progress"},
+            {"id": "i3", "board_id": "b2", "number": 4, "identifier": "WEB-4", "title": "Fix the login redirect", "status": "todo"}
+        ]), cx);
+    });
+    let handle = cx
+        .open_window(size(px(1400.), px(860.)), |window: &mut Window, cx| {
+            let nav = nav_for_window(window, cx);
+            nav.update(cx, |nav, _| nav.team_id = Some("t1".into()));
+            let shell = cx.new(|cx| crate::Shell::new(0, window, cx));
+            cx.new(|cx| gpui_component::Root::new(shell, window, cx))
+        })
+        .expect("a headless window");
+    let window: gpui::AnyWindowHandle = handle.into();
+    for issue in ["i2", "i3", "i1"] {
+        cx.update_window(window, |_, window, cx| crate::navigation::navigate(window, cx, crate::navigation::Screen::IssueDetail { issue_id: issue.into() })).unwrap();
+        for _ in 0..3 {
+            draw(window, &mut cx);
+            cx.run_until_parked();
+        }
+    }
+    for _ in 0..4 {
+        draw(window, &mut cx);
+        cx.run_until_parked();
+    }
+    let name = if crate::local_desktops::available() { "ide-tabs-ede.png" } else { "ide-tabs-top.png" };
+    let shot = cx.capture_screenshot(window).expect("the frame");
+    shot.save(std::path::Path::new(&dir).join(name)).expect("the PNG");
+    std::mem::forget(cx);
+    std::mem::forget(root);
+}

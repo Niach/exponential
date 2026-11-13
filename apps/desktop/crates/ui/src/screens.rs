@@ -260,9 +260,9 @@ impl TabEntry {
 
     /// EXP-923 — whether a BULK close (Close others / Close all) takes this
     /// tab. `keep` is the one tab Close others spares; `None` = Close all.
-    /// The bottom bar's terminals are a different strip and never go (EXP-769).
+    /// A terminal is a tab like any other: one strip, one rule.
     fn swept_by_bulk_close(&self, keep: Option<&Screen>) -> bool {
-        !self.screen.is_dock_tab() && keep.is_none_or(|keep| &self.screen != keep)
+        keep.is_none_or(|keep| &self.screen != keep)
     }
 
     /// Whether `screen` is this tab's — the screen on show, or (EXP-1294) the
@@ -453,7 +453,7 @@ impl ChipContent {
     }
 }
 
-/// #EXP-1726: one tab of the bottom tab bar.
+/// #EXP-1726: one tab of the tab bar.
 pub(crate) struct TabItem {
     pub(crate) screen: Screen,
     pub(crate) title: String,
@@ -658,23 +658,30 @@ fn chip_content(screen: &Screen, cx: &App) -> ChipContent {
     ChipContent::plain(screen_title(screen, cx))
 }
 
-/// Which tab the center falls back to when the ACTIVE tab at `ix` closes.
-///
-/// `strip[i]` is tab `i`'s [`Screen::is_dock_tab`], and `dock` is the closing
-/// tab's own — the search stays strictly inside that ONE strip: the next tab
-/// to the right, else back to the left. Closing a bottom-bar session tab
-/// lands on the next session, closing a top tab on the next top tab.
+/// Which tab the center falls back to when the ACTIVE tab at `ix` closes:
+/// the next tab to the right, else the new last. Terminals and work tabs
+/// are ONE strip, so the neighbour may be either.
 ///
 /// EXP-781: `None` when the strip is now empty, which [`set_screen`] reads as
-/// "clear the center". This used to fall back to any remaining tab, so
-/// closing the LAST session tab activated an unrelated issue.
+/// "clear the center".
 ///
-/// `ix` is the index the closed tab occupied, i.e. `strip` is already the
-/// post-removal list and `strip[ix]` is the tab that shifted into its place.
-fn neighbor_in_strip(strip: &[bool], ix: usize, dock: bool) -> Option<usize> {
-    (ix..strip.len())
-        .chain((0..ix).rev())
-        .find(|&candidate| strip[candidate] == dock)
+/// `ix` is the index the closed tab occupied and `len` the post-removal
+/// count, so tab `ix` (when there is one) is the tab that shifted into its
+/// place.
+fn neighbor_after_close(len: usize, ix: usize) -> Option<usize> {
+    len.checked_sub(1).map(|last| ix.min(last))
+}
+
+/// A bulk close takes terminals like any tab: their shells go with them
+/// (a single close's `kill_terminal`).
+fn kill_terminals(dropped: &[TabEntry], window: &mut Window, cx: &mut App) {
+    let Some(host) = crate::session_bar::host_for_window(window, cx) else { return };
+    for tab in dropped {
+        if let Screen::Terminal { tab } = &tab.screen {
+            let tab = *tab;
+            host.update(cx, |host, cx| host.close_terminal(tab, cx));
+        }
+    }
 }
 
 pub struct ScreensPanel {
@@ -1541,15 +1548,7 @@ impl ScreensPanel {
         self.forget_tab(&closed, cx);
         let active = resolved_screen(&self.nav, cx);
         if active.as_ref().is_some_and(|active| closed.holds(active)) {
-            // The neighbor within the SAME strip: closing a bottom-bar tab
-            // lands on the next bottom-bar tab (the web's dock never jumps to
-            // an issue), closing a top tab on the next top tab.
-            let strip: Vec<bool> = self
-                .tabs
-                .iter()
-                .map(|tab| tab.screen.is_dock_tab())
-                .collect();
-            let next = neighbor_in_strip(&strip, display_pos, closed.screen.is_dock_tab())
+            let next = neighbor_after_close(self.tabs.len(), display_pos)
                 .map(|pos| self.tabs[pos].screen.clone());
             set_screen(window, cx, next);
         }
@@ -1585,11 +1584,11 @@ impl ScreensPanel {
         }
     }
 
-    /// Close every TOP-strip tab except `ix` (EXP-235 context menu). The kept
-    /// tab becomes active — the active tab may be among the closed ones.
-    /// EXP-769: the session bar's tabs are another strip and stay.
+    /// Close every tab except `ix` (EXP-235 context menu), terminals
+    /// included. The kept tab becomes active — the active tab may be among
+    /// the closed ones.
     fn close_other_tabs(&mut self, ix: usize, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        if ix >= self.tabs.len() || self.top_tab_count() <= 1 {
+        if ix >= self.tabs.len() || self.tabs.len() <= 1 {
             return;
         }
         let keep = self.tabs[ix].screen.clone();
@@ -1609,15 +1608,15 @@ impl ScreensPanel {
         for tab in &dropped {
             self.forget_tab(tab, cx);
         }
+        kill_terminals(&dropped, window, cx);
         set_screen(window, cx, Some(keep));
         cx.notify();
     }
 
-    /// Close every TOP-strip tab (EXP-235 context menu) and clear the center.
-    /// EXP-769: the session bar's tabs stay (a terminal must never be killed
-    /// by a context menu on the issue strip).
+    /// Close every tab (EXP-235 context menu), terminals included, and clear
+    /// the center.
     fn close_all_tabs(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        if self.top_tab_count() == 0 {
+        if self.tabs.is_empty() {
             return;
         }
         let goes = |tab: &TabEntry| tab.swept_by_bulk_close(None);
@@ -1634,8 +1633,8 @@ impl ScreensPanel {
         for tab in &dropped {
             self.forget_tab(tab, cx);
         }
-        // The center clears only if a closed tab was showing; a session bar
-        // tab that was up stays up.
+        kill_terminals(&dropped, window, cx);
+        // The center clears only if a closed tab was showing.
         if resolved_screen(&self.nav, cx)
             .is_some_and(|screen| dropped.iter().any(|tab| tab.holds(&screen)))
         {
@@ -1656,14 +1655,6 @@ impl ScreensPanel {
         for view in left {
             view.update(cx, |view, _| view.leave());
         }
-    }
-
-    /// EXP-769: how many tabs the TOP strip holds.
-    fn top_tab_count(&self) -> usize {
-        self.tabs
-            .iter()
-            .filter(|tab| !tab.screen.is_dock_tab())
-            .count()
     }
 
     /// A tab leaving the strip — the views it owned go with it (EXP-1294:
@@ -1751,7 +1742,7 @@ impl ScreensPanel {
         host.update(cx, |host, cx| host.undock_tab(tab, window, cx));
     }
 
-    /// #EXP-1726: every open tab in tab order for the bottom tab bar: its
+    /// #EXP-1726: every open tab in tab order for the tab bar: its
     /// screen, its strip label and its lead.
     pub(crate) fn tab_items(&self, cx: &App) -> Vec<TabItem> {
         self.tabs
@@ -2743,7 +2734,7 @@ fn pinned_panel_root(
 #[cfg(test)]
 mod tests {
     use super::{
-        dev_composer_menu_wanted, neighbor_in_strip, parse_dev_dialog, resolve_tab_origin,
+        dev_composer_menu_wanted, neighbor_after_close, parse_dev_dialog, resolve_tab_origin,
         DevDialog, DEV_DIALOG_SPECS,
     };
 
@@ -2969,24 +2960,18 @@ mod tests {
         assert_eq!(issue.issue_id(), Some("i1"));
     }
 
-    /// EXP-781: closing a tab activates its own strip's neighbour and NOTHING
-    /// else. The last terminal tab closing leaves the center empty rather than
-    /// pulling an issue tab into view (EXP-870: the bottom strip is terminals;
-    /// `true` below marks a terminal).
+    /// EXP-781: closing the active tab activates its neighbour in the ONE
+    /// strip, terminal or not: the tab that shifted into its slot, else the
+    /// new last; an empty strip clears the center.
     #[test]
-    fn a_close_never_activates_the_other_strip() {
-        // [issue, issue, terminal] — the terminal closes, none is left.
-        assert_eq!(neighbor_in_strip(&[false, false], 2, true), None);
-        // [issue] — the last issue closes with a session still open.
-        assert_eq!(neighbor_in_strip(&[true], 0, false), None);
-
-        // Within the strip: the tab that shifted into the closed slot wins.
-        // [issue, session, session] after closing the middle session.
-        assert_eq!(neighbor_in_strip(&[false, true, true], 1, true), Some(1));
-        // Closing the LAST session falls back leftwards, skipping the issue.
-        assert_eq!(neighbor_in_strip(&[false, true], 2, true), Some(1));
-        // The same for the top strip, skipping the session between them.
-        assert_eq!(neighbor_in_strip(&[false, true], 1, false), Some(0));
+    fn a_close_activates_the_neighbour_in_the_one_strip() {
+        // [issue, terminal, issue] after closing the first issue: the
+        // terminal shifted into its slot and wins.
+        assert_eq!(neighbor_after_close(2, 0), Some(0));
+        // Closing the LAST tab falls back leftwards.
+        assert_eq!(neighbor_after_close(2, 2), Some(1));
+        // Nothing left: the center clears.
+        assert_eq!(neighbor_after_close(0, 0), None);
     }
 
     /// EXP-923: EVERY tab closes — a live chat is a row in the rail's
@@ -3016,10 +3001,7 @@ mod tests {
             None,
         );
 
-        // Close all takes the top strip's tabs. (A
-        // terminal is the bottom bar's strip and is spared by `is_dock_tab`;
-        // `TabId` has no test constructor, and the strip split itself is
-        // pinned by `a_close_never_activates_the_other_strip`.)
+        // Close all takes every tab (a terminal too: one strip).
         assert!(live.swept_by_bulk_close(None));
         assert!(ended.swept_by_bulk_close(None));
         assert!(issue.swept_by_bulk_close(None));
