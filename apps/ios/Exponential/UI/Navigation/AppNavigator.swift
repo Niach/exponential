@@ -133,10 +133,13 @@ extension AppRoute {
         let read = try? await deps.db.pool(forAccountId: accountId).read { db -> (InboxRoute.SessionTarget, String, String?)? in
             guard let session = try SessionEntity.fetchOne(db, key: sessionId) else { return nil }
             let target = try InboxRoute.sessionTarget(db: db, sessionId: sessionId, viewerId: viewerId)
+            // The synced messages + the session's digest (its `waits`): the
+            // messages sync on demand, the digest always (web's inbox reads it).
             let waiting = card == nil
                 ? ChatRowAction.sessionWaitingCard(
                     sessionId: sessionId,
                     messages: try SessionQueries.cardRows(db: db, sessionId: sessionId).map(TreeMessage.init(messageRow:))
+                        + Chats.digestMessages(sessionId: sessionId, digest: session.digest, rootId: session.rootId)
                 )
                 : nil
             return (target, session.rootId.isEmpty ? session.id : session.rootId, waiting)
