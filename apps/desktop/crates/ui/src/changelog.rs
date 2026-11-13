@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-13-app-agents-render",
+    date: "2026-11-13",
+    title: "App agents can check their screens",
+    summary: "An agent building an app can render each screen as a member sees it, read the catalog in parts, and name members by user id, member id or email.",
+    body: r##"- **Render before publish**: an app's agent reads any screen as text, bound to real data as you or another member would see it, with the problems it finds (empty lists, failed expressions).
+- **Smaller catalog reads**: agents fetch only the parts of the app catalog they need.
+- **Members by any id**: writing a record for a member takes their user id, member id or email."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_280: ChangelogEntry = ChangelogEntry {
     id: "2026-11-13-android-8-notifications-fix",
     date: "2026-11-13",
     title: "Notifications work on Android 8",
