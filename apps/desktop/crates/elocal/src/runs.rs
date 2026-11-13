@@ -56,6 +56,10 @@ pub trait Run: Send {
     fn answer(&self, question_id: &str, keys: Vec<String>, text: Option<String>);
     fn stop(&self);
     fn is_done(&self) -> bool;
+    /// The CLI's own id for the conversation (a later start resumes it), once known.
+    fn native_id(&self) -> Option<String> {
+        None
+    }
 }
 
 /// What starts a run: eagent's ACP agent, or a test double.
@@ -138,6 +142,9 @@ impl Run for AcpRun {
     fn is_done(&self) -> bool {
         self.0.is_done()
     }
+    fn native_id(&self) -> Option<String> {
+        self.0.native_session_id()
+    }
 }
 
 impl Runner for AcpRunner {
@@ -207,7 +214,14 @@ pub struct LocalRuns {
     stopped: std::sync::atomic::AtomicBool,
     /// The store files' (modified, length) when last looked at.
     seen: Mutex<Option<Vec<(SystemTime, u64)>>>,
+    /// #FEED-237: sessions whose last start failed → the pending rows it
+    /// was for (a new row tries again; `parity::wake_plan`).
+    refused: Mutex<HashMap<String, Vec<String>>>,
 }
+
+/// Where a desktop keeps each session's CLI conversation id (the run's
+/// resume handle), one file per session.
+const NATIVE_DIR: &str = "native-sessions";
 
 /// The desktop's run lock, `None` while another process holds it.
 fn try_run_lock(dir: &std::path::Path) -> Option<std::fs::File> {
@@ -318,6 +332,7 @@ impl LocalRuns {
             lock: Mutex::new(None),
             stopped: std::sync::atomic::AtomicBool::new(false),
             seen: Mutex::new(None),
+            refused: Mutex::new(HashMap::new()),
         });
         let deltas = runs.desktop.store.subscribe();
         if runs.take_over() {
@@ -470,6 +485,7 @@ impl LocalRuns {
             })
             .collect();
         let mut ids = self.ids.lock().expect("ids");
+        let mut answered_rows = Vec::new();
         for m in self.desktop.store.rows("messages")? {
             let (Some(id), Some(root)) = (m.get("id").and_then(Value::as_str), m.get("root_id").and_then(Value::as_str)) else { continue };
             let done = answered.get(root).zip(m.get("created_at").and_then(Value::as_str)).is_some_and(|(turn, at)| domain::instant::parse_instant(at) <= domain::instant::parse_instant(turn));
@@ -477,9 +493,17 @@ impl LocalRuns {
             let consumed = m.get("consumed_at").and_then(Value::as_str).is_some_and(|at| !at.is_empty());
             if (done || consumed) && m.get("author_kind").and_then(Value::as_str) == Some("user") {
                 ids.insert(format!("store:{id}"), id.to_string());
+                if !consumed {
+                    answered_rows.push(id.to_string());
+                }
             }
         }
         drop(ids);
+        // A row a turn answered before the desktop stamped (an older build)
+        // WAS taken in: stamped now, so it never wakes its session again.
+        for id in answered_rows {
+            self.stamp(&id, true);
+        }
         *self.hub.lock().expect("hub") = state;
         Ok(())
     }
@@ -661,7 +685,11 @@ impl LocalRuns {
             system.push(' ');
             system.push_str(note);
         }
-        let brief = Brief::new(sid, &localize_attachments(&self.desktop, text)).cwd(cwd).system_append(&system);
+        let mut brief = Brief::new(sid, &localize_attachments(&self.desktop, text)).cwd(cwd).system_append(&system);
+        // #FEED-237: a session that ran before resumes the CLI's own conversation.
+        if let Some(native) = self.native_of(session_id) {
+            brief = brief.resume(native);
+        }
         let sink: Arc<dyn EventSink> = Arc::new(Sink { session_id: session_id.to_string(), tx: self.events.0.clone() });
         let (runner, missing) = self.runner_for(session_id);
         if let Some(missing) = missing {
@@ -669,11 +697,15 @@ impl LocalRuns {
         }
         match runner.start(brief, grant, sink) {
             Ok(run) => {
+                self.refused.lock().expect("refused").remove(session_id);
                 self.live.lock().expect("live").insert(session_id.to_string(), Live { run, turn_text: String::new(), turn_row: None, in_turn: false });
                 true
             }
             Err(e) => {
                 log::warn!("run {session_id}: {e}");
+                // The rows this start was for wait for a new one (no retry loop).
+                let pending = self.pending_rows(session_id);
+                self.refused.lock().expect("refused").insert(session_id.to_string(), pending);
                 self.step("device.report", json!({"sessionId": session_id, "deviceId": self.desktop.executor.device_id(), "status": "idle", "busy": false, "blocked": {"kind": "start_failed"}}));
                 let _ = self.post(session_id, "system", None, &format!("The agent could not start: {e}"), None);
                 false
@@ -749,18 +781,8 @@ impl LocalRuns {
                     self.ids.lock().expect("ids").insert(format!("store:{message_id}"), message_id.clone());
                 }
                 // #FEED-237: heard (known now, so its own write never re-hears it): one check.
+                // `take_pending` below hands it to a run (two checks).
                 self.stamp(&message_id, false);
-                // A message into a live run goes to the CLI as the next prompt: two checks.
-                let taken = match self.live.lock().expect("live").get(id) {
-                    Some(live) if !text.trim().is_empty() => {
-                        live.run.send(&localize_attachments(&self.desktop, &text));
-                        true
-                    }
-                    _ => false,
-                };
-                if taken {
-                    self.stamp(&message_id, true);
-                }
             }
             if first {
                 // A session with no person message yet (a child the hub made itself).
@@ -781,6 +803,74 @@ impl LocalRuns {
                 continue;
             }
             self.step("device.claim", json!({"sessionId": id, "deviceId": device_id}));
+        }
+        self.take_pending();
+    }
+
+    /// #FEED-237 (local-parity.json WAKE, `parity::wake_plan`): every person
+    /// row no run took in yet goes to one: a live run's next prompts, else
+    /// its session's run starts again (resumed) with the oldest as the
+    /// prompt and the rest sent after it, each stamped `consumed_at`.
+    fn take_pending(&self) {
+        let (Ok(sessions), Ok(messages)) = (self.desktop.store.rows("sessions"), self.desktop.store.rows("messages")) else { return };
+        let sessions: Vec<Map<String, Value>> = {
+            let hub = self.hub.lock().expect("hub");
+            sessions.into_iter().filter(|s| s.get("id").and_then(Value::as_str).is_some_and(|id| hub.sessions.contains_key(id))).collect()
+        };
+        let live: Vec<String> = self.live.lock().expect("live").keys().cloned().collect();
+        let refused = self.refused.lock().expect("refused").clone();
+        let body = |id: &str| messages.iter().find(|m| m.get("id").and_then(Value::as_str) == Some(id)).and_then(|m| m.get("body").and_then(Value::as_str)).unwrap_or("").to_string();
+        for wake in crate::parity::wake_plan(&self.desktop.executor.device_id(), &sessions, &messages, &live, &refused) {
+            let mut rows = wake.message_ids.iter();
+            if !wake.live {
+                let Some(first) = rows.next() else { continue };
+                if !self.launch(&wake.session_id, &body(first)) {
+                    continue;
+                }
+                self.stamp(first, true);
+            }
+            for id in rows {
+                let text = body(id);
+                let sent = match self.live.lock().expect("live").get(&wake.session_id) {
+                    Some(live) => {
+                        if !text.trim().is_empty() {
+                            live.run.send(&localize_attachments(&self.desktop, &text));
+                        }
+                        true
+                    }
+                    None => false,
+                };
+                if sent {
+                    self.stamp(id, true);
+                }
+            }
+        }
+    }
+
+    /// The person's rows of `session_id` no run took in yet.
+    fn pending_rows(&self, session_id: &str) -> Vec<String> {
+        let rows = self.desktop.store.rows_where("messages", "session_id", session_id).unwrap_or_default();
+        rows.iter()
+            .filter(|m| m.get("author_kind").and_then(Value::as_str) == Some("user") && m.get("consumed_at").and_then(Value::as_str).is_none_or(str::is_empty))
+            .filter_map(|m| m.get("id").and_then(Value::as_str).map(str::to_string))
+            .collect()
+    }
+
+    /// The CLI conversation id `session_id`'s last run reported.
+    fn native_of(&self, session_id: &str) -> Option<String> {
+        let text = std::fs::read_to_string(self.desktop.dir.join(NATIVE_DIR).join(session_id)).ok()?;
+        Some(text.trim().to_string()).filter(|t| !t.is_empty())
+    }
+
+    /// Keeps the run's CLI conversation id (a later start resumes it).
+    fn keep_native(&self, session_id: &str, run: &dyn Run) {
+        let Some(native) = run.native_id() else { return };
+        if self.native_of(session_id).as_deref() == Some(native.as_str()) || session_id.contains(['/', '\\', '.']) {
+            return;
+        }
+        let dir = self.desktop.dir.join(NATIVE_DIR);
+        if let Err(e) = std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(dir.join(session_id), native)) {
+            log::warn!("[elocal] keep the run id of {session_id}: {e}");
         }
     }
 
@@ -840,6 +930,7 @@ impl LocalRuns {
                         return;
                     }
                     let row = run.turn_row.take().map(|r| r.split('|').next().unwrap_or("").to_string());
+                    self.keep_native(session_id, run.run.as_ref());
                     (std::mem::take(&mut run.turn_text), row)
                 };
                 if !reply.trim().is_empty() {
@@ -860,9 +951,12 @@ impl LocalRuns {
     fn sweep_exits(&self) {
         let gone: Vec<String> = self.live.lock().expect("live").iter().filter(|(_, l)| l.run.is_done()).map(|(id, _)| id.clone()).collect();
         for id in gone {
-            self.live.lock().expect("live").remove(&id);
+            let Some(live) = self.live.lock().expect("live").remove(&id) else { continue };
+            self.keep_native(&id, live.run.as_ref());
+            // #FEED-237: the session idles; its next message starts the run
+            // again (`take_pending`), as a cloud device resumes one.
             let device_id = self.desktop.executor.device_id();
-            self.step("device.report", json!({"sessionId": id, "deviceId": device_id, "status": "ended"}));
+            self.step("device.report", json!({"sessionId": id, "deviceId": device_id, "status": "idle", "busy": false}));
         }
     }
 
@@ -1047,6 +1141,7 @@ mod tests {
         sink: Arc<dyn EventSink>,
         done: Arc<AtomicBool>,
         prompts: Arc<Mutex<Vec<String>>>,
+        native: String,
     }
 
     impl FakeRun {
@@ -1084,11 +1179,19 @@ mod tests {
         fn is_done(&self) -> bool {
             self.done.load(Ordering::Relaxed)
         }
+        fn native_id(&self) -> Option<String> {
+            Some(self.native.clone())
+        }
     }
 
+    #[derive(Default)]
     struct FakeRunner {
         prompts: Arc<Mutex<Vec<String>>>,
         grants: Arc<Mutex<Vec<HubGrant>>>,
+        /// Every start's resume id, in order.
+        resumes: Arc<Mutex<Vec<Option<String>>>>,
+        /// Every started run's exit switch, in order.
+        exits: Arc<Mutex<Vec<Arc<AtomicBool>>>>,
     }
 
     impl Runner for FakeRunner {
@@ -1097,7 +1200,11 @@ mod tests {
         }
         fn start(&self, brief: Brief, grant: HubGrant, sink: Arc<dyn EventSink>) -> Result<Box<dyn Run>, String> {
             self.grants.lock().unwrap().push(grant);
-            let run = FakeRun { sink, done: Arc::new(AtomicBool::new(false)), prompts: self.prompts.clone() };
+            self.resumes.lock().unwrap().push(brief.resume.clone());
+            let done = Arc::new(AtomicBool::new(false));
+            self.exits.lock().unwrap().push(done.clone());
+            let native = brief.resume.clone().unwrap_or_else(|| format!("native-{}", brief.session_id.as_str()));
+            let run = FakeRun { sink, done, prompts: self.prompts.clone(), native };
             run.send(&brief.prompt);
             Ok(Box::new(run))
         }
@@ -1169,7 +1276,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let desktops = crate::Desktops::open(dir.path()).unwrap();
         let desktop = Arc::new(desktops.open_desktop(desktops.current().unwrap()).unwrap());
-        let runner = Arc::new(FakeRunner { prompts: Arc::new(Mutex::new(Vec::new())), grants: Arc::new(Mutex::new(Vec::new())) });
+        let runner = Arc::new(FakeRunner { prompts: Arc::new(Mutex::new(Vec::new())), grants: Arc::new(Mutex::new(Vec::new())), ..Default::default() });
         let runs = LocalRuns::start(desktop.clone(), runner, dir.path().to_path_buf()).unwrap();
         let changes = runs.changes();
         let mut send = api::sessions::SendInput::default();
@@ -1189,7 +1296,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let desktops = crate::Desktops::open(dir.path()).unwrap();
         let desktop = Arc::new(desktops.open_desktop(desktops.current().unwrap()).unwrap());
-        let runner = Arc::new(FakeRunner { prompts: Arc::new(Mutex::new(Vec::new())), grants: Arc::new(Mutex::new(Vec::new())) });
+        let runner = Arc::new(FakeRunner { prompts: Arc::new(Mutex::new(Vec::new())), grants: Arc::new(Mutex::new(Vec::new())), ..Default::default() });
         let runs = LocalRuns::start(desktop.clone(), runner, dir.path().to_path_buf()).unwrap();
         let changes = runs.changes();
         let mut send = api::sessions::SendInput::default();
@@ -1211,7 +1318,7 @@ mod tests {
         let desktop = Arc::new(desktops.open_desktop(desktops.current().unwrap()).unwrap());
         let prompts = Arc::new(Mutex::new(Vec::new()));
         let grants = Arc::new(Mutex::new(Vec::new()));
-        let runner = Arc::new(FakeRunner { prompts: prompts.clone(), grants: grants.clone() });
+        let runner = Arc::new(FakeRunner { prompts: prompts.clone(), grants: grants.clone(), ..Default::default() });
         let runs = LocalRuns::start(desktop.clone(), runner, dir.path().to_path_buf()).unwrap();
         let changes = runs.changes();
         let client = desktop.client();
@@ -1256,7 +1363,7 @@ mod tests {
         let desktops = crate::Desktops::open(dir.path()).unwrap();
         let desktop = Arc::new(desktops.open_desktop(desktops.current().unwrap()).unwrap());
         let prompts = Arc::new(Mutex::new(Vec::new()));
-        let runner = Arc::new(FakeRunner { prompts: prompts.clone(), grants: Arc::new(Mutex::new(Vec::new())) });
+        let runner = Arc::new(FakeRunner { prompts: prompts.clone(), grants: Arc::new(Mutex::new(Vec::new())), ..Default::default() });
         let runs = LocalRuns::start(desktop.clone(), runner, dir.path().to_path_buf()).unwrap();
         let changes = runs.changes();
         let client = desktop.client();
@@ -1288,6 +1395,73 @@ mod tests {
         // The agent's own rows carry no stamp.
         let agent: Vec<Map<String, Value>> = desktop.store.rows_where("messages", "root_id", &session).unwrap().into_iter().filter(|m| m["author_kind"] == json!("agent")).collect();
         assert!(agent.iter().all(|m| m.get("delivered_at").is_none_or(Value::is_null) && m.get("consumed_at").is_none_or(Value::is_null)), "{agent:?}");
+        runs.stop_all();
+    }
+
+    /// #FEED-237 (local-parity.json WAKE): a message to a session whose run
+    /// exited starts the run again, resuming the CLI's conversation, and
+    /// reaches two checks; so does one after a restart (a fresh runner over
+    /// the same store); an ended session never starts again.
+    #[test]
+    fn a_message_without_a_live_run_wakes_its_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let desktops = crate::Desktops::open(dir.path()).unwrap();
+        let desktop = Arc::new(desktops.open_desktop(desktops.current().unwrap()).unwrap());
+        let prompts = Arc::new(Mutex::new(Vec::new()));
+        let runner = Arc::new(FakeRunner { prompts: prompts.clone(), ..Default::default() });
+        let runs = LocalRuns::start(desktop.clone(), runner.clone(), dir.path().to_path_buf()).unwrap();
+        let changes = runs.changes();
+        let client = desktop.client();
+        let read = |id: &str| {
+            let row = desktop.store.row("messages", id).unwrap().unwrap();
+            row.get("delivered_at").is_some_and(Value::is_string) && row.get("consumed_at").is_some_and(Value::is_string)
+        };
+        let status = |session: &str| desktop.store.row("sessions", session).unwrap().unwrap()["status"].as_str().unwrap_or("").to_string();
+
+        let mut send = api::sessions::SendInput::default();
+        send.team_id = Some(desktop.executor.team_id().to_string());
+        send.text = Some("Fix the login".into());
+        let session = api::sessions::send(&client, &send).unwrap().session_id;
+        wait_for(&changes, || status(&session) == "idle");
+        let native = format!("native-{session}");
+
+        // The CLI's process goes away: the session idles, its next message starts it again.
+        runner.exits.lock().unwrap()[0].store(true, Ordering::Relaxed);
+        wait_for(&changes, || !runs.is_running(&session));
+        assert_eq!(status(&session), "idle");
+        let woke = api::sessions::send(&client, &api::sessions::SendInput::message(&session, "And the logout", vec![])).unwrap().message_id.unwrap();
+        wait_for(&changes, || read(&woke));
+        assert!(runs.is_running(&session));
+        assert_eq!(prompts.lock().unwrap().as_slice(), ["Fix the login", "And the logout"]);
+        assert_eq!(runner.resumes.lock().unwrap().as_slice(), [None, Some(native.clone())]);
+        wait_for(&changes, || status(&session) == "idle");
+
+        // The app restarts: a fresh runner over the same store wakes it on the next message.
+        runs.stop_all();
+        let runs = LocalRuns::start(desktop.clone(), runner.clone(), dir.path().to_path_buf()).unwrap();
+        let changes = runs.changes();
+        assert!(!runs.is_running(&session), "nothing pending: the restart starts nothing");
+        let after = api::sessions::send(&client, &api::sessions::SendInput::message(&session, "And the signup", vec![])).unwrap().message_id.unwrap();
+        wait_for(&changes, || read(&after));
+        assert_eq!(prompts.lock().unwrap().last().map(String::as_str), Some("And the signup"));
+        assert_eq!(runner.resumes.lock().unwrap().last().cloned().flatten(), Some(native));
+        wait_for(&changes, || status(&session) == "idle");
+
+        // Ended (with a person row no run took, written behind the runner's back): it stays put.
+        api::sessions::end(&client, &session).unwrap();
+        wait_for(&changes, || !runs.is_running(&session));
+        runs.stop_all();
+        let starts = runner.resumes.lock().unwrap().len();
+        let conversation = desktop.store.rows_where("conversations", "session_id", &session).unwrap()[0]["id"].as_str().unwrap().to_string();
+        let now = time::now();
+        let row = json!({"id": uuid::Uuid::new_v4().to_string(), "conversation_id": conversation, "session_id": session, "root_id": session, "team_id": desktop.executor.team_id(), "author_kind": "user", "author_id": desktop.executor.identity().user_id, "author_session_id": null, "body": "Too late", "card": null, "attachment_ids": [], "issue_brief": null, "answered_at": null, "delivered_at": null, "consumed_at": null, "created_at": now, "updated_at": now});
+        desktop.store.write("messages", row.as_object().cloned().unwrap()).unwrap();
+        let runs = LocalRuns::start(desktop.clone(), runner.clone(), dir.path().to_path_buf()).unwrap();
+        while runs.changes().recv_timeout(Duration::from_millis(500)).is_ok() {}
+        runs.reconcile();
+        assert!(!runs.is_running(&session));
+        assert_eq!(runner.resumes.lock().unwrap().len(), starts);
+        assert_eq!(status(&session), "ended");
         runs.stop_all();
     }
 
@@ -1325,7 +1499,7 @@ mod tests {
         let id = desktops.current().unwrap().to_string();
         let (ide, ede) = (Arc::new(desktops.open_desktop(&id).unwrap()), Arc::new(desktops.open_desktop(&id).unwrap()));
         let (ide_prompts, ede_prompts) = (Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
-        let fake = |prompts: &Arc<Mutex<Vec<String>>>| Arc::new(FakeRunner { prompts: prompts.clone(), grants: Arc::new(Mutex::new(Vec::new())) });
+        let fake = |prompts: &Arc<Mutex<Vec<String>>>| Arc::new(FakeRunner { prompts: prompts.clone(), grants: Arc::new(Mutex::new(Vec::new())), ..Default::default() });
         let ide_runs = LocalRuns::start(ide.clone(), fake(&ide_prompts), dir.path().to_path_buf()).unwrap();
         let ede_runs = LocalRuns::start(ede.clone(), fake(&ede_prompts), dir.path().to_path_buf()).unwrap();
         assert!(ide_runs.is_runner());
@@ -1372,7 +1546,7 @@ mod tests {
         let desktops = crate::Desktops::open(dir.path()).unwrap();
         let desktop = Arc::new(desktops.open_desktop(desktops.current().unwrap()).unwrap());
         let (claude, codex) = (Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
-        let fake = |id: &'static str, prompts: &Arc<Mutex<Vec<String>>>| Arc::new(NamedFake(id, FakeRunner { prompts: prompts.clone(), grants: Arc::new(Mutex::new(Vec::new())) })) as Arc<dyn Runner>;
+        let fake = |id: &'static str, prompts: &Arc<Mutex<Vec<String>>>| Arc::new(NamedFake(id, FakeRunner { prompts: prompts.clone(), grants: Arc::new(Mutex::new(Vec::new())), ..Default::default() })) as Arc<dyn Runner>;
         let runs = LocalRuns::start_with_runners(desktop.clone(), vec![fake("claude", &claude), fake("codex", &codex)], dir.path().to_path_buf(), None).unwrap();
         let changes = runs.changes();
         let client = desktop.client();

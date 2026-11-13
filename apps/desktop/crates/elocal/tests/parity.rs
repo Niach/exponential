@@ -146,6 +146,22 @@ fn sessions_send() {
 }
 
 #[test]
+fn sessions_wake() {
+    let f = fixture();
+    let device = f["sessions"]["deviceId"].as_str().unwrap();
+    let rows = |v: &Value| v.as_array().unwrap().iter().map(obj).collect::<Vec<_>>();
+    for c in f["sessions"]["wake"]["cases"].as_array().unwrap() {
+        let live: Vec<String> = c["live"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect();
+        let refused: std::collections::HashMap<String, Vec<String>> = serde_json::from_value(c["refused"].clone()).unwrap();
+        let got: Vec<Value> = wake_plan(device, &rows(&c["sessions"]), &rows(&c["messages"]), &live, &refused)
+            .into_iter()
+            .map(|w| json!({"sessionId": w.session_id, "mode": if w.live { "send" } else { "wake" }, "messageIds": w.message_ids}))
+            .collect();
+        assert_eq!(Value::Array(got), c["expected"], "{}", c["name"]);
+    }
+}
+
+#[test]
 fn assistant() {
     let f = fixture();
     let team = &f["issues"]["team"];
