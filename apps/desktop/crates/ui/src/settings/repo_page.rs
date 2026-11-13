@@ -380,7 +380,7 @@ impl RepoPage {
             .collect();
         json!({
             "phase": "ready",
-            "name": repo.full_name.rsplit('/').next().unwrap_or(&repo.full_name),
+            "name": repo.full_name,
             "provider": copy.provider.label(repo.provider()),
             "ecode": ecode,
             "owner": owner,
