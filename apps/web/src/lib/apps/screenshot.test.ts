@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
+
+vi.mock(`@/db/connection`, () => ({ db: {} }))
+
 import {
   APP_SCREENSHOT_CAP,
   APP_SCREENSHOT_COMMAND,
@@ -12,7 +15,7 @@ import {
 const NOW = new Date(`2026-11-13T12:00:00Z`)
 const resolved = {
   app: { id: `app-1`, teamId: `team-1`, slug: `groceries` },
-  pkg: { id: `groceries`, templates: { home: { components: [] } } },
+  pkg: { id: `groceries`, templates: { home: { components: [] } } } as never,
   templateId: `home`,
   data: { title: `Milk` },
 }

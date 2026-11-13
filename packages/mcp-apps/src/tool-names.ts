@@ -56,7 +56,7 @@ export const NOUN_READ_OPS: Readonly<Record<string, readonly string[]>> = {
   skills: [`list`, `get`],
   mcp_servers: [`list`],
   sessions: [`get`, `list`],
-  apps: [`list`, `get`, `catalog`, `records_list`, `records_history`],
+  apps: [`list`, `get`, `catalog`, `render`, `records_list`, `records_history`],
   events: [`list`],
   notifications: [`list`],
 }

@@ -18,6 +18,7 @@ import {
 } from "@/lib/emcp/handlers/attachments-upload"
 import type { McpAccess } from "@/lib/emcp/scope"
 import { sessionDeviceOwner } from "@/lib/sessions/host"
+import type { RenderFormFactor, ResolvedAppScreen } from "./render"
 import { awaitDeviceCommand, queueDeviceCommand } from "@/lib/trpc/devices"
 
 /** The device command kind (`updater::app_shot::COMMAND_KIND`). */
@@ -27,22 +28,19 @@ export const APP_SCREENSHOT_CAP = `app-screenshot`
 /** The bundle format `exponential-shot` reads (`eui_shot::BUNDLE_SCHEMA`). */
 export const SHOT_BUNDLE_SCHEMA = 1
 /** The frame per form factor (CSS px; the preview's phone width). */
-export const SCREENSHOT_FRAMES = {
+export const SCREENSHOT_FRAMES: Record<RenderFormFactor, { width: number; height: number }> = {
   phone: { width: 390, height: 844 },
   desktop: { width: 1280, height: 800 },
-} as const
-export type ScreenshotFormFactor = keyof typeof SCREENSHOT_FRAMES
+}
+export type ScreenshotFormFactor = RenderFormFactor
 /** How long the call waits for the device (its first shot fetches the renderer). */
 export const SCREENSHOT_WAIT_MS = 60_000
 /** A device seen this recently is online enough to ask. */
 const ONLINE_MS = 2 * 60_000
 
 /** What `resolveAppScreen` answers that a picture needs. */
-export interface ResolvedScreenForShot {
-  app: { id: string; teamId: string; slug: string }
-  pkg: Record<string, unknown>
-  templateId: string
-  data: Record<string, unknown>
+export type ResolvedScreenForShot = Pick<ResolvedAppScreen, `pkg` | `templateId` | `data`> & {
+  app: Pick<ResolvedAppScreen[`app`], `id` | `teamId` | `slug`>
 }
 
 /** The bundle `exponential-shot` paints (eui-shot's `parse_bundle`). */

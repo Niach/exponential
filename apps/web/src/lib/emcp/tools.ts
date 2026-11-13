@@ -258,7 +258,8 @@ import {
 } from "./scope"
 import { messageSessionId } from "@/lib/sessions/messages"
 import { resolveTeamUserRef } from "@/lib/team-user-ref"
-import { RENDER_FORM_FACTORS, renderAppScreen } from "@/lib/apps/render"
+import { RENDER_FORM_FACTORS, renderAppScreen, resolveAppScreen } from "@/lib/apps/render"
+import { takeAppScreenshot } from "@/lib/apps/screenshot"
 
 // EXP-496: per-user bound on agent bug reports. In-process like the widget
 // buckets (rate-limit.ts documents why that is fine for this deploy).
@@ -4519,6 +4520,51 @@ export function registerExponentialTools(
     async ({ slug, teamId, ...rest }) => {
       try {
         return ok(await renderAppScreen({ userId: user.id, teamId: await appsTeam(teamId), slug, ...rest }))
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // #FEED-244 (part D of #FEED-218): the same screen as a PICTURE, painted
+  // on the calling session's device (lib/apps/screenshot.ts); the server
+  // never paints. A write: the picture is a loose attachment in the team.
+  server.registerTool(
+    `exponential_apps_screenshot`,
+    {
+      description: `Screenshot one app screen as a member sees it: render's arguments, painted by the eUI painter on your session's device (desktop app or CLI daemon; waits up to 60s, the first call downloads the renderer) into a PNG attachment you see inline. Returns id + url: download the url and upload it to exponential_show pictures as a result. Check screens before publish.`,
+      inputSchema: strictInput({
+        slug: appSlug,
+        teamId: uuidString.optional(),
+        screen: z.string().min(1).max(64).optional(),
+        params: z.record(z.string(), z.string().max(500)).optional(),
+        version: z.enum([`head`, `published`]).optional(),
+        formFactor: z.enum(RENDER_FORM_FACTORS).optional(),
+        asUser: z.string().min(1).max(254).optional(),
+      }),
+    },
+    async ({ slug, teamId, formFactor, ...rest }) => {
+      try {
+        const team = await appsTeam(teamId)
+        const shot = await takeAppScreenshot({
+          userId: user.id,
+          access,
+          sessionId,
+          origin: process.env.BETTER_AUTH_URL ? appBaseUrl() : new URL(request.url).origin,
+          formFactor,
+          resolve: () => resolveAppScreen({ userId: user.id, teamId: team, slug, ...rest }),
+        })
+        const [row] = await db.select({ storageKey: attachments.storageKey }).from(attachments).where(eq(attachments.id, shot.id)).limit(1)
+        const object = row ? await getObject(row.storageKey) : null
+        if (!object?.Body) return ok(shot)
+        const bytes = await object.Body.transformToByteArray()
+        const inlined = await inlineImageForContext(bytes, shot.contentType)
+        return {
+          content: [
+            { type: `image` as const, data: Buffer.from(inlined?.data ?? bytes).toString(`base64`), mimeType: inlined?.mimeType ?? shot.contentType },
+            { type: `text` as const, text: JSON.stringify(shot, null, 2) },
+          ],
+        }
       } catch (e) {
         return err(e)
       }
