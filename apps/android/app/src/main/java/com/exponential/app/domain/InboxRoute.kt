@@ -68,4 +68,32 @@ object InboxRoute {
         }
         return SessionTarget.Chat(root, if (root == id) null else id)
     }
+
+    /** waiting-cards.json DEEP LINKS: where a jump INTO a session's message lands. */
+    sealed interface Landing {
+        /** THE plan page of the chat [rootId], on the plan [messageId]. */
+        data class Plan(val rootId: String, val messageId: String) : Landing
+
+        /** The chat [rootId]'s Conversation, the pending deep link on [messageId]. */
+        data class Card(val rootId: String, val messageId: String) : Landing
+
+        /** No card to reach: the session by [sessionTarget]. */
+        data object Session : Landing
+    }
+
+    /**
+     * An inbox row's or a push's jump into [messageId] (the push's
+     * `messageId`, else the session's waiting card): a plan opens THE plan
+     * page, a question its chat at the card (the chat lands a descendant's
+     * card in that session, `waitingTarget`). [rootId] = the session's root
+     * (synced, else the push's `rootId`); none = the session's own route. A
+     * session opening on its own screen ([SessionTarget.Session]) keeps it.
+     */
+    fun landing(target: SessionTarget?, rootId: String?, messageId: String?, plan: Boolean): Landing {
+        val root = rootId?.takeIf { it.isNotEmpty() } ?: return Landing.Session
+        if (messageId.isNullOrEmpty()) return Landing.Session
+        if (plan) return Landing.Plan(root, messageId)
+        if (target is SessionTarget.Session) return Landing.Session
+        return Landing.Card(root, messageId)
+    }
 }

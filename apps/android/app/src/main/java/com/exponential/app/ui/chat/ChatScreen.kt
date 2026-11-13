@@ -926,7 +926,10 @@ fun ChatContent(
     LaunchedEffect(initialCard, chatLoaded) {
         if (initialCard != null && chatLoaded && !initialCardDone) {
             initialCardDone = true
-            pickWaiting(initialCard)
+            // A descendant's waiting card opens THAT session in place, at
+            // its card (`waitingTarget`, a push or inbox row naming it);
+            // anything else is the Conversation's pending deep link.
+            waitingChips.firstOrNull { it.id == initialCard }?.let(pickWaitingChip) ?: pickWaiting(initialCard)
         }
     }
     // plan-page.json (#FEED-191): a decision taken ON the opened plan returns

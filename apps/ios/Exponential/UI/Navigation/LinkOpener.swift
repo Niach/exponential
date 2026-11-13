@@ -229,19 +229,22 @@ enum LinkOpener {
     private static func open(
         _ link: AppLink, url: URL, accountIds: [String], waitsForSync: Bool, deps: AppDependencies
     ) {
+        // waiting-cards.json DEEP LINKS: `?card=` names a card of the session.
+        let card = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?.first { $0.name == "card" }?.value.flatMap { $0.isEmpty ? nil : $0 }
         Task { @MainActor in
-            let first = await bestResolution(link, accountIds: accountIds, deps: deps)
+            let first = await bestResolution(link, card: card, accountIds: accountIds, deps: deps)
             let missed = first.outcome == .noAccess || (first.outcome == .notFound && first.landing == nil)
             guard waitsForSync, missed else {
                 apply(first, url: url, deps: deps)
                 return
             }
             await deps.syncManager.initialSync()
-            var result = await bestResolution(link, accountIds: accountIds, deps: deps)
+            var result = await bestResolution(link, card: card, accountIds: accountIds, deps: deps)
             if result.outcome == .notFound, result.landing == nil {
                 for _ in 0..<8 {
                     try? await Task.sleep(for: .milliseconds(500))
-                    result = await bestResolution(link, accountIds: accountIds, deps: deps)
+                    result = await bestResolution(link, card: card, accountIds: accountIds, deps: deps)
                     if result.outcome != .notFound { break }
                 }
             }
@@ -272,18 +275,18 @@ enum LinkOpener {
     }
 
     private static func bestResolution(
-        _ link: AppLink, accountIds: [String], deps: AppDependencies
+        _ link: AppLink, card: String? = nil, accountIds: [String], deps: AppDependencies
     ) async -> Resolution {
         var best: Resolution?
         for accountId in accountIds {
-            let resolution = await resolve(link, accountId: accountId, deps: deps)
+            let resolution = await resolve(link, card: card, accountId: accountId, deps: deps)
             if let current = best, current.rank >= resolution.rank { continue }
             best = resolution
         }
         return best ?? Resolution(outcome: .noAccess, landing: nil)
     }
 
-    private static func resolve(_ link: AppLink, accountId: String, deps: AppDependencies) async -> Resolution {
+    private static func resolve(_ link: AppLink, card: String?, accountId: String, deps: AppDependencies) async -> Resolution {
         guard let slug = link.teamSlug else {
             // No team to be a member of (`/admin`, the root): a web page.
             let outcome = AppLink.linkOpenOutcome(member: true, activeTeam: true, found: true, webOnly: true)
@@ -299,7 +302,9 @@ enum LinkOpener {
             let outcome = AppLink.linkOpenOutcome(member: false, activeTeam: false, found: false, webOnly: false)
             return Resolution(outcome: outcome, landing: nil)
         }
-        let resolved = await target(of: link, teamId: teamId, teamSlug: slug, accountId: accountId, pool: pool, deps: deps)
+        let resolved = await target(
+            of: link, card: card, teamId: teamId, teamSlug: slug, accountId: accountId, pool: pool, deps: deps
+        )
         let outcome = AppLink.linkOpenOutcome(
             member: true,
             activeTeam: resolved.teamId == SharedBoardMirror.readActiveTeam(accountId: accountId),
@@ -316,7 +321,8 @@ enum LinkOpener {
     /// with `found: false` = a screen that says not found by itself (chat,
     /// plan page, agent page).
     private static func target(
-        of link: AppLink, teamId: String, teamSlug: String, accountId: String, pool: DatabasePool, deps: AppDependencies
+        of link: AppLink, card: String?, teamId: String, teamSlug: String, accountId: String, pool: DatabasePool,
+        deps: AppDependencies
     ) async -> Target {
         switch link {
         case let .issue(_, _, identifier), let .issueRef(_, identifier):
@@ -334,7 +340,10 @@ enum LinkOpener {
             // EXP-1291: a root (or an id not synced here: the chat screen
             // resolves or says not found) opens its chat, a child its session.
             let row = await session(sessionId, pool: pool)
-            let route: AppRoute = if let row, !row.isRoot {
+            let route: AppRoute = if let card {
+                // `?card=`: its chat at that card (THE pending deep link).
+                AppRoute.chat(accountId: accountId, chatId: row.map { $0.rootId.isEmpty ? $0.id : $0.rootId } ?? sessionId, child: .card(card))
+            } else if let row, !row.isRoot {
                 await AppRoute.openingInbox(sessionId, accountId: accountId, deps: deps)
             } else {
                 AppRoute.chat(accountId: accountId, chatId: sessionId, child: nil)

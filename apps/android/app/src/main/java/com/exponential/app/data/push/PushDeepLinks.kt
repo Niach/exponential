@@ -37,6 +37,12 @@ object PushDeepLinks {
      *  issue to that comment (web `?comment=`). */
     const val PARAM_COMMENT = "comment"
 
+    /** waiting-cards.json DEEP LINKS: a session push's card (its
+     *  `messageId`), the card's `cardKind` and the tree's `rootId`. */
+    const val PARAM_CARD = "card"
+    const val PARAM_CARD_KIND = "cardKind"
+    const val PARAM_ROOT = "rootId"
+
     /** The [PARAM_FACE] value of the Guide face (EXP-1251). */
     const val FACE_GUIDE = "guide"
 
@@ -48,8 +54,9 @@ object PushDeepLinks {
         data class IssueGuide(val id: String) : Target
 
         /** The session an issue-less push names (a wall, EXP-980; an
-         *  agent's decision or an @mention, #EXP-1456). */
-        data class Session(val id: String) : Target
+         *  agent's decision or an @mention, #EXP-1456); [card] = the
+         *  question / plan it is about (waiting-cards.json DEEP LINKS). */
+        data class Session(val id: String, val card: Card? = null) : Target
 
         /** #EXP-1534: the Devices page with this device's (devices row id) settings open. */
         data class Device(val deviceId: String) : Target
@@ -57,6 +64,15 @@ object PushDeepLinks {
         /** The My Work inbox — where an agent's message renders (EXP-801). */
         data object Inbox : Target
     }
+
+    /** The card a session push is about: [plan] = a plan card (its page). */
+    data class Card(val messageId: String, val rootId: String?, val plan: Boolean)
+
+    /** The push data's card ([NotificationActions] keys + [QuestionPush.ROOT_ID_KEY]), else null. */
+    fun card(messageId: String?, cardKind: String?, rootId: String?): Card? =
+        messageId?.takeIf { it.isNotEmpty() }?.let {
+            Card(it, rootId?.takeIf { root -> root.isNotEmpty() }, plan = cardKind == "plan")
+        }
 
     /**
      * What a tapped push should open, or null when it carries no target — the
@@ -74,9 +90,10 @@ object PushDeepLinks {
         issueId: String?,
         sessionId: String? = null,
         deviceId: String? = null,
+        card: Card? = null,
     ): Target? = when (val row = InboxRoute.inboxRowTarget(type, issueId, sessionId, deviceId)) {
         is InboxRoute.RowTarget.Issue -> if (row.results) Target.IssueGuide(row.issueId) else Target.Issue(row.issueId)
-        is InboxRoute.RowTarget.Session -> Target.Session(row.sessionId)
+        is InboxRoute.RowTarget.Session -> Target.Session(row.sessionId, card)
         is InboxRoute.RowTarget.Device -> Target.Device(row.deviceId)
         InboxRoute.RowTarget.None ->
             if (type == TYPE_AGENT_MESSAGE || type == TYPE_SESSION_BLOCKED || type == TYPE_AGENT_SIGNED_OUT) {
@@ -96,7 +113,11 @@ object PushDeepLinks {
         val base = when (target) {
             is Target.Issue -> "exponential://issue/${target.id}"
             is Target.IssueGuide -> "exponential://issue/${target.id}?$PARAM_FACE=$FACE_GUIDE"
-            is Target.Session -> "exponential://session/${target.id}"
+            is Target.Session -> "exponential://session/${target.id}" + (target.card?.let { card ->
+                "?$PARAM_CARD=${percentEncode(card.messageId)}" +
+                    (if (card.plan) "&$PARAM_CARD_KIND=plan" else "") +
+                    (card.rootId?.let { "&$PARAM_ROOT=${percentEncode(it)}" } ?: "")
+            } ?: "")
             is Target.Device -> "exponential://device/${target.deviceId}"
             Target.Inbox -> "exponential://inbox"
         }
