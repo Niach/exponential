@@ -6452,6 +6452,22 @@
         "sha256": "443c1e84e832ef51ccb8d523d363f20e048e52ca410afb12589103ecc4fe876e"
       }
     },
+    "repo": {
+      "web": {
+        "file": "shots/repo/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 46738,
+        "sha256": "c580369683b72ff202d972717311225b279764bf05ae09bc2b9f1a19c0917f10"
+      },
+      "web-mobile": {
+        "file": "shots/repo/web-mobile.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 32032,
+        "sha256": "ae71ef66be2f9b2a9a3d7aadb9278ad11490a1b7613097647c915663fff8fa5e"
+      }
+    },
     "results-tab": {
       "android": {
         "file": "shots/results-tab/android.webp",
@@ -7323,15 +7339,15 @@
         "file": "shots/settings-repositories/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 32912,
-        "sha256": "05e087e012c2f3ed8472ef9ac2a158d274b32f7ada48f424302700c8ed2a6404"
+        "bytes": 37754,
+        "sha256": "c41f3f047d0eb5e60cf37518f097b91d69cdcb7ef2e29eb4636c5a35943ed2a2"
       },
       "web-mobile": {
         "file": "shots/settings-repositories/web-mobile.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 21434,
-        "sha256": "40fc3171b699104709f4c5c449ea81985613c16267f7f1ba353e31a5958fdd04"
+        "bytes": 27576,
+        "sha256": "77f1ac8aaea2235ec89ed7980ddf4c5708bb8bbfe21946edb7f0d6a766dba97f"
       }
     },
     "settings-root": {

@@ -3351,8 +3351,8 @@ async function seedEcodeRepository(teamId: string): Promise<void> {
   })
   await db.insert(pullRequests).values([
     pr(1, `Pack cursor for incremental fetches`, `exp/APP-31`, `main`, { checksState: `success`, mergeState: `queued`, mergePosition: 1 }),
-    pr(2, `Repack once packs pile up`, `exp/APP-32`, `exp/APP-31`, { checksState: `pending` }),
-    pr(3, `Mirror prunes deleted branches`, `exp/APP-33`, `exp/APP-31`, { checksState: `failure` }),
+    pr(2, `Repack once packs pile up`, `exp/APP-32`, `exp/APP-31`, { checksState: `pending`, mergeWait: `checks` }),
+    pr(3, `Mirror prunes deleted branches`, `exp/APP-33`, `exp/APP-31`, { checksState: `failure`, mergeState: `failing` }),
     pr(4, `Document exp:// remotes`, `exp/docs`, `main`, { state: `draft`, mergeState: `draft` }),
   ])
   await db.insert(repoPacks).values([

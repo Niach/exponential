@@ -71,6 +71,9 @@ export interface PrRowProps
   title: string
   /** A quiet trailing word (`stack` on a stack's top row). */
   word?: string | null
+  /** #EXP-1616: a second line under the title (genUI `Row.subtitle`: the
+   *  repo page's `head → base`); the row grows to two lines. */
+  subtitle?: string | null
   depth?: number
   /** Tree shape: this row's connector geometry. */
   guide?: TreeGuide | null
@@ -87,6 +90,7 @@ export function PrRow({
   identifier = null,
   title,
   word = null,
+  subtitle = null,
   depth = 0,
   guide = null,
   rail = null,
@@ -110,7 +114,7 @@ export function PrRow({
       onClick={onClick}
       data-pr-row={node}
       className={cn(
-        `relative h-10 gap-2 py-0 pr-3 md:h-9`,
+        subtitle ? `relative min-h-12 gap-2 py-1.5 pr-3` : `relative h-10 gap-2 py-0 pr-3 md:h-9`,
         clickable &&
           `cursor-pointer transition-colors duration-fast hover:bg-glass-row has-[[data-slot=pr-row-open]:focus-visible]:ring-[3px] has-[[data-slot=pr-row-open]:focus-visible]:ring-ring/50`,
         className
@@ -153,18 +157,27 @@ export function PrRow({
       >
         <PrNode state={node} />
         {identifier && (
-          <span className="min-w-[4.5rem] shrink-0 font-mono text-xs text-muted-foreground">
+          <span className={cn(`shrink-0 font-mono text-xs text-muted-foreground`, subtitle ? `min-w-8` : `min-w-[4.5rem]`)}>
             {identifier}
           </span>
         )}
-        <span
-          className={cn(
-            `min-w-0 flex-1 truncate`,
-            base ? `font-mono text-xs text-muted-foreground` : `text-sm`
-          )}
-        >
-          {title}
-        </span>
+        {subtitle ? (
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className="truncate text-sm">{title}</span>
+            <span data-slot="pr-row-subtitle" className="truncate font-mono text-[11.5px] text-muted-foreground">
+              {subtitle}
+            </span>
+          </span>
+        ) : (
+          <span
+            className={cn(
+              `min-w-0 flex-1 truncate`,
+              base ? `font-mono text-xs text-muted-foreground` : `text-sm`
+            )}
+          >
+            {title}
+          </span>
+        )}
         {word && (
           <span data-slot="pr-row-word" className="shrink-0 text-[11.5px] text-muted-foreground">
             {word}
@@ -181,6 +194,8 @@ export interface PrListRow {
   key: string
   identifier?: string | null
   title: string
+  /** #EXP-1616: the row's second line (`PrRow.subtitle`). */
+  subtitle?: string | null
   depth?: number
   node?: PrNodeState
   word?: string | null
@@ -207,6 +222,7 @@ export function PrList({
           node={row.node}
           identifier={row.identifier}
           title={row.title}
+          subtitle={row.subtitle}
           word={row.word}
           depth={row.depth ?? 0}
           guide={guides[index]}

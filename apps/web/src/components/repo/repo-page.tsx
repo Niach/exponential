@@ -13,8 +13,8 @@ import {
   Button,
   EmptyState,
   GlassSectionHeader,
+  GlassInputRow,
   GlassToggleRow,
-  Input,
   ListRow,
   Pill,
   PrList,
@@ -161,12 +161,13 @@ function PullsTab({ prs, member }: { prs: PrRow[]; member: boolean }) {
           identifier: row.identifier,
           title: row.title,
           depth: row.depth,
-          word: row.subtitle,
+          subtitle: row.subtitle,
           trailing: (
             <span className="flex shrink-0 items-center gap-1.5">
               {row.checks && (
                 <Pill size="sm" dot={checksDotColor(row.checks)}>
-                  {checksLabel(row.checks)}
+                  {/* Phones: the dot alone (the label stays for screen readers). */}
+                  <span className="max-md:sr-only">{checksLabel(row.checks)}</span>
                 </Pill>
               )}
               <PullRequestStatusPill pr={pr} member={member} />
@@ -333,25 +334,23 @@ function SettingsTab({ repo, isOwner }: { repo: Repo; isOwner: boolean }) {
                   )
                 }
               />
-              <ListRow className="gap-3 px-4 py-3">
-                <span className="shrink-0 text-sm">{COPY.settings.mirrorUrl}</span>
-                <Input
-                  value={mirrorUrl}
-                  disabled={!isOwner || busy}
-                  placeholder="https://github.com/owner/name"
-                  className="h-8 flex-1 text-right"
-                  onChange={(e) => setMirrorUrl(e.target.value)}
-                  onBlur={() =>
-                    mirrorUrl.trim() !== (settings.mirrorUrl ?? ``) &&
-                    void act(`save`, `the mirror`, () =>
-                      trpc.repositories.setMirror.mutate(
-                        { repositoryId: repo.id, mirrorUrl: mirrorUrl.trim() || null, enabled: settings.mirrorEnabled },
-                        SKIP_ERROR_TOAST
-                      )
+              <GlassInputRow
+                id="repo-mirror-url"
+                label={COPY.settings.mirrorUrl}
+                value={mirrorUrl}
+                disabled={!isOwner || busy}
+                placeholder="https://github.com/owner/name"
+                onChange={(e) => setMirrorUrl(e.target.value)}
+                onBlur={() =>
+                  mirrorUrl.trim() !== (settings.mirrorUrl ?? ``) &&
+                  void act(`save`, `the mirror`, () =>
+                    trpc.repositories.setMirror.mutate(
+                      { repositoryId: repo.id, mirrorUrl: mirrorUrl.trim() || null, enabled: settings.mirrorEnabled },
+                      SKIP_ERROR_TOAST
                     )
-                  }
-                />
-              </ListRow>
+                  )
+                }
+              />
             </div>
           </div>
         </>
