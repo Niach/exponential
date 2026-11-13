@@ -1082,6 +1082,21 @@ private fun RunFaceContent(
                 (row is SessionTree.SessionChatRow.Question && !row.answered)
         }
     }
+    // waiting-cards.json NO FEED + DEEP LINKS: a jump into one of the cards
+    // under the placeholder (no list to page or centre: they sit in view)
+    // rings it at once and settles the link.
+    val placeholderLink = LocalCardScrollRequest.current
+    val placeholderSettle = LocalCardScrollSettled.current
+    var placeholderRing by remember { mutableStateOf<String?>(null) }
+    val placeholderHas = bodyPlaceholder && placeholderLink != null && waitingCardRows.any { it.id == placeholderLink.id }
+    LaunchedEffect(placeholderLink, placeholderHas) {
+        val link = placeholderLink ?: return@LaunchedEffect
+        if (!placeholderHas) return@LaunchedEffect
+        placeholderRing = link.id
+        placeholderSettle?.invoke(link)
+        delay(com.exponential.app.domain.WaitingCards.Constants.HIGHLIGHT_MS)
+        if (placeholderRing == link.id) placeholderRing = null
+    }
     Box(
         modifier = Modifier
             .padding(
@@ -1161,7 +1176,9 @@ private fun RunFaceContent(
                     Box(Modifier.fillMaxWidth().weight(1f)) { placeholderBody() }
                     if (waitingCardRows.isNotEmpty()) {
                         Column(Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState())) {
-                            for (card in waitingCardRows) SessionCardRow(card, renderSessionCard)
+                            CompositionLocalProvider(LocalCardHighlight provides placeholderRing) {
+                                for (card in waitingCardRows) SessionCardRow(card, renderSessionCard)
+                            }
                         }
                     }
                     // #EXP-1732: the host's rows under the empty-feed placeholder.
