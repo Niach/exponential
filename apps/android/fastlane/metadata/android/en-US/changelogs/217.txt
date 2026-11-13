@@ -1,0 +1,1 @@
+- Fixes a crash from running out of memory in large chats, and a sign-out race
