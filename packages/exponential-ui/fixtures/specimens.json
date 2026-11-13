@@ -10538,6 +10538,47 @@
                 ]
               }
             ]
+          },
+          {
+            "id": "specimen_button_case_10",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen_button_case_10_label",
+                "component": "Text",
+                "props": {
+                  "text": "in a stretch column",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c10_stretch",
+                "component": "Stack",
+                "props": {
+                  "direction": "vertical",
+                  "gap": "xs"
+                },
+                "style": {
+                  "alignSelf": "stretch"
+                },
+                "children": [
+                  {
+                    "id": "c10_add",
+                    "component": "Button",
+                    "props": {
+                      "label": "Add secret",
+                      "variant": "outline",
+                      "size": "sm"
+                    }
+                  }
+                ]
+              }
+            ]
           }
         ]
       }
@@ -14091,6 +14132,37 @@
                     "ios"
                   ],
                   "disabled": true
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_chip_input_case_2",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_chip_input_case_2_label",
+                "component": "Text",
+                "props": {
+                  "text": "chips · the placeholder hides",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c2_chip_input_hint",
+                "component": "ChipInput",
+                "props": {
+                  "label": "Required checks",
+                  "name": "required",
+                  "values": [
+                    "build"
+                  ],
+                  "placeholder": "Check name"
                 }
               }
             ]

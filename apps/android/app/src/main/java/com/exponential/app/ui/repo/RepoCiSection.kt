@@ -256,11 +256,20 @@ internal fun repoCiSectionTree(
             )
         }
         if (manager) {
-            children += node(ids.ADD_SECRET, "Button", {
-                put("label", RepoCi.Copy.Secrets.ADD)
-                put("variant", "outline")
-                put("size", "sm")
-            }) { onEvent("press", CiEvents.ADD_SECRET) }
+            // #EXP-1813: a Button in a stretch column fills it; in a row it
+            // keeps its own width, like web's Dialog trigger.
+            children += node(
+                "${ids.ADD_SECRET}-row",
+                "Stack",
+                { put("direction", "horizontal") },
+                children = listOf(
+                    node(ids.ADD_SECRET, "Button", {
+                        put("label", RepoCi.Copy.Secrets.ADD)
+                        put("variant", "outline")
+                        put("size", "sm")
+                    }) { onEvent("press", CiEvents.ADD_SECRET) },
+                ),
+            )
         }
     }
     for (switch in RepoCi.switches(provider)) {
