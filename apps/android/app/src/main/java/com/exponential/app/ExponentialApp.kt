@@ -30,6 +30,11 @@ private const val KEY_PERUSER_DB_CLEANUP = "peruser_db_cleanup_v1"
 
 @HiltAndroidApp
 class ExponentialApp : Application(), SingletonImageLoader.Factory {
+    init {
+        // #PERF-11: before any binding loads (MobileNativeLibrary).
+        MobileNativeLibrary.install()
+    }
+
     @Inject lateinit var syncManager: SyncManager
     @Inject lateinit var composerDrafts: com.exponential.app.data.composer.ComposerDrafts
     @Inject lateinit var appRecordOutbox: com.exponential.app.ui.apps.AppRecordOutbox
