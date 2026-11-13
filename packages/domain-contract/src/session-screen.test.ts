@@ -1,11 +1,16 @@
 import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/session-screen.json" with { type: "json" }
-import { sessionScreen, sessionScreenKind, sessionScreenStatus, sessionScreenSubtitle, sessionScreenTone } from "./session-screen"
+import { sessionScreen, sessionScreenKind, sessionScreenMenu, sessionScreenStatus, sessionScreenSubtitle, sessionScreenTone } from "./session-screen"
 
 describe(`session-screen.json`, () => {
   for (const c of fixture.cases) {
     test(c.name, () => {
       expect(sessionScreen(c.input)).toEqual(c.expected as ReturnType<typeof sessionScreen>)
+    })
+  }
+  for (const c of fixture.menuCases) {
+    test(`menu: ${c.name}`, () => {
+      expect(sessionScreenMenu(c.input)).toEqual(c.expected as ReturnType<typeof sessionScreenMenu>)
     })
   }
   for (const c of fixture.kindCases) {

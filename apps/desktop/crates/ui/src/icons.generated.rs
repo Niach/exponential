@@ -330,6 +330,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "palette" => ExpIcon::Palette,
         "panel-left-close" => ExpIcon::PanelLeftClose,
         "panel-left-open" => ExpIcon::PanelLeftOpen,
+        "panel-right-close" => ExpIcon::PanelRightClose,
         "paperclip" => ExpIcon::Paperclip,
         "pause" => ExpIcon::Pause,
         "pen-tool" => ExpIcon::PenTool,
@@ -974,6 +975,8 @@ pub const UI_OFFLINE: ExpIcon = ExpIcon::WifiOff;
 pub const UI_ORGANIZATION: ExpIcon = ExpIcon::Building2;
 /// Registry concept `ui-owner` -> Lucide `crown`.
 pub const UI_OWNER: ExpIcon = ExpIcon::Crown;
+/// Registry concept `ui-pane-collapse` -> Lucide `panel-right-close`.
+pub const UI_PANE_COLLAPSE: ExpIcon = ExpIcon::PanelRightClose;
 /// Registry concept `ui-permission` -> Lucide `shield-question-mark`.
 pub const UI_PERMISSION: ExpIcon = ExpIcon::ShieldQuestionMark;
 /// Registry concept `ui-photos` -> Lucide `images`.
@@ -1350,6 +1353,7 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "ui-offline" => UI_OFFLINE,
         "ui-organization" => UI_ORGANIZATION,
         "ui-owner" => UI_OWNER,
+        "ui-pane-collapse" => UI_PANE_COLLAPSE,
         "ui-permission" => UI_PERMISSION,
         "ui-photos" => UI_PHOTOS,
         "ui-pin" => UI_PIN,

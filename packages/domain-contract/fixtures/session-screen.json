@@ -1,5 +1,5 @@
 {
-  "$comment": "#EXP-1785: the HEADER's trailing slot starts with THE waiting chips again (wide: one StripChip per waiting plan/question of the tree; phones: ONE button + count opening THE Menu), waiting-cards.json owns them. #EXP-1732 (EDE-63, owner 2026-11-07; drafts c13140f9 session, ff3f91ca agent, de58c149 app) THE SESSION SCREEN ×4: ONE screen for a chat (a root session), a team agent's conversation, the Assistant's and an app's editor session (an app IS its agent's session); the list and the sidebar entry stay `Chats` (chats.json). AMENDS session-chat.json (the strip: `+`, Conversation, issue/session chips, the group tab, the plan tab, the pinned Results tab are GONE ×4; the chip strip is deleted, not hidden), chats.json `agentChat.tabs/planTabs/pageCases` (an agent's chat gets the same tabs) and apps.json THE EDITOR's `editorTabs` (wide/phone/menu tab sets: the app gets this screen's tabs; Versions is a tab, Settings is the gear). HEADER (every width, every kind): the lead avatar (a chat: THE ChatHeaderTitle lead disc; an agent: its disc, the Assistant: THE brand mark; an app: its BoardGlyph + the version pill), the title (one truncated line) over ONE subtitle line `subtitle({status, device, trigger})` = the non-blank parts joined by `copy.separator` (status = the session's state word, device = its device's name, trigger = an agent's first enabled trigger's `triggerSummary`, else null); then the trailing slot: the merge status pill (merge-train.json, while `guidePullRequest`), an app's Publish (apps.json), THE gear (`gear`: the existing icon button, concept `nav-settings`, label `copy.settings`, testId `testIds.gear`), the `…` (THE chat menu / agent menu / app menu: Export, Delete; Versions and Settings left it). #EXP-1762 (Danny, ONE header line): on WIDE (web ≥ md, the IDE) the tabs sit ON the header row, after the title/subtitle block and before the trailing slot; on PHONES (web-mobile too) under the header row: ONE SegmentedControl (THE existing one ×4 + Exponential UI, no new component), testId `testIds.tabs`, its options = `tabs` in order, each the label `copy.tabs[id]` followed by its `count` as a muted number when not null; on a phone it scrolls sideways when it overflows (never icon-only, never wrapping). TABS BY KIND (`kinds`): a chat, an agent and the Assistant = chat · issues · sessions · results; an app = chat · preview · data · versions · sessions · results. COUNTS (`count`, issues/sessions/results only; 0 = null): issues = every issue of the tree (session-chat.json's union, nested ones included), sessions = every session UNDER the root (its children and theirs; #EXP-1731's subagent children included; the root itself never), results = results-tab.json's results of the tree. GEAR (`gear`): agent, assistant and app; never a chat. It opens the kind's SETTINGS as an opened item (`open: settings`): an agent = THE agent settings page (agent-settings.json: prompt, triggers, defaults; the Assistant's = settings/assistant), an app = the app's settings page (apps.json Settings, the app's agent's prompt/triggers/defaults on the same page once apps.agent_id lands, #EXP-1730). BODIES: chat = the ROOT's OWN SESSION VIEW for EVERY kind (owner 2026-11-08): its raw work (THE ONE transcript of #EXP-1736 transcript-grouping.json: MessageBubble + avatar + name, the tool/thought/subagent `trace` rows under the agent's bubble) with its own message cards inline, THE Dock and THE composer (the view NEW-46 showed on a single-session chat, now always; the old dispatcher Conversation without the root's work is gone; no second message view anywhere); no session's work is visible nowhere: the root's = Chat, every descendant's = its Sessions row, a single-session chat's Sessions tab is empty (never a row for the root itself); plans and questions stay INLINE in it (and in Needs you); a plan row opens the plan page (plan-page.json) as an opened item. issues = the tree's issues as THE issue rows (status glyph, mono identifier, title; nested ones indented under their parent), led by the `+` icon button (THE Menu: Link an issue > THE search list, New issue); a row opens that issue IN PLACE (`open: issue`, the embedded issue body of session-chat.json EXP-1316). sessions = THE tree rows of every session under the root (SessionRow small + TreeGuides, markState, subagents included as child rows); a row opens that session IN PLACE (`open: session`, the raw work + its composer). results = results-tab.json's body. preview / data / versions = apps.json's Preview, Data (app-records.json `dataTab`) and Versions bodies. An OPENED item (issue, session, plan, settings) carries THE back link (the existing back link row: the `ui-back` glyph + its label; phones: the pushed page's `‹` header) to the tab it came from (settings and a plan: back to where they were opened). LAYOUT (`sessionScreen`, every mirror replays `cases` comparing the WHOLE value): WIDE (web ≥ `beside.breakpoint` px and the IDE) = the beside rule: whenever the active tab is not chat OR an item is opened, the body = TWO panes, the chat pane (`beside.chat` fr, min `beside.chatMinWidth` px, THE same chat body with its composer) : the tab pane (`beside.pane` fr, the active tab's body, or the opened item over it), a hairline between (`layout: beside`, testId `testIds.beside`); the Chat tab alone = the chat full width (`layout: chat`). NARROW (phones, web < breakpoint) = ONE pane: `chat`, the tab's body (`tab`) or the opened item (`item`, a pushed page over the tab). ACTIVE = the requested tab when it is one of the kind's tabs (legacy `?tab=` values map through `legacyTabs` first), else the kind's default: an app `preview` when wide (apps.json), else `chat`. OPEN (`open` in: issue | session | plan | settings, anything else = null): a requested `settings` (the retired app `?tab=settings`) opens settings when nothing else is open; settings only with `gear` (else null). ALGORITHM: k = `kinds[kind]` (unknown = session); tabs = k.tabs as {id, label, count}; req = `legacyTabs[requested]` ?? requested; active = req when in k.tabs, else (wide ? k.wideDefault : `chat`); layout = wide ? (active ≠ chat or open ? `beside` : `chat`) : (open ? `item` : active = chat ? `chat` : `tab`). Mirrors: TS src/session-screen.ts, desktop `domain::session_screen`, iOS ExpCore `SessionScreen.swift`, Android `domain/SessionScreen.kt`. STATUS WORD (owner 2026-11-09, one rule ×4, `sessionScreenStatus`, every mirror replays `statusCases`): the subtitle's `status` = THE TREE's word, lowercase `copy.status`: `needsInput` while any non-ended session of the tree needs input, else `working` while any non-ended one is busy, else `queued` while the root is queued, else `done` once the root ended, else `idle` (an empty tree = `idle`); it is never dropped. An app's subtitle = this word · apps.json `editorHeader`'s DEVICE part (the device's name, else `copy.noDeviceOnline`) and that function's TONE; a chat's and an agent's device = the root's device name. ACTIVE FOLLOWS THE OPENED ITEM: `open` session = the `sessions` tab active, `open` issue = `issues`, when the kind has that tab (a plan and settings keep the active tab). TAB SIZING ×4: every segment is sized to its label (+ count), never stretched to equal widths and never squeezed; the strip scrolls sideways when it overflows. APP LEAD ×4: the app's BoardGlyph sits IN the lead disc (the chat header's `disc` on the muted fill), never bare, the version pill right after the name. PHONE ITEM ×4 (web-mobile too): an opened item is a pushed page: its own header (‹ back + the item's title) replaces the screen header AND the tabs. TONE ×4: the subtitle wears editorHeader's tones: `attention` (the needs-input amber) while the word is needsInput (an app also while its device part is `copy.noDeviceOnline`), `active` while working or queued, else `muted`.",
+  "$comment": "#FEED-239 (owner 2026-11-13, ONE chat shell ×4): THE session screen MENU `sessionScreenMenu({kind, phone, member, settings, publish, export, delete})` (every mirror replays `menuCases`, comparing the whole list) is the ONLY `…` of every kind (the chat menu, the agent menu and the app menu are this one): groups in order, a `separator` between non-empty groups: [`publish` = an app on a phone while it may publish (the wide header keeps its button)] · [`compact`, `newConversation` = every kind but a chat, for a member; they SEND `menuSends` (one path with the typed lines)] · [`settings` = a kind with `settings` when the viewer may open them (an agent: team owners; the Assistant: its owner; an app: every member, read-only unless they manage it)] · [`export` = an app with a version, `delete` = a chat its starter or an owner may delete, an app its creator or an owner may manage]. Labels `copy.menu` (settings and delete by kind); icons: compact `coding-compact`, newConversation `ui-clean`, settings `nav-settings`, export `ui-share`, delete `ui-delete` (destructive). The header has NO gear (`testIds.gear` is gone). A sidebar row's `…` (an agent or the Assistant) is this menu too (kind agent/assistant, phone false). #EXP-1785: the HEADER's trailing slot starts with THE waiting chips again (wide: one StripChip per waiting plan/question of the tree; phones: ONE button + count opening THE Menu), waiting-cards.json owns them. #EXP-1732 (EDE-63, owner 2026-11-07; drafts c13140f9 session, ff3f91ca agent, de58c149 app) THE SESSION SCREEN ×4: ONE screen for a chat (a root session), a team agent's conversation, the Assistant's and an app's editor session (an app IS its agent's session); the list and the sidebar entry stay `Chats` (chats.json). AMENDS session-chat.json (the strip: `+`, Conversation, issue/session chips, the group tab, the plan tab, the pinned Results tab are GONE ×4; the chip strip is deleted, not hidden), chats.json `agentChat.tabs/planTabs/pageCases` (an agent's chat gets the same tabs) and apps.json THE EDITOR's `editorTabs` (wide/phone/menu tab sets: the app gets this screen's tabs; Versions is a tab, Settings is a `…` entry). HEADER (every width, every kind): the lead avatar (a chat: THE ChatHeaderTitle lead disc; an agent: its disc, the Assistant: THE brand mark; an app: its BoardGlyph + the version pill), the title (one truncated line) over ONE subtitle line `subtitle({status, device, trigger})` = the non-blank parts joined by `copy.separator` (status = the session's state word, device = its device's name, trigger = an agent's first enabled trigger's `triggerSummary`, else null); then the trailing slot: the merge status pill (merge-train.json, while `guidePullRequest`), an app's Publish (apps.json), the `…` (THE session screen menu, `sessionScreenMenu`, testId `testIds.menu`; #FEED-239: there is NO gear any more ×4). #EXP-1762 (Danny, ONE header line): on WIDE (web ≥ md, the IDE) the tabs sit ON the header row, after the title/subtitle block and before the trailing slot; on PHONES (web-mobile too) under the header row: ONE SegmentedControl (THE existing one ×4 + Exponential UI, no new component), testId `testIds.tabs`, its options = `tabs` in order, each the label `copy.tabs[id]` followed by its `count` as a muted number when not null; on a phone it scrolls sideways when it overflows (never icon-only, never wrapping). TABS BY KIND (`kinds`): a chat, an agent and the Assistant = chat · issues · sessions · results; an app = chat · preview · data · versions (#FEED-239: an app has no Sessions or Results tab; a requested one falls back to the default). COUNTS (`count`, issues/sessions/results only; 0 = null): issues = every issue of the tree (session-chat.json's union, nested ones included), sessions = every session UNDER the root (its children and theirs; #EXP-1731's subagent children included; the root itself never), results = results-tab.json's results of the tree. SETTINGS (`settings`): agent, assistant and app; never a chat. The `…`'s settings entry (`copy.menu.settings[kind]`, concept `nav-settings`) opens the kind's SETTINGS as an opened item (`open: settings`), the same pane on every path (#FEED-239: never a navigation to the Settings screen; a sidebar row's `…` › settings opens that chat with `open: settings`): an agent = THE agent settings page body (agent-settings.json: prompt, triggers, defaults; the Assistant's = settings/assistant), an app = the app's settings page (apps.json Settings; Export and Delete are NOT on it, they are `…` entries). BODIES: chat = the ROOT's OWN SESSION VIEW for EVERY kind (owner 2026-11-08): its raw work (THE ONE transcript of #EXP-1736 transcript-grouping.json: MessageBubble + avatar + name, the tool/thought/subagent `trace` rows under the agent's bubble) with its own message cards inline, THE Dock and THE composer (the view NEW-46 showed on a single-session chat, now always; the old dispatcher Conversation without the root's work is gone; no second message view anywhere); no session's work is visible nowhere: the root's = Chat, every descendant's = its Sessions row, a single-session chat's Sessions tab is empty (never a row for the root itself); plans and questions stay INLINE in it (and in Needs you); a plan row opens the plan page (plan-page.json) as an opened item. issues = the tree's issues as THE issue rows (status glyph, mono identifier, title; nested ones indented under their parent), led by the `+` icon button (THE Menu: Link an issue > THE search list, New issue); a row opens that issue IN PLACE (`open: issue`, the embedded issue body of session-chat.json EXP-1316). sessions = THE tree rows of every session under the root (SessionRow small + TreeGuides, markState, subagents included as child rows); a row opens that session IN PLACE (`open: session`, the raw work + its composer). results = results-tab.json's body. preview / data / versions = apps.json's Preview, Data (app-records.json `dataTab`) and Versions bodies. An OPENED item (issue, session, plan, settings): WIDE = no back link (#FEED-239, owner 2026-11-13): the right pane (a tab's body or the opened item) leads with THE collapse button (`collapse` true; the existing ghost icon button, concept `ui-pane-collapse`, label `copy.collapse`, testId `testIds.collapse`, right-aligned in a slim row) that closes the right pane = `?tab=chat` and no item (the chat full width; an app's strip then shows no selected segment); pressing ANY tab, the active one too, closes the opened item and shows that tab; PHONES = the pushed page's `‹` header back to the tab it came from (settings and a plan: back to where they were opened). LAYOUT (`sessionScreen`, every mirror replays `cases` comparing the WHOLE value): WIDE (web ≥ `beside.breakpoint` px and the IDE) = the beside rule: whenever the active tab is not chat OR an item is opened, the body = TWO panes, the chat pane (`beside.chat` fr, min `beside.chatMinWidth` px, THE same chat body with its composer) : the tab pane (`beside.pane` fr, the active tab's body, or the opened item over it), a hairline between (`layout: beside`, testId `testIds.beside`); the Chat tab alone = the chat full width (`layout: chat`). NARROW (phones, web < breakpoint) = ONE pane: `chat`, the tab's body (`tab`) or the opened item (`item`, a pushed page over the tab). ACTIVE = the requested tab when it is one of the kind's tabs (legacy `?tab=` values map through `legacyTabs` first), else the kind's default: an app `preview` when wide (apps.json), else `chat`. OPEN (`open` in: issue | session | plan | settings, anything else = null): a requested `settings` (the retired app `?tab=settings`) opens settings when nothing else is open; settings only with `settings` (else null). ALGORITHM: k = `kinds[kind]` (unknown = session); tabs = k.tabs as {id, label, count}, minus `chat` when wide and not k.wideChatTab (#FEED-239: an app's chat is the pinned left pane on wide, so its strip is Preview · Data · Versions; phones keep Chat); req = `legacyTabs[requested]` ?? requested; active = req when in k.tabs, else (wide ? k.wideDefault : `chat`); layout = wide ? (active ≠ chat or open ? `beside` : `chat`) : (open ? `item` : active = chat ? `chat` : `tab`); collapse = layout = `beside`. Mirrors: TS src/session-screen.ts, desktop `domain::session_screen`, iOS ExpCore `SessionScreen.swift`, Android `domain/SessionScreen.kt`. STATUS WORD (owner 2026-11-09, one rule ×4, `sessionScreenStatus`, every mirror replays `statusCases`): the subtitle's `status` = THE TREE's word, lowercase `copy.status`: `needsInput` while any non-ended session of the tree needs input, else `working` while any non-ended one is busy, else `queued` while the root is queued, else `done` once the root ended, else `idle` (an empty tree = `idle`); it is never dropped. An app's subtitle = this word · apps.json `editorHeader`'s DEVICE part (the device's name, else `copy.noDeviceOnline`) and that function's TONE; a chat's and an agent's device = the root's device name. ACTIVE FOLLOWS THE OPENED ITEM: `open` session = the `sessions` tab active, `open` issue = `issues`, when the kind has that tab (a plan and settings keep the active tab). TAB SIZING ×4: every segment is sized to its label (+ count), never stretched to equal widths and never squeezed; the strip scrolls sideways when it overflows. APP LEAD ×4: the app's BoardGlyph sits IN the lead disc (the chat header's `disc` on the muted fill), never bare, the version pill right after the name. PHONE ITEM ×4 (web-mobile too): an opened item is a pushed page: its own header (‹ back + the item's title) replaces the screen header AND the tabs. TONE ×4: the subtitle wears editorHeader's tones: `attention` (the needs-input amber) while the word is needsInput (an app also while its device part is `copy.noDeviceOnline`), `active` while working or queued, else `muted`.",
   "copy": {
     "tabs": {
       "chat": "Chat",
@@ -11,7 +11,6 @@
       "versions": "Versions"
     },
     "settings": "Settings",
-    "back": "Back",
     "separator": " · ",
     "linkIssue": "Link or file an issue",
     "status": {
@@ -20,15 +19,33 @@
       "queued": "queued",
       "done": "done",
       "idle": "idle"
+    },
+    "back": "Back",
+    "collapse": "Collapse",
+    "menu": {
+      "publish": "Publish",
+      "compact": "Compact conversation",
+      "newConversation": "New conversation",
+      "settings": {
+        "agent": "Agent settings",
+        "assistant": "Agent settings",
+        "app": "App settings"
+      },
+      "export": "Export",
+      "delete": {
+        "session": "Delete",
+        "app": "Delete app"
+      }
     }
   },
   "testIds": {
     "tabs": "session-tabs",
-    "gear": "session-gear",
     "beside": "session-beside",
     "pane": "session-pane",
     "issues": "session-issues",
-    "sessions": "session-sessions"
+    "sessions": "session-sessions",
+    "collapse": "session-collapse",
+    "menu": "session-menu"
   },
   "kinds": {
     "session": {
@@ -38,7 +55,8 @@
         "sessions",
         "results"
       ],
-      "gear": false,
+      "settings": false,
+      "wideChatTab": true,
       "wideDefault": "chat"
     },
     "agent": {
@@ -48,7 +66,8 @@
         "sessions",
         "results"
       ],
-      "gear": true,
+      "settings": true,
+      "wideChatTab": true,
       "wideDefault": "chat"
     },
     "assistant": {
@@ -58,7 +77,8 @@
         "sessions",
         "results"
       ],
-      "gear": true,
+      "settings": true,
+      "wideChatTab": true,
       "wideDefault": "chat"
     },
     "app": {
@@ -66,11 +86,10 @@
         "chat",
         "preview",
         "data",
-        "versions",
-        "sessions",
-        "results"
+        "versions"
       ],
-      "gear": true,
+      "settings": true,
+      "wideChatTab": false,
       "wideDefault": "preview"
     }
   },
@@ -216,9 +235,10 @@
           }
         ],
         "active": "chat",
-        "gear": false,
+        "settings": false,
         "open": null,
-        "layout": "chat"
+        "layout": "chat",
+        "collapse": false
       }
     },
     {
@@ -258,9 +278,10 @@
           }
         ],
         "active": "results",
-        "gear": false,
+        "settings": false,
         "open": null,
-        "layout": "beside"
+        "layout": "beside",
+        "collapse": true
       }
     },
     {
@@ -300,9 +321,10 @@
           }
         ],
         "active": "chat",
-        "gear": false,
+        "settings": false,
         "open": null,
-        "layout": "chat"
+        "layout": "chat",
+        "collapse": false
       }
     },
     {
@@ -342,9 +364,10 @@
           }
         ],
         "active": "sessions",
-        "gear": false,
+        "settings": false,
         "open": null,
-        "layout": "beside"
+        "layout": "beside",
+        "collapse": true
       }
     },
     {
@@ -384,9 +407,10 @@
           }
         ],
         "active": "issues",
-        "gear": false,
+        "settings": false,
         "open": null,
-        "layout": "tab"
+        "layout": "tab",
+        "collapse": false
       }
     },
     {
@@ -426,9 +450,10 @@
           }
         ],
         "active": "sessions",
-        "gear": false,
+        "settings": false,
         "open": "session",
-        "layout": "item"
+        "layout": "item",
+        "collapse": false
       }
     },
     {
@@ -468,9 +493,10 @@
           }
         ],
         "active": "chat",
-        "gear": false,
+        "settings": false,
         "open": "plan",
-        "layout": "beside"
+        "layout": "beside",
+        "collapse": true
       }
     },
     {
@@ -510,13 +536,14 @@
           }
         ],
         "active": "sessions",
-        "gear": false,
+        "settings": false,
         "open": null,
-        "layout": "beside"
+        "layout": "beside",
+        "collapse": true
       }
     },
     {
-      "name": "a chat has no gear: settings never opens",
+      "name": "a chat has no settings: settings never opens",
       "input": {
         "kind": "session",
         "wide": true,
@@ -552,13 +579,14 @@
           }
         ],
         "active": "chat",
-        "gear": false,
+        "settings": false,
         "open": null,
-        "layout": "chat"
+        "layout": "chat",
+        "collapse": false
       }
     },
     {
-      "name": "an agent: the same tabs and the gear",
+      "name": "an agent: the same tabs and settings",
       "input": {
         "kind": "agent",
         "wide": true,
@@ -594,13 +622,14 @@
           }
         ],
         "active": "chat",
-        "gear": true,
+        "settings": true,
         "open": null,
-        "layout": "chat"
+        "layout": "chat",
+        "collapse": false
       }
     },
     {
-      "name": "the Assistant's gear opens its settings beside the chat",
+      "name": "the Assistant's settings open beside the chat",
       "input": {
         "kind": "assistant",
         "wide": true,
@@ -636,9 +665,10 @@
           }
         ],
         "active": "chat",
-        "gear": true,
+        "settings": true,
         "open": "settings",
-        "layout": "beside"
+        "layout": "beside",
+        "collapse": true
       }
     },
     {
@@ -678,9 +708,10 @@
           }
         ],
         "active": "chat",
-        "gear": true,
+        "settings": true,
         "open": "settings",
-        "layout": "item"
+        "layout": "item",
+        "collapse": false
       }
     },
     {
@@ -699,11 +730,6 @@
       "expected": {
         "tabs": [
           {
-            "id": "chat",
-            "label": "Chat",
-            "count": null
-          },
-          {
             "id": "preview",
             "label": "Preview",
             "count": null
@@ -717,22 +743,13 @@
             "id": "versions",
             "label": "Versions",
             "count": null
-          },
-          {
-            "id": "sessions",
-            "label": "Sessions",
-            "count": 1
-          },
-          {
-            "id": "results",
-            "label": "Results",
-            "count": null
           }
         ],
         "active": "preview",
-        "gear": true,
+        "settings": true,
         "open": null,
-        "layout": "beside"
+        "layout": "beside",
+        "collapse": true
       }
     },
     {
@@ -769,22 +786,13 @@
             "id": "versions",
             "label": "Versions",
             "count": null
-          },
-          {
-            "id": "sessions",
-            "label": "Sessions",
-            "count": null
-          },
-          {
-            "id": "results",
-            "label": "Results",
-            "count": 2
           }
         ],
         "active": "chat",
-        "gear": true,
+        "settings": true,
         "open": null,
-        "layout": "chat"
+        "layout": "chat",
+        "collapse": false
       }
     },
     {
@@ -821,22 +829,13 @@
             "id": "versions",
             "label": "Versions",
             "count": null
-          },
-          {
-            "id": "sessions",
-            "label": "Sessions",
-            "count": null
-          },
-          {
-            "id": "results",
-            "label": "Results",
-            "count": null
           }
         ],
         "active": "versions",
-        "gear": true,
+        "settings": true,
         "open": null,
-        "layout": "tab"
+        "layout": "tab",
+        "collapse": false
       }
     },
     {
@@ -855,11 +854,6 @@
       "expected": {
         "tabs": [
           {
-            "id": "chat",
-            "label": "Chat",
-            "count": null
-          },
-          {
             "id": "preview",
             "label": "Preview",
             "count": null
@@ -873,26 +867,17 @@
             "id": "versions",
             "label": "Versions",
             "count": null
-          },
-          {
-            "id": "sessions",
-            "label": "Sessions",
-            "count": null
-          },
-          {
-            "id": "results",
-            "label": "Results",
-            "count": null
           }
         ],
         "active": "preview",
-        "gear": true,
+        "settings": true,
         "open": null,
-        "layout": "beside"
+        "layout": "beside",
+        "collapse": true
       }
     },
     {
-      "name": "the retired app ?tab=settings opens the gear's settings",
+      "name": "the retired app ?tab=settings opens the app's settings",
       "input": {
         "kind": "app",
         "wide": true,
@@ -907,11 +892,6 @@
       "expected": {
         "tabs": [
           {
-            "id": "chat",
-            "label": "Chat",
-            "count": null
-          },
-          {
             "id": "preview",
             "label": "Preview",
             "count": null
@@ -925,22 +905,13 @@
             "id": "versions",
             "label": "Versions",
             "count": null
-          },
-          {
-            "id": "sessions",
-            "label": "Sessions",
-            "count": null
-          },
-          {
-            "id": "results",
-            "label": "Results",
-            "count": null
           }
         ],
         "active": "preview",
-        "gear": true,
+        "settings": true,
         "open": "settings",
-        "layout": "beside"
+        "layout": "beside",
+        "collapse": true
       }
     },
     {
@@ -980,9 +951,10 @@
           }
         ],
         "active": "chat",
-        "gear": false,
+        "settings": false,
         "open": null,
-        "layout": "chat"
+        "layout": "chat",
+        "collapse": false
       }
     },
     {
@@ -1022,9 +994,10 @@
           }
         ],
         "active": "sessions",
-        "gear": false,
+        "settings": false,
         "open": "session",
-        "layout": "beside"
+        "layout": "beside",
+        "collapse": true
       }
     },
     {
@@ -1064,9 +1037,10 @@
           }
         ],
         "active": "issues",
-        "gear": true,
+        "settings": true,
         "open": "issue",
-        "layout": "item"
+        "layout": "item",
+        "collapse": false
       }
     },
     {
@@ -1085,10 +1059,43 @@
       "expected": {
         "tabs": [
           {
-            "id": "chat",
-            "label": "Chat",
+            "id": "preview",
+            "label": "Preview",
             "count": null
           },
+          {
+            "id": "data",
+            "label": "Data",
+            "count": null
+          },
+          {
+            "id": "versions",
+            "label": "Versions",
+            "count": null
+          }
+        ],
+        "active": "preview",
+        "settings": true,
+        "open": "issue",
+        "layout": "beside",
+        "collapse": true
+      }
+    },
+    {
+      "name": "wide: an app's tabs have no Chat (the chat is the pinned left pane)",
+      "input": {
+        "kind": "app",
+        "wide": true,
+        "requested": "versions",
+        "open": null,
+        "counts": {
+          "issues": 0,
+          "sessions": 3,
+          "results": 2
+        }
+      },
+      "expected": {
+        "tabs": [
           {
             "id": "preview",
             "label": "Preview",
@@ -1103,22 +1110,127 @@
             "id": "versions",
             "label": "Versions",
             "count": null
-          },
+          }
+        ],
+        "active": "versions",
+        "settings": true,
+        "open": null,
+        "layout": "beside",
+        "collapse": true
+      }
+    },
+    {
+      "name": "wide: an app collapsed (?tab=chat) is the chat full width, no tab selected",
+      "input": {
+        "kind": "app",
+        "wide": true,
+        "requested": "chat",
+        "open": null,
+        "counts": {
+          "issues": 0,
+          "sessions": 0,
+          "results": 0
+        }
+      },
+      "expected": {
+        "tabs": [
           {
-            "id": "sessions",
-            "label": "Sessions",
+            "id": "preview",
+            "label": "Preview",
             "count": null
           },
           {
-            "id": "results",
-            "label": "Results",
+            "id": "data",
+            "label": "Data",
+            "count": null
+          },
+          {
+            "id": "versions",
+            "label": "Versions",
+            "count": null
+          }
+        ],
+        "active": "chat",
+        "settings": true,
+        "open": null,
+        "layout": "chat",
+        "collapse": false
+      }
+    },
+    {
+      "name": "an app's retired Sessions and Results tabs fall back to the default",
+      "input": {
+        "kind": "app",
+        "wide": true,
+        "requested": "results",
+        "open": null,
+        "counts": {
+          "issues": 0,
+          "sessions": 0,
+          "results": 0
+        }
+      },
+      "expected": {
+        "tabs": [
+          {
+            "id": "preview",
+            "label": "Preview",
+            "count": null
+          },
+          {
+            "id": "data",
+            "label": "Data",
+            "count": null
+          },
+          {
+            "id": "versions",
+            "label": "Versions",
             "count": null
           }
         ],
         "active": "preview",
-        "gear": true,
-        "open": "issue",
-        "layout": "beside"
+        "settings": true,
+        "open": null,
+        "layout": "beside",
+        "collapse": true
+      }
+    },
+    {
+      "name": "wide: an app's settings over a collapsed screen sit beside the chat",
+      "input": {
+        "kind": "app",
+        "wide": true,
+        "requested": "chat",
+        "open": "settings",
+        "counts": {
+          "issues": 0,
+          "sessions": 0,
+          "results": 0
+        }
+      },
+      "expected": {
+        "tabs": [
+          {
+            "id": "preview",
+            "label": "Preview",
+            "count": null
+          },
+          {
+            "id": "data",
+            "label": "Data",
+            "count": null
+          },
+          {
+            "id": "versions",
+            "label": "Versions",
+            "count": null
+          }
+        ],
+        "active": "chat",
+        "settings": true,
+        "open": "settings",
+        "layout": "beside",
+        "collapse": true
       }
     }
   ],
@@ -1236,5 +1348,183 @@
       ],
       "expected": "working"
     }
-  ]
+  ],
+  "menuSends": {
+    "compact": "/compact",
+    "newConversation": "/new"
+  },
+  "menuCases": [
+    {
+      "name": "a chat: Delete for who may delete",
+      "input": {
+        "kind": "session",
+        "phone": false,
+        "member": true,
+        "settings": false,
+        "publish": false,
+        "export": false,
+        "delete": true
+      },
+      "expected": [
+        "delete"
+      ]
+    },
+    {
+      "name": "a chat nobody may delete: no menu",
+      "input": {
+        "kind": "session",
+        "phone": false,
+        "member": true,
+        "settings": false,
+        "publish": false,
+        "export": false,
+        "delete": false
+      },
+      "expected": []
+    },
+    {
+      "name": "an agent, a member: the conversation pair",
+      "input": {
+        "kind": "agent",
+        "phone": false,
+        "member": true,
+        "settings": false,
+        "publish": false,
+        "export": false,
+        "delete": false
+      },
+      "expected": [
+        "compact",
+        "newConversation"
+      ]
+    },
+    {
+      "name": "an agent, an owner: the pair, then Agent settings",
+      "input": {
+        "kind": "agent",
+        "phone": false,
+        "member": true,
+        "settings": true,
+        "publish": false,
+        "export": false,
+        "delete": false
+      },
+      "expected": [
+        "compact",
+        "newConversation",
+        "separator",
+        "settings"
+      ]
+    },
+    {
+      "name": "the Assistant: its owner's settings",
+      "input": {
+        "kind": "assistant",
+        "phone": false,
+        "member": true,
+        "settings": true,
+        "publish": false,
+        "export": false,
+        "delete": false
+      },
+      "expected": [
+        "compact",
+        "newConversation",
+        "separator",
+        "settings"
+      ]
+    },
+    {
+      "name": "an app, wide: the pair, App settings, Export and Delete",
+      "input": {
+        "kind": "app",
+        "phone": false,
+        "member": true,
+        "settings": true,
+        "publish": true,
+        "export": true,
+        "delete": true
+      },
+      "expected": [
+        "compact",
+        "newConversation",
+        "separator",
+        "settings",
+        "separator",
+        "export",
+        "delete"
+      ]
+    },
+    {
+      "name": "an app on a phone: Publish leads",
+      "input": {
+        "kind": "app",
+        "phone": true,
+        "member": true,
+        "settings": true,
+        "publish": true,
+        "export": true,
+        "delete": true
+      },
+      "expected": [
+        "publish",
+        "separator",
+        "compact",
+        "newConversation",
+        "separator",
+        "settings",
+        "separator",
+        "export",
+        "delete"
+      ]
+    },
+    {
+      "name": "an unpublished draft: no Export, Delete for its creator",
+      "input": {
+        "kind": "app",
+        "phone": true,
+        "member": true,
+        "settings": true,
+        "publish": false,
+        "export": false,
+        "delete": true
+      },
+      "expected": [
+        "compact",
+        "newConversation",
+        "separator",
+        "settings",
+        "separator",
+        "delete"
+      ]
+    },
+    {
+      "name": "an app a member may not manage: the pair and its settings (read)",
+      "input": {
+        "kind": "app",
+        "phone": false,
+        "member": true,
+        "settings": true,
+        "publish": false,
+        "export": true,
+        "delete": false
+      },
+      "expected": [
+        "compact",
+        "newConversation",
+        "separator",
+        "settings",
+        "separator",
+        "export"
+      ]
+    }
+  ],
+  "menuIcons": {
+    "publish": "ui-submit",
+    "compact": "coding-compact",
+    "newConversation": "ui-clean",
+    "settings": "nav-settings",
+    "export": "ui-share",
+    "delete": "ui-delete"
+  }
 }
