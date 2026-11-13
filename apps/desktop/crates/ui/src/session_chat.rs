@@ -1206,7 +1206,12 @@ fn delivery_mark(
     if let Some(menu) = menu.filter(|menu| !menu.actions.is_empty()) {
         let muted = cx.theme().muted_foreground;
         out.push(
+            // Out of the flow, left of the bubble (web's hover `…`): the
+            // hidden button takes no room, so the time and mark stay flush.
             div()
+                .absolute()
+                .left(px(-44.))
+                .top(px(-2.))
                 .invisible()
                 .group_hover(group.clone(), |style| style.visible())
                 .debug_selector(|| TEST_ID_MENU.to_string())
@@ -1288,6 +1293,7 @@ pub(crate) fn message_bubble(bubble: MessageBubble, cx: &App) -> AnyElement {
         .when(!time.is_empty() || !marks.is_empty(), |card| {
             card.child(
                 h_flex()
+                    .relative()
                     .w_full()
                     .justify_end()
                     .items_center()
