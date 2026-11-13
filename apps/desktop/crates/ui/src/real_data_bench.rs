@@ -490,3 +490,156 @@ fn real_chat_bench() {
     std::mem::forget(cx);
     std::mem::forget(dir);
 }
+
+/// #PERF-3: the rail's derive on a REAL store after one sessions write (a
+/// delta of the newest session), each part by its span; the total is the
+/// main thread's share per synced session row.
+///
+/// ```sh
+/// LOGS_REAL_DB=… LOGS_REAL_DATA=… LOGS_REAL_ACCOUNT=… LOGS_REAL_TEAM=… \
+/// cargo test -p ui --release --lib rail_derive_bench -- --ignored --nocapture
+/// ```
+#[test]
+#[ignore = "a release bench on a real store: run with --ignored --nocapture"]
+fn rail_derive_bench() {
+    let (Some(db), Some(data), Ok(account), Ok(team)) =
+        (std::env::var_os("LOGS_REAL_DB"), std::env::var_os("LOGS_REAL_DATA"), std::env::var("LOGS_REAL_ACCOUNT"), std::env::var("LOGS_REAL_TEAM"))
+    else {
+        eprintln!("[rail] LOGS_REAL_DB / _DATA / _ACCOUNT / _TEAM unset: skipped");
+        return;
+    };
+    let db = std::path::PathBuf::from(db);
+    let data = std::path::PathBuf::from(data);
+    let (spans, _spans) = crate::span_clock::SpanClock::install();
+    let mut cx = headless();
+    let (changes, rx) = flume::unbounded::<(String, Vec<String>)>();
+    cx.update(|cx| {
+        crate::init(cx);
+        cx.set_global(crate::AuthContext { auth: api::AuthStore::load(data.clone()), client: std::sync::Arc::new(api::AuthClient::new()), data_dir: data.clone() });
+        let store = sync::Store::open(cx, None, None);
+        cx.set_global(store);
+        sync::Store::global(cx).clone().connect_local(&account, &db, rx, cx).expect("the store hydrates");
+    });
+    wait_hydrated(&mut cx);
+    let derive = |cx: &mut HeadlessAppContext| {
+        cx.update(|cx| {
+            let started = Instant::now();
+            let _span = tracing::trace_span!("rail.bench").entered();
+            let needs = tracing::trace_span!("b.needs_you").in_scope(|| crate::needs_you::rows_in_team(&team, cx).rows.len());
+            // As the rail reads them since #FEED-232: the Chats count, the
+            // agents' unread replies (the Chats model) and every team's
+            // Needs you count (the team picker, the app icon).
+            let badge = tracing::trace_span!("b.chats_count").in_scope(|| crate::session_data::rail_chats_count(&team, cx).count);
+            let unread = tracing::trace_span!("b.agent_unread").in_scope(|| crate::session_data::agent_unread_counts(&team, cx).len());
+            let _ = tracing::trace_span!("b.counts_by_team").in_scope(|| crate::needs_you::counts_by_team(cx).len());
+            let live = tracing::trace_span!("b.live_roots").in_scope(|| crate::session_data::live_roots_for_rail(&team, cx).len());
+            let agents = tracing::trace_span!("b.agents").in_scope(|| crate::session_data::agents_in_team(&team, cx).len());
+            (started.elapsed().as_secs_f64() * 1e3, (needs, badge, unread, live, agents))
+        })
+    };
+    let (cold, shape) = derive(&mut cx);
+    println!("[rail] cold derive {cold:.1} ms · {shape:?}");
+    let ids = recent_ids(&db, "sessions", "updated_at", 6);
+    let mut times = Vec::new();
+    spans.reset();
+    for n in 0..30 {
+        changes.send(("sessions".to_string(), vec![ids[n % ids.len()].clone()])).unwrap();
+        cx.run_until_parked();
+        times.push(derive(&mut cx).0);
+    }
+    println!("[rail] derive after one sessions write (a replayed row): {} · spans {}", Stats(times.clone()), spans.top(16));
+    // Writes that MOVE what the rail shows: a session's `busy` and
+    // `needs_input` flip in the store (its tree changes band, Needs you
+    // folds again), as a working team's rows do.
+    let sqlite = sync::store::ShapeStore::open(&db).expect("the copy");
+    let spec = sync::shapes::shape_by_name("sessions").expect("a shape");
+    // The team's idle sessions: a `busy` flip moves their tree's band and
+    // their share of Needs you.
+    let team_ids: Vec<String> = cx.update(|cx| {
+        let sessions = sync::Store::global(cx).collections().sessions.read(cx);
+        let mut ids: Vec<String> = sessions
+            .iter()
+            .filter(|row| row.team_id.as_deref() == Some(team.as_str()) && row.status.as_deref() == Some("idle"))
+            .map(|row| row.id.clone())
+            .collect();
+        ids.sort();
+        ids.truncate(6);
+        ids
+    });
+    assert!(!team_ids.is_empty(), "the team has idle sessions");
+    let mut moving = Vec::new();
+    spans.reset();
+    for n in 0..30 {
+        let ids = &team_ids;
+        let key = sync::protocol::RowKey::Single(ids[n % ids.len()].clone());
+        let mut row = sqlite.read_by_key(spec, &key).expect("a read").expect("the row");
+        let flip = |row: &mut serde_json::Map<String, serde_json::Value>, field: &str| {
+            let on = matches!(row.get(field), Some(serde_json::Value::Bool(true))) || row.get(field).and_then(|v| v.as_str()) == Some("true");
+            row.insert(field.into(), serde_json::Value::Bool(!on));
+        };
+        flip(&mut row, "busy");
+        sqlite.apply_batch(spec, &[sync::protocol::ShapeMessage::Update { key: key.clone(), value: row }], None).expect("the write");
+        changes.send(("sessions".to_string(), vec![ids[n % ids.len()].clone()])).unwrap();
+        cx.run_until_parked();
+        moving.push(derive(&mut cx).0);
+    }
+    println!("[rail] derive after one sessions write (a moving row): {} · spans {}", Stats(moving.clone()), spans.top(16));
+    // #PERF-10: every other write kind the rail reads, a real row of the
+    // team rewritten (a title, a stamp, a name) as a sync delta lands it.
+    let picks = cx.update(|cx| {
+        let c = sync::Store::global(cx).collections();
+        let in_team: std::collections::HashSet<String> =
+            c.sessions.read(cx).iter().filter(|row| row.team_id.as_deref() == Some(team.as_str())).map(|row| row.id.clone()).collect();
+        let mut links: Vec<String> = c.session_issues.read(cx).iter().filter(|link| in_team.contains(&link.session_id)).map(|link| link.id.clone()).collect();
+        let mut issues: Vec<String> = c.session_issues.read(cx).iter().filter(|link| in_team.contains(&link.session_id)).map(|link| link.issue_id.clone()).collect();
+        let mut reads: Vec<String> = c.session_reads.read(cx).iter().filter(|read| in_team.contains(&read.session_id)).map(|read| read.id.clone()).collect();
+        let mut agents: Vec<String> = c.agents.read(cx).iter().filter(|agent| agent.team_id.as_deref() == Some(team.as_str())).map(|agent| agent.id.clone()).collect();
+        for ids in [&mut links, &mut issues, &mut reads, &mut agents] {
+            ids.sort();
+            ids.dedup();
+            ids.truncate(6);
+        }
+        vec![
+            ("session_issues", links, "sort_order"),
+            ("issues", issues, "title"),
+            ("session_reads", reads, "read_at"),
+            ("agents", agents, "name"),
+            ("teams", vec![team.clone()], "name"),
+        ]
+    });
+    let mut kinds = vec![("sessions (replayed)".to_string(), times), ("sessions (moving)".to_string(), moving)];
+    for (shape, ids, field) in picks {
+        if ids.is_empty() {
+            println!("[rail] {shape}: no row of the team to write");
+            continue;
+        }
+        let spec = sync::shapes::shape_by_name(shape).expect("a shape");
+        let mut times = Vec::new();
+        spans.reset();
+        for n in 0..30 {
+            let id = ids[n % ids.len()].clone();
+            let key = sync::protocol::RowKey::Single(id.clone());
+            let Some(mut row) = sqlite.read_by_key(spec, &key).expect("a read") else { continue };
+            let value = match field {
+                "sort_order" => serde_json::json!(n as f64),
+                "read_at" => serde_json::json!(format!("2026-11-12T{:02}:00:00.000Z", n % 24)),
+                _ => serde_json::json!(format!("{} {n}", row.get(field).and_then(|v| v.as_str()).unwrap_or("Bench"))),
+            };
+            row.insert(field.into(), value);
+            sqlite.apply_batch(spec, &[sync::protocol::ShapeMessage::Update { key, value: row }], None).expect("the write");
+            changes.send((shape.to_string(), vec![id])).unwrap();
+            cx.run_until_parked();
+            times.push(derive(&mut cx).0);
+        }
+        println!("[rail] derive after one {shape} write: {} · spans {}", Stats(times.clone()), spans.top(10));
+        kinds.push((shape.to_string(), times));
+    }
+    // #PERF-3 / #PERF-10: well under a frame's budget per synced row.
+    for (what, mut times) in kinds {
+        times.sort_by(f64::total_cmp);
+        let p50 = percentile(&times, 0.5);
+        println!("[rail] p50 after a {what} write: {p50:.2} ms · p95 {:.2} ms", percentile(&times, 0.95));
+        assert!(p50 < 5., "the rail derive after a {what} write: p50 {p50:.2} ms (budget 5 ms)");
+    }
+    std::mem::forget(cx);
+}

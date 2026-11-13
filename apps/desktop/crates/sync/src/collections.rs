@@ -452,6 +452,13 @@ impl<T: ShapeRow> Collection<T> {
         self.note_write(&key);
     }
 
+    /// A delete as a synced batch lands it (tests of the readers that
+    /// follow [`Self::changed_since`]).
+    #[doc(hidden)]
+    pub fn remove_for_test(&mut self, key: &RowKey) {
+        self.remove(key);
+    }
+
     /// An old row's group entry, unless the row that replaced it under
     /// `key` sits in the same group.
     fn unindex_unless_same(&mut self, key: &RowKey, old: &T) {
