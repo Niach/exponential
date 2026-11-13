@@ -15,8 +15,8 @@ import org.junit.Test
 /**
  * #FEED-237: [MessageDelivery] replays `fixtures/message-delivery.json`
  * (TS `message-delivery.test.ts`, desktop `domain::message_delivery`, iOS
- * `MessageDelivery.swift`): every `stateCases`, `outboxCases` and
- * `actionCases` entry, plus the copy, marks and test ids.
+ * `MessageDelivery.swift`): every `stateCases`, `outboxCases`,
+ * `actionCases` and `handoffCases` entry, plus the copy, marks and test ids.
  */
 class MessageDeliveryTest {
 
@@ -47,6 +47,7 @@ class MessageDeliveryTest {
         }
         assertEquals(fixture.getValue("markSize").jsonPrimitive.long.toInt(), MessageDelivery.MARK_SIZE)
         assertEquals(fixture.getValue("matchWindowMs").jsonPrimitive.long, MessageDelivery.MATCH_WINDOW_MS)
+        assertEquals(fixture.getValue("handoffMaxMs").jsonPrimitive.long, MessageDelivery.HANDOFF_MAX_MS)
         val ids = fixture.getValue("testIds").jsonObject
         assertEquals(ids.str("status"), MessageDelivery.TestIds.STATUS)
         assertEquals(ids.str("menu"), MessageDelivery.TestIds.MENU)
@@ -122,6 +123,63 @@ class MessageDeliveryTest {
                 actual.map { it.wire },
             )
         }
+    }
+
+    @Test
+    fun `every handoff case matches the fixture`() {
+        val cases = fixture.getValue("handoffCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val input = case.getValue("input").jsonObject
+            val rows = input.getValue("rows").jsonArray.map { it.jsonObject }.map { r ->
+                MessageDelivery.Row(
+                    id = r.str("id")!!,
+                    authorKind = r.str("authorKind")!!,
+                    authorId = r.str("authorId"),
+                    body = r.str("body")!!,
+                    createdAt = r.str("createdAt")!!,
+                    consumedAt = r.str("consumedAt"),
+                    hasCard = r["card"]?.let { it !is JsonNull } == true,
+                )
+            }
+            val echoes = input.getValue("echoes").jsonArray.map { it.jsonObject }.map { e ->
+                MessageDelivery.Echo(
+                    text = e.str("text")!!,
+                    at = e["at"]?.takeUnless { it is JsonNull }?.jsonPrimitive?.long,
+                )
+            }
+            val actual = MessageDelivery.ownHandoff(
+                viewerId = input.str("viewerId"),
+                nowMs = WireTimestamps.parseEpochMs(input.str("now")!!)!!,
+                feedEmpty = input.getValue("feedEmpty").jsonPrimitive.boolean,
+                rows = rows,
+                echoes = echoes,
+            )
+            assertEquals(
+                case.str("name"),
+                case.getValue("expected").jsonArray.map { it.jsonPrimitive.content },
+                actual,
+            )
+        }
+    }
+
+    @Test
+    fun `a held row leads the tail reading read until its expiry`() {
+        val rows = listOf(
+            MessageDelivery.Row("m1", "user", "u1", "ship it", "2026-11-13T10:00:00.000Z", consumedAt = "2026-11-13T10:00:05.000Z"),
+            MessageDelivery.Row("m2", "user", "u1", "next", "2026-11-13T10:00:06.000Z"),
+        )
+        val now = WireTimestamps.parseEpochMs("2026-11-13T10:00:10.000Z")!!
+        val held = MessageDelivery.ownHandoff("u1", now, feedEmpty = false, rows = rows, echoes = emptyList())
+        assertEquals(listOf("m1"), held)
+        val tail = MessageDelivery.tail("u1", emptyList(), rows, held)
+        assertEquals(listOf("own-row-m1", "own-row-m2"), tail.bubbles.map { it.key })
+        assertEquals(MessageDelivery.State.Read, tail.bubbles.first().state)
+        assertEquals(
+            WireTimestamps.parseEpochMs("2026-11-13T10:00:05.000Z")!! + MessageDelivery.HANDOFF_MAX_MS,
+            MessageDelivery.handoffExpiry(held, rows),
+        )
+        assertEquals(null, MessageDelivery.handoffExpiry(emptyList(), rows))
     }
 
     @Test

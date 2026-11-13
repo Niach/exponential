@@ -97,6 +97,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 
@@ -990,9 +991,14 @@ class AgentSessionViewModel @AssistedInject constructor(
 
     /**
      * #FEED-237 (message-delivery.json): the viewer's OWN bubbles at the
-     * transcript's bottom: their synced rows the device has not consumed
-     * (oldest first), then the kept outbox entries, each with its delivery
-     * state. An entry whose synced row arrived drops (`outboxMerge`).
+     * transcript's bottom: the consumed rows whose echo has not reached the
+     * transcript yet (HANDOFF, reading `read`: no flicker between the row
+     * being consumed and its echo appearing), their synced rows the device
+     * has not consumed (oldest first), then the kept outbox entries, each
+     * with its delivery state. An entry whose synced row arrived drops
+     * (`outboxMerge`). Re-evaluated when the rows, the outbox or the
+     * transcript's echoes change, and once [MessageDelivery.HANDOFF_MAX_MS]
+     * after the newest held row's consumedAt.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     val ownTail: StateFlow<List<com.exponential.app.domain.MessageDelivery.Bubble>> = combine(
@@ -1005,10 +1011,18 @@ class AgentSessionViewModel @AssistedInject constructor(
         },
         dbFlow.scopedQuery(emptyList<com.exponential.app.data.db.OutboxEntity>()) { it.outboxDao().observeBySession(codingSessionId) },
         auth.userId,
-    ) { rows, entries, me ->
-        val tail = com.exponential.app.domain.MessageDelivery.tail(
-            viewerId = me,
-            outbox = entries.mapNotNull { e ->
+        // HANDOFF's echoes: the transcript's person rows of the main lane.
+        activity.map { state ->
+            state.feed.isEmpty() to state.feed.mapNotNull { item ->
+                (item as? com.exponential.app.domain.AgentFeedItem.UserMessage)
+                    ?.takeIf { it.subagentId == null }
+                    ?.let { com.exponential.app.domain.MessageDelivery.Echo(it.text, it.at) }
+            }
+        }.distinctUntilChanged(),
+    ) { rows, entries, me, (feedEmpty, echoes) ->
+        OwnTailInputs(
+            me = me,
+            entries = entries.mapNotNull { e ->
                 val state = com.exponential.app.domain.MessageDelivery.Local.of(e.state) ?: return@mapNotNull null
                 com.exponential.app.domain.MessageDelivery.Entry(e.clientId, e.text, e.createdAt, state, e.messageId)
             },
@@ -1023,15 +1037,35 @@ class AgentSessionViewModel @AssistedInject constructor(
                     createdAt = row.createdAt,
                     deliveredAt = row.deliveredAt,
                     consumedAt = row.consumedAt,
+                    hasCard = row.card != null && row.card != "null",
                 )
             },
+            feedEmpty = feedEmpty,
+            echoes = echoes,
         )
-        val account = auth.activeAccountId.value
-        if (account != null && tail.drop.isNotEmpty()) outbox.drop(account, tail.drop)
-        tail.bubbles
+    }.transformLatest { input ->
+        while (true) {
+            val now = System.currentTimeMillis()
+            val held = com.exponential.app.domain.MessageDelivery.ownHandoff(input.me, now, input.feedEmpty, input.rows, input.echoes)
+            val tail = com.exponential.app.domain.MessageDelivery.tail(input.me, input.entries, input.rows, held)
+            val account = auth.activeAccountId.value
+            if (account != null && tail.drop.isNotEmpty()) outbox.drop(account, tail.drop)
+            emit(tail.bubbles)
+            // Once the newest held row's hold runs out, evaluate again.
+            val expiry = com.exponential.app.domain.MessageDelivery.handoffExpiry(held, input.rows) ?: break
+            kotlinx.coroutines.delay(maxOf(1L, expiry - now + 1))
+        }
     }.distinctUntilChanged()
         .flowOn(kotlinx.coroutines.Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private data class OwnTailInputs(
+        val me: String?,
+        val entries: List<com.exponential.app.domain.MessageDelivery.Entry>,
+        val rows: List<com.exponential.app.domain.MessageDelivery.Row>,
+        val feedEmpty: Boolean,
+        val echoes: List<com.exponential.app.domain.MessageDelivery.Echo>,
+    )
 
     /** #FEED-237: a bubble's menu action (message-delivery.json `actionCases`). */
     fun ownBubbleAction(bubble: com.exponential.app.domain.MessageDelivery.Bubble, action: com.exponential.app.domain.MessageDelivery.Action) {

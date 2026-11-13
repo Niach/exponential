@@ -5,8 +5,8 @@ package com.exponential.app.domain
 // clock, one check, two checks, the red mark) and its menu. Hand-ported
 // from `packages/domain-contract/src/message-delivery.ts`, locked to
 // `fixtures/message-delivery.json` (its `$comment` holds the rules) by
-// MessageDeliveryTest, which replays `stateCases`, `outboxCases` and
-// `actionCases`.
+// MessageDeliveryTest, which replays `stateCases`, `outboxCases`,
+// `actionCases` and `handoffCases`.
 
 object MessageDelivery {
     object Copy {
@@ -34,6 +34,11 @@ object MessageDelivery {
 
     const val MARK_SIZE = 14
     const val MATCH_WINDOW_MS = 60_000L
+
+    /** HANDOFF: how long a consumed own row may hold its bubble waiting for
+     *  the transcript's echo (a device that never echoes cannot hold it
+     *  forever). */
+    const val HANDOFF_MAX_MS = 60_000L
 
     enum class Tone(val wire: String) { Muted("muted"), Info("info"), Danger("danger") }
 
@@ -101,7 +106,13 @@ object MessageDelivery {
         val createdAt: String,
         val deliveredAt: String? = null,
         val consumedAt: String? = null,
+        /** The row carries a card (a question, a plan): never an own bubble. */
+        val hasCard: Boolean = false,
     )
+
+    /** HANDOFF: one of the transcript's person rows of the main lane, in
+     *  transcript order; [at] = epoch ms (null when the feed carries none). */
+    data class Echo(val text: String, val at: Long?)
 
     /** One of the viewer's own bubbles at the transcript's bottom: a synced
      *  row the device has not consumed ([messageId]) or a kept outbox entry
@@ -122,9 +133,24 @@ object MessageDelivery {
      *  kept entries); [drop] = the entries their rows replaced. */
     data class Tail(val bubbles: List<Bubble>, val drop: List<String>)
 
-    /** The viewer's own tail of a session ([rows] = their synced rows). */
-    fun tail(viewerId: String?, outbox: List<Entry>, rows: List<Row>): Tail {
+    /** The viewer's own tail of a session ([rows] = their synced rows).
+     *  [handoff] = [ownHandoff]'s ids: the consumed own rows whose echo has
+     *  not reached the transcript yet keep their bubble (reading `read`),
+     *  first, oldest first, under the same key as before they were consumed. */
+    fun tail(viewerId: String?, outbox: List<Entry>, rows: List<Row>, handoff: List<String> = emptyList()): Tail {
         val merge = outboxMerge(viewerId, outbox, rows)
+        val rowsById = rows.associateBy { it.id }
+        val held = handoff.mapNotNull(rowsById::get).map { row ->
+            Bubble(
+                key = "own-row-${row.id}",
+                text = row.body,
+                createdAt = row.createdAt,
+                state = deliveryState(null, stored = true, row.deliveredAt, row.consumedAt, echoed = false),
+                stored = true,
+                clientId = null,
+                messageId = row.id,
+            )
+        }
         val byClient = outbox.associateBy { it.clientId }
         val localByRow = outbox.mapNotNull { e -> e.messageId?.let { it to e.state } }.toMap()
         val pending = rows
@@ -154,7 +180,7 @@ object MessageDelivery {
                 messageId = entry.messageId,
             )
         }
-        return Tail(pending + kept, merge.drop)
+        return Tail(held + pending + kept, merge.drop)
     }
 
     data class Merge(val drop: List<String>, val keep: List<String>)
@@ -199,5 +225,41 @@ object MessageDelivery {
         State.Failed -> listOf(Action.Retry, Action.Delete)
         State.Read -> emptyList()
         else -> if (stored) listOf(Action.Cancel) else emptyList()
+    }
+
+    /**
+     * HANDOFF (`handoffCases`): the ids of the viewer's consumed own rows that
+     * still draw their own bubble, oldest first: a bubble never vanishes
+     * between its row being consumed and the transcript row that echoes it
+     * appearing. [feedEmpty] = the transcript has no feed (SENT INPUTS draws
+     * the consumed inputs, nothing is held).
+     */
+    fun ownHandoff(viewerId: String?, nowMs: Long, feedEmpty: Boolean, rows: List<Row>, echoes: List<Echo>): List<String> {
+        if (feedEmpty || viewerId == null) return emptyList()
+        val since = nowMs - HANDOFF_MAX_MS
+        val candidates = rows
+            .filter {
+                it.authorKind == DomainContract.messageAuthorKindUser && it.authorId == viewerId && !it.hasCard &&
+                    !it.consumedAt.isNullOrEmpty() && ms(it.consumedAt) >= since
+            }
+            .sortedWith(compareBy<Row>({ ms(it.createdAt) }, { it.id }))
+        val taken = BooleanArray(echoes.size)
+        val kept = ArrayList<String>()
+        for (row in candidates) {
+            val body = row.body.trim()
+            val from = ms(row.createdAt) - MATCH_WINDOW_MS
+            val echo = echoes.indices.firstOrNull { i ->
+                !taken[i] && echoes[i].text.trim() == body && (echoes[i].at.let { it == null || it >= from })
+            }
+            if (echo != null) taken[echo] = true else kept += row.id
+        }
+        return kept
+    }
+
+    /** When [ownHandoff] must run again without any input changing: the
+     *  newest kept row's consumedAt + [HANDOFF_MAX_MS] (null = never). */
+    fun handoffExpiry(kept: List<String>, rows: List<Row>): Long? {
+        val ids = kept.toHashSet()
+        return rows.filter { it.id in ids }.mapNotNull { it.consumedAt?.let(::ms) }.maxOrNull()?.plus(HANDOFF_MAX_MS)
     }
 }

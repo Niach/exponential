@@ -178,6 +178,7 @@ import {
   useSessionOutbox,
   type WebOutboxEntry,
 } from "@/hooks/use-session-outbox"
+import { sessionOwnHandoff } from "@/lib/own-handoff"
 import {
   MESSAGE_DELIVERY_COPY,
   bubbleActions,
@@ -467,14 +468,60 @@ export function AgentSessionView({
   // steer-enet.json SENT INPUTS: the session's consumed person inputs (the
   // newest few, oldest first), drawn above a no-feed placeholder.
   const sentInputIds = useMemo(() => noFeedSentIds(sessionMessages), [sessionMessages])
+  // #FEED-237 (message-delivery.json HANDOFF): a consumed own row keeps its
+  // bubble (reading `read`) until the live transcript's echo of it arrives,
+  // so it never vanishes in between; re-evaluated when the rows or the feed
+  // change, and once `handoffMaxMs` after the newest held row's consumedAt.
+  const [handoffTick, setHandoffTick] = useState(0)
+  const handoffInput = useMemo(
+    () =>
+      sessionMessages.map((message) => {
+        const row = toTreeMessage(message)
+        return {
+          id: row.id,
+          authorKind: row.authorKind,
+          authorId: row.authorId ?? null,
+          body: row.body,
+          createdAt: row.createdAt,
+          consumedAt: row.consumedAt ?? null,
+          card: row.card,
+        }
+      }),
+    [sessionMessages]
+  )
+  const handoff = useMemo(
+    () => sessionOwnHandoff({ viewerId, now: Date.now(), feedEmpty: feed.length === 0, rows: handoffInput, feed }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the tick re-reads the clock
+    [viewerId, feed, handoffInput, handoffTick]
+  )
+  useEffect(() => {
+    if (handoff.expiresAt === null) return
+    const timer = window.setTimeout(() => setHandoffTick((tick) => tick + 1), Math.max(0, handoff.expiresAt - Date.now()) + 1)
+    return () => window.clearTimeout(timer)
+  }, [handoff.expiresAt])
+  const extraIds = useMemo(
+    () => (handoff.ids.size === 0 ? sentInputIds : new Set([...sentInputIds, ...handoff.ids])),
+    [sentInputIds, handoff.ids]
+  )
   const chatRows = useMemo(
-    () => chatExtraRows(session, sessionMessages, tree ?? NO_TREE, issues ?? NO_ISSUES, sentInputIds),
-    [session, sessionMessages, tree, issues, sentInputIds]
+    () => chatExtraRows(session, sessionMessages, tree ?? NO_TREE, issues ?? NO_ISSUES, extraIds),
+    [session, sessionMessages, tree, issues, extraIds]
   )
   const suggestionRows = useMemo(() => chatRows.filter((row) => row.type === `suggestions`), [chatRows])
+  // HANDOFF: the held rows sit after the transcript, before the not-consumed
+  // ones, oldest first; a message id draws once (never also as SENT INPUTS:
+  // nothing is held while the feed is empty).
+  const handoffRows = useMemo(
+    () =>
+      handoff.order.flatMap((id) => {
+        const row = chatRows.find((candidate) => candidate.id === id && (candidate.type === `message` || candidate.type === `locked`))
+        return row ? [row] : []
+      }),
+    [chatRows, handoff.order]
+  )
   const queuedRows = useMemo(
-    () => chatRows.filter((row) => row.type === `message` && !sentInputIds.has(row.id)),
-    [chatRows, sentInputIds]
+    () => chatRows.filter((row) => row.type === `message` && !sentInputIds.has(row.id) && !handoff.ids.has(row.id)),
+    [chatRows, sentInputIds, handoff.ids]
   )
   const sentRows = useMemo(() => chatRows.filter((row) => sentInputIds.has(row.id)), [chatRows, sentInputIds])
   // #EXP-1756: a queued bubble's `HH:mm`, off its synced row.
@@ -1046,10 +1093,10 @@ export function AgentSessionView({
   // Dock's) and the viewer's queued messages (a person's FIRST message
   // included) show under any empty-feed placeholder too, same column.
   const chatExtras =
-    suggestionRows.length + queuedRows.length + outbox.length > 0 ? (
+    suggestionRows.length + handoffRows.length + queuedRows.length + outbox.length > 0 ? (
       <div className={TRANSCRIPT_GAP_CLASS.gapBlock} data-testid="session-chat-extras">
         <ChatConversation
-          rows={[...suggestionRows, ...queuedRows]}
+          rows={[...suggestionRows, ...handoffRows, ...queuedRows]}
           renderText={renderChatText}
           attachmentSrc={attachmentUrl}
           chat={{ sessionId: session.id, title: sessionCardModel?.name ?? session.title ?? ``, agentId: session.agentId ?? null }}

@@ -14,6 +14,9 @@ use crate::instant::parse_instant;
 /// How far before an unacked entry's press its synced row may be stamped and
 /// still match it by text (`matchWindowMs`).
 pub const MATCH_WINDOW_MS: i64 = 60_000;
+/// How long after its row was consumed an own bubble waits for the
+/// transcript's echo before it stops holding (`handoffMaxMs`).
+pub const HANDOFF_MAX_MS: i64 = 60_000;
 /// The mark's size beside the bubble's `HH:mm` (`markSize`).
 pub const MARK_SIZE: f32 = 14.0;
 /// The mark's test id (`testIds.status`).
@@ -141,6 +144,42 @@ pub struct OutboxEntry {
     /// The row the server stored it as (None until the send answers).
     #[serde(default)]
     pub message_id: Option<String>,
+    /// FILES: the entry's picked files, uploaded before `sessions.send`,
+    /// each keeping its landed id as it lands (absent in older files).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<OutboxFile>,
+    /// The message as sent once every file landed (the prose, the image
+    /// embeds, the file lines): what its synced row's body reads.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+}
+
+/// FILES: one picked file of an outbox entry, persisted with it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OutboxFile {
+    /// The composer strip's key (the message's image / file order).
+    pub key: u64,
+    pub filename: String,
+    pub content_type: String,
+    /// Where its bytes wait on the device until it lands; empty = in
+    /// memory only (no data dir).
+    #[serde(default)]
+    pub path: String,
+    /// The attachment once it landed (never uploaded twice).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub uploaded_id: Option<String>,
+    /// The server's sanitized filename (a file line's text).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub uploaded_name: Option<String>,
+}
+
+impl OutboxEntry {
+    /// FILES: the uploads still to run, in strip order (a resumed entry
+    /// uploads only these, then sends).
+    pub fn remaining_files(&self) -> impl Iterator<Item = &OutboxFile> {
+        self.files.iter().filter(|file| file.uploaded_id.is_none())
+    }
 }
 
 /// The slice of a synced message row the merge reads.
@@ -251,6 +290,74 @@ pub fn bubble_actions(state: DeliveryState, stored: bool) -> Vec<BubbleAction> {
     }
 }
 
+/// The slice of a synced message row the HANDOFF reads.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HandoffRow {
+    pub id: String,
+    pub author_kind: String,
+    pub author_id: Option<String>,
+    pub body: String,
+    pub created_at: String,
+    pub consumed_at: Option<String>,
+    /// The row carries a card (never held).
+    pub has_card: bool,
+}
+
+/// A person row of the transcript's main lane.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HandoffEcho {
+    pub text: String,
+    /// Epoch ms; None when the feed carries none.
+    pub at: Option<i64>,
+}
+
+/// HANDOFF (`ownHandoff`): the consumed own rows whose transcript echo has
+/// not arrived yet (oldest first, ties by id); each keeps its bubble so it
+/// never vanishes in between. `now` = epoch ms.
+pub fn own_handoff(viewer_id: &str, now: i64, feed_empty: bool, rows: &[HandoffRow], echoes: &[HandoffEcho]) -> Vec<String> {
+    if feed_empty {
+        return Vec::new();
+    }
+    let since = now - HANDOFF_MAX_MS;
+    let mut candidates: Vec<&HandoffRow> = rows
+        .iter()
+        .filter(|row| {
+            row.author_kind == "user"
+                && row.author_id.as_deref() == Some(viewer_id)
+                && !row.has_card
+                && row.consumed_at.as_deref().and_then(parse_instant).is_some_and(|at| at >= since)
+        })
+        .collect();
+    candidates.sort_by(|a, b| millis(&a.created_at).cmp(&millis(&b.created_at)).then_with(|| a.id.cmp(&b.id)));
+    let mut taken: HashSet<usize> = HashSet::new();
+    let mut kept = Vec::new();
+    for row in candidates {
+        let body = row.body.trim();
+        let from = millis(&row.created_at) - MATCH_WINDOW_MS;
+        let echo = echoes
+            .iter()
+            .enumerate()
+            .position(|(index, echo)| !taken.contains(&index) && echo.text.trim() == body && echo.at.is_none_or(|at| at >= from));
+        match echo {
+            Some(index) => {
+                taken.insert(index);
+            }
+            None => kept.push(row.id.clone()),
+        }
+    }
+    kept
+}
+
+/// When the HANDOFF must be evaluated again on its own (the newest kept
+/// row's consumedAt + `handoffMaxMs`), epoch ms; None = nothing held.
+pub fn handoff_expiry(rows: &[HandoffRow], kept: &[String]) -> Option<i64> {
+    rows.iter()
+        .filter(|row| kept.contains(&row.id))
+        .filter_map(|row| row.consumed_at.as_deref().and_then(parse_instant))
+        .max()
+        .map(|at| at + HANDOFF_MAX_MS)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -346,10 +453,48 @@ mod tests {
         marks: BTreeMap<String, Mark>,
         mark_size: f32,
         match_window_ms: i64,
+        handoff_max_ms: i64,
         test_ids: TestIds,
         state_cases: Vec<StateCase>,
         outbox_cases: Vec<OutboxCase>,
         action_cases: Vec<ActionCase>,
+        handoff_cases: Vec<HandoffCase>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct HandoffRowJson {
+        id: String,
+        author_kind: String,
+        author_id: Option<String>,
+        body: String,
+        created_at: String,
+        consumed_at: Option<String>,
+        #[serde(default)]
+        card: Option<serde_json::Value>,
+    }
+
+    #[derive(Deserialize)]
+    struct HandoffEchoJson {
+        text: String,
+        at: Option<i64>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct HandoffInput {
+        viewer_id: String,
+        now: String,
+        feed_empty: bool,
+        rows: Vec<HandoffRowJson>,
+        echoes: Vec<HandoffEchoJson>,
+    }
+
+    #[derive(Deserialize)]
+    struct HandoffCase {
+        name: String,
+        input: HandoffInput,
+        expected: Vec<String>,
     }
 
     fn fixture() -> Fixture {
@@ -364,6 +509,7 @@ mod tests {
     fn constants_and_copy_match_the_fixture() {
         let fixture = fixture();
         assert_eq!(fixture.match_window_ms, MATCH_WINDOW_MS);
+        assert_eq!(fixture.handoff_max_ms, HANDOFF_MAX_MS);
         assert_eq!(fixture.mark_size, MARK_SIZE);
         assert_eq!(fixture.test_ids.status, TEST_ID_STATUS);
         assert_eq!(fixture.test_ids.menu, TEST_ID_MENU);
@@ -447,6 +593,36 @@ mod tests {
     }
 
     #[test]
+    fn replays_every_handoff_case() {
+        let cases = fixture().handoff_cases;
+        assert!(!cases.is_empty());
+        for case in cases {
+            let rows: Vec<HandoffRow> = case
+                .input
+                .rows
+                .into_iter()
+                .map(|row| HandoffRow {
+                    id: row.id,
+                    author_kind: row.author_kind,
+                    author_id: row.author_id,
+                    body: row.body,
+                    created_at: row.created_at,
+                    consumed_at: row.consumed_at,
+                    has_card: row.card.is_some_and(|card| !card.is_null()),
+                })
+                .collect();
+            let echoes: Vec<HandoffEcho> =
+                case.input.echoes.into_iter().map(|echo| HandoffEcho { text: echo.text, at: echo.at }).collect();
+            let now = parse_instant(&case.input.now).expect("now parses");
+            let kept = own_handoff(&case.input.viewer_id, now, case.input.feed_empty, &rows, &echoes);
+            assert_eq!(kept, case.expected, "{}", case.name);
+            if let Some(expiry) = handoff_expiry(&rows, &kept) {
+                assert!(own_handoff(&case.input.viewer_id, expiry + 1, false, &rows, &echoes).is_empty(), "{} (expiry)", case.name);
+            }
+        }
+    }
+
+    #[test]
     fn an_entry_round_trips_through_its_persisted_json() {
         let entry = OutboxEntry {
             client_id: "c1".into(),
@@ -454,9 +630,35 @@ mod tests {
             created_at: "2026-11-13T10:00:00.000Z".into(),
             state: LocalState::Sending,
             message_id: None,
+            files: Vec::new(),
+            body: None,
         };
         let json = serde_json::to_string(&entry).unwrap();
         assert!(json.contains("\"clientId\":\"c1\"") && json.contains("\"state\":\"sending\""));
+        assert!(!json.contains("files") && !json.contains("body"), "{json}");
         assert_eq!(serde_json::from_str::<OutboxEntry>(&json).unwrap(), entry);
+    }
+
+    /// FILES: an entry's files ride its JSON with their landed ids; an
+    /// older entry without them still reads; resume = the unlanded ones.
+    #[test]
+    fn an_entry_with_files_round_trips_and_resumes_the_rest() {
+        let old = r#"{"clientId":"c1","text":"a","createdAt":"2026-11-13T10:00:00.000Z","state":"sending","messageId":null}"#;
+        let parsed: OutboxEntry = serde_json::from_str(old).unwrap();
+        assert!(parsed.files.is_empty() && parsed.body.is_none());
+        let file = |key: u64, landed: Option<&str>| OutboxFile {
+            key,
+            filename: format!("f{key}.png"),
+            content_type: "image/png".into(),
+            path: format!("/data/outbox-files/c1/{key}-f{key}.png"),
+            uploaded_id: landed.map(str::to_string),
+            uploaded_name: landed.map(|_| format!("f{key}.png")),
+        };
+        let entry = OutboxEntry { files: vec![file(0, Some("a1")), file(1, None)], ..parsed };
+        let json = serde_json::to_string(&entry).unwrap();
+        let back: OutboxEntry = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, entry);
+        let rest: Vec<u64> = back.remaining_files().map(|file| file.key).collect();
+        assert_eq!(rest, vec![1]);
     }
 }

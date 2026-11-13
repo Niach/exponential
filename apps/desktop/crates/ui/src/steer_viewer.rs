@@ -725,7 +725,12 @@ pub(crate) struct SteerSessionView {
     /// then the outbox's kept entries, synthetic rows after the trailing
     /// cards and before the working row; and the inputs they were read at.
     own_tail: Vec<crate::session_outbox::OwnBubble>,
-    own_tail_key: Option<(usize, u64, Option<String>)>,
+    /// (rows, outbox revision, viewer, feed epoch, feed generation).
+    own_tail_key: Option<(usize, u64, Option<String>, u64, u64)>,
+    /// HANDOFF (`handoffCases`): when the held consumed rows let go on
+    /// their own (epoch ms) and the one timer that repaints then.
+    own_tail_expiry: Option<i64>,
+    own_tail_timer: Option<gpui::Task<()>>,
     /// #LOGS-7: the memoised cards and suggestions `conv_cards` /
     /// `tree_suggestions` were last taken from.
     conv_memo: Option<ConvMemo>,
@@ -1027,6 +1032,8 @@ impl SteerSessionView {
             conv_trailing: Vec::new(),
             own_tail: Vec::new(),
             own_tail_key: None,
+            own_tail_expiry: None,
+            own_tail_timer: None,
             conv_memo: None,
             queue_from: None,
             dock: cx.new(|_| crate::dock::DockState::default()),
@@ -4237,24 +4244,34 @@ impl SteerSessionView {
         let editor_move = (editor_move, editor_picks);
         // #EXP-1793: an agent chat's changed MCP servers pick rides the send.
         let mcp_ids = self.mcp_send_ids();
+        // #FEED-237 (message-delivery.json): a message INTO this session
+        // clears the field, its files and its synced draft at the press and
+        // becomes an outbox bubble at the transcript's bottom; the uploads
+        // (FILES: persisted with the entry) and the send outlive the view
+        // and a failure is the bubble's red mark. A move of an ended editor
+        // root (no session to land in) keeps the old path.
+        if editor_move.0.is_none() {
+            let mut input = Self::message_input(&editor_move, &self.session_id, &text, Vec::new());
+            input.scope_team_ids = scope;
+            input.mcp_server_ids = mcp_ids;
+            if !self.pending_images.is_empty() && crate::queries::attachment_transport(cx).is_none() {
+                crate::action_error::failed_action("upload", "the attachment", None, cx);
+                return;
+            }
+            if let Some(ids) = input.mcp_server_ids.clone() {
+                self.mcp_sent(ids);
+            }
+            let jobs = self.pending_images.jobs();
+            self.pending_images.retain_keys(&[]);
+            self.clear_at_press(window, cx);
+            crate::session_outbox::send(&self.session_id.to_string(), &text, input, jobs, cx);
+            cx.notify();
+            return;
+        }
         if self.pending_images.is_empty() {
             let mut input = Self::message_input(&editor_move, &self.session_id, &text, Vec::new());
             input.scope_team_ids = scope;
             input.mcp_server_ids = mcp_ids;
-            // #FEED-237 (message-delivery.json): a message INTO this session
-            // clears the field and its synced draft at the press and becomes
-            // an outbox bubble at the transcript's bottom; the send outlives
-            // the view and a failure is the bubble's red mark. A move of an
-            // ended editor root (no session to land in) keeps the old path.
-            if editor_move.0.is_none() {
-                if let Some(ids) = input.mcp_server_ids.clone() {
-                    self.mcp_sent(ids);
-                }
-                self.clear_at_press(window, cx);
-                crate::session_outbox::send(&self.session_id.to_string(), &text, input, cx);
-                cx.notify();
-                return;
-            }
             self.post_message(input, sent, window, cx);
             return;
         }
@@ -5921,17 +5938,58 @@ impl SteerSessionView {
         let (true, Some(viewer)) = (main, viewer) else {
             self.own_tail.clear();
             self.own_tail_key = None;
+            self.own_tail_expiry = None;
+            self.own_tail_timer = None;
             return;
         };
         let rows = crate::session_data::messages_of_session(&self.session_id, cx);
-        let key = (Rc::as_ptr(&rows) as usize, crate::session_outbox::revision(cx), Some(viewer.clone()));
-        if self.own_tail_key.as_ref() == Some(&key) {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let key = (
+            Rc::as_ptr(&rows) as usize,
+            crate::session_outbox::revision(cx),
+            Some(viewer.clone()),
+            self.feed_epoch,
+            self.feed.generation(),
+        );
+        let expired = self.own_tail_expiry.is_some_and(|expiry| now_ms >= expiry);
+        if self.own_tail_key.as_ref() == Some(&key) && !expired {
             return;
         }
         let kept = crate::session_outbox::reconcile(&self.session_id, &viewer, &rows, cx);
-        self.own_tail = crate::session_outbox::own_tail(&viewer, &rows, &kept);
+        // HANDOFF (message-delivery.json `handoffCases`): a consumed own row
+        // keeps its bubble until the transcript's main-lane person row that
+        // echoes it appears; with no feed SENT INPUTS draws it instead.
+        // (Only read the feed when a row could be held: a streaming turn
+        // moves the feed's generation every frame.)
+        let feed_empty = self.feed.is_empty();
+        let may_hold = !feed_empty && crate::session_outbox::may_hold(&viewer, now_ms, &rows);
+        let echoes: Vec<domain::message_delivery::HandoffEcho> = may_hold
+            .then(|| self.feed.items())
+            .into_iter()
+            .flatten()
+            .filter_map(|item| match &item.kind {
+                FeedKind::UserMessage { text, subagent_id: None, at } => {
+                    Some(domain::message_delivery::HandoffEcho { text: text.clone(), at: *at })
+                }
+                _ => None,
+            })
+            .collect();
+        let (held, expiry) =
+            crate::session_outbox::held_rows(&viewer, now_ms, feed_empty, &rows, &echoes);
+        self.own_tail = crate::session_outbox::own_tail(&viewer, &rows, &held, &kept);
         // The reconcile may have dropped entries (a new revision).
-        self.own_tail_key = Some((key.0, crate::session_outbox::revision(cx), key.2));
+        self.own_tail_key = Some((key.0, crate::session_outbox::revision(cx), key.2, key.3, key.4));
+        if expiry != self.own_tail_expiry {
+            self.own_tail_expiry = expiry;
+            // One timer at the newest held row's consumedAt + handoffMaxMs.
+            self.own_tail_timer = expiry.map(|expiry| {
+                let wait = std::time::Duration::from_millis(expiry.saturating_sub(now_ms).max(0) as u64 + 50);
+                cx.spawn(async move |this, cx| {
+                    cx.background_executor().timer(wait).await;
+                    let _ = this.update(cx, |_, cx| cx.notify());
+                })
+            });
+        }
     }
 
     /// #FEED-237: one own bubble (the viewer's, right) with its delivery

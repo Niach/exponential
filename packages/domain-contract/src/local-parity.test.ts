@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/local-parity.json" with { type: "json" }
 import contract from "../contract.json" with { type: "json" }
-import { LOCAL_COMPOSER_DRAFT_EMPTY, anchorForCategory, applyIssuePatch, assistantRow, composerDraftRow, createCommentRow, createIssueRow, draftConsumedRefusal, draftRow, isLocalProcedure, issueIdentifier, localEmail, localRefusal, nextIssueNumber, seedRows, sendRows, type Row } from "./local-parity"
+import { LOCAL_COMPOSER_DRAFT_EMPTY, anchorForCategory, applyIssuePatch, assistantRow, composerDraftRow, createCommentRow, createIssueRow, draftConsumedRefusal, draftRow, isLocalProcedure, issueIdentifier, localEmail, localRefusal, nextIssueNumber, seedRows, sendRows, wakePlan, type Row } from "./local-parity"
 
 const ids = (list: readonly string[]) => {
   let i = 0
@@ -60,6 +60,9 @@ describe(`local parity (EDE-55)`, () => {
     const got = sendRows(c.input as Row, { teamId: team.teamId, identity: team.identity, deviceId: fixture.sessions.deviceId, existing, attachments, nextId: ids(c.ids), now: c.now })
     if (`expected` in c) expect(got).toEqual({ rows: c.expected, output: c.output })
     if (`expectedTitle` in c) expect(got.rows[0]!.row.title).toBe(c.expectedTitle)
+  })
+  test.each(fixture.sessions.wake.cases)(`wakePlan: $name`, (c) => {
+    expect(wakePlan({ deviceId: fixture.sessions.deviceId, sessions: c.sessions as Row[], messages: c.messages as Row[], live: c.live, refused: c.refused as Record<string, string[]> })).toEqual(c.expected as never)
   })
   test(`assistantRow`, () => {
     const a = fixture.agents.assistant
