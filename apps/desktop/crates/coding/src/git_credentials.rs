@@ -14,9 +14,9 @@
 //! URL (path-matched via `useHttpPath`):
 //!
 //! ```text
-//! [credential "https://github.com"]
+//! [credential "https://<host>"]
 //!     useHttpPath = true
-//! [credential "https://github.com/<owner>/<name>.git"]
+//! [credential "https://<host>/<path>.git"]
 //!     helper =                                       # reset inherited helpers
 //!     helper = !f() { test "$1" = get && cat '<clone>/.git/exp-git-credentials' 2>/dev/null; :; }; f
 //! ```
@@ -185,15 +185,19 @@ fn desired_helpers(clone: &Path) -> Vec<String> {
     ]
 }
 
-/// The scoped helper key: `credential.https://github.com/<full>.git.helper`.
-/// Path-scoped (not host-scoped) so the reset entry only suppresses inherited
-/// helpers for THIS repo — see the module doc.
+/// The scoped helper key: `credential.https://<host>/<path>.git.helper`
+/// (eCode's `credential_helper_key`, `remote.json`). Path-scoped (not
+/// host-scoped) so the reset entry only suppresses inherited helpers for
+/// THIS repo — see the module doc.
 fn helper_key(url: &TokenUrl) -> String {
-    format!("credential.{}.helper", url.bare())
+    ecode::core::credential_helper_key(&url.bare()).unwrap_or_else(|| format!("credential.{}.helper", url.bare()))
 }
 
-/// Makes git consider the URL path when matching the scoped subsection above.
-const USE_HTTP_PATH_KEY: &str = "credential.https://github.com.useHttpPath";
+/// `credential.https://<host>.useHttpPath`: makes git consider the URL path
+/// when matching the scoped subsection above, on the remote's own host.
+fn use_http_path_key(url: &TokenUrl) -> String {
+    url.credentials().use_http_path_key().unwrap_or_else(|| "credential.https://github.com.useHttpPath".into())
+}
 
 fn ensure_helper_config(clone: &Path, url: &TokenUrl) -> Result<(), GitError> {
     let key = helper_key(url);
@@ -214,10 +218,11 @@ fn ensure_helper_config(clone: &Path, url: &TokenUrl) -> Result<(), GitError> {
         })
         .unwrap_or_default()
     };
-    if read_all(USE_HTTP_PATH_KEY) != ["true"] {
+    let use_http_path = use_http_path_key(url);
+    if read_all(&use_http_path) != ["true"] {
         run_git(
             Some(clone),
-            &["config", "--local", USE_HTTP_PATH_KEY, "true"],
+            &["config", "--local", &use_http_path, "true"],
             Some(url),
             "git config credential.useHttpPath",
         )?;
@@ -493,7 +498,7 @@ mod tests {
         assert_eq!(lines, desired_helpers(&clone), "no duplicates, reset first");
 
         let use_path = Command::new("git")
-            .args(["config", "--local", "--get", USE_HTTP_PATH_KEY])
+            .args(["config", "--local", "--get", "credential.https://github.com.useHttpPath"])
             .current_dir(&clone)
             .output()
             .unwrap();
@@ -786,5 +791,22 @@ mod tests {
             credential_fill(&clone, &base.0, "https://github.com/other/repo.git");
         assert!(other.contains("password=global_pat"), "{other}");
         assert!(!other.contains("ghs_app_token"), "token leaked cross-repo: {other}");
+    }
+
+    /// #EXP-1615: the helper is scoped to the remote's OWN host (eCode's
+    /// `credential_helper_key`), not a hard-coded github.com.
+    #[test]
+    fn any_host_gets_its_own_scoped_helper() {
+        let base = temp_dir("anyhost");
+        let clone = seed_clone_with_token_remote(&base.0);
+        let credentials =
+            ecode::Credentials::new("https://git.example.com/team/app", "exp-bot", "tok_any_host", None).unwrap();
+        let url = TokenUrl::from_credentials(credentials);
+        assert_eq!(url.full_name(), "team/app");
+        ensure(&clone, &url, None).unwrap();
+        assert_eq!(origin_url(&clone), "https://git.example.com/team/app.git");
+        let ours = credential_fill(&clone, &base.0, "https://git.example.com/team/app.git");
+        assert!(ours.contains("username=exp-bot") && ours.contains("password=tok_any_host"), "{ours}");
+        assert_eq!(url.redacted(), "https://exp-bot:***@git.example.com/team/app.git");
     }
 }

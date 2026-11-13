@@ -36,7 +36,7 @@ mod tests {
 
     /// The files allowed to build a reqwest client directly: this crate and
     /// the SDK crates' own builders.
-    const ALLOWED: &[&str] = &["exp-http/src/lib.rs", "eui-gpui/src/transport.rs", "emcp/src/runtime.rs"];
+    const ALLOWED: &[&str] = &["exp-http/src/lib.rs", "eui-gpui/src/transport.rs", "emcp/src/runtime.rs", "ecode/src/http.rs"];
 
     const CONSTRUCTORS: &[&str] = &[
         "Client::builder(",
