@@ -74,6 +74,11 @@ fn device_caps(advertised: &coding::AgentAdvertisement) -> Vec<String> {
     if crate::actions_runner::platform_asset().is_some() {
         caps.push(crate::actions_runner::ACTIONS_RUNNER_CAP.to_string());
     }
+    // #FEED-244: it paints app screens (`app_screenshot`) when a renderer
+    // is here or released for this machine.
+    if updater::app_shot::capable() {
+        caps.push(updater::app_shot::CAP.to_string());
+    }
     caps
 }
 
@@ -2564,6 +2569,40 @@ fn run_device_command(
                 guard.remove(&command.id);
             }
             (false, "This machine could not start the eCode job.".to_string())
+        }
+        // #FEED-244: one app screen painted headless and uploaded, on its
+        // OWN thread (the first one fetches the renderer), completing itself;
+        // the claim set makes a redelivered id a no-op.
+        updater::app_shot::COMMAND_KIND => {
+            {
+                let Ok(mut guard) = logins_inflight.lock() else {
+                    return;
+                };
+                if !guard.insert(command.id.clone()) {
+                    return;
+                }
+            }
+            let (ctx, command_id, payload) = (Arc::clone(ctx), command.id.clone(), command.payload.clone());
+            let claimed = Arc::clone(logins_inflight);
+            let spawned = std::thread::Builder::new().name("exp-app-shot".to_string()).spawn(move || {
+                let (ok, message) = match updater::app_shot::run_command(&payload) {
+                    Ok(result) => (true, result),
+                    Err(err) => (false, format!("{err:#}")),
+                };
+                if let Err(err) = api::devices::complete_command(&ctx.trpc, &command_id, ok, Some(&message)) {
+                    log::debug!("completeCommand failed (redelivery will retry): {err}");
+                }
+                if let Ok(mut guard) = claimed.lock() {
+                    guard.remove(&command_id);
+                }
+            });
+            if spawned.is_ok() {
+                return;
+            }
+            if let Ok(mut guard) = logins_inflight.lock() {
+                guard.remove(&command.id);
+            }
+            (false, "This machine could not start the screenshot.".to_string())
         }
         other => {
             log::info!("device command {other:?} unsupported — reported back");
