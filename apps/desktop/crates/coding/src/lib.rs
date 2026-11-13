@@ -82,6 +82,7 @@ pub mod pickup;
 pub mod prune;
 pub mod remote_admin;
 pub mod reaper;
+pub mod ecode_helper;
 pub mod run_cleanup;
 pub mod run_registry;
 pub mod scratch;
@@ -99,6 +100,7 @@ pub mod token_refresh;
 pub mod token_refresh_host;
 pub mod trunk_state;
 pub mod usage_cache;
+pub mod usage_worker;
 pub mod worktree_agents;
 // EXP-1375: build-output prune, worktree prune + stale locks, the kept list, free disk.
 pub mod worktree_lifecycle;

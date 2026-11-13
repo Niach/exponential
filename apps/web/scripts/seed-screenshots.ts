@@ -68,6 +68,11 @@ import {
   prompts,
   skills,
   pullRequests,
+  ciJobs,
+  ciRuns,
+  ciSecrets,
+  repoPacks,
+  repoRefs,
   repositories,
   sessionIssues,
   sessionReads,
@@ -80,6 +85,7 @@ import {
   widgetConfigs,
   widgetSubmissions,
 } from "@/db/schema"
+import { ciSecretSlot, sealSecret } from "@/lib/emcp/vault"
 import type { AgentTrigger, GuideEntry, MessageCard } from "@exp/db-schema/domain"
 import workingHoursTemplate from "@exp/ui/exponential-ui/templates/working-hours.json"
 import { auth } from "@/lib/auth"
@@ -2081,6 +2087,8 @@ async function main() {
   // EXP-1583: a second repository, so the composer "+" menu shows its
   // Repository › row (composer-menu.json `conditions.repositories`).
   await db.insert(repositories).values({ teamId: ws.id, fullName: `acme/web-app` })
+  await seedEcodeRepository(ws.id, demoId)
+  await seedGithubCiRepository(ws.id, demoId)
   const [board] = await db
     .insert(boards)
     .values({
@@ -3303,3 +3311,181 @@ main().catch((err) => {
   console.error(err)
   process.exit(1)
 })
+
+// #EXP-1616 (repo-page.json, view `repo`): an eCode repository on the team
+// bucket: refs, a PR tree of four (checks on three, one queued, one draft)
+// and two backups, so Settings › Repositories shows both providers and the
+// repo page every tab with content. Its objects are rows only (no pack in
+// the bucket: nothing here fetches it).
+async function seedEcodeRepository(teamId: string, demoId: string): Promise<void> {
+  const sha = (c: string) => c.repeat(40)
+  const [engine] = await db
+    .insert(repositories)
+    .values({
+      teamId,
+      provider: `ecode`,
+      fullName: `${TEAM_SLUG}/engine`,
+      remoteUrl: `exp://${TEAM_SLUG}/engine`,
+      defaultBranch: `main`,
+      private: true,
+      prSequence: 4,
+      providerConfig: { mirrorUrl: `https://github.com/acme/engine`, mirrorEnabled: true },
+      ciConfig: { requiredChecks: [`build`, `test (linux)`] },
+    })
+    .returning()
+  const repositoryId = engine!.id
+  const heads: Record<string, string> = {
+    main: sha(`a`),
+    "exp/APP-31": sha(`b`),
+    "exp/APP-32": sha(`c`),
+    "exp/APP-33": sha(`d`),
+    "exp/docs": sha(`e`),
+  }
+  await db.insert(repoRefs).values(Object.entries(heads).map(([name, value]) => ({ repositoryId, ref: `refs/heads/${name}`, sha: value })))
+  const url = (n: number) => `https://app.exponential.at/t/${TEAM_SLUG}/repos/engine/pulls/${n}`
+  const pr = (n: number, title: string, head: string, base: string, extra: Partial<typeof pullRequests.$inferInsert>) => ({
+    teamId,
+    repositoryId,
+    number: n,
+    url: url(n),
+    title,
+    head,
+    base,
+    createdAt: daysAgo(5 - n),
+    updatedAt: hoursAgo(n),
+    ...extra,
+  })
+  await db.insert(pullRequests).values([
+    pr(1, `Pack cursor for incremental fetches`, `exp/APP-31`, `main`, { checksState: `success`, mergeState: `queued`, mergePosition: 1 }),
+    pr(2, `Repack once packs pile up`, `exp/APP-32`, `exp/APP-31`, { checksState: `pending`, mergeWait: `checks` }),
+    pr(3, `Mirror prunes deleted branches`, `exp/APP-33`, `exp/APP-31`, { checksState: `failure`, mergeState: `failing` }),
+    pr(4, `Document exp:// remotes`, `exp/docs`, `main`, { state: `draft`, mergeState: `draft` }),
+  ])
+  await db.insert(repoPacks).values([
+    { teamId, repositoryId, kind: `pack`, key: `ecode/${teamId}/${repositoryId}/packs/seed.pack`, bytes: 1_843_200 },
+    { teamId, repositoryId, kind: `bundle`, key: `ecode/${teamId}/${repositoryId}/bundles/seed-1.bundle`, bytes: 1_310_720, refs: { "refs/heads/main": sha(`9`) }, createdAt: daysAgo(1) },
+    { teamId, repositoryId, kind: `bundle`, key: `ecode/${teamId}/${repositoryId}/bundles/seed-2.bundle`, bytes: 1_572_864, refs: { "refs/heads/main": sha(`a`) }, createdAt: hoursAgo(3) },
+  ])
+  await seedEcodeCi({ teamId, repositoryId, demoId, heads })
+}
+
+// #EXP-1617 E4 part 4 (repo-ci.json, views `repo-runs` + `repo-ci`): the
+// engine's own CI: runs in every state (a PR run still going, a queued
+// merge-train run, a failed manual `nightly`, a cancelled tag run) with
+// their jobs, and two sealed secrets (names only ever reach a client).
+type SeedCiJob = { check: string; status: `queued` | `in_progress` | `completed`; conclusion?: `success` | `failure` | `cancelled` | `skipped` }
+type SeedCiRun = {
+  number: number
+  name: string
+  sha: string
+  ref: string | null
+  trigger: string
+  state: `pending` | `success` | `failure`
+  pr?: number
+  /** Minutes ago (null = not started). */
+  started: number | null
+  /** Minutes it took (null = still going). */
+  took: number | null
+  jobs: SeedCiJob[]
+}
+
+async function seedEcodeCi(ctx: { teamId: string; repositoryId: string; demoId: string; heads: Record<string, string> }): Promise<void> {
+  const { teamId, repositoryId, demoId, heads } = ctx
+  const runs: SeedCiRun[] = [
+    { number: 1, name: `ci`, sha: `1f9e0c4b7a2d`, ref: `main`, trigger: `push`, state: `success`, started: 26 * 60, took: 6.5, jobs: [{ check: `build`, status: `completed`, conclusion: `success` }, { check: `test (linux)`, status: `completed`, conclusion: `success` }] },
+    { number: 2, name: `ci`, sha: `7c3d5e9a1b20`, ref: `v0.4.0`, trigger: `tag`, state: `failure`, started: 22 * 60, took: 0.4, jobs: [{ check: `build`, status: `completed`, conclusion: `cancelled` }] },
+    { number: 3, name: `nightly`, sha: heads.main!, ref: `main`, trigger: `manual`, state: `failure`, started: 9 * 60, took: 14.2, jobs: [{ check: `bench`, status: `completed`, conclusion: `success` }, { check: `fuzz`, status: `completed`, conclusion: `failure` }] },
+    { number: 4, name: `ci`, sha: heads[`exp/APP-31`]!, ref: `exp/APP-31`, trigger: `pull_request`, pr: 1, state: `success`, started: 3 * 60, took: 7.1, jobs: [{ check: `build`, status: `completed`, conclusion: `success` }, { check: `test (linux)`, status: `completed`, conclusion: `success` }, { check: `lint`, status: `completed`, conclusion: `success` }] },
+    { number: 5, name: `ci`, sha: heads[`exp/APP-33`]!, ref: `exp/APP-33`, trigger: `pull_request`, pr: 3, state: `failure`, started: 95, took: 4.8, jobs: [{ check: `build`, status: `completed`, conclusion: `success` }, { check: `test (linux)`, status: `completed`, conclusion: `failure` }] },
+    { number: 6, name: `ci`, sha: heads[`exp/APP-32`]!, ref: `exp/APP-32`, trigger: `pull_request`, pr: 2, state: `pending`, started: 4, took: null, jobs: [{ check: `build`, status: `completed`, conclusion: `success` }, { check: `test (linux)`, status: `in_progress` }, { check: `lint`, status: `queued` }] },
+    { number: 7, name: `ci`, sha: heads.main!, ref: `main`, trigger: `merge_train`, state: `pending`, started: null, took: null, jobs: [{ check: `build`, status: `queued` }, { check: `test (linux)`, status: `queued` }] },
+  ]
+  await insertCiRuns({ teamId, repositoryId, demoId, runs })
+  for (const [name, hours] of [[`NPM_TOKEN`, 30], [`SENTRY_AUTH_TOKEN`, 2]] as const) {
+    const id = crypto.randomUUID()
+    await db.insert(ciSecrets).values({
+      id,
+      teamId,
+      repositoryId,
+      name,
+      valueCiphertext: sealSecret(`seed-${name.toLowerCase()}`, ciSecretSlot(id)),
+      updatedByUserId: demoId,
+      createdAt: hoursAgo(hours),
+      updatedAt: hoursAgo(hours),
+    })
+  }
+}
+
+async function insertCiRuns(ctx: { teamId: string; repositoryId: string; demoId: string; runs: SeedCiRun[] }): Promise<void> {
+  const { teamId, repositoryId, demoId, runs } = ctx
+  const at = (minutes: number) => new Date(now - minutes * 60_000)
+  const spec = { env: {}, secrets: [], steps: [] }
+  const prIds = new Map(
+    (await db.select({ id: pullRequests.id, number: pullRequests.number }).from(pullRequests).where(eq(pullRequests.repositoryId, repositoryId))).map((p) => [p.number, p.id])
+  )
+  for (const run of runs) {
+    const startedAt = run.started === null ? null : at(run.started)
+    const completedAt = run.started === null || run.took === null ? null : at(run.started - run.took)
+    const [row] = await db
+      .insert(ciRuns)
+      .values({
+        teamId,
+        repositoryId,
+        number: run.number,
+        name: run.name,
+        sha: run.sha.padEnd(40, `0`),
+        ref: run.ref,
+        trigger: run.trigger,
+        pullRequestId: run.pr ? (prIds.get(run.pr) ?? null) : null,
+        state: run.state,
+        createdByUserId: run.trigger === `manual` ? demoId : null,
+        startedAt,
+        completedAt,
+        createdAt: startedAt ?? at(1),
+      })
+      .returning({ id: ciRuns.id })
+    await db.insert(ciJobs).values(
+      run.jobs.map((job, position) => ({
+        teamId,
+        runId: row!.id,
+        key: job.check.split(` `)[0]!,
+        check: job.check,
+        position,
+        status: job.status,
+        conclusion: job.conclusion ?? null,
+        startedAt: job.status === `queued` ? null : startedAt,
+        completedAt: job.status === `completed` ? completedAt : null,
+        spec,
+      }))
+    )
+  }
+}
+
+// #EXP-1617 (repo-ci.json `switches`): a GitHub repository with our CI on
+// it, so the CI section shows both GitHub-only switches (Report to GitHub
+// on, GitHub Actions on team devices off). No installation: nothing here
+// talks to GitHub.
+async function seedGithubCiRepository(teamId: string, demoId: string): Promise<void> {
+  const [api] = await db
+    .insert(repositories)
+    .values({
+      teamId,
+      provider: `github`,
+      fullName: `${TEAM_SLUG}/api`,
+      defaultBranch: `main`,
+      private: true,
+      sharedByUserId: demoId,
+      ciConfig: { githubStatuses: true, requiredChecks: [`test`] },
+    })
+    .returning({ id: repositories.id })
+  await insertCiRuns({
+    teamId,
+    repositoryId: api!.id,
+    demoId,
+    runs: [
+      { number: 1, name: `ci`, sha: `4be81f07c2d9`, ref: `main`, trigger: `push`, state: `success`, started: 5 * 60, took: 3.2, jobs: [{ check: `build`, status: `completed`, conclusion: `success` }, { check: `test`, status: `completed`, conclusion: `success` }] },
+      { number: 2, name: `ci`, sha: `9d03aa51e6f7`, ref: `fix/rate-limit`, trigger: `pull_request`, state: `failure`, started: 70, took: 2.6, jobs: [{ check: `build`, status: `completed`, conclusion: `success` }, { check: `test`, status: `completed`, conclusion: `failure` }] },
+      { number: 3, name: `deploy`, sha: `4be81f07c2d9`, ref: `main`, trigger: `manual`, state: `success`, started: 40, took: 1.4, jobs: [{ check: `deploy`, status: `completed`, conclusion: `success` }] },
+    ],
+  })
+}

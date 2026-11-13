@@ -29,6 +29,12 @@ sync = { path = "../sync", default-features = false }
 terminal = { path = "../terminal", default-features = false }
 updater = { path = "../updater" }
 observability = { path = "../observability" }
+# #EXP-1616: eCode's own git: the device jobs of its forge (`ecode_job`) and
+# git's `exp://` remote helper (this binary, started as `git-remote-exp`).
+# #EXP-1617: and the CI runner (a `ci_job` runs through ecode::run_job), and
+# the merge train's `compose` job (ecode::compose, the TS train engine's port).
+ecode = { path = "../ecode", default-features = false, features = ["repo", "exponential", "runner", "compose"] }
+git-remote-exp = { path = "../git-remote-exp" }
 
 anyhow = { workspace = true }
 # EXP-530: the automation host's local clock (schedule occurrences are
@@ -44,6 +50,8 @@ uuid = { workspace = true }
 # Raw-mode termios for the interactive PTY attach + signal handling + the
 # registry's pid liveness probe (kill(pid, 0)) — already in the tree.
 libc = { workspace = true }
+# #EXP-1617: the pinned actions/runner download is checked by sha256.
+sha2 = { workspace = true }
 log = "0.4"
 
 # EXP-1196/1273: the device's computer-use endpoint, on every OS (pure-Rust

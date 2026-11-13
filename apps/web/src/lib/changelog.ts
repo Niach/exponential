@@ -25,6 +25,157 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-13-apps-touched-issues`,
+    date: `2026-11-13`,
+    title: `Apps can list the issues you touched`,
+    summary: `App bindings to exp:issues can now list the issues a member worked on in a time window, newest touch first.`,
+    body: `- **Touched issues**: \`exp:issues?touched=me&since=…&until=…\` lists the issues you changed, commented on or ran a session for in that window, with when and how you touched each one; a bare date covers that whole day in the team time zone.`,
+  },
+  {
+    id: `2026-11-13-phones-one-native-library`,
+    date: `2026-11-13`,
+    title: `Smaller phone apps`,
+    summary: `Android 0.14.137 and iOS 0.14.127 ship one native library instead of three, so both apps download and install smaller.`,
+    body: `- **Smaller phone apps**: the Android and iOS apps now carry a single native library, about 3.5 MB less on Android and 2.9 MB less on iOS.`,
+  },
+  {
+    id: `2026-11-13-desktop-notifications-ticks`,
+    date: `2026-11-13`,
+    title: `Desktop notifications, delivery ticks and a lighter daemon`,
+    summary: `Desktop and CLI 0.14.158: notifications in the desktop app follow the new rules, sent messages show delivery ticks, the window drags by its tab band again, and the CLI daemon uses far less memory.`,
+    body: `- **Desktop notifications**: while the app has focus you get a short in-app notice instead of a system notification; reading something clears its notification, and each source can be switched off.
+- **Delivery ticks**: a message you send is your own bubble right away, with ticks for received by the device and processed by the agent; a failed send offers Retry, and an unprocessed one can be cancelled.
+- **The window drags again**: the desktop app's top tab band moves the window again, and its +N menu opens below the band.
+- **CI runner fixes**: a new push supersedes a repository's pending runs, and the runner keeps its token out of the process list.
+- **A lighter daemon**: the CLI daemon idles at a fraction of its old memory, and \`exponential devices\` lists your devices as clean rows.`,
+  },
+  {
+    id: `2026-11-13-android-8-notifications-fix`,
+    date: `2026-11-13`,
+    title: `Notifications work on Android 8`,
+    summary: `Android 0.14.136 fixes a crash on Android 8.0 and 8.1 when the first agent notification arrived.`,
+    body: `- **Android 8.0 and 8.1**: the first notification from an agent no longer crashes the app while it sets up its notification channels.`,
+  },
+  {
+    id: `2026-11-13-phones-notifications-ticks`,
+    date: `2026-11-13`,
+    title: `Notifications and delivery ticks on your phone`,
+    summary: `Android 0.14.135 and iOS 0.14.126: quieter notifications that clear when read elsewhere, delivery ticks on what you send, and new Android sessions stream at once.`,
+    body: `- **Quieter notifications**: while the app is open a notification shows as a short notice, or not at all when that chat is on screen; reading it on another device clears it from your phone.
+- **Delivery ticks**: a message you send shows a clock until it is sent, then one tick, then two once its session has it.
+- **Android chats**: a session you start from the phone streams right away, images shared from other apps reach the composer, and pasted images no longer end up in session titles.`,
+  },
+  {
+    id: `2026-11-13-share-picked-team`,
+    date: `2026-11-13`,
+    title: `Shared items land in the team you pick`,
+    summary: `Sharing into Exponential on Android or iPhone now files the new issue in the team you picked, on one of its boards. Issue chips have the same spacing on every platform.`,
+    body: `- **Sharing**: picking a team on the Share to page now drives the whole new issue: that team's boards, its last used board as the default, and its members, labels and statuses.
+- **Issue chips**: the assignee picture and label dots in an issue's chips have the same size and spacing on Android, iPhone, web and desktop.`,
+  },
+  {
+    id: `2026-11-13-quieter-notifications`,
+    date: `2026-11-13`,
+    title: `Quieter notifications`,
+    summary: `While the app is open you get a short notice instead of a system notification, and nothing at all when you are already looking at it. Reading something on one device clears its notification everywhere.`,
+    body: `- **In the app**: a new notification shows as a toast with Open, or not at all when the chat or issue is already on screen.
+- **Read once, cleared everywhere**: opening a chat or an issue, or marking things read, removes its notifications from your other devices too.
+- **Choose who notifies you**: Settings › Notifications has a switch for your Personal Assistant, one per team agent and one for temporary sessions. They apply to push, desktop and email.`,
+  },
+  {
+    id: `2026-11-13-desktop-ci-runner`,
+    date: `2026-11-13`,
+    title: `Desktop and CLI run your team's CI`,
+    summary: `Desktop and CLI 0.14.157: the CLI daemon is a CI runner for your team, repositories show their CI runs and CI settings, and Exponential repositories work from the desktop app and the CLI.`,
+    body: `- **A CI runner in the daemon**: \`exponential daemon\` runs your team's CI jobs once its device's CI runner is turned on in the device settings; it can also serve GitHub Actions for repositories that opt in.
+- **Runs on the repository page**: the Runs tab lists the repository's CI runs; open one for its jobs, steps and live log, and re-run or cancel it.
+- **CI settings**: a repository's Settings tab holds its pipelines, required checks, secrets and the GitHub switches.
+- **Exponential repositories**: \`git clone exp://<team>/<name>\` works through the CLI and the desktop app, and the IDE sidebar shows a repository's pull requests as a tree.`,
+  },
+  {
+    id: `2026-11-13-repo-runs-ci-settings`,
+    date: `2026-11-13`,
+    title: `Runs and CI settings on the repository page`,
+    summary: `A repository's Runs tab lists its CI runs, and its Settings tab holds the CI setup: required checks, secrets and the GitHub switches.`,
+    body: `- **Runs**: every run of the repository's CI, newest first, with its status, commit, branch, trigger and duration. Open one to see its jobs and log.
+- **CI settings**: the repository's pipelines with their state, the checks the merge queue waits for, and secrets your pipelines can use (values are never shown again).
+- **GitHub repositories**: report our checks to GitHub as commit statuses, and let team devices with a CI runner also run the repository's GitHub Actions jobs.`,
+  },
+  {
+    id: `2026-11-13-own-ci-run-page`,
+    date: `2026-11-13`,
+    title: `Our own CI: a run page and a runner on your devices`,
+    summary: `A check from Exponential's own CI opens its run: the jobs, their steps and the log as it streams. Any desktop or server can run your team's jobs.`,
+    body: `- **The run page**: a check's Details open the run in the app: status, duration, runner and commit, every job, the steps of the one you pick and its log following along live. Re-run the failed jobs or cancel a run from there.
+- **Runners on your devices**: a device's settings have a CI runner section: turn it on, add labels, choose how many jobs it runs at once and their timeout, and see its recent jobs. Phones set a runner up; jobs run on desktops and servers.`,
+  },
+  {
+    id: `2026-11-13-exponential-repositories`,
+    date: `2026-11-13`,
+    title: `Repositories without GitHub`,
+    summary: `Create a repository that lives on your team's storage: git push to exp://, open pull requests and let the merge queue land them, with backups after every merge and an optional GitHub mirror.`,
+    body: `- **Exponential repositories**: Settings › Repositories › Add repository now offers GitHub or Exponential. An Exponential repository lives in your team's storage and counts toward it; \`git clone exp://<team>/<name>\` works through the CLI and the desktop app.
+- **The repository page**: tap a repository to see its pull requests as a tree with checks and merge status, its branches, and its settings.
+- **Backups and mirror**: every merge saves a backup you can restore, and owners can mirror the repository to GitHub.`,
+  },
+  {
+    id: `2026-11-13-android-memory-fix`,
+    date: `2026-11-13`,
+    title: `Android stays within memory in large chats`,
+    summary: `The Android app fixes a crash from running out of memory, and a sign-out race.`,
+    body: `- **No more out-of-memory crash**: Android keeps a chat's memory bounded however large its session tree grows, so long chats no longer crash the app.
+- **No surprise sign-out**: a late answer from an old login no longer signs you out of a newer one.`,
+  },
+  {
+    id: `2026-11-13-composer-drafts-on-phones`,
+    date: `2026-11-13`,
+    title: `Drafts follow you to your phone`,
+    summary: `iPhone, iPad and Android keep what you type in any composer as a synced draft, links open right at their card, and tables fit their columns.`,
+    body: `- **Synced drafts**: text you type in a chat, comment or issue composer on a phone stays as a draft and shows up on your other devices until you send it.
+- **Links land on their card**: a notification, an inbox row or a link to a question, plan or result opens the chat scrolled to that card.
+- **Tables fit**: Markdown tables size their columns by the same rule on every app.`,
+  },
+  {
+    id: `2026-11-13-desktop-drafts-badges`,
+    date: `2026-11-13`,
+    title: `Drafts follow you into the desktop app`,
+    summary: `Desktop and CLI 0.14.156: unsent text syncs between your devices, every count is a number, tabs are back on top, tables fit their columns and Windows notifications no longer stall the app.`,
+    body: `- **Synced composer drafts**: text you start in any composer (a chat, a comment, a new issue) is kept as a draft and picks up where you left it on the web, the desktop app, your phones and Local desktops.
+- **Count badges**: Needs you, Chats, the Inbox and the rest show a number in one badge instead of a dot.
+- **Tabs on top**: the desktop app's tabs sit in the top band again, terminals included; inside Exponential Desktop they stay at the bottom.
+- **Jumps land on their card**: opening a plan or question from Needs you or a link scrolls to it, and dragging in the desktop chat selects text again.
+- **Tables fit**: Markdown tables size their columns by one shared rule on every platform.
+- **Windows fixes**: notifications no longer block the window, and a window closed from the taskbar no longer crashes the app.
+- **Faster and lighter**: agent usage refreshes for every login in parallel, agent runs and builds run at background priority, and the desktop app hangs less on busy frames.`,
+  },
+  {
+    id: `2026-11-13-deep-links-land`,
+    date: `2026-11-13`,
+    title: `Jumps to a plan or question land on it`,
+    summary: `Opening a plan or question from Needs you, a link or a waiting chip now loads the chat around it, scrolls it into view and rings it, on every platform.`,
+    body: `- **Older messages too**: a card older than what the chat has loaded pages the earlier messages in first, then scrolls to it.
+- **Holds still**: while it gets there the chat no longer jumps back to the newest message; scrolling yourself cancels the jump.
+- **Select text in the desktop chat**: dragging across a message selects its text again instead of scrolling the chat; the chat only scrolls once you drag to its edge.`,
+  },
+  {
+    id: `2026-11-13-tabs-on-top`,
+    date: `2026-11-13`,
+    title: `Tabs are back on top in the desktop app`,
+    summary: `The desktop app draws its tabs on top again, terminals included, in one strip; inside Exponential Desktop they stay at the bottom.`,
+    body: `- **Tabs on top**: on macOS, Windows and Linux the desktop app's tabs sit in the top band again, next to the window controls; the empty space beside them still moves the window.
+- **Terminals are tabs like any other**: a terminal sits in the same strip as issues and chats, and Close others and Close all take terminals too; closing a terminal that still runs something asks first.
+- **Exponential Desktop**: inside Exponential Desktop the tabs stay at the bottom.`,
+  },
+  {
+    id: `2026-11-12-phones-todo-title-cards`,
+    date: `2026-11-12`,
+    title: `Tidier session sheets on phones`,
+    summary: `A session's to-do sheet shows its title once on every app, question cards stay with the step that posted them, and iPhone chats full of issue links no longer stall.`,
+    body: `- **One to-do title**: a session's to-do sheet lists its items under one title instead of repeating it, on the web, the desktop app, iPhone, iPad and Android.
+- **Cards stay put**: a question or plan card stays next to the step that posted it, even after the Assistant edits its status card.
+- **No stall on iPhone**: a chat with many issue links no longer freezes the iPhone or iPad app while it syncs.`,
+  },
+  {
     id: `2026-11-12-count-badges`,
     date: `2026-11-12`,
     title: `One count badge everywhere`,

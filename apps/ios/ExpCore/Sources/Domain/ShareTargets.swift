@@ -135,6 +135,18 @@ public enum ShareTargets {
         return nil
     }
 
+    /// New issue's boards on the picked team (#EXP-1823), and the one it opens on.
+    public static func shareIssueBoards<Board>(
+        teamId: String?,
+        boards: [Board],
+        lastBoardId: String?,
+        id: (Board) -> String,
+        team: (Board) -> String
+    ) -> (boards: [Board], board: Board?) {
+        let own = teamId.map { teamId in boards.filter { team($0) == teamId } } ?? []
+        return (own, own.first { id($0) == lastBoardId } ?? own.first)
+    }
+
     private static func trimmed(_ value: String?) -> String {
         value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }

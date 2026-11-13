@@ -1,4 +1,4 @@
-//! The 34 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
+//! The 37 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
 //! iterates and the store builds its schema from. gpui-free.
 //!
 //! Each [`ShapeSpec`] carries the SQLite table name, the kebab-case proxy URL
@@ -54,6 +54,14 @@ impl ShapeSpec {
         }
     }
 
+    /// #FEED-219: a shape newer than some servers this build talks to. Its
+    /// 404 means "not served yet", never an outage: the thread parks
+    /// without a `PollFailed` (the offline banner stays out of it) and
+    /// re-probes every [`crate::client::NOT_SERVED_PARK`].
+    pub fn may_be_absent(&self) -> bool {
+        MAY_BE_ABSENT.contains(&self.name)
+    }
+
     /// Whether Electric row keys for this shape carry a composite
     /// (trailing-2-segment) primary key.
     pub fn composite_keys(&self) -> bool {
@@ -80,11 +88,13 @@ impl ShapeSpec {
     }
 }
 
-/// The 34 shapes, in §5.9 order (#EXP-1656 appended `skills`). Column sets mirror `packages/db-schema`
+/// The 37 shapes, in §5.9 order (#EXP-1656 appended `skills`; #FEED-219
+/// added `composer_drafts` after `issue_drafts`; #EXP-1804 appended
+/// `ci_runs` + `ci_jobs`). Column sets mirror `packages/db-schema`
 /// (minus the §5.4 exclusions: no `email` on `issue_subscribers`, web-only
 /// billing fields dropped from `users`, no `body` on `actions`, no scoping
 /// mirrors on `device_worktrees`).
-pub const SHAPES: [ShapeSpec; 34] = [
+pub const SHAPES: [ShapeSpec; 37] = [
     ShapeSpec {
         name: "teams",
         path: "/api/shapes/teams",
@@ -524,6 +534,9 @@ pub const SHAPES: [ShapeSpec; 34] = [
             "issue_brief",
             "answered_at",
             "consumed_at",
+            // #FEED-237: the device received the pending row (one check;
+            // `domain::message_delivery`).
+            "delivered_at",
             "created_at",
             "updated_at",
         ],
@@ -691,6 +704,9 @@ pub const SHAPES: [ShapeSpec; 34] = [
             // "no default" — fixed with the EXP-484 columns.
             "is_default",
             "update_requested_at",
+            // #EXP-1617: the CI runner settings ({enabled, labels, slots,
+            // timeoutMin}, NULL = not a runner); healed onto old stores.
+            "runner",
             "created_at",
             "updated_at",
         ],
@@ -790,6 +806,18 @@ pub const SHAPES: [ShapeSpec; 34] = [
             "created_at",
             "updated_at",
         ],
+        pk: PkKind::Id,
+    },
+    ShapeSpec {
+        name: "composer_drafts",
+        path: "/api/shapes/composer-drafts",
+        // #FEED-219: every composer's synced draft (composer-draft.json). A
+        // STATIC per-user shape (`user_id = me`) like `issue_drafts`; one
+        // row per (user, key), `key` = `<kind>:<id>`. Byte-matches the
+        // proxy's allowlist (apps/web routes/api/shapes/composer-drafts.ts).
+        // A server that predates it 404s: the thread parks quietly
+        // ([`ShapeSpec::may_be_absent`]).
+        columns: &["id", "user_id", "team_id", "key", "text", "created_at", "updated_at"],
         pk: PkKind::Id,
     },
     ShapeSpec {
@@ -934,7 +962,69 @@ pub const SHAPES: [ShapeSpec; 34] = [
         columns: &["id", "team_id", "name", "description", "enabled_by_default", "builtin", "created_by_id", "created_at", "updated_at"],
         pk: PkKind::Id,
     },
+    ShapeSpec {
+        name: "ci_runs",
+        path: "/api/shapes/ci-runs",
+        // #EXP-1617 / #EXP-1804: our own CI's runs (the run page), member-
+        // only by `team_id`. Byte-matches the proxy's CI_RUN_COLUMNS.
+        columns: &[
+            "id",
+            "team_id",
+            "repository_id",
+            "number",
+            "name",
+            "sha",
+            "ref",
+            "trigger",
+            "pull_request_id",
+            "state",
+            "error",
+            "rerun_of",
+            "created_by_user_id",
+            "started_at",
+            "completed_at",
+            "created_at",
+            "updated_at",
+        ],
+        pk: PkKind::Id,
+    },
+    ShapeSpec {
+        name: "ci_jobs",
+        path: "/api/shapes/ci-jobs",
+        // #EXP-1617 / #EXP-1804: a run's jobs. Byte-matches the proxy's
+        // CI_JOB_COLUMNS: `spec`, the job token's hash, the dispatch/beat
+        // stamps and the log chunk index stay server-side; the log itself
+        // is read on demand (`ci.log`).
+        columns: &[
+            "id",
+            "team_id",
+            "run_id",
+            "key",
+            "check",
+            "position",
+            "runs_on",
+            "needs",
+            "matrix",
+            "timeout_min",
+            "status",
+            "conclusion",
+            "reason",
+            "runner_device_id",
+            "steps",
+            "log_key",
+            "log_bytes",
+            "queued_at",
+            "started_at",
+            "completed_at",
+            "created_at",
+            "updated_at",
+        ],
+        pk: PkKind::Id,
+    },
 ];
+
+/// Shapes a server older than this build may not serve (#FEED-219).
+pub const MAY_BE_ABSENT: &[&str] = &["composer_drafts", "ci_runs", "ci_jobs"];
 
 /// Look a shape up by its table name.
 pub fn shape_by_name(name: &str) -> Option<&'static ShapeSpec> {
@@ -947,7 +1037,7 @@ mod tests {
 
     #[test]
     fn registry_has_34_shapes_with_kebab_paths() {
-        assert_eq!(SHAPES.len(), 34);
+        assert_eq!(SHAPES.len(), 37);
         for spec in &SHAPES {
             assert!(spec.path.starts_with("/api/shapes/"), "{}", spec.name);
             assert!(!spec.path.contains('_'), "paths are kebab-case: {}", spec.path);
@@ -966,6 +1056,37 @@ mod tests {
             1,
             "issue_labels is the only composite-PK shape"
         );
+    }
+
+    /// #EXP-1804: the CI shapes byte-match the proxies' CI_RUN_COLUMNS /
+    /// CI_JOB_COLUMNS (`spec` and the token hash never sync), devices carry
+    /// `runner`, and an older server's 404 parks them.
+    #[test]
+    fn ci_shapes_match_the_proxies() {
+        let read = |file: &str| {
+            std::fs::read_to_string(format!("{}/../../../web/src/routes/api/shapes/{file}", env!("CARGO_MANIFEST_DIR")))
+                .expect("the proxy")
+        };
+        let allowlist = |source: &str, constant: &str| -> Vec<String> {
+            let start = source.find(&format!("export const {constant} = [")).expect("the constant");
+            let body = &source[start..];
+            let body = &body[body.find('[').unwrap() + 1..body.find(']').unwrap()];
+            body.split(',')
+                .map(|item| item.trim().trim_matches('`').to_string())
+                .filter(|item| !item.is_empty())
+                .collect()
+        };
+        for (name, file, constant) in [("ci_runs", "ci-runs.ts", "CI_RUN_COLUMNS"), ("ci_jobs", "ci-jobs.ts", "CI_JOB_COLUMNS")] {
+            let spec = shape_by_name(name).unwrap();
+            assert_eq!(spec.pk, PkKind::Id);
+            assert!(spec.may_be_absent(), "{name}");
+            let columns: Vec<String> = spec.columns.iter().map(|c| c.to_string()).collect();
+            assert_eq!(columns, allowlist(&read(file), constant), "{name}");
+        }
+        let jobs = shape_by_name("ci_jobs").unwrap();
+        assert!(!jobs.columns.contains(&"spec"));
+        assert!(!jobs.columns.contains(&"job_token_hash"));
+        assert!(shape_by_name("devices").unwrap().columns.contains(&"runner"));
     }
 
     /// EXP-824: the attachments column list is the server's allowlist byte
@@ -1085,6 +1206,18 @@ mod tests {
         // draft was created elsewhere — dropping it strands the page.
         let spec = shape_by_name("issues").unwrap();
         assert!(spec.columns.contains(&"draft_id"));
+    }
+
+    #[test]
+    fn composer_drafts_match_the_proxy_and_may_be_absent() {
+        let spec = shape_by_name("composer_drafts").unwrap();
+        assert_eq!(spec.path, "/api/shapes/composer-drafts");
+        assert_eq!(
+            spec.columns,
+            &["id", "user_id", "team_id", "key", "text", "created_at", "updated_at"]
+        );
+        assert!(spec.may_be_absent());
+        assert!(!shape_by_name("issue_drafts").unwrap().may_be_absent());
     }
 
     #[test]
@@ -1244,6 +1377,7 @@ mod tests {
                 "shared_team_ids",
                 "is_default",
                 "update_requested_at",
+                "runner",
                 "created_at",
                 "updated_at",
             ]
@@ -1342,6 +1476,7 @@ mod tests {
         let messages = shape_by_name("messages").unwrap();
         assert_eq!(messages.path, "/api/shapes/messages");
         assert!(messages.columns.contains(&"consumed_at"));
+        assert!(messages.columns.contains(&"delivered_at"));
         assert!(!messages.columns.contains(&"owner_id"));
         // #EXP-1730: a message is keyed by its own `session_id` (the legacy
         // `conversation_id` still syncs, never read).

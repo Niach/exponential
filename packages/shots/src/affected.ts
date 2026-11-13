@@ -782,7 +782,10 @@ function desktopMatches(path: RepoPath): string[] {
   const match = path.match(/^apps\/desktop\/crates\/ui\/src\/(.+)\.rs$/)
   if (!match) return []
   const segments = match[1]!.split(`/`).filter((segment) => segment !== `mod`)
-  const candidates = new Set([...segments, segments.join(`_`)])
+  // The FILE and the joined path name a view; a directory alone never does:
+  // `repo-ci`'s drive `repo:engine:settings` (a tab) would otherwise claim
+  // every `settings/*.rs` (#EXP-1617's view made `settings/general.rs` widen).
+  const candidates = new Set([segments[segments.length - 1]!, segments.join(`_`)])
   // The wrapper-stripped FULL path, matched as a family PREFIX so a file that
   // draws one surface in several states claims every state: `chat_screen.rs`
   // renders chat and chat-issues (one composer, several subjects), and

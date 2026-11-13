@@ -81,6 +81,7 @@ const PINNED_RECIPES = [
   `openCsvImport`,
   `openAppVersionPreview`,
   `scrollAppSettingsEnd`,
+  `scrollToRepoCi`,
   `openBoardBulkEdit`,
   `openChatSelection`,
   `openFirstBoardSettings`,

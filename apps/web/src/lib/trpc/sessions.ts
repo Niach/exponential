@@ -1,4 +1,5 @@
 import { isPersistent, linksIssues } from "@exp/domain-contract/session-kind"
+import { titleLine } from "@exp/domain-contract/session-title"
 import { isAssistantConversation, turnHasMemberInput } from "@/lib/agents/assistant-chat"
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
@@ -44,6 +45,7 @@ import {
   type SessionMoveState,
 } from "@/lib/sessions/move"
 import { markConsumedLinesRead } from "@/lib/sessions/reads"
+import { fireAndForgetDismiss, markSessionNotificationsRead } from "@/lib/notification-dismiss"
 import { configureSession, mcpPicks, skillPicks } from "@/lib/sessions/configure"
 import { sessionSkillIds } from "@/lib/skills/builtin"
 import {
@@ -222,7 +224,7 @@ export const sessionsRouter = router({
     .mutation(async ({ ctx, input }): Promise<{ txid: number }> => {
       const userId = ctx.session.user.id
       const session = await loadSessionForUser(userId, input.sessionId)
-      return ctx.db.transaction(async (tx) => {
+      const result = await ctx.db.transaction(async (tx) => {
         const txid = await generateTxId(tx)
         const now = new Date()
         await tx
@@ -232,8 +234,12 @@ export const sessionsRouter = router({
             target: [sessionReads.userId, sessionReads.sessionId],
             set: { readAt: now, updatedAt: now },
           })
-        return { txid }
+        // #EXP-1815: opening a chat (or a session) reads its notifications.
+        const rows = await markSessionNotificationsRead(tx, userId, [session], now)
+        return { txid, rows }
       })
+      fireAndForgetDismiss({ userId, rows: result.rows })
+      return { txid: result.txid }
     }),
 
   /** Tolerated for clients from before #FEED-191 (one more release); a later
@@ -271,9 +277,11 @@ export const sessionsRouter = router({
       const userId = ctx.session.user.id
       const chats: Session[] = []
       for (const id of new Set(input.sessionIds)) chats.push(await loadSessionForUser(userId, id))
-      return ctx.db.transaction(async (tx) => {
+      const result = await ctx.db.transaction(async (tx) => {
         const txid = await generateTxId(tx)
         const now = new Date()
+        // #EXP-1815: Mark read reads the chats' notifications too.
+        const rows = input.read ? await markSessionNotificationsRead(tx, userId, chats, now) : []
         for (const chat of chats) {
           let readAt = now
           if (!input.read) {
@@ -300,8 +308,10 @@ export const sessionsRouter = router({
               set: { readAt, updatedAt: now },
             })
         }
-        return { txid }
+        return { txid, rows }
       })
+      fireAndForgetDismiss({ userId, rows: result.rows })
+      return { txid: result.txid }
     }),
 
   /** #EXP-1388: archive / unarchive chats for the caller (per viewer, on
@@ -698,7 +708,7 @@ export const sessionsRouter = router({
         // FIRST start: a moved session re-queues with its messages pending.
         if (session.status === `queued` && !session.startedAt) {
           await tx.execute(sql`
-            UPDATE ${messages} SET consumed_at = ${now}, updated_at = ${now}
+            UPDATE ${messages} SET consumed_at = ${now}, delivered_at = COALESCE(delivered_at, ${now}), updated_at = ${now}
             WHERE id = (
               SELECT id FROM ${messages}
               WHERE conversation_id = ${sessionConversation(session.id)} AND card IS NULL
@@ -929,8 +939,9 @@ export const sessionsRouter = router({
             ...(input.account ? { account: input.account } : {}),
             ...(model ? { model } : {}),
             // The CLI's auto-name only fills a blank title (a person's or
-            // the agent's own title wins).
-            ...(input.title?.trim() && !session.title ? { title: input.title.trim() } : {}),
+            // the agent's own title wins); a name derived from a first
+            // prompt drops its `[Image #N]` markers (session-title.json).
+            ...(input.title && titleLine(input.title) && !session.title ? { title: titleLine(input.title) } : {}),
             ...(input.sealedTitle && !session.sealedTitle && !session.title ? { sealedTitle: input.sealedTitle } : {}),
             ...(turnEnded ? { lastTurnAt: now } : {}),
             // EXP-1413: working again = the Stop is settled.
@@ -1190,6 +1201,34 @@ export const sessionsRouter = router({
     )
     .query(({ ctx, input }) => sendTarget(ctx.session.user.id, input)),
 
+  /** #FEED-237 (message-delivery.json): the device RECEIVED these pending
+   *  person messages (its pickup holds them; a turn may still be running):
+   *  the bubble's one check. Idempotent: only rows still unstamped and
+   *  unconsumed move. */
+  delivered: authedProcedure
+    .input(z.object({ sessionId: uuid, messageIds: z.array(uuid).min(1).max(100) }))
+    .mutation(async ({ ctx, input }) => {
+      const session = await loadDeviceSession(ctx, input.sessionId)
+      if (!session) return noOpTx(ctx.db)
+      return ctx.db.transaction(async (tx) => {
+        const txid = await generateTxId(tx)
+        const now = new Date()
+        await tx
+          .update(messages)
+          .set({ deliveredAt: now, updatedAt: now })
+          .where(
+            and(
+              inSession(session.id),
+              inArray(messages.id, input.messageIds),
+              eq(messages.authorKind, `user`),
+              isNull(messages.deliveredAt),
+              isNull(messages.consumedAt)
+            )
+          )
+        return { txid }
+      })
+    }),
+
   /** The device delivered these pending inputs (person messages, another
    *  session's question or report) into the agent. EXP-1280: also the
    *  session's OWN answered plan/question card (`exponential_plan_propose`,
@@ -1204,7 +1243,8 @@ export const sessionsRouter = router({
         const now = new Date()
         const consumed = await tx
           .update(messages)
-          .set({ consumedAt: now, updatedAt: now })
+          // #FEED-237: consumed = received too (an older device never acked).
+          .set({ consumedAt: now, deliveredAt: sql`COALESCE(${messages.deliveredAt}, ${now})`, updatedAt: now })
           .where(
             and(
               inSession(session.id),

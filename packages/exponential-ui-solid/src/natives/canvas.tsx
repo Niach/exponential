@@ -1,5 +1,5 @@
 // Round 8 (React's natives/canvas.tsx): Canvas, a thin wrapper over the
-// shared web painter (`CanvasView`, @exponential_app/eui/web: compile over
+// shared web painter (`CanvasView`, @exponential_app/eui/web/motion: compile over
 // the WASM CanvasPlayer, theme slots, Canvas2D + native text, pointer). The
 // box: `canvasBoxStyle` (Motion's rule); role img named by `label`
 // (`canvasA11y`); `pointer: true` fires press/move/leave with `{x, y}` in
@@ -7,7 +7,7 @@
 
 import { createEffect, onCleanup, onMount, type Component, type JSX } from "solid-js"
 import { canvasA11y, canvasBoxStyle, canvasDeclaredSize } from "@exponential_app/eui"
-import { CanvasView } from "@exponential_app/eui/web"
+import { CanvasView } from "@exponential_app/eui/web/motion"
 import { useSurfaceContext } from "../context"
 import { mergeStyle, type NativeProps } from "../node-view"
 

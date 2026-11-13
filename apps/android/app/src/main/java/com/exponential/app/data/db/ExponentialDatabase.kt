@@ -25,12 +25,15 @@ import androidx.room.TypeConverters
         DeviceWorktreeEntity::class,
         PinEntity::class,
         IssueDraftEntity::class,
+        ComposerDraftEntity::class,
         SessionEntity::class,
         SessionIssueEntity::class,
         MessageEntity::class,
         PullRequestEntity::class,
         PullRequestIssueEntity::class,
         PullRequestCheckEntity::class,
+        CiRunEntity::class,
+        CiJobEntity::class,
         SessionReadEntity::class,
         AgentDefinitionEntity::class,
         EventEntity::class,
@@ -40,6 +43,7 @@ import androidx.room.TypeConverters
         AppVersionEntity::class,
         AppRecordEntity::class,
         AppRecordOutboxEntity::class,
+        OutboxEntity::class,
         ElectricOffsetEntity::class,
     ],
     // v105 (EXP-1459): sessions.seal_public_key, seal_epoch, sealed_title
@@ -90,7 +94,18 @@ import androidx.room.TypeConverters
     //      explicit [MIGRATION_121_122]; only the agents shape refetches.
     // v123 (large chats): messages index (root_id, created_at, id) replaces
     //      (root_id), explicit [MIGRATION_122_123]; nothing refetches.
-    version = 123,
+    // v124 (#FEED-219): the `composer_drafts` table (every composer's synced
+    //      draft), explicit [MIGRATION_123_124]; the new shape starts fresh.
+    // v125 (#EXP-1617 / #EXP-1804): devices.runner + the ci_runs and ci_jobs
+    //      tables (our own CI's run page), explicit [MIGRATION_124_125]; only
+    //      the devices shape refetches (the new shapes start fresh).
+    // v126 (#FEED-237): messages.delivered_at (the one check) + the LOCAL
+    //      `outbox` table (a person's unsent messages), explicit
+    //      [MIGRATION_125_126]; only the messages shape refetches.
+    // v127 (#FEED-237 FILES): outbox.pending_files (an entry's files not
+    //      uploaded yet survive a restart), explicit [MIGRATION_126_127];
+    //      nothing refetches.
+    version = 127,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)
@@ -114,12 +129,15 @@ abstract class ExponentialDatabase : RoomDatabase() {
     abstract fun deviceWorktreeDao(): DeviceWorktreeDao
     abstract fun pinDao(): PinDao
     abstract fun issueDraftDao(): IssueDraftDao
+    abstract fun composerDraftDao(): ComposerDraftDao
     abstract fun sessionDao(): SessionDao
     abstract fun sessionIssueDao(): SessionIssueDao
     abstract fun messageDao(): MessageDao
     abstract fun pullRequestDao(): PullRequestDao
     abstract fun pullRequestIssueDao(): PullRequestIssueDao
     abstract fun pullRequestCheckDao(): PullRequestCheckDao
+    abstract fun ciRunDao(): CiRunDao
+    abstract fun ciJobDao(): CiJobDao
     abstract fun sessionReadDao(): SessionReadDao
     abstract fun agentDefinitionDao(): AgentDefinitionDao
     abstract fun eventDao(): EventDao
@@ -129,5 +147,6 @@ abstract class ExponentialDatabase : RoomDatabase() {
     abstract fun appVersionDao(): AppVersionDao
     abstract fun appRecordDao(): AppRecordDao
     abstract fun appRecordOutboxDao(): AppRecordOutboxDao
+    abstract fun outboxDao(): OutboxDao
     abstract fun electricOffsetDao(): ElectricOffsetDao
 }

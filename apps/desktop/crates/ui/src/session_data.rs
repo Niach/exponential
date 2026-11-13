@@ -21,7 +21,7 @@ use domain::rows::{
     Issue, MessageRow, PullRequestIssueRow, PullRequestRow, SessionIssueRow, SessionReadRow, SessionRow,
 };
 use domain::session_tree::{
-    build_session_chat, list_agents, partition_chats, session_card, tree_order,
+    build_session_chat, list_agents, session_card, tree_order,
     AgentRow, SessionCard, SessionChatInput, SessionChatRow, SessionChatView, ChatsListGroup, ChatsListInput,
     TreeIssue,
 };
@@ -306,11 +306,22 @@ struct TitleStamp {
 /// = the store cannot tell (another store, a wholesale write, a link
 /// change): forget them all.
 fn forget_moved_titles(old: TitleStamp, new: TitleStamp, titles: &mut HashMap<String, Option<String>>, cx: &App) -> bool {
-    if old.store != new.store || old.revisions[1] != new.revisions[1] {
+    if old.store != new.store {
         return false;
     }
     let Some(store) = Store::try_global(cx) else { return false };
     let collections = store.collections();
+    // #PERF-10: a written link moves its session's title (a deleted one no
+    // longer names its session: then all of them).
+    if old.revisions[1] != new.revisions[1] {
+        let links = collections.session_issues.read(cx);
+        let Some(changed) = links.changed_since(old.revisions[1]) else { return false };
+        for key in changed {
+            let sync::protocol::RowKey::Single(id) = key else { return false };
+            let Some(link) = links.get(id) else { return false };
+            titles.remove(&link.session_id);
+        }
+    }
     if old.revisions[0] != new.revisions[0] {
         let sessions = collections.sessions.read(cx);
         let Some(changed) = sessions.changed_since(old.revisions[0]) else { return false };
@@ -346,26 +357,76 @@ thread_local! {
 /// built once per change of the collection (a per-session scan made every
 /// title of a large team O(sessions × links)).
 pub(crate) fn links_of_session(session_id: &str, cx: &App) -> Vec<SessionIssueRow> {
+    links_index(cx).0.get(session_id).cloned().unwrap_or_default()
+}
+
+/// The `session_issues` rows by session, and each link's session (a deleted
+/// link still names it). #PERF-10: kept per write of the collection (a link
+/// write rebuilt it from every row).
+type LinksIndex = Rc<(HashMap<String, Vec<SessionIssueRow>>, HashMap<String, String>)>;
+
+pub(crate) fn links_index(cx: &App) -> LinksIndex {
     thread_local! {
-        static INDEX: std::cell::RefCell<(Option<(gpui::EntityId, u64)>, Rc<HashMap<String, Vec<SessionIssueRow>>>)> = Default::default();
+        static INDEX: std::cell::RefCell<(Option<(gpui::EntityId, u64)>, LinksIndex)> = Default::default();
     }
     let Some(store) = Store::try_global(cx) else {
-        return Vec::new();
+        return Rc::default();
     };
     let collection = &store.collections().session_issues;
-    let stamp = (collection.entity_id(), collection.read(cx).revision());
-    let index = INDEX.with(|index| {
+    let links = collection.read(cx);
+    let stamp = (collection.entity_id(), links.revision());
+    INDEX.with(|index| {
         let mut index = index.borrow_mut();
-        if index.0 != Some(stamp) {
-            let mut by_session: HashMap<String, Vec<SessionIssueRow>> = HashMap::new();
-            for link in collection.read(cx).iter() {
-                by_session.entry(link.session_id.clone()).or_default().push(link.clone());
-            }
-            *index = (Some(stamp), Rc::new(by_session));
+        if index.0 == Some(stamp) {
+            return index.1.clone();
         }
+        let changed = index.0.filter(|old| old.0 == stamp.0).and_then(|old| links.changed_since(old.1));
+        let mut next = std::mem::take(&mut index.1);
+        let (by_session, session_of) = Rc::make_mut(&mut next);
+        match changed {
+            Some(changed) => {
+                let mut sessions: HashSet<String> = HashSet::new();
+                for key in changed {
+                    let sync::protocol::RowKey::Single(id) = key else { continue };
+                    if let Some(session) = session_of.remove(id) {
+                        sessions.insert(session);
+                    }
+                    if let Some(link) = links.get(id) {
+                        session_of.insert(id.clone(), link.session_id.clone());
+                        sessions.insert(link.session_id.clone());
+                    }
+                }
+                for session in sessions {
+                    by_session.remove(&session);
+                }
+                let mut rebuilt: HashMap<String, Vec<SessionIssueRow>> = HashMap::new();
+                for (id, session) in session_of.iter() {
+                    if !by_session.contains_key(session) {
+                        if let Some(link) = links.get(id) {
+                            rebuilt.entry(session.clone()).or_default().push(link.clone());
+                        }
+                    }
+                }
+                // In the collection's order, as a whole build reads them.
+                for (session, rows) in rebuilt {
+                    let mut rows = rows;
+                    let order: HashMap<&str, usize> = links.iter().enumerate().filter(|(_, link)| link.session_id == session).map(|(ix, link)| (link.id.as_str(), ix)).collect();
+                    rows.sort_by_key(|link| order.get(link.id.as_str()).copied().unwrap_or(usize::MAX));
+                    by_session.insert(session, rows);
+                }
+            }
+            None => {
+                by_session.clear();
+                session_of.clear();
+                for link in links.iter() {
+                    by_session.entry(link.session_id.clone()).or_default().push(link.clone());
+                    session_of.insert(link.id.clone(), link.session_id.clone());
+                }
+            }
+        }
+        *index = (Some(stamp), next);
         index.1.clone()
-    });
-    index.get(session_id).cloned().unwrap_or_default()
+    })
 }
 
 fn derive_session_title(session_id: &str, cx: &App) -> Option<String> {
@@ -483,6 +544,14 @@ pub(crate) fn first_issue_identifier(root_id: &str, cx: &App) -> Option<String> 
 /// never the transcript; the open chat, unread marking and pickup stay on
 /// [`keyed_messages`].
 pub(crate) fn digest_messages(cx: &App, keep: impl Fn(&str) -> bool) -> Vec<MessageRow> {
+    digest_message_lists(cx, keep).iter().flat_map(|rows| rows.iter().cloned()).collect()
+}
+
+/// [`digest_messages`] as the cached per-session lists, never cloned:
+/// #PERF-3: the rail's derives (the chat lists, Needs you) read every team
+/// session's digest on each sessions write, and cloning them all (bodies
+/// and cards) was most of a derive.
+pub(crate) fn digest_message_lists(cx: &App, keep: impl Fn(&str) -> bool) -> Vec<Rc<Vec<MessageRow>>> {
     let Some(store) = Store::try_global(cx) else {
         return Vec::new();
     };
@@ -509,18 +578,57 @@ pub(crate) fn digest_messages(cx: &App, keep: impl Fn(&str) -> bool) -> Vec<Mess
             }
             cache.0 = Some(stamp);
         }
-        let mut out: Vec<MessageRow> = Vec::new();
+        let mut out: Vec<Rc<Vec<MessageRow>>> = Vec::new();
         for session in sessions.iter() {
             if !keep(session.id.as_str()) {
                 continue;
             }
-            let rows = cache.1.entry(session.id.clone()).or_insert_with(|| {
-                let digest = domain::chats::ConversationDigest::decode(session.digest.as_ref());
-                Rc::new(domain::chats::digest_messages(&session.id, digest.as_ref()))
-            });
-            out.extend(rows.iter().cloned());
+            let rows = digest_entry(&mut cache.1, session);
+            if !rows.is_empty() {
+                out.push(rows);
+            }
         }
         out
+    })
+}
+
+fn digest_entry(cache: &mut HashMap<String, Rc<Vec<MessageRow>>>, session: &SessionRow) -> Rc<Vec<MessageRow>> {
+    cache
+        .entry(session.id.clone())
+        .or_insert_with(|| {
+            let digest = domain::chats::ConversationDigest::decode(session.digest.as_ref());
+            Rc::new(domain::chats::digest_messages(&session.id, digest.as_ref()))
+        })
+        .clone()
+}
+
+/// [`digest_message_lists`] of the given sessions, in their order, looked
+/// up by id (#PERF-10: a share or one tree read, never a pass over every
+/// session).
+pub(crate) fn digest_messages_of(rows: &[&SessionRow], cx: &App) -> Vec<Rc<Vec<MessageRow>>> {
+    let Some(store) = Store::try_global(cx) else {
+        return Vec::new();
+    };
+    let collection = &store.collections().sessions;
+    let sessions = collection.read(cx);
+    let stamp = (collection.entity_id(), sessions.revision());
+    DIGESTS.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if cache.0 != Some(stamp) {
+            let told = cache.0.filter(|old| old.0 == stamp.0).and_then(|old| sessions.changed_since(old.1));
+            match told {
+                Some(changed) => {
+                    for key in changed {
+                        if let sync::protocol::RowKey::Single(id) = key {
+                            cache.1.remove(id);
+                        }
+                    }
+                }
+                None => cache.1.clear(),
+            }
+            cache.0 = Some(stamp);
+        }
+        rows.iter().map(|session| digest_entry(&mut cache.1, session)).filter(|rows| !rows.is_empty()).collect()
     })
 }
 
@@ -1253,6 +1361,12 @@ struct ListsKey {
 #[derive(Default)]
 struct ListsMemo(Option<(ListsKey, Rc<Vec<ChatsListGroup>>)>);
 
+/// [`chat_lists`]' rows, kept per sessions write ([`crate::chat_rows`]).
+#[derive(Default)]
+struct IncrementalChatRows(Option<crate::chat_rows::ChatRows>);
+
+impl gpui::Global for IncrementalChatRows {}
+
 impl gpui::Global for ListsMemo {}
 
 /// The Chats page bands of `team_id` (`partition_chats`: Needs you ·
@@ -1277,56 +1391,12 @@ pub(crate) fn chat_lists(team_id: &str, cx: &mut App) -> Rc<Vec<ChatsListGroup>>
             return lists.clone();
         }
     }
-    let lists = Rc::new(derive_chat_lists(team_id, cx));
+    // #PERF-3: only the trees a sessions write touched derive again.
+    let mut rows = cx.default_global::<IncrementalChatRows>().0.take().unwrap_or_default();
+    let lists = Rc::new(rows.derive(team_id, now_ms(), cx));
+    cx.global_mut::<IncrementalChatRows>().0 = Some(rows);
     cx.global_mut::<ListsMemo>().0 = Some((key, lists.clone()));
     lists
-}
-
-fn derive_chat_lists(team_id: &str, cx: &App) -> Vec<ChatsListGroup> {
-    let collections = Store::global(cx).collections();
-    let sessions = collections.sessions.read(cx);
-    let rows: Vec<&SessionRow> = sessions
-        .iter()
-        .filter(|session| session.team_id.as_deref() == Some(team_id))
-        .collect();
-    // NEW-1: every session's OWN rows title it (root or child alike).
-    let team_session_ids: HashSet<&str> = rows.iter().map(|session| session.id.as_str()).collect();
-    let mut links: Vec<&SessionIssueRow> = collections
-        .session_issues
-        .read(cx)
-        .iter()
-        .filter(|link| team_session_ids.contains(link.session_id.as_str()))
-        .collect();
-    sort_links(&mut links);
-    let all_issues = collections.issues.read(cx);
-    let mut seen: HashSet<&str> = HashSet::new();
-    let issues: Vec<TreeIssue> = links
-        .iter()
-        .filter(|link| seen.insert(link.issue_id.as_str()))
-        .filter_map(|link| all_issues.get(&link.issue_id))
-        .map(TreeIssue::from_issue)
-        .collect();
-    // A session's own messages title it; EXP-1323: the tree's agent messages
-    // decide its unread bold (and each child's own).
-    let in_team: HashSet<&str> = rows.iter().map(|session| session.id.as_str()).collect();
-    // EXP-1341: every session's own first prompt names it; session e4a04d22:
-    // read off each conversation's digest, never the transcript.
-    let keyed: Vec<MessageRow> = digest_messages(cx, |owner| in_team.contains(owner));
-    let messages: Vec<&MessageRow> = keyed.iter().collect();
-    let session_reads = collections.session_reads.read(cx);
-    let reads: Vec<&SessionReadRow> = session_reads
-        .iter()
-        .filter(|read| in_team.contains(read.session_id.as_str()))
-        .collect();
-    partition_chats(ChatsListInput {
-        sessions: &rows,
-        session_issues: &links,
-        issues: &issues,
-        messages: &messages,
-        team_id: Some(team_id),
-        reads: &reads,
-        now_ms: Some(now_ms()),
-    })
 }
 
 // ---------------------------------------------------------------------------
@@ -1436,8 +1506,8 @@ fn derive_chats_model(team_id: &str, groups: &[ChatsListGroup], cx: &App) -> Cha
         )
         .collect();
     // Session e4a04d22: the digest's messages, never the transcript.
-    let keyed: Vec<MessageRow> = digest_messages(cx, |owner| roots.contains(owner));
-    let messages: Vec<&MessageRow> = keyed.iter().collect();
+    let keyed = digest_message_lists(cx, |owner| roots.contains(owner));
+    let messages: Vec<&MessageRow> = keyed.iter().flat_map(|rows| rows.iter()).collect();
     let session_reads = collections.session_reads.read(cx);
     let reads: Vec<&SessionReadRow> = session_reads
         .iter()
@@ -1456,14 +1526,12 @@ fn derive_chats_model(team_id: &str, groups: &[ChatsListGroup], cx: &App) -> Cha
             pr_states.entry(root.to_string()).or_default().push(pull.state.clone().unwrap_or_default());
         }
     }
+    let chat_words = crate::chats_view::ChatWords::new(&pulls);
     let words: HashMap<String, domain::session_tree::ChatRowWord> = groups
         .iter()
         .flat_map(|group| group.rows.iter())
         .filter(|row| row.depth == 0)
-        .filter_map(|row| {
-            crate::chats_view::chat_word(&row.session_id, row.busy, row.needs_you, row.offline, &pulls)
-                .map(|word| (row.session_id.clone(), word))
-        })
+        .filter_map(|row| chat_words.word(&row.session_id, row.busy, row.needs_you, row.offline).map(|word| (row.session_id.clone(), word)))
         .collect();
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let offset = chrono::Local::now().offset().local_minus_utc() / 60;
@@ -1511,6 +1579,45 @@ fn derive_chats_model(team_id: &str, groups: &[ChatsListGroup], cx: &App) -> Cha
         utc_offset_minutes: offset,
     });
     ChatsModel { list, archived, agent_rows, app_rows }
+}
+
+/// #FEED-232 / #PERF-10: each team agent's unread replies in MY
+/// conversation with it (the Chats model's `agent_rows[].unread_count`),
+/// derived alone: the rail reads only these, and the whole model (every
+/// chat's preview and time) was most of a rail derive.
+pub(crate) fn agent_unread_counts(team_id: &str, cx: &App) -> HashMap<String, usize> {
+    let Some(store) = Store::try_global(cx) else {
+        return HashMap::new();
+    };
+    let collections = store.collections();
+    let me = crate::queries::active_account(cx).map(|account| account.user_id);
+    let Some(me) = me else {
+        return agents_in_team(team_id, cx).into_iter().map(|agent| (agent.agent_id, 0)).collect();
+    };
+    let team_ids = synced_team_ids(cx);
+    let sessions = collections.sessions.read(cx);
+    // `agent_chat_rows`' conversation: my first root with the agent.
+    let mut conversations: HashMap<&str, &SessionRow> = HashMap::new();
+    for session in sessions.iter().filter(|session| in_team_or_personal(session, team_id, &team_ids, Some(me.as_str()))) {
+        if session.parent_id.as_deref().is_none_or(str::is_empty) && session.user_id.as_deref() == Some(me.as_str()) {
+            if let Some(agent) = session.agent_id.as_deref() {
+                conversations.entry(agent).or_insert(session);
+            }
+        }
+    }
+    let session_reads = collections.session_reads.read(cx);
+    agents_in_team(team_id, cx)
+        .into_iter()
+        .map(|agent| {
+            let count = conversations.get(agent.agent_id.as_str()).map_or(0, |conversation| {
+                let keyed = digest_messages_of(&[conversation], cx);
+                let messages: Vec<&MessageRow> = keyed.iter().flat_map(|rows| rows.iter()).collect();
+                let reads: Vec<&SessionReadRow> = session_reads.iter().filter(|read| read.session_id == conversation.id).collect();
+                domain::chats::unread_count(&conversation.id, &messages, &reads)
+            });
+            (agent.agent_id, count)
+        })
+        .collect()
 }
 
 /// #FEED-232: the Chats row's count (`nav_badges::chats_badge`): the chats
@@ -1687,51 +1794,110 @@ pub(crate) fn live_roots_from(
     sessions: &[&SessionRow],
     team_pulls: &[PullRequestRow],
 ) -> Vec<LiveRootRow> {
-    let mut trees: Option<HashMap<&str, Vec<&SessionRow>>> = None;
-    domain::session_tree::rail_chats(groups, |row| {
-        crate::chats_view::chat_word(&row.session_id, row.busy, row.needs_you, row.offline, team_pulls)
-    })
-    .into_iter()
-    .map(|row| {
-        // #LOGS-11: the trees grouped once, not one scan per row.
-        let trees = trees.get_or_insert_with(|| {
-            let mut trees: HashMap<&str, Vec<&SessionRow>> = HashMap::new();
-            for session in sessions.iter().copied() {
-                trees.entry(session.root_id_or_self()).or_default().push(session);
-                if session.root_id_or_self() != session.id {
-                    trees.entry(session.id.as_str()).or_default().push(session);
-                }
+    live_roots_with(groups, sessions, &crate::chats_view::ChatWords::new(team_pulls))
+}
+
+/// [`live_roots_from`] over the team's words read once.
+fn live_roots_with(groups: &[ChatsListGroup], sessions: &[&SessionRow], words: &crate::chats_view::ChatWords) -> Vec<LiveRootRow> {
+    let rows = domain::session_tree::rail_chats(groups, |row| words.word(&row.session_id, row.busy, row.needs_you, row.offline));
+    // #LOGS-11 / #PERF-3: the trees of the rail's rows only, in one pass.
+    let wanted: HashSet<&str> = rows.iter().map(|row| row.session_id.as_str()).collect();
+    let mut trees: HashMap<&str, Vec<&SessionRow>> = HashMap::new();
+    if !wanted.is_empty() {
+        for session in sessions.iter().copied() {
+            let root = session.root_id_or_self();
+            if wanted.contains(root) {
+                trees.entry(root).or_default().push(session);
             }
-            trees
-        });
-        let tree: Vec<&SessionRow> = trees.get(row.session_id.as_str()).cloned().unwrap_or_default();
-        LiveRootRow {
-            session_ids: tree_order(&tree).iter().map(|session| session.id.clone()).collect(),
-            root_id: row.session_id,
-            unread: row.unread,
-            team_id: row.team_id,
-            title: row.title,
-            busy: row.busy,
-            needs_you: row.needs_you,
-            device_id: row.device_id,
+            if root != session.id && wanted.contains(session.id.as_str()) {
+                trees.entry(session.id.as_str()).or_default().push(session);
+            }
         }
-    })
-    .collect()
+    }
+    rows.into_iter()
+        .map(|row| {
+            let tree: Vec<&SessionRow> = trees.get(row.session_id.as_str()).cloned().unwrap_or_default();
+            LiveRootRow {
+                session_ids: tree_order(&tree).iter().map(|session| session.id.clone()).collect(),
+                root_id: row.session_id,
+                unread: row.unread,
+                team_id: row.team_id,
+                title: row.title,
+                busy: row.busy,
+                needs_you: row.needs_you,
+                device_id: row.device_id,
+            }
+        })
+        .collect()
+}
+
+/// #PERF-3: the team's chat words ([`crate::chats_view::ChatWords`]), once
+/// per change of its pull requests.
+fn team_chat_words(team_id: &str, cx: &App) -> Rc<crate::chats_view::ChatWords> {
+    type Memo = Option<(Rc<Vec<PullRequestRow>>, Rc<crate::chats_view::ChatWords>)>;
+    thread_local! {
+        static MEMO: std::cell::RefCell<Memo> = const { std::cell::RefCell::new(None) };
+    }
+    let pulls = team_pulls(team_id, cx);
+    if let Some(hit) = MEMO.with(|memo| memo.borrow().as_ref().filter(|(at, _)| Rc::ptr_eq(at, &pulls)).map(|(_, words)| words.clone())) {
+        return hit;
+    }
+    let words = Rc::new(crate::chats_view::ChatWords::new(&pulls));
+    MEMO.with(|memo| *memo.borrow_mut() = Some((pulls, words.clone())));
+    words
+}
+
+/// #PERF-3: the team's pull requests, once per change of the collection (a
+/// sessions write re-derived the rail and cloned all of them).
+pub(crate) fn team_pulls(team_id: &str, cx: &App) -> Rc<Vec<PullRequestRow>> {
+    // Per team: the team picker's counts fold every synced team (#FEED-232).
+    type Memo = HashMap<String, ((gpui::EntityId, u64), Rc<Vec<PullRequestRow>>)>;
+    thread_local! {
+        static MEMO: std::cell::RefCell<Memo> = Default::default();
+    }
+    let Some(store) = Store::try_global(cx) else { return Rc::default() };
+    let pulls = &store.collections().pull_requests;
+    let key = (pulls.entity_id(), pulls.read(cx).revision());
+    if let Some(hit) = MEMO.with(|memo| memo.borrow().get(team_id).filter(|(at, _)| *at == key).map(|(_, rows)| rows.clone())) {
+        return hit;
+    }
+    let rows: Rc<Vec<PullRequestRow>> = Rc::new(pulls.read(cx).iter().filter(|pull| pull.team_id.as_deref() == Some(team_id)).cloned().collect());
+    MEMO.with(|memo| memo.borrow_mut().insert(team_id.to_string(), (key, rows.clone())));
+    rows
 }
 
 /// The rail's Active band for `team_id` ([`live_roots_from`]).
 pub(crate) fn live_roots_for_rail(team_id: &str, cx: &mut App) -> Vec<LiveRootRow> {
+    type Memo = Option<((Rc<Vec<ChatsListGroup>>, Rc<crate::chats_view::ChatWords>, gpui::EntityId, u64), Vec<LiveRootRow>)>;
+    thread_local! {
+        static MEMO: std::cell::RefCell<Memo> = const { std::cell::RefCell::new(None) };
+    }
     let groups = chat_lists(team_id, cx);
     let Some(store) = Store::try_global(cx) else {
         return Vec::new();
     };
-    let pulls = team_pr_snapshot(team_id, cx).pulls;
-    let sessions = store.collections().sessions.read(cx);
+    let words = team_chat_words(team_id, cx);
+    let sessions = &store.collections().sessions;
+    // #PERF-10: the bands, the words and the trees as they were: the rows
+    // stand (an agent, a team or a read mark write moved none of them).
+    let stamp = (sessions.entity_id(), sessions.read(cx).revision());
+    let hit = MEMO.with(|memo| {
+        memo.borrow()
+            .as_ref()
+            .filter(|((at_groups, at_words, store, revision), _)| Rc::ptr_eq(at_groups, &groups) && Rc::ptr_eq(at_words, &words) && (*store, *revision) == stamp)
+            .map(|(_, rows)| rows.clone())
+    });
+    if let Some(rows) = hit {
+        return rows;
+    }
+    let sessions = sessions.read(cx);
     let rows: Vec<&SessionRow> = sessions
         .iter()
         .filter(|session| session.team_id.as_deref() == Some(team_id))
         .collect();
-    live_roots_from(&groups, &rows, &pulls)
+    let live = live_roots_with(&groups, &rows, &words);
+    MEMO.with(|memo| *memo.borrow_mut() = Some(((groups, words, stamp.0, stamp.1), live.clone())));
+    live
 }
 
 /// Re-render a view whenever one of the five session collections (or the

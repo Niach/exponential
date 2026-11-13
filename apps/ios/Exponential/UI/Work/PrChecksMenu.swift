@@ -48,13 +48,22 @@ struct PrChecksMenuEntryLabel: View {
 struct PrChecksMenuRows: View {
     let rows: [PrChecks.ListRow]
     @Environment(\.openURL) private var openURL
+    @Environment(AppDependencies.self) private var deps: AppDependencies?
 
     var body: some View {
         VStack(spacing: 0) {
             ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                 let url = row.url.flatMap(URL.init(string:))
                 Button {
-                    if let url { openURL(url) }
+                    guard let url else { return }
+                    // #EXP-1804 (ci-run.json): our own CI's Details link opens
+                    // THE run page in the app (an account on its host); any
+                    // other check's logs open in the browser.
+                    if let deps, CiRun.parsePath(url.path) != nil {
+                        LinkOpener.openWebLink(url, deps: deps)
+                    } else {
+                        openURL(url)
+                    }
                 } label: {
                     GlassMenuItemLabel(
                         row.name,

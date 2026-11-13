@@ -83,6 +83,31 @@ pub struct IdeActiveInput {
     pub unread: bool,
 }
 
+/// #EXP-1616: one open PR of an Exponential repository, already placed in
+/// its repo's tree by the host (`domain::repo_page::repo_pr_tree`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IdePrInput {
+    pub id: String,
+    /// `#<number>`.
+    pub identifier: String,
+    pub title: String,
+    /// `<head> → <base>`.
+    pub subtitle: String,
+    pub depth: usize,
+    /// The chat (root session) that opened it: its row lights while that
+    /// chat is open (a PR has no page of its own).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
+}
+
+/// #EXP-1616: an Exponential (`ecode`) repository and its live PR tree.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IdeRepoInput {
+    pub id: String,
+    pub name: String,
+    pub prs: Vec<IdePrInput>,
+}
+
 /// What the host knows.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -98,6 +123,8 @@ pub struct IdeSidebarInput {
     pub apps: Vec<IdeAppInput>,
     pub boards: Vec<IdeBoardInput>,
     pub active: Vec<IdeActiveInput>,
+    #[serde(default)]
+    pub repos: Vec<IdeRepoInput>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -155,6 +182,20 @@ pub struct IdeBoards {
     pub empty: bool,
 }
 
+/// #EXP-1616: one row of the Pull requests tree: a repository at depth 0,
+/// its PRs under it (their tree depth + 1). Every row opens `repo`'s page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IdePrRow {
+    pub id: String,
+    pub repo: String,
+    pub title: String,
+    pub identifier: Option<String>,
+    pub subtitle: Option<String>,
+    pub icon: Option<String>,
+    pub depth: usize,
+    pub selected: bool,
+}
+
 /// What the document binds.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IdeSidebar {
@@ -164,6 +205,7 @@ pub struct IdeSidebar {
     pub apps: IdeApps,
     pub boards: IdeBoards,
     pub active: Vec<IdeActiveRow>,
+    pub prs: Vec<IdePrRow>,
 }
 
 fn copy(id: &str) -> String {
@@ -235,6 +277,24 @@ pub fn ide_sidebar(input: &IdeSidebarInput) -> IdeSidebar {
             empty: input.boards.is_empty(),
         },
         active: input.active.iter().map(|a| IdeActiveRow { id: a.id.clone(), title: a.title.clone(), icon: a.icon.clone(), selected: on("chat", &a.id) || a.session_ids.iter().any(|id| on("session", id)), unread: a.unread }).collect(),
+        prs: input
+            .repos
+            .iter()
+            .filter(|r| !r.prs.is_empty())
+            .flat_map(|r| {
+                let head = IdePrRow { id: r.id.clone(), repo: r.id.clone(), title: r.name.clone(), identifier: None, subtitle: None, icon: Some("ui-repository".into()), depth: 0, selected: on("repo", &r.id) };
+                std::iter::once(head).chain(r.prs.iter().map(|p| IdePrRow {
+                    id: p.id.clone(),
+                    repo: r.id.clone(),
+                    title: p.title.clone(),
+                    identifier: Some(p.identifier.clone()),
+                    subtitle: Some(p.subtitle.clone()),
+                    icon: None,
+                    depth: p.depth + 1,
+                    selected: p.session.as_deref().is_some_and(|id| on("chat", id) || on("session", id)),
+                }))
+            })
+            .collect(),
     }
 }
 
@@ -259,10 +319,37 @@ pub struct IdeTabs {
     pub active_tab: Option<String>,
 }
 
-/// The bottom tab bar: every open tab in tab order, the active one by key.
+/// The tab bar: every open tab in tab order, the active one by key.
 pub fn ide_tabs(tabs: &[IdeTabInput], active: Option<&str>) -> IdeTabs {
     IdeTabs {
         tabs: tabs.iter().map(|t| IdeTab { value: t.key.clone(), label: t.title.clone(), icon: t.icon.clone() }).collect(),
         active_tab: active.filter(|a| tabs.iter().any(|t| t.key == *a)).map(str::to_string),
+    }
+}
+
+/// Which edge of the IDE's window a strip sits on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum IdeEdge {
+    Top,
+    Bottom,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IdeTabPlacement {
+    /// The tab bar's edge.
+    pub placement: IdeEdge,
+    /// The side the +N menu opens on: away from that edge.
+    pub more_side: IdeEdge,
+}
+
+/// Where the tab bar sits: on top in the standalone IDE, at the bottom
+/// inside Exponential Desktop (`ede`).
+pub fn ide_tab_placement(ede: bool) -> IdeTabPlacement {
+    if ede {
+        IdeTabPlacement { placement: IdeEdge::Bottom, more_side: IdeEdge::Top }
+    } else {
+        IdeTabPlacement { placement: IdeEdge::Top, more_side: IdeEdge::Bottom }
     }
 }

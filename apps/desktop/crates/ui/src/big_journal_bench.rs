@@ -393,3 +393,47 @@ fn a_large_journal_opens_on_a_window(cx: &mut gpui::TestAppContext) {
     assert!(open.items_after_top > open.feed_items, "{open:#?}");
     drop(dir);
 }
+
+/// #PERF-4: a chat whose state did not move draws its frames (an animating
+/// mark draws at display rate) without rebuilding the composer's document
+/// (its "+" rows carry every open issue) or the transcript's.
+#[gpui::test]
+fn an_unchanged_chat_frame_rebuilds_no_document(cx: &mut gpui::TestAppContext) {
+    use crate::steer_viewer::chat_tab_composer::COMPOSER_VIEWS;
+    let dir = tempfile::tempdir().unwrap();
+    seed(cx, dir.path(), &synthetic_journal(400), "idle");
+    // Zeroed before the window: its first draw may already mount it all.
+    COMPOSER_VIEWS.with(|n| n.set(0));
+    let (view, cx) = cx.add_window_view(|window, cx| SessionChatScreenView::new(SESSION.to_string(), window, cx));
+    cx.simulate_resize(gpui::size(px(1200.), px(800.)));
+    // The chat settles (its journal read lands off the main thread, the
+    // composer mounts) before the frames measured.
+    for _ in 0..100 {
+        cx.run_until_parked();
+        draw(cx);
+        if COMPOSER_VIEWS.with(|n| n.get()) > 0 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    for _ in 0..4 {
+        cx.run_until_parked();
+        draw(cx);
+    }
+    let state = view.read_with(cx, |view, cx| {
+        let steer = view.inner_for_bench(cx);
+        let steer = steer.read(cx);
+        format!("model {} · may_message {} · feed {:?} · painted {:?}", view.model.is_some(), steer.may_message(), steer.bench_counts(), counters::take())
+    });
+    assert!(COMPOSER_VIEWS.with(|n| n.get()) > 0, "the composer drew: {state}");
+    COMPOSER_VIEWS.with(|n| n.set(0));
+    counters::reset();
+    for _ in 0..5 {
+        draw(cx);
+    }
+    let (painted, _, bodies) = counters::take();
+    assert!(painted > 0, "the frames painted the transcript");
+    assert_eq!(COMPOSER_VIEWS.with(|n| n.get()), 0, "the composer's document rebuilt on an unchanged frame");
+    assert_eq!(bodies, 0, "the transcript's document re-prepared on an unchanged frame");
+    drop(dir);
+}

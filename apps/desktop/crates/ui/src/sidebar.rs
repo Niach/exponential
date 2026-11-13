@@ -293,7 +293,9 @@ fn parse_dev_settings_section(spec: &str) -> Option<crate::settings::SettingsSec
             .map(|id| S::Board(id.to_string()))
             .or_else(|| spec.strip_prefix("agent:").map(|id| S::Agent(id.to_string())))
             .or_else(|| spec.strip_prefix("prompt:").map(|id| S::Prompt(id.to_string())))
-            .or_else(|| spec.strip_prefix("skill:").map(|id| S::Skill(id.to_string()))),
+            .or_else(|| spec.strip_prefix("skill:").map(|id| S::Skill(id.to_string())))
+            // #EXP-1616: the repo page of the repo whose full name ends in `/<name>`.
+            .or_else(|| spec.strip_prefix("repo:").map(|name| S::Repository(format!("{}{name}", crate::settings::repo_page::BY_NAME)))),
     }
 }
 
@@ -305,6 +307,12 @@ struct RailRegistry {
 impl gpui::Global for RailRegistry {}
 
 /// The window's shared rail state, created on first access.
+/// #EXP-1616: the settings section a window's rail selects, without the
+/// window (the IDE sidebar's model lights the open repo page's rows).
+pub(crate) fn any_settings_section(cx: &App) -> Option<crate::settings::SettingsSection> {
+    cx.try_global::<RailRegistry>()?.by_window.values().next().map(|shared| shared.read(cx).settings_section.clone())
+}
+
 pub(crate) fn rail_shared_for_window(
     window: &mut Window,
     cx: &mut App,
@@ -757,6 +765,8 @@ impl RailView {
             cx.observe(&collections.pins, |_, _, cx| cx.notify()),
             // EXP-878: the conditional Drafts entry and its count.
             cx.observe(&collections.issue_drafts, |_, _, cx| cx.notify()),
+            // #EXP-1616: the Pull requests tree.
+            cx.observe(&collections.pull_requests, |_, _, cx| cx.notify()),
             // EXP-311: the account button's avatar rides the users shape
             // (profile image URL) plus the async avatar-byte cache.
             cx.observe(&collections.users, |_, _, cx| cx.notify()),
@@ -948,6 +958,9 @@ impl Render for RailView {
         // open: auto-clone on board open + the attention badge both ride the
         // GitBar's load gate.
         let git_bar = self.shared.read(cx).git_bar.clone();
+        // #PERF-3: the rail's stages are spans of their own (a hang read
+        // `render(RailView)` and nothing under it).
+        let git_span = tracing::trace_span!("rail.git").entered();
         git_bar.update(cx, |bar, cx| bar.ensure_loaded(window, cx));
 
         // A branch checkout changes the working tree — refresh the file tree
@@ -1019,6 +1032,7 @@ impl Render for RailView {
 
         // EXP-1105: yolo mode hides Files / Source Control unless a git
         // failure needs a person (see `yolo_rail`).
+        drop(git_span);
         let rail_gate = yolo_rail(team_yolo.unwrap_or(false), sc_failing);
         let computer = ComputerState {
             files: rail_gate.files,
@@ -1037,6 +1051,7 @@ impl Render for RailView {
         self.region.update(cx, |region, cx| {
             region.set_computer(computer);
             if stale {
+                let _span = tracing::trace_span!("rail.derive").entered();
                 region.refresh(&nav, cx);
             } else {
                 region.repaint_computer(cx);

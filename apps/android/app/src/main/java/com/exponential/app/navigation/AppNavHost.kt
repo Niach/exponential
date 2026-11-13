@@ -75,6 +75,11 @@ import com.exponential.app.domain.SettingsNav
 import com.exponential.app.data.electric.SyncHealth
 import androidx.browser.customtabs.CustomTabsIntent
 import com.exponential.app.data.push.DeepLinkBus
+import com.exponential.app.data.push.InAppNotifications
+import com.exponential.app.domain.NotificationDelivery
+import com.exponential.app.domain.ToastAction
+import com.exponential.app.data.push.PushDeepLinks
+import com.exponential.app.domain.InboxRoute
 import com.exponential.app.domain.AppShortcuts
 import com.exponential.app.data.push.WebLinkResolver
 import com.exponential.app.domain.AGENT_ROUTE
@@ -203,6 +208,21 @@ fun AppNavHost() {
     // ToastHost at the top (below the status bar), where no bottom sheet,
     // nav bar or keyboard ever covers it.
     val toaster = remember { Toaster() }
+    // #EXP-1815: a push that lands while the app is up is THE toast (kind
+    // info, its title and body, `Open` = the push tap's route); FcmService
+    // posts nothing to the shade then.
+    val inAppNotifications = applicationInAppNotifications()
+    LaunchedEffect(inAppNotifications, toaster) {
+        inAppNotifications.toasts.collect { push ->
+            toaster.info(
+                push.title,
+                push.body,
+                ToastAction(NotificationDelivery.Copy.TOAST_ACTION) {
+                    runCatching { context.startActivity(push.open) }
+                },
+            )
+        }
+    }
 
     // EXP-980 / #EXP-1456: a session push tap or inbox row (a wall, an
     // agent's decision, an @mention) opens where that session lives
@@ -210,13 +230,19 @@ fun AppNavHost() {
     // chat root = the chat, else the session view. Same snapshot hazard
     // as the issue route — the screens read their id from SavedStateHandle
     // once. #EXP-1638: a recent-chat app shortcut rides the same open.
-    suspend fun openSession(id: String) {
+    suspend fun openSession(id: String, card: PushDeepLinks.Card? = null) {
         // #EXP-1662: a session with a waiting plan of its own = its
-        // chat's plan tab, on that plan.
-        val planRoot = webLinkResolver.planChat(id)
-        val route = planRoot?.let { root ->
-            webLinkResolver.planPageTarget(id)?.let { Routes.chatPlan(root, it) }
-        } ?: sessionTargetRoute(id, webLinkResolver.sessionTarget(id))
+        // chat's plan tab, on that plan. waiting-cards.json DEEP LINKS: a
+        // push's card (its `messageId`), else the session's waiting
+        // question, lands its chat on that card.
+        val target = webLinkResolver.sessionTarget(id)
+        val root = webLinkResolver.planChat(id) ?: card?.rootId
+        val landing = when {
+            card != null -> InboxRoute.landing(target, root, card.messageId, card.plan)
+            else -> webLinkResolver.planPageTarget(id)?.let { InboxRoute.landing(target, root, it, plan = true) }
+                ?: InboxRoute.landing(target, root, webLinkResolver.waitingCard(id), plan = false)
+        }
+        val route = landingRoute(landing) ?: sessionTargetRoute(id, target)
         val teamSwitch = viewModel.planTeamSwitch(null, webLinkResolver.teamOfSession(id))
         guarded {
             teamSwitch?.let(viewModel::applyTeamSwitch)
@@ -255,7 +281,7 @@ fun AppNavHost() {
                 navController.selectTab(MainTabs.CHATS, tabSwitch, restore = false)
                 navController.navigate(MainTabs.INBOX) { launchSingleTop = true }
             }
-            is DeepLinkBus.Target.Session -> openSession(target.id)
+            is DeepLinkBus.Target.Session -> openSession(target.id, target.card)
             // #EXP-1638 (app-shortcuts.json): the app icon's long-press menu,
             // onto the pages the app already has.
             is DeepLinkBus.Target.AppShortcut -> when (val shortcut = target.target) {
@@ -534,6 +560,13 @@ private fun AuthenticatedNav(
     // and settings screens get the full height back.
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+    // #EXP-1815: the screen on top's thread, for FcmService's presentation.
+    val inAppNotifications = applicationInAppNotifications()
+    DisposableEffect(backStackEntry) {
+        inAppNotifications.setViewing(ViewingThreads.of(currentRoute) { backStackEntry?.arguments?.getString(it) })
+        onDispose { }
+    }
+    DisposableEffect(Unit) { onDispose { inAppNotifications.setViewing(null) } }
     // EXP-1210: the tab whose stack is up — a detail pushed inside a tab
     // still lights that tab.
     val currentTab = remember(backStackEntry) { navController.currentTab() }
@@ -855,6 +888,7 @@ private fun AuthenticatedNav(
                 onOpenTeamSettings = { section -> navController.navigate(Routes.teamSettings(section)) },
                 onOpenSyncDiagnostics = { navController.navigate("sync-diagnostics") },
                 onOpenAbout = { navController.navigate("about") },
+                onOpenNotifications = { navController.navigate(Routes.NOTIFICATION_SETTINGS) },
                 onAddServer = { navController.navigate("add-server") },
                 onOpenAgentHome = { navController.selectTab(MainTabs.AGENT, tabSwitch) },
             )
@@ -911,10 +945,14 @@ private fun AuthenticatedNav(
                 onOpenTeamSettings = { section -> navController.navigate(Routes.teamSettings(section)) },
                 onOpenSyncDiagnostics = { navController.navigate("sync-diagnostics") },
                 onOpenAbout = { navController.navigate("about") },
+                onOpenNotifications = { navController.navigate(Routes.NOTIFICATION_SETTINGS) },
                 onAddServer = { navController.navigate("add-server") },
                 onBack = { navController.popBackStack() },
                 onOpenAgentHome = { navController.selectTab(MainTabs.AGENT, tabSwitch) },
             )
+        }
+        composable(Routes.NOTIFICATION_SETTINGS) {
+            com.exponential.app.ui.settings.NotificationSettingsScreen(onBack = { navController.popBackStack() })
         }
         composable("sync-diagnostics") {
             SyncDiagnosticsScreen(onBack = { navController.popBackStack() })
@@ -1008,7 +1046,10 @@ private fun AuthenticatedNav(
                     onBack = back,
                     onOpenSkill = { id -> navController.navigate(Routes.skillSettings(id)) },
                 )
-                else -> TeamSettingsScreen(onBack = back)
+                else -> TeamSettingsScreen(
+                    onBack = back,
+                    onOpenRepo = { id -> navController.navigate(Routes.repo(id)) },
+                )
             }
             }
         }
@@ -1260,6 +1301,44 @@ private fun AuthenticatedNav(
         }
         composable(Routes.SKILL_SETTINGS_PATTERN) {
             SkillSettingsScreen(onBack = { navController.popBackStack() })
+        }
+        composable(
+            Routes.CI_RUN_PATTERN,
+            arguments = listOf(
+                navArgument("job") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) {
+            // #EXP-1804 (ci-run.json): THE run page of our own CI; Re-run
+            // failed opens the new run in its place.
+            com.exponential.app.ui.ci.CiRunScreen(
+                onBack = { navController.popBackStack() },
+                onOpenRun = { id ->
+                    navController.navigate(Routes.ciRun(id)) { popUpTo(Routes.CI_RUN_PATTERN) { inclusive = true } }
+                },
+            )
+        }
+        // #EXP-1616 (repo-page.json): the repo page; the ViewModel reads
+        // `repositoryId` + `tab` off the SavedStateHandle.
+        composable(
+            Routes.REPO_PATTERN,
+            arguments = listOf(
+                navArgument("repositoryId") { type = NavType.StringType },
+                navArgument("tab") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) {
+            com.exponential.app.ui.repo.RepoPageScreen(
+                onBack = { navController.popBackStack() },
+                // #EXP-1617 (repo-ci.json): a run row opens THE run page.
+                onOpenRun = { runId -> navController.navigate(Routes.ciRun(runId)) },
+            )
         }
         composable(Routes.MCP_ACTIVITY) {
             McpActivityScreen(onBack = { navController.popBackStack() })
@@ -1626,6 +1705,18 @@ private fun OfflineBanner(
 private fun applicationDeepLinkBus(): DeepLinkBus {
     val app = LocalContext.current.applicationContext as ExponentialApp
     return EntryPointAccessors.fromApplication(app, DeepLinkEntryPoint::class.java).deepLinkBus()
+}
+
+@Composable
+private fun applicationInAppNotifications(): InAppNotifications {
+    val app = LocalContext.current.applicationContext as ExponentialApp
+    return EntryPointAccessors.fromApplication(app, InAppNotificationsEntryPoint::class.java).inAppNotifications()
+}
+
+@dagger.hilt.EntryPoint
+@dagger.hilt.InstallIn(dagger.hilt.components.SingletonComponent::class)
+private interface InAppNotificationsEntryPoint {
+    fun inAppNotifications(): InAppNotifications
 }
 
 @Composable

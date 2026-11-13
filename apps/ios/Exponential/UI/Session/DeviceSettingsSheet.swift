@@ -43,6 +43,8 @@ import SwiftUI
 //              is always ANOTHER device: Update queues `agent_update {agent}`,
 //              Sign in opens the remote `AgentLoginSheet`; local-only
 //              actions render no pill.
+//   CI runner — #EXP-1804 (runner-settings.json): `RunnerSettingsSection`,
+//              a genUI surface; one `ci.setRunner` per change.
 //   Update   — EXP-909, SERVER devices only (a desktop app updates itself):
 //              the version, an amber "Update available" caption, and the
 //              Update / Queued / Updating… control the device ROW used to
@@ -169,6 +171,13 @@ struct DeviceSettingsSheet: View {
                         computerUseSection
                     }
                     defaultsSection(device)
+                    // #EXP-1617 / #EXP-1804 (runner-settings.json): the CI
+                    // runner section, a genUI surface.
+                    Section {
+                        RunnerSettingsSection(device: device)
+                            .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+                            .listRowBackground(Color.clear)
+                    }
                     if device.isServer {
                         updateSection(device)
                     }

@@ -14,7 +14,7 @@ export const Route = createFileRoute(`/api/teams/$teamId/session-files`)({
         try {
           return await handleTeamSessionAttachmentUpload(context)
         } catch (error) {
-          return errorToResponse(error)
+          return errorToResponse(error, context.request)
         }
       },
     },

@@ -341,4 +341,12 @@ final class SteerFileMessageTests: XCTestCase {
         XCTAssertEqual(parsed.attachmentIds, [idA])
         XCTAssertEqual(parsed.files, [])
     }
+
+    // EXP-1635: a share over the composer's caps says which cap it hit.
+    func testAShareOverTheCapsGetsTheCapNote() {
+        XCTAssertNil(SteerImageMessage.capNote(images: 4, files: 4))
+        XCTAssertEqual(SteerImageMessage.capNote(images: 5, files: 0), "Up to 4 images per message")
+        XCTAssertEqual(SteerImageMessage.capNote(images: 1, files: 4, moreFiles: true), SteerImageMessage.filesFullMessage)
+        XCTAssertEqual(SteerImageMessage.capNote(images: 0, files: 5), SteerImageMessage.filesFullMessage)
+    }
 }

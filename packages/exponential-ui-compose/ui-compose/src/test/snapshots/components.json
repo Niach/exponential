@@ -7472,6 +7472,202 @@
       }
     ]
   },
+  "CodeBlock\/follow=false" : {
+    "height" : 76.75,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0a",
+        "border" : 1,
+        "component" : "CodeBlock",
+        "frame" : [
+          0,
+          0,
+          390,
+          76.75
+        ],
+        "id" : "code_block",
+        "radius" : 12
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          13,
+          388,
+          20
+        ],
+        "id" : "code_block.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          13,
+          16,
+          20
+        ],
+        "id" : "code_block.title",
+        "part" : "title"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          353,
+          11,
+          24,
+          24
+        ],
+        "id" : "code_block.copy",
+        "part" : "copy",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          41,
+          388,
+          22.75
+        ],
+        "id" : "code_block.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          41,
+          388,
+          22.75
+        ],
+        "id" : "code_block.line.0",
+        "part" : "line"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          21,
+          41,
+          8,
+          22.75
+        ],
+        "id" : "code_block.lineNumber.0",
+        "opacity" : 0.699999988079071,
+        "part" : "lineNumber"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          37,
+          41,
+          248,
+          22.75
+        ],
+        "id" : "code_block.code.0",
+        "part" : "code"
+      }
+    ]
+  },
+  "CodeBlock\/follow=true" : {
+    "height" : 76.75,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0a",
+        "border" : 1,
+        "component" : "CodeBlock",
+        "frame" : [
+          0,
+          0,
+          390,
+          76.75
+        ],
+        "id" : "code_block",
+        "radius" : 12
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          13,
+          388,
+          20
+        ],
+        "id" : "code_block.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          13,
+          16,
+          20
+        ],
+        "id" : "code_block.title",
+        "part" : "title"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          353,
+          11,
+          24,
+          24
+        ],
+        "id" : "code_block.copy",
+        "part" : "copy",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          41,
+          388,
+          22.75
+        ],
+        "id" : "code_block.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          41,
+          388,
+          22.75
+        ],
+        "id" : "code_block.line.0",
+        "part" : "line"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          21,
+          41,
+          8,
+          22.75
+        ],
+        "id" : "code_block.lineNumber.0",
+        "opacity" : 0.699999988079071,
+        "part" : "lineNumber"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          37,
+          41,
+          248,
+          22.75
+        ],
+        "id" : "code_block.code.0",
+        "part" : "code"
+      }
+    ]
+  },
   "CodeBlock\/language=ansi" : {
     "height" : 76.75,
     "nodes" : [
@@ -17325,6 +17521,74 @@
       }
     ]
   },
+  "MessageBubble\/status=failed" : {
+    "height" : 64,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          64
+        ],
+        "id" : "message_bubble"
+      },
+      {
+        "bg" : "#ffffff1c",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          192,
+          0,
+          198,
+          64
+        ],
+        "id" : "message_bubble.bubble",
+        "radius" : 16
+      },
+      {
+        "component" : "Markdown",
+        "frame" : [
+          207,
+          11,
+          168,
+          20
+        ],
+        "id" : "message_bubble.bubble.text"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          317,
+          33,
+          58,
+          20
+        ],
+        "id" : "message_bubble.bubble.footer"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          317,
+          33,
+          40,
+          20
+        ],
+        "id" : "message_bubble.bubble.footer.time"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          361,
+          36,
+          14,
+          14
+        ],
+        "id" : "message_bubble.bubble.footer.status"
+      }
+    ]
+  },
   "MessageBubble\/status=read" : {
     "height" : 64,
     "nodes" : [
@@ -17526,6 +17790,81 @@
           14
         ],
         "id" : "message_bubble.bubble.footer.status"
+      }
+    ]
+  },
+  "MessageStatus\/example" : {
+    "height" : 14,
+    "nodes" : [
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          0,
+          14,
+          14
+        ],
+        "id" : "message_status"
+      }
+    ]
+  },
+  "MessageStatus\/status=failed" : {
+    "height" : 14,
+    "nodes" : [
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          0,
+          14,
+          14
+        ],
+        "id" : "message_status"
+      }
+    ]
+  },
+  "MessageStatus\/status=read" : {
+    "height" : 14,
+    "nodes" : [
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          0,
+          14,
+          14
+        ],
+        "id" : "message_status"
+      }
+    ]
+  },
+  "MessageStatus\/status=sending" : {
+    "height" : 14,
+    "nodes" : [
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          0,
+          14,
+          14
+        ],
+        "id" : "message_status"
+      }
+    ]
+  },
+  "MessageStatus\/status=sent" : {
+    "height" : 14,
+    "nodes" : [
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          0,
+          14,
+          14
+        ],
+        "id" : "message_status"
       }
     ]
   },

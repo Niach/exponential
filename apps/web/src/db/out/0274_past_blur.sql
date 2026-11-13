@@ -1,0 +1,3 @@
+-- #EXP-1614: the schema lost `repositories.installation_id` and `pull_requests.github_updated_at`; their drops wait as contract steps (src/db/contract-steps.ts). Re-sync what the previous release dual-wrote, so nothing written between 0273 and this release is lost.
+UPDATE "repositories" SET "provider_config" = coalesce("provider_config", '{}'::jsonb) || jsonb_build_object('installationId', "installation_id") WHERE "installation_id" IS NOT NULL AND ("provider_config"->'installationId') IS DISTINCT FROM to_jsonb("installation_id");--> statement-breakpoint
+UPDATE "pull_requests" SET "provider_updated_at" = "github_updated_at" WHERE "github_updated_at" IS NOT NULL AND ("provider_updated_at" IS NULL OR "provider_updated_at" < "github_updated_at");

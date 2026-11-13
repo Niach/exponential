@@ -317,6 +317,9 @@ pub(crate) struct ComposerDoc {
     /// was built with.
     props: Value,
     chatting: Value,
+    /// #PERF-4: the input (and placeholder) `props` + `chatting` were
+    /// derived from.
+    shown_input: Option<(uicore_model::chat::ChatInput, String)>,
     menu: Value,
     files: Value,
     /// The draft the document's field holds (as it last reported it, or as
@@ -428,21 +431,31 @@ impl ComposerDoc {
         self.mount(steer, team_id, window, cx);
         let view = self.view.clone()?;
         self.state.borrow_mut().submits_empty = frame.submits_empty;
-        let mut composer = uicore_model::chat::chat_view(&frame.input).composer;
-        composer.placeholder = frame.placeholder.clone();
-        let props = json!({"placeholder": composer.placeholder, "busy": composer.busy, "items": composer.menu});
-        if props != self.props {
-            self.props = props;
-            let mut doc = document();
-            uicore_gpui::inline::set_prop(&mut doc, COMPOSER, "placeholder", json!(composer.placeholder));
-            uicore_gpui::inline::set_prop(&mut doc, COMPOSER, "busy", json!(composer.busy));
-            uicore_gpui::inline::set_prop(&mut doc, PLUS, "items", Value::Array(composer.menu.clone()));
-            uicore_gpui::inline::reload(&view, &doc, cx);
-        }
-        let chatting = json!({"composer": composer});
-        if chatting != self.chatting {
-            self.chatting = chatting.clone();
-            ComposerDoc::set(&view, "/chatting", chatting, cx);
+        // #PERF-4: the composer's document only moves when its input does;
+        // a frame with the same input (every animation frame) skips the
+        // view model and its JSON (the "+" rows carry every open issue).
+        let shown = (&frame.input, &frame.placeholder);
+        if self.shown_input.as_ref().map(|(input, placeholder)| (input, placeholder)) != Some(shown) {
+            let _span = tracing::trace_span!("composer.view").entered();
+            #[cfg(test)]
+            COMPOSER_VIEWS.with(|n| n.set(n.get() + 1));
+            self.shown_input = Some((frame.input.clone(), frame.placeholder.clone()));
+            let mut composer = uicore_model::chat::chat_view(&frame.input).composer;
+            composer.placeholder = frame.placeholder.clone();
+            let props = json!({"placeholder": composer.placeholder, "busy": composer.busy, "items": composer.menu});
+            if props != self.props {
+                self.props = props;
+                let mut doc = document();
+                uicore_gpui::inline::set_prop(&mut doc, COMPOSER, "placeholder", json!(composer.placeholder));
+                uicore_gpui::inline::set_prop(&mut doc, COMPOSER, "busy", json!(composer.busy));
+                uicore_gpui::inline::set_prop(&mut doc, PLUS, "items", Value::Array(composer.menu.clone()));
+                uicore_gpui::inline::reload(&view, &doc, cx);
+            }
+            let chatting = json!({"composer": composer});
+            if chatting != self.chatting {
+                self.chatting = chatting.clone();
+                ComposerDoc::set(&view, "/chatting", chatting, cx);
+            }
         }
         if frame.menu != self.menu {
             self.menu = frame.menu.clone();
@@ -579,14 +592,21 @@ impl HostPlugin for FooterHost {
 impl SteerSessionView {
     /// THE composer: the chat document's footer.
     pub(super) fn render_doc_composer(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
-        let frame = self.composer_frame(cx);
+        self.sync_composer_draft(window, cx);
+        let frame = {
+            let _span = tracing::trace_span!("composer.frame").entered();
+            self.composer_frame(cx)
+        };
         let team_id = self.row.as_ref().and_then(|row| row.team_id.clone());
         let steer = cx.entity().downgrade();
         // #EXP-1535 (DEV-ONLY, `EXP_DEV_COMPOSER_MENU=session-account`):
         // the menu opens once with Account › open.
         let account_step = frame.input.plus.iter().position(|row| row.id == domain::chat_document::PLUS_ACCOUNT);
         let mut doc = std::mem::take(&mut self.composer_doc);
-        let element = doc.element(steer, team_id, frame, window, cx);
+        let element = {
+            let _span = tracing::trace_span!("composer.element").entered();
+            doc.element(steer, team_id, frame, window, cx)
+        };
         self.composer_doc = doc;
         if account_step.is_some() && crate::navigation::shapes_ready(cx) && crate::screens::take_dev_session_account_menu() {
             let view = cx.entity().downgrade();
@@ -598,6 +618,24 @@ impl SteerSessionView {
         match self.mcp_picker(window, cx) {
             Some(picker) => gpui::div().w_full().min_w_0().child(element).child(picker).into_any_element(),
             None => element,
+        }
+    }
+
+    /// #FEED-219: the field's text against its synced draft, once per
+    /// frame. Every path that changes the field (the document's keystrokes,
+    /// a pick, a restore after Stop) lands in `input`, so a difference from
+    /// what the draft last knew is the person's edit; an untouched field
+    /// follows the draft instead.
+    fn sync_composer_draft(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let team_id = self.row.as_ref().and_then(|row| row.team_id.clone());
+        self.composer_draft.set_team(team_id, cx);
+        let value = self.input.read(cx).value().to_string();
+        if value != self.draft_seen {
+            self.composer_draft.edited(&value, cx);
+            self.draft_seen = value;
+        } else if crate::composer_drafts::apply_follow(&self.composer_draft, &self.input, window, cx) {
+            self.draft_seen = self.input.read(cx).value().to_string();
+            self.refresh_slash(cx);
         }
     }
 
@@ -617,10 +655,16 @@ impl SteerSessionView {
         let input = uicore_model::chat::ChatInput {
             session_id: Some(self.session_id.to_string()),
             slash_commands: true,
-            busy: self.shows_stop(cx),
+            busy: {
+                let _span = tracing::trace_span!("composer.stop").entered();
+                self.shows_stop(cx)
+            },
             // #EDE-65 lane T: the "+" is inert while a send is in flight.
             sending: self.sending,
-            plus: self.plus_rows(cx),
+            plus: {
+                let _span = tracing::trace_span!("composer.plus").entered();
+                self.plus_rows(cx)
+            },
             replies: self.replies.as_ref().map(|replies| ChatRepliesInput {
                 message_id: replies.message_id.clone(),
                 items: replies.items.iter().map(|item| ChatReplyInput { id: item.id.clone(), text: item.text.clone() }).collect(),
@@ -744,16 +788,7 @@ impl SteerSessionView {
                 Row::AddFile => d::plus_row(d::PLUS_ADD_FILE),
                 Row::ImplementIssue => {
                     let Some(team_id) = team_id.as_deref() else { continue };
-                    // #EDE-65 lane T: every open issue (`searchable` filters): the
-                    // status glyph in its tone, the mono id, the title.
-                    let items = crate::picker::issue_picker::snapshot_rows(cx, team_id, &Default::default())
-                        .into_iter()
-                        .map(|row| {
-                            let (icon, tone) = status_glyph(row.status);
-                            ChatPlusItem { label: row.title, value: row.identifier.clone(), identifier: Some(row.identifier), icon: Some(icon.into()), icon_color: Some(format!("$color.{}", tone_token(tone))), ..Default::default() }
-                        })
-                        .collect();
-                    submenu(d::PLUS_ISSUE, items, true)
+                    submenu(d::PLUS_ISSUE, implement_issue_items(team_id, cx), true)
                 }
                 Row::Prompts => submenu(
                     d::PLUS_PROMPTS,
@@ -1305,5 +1340,92 @@ mod tests {
         let replies = node(&tree, "chat_reply_list").expect("the replies");
         assert_eq!(replies["style"]["flexWrap"], "wrap");
         assert_eq!(replies["style"]["gap"], 5.25);
+    }
+}
+
+/// #PERF-4: the composer documents (re)built, for the frame guard.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static COMPOSER_VIEWS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// #EDE-65 lane T: the "+" menu's Implement issue rows: every open issue of
+/// the team (`searchable` filters), the status glyph in its tone, the mono
+/// id, the title.
+///
+/// #PERF-4: the composer builds its "+" rows every frame (an animating
+/// working mark draws at display rate), and these were a snapshot of every
+/// team issue each time; now once per change of what they read.
+fn implement_issue_items(team_id: &str, cx: &App) -> Vec<ChatPlusItem> {
+    type Key = (String, gpui::EntityId, [u64; 5]);
+    thread_local! {
+        static MEMO: std::cell::RefCell<Option<(Key, Vec<ChatPlusItem>)>> = const { std::cell::RefCell::new(None) };
+    }
+    let Some(store) = sync::Store::try_global(cx) else { return Vec::new() };
+    let c = store.collections();
+    let key: Key = (
+        team_id.to_string(),
+        c.issues.entity_id(),
+        [
+            c.issues.read(cx).revision(),
+            c.issue_statuses.read(cx).revision(),
+            c.boards.read(cx).revision(),
+            c.pull_requests.read(cx).revision(),
+            c.pull_request_issues.read(cx).revision(),
+        ],
+    );
+    if let Some(items) = MEMO.with(|memo| memo.borrow().as_ref().filter(|(at, _)| *at == key).map(|(_, items)| items.clone())) {
+        return items;
+    }
+    let items: Vec<ChatPlusItem> = crate::picker::issue_picker::snapshot_rows(cx, team_id, &Default::default())
+        .into_iter()
+        .map(|row| {
+            let (icon, tone) = status_glyph(row.status);
+            ChatPlusItem { label: row.title, value: row.identifier.clone(), identifier: Some(row.identifier), icon: Some(icon.into()), icon_color: Some(format!("$color.{}", tone_token(tone))), ..Default::default() }
+        })
+        .collect();
+    MEMO.with(|memo| *memo.borrow_mut() = Some((key, items.clone())));
+    items
+}
+
+#[cfg(test)]
+mod perf_tests {
+    use serde_json::json;
+
+    fn seed<T: sync::ShapeRow + serde::de::DeserializeOwned>(collection: &gpui::Entity<sync::Collection<T>>, rows: serde_json::Value, cx: &mut gpui::App) {
+        collection.update(cx, |c, cx| {
+            for row in rows.as_array().unwrap() {
+                let row: T = serde_json::from_value(row.clone()).unwrap();
+                c.seed(row.key(), row);
+            }
+            cx.notify();
+        });
+    }
+
+    /// #PERF-4: the "+" menu's issue rows are derived once per change of
+    /// the issues they show, and follow every such change.
+    #[gpui::test]
+    fn implement_issue_rows_follow_the_issues(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            let store = sync::Store::open(cx, None, None);
+            cx.set_global(store);
+            let c = sync::Store::global(cx).collections().clone();
+            seed(&c.boards, json!([{"id": "b1", "team_id": "t1", "name": "App", "slug": "app", "prefix": "APP"}]), cx);
+            seed(&c.issues, json!([{"id": "i1", "board_id": "b1", "number": 1, "identifier": "APP-1", "title": "One", "status": "backlog"}]), cx);
+        });
+        let labels = |cx: &mut gpui::TestAppContext| cx.update(|cx| super::implement_issue_items("t1", cx).into_iter().map(|item| item.label).collect::<Vec<_>>());
+        assert_eq!(labels(cx), ["One"]);
+        // Read again: the memo answers the same rows.
+        assert_eq!(labels(cx), ["One"]);
+        cx.update(|cx| {
+            let c = sync::Store::global(cx).collections().clone();
+            seed(&c.issues, json!([
+                {"id": "i1", "board_id": "b1", "number": 1, "identifier": "APP-1", "title": "Renamed", "status": "backlog"},
+                {"id": "i2", "board_id": "b1", "number": 2, "identifier": "APP-2", "title": "Two", "status": "in_progress"},
+                {"id": "i3", "board_id": "b1", "number": 3, "identifier": "APP-3", "title": "Shipped", "status": "done"}
+            ]), cx);
+        });
+        assert_eq!(labels(cx), ["Renamed", "Two"]);
+        assert!(cx.update(|cx| super::implement_issue_items("t2", cx)).is_empty());
     }
 }

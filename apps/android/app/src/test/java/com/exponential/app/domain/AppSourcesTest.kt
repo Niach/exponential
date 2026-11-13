@@ -51,6 +51,11 @@ class AppSourcesTest {
                     it.n("sizeBytes").toLong(), it.on("width")?.toInt(), it.on("height")?.toInt(), it.s("createdAt"),
                 )
             },
+            // FEED-243: the touched filter's timeline rows and session links.
+            issueEvents = s.rows("issueEvents").map {
+                AppSources.IssueEvent(it.s("id"), it.s("issueId"), it.os("actorUserId"), it.s("createdAt"))
+            },
+            sessionIssues = s.rows("sessionIssues").map { AppSources.SessionIssue(it.s("sessionId"), it.s("issueId")) },
         )
     }
 
@@ -67,7 +72,7 @@ class AppSourcesTest {
         assert(all.size >= 17)
         for (case in all) {
             val params = case["params"]?.obj?.mapValues { it.value.string!! } ?: emptyMap()
-            val got = AppSources.sourceValue(case.s("source"), params, store, case.os("me"), case.os("access"))
+            val got = AppSources.sourceValue(case.s("source"), params, store, case.os("me"), case.os("access"), case.os("timeZone"))
             val expected = case["expected"]!!
             // `json` sorts object keys: the comparison is key-order-insensitive.
             if (expected.isNull) assertNull(case.s("name"), got) else assertEquals(case.s("name"), expected.json, got!!.json)

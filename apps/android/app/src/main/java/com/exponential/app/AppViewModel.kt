@@ -296,7 +296,7 @@ class AppViewModel @Inject constructor(
     private val myLiveSessions = accountDatabaseFlow(auth, databaseHolder)
         .flatMapLatest { db ->
             if (db == null) flowOf(emptyList())
-            else combine(db.sessionDao().observeLive(), auth.userId) { sessions, me ->
+            else combine(db.sessionDao().observeLiveNoDigest(), auth.userId) { sessions, me ->
                 if (me == null) emptyList() else sessions.filter { it.userId == me && lightsLiveDot(it) }
             }
         }

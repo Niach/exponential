@@ -2,6 +2,13 @@ import { z } from "zod"
 import { REPO_FULL_NAME_RE } from "@/lib/repo-full-name"
 import { TRPCError } from "@trpc/server"
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm"
+import {
+  githubProviderConfig,
+  installationIdOf,
+  providerConfigWithInstallation,
+  repoInstallationId,
+} from "@/lib/ecode/provider-config"
+import { githubRemote } from "@/lib/ecode/forge-github"
 import type { db } from "@/db/connection"
 import { router, authedProcedure } from "@/lib/trpc"
 import { boardVisible } from "@/lib/board-visibility"
@@ -22,11 +29,27 @@ import {
   resolveRepoDefaultBranchCached,
   resolveRepoInstallationTokenInfo,
 } from "@/lib/integrations/github-app"
-import {
-  branchExists,
-  listOpenPulls,
-  type OpenPull,
-} from "@/lib/integrations/github-pr"
+import { forgeFor, type ForgeRepo } from "@/lib/ecode/forge"
+import { branchName, ecodeRepoName } from "@/lib/ecode/repo-names"
+
+/** The open-PR list's row (desktop 0.14.65 reads exactly this shape). */
+export interface OpenPull {
+  number: number
+  url: string
+  title: string
+  branch: string
+  baseBranch: string
+  draft: boolean
+  authorLogin: string | null
+  authorAvatarUrl: string | null
+  createdAt: string
+}
+
+/** #EXP-1614: a row on its forge, acting with `token`. */
+async function forgeAt(repo: { id: string; fullName: string; installationId?: number | null }, token: string | null) {
+  const at: ForgeRepo = { id: repo.id, fullName: repo.fullName, installationId: repo.installationId ?? null, token }
+  return { forge: await forgeFor(at), at }
+}
 import { resolveRepoForConnect } from "@/lib/trpc/integrations"
 
 // The default branch-name prefix for issue worktrees: `exp/<IDENTIFIER>`.
@@ -115,7 +138,7 @@ export async function connectRepositoryInTx(
       fullName: input.fullName,
       defaultBranch,
       private: resolved.private || (input.private ?? false),
-      installationId,
+      providerConfig: githubProviderConfig(installationId),
       inaccessibleAt: null,
       // EXP-557: the connector becomes the repo's sharer (manages it
       // alongside owners).
@@ -137,7 +160,7 @@ export async function connectRepositoryInTx(
     .update(repositories)
     .set({
       archivedAt: null,
-      installationId,
+      providerConfig: providerConfigWithInstallation(installationId),
       inaccessibleAt: null,
       sharedByUserId: sql`case when ${repositories.archivedAt} is not null or ${repositories.sharedByUserId} is null then ${input.userId} else ${repositories.sharedByUserId} end`,
     })
@@ -298,7 +321,7 @@ export async function resolveBoardRepository(boardId: string) {
       defaultBranch: repositories.defaultBranch,
       defaultBranchOverride: repositories.defaultBranchOverride,
       boardDefaultBranch: boards.defaultBranch,
-      installationId: repositories.installationId,
+      installationId: repoInstallationId(),
     })
     .from(boards)
     .innerJoin(repositories, eq(repositories.id, boards.repositoryId))
@@ -321,10 +344,12 @@ export async function loadRepository(repositoryId: string) {
     .select({
       id: repositories.id,
       teamId: repositories.teamId,
+      provider: repositories.provider,
       fullName: repositories.fullName,
+      remoteUrl: repositories.remoteUrl,
       defaultBranch: repositories.defaultBranch,
       defaultBranchOverride: repositories.defaultBranchOverride,
-      installationId: repositories.installationId,
+      installationId: repoInstallationId(),
       inaccessibleAt: repositories.inaccessibleAt,
       sharedByUserId: repositories.sharedByUserId,
       archivedAt: repositories.archivedAt,
@@ -442,7 +467,10 @@ export async function resolveGatedRepoToken(repo: {
   teamId: string
   fullName: string
   installationId: number | null
+  provider?: string | null
 }): Promise<string | null> {
+  // #EXP-1616: eCode's own forge needs no GitHub token.
+  if (repo.provider === `ecode`) return null
   if (!githubAppConfigured()) return null
   const resolved = await resolveRepoInstallationTokenInfo(repo.fullName, {
     fallbackInstallationId: repo.installationId,
@@ -467,10 +495,12 @@ export async function loadRepositoryByFullName(
     .select({
       id: repositories.id,
       teamId: repositories.teamId,
+      provider: repositories.provider,
       fullName: repositories.fullName,
+      remoteUrl: repositories.remoteUrl,
       defaultBranch: repositories.defaultBranch,
       defaultBranchOverride: repositories.defaultBranchOverride,
-      installationId: repositories.installationId,
+      installationId: repoInstallationId(),
       inaccessibleAt: repositories.inaccessibleAt,
       sharedByUserId: repositories.sharedByUserId,
       archivedAt: repositories.archivedAt,
@@ -491,6 +521,127 @@ export async function loadRepositoryByFullName(
     })
   }
   return repo
+}
+
+/** The JIT credential behind `installationToken` and `credentials`
+ *  (#EXP-1614): the gated mint, the row's bookkeeping, the effective
+ *  default branch, and where git reaches the repo. */
+async function mintRepoCredentials(
+  db: Pick<typeof import("@/db/connection")[`db`], `update`>,
+  userId: string,
+  input: { repositoryId: string; boardId?: string }
+) {
+  const repo = await loadRepository(input.repositoryId)
+  if (repo.provider === `ecode`) {
+    // #EXP-1616: eCode's own git: a repo-scoped token for git-remote-exp.
+    const { ecodeCredentials } = await import(`@/lib/ecode/repos`)
+    const minted = await ecodeCredentials(userId, repo.id)
+    const boardBranch = input.boardId ? await boardBranchOverride(input.boardId, repo.fullName) : null
+    return { ...minted, defaultBranch: boardBranch ?? minted.defaultBranch }
+  }
+  // Team coding: any member of the repo's team may mint a JIT token
+  // (assertRepoCapability = plain team membership).
+  // Per-installer attribution is intentionally NOT required here: the repo
+  // is only present in this team because a member legitimately
+  // connected it (connectRepositoryInTx proved their push access). The
+  // team's ownership of the repo row is the authorization; requiring the
+  // caller to also be the original connector would break coding for every
+  // other teammate.
+  await assertRepoCapability(userId, repo.teamId)
+  if (!githubAppConfigured()) {
+    throw new TRPCError({
+      code: `PRECONDITION_FAILED`,
+      message: `GitHub App is not configured on this instance`,
+    })
+  }
+
+  // Fall back to the installation persisted at connect time when GitHub's
+  // per-repo lookup misses — see resolveRepoInstallationTokenInfo (fixes
+  // the spurious 412 when the repo IS covered by a known installation). The
+  // fallback token is VERIFIED against the repo, so a null here means the
+  // App genuinely lost access (repo removed from the installation's
+  // selection, or uninstalled) — stamp the row so the settings UI shows the
+  // no-access badge, and tell the caller how to fix it. A repo GitHub now
+  // places under a DIFFERENT installation is refused the same way
+  // (installationDrifted): the team reconnects it.
+  const resolved = await resolveRepoInstallationTokenInfo(repo.fullName, {
+    fallbackInstallationId: repo.installationId,
+  })
+  if (
+    !resolved ||
+    installationDrifted(repo.installationId, resolved.installationId)
+  ) {
+    await db
+      .update(repositories)
+      .set({ inaccessibleAt: new Date() })
+      .where(
+        and(
+          eq(repositories.id, repo.id),
+          isNull(repositories.inaccessibleAt)
+        )
+      )
+    throw new TRPCError({
+      code: `PRECONDITION_FAILED`,
+      message: resolved
+        ? `${repo.fullName} now belongs to a different GitHub App installation. Reconnect it in team settings → Repositories, then retry.`
+        : `The GitHub App no longer has access to ${repo.fullName}. Re-grant it on GitHub (team settings → Repositories), then retry.`,
+    })
+  }
+  const token = resolved.token
+  // The mint just proved access — fill a legacy NULL installation id and
+  // clear a stale no-access flag (best-effort bookkeeping). A different
+  // stored id was refused above.
+  if (repo.installationId == null || repo.inaccessibleAt != null) {
+    await db
+      .update(repositories)
+      .set({
+        providerConfig: providerConfigWithInstallation(resolved.installationId),
+        inaccessibleAt: null,
+      })
+      .where(eq(repositories.id, repo.id))
+  }
+  // GitHub is authoritative on the default branch — a stale/misseeded row
+  // (e.g. `main` for a `master` repo) would break the launcher's
+  // `git worktree add … origin/<default>`. Prefer the live value; heal the
+  // row when it drifted; fall back to the stored value if the lookup fails.
+  // A team-chosen override (EXP-462) wins over both — the launcher must
+  // base worktrees on the branch the team actually develops on.
+  const liveDefaultBranch = await resolveRepoDefaultBranch(repo.fullName)
+  if (liveDefaultBranch && liveDefaultBranch !== repo.defaultBranch) {
+    await db
+      .update(repositories)
+      .set({ defaultBranch: liveDefaultBranch })
+      .where(eq(repositories.id, repo.id))
+  }
+  const boardBranch = input.boardId
+    ? await boardBranchOverride(input.boardId, repo.fullName)
+    : null
+  return {
+    token,
+    fullName: repo.fullName,
+    defaultBranch:
+      boardBranch ??
+      repo.defaultBranchOverride ??
+      liveDefaultBranch ??
+      repo.defaultBranch,
+    // GitHub's REAL expiry for the (possibly cache-served) token — EXP-73:
+    // a synthetic now+55min here once labeled a nearly-dead cached token
+    // "fresh", and every desktop freshness check trusted the fiction. The
+    // desktop schedules its credential refresh from this value.
+    expiresAt: new Date(resolved.expiresAt),
+    remoteUrl: repo.remoteUrl ?? githubRemote(repo.fullName).remoteUrl,
+    username: githubRemote(repo.fullName).username,
+  }
+}
+
+/** #EXP-1614: a row as clients see it: `provider_config` is server-only. */
+function clientRepository<T extends { providerConfig?: unknown }>(
+  row: T
+): Omit<T, `providerConfig`> & { installationId: number | null } {
+  const { providerConfig, ...rest } = row
+  // The installation stays on the wire (the settings rows name it) though
+  // the column moved into provider_config.
+  return { ...rest, installationId: installationIdOf(providerConfig) }
 }
 
 export const repositoriesRouter = router({
@@ -518,7 +669,8 @@ export const repositoriesRouter = router({
       // the returned rows always carry the live value when known. A successful
       // lookup doubles as an accessibility proof and clears a stale no-access
       // flag.
-      const repos = await healRepoDefaultBranches(rawRepos, (id, patch) =>
+      // #EXP-1616: an ecode repo has no GitHub to heal from.
+      const healed = await healRepoDefaultBranches(rawRepos.filter((repo) => repo.provider !== `ecode`), (id, patch) =>
         ctx.db
           .update(repositories)
           .set({
@@ -530,6 +682,8 @@ export const repositoriesRouter = router({
           .where(eq(repositories.id, id))
           .then(() => {})
       )
+      const healedById = new Map(healed.map((repo) => [repo.id, repo]))
+      const repos = rawRepos.map((repo) => healedById.get(repo.id) ?? repo)
 
       // Boards that point at these repos, computed from boards.repositoryId.
       const boardRows = await ctx.db
@@ -568,7 +722,7 @@ export const repositoriesRouter = router({
       // (old desktop builds included); the raw healed GitHub value rides along
       // as `githubDefaultBranch` for the settings picker.
       return repos.map((repo) => ({
-        ...repo,
+        ...clientRepository(repo),
         defaultBranch: effectiveDefaultBranch(repo),
         githubDefaultBranch: repo.defaultBranch,
         sharedBy: repo.sharedByUserId
@@ -600,7 +754,7 @@ export const repositoriesRouter = router({
           id: repositories.id,
           fullName: repositories.fullName,
           teamId: repositories.teamId,
-          installationId: repositories.installationId,
+          installationId: repoInstallationId(),
         })
         .from(repositories)
         .where(
@@ -623,8 +777,18 @@ export const repositoriesRouter = router({
       const results = await Promise.all(
         repos.map(async (repo) => {
           try {
-            const token = await resolveGatedRepoToken(repo)
-            const pulls = await listOpenPulls(repo.fullName, token)
+            const { forge, at } = await forgeAt(repo, await resolveGatedRepoToken(repo))
+            const pulls: OpenPull[] = (await forge.listOpen(at)).map((pull) => ({
+              number: pull.number,
+              url: pull.url,
+              title: pull.title,
+              branch: pull.headRef,
+              baseBranch: pull.baseRef,
+              draft: pull.draft,
+              authorLogin: pull.authorLogin,
+              authorAvatarUrl: pull.authorAvatarUrl,
+              createdAt: pull.createdAt,
+            }))
             return {
               repositoryId: repo.id,
               fullName: repo.fullName,
@@ -677,7 +841,7 @@ export const repositoriesRouter = router({
           .from(repositories)
           .where(eq(repositories.id, repositoryId))
           .limit(1)
-        return row
+        return row ? clientRepository(row) : row
       })
       return { repository }
     }),
@@ -688,6 +852,12 @@ export const repositoriesRouter = router({
     .input(z.object({ repositoryId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const repo = await loadRepository(input.repositoryId)
+      if (repo.provider === `ecode`) {
+        // #EXP-1616: owners only; the bucket objects go with it.
+        const { removeEcodeRepository } = await import(`@/lib/ecode/repos`)
+        await removeEcodeRepository(ctx.session.user.id, repo.id)
+        return { ok: true as const }
+      }
       await assertRepoManager(ctx.session.user.id, repo)
       try {
         await ctx.db
@@ -716,6 +886,10 @@ export const repositoriesRouter = router({
     .input(z.object({ repositoryId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const repo = await loadRepository(input.repositoryId)
+      if (repo.provider === `ecode`) {
+        const { ecodeBranches } = await import(`@/lib/ecode/repos`)
+        return { branches: (await ecodeBranches(ctx.session.user.id, repo.id)).map((b) => b.name) }
+      }
       await assertRepoCapability(ctx.session.user.id, repo.teamId)
       const token = await resolveGatedRepoToken(repo)
       let branches: string[]
@@ -744,6 +918,18 @@ export const repositoriesRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const repo = await loadRepository(input.repositoryId)
+      if (repo.provider === `ecode`) {
+        // #EXP-1616: no forge default to follow: the branch IS the default.
+        const { setEcodeDefaultBranch } = await import(`@/lib/ecode/repos`)
+        const updated = await setEcodeDefaultBranch(ctx.session.user.id, repo.id, input.branch ?? `main`)
+        return {
+          repository: {
+            ...clientRepository(updated),
+            defaultBranch: effectiveDefaultBranch(updated),
+            githubDefaultBranch: updated.defaultBranch,
+          },
+        }
+      }
       await assertRepoManager(ctx.session.user.id, repo)
 
       let override = input.branch
@@ -752,10 +938,10 @@ export const repositoriesRouter = router({
         // Validate against GitHub so a typo can't brick every worktree/PR
         // base. Verified with the same gated token the reads use; an
         // unreachable repo surfaces as a real error, not a silent save.
-        const token = await resolveGatedRepoToken(repo)
+        const { forge, at } = await forgeAt(repo, await resolveGatedRepoToken(repo))
         let exists: boolean
         try {
-          exists = await branchExists(repo.fullName, override, token)
+          exists = (await forge.readBranch(at, override)) !== null
         } catch {
           throw new TRPCError({
             code: `BAD_GATEWAY`,
@@ -798,11 +984,60 @@ export const repositoriesRouter = router({
       }
       return {
         repository: {
-          ...updated,
+          ...clientRepository(updated),
           defaultBranch: effectiveDefaultBranch(updated),
           githubDefaultBranch: updated.defaultBranch,
         },
       }
+    }),
+
+  // #EXP-1616 (eCode's own git): an owner creates an EMPTY repo on the
+  // team bucket; its first `git push exp://<team>/<name>` fills it.
+  create: authedProcedure
+    .input(
+      z.object({
+        teamId: z.string().uuid(),
+        name: ecodeRepoName,
+        defaultBranch: branchName.optional(),
+        mirrorUrl: z.string().max(400).nullable().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { createEcodeRepository } = await import(`@/lib/ecode/repos`)
+      const row = await createEcodeRepository(ctx.session.user.id, input)
+      return { repository: clientRepository(row) }
+    }),
+
+  // #EXP-1616: the repo page's Settings tab (member-readable).
+  settings: authedProcedure
+    .input(z.object({ repositoryId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const { ecodeRepositorySettings } = await import(`@/lib/ecode/repos`)
+      return ecodeRepositorySettings(ctx.session.user.id, input.repositoryId)
+    }),
+
+  // #EXP-1616: the repo page's Branches tab (member-readable).
+  branches: authedProcedure
+    .input(z.object({ repositoryId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const { ecodeBranches } = await import(`@/lib/ecode/repos`)
+      return { branches: await ecodeBranches(ctx.session.user.id, input.repositoryId) }
+    }),
+
+  // #EXP-1616: owner: the optional mirror, pushed after each landing.
+  setMirror: authedProcedure
+    .input(z.object({ repositoryId: z.string().uuid(), mirrorUrl: z.string().max(400).nullable(), enabled: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const { setEcodeMirror } = await import(`@/lib/ecode/repos`)
+      return setEcodeMirror(ctx.session.user.id, input)
+    }),
+
+  // #EXP-1616: owner: restore a bundle backup (a device job).
+  restore: authedProcedure
+    .input(z.object({ repositoryId: z.string().uuid(), backupId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const { restoreEcodeBackup } = await import(`@/lib/ecode/repos`)
+      return restoreEcodeBackup(ctx.session.user.id, input)
     }),
 
   // The launcher's clone-target resolution: issue → board → repositoryId.
@@ -874,97 +1109,46 @@ export const repositoriesRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const repo = await loadRepository(input.repositoryId)
-      // Team coding: any member of the repo's team may mint a JIT token
-      // (assertRepoCapability = plain team membership).
-      // Per-installer attribution is intentionally NOT required here: the repo
-      // is only present in this team because a member legitimately
-      // connected it (connectRepositoryInTx proved their push access). The
-      // team's ownership of the repo row is the authorization; requiring the
-      // caller to also be the original connector would break coding for every
-      // other teammate.
-      await assertRepoCapability(ctx.session.user.id, repo.teamId)
-      if (!githubAppConfigured()) {
-        throw new TRPCError({
-          code: `PRECONDITION_FAILED`,
-          message: `GitHub App is not configured on this instance`,
-        })
-      }
-
-      // Fall back to the installation persisted at connect time when GitHub's
-      // per-repo lookup misses — see resolveRepoInstallationTokenInfo (fixes
-      // the spurious 412 when the repo IS covered by a known installation). The
-      // fallback token is VERIFIED against the repo, so a null here means the
-      // App genuinely lost access (repo removed from the installation's
-      // selection, or uninstalled) — stamp the row so the settings UI shows the
-      // no-access badge, and tell the caller how to fix it. A repo GitHub now
-      // places under a DIFFERENT installation is refused the same way
-      // (installationDrifted): the team reconnects it.
-      const resolved = await resolveRepoInstallationTokenInfo(repo.fullName, {
-        fallbackInstallationId: repo.installationId,
-      })
-      if (
-        !resolved ||
-        installationDrifted(repo.installationId, resolved.installationId)
-      ) {
-        await ctx.db
-          .update(repositories)
-          .set({ inaccessibleAt: new Date() })
-          .where(
-            and(
-              eq(repositories.id, repo.id),
-              isNull(repositories.inaccessibleAt)
-            )
-          )
-        throw new TRPCError({
-          code: `PRECONDITION_FAILED`,
-          message: resolved
-            ? `${repo.fullName} now belongs to a different GitHub App installation. Reconnect it in team settings → Repositories, then retry.`
-            : `The GitHub App no longer has access to ${repo.fullName}. Re-grant it on GitHub (team settings → Repositories), then retry.`,
-        })
-      }
-      const token = resolved.token
-      // The mint just proved access — fill a legacy NULL installation id and
-      // clear a stale no-access flag (best-effort bookkeeping). A different
-      // stored id was refused above.
-      if (repo.installationId == null || repo.inaccessibleAt != null) {
-        await ctx.db
-          .update(repositories)
-          .set({
-            installationId: resolved.installationId,
-            inaccessibleAt: null,
-          })
-          .where(eq(repositories.id, repo.id))
-      }
-      // GitHub is authoritative on the default branch — a stale/misseeded row
-      // (e.g. `main` for a `master` repo) would break the launcher's
-      // `git worktree add … origin/<default>`. Prefer the live value; heal the
-      // row when it drifted; fall back to the stored value if the lookup fails.
-      // A team-chosen override (EXP-462) wins over both — the launcher must
-      // base worktrees on the branch the team actually develops on.
-      const liveDefaultBranch = await resolveRepoDefaultBranch(repo.fullName)
-      if (liveDefaultBranch && liveDefaultBranch !== repo.defaultBranch) {
-        await ctx.db
-          .update(repositories)
-          .set({ defaultBranch: liveDefaultBranch })
-          .where(eq(repositories.id, repo.id))
-      }
-      const boardBranch = input.boardId
-        ? await boardBranchOverride(input.boardId, repo.fullName)
-        : null
+      // #EXP-1614: the one-release shim (#NEW-14) of `credentials`; old
+      // desktop builds read exactly these four fields.
+      const minted = await mintRepoCredentials(ctx.db, ctx.session.user.id, input)
       return {
-        token,
-        fullName: repo.fullName,
-        defaultBranch:
-          boardBranch ??
-          repo.defaultBranchOverride ??
-          liveDefaultBranch ??
-          repo.defaultBranch,
-        // GitHub's REAL expiry for the (possibly cache-served) token — EXP-73:
-        // a synthetic now+55min here once labeled a nearly-dead cached token
-        // "fresh", and every desktop freshness check trusted the fiction. The
-        // desktop schedules its credential refresh from this value.
-        expiresAt: new Date(resolved.expiresAt),
+        token: minted.token,
+        fullName: minted.fullName,
+        defaultBranch: minted.defaultBranch,
+        expiresAt: minted.expiresAt,
+      }
+    }),
+
+  // #EXP-1614: how a device reaches the repo's git remote, provider-neutral:
+  // the remote URL and an HTTP basic credential for it (GitHub:
+  // `https://github.com/<full>.git`, `x-access-token` + the installation
+  // token), so devices stop building GitHub URLs. Same gate as
+  // installationToken (team membership; the row is the authorization).
+  // #EXP-1616: `remote` (an `exp://<team>/<repo>` URL) instead of the id:
+  // git-remote-exp knows only the URL git gave it.
+  credentials: authedProcedure
+    .input(
+      z
+        .object({
+          repositoryId: z.string().uuid().optional(),
+          remote: z.string().max(400).optional(),
+          boardId: z.string().uuid().optional(),
+        })
+        .refine((v) => Boolean(v.repositoryId) !== Boolean(v.remote), `Pass repositoryId or remote`)
+    )
+    .mutation(async ({ ctx, input }) => {
+      const repositoryId =
+        input.repositoryId ??
+        (await (await import(`@/lib/ecode/repos`)).ecodeRepositoryIdForRemote(input.remote!))
+      const minted = await mintRepoCredentials(ctx.db, ctx.session.user.id, { repositoryId, boardId: input.boardId })
+      return {
+        remoteUrl: minted.remoteUrl,
+        username: minted.username,
+        token: minted.token,
+        expiresAt: minted.expiresAt,
+        fullName: minted.fullName,
+        defaultBranch: minted.defaultBranch,
       }
     }),
 })

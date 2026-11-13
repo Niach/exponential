@@ -63,6 +63,7 @@ mod comments;
 mod composer;
 mod computer_indicator;
 mod composer_dialog;
+mod composer_drafts;
 mod composer_images;
 mod commit_graph;
 mod context_layout;
@@ -186,6 +187,8 @@ mod pr_graph;
 mod pr_merge;
 // #EXP-1611: CI on the chat's PR (Checks submenu, failing-merge confirm).
 mod pr_checks;
+// #EXP-1804: the CI run page and a device's CI runner section (genUI documents).
+mod ci_run;
 // EXP-1248: THE pull-request row + the stack rail (web pr-row.tsx).
 mod pr_rows;
 mod queries;
@@ -202,6 +205,8 @@ mod session;
 mod session_extras;
 mod session_bar;
 mod session_data;
+// #FEED-237: a session composer's outbox (persisted, WhatsApp-style bubbles).
+mod session_outbox;
 mod session_pickup;
 mod session_registry;
 mod session_results;
@@ -224,6 +229,7 @@ mod session_chat;
 // #EXP-1561 / #EXP-1562: a waiting card's ×, the dismissed line, the strip's waiting chips.
 mod waiting_cards;
 mod chats_view;
+mod chat_rows;
 mod work_card;
 mod script_card;
 // EXP-1324: THE Trace + THE CodeBlock.
@@ -287,6 +293,8 @@ mod rail_bench;
 #[cfg(test)]
 mod real_data_bench;
 #[cfg(test)]
+pub(crate) mod span_clock;
+#[cfg(test)]
 mod settings_bench;
 /// #EXP-1488: the accessible-name rules (eui-gpui's `tests/accessible_names.rs`),
 /// compiled here too so the desktop job's lib tests run them on every IDE change.
@@ -331,6 +339,8 @@ pub fn init(cx: &mut App) {
     eui_gpui::chrome::install(cx, controls::ide_chrome().clone());
     navigation::init(cx);
     navigation::start_dev_tour(cx);
+    // #FEED-237: the outbox's unacked entries go out again on start.
+    session_outbox::init(cx);
     // EXP-105: quit-time sweep ending every `sessions` row this process
     // launched — without it a closed IDE ghosts the "coding now" badge on
     // every client until the server staleness sweep catches it.

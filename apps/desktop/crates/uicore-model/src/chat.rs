@@ -46,6 +46,11 @@ pub enum ChatRowInput {
         /// #EDE-65 lane O: the IDE transcript's grouping (#EXP-1736).
         #[serde(default)]
         group: Option<ChatGroup>,
+        /// #FEED-237 (message-delivery.json): the viewer's own bubble's
+        /// delivery mark (`sending` | `sent` | `read` | `failed`, genUI
+        /// `messageStatus`); absent = none.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        status: Option<String>,
     },
     /// #EDE-65 lane O: a row the host paints itself (the IDE's tool rows,
     /// the Work card): the document holds its place, an Embed the host
@@ -247,6 +252,11 @@ pub struct ChatRow {
     pub indent: bool,
     pub link: Option<String>,
     pub gap: u32,
+    /// #FEED-237: an `out` bubble's MessageBubble `status` (blank = no
+    /// mark; left out of the row then, so the rows without one read as
+    /// before).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub status: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -411,6 +421,7 @@ fn blank(id: &str, kind: ChatRowKind) -> ChatRow {
         indent: false,
         link: None,
         gap: 0,
+        status: String::new(),
     }
 }
 
@@ -421,12 +432,13 @@ fn caption(parts: &[Option<&str>]) -> String {
 
 fn row(input: &ChatRowInput, bubbles: bool) -> ChatRow {
     match input {
-        ChatRowInput::Message { id, author, body, name, time, queued, group } => {
+        ChatRowInput::Message { id, author, body, name, time, queued, group, status } => {
             let group = group.clone().unwrap_or_default();
             let relay = group.link.as_deref().is_some_and(|link| !link.is_empty());
             let grouped = |kind| {
                 let side = group.side.clone().filter(|s| s == "in" || s == "out").unwrap_or_else(|| if author == "user" { "out" } else { "in" }.to_string());
                 let name = if bubbles && side == "in" { name.clone().unwrap_or_default() } else { String::new() };
+                let own_status = if bubbles && side == "out" { status.clone().unwrap_or_default() } else { String::new() };
                 ChatRow {
                     relay: if relay && !name.trim().is_empty() { format!("{} {}", name.trim(), copy("linkChevron")) } else { String::new() },
                     author: if relay { String::new() } else { name },
@@ -436,6 +448,7 @@ fn row(input: &ChatRowInput, bubbles: bool) -> ChatRow {
                     indent: group.indent,
                     link: group.link.clone(),
                     gap: group.gap,
+                    status: own_status,
                     ..blank(id, kind)
                 }
             };

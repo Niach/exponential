@@ -65,6 +65,15 @@ const ADVERT_CONFIRM_RECHECK: Duration = Duration::from_secs(30);
 fn device_caps(advertised: &coding::AgentAdvertisement) -> Vec<String> {
     let mut caps = coding::device_caps(advertised);
     caps.push(UPDATE_CHECK_CAP.to_string());
+    // #EXP-1616: this daemon runs eCode's git jobs (`ecode_job`).
+    caps.push(crate::ecode_jobs::ECODE_JOBS_CAP.to_string());
+    // #EXP-1617: this build runs `ci_job` commands (the server dispatches
+    // only to a device whose owner enabled its runner).
+    caps.push(crate::ci_runner::CI_RUNNER_CAP.to_string());
+    // #EXP-1617 (Q6): it also serves GitHub Actions for opted-in repos.
+    if crate::actions_runner::platform_asset().is_some() {
+        caps.push(crate::actions_runner::ACTIONS_RUNNER_CAP.to_string());
+    }
     caps
 }
 
@@ -284,7 +293,40 @@ fn lock_sessions(sessions: &Sessions) -> std::sync::MutexGuard<'_, Vec<LiveSessi
     }
 }
 
+/// #EXP-1821: glibc hands every allocating thread its own arena (up to 8 per
+/// core, 64 MB reservations) and keeps what a pass freed, so a long-lived
+/// daemon with ~25 threads sits on every peak it ever had. Two arenas are
+/// plenty for a process that mostly waits.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+fn tune_allocator() {
+    // SAFETY: mallopt only adjusts allocator parameters; called once,
+    // before the daemon's threads start.
+    unsafe {
+        libc::mallopt(libc::M_ARENA_MAX, 2);
+    }
+}
+
+#[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+fn tune_allocator() {}
+
+/// #EXP-1821: hand the pages a pass freed back to the OS (glibc keeps them
+/// otherwise), at most every [`TRIM_EVERY`].
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+fn trim_allocator() {
+    // SAFETY: malloc_trim only releases free memory; any thread may call it.
+    unsafe {
+        libc::malloc_trim(0);
+    }
+}
+
+#[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+fn trim_allocator() {}
+
+/// How often the worker returns freed memory ([`trim_allocator`]).
+const TRIM_EVERY: Duration = Duration::from_secs(30);
+
 fn run_daemon(args: &[String]) -> CommandResult {
+    tune_allocator();
     let mut args = args.to_vec();
     let label_flag = take_value(&mut args, "--label");
     // Always runs in the foreground — systemd/launchd own daemonization.
@@ -305,6 +347,8 @@ fn run_daemon(args: &[String]) -> CommandResult {
     std::fs::write(pidfile(&ctx.data_dir), std::process::id().to_string())
         .context("write the daemon pidfile")?;
     install_signal_handler();
+    // #EXP-1616: `git … exp://` works in every session this daemon starts.
+    coding::ecode_helper::install_git_helper(&ctx.data_dir);
     // #EXP-1618: the device's background pusher: every session branch and
     // its uncommitted work reach origin while the run goes on.
     coding::auto_push::ensure_started(&ctx.data_dir);
@@ -360,10 +404,11 @@ fn run_daemon(args: &[String]) -> CommandResult {
     let personal_key = context::ensure_personal_key(&ctx).ok();
     let sessions: Sessions = Arc::new(Mutex::new(Vec::new()));
     // EXP-484: the collected agent status (accounts + usage windows), filled
-    // OFF the 1Hz loop by the device worker and drained by the next
-    // heartbeat. `collect_if_due` can block for ~10s (a codex app-server
-    // spawn) — it must never sit on this loop.
-    let agent_status: Arc<Mutex<Option<coding::AgentStatusPayload>>> = Arc::new(Mutex::new(None));
+    // OFF the 1Hz loop and read by the next heartbeat. #FEED-211: on its OWN
+    // thread ([`coding::usage_worker`]), not the serialized device worker —
+    // a slow pass (a refresh lock, a timeout, a CLI probe) held every queued
+    // command behind it.
+    let agent_status = coding::usage_worker::UsageWorker::new();
     // EXP-484: raised by a finished `agent_login` — the doctor re-probe (and
     // with it the accounts map) must not wait out a full DOCTOR_RECHECK
     // before the machine rows learn who just signed in.
@@ -379,11 +424,13 @@ fn run_daemon(args: &[String]) -> CommandResult {
     // daemon self-update never re-execs while `claude update` is mid-download.
     let logins_inflight: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
     let check_in = Arc::new(AtomicBool::new(false));
+    // #EXP-1617 (Q6): the team's opted-in GitHub repos, served as Actions runners.
+    crate::actions_runner::spawn(Arc::clone(&ctx));
     let device_worker = spawn_device_worker(
         Arc::clone(&ctx),
         Arc::clone(&sessions),
         device_id.clone(),
-        Arc::clone(&agent_status),
+        agent_status.clone(),
         Arc::clone(&doctor_soon),
         Arc::clone(&update_now),
         Arc::clone(&logins_inflight),
@@ -778,12 +825,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
             // for a FRESH collection, which nudges it (`then_beat`), so the
             // row carries the moved `active` flag instead of the old one.
             reported_sessions = Some(live_now);
-            device_worker
-                .send(DeviceWork::CollectAgentStatus {
-                    report: Box::new(doctor.clone()),
-                    then_beat: true,
-                })
-                .ok();
+            start_agent_status(&agent_status, &ctx, &doctor, Some(&check_in));
         }
         // EXP-481: a relay check_in nudge means "the server persisted new
         // work" — beat NOW instead of on the cadence (the beat is the pull).
@@ -802,7 +844,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
             // 30s would be pure sync noise. "Changed" is the accounts
             // IDENTITY (`accounts_key`, `checked_at` excluded — the
             // collector restamps it every pass) and the usage JSON.
-            let status = agent_status.lock().ok().and_then(|slot| slot.clone());
+            let status = agent_status.latest();
             let accounts_json = status.as_ref().and_then(|status| status.accounts_json());
             let usage_json = status.as_ref().and_then(|status| status.usage_json());
             let accounts_key = status
@@ -931,15 +973,11 @@ fn run_daemon(args: &[String]) -> CommandResult {
                 }
                 Err(err) => heartbeat_health.on_err("devices.heartbeat", &err, carried_optional),
             }
-            // EXP-484: collect for the NEXT beat, on the worker — never
-            // here (a codex app-server probe blocks for seconds, and this
-            // loop also owns the update gate and the session reaper).
-            device_worker
-                .send(DeviceWork::CollectAgentStatus {
-                    report: Box::new(doctor.clone()),
-                    then_beat: false,
-                })
-                .ok();
+            // EXP-484: collect for the NEXT beat, off this loop (a codex
+            // app-server probe blocks for seconds, and this loop also owns
+            // the update gate and the session reaper). #FEED-211: a pass
+            // still in flight is left to finish; none starts beside it.
+            start_agent_status(&agent_status, &ctx, &doctor, None);
         }
         // Session start/end changes the inventory's busy flags.
         if session_change {
@@ -1969,17 +2007,6 @@ enum DeviceWork {
     Commands(Vec<api::devices::PendingCommand>),
     /// Re-scan the worktrees and report when the fingerprint moved.
     ReportWorktrees,
-    /// EXP-484: collect the agent accounts + usage windows for the NEXT
-    /// heartbeat. Runs here because `collect_if_due` blocks (keychain read,
-    /// an HTTP fetch, a codex app-server spawn — up to ~10s) and the daemon
-    /// loop must stay at 1Hz. `report` is the loop's last doctor pass: the
-    /// collector reads it for which binaries exist and who is signed in
-    /// (boxed — it dwarfs every other variant). EXP-1158: `then_beat` raises
-    /// the loop's check-in once the collection landed (a session change).
-    CollectAgentStatus {
-        report: Box<coding::DoctorReport>,
-        then_beat: bool,
-    },
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1987,7 +2014,7 @@ fn spawn_device_worker(
     ctx: Arc<Ctx>,
     sessions: Sessions,
     device_id: String,
-    agent_status: Arc<Mutex<Option<coding::AgentStatusPayload>>>,
+    agent_status: coding::usage_worker::UsageWorker,
     doctor_soon: Arc<AtomicBool>,
     update_now: Arc<AtomicBool>,
     // EXP-484: `agent_login` runs on its own thread (a PTY that lives for
@@ -1996,8 +2023,7 @@ fn spawn_device_worker(
     // `agent_update` (minutes of download) claims the same set, and the
     // loop's self-update restart holds while it is non-empty.
     logins_inflight: Arc<Mutex<HashSet<String>>>,
-    // EXP-1158: the loop's beat-now flag, raised after a `then_beat`
-    // collection.
+    // The loop's beat-now flag, raised after a usage refresh landed.
     check_in: Arc<AtomicBool>,
 ) -> flume::Sender<DeviceWork> {
     let (tx, rx) = flume::unbounded::<DeviceWork>();
@@ -2039,6 +2065,7 @@ fn spawn_device_worker(
                             &CommandSlots {
                                 agent_status: &agent_status,
                                 update_now: &update_now,
+                                check_in: &check_in,
                             },
                         );
                     }
@@ -2047,34 +2074,45 @@ fn spawn_device_worker(
                 DeviceWork::ReportWorktrees => {
                     report_worktrees(&ctx, &sessions, &device_id, &mut last_inventory_fp);
                 }
-                DeviceWork::CollectAgentStatus { report, then_beat } => {
-                    let settings =
-                        coding::Settings::load(&coding::Settings::default_path(&ctx.data_dir));
-                    let payload = coding::collect_if_due(
-                        &ctx.data_dir,
-                        &settings,
-                        &report,
-                        coding::run_registry::now_secs(),
-                    );
-                    if let Ok(mut slot) = agent_status.lock() {
-                        *slot = Some(payload);
-                    }
-                    if then_beat {
-                        check_in.store(true, Ordering::SeqCst);
-                    }
-                }
             }
         }
     });
     tx
 }
 
+/// #FEED-211: start a collection pass on the usage worker's own thread
+/// (none while one is in flight). EXP-1158: `then_beat` = the loop's check-in,
+/// raised once the pass landed (a session change waits for the fresh pass).
+fn start_agent_status(
+    worker: &coding::usage_worker::UsageWorker,
+    ctx: &Arc<Ctx>,
+    report: &coding::DoctorReport,
+    then_beat: Option<&Arc<AtomicBool>>,
+) {
+    let data_dir = ctx.data_dir.clone();
+    let report = report.clone();
+    let then_beat = then_beat.map(Arc::clone);
+    worker.start(
+        move || {
+            let settings = coding::Settings::load(&coding::Settings::default_path(&data_dir));
+            coding::collect_if_due(&data_dir, &settings, &report, coding::run_registry::now_secs())
+        },
+        move |_| {
+            if let Some(flag) = then_beat {
+                flag.store(true, Ordering::SeqCst);
+            }
+        },
+    );
+}
+
 /// EXP-792: the worker-owned slots a command may write (the forced usage
 /// refresh fills the status slot).
 struct CommandSlots<'a> {
-    agent_status: &'a Arc<Mutex<Option<coding::AgentStatusPayload>>>,
+    agent_status: &'a coding::usage_worker::UsageWorker,
     /// FEED-36: `update_now` sets it after ending the live sessions.
     update_now: &'a Arc<AtomicBool>,
+    /// #FEED-211: a usage refresh that landed beats at once.
+    check_in: &'a Arc<AtomicBool>,
 }
 
 /// Reconcile against an OBSERVED server copy.
@@ -2261,38 +2299,73 @@ fn run_device_command(
         }
         // EXP-792: force one agent's usage re-read past the shared TTL
         // (never past the 429 floor — a hot refusal names when).
+        // #FEED-211: on its OWN thread, completing itself — a refresh that
+        // waits out a lock or a timeout must not hold the commands queued
+        // behind it. The claim set makes a redelivered id a no-op.
         "agent_usage_refresh" => {
             let agent = command.payload["agent"].as_str().unwrap_or_default();
-            let profile = command.payload["profileId"].as_str().unwrap_or_default();
+            let profile = command.payload["profileId"].as_str().unwrap_or_default().to_string();
             match coding::CodingAgent::parse(agent) {
                 None => (false, "Malformed command payload.".to_string()),
                 Some(agent) => {
-                    let report = coding::run_doctor(&settings, &ctx.data_dir);
-                    // EXP-808: every account PROFILE refreshes, not just the
-                    // device's default one.
-                    match coding::force_collect(
-                        &ctx.data_dir,
-                        &settings,
-                        &report,
-                        agent,
-                        profile,
-                        coding::run_registry::now_secs(),
-                    ) {
-                        Ok(payload) => {
-                            if let Ok(mut slot) = slots.agent_status.lock() {
-                                *slot = Some(payload);
-                            }
-                            (true, format!("Refreshed {} usage.", agent.id()))
+                    {
+                        let Ok(mut guard) = logins_inflight.lock() else {
+                            return;
+                        };
+                        if !guard.insert(command.id.clone()) {
+                            return;
                         }
-                        Err(until) => (
-                            false,
-                            format!(
-                                "{} is rate-limited; try again after {}.",
-                                agent.id(),
-                                coding::agent_accounts::iso_from_unix_secs(until as i64)
-                                    .unwrap_or_else(|| until.to_string())
-                            ),
-                        ),
+                    }
+                    let ctx = Arc::clone(ctx);
+                    let command_id = command.id.clone();
+                    let claimed = Arc::clone(logins_inflight);
+                    let usage = slots.agent_status.clone();
+                    let check_in = Arc::clone(slots.check_in);
+                    let spawned = std::thread::Builder::new()
+                        .name("exp-usage-refresh".to_string())
+                        .spawn(move || {
+                            let report = coding::run_doctor(&settings, &ctx.data_dir);
+                            // EXP-808: every account PROFILE refreshes, not
+                            // just the device's default one.
+                            let (ok, message) = match coding::force_collect(
+                                &ctx.data_dir,
+                                &settings,
+                                &report,
+                                agent,
+                                &profile,
+                                coding::run_registry::now_secs(),
+                            ) {
+                                Ok(payload) => {
+                                    usage.publish(payload);
+                                    check_in.store(true, Ordering::SeqCst);
+                                    (true, format!("Refreshed {} usage.", agent.id()))
+                                }
+                                Err(until) => (
+                                    false,
+                                    format!(
+                                        "{} is rate-limited; try again after {}.",
+                                        agent.id(),
+                                        coding::agent_accounts::iso_from_unix_secs(until as i64)
+                                            .unwrap_or_else(|| until.to_string())
+                                    ),
+                                ),
+                            };
+                            if let Err(err) =
+                                api::devices::complete_command(&ctx.trpc, &command_id, ok, Some(&message))
+                            {
+                                log::debug!("completeCommand failed (redelivery will retry): {err}");
+                            }
+                            if let Ok(mut guard) = claimed.lock() {
+                                guard.remove(&command_id);
+                            }
+                        });
+                    if spawned.is_err() {
+                        if let Ok(mut guard) = logins_inflight.lock() {
+                            guard.remove(&command.id);
+                        }
+                        (false, "This machine could not start the usage refresh.".to_string())
+                    } else {
+                        return;
                     }
                 }
             }
@@ -2358,9 +2431,7 @@ fn run_device_command(
                     };
                     match outcome {
                         Ok((payload, _)) => {
-                            if let Ok(mut slot) = slots.agent_status.lock() {
-                                *slot = Some(payload);
-                            }
+                            slots.agent_status.publish(payload);
                             doctor_soon.store(true, Ordering::SeqCst);
                             (true, done)
                         }
@@ -2396,6 +2467,16 @@ fn run_device_command(
         // must not start a second updater. Live sessions keep running (the
         // binary they hold stays mapped); the doctor re-probes right after
         // so the next beat's `agent_accounts.<agent>.version` moves.
+        // #EXP-1617: one CI job; its own thread claims, runs and finishes it.
+        crate::ci_runner::CI_JOB_COMMAND => {
+            match command.payload["jobId"].as_str() {
+                Some(job_id) => crate::ci_runner::spawn(ctx, &command.id, job_id, logins_inflight),
+                None => {
+                    let _ = api::devices::complete_command(&ctx.trpc, &command.id, false, Some("Malformed command payload."));
+                }
+            }
+            return;
+        }
         coding::AGENT_UPDATE_COMMAND => {
             let agent = command.payload["agent"].as_str().unwrap_or_default();
             let Some(agent) = coding::CodingAgent::parse(agent) else {
@@ -2451,6 +2532,38 @@ fn run_device_command(
                 log::info!("agent update: could not spawn the updater thread");
             }
             return;
+        }
+        // #EXP-1616: an eCode git job (merge, mergeability, backup, …) on
+        // its OWN thread, completing itself: a squash of a big repo must not
+        // hold the commands queued behind it. The claim set makes a
+        // redelivered id a no-op.
+        "ecode_job" => {
+            {
+                let Ok(mut guard) = logins_inflight.lock() else {
+                    return;
+                };
+                if !guard.insert(command.id.clone()) {
+                    return;
+                }
+            }
+            let (ctx, command_id, payload) = (Arc::clone(ctx), command.id.clone(), command.payload.clone());
+            let claimed = Arc::clone(logins_inflight);
+            let spawned = std::thread::Builder::new().name("exp-ecode-job".to_string()).spawn(move || {
+                let (ok, message) = crate::ecode_jobs::run(&ctx.account.instance_url, &ctx.data_dir, &payload);
+                if let Err(err) = api::devices::complete_command(&ctx.trpc, &command_id, ok, Some(&message)) {
+                    log::debug!("completeCommand failed (redelivery will retry): {err}");
+                }
+                if let Ok(mut guard) = claimed.lock() {
+                    guard.remove(&command_id);
+                }
+            });
+            if spawned.is_ok() {
+                return;
+            }
+            if let Ok(mut guard) = logins_inflight.lock() {
+                guard.remove(&command.id);
+            }
+            (false, "This machine could not start the eCode job.".to_string())
         }
         other => {
             log::info!("device command {other:?} unsupported — reported back");
@@ -2978,11 +3091,18 @@ fn spawn_daemon_worker(
     std::thread::Builder::new()
         .name("exp-daemon-worker".to_string())
         .spawn(move || {
+            let mut trimmed = Instant::now();
             while rx.recv().is_ok() {
                 // Coalesce a burst (a refetch is thousands of rows in a
                 // handful of batches) into ONE pass.
                 while rx.try_recv().is_ok() {}
                 host.beat();
+                // #EXP-1821: the pass's (and the sync threads') freed pages
+                // go back; the 30s tick makes this the idle cadence too.
+                if trimmed.elapsed() >= TRIM_EVERY {
+                    trim_allocator();
+                    trimmed = Instant::now();
+                }
             }
         })
         .expect("spawn the daemon worker");
@@ -3035,7 +3155,9 @@ impl DaemonHost {
         };
         if self.synced.ready(PICKUP_SHAPES) {
             let rows = read_shape_rows::<SessionRow>(&store, "sessions");
-            let mut messages = read_keyed_messages(&store);
+            // #EXP-1821: only the messages of the sessions this pass acts on.
+            let held = self.pickup.live.live_views().into_keys().chain(self.pickup.excluded());
+            let mut messages = read_keyed_messages(&store, &pickup_session_ids(&rows, &self.pickup.device_id, held));
             // EXP-1458: who an engine reply's `@email` names.
             coding::sealing::note_users(
                 read_shape_rows::<domain::rows::User>(&store, "users").into_iter().filter_map(|user| Some((user.id, user.email?))),
@@ -3045,7 +3167,7 @@ impl DaemonHost {
             coding::direct_inbox::merge(&mut messages);
             // EXP-1542: the server's move records (empty until synced).
             let moves = if self.synced.ready(&["events"]) {
-                coding::pickup::move_records(&read_shape_rows::<domain::rows::EventRow>(&store, "events"))
+                read_move_records(&store)
             } else {
                 Vec::new()
             };
@@ -3438,12 +3560,69 @@ pub(crate) fn read_shape_rows<T: serde::de::DeserializeOwned>(
     }
 }
 
-/// #EXP-1730: every synced message that lives in a session, keyed by its
-/// own `session_id` (`domain::message_session::key_messages_by_session`); a
-/// session-less dm/channel row is held back.
-pub(crate) fn read_keyed_messages(store: &sync::store::ShapeStore) -> Vec<MessageRow> {
-    let messages = read_shape_rows::<MessageRow>(store, "messages");
+/// #EXP-1730: the synced messages of `session_ids`, keyed by their own
+/// `session_id` (`domain::message_session::key_messages_by_session`).
+/// #EXP-1821: never the whole table: hydrating every message the team ever
+/// wrote on each pass held the daemon near 1 GB at idle.
+pub(crate) fn read_keyed_messages(store: &sync::store::ShapeStore, session_ids: &[String]) -> Vec<MessageRow> {
+    let ids: Vec<&str> = session_ids.iter().map(String::as_str).collect();
+    let messages = read_shape_rows_where::<MessageRow>(store, "messages", "session_id", &ids);
     domain::message_session::key_messages_by_session(&messages)
+}
+
+/// #EXP-1821: [`read_shape_rows`] narrowed to the rows whose `column` is one
+/// of `values` (`ShapeStore::read_where_in`).
+pub(crate) fn read_shape_rows_where<T: serde::de::DeserializeOwned>(
+    store: &sync::store::ShapeStore,
+    shape: &str,
+    column: &str,
+    values: &[&str],
+) -> Vec<T> {
+    let Some(spec) = sync::shapes::shape_by_name(shape) else {
+        return Vec::new();
+    };
+    match store.read_where_in(spec, column, values) {
+        Ok(rows) => rows
+            .into_iter()
+            .filter_map(|row| serde_json::from_value(serde_json::Value::Object(row)).ok())
+            .collect(),
+        Err(err) => {
+            log::debug!("daemon sync: reading the {shape} table failed: {err}");
+            Vec::new()
+        }
+    }
+}
+
+/// #EXP-1821: the server's move records (`coding::pickup::move_records`)
+/// from the only two event names they read, not the whole team stream.
+pub(crate) fn read_move_records(store: &sync::store::ShapeStore) -> Vec<coding::pickup::MoveRecord> {
+    coding::pickup::move_records(&read_shape_rows_where::<domain::rows::EventRow>(
+        store,
+        "events",
+        "name",
+        &[coding::pickup::SESSION_MOVED_EVENT, coding::pickup::SESSION_HANDED_OFF_EVENT],
+    ))
+}
+
+/// #EXP-1821: the sessions a pickup pass reads messages for. `plan` and the
+/// re-claim only ever act on a row naming this device that is not ended
+/// (launch, resume, revive, continue, re-claim) or on a session whose
+/// engine runs here (`held`: deliveries, answers, revokes, the kill's
+/// hand-off), so every other session's messages change nothing.
+pub(crate) fn pickup_session_ids(
+    rows: &[SessionRow],
+    device_id: &str,
+    held: impl IntoIterator<Item = String>,
+) -> Vec<String> {
+    let mut ids: Vec<String> = rows
+        .iter()
+        .filter(|row| row.on_device(device_id) && !row.status_is(domain::contract::SESSION_STATUS_ENDED))
+        .map(|row| row.id.clone())
+        .chain(held)
+        .collect();
+    ids.sort_unstable();
+    ids.dedup();
+    ids
 }
 
 /// One column of one issue, point-read by primary key (§5.8).
@@ -3822,6 +4001,69 @@ fn status(args: &[String]) -> CommandResult {
             println!("{}", super::account::NOT_REGISTERED_HINT);
             Ok(ExitCode::FAILURE)
         }
+    }
+}
+
+/// #EXP-1821: the pickup's reads replayed over a COPY of a daemon's store,
+/// reporting the process's resident memory — the before/after measure of
+/// the idle daemon (run one mode per process: `--release`, `--ignored`).
+/// `EXP_PROBE_MODE=all` is the old pass (every message and event, each
+/// pass), `scoped` the current one; `EXP_PROBE_TRIM=0` skips the allocator
+/// tuning.
+#[cfg(test)]
+mod memory_probe {
+    use super::*;
+
+    fn status(key: &str) -> String {
+        std::fs::read_to_string("/proc/self/status")
+            .unwrap_or_default()
+            .lines()
+            .find(|line| line.starts_with(key))
+            .map(|line| line.split_whitespace().nth(1).unwrap_or("?").to_string())
+            .unwrap_or_default()
+    }
+
+    #[test]
+    #[ignore = "EXP_PROBE_STORE=<copy of sync-cli.sqlite> EXP_PROBE_DEVICE=<id> EXP_PROBE_MODE=all|scoped"]
+    fn pickup_reads_resident_memory() {
+        let path = std::env::var("EXP_PROBE_STORE").expect("EXP_PROBE_STORE");
+        let device = std::env::var("EXP_PROBE_DEVICE").unwrap_or_default();
+        let all = std::env::var("EXP_PROBE_MODE").as_deref() == Ok("all");
+        let tune = std::env::var("EXP_PROBE_TRIM").as_deref() != Ok("0");
+        if tune {
+            tune_allocator();
+        }
+        let store = Arc::new(sync::store::ShapeStore::open(std::path::Path::new(&path)).unwrap());
+        println!("open: VmRSS {} kB", status("VmRSS"));
+        let mut kept = 0;
+        // The worker thread (one pass per beat), like the daemon's.
+        for pass in 0..20 {
+            let store = Arc::clone(&store);
+            let device = device.clone();
+            kept = std::thread::spawn(move || {
+                let rows = read_shape_rows::<SessionRow>(&store, "sessions");
+                let (messages, moves) = if all {
+                    let messages = read_shape_rows::<MessageRow>(&store, "messages");
+                    let messages = domain::message_session::key_messages_by_session(&messages);
+                    let moves = coding::pickup::move_records(&read_shape_rows::<domain::rows::EventRow>(&store, "events"));
+                    (messages, moves)
+                } else {
+                    let ids = pickup_session_ids(&rows, &device, Vec::new());
+                    (read_keyed_messages(&store, &ids), read_move_records(&store))
+                };
+                let users = read_shape_rows::<domain::rows::User>(&store, "users").len();
+                rows.len() + messages.len() + moves.len() + users
+            })
+            .join()
+            .unwrap();
+            if tune {
+                trim_allocator();
+            }
+            if pass % 5 == 4 {
+                println!("pass {}: VmRSS {} kB", pass + 1, status("VmRSS"));
+            }
+        }
+        println!("rows read per pass: {kept}; VmHWM {} kB; final VmRSS {} kB", status("VmHWM"), status("VmRSS"));
     }
 }
 
@@ -4258,6 +4500,11 @@ mod tests {
         // The shared list, then this daemon's own `update-check` (#EXP-1628).
         let mut shared = coding::device_caps(&advert(&["claude"]));
         shared.push(UPDATE_CHECK_CAP.to_string());
+        shared.push(crate::ecode_jobs::ECODE_JOBS_CAP.to_string());
+        shared.push(crate::ci_runner::CI_RUNNER_CAP.to_string());
+        if crate::actions_runner::platform_asset().is_some() {
+            shared.push(crate::actions_runner::ACTIONS_RUNNER_CAP.to_string());
+        }
         assert_eq!(device_caps(&advert(&["claude"])), shared);
         let caps = device_caps(&advert(&["claude"]));
         for cap in coding::DEVICE_CAPS {
@@ -4268,7 +4515,9 @@ mod tests {
         }
         // Nothing runnable = build caps only.
         let signed_out = device_caps(&advert(&[]));
-        assert_eq!(signed_out.len(), coding::DEVICE_CAPS.len() + 1);
+        // + update-check + ecode-jobs (#EXP-1616) + ci-runner (+ actions-runner) (#EXP-1617).
+        let actions = usize::from(crate::actions_runner::platform_asset().is_some());
+        assert_eq!(signed_out.len(), coding::DEVICE_CAPS.len() + 3 + actions);
         assert!(signed_out.contains(&"agent-login".to_string()));
         assert!(!signed_out.contains(&"triggers".to_string()));
         assert!(!signed_out.contains(&"automations".to_string()), "nor the legacy trigger cap");
@@ -4277,6 +4526,26 @@ mod tests {
     /// The daemon's shapes are real shapes (the v2 pickup trio once
     /// #EXP-1294's specs land — until then the pipeline skips them), and
     /// deliberately NOT the desktop's whole set.
+    /// #EXP-1821: a pass reads the messages of this device's live rows and
+    /// of the engines it holds, never the whole team's.
+    #[test]
+    fn a_pass_reads_only_its_own_sessions_messages() {
+        let row = |id: &str, device: &str, status: &str| -> SessionRow {
+            serde_json::from_value(serde_json::json!({"id": id, "device_id": device, "status": status})).unwrap()
+        };
+        let rows = vec![
+            row("queued-here", "d1", "queued"),
+            row("idle-here", "d1", "idle"),
+            row("ended-here", "d1", "ended"),
+            row("elsewhere", "d2", "running"),
+            row("moved-away", "d2", "running"),
+        ];
+        assert_eq!(
+            pickup_session_ids(&rows, "d1", ["moved-away".to_string(), "idle-here".to_string()]),
+            ["idle-here", "moved-away", "queued-here"]
+        );
+    }
+
     #[test]
     fn daemon_shapes_are_a_real_subset() {
         assert!(DAEMON_SHAPES.len() < 20);

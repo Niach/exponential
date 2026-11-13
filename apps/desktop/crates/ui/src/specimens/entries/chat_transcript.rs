@@ -21,7 +21,9 @@ use domain::chats::{DividerKind, CHATS};
 use domain::session_tree::{CardSurface, SessionChatRow, SessionXref};
 
 use crate::markdown::ImageCache;
-use crate::session_chat::{card_row, message_bubble, message_markdown, ChatText, MessageBubble};
+use domain::message_delivery::{bubble_actions, DeliveryState};
+
+use crate::session_chat::{card_row, message_bubble, message_markdown, BubbleMenu, ChatText, MessageBubble};
 
 pub(crate) const ID: &str = "chat-transcript";
 pub(crate) const OWNER: &str = "EXP-1373";
@@ -123,6 +125,40 @@ pub(crate) fn rows() -> Vec<(SessionChatRow, &'static str)> {
     ]
 }
 
+/// #FEED-237 (message-delivery.json): the viewer's own bubbles at the
+/// bottom in all four states (the clock, one check, two checks, the red
+/// mark), each with its menu where `bubbleActions` offers one: directly
+/// under the FIRST own message (m1, `read`), the same three as iOS, web
+/// and Android.
+pub(crate) const OWN_AFTER: &str = "m1";
+pub(crate) fn own_rows() -> Vec<(&'static str, &'static str, &'static str, DeliveryState, bool)> {
+    vec![
+        ("o1", "Use the Pixel 6a numbers as the baseline.", "21:02", DeliveryState::Sent, true),
+        ("o2", "And keep the cache behind a flag.", "21:03", DeliveryState::Sending, false),
+        ("o3", "Ping me when it's under a second.", "21:03", DeliveryState::Failed, false),
+    ]
+}
+
+fn paint_own(id: &str, body: &str, time: &str, state: DeliveryState, stored: bool, images: &Entity<ImageCache>, cx: &mut App) -> AnyElement {
+    let text = ChatText::default();
+    let markdown = message_markdown(SharedString::from(format!("sg-chat-own-{id}")), body, &text, images);
+    let actions = bubble_actions(state, stored);
+    message_bubble(
+        MessageBubble {
+            id: SharedString::from(format!("sg-chat-own-bubble-{id}")),
+            body: markdown.into_any_element(),
+            time: time.to_string(),
+            own: true,
+            name: None,
+            link: None,
+            status: Some(state),
+            menu: (!actions.is_empty()).then(|| BubbleMenu { actions, on_pick: std::rc::Rc::new(|_, _, _| {}) }),
+            width: None,
+        },
+        cx,
+    )
+}
+
 pub(crate) fn paint(row: &SessionChatRow, time: &str, images: &Entity<ImageCache>, window: &Window, cx: &mut App) -> AnyElement {
     let text = ChatText::default().answering(true);
     match row {
@@ -139,8 +175,15 @@ pub(crate) fn paint(row: &SessionChatRow, time: &str, images: &Entity<ImageCache
                     own: author == domain::contract::MESSAGE_AUTHOR_KIND_USER,
                     name: relay.map(|xref| format!("{} {}", xref.name, domain::transcript_grouping::copy().link_chevron)),
                     link: relay.map(|xref| xref.session_id.clone()),
-                    queued: *queued,
-                    unqueue: None,
+                    // #FEED-237: a consumed own row reads two checks.
+                    status: (author == domain::contract::MESSAGE_AUTHOR_KIND_USER).then(|| {
+                        if *queued {
+                            DeliveryState::Sending
+                        } else {
+                            DeliveryState::Read
+                        }
+                    }),
+                    menu: None,
                     width: None,
                 },
                 cx,
@@ -151,12 +194,24 @@ pub(crate) fn paint(row: &SessionChatRow, time: &str, images: &Entity<ImageCache
     }
 }
 
+fn rows_list() -> Vec<(SessionChatRow, &'static str)> {
+    rows()
+}
+
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let images = window.use_keyed_state("sg-chat-transcript-images", cx, |_, _| ImageCache::new(None)).clone();
-    let rows: Vec<AnyElement> = rows().iter().map(|(row, time)| paint(row, time, &images, window, cx)).collect();
+    let mut rows: Vec<AnyElement> = Vec::new();
+    for (row, time) in rows_list() {
+        rows.push(paint(&row, time, &images, window, cx));
+        if matches!(&row, SessionChatRow::Message { id, .. } if id == OWN_AFTER) {
+            rows.extend(own_rows().into_iter().map(|(id, body, time, state, stored)| paint_own(id, body, time, state, stored, &images, cx)));
+        }
+    }
     v_flex()
         // #EXP-1547: THE chat column's content box (the token inside the gutter).
-        .w(px(crate::work_header::CHAT_COLUMN_W - 2. * crate::work_header::WORK_GUTTER))
+        // Bounded, not fixed: the 1600 token is wider than the capture window.
+        .w_full()
+        .max_w(px(crate::work_header::CHAT_COLUMN_W - 2. * crate::work_header::WORK_GUTTER))
         .gap_5()
         .children(rows)
 }
@@ -173,5 +228,14 @@ mod tests {
         assert!(rows.iter().any(|(row, _)| matches!(row, SessionChatRow::Divider { kind: DividerKind::New, .. })));
         assert!(rows.iter().any(|(row, _)| matches!(row, SessionChatRow::Divider { kind: DividerKind::Compact, .. })));
         assert!(rows.iter().any(|(row, _)| matches!(row, SessionChatRow::Plan { decision: Some(d), .. } if d == "superseded")));
+    }
+
+    /// #FEED-237: m1 (an own, consumed row = `read`) is followed by one
+    /// own bubble per other delivery state.
+    #[test]
+    fn the_own_bubbles_cover_every_delivery_state() {
+        let states: Vec<DeliveryState> = own_rows().into_iter().map(|(_, _, _, state, _)| state).collect();
+        assert_eq!(states, vec![DeliveryState::Sent, DeliveryState::Sending, DeliveryState::Failed]);
+        assert!(rows().iter().any(|(row, _)| matches!(row, SessionChatRow::Message { id, author, queued: false, .. } if id == OWN_AFTER && author == "user")));
     }
 }

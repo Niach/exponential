@@ -89,7 +89,7 @@ struct IssuePropertyChipsBox: View {
 
     var body: some View {
         let priority = IssuePriority.from(subject.priority)
-        FlowLayout(spacing: 6) {
+        FlowLayout(spacing: GlassPillTokens.chipBoxGap) {
             chip(target: .status, label: status.name) {
                 AppIcon(status.iconName, size: GlassPillTokens.glyphSm)
                     .foregroundStyle(status.color)
@@ -103,11 +103,11 @@ struct IssuePropertyChipsBox: View {
                     // #EXP-1383: an agent assignee reads like a member: the
                     // agent mark + its name.
                     chip(target: .assignee, label: assigneeAgent?.name ?? AgentSettings.AssigneeCopy.agentFallback) {
-                        UserAvatar(agent: UserAvatarAgent(icon: assigneeAgent?.icon, color: assigneeAgent?.color), size: 16)
+                        UserAvatar(agent: UserAvatarAgent(icon: assigneeAgent?.icon, color: assigneeAgent?.color), size: GlassPillTokens.avatarSm)
                     }
                 } else if let assigneeId = subject.assigneeId {
                     chip(target: .assignee, label: memberDisplayName(assignee, id: assigneeId)) {
-                        UserAvatar(user: assignee, id: assigneeId, size: 16)
+                        UserAvatar(user: assignee, id: assigneeId, size: GlassPillTokens.avatarSm)
                     }
                 } else {
                     chip(target: .assignee, label: Self.unsetAssigneeLabel) {
@@ -154,7 +154,7 @@ struct IssuePropertyChipsBox: View {
                 }
             }
         }
-        .padding(10)
+        .padding(GlassPillTokens.chipBoxPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
         // A chip cloud, not a stack of rows: it needs the card's own border.
@@ -180,14 +180,17 @@ struct IssuePropertyChipsBox: View {
                 ? Self.unsetLabelsLabel
                 : assignedLabels.map(\.name).joined(separator: ", ")
         ) {
-            AppIcon(AppIcons.settingsLabels, size: 12)
+            AppIcon(AppIcons.settingsLabels, size: GlassPillTokens.glyphSm)
             if !assignedLabels.isEmpty {
                 HStack(spacing: -2) {
                     ForEach(assignedLabels.prefix(3), id: \.id) { label in
+                        // EXP-1822: web `h-2 w-2 ring-1 ring-background`: an
+                        // 8pt disc in the label's colour, its 1pt ring painted
+                        // OUTSIDE it (it used to be inset, a 6pt disc).
                         Circle()
                             .fill(Color(hex: label.color) ?? .gray)
-                            .frame(width: 8, height: 8)
-                            .overlay(Circle().strokeBorder(DesignTokens.Palette.background, lineWidth: 1))
+                            .frame(width: GlassPillTokens.labelDot, height: GlassPillTokens.labelDot)
+                            .background(Circle().fill(DesignTokens.Palette.background).padding(-1))
                     }
                 }
             }

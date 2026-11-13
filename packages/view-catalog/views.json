@@ -85,6 +85,14 @@
       "reason": "Live rows on every client; the `needs-you` view shoots the specimen (`?dev=needs-you`) so ×5 show the same state."
     },
     {
+      "route": "/t/$teamSlug/ci/$runId",
+      "reason": "A live run on every client; the `ci-run` view shoots the specimen (`?dev=ci-run`) so ×5 show the same run."
+    },
+    {
+      "route": "/t/$teamSlug/repos/$name_/pulls/$number",
+      "reason": "#EXP-1616: an eCode PR's url; a redirect to its repo page (the `repo` view), nothing of its own to draw."
+    },
+    {
       "route": "/",
       "reason": "Bare root is a resolver, not a view: it forwards to the last-visited team, the oldest membership, or onboarding."
     },
@@ -1631,6 +1639,117 @@
       "notes": {
         "ios": "EXP-1558: the phone's own Repositories page (settings-nav.json `phone`), opened from the Team tab's Repositories row by the live walk.",
         "android": "EXP-1558: the phone's own Repositories page (settings-nav.json `phone`), opened from the Team tab's Repositories row by the live walk."
+      }
+    },
+    {
+      "id": "repo",
+      "group": "settings",
+      "title": "Repository",
+      "blurb": "THE repo page (#EXP-1616, repo-page.json): an AppBar with the provider Badge over pill Tabs (Pull requests · Runs · Branches · Settings). The PR tree as a Section{tree} of Rows with the checks Chip{dot} and the merge-train pill; Runs waits for eCode CI. Opened from a Settings › Repositories row.",
+      "order": 26,
+      "web": {
+        "route": "/t/$teamSlug/repos/engine",
+        "anchor": {
+          "testId": "repo-page",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "repo:engine"
+        }
+      },
+      "ios": {
+        "shot": "sg_repo",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_repo",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "The seeded Exponential repo `acme/engine` (seed-screenshots.ts): a PR tree of four, checks on three, one queued.",
+        "ios": "The live walk taps the `acme/engine` row on the Repositories page; shot sg_repo.",
+        "android": "The live walk taps the `acme/engine` row on the Repositories page; shot sg_repo.",
+        "desktop": "EXP_DEV_SETTINGS=repo:engine opens the settings sub-page of the seeded `acme/engine`."
+      }
+    },
+    {
+      "id": "repo-runs",
+      "group": "settings",
+      "title": "Repository runs",
+      "blurb": "The repo page's Runs tab (#EXP-1617, repo-ci.json): our own CI's runs newest first, a Table on wide screens (status, run, commit, branch, trigger, duration, started) and Rows on phones; a run opens its run page.",
+      "order": 32,
+      "web": {
+        "route": "/t/$teamSlug/repos/engine?tab=runs",
+        "anchor": {
+          "testId": "repo-runs",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "repo:engine:runs"
+        }
+      },
+      "ios": {
+        "shot": "sg_repo-runs",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_repo-runs",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "The seeded repo `acme/engine` with its seeded CI runs (seed-screenshots.ts).",
+        "web-mobile": "Inherits web.",
+        "desktop": "The repo page's Runs tab over the seeded runs.",
+        "ios": "The specimen in StyleguideScreenshots over repo-ci.json runRows, shot sg_repo-runs.",
+        "android": "See ios: the same specimen in StyleguideScreenshotsTest."
+      }
+    },
+    {
+      "id": "repo-ci",
+      "group": "settings",
+      "title": "Repository CI settings",
+      "blurb": "The CI section of the repo page's Settings tab (#EXP-1617, repo-ci.json): its pipelines with their state, the required checks, the secrets (names only; Add secret opens a dialog with a password field) and, for GitHub repos, Report to GitHub and GitHub Actions on team devices.",
+      "order": 33,
+      "web": {
+        "route": "/t/$teamSlug/repos/engine?tab=settings",
+        "anchor": {
+          "testId": "repo-ci",
+          "timeoutMs": 20000
+        },
+        "recipe": "scrollToRepoCi",
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "repo:engine:settings"
+        }
+      },
+      "ios": {
+        "shot": "sg_repo-ci",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_repo-ci",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "The seeded repo `acme/engine`'s Settings tab, scrolled to its CI section (seeded runs and secrets).",
+        "web-mobile": "Inherits web.",
+        "desktop": "The repo page's Settings tab.",
+        "ios": "The specimen in StyleguideScreenshots, shot sg_repo-ci.",
+        "android": "See ios: the same specimen in StyleguideScreenshotsTest."
       }
     },
     {
@@ -6187,6 +6306,82 @@
         "ios": "The specimen in StyleguideScreenshots, shot sg_pr-checks.",
         "android": "See ios: the same specimen in StyleguideScreenshotsTest.",
         "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:pr-checks`: the IDE styleguide entry drawn full-window."
+      }
+    },
+    {
+      "id": "ci-run",
+      "group": "reviews",
+      "title": "CI run",
+      "blurb": "One run of our own CI (#EXP-1617, ci-run.json), the page every check's Details link opens: status, duration, runner and commit tiles, the jobs (a list beside the selected job on wide screens, folds on phones), the job's steps as a trace and its log tailing live, Re-run failed and Cancel.",
+      "order": 8,
+      "web": {
+        "route": "/t/$teamSlug/agent?dev=ci-run",
+        "anchor": {
+          "testId": "ci-run",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_ci-run",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_ci-run",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "specimen:ci-run"
+        },
+        "anchorDelayMs": 1500
+      },
+      "notes": {
+        "web": "The DEV-ONLY `?dev=ci-run` on the Agent route: the page over ci-run.json `specimen` (the live route is /t/$teamSlug/ci/$runId).",
+        "web-mobile": "Inherits web.",
+        "ios": "The specimen in StyleguideScreenshots, shot sg_ci-run.",
+        "android": "See ios: the same specimen in StyleguideScreenshotsTest.",
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:ci-run`: the IDE styleguide entry drawn full-window."
+      }
+    },
+    {
+      "id": "runner-settings",
+      "group": "reviews",
+      "title": "CI runner settings",
+      "blurb": "The CI runner section of a device's settings (#EXP-1617, runner-settings.json): the Run CI jobs switch, labels, parallel jobs, the job timeout and the device's recent jobs; phones set a runner up but never run jobs, an old app is told to update.",
+      "order": 9,
+      "web": {
+        "route": "/t/$teamSlug/agent?dev=runner-settings",
+        "anchor": {
+          "testId": "runner-settings",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_runner-settings",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_runner-settings",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "specimen:runner-settings"
+        },
+        "anchorDelayMs": 1500
+      },
+      "notes": {
+        "web": "The DEV-ONLY `?dev=runner-settings`: the section over runner-settings.json `specimen` (live inside Device settings).",
+        "web-mobile": "Inherits web.",
+        "ios": "The specimen in StyleguideScreenshots, shot sg_runner-settings.",
+        "android": "See ios: the same specimen in StyleguideScreenshotsTest.",
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:runner-settings`."
       }
     },
     {

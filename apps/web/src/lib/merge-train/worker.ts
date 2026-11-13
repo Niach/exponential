@@ -15,8 +15,11 @@
 //   4. the queue positions (`Queued · 2nd`).
 // Every outcome posts ONE waking `pr_merge` line (messages.ts). The train is
 // the only merge, for every team and every repository (#EXP-1711).
+import { repoInstallationId } from "@/lib/ecode/provider-config"
 import { and, asc, desc, eq, inArray, isNotNull, ne, notInArray, sql } from "drizzle-orm"
 import { requiredChecksState } from "@exp/domain-contract/pr-checks"
+import type { RepositoryCiConfig } from "@exp/db-schema"
+import { withRepoRequired } from "@/lib/ci/required"
 import {
   composeBatch,
   MERGE_TRAIN_LIMITS,
@@ -79,8 +82,8 @@ type PrRow = typeof pullRequests.$inferSelect
 type RunRow = typeof mergeTrains.$inferSelect
 type RepoRow = Pick<
   typeof repositories.$inferSelect,
-  `id` | `teamId` | `fullName` | `installationId` | `defaultBranch` | `defaultBranchOverride`
->
+  `id` | `teamId` | `fullName` | `defaultBranch` | `defaultBranchOverride`
+> & { installationId: number | null; ciConfig?: RepositoryCiConfig | null }
 
 const backoff = new Map<string, number>()
 
@@ -194,7 +197,7 @@ async function readinessInputs(prs: PrRow[], repo: RepoRow, forge: Forge) {
   // (the rows' flags decide, and nothing is held for missing CI).
   const required = new Map<string, string[]>()
   for (const base of new Set(prs.map((pr) => pr.base))) {
-    required.set(base, await forge.requiredChecks(forgeRepo(repo), base).catch(() => []))
+    required.set(base, withRepoRequired(repo.ciConfig, await forge.requiredChecks(forgeRepo(repo), base).catch(() => [])))
   }
   // #EXP-1711: readiness reads the GATED checks (required when the base
   // names any), never an informational leg.
@@ -376,8 +379,10 @@ async function pollRun(repo: RepoRow, run: RunRow, forge: Forge, now: Date): Pro
   const dispatched = outcome.checks === `dispatched` && !!outcome.head
   const checks = dispatched ? ((await readCommitChecks(forge, fr, outcome.head!)) ?? []) : []
   // #FEED-221: unreadable is no verdict (an empty list would read as green).
-  const required = dispatched ? await forge.requiredChecks(fr, run.base).catch(() => null) : []
-  if (!required) return true
+  const forgeRequired = dispatched ? await forge.requiredChecks(fr, run.base).catch(() => null) : []
+  if (!forgeRequired) return true
+  // #EXP-1617: the repo's own required checks gate the train too.
+  const required = withRepoRequired(repo.ciConfig, forgeRequired)
   const verdict = trainVerdict({ outcome, checks, required })
   if (verdict.state === `pending`) {
     if (now.getTime() - run.createdAt.getTime() <= RUN_TIMEOUT_MS) return true
@@ -831,9 +836,10 @@ export async function advanceRepository(repositoryId: string, now: Date = new Da
       id: repositories.id,
       teamId: repositories.teamId,
       fullName: repositories.fullName,
-      installationId: repositories.installationId,
+      installationId: repoInstallationId(),
       defaultBranch: repositories.defaultBranch,
       defaultBranchOverride: repositories.defaultBranchOverride,
+      ciConfig: repositories.ciConfig,
     })
     .from(repositories)
     .where(eq(repositories.id, repositoryId))
@@ -1119,9 +1125,10 @@ export async function landDirectForTests(repositoryId: string, runId: string): P
       id: repositories.id,
       teamId: repositories.teamId,
       fullName: repositories.fullName,
-      installationId: repositories.installationId,
+      installationId: repoInstallationId(),
       defaultBranch: repositories.defaultBranch,
       defaultBranchOverride: repositories.defaultBranchOverride,
+      ciConfig: repositories.ciConfig,
     })
     .from(repositories)
     .where(eq(repositories.id, repositoryId))

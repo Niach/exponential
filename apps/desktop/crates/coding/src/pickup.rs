@@ -1537,7 +1537,20 @@ pub struct LiveRegistry {
     /// S-4: since when each live engine has been quiescent with nothing
     /// handed ([`LiveRegistry::release_idle`]).
     quiet_since: std::sync::Mutex<HashMap<String, std::time::Instant>>,
+    /// #FEED-237: person message ids this process already acked as
+    /// RECEIVED (`sessions.delivered`, [`ack_received`]): once per id, a
+    /// FEED-229 re-delivery never acks again. Consumed ids leave it
+    /// ([`LiveRegistry::settle_handed`]).
+    acked: std::sync::Mutex<HashSet<String>>,
+    /// #FEED-237: where acks go instead of the server ([`DeliveredSink`]);
+    /// `None` = `sessions.delivered` off-thread.
+    delivered_sink: std::sync::Mutex<Option<DeliveredSink>>,
 }
+
+/// #FEED-237: a receiver of the pickup's delivery acks (session id, the
+/// person message ids it just received) in place of `sessions.delivered`
+/// (tests, a host that wants to observe them).
+pub type DeliveredSink = std::sync::Arc<dyn Fn(&str, Vec<String>) + Send + Sync>;
 
 /// S-4: how long a quiescent live session keeps its agent process
 /// (`codingSession.idleReleaseMinutes`).
@@ -1892,6 +1905,18 @@ impl LiveRegistry {
         }
     }
 
+    /// #FEED-237: route this registry's delivery acks to `sink` instead of
+    /// the server.
+    pub fn set_delivered_sink(&self, sink: Option<DeliveredSink>) {
+        *locked(&self.delivered_sink) = sink;
+    }
+
+    /// #FEED-237: the ids of `ids` not acked yet, now marked acked.
+    fn take_unacked(&self, ids: &[String]) -> Vec<String> {
+        let mut acked = locked(&self.acked);
+        ids.iter().filter(|id| acked.insert((*id).clone())).cloned().collect()
+    }
+
     /// Forget a handed id (revoked).
     pub fn forget_handed(&self, session_id: &str, message_id: &str) {
         if let Some(entry) = self.lock().get_mut(session_id) {
@@ -1914,6 +1939,7 @@ impl LiveRegistry {
             entry.handed.retain(|id| !consumed.contains(id.as_str()));
         }
         locked(&self.consuming).retain(|id| !consumed.contains(id.as_str()));
+        locked(&self.acked).retain(|id| !consumed.contains(id.as_str()));
     }
 
     /// EXP-1334: a row that echoes the device's own model report
@@ -2127,6 +2153,49 @@ fn consume_off_thread(
     });
     if let Err(err) = spawned {
         log::warn!("pickup: consume thread failed to spawn: {err}");
+    }
+}
+
+/// #FEED-237 (message-delivery.json): the pickup RECEIVED these pending
+/// person messages for a session it hosts (handed to its live engine, held
+/// in its queue while a turn runs, or the seed of a wake): the bubble's one
+/// check (`sessions.delivered`). Once per id per process
+/// ([`LiveRegistry::take_unacked`]), fire-and-forget off this thread: a
+/// transient failure retries on [`CONSUME_RETRY`], a refusal (a server
+/// without the procedure) is only logged — the consume stamps it anyway.
+fn ack_received(deps: &PickupDeps, session_id: &str, messages: &[&MessageRow]) {
+    let ids: Vec<String> = messages
+        .iter()
+        .filter(|m| m.is_from_user() && m.consumed_at.as_deref().is_none_or(str::is_empty))
+        .map(|m| m.id.clone())
+        .collect();
+    let ids = deps.live.take_unacked(&ids);
+    if ids.is_empty() {
+        return;
+    }
+    if let Some(sink) = locked(&deps.live.delivered_sink).clone() {
+        return sink(session_id, ids);
+    }
+    let trpc = std::sync::Arc::clone(&deps.coding.trpc);
+    let session_id = session_id.to_string();
+    let spawned = std::thread::Builder::new().name("exp-pickup-delivered".to_string()).spawn(move || {
+        for wait in CONSUME_RETRY {
+            match api::sessions::delivered(&trpc, &session_id, &ids) {
+                Ok(()) => return,
+                Err(err) if transient(&err) => {
+                    log::debug!("pickup: delivered ack of {ids:?} failed, retrying: {err}");
+                    std::thread::sleep(wait);
+                }
+                Err(err) => {
+                    log::debug!("pickup: delivered ack of {ids:?} refused: {err}");
+                    return;
+                }
+            }
+        }
+        log::warn!("pickup: delivered ack of {ids:?} for session {session_id} still failing");
+    });
+    if let Err(err) = spawned {
+        log::warn!("pickup: delivered-ack thread failed to spawn: {err}");
     }
 }
 
@@ -2711,6 +2780,7 @@ fn deliver(
                 // The seed turn IS the first message; the engine consumes it
                 // via `PreparedLaunch::seed_message_id`.
                 deps.live.mark_handed(session_id, std::slice::from_ref(&first.id));
+                ack_received(deps, session_id, &[first]);
                 delivered.push(first.id.clone());
                 rest.remove(0);
             } else if restart {
@@ -3604,6 +3674,7 @@ pub fn switch_session(
             let mut rest = pending;
             if let Some(seed) = seed {
                 deps.live.mark_handed(session_id, std::slice::from_ref(&seed.id));
+                ack_received(deps, session_id, &[seed]);
                 rest.retain(|m| m.id != seed.id);
             }
             hand(&*engine, session_id, &rest, deps);
@@ -3827,6 +3898,8 @@ fn hand(
         engine.deliver(message.id.clone(), message.body.clone().unwrap_or_default());
     }
     deps.live.mark_handed(session_id, &ids);
+    // #FEED-237: received = the one check (a re-delivery acks nothing new).
+    ack_received(deps, session_id, messages);
     ids
 }
 
@@ -5491,6 +5564,8 @@ mod tests {
         spawned: Arc<Mutex<Vec<Spawned>>>,
         /// EXP-1334: the launch options each spawn ran with.
         launched: Arc<Mutex<Vec<crate::LaunchOptions>>>,
+        /// #FEED-237: the delivery acks (session id, ids), in order.
+        acks: Arc<Mutex<Vec<(String, Vec<String>)>>>,
         /// Claims key roots and replies seal through the process-global
         /// seal service: serialised with the tests that install one, so a
         /// host never keys its roots in another test's fake. Last = dropped last.
@@ -5522,19 +5597,26 @@ mod tests {
             });
             Ok(Arc::clone(&launch_engine) as Arc<dyn LiveEngine>)
         });
+        let live = Arc::new(LiveRegistry::default());
+        let acks = Arc::new(Mutex::new(Vec::new()));
+        let acks_seen = Arc::clone(&acks);
+        live.set_delivered_sink(Some(Arc::new(move |session_id: &str, ids: Vec<String>| {
+            acks_seen.lock().unwrap().push((session_id.to_string(), ids));
+        })));
         Host {
             deps: PickupDeps {
                 coding: Arc::new(coding),
                 device_id: DEV.to_string(),
                 device_label: "testbox".to_string(),
                 options,
-                live: Arc::new(LiveRegistry::default()),
+                live,
                 launch,
                 issue_identifiers: Arc::new(|_root: &str| Vec::new()),
             },
             engine,
             spawned,
             launched,
+            acks,
             _serial: serial,
         }
     }
@@ -5986,6 +6068,61 @@ mod tests {
         assert!(deliver_messages("s1", &rows, &host.deps).unwrap().is_empty());
         assert_eq!(host.engine.delivered_ids(), vec!["m1", "m2"]);
         assert_eq!(host.deps.live.live_views()["s1"].handed.len(), 2);
+    }
+
+    /// #FEED-237: the pickup acks each person message it RECEIVED once
+    /// (`sessions.delivered`): a second pass, a FEED-229 re-delivery of a
+    /// stranded one and a non-person input ack nothing more.
+    #[test]
+    fn received_messages_are_acked_delivered_once() {
+        let dir = temp_dir("pickup-delivered-ack");
+        let host = host(&canned_server(vec![]), &dir.0, |_| {});
+        host.deps.live.insert("s1", host.engine.clone(), None);
+        let report = MessageRow {
+            author_kind: Some("agent".to_string()),
+            author_session_id: Some("child-1".to_string()),
+            ..message("r1", "s1", "2026-10-02T00:00:03Z")
+        };
+        let rows = vec![
+            message("m2", "s1", "2026-10-02T00:00:02Z"),
+            message("m1", "s1", "2026-10-02T00:00:01Z"),
+            consumed(message("m0", "s1", "2026-10-02T00:00:00Z")),
+            report,
+        ];
+        deliver_messages("s1", &rows, &host.deps).unwrap();
+        assert_eq!(*host.acks.lock().unwrap(), vec![("s1".to_string(), vec!["m1".to_string(), "m2".to_string()])]);
+        // The next pass hands nothing new: no ack.
+        deliver_messages("s1", &rows, &host.deps).unwrap();
+        // FEED-229: m1 revoked and handed again: received already.
+        host.deps.live.forget_handed("s1", "m1");
+        assert_eq!(deliver_messages("s1", &rows, &host.deps).unwrap(), vec!["m1"]);
+        assert_eq!(host.acks.lock().unwrap().len(), 1, "{:?}", host.acks.lock().unwrap());
+        // A new message acks alone.
+        let mut more = rows.clone();
+        more.push(message("m3", "s1", "2026-10-02T00:00:04Z"));
+        deliver_messages("s1", &more, &host.deps).unwrap();
+        assert_eq!(host.acks.lock().unwrap()[1], ("s1".to_string(), vec!["m3".to_string()]));
+        // Consumed ids leave the bookkeeping.
+        host.deps.live.settle_handed(&more.iter().cloned().map(consumed).collect::<Vec<_>>());
+        assert!(locked(&host.deps.live.acked).is_empty());
+    }
+
+    /// #FEED-237: without a sink the ack is `sessions.delivered` on the wire.
+    #[test]
+    fn the_delivered_ack_goes_to_the_server() {
+        let dir = temp_dir("pickup-delivered-wire");
+        let (base, requests) = canned_server_recording(vec![(200, CLAIM_OK.to_string())]);
+        let host = host(&base, &dir.0, |_| {});
+        host.deps.live.set_delivered_sink(None);
+        host.deps.live.insert("s1", host.engine.clone(), None);
+        deliver_messages("s1", &[message("m1", "s1", "2026-10-02T00:00:01Z")], &host.deps).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while requests.lock().unwrap().is_empty() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(procedures(&requests), vec!["sessions.delivered"]);
+        let request = requests.lock().unwrap()[0].clone();
+        assert!(request.ends_with(r#"{"sessionId":"s1","messageIds":["m1"]}"#), "{request}");
     }
 
     fn record(data_dir: &Path, session_id: &str) -> RunRecord {

@@ -26,7 +26,9 @@ notices="${RUNNER_KIT_NOTICES:-$repo/apps/runner/ios/NOTICES.txt}"  # the overri
 [ -f "$notices" ] || { echo "no $notices (the iOS runner's third-party notices)" >&2; exit 1; }
 
 targets="aarch64-apple-ios aarch64-apple-ios-sim"
-slices() { [ -d "$1/ios-arm64" ] && ls -d "$1"/ios-*-simulator >/dev/null 2>&1; }
+# #PERF-11: the Exponential app's link stubs (exponential-mobile-ffi/build-ios.sh,
+# marked LINK_STUB) carry no code: rebuild the real ones.
+slices() { [ ! -e "$1/LINK_STUB" ] && [ -d "$1/ios-arm64" ] && ls -d "$1"/ios-*-simulator >/dev/null 2>&1; }
 if [ "${RUNNER_REBUILD_FFI:-}" = 1 ] || ! slices "$engine/out/ExponentialEngineFFI.xcframework"; then
   EENGINE_APPLE_TARGETS="$targets" bash "$engine/build-ios.sh"
 fi

@@ -101,6 +101,17 @@ pub mod size {
     pub const CONTROL_SM: f32 = 24.0;
     pub const INPUT_HEIGHT: f32 = 36.0;
     pub const ROW_HEIGHT: f32 = 32.0;
+    pub const PILL_PADDING_SM: f32 = 8.0;
+    pub const PILL_PADDING_MD: f32 = 12.0;
+    pub const PILL_GAP_SM: f32 = 4.0;
+    pub const PILL_GAP_MD: f32 = 6.0;
+    pub const PILL_GLYPH_SM: f32 = 12.0;
+    pub const PILL_GLYPH_MD: f32 = 16.0;
+    pub const PILL_DOT: f32 = 6.0;
+    pub const PILL_AVATAR: f32 = 16.0;
+    pub const PILL_LABEL_DOT: f32 = 8.0;
+    pub const CHIP_BOX_GAP: f32 = 6.0;
+    pub const CHIP_BOX_PADDING: f32 = 10.0;
 }
 
 // Menu row geometry (EXP-1074), two density classes: `pointer` is web at md+,

@@ -36,6 +36,7 @@ final class TranscriptGroupingTests: XCTestCase {
         XCTAssertEqual(try number(layout["gapInGroup"]), TranscriptGrouping.Layout.gapInGroup)
         XCTAssertEqual(try number(layout["gapBetween"]), TranscriptGrouping.Layout.gapBetween)
         XCTAssertEqual(try number(maxWidth["phone"]), TranscriptGrouping.Layout.maxWidthPhone)
+        XCTAssertEqual(try number(maxWidth["phoneIn"]), TranscriptGrouping.Layout.maxWidthPhoneIn)
         XCTAssertEqual(try number(maxWidth["wide"]), TranscriptGrouping.Layout.maxWidthWide)
         XCTAssertEqual(try number(layout["radius"]), TranscriptGrouping.Layout.radius)
         XCTAssertEqual(try number(layout["nameSize"]), TranscriptGrouping.Layout.nameSize)

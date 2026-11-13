@@ -1,13 +1,25 @@
+# /etc/systemd/system/expci.slice
 # The Mint's CI runners run in this slice (compose.yaml `cgroup_parent`), a
 # sibling of user.slice: CPUWeight=idle makes their work SCHED_IDLE against
 # the desktop session (no dash in the name: systemd reads `a-b.slice` as b
 # INSIDE a.slice, where idle only ranks it against a.slice's own children), so a game or a browser always wins a core and CI takes
 # only what nobody else wants (.github/runners/README.md). Install once:
 #   sudo cp expci.slice /etc/systemd/system/ && sudo systemctl daemon-reload
+#
+# Memory (2026-11-13, after two hard crashes with Dota + CI): the Mint has
+# 62 GB and 2 GB swap; both runners together peaked at 27 GB. MemoryHigh
+# throttles (reclaims) CI from 16 GB, MemoryMax OOM-kills inside this slice at
+# 20 GB, never anything outside it. With expbg.slice (user, 20 GB) the
+# background can never take more than 40 of the 62 GB. systemd-oomd (when
+# installed) kills a CI job whose slice thrashes for 20 s.
 [Unit]
-Description=Exponential CI runners (idle CPU priority)
+Description=Exponential CI runners (idle CPU priority, capped memory)
 Before=slices.target
 
 [Slice]
 CPUWeight=idle
 IOWeight=10
+MemoryHigh=16G
+MemoryMax=20G
+ManagedOOMMemoryPressure=kill
+ManagedOOMMemoryPressureLimit=80%

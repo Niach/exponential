@@ -97,7 +97,7 @@ jobs:
       - name: Push relay tests
         run: bun run test:push-relay
       - name: Package unit tests (contract, the Exponential UI catalog, @exp/ui, MCP apps)
-        run: bun --filter @exp/domain-contract test && bun --filter @exp/ecore test && bun --filter @exp/etalk test && bun --filter @exp/emcp test && bun --filter @exp/eengine test && bun --filter @exp/eagent test && bun --filter @exp/ede test && bun --filter @exp/uicore test && bun --filter @exponential_app/eui test && bun --filter @exp/ui --filter @exp/mcp-apps test
+        run: bun --filter @exp/domain-contract test && bun --filter @exp/ecore test && bun --filter @exp/etalk test && bun --filter @exp/emcp test && bun --filter @exp/eengine test && bun --filter @exp/eagent test && bun --filter @exp/ecode test && bun --filter @exp/ede test && bun --filter @exp/uicore test && bun --filter @exponential_app/eui test && bun --filter @exp/ui --filter @exp/mcp-apps test
 
   ios:
     needs: dedupe
@@ -401,6 +401,10 @@ jobs:
       - uses: ./.github/actions/cargo-fetch
       - name: Cargo tests
         working-directory: apps/desktop
+        # #EXP-1825: the Mint has a GPU, so a missing headless adapter fails
+        # there; on the GitHub-hosted fallback the GPU tests skip.
+        env:
+          EXP_REQUIRE_GPU: ${{ runner.environment == 'self-hosted' && '1' || '' }}
         # EXP-519: --locked is load-bearing — the workspace manifest FLOATS the zed
         # git deps (upstream gpui-component's discipline) and Cargo.lock is the one
         # true pin; an accidental re-resolve must fail loudly, never build zed HEAD.

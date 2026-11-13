@@ -201,13 +201,22 @@ public final class SessionsApi: Sendable {
     /// THE entrypoint: start a chat or a child, or message a session or an
     /// agent. A refusal throws `TrpcError.httpError`, whose description is
     /// the server's message.
+    /// #FEED-237: `clientMessageId` = the outbox entry's clientId (F21: a
+    /// resend naming it returns the row the server already stored).
     @discardableResult
-    public func send(accountId: String, _ input: SessionsSendInput) async throws -> SessionsSendResult {
+    public func send(accountId: String, _ input: SessionsSendInput, clientMessageId: String? = nil) async throws -> SessionsSendResult {
         // EXP-1459: the text leaves sealed to the tree's key (+ mentions).
         guard let sealer else {
-            return try await trpc.mutation(accountId: accountId, path: "sessions.send", input: input)
+            guard let clientMessageId else {
+                return try await trpc.mutation(accountId: accountId, path: "sessions.send", input: input)
+            }
+            return try await trpc.mutation(
+                accountId: accountId, path: "sessions.send",
+                input: SealedSendInput(input: input, clientMessageId: clientMessageId)
+            )
         }
-        let prepared = await sealer.prepare(accountId: accountId, input)
+        var prepared = await sealer.prepare(accountId: accountId, input)
+        if let clientMessageId { prepared.input.clientMessageId = clientMessageId }
         let result: SessionsSendResult = try await trpc.mutation(accountId: accountId, path: "sessions.send", input: prepared.input)
         await sealer.completed(prepared, result: result)
         return result

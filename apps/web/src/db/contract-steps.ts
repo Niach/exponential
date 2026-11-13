@@ -38,7 +38,21 @@ export type ContractStep = {
   sql: string
 }
 
-export const CONTRACT_STEPS: ContractStep[] = []
+export const CONTRACT_STEPS: ContractStep[] = [
+  // #EXP-1614: GitHub's installation moved into `provider_config` (0273
+  // backfilled it, 0274 re-synced it); the forge's PR clock is
+  // `provider_updated_at`.
+  {
+    id: `0274_drop_repositories_installation_id`,
+    drops: [{ table: `repositories`, column: `installation_id` }],
+    sql: `ALTER TABLE "repositories" DROP COLUMN IF EXISTS "installation_id"`,
+  },
+  {
+    id: `0274_drop_pull_requests_github_updated_at`,
+    drops: [{ table: `pull_requests`, column: `github_updated_at` }],
+    sql: `ALTER TABLE "pull_requests" DROP COLUMN IF EXISTS "github_updated_at"`,
+  },
+]
 
 // A statement that breaks the release still serving during a rollout.
 const DESTRUCTIVE: Array<{ re: RegExp; what: string }> = [

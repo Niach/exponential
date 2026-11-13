@@ -763,6 +763,9 @@ public struct MessageEntity: FetchableRecord, PersistableRecord, Identifiable, E
     public let card: String?
     public let answeredAt: String?
     public let consumedAt: String?
+    /// #FEED-237: the device RECEIVED it (its pickup holds it while a turn
+    /// runs): the bubble's one check (message-delivery.json); nil = not yet.
+    public let deliveredAt: String?
     public let createdAt: String
     public let updatedAt: String
     /// EXP-1323: the session that posted it (a child asking its parent);
@@ -787,8 +790,10 @@ public struct MessageEntity: FetchableRecord, PersistableRecord, Identifiable, E
         updatedAt: String,
         authorSessionId: String? = nil,
         attachmentIds: [String] = [],
-        sessionId: String? = nil
+        sessionId: String? = nil,
+        deliveredAt: String? = nil
     ) {
+        self.deliveredAt = deliveredAt
         self.authorSessionId = authorSessionId
         self.attachmentIds = attachmentIds
         self.conversationId = conversationId
@@ -818,6 +823,7 @@ public struct MessageEntity: FetchableRecord, PersistableRecord, Identifiable, E
         case attachmentIds = "attachment_ids"
         case answeredAt = "answered_at"
         case consumedAt = "consumed_at"
+        case deliveredAt = "delivered_at"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -836,6 +842,9 @@ extension MessageEntity: Codable {
         card = c.decodeWireJsonString(forKey: .card)
         answeredAt = try c.decodeIfPresent(String.self, forKey: .answeredAt)
         consumedAt = try c.decodeIfPresent(String.self, forKey: .consumedAt)
+        // #FEED-237: absent on a pre-v107 row or an older server = never
+        // delivered (the clock until consumed).
+        deliveredAt = try c.decodeIfPresent(String.self, forKey: .deliveredAt)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
         authorSessionId = try c.decodeIfPresent(String.self, forKey: .authorSessionId)
@@ -1535,6 +1544,63 @@ extension SkillEntity: Codable {
     }
 }
 
+// MARK: - Composer drafts (#FEED-219)
+
+// #FEED-219 (fixtures/composer-draft.json): one composer's synced DRAFT, per
+// (user, key) — the `composer_drafts` shape, static `user_id = me` like
+// `pins`. `key` = `<kind>:<id>` (`ComposerDraft.parse`); an unparsable key is
+// ignored by every reader.
+public struct ComposerDraftEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
+    public static let databaseTableName = "composer_drafts"
+
+    public let id: String
+    public let userId: String
+    public let teamId: String
+    public let key: String
+    public let text: String
+    public let createdAt: String
+    public let updatedAt: String
+
+    public init(
+        id: String,
+        userId: String,
+        teamId: String,
+        key: String,
+        text: String,
+        createdAt: String,
+        updatedAt: String
+    ) {
+        self.id = id
+        self.userId = userId
+        self.teamId = teamId
+        self.key = key
+        self.text = text
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, key, text
+        case userId = "user_id"
+        case teamId = "team_id"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+extension ComposerDraftEntity: Codable {
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        userId = try c.decode(String.self, forKey: .userId)
+        teamId = try c.decode(String.self, forKey: .teamId)
+        key = try c.decodeIfPresent(String.self, forKey: .key) ?? ""
+        text = try c.decodeIfPresent(String.self, forKey: .text) ?? ""
+        createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt) ?? ""
+        updatedAt = try c.decodeIfPresent(String.self, forKey: .updatedAt) ?? ""
+    }
+}
+
 // MARK: - Pin
 
 // MARK: - Apps (VAPP-110)
@@ -1831,6 +1897,61 @@ extension AppRecordEntity: Codable {
         shareName = try? c.decodeIfPresent(String.self, forKey: .shareName)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
+    }
+}
+
+// #FEED-237 (message-delivery.json): a person's message from the press of
+// Send until its synced row takes its place, PERSISTED so an app restart
+// keeps it. LOCAL ONLY (never synced; a resync's `clearAllData` keeps it).
+// `state` = sending | failed; `message_id` = the row the server stored it
+// as (nil until `sessions.send` answers); `client_id` = the
+// `clientMessageId` of every (re)send.
+public struct MessageOutboxEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
+    public static let databaseTableName = "outbox"
+
+    public var id: String { clientId }
+    public let clientId: String
+    public let sessionId: String
+    public let text: String
+    public let createdAt: String
+    /// `sending` | `failed`.
+    public var state: String
+    public var messageId: String?
+    /// The send's attachment ids as JSON text (`[]` = none).
+    public let attachmentIds: String
+
+    public init(
+        clientId: String, sessionId: String, text: String, createdAt: String, state: String = "sending",
+        messageId: String? = nil, attachmentIds: [String] = []
+    ) {
+        self.attachmentIds = (try? String(data: JSONEncoder().encode(attachmentIds), encoding: .utf8)) ?? "[]"
+        self.clientId = clientId
+        self.sessionId = sessionId
+        self.text = text
+        self.createdAt = createdAt
+        self.state = state
+        self.messageId = messageId
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case text, state
+        case clientId = "client_id"
+        case sessionId = "session_id"
+        case createdAt = "created_at"
+        case messageId = "message_id"
+        case attachmentIds = "attachment_ids"
+    }
+
+    public var attachmentIdList: [String] {
+        (try? JSONDecoder().decode([String].self, from: Data(attachmentIds.utf8))) ?? []
+    }
+
+    /// The domain entry (an unknown state reads as `sending`).
+    public var entry: MessageDelivery.OutboxEntry {
+        MessageDelivery.OutboxEntry(
+            clientId: clientId, text: text, createdAt: createdAt,
+            state: MessageDelivery.LocalState(rawValue: state) ?? .sending, messageId: messageId
+        )
     }
 }
 
@@ -3008,6 +3129,10 @@ public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Eq
     /// decoded by `DeviceDoctor`. NULL = a build that reports none, which
     /// renders no readiness block. READ-ONLY here: the device is the writer.
     public let doctor: String?
+    /// #EXP-1804: the CI runner settings (`{enabled, labels, slots,
+    /// timeoutMin}`, fixture runner-settings.json), stored as JSON text; NULL =
+    /// never set up (`RunnerSettings.Settings(json:)` fills the defaults).
+    public let runner: String?
     public let activeSessions: Int
     public let lastSeenAt: String?
     /// FEED-33: the teams this machine is shared with (`uuid[]`, sorted +
@@ -3041,6 +3166,7 @@ public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Eq
         agentUsage: String? = nil,
         agentUsageAt: String? = nil,
         doctor: String? = nil,
+        runner: String? = nil,
         activeSessions: Int = 0,
         lastSeenAt: String? = nil,
         sharedTeamIds: [String] = [],
@@ -3067,6 +3193,7 @@ public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Eq
         self.agentUsage = agentUsage
         self.agentUsageAt = agentUsageAt
         self.doctor = doctor
+        self.runner = runner
         self.activeSessions = activeSessions
         self.lastSeenAt = lastSeenAt
         self.sharedTeamIds = sharedTeamIds
@@ -3077,7 +3204,7 @@ public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Eq
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, label, kind, icon, platform, version, agents, caps, doctor
+        case id, label, kind, icon, platform, version, agents, caps, doctor, runner
         case userId = "user_id"
         case deviceId = "device_id"
         case unauthedAgents = "unauthed_agents"
@@ -3131,6 +3258,8 @@ extension DeviceEntity: Codable {
         agentUsageAt = try c.decodeIfPresent(String.self, forKey: .agentUsageAt)
         // EXP-1196: jsonb like agent_accounts; nullable.
         doctor = c.decodeWireJsonString(forKey: .doctor)
+        // #EXP-1804: jsonb like doctor; absent on an older server.
+        runner = c.decodeWireJsonString(forKey: .runner)
         // SE-0230 flattens the try?-of-optional; unparseable text degrades to
         // 0 rather than dropping the row (activeSessions only gates a badge).
         activeSessions = (try? c.decodeWireInt(forKey: .activeSessions)) ?? 0

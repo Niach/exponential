@@ -10,6 +10,7 @@ import type { Issue, Notification, Board, Team } from "@/db/schema"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { inboxRowTarget } from "@exp/domain-contract/inbox-route"
 import { planPageFor } from "@exp/domain-contract/plan-page"
+import { sessionWaitingCard } from "@exp/domain-contract/chat-row-action"
 import { trpc } from "@/lib/trpc-client"
 import {
   issueCollection,
@@ -271,7 +272,10 @@ export function InboxView({
   // dock; anything else opens through the session route, which lands a
   // chat's sessions inside their chat.
   const openSession = (session: { teamSlug: string; sessionId: string }) => {
-    const search = from ? { from } : {}
+    // waiting-cards.json DEEP LINKS: a session waiting on a question opens
+    // at that card (`?card=`, THE pending deep link).
+    const questionId = sessionWaitingCard(session.sessionId, digest)
+    const search = { ...(from ? { from } : {}), ...(questionId ? { card: questionId } : {}) }
     const planId = planPageFor(
       session.sessionId,
       digest.map((message) => ({

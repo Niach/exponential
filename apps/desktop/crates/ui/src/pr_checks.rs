@@ -48,19 +48,55 @@ pub(crate) fn check_glyph(glyph: CheckGlyph, tone: CheckTone, size: f32, cx: &Ap
 }
 
 /// The synced check rows of `pull_request_id` (empty without a store).
+///
+/// #PERF-4: the chat header reads this every frame (its status pill and its
+/// `…` menu, twice), and a scan of every synced check row (thousands on a
+/// busy team) was the header's largest share of a frame. The rows are
+/// indexed by pull request once per change of the collection.
 pub(crate) fn checks_of(pull_request_id: &str, cx: &App) -> Vec<PullRequestCheckRow> {
-    Store::try_global(cx)
-        .map(|store| {
-            store
-                .collections()
-                .pull_request_checks
-                .read(cx)
-                .iter()
-                .filter(|row| row.pull_request_id == pull_request_id)
-                .cloned()
-                .collect()
-        })
-        .unwrap_or_default()
+    let Some(store) = Store::try_global(cx) else { return Vec::new() };
+    let checks = &store.collections().pull_request_checks;
+    let stamp = (checks.entity_id(), checks.read(cx).revision());
+    CHECKS_BY_PULL.with(|memo| {
+        let mut memo = memo.borrow_mut();
+        if memo.0 != Some(stamp) {
+            // The ids only: a row's clone (its output) costs more than the
+            // whole index, and a busy CI rewrites the table all day.
+            let mut index: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+            for row in checks.read(cx).iter() {
+                index.entry(row.pull_request_id.clone()).or_default().push(row.id.clone());
+            }
+            *memo = (Some(stamp), index);
+        }
+        let rows = checks.read(cx);
+        memo.1.get(pull_request_id).into_iter().flatten().filter_map(|id| rows.get(id).cloned()).collect()
+    })
+}
+
+/// #PERF-4: how many issues `pull_request_id` closes (`pull_request_issues`),
+/// indexed once per change of the collection like [`checks_of`].
+pub(crate) fn linked_issue_count(pull_request_id: &str, cx: &App) -> usize {
+    let Some(store) = Store::try_global(cx) else { return 0 };
+    let links = &store.collections().pull_request_issues;
+    let stamp = (links.entity_id(), links.read(cx).revision());
+    LINKS_BY_PULL.with(|memo| {
+        let mut memo = memo.borrow_mut();
+        if memo.0 != Some(stamp) {
+            let mut index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+            for link in links.read(cx).iter() {
+                *index.entry(link.pull_request_id.clone()).or_default() += 1;
+            }
+            *memo = (Some(stamp), index);
+        }
+        memo.1.get(pull_request_id).copied().unwrap_or(0)
+    })
+}
+
+type Stamp = Option<(gpui::EntityId, u64)>;
+
+thread_local! {
+    static CHECKS_BY_PULL: std::cell::RefCell<(Stamp, std::collections::HashMap<String, Vec<String>>)> = Default::default();
+    static LINKS_BY_PULL: std::cell::RefCell<(Stamp, std::collections::HashMap<String, usize>)> = Default::default();
 }
 
 /// One check row's body (the live menu's and the styleguide panel's):
@@ -98,9 +134,11 @@ pub(crate) fn check_menu_item(index: usize, row: CheckListRow) -> PopupMenuItem 
         )))
     })
     .disabled(disabled)
-    .on_click(move |_, _, cx| {
+    .on_click(move |_, window, cx| {
+        // #EXP-1804: our own CI's Details open its run page in-app (THE
+        // link opener); anything else goes to the browser as before.
         if let Some(url) = url.clone() {
-            crate::settings::open_url(cx, url);
+            crate::links::open_link(&url, None, window, cx);
         }
     })
 }
@@ -183,5 +221,60 @@ mod tests {
             let concept = registry::concept_by_name(glyph.concept()).map(|icon| icon.path());
             assert_eq!(concept, Some(glyph_icon(glyph).path()), "{}", glyph.concept());
         }
+    }
+}
+
+#[cfg(test)]
+mod perf_index_tests {
+    use sync::{ShapeRow as _, Store};
+
+    fn seed_check(id: &str, pull: &str, cx: &mut gpui::TestAppContext) {
+        let row: domain::rows::PullRequestCheckRow = serde_json::from_value(serde_json::json!({"id": id, "pull_request_id": pull, "name": id})).unwrap();
+        cx.update(|cx| {
+            let checks = Store::global(cx).collections().pull_request_checks.clone();
+            checks.update(cx, |collection, cx| {
+                collection.seed(row.key(), row);
+                cx.notify();
+            })
+        });
+    }
+
+    fn seed_link(id: &str, pull: &str, issue: &str, cx: &mut gpui::TestAppContext) {
+        let row: domain::rows::PullRequestIssueRow = serde_json::from_value(serde_json::json!({"id": id, "pull_request_id": pull, "issue_id": issue})).unwrap();
+        cx.update(|cx| {
+            let links = Store::global(cx).collections().pull_request_issues.clone();
+            links.update(cx, |collection, cx| {
+                collection.seed(row.key(), row);
+                cx.notify();
+            })
+        });
+    }
+
+    /// #PERF-4: the per-PR indexes follow every write of their collection
+    /// (the header reads them every frame; a stale index = a wrong pill).
+    #[gpui::test]
+    fn the_pr_indexes_follow_their_collections(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            let store = Store::open(cx, None, None);
+            cx.set_global(store);
+        });
+        let checks = |pull: &str, cx: &mut gpui::TestAppContext| cx.update(|cx| super::checks_of(pull, cx).len());
+        let links = |pull: &str, cx: &mut gpui::TestAppContext| cx.update(|cx| super::linked_issue_count(pull, cx));
+        assert_eq!(checks("p1", cx), 0);
+        seed_check("c1", "p1", cx);
+        assert_eq!(checks("p1", cx), 1);
+        seed_check("c2", "p1", cx);
+        seed_check("c3", "p2", cx);
+        assert_eq!((checks("p1", cx), checks("p2", cx), checks("p3", cx)), (2, 1, 0));
+        assert_eq!(links("p1", cx), 0);
+        seed_link("l1", "p1", "i1", cx);
+        seed_link("l2", "p1", "i2", cx);
+        assert_eq!((links("p1", cx), links("p2", cx)), (2, 0));
+        // A second store (another account) never reads the first's index.
+        cx.update(|cx| {
+            let store = Store::open(cx, None, None);
+            cx.set_global(store);
+        });
+        assert_eq!((checks("p1", cx), links("p1", cx)), (0, 0));
     }
 }

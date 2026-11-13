@@ -42,11 +42,12 @@ val releaseKeyPassword = releaseProp("RELEASE_KEY_PASSWORD")
 
 // VAPP-40 / EXP-1457: ONE eNet library, the FULL `exponential-net-ffi` node
 // (iroh + chat + the push functions): the app's per-account nodes and the FCM
-// service's `pushOpen` (EXP-1435) load the same `libexponential_net_ffi.so`.
+// service's `pushOpen` (EXP-1435) load the same library (#PERF-11: inside
+// `libexponential_mobile_ffi.so`, below).
 // The push-only build is not linked any more: same library and package names,
 // so the two could never ship side by side anyway, and an FCM service runs in
 // the app process (no NSE-style memory cap as on iOS). The Kotlin binding is a
-// COMMITTED source; the `.so` per ABI is built by `buildEnetFfi` (cargo-ndk,
+// COMMITTED source; the `.so` per ABI is built by `buildMobileFfi` (cargo-ndk,
 // below) into out/jniLibs (gitignored). A build without it still runs: every
 // facade call is guarded (the FCM service registers its bare token, the
 // nodes stay off).
@@ -57,61 +58,42 @@ val cargoTarget = System.getenv("CARGO_TARGET_DIR")?.let(::File) ?: File(repoRoo
 val cargoNdk: File? = (System.getenv("PATH").orEmpty().split(File.pathSeparator).map { File(it, "cargo-ndk") } +
     File(System.getProperty("user.home"), ".cargo/bin/cargo-ndk")).firstOrNull { it.canExecute() }
 
+val engineFfiCrate = File(repoRoot, "apps/desktop/crates/eengine-ffi")
+
+// #PERF-11: the app's ONE native library. eNet (above), the Engine (#VAPP-272:
+// the apps' record outbox, `SyncedRecordStore`) and genUI's painter core ship
+// linked into `libexponential_mobile_ffi.so` (crates/exponential-mobile-ffi):
+// one Rust std and one copy of what the three share, instead of a .so each.
+// Their Kotlin bindings stay COMMITTED sources (eNet's and the Engine's below,
+// genUI's in `:ui-compose`); MobileNativeLibrary points them at this library.
 // cargo-ndk before merge*JniLibFolders: arm64-v8a, armeabi-v7a, x86_64 with the
 // `mobile` profile (LTO, stripped, 16 KB-aligned LOAD segments). Up to date while
-// the eNet sources and Cargo.lock are unchanged. ENET_SKIP_NATIVE=1 (or no
+// the facades' sources and Cargo.lock are unchanged. ENET_SKIP_NATIVE=1 (or no
 // cargo-ndk on this machine) skips it and keeps whatever out/jniLibs holds.
-val buildEnetFfi = tasks.register<Exec>("buildEnetFfi") {
-    description = "Builds the eNet node .so per ABI (apps/desktop/crates/exponential-net-ffi/build-android.sh)."
+val mobileFfiCrate = File(repoRoot, "apps/desktop/crates/exponential-mobile-ffi")
+val buildMobileFfi = tasks.register<Exec>("buildMobileFfi") {
+    description = "Builds the app's one Rust .so per ABI (apps/desktop/crates/exponential-mobile-ffi/build-android.sh)."
     val desktop = File(repoRoot, "apps/desktop")
-    inputs.dir(File(enetFfiCrate, "src"))
-    inputs.dir(File(desktop, "crates/enet-core/src"))
-    inputs.files(File(enetFfiCrate, "build-android.sh"), File(enetFfiCrate, "Cargo.toml"), File(desktop, "crates/enet-core/Cargo.toml"), File(desktop, "Cargo.lock"))
-    outputs.dir(File(enetFfiCrate, "out/jniLibs"))
+    val crates = listOf("exponential-mobile-ffi", "exponential-net-ffi", "enet-core", "eengine-ffi", "eengine", "exponential-ui-ffi", "eui-core", "eui-motion")
+    crates.forEach { inputs.dir(File(desktop, "crates/$it/src")) }
+    inputs.files(crates.map { File(desktop, "crates/$it/Cargo.toml") } + File(mobileFfiCrate, "build-android.sh") + File(desktop, "Cargo.lock"))
+    inputs.property("abis", System.getenv("ABIS") ?: "")
+    outputs.dir(File(mobileFfiCrate, "out/jniLibs"))
     onlyIf("cargo-ndk is installed and ENET_SKIP_NATIVE is unset") {
-        // CI never ships an app without its eNet node. An explicit
+        // CI never ships an app without its native library. An explicit
         // ENET_SKIP_NATIVE=1 skips first (gate's `android` job: the JVM tests
-        // load the host build); CI without it still throws.
+        // load the facades' host builds); CI without it still throws.
         if (System.getenv("ENET_SKIP_NATIVE") == "1") {
             false
         } else {
-            if (cargoNdk == null && System.getenv("CI") == "true") throw GradleException("cargo-ndk not found: CI must build the eNet .so")
+            if (cargoNdk == null && System.getenv("CI") == "true") throw GradleException("cargo-ndk not found: CI must build the native library")
             cargoNdk != null
         }
     }
-    environment("SKIP_BINDINGS", "1")
     environment("PATH", listOfNotNull(cargoNdk?.parent, System.getenv("PATH")).joinToString(File.pathSeparator))
-    commandLine("bash", File(enetFfiCrate, "build-android.sh").absolutePath)
+    commandLine("bash", File(mobileFfiCrate, "build-android.sh").absolutePath)
 }
-tasks.matching { it.name.startsWith("merge") && it.name.endsWith("JniLibFolders") }.configureEach { dependsOn(buildEnetFfi) }
-
-// #VAPP-272: the Engine holds the apps' record outbox (`SyncedRecordStore`).
-// Like eNet: the Kotlin binding is a COMMITTED source, the `.so` per ABI is built
-// here into out/jniLibs (gitignored), without the bundled sqlite (the app has
-// Room's). No cargo-ndk here = the .so stays out and an app's writes fail.
-val engineFfiCrate = File(repoRoot, "apps/desktop/crates/eengine-ffi")
-val buildEngineFfi = tasks.register<Exec>("buildEngineFfi") {
-    description = "Builds the Engine .so per ABI (apps/desktop/crates/eengine-ffi/build-android.sh)."
-    val desktop = File(repoRoot, "apps/desktop")
-    inputs.dir(File(engineFfiCrate, "src"))
-    inputs.dir(File(desktop, "crates/eengine/src"))
-    inputs.files(File(engineFfiCrate, "build-android.sh"), File(engineFfiCrate, "Cargo.toml"), File(desktop, "crates/eengine/Cargo.toml"), File(desktop, "Cargo.lock"))
-    outputs.dir(File(engineFfiCrate, "out/jniLibs"))
-    onlyIf("cargo-ndk is installed and ENET_SKIP_NATIVE is unset") {
-        // ENET_SKIP_NATIVE=1 skips first (see buildEnetFfi).
-        if (System.getenv("ENET_SKIP_NATIVE") == "1") {
-            false
-        } else {
-            if (cargoNdk == null && System.getenv("CI") == "true") throw GradleException("cargo-ndk not found: CI must build the Engine .so")
-            cargoNdk != null
-        }
-    }
-    environment("SKIP_BINDINGS", "1")
-    environment("EENGINE_FFI_FEATURES", "")
-    environment("PATH", listOfNotNull(cargoNdk?.parent, System.getenv("PATH")).joinToString(File.pathSeparator))
-    commandLine("bash", File(engineFfiCrate, "build-android.sh").absolutePath)
-}
-tasks.matching { it.name.startsWith("merge") && it.name.endsWith("JniLibFolders") }.configureEach { dependsOn(buildEngineFfi) }
+tasks.matching { it.name.startsWith("merge") && it.name.endsWith("JniLibFolders") }.configureEach { dependsOn(buildMobileFfi) }
 
 // VAPP-110: the app host's assets = the shared package's `extension.json`
 // alone (its `templates/` are SDK samples, not built-in apps).
@@ -163,9 +145,8 @@ android {
     sourceSets {
         getByName("main") {
             kotlin.srcDir(File(enetFfiCrate, "bindings/kotlin"))
-            jniLibs.srcDir(File(enetFfiCrate, "out/jniLibs"))
             kotlin.srcDir(File(engineFfiCrate, "bindings/kotlin"))
-            jniLibs.srcDir(File(engineFfiCrate, "out/jniLibs"))
+            jniLibs.srcDir(File(mobileFfiCrate, "out/jniLibs"))
         }
     }
 
@@ -173,8 +154,8 @@ android {
         applicationId = "at.exponential"
         minSdk = 26
         targetSdk = 36
-        versionCode = 214
-        versionName = "0.14.131"
+        versionCode = 220
+        versionName = "0.14.137"
 
         // #LOGS-2: release CI mints one per build and uploads the R8 mapping
         // under it (build-android.yml); empty = no mapping to name.
@@ -286,6 +267,11 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+        // #PERF-11: the facades live in libexponential_mobile_ffi.so; a stray
+        // standalone build (e.g. an old out/jniLibs) never ships next to it.
+        jniLibs {
+            excludes += listOf("**/libexponential_ui_ffi.so", "**/libexponential_net_ffi.so", "**/libeengine_ffi.so")
         }
     }
 }

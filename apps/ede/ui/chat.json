@@ -947,6 +947,9 @@
                       "time": {
                         "@path": "time"
                       },
+                      "status": {
+                        "@path": "status"
+                      },
                       "author": {
                         "@path": "author"
                       }
@@ -1195,6 +1198,9 @@
                       "side": "out",
                       "time": {
                         "@path": "time"
+                      },
+                      "status": {
+                        "@path": "status"
                       },
                       "author": {
                         "@path": "author"
@@ -1527,6 +1533,9 @@
                       "side": "out",
                       "time": {
                         "@path": "time"
+                      },
+                      "status": {
+                        "@path": "status"
                       },
                       "author": {
                         "@path": "author"

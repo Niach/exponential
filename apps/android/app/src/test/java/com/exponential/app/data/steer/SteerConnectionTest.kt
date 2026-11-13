@@ -196,6 +196,94 @@ class SteerConnectionTest {
         }
     }
 
+    /**
+     * Android 0.14.134 ("started new temporary session, nothing happens";
+     * fixtures/steer-enet.json ROW WAKE): the phone opens a session the
+     * moment it is sent, its first dial lands before the device publishes,
+     * and the Starting backoff then outlasted the run. The synced row
+     * flipping (the claim, a turn starting) now redials at once.
+     */
+    @Test
+    fun theDeviceClaimingTheRowCutsTheStartingBackoffShort() = runBlocking {
+        val transport = FakeTransport()
+        // Only the first dial finds NO FEED (the device is not publishing yet).
+        transport.noFeed = { it == 1 }
+        val row = MutableStateFlow<SessionEntity?>(
+            runningRow().copy(status = DomainContract.sessionStatusQueued, deviceId = "mac"),
+        )
+        // A backoff far longer than this test's patience: only the row can
+        // produce the second dial in time.
+        val connection = connection(transport, fastTimings.copy(startingRetryMs = 30_000, startingRetryMaxMs = 30_000), row)
+        try {
+            connection.connect()
+            waitUntil("the starting phase") { connection.phase.value == AgentPhase.Starting }
+            assertEquals(1, transport.noFeeds.get())
+            // The device takes it.
+            row.value = row.value!!.copy(status = DomainContract.sessionStatusRunning)
+            val socket = transport.awaitOpen()
+            socket.emit("""{"t":"activity_reset"}""")
+            waitUntil("the live phase") { connection.phase.value == AgentPhase.Live }
+        } finally {
+            connection.close()
+        }
+    }
+
+    @Test
+    fun aTurnStartingCutsTheStartingBackoffShort() = runBlocking {
+        val transport = FakeTransport()
+        transport.noFeed = { it == 1 }
+        val row = MutableStateFlow<SessionEntity?>(runningRow().copy(status = DomainContract.sessionStatusIdle, deviceId = "mac"))
+        val connection = connection(transport, fastTimings.copy(startingRetryMs = 30_000, startingRetryMaxMs = 30_000), row)
+        try {
+            connection.connect()
+            waitUntil("the starting phase") { connection.phase.value == AgentPhase.Starting }
+            row.value = row.value!!.copy(status = DomainContract.sessionStatusRunning, busy = true)
+            assertNotNull(transport.awaitOpen())
+        } finally {
+            connection.close()
+        }
+    }
+
+    @Test
+    fun anUnrelatedRowChangeWaitsTheStartingBackoffOut() = runBlocking {
+        val transport = FakeTransport()
+        transport.noFeed = { it == 1 }
+        val row = MutableStateFlow<SessionEntity?>(
+            runningRow().copy(status = DomainContract.sessionStatusRunning, busy = true, deviceId = "mac"),
+        )
+        val connection = connection(transport, fastTimings.copy(startingRetryMs = 30_000, startingRetryMaxMs = 30_000), row)
+        try {
+            connection.connect()
+            waitUntil("the starting phase") { connection.phase.value == AgentPhase.Starting }
+            row.value = row.value!!.copy(title = "Renamed")
+            assertNull(withTimeoutOrNull(300) { transport.opens.receive() })
+            assertEquals(1, transport.noFeeds.get())
+        } finally {
+            connection.close()
+        }
+    }
+
+    /** ROW WAKE: a claim landing while the first dial is still out (its
+     *  join refused: the device's room is not up yet) redials as soon as
+     *  that dial says NO FEED, never after the backoff. */
+    @Test
+    fun aClaimDuringTheDialRedialsAtOnce() = runBlocking {
+        val transport = FakeTransport()
+        val row = MutableStateFlow<SessionEntity?>(
+            runningRow().copy(status = DomainContract.sessionStatusQueued, deviceId = "mac"),
+        )
+        val connection = connection(transport, fastTimings.copy(startingRetryMs = 30_000, startingRetryMaxMs = 30_000), row)
+        try {
+            connection.connect()
+            val first = transport.awaitOpen()
+            row.value = row.value!!.copy(status = DomainContract.sessionStatusRunning)
+            first.emit("""{"t":"error","code":"no_such_session"}""")
+            assertNotSame(first, transport.awaitOpen())
+        } finally {
+            connection.close()
+        }
+    }
+
     @Test
     fun aForeignCancellationDropsTheDialAndNotTheLoop() = runBlocking {
         val transport = FakeTransport()

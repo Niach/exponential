@@ -12,7 +12,7 @@ export const Route = createFileRoute(`/api/issues/$issueId/files`)({
         try {
           return await handleIssueAttachmentUpload(context)
         } catch (error) {
-          return errorToResponse(error)
+          return errorToResponse(error, context.request)
         }
       },
     },

@@ -35,6 +35,8 @@ final class DeepLinkBus: @unchecked Sendable {
     // multi-account device opens it under the account it was delivered to.
     var pendingSessionId: String?
     var pendingSessionUserId: String?
+    /// waiting-cards.json DEEP LINKS: the card the session push is about.
+    var pendingSessionCard: NotificationRouting.Card?
     // #EXP-1674: where a link resolved to (`LinkOpener`), under its account.
     var pendingLinkLanding: LinkLanding?
     // #EXP-1534 (inbox-route.json): an `agent_signed_out` inbox row or push
@@ -87,8 +89,9 @@ final class DeepLinkBus: @unchecked Sendable {
         pendingInbox = true
     }
 
-    func navigateToSession(_ sessionId: String, userId: String? = nil) {
+    func navigateToSession(_ sessionId: String, userId: String? = nil, card: NotificationRouting.Card? = nil) {
         pendingSessionUserId = userId
+        pendingSessionCard = card
         pendingSessionId = sessionId
     }
 
@@ -156,6 +159,7 @@ final class DeepLinkBus: @unchecked Sendable {
         let id = pendingSessionId
         pendingSessionId = nil
         pendingSessionUserId = nil
+        pendingSessionCard = nil
         return id
     }
 

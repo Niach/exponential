@@ -7,6 +7,10 @@
 //! tall. Colours come off the catalog's ONE tokenizer
 //! (`eui_core::code::tokenize_code`, `ansi` for command output). The
 //! destructive variant: a destructive hairline, destructive text, no fill.
+//! #EXP-1804 `follow` (genUI CodeBlock `follow`, a live log): the block
+//! sticks to its bottom while the code grows, unless the reader scrolled up
+//! (scrolling back onto the end re-arms it) — THE tail rule of the session
+//! feed ([`crate::controls::TailFollow`]).
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -27,6 +31,12 @@ const COPIED_FLASH: Duration = Duration::from_secs(2);
 
 thread_local! {
     static COPIED: RefCell<HashMap<SharedString, Instant>> = RefCell::new(HashMap::new());
+    /// #EXP-1804: a following block's scroll handle and tail state, by id.
+    static FOLLOWS: RefCell<HashMap<SharedString, (gpui::ScrollHandle, crate::controls::TailFollow)>> = RefCell::new(HashMap::new());
+}
+
+fn follow_state(id: &SharedString) -> (gpui::ScrollHandle, crate::controls::TailFollow) {
+    FOLLOWS.with(|follows| follows.borrow_mut().entry(id.clone()).or_insert_with(|| (gpui::ScrollHandle::new(), Default::default())).clone())
 }
 
 fn copied(id: &SharedString) -> bool {
@@ -48,6 +58,9 @@ pub(crate) struct CodeBlockProps {
     pub destructive: bool,
     /// Draw the copy action in the header.
     pub copyable: bool,
+    /// #EXP-1804: stick to the bottom while the code grows (a live log)
+    /// unless the reader scrolled up.
+    pub follow: bool,
 }
 
 /// A token kind's colour (catalog `codeToken`).
@@ -147,6 +160,31 @@ pub(crate) fn code_block(props: CodeBlockProps, cx: &App) -> AnyElement {
             .child(div().w(px(0.)).child(" "))
     });
     let max_height = g::LINE_HEIGHT * g::MAX_LINES as f32;
+    let follow = props.follow.then(|| follow_state(&props.id));
+    // The follow's probe: paint-time, once the layout settled the offset
+    // and the range (`controls::TailFollow::scroller`'s rule).
+    let probe = follow.clone().map(|(handle, tail)| {
+        if tail.take_snap() {
+            handle.scroll_to_bottom();
+        }
+        gpui::canvas(
+            move |_, window, _| {
+                let offset = f32::from(handle.offset().y);
+                let max = f32::from(handle.max_offset().y);
+                match tail.on_layout(offset, max) {
+                    crate::controls::TailLayout::Keep => {}
+                    crate::controls::TailLayout::Repin => {
+                        handle.scroll_to_bottom();
+                        window.refresh();
+                    }
+                    crate::controls::TailLayout::Released | crate::controls::TailLayout::Rearmed => window.refresh(),
+                }
+            },
+            |_, _: (), _, _| {},
+        )
+        .absolute()
+        .size_0()
+    });
     let code = div()
         .id(SharedString::from(format!("{}-code", props.id)))
         .w_full()
@@ -160,6 +198,14 @@ pub(crate) fn code_block(props: CodeBlockProps, cx: &App) -> AnyElement {
         .text_size(px(g::FONT_SIZE))
         .line_height(px(g::LINE_HEIGHT))
         .text_color(if destructive { theme.danger } else { theme.foreground })
+        .when_some(follow, |code, (handle, tail)| {
+            code.track_scroll(&handle).on_scroll(move |event, window, _| {
+                let dy = f32::from(event.delta.pixel_delta(window.line_height()).y);
+                if tail.on_wheel(dy) {
+                    window.refresh();
+                }
+            })
+        })
         .child(v_flex().min_w_0().children(code_lines));
     v_flex()
         .id(props.id.clone())
@@ -170,8 +216,10 @@ pub(crate) fn code_block(props: CodeBlockProps, cx: &App) -> AnyElement {
         .border_color(border)
         .when(!destructive, |this| this.bg(input.opacity(g::FILL_ALPHA)))
         .overflow_hidden()
+        .relative()
         .children(header)
         .child(code)
+        .children(probe)
         .into_any_element()
 }
 

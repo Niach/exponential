@@ -18,6 +18,7 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use eui_core::recipes::markdown_inline_recipes;
+use eui_core::table_fit::{fit_table_columns, FitColumn, TABLE_WORD_CAP};
 use eui_core::theme::{Mode, RecipeQuery, ResolvedTheme};
 use gpui::{
     div, prelude::*, px, AnyElement, App, Font, FontStyle, FontWeight, Hsla, InteractiveText, SharedString, StrikethroughStyle, StyledText, TextLayout, TextRun, UnderlineStyle, Window,
@@ -119,6 +120,9 @@ pub struct Block {
     pub list_group: Option<usize>,
     /// #VAPP-258: a code block's fence info string (` ```ts ` = `ts`).
     pub lang: Option<String>,
+    /// #FEED-224: a table's column content widths, fitted by [`size_chips`]
+    /// from the chips at their natural widths (empty = [`layout`] fits them).
+    pub table_cols: Vec<f32>,
 }
 
 // ---------------------------------------------------------------------------
@@ -320,7 +324,7 @@ pub fn resolve_urls(blocks: Vec<Block>, link_allowed: impl Fn(&str) -> bool, ima
                     if alt.is_empty() {
                         return None;
                     }
-                    b = Block { kind: BlockKind::Paragraph, inlines: vec![Inline { text: alt.clone(), ..Inline::default() }], list_group: None, lang: None };
+                    b = Block { kind: BlockKind::Paragraph, inlines: vec![Inline { text: alt.clone(), ..Inline::default() }], list_group: None, lang: None, table_cols: Vec::new() };
                 }
             }
             strip(&mut b.inlines);
@@ -456,7 +460,7 @@ pub fn apply_hooks(blocks: &[Block], hooks: &MdHooks) -> Option<Vec<Block>> {
                 match attachment {
                     Some(kind) => {
                         changed = true;
-                        Block { kind, inlines: Vec::new(), list_group: None, lang: None }
+                        Block { kind, inlines: Vec::new(), list_group: None, lang: None, table_cols: Vec::new() }
                     }
                     None => b.clone(),
                 }
@@ -689,7 +693,7 @@ pub fn parse_inline(s: &str) -> Vec<Inline> {
 /// paragraph), the image (a block image), the text after it. ASCII spaces,
 /// tabs and line breaks at a split edge trim; an empty side drops.
 fn split_images(text: &str) -> Vec<Block> {
-    let paragraph = |inlines: Vec<Inline>| Block { kind: BlockKind::Paragraph, inlines, list_group: None, lang: None };
+    let paragraph = |inlines: Vec<Inline>| Block { kind: BlockKind::Paragraph, inlines, list_group: None, lang: None, table_cols: Vec::new() };
     let mut pieces = Vec::new();
     let mut tail = Vec::new();
     let src = InlineSrc::new(text);
@@ -724,7 +728,7 @@ fn split_images(text: &str) -> Vec<Block> {
             }
             Piece::Image { src, alt } => {
                 let inlines = if alt.is_empty() { Vec::new() } else { vec![Inline { text: alt.clone(), ..Inline::default() }] };
-                Some(Block { kind: BlockKind::Image { src, alt, size: None }, inlines, list_group: None, lang: None })
+                Some(Block { kind: BlockKind::Image { src, alt, size: None }, inlines, list_group: None, lang: None, table_cols: Vec::new() })
             }
         })
         .collect()
@@ -1083,7 +1087,7 @@ fn parse_hard(text: &str, hard: bool) -> Vec<Block> {
         if !para.is_empty() {
             let joined = join_paragraph(para, hard);
             match whole_image(joined.trim()) {
-                Some((alt, src)) => blocks.push(Block { kind: BlockKind::Image { src, alt: alt.clone(), size: None }, inlines: parse_inline(&alt), list_group: None, lang: None }),
+                Some((alt, src)) => blocks.push(Block { kind: BlockKind::Image { src, alt: alt.clone(), size: None }, inlines: parse_inline(&alt), list_group: None, lang: None, table_cols: Vec::new() }),
                 // #FEED-208: images directly in its text split it.
                 None => blocks.extend(split_images(&joined)),
             }
@@ -1105,13 +1109,13 @@ fn parse_hard(text: &str, hard: bool) -> Vec<Block> {
                 i += 1;
             }
             i += 1;
-            blocks.push(Block { kind: BlockKind::CodeBlock, inlines: vec![Inline { text: body.join("\n"), code: true, ..Inline::default() }], list_group: None, lang });
+            blocks.push(Block { kind: BlockKind::CodeBlock, inlines: vec![Inline { text: body.join("\n"), code: true, ..Inline::default() }], list_group: None, lang, table_cols: Vec::new() });
             continue;
         }
         let hashes = trimmed.bytes().take_while(|b| *b == b'#').count();
         if (1..=6).contains(&hashes) && trimmed[hashes..].starts_with(' ') {
             flush(&mut para, &mut blocks);
-            blocks.push(Block { kind: BlockKind::Heading(hashes as u8), inlines: parse_inline(trimmed[hashes..].trim()), list_group: None, lang: None });
+            blocks.push(Block { kind: BlockKind::Heading(hashes as u8), inlines: parse_inline(trimmed[hashes..].trim()), list_group: None, lang: None, table_cols: Vec::new() });
             i += 1;
             continue;
         }
@@ -1138,11 +1142,11 @@ fn parse_hard(text: &str, hard: bool) -> Vec<Block> {
                 joined.push_str(l);
                 gap = false;
             }
-            blocks.push(Block { kind: BlockKind::Quote, inlines: parse_inline(&joined), list_group: None, lang: None });
+            blocks.push(Block { kind: BlockKind::Quote, inlines: parse_inline(&joined), list_group: None, lang: None, table_cols: Vec::new() });
             continue;
         }
         if is_rule(trimmed) && para.is_empty() {
-            blocks.push(Block { kind: BlockKind::Rule, inlines: Vec::new(), list_group: None, lang: None });
+            blocks.push(Block { kind: BlockKind::Rule, inlines: Vec::new(), list_group: None, lang: None, table_cols: Vec::new() });
             i += 1;
             continue;
         }
@@ -1185,7 +1189,7 @@ fn parse_hard(text: &str, hard: bool) -> Vec<Block> {
                     },
                 };
                 last_body = body.trim().to_string();
-                blocks.push(Block { kind: BlockKind::ListItem { marker, task, depth }, inlines: parse_inline(&last_body), list_group: Some(group), lang: None });
+                blocks.push(Block { kind: BlockKind::ListItem { marker, task, depth }, inlines: parse_inline(&last_body), list_group: Some(group), lang: None, table_cols: Vec::new() });
                 i += 1;
             }
             continue;
@@ -1199,7 +1203,7 @@ fn parse_hard(text: &str, hard: bool) -> Vec<Block> {
                 rows.push(cells(lines[i]).iter().map(|c| parse_inline(c)).collect());
                 i += 1;
             }
-            blocks.push(Block { kind: BlockKind::Table { header, rows }, inlines: Vec::new(), list_group: None, lang: None });
+            blocks.push(Block { kind: BlockKind::Table { header, rows }, inlines: Vec::new(), list_group: None, lang: None, table_cols: Vec::new() });
             continue;
         }
         if trimmed.is_empty() {
@@ -1616,6 +1620,8 @@ pub struct BlockBox {
     pub height: f32,
     /// Tables: each row's height (header first).
     pub rows: Vec<f32>,
+    /// #FEED-224: tables: each column's CONTENT width ([`table_columns`]).
+    pub cols: Vec<f32>,
 }
 
 /// The whole document laid out at one width.
@@ -1691,20 +1697,46 @@ fn wrap_of(kind: &BlockKind, s: &MdStyles, width: Option<f32>) -> Option<f32> {
     Some(match kind {
         BlockKind::ListItem { depth, .. } => (w - s.list_indent * (*depth as f32 + 1.0)).max(1.0),
         BlockKind::Quote => (w - s.quote_border - s.quote_pad).max(1.0),
-        BlockKind::Table { header, rows } => {
-            let cols = header.len().max(rows.iter().map(Vec::len).max().unwrap_or(0)).max(1);
-            cell_text_width(w, cols, s)
-        }
         _ => w.max(1.0),
     })
 }
 
-/// A table cell's text width `width` wide with `cols` columns: whole pixels
-/// (#EXP-1728), so the box gpui rounds the cell's text into is exactly the
-/// width it was measured at (a fractional one could round down and wrap a
-/// line the layout counted as one).
-fn cell_text_width(width: f32, cols: usize, s: &MdStyles) -> f32 {
-    (width / cols.max(1) as f32 - 2.0 * s.cell_pad_h).floor().max(1.0)
+/// #FEED-224: a table's outer border (each side).
+pub const TABLE_BORDER: f32 = 1.0;
+
+/// A table's column count.
+fn table_cols(header: &[Vec<Inline>], rows: &[Vec<Vec<Inline>>]) -> usize {
+    header.len().max(rows.iter().map(Vec::len).max().unwrap_or(0)).max(1)
+}
+
+/// #FEED-224 (`fixtures/table-fit.json`): each column's CONTENT width in a
+/// box `width` wide: whole pixels (#EXP-1728: the box gpui rounds a cell's
+/// text into is exactly the width it was measured at). Each column's min
+/// (its widest unbreakable piece: a word, a chip's placeholder whole) and
+/// max (its widest cell on one line), over the header in its semibold and
+/// the body, go through the shared fit; the cells' chips must be at their
+/// natural widths (unsized, or [`size_chips`] with no width).
+pub fn table_columns(header: &[Vec<Inline>], rows: &[Vec<Vec<Inline>>], s: &MdStyles, width: f32, text: &mut dyn MdText) -> Vec<f32> {
+    let n = table_cols(header, rows);
+    let head = s.header_cell();
+    let mut fit = vec![FitColumn::default(); n];
+    for (r, row) in std::iter::once(header).chain(rows.iter().map(Vec::as_slice)).enumerate() {
+        let spec = if r == 0 { &head } else { &s.body };
+        for (c, cell) in row.iter().enumerate().take(n) {
+            if cell.iter().all(|i| i.text.is_empty()) {
+                continue;
+            }
+            fit[c].min = fit[c].min.max(f64::from(text.widest_word(cell, spec)));
+            fit[c].max = fit[c].max.max(f64::from(text.width(cell, spec)));
+        }
+    }
+    let available = width - n as f32 * 2.0 * s.cell_pad_h - 2.0 * TABLE_BORDER;
+    fit_table_columns(&fit, f64::from(available), TABLE_WORD_CAP).into_iter().map(|w| w as f32).collect()
+}
+
+/// #FEED-224: a table's painted width from its column content widths.
+pub fn table_width(cols: &[f32], s: &MdStyles) -> f32 {
+    cols.iter().map(|w| w + 2.0 * s.cell_pad_h).sum::<f32>() + 2.0 * TABLE_BORDER
 }
 
 /// A chip's `kind` for inline code: gpui shapes a text in ONE size, so a code
@@ -1723,7 +1755,7 @@ pub fn size_chips(blocks: &[Block], s: &MdStyles, width: Option<f32>, text: &mut
     if !any {
         return None;
     }
-    let mut size = |list: &mut Vec<Inline>, spec: &TextSpec, cap: f32| {
+    fn size(list: &mut [Inline], spec: &TextSpec, cap: f32, s: &MdStyles, text: &mut dyn MdText) {
         for span in list.iter_mut() {
             let (bold, italic) = (span.bold, span.italic);
             if span.code {
@@ -1759,7 +1791,7 @@ pub fn size_chips(blocks: &[Block], s: &MdStyles, width: Option<f32>, text: &mut
                 chip.width = total.min(cap);
             }
         }
-    };
+    }
     Some(
         blocks
             .iter()
@@ -1770,14 +1802,30 @@ pub fn size_chips(blocks: &[Block], s: &MdStyles, width: Option<f32>, text: &mut
                 if let BlockKind::Table { header, rows } = &mut b.kind {
                     // The cells wrap in their row's spec (as `layout` measures them).
                     let head = s.header_cell();
-                    for cell in header.iter_mut() {
-                        size(cell, &head, cap);
+                    // #FEED-224: the columns fit from the chips at their
+                    // natural widths; each cell's chips then cap at its column.
+                    let cols = width.map(|w| {
+                        let (mut free_head, mut free_rows) = (header.clone(), rows.clone());
+                        for cell in free_head.iter_mut() {
+                            size(cell, &head, f32::INFINITY, s, text);
+                        }
+                        for cell in free_rows.iter_mut().flatten() {
+                            size(cell, &s.body, f32::INFINITY, s, text);
+                        }
+                        table_columns(&free_head, &free_rows, s, w, text)
+                    });
+                    let cap_of = |c: usize| cols.as_ref().and_then(|cols| cols.get(c)).map_or(cap, |w| w.max(1.0));
+                    for (c, cell) in header.iter_mut().enumerate() {
+                        size(cell, &head, cap_of(c), s, text);
                     }
-                    for cell in rows.iter_mut().flatten() {
-                        size(cell, &s.body, cap);
+                    for row in rows.iter_mut() {
+                        for (c, cell) in row.iter_mut().enumerate() {
+                            size(cell, &s.body, cap_of(c), s, text);
+                        }
                     }
+                    b.table_cols = cols.unwrap_or_default();
                 } else if b.kind != BlockKind::CodeBlock {
-                    size(&mut b.inlines, &spec, cap);
+                    size(&mut b.inlines, &spec, cap, s, text);
                 }
                 b
             })
@@ -1831,20 +1879,22 @@ pub fn layout(blocks: &[Block], s: &MdStyles, width: f32, text: &mut dyn MdText)
             BlockKind::CodeBlock => (text.height(&b.inlines, spec, None) + 2.0 * (s.code_pad + s.code_border), Vec::new()),
             BlockKind::Rule => (1.0, Vec::new()),
             BlockKind::Table { header, rows } => {
-                let cols = header.len().max(rows.iter().map(Vec::len).max().unwrap_or(0)).max(1);
-                let cell_w = cell_text_width(width, cols, s);
+                // #FEED-224: the fitted columns (sized with the chips, else here).
+                let cols = if b.table_cols.len() == table_cols(header, rows) { b.table_cols.clone() } else { table_columns(header, rows, s, width, text) };
                 let mut heights = Vec::new();
                 // #EXP-1728: the header row wraps in the weight it paints in.
                 let head = s.header_cell();
                 for (r, row) in std::iter::once(header).chain(rows.iter()).enumerate() {
                     let spec = if r == 0 { &head } else { &s.body };
-                    let h = row.iter().map(|c| text.height(c, spec, Some(cell_w))).fold(s.body.line_height, f32::max);
+                    let h = row.iter().enumerate().map(|(c, cell)| text.height(cell, spec, Some(cols.get(c).copied().unwrap_or(1.0).max(1.0)))).fold(s.body.line_height, f32::max);
                     heights.push(h + 2.0 * s.cell_pad_v + 1.0);
                 }
-                (heights.iter().sum::<f32>() + 1.0, heights)
+                out.push(BlockBox { y, height: heights.iter().sum::<f32>() + 1.0, rows: heights, cols });
+                y += out.last().map_or(0.0, |b| b.height);
+                continue;
             }
         };
-        out.push(BlockBox { y, height, rows });
+        out.push(BlockBox { y, height, rows, cols: Vec::new() });
         y += height;
     }
     MdLayout { blocks: out, height: y }
@@ -1881,11 +1931,8 @@ pub fn max_content_width(blocks: &[Block], s: &MdStyles, text: &mut dyn MdText) 
                 BlockKind::Quote => text.width(&b.inlines, spec) + s.quote_border + s.quote_pad,
                 BlockKind::CodeBlock => b.inlines[0].text.lines().map(|l| text.width(&[Inline { text: l.to_string(), ..b.inlines[0].clone() }], spec)).fold(0.0, f32::max) + 2.0 * (s.code_pad + s.code_border),
                 BlockKind::Rule => 0.0,
-                BlockKind::Table { header, rows } => {
-                    let cols = header.len().max(1) as f32;
-                    let widest = std::iter::once(header).chain(rows.iter()).flat_map(|r| r.iter()).map(|c| text.width(c, &s.body)).fold(0.0, f32::max);
-                    cols * (widest + 2.0 * s.cell_pad_h)
-                }
+                // #FEED-224: every column on one line.
+                BlockKind::Table { header, rows } => table_width(&table_columns(header, rows, s, f32::INFINITY, text), s),
             }
         })
         .fold(0.0, f32::max)
@@ -2448,11 +2495,15 @@ pub fn baseline_shift(ts: &gpui::TextSystem, base: (&Font, f32, f32), other: (&F
     }
 }
 
-/// The left edge of table column `c` of `cols` (mirrored in RTL: column 0
-/// at the right, like an HTML table under `dir=rtl`).
-pub fn table_cell_left(c: usize, cols: usize, col_w: f32, rtl: bool) -> f32 {
-    let visual = if rtl { cols.saturating_sub(1).saturating_sub(c) } else { c };
-    visual as f32 * col_w
+/// The left edge of table column `c` (each cell `cells[i]` wide, inside the
+/// table's border; mirrored in RTL: column 0 at the right, like an HTML
+/// table under `dir=rtl`).
+pub fn table_cell_left(c: usize, cells: &[f32], rtl: bool) -> f32 {
+    if rtl {
+        cells[c + 1..].iter().sum()
+    } else {
+        cells[..c].iter().sum()
+    }
 }
 
 /// The bullet's width and its centre's distance from the indent's edge, in em.
@@ -2612,9 +2663,13 @@ pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint
             }
             BlockKind::Rule => placed.bg(p.border).into_any_element(),
             BlockKind::Table { header, rows } => {
-                let cols = header.len().max(rows.iter().map(Vec::len).max().unwrap_or(0)).max(1);
-                let col_w = width / cols as f32;
-                let mut table = placed.border_1().border_color(p.border).rounded(px(6.0)).overflow_hidden();
+                let cols = table_cols(header, rows);
+                // #FEED-224: the fitted columns; the table hugs them (start-
+                // aligned) and scrolls sideways when they are wider than the box.
+                let text_w: Vec<f32> = (0..cols).map(|c| bx.cols.get(c).copied().unwrap_or(1.0).max(1.0)).collect();
+                let cells: Vec<f32> = text_w.iter().map(|w| w + 2.0 * s.cell_pad_h).collect();
+                let table_w = table_width(&text_w, s);
+                let mut table = div().relative().flex_none().w(px(table_w)).h(px(bx.height)).border_1().border_color(p.border).rounded(px(6.0)).overflow_hidden();
                 let mut y = 0.0;
                 for (r, row) in std::iter::once(header).chain(rows.iter()).enumerate() {
                     let h = bx.rows.get(r).copied().unwrap_or(s.body.line_height);
@@ -2626,9 +2681,9 @@ pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint
                         table = table.child(
                             div()
                                 .absolute()
-                                .left(px(table_cell_left(c, cols, col_w, p.rtl)))
+                                .left(px(table_cell_left(c, &cells, p.rtl)))
                                 .top(px(y))
-                                .w(px(col_w))
+                                .w(px(cells[c]))
                                 .h(px(h))
                                 .when(r > 0, |d| d.border_t_1().border_color(p.border))
                                 // #VAPP-258: the header row's `Markdown/headerCell` fill.
@@ -2640,15 +2695,21 @@ pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint
                                         .absolute()
                                         .left(px(s.cell_pad_h))
                                         .top(px(s.cell_pad_v))
-                                        .w(px(cell_text_width(width, cols, s)))
+                                        .w(px(text_w[c]))
                                         .when(p.rtl, |d| d.text_right())
-                                        .child(text_block(format!("{bid}.{r}.{c}").into(), &cell, &spec, &p.family, p, p.colors, cell_text_width(width, cols, s), text)),
+                                        .child(text_block(format!("{bid}.{r}.{c}").into(), &cell, &spec, &p.family, p, p.colors, text_w[c], text)),
                                 ),
                         );
                     }
                     y += h;
                 }
-                table.into_any_element()
+                if table_w > width + 0.5 {
+                    // Wider than the box: it scrolls sideways (the wheel's
+                    // vertical turns stay the page's).
+                    placed.child(div().id(SharedString::from(format!("{bid}.scroll"))).size_full().overflow_x_scroll().restrict_scroll_to_axis().flex().when(p.rtl, |d| d.flex_row_reverse()).child(table)).into_any_element()
+                } else {
+                    placed.flex().when(p.rtl, |d| d.flex_row_reverse()).child(table).into_any_element()
+                }
             }
         };
         root = match live {
@@ -3172,9 +3233,33 @@ mod tests {
 
     #[test]
     fn table_columns_mirror_in_rtl() {
-        assert_eq!((0..3).map(|c| table_cell_left(c, 3, 100.0, false)).collect::<Vec<_>>(), [0.0, 100.0, 200.0]);
-        assert_eq!((0..3).map(|c| table_cell_left(c, 3, 100.0, true)).collect::<Vec<_>>(), [200.0, 100.0, 0.0], "column 0 = the right edge");
-        assert_eq!(table_cell_left(0, 1, 80.0, true), 0.0);
+        let cells = [10.0, 20.0, 30.0];
+        assert_eq!((0..3).map(|c| table_cell_left(c, &cells, false)).collect::<Vec<_>>(), [0.0, 10.0, 30.0]);
+        assert_eq!((0..3).map(|c| table_cell_left(c, &cells, true)).collect::<Vec<_>>(), [50.0, 30.0, 0.0], "column 0 = the right edge");
+        assert_eq!(table_cell_left(0, &[80.0], true), 0.0);
+    }
+
+    /// #FEED-224: the screenshot's shape (a short column, a long unbreakable
+    /// one, a prose one) fits by `fixtures/table-fit.json`, not in equal
+    /// thirds: the short column keeps its line, the others share the rest.
+    #[test]
+    fn a_table_fits_its_columns_to_their_content() {
+        let s = MdStyles::plain(body());
+        let pads = 6.0 * s.cell_pad_h + 2.0 * TABLE_BORDER;
+        let md = "| PR | Issue | Stand |\n|---|---|---|\n| #2229 | MA-1756-Matty-Stufe-2-Vorgabe | Gründe hängt in der Merge-Warteschlange und wartet auf CI |";
+        let lay = layout(&parse(md), &s, 500.0 + pads, &mut Fixed);
+        // #2229 = 40; the 29-letter word (232) counts the 160 cap as its min;
+        // the prose's widest word is 152: 460 left, 230 each.
+        assert_eq!(lay.blocks[0].cols, vec![40.0, 230.0, 230.0]);
+        assert_eq!(table_width(&lay.blocks[0].cols, &s), 500.0 + pads);
+        // A short table hugs its content.
+        let lay = layout(&parse("| a | b |\n|---|---|\n| x | yy |"), &s, 600.0, &mut Fixed);
+        assert_eq!(lay.blocks[0].cols, vec![8.0, 16.0]);
+        // Minimums wider than the box: each its min, the table scrolls.
+        let lay = layout(&parse("| aaaaaaaaaa | bbbbbbbbbb | cccccccccc |\n|---|---|---|\n| x | y | z |"), &s, 120.0, &mut Fixed);
+        assert_eq!(lay.blocks[0].cols, vec![80.0, 80.0, 80.0]);
+        // Its max-content: every column on one line.
+        assert_eq!(max_content_width(&parse(md), &s, &mut Fixed), (40.0 + 232.0 + 456.0 + pads).ceil());
     }
 
     /// 8 px per character, the core's fixed measure, wrapping greedily.
@@ -3235,7 +3320,7 @@ mod tests {
             }
         }
         let s = MdStyles::plain(body());
-        // One column 216 wide = 200 of text: 25 characters fit at 8 px, not at 9.
+        // One column 200 wide = 198 of text: 23 characters fit at 8 px, not at 9.
         let blocks = parse("| C shared renderer (vel) |\n|---|\n| pixel-identical |");
         let lay = layout(&blocks, &s, 200.0 + 2.0 * s.cell_pad_h, &mut Weighted);
         let row = |lines: f32| lines * s.body.line_height + 2.0 * s.cell_pad_v + 1.0;
@@ -3248,12 +3333,11 @@ mod tests {
     #[test]
     fn table_cells_wrap_at_whole_pixels() {
         let s = MdStyles::plain(body());
-        let cell = 152.75 + 2.0 * s.cell_pad_h;
-        let blocks = parse("| a | b | c | d |\n|---|---|---|---|\n| Cost of a new compo | x | y | z |");
-        let lay = layout(&blocks, &s, 4.0 * cell, &mut Fixed);
-        assert_eq!(cell_text_width(4.0 * cell, 4, &s), 152.0);
+        let box_w = 152.75 + 2.0 * s.cell_pad_h + 2.0 * TABLE_BORDER;
+        let lay = layout(&parse("| a |\n|---|\n| Cost of a new compo |"), &s, box_w, &mut Fixed);
+        assert_eq!(lay.blocks[0].cols, vec![152.0]);
         assert_eq!(lay.blocks[0].rows[1], 20.0 + 2.0 * s.cell_pad_v + 1.0, "19 × 8 = 152 fits 152");
-        let lay = layout(&parse("| a |\n|---|\n| Cost of a new compon |"), &s, cell, &mut Fixed);
+        let lay = layout(&parse("| a |\n|---|\n| Cost of a new compon |"), &s, box_w, &mut Fixed);
         assert_eq!(lay.blocks[0].rows[1], 40.0 + 2.0 * s.cell_pad_v + 1.0, "160 px wraps at 152");
     }
 

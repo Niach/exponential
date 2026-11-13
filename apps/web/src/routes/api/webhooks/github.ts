@@ -1,8 +1,10 @@
 import { createHmac, timingSafeEqual } from "node:crypto"
+import { onForgePullRequest, onForgePush } from "@/lib/ci/triggers"
 import { createFileRoute } from "@tanstack/react-router"
 import { and, eq, inArray, isNull, or } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { repositories, sessions } from "@/db/schema"
+import { providerConfigWithInstallation, repoInstallationId } from "@/lib/ecode/provider-config"
 import { touchSessionActivity } from "@/lib/sessions/watchdog"
 import { attributePush, pushedRepositoryIds, pushTime } from "@/lib/sessions/push-attribution"
 import { checkFromGithubStatus } from "@/lib/ecode/github-status"
@@ -104,7 +106,7 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
         await db
           .update(repositories)
           .set({ inaccessibleAt: new Date() })
-          .where(eq(repositories.installationId, installation.id))
+          .where(eq(repoInstallationId(), installation.id))
       }
       return jsonResponse(200, { ok: true })
     }
@@ -140,7 +142,7 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
           .set({ inaccessibleAt: new Date() })
           .where(
             and(
-              eq(repositories.installationId, installation.id),
+              eq(repoInstallationId(), installation.id),
               inArray(repositories.fullName, removed)
             )
           )
@@ -155,13 +157,16 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
         // its own token mint, which verifies access.
         await db
           .update(repositories)
-          .set({ inaccessibleAt: null, installationId: installation.id })
+          .set({
+            inaccessibleAt: null,
+            providerConfig: providerConfigWithInstallation(installation.id),
+          })
           .where(
             and(
               inArray(repositories.fullName, added),
               or(
-                isNull(repositories.installationId),
-                eq(repositories.installationId, installation.id)
+                isNull(repoInstallationId()),
+                eq(repoInstallationId(), installation.id)
               )
             )
           )
@@ -177,6 +182,7 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
     if (event === `push`) {
       const payload = JSON.parse(rawBody) as {
         ref?: string
+        after?: string
         deleted?: boolean
         repository?: { full_name?: string; default_branch?: string; pushed_at?: number | string }
         head_commit?: { timestamp?: string } | null
@@ -184,6 +190,10 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
       }
       const branch = payload.ref?.startsWith(`refs/heads/`) ? payload.ref.slice(`refs/heads/`.length) : null
       const fullName = payload.repository?.full_name
+      // #EXP-1617: our own CI plans `push` / `tag` / `merge_train` runs.
+      if (fullName && payload.ref) {
+        onForgePush({ fullName, ref: payload.ref, sha: payload.after ?? null, deleted: payload.deleted === true })
+      }
       if (branch && fullName && !payload.deleted && branch !== payload.repository?.default_branch) {
         // #EXP-1540: the same full name may be registered by several teams;
         // only this installation's rows (or still unbound ones) count.
@@ -313,9 +323,9 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
         // When GitHub last changed the PR: a generic draft sync never lets
         // an older delivery overwrite a newer state.
         updated_at?: string
-        head?: { ref?: string; sha?: string }
+        head?: { ref?: string; sha?: string; repo?: { full_name?: string } | null }
         // The base GitHub reports on every delivery.
-        base?: { ref?: string }
+        base?: { ref?: string; repo?: { full_name?: string } | null }
         // EXP-617: the GitHub identity behind the event. `user` is the PR
         // author, `merged_by` whoever pressed Merge; both are the App bot for
         // anything our own server did, which is exactly why they complement
@@ -387,10 +397,30 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
     }
 
     // FEED-160: GitHub's own clock for this delivery's PR state; stored as
-    // the row's `github_updated_at`, the only thing a late delivery is
+    // the row's `provider_updated_at`, the only thing a late delivery is
     // compared with (our `updated_at` moves on any unrelated write).
     const parsedAt = pr.updated_at ? new Date(pr.updated_at) : null
     const changedAt = parsedAt && !Number.isNaN(parsedAt.getTime()) ? parsedAt : null
+
+    // #EXP-1617: our own CI on a new or moved head. A head from another
+    // repository (a fork, or a deleted one) never runs.
+    if (
+      (payload.action === `opened` || payload.action === `synchronize` || payload.action === `reopened`) &&
+      repoFullName &&
+      pr.number &&
+      pr.head?.sha &&
+      pr.base?.ref
+    ) {
+      const headRepo = pr.head.repo?.full_name ?? null
+      onForgePullRequest({
+        fullName: repoFullName,
+        number: pr.number,
+        headSha: pr.head.sha,
+        headRef: pr.head.ref ?? null,
+        base: pr.base.ref,
+        fork: headRepo === null || headRepo.toLowerCase() !== (pr.base.repo?.full_name ?? repoFullName).toLowerCase(),
+      })
+    }
 
     if (payload.action === `reopened`) {
       if (row) {
@@ -398,7 +428,7 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
           pullRequestId: row.id,
           base: pr.base?.ref ?? null,
           draft: pr.draft === true,
-          ...(changedAt ? { githubUpdatedAt: changedAt } : {}),
+          ...(changedAt ? { providerUpdatedAt: changedAt } : {}),
         })
       }
       return jsonResponse(200, { ok: true })
@@ -425,7 +455,7 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
         // not older than the last PR state we applied (a late `synchronize`
         // must not undo a newer `ready_for_review`). An explicit flip always
         // applies and records its time.
-        ...(changedAt ? (explicit ? { githubUpdatedAt: changedAt } : { notBefore: changedAt }) : {}),
+        ...(changedAt ? (explicit ? { providerUpdatedAt: changedAt } : { notBefore: changedAt }) : {}),
       })
       // A draft readied is a merge-train edge (readiness re-reads it).
       if (flipped && !draft) mergeTrainEdge({ pullRequestId: row.id })

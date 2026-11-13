@@ -97,6 +97,9 @@ pub const UNAUTHORIZED_GRACE: Duration = Duration::from_secs(60);
 /// Pause after a 409/pending-refetch or a non-live no-progress poll (iOS
 /// `pollOnce` "shouldPause" parity).
 pub const REFETCH_PAUSE: Duration = Duration::from_millis(500);
+/// #FEED-219: how long a [`ShapeSpec::may_be_absent`] shape waits after its
+/// 404 before probing again (the server may deploy it meanwhile).
+pub const NOT_SERVED_PARK: Duration = Duration::from_secs(300);
 /// Park interval while signed out (no token yet).
 pub const SIGNED_OUT_PARK: Duration = Duration::from_secs(2);
 /// The <1s repeat guard (Phase-2 gate): an idle live poll (no row ops) never
@@ -454,6 +457,18 @@ impl ShapeClient {
                     // is stale).
                     self.report_upgrade_required(stop);
                     return;
+                }
+                Err(ShapeError::Http(404)) if self.cfg.spec.may_be_absent() => {
+                    // #FEED-219: a server that predates this shape — not an
+                    // outage, so no PollFailed; probe again later.
+                    log::info!(
+                        "[sync {}::{}] not served yet (404); parking",
+                        self.cfg.account_id,
+                        self.cfg.spec.name
+                    );
+                    unauthorized_since = None;
+                    backoff = BACKOFF_BASE;
+                    sleep_with_stop(stop, NOT_SERVED_PARK);
                 }
                 Err(err) => {
                     log::warn!(

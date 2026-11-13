@@ -7,12 +7,19 @@
 // `wrap`, and `maxLines` before the block scrolls. EXP-1324: `variant`
 // (destructive) and `size` (sm) are recipe props (shadcn's code-block look
 // lives in the theme); `ansi` output copies without its escapes.
+// #EXP-1804: `follow` keeps a scrolling block at its bottom while `code`
+// grows (a live log) until the person scrolls up; back at the bottom, it
+// follows again.
 
-import { useMemo, useRef, useState } from "react"
+import { useLayoutEffect, useMemo, useRef, useState } from "react"
 import { codeText, tokenizeCode } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
 import type { NativeProps } from "../node-view"
 import { arr, bool, BuiltinIcon, num, str, useParts } from "./shared"
+
+/** Pixels from the bottom that still count as "at the bottom" (sub-pixel
+ *  scroll positions, a zoomed page). */
+const FOLLOW_SLACK = 4
 
 export function CodeBlockNative({ node, props, rootProps, domId }: NativeProps) {
   const ctx = useSurfaceContext()
@@ -28,6 +35,22 @@ export function CodeBlockNative({ node, props, rootProps, domId }: NativeProps) 
   // header (`ts`; none for `plain`); the region's name stays `codeBlock`.
   const heading = title || (language === `plain` ? `` : language)
   const maxLines = props.maxLines === undefined ? 0 : num(props.maxLines)
+  const follow = bool(props.follow)
+  const body = useRef<HTMLDivElement | null>(null)
+  // Whether the view sat at its bottom at the last scroll (a person who
+  // scrolled up stops the follow).
+  const atBottom = useRef(true)
+  const onScroll = follow
+    ? () => {
+        const el = body.current
+        if (el) atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight <= FOLLOW_SLACK
+      }
+    : undefined
+  useLayoutEffect(() => {
+    const el = body.current
+    if (!follow || !el || !atBottom.current) return
+    el.scrollTop = el.scrollHeight
+  }, [follow, code, maxLines])
   const [copied, setCopied] = useState(false)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const copy = async () => {
@@ -58,7 +81,7 @@ export function CodeBlockNative({ node, props, rootProps, domId }: NativeProps) 
           ) : null}
         </div>
       ) : null}
-      <div {...(part(`body`) as Record<string, string>)} className={`${(part(`body`) as { className: string }).className} xui-codeblock-scroll`} data-wrap={bool(props.wrap) ? `true` : undefined} style={maxLines > 0 ? ({ "--xui-code-lines": maxLines } as React.CSSProperties) : undefined} data-max-lines={maxLines > 0 ? maxLines : undefined} tabIndex={0} aria-labelledby={title ? undefined : undefined}>
+      <div ref={body} onScroll={onScroll} {...(part(`body`) as Record<string, string>)} className={`${(part(`body`) as { className: string }).className} xui-codeblock-scroll`} data-wrap={bool(props.wrap) ? `true` : undefined} style={maxLines > 0 ? ({ "--xui-code-lines": maxLines } as React.CSSProperties) : undefined} data-max-lines={maxLines > 0 ? maxLines : undefined} tabIndex={0} aria-labelledby={title ? undefined : undefined}>
         <pre className="xui-codeblock-pre" id={`${domId}.code`}>
           <code>
             {lines.map((tokens, i) => (

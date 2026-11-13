@@ -292,7 +292,8 @@ impl Drop for ChildGuard {
 /// can ([`crate::run_scope`]) — `systemd-run --scope` execs it in place, so
 /// the pid and pipes below are the agent's own.
 pub fn spawn_lines(spec: &SpawnSpec, stderr: StderrPolicy) -> std::io::Result<ChildLines> {
-    let argv = crate::run_scope::ScopeMode::current().wrap(&spec.program, &spec.args);
+    let mode = crate::run_scope::ScopeMode::current();
+    let argv = mode.wrap(&spec.program, &spec.args);
     let mut cmd = background_command(&argv[0]);
     cmd.env("PATH", login_path());
     for (key, value) in &spec.env {
@@ -312,6 +313,20 @@ pub fn spawn_lines(spec: &SpawnSpec, stderr: StderrPolicy) -> std::io::Result<Ch
     {
         use std::os::unix::process::CommandExt as _;
         cmd.process_group(0);
+        // PERF-4: a run is background work; without a scope (macOS, a host
+        // without a user manager) the child gets the run's nice level here,
+        // and its builds inherit it.
+        if *mode == crate::run_scope::ScopeMode::Off {
+            // SAFETY: only `setpriority(2)` runs between fork and exec; it is
+            // async-signal-safe and touches no memory of the parent.
+            let nice = crate::run_scope::run_nice();
+            unsafe {
+                cmd.pre_exec(move || {
+                    libc::setpriority(libc::PRIO_PROCESS, 0, nice);
+                    Ok(())
+                });
+            }
+        }
     }
 
     let mut child = cmd.spawn()?;
@@ -493,6 +508,21 @@ mod tests {
             .recv_timeout(Duration::from_secs(10))
             .expect("cat echoes the line back");
         assert_eq!(echoed, r#"{"jsonrpc":"2.0","method":"initialize"}"#);
+    }
+
+    /// PERF-4: a run starts at the run's nice level, scope or not (a scope
+    /// from a systemd that refuses `CPUWeight=idle` keeps the default).
+    #[cfg(unix)]
+    #[test]
+    fn spawn_lines_runs_the_child_at_background_priority() {
+        let spec = SpawnSpec::new("sh").args(["-c", "ps -o ni= -p $$"]);
+        let child = spawn_lines(&spec, StderrPolicy::Drop).expect("sh spawns");
+        let nice = child.lines.recv_timeout(Duration::from_secs(10)).expect("ps prints the nice level");
+        let expected = match crate::run_scope::ScopeMode::current() {
+            crate::run_scope::ScopeMode::Systemd { background: false, .. } => 0,
+            _ => crate::run_scope::run_nice(),
+        };
+        assert_eq!(nice.trim().parse::<i32>().expect("a number"), expected);
     }
 
     #[test]

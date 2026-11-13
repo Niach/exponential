@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen } from "@testing-library/react"
+import { useEffect } from "react"
 import { describe, expect, it } from "vitest"
 import { JumpToBottomButton } from "@exp/ui"
 import { useFollowScroll } from "@/hooks/use-follow-scroll"
@@ -9,8 +10,9 @@ import { useFollowScroll } from "@/hooks/use-follow-scroll"
 
 let height = 1000
 
-function Feed({ rows }: { rows: string[] }) {
+function Feed({ rows, held = false }: { rows: string[]; held?: boolean }) {
   const follow = useFollowScroll([rows])
+  useEffect(() => follow.hold(held), [held, follow.hold])
   return (
     <div>
       <div
@@ -78,5 +80,41 @@ describe(`useFollowScroll`, () => {
     })
     expect(screen.getByTestId(`jump-to-bottom`).getAttribute(`data-visible`)).toBe(`false`)
     expect(scroller.scrollTop).toBe(1300)
+  })
+  it(`a pending deep link holds the feed off its newest row (waiting-cards.json DEEP LINKS)`, () => {
+    height = 1000
+    const { rerender } = render(<Feed rows={[`a`]} />)
+    const scroller = screen.getByTestId(`scroller`)
+    rerender(<Feed rows={[`a`]} held />)
+    // The link scrolls the card to the centre (down, toward the tail): the
+    // feed does not re-pin it.
+    act(() => {
+      scroller.scrollTop = 700
+      fireEvent.scroll(scroller)
+    })
+    expect(scroller.scrollTop).toBe(700)
+    // A row arrives while it is pending: nothing drags the view down.
+    height = 1200
+    rerender(<Feed rows={[`a`, `b`]} held />)
+    expect(scroller.scrollTop).toBe(700)
+    // Settled: the reader stays where the link put them.
+    height = 1400
+    rerender(<Feed rows={[`a`, `b`, `c`]} />)
+    expect(scroller.scrollTop).toBe(700)
+  })
+  it(`a mouse press in the feed (a drag-select) is never scrolled under`, () => {
+    height = 1000
+    const { rerender } = render(<Feed rows={[`a`]} />)
+    const scroller = screen.getByTestId(`scroller`)
+    expect(scroller.scrollTop).toBe(1000)
+    fireEvent.pointerDown(screen.getByText(`a`), { pointerType: `mouse`, button: 0 })
+    height = 1200
+    rerender(<Feed rows={[`a`, `b`]} />)
+    expect(scroller.scrollTop).toBe(1000)
+    // Released: the next row follows again.
+    fireEvent.pointerUp(document)
+    height = 1400
+    rerender(<Feed rows={[`a`, `b`, `c`]} />)
+    expect(scroller.scrollTop).toBe(1400)
   })
 })

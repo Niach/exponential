@@ -323,7 +323,7 @@ val MIGRATION_121_122: Migration = object : Migration(121, 122) {
 }
 
 // v123 (large chats): a chat's newest page (`observeNewestByRoot`) and its
-// result cards (`observeResultCardsByRoot`) read the tree in transcript order:
+// result cards (`observeResultCardStamps`) read the tree in transcript order:
 // one (root_id, created_at, id) index makes both range reads; it covers the
 // old (root_id) prefix, which goes. Local only: nothing refetches.
 val MIGRATION_122_123: Migration = object : Migration(122, 123) {
@@ -333,5 +333,81 @@ val MIGRATION_122_123: Migration = object : Migration(122, 123) {
             "CREATE INDEX IF NOT EXISTS `index_messages_root_id_created_at_id` " +
                 "ON `messages` (`root_id`, `created_at`, `id`)",
         )
+    }
+}
+
+// v124 (#FEED-219, composer-draft.json): the `composer_drafts` table, every
+// composer's synced draft. A new shape: nothing else refetches.
+val MIGRATION_123_124: Migration = object : Migration(123, 124) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `composer_drafts` (`id` TEXT NOT NULL, `user_id` TEXT NOT NULL, " +
+                "`team_id` TEXT NOT NULL, `key` TEXT NOT NULL, `text` TEXT NOT NULL, " +
+                "`created_at` TEXT NOT NULL, `updated_at` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_composer_drafts_key` ON `composer_drafts` (`key`)")
+    }
+}
+
+// v125 (#EXP-1617 / #EXP-1804, ci-run.json + runner-settings.json):
+// `devices.runner` (the owner's CI runner settings) and the `ci_runs` +
+// `ci_jobs` tables (our own CI's run page). The devices shape refetches so
+// synced rows re-arrive with the column; the two new shapes start fresh.
+val MIGRATION_124_125: Migration = object : Migration(124, 125) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `devices` ADD COLUMN `runner` TEXT")
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `ci_runs` (`id` TEXT NOT NULL, `team_id` TEXT NOT NULL, " +
+                "`repository_id` TEXT NOT NULL, `number` INTEGER, `name` TEXT NOT NULL, `sha` TEXT NOT NULL, " +
+                "`ref` TEXT, `trigger` TEXT NOT NULL, `pull_request_id` TEXT, `state` TEXT NOT NULL, " +
+                "`error` TEXT, `rerun_of` TEXT, `created_by_user_id` TEXT, `started_at` TEXT, " +
+                "`completed_at` TEXT, `created_at` TEXT NOT NULL, `updated_at` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_ci_runs_team_id` ON `ci_runs` (`team_id`)")
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `ci_jobs` (`id` TEXT NOT NULL, `team_id` TEXT NOT NULL, " +
+                "`run_id` TEXT NOT NULL, `key` TEXT NOT NULL, `check` TEXT NOT NULL, `position` INTEGER, " +
+                "`runs_on` TEXT, `needs` TEXT, `matrix` TEXT, `timeout_min` INTEGER, `status` TEXT NOT NULL, " +
+                "`conclusion` TEXT, `reason` TEXT, `runner_device_id` TEXT, `steps` TEXT, `log_key` TEXT, " +
+                "`log_bytes` INTEGER, `queued_at` TEXT, `started_at` TEXT, `completed_at` TEXT, " +
+                "`created_at` TEXT NOT NULL, `updated_at` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_ci_jobs_run_id` ON `ci_jobs` (`run_id`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_ci_jobs_team_id` ON `ci_jobs` (`team_id`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_ci_jobs_runner_device_id` ON `ci_jobs` (`runner_device_id`)")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'devices'",
+        )
+    }
+}
+
+// v126 (#FEED-237, message-delivery.json): `messages.delivered_at` (the device
+// received a pending person message: one check) and the LOCAL `outbox` table
+// (a person's message from the press until its row syncs; no shape). Only the
+// messages shape refetches, so synced rows re-arrive carrying the stamp.
+val MIGRATION_125_126: Migration = object : Migration(125, 126) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `messages` ADD COLUMN `delivered_at` TEXT")
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `outbox` (`client_id` TEXT NOT NULL, `session_id` TEXT NOT NULL, " +
+                "`text` TEXT NOT NULL, `created_at` TEXT NOT NULL, `state` TEXT NOT NULL, `message_id` TEXT, " +
+                "`attachment_ids` TEXT, PRIMARY KEY(`client_id`))",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_outbox_session_id` ON `outbox` (`session_id`)")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'messages'",
+        )
+    }
+}
+
+// v127 (#FEED-237, message-delivery.json FILES): `outbox.pending_files`, an
+// entry's picked files not uploaded yet (their bytes live under the app's
+// files dir), so a restart resumes the uploads instead of sending the text
+// without them. Local table: nothing refetches.
+val MIGRATION_126_127: Migration = object : Migration(126, 127) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `outbox` ADD COLUMN `pending_files` TEXT")
     }
 }

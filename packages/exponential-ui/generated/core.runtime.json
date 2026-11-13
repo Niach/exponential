@@ -322,7 +322,8 @@
     "messageStatus": [
       "sending",
       "sent",
-      "read"
+      "read",
+      "failed"
     ],
     "callState": [
       "ringing",
@@ -1903,6 +1904,10 @@
         },
         "maxLines": {
           "type": "number"
+        },
+        "follow": {
+          "type": "boolean",
+          "default": false
         },
         "variant": {
           "type": "enum",
@@ -5341,6 +5346,20 @@
             "shape": "option"
           },
           "host": true
+        }
+      }
+    },
+    "MessageStatus": {
+      "kind": "macro",
+      "group": "list",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "status": {
+          "type": "enum",
+          "enum": "messageStatus",
+          "required": true,
+          "bindable": true
         }
       }
     }

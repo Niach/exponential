@@ -578,22 +578,24 @@ struct MarkdownView: View {
         case .rule:
             Rectangle().fill(border).frame(height: 1)
         case let .table(header, rows):
-            let cols = max(header.count, rows.map(\.count).max() ?? 0, 1)
-            let cellW = width / CGFloat(cols)
-            VStack(spacing: 0) {
+            let cols = Markdown.tableColumnCount(header: header, rows: rows)
+            // #FEED-224: each column its fitted width; the table hugs them
+            // (start-aligned) and scrolls sideways when wider than the box.
+            let textW = (0..<cols).map { max(box.cols[safe: $0] ?? 1, 1) }
+            let tableW = Markdown.tableWidth(textW, styles)
+            let table = VStack(spacing: 0) {
                 ForEach(Array(([header] + rows).enumerated()), id: \.offset) { r, row in
                     HStack(alignment: .top, spacing: 0) {
                         ForEach(0..<cols, id: \.self) { c in
                             let cell = c < row.count ? row[c] : []
                             var cellSpec = spec
                             let _ = { if r == 0 { cellSpec.weight = max(cellSpec.weight, 600) } }()
-                            let cellText = max(cellW - 2 * styles.cellPadH, 1)
-                            let cellLines = lines(MarkdownParagraphSlot(block: index, row: r, column: c), cell, cellSpec, ink: ink, link: link, codeBackground: codeBg, width: cellText)
+                            let cellLines = lines(MarkdownParagraphSlot(block: index, row: r, column: c), cell, cellSpec, ink: ink, link: link, codeBackground: codeBg, width: textW[c])
                             paragraph(cellLines, spec: spec)
                                 .overlay(alignment: .topLeading) { chips(cellLines, spec: spec) }
                                 .padding(.horizontal, styles.cellPadH)
                                 .padding(.vertical, styles.cellPadV)
-                                .frame(width: cellW, height: box.rows[safe: r].map { $0 - 1 } ?? spec.lineHeight, alignment: .topLeading)
+                                .frame(width: textW[c] + 2 * styles.cellPadH, height: box.rows[safe: r].map { $0 - 1 } ?? spec.lineHeight, alignment: .topLeading)
                         }
                     }
                     // #VAPP-258: the header row's `Markdown/headerCell` fill.
@@ -602,6 +604,13 @@ struct MarkdownView: View {
                 }
             }
             .overlay(alignment: .top) { Rectangle().fill(border).frame(height: 1) }
+            .frame(width: tableW, alignment: .topLeading)
+            if tableW > width + 0.5 {
+                ScrollView(.horizontal, showsIndicators: false) { table }
+                    .frame(width: width, alignment: .topLeading)
+            } else {
+                table.frame(width: width, alignment: .topLeading)
+            }
         }
     }
 }

@@ -14,7 +14,7 @@ struct ChatCardsScreen: View {
 
     @Environment(AppDependencies.self) private var deps
 
-    static let kinds: Set<String> = ["record-form-field-states", "work-card", "script-card", "comment-call-card", "trace", "code-block", "chat-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-team-menu", "team-avatar", "phone-page-header", "chat-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call", "call-controls", "call-pill", "chat-selection", "needs-you", "results-tab", "results-tab-lightbox", "settings-voice", "settings-mcp", "device-readiness", "work-screen", "voice-meeting", "voice-meeting-consent", "sealed-locked", "pr-row", "pr-checks", "session-row", "device-attention", "device-attention-menu"]
+    static let kinds: Set<String> = ["record-form-field-states", "work-card", "script-card", "comment-call-card", "trace", "code-block", "chat-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-team-menu", "team-avatar", "phone-page-header", "chat-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call", "call-controls", "call-pill", "chat-selection", "needs-you", "results-tab", "results-tab-lightbox", "settings-voice", "settings-mcp", "device-readiness", "work-screen", "voice-meeting", "voice-meeting-consent", "sealed-locked", "pr-row", "pr-checks", "ci-run", "runner-settings", "repo-runs", "repo-ci", "session-row", "device-attention", "device-attention-menu"]
 
     var body: some View {
         if kind == "voice-meeting" || kind == "voice-meeting-consent" {
@@ -108,6 +108,12 @@ struct ChatCardsScreen: View {
                     case "pr-row": PrRowSpecimens()
                     case "session-row": SessionRowSpecimens()
                     case "pr-checks": PrChecksSpecimens()
+                    // #EXP-1804: the CI run page and the CI runner section.
+                    case "ci-run": CiRunSpecimens()
+                    case "runner-settings": RunnerSettingsSpecimens()
+                    // #EXP-1617: the repo page's Runs tab + its CI section.
+                    case "repo-runs": RepoRunsSpecimens()
+                    case "repo-ci": RepoCiSpecimens()
                     default: workCards
                     }
                 }

@@ -23,8 +23,11 @@ import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.auth.OauthReturn
 import com.exponential.app.data.intents.AppIntentRunner
 import com.exponential.app.data.push.DeepLinkBus
+import com.exponential.app.data.push.NotificationActions
 import com.exponential.app.data.push.PushDeepLinks
+import com.exponential.app.data.push.QuestionPush
 import com.exponential.app.data.share.ShareIntentParser
+import com.exponential.app.data.share.ShareIntentPlan
 import com.exponential.app.domain.AppShortcuts
 import com.exponential.app.domain.WebLinks
 import com.exponential.app.domain.AppLink
@@ -80,7 +83,12 @@ class MainActivity : ComponentActivity() {
         // savedInstanceState != null identifies the redelivery; a link that
         // arrives while the process is dead is delivered to onNewIntent after
         // the restore, never as this launch intent, so nothing is lost.
-        handleIntent(intent, freshDelivery = savedInstanceState == null)
+        // A launch from Recents replays the task's ORIGINAL intent (a share
+        // already placed, its read grant gone): not fresh either.
+        handleIntent(
+            intent,
+            freshDelivery = ShareIntentPlan.isFreshDelivery(savedInstanceState != null, intent?.flags ?: 0),
+        )
         maybeRequestNotificationPermission()
         setContent {
             ExponentialTheme {
@@ -199,7 +207,13 @@ class MainActivity : ComponentActivity() {
             "inbox" -> if (switchToPushAccount(linkUserId)) deepLinkBus.openInbox()
             // session push taps (EXP-980 wall, #EXP-1456 decision/mention).
             "session" -> data.pathSegments.firstOrNull()?.let {
-                if (switchToPushAccount(linkUserId)) deepLinkBus.openSession(it)
+                // waiting-cards.json DEEP LINKS: `?card=` = the card it is about.
+                val card = PushDeepLinks.card(
+                    data.getQueryParameter(PushDeepLinks.PARAM_CARD),
+                    data.getQueryParameter(PushDeepLinks.PARAM_CARD_KIND),
+                    data.getQueryParameter(PushDeepLinks.PARAM_ROOT),
+                )
+                if (switchToPushAccount(linkUserId)) deepLinkBus.openSession(it, card)
             }
             // agent_signed_out push taps (#EXP-1534): that device's settings.
             "device" -> data.pathSegments.firstOrNull()?.let {
@@ -228,6 +242,11 @@ class MainActivity : ComponentActivity() {
             issueId = intent.getStringExtra("issueId"),
             sessionId = intent.getStringExtra("sessionId"),
             deviceId = intent.getStringExtra("deviceId"),
+            card = PushDeepLinks.card(
+                intent.getStringExtra(NotificationActions.KEY_MESSAGE_ID),
+                intent.getStringExtra(NotificationActions.KEY_CARD_KIND),
+                intent.getStringExtra(QuestionPush.ROOT_ID_KEY),
+            ),
         ) ?: return
         if (!switchToPushAccount(intent.getStringExtra("userId"))) return
         // Belt-and-braces beside the savedInstanceState gate: an in-process
@@ -243,7 +262,7 @@ class MainActivity : ComponentActivity() {
             }
             is PushDeepLinks.Target.Session -> {
                 intent.removeExtra("sessionId")
-                deepLinkBus.openSession(target.id)
+                deepLinkBus.openSession(target.id, target.card)
             }
             is PushDeepLinks.Target.Device -> {
                 intent.removeExtra("deviceId")

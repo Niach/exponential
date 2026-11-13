@@ -1,5 +1,7 @@
 package com.exponential.app.ui.chat
 
+import com.exponential.app.data.db.observeResultCards
+import com.exponential.app.data.db.observeFirstTitleRows
 import com.exponential.app.data.db.keyedMessages
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -230,15 +232,24 @@ class ChatViewModel @Inject constructor(
     /** #EXP-1380 (chats.json PERF): the tree's messages, keyed through
      *  their conversations — the transcript reads THIS tree, never every
      *  synced message. */
+    private val sharedPage: Flow<Chats.MessagePage> =
+        messagePage.flowOn(Dispatchers.Default).shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
+
     private val treeMessages: Flow<List<SessionTree.Message>> =
         // Only the account's REAL rows (never the signed-out placeholder): the
         // view's first build already holds the whole tree, so the window's
         // first paint pins on the loaded transcript (chats.json WINDOW).
-        messagePage.map { it.rows }
+        sharedPage.map { it.rows }
             // One query + one card parse per change, shared by the view and
             // the referenced-session lookup.
             .flowOn(Dispatchers.Default)
             .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
+
+    /** waiting-cards.json DEEP LINKS: older messages exist beyond the loaded
+     *  page (a deep link's target pages in through [loadEarlierMessages]). */
+    val messagesMore: StateFlow<Boolean> =
+        sharedPage.map { it.more }.distinctUntilChanged()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /** THE chat's Load earlier: one `windowStep` more messages (TS `loadEarlierMessages`). */
     fun loadEarlierMessages() = Chats.loadEarlierMessages(rootId)
@@ -249,10 +260,12 @@ class ChatViewModel @Inject constructor(
     val messages: StateFlow<List<SessionTree.Message>> =
         treeMessages.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** results-tab.json: the tree's session-authored card rows (opened), the
-     *  Results tab's and its count's ONE input, older than the window too. */
+    /** results-tab.json: the tree's RESULT cards (a session's own, opened),
+     *  the Results tab's and its count's ONE input, older than the window too. */
     val resultCards: StateFlow<List<SessionTree.Message>> =
-        dbFlow.scopedQuery(emptyList<SessionTree.Message>()) { it.keyedMessages(it.messageDao().observeResultCardsByRoot(rootId)) }
+        // #ERR-19: stamps first, a row loaded only when new or changed, and
+        // only RESULT cards kept (never every card of the tree, re-parsed).
+        dbFlow.scopedQuery(emptyList<SessionTree.Message>()) { it.messageDao().observeResultCards(rootId) }
             .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** results-tab.json: THE fold of [resultCards] over the [tree] (the Results
@@ -293,7 +306,7 @@ class ChatViewModel @Inject constructor(
             if (key == null) {
                 flowOf(emptyList())
             } else {
-                dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeAgents() }
+                dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeAgentsNoDigest() }
                     .map { rows -> rows.filter { it.agentId == key.first && it.userId == key.second } }
             }
         }
@@ -324,14 +337,16 @@ class ChatViewModel @Inject constructor(
             .map { rows -> rows.associateBy { it.id } }
             .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
+    // #ERR-19: only a session with no name of its own reads a first prompt
+    // (session-title.json rung 3), and only its first usable one.
     private val referencedTitleMessages: Flow<List<SessionTree.Message>> = referencedSessions
-        .map { rows -> rows.map { it.id }.sorted() }
+        .map { rows -> rows.filter { it.title.isNullOrBlank() }.map { it.id }.sorted() }
         .distinctUntilChanged()
         .flatMapLatest { ids ->
         if (ids.isEmpty()) {
             flowOf(emptyList())
         } else {
-            dbFlow.scopedQuery(emptyList<SessionTree.Message>()) { it.keyedMessages(it.messageDao().observeTitleRows(ids)) }
+            dbFlow.scopedQuery(emptyList<SessionTree.Message>()) { it.keyedMessages(it.messageDao().observeFirstTitleRows(ids)) }
         }
     }
 

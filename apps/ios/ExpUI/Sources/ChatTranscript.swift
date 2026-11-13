@@ -117,7 +117,7 @@ public struct MessageBubble<Content: View, Footer: View>: View {
         .padding(.vertical, 10)
         .background(own ? GlassTokens.fillActive : GlassTokens.opaqueCardFill, in: shape)
         .overlay(shape.stroke(own ? GlassTokens.strokeStrong : GlassTokens.strokeCard, lineWidth: GlassTokens.hairline))
-        BubbleWidthCap(fraction: TranscriptGrouping.Layout.maxWidthPhone, trailing: own) {
+        BubbleWidthCap(fraction: own ? TranscriptGrouping.Layout.maxWidthPhone : TranscriptGrouping.Layout.maxWidthPhoneIn, trailing: own) {
             if let onPress, !own {
                 VStack(alignment: .leading, spacing: 4) {
                     if let name {
@@ -460,6 +460,57 @@ public struct SurfaceCardFrame<Content: View>: View {
             ) { entered = true }
             withAnimation(motion.decelerate(motionDuration(Chats.SurfaceEnter.Glow.duration))) {
                 settled = true
+            }
+        }
+    }
+}
+
+/// #FEED-237 (message-delivery.json MARK): the viewer's own bubble's
+/// delivery mark beside its `HH:mm` (genUI `MessageStatus`): the clock, one
+/// check, two checks (the read blue), the red mark; 14pt, its accessibility
+/// label the state's copy.
+public struct MessageStatusMark: View {
+    let state: MessageDelivery.State
+
+    public init(_ state: MessageDelivery.State) {
+        self.state = state
+    }
+
+    private var color: Color {
+        switch MessageDelivery.mark(state).tone {
+        case .muted: .white.opacity(TextOpacity.tertiary)
+        case .info: DesignTokens.Semantic.blue
+        case .danger: DesignTokens.Palette.destructive
+        }
+    }
+
+    public var body: some View {
+        let icon = MessageDelivery.mark(state).icon
+        AppIcon(AppIcons.conceptOrName(icon) ?? icon, size: MessageDelivery.markSize)
+            .foregroundStyle(color)
+            .accessibilityLabel(MessageDelivery.Copy.status(state))
+            .accessibilityIdentifier(MessageDelivery.TestIds.status)
+            .accessibilityValue(state.rawValue)
+    }
+}
+
+/// A bubble's footer: the muted `HH:mm`, then (the viewer's own) the mark.
+public struct BubbleTimeStatus: View {
+    let time: String?
+    let status: MessageDelivery.State?
+
+    public init(time: String?, status: MessageDelivery.State?) {
+        self.time = time
+        self.status = status
+    }
+
+    public var body: some View {
+        HStack(spacing: 4) {
+            if let time, !time.isEmpty {
+                BubbleTime(text: time)
+            }
+            if let status {
+                MessageStatusMark(status)
             }
         }
     }

@@ -97,14 +97,16 @@ describe(`components`, () => {
     const embed = [`Embed`]
     // #FEED-232: THE count badge of every nav destination.
     const badge = [`CountBadge`]
+    // #FEED-237: a message's delivery mark, standalone.
+    const delivery = [`MessageStatus`]
     // Round 4 (VAPP-103): the names round 3 folded are REMOVED, not aliased.
     const removed = [`Band`, `RowList`, `ToggleGroup`, `ButtonGroup`, `TabBar`, `Sheet`, `HoverCard`, `DropdownMenu`, `ContextMenu`, `Pill`, `ListRow`, `CardRow`, `PropertyRow`, `PickerRow`, `NavRow`, `EntityChip`]
-    for (const name of [...expected, ...round1, ...round2, ...round3, ...batch, ...trace, ...plan, ...dock, ...layout, ...voice, ...round5, ...round6, ...zoom, ...motion, ...canvas, ...records, ...settings, ...round7, ...frame, ...recorder, ...chord, ...embed, ...pickers, ...badge]) expect(coreCatalog.components[name], name).toBeDefined()
+    for (const name of [...expected, ...round1, ...round2, ...round3, ...batch, ...trace, ...plan, ...dock, ...layout, ...voice, ...round5, ...round6, ...zoom, ...motion, ...canvas, ...records, ...settings, ...round7, ...frame, ...recorder, ...chord, ...embed, ...pickers, ...badge, ...delivery]) expect(coreCatalog.components[name], name).toBeDefined()
     for (const name of removed) expect(coreCatalog.components[name], name).toBeUndefined()
     for (const def of Object.values(coreCatalog.components)) expect(`deprecated` in def).toBe(false)
     const hidden = [`TreeGuides`] // round 3: a Row part, never authored
-    expect(Object.keys(coreCatalog.components)).toHaveLength(expected.length + round1.length + round2.length + round3.length + batch.length + trace.length + plan.length + dock.length + layout.length + voice.length + round5.length + round6.length + zoom.length + motion.length + canvas.length + u3.length + records.length + settings.length + round7.length + frame.length + recorder.length + chord.length + embed.length + pickers.length + badge.length + 1) // + the Unknown placeholder
-    expect(componentNames()).toHaveLength(expected.length + round1.length + round2.length + round3.length + batch.length + trace.length + plan.length + dock.length + layout.length + voice.length + round5.length + round6.length + zoom.length + motion.length + canvas.length + u3.length + records.length + settings.length + round7.length + frame.length + recorder.length + chord.length + embed.length + pickers.length + badge.length - hidden.length)
+    expect(Object.keys(coreCatalog.components)).toHaveLength(expected.length + round1.length + round2.length + round3.length + batch.length + trace.length + plan.length + dock.length + layout.length + voice.length + round5.length + round6.length + zoom.length + motion.length + canvas.length + u3.length + records.length + settings.length + round7.length + frame.length + recorder.length + chord.length + embed.length + pickers.length + badge.length + delivery.length + 1) // + the Unknown placeholder
+    expect(componentNames()).toHaveLength(expected.length + round1.length + round2.length + round3.length + batch.length + trace.length + plan.length + dock.length + layout.length + voice.length + round5.length + round6.length + zoom.length + motion.length + canvas.length + u3.length + records.length + settings.length + round7.length + frame.length + recorder.length + chord.length + embed.length + pickers.length + badge.length + delivery.length - hidden.length)
   })
 
   test(`kinds follow the issue's table`, () => {
@@ -256,5 +258,25 @@ describe(`round 1 catalog tables`, () => {
     expect(coreCatalog.components.Stack.props.direction.responsive).toBe(true)
     expect(coreCatalog.components.Grid.props.columns.responsive).toBe(true)
     expect(coreCatalog.components.Drawer.props.side.responsive).toBe(true)
+  })
+})
+
+// #FEED-237: MessageBubble's footer mark and the standalone MessageStatus
+// draw the SAME icon, label and size per delivery state.
+describe(`MessageStatus`, () => {
+  test(`maps every messageStatus like MessageBubble's status part`, async () => {
+    const macros = (await import(`../catalog/macros.json`, { with: { type: `json` } })).default.macros as Record<string, { root: Record<string, unknown> }>
+    const find = (n: Record<string, unknown>): Record<string, unknown> | undefined =>
+      n.part === `status` ? n : ((n.children as Record<string, unknown>[] | undefined) ?? []).filter((c) => typeof c === `object`).map(find).find(Boolean)
+    const footer = find(macros.MessageBubble!.root)!
+    const mark = macros.MessageStatus!.root
+    expect(mark.props).toEqual(footer.props)
+    expect(mark.style).toEqual(footer.style)
+    const states = coreCatalog.enums.messageStatus as string[]
+    expect(states).toEqual([`sending`, `sent`, `read`, `failed`])
+    const cases = (p: unknown) => Object.keys((p as { $map: { cases: object } }).$map.cases)
+    const props = mark.props as Record<string, unknown>
+    expect(cases(props.name)).toEqual(states)
+    expect(cases(props.label)).toEqual(states)
   })
 })

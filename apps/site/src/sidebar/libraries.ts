@@ -93,6 +93,7 @@ const EXTRA: Record<string, { guides?: [string, string][]; reference?: [string, 
   "mcp-proxy": { reference: [[`contract`, `Contract`]] },
   agents: { reference: [[`orchestration`, `Orchestration`], [`hub-core`, `Hub core`], [`hub-core-wasm`, `Hub core WASM`], [`migrating`, `Migrating`]] },
   core: { reference: [[`contract`, `Contract`]] },
+  code: { reference: [[`contract`, `Contract`]] },
 }
 
 function otherLibrary(slug: string, name: string) {

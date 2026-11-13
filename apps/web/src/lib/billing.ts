@@ -17,6 +17,7 @@ import {
   teams,
   appRecords,
   attachments,
+  ciJobs,
   creem_subscriptions,
   teamInvites,
   users,
@@ -247,7 +248,7 @@ export async function getTeamUsage(
 ): Promise<TeamUsage> {
   // EXP-1291: conversation files and Guide pictures are `attachments` rows
   // too, so the one sum covers them.
-  const [memberCount, [storageSum], [widgetCount]] =
+  const [memberCount, [storageSum], [widgetCount], [ciLogSum]] =
     await Promise.all([
       countTeamMembers(teamId),
       // A media row's poster frame is a second blob on the same row
@@ -263,9 +264,18 @@ export async function getTeamUsage(
         .select({ count: sql<number>`count(*)::int` })
         .from(widgetConfigs)
         .where(eq(widgetConfigs.teamId, teamId)),
+      // #EXP-1617: CI logs are chunk objects in the bucket too.
+      db
+        .select({ totalBytes: sql<string>`coalesce(sum(${ciJobs.logBytes}), 0)::bigint` })
+        .from(ciJobs)
+        .where(eq(ciJobs.teamId, teamId)),
     ])
 
-  const totalBytes = Number(storageSum.totalBytes)
+  // #EXP-1616: an eCode repo's packs and kept backups live in the team
+  // bucket too: they count toward the same budget. #EXP-1617: so do CI logs.
+  const { teamRepoBytes } = await import(`@/lib/ecode/git-store`)
+  const totalBytes =
+    Number(storageSum.totalBytes) + (await teamRepoBytes(teamId)) + Number(ciLogSum?.totalBytes ?? 0)
 
   return {
     members: memberCount,
@@ -515,7 +525,7 @@ export async function assertWithinStorageLimit(
   const currentBytes = usage.storageMb * 1024 * 1024
   if (currentBytes + additionalBytes > limitBytes) {
     throw planLimitError(
-      `up to ${limits.storageMb >= 1024 ? `${Math.round(limits.storageMb / 1024)} GB` : `${limits.storageMb} MB`} of attachment storage. Upgrade to upload more.`
+      `up to ${limits.storageMb >= 1024 ? `${Math.round(limits.storageMb / 1024)} GB` : `${limits.storageMb} MB`} of storage (attachments and repositories). Upgrade to upload more.`
     )
   }
 }

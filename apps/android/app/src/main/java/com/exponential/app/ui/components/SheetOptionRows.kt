@@ -149,6 +149,9 @@ internal fun TextFieldRow(
     onFocusLost: (() -> Unit)? = null,
     /** VAPP-178: a muted word after the label (the Data form's `optional`). */
     labelHint: String? = null,
+    /** #EXP-1617: a password field (repo-ci.json's secret value). */
+    visualTransformation: androidx.compose.ui.text.input.VisualTransformation =
+        androidx.compose.ui.text.input.VisualTransformation.None,
 ) {
     var focused by remember { mutableStateOf(false) }
     Row(
@@ -179,6 +182,7 @@ internal fun TextFieldRow(
             keyboardOptions = keyboardOptions,
             keyboardActions = keyboardActions,
             textStyle = fieldStyle,
+            visualTransformation = visualTransformation,
             containerColor = Color.Transparent,
             modifier = Modifier.weight(1f).onFocusChanged { state ->
                 if (focused && !state.isFocused) onFocusLost?.invoke()

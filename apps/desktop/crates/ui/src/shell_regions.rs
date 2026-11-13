@@ -20,7 +20,7 @@ use gpui::{div, prelude::*, AnyElement, AnyWindowHandle, App, Entity, Hsla, Shar
 use gpui_component::{ActiveTheme as _, Icon, Sizable as _};
 use serde_json::{json, Value};
 use sync::Store;
-use uicore_model::ide::{IdeTabInput, ide_sidebar, IdeActiveInput, IdeAgentInput, IdeAppInput, IdeBoardInput, IdeCount, IdePinInput, IdeSidebarInput, IdeTone};
+use uicore_model::ide::{IdeTabInput, ide_sidebar, IdeActiveInput, IdeAgentInput, IdeAppInput, IdeBoardInput, IdeCount, IdePinInput, IdePrInput, IdeRepoInput, IdeSidebarInput, IdeTone};
 
 use crate::navigation::{self, active_board_id, active_team_id, navigate, resolved_screen, Navigation, Screen};
 use crate::settings::SettingsSection;
@@ -55,6 +55,12 @@ fn screen_key(screen: Option<&Screen>, active_board: Option<&str>, cx: &App) -> 
         Some(Screen::AppRun { app } | Screen::App { app }) => format!("app:{app}"),
         Some(Screen::BoardIssues { board_id }) if board_id.is_empty() => format!("board:{}", active_board.unwrap_or_default()),
         Some(Screen::BoardIssues { board_id }) => format!("board:{board_id}"),
+        // #EXP-1616: a repo page (Settings › Repositories › one repo) lights
+        // that repo's Pull requests rows.
+        Some(Screen::Settings) => match crate::sidebar::any_settings_section(cx) {
+            Some(crate::settings::SettingsSection::Repository(id)) => format!("repo:{id}"),
+            _ => String::new(),
+        },
         _ => String::new(),
     }
 }
@@ -89,6 +95,42 @@ fn parse_count(rest: &str) -> Option<crate::sidebar::RailBadge> {
     Some(crate::sidebar::RailBadge::Count(count, tone))
 }
 
+/// #EXP-1616: an Exponential (`ecode`) PR's repository name, read off its
+/// url (`<app>/t/<team>/repos/<name>/pulls/<n>`, `ecode-host.ts`): the
+/// repositories list is not synced, the PRs are.
+fn ecode_repo_name(url: &str) -> Option<&str> {
+    let (_, rest) = url.split_once("/t/")?;
+    let (_, rest) = rest.split_once("/repos/")?;
+    let (name, number) = rest.split_once("/pulls/")?;
+    (!name.is_empty() && !name.contains('/') && number.parse::<u64>().is_ok()).then_some(name)
+}
+
+/// #EXP-1616: the team's Exponential repositories by name, each with its
+/// live PR tree (`repo_pr_tree`, the repo page's).
+fn ecode_repos<'a>(team_id: &str, pulls: impl IntoIterator<Item = &'a domain::rows::PullRequestRow>) -> Vec<IdeRepoInput> {
+    use domain::repo_page::{repo_pr_tree, RepoPr};
+    let mut repos: std::collections::BTreeMap<(String, String), Vec<RepoPr>> = std::collections::BTreeMap::new();
+    let mut sessions: HashMap<String, String> = HashMap::new();
+    for pull in pulls {
+        if pull.team_id.as_deref().is_some_and(|team| team != team_id) {
+            continue;
+        }
+        let (Some(repo), Some(name)) = (pull.repository_id.as_deref(), pull.url.as_deref().and_then(ecode_repo_name)) else { continue };
+        if let Some(root) = pull.root_session_id.as_deref() {
+            sessions.insert(pull.id.clone(), root.to_string());
+        }
+        repos.entry((name.to_string(), repo.to_string())).or_default().push(RepoPr::from_row(pull));
+    }
+    repos
+        .into_iter()
+        .map(|((name, id), prs)| IdeRepoInput {
+            id,
+            name,
+            prs: repo_pr_tree(&prs).into_iter().map(|row| IdePrInput { session: sessions.get(&row.id).cloned(), id: row.id, identifier: row.identifier, title: row.title, subtitle: row.subtitle, depth: row.depth }).collect(),
+        })
+        .collect()
+}
+
 /// One team's rows as the fixture's input, with the glyphs they name.
 fn gather(nav: &Entity<Navigation>, cx: &mut App) -> (IdeSidebarInput, HashMap<String, Glyph>) {
     let mut glyphs = HashMap::new();
@@ -104,8 +146,15 @@ fn gather(nav: &Entity<Navigation>, cx: &mut App) -> (IdeSidebarInput, HashMap<S
     };
     input.owner = crate::settings::is_owner(cx, &team_id);
     input.drafts = crate::drafts::drafts_in_team(&team_id, cx).iter().filter(|d| Some(&d.id) != open_draft.as_ref()).count();
-    input.needs_you = crate::needs_you::rows_in_team(&team_id, cx).rows.len();
-    input.chats = chats_count(&team_id, cx);
+    input.needs_you = {
+        let _span = tracing::trace_span!("rail.needs_you").entered();
+        crate::needs_you::rows_in_team(&team_id, cx).rows.len()
+    };
+    input.chats = {
+        let _span = tracing::trace_span!("rail.chats").entered();
+        chats_count(&team_id, cx)
+    };
+    let agents_span = tracing::trace_span!("rail.agents").entered();
     let collections = Store::global(cx).collections().clone();
     for pin in crate::pins::pins_in_team(&team_id, cx) {
         let Some((domain::contract::PIN_KIND_ISSUE, target)) = crate::pins::pin_target(&pin) else { continue };
@@ -113,14 +162,16 @@ fn gather(nav: &Entity<Navigation>, cx: &mut App) -> (IdeSidebarInput, HashMap<S
         input.pins.push(IdePinInput { id: issue.id, identifier: issue.identifier, title: issue.title });
     }
     // #FEED-232: an agent row counts its conversation's unread replies.
-    let unread: HashMap<String, usize> =
-        crate::session_data::chats_model(&team_id, cx).agent_rows.iter().map(|row| (row.agent_id.clone(), row.unread_count)).collect();
+    // #PERF-10: the counts alone (the whole Chats model derived per write).
+    let unread: HashMap<String, usize> = crate::session_data::agent_unread_counts(&team_id, cx);
     for agent in crate::session_data::agents_in_team(&team_id, cx) {
         let icon = format!("ide:agent:{}", agent.agent_id);
         let unread = unread.get(&agent.agent_id).copied().unwrap_or(0);
         input.agents.push(IdeAgentInput { id: agent.agent_id.clone(), name: agent.name.clone(), icon: icon.clone(), needs_you: agent.needs_you, unread });
         glyphs.insert(icon, Glyph::Agent(agent));
     }
+    drop(agents_span);
+    let apps_span = tracing::trace_span!("rail.apps_boards").entered();
     for app in crate::apps_view::app_entries(&team_id, cx) {
         let icon = format!("ide:app:{}", app.id);
         input.apps.push(IdeAppInput { id: app.id.clone(), slug: app.slug.clone(), name: app.name.clone(), icon: icon.clone() });
@@ -131,6 +182,12 @@ fn gather(nav: &Entity<Navigation>, cx: &mut App) -> (IdeSidebarInput, HashMap<S
         input.boards.push(IdeBoardInput { id: board.id.clone(), name: board.name.clone(), icon: icon.clone() });
         glyphs.insert(icon, Glyph::Board(board));
     }
+    drop(apps_span);
+    {
+        let _span = tracing::trace_span!("rail.prs").entered();
+        input.repos = ecode_repos(&team_id, collections.pull_requests.read(cx).iter());
+    }
+    let _span = tracing::trace_span!("rail.live_roots").entered();
     for row in crate::session_data::live_roots_for_rail(&team_id, cx) {
         let agent = row
             .session_ids
@@ -176,6 +233,41 @@ fn shaped(input: &IdeSidebarInput, glyphs: &HashMap<String, Glyph>, hover: Optio
     value
 }
 
+/// #EXP-1616: the Pull requests tree's rows as nodes. A Row's `depth`
+/// never binds (the tree guides are computed against its siblings), so the
+/// host writes them into the document's `List{divided: false}` itself (the
+/// other sidebar sections' list: no dividers; `depth` indents).
+fn pr_tree_rows(prs: &Value) -> Vec<Value> {
+    prs.as_array()
+        .into_iter()
+        .flatten()
+        .enumerate()
+        .map(|(ix, row)| {
+            let mut props = json!({"title": row["title"], "depth": row["depth"], "density": "compact", "pressable": true, "selected": row["selected"]});
+            for key in ["identifier", "subtitle", "icon"] {
+                if !row[key].is_null() {
+                    props[key] = row[key].clone();
+                }
+            }
+            json!({"id": format!("ide_pr_{ix}"), "component": "Row", "props": props, "on": {"press": {"event": {"name": "ide_open", "context": {"kind": "repo", "id": row["repo"]}}}}})
+        })
+        .collect()
+}
+
+/// The document with `prs` as the `ide_prs_tree` List's rows.
+fn with_pr_tree(doc: &uicore_gpui::inline::Document, prs: &Value) -> Option<eui_core::types::NestedNode> {
+    fn fill(node: &mut Value, rows: &[Value]) -> bool {
+        if node["id"] == "ide_prs_tree" {
+            node["children"] = Value::Array(rows.to_vec());
+            return true;
+        }
+        node["children"].as_array_mut().into_iter().flatten().any(|child| fill(child, rows))
+            || node["slots"].as_object_mut().into_iter().flat_map(|slots| slots.values_mut()).any(|slot| fill(slot, rows))
+    }
+    let mut root = uicore_gpui::inline::root_json(doc)?;
+    fill(&mut root, &pr_tree_rows(prs)).then(|| serde_json::from_value(root).ok()).flatten()
+}
+
 /// The row a hover names: a template instance `<row>.<key>`; a control
 /// inside the row is not the row.
 fn row_key(component: &str) -> Option<&str> {
@@ -185,6 +277,10 @@ fn row_key(component: &str) -> Option<&str> {
 /// The sidebar document in the window: one per [`crate::sidebar::RailView`].
 pub(crate) struct SidebarRegion {
     view: Entity<SurfaceView>,
+    /// The mounted document, for the Pull requests tree's rows.
+    doc: uicore_gpui::inline::Document,
+    /// The `prs` the document's tree holds.
+    prs_built: Value,
     glyphs: Rc<RefCell<HashMap<String, Glyph>>>,
     hover: Rc<RefCell<Option<String>>>,
     pub(crate) input: IdeSidebarInput,
@@ -215,6 +311,8 @@ impl SidebarRegion {
             let view = uicore_gpui::inline::mount(&doc, &uicore_data::Feed::new(), theme, host, Mode::Dark, window, cx);
             Self {
                 view,
+                doc,
+                prs_built: json!([]),
                 glyphs,
                 hover,
                 input: IdeSidebarInput::default(),
@@ -234,7 +332,10 @@ impl SidebarRegion {
         if self.frozen {
             return;
         }
-        let (input, glyphs) = gather(nav, cx);
+        let (input, glyphs) = {
+            let _span = tracing::trace_span!("rail.gather").entered();
+            gather(nav, cx)
+        };
         // A glyph is host-painted: its state changes without the data. The
         // rail renders on every tick of a mark inside it (#LOGS-4): repaint
         // the document only when a glyph or the Computer button changed.
@@ -280,6 +381,18 @@ impl SidebarRegion {
             return;
         }
         self.shown = Some(value.clone());
+        let _span = tracing::trace_span!("rail.push").entered();
+        if value["prs"] != self.prs_built {
+            self.prs_built = value["prs"].clone();
+            if let Some(tree) = with_pr_tree(&self.doc, &self.prs_built) {
+                self.view.update(cx, |view, cx| {
+                    let outcome = view.set_nested(tree, cx);
+                    if !outcome.issues.is_empty() {
+                        tracing::warn!("the sidebar's Pull requests tree: {:?}", outcome.issues);
+                    }
+                });
+            }
+        }
         self.view.update(cx, |view, cx| {
             // The IDE's sidebar never folds: the nodes the rail hides read it.
             let _ = view.set_data("/shell/rail", Some(json!(false)), cx);
@@ -364,6 +477,11 @@ fn open_row(kind: &str, id: String, window: &mut Window, cx: &mut App) {
             navigate(window, cx, Screen::BoardIssues { board_id: id });
         }
         "active" => navigation::navigate_from_live_rail(window, cx, Screen::Chat { session_id: id }),
+        // #EXP-1616: a Pull requests row opens its repository's page.
+        "repo" => {
+            crate::sidebar::select_settings_section(window, cx, SettingsSection::Repository(id));
+            navigate(window, cx, Screen::Settings);
+        }
         "assistant" => navigate(window, cx, Screen::Agent { agent_id: id }),
         "settings" => navigate(window, cx, Screen::Settings),
         _ => {}
@@ -489,10 +607,15 @@ fn tab_key(screen: &Screen) -> String {
     format!("{:x}", std::hash::Hasher::finish(&hasher))
 }
 
-/// The bottom tab bar (#EXP-1726): `docs/tabbar.json` in the window, over
-/// the screens panel's tabs. Terminals and work tabs are one strip.
+/// The tab bar (#EXP-1726): `docs/tabbar.json` in the window, over the
+/// screens panel's tabs. Terminals and work tabs are one strip; it sits on
+/// top in the standalone IDE and at the bottom inside eDE
+/// ([`crate::shell::tab_placement`]).
 pub(crate) struct TabBarRegion {
     view: Entity<SurfaceView>,
+    /// The region's painted bounds: a press right of the strip's last
+    /// control falls through to the window drag behind it.
+    bounds: Rc<std::cell::Cell<Option<gpui::Bounds<gpui::Pixels>>>>,
     doc: uicore_gpui::inline::Document,
     tabs: Rc<RefCell<OpenTabs>>,
     hover: Rc<RefCell<Option<usize>>>,
@@ -509,9 +632,16 @@ impl TabBarRegion {
             let tabs = Rc::new(RefCell::new(OpenTabs::default()));
             let hover = Rc::new(RefCell::new(None));
             let host = Rc::new(TabHost { tabs: tabs.clone(), hover: hover.clone(), window: window.window_handle(), region: cx.weak_entity() });
-            let doc = uicore_gpui::inline::document(&uicore_docs::TABBAR);
+            let mut doc = uicore_gpui::inline::document(&uicore_docs::TABBAR);
+            // The +N menu opens away from the window edge the strip sits on.
+            let more_side = crate::shell::tab_placement().more_side;
+            if more_side == uicore_model::ide::IdeEdge::Bottom {
+                uicore_gpui::inline::set_prop(&mut doc, "ide_tabs_more", "side", json!("bottom"));
+            }
             let theme = uicore_gpui::inline::theme(&eui_core::themes::default_theme());
-            let view = uicore_gpui::inline::mount(&doc, &uicore_data::Feed::new(), theme, host, Mode::Dark, window, cx);
+            // #EXP-1814: the +N menu is taller than the 44px band: it is
+            // placed against the window (below the top band, on screen).
+            let view = uicore_gpui::inline::mount_lifted(&doc, &uicore_data::Feed::new(), theme, host, Mode::Dark, window, cx);
             let nav = crate::navigation::nav_for_window(window, cx);
             // #LOGS-4: the strip is a cached region now, so it observes what
             // its titles and leads read (issues, session states) itself.
@@ -520,7 +650,7 @@ impl TabBarRegion {
                 observers.push(cx.observe(&issues, |_, _, cx| cx.notify()));
             }
             observers.extend(crate::session_data::observe_session_collections(cx));
-            Self { view, doc, tabs, hover, keys: Vec::new(), shown: None, more: None, observes_panel: false, _observers: observers }
+            Self { view, bounds: Rc::default(), doc, tabs, hover, keys: Vec::new(), shown: None, more: None, observes_panel: false, _observers: observers }
         })
     }
 
@@ -585,6 +715,54 @@ impl TabBarRegion {
         self.apply(&value, true, cx);
     }
 
+    /// The sample strip's +N menu open on its `count` last tabs, as the
+    /// host's `more` answer writes it.
+    #[cfg(test)]
+    pub(crate) fn show_more(&mut self, titles: &[&str], count: usize, cx: &mut gpui::Context<Self>) {
+        let inputs: Vec<IdeTabInput> = titles.iter().enumerate().map(|(i, title)| IdeTabInput { key: format!("t{i}"), title: title.to_string(), icon: "nav-chats".into() }).collect();
+        let mut value = serde_json::to_value(uicore_model::ide::ide_tabs(&inputs, Some("t1"))).unwrap();
+        let tabs = value["tabs"].as_array().cloned().unwrap_or_default();
+        value["more"] = Value::Array(tabs[tabs.len().saturating_sub(count)..].to_vec());
+        value["moreOpen"] = json!(true);
+        self.apply(&value, false, cx);
+    }
+
+    /// Where the strip's controls end (region coordinates): its tabs, their
+    /// closes, the + and the +N. Right of this the band is empty.
+    fn strip_right(&self, cx: &App) -> f32 {
+        let view = self.view.read(cx);
+        view.placed_nodes()
+            .iter()
+            .filter(|n| n.owner.as_deref() == Some("ide_tabs") && matches!(n.part.as_deref(), Some("tab" | "close" | "new" | "more")))
+            .filter_map(|n| view.frame(n.index))
+            .map(|f| f.x + f.w)
+            .fold(0., f32::max)
+    }
+
+    /// The strip's pressable areas as laid out (region coordinates): each
+    /// pressable node or overlay trigger with its x span, and where the
+    /// controls end.
+    #[cfg(test)]
+    pub(crate) fn pressable_spans(&self, cx: &App) -> (Vec<(String, f32, f32)>, f32) {
+        let view = self.view.read(cx);
+        let spans = view
+            .placed_nodes()
+            .iter()
+            .filter(|n| n.pressable || n.trigger_for.is_some())
+            .filter_map(|n| view.frame(n.index).filter(|f| f.w > 0. && f.h > 0.).map(|f| (n.id.clone(), f.x, f.x + f.w)))
+            .collect();
+        (spans, self.strip_right(cx))
+    }
+
+    /// The open +N menu's frame (region coordinates) and the +N's.
+    #[cfg(test)]
+    pub(crate) fn more_menu_frame(&self, cx: &App) -> (Option<eui_core::surface::Frame>, Option<eui_core::surface::Frame>) {
+        let view = self.view.read(cx);
+        let menu = view.layers().iter().find(|l| l.owner == "ide_tabs_more").and_then(|l| view.frame(l.root));
+        let more = view.index_of("ide_tabs.more").and_then(|i| view.frame(i));
+        (menu, more)
+    }
+
     /// The tab under the pointer, for the context menu and middle-click.
     fn hovered(&self) -> Option<Screen> {
         let index = (*self.hover.borrow())?;
@@ -605,7 +783,14 @@ impl Render for TabBarRegion {
         self.refresh(window, cx);
         let region = cx.weak_entity();
         let menu_region = region.clone();
-        div()
+        let (record, bounds) = (self.bounds.clone(), self.bounds.clone());
+        let strip_right = self.strip_right(cx);
+        // On the top band the strip sits inside the window's titlebar: a
+        // press on a control is the strip's (never a window drag, never the
+        // Linux window menu), a press on the empty rest is the titlebar's.
+        let on_control = move |position: gpui::Point<gpui::Pixels>| bounds.get().is_none_or(|b| f32::from(position.x - b.origin.x) <= strip_right);
+        let on_control_right = on_control.clone();
+        let strip = div()
             .id("tab-bar")
             .size_full()
             .child(uicore_gpui::inline::region(&self.view))
@@ -637,7 +822,23 @@ impl Render for TabBarRegion {
                 .item(crate::controls::pointer_label_item("Close all", false).on_click(|_, window, cx| {
                     with_panel(window, cx, |panel, window, cx| panel.close_every_tab(window, cx));
                 }))
+            });
+        // A wrapper, so the strip's own listeners (the genUI view's, the
+        // context menu) run before the stop below.
+        div()
+            .size_full()
+            .on_children_prepainted(move |children, _, _| record.set(children.first().copied()))
+            .on_mouse_down(gpui::MouseButton::Left, move |ev, _, cx| {
+                if on_control(ev.position) {
+                    cx.stop_propagation();
+                }
             })
+            .on_mouse_down(gpui::MouseButton::Right, move |ev, _, cx| {
+                if on_control_right(ev.position) {
+                    cx.stop_propagation();
+                }
+            })
+            .child(strip)
     }
 }
 
@@ -941,6 +1142,61 @@ mod tests {
         assert!(matches!(parse_count("attention:3"), Some(crate::sidebar::RailBadge::Count(3, crate::surface::BadgeTone::Attention))));
         assert!(matches!(parse_count("muted:99+"), Some(crate::sidebar::RailBadge::Count(100, crate::surface::BadgeTone::Muted))));
         assert!(parse_count("amber:3").is_none());
+    }
+
+    /// #EXP-1616: only eCode PRs (their url) of the team make the tree.
+    #[test]
+    fn the_pr_tree_reads_ecode_prs_off_their_url() {
+        assert_eq!(ecode_repo_name("https://exponential.at/t/acme/repos/engine/pulls/12"), Some("engine"));
+        assert_eq!(ecode_repo_name("https://github.com/acme/engine/pull/12"), None);
+        assert_eq!(ecode_repo_name("https://exponential.at/t/acme/repos/engine/pulls/x"), None);
+        let pull = |id: &str, team: &str, url: &str, number: i64, head: &str, base: &str| {
+            serde_json::from_value::<domain::rows::PullRequestRow>(json!({
+                "id": id, "team_id": team, "repository_id": "r1", "url": url, "number": number, "title": id, "head": head, "base": base, "state": "open",
+            }))
+            .unwrap()
+        };
+        let url = |n: i64| format!("https://exponential.at/t/acme/repos/engine/pulls/{n}");
+        let pulls = vec![
+            pull("p1", "t1", &url(1), 1, "sync", "main"),
+            pull("p2", "t1", &url(2), 2, "sync-tests", "sync"),
+            pull("gh", "t1", "https://github.com/acme/engine/pull/3", 3, "x", "main"),
+            pull("other", "t2", &url(4), 4, "y", "main"),
+        ];
+        let repos = ecode_repos("t1", &pulls);
+        assert_eq!(repos.len(), 1);
+        assert_eq!(repos[0].name, "engine");
+        let rows: Vec<(&str, usize, &str)> = repos[0].prs.iter().map(|p| (p.identifier.as_str(), p.depth, p.subtitle.as_str())).collect();
+        assert_eq!(rows, vec![("#1", 0, "sync → main"), ("#2", 1, "sync-tests → sync")]);
+    }
+
+    /// #EXP-1616: the tree's rows land in the document's Section{tree}.
+    #[test]
+    fn the_pr_tree_fills_its_section() {
+        let doc = uicore_gpui::inline::document(uicore_docs::doc("sidebar").expect("the sidebar"));
+        let input = IdeSidebarInput {
+            repos: vec![IdeRepoInput { id: "r1".into(), name: "engine".into(), prs: vec![IdePrInput { id: "p1".into(), identifier: "#1".into(), title: "Sync".into(), subtitle: "sync → main".into(), depth: 0, session: None }] }],
+            ..Default::default()
+        };
+        let value = shaped(&input, &HashMap::new(), None, None);
+        let tree = serde_json::to_value(with_pr_tree(&doc, &value["prs"]).expect("the tree")).unwrap();
+        fn find<'a>(node: &'a Value, id: &str) -> Option<&'a Value> {
+            if node["id"] == id {
+                return Some(node);
+            }
+            node["children"].as_array().into_iter().flatten().chain(node["slots"].as_object().into_iter().flat_map(|slots| slots.values())).find_map(|c| find(c, id))
+        }
+        let section = find(&tree, "ide_prs_tree").expect("the list");
+        assert_eq!(section["component"], "List");
+        assert_eq!(section["props"]["divided"], false);
+        let rows = section["children"].as_array().unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["props"]["title"], "engine");
+        assert_eq!(rows[0]["props"]["depth"], 0);
+        assert_eq!(rows[1]["props"]["identifier"], "#1");
+        assert_eq!(rows[1]["props"]["subtitle"], "sync → main");
+        assert_eq!(rows[1]["props"]["depth"], 1);
+        assert_eq!(rows[1]["on"]["press"]["event"]["context"], json!({"kind": "repo", "id": "r1"}));
     }
 
     #[test]

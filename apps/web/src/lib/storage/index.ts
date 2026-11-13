@@ -6,12 +6,14 @@ import {
   GetObjectCommand,
   HeadBucketCommand,
   HeadObjectCommand,
+  ListObjectsV2Command,
   NoSuchKey,
   PutObjectCommand,
   S3Client,
   S3ServiceException,
   type GetObjectCommandOutput,
 } from "@aws-sdk/client-s3"
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner"
 import { StorageThrottledError } from "@/lib/storage/errors"
 
 const storageBucket = process.env.S3_BUCKET || `exponential-attachments`
@@ -20,9 +22,14 @@ const storageRegion = process.env.S3_REGION || `garage`
 
 let bucketReadyPromise: Promise<void> | null = null
 
-function createStorageClient() {
+function createStorageClient(endpoint = storageEndpoint, opts: { presign?: boolean } = {}) {
   return new S3Client({
-    endpoint: storageEndpoint,
+    endpoint,
+    // #EXP-1617: a presigned PUT must not carry the SDK's default
+    // `x-amz-checksum-crc32` of an EMPTY body: Garage verifies it against
+    // the pack the device uploads and answers 400 InvalidDigest (every
+    // `git push exp://` failed on self-host and local stacks).
+    ...(opts.presign ? { requestChecksumCalculation: `WHEN_REQUIRED` as const } : {}),
     region: storageRegion,
     forcePathStyle: true,
     credentials:
@@ -36,6 +43,34 @@ function createStorageClient() {
 }
 
 const storageClient = createStorageClient()
+
+// #EXP-1616: presigned URLs are handed to DEVICES (eCode's packs move
+// device ↔ bucket without this process), so they are signed for the address
+// a device reaches the bucket at: `S3_PUBLIC_ENDPOINT` when the server talks
+// to the store over an internal name (self-host compose: `http://garage:3900`),
+// else the same endpoint. The host is part of the signature.
+const publicEndpoint = process.env.S3_PUBLIC_ENDPOINT || storageEndpoint
+let presignClient: S3Client | null = null
+
+/** The default lifetime of a presigned URL (a pack upload of a big repo). */
+export const PRESIGN_TTL_SECONDS = 15 * 60
+
+/** #EXP-1616: a URL a device PUTs exactly `contentLength` bytes to. */
+export async function presignPut(key: string, contentLength: number, ttlSeconds = PRESIGN_TTL_SECONDS): Promise<string> {
+  await ensureBucketReady()
+  presignClient ??= createStorageClient(publicEndpoint, { presign: true })
+  return getSignedUrl(
+    presignClient,
+    new PutObjectCommand({ Bucket: storageBucket, Key: key, ContentLength: contentLength, ContentType: `application/octet-stream` }),
+    { expiresIn: ttlSeconds, signableHeaders: new Set([`content-length`, `content-type`]) }
+  )
+}
+
+/** #EXP-1616: a URL a device GETs one stored object from. */
+export async function presignGet(key: string, ttlSeconds = PRESIGN_TTL_SECONDS): Promise<string> {
+  presignClient ??= createStorageClient(publicEndpoint, { presign: true })
+  return getSignedUrl(presignClient, new GetObjectCommand({ Bucket: storageBucket, Key: key }), { expiresIn: ttlSeconds })
+}
 
 // FEED-75: the store's "slow down" answers. S3 proper says `SlowDown` (503);
 // Ceph RGW (Hetzner) the same; other fronts spell it 429 or `Throttling`.
@@ -235,6 +270,33 @@ export async function deleteObject(key: string) {
       })
     )
   )
+}
+
+/** #EXP-1617: one level of "directories" under `prefix` (keys grouped by
+ *  `/`), e.g. the team ids under `ci-logs/`. Capped at `max`. */
+export async function listPrefixes(prefix: string, max = 1000): Promise<string[]> {
+  await ensureBucketReady()
+  const out: string[] = []
+  let token: string | undefined
+  do {
+    const page = await sendWithThrottleRetry(() =>
+      storageClient.send(
+        new ListObjectsV2Command({ Bucket: storageBucket, Prefix: prefix, Delimiter: `/`, ContinuationToken: token })
+      )
+    )
+    for (const entry of page.CommonPrefixes ?? []) if (entry.Prefix) out.push(entry.Prefix)
+    token = page.IsTruncated ? page.NextContinuationToken : undefined
+  } while (token && out.length < max)
+  return out.slice(0, max)
+}
+
+/** #EXP-1617: every key under `prefix` (one page per call, up to 1000). */
+export async function listKeys(prefix: string): Promise<string[]> {
+  await ensureBucketReady()
+  const page = await sendWithThrottleRetry(() =>
+    storageClient.send(new ListObjectsV2Command({ Bucket: storageBucket, Prefix: prefix }))
+  )
+  return (page.Contents ?? []).flatMap((entry) => (entry.Key ? [entry.Key] : []))
 }
 
 export async function toResponseBody(

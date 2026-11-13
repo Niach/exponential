@@ -20,6 +20,8 @@ import {
   selectSessionReadSchema,
   selectPullRequestSchema,
   selectPullRequestCheckSchema,
+  selectCiRunSchema,
+  selectCiJobSchema,
   selectSyncedPullRequestIssueSchema,
   selectAttachmentSchema,
   selectCommentSchema,
@@ -451,6 +453,26 @@ export const pullRequestCheckCollection = createCollection(
     id: `pull_request_checks`,
     shapeOptions: shapeOptions(`/api/shapes/pull-request-checks`),
     schema: selectPullRequestCheckSchema,
+    getKey: (item) => item.id,
+  })
+)
+
+// #EXP-1617: our own CI's runs and jobs (the run page, the runner section).
+// Logs are never synced: `ci.log` reads them on demand.
+export const ciRunCollection = createCollection(
+  electricCollectionOptions({
+    id: `ci_runs`,
+    shapeOptions: shapeOptions(`/api/shapes/ci-runs`),
+    schema: selectCiRunSchema,
+    getKey: (item) => item.id,
+  })
+)
+
+export const ciJobCollection = createCollection(
+  electricCollectionOptions({
+    id: `ci_jobs`,
+    shapeOptions: shapeOptions(`/api/shapes/ci-jobs`),
+    schema: selectCiJobSchema,
     getKey: (item) => item.id,
   })
 )

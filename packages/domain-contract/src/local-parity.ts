@@ -191,6 +191,24 @@ export function draftRow(input: Row, ctx: { identity: LocalIdentity; existing: R
   }
 }
 
+/** #EXP-1800: `composerDrafts.upsert` refused: an empty text is a delete. */
+export const LOCAL_COMPOSER_DRAFT_EMPTY: string = fixture.composerDrafts.emptyRefusal
+
+/** #EXP-1800: `composerDrafts.upsert`: the identity's one row per `key`
+ *  (composer-draft.json); a new key takes `id`, a re-save keeps the row's id
+ *  and `created_at` and replaces team and text. */
+export function composerDraftRow(input: Row, ctx: { identity: LocalIdentity; existing: Row | null; id: string; now: string }): Row {
+  return {
+    id: (ctx.existing?.id as string | undefined) ?? ctx.id,
+    user_id: ctx.identity.userId,
+    team_id: input.teamId ?? null,
+    key: typeof input.key === `string` ? input.key : ``,
+    text: typeof input.text === `string` ? input.text : ``,
+    created_at: (ctx.existing?.created_at as string | undefined) ?? ctx.now,
+    updated_at: ctx.now,
+  }
+}
+
 /** `comments.create`: the identity's, one level deep. */
 export function createCommentRow(input: Row, ctx: { teamId: string; identity: LocalIdentity; existing: readonly { id: string; parent_id: string | null }[]; id: string; now: string }): Row {
   let parent = typeof input.parentId === `string` ? input.parentId : null
@@ -327,6 +345,7 @@ export function sendRows(input: Row, ctx: SendContext): { rows: Written[]; outpu
       attachment_ids: attachmentIds,
       issue_brief: null,
       answered_at: null,
+      delivered_at: null,
       consumed_at: null,
       created_at: ctx.now,
       updated_at: ctx.now,
@@ -338,6 +357,41 @@ export function sendRows(input: Row, ctx: SendContext): { rows: Written[]; outpu
     })
   }
   return { rows, output: { sessionId, messageId } }
+}
+
+/** #FEED-237 (`sessions.wake.cases`): what the desktop's runner does with
+ *  the person's rows no run took in yet (`consumed_at` null): a live run
+ *  gets them as sends, a `running`/`idle` session of this device without
+ *  one starts again (`wake`, the oldest row the prompt), unless its last
+ *  start failed for exactly these rows (`refused`). */
+export type Wake = { sessionId: string; mode: `send` | `wake`; messageIds: string[] }
+
+export function wakePlan(input: { deviceId: string; sessions: Row[]; messages: Row[]; live: string[]; refused: Record<string, string[]> }): Wake[] {
+  const str = (row: Row, key: string) => (typeof row[key] === `string` ? (row[key] as string) : null)
+  const plan: { oldest: string; wake: Wake }[] = []
+  for (const session of input.sessions) {
+    const id = str(session, `id`)
+    if (!id) continue
+    const status = str(session, `status`)
+    if (status !== `running` && status !== `idle`) continue
+    const device = str(session, `device_id`)
+    if (device && device !== input.deviceId) continue
+    const rows = input.messages
+      .filter((m) => (str(m, `session_id`) || str(m, `root_id`)) === id)
+      .filter((m) => str(m, `author_kind`) === `user` && !str(m, `consumed_at`))
+      .sort((a, b) => cmp(str(a, `created_at`) ?? ``, str(b, `created_at`) ?? ``) || cmp(str(a, `id`) ?? ``, str(b, `id`) ?? ``))
+    if (rows.length === 0) continue
+    const messageIds = rows.map((m) => str(m, `id`)).filter((m): m is string => !!m)
+    const live = input.live.includes(id)
+    const refused = input.refused[id]
+    if (!live && refused && messageIds.every((m) => refused.includes(m))) continue
+    plan.push({ oldest: str(rows[0]!, `created_at`) ?? ``, wake: { sessionId: id, mode: live ? `send` : `wake`, messageIds } })
+  }
+  return plan.sort((a, b) => cmp(a.oldest, b.oldest) || cmp(a.wake.sessionId, b.wake.sessionId)).map((p) => p.wake)
+}
+
+function cmp(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0
 }
 
 /** `agents.ensureAssistant`: the identity's one assistant row. */

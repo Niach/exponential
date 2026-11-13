@@ -1,0 +1,858 @@
+{
+  "$comment": "RUNNER SCHEDULING (#EXP-1613, #EXP-1617; src/runner.ts, ecode-core runner.rs). One step = one op at time `at` (unix ms). `enqueue{jobs: [{id, check, runsOn, needs: [job id], timeoutMin, skip?}]}` queues jobs (a planned `skip` completes at once with contract skip.conclusions); `beat{runner, labels, slots}` records a runner; `claim{runner}` → the FIRST queued job (in queue order) whose needs all completed with a conclusion in checkConclusion.satisfies and whose `runsOn` labels the runner all has, while the runner has a free slot (result {job: id | null}); `finish{runner, job, conclusion}` (only the runner running it); `cancel{jobs?}` (in-progress ones get a `kill`); `tick` = the clock: an in-progress job past its timeoutMin → kill + timed_out; a runner unseen for runner.runnerLostMs → its jobs fail (`runner_lost`); a job queued runner.queuedFlagMinutes → `queued_too_long`, once. After every op, a queued job whose need completed with any other conclusion, or was itself skipped for `needs`, is skipped (`needs`), to a fixpoint: a failure skips the whole chain below it. Refusals: unknown runner or job (not_found), finishing a job the runner does not run (not_running), a duplicate id (exists). `expect` = every job's status, conclusion, runner and flag, and the run's rollup (failure wins, then pending, then success).",
+  "cases": [
+    {
+      "name": "needs order the jobs; labels pick the runner; slots limit it",
+      "steps": [
+        {
+          "op": "beat",
+          "at": 0,
+          "args": {
+            "runner": "mint",
+            "labels": [
+              "linux",
+              "x64"
+            ],
+            "slots": 1
+          },
+          "result": {},
+          "events": []
+        },
+        {
+          "op": "beat",
+          "at": 0,
+          "args": {
+            "runner": "macbook",
+            "labels": [
+              "mac",
+              "arm64"
+            ],
+            "slots": 2
+          },
+          "result": {},
+          "events": []
+        },
+        {
+          "op": "enqueue",
+          "at": 1000,
+          "args": {
+            "jobs": [
+              {
+                "id": "j1",
+                "check": "typecheck",
+                "runsOn": [
+                  "linux"
+                ],
+                "needs": [],
+                "timeoutMin": 30
+              },
+              {
+                "id": "j2",
+                "check": "ios",
+                "runsOn": [
+                  "mac"
+                ],
+                "needs": [
+                  "j1"
+                ],
+                "timeoutMin": 30
+              },
+              {
+                "id": "j3",
+                "check": "lint",
+                "runsOn": [
+                  "linux"
+                ],
+                "needs": [],
+                "timeoutMin": 30
+              }
+            ]
+          },
+          "result": {},
+          "events": [
+            {
+              "kind": "job_queued",
+              "job": "j1"
+            },
+            {
+              "kind": "job_queued",
+              "job": "j2"
+            },
+            {
+              "kind": "job_queued",
+              "job": "j3"
+            }
+          ]
+        },
+        {
+          "op": "claim",
+          "at": 2000,
+          "args": {
+            "runner": "macbook"
+          },
+          "result": {
+            "job": null
+          },
+          "events": []
+        },
+        {
+          "op": "claim",
+          "at": 2000,
+          "args": {
+            "runner": "mint"
+          },
+          "result": {
+            "job": "j1"
+          },
+          "events": [
+            {
+              "kind": "job_started",
+              "job": "j1",
+              "runner": "mint"
+            }
+          ]
+        },
+        {
+          "op": "claim",
+          "at": 2000,
+          "args": {
+            "runner": "mint"
+          },
+          "result": {
+            "job": null
+          },
+          "events": []
+        },
+        {
+          "op": "finish",
+          "at": 60000,
+          "args": {
+            "runner": "mint",
+            "job": "j1",
+            "conclusion": "success"
+          },
+          "result": {},
+          "events": [
+            {
+              "kind": "job_completed",
+              "job": "j1",
+              "conclusion": "success"
+            }
+          ]
+        },
+        {
+          "op": "claim",
+          "at": 61000,
+          "args": {
+            "runner": "macbook"
+          },
+          "result": {
+            "job": "j2"
+          },
+          "events": [
+            {
+              "kind": "job_started",
+              "job": "j2",
+              "runner": "macbook"
+            }
+          ]
+        },
+        {
+          "op": "claim",
+          "at": 61000,
+          "args": {
+            "runner": "mint"
+          },
+          "result": {
+            "job": "j3"
+          },
+          "events": [
+            {
+              "kind": "job_started",
+              "job": "j3",
+              "runner": "mint"
+            }
+          ]
+        },
+        {
+          "op": "finish",
+          "at": 90000,
+          "args": {
+            "runner": "macbook",
+            "job": "j2",
+            "conclusion": "success"
+          },
+          "result": {},
+          "events": [
+            {
+              "kind": "job_completed",
+              "job": "j2",
+              "conclusion": "success"
+            }
+          ]
+        },
+        {
+          "op": "finish",
+          "at": 95000,
+          "args": {
+            "runner": "mint",
+            "job": "j3",
+            "conclusion": "success"
+          },
+          "result": {},
+          "events": [
+            {
+              "kind": "job_completed",
+              "job": "j3",
+              "conclusion": "success"
+            }
+          ]
+        }
+      ],
+      "expect": {
+        "jobs": {
+          "j1": {
+            "status": "completed",
+            "conclusion": "success",
+            "runner": "mint",
+            "flagged": false
+          },
+          "j2": {
+            "status": "completed",
+            "conclusion": "success",
+            "runner": "macbook",
+            "flagged": false
+          },
+          "j3": {
+            "status": "completed",
+            "conclusion": "success",
+            "runner": "mint",
+            "flagged": false
+          }
+        },
+        "run": "success"
+      }
+    },
+    {
+      "name": "a failed need skips its dependents; a planned skip completes at once",
+      "steps": [
+        {
+          "op": "beat",
+          "at": 0,
+          "args": {
+            "runner": "mint",
+            "labels": [
+              "linux"
+            ],
+            "slots": 2
+          },
+          "result": {},
+          "events": []
+        },
+        {
+          "op": "enqueue",
+          "at": 0,
+          "args": {
+            "jobs": [
+              {
+                "id": "build",
+                "check": "build",
+                "runsOn": [
+                  "linux"
+                ],
+                "needs": [],
+                "timeoutMin": 30
+              },
+              {
+                "id": "docs",
+                "check": "docs",
+                "runsOn": [
+                  "linux"
+                ],
+                "needs": [],
+                "timeoutMin": 30,
+                "skip": "paths"
+              },
+              {
+                "id": "test",
+                "check": "test",
+                "runsOn": [
+                  "linux"
+                ],
+                "needs": [
+                  "build",
+                  "docs"
+                ],
+                "timeoutMin": 30
+              },
+              {
+                "id": "deploy",
+                "check": "deploy",
+                "runsOn": [
+                  "linux"
+                ],
+                "needs": [
+                  "test"
+                ],
+                "timeoutMin": 30
+              }
+            ]
+          },
+          "result": {},
+          "events": [
+            {
+              "kind": "job_queued",
+              "job": "build"
+            },
+            {
+              "kind": "job_queued",
+              "job": "docs"
+            },
+            {
+              "kind": "job_completed",
+              "job": "docs",
+              "conclusion": "skipped",
+              "reason": "paths"
+            },
+            {
+              "kind": "job_queued",
+              "job": "test"
+            },
+            {
+              "kind": "job_queued",
+              "job": "deploy"
+            }
+          ]
+        },
+        {
+          "op": "claim",
+          "at": 1000,
+          "args": {
+            "runner": "mint"
+          },
+          "result": {
+            "job": "build"
+          },
+          "events": [
+            {
+              "kind": "job_started",
+              "job": "build",
+              "runner": "mint"
+            }
+          ]
+        },
+        {
+          "op": "finish",
+          "at": 5000,
+          "args": {
+            "runner": "mint",
+            "job": "build",
+            "conclusion": "failure"
+          },
+          "result": {},
+          "events": [
+            {
+              "kind": "job_completed",
+              "job": "build",
+              "conclusion": "failure"
+            },
+            {
+              "kind": "job_completed",
+              "job": "test",
+              "conclusion": "skipped",
+              "reason": "needs"
+            },
+            {
+              "kind": "job_completed",
+              "job": "deploy",
+              "conclusion": "skipped",
+              "reason": "needs"
+            }
+          ]
+        },
+        {
+          "op": "claim",
+          "at": 6000,
+          "args": {
+            "runner": "mint"
+          },
+          "result": {
+            "job": null
+          },
+          "events": []
+        }
+      ],
+      "expect": {
+        "jobs": {
+          "build": {
+            "status": "completed",
+            "conclusion": "failure",
+            "runner": "mint",
+            "flagged": false
+          },
+          "docs": {
+            "status": "completed",
+            "conclusion": "skipped",
+            "runner": null,
+            "flagged": false
+          },
+          "test": {
+            "status": "completed",
+            "conclusion": "skipped",
+            "runner": null,
+            "flagged": false
+          },
+          "deploy": {
+            "status": "completed",
+            "conclusion": "skipped",
+            "runner": null,
+            "flagged": false
+          }
+        },
+        "run": "failure"
+      }
+    },
+    {
+      "name": "a fork PR's jobs never run",
+      "steps": [
+        {
+          "op": "enqueue",
+          "at": 0,
+          "args": {
+            "jobs": [
+              {
+                "id": "t",
+                "check": "test",
+                "runsOn": [
+                  "linux"
+                ],
+                "needs": [],
+                "timeoutMin": 30,
+                "skip": "fork"
+              }
+            ]
+          },
+          "result": {},
+          "events": [
+            {
+              "kind": "job_queued",
+              "job": "t"
+            },
+            {
+              "kind": "job_completed",
+              "job": "t",
+              "conclusion": "action_required",
+              "reason": "fork"
+            }
+          ]
+        }
+      ],
+      "expect": {
+        "jobs": {
+          "t": {
+            "status": "completed",
+            "conclusion": "action_required",
+            "runner": null,
+            "flagged": false
+          }
+        },
+        "run": "failure"
+      }
+    },
+    {
+      "name": "the clock: a timeout kills, a lost runner fails its jobs, a long queue is flagged once",
+      "steps": [
+        {
+          "op": "beat",
+          "at": 0,
+          "args": {
+            "runner": "a",
+            "labels": [
+              "linux"
+            ],
+            "slots": 1
+          },
+          "result": {},
+          "events": []
+        },
+        {
+          "op": "beat",
+          "at": 0,
+          "args": {
+            "runner": "b",
+            "labels": [
+              "linux"
+            ],
+            "slots": 1
+          },
+          "result": {},
+          "events": []
+        },
+        {
+          "op": "enqueue",
+          "at": 0,
+          "args": {
+            "jobs": [
+              {
+                "id": "slow",
+                "check": "slow",
+                "runsOn": [
+                  "linux"
+                ],
+                "needs": [],
+                "timeoutMin": 1
+              },
+              {
+                "id": "lost",
+                "check": "lost",
+                "runsOn": [
+                  "linux"
+                ],
+                "needs": [],
+                "timeoutMin": 60
+              },
+              {
+                "id": "mac",
+                "check": "mac",
+                "runsOn": [
+                  "mac"
+                ],
+                "needs": [],
+                "timeoutMin": 60
+              }
+            ]
+          },
+          "result": {},
+          "events": [
+            {
+              "kind": "job_queued",
+              "job": "slow"
+            },
+            {
+              "kind": "job_queued",
+              "job": "lost"
+            },
+            {
+              "kind": "job_queued",
+              "job": "mac"
+            }
+          ]
+        },
+        {
+          "op": "claim",
+          "at": 0,
+          "args": {
+            "runner": "a"
+          },
+          "result": {
+            "job": "slow"
+          },
+          "events": [
+            {
+              "kind": "job_started",
+              "job": "slow",
+              "runner": "a"
+            }
+          ]
+        },
+        {
+          "op": "claim",
+          "at": 0,
+          "args": {
+            "runner": "b"
+          },
+          "result": {
+            "job": "lost"
+          },
+          "events": [
+            {
+              "kind": "job_started",
+              "job": "lost",
+              "runner": "b"
+            }
+          ]
+        },
+        {
+          "op": "tick",
+          "at": 59999,
+          "args": {},
+          "result": {},
+          "events": []
+        },
+        {
+          "op": "beat",
+          "at": 60000,
+          "args": {
+            "runner": "a",
+            "labels": [
+              "linux"
+            ],
+            "slots": 1
+          },
+          "result": {},
+          "events": []
+        },
+        {
+          "op": "tick",
+          "at": 60000,
+          "args": {},
+          "result": {},
+          "events": [
+            {
+              "kind": "kill",
+              "job": "slow",
+              "runner": "a"
+            },
+            {
+              "kind": "job_completed",
+              "job": "slow",
+              "conclusion": "timed_out"
+            }
+          ]
+        },
+        {
+          "op": "tick",
+          "at": 120000,
+          "args": {},
+          "result": {},
+          "events": [
+            {
+              "kind": "job_completed",
+              "job": "lost",
+              "conclusion": "failure",
+              "reason": "runner_lost"
+            }
+          ]
+        },
+        {
+          "op": "tick",
+          "at": 1800000,
+          "args": {},
+          "result": {},
+          "events": [
+            {
+              "kind": "queued_too_long",
+              "job": "mac"
+            }
+          ]
+        },
+        {
+          "op": "tick",
+          "at": 1900000,
+          "args": {},
+          "result": {},
+          "events": []
+        }
+      ],
+      "expect": {
+        "jobs": {
+          "slow": {
+            "status": "completed",
+            "conclusion": "timed_out",
+            "runner": "a",
+            "flagged": false
+          },
+          "lost": {
+            "status": "completed",
+            "conclusion": "failure",
+            "runner": "b",
+            "flagged": false
+          },
+          "mac": {
+            "status": "queued",
+            "conclusion": null,
+            "runner": null,
+            "flagged": true
+          }
+        },
+        "run": "failure"
+      }
+    },
+    {
+      "name": "cancel kills what runs and cancels what waits; refusals",
+      "steps": [
+        {
+          "op": "beat",
+          "at": 0,
+          "args": {
+            "runner": "mint",
+            "labels": [
+              "linux"
+            ],
+            "slots": 1
+          },
+          "result": {},
+          "events": []
+        },
+        {
+          "op": "enqueue",
+          "at": 0,
+          "args": {
+            "jobs": [
+              {
+                "id": "one",
+                "check": "one",
+                "runsOn": [
+                  "linux"
+                ],
+                "needs": [],
+                "timeoutMin": 30
+              },
+              {
+                "id": "two",
+                "check": "two",
+                "runsOn": [
+                  "linux"
+                ],
+                "needs": [],
+                "timeoutMin": 30
+              }
+            ]
+          },
+          "result": {},
+          "events": [
+            {
+              "kind": "job_queued",
+              "job": "one"
+            },
+            {
+              "kind": "job_queued",
+              "job": "two"
+            }
+          ]
+        },
+        {
+          "op": "enqueue",
+          "at": 0,
+          "args": {
+            "jobs": [
+              {
+                "id": "one",
+                "check": "again",
+                "runsOn": [],
+                "needs": [],
+                "timeoutMin": 30
+              }
+            ]
+          },
+          "failure": {
+            "code": "conflict",
+            "reason": "exists"
+          },
+          "events": []
+        },
+        {
+          "op": "claim",
+          "at": 1000,
+          "args": {
+            "runner": "ghost"
+          },
+          "failure": {
+            "code": "not_found",
+            "reason": "runner"
+          },
+          "events": []
+        },
+        {
+          "op": "claim",
+          "at": 1000,
+          "args": {
+            "runner": "mint"
+          },
+          "result": {
+            "job": "one"
+          },
+          "events": [
+            {
+              "kind": "job_started",
+              "job": "one",
+              "runner": "mint"
+            }
+          ]
+        },
+        {
+          "op": "finish",
+          "at": 2000,
+          "args": {
+            "runner": "mint",
+            "job": "two",
+            "conclusion": "success"
+          },
+          "failure": {
+            "code": "invalid",
+            "reason": "not_running"
+          },
+          "events": []
+        },
+        {
+          "op": "finish",
+          "at": 2000,
+          "args": {
+            "runner": "mint",
+            "job": "nope",
+            "conclusion": "success"
+          },
+          "failure": {
+            "code": "not_found",
+            "reason": "job"
+          },
+          "events": []
+        },
+        {
+          "op": "cancel",
+          "at": 3000,
+          "args": {},
+          "result": {},
+          "events": [
+            {
+              "kind": "kill",
+              "job": "one",
+              "runner": "mint"
+            },
+            {
+              "kind": "job_completed",
+              "job": "one",
+              "conclusion": "cancelled"
+            },
+            {
+              "kind": "job_completed",
+              "job": "two",
+              "conclusion": "cancelled"
+            }
+          ]
+        },
+        {
+          "op": "finish",
+          "at": 4000,
+          "args": {
+            "runner": "mint",
+            "job": "one",
+            "conclusion": "success"
+          },
+          "failure": {
+            "code": "invalid",
+            "reason": "not_running"
+          },
+          "events": []
+        }
+      ],
+      "expect": {
+        "jobs": {
+          "one": {
+            "status": "completed",
+            "conclusion": "cancelled",
+            "runner": "mint",
+            "flagged": false
+          },
+          "two": {
+            "status": "completed",
+            "conclusion": "cancelled",
+            "runner": null,
+            "flagged": false
+          }
+        },
+        "run": "failure"
+      }
+    }
+  ]
+}

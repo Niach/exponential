@@ -3,6 +3,8 @@ package com.exponential.app.data.push
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.domain.AppLink
+import com.exponential.app.domain.ChatRowAction
+import com.exponential.app.domain.Chats
 import com.exponential.app.domain.InboxRoute
 import com.exponential.app.domain.PlanPage
 import com.exponential.app.domain.SessionTree
@@ -35,6 +37,9 @@ sealed interface LinkDestination {
     data object AppsList : LinkDestination
     data class AppRun(val appId: String) : LinkDestination
     data class AppScreen(val appId: String, val screen: String, val params: Map<String, String>) : LinkDestination
+
+    /** #EXP-1804 (ci-run.json): THE run page of our own CI (`?job=` rides the uri). */
+    data class CiRun(val runId: String) : LinkDestination
 }
 
 /**
@@ -110,7 +115,8 @@ class WebLinkResolver @Inject constructor(
     /** A page this client has no screen for: any `app` path but the apps list,
      *  a settings section with no phone page. */
     private fun isWebOnly(link: AppLink): Boolean = when (link) {
-        is AppLink.App -> !isAppsListPath(link.path)
+        // #EXP-1804: our own CI's run page has a screen here.
+        is AppLink.App -> !isAppsListPath(link.path) && com.exponential.app.domain.CiRun.parsePath(link.path) == null
         is AppLink.Settings -> link.section.isNotEmpty() && link.section !in SettingsNav.PHONE_ROWS
         else -> false
     }
@@ -151,8 +157,12 @@ class WebLinkResolver @Inject constructor(
         }
         is AppLink.AppHome -> appIdBySlug(db, teamId, link.appSlug)?.let { LinkDestination.AppRun(it) }
         is AppLink.AppScreen -> appIdBySlug(db, teamId, link.appSlug)?.let { LinkDestination.AppScreen(it, link.screen, link.params) }
-        // Every other `app` path is web-only ([isWebOnly]).
-        is AppLink.App -> LinkDestination.AppsList
+        // #EXP-1804: a synced run of this team; every other `app` path is
+        // web-only ([isWebOnly]).
+        is AppLink.App -> when (val ci = com.exponential.app.domain.CiRun.parsePath(link.path)) {
+            null -> LinkDestination.AppsList
+            else -> db.ciRunDao().getById(ci.second)?.takeIf { it.teamId == teamId }?.let { LinkDestination.CiRun(it.id) }
+        }
         is AppLink.External, AppLink.Ignore -> null
     }
 
@@ -215,6 +225,16 @@ class WebLinkResolver @Inject constructor(
             )
         }
         PlanPage.planPageFor(sessionId, messages)
+    }
+
+    /** waiting-cards.json DEEP LINKS: the session's own NEWEST waiting card
+     *  ([ChatRowAction.sessionWaitingCard] over ALL its synced messages, never
+     *  the chat's newest-200 window, + its digest's `waits`: the messages
+     *  sync on demand, the digest always) an inbox row lands on; null = none. */
+    suspend fun waitingCard(sessionId: String): String? = activeDb(null) { db ->
+        val messages = db.messageDao().observeBySession(sessionId).first().map { SessionTree.message(it, sessionId) }
+        val digest = db.sessionDao().getById(sessionId)?.digest
+        ChatRowAction.sessionWaitingCard(sessionId, messages + Chats.digestMessages(sessionId, Chats.parseDigest(digest)))
     }
 
     /**

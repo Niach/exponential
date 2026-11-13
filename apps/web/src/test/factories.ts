@@ -25,7 +25,7 @@ export async function ensureTestRepository(
     .values({
       teamId,
       fullName,
-      installationId: opts?.installationId ?? null,
+      providerConfig: { installationId: opts?.installationId ?? null },
     })
     .onConflictDoNothing({
       target: [repositories.teamId, repositories.fullName],

@@ -44,10 +44,10 @@ use crate::shapes::{shape_by_name, ShapeSpec};
 use crate::store::{ShapeStore, StoreError};
 
 use domain::rows::{
-    AgentDefRow, Attachment, Board, Comment, DeviceRow, DeviceWorktreeRow, Issue, IssueDraftRow,
+    AgentDefRow, Attachment, Board, Comment, ComposerDraftRow, DeviceRow, DeviceWorktreeRow, Issue, IssueDraftRow,
     IssueEvent, IssueLabel, IssueRelation, IssueStatusRow, IssueSubscriber, Label, MessageRow, ConversationRow,
     Notification, Pin, PullRequestCheckRow, PullRequestIssueRow, PullRequestRow, SessionIssueRow, SessionReadRow,
-    EventRow, PromptRow, SkillRow, AppRow, AppVersionRow, AppRecordRow, SessionRow, Team, TeamInvite, TeamMember, User,
+    EventRow, PromptRow, SkillRow, CiRunRow, CiJobRow, AppRow, AppVersionRow, AppRecordRow, SessionRow, Team, TeamInvite, TeamMember, User,
 };
 
 // ---------------------------------------------------------------------------
@@ -210,6 +210,7 @@ id_shape_row!(DeviceWorktreeRow, "device_worktrees");
 id_shape_row!(IssueRelation, "issue_relations");
 id_shape_row!(Pin, "pins");
 id_shape_row!(IssueDraftRow, "issue_drafts");
+id_shape_row!(ComposerDraftRow, "composer_drafts");
 id_shape_row!(SessionReadRow, "session_reads");
 id_shape_row!(AgentDefRow, "agents");
 id_shape_row!(EventRow, "events");
@@ -218,6 +219,8 @@ id_shape_row!(AppRow, "apps");
 id_shape_row!(AppVersionRow, "app_versions");
 id_shape_row!(AppRecordRow, "app_records");
 id_shape_row!(SkillRow, "skills");
+id_shape_row!(CiRunRow, "ci_runs");
+id_shape_row!(CiJobRow, "ci_jobs");
 
 /// EXP-1459: the three shapes that carry sealed content.
 macro_rules! sealed_shape_row {
@@ -451,6 +454,13 @@ impl<T: ShapeRow> Collection<T> {
         self.note_write(&key);
     }
 
+    /// A delete as a synced batch lands it (tests of the readers that
+    /// follow [`Self::changed_since`]).
+    #[doc(hidden)]
+    pub fn remove_for_test(&mut self, key: &RowKey) {
+        self.remove(key);
+    }
+
     /// An old row's group entry, unless the row that replaced it under
     /// `key` sits in the same group.
     fn unindex_unless_same(&mut self, key: &RowKey, old: &T) {
@@ -667,6 +677,9 @@ pub struct Collections {
     /// static like `pins`; the Drafts page filters to the active team and to
     /// rows whose board still resolves.
     pub issue_drafts: Entity<Collection<IssueDraftRow>>,
+    /// #FEED-219 every composer's synced draft (the 35th shape) — per-user
+    /// and static like `issue_drafts`; keyed by `<kind>:<id>`.
+    pub composer_drafts: Entity<Collection<ComposerDraftRow>>,
     /// EXP-1323 the viewer's session read marks (the 26th shape) — per-user
     /// and static like `pins`; unread titles + the Chats nav dot.
     pub session_reads: Entity<Collection<SessionReadRow>>,
@@ -685,6 +698,11 @@ pub struct Collections {
     pub app_records: Entity<Collection<AppRecordRow>>,
     /// #EXP-1656 the team's skills, body-less (the 34th shape).
     pub skills: Entity<Collection<SkillRow>>,
+    /// #EXP-1804 our own CI's runs (the 36th shape): the run page.
+    pub ci_runs: Entity<Collection<CiRunRow>>,
+    /// #EXP-1804 the runs' jobs (the 37th shape): the run page and a
+    /// device's CI runner section (its recent jobs).
+    pub ci_jobs: Entity<Collection<CiJobRow>>,
     /// #PERF-9: the heavy shapes ([`HYDRATE_OFF_MAIN`]) whose startup
     /// hydrate is still being read off the main thread; a delta of one waits
     /// for its install ([`Self::hydrated`]). Disconnects = installed.
@@ -751,6 +769,8 @@ macro_rules! for_each_collection {
         $body;
         let $entity = &$collections.issue_drafts;
         $body;
+        let $entity = &$collections.composer_drafts;
+        $body;
         let $entity = &$collections.session_reads;
         $body;
         let $entity = &$collections.agents;
@@ -766,6 +786,10 @@ macro_rules! for_each_collection {
         let $entity = &$collections.app_records;
         $body;
         let $entity = &$collections.skills;
+        $body;
+        let $entity = &$collections.ci_runs;
+        $body;
+        let $entity = &$collections.ci_jobs;
         $body;
     }};
 }
@@ -799,6 +823,7 @@ impl Collections {
             issue_relations: cx.new(|_| Collection::new()),
             pins: cx.new(|_| Collection::new()),
             issue_drafts: cx.new(|_| Collection::new()),
+            composer_drafts: cx.new(|_| Collection::new()),
             session_reads: cx.new(|_| Collection::new()),
             agents: cx.new(|_| Collection::new()),
             events: cx.new(|_| Collection::new()),
@@ -807,6 +832,8 @@ impl Collections {
             app_versions: cx.new(|_| Collection::new()),
             app_records: cx.new(|_| Collection::new()),
             skills: cx.new(|_| Collection::new()),
+            ci_runs: cx.new(|_| Collection::new()),
+            ci_jobs: cx.new(|_| Collection::new()),
             hydrating: Arc::default(),
             generation: Arc::default(),
         }
@@ -905,6 +932,7 @@ impl Collections {
             "issue_relations" => prepare_for(|c| &c.issue_relations, keys, full_replace, up_to_date, sqlite),
             "pins" => prepare_for(|c| &c.pins, keys, full_replace, up_to_date, sqlite),
             "issue_drafts" => prepare_for(|c| &c.issue_drafts, keys, full_replace, up_to_date, sqlite),
+            "composer_drafts" => prepare_for(|c| &c.composer_drafts, keys, full_replace, up_to_date, sqlite),
             "session_reads" => prepare_for(|c| &c.session_reads, keys, full_replace, up_to_date, sqlite),
             "agents" => prepare_for(|c| &c.agents, keys, full_replace, up_to_date, sqlite),
             "events" => prepare_for(|c| &c.events, keys, full_replace, up_to_date, sqlite),
@@ -913,6 +941,8 @@ impl Collections {
             "app_versions" => prepare_for(|c| &c.app_versions, keys, full_replace, up_to_date, sqlite),
             "app_records" => prepare_for(|c| &c.app_records, keys, full_replace, up_to_date, sqlite),
             "skills" => prepare_for(|c| &c.skills, keys, full_replace, up_to_date, sqlite),
+            "ci_runs" => prepare_for(|c| &c.ci_runs, keys, full_replace, up_to_date, sqlite),
+            "ci_jobs" => prepare_for(|c| &c.ci_jobs, keys, full_replace, up_to_date, sqlite),
             other => {
                 log::warn!("[sync] delta for unknown shape {other}");
                 None
@@ -2025,6 +2055,7 @@ mod tests {
             IssueRelation::spec().name,
             Pin::spec().name,
             IssueDraftRow::spec().name,
+            ComposerDraftRow::spec().name,
             SessionReadRow::spec().name,
             AgentDefRow::spec().name,
             EventRow::spec().name,
@@ -2033,6 +2064,8 @@ mod tests {
             AppVersionRow::spec().name,
             AppRecordRow::spec().name,
             SkillRow::spec().name,
+            CiRunRow::spec().name,
+            CiJobRow::spec().name,
         ];
         let registry: Vec<&str> = crate::shapes::SHAPES.iter().map(|s| s.name).collect();
         assert_eq!(bound.len(), registry.len());

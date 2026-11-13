@@ -13,6 +13,8 @@
 //! lock, and `merged` draws no word) and the device icon
 //! ([`chat_device_icon`]).
 
+use std::collections::HashMap;
+
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     px, App, ClickEvent, Entity, FocusHandle, InteractiveElement as _, IntoElement, ParentElement, Render,
@@ -32,6 +34,49 @@ use crate::session_data;
 /// The page column's cap — the list language's `max-w-3xl` (short rows, a
 /// queue, not a table).
 const CHATS_COLUMN_W: f32 = 768.;
+
+/// [`chat_word`] for many rows over ONE team's pull requests: the team's
+/// stack edges read once (#PERF-3: [`chat_word`] per row rebuilt the whole
+/// team's PRs, rows × PRs on every rail derive).
+pub(crate) struct ChatWords {
+    /// Each root's own PRs.
+    own: HashMap<String, Vec<StackPr>>,
+    /// The open PRs that sit in an open stack (based on an open PR, or an
+    /// open PR is based on it): `chat_in_stack`'s rule, per PR.
+    stacked: std::collections::HashSet<String>,
+}
+
+impl ChatWords {
+    pub(crate) fn new(team_pulls: &[PullRequestRow]) -> Self {
+        let mut own: HashMap<String, Vec<StackPr>> = HashMap::new();
+        for pull in team_pulls {
+            if let Some(root) = pull.root_session_id.as_deref() {
+                own.entry(root.to_string()).or_default().push(StackPr::from_row(pull));
+            }
+        }
+        let open: std::collections::HashSet<&str> =
+            team_pulls.iter().filter(|pull| pull.state.as_deref() == Some("open")).map(|pull| pull.id.as_str()).collect();
+        let based_on: std::collections::HashSet<&str> = team_pulls
+            .iter()
+            .filter(|pull| pull.state.as_deref() == Some("open"))
+            .filter_map(|pull| pull.base_pull_request_id.as_deref())
+            .collect();
+        let stacked = team_pulls
+            .iter()
+            .filter(|pull| pull.state.as_deref() == Some("open"))
+            .filter(|pull| pull.base_pull_request_id.as_deref().is_some_and(|base| open.contains(base)) || based_on.contains(pull.id.as_str()))
+            .map(|pull| pull.id.clone())
+            .collect();
+        Self { own, stacked }
+    }
+
+    /// [`chat_word`] of `root_id`.
+    pub(crate) fn word(&self, root_id: &str, busy: bool, needs_you: bool, offline: bool) -> Option<ChatRowWord> {
+        let own = self.own.get(root_id).map(Vec::as_slice).unwrap_or_default();
+        let in_stack = own.iter().any(|pull| pull.state == "open" && self.stacked.contains(&pull.id));
+        chat_row_word_on(own.iter().map(|pull| pull.state.as_str()), busy, needs_you, in_stack, offline)
+    }
+}
 
 /// The pull request a row speaks for: the root's pull requests through THE
 /// Guide rule (`domain::session_tree::guide_pull_request`, EXP-1306).
@@ -619,6 +664,19 @@ mod tests {
         assert_eq!(chat_word("r3", false, true, false, &pulls), Some(ChatRowWord::Merged));
         assert_eq!(chat_word("r4", false, true, false, &pulls), Some(ChatRowWord::Question));
         assert_eq!(chat_word("r4", false, false, false, &pulls), None);
+        // #PERF-3: the batched words equal the per-row rule, every root
+        // and flag (a PR based on an open one, one an open PR is based
+        // on, a merged base, none).
+        let mut pulls = pulls;
+        let mut on_merged = pull("p5", "r5", "open", "2026-10-13T09:00:00.000Z");
+        on_merged.base_pull_request_id = Some("p4".into());
+        pulls.push(on_merged);
+        let words = ChatWords::new(&pulls);
+        for root in ["r0", "r1", "r2", "r3", "r4", "r5"] {
+            for (busy, needs_you, offline) in [(false, false, false), (true, false, false), (false, true, false), (false, true, true)] {
+                assert_eq!(words.word(root, busy, needs_you, offline), chat_word(root, busy, needs_you, offline, &pulls), "{root}");
+            }
+        }
         assert_eq!(ChatRowWord::Merged.text(), None);
         assert_eq!(ChatRowWord::ReadyToMerge.text(), Some("ready to merge"));
         assert_eq!(ChatRowWord::Stack.text(), Some("stack"));

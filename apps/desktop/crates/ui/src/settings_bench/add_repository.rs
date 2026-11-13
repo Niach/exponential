@@ -3,7 +3,7 @@
 //! missing prerequisite, ready with its search / lookup / banner / notice).
 use super::*;
 use crate::github_connect::GithubReposResult;
-use crate::settings::add_repository_dialog::{AddRepoShot, AddRepositoryDialogView};
+use crate::settings::add_repository_dialog::{AddRepoShot, AddRepositoryDialogView, EcodeShot};
 use serde_json::{json, Value};
 
 /// The dialog body's box in the default window: the 416 × 480 content box
@@ -198,4 +198,26 @@ fn settings_add_repo_lookup_error() {
 #[ignore]
 fn settings_add_repo_plan_limit() {
     add_repo("plan-limit", AddRepoShot { plan_limited: Some("Your plan allows 3 repositories."), ..shot(Some(Some(ready()))) });
+}
+
+/// #EXP-1616: Exponential picked, the form filled, the mirror on.
+#[test]
+#[ignore]
+fn settings_add_repo_ecode() {
+    shoot_pane_acted(
+        "add-repo-ecode",
+        |window, cx| {
+            cx.set_reduce_motion(true);
+            Body { view: cx.new(|cx| AddRepositoryDialogView::for_shots(window, cx)) }
+        },
+        |_, _| {},
+        None,
+        &[],
+        move |body, window, cx| {
+            body.view.update(cx, |view, cx| {
+                view.show(shot(Some(Some(ready()))), window, cx);
+                view.show_ecode(EcodeShot { name: "engine", branch: "main", mirror: true, mirror_url: "https://github.com/acme/engine.git" }, cx);
+            })
+        },
+    );
 }

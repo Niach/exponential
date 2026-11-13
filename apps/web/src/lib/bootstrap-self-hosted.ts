@@ -1,11 +1,7 @@
 import { and, eq, gte, inArray, or } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { pullRequests } from "@/db/schema"
-import type { PullState } from "@/lib/integrations/github-pr"
-import {
-  fetchPullState,
-  resolveRepoToken,
-} from "@/lib/integrations/github-pr"
+import { forgeFor, type ForgePullRequest, type ForgeRepo } from "@/lib/ecode/forge"
 import {
   githubBudgetLowForToken,
   isGithubRateLimited,
@@ -52,7 +48,7 @@ export function decidePrPollAction(
   localPrState: string | null,
   // Only the transition matters here — deliberately narrower than PullState so
   // the decision can't quietly start depending on attribution fields.
-  state: Pick<PullState, `state` | `merged`>
+  state: Pick<ForgePullRequest, `state` | `merged`>
 ): PrPollAction {
   if (state.merged) return localPrState === `merged` ? `none` : `merge`
   if (state.state === `closed`) {
@@ -95,7 +91,9 @@ export async function runPrPollPass(now: Date = new Date()): Promise<void> {
       try {
         const repo = parseRepoFromPrUrl(row.url)
         if (!repo) continue
-        const token = await resolveRepoToken({ teamId: row.teamId, repo })
+        // #EXP-1614: the repo's forge acts with its own credential.
+        const bare: ForgeRepo = { id: ``, fullName: repo }
+        const token = (await (await forgeFor(bare)).credentials(bare))?.token ?? null
         // EXP-1609: a low installation budget skips this PR until the reset
         // — interactive calls (an agent's `pr` op, a person's merge) keep
         // the rest; the next pass after the reset catches up.
@@ -141,7 +139,9 @@ export async function reconcilePullRequestState(
   repo: string,
   token: string | null
 ): Promise<boolean> {
-  const state = await fetchPullState(repo, row.number, token)
+  const at: ForgeRepo = { id: ``, fullName: repo, token }
+  const state = await (await forgeFor(at)).readPullRequest(at, row.number)
+  if (!state) throw new Error(`${repo}#${row.number} is gone from its forge`)
   // A live PR's base moves on GitHub (a retarget on github.com, or
   // GitHub's restack when the PR below lands); a polling instance
   // never gets the `edited` webhook, so the pass re-reads it. A merge

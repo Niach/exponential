@@ -1,3 +1,4 @@
+import { repoInstallationId } from "@/lib/ecode/provider-config"
 import { and, desc, eq, gt, inArray, isNull, lt, ne, notInArray, or, sql } from "drizzle-orm"
 import {
   aggregateChecksState,
@@ -555,7 +556,7 @@ export async function repairPullRequestChecks(
         base: pullRequests.base,
         state: pullRequests.state,
         fullName: repositories.fullName,
-        installationId: repositories.installationId,
+        installationId: repoInstallationId(),
       })
       .from(pullRequests)
       .innerJoin(repositories, eq(repositories.id, pullRequests.repositoryId))
@@ -569,6 +570,17 @@ export async function repairPullRequestChecks(
     }
     const runs = await fetchGithubCheckRuns(row.fullName, opts.headSha || row.head, token)
     const headSha = runs?.headSha ?? opts.headSha ?? null
+    // #EXP-1617: our own CI's checks are part of the snapshot (GitHub does
+    // not know them); a GitHub name wins a clash.
+    const own =
+      headSha && runs
+        ? await import(`@/lib/ci/own-checks`)
+            .then((m) => m.ownPullRequestChecks(row.id, headSha))
+            .catch(() => [])
+        : []
+    if (runs && own.length > 0) {
+      runs.checks = [...runs.checks, ...own.filter((check) => !runs.checks.some((c) => c.name === check.name))]
+    }
     if (!runs || !headSha || runs.checks.length === 0) {
       lastUnknown.set(row.id, runs ? `no_runs` : checksDenied(token) ? `no_permission` : `unreadable`)
       // No run at the head at all: nothing known (an older head's rows go).
@@ -639,7 +651,7 @@ export async function sweepUnsettledChecks(now: Date = new Date()): Promise<numb
       id: pullRequests.id,
       head: pullRequests.head,
       fullName: repositories.fullName,
-      installationId: repositories.installationId,
+      installationId: repoInstallationId(),
     })
     .from(pullRequests)
     .innerJoin(repositories, eq(repositories.id, pullRequests.repositoryId))

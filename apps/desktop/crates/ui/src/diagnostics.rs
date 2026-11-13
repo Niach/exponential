@@ -82,3 +82,53 @@ pub fn set_enabled(enabled: bool, cx: &mut App) {
         .spawn(async move { observability::set_diagnostics_enabled(enabled) })
         .detach();
 }
+
+/// #PERF-2: the window's frame phases as spans around the whole `Shell`
+/// tree. The views' `render` spans close before their children lay out,
+/// and gpui's own layout, prepaint and paint sit outside every span: the
+/// hang watchdog named that work `(no span)`. Now it reads
+/// `frame.layout` / `frame.prepaint` / `frame.paint` (each minus the spans
+/// inside it).
+pub(crate) fn frame_spans(child: gpui::AnyElement) -> gpui::AnyElement {
+    gpui::IntoElement::into_any_element(FrameSpans { child })
+}
+
+struct FrameSpans {
+    child: gpui::AnyElement,
+}
+
+impl gpui::IntoElement for FrameSpans {
+    type Element = Self;
+
+    fn into_element(self) -> Self {
+        self
+    }
+}
+
+impl gpui::Element for FrameSpans {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<gpui::ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(&mut self, _: Option<&gpui::GlobalElementId>, _: Option<&gpui::InspectorElementId>, window: &mut gpui::Window, cx: &mut App) -> (gpui::LayoutId, ()) {
+        let _span = tracing::trace_span!("frame.layout").entered();
+        (self.child.request_layout(window, cx), ())
+    }
+
+    fn prepaint(&mut self, _: Option<&gpui::GlobalElementId>, _: Option<&gpui::InspectorElementId>, _: gpui::Bounds<gpui::Pixels>, _: &mut (), window: &mut gpui::Window, cx: &mut App) {
+        let _span = tracing::trace_span!("frame.prepaint").entered();
+        self.child.prepaint(window, cx);
+    }
+
+    fn paint(&mut self, _: Option<&gpui::GlobalElementId>, _: Option<&gpui::InspectorElementId>, _: gpui::Bounds<gpui::Pixels>, _: &mut (), _: &mut (), window: &mut gpui::Window, cx: &mut App) {
+        let _span = tracing::trace_span!("frame.paint").entered();
+        self.child.paint(window, cx);
+    }
+}

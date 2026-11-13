@@ -489,7 +489,7 @@ function deviceReportsProfile(
  * CONFLICT; `requestUpdate({endSessions})` reuses the pending row instead
  * (FEED-36: a second "Update now" click is the same wish, not an error).
  */
-async function queueDeviceCommand(
+export async function queueDeviceCommand(
   db: Context[`db`],
   args: {
     deviceRowId: string
@@ -1690,7 +1690,8 @@ export const devicesRouter = router({
       z.object({
         commandId: z.string().uuid(),
         ok: z.boolean(),
-        message: z.string().max(2000).optional(),
+        // #EXP-1616: an `ecode_job` answers JSON (a PR's file list).
+        message: z.string().max(256_000).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {

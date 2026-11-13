@@ -35,6 +35,7 @@ class TranscriptGroupingTest {
         assertEquals(layout.getValue("gapBetween").jsonPrimitive.int, TranscriptGrouping.Layout.GAP_BETWEEN)
         val maxWidth = layout.getValue("maxWidth").jsonObject
         assertEquals(maxWidth.getValue("phone").jsonPrimitive.float, TranscriptGrouping.Layout.MAX_WIDTH_PHONE, 0f)
+        assertEquals(maxWidth.getValue("phoneIn").jsonPrimitive.float, TranscriptGrouping.Layout.MAX_WIDTH_PHONE_IN, 0f)
         assertEquals(maxWidth.getValue("wide").jsonPrimitive.float, TranscriptGrouping.Layout.MAX_WIDTH_WIDE, 0f)
         assertEquals(layout.getValue("radius").jsonPrimitive.int, TranscriptGrouping.Layout.RADIUS)
         assertEquals(layout.getValue("nameSize").jsonPrimitive.int, TranscriptGrouping.Layout.NAME_SIZE)

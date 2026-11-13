@@ -106,11 +106,14 @@ fn ms_of(value: Option<&str>) -> Option<i64> {
 /// `checkDuration`: completed = completed - started, in_progress = now -
 /// started, else none (queued, or no start). `now_ms` = UTC milliseconds.
 pub fn check_duration(row: &PullRequestCheckRow, now_ms: i64) -> Option<String> {
-    let started = ms_of(row.started_at.as_deref())?;
-    match row.status.as_str() {
-        contract::PR_CHECK_STATUS_COMPLETED => {
-            ms_of(row.completed_at.as_deref()).map(|completed| format_check_duration(completed - started))
-        }
+    check_duration_of(&row.status, row.started_at.as_deref(), row.completed_at.as_deref(), now_ms)
+}
+
+/// [`check_duration`] over the bare fields (#EXP-1804: a CI job's row).
+pub fn check_duration_of(status: &str, started_at: Option<&str>, completed_at: Option<&str>, now_ms: i64) -> Option<String> {
+    let started = ms_of(started_at)?;
+    match status {
+        contract::PR_CHECK_STATUS_COMPLETED => ms_of(completed_at).map(|completed| format_check_duration(completed - started)),
         contract::PR_CHECK_STATUS_IN_PROGRESS => Some(format_check_duration(now_ms - started)),
         _ => None,
     }

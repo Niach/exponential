@@ -6,13 +6,19 @@
 // line-number gutter, emphasised `highlight` lines (the `selected` state),
 // `wrap`, and `maxLines` before the block scrolls. EXP-1324: `variant`
 // (destructive) and `size` (sm) are recipe props; `ansi` output copies
-// without its escapes.
+// without its escapes. #EXP-1804: `follow` keeps a scrolling block at its
+// bottom while `code` grows (a live log) until the person scrolls up; back
+// at the bottom, it follows again.
 
-import { Index, Show, createMemo, createSignal, onCleanup, type Component, type JSX } from "solid-js"
+import { Index, Show, createEffect, createMemo, createSignal, on, onCleanup, type Component, type JSX } from "solid-js"
 import { codeText, tokenizeCode } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
 import type { NativeProps } from "../node-view"
 import { arr, bool, BuiltinIcon, css, num, parts, str } from "./shared"
+
+/** Pixels from the bottom that still count as "at the bottom" (sub-pixel
+ *  scroll positions, a zoomed page). */
+const FOLLOW_SLACK = 4
 
 export function CodeBlockNative(props: NativeProps): JSX.Element {
   const ctx = useSurfaceContext()
@@ -28,6 +34,22 @@ export function CodeBlockNative(props: NativeProps): JSX.Element {
   // header (`ts`; none for `plain`); the region's name stays `codeBlock`.
   const heading = () => title() || (language() === `plain` ? `` : language())
   const maxLines = () => (props.props.maxLines === undefined ? 0 : num(props.props.maxLines))
+  const follow = () => bool(props.props.follow)
+  let body: HTMLDivElement | undefined
+  // Whether the view sat at its bottom at the last scroll (a person who
+  // scrolled up stops the follow).
+  let atBottom = true
+  const onScroll = () => {
+    if (!follow() || !body) return
+    atBottom = body.scrollHeight - body.scrollTop - body.clientHeight <= FOLLOW_SLACK
+  }
+  // After the lines render (the effect runs after the DOM update).
+  createEffect(
+    on([follow, code, maxLines], ([following]) => {
+      if (!following || !body || !atBottom) return
+      body.scrollTop = body.scrollHeight
+    }),
+  )
   const [copied, setCopied] = createSignal(false)
   let timer: ReturnType<typeof setTimeout> | null = null
   onCleanup(() => {
@@ -65,7 +87,7 @@ export function CodeBlockNative(props: NativeProps): JSX.Element {
           </Show>
         </div>
       </Show>
-      <div {...part(`body`)} class={bodyClass()} data-wrap={bool(props.props.wrap) ? `true` : undefined} style={maxLines() > 0 ? css({ "--xui-code-lines": maxLines() }) : undefined} data-max-lines={maxLines() > 0 ? maxLines() : undefined} tabindex={0}>
+      <div ref={body} onScroll={onScroll} {...part(`body`)} class={bodyClass()} data-wrap={bool(props.props.wrap) ? `true` : undefined} style={maxLines() > 0 ? css({ "--xui-code-lines": maxLines() }) : undefined} data-max-lines={maxLines() > 0 ? maxLines() : undefined} tabindex={0}>
         <pre class="xui-codeblock-pre" id={`${props.domId}.code`}>
           <code>
             <Index each={lines()}>

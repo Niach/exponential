@@ -24,6 +24,16 @@
 //! a host that cannot prove it runs the plain spawn. systemd older than 254
 //! refuses the flag and never expands, so it wraps without it.
 //!
+//! PERF-4: a run is BACKGROUND work. Its agent and every cargo/gradle build it
+//! starts must never starve the desktop: on Danny's 32-core Mint a 180 ms frame
+//! took 416 ms (p90 692 ms) next to one agent-like scope of 48 busy threads at
+//! the default weight, and 181 ms with that scope at `CPUWeight=idle`. The wrap
+//! therefore asks for `CPUWeight=idle` (SCHED_IDLE against the scope's
+//! siblings: games, browsers, other apps) and `--nice=10`
+//! ([`RUN_NICE`]; it orders the run's own processes and is what macOS and a
+//! host without a scope get, see `engine::transport::spawn_lines`). A systemd
+//! that refuses `idle` (before 252) wraps without it.
+//!
 //! Configuration (environment of the daemon / app process):
 //! - `EXP_RUN_SCOPE=off` (or `0`/`false`/`no`): never wrap;
 //! - `EXP_RUN_MEMORY_MAX=<systemd value>` (`4G`, `60%`): each run's
@@ -40,6 +50,26 @@ use std::sync::OnceLock;
 pub const RUN_SCOPE_ENV: &str = "EXP_RUN_SCOPE";
 /// The per-run memory cap.
 pub const RUN_MEMORY_MAX_ENV: &str = "EXP_RUN_MEMORY_MAX";
+/// The nice level of every agent run (PERF-4): below the desktop, above a
+/// lane's `nice 19` build (scripts/lanes/lane.sh).
+pub const RUN_NICE: i32 = 10;
+
+/// The nice level a run actually asks for: [`RUN_NICE`], or this process's own
+/// when that is lower still (a daemon under `Nice=19`, a lane): an
+/// unprivileged process cannot raise a priority back, and a `--nice` it may
+/// not set fails the whole wrap.
+pub fn run_nice() -> i32 {
+    #[cfg(unix)]
+    {
+        // `nice(0)` = the current level; its -1 error value is harmless here.
+        let own = unsafe { libc::nice(0) };
+        own.max(RUN_NICE)
+    }
+    #[cfg(not(unix))]
+    {
+        RUN_NICE
+    }
+}
 
 /// How this host wraps a run (the probe's verdict).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -49,8 +79,10 @@ pub enum ScopeMode {
     /// `systemd-run [--user] --scope …`: `user` = the user manager (a user
     /// service, a desktop session) rather than the system one (root);
     /// `oom_policy` = this systemd takes `OOMPolicy=` on a scope;
-    /// `no_expand` = pass `--expand-environment=no` (refused before 254).
-    Systemd { user: bool, oom_policy: bool, no_expand: bool, memory_max: Option<String> },
+    /// `no_expand` = pass `--expand-environment=no` (refused before 254);
+    /// `background` = `CPUWeight=idle` + `--nice` (PERF-4; `idle` is refused
+    /// before 252).
+    Systemd { user: bool, oom_policy: bool, no_expand: bool, background: bool, memory_max: Option<String> },
 }
 
 impl ScopeMode {
@@ -74,7 +106,7 @@ impl ScopeMode {
     /// runs a probe argv and says whether it exited 0. Pure but for
     /// `try_run`. Linux only; the user manager first, then (as root) the
     /// system one; `OOMPolicy=` dropped when this systemd refuses it on a
-    /// scope; a `MemoryMax=` this systemd refuses drops the scope entirely
+    /// scope, then the background priority; a `MemoryMax=` this systemd refuses drops the scope entirely
     /// (an asked-for cap is never silently half-applied, nor fatal). Every
     /// candidate runs [`verbatim_probe`], so a flag that merely timed out
     /// cannot fall through to a bare wrap that expands: that wrap fails its
@@ -92,11 +124,18 @@ impl ScopeMode {
         for &user in managers {
             for no_expand in [true, false] {
                 for oom_policy in [true, false] {
-                    let mode =
-                        ScopeMode::Systemd { user, oom_policy, no_expand, memory_max: memory_max.clone() };
-                    let (program, args) = verbatim_probe();
-                    if try_run(&mode.wrap(program, &args)) {
-                        return mode;
+                    for background in [true, false] {
+                        let mode = ScopeMode::Systemd {
+                            user,
+                            oom_policy,
+                            no_expand,
+                            background,
+                            memory_max: memory_max.clone(),
+                        };
+                        let (program, args) = verbatim_probe();
+                        if try_run(&mode.wrap(program, &args)) {
+                            return mode;
+                        }
                     }
                 }
             }
@@ -108,7 +147,7 @@ impl ScopeMode {
     pub fn wrap(&self, program: &str, args: &[String]) -> Vec<String> {
         match self {
             ScopeMode::Off => std::iter::once(program.to_string()).chain(args.iter().cloned()).collect(),
-            ScopeMode::Systemd { user, oom_policy, no_expand, memory_max } => {
+            ScopeMode::Systemd { user, oom_policy, no_expand, background, memory_max } => {
                 let mut argv = vec!["systemd-run".to_string()];
                 if *user {
                     argv.push("--user".to_string());
@@ -119,6 +158,9 @@ impl ScopeMode {
                 }
                 if *oom_policy {
                     argv.extend(["-p".to_string(), "OOMPolicy=continue".to_string()]);
+                }
+                if *background {
+                    argv.extend([format!("--nice={}", run_nice()), "-p".to_string(), "CPUWeight=idle".to_string()]);
                 }
                 if let Some(max) = memory_max {
                     argv.extend(["-p".to_string(), format!("MemoryMax={max}")]);
@@ -204,16 +246,25 @@ mod tests {
 
     #[test]
     fn a_scope_execs_the_program_after_its_properties() {
-        let mode =
-            ScopeMode::Systemd { user: true, oom_policy: true, no_expand: true, memory_max: Some("4G".to_string()) };
+        let mode = ScopeMode::Systemd {
+            user: true,
+            oom_policy: true,
+            no_expand: true,
+            background: true,
+            memory_max: Some("4G".to_string()),
+        };
+        // 10, or the test's own level when it already runs lower (a lane).
+        let nice = format!("--nice={}", run_nice());
         assert_eq!(
             mode.wrap("/bin/claude", &s(&["--resume", "x"])),
             s(&[
                 "systemd-run", "--user", "--scope", "--quiet", "--collect", "--expand-environment=no", "-p",
-                "OOMPolicy=continue", "-p", "MemoryMax=4G", "--", "/bin/claude", "--resume", "x",
+                "OOMPolicy=continue", &nice, "-p", "CPUWeight=idle", "-p", "MemoryMax=4G", "--",
+                "/bin/claude", "--resume", "x",
             ])
         );
-        let system = ScopeMode::Systemd { user: false, oom_policy: false, no_expand: false, memory_max: None };
+        let system =
+            ScopeMode::Systemd { user: false, oom_policy: false, no_expand: false, background: false, memory_max: None };
         assert_eq!(
             system.wrap("codex", &[]),
             s(&["systemd-run", "--scope", "--quiet", "--collect", "--", "codex"])
@@ -227,11 +278,27 @@ mod tests {
         let all = ScopeMode::probe(None, Some(" 60% "), |_| true);
         assert_eq!(
             all,
-            ScopeMode::Systemd { user: true, oom_policy: true, no_expand: true, memory_max: Some("60%".to_string()) }
+            ScopeMode::Systemd {
+                user: true,
+                oom_policy: true,
+                no_expand: true,
+                background: true,
+                memory_max: Some("60%".to_string())
+            }
         );
         // An older systemd refuses OOMPolicy on a scope.
         let older = ScopeMode::probe(None, None, |argv| !argv.iter().any(|arg| arg.starts_with("OOMPolicy")));
-        assert_eq!(older, ScopeMode::Systemd { user: true, oom_policy: false, no_expand: true, memory_max: None });
+        assert_eq!(
+            older,
+            ScopeMode::Systemd { user: true, oom_policy: false, no_expand: true, background: true, memory_max: None }
+        );
+        // PERF-4: a systemd before 252 refuses `CPUWeight=idle`: the wrap
+        // keeps everything else.
+        let no_idle = ScopeMode::probe(None, None, |argv| !argv.iter().any(|arg| arg == "CPUWeight=idle"));
+        assert_eq!(
+            no_idle,
+            ScopeMode::Systemd { user: true, oom_policy: true, no_expand: true, background: false, memory_max: None }
+        );
         // No systemd at all, or the switch is off: the plain spawn.
         if !is_root() {
             assert_eq!(ScopeMode::probe(None, None, |_| false), ScopeMode::Off);
@@ -249,9 +316,15 @@ mod tests {
     fn a_wrap_that_could_expand_is_never_taken() {
         let has_flag = |argv: &[String]| argv.iter().any(|arg| arg == "--expand-environment=no");
         let expanding = ScopeMode::probe(None, None, |argv| has_flag(argv));
-        assert_eq!(expanding, ScopeMode::Systemd { user: true, oom_policy: true, no_expand: true, memory_max: None });
+        assert_eq!(
+            expanding,
+            ScopeMode::Systemd { user: true, oom_policy: true, no_expand: true, background: true, memory_max: None }
+        );
         let ancient = ScopeMode::probe(None, None, |argv| !has_flag(argv));
-        assert_eq!(ancient, ScopeMode::Systemd { user: true, oom_policy: true, no_expand: false, memory_max: None });
+        assert_eq!(
+            ancient,
+            ScopeMode::Systemd { user: true, oom_policy: true, no_expand: false, background: true, memory_max: None }
+        );
         // The flagged probes time out on an expanding systemd: the bare ones
         // exit 1 by themselves, and the host runs the plain spawn.
         if !is_root() {

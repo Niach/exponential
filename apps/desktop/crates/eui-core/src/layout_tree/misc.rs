@@ -1,5 +1,6 @@
 //! CodeBlock (header with title + copy, one row per line: gutter number and
-//! the line's tokens from the core tokenizer) and Chart (one measured leaf
+//! the line's tokens from the core tokenizer; #EXP-1804 `follow` marks the
+//! body a bottom-following scroll container) and Chart (one measured leaf
 //! carrying the numbers every painter shares: extent, nice ticks, the series
 //! colour tokens).
 
@@ -64,7 +65,10 @@ impl Builder<'_, '_> {
             body_style["maxHeight"] = json!(max as f32 * line_height);
             body_style["overflowY"] = json!("auto");
         }
-        let body = self.part(&owner, "body", "Box", NodeKind::Container, body_style, json!({}));
+        // #EXP-1804: `follow` = the scrolling body sticks to its bottom as
+        // the code grows (the pass), until the person scrolls up (`scroll_to`).
+        let body_props = if bool_prop(&owner.props, "follow") { json!({"follow": true}) } else { json!({}) };
+        let body = self.part(&owner, "body", "Box", NodeKind::Container, body_style, body_props);
         self.nodes[body as usize].part_query = None;
         let lines = tokenize_code(&code, &language);
         let digits = lines.len().to_string().len();

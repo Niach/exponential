@@ -1,12 +1,12 @@
 // EXP-1604: Motion, a thin wrapper over the shared web painter
-// (`MotionView`, @exponential_app/eui/web: source, slots, clock, Canvas2D).
+// (`MotionView`, @exponential_app/eui/web/motion: source, slots, clock, Canvas2D).
 // The box: the node's style, else the composition's px size shrinking to
 // the width (`motionBoxStyle`); the canvas fills it. M4 (EXP-1605): the
 // view's events (press, hover, visible, complete, state) reach the node's
 // `on` through `emit`; with `on.press` it is a button.
 
 import { useEffect, useLayoutEffect, useRef } from "react"
-import { MotionView, motionA11y, motionBoxStyle, motionDeclaredSize } from "@exponential_app/eui/web"
+import { MotionView, motionA11y, motionBoxStyle, motionDeclaredSize } from "@exponential_app/eui/web/motion"
 import { useSurfaceContext } from "../context"
 import type { NativeProps } from "../node-view"
 import { mergeStyle } from "../node-view"

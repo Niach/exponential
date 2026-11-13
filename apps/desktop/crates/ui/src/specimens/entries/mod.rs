@@ -11,6 +11,7 @@ pub(crate) mod chat_list;
 pub(crate) mod chat_menus;
 pub(crate) mod chat_selection;
 pub(crate) mod chat_transcript;
+pub(crate) mod ci_run;
 pub(crate) mod code_block;
 pub(crate) mod device_readiness;
 pub(crate) mod dock_card;
@@ -24,7 +25,10 @@ pub(crate) mod plan_card;
 pub(crate) mod plan_page;
 pub(crate) mod pr_checks;
 pub(crate) mod pr_row;
+pub(crate) mod repo_ci;
+pub(crate) mod repo_runs;
 pub(crate) mod results_tab;
+pub(crate) mod runner_settings;
 pub(crate) mod schedule_picker;
 pub(crate) mod sealed_locked;
 pub(crate) mod session_row;
@@ -61,6 +65,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: chat_menus::ID, owner: chat_menus::OWNER, render: chat_menus::render },
     Entry { id: chat_selection::ID, owner: chat_selection::OWNER, render: chat_selection::render },
     Entry { id: chat_transcript::ID, owner: chat_transcript::OWNER, render: chat_transcript::render },
+    Entry { id: ci_run::ID, owner: ci_run::OWNER, render: ci_run::render },
     Entry { id: code_block::ID, owner: code_block::OWNER, render: code_block::render },
     Entry { id: device_readiness::ID, owner: device_readiness::OWNER, render: device_readiness::render },
     Entry { id: dock_card::ID, owner: dock_card::OWNER, render: dock_card::render },
@@ -74,7 +79,10 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: plan_page::ID, owner: plan_page::OWNER, render: plan_page::render },
     Entry { id: pr_checks::ID, owner: pr_checks::OWNER, render: pr_checks::render },
     Entry { id: pr_row::ID, owner: pr_row::OWNER, render: pr_row::render },
+    Entry { id: repo_ci::ID, owner: repo_ci::OWNER, render: repo_ci::render },
+    Entry { id: repo_runs::ID, owner: repo_runs::OWNER, render: repo_runs::render },
     Entry { id: results_tab::ID, owner: results_tab::OWNER, render: results_tab::render },
+    Entry { id: runner_settings::ID, owner: runner_settings::OWNER, render: runner_settings::render },
     Entry { id: schedule_picker::ID, owner: schedule_picker::OWNER, render: schedule_picker::render },
     Entry { id: sealed_locked::ID, owner: sealed_locked::OWNER, render: sealed_locked::render },
     Entry { id: session_row::ID, owner: session_row::OWNER, render: session_row::render },

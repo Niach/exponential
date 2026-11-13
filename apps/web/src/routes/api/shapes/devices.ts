@@ -50,6 +50,8 @@ const DEVICE_COLUMNS = [
   `shared_team_ids`,
   `is_default`,
   `update_requested_at`,
+  // #EXP-1617: the CI runner settings (NULL = not a runner).
+  `runner`,
   `created_at`,
   `updated_at`,
 ]

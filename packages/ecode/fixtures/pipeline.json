@@ -1,0 +1,1030 @@
+{
+  "$comment": "THE PIPELINE FILE `.exponential/ci.json` (#EXP-1613, #EXP-1617; src/pipeline.ts, ecode-core pipeline.rs). SHAPE: {version: 1, name?, on: {push?: {branches?}, pull_request?: {branches? (the BASE branch)}, tag?: {tags?}, merge_train?: {}, manual?: {}}, env?: {NAME: value}, secrets?: [NAME], jobs: {<key>: {name?, runsOn: [label], needs?: [key], timeoutMin?, env?, secrets?, paths?: [glob], matrix?: {<key>: [value]}, steps: [{name, run, env?, timeoutMin?, continueOnError?, workingDirectory?}]}}, required?: [check name]}. Names: a job key `^[a-z][a-z0-9_-]{0,63}$`, env and secret names `^[A-Z_][A-Z0-9_]*$`, matrix keys `^[a-z][a-z0-9_]*$`, labels per contract runner (lowercase). `validate` returns EVERY error as {path (JSON pointer), code}, sorted by path then code; codes: unknown_field, missing, type, invalid_value, invalid_name, invalid_label, invalid_glob, unknown_need, unknown_required, cycle (one, at /jobs, only when every need names a job), limit (contract pipeline: expanded jobs at /jobs, steps, matrix combinations). `glob`: `**` = any run of path segments (`**/` may match none), `*` = any run of characters but `/`, `?` = one character but `/`. `plan` (a VALID file + a trigger → null when the trigger does not fire): jobs ordered by `needs` (the first ready job in file order each time), each expanded over its matrix (first key outermost) into one CHECK named `name (v1, v2)`; `needs` = the check names of every expansion of each needed job; `env` = top env < job env < MATRIX_<KEY> (sorted); steps carry their merged env; `secrets` = top ∪ job, sorted; `skip`: `fork` for a pull_request from outside the team (never runs), else `paths` when changed files are known and none matches the job's `paths`. GitHub workflow YAML is read into this same shape (#EXP-1617).",
+  "glob": [
+    {
+      "pattern": "apps/web/**",
+      "path": "apps/web/src/a.ts",
+      "match": true
+    },
+    {
+      "pattern": "apps/web/**",
+      "path": "apps/webx/a.ts",
+      "match": false
+    },
+    {
+      "pattern": "**/*.md",
+      "path": "README.md",
+      "match": true
+    },
+    {
+      "pattern": "**/*.md",
+      "path": "docs/spec/a.md",
+      "match": true
+    },
+    {
+      "pattern": "*.md",
+      "path": "docs/a.md",
+      "match": false
+    },
+    {
+      "pattern": "packages/*/src/*.ts",
+      "path": "packages/ecode/src/forge.ts",
+      "match": true
+    },
+    {
+      "pattern": "packages/*/src/*.ts",
+      "path": "packages/ecode/src/sub/forge.ts",
+      "match": false
+    },
+    {
+      "pattern": "v?.*",
+      "path": "v1.2",
+      "match": true
+    },
+    {
+      "pattern": "v?.*",
+      "path": "v10.2",
+      "match": false
+    },
+    {
+      "pattern": "main",
+      "path": "main",
+      "match": true
+    },
+    {
+      "pattern": "release/**",
+      "path": "release/2026/11",
+      "match": true
+    },
+    {
+      "pattern": "**",
+      "path": "anything/at/all",
+      "match": true
+    }
+  ],
+  "validate": [
+    {
+      "name": "a minimal valid file",
+      "file": {
+        "version": 1,
+        "on": {
+          "pull_request": {}
+        },
+        "jobs": {
+          "test": {
+            "runsOn": [
+              "linux"
+            ],
+            "steps": [
+              {
+                "name": "Test",
+                "run": "bun test"
+              }
+            ]
+          }
+        }
+      },
+      "errors": []
+    },
+    {
+      "name": "a top-level $comment is allowed (JSON has no comments: why a leg is missing)",
+      "file": {
+        "$comment": "web unit runs on Actions only",
+        "version": 1,
+        "on": {
+          "pull_request": {}
+        },
+        "jobs": {
+          "test": {
+            "runsOn": [
+              "linux"
+            ],
+            "steps": [
+              {
+                "name": "Test",
+                "run": "bun test"
+              }
+            ]
+          }
+        }
+      },
+      "errors": []
+    },
+    {
+      "name": "not an object",
+      "file": [
+        "jobs"
+      ],
+      "errors": [
+        {
+          "path": "",
+          "code": "type"
+        }
+      ]
+    },
+    {
+      "name": "missing version, on and jobs; an unknown top-level field",
+      "file": {
+        "name": "ci",
+        "triggers": {}
+      },
+      "errors": [
+        {
+          "path": "/jobs",
+          "code": "missing"
+        },
+        {
+          "path": "/on",
+          "code": "missing"
+        },
+        {
+          "path": "/triggers",
+          "code": "unknown_field"
+        },
+        {
+          "path": "/version",
+          "code": "missing"
+        }
+      ]
+    },
+    {
+      "name": "wrong types and values at the top",
+      "file": {
+        "version": 2,
+        "name": "",
+        "on": {
+          "push": {
+            "branches": [
+              "main",
+              "/abs",
+              3
+            ]
+          },
+          "schedule": {},
+          "tag": {
+            "branches": []
+          }
+        },
+        "env": {
+          "lower": "x",
+          "OK": 1
+        },
+        "secrets": [
+          "TOKEN",
+          "bad-name"
+        ],
+        "jobs": {}
+      },
+      "errors": [
+        {
+          "path": "/env/OK",
+          "code": "type"
+        },
+        {
+          "path": "/env/lower",
+          "code": "invalid_name"
+        },
+        {
+          "path": "/jobs",
+          "code": "invalid_value"
+        },
+        {
+          "path": "/name",
+          "code": "invalid_value"
+        },
+        {
+          "path": "/on/push/branches/1",
+          "code": "invalid_glob"
+        },
+        {
+          "path": "/on/push/branches/2",
+          "code": "type"
+        },
+        {
+          "path": "/on/schedule",
+          "code": "unknown_field"
+        },
+        {
+          "path": "/on/tag/branches",
+          "code": "unknown_field"
+        },
+        {
+          "path": "/secrets/1",
+          "code": "invalid_name"
+        },
+        {
+          "path": "/version",
+          "code": "invalid_value"
+        }
+      ]
+    },
+    {
+      "name": "job errors: key, labels, needs, timeout, paths, matrix, steps",
+      "file": {
+        "version": 1,
+        "on": {
+          "manual": {}
+        },
+        "jobs": {
+          "Build": {
+            "runsOn": [],
+            "steps": []
+          },
+          "test": {
+            "runsOn": [
+              "Linux",
+              "x64"
+            ],
+            "needs": [
+              "nope"
+            ],
+            "timeoutMin": 0,
+            "paths": [],
+            "matrix": {
+              "Shard": [],
+              "os": "linux"
+            },
+            "steps": [
+              {
+                "run": "x",
+                "extra": true
+              },
+              {
+                "name": "ok",
+                "run": "",
+                "continueOnError": "yes",
+                "workingDirectory": "../up"
+              },
+              "step"
+            ],
+            "image": "ubuntu"
+          }
+        },
+        "required": [
+          "test",
+          7
+        ]
+      },
+      "errors": [
+        {
+          "path": "/jobs/Build",
+          "code": "invalid_name"
+        },
+        {
+          "path": "/jobs/Build/runsOn",
+          "code": "invalid_value"
+        },
+        {
+          "path": "/jobs/Build/steps",
+          "code": "invalid_value"
+        },
+        {
+          "path": "/jobs/test/image",
+          "code": "unknown_field"
+        },
+        {
+          "path": "/jobs/test/matrix/Shard",
+          "code": "invalid_name"
+        },
+        {
+          "path": "/jobs/test/matrix/Shard",
+          "code": "invalid_value"
+        },
+        {
+          "path": "/jobs/test/matrix/os",
+          "code": "type"
+        },
+        {
+          "path": "/jobs/test/needs/0",
+          "code": "unknown_need"
+        },
+        {
+          "path": "/jobs/test/paths",
+          "code": "invalid_value"
+        },
+        {
+          "path": "/jobs/test/runsOn/0",
+          "code": "invalid_label"
+        },
+        {
+          "path": "/jobs/test/steps/0/extra",
+          "code": "unknown_field"
+        },
+        {
+          "path": "/jobs/test/steps/0/name",
+          "code": "missing"
+        },
+        {
+          "path": "/jobs/test/steps/1/continueOnError",
+          "code": "type"
+        },
+        {
+          "path": "/jobs/test/steps/1/run",
+          "code": "invalid_value"
+        },
+        {
+          "path": "/jobs/test/steps/1/workingDirectory",
+          "code": "invalid_value"
+        },
+        {
+          "path": "/jobs/test/steps/2",
+          "code": "type"
+        },
+        {
+          "path": "/jobs/test/timeoutMin",
+          "code": "invalid_value"
+        },
+        {
+          "path": "/required/1",
+          "code": "type"
+        }
+      ]
+    },
+    {
+      "name": "a needs cycle",
+      "file": {
+        "version": 1,
+        "on": {
+          "push": {}
+        },
+        "jobs": {
+          "a": {
+            "runsOn": [
+              "linux"
+            ],
+            "needs": [
+              "b"
+            ],
+            "steps": [
+              {
+                "name": "a",
+                "run": "a"
+              }
+            ]
+          },
+          "b": {
+            "runsOn": [
+              "linux"
+            ],
+            "needs": [
+              "a"
+            ],
+            "steps": [
+              {
+                "name": "b",
+                "run": "b"
+              }
+            ]
+          }
+        }
+      },
+      "errors": [
+        {
+          "path": "/jobs",
+          "code": "cycle"
+        }
+      ]
+    },
+    {
+      "name": "required names a matrix check; an unknown one is reported",
+      "file": {
+        "version": 1,
+        "on": {
+          "pull_request": {}
+        },
+        "jobs": {
+          "web": {
+            "name": "web tests",
+            "runsOn": [
+              "linux"
+            ],
+            "matrix": {
+              "shard": [
+                "1",
+                "2"
+              ]
+            },
+            "steps": [
+              {
+                "name": "t",
+                "run": "t"
+              }
+            ]
+          }
+        },
+        "required": [
+          "web tests (1)",
+          "web tests (2)",
+          "web tests"
+        ]
+      },
+      "errors": [
+        {
+          "path": "/required/2",
+          "code": "unknown_required"
+        }
+      ]
+    },
+    {
+      "name": "too many matrix combinations",
+      "file": {
+        "version": 1,
+        "on": {
+          "manual": {}
+        },
+        "jobs": {
+          "big": {
+            "runsOn": [
+              "linux"
+            ],
+            "matrix": {
+              "a": [
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6"
+              ],
+              "b": [
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6"
+              ]
+            },
+            "steps": [
+              {
+                "name": "s",
+                "run": "s"
+              }
+            ]
+          }
+        }
+      },
+      "errors": [
+        {
+          "path": "/jobs/big/matrix",
+          "code": "limit"
+        }
+      ]
+    },
+    {
+      "name": "a need is one of the file's own jobs (never an inherited name)",
+      "file": {
+        "version": 1,
+        "on": {
+          "manual": {}
+        },
+        "jobs": {
+          "a": {
+            "runsOn": [
+              "linux"
+            ],
+            "needs": [
+              "constructor"
+            ],
+            "steps": [
+              {
+                "name": "a",
+                "run": "a"
+              }
+            ]
+          }
+        }
+      },
+      "errors": [
+        {
+          "path": "/jobs/a/needs/0",
+          "code": "unknown_need"
+        }
+      ]
+    }
+  ],
+  "plan": [
+    {
+      "name": "a pull_request on main plans every job in needs order with the matrix expanded",
+      "file": {
+        "version": 1,
+        "name": "gate",
+        "on": {
+          "pull_request": {
+            "branches": [
+              "main"
+            ]
+          },
+          "push": {
+            "branches": [
+              "main"
+            ]
+          }
+        },
+        "env": {
+          "CI": "true",
+          "LEVEL": "top"
+        },
+        "secrets": [
+          "CARGO_TOKEN"
+        ],
+        "jobs": {
+          "summary": {
+            "runsOn": [
+              "linux"
+            ],
+            "needs": [
+              "web",
+              "typecheck"
+            ],
+            "steps": [
+              {
+                "name": "Sum",
+                "run": "echo ok"
+              }
+            ]
+          },
+          "web": {
+            "name": "web tests",
+            "runsOn": [
+              "linux",
+              "x64"
+            ],
+            "needs": [
+              "typecheck"
+            ],
+            "timeoutMin": 20,
+            "env": {
+              "LEVEL": "job"
+            },
+            "secrets": [
+              "S3_KEY",
+              "CARGO_TOKEN"
+            ],
+            "matrix": {
+              "shard": [
+                "1",
+                "2"
+              ]
+            },
+            "steps": [
+              {
+                "name": "Test",
+                "run": "bun run test --shard $MATRIX_SHARD/2",
+                "env": {
+                  "LEVEL": "step"
+                },
+                "timeoutMin": 15,
+                "continueOnError": true,
+                "workingDirectory": "apps/web"
+              }
+            ]
+          },
+          "typecheck": {
+            "runsOn": [
+              "linux"
+            ],
+            "steps": [
+              {
+                "name": "Typecheck",
+                "run": "bun run typecheck"
+              }
+            ]
+          }
+        },
+        "required": [
+          "summary"
+        ]
+      },
+      "trigger": {
+        "kind": "pull_request",
+        "base": "main"
+      },
+      "plan": {
+        "name": "gate",
+        "jobs": [
+          {
+            "check": "typecheck",
+            "job": "typecheck",
+            "matrix": {},
+            "runsOn": [
+              "linux"
+            ],
+            "needs": [],
+            "timeoutMin": 60,
+            "env": {
+              "CI": "true",
+              "LEVEL": "top"
+            },
+            "secrets": [
+              "CARGO_TOKEN"
+            ],
+            "skip": null,
+            "steps": [
+              {
+                "name": "Typecheck",
+                "run": "bun run typecheck",
+                "env": {
+                  "CI": "true",
+                  "LEVEL": "top"
+                },
+                "timeoutMin": null,
+                "continueOnError": false,
+                "workingDirectory": null
+              }
+            ]
+          },
+          {
+            "check": "web tests (1)",
+            "job": "web",
+            "matrix": {
+              "shard": "1"
+            },
+            "runsOn": [
+              "linux",
+              "x64"
+            ],
+            "needs": [
+              "typecheck"
+            ],
+            "timeoutMin": 20,
+            "env": {
+              "CI": "true",
+              "LEVEL": "job",
+              "MATRIX_SHARD": "1"
+            },
+            "secrets": [
+              "CARGO_TOKEN",
+              "S3_KEY"
+            ],
+            "skip": null,
+            "steps": [
+              {
+                "name": "Test",
+                "run": "bun run test --shard $MATRIX_SHARD/2",
+                "env": {
+                  "CI": "true",
+                  "LEVEL": "step",
+                  "MATRIX_SHARD": "1"
+                },
+                "timeoutMin": 15,
+                "continueOnError": true,
+                "workingDirectory": "apps/web"
+              }
+            ]
+          },
+          {
+            "check": "web tests (2)",
+            "job": "web",
+            "matrix": {
+              "shard": "2"
+            },
+            "runsOn": [
+              "linux",
+              "x64"
+            ],
+            "needs": [
+              "typecheck"
+            ],
+            "timeoutMin": 20,
+            "env": {
+              "CI": "true",
+              "LEVEL": "job",
+              "MATRIX_SHARD": "2"
+            },
+            "secrets": [
+              "CARGO_TOKEN",
+              "S3_KEY"
+            ],
+            "skip": null,
+            "steps": [
+              {
+                "name": "Test",
+                "run": "bun run test --shard $MATRIX_SHARD/2",
+                "env": {
+                  "CI": "true",
+                  "LEVEL": "step",
+                  "MATRIX_SHARD": "2"
+                },
+                "timeoutMin": 15,
+                "continueOnError": true,
+                "workingDirectory": "apps/web"
+              }
+            ]
+          },
+          {
+            "check": "summary",
+            "job": "summary",
+            "matrix": {},
+            "runsOn": [
+              "linux"
+            ],
+            "needs": [
+              "web tests (1)",
+              "web tests (2)",
+              "typecheck"
+            ],
+            "timeoutMin": 60,
+            "env": {
+              "CI": "true",
+              "LEVEL": "top"
+            },
+            "secrets": [
+              "CARGO_TOKEN"
+            ],
+            "skip": null,
+            "steps": [
+              {
+                "name": "Sum",
+                "run": "echo ok",
+                "env": {
+                  "CI": "true",
+                  "LEVEL": "top"
+                },
+                "timeoutMin": null,
+                "continueOnError": false,
+                "workingDirectory": null
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "a pull_request onto another base does not fire",
+      "file": {
+        "version": 1,
+        "on": {
+          "pull_request": {
+            "branches": [
+              "main"
+            ]
+          }
+        },
+        "jobs": {
+          "t": {
+            "runsOn": [
+              "linux"
+            ],
+            "steps": [
+              {
+                "name": "t",
+                "run": "t"
+              }
+            ]
+          }
+        }
+      },
+      "trigger": {
+        "kind": "pull_request",
+        "base": "exp/session-1"
+      },
+      "plan": null
+    },
+    {
+      "name": "a trigger the file does not name does not fire",
+      "file": {
+        "version": 1,
+        "on": {
+          "pull_request": {}
+        },
+        "jobs": {
+          "t": {
+            "runsOn": [
+              "linux"
+            ],
+            "steps": [
+              {
+                "name": "t",
+                "run": "t"
+              }
+            ]
+          }
+        }
+      },
+      "trigger": {
+        "kind": "push",
+        "branch": "main"
+      },
+      "plan": null
+    },
+    {
+      "name": "paths skip a job when no changed file matches",
+      "file": {
+        "version": 1,
+        "on": {
+          "pull_request": {}
+        },
+        "jobs": {
+          "web": {
+            "runsOn": [
+              "linux"
+            ],
+            "paths": [
+              "apps/web/**",
+              "packages/**"
+            ],
+            "steps": [
+              {
+                "name": "w",
+                "run": "w"
+              }
+            ]
+          },
+          "desktop": {
+            "runsOn": [
+              "linux"
+            ],
+            "paths": [
+              "apps/desktop/**"
+            ],
+            "steps": [
+              {
+                "name": "d",
+                "run": "d"
+              }
+            ]
+          }
+        }
+      },
+      "trigger": {
+        "kind": "pull_request",
+        "base": "main",
+        "changedFiles": [
+          "apps/web/src/a.ts",
+          "README.md"
+        ]
+      },
+      "plan": {
+        "name": "ci",
+        "jobs": [
+          {
+            "check": "web",
+            "job": "web",
+            "matrix": {},
+            "runsOn": [
+              "linux"
+            ],
+            "needs": [],
+            "timeoutMin": 60,
+            "env": {},
+            "secrets": [],
+            "skip": null,
+            "steps": [
+              {
+                "name": "w",
+                "run": "w",
+                "env": {},
+                "timeoutMin": null,
+                "continueOnError": false,
+                "workingDirectory": null
+              }
+            ]
+          },
+          {
+            "check": "desktop",
+            "job": "desktop",
+            "matrix": {},
+            "runsOn": [
+              "linux"
+            ],
+            "needs": [],
+            "timeoutMin": 60,
+            "env": {},
+            "secrets": [],
+            "skip": "paths",
+            "steps": [
+              {
+                "name": "d",
+                "run": "d",
+                "env": {},
+                "timeoutMin": null,
+                "continueOnError": false,
+                "workingDirectory": null
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "a fork PR never runs",
+      "file": {
+        "version": 1,
+        "on": {
+          "pull_request": {}
+        },
+        "jobs": {
+          "t": {
+            "runsOn": [
+              "linux"
+            ],
+            "paths": [
+              "src/**"
+            ],
+            "steps": [
+              {
+                "name": "t",
+                "run": "t"
+              }
+            ]
+          }
+        }
+      },
+      "trigger": {
+        "kind": "pull_request",
+        "base": "main",
+        "fork": true,
+        "changedFiles": [
+          "README.md"
+        ]
+      },
+      "plan": {
+        "name": "ci",
+        "jobs": [
+          {
+            "check": "t",
+            "job": "t",
+            "matrix": {},
+            "runsOn": [
+              "linux"
+            ],
+            "needs": [],
+            "timeoutMin": 60,
+            "env": {},
+            "secrets": [],
+            "skip": "fork",
+            "steps": [
+              {
+                "name": "t",
+                "run": "t",
+                "env": {},
+                "timeoutMin": null,
+                "continueOnError": false,
+                "workingDirectory": null
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "a tag filter",
+      "file": {
+        "version": 1,
+        "on": {
+          "tag": {
+            "tags": [
+              "ecode-v*"
+            ]
+          }
+        },
+        "jobs": {
+          "release": {
+            "runsOn": [
+              "linux"
+            ],
+            "steps": [
+              {
+                "name": "r",
+                "run": "r"
+              }
+            ]
+          }
+        }
+      },
+      "trigger": {
+        "kind": "tag",
+        "tag": "ecode-v0.1.0"
+      },
+      "plan": {
+        "name": "ci",
+        "jobs": [
+          {
+            "check": "release",
+            "job": "release",
+            "matrix": {},
+            "runsOn": [
+              "linux"
+            ],
+            "needs": [],
+            "timeoutMin": 60,
+            "env": {},
+            "secrets": [],
+            "skip": null,
+            "steps": [
+              {
+                "name": "r",
+                "run": "r",
+                "env": {},
+                "timeoutMin": null,
+                "continueOnError": false,
+                "workingDirectory": null
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

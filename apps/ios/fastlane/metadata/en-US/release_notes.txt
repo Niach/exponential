@@ -1,3 +1,14 @@
+- A smaller download: the app ships one native library instead of three
+- Notifications clear when you read them on another device, and show as a short notice while the app is open
+- Sent messages show delivery ticks
+- Agent replies span the full column on phones
+- Shared items land in the team you pick
+- What you type in a composer stays as a draft, on every device
+- Notification and deep links open right at their card
+- Markdown tables fit their columns
+- A session's to-do sheet shows its title once
+- Question and plan cards stay next to the step that posted them
+- Chats with many issue links no longer freeze while syncing
 - Deleted issues go to a trash and come back with Restore
 - Settings › Boards lists the deleted issues
 - Large chats open instantly from what was stored last time

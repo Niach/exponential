@@ -374,6 +374,9 @@ pub(crate) struct ChatScreenView {
     /// The team the page is scoped to; a switch resets every pick.
     team_id: Option<String>,
     input: Entity<TextareaState>,
+    /// #FEED-219: the team's synced New chat draft (`newChat:<teamId>`,
+    /// the page and the start dialog share it).
+    draft: crate::composer_drafts::DraftField,
     /// The hint the field currently shows (see [`placeholder_for_subject`]).
     placeholder: SharedString,
     /// EXP-790: the completion overlay (`@` / `#` / `:`) over `input`; the
@@ -501,6 +504,9 @@ impl ChatScreenView {
                     // The blocker is a function of the draft, the `/`
                     // menu too.
                     InputEvent::Change => {
+                        // #FEED-219: the person's edit, written synced.
+                        let text = this.input.read(cx).value().to_string();
+                        this.draft.edited(&text, cx);
                         this.refresh_slash(cx);
                         cx.notify();
                     }
@@ -508,6 +514,8 @@ impl ChatScreenView {
                 },
             ),
             cx.observe(&nav, |_, _, cx| cx.notify()),
+            // #FEED-219: the view going away writes what is pending.
+            cx.on_release(|this, cx| this.draft.leave(cx)),
         ];
         let collections = Store::global(cx).collections();
         let synced_devices = collections.devices.clone();
@@ -515,6 +523,15 @@ impl ChatScreenView {
         let synced_sessions = collections.sessions.clone();
         let synced_worktrees = collections.device_worktrees.clone();
         let synced_agents = collections.agents.clone();
+        let synced_drafts = collections.composer_drafts.clone();
+        // #FEED-219: an untouched field follows the team's synced draft.
+        subscriptions.push(cx.observe_in(&synced_drafts, window, |this: &mut Self, _, window, cx| {
+            this.draft.reconcile(cx);
+            if crate::composer_drafts::apply_follow(&this.draft, &this.input, window, cx) {
+                this.refresh_slash(cx);
+                cx.notify();
+            }
+        }));
         let steer_config = queries::steer_config(cx);
         subscriptions.push(cx.observe_in(&steer_config, window, |this: &mut Self, _, window, cx| {
             this.settle_device(window, cx);
@@ -557,6 +574,7 @@ impl ChatScreenView {
             presentation: Presentation::Page,
             dialog_seed: None,
             team_id: None,
+            draft: Default::default(),
             input,
             placeholder: CHAT_PLACEHOLDER.into(),
             mention,
@@ -798,6 +816,13 @@ impl ChatScreenView {
             return;
         }
         self.team_id = team_id.clone();
+        // #FEED-219: each team keeps its own New chat draft.
+        let target = team_id
+            .clone()
+            .map(|id| domain::composer_draft::Target::new(domain::composer_draft::Kind::NewChat, id));
+        if self.draft.retarget(target, team_id.clone(), cx) {
+            crate::composer_drafts::apply_follow(&self.draft, &self.input, window, cx);
+        }
         self.subject = Subject::None;
         // EXP-1551 (DEV-ONLY, `EXP_DEV_COMPOSER_MENU=temporary`): the page
         // photographs its "+" menu for a Temporary session.
@@ -1078,6 +1103,7 @@ impl ChatScreenView {
             self.select_action(prompt.id, cx);
             self.input
                 .update(cx, |state, cx| state.set_value("", window, cx));
+            self.draft.edited("", cx);
         }
         cx.notify();
     }
@@ -1986,6 +2012,9 @@ impl ChatScreenView {
     /// clears; a dialog composer closes itself.
     fn after_started(&mut self, sent: &ComposerContent, window: &mut Window, cx: &mut gpui::Context<Self>) {
         composer_images::settle_sent(&self.input, &mut self.images, sent, window, cx);
+        // #FEED-219: the field the send leaves is written at once.
+        let left = self.input.read(cx).value().to_string();
+        self.draft.write_now(&left, cx);
         self.send_epoch += 1;
         self.notice = None;
         self.clear_subject(cx);

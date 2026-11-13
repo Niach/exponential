@@ -1,0 +1,2112 @@
+{
+ "$comment": "#EXP-1804 THE CI RUN PAGE AND RUNNER SECTION AS genUI TREES, the same on every platform (ci-run.json and runner-settings.json say what; this pins HOW, node for node). `ciRun`: inputs of the run page builder (`model` {run, jobs with runnerLabel and steps}, `selected` job id, `log` = the selected job's log as read so far (null = not read), `now`, `phone`, `busy` = the button in flight: rerun | cancel | null) → `tree` (A2UI nested nodes: id, component, props, children, slots, on). `runner`: the runner section (`client`, `caps`, `platform`, `settings`, `owner`, `refused` = the last labels entry was refused, `recent` true = the rows of runner-settings.json recentJobs[0]) → `tree`. `after`: a control event of the section (`event` id, `payload`) on `current` settings → the `settings` to write (null = nothing to write) and `refused`. The reference is apps/web/src/lib/ci-run-view.ts (its test replays this file); desktop, iOS and Android build the same trees. Regenerate after a deliberate change with `bun apps/web/scripts/bless-ci-run-view.ts` and review the diff.",
+ "ciRun": [
+  {
+   "name": "specimen phone",
+   "model": {
+    "run": {
+     "id": "r12",
+     "number": 12,
+     "name": "ci",
+     "state": "failure",
+     "error": null,
+     "sha": "8f3c2a9d1e7b4c6a5f0e9d8c7b6a5f4e3d2c1b0a",
+     "startedAt": "2026-11-13T10:00:00.000Z",
+     "completedAt": "2026-11-13T10:12:40.000Z"
+    },
+    "jobs": [
+     {
+      "id": "j1",
+      "check": "build",
+      "position": 0,
+      "status": "completed",
+      "conclusion": "success",
+      "reason": null,
+      "runnerLabel": "mint",
+      "startedAt": "2026-11-13T10:00:00.000Z",
+      "completedAt": "2026-11-13T10:04:10.000Z",
+      "steps": []
+     },
+     {
+      "id": "j2",
+      "check": "test (linux)",
+      "position": 1,
+      "status": "completed",
+      "conclusion": "failure",
+      "reason": null,
+      "runnerLabel": "mint",
+      "startedAt": "2026-11-13T10:04:15.000Z",
+      "completedAt": "2026-11-13T10:12:40.000Z",
+      "steps": [
+       {
+        "name": "Checkout",
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": 1794564255000,
+        "completedAt": 1794564259000
+       },
+       {
+        "name": "Install",
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": 1794564259000,
+        "completedAt": 1794564301000
+       },
+       {
+        "name": "Unit tests",
+        "status": "completed",
+        "conclusion": "failure",
+        "startedAt": 1794564301000,
+        "completedAt": 1794564760000
+       },
+       {
+        "name": "Upload report",
+        "status": "completed",
+        "conclusion": "skipped",
+        "startedAt": null,
+        "completedAt": null
+       }
+      ]
+     },
+     {
+      "id": "j3",
+      "check": "deploy",
+      "position": 2,
+      "status": "completed",
+      "conclusion": "skipped",
+      "reason": "needs",
+      "runnerLabel": null,
+      "startedAt": null,
+      "completedAt": "2026-11-13T10:12:40.000Z",
+      "steps": []
+     }
+    ]
+   },
+   "selected": "j2",
+   "log": "##[group]Checkout 8f3c2a9d1e7b\n##[endgroup]\n##[group]Install\nbun install v1.3.14\n1652 packages installed [611.00ms]\n##[endgroup]\n##[group]Unit tests\n\u001b[32m✓\u001b[0m src/lib/ci/state.test.ts (6 tests) 12ms\n\u001b[32m✓\u001b[0m src/lib/ci/logs.test.ts (3 tests) 9ms\n\u001b[31m×\u001b[0m src/lib/ci/train.test.ts > squashes each PR in order\n  AssertionError: expected 'conflict' to be 'composed'\n Test Files  1 failed | 2 passed (3)\n##[error]exited with code 1\n##[endgroup]\n",
+   "now": "2026-11-13T10:14:00.000Z",
+   "phone": true,
+   "busy": null,
+   "tree": {
+    "id": "ci-run",
+    "component": "Stack",
+    "props": {
+     "direction": "vertical",
+     "gap": "lg",
+     "align": "stretch"
+    },
+    "children": [
+     {
+      "id": "ci-run-title",
+      "component": "Stack",
+      "props": {
+       "direction": "vertical",
+       "gap": "xs",
+       "align": "stretch"
+      },
+      "children": [
+       {
+        "id": "ci-run-heading",
+        "component": "Heading",
+        "props": {
+         "text": "Run #12",
+         "level": "h2"
+        }
+       },
+       {
+        "id": "ci-run-name",
+        "component": "Text",
+        "props": {
+         "text": "ci",
+         "variant": "muted"
+        }
+       }
+      ]
+     },
+     {
+      "id": "ci-run-tiles",
+      "component": "Grid",
+      "props": {
+       "columns": 2,
+       "gap": "md"
+      },
+      "children": [
+       {
+        "id": "ci-run-tiles.0",
+        "component": "StatTile",
+        "props": {
+         "label": "Status",
+         "value": "Failed",
+         "tone": "danger",
+         "delta": "1 failed"
+        }
+       },
+       {
+        "id": "ci-run-tiles.1",
+        "component": "StatTile",
+        "props": {
+         "label": "Duration",
+         "value": "12m 40s",
+         "tone": "neutral"
+        }
+       },
+       {
+        "id": "ci-run-tiles.2",
+        "component": "StatTile",
+        "props": {
+         "label": "Runner",
+         "value": "mint",
+         "tone": "neutral"
+        }
+       },
+       {
+        "id": "ci-run-tiles.3",
+        "component": "StatTile",
+        "props": {
+         "label": "Commit",
+         "value": "8f3c2a9",
+         "tone": "neutral"
+        }
+       }
+      ]
+     },
+     {
+      "id": "ci-run-actions",
+      "component": "Stack",
+      "props": {
+       "direction": "horizontal",
+       "gap": "sm",
+       "align": "center"
+      },
+      "children": [
+       {
+        "id": "ci-run-rerun",
+        "component": "Button",
+        "props": {
+         "label": "Re-run failed",
+         "loading": false,
+         "disabled": false
+        },
+        "on": {
+         "press": {
+          "event": {
+           "name": "ci-rerun"
+          }
+         }
+        }
+       }
+      ]
+     },
+     {
+      "id": "ci-run-jobs",
+      "component": "Stack",
+      "props": {
+       "direction": "vertical",
+       "gap": "sm",
+       "align": "stretch"
+      },
+      "children": [
+       {
+        "id": "ci-run-job.j1",
+        "component": "Collapsible",
+        "props": {
+         "title": "build",
+         "open": false
+        },
+        "on": {
+         "change": {
+          "event": {
+           "name": "ci-select-job",
+           "context": {
+            "job": "j1"
+           }
+          }
+         }
+        },
+        "children": [
+         {
+          "id": "ci-run-detail.j1",
+          "component": "Stack",
+          "props": {
+           "direction": "vertical",
+           "gap": "md",
+           "align": "stretch"
+          },
+          "children": [
+           {
+            "id": "ci-run-log.j1",
+            "component": "Text",
+            "props": {
+             "text": "No log yet.",
+             "variant": "muted"
+            }
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "id": "ci-run-job.j2",
+        "component": "Collapsible",
+        "props": {
+         "title": "test (linux)",
+         "open": true
+        },
+        "on": {
+         "change": {
+          "event": {
+           "name": "ci-select-job",
+           "context": {
+            "job": "j2"
+           }
+          }
+         }
+        },
+        "children": [
+         {
+          "id": "ci-run-detail.j2",
+          "component": "Stack",
+          "props": {
+           "direction": "vertical",
+           "gap": "md",
+           "align": "stretch"
+          },
+          "children": [
+           {
+            "id": "ci-run-steps.j2",
+            "component": "Trace",
+            "children": [
+             {
+              "id": "ci-run-steps.j2.0",
+              "component": "TraceItem",
+              "props": {
+               "title": "Checkout",
+               "status": "done",
+               "description": "4s"
+              }
+             },
+             {
+              "id": "ci-run-steps.j2.1",
+              "component": "TraceItem",
+              "props": {
+               "title": "Install",
+               "status": "done",
+               "description": "42s"
+              }
+             },
+             {
+              "id": "ci-run-steps.j2.2",
+              "component": "TraceItem",
+              "props": {
+               "title": "Unit tests",
+               "status": "error",
+               "description": "7m 39s"
+              }
+             },
+             {
+              "id": "ci-run-steps.j2.3",
+              "component": "TraceItem",
+              "props": {
+               "title": "Upload report",
+               "status": "skipped"
+              }
+             }
+            ]
+           },
+           {
+            "id": "ci-run-log.j2",
+            "component": "CodeBlock",
+            "props": {
+             "code": "▸ Checkout 8f3c2a9d1e7b\n▸ Install\nbun install v1.3.14\n1652 packages installed [611.00ms]\n▸ Unit tests\n\u001b[32m✓\u001b[0m src/lib/ci/state.test.ts (6 tests) 12ms\n\u001b[32m✓\u001b[0m src/lib/ci/logs.test.ts (3 tests) 9ms\n\u001b[31m×\u001b[0m src/lib/ci/train.test.ts > squashes each PR in order\n  AssertionError: expected 'conflict' to be 'composed'\n Test Files  1 failed | 2 passed (3)\nError: exited with code 1",
+             "title": "Log",
+             "language": "ansi",
+             "lineNumbers": true,
+             "wrap": false,
+             "copyable": true,
+             "maxLines": 20,
+             "highlight": [
+              11
+             ],
+             "follow": false
+            }
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "id": "ci-run-job.j3",
+        "component": "Collapsible",
+        "props": {
+         "title": "deploy",
+         "open": false
+        },
+        "on": {
+         "change": {
+          "event": {
+           "name": "ci-select-job",
+           "context": {
+            "job": "j3"
+           }
+          }
+         }
+        },
+        "children": [
+         {
+          "id": "ci-run-detail.j3",
+          "component": "Stack",
+          "props": {
+           "direction": "vertical",
+           "gap": "md",
+           "align": "stretch"
+          },
+          "children": [
+           {
+            "id": "ci-run-log.j3",
+            "component": "Text",
+            "props": {
+             "text": "No log yet.",
+             "variant": "muted"
+            }
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "specimen wide",
+   "model": {
+    "run": {
+     "id": "r12",
+     "number": 12,
+     "name": "ci",
+     "state": "failure",
+     "error": null,
+     "sha": "8f3c2a9d1e7b4c6a5f0e9d8c7b6a5f4e3d2c1b0a",
+     "startedAt": "2026-11-13T10:00:00.000Z",
+     "completedAt": "2026-11-13T10:12:40.000Z"
+    },
+    "jobs": [
+     {
+      "id": "j1",
+      "check": "build",
+      "position": 0,
+      "status": "completed",
+      "conclusion": "success",
+      "reason": null,
+      "runnerLabel": "mint",
+      "startedAt": "2026-11-13T10:00:00.000Z",
+      "completedAt": "2026-11-13T10:04:10.000Z",
+      "steps": []
+     },
+     {
+      "id": "j2",
+      "check": "test (linux)",
+      "position": 1,
+      "status": "completed",
+      "conclusion": "failure",
+      "reason": null,
+      "runnerLabel": "mint",
+      "startedAt": "2026-11-13T10:04:15.000Z",
+      "completedAt": "2026-11-13T10:12:40.000Z",
+      "steps": [
+       {
+        "name": "Checkout",
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": 1794564255000,
+        "completedAt": 1794564259000
+       },
+       {
+        "name": "Install",
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": 1794564259000,
+        "completedAt": 1794564301000
+       },
+       {
+        "name": "Unit tests",
+        "status": "completed",
+        "conclusion": "failure",
+        "startedAt": 1794564301000,
+        "completedAt": 1794564760000
+       },
+       {
+        "name": "Upload report",
+        "status": "completed",
+        "conclusion": "skipped",
+        "startedAt": null,
+        "completedAt": null
+       }
+      ]
+     },
+     {
+      "id": "j3",
+      "check": "deploy",
+      "position": 2,
+      "status": "completed",
+      "conclusion": "skipped",
+      "reason": "needs",
+      "runnerLabel": null,
+      "startedAt": null,
+      "completedAt": "2026-11-13T10:12:40.000Z",
+      "steps": []
+     }
+    ]
+   },
+   "selected": "j2",
+   "log": "##[group]Checkout 8f3c2a9d1e7b\n##[endgroup]\n##[group]Install\nbun install v1.3.14\n1652 packages installed [611.00ms]\n##[endgroup]\n##[group]Unit tests\n\u001b[32m✓\u001b[0m src/lib/ci/state.test.ts (6 tests) 12ms\n\u001b[32m✓\u001b[0m src/lib/ci/logs.test.ts (3 tests) 9ms\n\u001b[31m×\u001b[0m src/lib/ci/train.test.ts > squashes each PR in order\n  AssertionError: expected 'conflict' to be 'composed'\n Test Files  1 failed | 2 passed (3)\n##[error]exited with code 1\n##[endgroup]\n",
+   "now": "2026-11-13T10:14:00.000Z",
+   "phone": false,
+   "busy": null,
+   "tree": {
+    "id": "ci-run",
+    "component": "Stack",
+    "props": {
+     "direction": "vertical",
+     "gap": "lg",
+     "align": "stretch"
+    },
+    "children": [
+     {
+      "id": "ci-run-title",
+      "component": "Stack",
+      "props": {
+       "direction": "vertical",
+       "gap": "xs",
+       "align": "stretch"
+      },
+      "children": [
+       {
+        "id": "ci-run-heading",
+        "component": "Heading",
+        "props": {
+         "text": "Run #12",
+         "level": "h2"
+        }
+       },
+       {
+        "id": "ci-run-name",
+        "component": "Text",
+        "props": {
+         "text": "ci",
+         "variant": "muted"
+        }
+       }
+      ]
+     },
+     {
+      "id": "ci-run-tiles",
+      "component": "Grid",
+      "props": {
+       "columns": 4,
+       "gap": "md"
+      },
+      "children": [
+       {
+        "id": "ci-run-tiles.0",
+        "component": "StatTile",
+        "props": {
+         "label": "Status",
+         "value": "Failed",
+         "tone": "danger",
+         "delta": "1 failed"
+        }
+       },
+       {
+        "id": "ci-run-tiles.1",
+        "component": "StatTile",
+        "props": {
+         "label": "Duration",
+         "value": "12m 40s",
+         "tone": "neutral"
+        }
+       },
+       {
+        "id": "ci-run-tiles.2",
+        "component": "StatTile",
+        "props": {
+         "label": "Runner",
+         "value": "mint",
+         "tone": "neutral"
+        }
+       },
+       {
+        "id": "ci-run-tiles.3",
+        "component": "StatTile",
+        "props": {
+         "label": "Commit",
+         "value": "8f3c2a9",
+         "tone": "neutral"
+        }
+       }
+      ]
+     },
+     {
+      "id": "ci-run-actions",
+      "component": "Stack",
+      "props": {
+       "direction": "horizontal",
+       "gap": "sm",
+       "align": "center"
+      },
+      "children": [
+       {
+        "id": "ci-run-rerun",
+        "component": "Button",
+        "props": {
+         "label": "Re-run failed",
+         "loading": false,
+         "disabled": false
+        },
+        "on": {
+         "press": {
+          "event": {
+           "name": "ci-rerun"
+          }
+         }
+        }
+       }
+      ]
+     },
+     {
+      "id": "ci-run-jobs",
+      "component": "Box",
+      "style": {
+       "display": "grid",
+       "gridTemplateColumns": "300px minmax(0, 1fr)",
+       "gap": "$spacing.lg",
+       "alignItems": "start"
+      },
+      "children": [
+       {
+        "id": "ci-run-jobs-list",
+        "component": "Box",
+        "style": {
+         "flexDirection": "column"
+        },
+        "children": [
+         {
+          "id": "ci-run-jobs-section",
+          "component": "Section",
+          "props": {
+           "title": "Jobs"
+          },
+          "children": [
+           {
+            "id": "ci-run-job.j1",
+            "component": "Row",
+            "props": {
+             "title": "build",
+             "meta": "4m 10s",
+             "selected": false,
+             "pressable": true
+            },
+            "slots": {
+             "leading": {
+              "id": "ci-run-job.j1.glyph",
+              "component": "Icon",
+              "props": {
+               "name": "ci-passed",
+               "tone": "success",
+               "size": "sm"
+              }
+             }
+            },
+            "on": {
+             "press": {
+              "event": {
+               "name": "ci-select-job",
+               "context": {
+                "job": "j1"
+               }
+              }
+             }
+            }
+           },
+           {
+            "id": "ci-run-job.j2",
+            "component": "Row",
+            "props": {
+             "title": "test (linux)",
+             "meta": "8m 25s",
+             "selected": true,
+             "pressable": true
+            },
+            "slots": {
+             "leading": {
+              "id": "ci-run-job.j2.glyph",
+              "component": "Icon",
+              "props": {
+               "name": "ci-failed",
+               "tone": "danger",
+               "size": "sm"
+              }
+             }
+            },
+            "on": {
+             "press": {
+              "event": {
+               "name": "ci-select-job",
+               "context": {
+                "job": "j2"
+               }
+              }
+             }
+            }
+           },
+           {
+            "id": "ci-run-job.j3",
+            "component": "Row",
+            "props": {
+             "title": "deploy",
+             "subtitle": "Skipped: a job it needs did not pass",
+             "selected": false,
+             "pressable": true
+            },
+            "slots": {
+             "leading": {
+              "id": "ci-run-job.j3.glyph",
+              "component": "Icon",
+              "props": {
+               "name": "ci-skipped",
+               "tone": "neutral",
+               "size": "sm"
+              }
+             }
+            },
+            "on": {
+             "press": {
+              "event": {
+               "name": "ci-select-job",
+               "context": {
+                "job": "j3"
+               }
+              }
+             }
+            }
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "id": "ci-run-detail",
+        "component": "Box",
+        "style": {
+         "minWidth": 0,
+         "flexDirection": "column"
+        },
+        "children": [
+         {
+          "id": "ci-run-detail.j2",
+          "component": "Stack",
+          "props": {
+           "direction": "vertical",
+           "gap": "md",
+           "align": "stretch"
+          },
+          "children": [
+           {
+            "id": "ci-run-steps.j2",
+            "component": "Trace",
+            "children": [
+             {
+              "id": "ci-run-steps.j2.0",
+              "component": "TraceItem",
+              "props": {
+               "title": "Checkout",
+               "status": "done",
+               "description": "4s"
+              }
+             },
+             {
+              "id": "ci-run-steps.j2.1",
+              "component": "TraceItem",
+              "props": {
+               "title": "Install",
+               "status": "done",
+               "description": "42s"
+              }
+             },
+             {
+              "id": "ci-run-steps.j2.2",
+              "component": "TraceItem",
+              "props": {
+               "title": "Unit tests",
+               "status": "error",
+               "description": "7m 39s"
+              }
+             },
+             {
+              "id": "ci-run-steps.j2.3",
+              "component": "TraceItem",
+              "props": {
+               "title": "Upload report",
+               "status": "skipped"
+              }
+             }
+            ]
+           },
+           {
+            "id": "ci-run-log.j2",
+            "component": "CodeBlock",
+            "props": {
+             "code": "▸ Checkout 8f3c2a9d1e7b\n▸ Install\nbun install v1.3.14\n1652 packages installed [611.00ms]\n▸ Unit tests\n\u001b[32m✓\u001b[0m src/lib/ci/state.test.ts (6 tests) 12ms\n\u001b[32m✓\u001b[0m src/lib/ci/logs.test.ts (3 tests) 9ms\n\u001b[31m×\u001b[0m src/lib/ci/train.test.ts > squashes each PR in order\n  AssertionError: expected 'conflict' to be 'composed'\n Test Files  1 failed | 2 passed (3)\nError: exited with code 1",
+             "title": "Log",
+             "language": "ansi",
+             "lineNumbers": true,
+             "wrap": false,
+             "copyable": true,
+             "maxLines": 32,
+             "highlight": [
+              11
+             ],
+             "follow": false
+            }
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "running, nothing read, cancelling",
+   "model": {
+    "run": {
+     "id": "r12",
+     "number": 12,
+     "name": "ci",
+     "state": "pending",
+     "error": null,
+     "sha": "8f3c2a9d1e7b4c6a5f0e9d8c7b6a5f4e3d2c1b0a",
+     "startedAt": "2026-11-13T10:00:00.000Z",
+     "completedAt": null
+    },
+    "jobs": [
+     {
+      "id": "j1",
+      "check": "build",
+      "position": 0,
+      "status": "completed",
+      "conclusion": "success",
+      "reason": null,
+      "runnerLabel": "mint",
+      "startedAt": "2026-11-13T10:00:00.000Z",
+      "completedAt": "2026-11-13T10:04:10.000Z",
+      "steps": []
+     },
+     {
+      "id": "j2",
+      "check": "test (linux)",
+      "position": 1,
+      "status": "in_progress",
+      "conclusion": null,
+      "reason": null,
+      "runnerLabel": "mint",
+      "startedAt": "2026-11-13T10:04:15.000Z",
+      "completedAt": null,
+      "steps": [
+       {
+        "name": "Checkout",
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": 1794564255000,
+        "completedAt": 1794564259000
+       },
+       {
+        "name": "Install",
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": 1794564259000,
+        "completedAt": 1794564301000
+       },
+       {
+        "name": "Unit tests",
+        "status": "completed",
+        "conclusion": "failure",
+        "startedAt": 1794564301000,
+        "completedAt": 1794564760000
+       },
+       {
+        "name": "Upload report",
+        "status": "completed",
+        "conclusion": "skipped",
+        "startedAt": null,
+        "completedAt": null
+       }
+      ]
+     },
+     {
+      "id": "j3",
+      "check": "deploy",
+      "position": 2,
+      "status": "completed",
+      "conclusion": "skipped",
+      "reason": "needs",
+      "runnerLabel": null,
+      "startedAt": null,
+      "completedAt": "2026-11-13T10:12:40.000Z",
+      "steps": []
+     }
+    ]
+   },
+   "selected": "j2",
+   "log": null,
+   "now": "2026-11-13T10:14:00.000Z",
+   "phone": true,
+   "busy": "cancel",
+   "tree": {
+    "id": "ci-run",
+    "component": "Stack",
+    "props": {
+     "direction": "vertical",
+     "gap": "lg",
+     "align": "stretch"
+    },
+    "children": [
+     {
+      "id": "ci-run-title",
+      "component": "Stack",
+      "props": {
+       "direction": "vertical",
+       "gap": "xs",
+       "align": "stretch"
+      },
+      "children": [
+       {
+        "id": "ci-run-heading",
+        "component": "Heading",
+        "props": {
+         "text": "Run #12",
+         "level": "h2"
+        }
+       },
+       {
+        "id": "ci-run-name",
+        "component": "Text",
+        "props": {
+         "text": "ci",
+         "variant": "muted"
+        }
+       }
+      ]
+     },
+     {
+      "id": "ci-run-tiles",
+      "component": "Grid",
+      "props": {
+       "columns": 2,
+       "gap": "md"
+      },
+      "children": [
+       {
+        "id": "ci-run-tiles.0",
+        "component": "StatTile",
+        "props": {
+         "label": "Status",
+         "value": "Running",
+         "tone": "primary"
+        }
+       },
+       {
+        "id": "ci-run-tiles.1",
+        "component": "StatTile",
+        "props": {
+         "label": "Duration",
+         "value": "14m 0s",
+         "tone": "neutral"
+        }
+       },
+       {
+        "id": "ci-run-tiles.2",
+        "component": "StatTile",
+        "props": {
+         "label": "Runner",
+         "value": "mint",
+         "tone": "neutral"
+        }
+       },
+       {
+        "id": "ci-run-tiles.3",
+        "component": "StatTile",
+        "props": {
+         "label": "Commit",
+         "value": "8f3c2a9",
+         "tone": "neutral"
+        }
+       }
+      ]
+     },
+     {
+      "id": "ci-run-actions",
+      "component": "Stack",
+      "props": {
+       "direction": "horizontal",
+       "gap": "sm",
+       "align": "center"
+      },
+      "children": [
+       {
+        "id": "ci-run-cancel",
+        "component": "Button",
+        "props": {
+         "label": "Cancel",
+         "variant": "destructive",
+         "loading": true,
+         "disabled": true
+        },
+        "on": {
+         "press": {
+          "event": {
+           "name": "ci-cancel"
+          }
+         }
+        }
+       }
+      ]
+     },
+     {
+      "id": "ci-run-jobs",
+      "component": "Stack",
+      "props": {
+       "direction": "vertical",
+       "gap": "sm",
+       "align": "stretch"
+      },
+      "children": [
+       {
+        "id": "ci-run-job.j1",
+        "component": "Collapsible",
+        "props": {
+         "title": "build",
+         "open": false
+        },
+        "on": {
+         "change": {
+          "event": {
+           "name": "ci-select-job",
+           "context": {
+            "job": "j1"
+           }
+          }
+         }
+        },
+        "children": [
+         {
+          "id": "ci-run-detail.j1",
+          "component": "Stack",
+          "props": {
+           "direction": "vertical",
+           "gap": "md",
+           "align": "stretch"
+          },
+          "children": [
+           {
+            "id": "ci-run-log.j1",
+            "component": "Text",
+            "props": {
+             "text": "No log yet.",
+             "variant": "muted"
+            }
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "id": "ci-run-job.j2",
+        "component": "Collapsible",
+        "props": {
+         "title": "test (linux)",
+         "open": true
+        },
+        "on": {
+         "change": {
+          "event": {
+           "name": "ci-select-job",
+           "context": {
+            "job": "j2"
+           }
+          }
+         }
+        },
+        "children": [
+         {
+          "id": "ci-run-detail.j2",
+          "component": "Stack",
+          "props": {
+           "direction": "vertical",
+           "gap": "md",
+           "align": "stretch"
+          },
+          "children": [
+           {
+            "id": "ci-run-steps.j2",
+            "component": "Trace",
+            "children": [
+             {
+              "id": "ci-run-steps.j2.0",
+              "component": "TraceItem",
+              "props": {
+               "title": "Checkout",
+               "status": "done",
+               "description": "4s"
+              }
+             },
+             {
+              "id": "ci-run-steps.j2.1",
+              "component": "TraceItem",
+              "props": {
+               "title": "Install",
+               "status": "done",
+               "description": "42s"
+              }
+             },
+             {
+              "id": "ci-run-steps.j2.2",
+              "component": "TraceItem",
+              "props": {
+               "title": "Unit tests",
+               "status": "error",
+               "description": "7m 39s"
+              }
+             },
+             {
+              "id": "ci-run-steps.j2.3",
+              "component": "TraceItem",
+              "props": {
+               "title": "Upload report",
+               "status": "skipped"
+              }
+             }
+            ]
+           },
+           {
+            "id": "ci-run-log.j2",
+            "component": "CodeBlock",
+            "props": {
+             "code": "",
+             "title": "Log",
+             "language": "ansi",
+             "lineNumbers": true,
+             "wrap": false,
+             "copyable": true,
+             "maxLines": 20,
+             "highlight": [],
+             "follow": true
+            }
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "id": "ci-run-job.j3",
+        "component": "Collapsible",
+        "props": {
+         "title": "deploy",
+         "open": false
+        },
+        "on": {
+         "change": {
+          "event": {
+           "name": "ci-select-job",
+           "context": {
+            "job": "j3"
+           }
+          }
+         }
+        },
+        "children": [
+         {
+          "id": "ci-run-detail.j3",
+          "component": "Stack",
+          "props": {
+           "direction": "vertical",
+           "gap": "md",
+           "align": "stretch"
+          },
+          "children": [
+           {
+            "id": "ci-run-log.j3",
+            "component": "Text",
+            "props": {
+             "text": "No log yet.",
+             "variant": "muted"
+            }
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "a broken pipeline",
+   "model": {
+    "run": {
+     "id": "r12",
+     "number": 12,
+     "name": "ci",
+     "state": "failure",
+     "error": "/jobs/Bad: invalid_name",
+     "sha": "8f3c2a9d1e7b4c6a5f0e9d8c7b6a5f4e3d2c1b0a",
+     "startedAt": "2026-11-13T10:00:00.000Z",
+     "completedAt": "2026-11-13T10:12:40.000Z"
+    },
+    "jobs": []
+   },
+   "selected": null,
+   "log": null,
+   "now": "2026-11-13T10:14:00.000Z",
+   "phone": true,
+   "busy": "rerun",
+   "tree": {
+    "id": "ci-run",
+    "component": "Stack",
+    "props": {
+     "direction": "vertical",
+     "gap": "lg",
+     "align": "stretch"
+    },
+    "children": [
+     {
+      "id": "ci-run-title",
+      "component": "Stack",
+      "props": {
+       "direction": "vertical",
+       "gap": "xs",
+       "align": "stretch"
+      },
+      "children": [
+       {
+        "id": "ci-run-heading",
+        "component": "Heading",
+        "props": {
+         "text": "Run #12",
+         "level": "h2"
+        }
+       },
+       {
+        "id": "ci-run-name",
+        "component": "Text",
+        "props": {
+         "text": "ci",
+         "variant": "muted"
+        }
+       }
+      ]
+     },
+     {
+      "id": "ci-run-tiles",
+      "component": "Grid",
+      "props": {
+       "columns": 2,
+       "gap": "md"
+      },
+      "children": [
+       {
+        "id": "ci-run-tiles.0",
+        "component": "StatTile",
+        "props": {
+         "label": "Status",
+         "value": "Failed",
+         "tone": "danger"
+        }
+       },
+       {
+        "id": "ci-run-tiles.1",
+        "component": "StatTile",
+        "props": {
+         "label": "Duration",
+         "value": "12m 40s",
+         "tone": "neutral"
+        }
+       },
+       {
+        "id": "ci-run-tiles.2",
+        "component": "StatTile",
+        "props": {
+         "label": "Runner",
+         "value": "—",
+         "tone": "neutral"
+        }
+       },
+       {
+        "id": "ci-run-tiles.3",
+        "component": "StatTile",
+        "props": {
+         "label": "Commit",
+         "value": "8f3c2a9",
+         "tone": "neutral"
+        }
+       }
+      ]
+     },
+     {
+      "id": "ci-run-actions",
+      "component": "Stack",
+      "props": {
+       "direction": "horizontal",
+       "gap": "sm",
+       "align": "center"
+      },
+      "children": [
+       {
+        "id": "ci-run-rerun",
+        "component": "Button",
+        "props": {
+         "label": "Re-run failed",
+         "loading": true,
+         "disabled": true
+        },
+        "on": {
+         "press": {
+          "event": {
+           "name": "ci-rerun"
+          }
+         }
+        }
+       }
+      ]
+     },
+     {
+      "id": "ci-run-error",
+      "component": "Alert",
+      "props": {
+       "type": "error",
+       "title": "The pipeline file did not plan",
+       "message": "/jobs/Bad: invalid_name"
+      }
+     }
+    ]
+   }
+  }
+ ],
+ "runner": [
+  {
+   "name": "android owner",
+   "client": "android",
+   "caps": [
+    "ci-runner"
+   ],
+   "platform": "linux",
+   "settings": {
+    "enabled": true,
+    "labels": [
+     "gpu"
+    ],
+    "slots": 2,
+    "timeoutMin": 60
+   },
+   "owner": true,
+   "refused": false,
+   "recent": true,
+   "tree": {
+    "id": "runner-settings",
+    "component": "Section",
+    "props": {
+     "title": "CI runner"
+    },
+    "children": [
+     {
+      "id": "runner-notice",
+      "component": "Alert",
+      "props": {
+       "type": "info",
+       "title": "Set up here, runs on the device",
+       "message": "A phone never runs CI jobs: this sets up the device's runner."
+      }
+     },
+     {
+      "id": "runner-enabled-row",
+      "component": "SettingsRow",
+      "props": {
+       "label": "Run CI jobs",
+       "description": "Runs your team's pipelines on this device."
+      },
+      "children": [
+       {
+        "id": "runner-enabled",
+        "component": "Switch",
+        "props": {
+         "label": "",
+         "name": "runner-enabled",
+         "checked": true,
+         "disabled": false
+        },
+        "on": {
+         "change": {
+          "event": {
+           "name": "runner-enabled"
+          }
+         }
+        }
+       }
+      ]
+     },
+     {
+      "id": "runner-labels",
+      "component": "ChipInput",
+      "props": {
+       "label": "Labels",
+       "name": "runner-labels",
+       "values": {
+        "@path": "/labels"
+       },
+       "placeholder": "gpu, big",
+       "max": 16,
+       "suggestions": [
+        {
+         "label": "linux",
+         "value": "linux"
+        }
+       ],
+       "disabled": false
+      },
+      "on": {
+       "change": {
+        "event": {
+         "name": "runner-labels"
+        }
+       }
+      }
+     },
+     {
+      "id": "runner-slots",
+      "component": "NumberField",
+      "props": {
+       "label": "Parallel jobs",
+       "name": "runner-slots",
+       "value": 2,
+       "min": 1,
+       "max": 16,
+       "step": 1,
+       "disabled": false
+      },
+      "on": {
+       "change": {
+        "event": {
+         "name": "runner-slots"
+        }
+       }
+      }
+     },
+     {
+      "id": "runner-timeout",
+      "component": "Select",
+      "props": {
+       "label": "Job timeout",
+       "name": "runner-timeout",
+       "options": [
+        {
+         "value": "15",
+         "label": "15 min"
+        },
+        {
+         "value": "30",
+         "label": "30 min"
+        },
+        {
+         "value": "60",
+         "label": "1 h"
+        },
+        {
+         "value": "120",
+         "label": "2 h"
+        },
+        {
+         "value": "240",
+         "label": "4 h"
+        },
+        {
+         "value": "360",
+         "label": "6 h"
+        }
+       ],
+       "value": "60",
+       "disabled": false
+      },
+      "on": {
+       "change": {
+        "event": {
+         "name": "runner-timeout"
+        }
+       }
+      }
+     },
+     {
+      "id": "runner-recent-heading",
+      "component": "Heading",
+      "props": {
+       "text": "Recent jobs",
+       "level": "h4"
+      }
+     },
+     {
+      "id": "runner-recent",
+      "component": "Stack",
+      "props": {
+       "direction": "vertical",
+       "gap": "none",
+       "align": "stretch"
+      },
+      "children": [
+       {
+        "id": "runner-recent.c",
+        "component": "Row",
+        "props": {
+         "title": "test (linux)",
+         "subtitle": "Run #12 · niach/exponential",
+         "meta": "10m 0s"
+        },
+        "slots": {
+         "leading": {
+          "id": "runner-recent.c.glyph",
+          "component": "Icon",
+          "props": {
+           "name": "ci-running",
+           "tone": "neutral",
+           "size": "sm"
+          }
+         }
+        }
+       },
+       {
+        "id": "runner-recent.d",
+        "component": "Row",
+        "props": {
+         "title": "lint",
+         "subtitle": "Run #12 · niach/exponential",
+         "meta": "45s"
+        },
+        "slots": {
+         "leading": {
+          "id": "runner-recent.d.glyph",
+          "component": "Icon",
+          "props": {
+           "name": "ci-failed",
+           "tone": "danger",
+           "size": "sm"
+          }
+         }
+        }
+       },
+       {
+        "id": "runner-recent.a",
+        "component": "Row",
+        "props": {
+         "title": "build",
+         "subtitle": "Run #10 · niach/exponential",
+         "meta": "2m 0s"
+        },
+        "slots": {
+         "leading": {
+          "id": "runner-recent.a.glyph",
+          "component": "Icon",
+          "props": {
+           "name": "ci-passed",
+           "tone": "success",
+           "size": "sm"
+          }
+         }
+        }
+       },
+       {
+        "id": "runner-recent.e",
+        "component": "Row",
+        "props": {
+         "title": "e2e",
+         "subtitle": "Run #9 · niach/spezl",
+         "meta": "30m 0s"
+        },
+        "slots": {
+         "leading": {
+          "id": "runner-recent.e.glyph",
+          "component": "Icon",
+          "props": {
+           "name": "ci-passed",
+           "tone": "success",
+           "size": "sm"
+          }
+         }
+        }
+       },
+       {
+        "id": "runner-recent.f",
+        "component": "Row",
+        "props": {
+         "title": "docs",
+         "subtitle": "Run #8 · niach/spezl",
+         "meta": "20s"
+        },
+        "slots": {
+         "leading": {
+          "id": "runner-recent.f.glyph",
+          "component": "Icon",
+          "props": {
+           "name": "ci-passed",
+           "tone": "success",
+           "size": "sm"
+          }
+         }
+        }
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "desktop viewer refused",
+   "client": "desktop",
+   "caps": [
+    "ci-runner"
+   ],
+   "platform": "macos",
+   "settings": {
+    "enabled": true,
+    "labels": [
+     "gpu"
+    ],
+    "slots": 2,
+    "timeoutMin": 60
+   },
+   "owner": false,
+   "refused": true,
+   "recent": true,
+   "tree": {
+    "id": "runner-settings",
+    "component": "Section",
+    "props": {
+     "title": "CI runner"
+    },
+    "children": [
+     {
+      "id": "runner-enabled-row",
+      "component": "SettingsRow",
+      "props": {
+       "label": "Run CI jobs",
+       "description": "Runs your team's pipelines on this device."
+      },
+      "children": [
+       {
+        "id": "runner-enabled",
+        "component": "Switch",
+        "props": {
+         "label": "",
+         "name": "runner-enabled",
+         "checked": true,
+         "disabled": true
+        },
+        "on": {
+         "change": {
+          "event": {
+           "name": "runner-enabled"
+          }
+         }
+        }
+       }
+      ]
+     },
+     {
+      "id": "runner-labels",
+      "component": "ChipInput",
+      "props": {
+       "label": "Labels",
+       "name": "runner-labels",
+       "values": {
+        "@path": "/labels"
+       },
+       "placeholder": "gpu, big",
+       "max": 16,
+       "suggestions": [
+        {
+         "label": "mac",
+         "value": "mac"
+        }
+       ],
+       "disabled": true
+      },
+      "on": {
+       "change": {
+        "event": {
+         "name": "runner-labels"
+        }
+       }
+      }
+     },
+     {
+      "id": "runner-labels-invalid",
+      "component": "Text",
+      "props": {
+       "text": "Use lowercase letters, digits, dots, dashes or underscores.",
+       "variant": "caption",
+       "tone": "danger"
+      }
+     },
+     {
+      "id": "runner-slots",
+      "component": "NumberField",
+      "props": {
+       "label": "Parallel jobs",
+       "name": "runner-slots",
+       "value": 2,
+       "min": 1,
+       "max": 16,
+       "step": 1,
+       "disabled": true
+      },
+      "on": {
+       "change": {
+        "event": {
+         "name": "runner-slots"
+        }
+       }
+      }
+     },
+     {
+      "id": "runner-timeout",
+      "component": "Select",
+      "props": {
+       "label": "Job timeout",
+       "name": "runner-timeout",
+       "options": [
+        {
+         "value": "15",
+         "label": "15 min"
+        },
+        {
+         "value": "30",
+         "label": "30 min"
+        },
+        {
+         "value": "60",
+         "label": "1 h"
+        },
+        {
+         "value": "120",
+         "label": "2 h"
+        },
+        {
+         "value": "240",
+         "label": "4 h"
+        },
+        {
+         "value": "360",
+         "label": "6 h"
+        }
+       ],
+       "value": "60",
+       "disabled": true
+      },
+      "on": {
+       "change": {
+        "event": {
+         "name": "runner-timeout"
+        }
+       }
+      }
+     },
+     {
+      "id": "runner-recent-heading",
+      "component": "Heading",
+      "props": {
+       "text": "Recent jobs",
+       "level": "h4"
+      }
+     },
+     {
+      "id": "runner-recent",
+      "component": "Stack",
+      "props": {
+       "direction": "vertical",
+       "gap": "none",
+       "align": "stretch"
+      },
+      "children": [
+       {
+        "id": "runner-recent.c",
+        "component": "Row",
+        "props": {
+         "title": "test (linux)",
+         "subtitle": "Run #12 · niach/exponential",
+         "meta": "10m 0s"
+        },
+        "slots": {
+         "leading": {
+          "id": "runner-recent.c.glyph",
+          "component": "Icon",
+          "props": {
+           "name": "ci-running",
+           "tone": "neutral",
+           "size": "sm"
+          }
+         }
+        }
+       },
+       {
+        "id": "runner-recent.d",
+        "component": "Row",
+        "props": {
+         "title": "lint",
+         "subtitle": "Run #12 · niach/exponential",
+         "meta": "45s"
+        },
+        "slots": {
+         "leading": {
+          "id": "runner-recent.d.glyph",
+          "component": "Icon",
+          "props": {
+           "name": "ci-failed",
+           "tone": "danger",
+           "size": "sm"
+          }
+         }
+        }
+       },
+       {
+        "id": "runner-recent.a",
+        "component": "Row",
+        "props": {
+         "title": "build",
+         "subtitle": "Run #10 · niach/exponential",
+         "meta": "2m 0s"
+        },
+        "slots": {
+         "leading": {
+          "id": "runner-recent.a.glyph",
+          "component": "Icon",
+          "props": {
+           "name": "ci-passed",
+           "tone": "success",
+           "size": "sm"
+          }
+         }
+        }
+       },
+       {
+        "id": "runner-recent.e",
+        "component": "Row",
+        "props": {
+         "title": "e2e",
+         "subtitle": "Run #9 · niach/spezl",
+         "meta": "30m 0s"
+        },
+        "slots": {
+         "leading": {
+          "id": "runner-recent.e.glyph",
+          "component": "Icon",
+          "props": {
+           "name": "ci-passed",
+           "tone": "success",
+           "size": "sm"
+          }
+         }
+        }
+       },
+       {
+        "id": "runner-recent.f",
+        "component": "Row",
+        "props": {
+         "title": "docs",
+         "subtitle": "Run #8 · niach/spezl",
+         "meta": "20s"
+        },
+        "slots": {
+         "leading": {
+          "id": "runner-recent.f.glyph",
+          "component": "Icon",
+          "props": {
+           "name": "ci-passed",
+           "tone": "success",
+           "size": "sm"
+          }
+         }
+        }
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "old desktop, disabled, no jobs",
+   "client": "desktop",
+   "caps": [],
+   "platform": null,
+   "settings": {
+    "enabled": false,
+    "labels": [
+     "gpu"
+    ],
+    "slots": 2,
+    "timeoutMin": 60
+   },
+   "owner": true,
+   "refused": false,
+   "recent": false,
+   "tree": {
+    "id": "runner-settings",
+    "component": "Section",
+    "props": {
+     "title": "CI runner"
+    },
+    "children": [
+     {
+      "id": "runner-notice",
+      "component": "Alert",
+      "props": {
+       "type": "warning",
+       "title": "Update this device",
+       "message": "Its app is too old to run CI jobs."
+      }
+     },
+     {
+      "id": "runner-enabled-row",
+      "component": "SettingsRow",
+      "props": {
+       "label": "Run CI jobs",
+       "description": "Runs your team's pipelines on this device."
+      },
+      "children": [
+       {
+        "id": "runner-enabled",
+        "component": "Switch",
+        "props": {
+         "label": "",
+         "name": "runner-enabled",
+         "checked": false,
+         "disabled": false
+        },
+        "on": {
+         "change": {
+          "event": {
+           "name": "runner-enabled"
+          }
+         }
+        }
+       }
+      ]
+     },
+     {
+      "id": "runner-recent-heading",
+      "component": "Heading",
+      "props": {
+       "text": "Recent jobs",
+       "level": "h4"
+      }
+     },
+     {
+      "id": "runner-recent",
+      "component": "Text",
+      "props": {
+       "text": "No jobs yet.",
+       "variant": "muted"
+      }
+     }
+    ]
+   }
+  }
+ ],
+ "after": [
+  {
+   "event": "runner-enabled",
+   "payload": {
+    "checked": false
+   },
+   "current": {
+    "enabled": true,
+    "labels": [
+     "gpu"
+    ],
+    "slots": 2,
+    "timeoutMin": 60
+   },
+   "settings": {
+    "enabled": false,
+    "labels": [
+     "gpu"
+    ],
+    "slots": 2,
+    "timeoutMin": 60
+   },
+   "refused": false
+  },
+  {
+   "event": "runner-enabled",
+   "payload": {
+    "checked": true
+   },
+   "current": {
+    "enabled": true,
+    "labels": [
+     "gpu"
+    ],
+    "slots": 2,
+    "timeoutMin": 60
+   },
+   "settings": null,
+   "refused": false
+  },
+  {
+   "event": "runner-labels",
+   "payload": {
+    "values": [
+     "gpu",
+     " Big ",
+     "two words",
+     "gpu"
+    ]
+   },
+   "current": {
+    "enabled": true,
+    "labels": [
+     "gpu"
+    ],
+    "slots": 2,
+    "timeoutMin": 60
+   },
+   "settings": {
+    "enabled": true,
+    "labels": [
+     "gpu",
+     "big"
+    ],
+    "slots": 2,
+    "timeoutMin": 60
+   },
+   "refused": true
+  },
+  {
+   "event": "runner-labels",
+   "payload": {
+    "values": [
+     "gpu"
+    ]
+   },
+   "current": {
+    "enabled": true,
+    "labels": [
+     "gpu"
+    ],
+    "slots": 2,
+    "timeoutMin": 60
+   },
+   "settings": null,
+   "refused": false
+  },
+  {
+   "event": "runner-slots",
+   "payload": {
+    "value": 40
+   },
+   "current": {
+    "enabled": true,
+    "labels": [
+     "gpu"
+    ],
+    "slots": 2,
+    "timeoutMin": 60
+   },
+   "settings": {
+    "enabled": true,
+    "labels": [
+     "gpu"
+    ],
+    "slots": 16,
+    "timeoutMin": 60
+   },
+   "refused": false
+  },
+  {
+   "event": "runner-slots",
+   "payload": {
+    "value": 3.4
+   },
+   "current": {
+    "enabled": true,
+    "labels": [
+     "gpu"
+    ],
+    "slots": 2,
+    "timeoutMin": 60
+   },
+   "settings": {
+    "enabled": true,
+    "labels": [
+     "gpu"
+    ],
+    "slots": 3,
+    "timeoutMin": 60
+   },
+   "refused": false
+  },
+  {
+   "event": "runner-timeout",
+   "payload": {
+    "value": "120"
+   },
+   "current": {
+    "enabled": true,
+    "labels": [
+     "gpu"
+    ],
+    "slots": 2,
+    "timeoutMin": 60
+   },
+   "settings": {
+    "enabled": true,
+    "labels": [
+     "gpu"
+    ],
+    "slots": 2,
+    "timeoutMin": 120
+   },
+   "refused": false
+  },
+  {
+   "event": "runner-timeout",
+   "payload": {
+    "value": "7"
+   },
+   "current": {
+    "enabled": true,
+    "labels": [
+     "gpu"
+    ],
+    "slots": 2,
+    "timeoutMin": 60
+   },
+   "settings": null,
+   "refused": false
+  },
+  {
+   "event": "other",
+   "payload": {},
+   "current": {
+    "enabled": true,
+    "labels": [
+     "gpu"
+    ],
+    "slots": 2,
+    "timeoutMin": 60
+   },
+   "settings": null,
+   "refused": false
+  }
+ ]
+}

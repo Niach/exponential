@@ -71,6 +71,9 @@ object Routes {
     fun deviceSettings(deviceRowId: String): String =
         "team-settings/${com.exponential.app.domain.SettingsNav.DEVICES}?device=$deviceRowId"
 
+    /** #EXP-1815: Settings › Notifications (notification-delivery.json SETTINGS). */
+    const val NOTIFICATION_SETTINGS = "settings/notifications"
+
     /** #VAPP-185: Settings › MCP › Activity (settings-mcp.json `activityPage`). */
     const val MCP_ACTIVITY = "settings/mcp/activity"
 
@@ -94,6 +97,10 @@ object Routes {
     /** #EXP-1661: one skill's read-only page (Settings › Skills). */
     const val SKILL_SETTINGS_PATTERN = "settings/skill/{skillId}"
     fun skillSettings(skillId: String): String = "settings/skill/$skillId"
+    /** #EXP-1616 (repo-page.json): one repository's page; `tab` = repoTab. */
+    const val REPO_PATTERN = "repo/{repositoryId}?tab={tab}"
+    fun repo(repositoryId: String, tab: String? = null): String =
+        "repo/$repositoryId" + (tab?.let { "?tab=$it" } ?: "")
 
     /** VAPP-110: the selected team's Apps (reached from the Chats tab). */
     const val APPS = "apps"
@@ -114,4 +121,10 @@ object Routes {
         val json = kotlinx.serialization.json.JsonObject(params.mapValues { kotlinx.serialization.json.JsonPrimitive(it.value) }).toString()
         return "app-run/$appId?screen=${com.exponential.app.domain.encodeRouteValue(screen)}&params=${com.exponential.app.domain.encodeRouteValue(json)}"
     }
+
+    /** #EXP-1804 (ci-run.json): THE run page of our own CI; `job` = the job
+     *  it opens on (absent = the rule's pick, `CiRun.defaultJob`). */
+    const val CI_RUN_PATTERN = "ci-run/{runId}?job={job}"
+    fun ciRun(runId: String, job: String? = null): String =
+        if (job.isNullOrEmpty()) "ci-run/$runId" else "ci-run/$runId?job=${com.exponential.app.domain.encodeRouteValue(job)}"
 }

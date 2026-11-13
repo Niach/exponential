@@ -145,7 +145,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox",
              "v98_app_version_migration", "v99_message_attachment_ids",
              "v100_app_record_share_name", "v101_merge_train",
-             "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers"]
+             "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers",
+             "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery"]
         )
     }
 
@@ -212,7 +213,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox",
              "v98_app_version_migration", "v99_message_attachment_ids",
              "v100_app_record_share_name", "v101_merge_train",
-             "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers"]
+             "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers",
+             "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery"]
         )
     }
 
@@ -751,7 +753,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox",
              "v98_app_version_migration", "v99_message_attachment_ids",
              "v100_app_record_share_name", "v101_merge_train",
-             "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers"]
+             "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers",
+             "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -866,7 +869,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox",
              "v98_app_version_migration", "v99_message_attachment_ids",
              "v100_app_record_share_name", "v101_merge_train",
-             "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers"]
+             "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers",
+             "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1814,7 +1818,8 @@ final class DatabaseMigrationTests: XCTestCase {
                       "attachments", "notifications", "issue_subscribers",
                       "issue_events", "issue_statuses", "pins",
                       "issue_drafts", "sessions", "session_issues", "messages",
-                      "pull_requests", "pull_request_issues", "pull_request_checks", "electric_offsets"] {
+                      "pull_requests", "pull_request_issues", "pull_request_checks", "ci_runs", "ci_jobs",
+                      "electric_offsets"] {
             let exists = try pool.read { db in try db.tableExists(table) }
             XCTAssertTrue(exists, "missing table \(table)")
         }
@@ -1945,7 +1950,7 @@ final class DatabaseMigrationTests: XCTestCase {
             try columnNames(pool, "messages"),
             ["id", "root_id", "team_id", "author_kind", "author_id",
              "body", "card", "answered_at", "consumed_at", "created_at", "updated_at",
-             "author_session_id", "conversation_id", "attachment_ids", "session_id"]
+             "author_session_id", "conversation_id", "attachment_ids", "session_id", "delivered_at"]
         )
         XCTAssertEqual(
             try columnNames(pool, "session_reads"),
@@ -1964,6 +1969,20 @@ final class DatabaseMigrationTests: XCTestCase {
             ["id", "team_id", "pull_request_id", "head_sha", "name", "status", "conclusion",
              "required", "started_at", "completed_at", "details_url", "created_at", "updated_at"]
         )
+        // #EXP-1804: the ci-runs / ci-jobs allowlists, column for column.
+        XCTAssertEqual(
+            try columnNames(pool, "ci_runs"),
+            ["id", "team_id", "repository_id", "number", "name", "sha", "ref", "trigger",
+             "pull_request_id", "state", "error", "rerun_of", "created_by_user_id",
+             "started_at", "completed_at", "created_at", "updated_at"]
+        )
+        XCTAssertEqual(
+            try columnNames(pool, "ci_jobs"),
+            ["id", "team_id", "run_id", "key", "check", "position", "runs_on", "needs", "matrix",
+             "timeout_min", "status", "conclusion", "reason", "runner_device_id", "steps",
+             "log_key", "log_bytes", "queued_at", "started_at", "completed_at", "created_at", "updated_at"]
+        )
+        XCTAssertTrue(try columnNames(pool, "devices").contains("runner"))
         XCTAssertEqual(
             try columnNames(pool, "pull_request_issues"),
             ["id", "pull_request_id", "issue_id", "team_id", "created_at", "updated_at"]
@@ -4290,6 +4309,64 @@ final class DatabaseMigrationTests: XCTestCase {
              "created_at":"x","updated_at":"x"}
             """#.utf8))
         XCTAssertNil(legacy.shareName)
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+    }
+
+    // #FEED-237: v107 adds `messages.delivered_at` (the messages cursor
+    // resets, so synced rows re-arrive carrying it) and the LOCAL `outbox`
+    // (no shape); an entry round-trips through its row.
+    func testMessageDeliveryAdded() throws {
+        let pool = try makePool("feed237-message-delivery")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v106_ci_runs")
+        try pool.write { db in
+            for shape in ["messages", "sessions"] {
+                try db.execute(sql: """
+                    INSERT INTO "electric_offsets"
+                        ("shape", "handle", "offset", "needs_refetch", "is_live")
+                    VALUES (?, 'h', '0_0', 0, 1)
+                    ON CONFLICT("shape") DO UPDATE SET "handle" = 'h', "offset" = '0_0',
+                        "needs_refetch" = 0, "is_live" = 1
+                    """, arguments: [shape])
+            }
+        }
+        XCTAssertFalse(try columnNames(pool, "messages").contains("delivered_at"))
+        XCTAssertFalse(try pool.read { db in try db.tableExists("outbox") })
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v107_message_delivery"))
+        XCTAssertTrue(try columnNames(pool, "messages").contains("delivered_at"))
+        XCTAssertEqual(
+            try columnNames(pool, "outbox"),
+            ["client_id", "session_id", "text", "created_at", "state", "message_id", "attachment_ids"]
+        )
+        try pool.read { db in
+            let reset = try String.fetchAll(
+                db,
+                sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1'"
+            )
+            XCTAssertEqual(reset, ["messages"])
+        }
+        let message = try JSONDecoder().decode(MessageEntity.self, from: Data(#"""
+            {"id":"m-1","conversation_id":"c","session_id":"s","root_id":"s","team_id":"t","author_kind":"user",
+             "author_id":"u","body":"ship it","delivered_at":"2026-11-13 10:00:01+00",
+             "created_at":"x","updated_at":"x"}
+            """#.utf8))
+        let entry = MessageOutboxEntity(
+            clientId: "c1", sessionId: "s", text: "ship it", createdAt: "2026-11-13T10:00:00.000Z",
+            attachmentIds: ["a1"]
+        )
+        try pool.write { db in
+            try message.save(db)
+            try entry.insert(db)
+        }
+        try pool.read { db in
+            XCTAssertEqual(try MessageEntity.fetchOne(db, key: "m-1")?.deliveredAt, "2026-11-13 10:00:01+00")
+            let read = try XCTUnwrap(try MessageOutboxEntity.fetchOne(db, key: "c1"))
+            XCTAssertEqual(read, entry)
+            XCTAssertEqual(read.attachmentIdList, ["a1"])
+            XCTAssertEqual(read.entry, MessageDelivery.OutboxEntry(
+                clientId: "c1", text: "ship it", createdAt: "2026-11-13T10:00:00.000Z", state: .sending, messageId: nil
+            ))
+        }
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
     }
 

@@ -14,6 +14,7 @@
 //! [`session_title`] reads the synced rows; [`title_from_parts`] is the same
 //! ladder for callers that only hold the parts (the launcher's tab label).
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use crate::activity_fold::parse_instant;
@@ -56,11 +57,27 @@ fn clip(text: &str, max: usize) -> String {
     }
 }
 
-/// The first usable line of a body: non-blank after trimming, not an image
-/// embed.
-pub fn first_line(body: &str) -> Option<&str> {
+/// The composer's positional image markers (EXP-698), with the spaces and
+/// tabs around a run of them: one space in a title line.
+fn image_markers() -> &'static regex::Regex {
+    static MARKERS: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    MARKERS.get_or_init(|| regex::Regex::new(r"[ \t]*(?:\[Image #[0-9]+\][ \t]*)+").unwrap())
+}
+
+/// One line as a title reads it: trimmed, `[Image #N]` markers removed.
+pub fn title_line(line: &str) -> Cow<'_, str> {
+    let line = line.trim();
+    match image_markers().replace_all(line, " ") {
+        Cow::Borrowed(line) => Cow::Borrowed(line),
+        Cow::Owned(stripped) => Cow::Owned(stripped.trim().to_string()),
+    }
+}
+
+/// The first usable line of a body: non-blank once its image markers are
+/// gone, not an image embed.
+pub fn first_line(body: &str) -> Option<Cow<'_, str>> {
     body.split('\n')
-        .map(str::trim)
+        .map(title_line)
         .find(|part| !part.is_empty() && !part.starts_with("!["))
 }
 
@@ -88,7 +105,7 @@ pub fn title_from_parts(
         return issue_label(issues);
     }
     match prompt.and_then(first_line) {
-        Some(line) => clip(line, TITLE_MAX),
+        Some(line) => clip(&line, TITLE_MAX),
         None => copy::UNTITLED.to_string(),
     }
 }
@@ -130,7 +147,7 @@ fn no_card(message: &MessageRow) -> bool {
 
 /// The first prompt of `session_id` among `messages`: the oldest usable
 /// input (a person's, or another session's), never a card.
-pub fn first_prompt<'m>(session_id: &str, messages: &[&'m MessageRow]) -> Option<&'m str> {
+pub fn first_prompt<'m>(session_id: &str, messages: &[&'m MessageRow]) -> Option<Cow<'m, str>> {
     let inputs = messages.iter().copied().filter(|message| {
         message.session_id == session_id
             && no_card(message)
@@ -218,7 +235,7 @@ impl<'a> TitleIndex<'a> {
         } else {
             None
         };
-        title_from_parts(session.title.as_deref(), &own, prompt)
+        title_from_parts(session.title.as_deref(), &own, prompt.as_deref())
     }
 }
 

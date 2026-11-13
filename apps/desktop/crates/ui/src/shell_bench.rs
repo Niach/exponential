@@ -7,7 +7,7 @@ use std::{borrow::Cow, path::PathBuf, sync::Arc};
 use gpui::{px, size, AppContext as _, AssetSource, Entity, HeadlessAppContext, SharedString, Window};
 use serde_json::json;
 
-use uicore_model::ide::{IdeActiveInput, IdeAgentInput, IdeAppInput, IdeBoardInput, IdeCount, IdePinInput, IdeSidebarInput, IdeTone};
+use uicore_model::ide::{IdeActiveInput, IdeAgentInput, IdeAppInput, IdeBoardInput, IdeCount, IdePinInput, IdePrInput, IdeRepoInput, IdeSidebarInput, IdeTone};
 
 use crate::navigation::nav_for_window;
 use crate::sidebar::RailView;
@@ -108,6 +108,122 @@ fn shell_local_repositories() {
     std::mem::forget(root);
 }
 
+/// The band the top tab bar sits in: it records the left presses that
+/// reach it, as the titlebar's drag latch does.
+struct DragBand {
+    region: Entity<crate::shell_regions::TabBarRegion>,
+    presses: std::rc::Rc<std::cell::Cell<u32>>,
+}
+
+impl gpui::Render for DragBand {
+    fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl gpui::IntoElement {
+        use gpui::{InteractiveElement as _, ParentElement as _, Styled as _};
+        let presses = self.presses.clone();
+        gpui::div()
+            .size_full()
+            .on_mouse_down(gpui::MouseButton::Left, move |_, _, _| presses.set(presses.get() + 1))
+            .child(gpui::div().w_full().h(px(crate::app_title_bar::WORK_TABS_BAND_H)).child(self.region.clone()))
+    }
+}
+
+/// The top band drags the window (Danny, desktop 0.14.156: the whole bar
+/// was a pointer with an empty tooltip and swallowed the drag). Only the
+/// strip's tabs, closes, + and +N are pressable; nothing spans the band
+/// (the +N menu's anchor is a zero-width box at its end), and a press on
+/// the empty rest reaches the titlebar behind it while one on a tab never
+/// does.
+#[test]
+fn the_tab_band_is_pressable_only_on_its_controls() {
+    if !gpu_or_skip("the_tab_band_is_pressable_only_on_its_controls") {
+        return;
+    }
+    let mut cx = headless();
+    cx.update(seeded);
+    let presses = std::rc::Rc::new(std::cell::Cell::new(0));
+    let band_presses = presses.clone();
+    let handle = cx
+        .open_window(size(px(1100.), px(44.)), move |window: &mut Window, cx| {
+            let region = crate::shell_regions::TabBarRegion::new(window, cx);
+            cx.new(|_| DragBand { region, presses: band_presses })
+        })
+        .expect("a headless window");
+    let window: gpui::AnyWindowHandle = handle.into();
+    let region = cx.update(|cx| handle.update(cx, |band, _, _| band.region.clone()).expect("the band"));
+    let press = |cx: &mut HeadlessAppContext, x: f32| {
+        cx.update_window(window, |_, window, cx| {
+            let position = gpui::point(px(x), px(24.));
+            window.dispatch_event(gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent { position, pressed_button: None, modifiers: Default::default() }), cx);
+            window.dispatch_event(gpui::PlatformInput::MouseDown(gpui::MouseDownEvent { button: gpui::MouseButton::Left, position, modifiers: Default::default(), click_count: 1, first_mouse: false }), cx);
+            window.dispatch_event(gpui::PlatformInput::MouseUp(gpui::MouseUpEvent { button: gpui::MouseButton::Left, position, modifiers: Default::default(), click_count: 1 }), cx);
+        })
+        .expect("the window");
+    };
+    for titles in [&["Fix the login redirect", "zsh"][..], &["APP-1 Crash on launch", "Fix the login redirect", "APP-12 Offline queue for issue edits", "zsh", "Mobile App", "Release checklist", "APP-31 Rewrite the image cache", "npm run dev", "One more", "And another"][..]] {
+        cx.update(|cx| region.update(cx, |region, cx| region.show(titles, cx)));
+        for _ in 0..4 {
+            draw(window, &mut cx);
+            cx.run_until_parked();
+        }
+        let (spans, strip_right) = cx.update(|cx| region.read(cx).pressable_spans(cx));
+        assert!(strip_right > 0. && strip_right < 1100., "{titles:?}: the strip ends at {strip_right}");
+        for (id, left, right) in &spans {
+            assert!(id.starts_with("ide_tabs."), "{titles:?}: {id} is pressable");
+            assert!(*left >= 0. && *right <= strip_right + 0.5, "{titles:?}: {id} spans {left}..{right} past the strip's end {strip_right}");
+        }
+        presses.set(0);
+        press(&mut cx, 1090.);
+        assert_eq!(presses.get(), 1, "{titles:?}: a press on the empty band reaches the titlebar");
+        let (_, first_left, first_right) = spans.iter().find(|(id, ..)| id.starts_with("ide_tabs.tab.")).cloned().expect("a tab");
+        presses.set(0);
+        press(&mut cx, (first_left + first_right) / 2.);
+        assert_eq!(presses.get(), 0, "{titles:?}: a press on a tab is the tab's");
+    }
+    std::mem::forget(cx);
+}
+
+/// #EXP-1814: the +N menu opens BELOW the top band and stays inside the
+/// window (it used to land above the band, off screen): the strip's popups
+/// are placed against the window, not the 44px region.
+#[test]
+fn the_more_menu_opens_below_the_top_band() {
+    if !gpu_or_skip("the_more_menu_opens_below_the_top_band") {
+        return;
+    }
+    let mut cx = headless();
+    cx.update(seeded);
+    let presses = std::rc::Rc::new(std::cell::Cell::new(0));
+    let (window_w, window_h) = (1100., 500.);
+    let handle = cx
+        .open_window(size(px(window_w), px(window_h)), move |window: &mut Window, cx| {
+            let region = crate::shell_regions::TabBarRegion::new(window, cx);
+            cx.new(|_| DragBand { region, presses })
+        })
+        .expect("a headless window");
+    let window: gpui::AnyWindowHandle = handle.into();
+    let region = cx.update(|cx| handle.update(cx, |band, _, _| band.region.clone()).expect("the band"));
+    let titles = ["APP-1 Crash on launch", "Fix the login redirect", "APP-12 Offline queue for issue edits", "zsh", "Mobile App", "Release checklist", "APP-31 Rewrite the image cache", "npm run dev", "One more", "And another"];
+    cx.update(|cx| region.update(cx, |region, cx| region.show(&titles, cx)));
+    for _ in 0..4 {
+        draw(window, &mut cx);
+        cx.run_until_parked();
+    }
+    let (menu, more) = cx.update(|cx| region.read(cx).more_menu_frame(cx));
+    assert!(menu.is_none(), "closed until +N is pressed");
+    assert!(more.is_some_and(|f| f.w > 0.), "the strip overflows into +N");
+    cx.update(|cx| region.update(cx, |region, cx| region.show_more(&titles, 4, cx)));
+    for _ in 0..6 {
+        draw(window, &mut cx);
+        cx.run_until_parked();
+    }
+    let (menu, _) = cx.update(|cx| region.read(cx).more_menu_frame(cx));
+    let menu = menu.expect("+N opens its menu");
+    let band = crate::app_title_bar::WORK_TABS_BAND_H;
+    assert!(menu.y >= band - 6., "the menu hangs below the band: {menu:?}");
+    assert!(menu.h > 0. && menu.y + menu.h <= window_h, "inside the window: {menu:?}");
+    assert!(menu.x >= 0. && menu.x + menu.w <= window_w, "inside the window: {menu:?}");
+    std::mem::forget(cx);
+}
+
 #[test]
 #[ignore]
 fn shell_tab_bar_frames() {
@@ -152,6 +268,23 @@ impl AssetSource for Assets {
     fn list(&self, path: &str) -> gpui::Result<Vec<SharedString>> {
         gpui_component_assets::Assets.list(path)
     }
+}
+
+/// #EXP-1825: the GPU tests that run in `gate` need a headless adapter, and
+/// a GitHub-hosted runner (pick-runner's fallback) has none. Without one the
+/// test SKIPS with a message, unless `EXP_REQUIRE_GPU=1` (set on the Mint's
+/// self-hosted runners), where a missing adapter is a real failure.
+pub(crate) fn gpu_or_skip(test: &str) -> bool {
+    let error = match gpui_platform::current_headless_renderer() {
+        Ok(Some(_)) => return true,
+        Ok(None) => "this platform has no headless renderer".to_string(),
+        Err(error) => format!("{error:#}"),
+    };
+    if std::env::var("EXP_REQUIRE_GPU").is_ok_and(|v| v == "1") {
+        panic!("{test}: EXP_REQUIRE_GPU=1 but no headless GPU adapter: {error}");
+    }
+    eprintln!("SKIPPED {test}: no headless GPU adapter ({error}); set EXP_REQUIRE_GPU=1 to fail instead");
+    false
 }
 
 pub(crate) fn headless() -> HeadlessAppContext {
@@ -267,6 +400,7 @@ fn sample() -> IdeSidebarInput {
     let agent = |id: &str, name: &str, needs_you, unread| IdeAgentInput { id: id.into(), name: name.into(), icon: "settings-agents".into(), needs_you, unread };
     let board = |id: &str, name: &str| IdeBoardInput { id: id.into(), name: name.into(), icon: format!("ide:board:{id}") };
     let app = |id: &str, name: &str, icon: &str| IdeAppInput { id: id.into(), slug: id.into(), name: name.into(), icon: icon.into() };
+    let pr = |id: &str, n: u32, title: &str, subtitle: &str, depth| IdePrInput { id: id.into(), identifier: format!("#{n}"), title: title.into(), subtitle: subtitle.into(), depth, session: None };
     IdeSidebarInput {
         screen: "board:b1".into(),
         needs_you: 5,
@@ -278,6 +412,7 @@ fn sample() -> IdeSidebarInput {
         apps: vec![app("x1", "CRM", "ui-file"), app("x2", "Leave planner", "ui-file")],
         boards: vec![board("b1", "Mobile App"), board("b2", "Website"), board("b3", "Infrastructure")],
         active: vec![IdeActiveInput { id: "r1".into(), title: "Fix the login redirect".into(), icon: "nav-chats".into(), session_ids: vec!["r1".into()], unread: true }],
+        repos: vec![IdeRepoInput { id: "repo1".into(), name: "engine".into(), prs: vec![pr("p2", 2, "Faster sync", "sync → main", 0), pr("p3", 3, "Sync tests", "sync-tests → sync", 1)] }],
     }
 }
 
@@ -310,4 +445,63 @@ fn shell_sidebar_frames() {
     eprintln!("shell sidebar: median {:.2} ms, p95 {:.2} ms", percentile(&times, 0.5), percentile(&times, 0.95));
     // `Store::open` holds its handles past gpui's exit-time leak check.
     std::mem::forget(cx);
+}
+
+/// The whole IDE window with three tabs open, for the tab placement
+/// pictures: run once plain (tabs on top, the standalone IDE) and once with
+/// `XDG_CURRENT_DESKTOP=Exponential` (tabs at the bottom, eDE).
+/// `EXP_SKIP_ONBOARDING=1` keeps the first-run wizard away.
+#[test]
+#[ignore]
+fn shell_tab_placement() {
+    let Some(dir) = std::env::var_os("EXP_SHELL_SHOTS") else { return };
+    let mut cx = headless();
+    let root = tempfile::tempdir().unwrap();
+    let data = root.path().to_path_buf();
+    std::fs::write(data.join("accounts.json"), json!({"accounts": [{"id": "acc", "instanceUrl": "https://app.exponential.at", "userId": "u1", "email": "demo@exponential.at", "name": "Demo", "onboardingCompletedAt": "2026-01-01T00:00:00Z"}]}).to_string()).unwrap();
+    let (_changes, rx) = flume::unbounded::<(String, Vec<String>)>();
+    cx.update(|cx| {
+        crate::init(cx);
+        let auth = api::AuthStore::load_with_token_store(data.clone(), api::TokenStore::file_only(data.clone()));
+        cx.set_global(crate::AuthContext { auth, client: Arc::new(api::AuthClient::new()), data_dir: data.clone() });
+        let store = sync::Store::open(cx, None, None);
+        cx.set_global(store);
+        sync::Store::global(cx).clone().connect_local("acc", &data.join("sync.sqlite"), rx, cx).expect("the store");
+        let c = sync::Store::global(cx).collections().clone();
+        seed(&c.teams, json!([{"id": "t1", "name": "Exponential", "slug": "exponential"}]), cx);
+        seed(&c.boards, json!([
+            {"id": "b1", "team_id": "t1", "name": "Mobile App", "slug": "mobile-app", "prefix": "APP", "color": "#22c55e", "sort_order": 1},
+            {"id": "b2", "team_id": "t1", "name": "Website", "slug": "website", "prefix": "WEB", "color": "#3b82f6", "sort_order": 2}
+        ]), cx);
+        seed(&c.issues, json!([
+            {"id": "i1", "board_id": "b1", "number": 1, "identifier": "APP-1", "title": "Crash on launch", "status": "todo", "description": "The app closes right after the splash screen on a cold start."},
+            {"id": "i2", "board_id": "b1", "number": 12, "identifier": "APP-12", "title": "Offline queue for issue edits", "status": "in_progress"},
+            {"id": "i3", "board_id": "b2", "number": 4, "identifier": "WEB-4", "title": "Fix the login redirect", "status": "todo"}
+        ]), cx);
+    });
+    let handle = cx
+        .open_window(size(px(1400.), px(860.)), |window: &mut Window, cx| {
+            let nav = nav_for_window(window, cx);
+            nav.update(cx, |nav, _| nav.team_id = Some("t1".into()));
+            let shell = cx.new(|cx| crate::Shell::new(0, window, cx));
+            cx.new(|cx| gpui_component::Root::new(shell, window, cx))
+        })
+        .expect("a headless window");
+    let window: gpui::AnyWindowHandle = handle.into();
+    for issue in ["i2", "i3", "i1"] {
+        cx.update_window(window, |_, window, cx| crate::navigation::navigate(window, cx, crate::navigation::Screen::IssueDetail { issue_id: issue.into() })).unwrap();
+        for _ in 0..3 {
+            draw(window, &mut cx);
+            cx.run_until_parked();
+        }
+    }
+    for _ in 0..4 {
+        draw(window, &mut cx);
+        cx.run_until_parked();
+    }
+    let name = if crate::local_desktops::available() { "ide-tabs-ede.png" } else { "ide-tabs-top.png" };
+    let shot = cx.capture_screenshot(window).expect("the frame");
+    shot.save(std::path::Path::new(&dir).join(name)).expect("the PNG");
+    std::mem::forget(cx);
+    std::mem::forget(root);
 }

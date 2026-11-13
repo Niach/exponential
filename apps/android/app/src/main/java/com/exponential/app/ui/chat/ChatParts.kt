@@ -36,6 +36,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshotFlow
@@ -45,7 +46,6 @@ import com.exponential.app.domain.ChatRowAction
 import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.session.LocalAskCardTrailing
 import com.exponential.app.ui.session.DismissedCardLine
-import com.exponential.app.ui.session.centreOnItem
 import com.exponential.app.domain.ResultsTab
 import com.exponential.app.ui.plan.LocalOpenPlanPage
 import com.exponential.app.ui.session.CardDismissButton
@@ -396,6 +396,12 @@ fun ChatConversation(
     chat: TranscriptGrouping.Chat? = null,
     /** #EXP-1736: the viewer (their own bubbles sit right). */
     viewerId: String? = null,
+    /** #FEED-237: an own row's delivery mark (message-delivery.json); null =
+     *  from the row (queued = the clock, else two checks). */
+    deliveryState: ((SessionTree.SessionChatRow.MessageRow) -> com.exponential.app.domain.MessageDelivery.State?)? = null,
+    /** A specimen showing the transcript's head: opens at the top, no
+     *  follow and no jump button. */
+    startAtTop: Boolean = false,
 ) {
     // #EXP-1464 (chat-row-action.json): the expanded session rows (by row
     // id) and the sessions the viewer answered from one (client-held).
@@ -417,7 +423,7 @@ fun ChatConversation(
     // and follows new rows while the reader sits within `followSlack` of the
     // bottom; a drag further up stops following and shows THE jump-to-bottom
     // button. Only user drags flip follow-mode.
-    var follow by rememberSaveable(rootId) { mutableStateOf(true) }
+    var follow by rememberSaveable(rootId) { mutableStateOf(!startAtTop) }
     val followSlackPx = with(LocalDensity.current) { Chats.Transcript.FOLLOW_SLACK.dp.toPx() }
     val jumpScope = rememberCoroutineScope()
     // chats.json WINDOW (#EXP-1380, review of #1218: `windowCases`): the
@@ -462,10 +468,24 @@ fun ChatConversation(
         }
         placedCount[0] = itemCount
     }
+    // waiting-cards.json DEEP LINKS: THE pending jump into a card (a waiting
+    // chip, a Needs you row): Load earlier ONE step at a time until it is
+    // painted, its layout, the centre, the ring; the list stops following.
+    val deepLink = com.exponential.app.ui.session.rememberDeepLink(
+        listState = state,
+        request = com.exponential.app.ui.session.LocalCardScrollRequest.current,
+        indexOf = { id -> painted.indexOfFirst { it.id == id }.takeIf { it >= 0 }?.let { it + header } },
+        more = { windowStart > 0 },
+        loadedMark = { painted.size },
+        page = { loadedSteps += 1 },
+        onTake = { follow = false },
+    )
+    val linkPending = rememberUpdatedState(deepLink.pending)
     LaunchedEffect(state, followSlackPx) {
         snapshotFlow { state.isScrollInProgress to state.isNearBottom(followSlackPx) }
             .distinctUntilChanged()
-            .collect { (dragging, nearBottom) -> if (dragging) follow = nearBottom }
+            // A deep link's own scrolls never re-arm follow.
+            .collect { (dragging, nearBottom) -> if (dragging && !linkPending.value) follow = nearBottom }
     }
     // The floating band's height lands after the first layout: a follower
     // re-pins to the true end when it does (the session view's rule).
@@ -480,20 +500,13 @@ fun ChatConversation(
     LaunchedEffect(painted.size, follow, jumpBottomInset) {
         if (follow && painted.isNotEmpty()) state.pinToEnd()
     }
-    // #EXP-1562 (waiting-cards.json CHIPS): a waiting chip's pick stops
-    // following and centres that card (its ring is the host's highlight).
-    val cardScroll = com.exponential.app.ui.session.LocalCardScrollRequest.current
-    LaunchedEffect(cardScroll, painted.size) {
-        val request = cardScroll ?: return@LaunchedEffect
-        val at = painted.indexOfFirst { it.id == request.id }
-        if (at < 0) return@LaunchedEffect
-        follow = false
-        state.centreOnItem(header + at)
-    }
     // EXP-760 ×4 (web `chat-markdown.tsx`): every conversation text chips
     // BARE identifiers too (`FB-8`; agents omit the `#`) when the screen
     // provides [LocalIssueRefs]. Display-only: the composer sits outside.
-    CompositionLocalProvider(LocalIssueRefBare provides true) {
+    CompositionLocalProvider(
+        LocalIssueRefBare provides true,
+        com.exponential.app.ui.session.LocalCardHighlight provides deepLink.ringing,
+    ) {
         Box(modifier = modifier) {
         LazyColumn(
             state = state,
@@ -545,6 +558,13 @@ fun ChatConversation(
                                 time = rowMeta?.time,
                                 queued = row.queued,
                                 onUnqueue = if (row.queued && canUnqueue(row)) ({ onUnqueue(row.id) }) else null,
+                                // #FEED-237: the viewer's bubble carries its
+                                // delivery mark, never a `queued` caption.
+                                status = deliveryState?.invoke(row) ?: if (row.queued) {
+                                    com.exponential.app.domain.MessageDelivery.State.Sending
+                                } else {
+                                    com.exponential.app.domain.MessageDelivery.State.Read
+                                },
                             )
                             TranscriptGrouping.Side.Other -> {
                                 val link = sender?.link
@@ -684,7 +704,7 @@ fun ChatConversation(
             }
         }
         JumpToBottomButton(
-            visible = !follow && shown.isNotEmpty(),
+            visible = !follow && !startAtTop && shown.isNotEmpty(),
             // #EXP-1383 (owner 2026-10-24: "exactly as in sessions"): the run
             // view's tap — animate to the newest row (the pinned window still
             // ends on it), finish on the true end and resume following; the

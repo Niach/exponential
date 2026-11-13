@@ -23,10 +23,17 @@ vi.mock(`@/db/connection`, () => ({
     }),
   },
 }))
-vi.mock(`@/lib/integrations/github-pr`, () => ({
-  fetchPullState: vi.fn(),
-  resolveRepoToken: vi.fn(async () => `tok`),
-}))
+// #EXP-1614: the poller reads through the repo's forge.
+const forgeRead = vi.hoisted(() => ({ readPullRequest: vi.fn() }))
+vi.mock(`@/lib/ecode/forge`, async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/ecode/forge")>()
+  const fake = actual.partialForgeForTests({
+    kind: `github`,
+    readPullRequest: (...args) => forgeRead.readPullRequest(...args),
+    credentials: async () => ({ remoteUrl: ``, username: ``, token: `tok`, expiresAt: new Date() }),
+  })
+  return { ...actual, forgeFor: async () => fake }
+})
 let budgetLow = false
 vi.mock(`@/lib/integrations/github-client`, async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/integrations/github-client")>()),
@@ -45,7 +52,7 @@ vi.mock(`@/lib/integrations/pr-sync`, () => ({
   applyPullRequestReopened: vi.fn(),
 }))
 
-import { fetchPullState } from "@/lib/integrations/github-pr"
+const fetchPullState = forgeRead.readPullRequest
 import { repairPullRequestChecksIfStale } from "@/lib/integrations/pr-checks"
 import {
   applyPullRequestBase,

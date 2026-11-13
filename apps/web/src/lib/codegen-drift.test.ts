@@ -38,6 +38,17 @@ const GENERATORS: { filter: string; pkg: string; outputs: string[] }[] = [
     ],
   },
   {
+    // #EXP-1613 — eCode's enums and small rules, one contract for all four.
+    filter: `@exp/ecode`,
+    pkg: `packages/ecode`,
+    outputs: [
+      `apps/desktop/crates/ecode-core/src/contract.generated.rs`,
+      `packages/ecode/src/contract.generated.ts`,
+      `apps/ios/ExpCore/Sources/Domain/ECode.generated.swift`,
+      `apps/android/app/src/main/java/com/exponential/app/ecode/ECode.generated.kt`,
+    ],
+  },
+  {
     filter: `@exp/design-tokens`,
     pkg: `packages/design-tokens`,
     outputs: [

@@ -324,7 +324,8 @@
     "messageStatus": [
       "sending",
       "sent",
-      "read"
+      "read",
+      "failed"
     ],
     "callState": [
       "ringing",
@@ -2242,6 +2243,11 @@
         "maxLines": {
           "type": "number",
           "description": "Lines before it scrolls."
+        },
+        "follow": {
+          "type": "boolean",
+          "default": false,
+          "description": "Sticks to the bottom while the code grows (a live log)."
         },
         "variant": {
           "type": "enum",
@@ -4534,7 +4540,7 @@
       "group": "action",
       "lite": true,
       "children": "one",
-      "description": "Press target: label + optional icon, or one custom child.",
+      "description": "Press target: label + optional icon, or one custom child. A stretch column (Section rows, a vertical Stack) stretches it; a row, `align: start` or a trigger slot keeps its own width.",
       "props": {
         "label": {
           "type": "string",
@@ -6342,7 +6348,7 @@
           "type": "enum",
           "enum": "messageStatus",
           "bindable": true,
-          "description": "Delivery, out only."
+          "description": "Delivery mark, out only (MessageStatus)."
         },
         "author": {
           "type": "string",
@@ -7328,6 +7334,25 @@
         "path": "/recordTable/deals/editor/draft",
         "editorOpen": false,
         "deleteOpen": false
+      }
+    },
+    "MessageStatus": {
+      "kind": "macro",
+      "group": "list",
+      "lite": true,
+      "children": "none",
+      "description": "A message's delivery mark: clock, check, double check (info), error (danger).",
+      "props": {
+        "status": {
+          "type": "enum",
+          "enum": "messageStatus",
+          "required": true,
+          "bindable": true,
+          "description": "Delivery state."
+        }
+      },
+      "example": {
+        "status": "read"
       }
     }
   }

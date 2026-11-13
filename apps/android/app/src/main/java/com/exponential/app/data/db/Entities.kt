@@ -522,6 +522,10 @@ data class DeviceEntity(
     // Web "Update" click pending on the daemon (cleared by its next register).
     @ColumnInfo(name = "update_requested_at") @SerialName("update_requested_at") @JsonNames("updateRequestedAt")
     val updateRequestedAt: String? = null,
+    // #EXP-1617 / #EXP-1804 (runner-settings.json, [MIGRATION_124_125]): the
+    // owner's CI runner settings, `{enabled, labels, slots, timeoutMin}` as raw
+    // JSON text (parsed by `RunnerSettings.parse`); NULL = never set up.
+    @Serializable(with = JsonAsStringSerializer::class) val runner: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
 )
@@ -634,6 +638,23 @@ data class IssueDraftEntity(
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",    // #EXP-1383: an AGENT assignee (exclusive with `assignee_id`).
     @ColumnInfo(name = "assignee_agent_id") @SerialName("assignee_agent_id") @JsonNames("assigneeAgentId")
     val assigneeAgentId: String? = null,
+)
+
+// #FEED-219 (fixture `composer-draft.json`): one composer's synced DRAFT,
+// keyed by its target (`comment:<issueId>`, `reply:<topCommentId>`,
+// `session:<id>`, `agent:<id>`, `app:<id>`, `newChat:<teamId>`). Static per
+// user like issue_drafts and pins; only the TEXT is kept. Every field but the
+// PK defaults: a column absent on the wire must never drop the row.
+@Entity(tableName = "composer_drafts", indices = [Index("key")])
+@Serializable
+data class ComposerDraftEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "user_id") @SerialName("user_id") @JsonNames("userId") val userId: String = "",
+    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String = "",
+    val key: String = "",
+    val text: String = "",
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
 )
 
 // EXP-1291: ONE session tree (the `sessions` shape). A chat IS a
@@ -972,6 +993,31 @@ data class AppRecordOutboxEntity(
     @ColumnInfo(name = "acked_at") val ackedAt: String? = null,
 )
 
+// #FEED-237 (message-delivery.json): the LOCAL session outbox (no shape): a
+// person's message from the press until its synced row takes its place.
+// [state] = `sending` | `failed`; [messageId] = the row the server stored
+// (null until `sessions.send` answers); [attachmentIds] = the uploads that
+// already landed, comma-joined (a resend after a restart carries them);
+// [pendingFiles] (v127) = the picked files not uploaded yet, a JSON list of
+// `OutboxFile` {filename, contentType, path} whose bytes sit under the app's
+// files dir (`outbox/<clientId>/<n>`), so a restart resumes the uploads.
+@Entity(
+    tableName = "outbox",
+    indices = [Index("session_id")],
+)
+data class OutboxEntity(
+    @PrimaryKey @ColumnInfo(name = "client_id") val clientId: String,
+    @ColumnInfo(name = "session_id") val sessionId: String,
+    val text: String,
+    @ColumnInfo(name = "created_at") val createdAt: String,
+    val state: String,
+    @ColumnInfo(name = "message_id") val messageId: String? = null,
+    @ColumnInfo(name = "attachment_ids") val attachmentIds: String? = null,
+    @ColumnInfo(name = "pending_files") val pendingFiles: String? = null,
+) {
+    val attachmentIdList: List<String> get() = attachmentIds?.split(',')?.filter { it.isNotBlank() }.orEmpty()
+}
+
 // NEW-2: a saved prompt (replaces actions): name + curated icon; the body is
 // server-only (tRPC `prompts.get`).
 @Entity(
@@ -1074,6 +1120,9 @@ data class MessageEntity(
     @Serializable(with = JsonAsStringSerializer::class) val attachmentIds: String? = null,
     @ColumnInfo(name = "answered_at") @SerialName("answered_at") @JsonNames("answeredAt") val answeredAt: String? = null,
     @ColumnInfo(name = "consumed_at") @SerialName("consumed_at") @JsonNames("consumedAt") val consumedAt: String? = null,
+    // #FEED-237 ([MIGRATION_125_126], message-delivery.json): the DEVICE
+    // received the pending person message (its one check); NULL = not yet.
+    @ColumnInfo(name = "delivered_at") @SerialName("delivered_at") @JsonNames("deliveredAt") val deliveredAt: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
 ) {
@@ -1176,6 +1225,73 @@ data class PullRequestCheckEntity(
     @ColumnInfo(name = "started_at") @SerialName("started_at") @JsonNames("startedAt") val startedAt: String? = null,
     @ColumnInfo(name = "completed_at") @SerialName("completed_at") @JsonNames("completedAt") val completedAt: String? = null,
     @ColumnInfo(name = "details_url") @SerialName("details_url") @JsonNames("detailsUrl") val detailsUrl: String? = null,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
+)
+
+// #EXP-1617 / #EXP-1804 (ci-run.json): one run of our own CI, member-only by
+// team. Every synced column is display data (the run page).
+@Entity(
+    tableName = "ci_runs",
+    indices = [Index("team_id")],
+)
+@Serializable
+data class CiRunEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String = "",
+    @ColumnInfo(name = "repository_id") @SerialName("repository_id") @JsonNames("repositoryId") val repositoryId: String = "",
+    @Serializable(with = PgIntSerializer::class) val number: Int? = null,
+    val name: String = "",
+    val sha: String = "",
+    val ref: String? = null,
+    val trigger: String = "",
+    @ColumnInfo(name = "pull_request_id") @SerialName("pull_request_id") @JsonNames("pullRequestId") val pullRequestId: String? = null,
+    // pending | success | failure (the rollup over the jobs).
+    val state: String = "pending",
+    // The pipeline file did not plan (the page's error Alert).
+    val error: String? = null,
+    @ColumnInfo(name = "rerun_of") @SerialName("rerun_of") @JsonNames("rerunOf") val rerunOf: String? = null,
+    @ColumnInfo(name = "created_by_user_id") @SerialName("created_by_user_id") @JsonNames("createdByUserId") val createdByUserId: String? = null,
+    @ColumnInfo(name = "started_at") @SerialName("started_at") @JsonNames("startedAt") val startedAt: String? = null,
+    @ColumnInfo(name = "completed_at") @SerialName("completed_at") @JsonNames("completedAt") val completedAt: String? = null,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
+)
+
+// #EXP-1617 / #EXP-1804: one planned check of a CI run. The server-only
+// columns (spec, the job token, dispatch/beat stamps, log chunks) stay behind
+// the shape's allowlist; the log is read on demand (`ci.log`), never synced.
+// The jsonb columns ride as raw JSON text.
+@Entity(
+    tableName = "ci_jobs",
+    indices = [Index("run_id"), Index("team_id"), Index("runner_device_id")],
+)
+@Serializable
+data class CiJobEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String = "",
+    @ColumnInfo(name = "run_id") @SerialName("run_id") @JsonNames("runId") val runId: String = "",
+    val key: String = "",
+    val check: String = "",
+    @Serializable(with = PgIntSerializer::class) val position: Int? = null,
+    @ColumnInfo(name = "runs_on") @SerialName("runs_on") @JsonNames("runsOn")
+    @Serializable(with = JsonAsStringSerializer::class) val runsOn: String? = null,
+    @Serializable(with = JsonAsStringSerializer::class) val needs: String? = null,
+    @Serializable(with = JsonAsStringSerializer::class) val matrix: String? = null,
+    @ColumnInfo(name = "timeout_min") @SerialName("timeout_min") @JsonNames("timeoutMin")
+    @Serializable(with = PgIntSerializer::class) val timeoutMin: Int? = null,
+    // Contract `prCheckStatus` / `prCheckConclusion`.
+    val status: String = com.exponential.app.domain.DomainContract.prCheckStatusQueued,
+    val conclusion: String? = null,
+    val reason: String? = null,
+    @ColumnInfo(name = "runner_device_id") @SerialName("runner_device_id") @JsonNames("runnerDeviceId") val runnerDeviceId: String? = null,
+    @Serializable(with = JsonAsStringSerializer::class) val steps: String? = null,
+    @ColumnInfo(name = "log_key") @SerialName("log_key") @JsonNames("logKey") val logKey: String? = null,
+    @ColumnInfo(name = "log_bytes") @SerialName("log_bytes") @JsonNames("logBytes")
+    @Serializable(with = PgIntSerializer::class) val logBytes: Int? = null,
+    @ColumnInfo(name = "queued_at") @SerialName("queued_at") @JsonNames("queuedAt") val queuedAt: String? = null,
+    @ColumnInfo(name = "started_at") @SerialName("started_at") @JsonNames("startedAt") val startedAt: String? = null,
+    @ColumnInfo(name = "completed_at") @SerialName("completed_at") @JsonNames("completedAt") val completedAt: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
 )

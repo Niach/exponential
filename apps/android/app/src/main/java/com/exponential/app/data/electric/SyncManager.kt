@@ -32,9 +32,12 @@ import com.exponential.app.data.db.IssueSubscriberEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.NotificationEntity
 import com.exponential.app.data.db.IssueDraftEntity
+import com.exponential.app.data.db.ComposerDraftEntity
 import com.exponential.app.data.db.PinEntity
 import com.exponential.app.data.db.MessageEntity
 import com.exponential.app.data.db.PullRequestCheckEntity
+import com.exponential.app.data.db.CiJobEntity
+import com.exponential.app.data.db.CiRunEntity
 import com.exponential.app.data.db.PullRequestEntity
 import com.exponential.app.data.db.PullRequestIssueEntity
 import com.exponential.app.data.db.SessionEntity
@@ -364,12 +367,15 @@ class SyncManager @Inject constructor(
     private fun launchPipeline(accountId: String, db: ExponentialDatabase): Pipeline {
         // Threaded into every shape so each one reports phase/rows/errors to the
         // Sync Diagnostics screen.
-        fun reporter(shape: String) = ShapeReporter(
+        // [optional] = a shape an older server may not serve yet (#FEED-219
+        // composer_drafts): its failures stay in the stats and never reach
+        // the offline banner, so a 404 there leaves sync healthy.
+        fun reporter(shape: String, optional: Boolean = false) = ShapeReporter(
             onPhase = { phase -> stats.setPhase(accountId, shape, phase) },
             onApplied = { n -> stats.addRows(accountId, shape, n) },
             onError = { authFailure, message, schema ->
                 stats.incError(accountId, shape, authFailure = authFailure, message = message, schema = schema)
-                health.recordFailure(accountId, message ?: "sync poll failed")
+                if (!optional) health.recordFailure(accountId, message ?: "sync poll failed")
             },
             onSuccess = {
                 stats.clearError(accountId, shape)
@@ -389,7 +395,7 @@ class SyncManager @Inject constructor(
             // A rejected bearer (401, never 403) signs THIS account out
             // locally; the token disappearing is what the accounts collector
             // above reconciles into cancelling this pipeline.
-            onUnauthorized = { sessionInvalidator.invalidate(accountId) },
+            onUnauthorized = { presented -> sessionInvalidator.invalidate(accountId, presented) },
         )
 
         // Per-account credential providers: read the specific account's URL +
@@ -422,12 +428,15 @@ class SyncManager @Inject constructor(
         val deviceWorktreeDao = db.deviceWorktreeDao()
         val pinDao = db.pinDao()
         val issueDraftDao = db.issueDraftDao()
+        val composerDraftDao = db.composerDraftDao()
         val sessionDao = db.sessionDao()
         val sessionIssueDao = db.sessionIssueDao()
         val messageDao = db.messageDao()
         val pullRequestDao = db.pullRequestDao()
         val pullRequestIssueDao = db.pullRequestIssueDao()
         val pullRequestCheckDao = db.pullRequestCheckDao()
+        val ciRunDao = db.ciRunDao()
+        val ciJobDao = db.ciJobDao()
         val sessionReadDao = db.sessionReadDao()
         val agentDefinitionDao = db.agentDefinitionDao()
         val eventDao = db.eventDao()
@@ -614,6 +623,18 @@ class SyncManager @Inject constructor(
                 onDelete = { issueDraftDao.deleteById(it.id) },
                 onRefetch = { issueDraftDao.clear() },
             ),
+            // #FEED-219: every composer's synced draft — static per user like
+            // issue_drafts. Optional: a server without the shape 404s here
+            // alone, every other shape keeps syncing and the banner stays off.
+            launchShape(
+                shape = "composer_drafts", path = "/api/shapes/composer-drafts", tableName = "composer_drafts",
+                serializer = ComposerDraftEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("composer_drafts", optional = true),
+                onInsert = { composerDraftDao.upsert(it) },
+                onDelete = { composerDraftDao.deleteById(it.id) },
+                onRefetch = { composerDraftDao.clear() },
+            ),
             // EXP-1291: the session tree (chats, agents and their
             // sub-sessions) — `shared OR user_id = me` inside the member teams.
             launchShape(
@@ -674,6 +695,27 @@ class SyncManager @Inject constructor(
                 onInsert = { pullRequestCheckDao.upsert(it) },
                 onDelete = { pullRequestCheckDao.deleteById(it.id) },
                 onRefetch = { pullRequestCheckDao.clear() },
+            ),
+            // #EXP-1617 / #EXP-1804: our own CI's runs and jobs (the run page,
+            // a runner's recent jobs), member-only by team. Optional like
+            // composer_drafts: a server without the shapes 404s here alone.
+            launchShape(
+                shape = "ci_runs", path = "/api/shapes/ci-runs", tableName = "ci_runs",
+                serializer = CiRunEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("ci_runs", optional = true),
+                onInsert = { ciRunDao.upsert(it) },
+                onDelete = { ciRunDao.deleteById(it.id) },
+                onRefetch = { ciRunDao.clear() },
+            ),
+            launchShape(
+                shape = "ci_jobs", path = "/api/shapes/ci-jobs", tableName = "ci_jobs",
+                serializer = CiJobEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("ci_jobs", optional = true),
+                onInsert = { ciJobDao.upsert(it) },
+                onDelete = { ciJobDao.deleteById(it.id) },
+                onRefetch = { ciJobDao.clear() },
             ),
             // EXP-1323: the viewer's read marks — static per user like pins.
             launchShape(
@@ -888,7 +930,7 @@ private class ShapeReporter(
     // An auto-reset of this shape has begun.
     val onRecovering: () -> Unit = {},
     // The server rejected this account's bearer token (HTTP 401 only).
-    val onUnauthorized: () -> Unit = {},
+    val onUnauthorized: (presentedToken: String) -> Unit = {},
 )
 
 // One schema cache for the whole process: every account's Room instance shares

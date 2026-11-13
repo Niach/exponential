@@ -2139,6 +2139,15 @@ pub fn tree_state(tree: &[&SessionRow], pull_requests: &[&PullRequestRow], _now_
 /// queued or running) · Recent (the rest), each by the tree's newest
 /// `updated_at` desc (ties by id). Empty groups are omitted.
 pub fn partition_chats(input: ChatsListInput<'_>) -> Vec<ChatsListGroup> {
+    group_chat_rows(chat_list_rows(input), input.now_ms)
+}
+
+/// [`partition_chats`]' rows before the grouping: each root's row and the
+/// group it falls in. A row reads its own TREE only (its sessions, their
+/// messages, links and the root's read mark), so a host may derive the
+/// rows of the trees a write touched and group them with the rest
+/// ([`group_chat_rows`]; #PERF-3: the desktop rail).
+pub fn chat_list_rows(input: ChatsListInput<'_>) -> Vec<(ChatsListKey, ChatsListRow)> {
     let read_at: HashMap<&str, i64> = input
         .reads
         .iter()
@@ -2164,7 +2173,7 @@ pub fn partition_chats(input: ChatsListInput<'_>) -> Vec<ChatsListGroup> {
     for session in input.sessions {
         by_root.entry(session.root_id_or_self()).or_default().push(session);
     }
-    let mut buckets: HashMap<ChatsListKey, Vec<ChatsListRow>> = HashMap::new();
+    let mut out: Vec<(ChatsListKey, ChatsListRow)> = Vec::new();
     // #LOGS-3: every root's title off one index (was a scan of every link,
     // issue and message per root).
     let titles = crate::session_title::TitleIndex::new(input.session_issues, input.issues, input.messages);
@@ -2214,34 +2223,52 @@ pub fn partition_chats(input: ChatsListInput<'_>) -> Vec<ChatsListGroup> {
         // #EXP-1461 (owner 2026-10-30: 'we don't wanna see all the nested
         // child sessions, only the root ones'): a row is a ROOT, never a
         // child; the tree's state (needs you, working, unread) rolls up into it.
-        buckets.entry(key).or_default().push(row);
+        out.push((key, row));
+    }
+    out
+}
+
+/// [`partition_chats`]' grouping: the rows into Needs you · Running ·
+/// Recent, each by activity desc (ties by id), Recent cut to its window.
+pub fn group_chat_rows(rows: impl IntoIterator<Item = (ChatsListKey, ChatsListRow)>, now_ms: Option<i64>) -> Vec<ChatsListGroup> {
+    let rows: Vec<(ChatsListKey, ChatsListRow)> = rows.into_iter().collect();
+    group_chat_row_refs(rows.iter().map(|(key, row)| (*key, row)), now_ms)
+}
+
+/// [`group_chat_rows`] over borrowed rows: only the rows a group keeps are
+/// cloned (Recent keeps its window of a team's every tree).
+pub fn group_chat_row_refs<'a>(rows: impl IntoIterator<Item = (ChatsListKey, &'a ChatsListRow)>, now_ms: Option<i64>) -> Vec<ChatsListGroup> {
+    group_chat_rows_at(rows.into_iter().map(|(key, row)| (key, row, chat_row_activity_ms(row))), now_ms)
+}
+
+/// A row's activity as [`group_chat_rows_at`] orders it.
+pub fn chat_row_activity_ms(row: &ChatsListRow) -> i64 {
+    ms_or_zero(Some(&row.activity_at))
+}
+
+/// [`group_chat_row_refs`] with each row's [`chat_row_activity_ms`] read
+/// once by the caller (a host keeping rows between derives).
+pub fn group_chat_rows_at<'a>(rows: impl IntoIterator<Item = (ChatsListKey, &'a ChatsListRow, i64)>, now_ms: Option<i64>) -> Vec<ChatsListGroup> {
+    let mut buckets: HashMap<ChatsListKey, Vec<(i64, &ChatsListRow)>> = HashMap::new();
+    for (key, row, at) in rows {
+        buckets.entry(key).or_default().push((at, row));
     }
     ChatsListKey::ALL
         .into_iter()
         .filter_map(|key| {
             let mut rows = buckets.remove(&key)?;
-            rows.sort_by(|a, b| {
-                ms_or_zero(Some(&b.activity_at))
-                    .cmp(&ms_or_zero(Some(&a.activity_at)))
-                    .then_with(|| a.session_id.cmp(&b.session_id))
-            });
-            if key == ChatsListKey::Recent {
-                // NEW-1: every tree active in the last `recent.hours`, filled
-                // up to the last `recent.max` by activity.
-                let rules = CHATS_LIST.recent;
-                let window = rules.hours * 60 * 60 * 1000;
-                rows = rows
-                    .into_iter()
-                    .enumerate()
-                    .filter(|(index, row)| {
-                        *index < rules.max
-                            || input
-                                .now_ms
-                                .is_some_and(|at| at - ms_or_zero(Some(&row.activity_at)) <= window)
-                    })
-                    .map(|(_, row)| row)
-                    .collect();
-            }
+            // Activity desc, ties by id.
+            rows.sort_by(|(a_at, a), (b_at, b)| b_at.cmp(a_at).then_with(|| a.session_id.cmp(&b.session_id)));
+            let rules = CHATS_LIST.recent;
+            let window = rules.hours * 60 * 60 * 1000;
+            let rows: Vec<ChatsListRow> = rows
+                .into_iter()
+                .enumerate()
+                // NEW-1: Recent = every tree active in the last
+                // `recent.hours`, filled up to the last `recent.max`.
+                .filter(|(index, (at, _))| key != ChatsListKey::Recent || *index < rules.max || now_ms.is_some_and(|now| now - at <= window))
+                .map(|(_, (_, row))| row.clone())
+                .collect();
             Some(ChatsListGroup {
                 key,
                 title: key.title().to_string(),

@@ -41072,6 +41072,155 @@
       }
     },
     {
+      "name": "MessageBubble/status=failed",
+      "input": {
+        "id": "message_bubble",
+        "component": "MessageBubble",
+        "props": {
+          "text": "Is the printer fixed?",
+          "side": "out",
+          "time": "18:00",
+          "status": "failed"
+        }
+      },
+      "expected": {
+        "id": "message_bubble",
+        "component": "Box",
+        "props": {
+          "pressable": false
+        },
+        "children": [
+          {
+            "id": "message_bubble.bubble",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "message_bubble.bubble.text",
+                "component": "Markdown",
+                "props": {
+                  "text": "Is the printer fixed?"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "MessageBubble",
+                  "part": "text",
+                  "props": {
+                    "side": "out",
+                    "status": "failed"
+                  }
+                }
+              },
+              {
+                "id": "message_bubble.bubble.footer",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "message_bubble.bubble.footer.time",
+                    "component": "Text",
+                    "props": {
+                      "text": "18:00",
+                      "variant": "caption",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "MessageBubble",
+                      "part": "time",
+                      "props": {
+                        "side": "out",
+                        "status": "failed"
+                      }
+                    }
+                  },
+                  {
+                    "id": "message_bubble.bubble.footer.status",
+                    "component": "Icon",
+                    "props": {
+                      "name": "ui-error",
+                      "size": "sm",
+                      "label": "$string.notSent"
+                    },
+                    "children": [],
+                    "style": {
+                      "width": 14,
+                      "height": 14,
+                      "flexShrink": 0
+                    },
+                    "recipe": {
+                      "macro": "MessageBubble",
+                      "part": "status",
+                      "props": {
+                        "side": "out",
+                        "status": "failed"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "justifyContent": "flex-end",
+                  "alignSelf": "flex-end",
+                  "gap": "$spacing.xs"
+                },
+                "recipe": {
+                  "macro": "MessageBubble",
+                  "part": "footer",
+                  "props": {
+                    "side": "out",
+                    "status": "failed"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xxs",
+              "maxWidth": "80%",
+              "minWidth": 0,
+              "paddingHorizontal": "$spacing.md",
+              "paddingVertical": "$spacing.sm",
+              "borderRadius": "$radius.xl",
+              "borderTopLeftRadius": "$radius.xl"
+            },
+            "recipe": {
+              "macro": "MessageBubble",
+              "part": "bubble",
+              "props": {
+                "side": "out",
+                "status": "failed"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "flex-start",
+          "justifyContent": "flex-end",
+          "gap": "$spacing.sm",
+          "width": "100%",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "MessageBubble",
+          "part": "root",
+          "props": {
+            "side": "out",
+            "status": "failed"
+          }
+        },
+        "accessibility": {
+          "role": "group",
+          "label": "18:00"
+        }
+      }
+    },
+    {
       "name": "MessageBubble/pressable=true",
       "input": {
         "id": "message_bubble",
@@ -54667,6 +54816,166 @@
           "macro": "RecordTable",
           "part": "root",
           "props": {}
+        }
+      }
+    },
+    {
+      "name": "MessageStatus/example",
+      "input": {
+        "id": "message_status",
+        "component": "MessageStatus",
+        "props": {
+          "status": "read"
+        }
+      },
+      "expected": {
+        "id": "message_status",
+        "component": "Icon",
+        "props": {
+          "name": "ui-read",
+          "size": "sm",
+          "label": "$string.read"
+        },
+        "children": [],
+        "style": {
+          "width": 14,
+          "height": 14,
+          "flexShrink": 0
+        },
+        "recipe": {
+          "macro": "MessageStatus",
+          "part": "root",
+          "props": {
+            "status": "read"
+          }
+        }
+      }
+    },
+    {
+      "name": "MessageStatus/status=sending",
+      "input": {
+        "id": "message_status",
+        "component": "MessageStatus",
+        "props": {
+          "status": "sending"
+        }
+      },
+      "expected": {
+        "id": "message_status",
+        "component": "Icon",
+        "props": {
+          "name": "ui-clock",
+          "size": "sm",
+          "label": "$string.sending"
+        },
+        "children": [],
+        "style": {
+          "width": 14,
+          "height": 14,
+          "flexShrink": 0
+        },
+        "recipe": {
+          "macro": "MessageStatus",
+          "part": "root",
+          "props": {
+            "status": "sending"
+          }
+        }
+      }
+    },
+    {
+      "name": "MessageStatus/status=sent",
+      "input": {
+        "id": "message_status",
+        "component": "MessageStatus",
+        "props": {
+          "status": "sent"
+        }
+      },
+      "expected": {
+        "id": "message_status",
+        "component": "Icon",
+        "props": {
+          "name": "ui-check",
+          "size": "sm",
+          "label": "$string.sent"
+        },
+        "children": [],
+        "style": {
+          "width": 14,
+          "height": 14,
+          "flexShrink": 0
+        },
+        "recipe": {
+          "macro": "MessageStatus",
+          "part": "root",
+          "props": {
+            "status": "sent"
+          }
+        }
+      }
+    },
+    {
+      "name": "MessageStatus/status=read",
+      "input": {
+        "id": "message_status",
+        "component": "MessageStatus",
+        "props": {
+          "status": "read"
+        }
+      },
+      "expected": {
+        "id": "message_status",
+        "component": "Icon",
+        "props": {
+          "name": "ui-read",
+          "size": "sm",
+          "label": "$string.read"
+        },
+        "children": [],
+        "style": {
+          "width": 14,
+          "height": 14,
+          "flexShrink": 0
+        },
+        "recipe": {
+          "macro": "MessageStatus",
+          "part": "root",
+          "props": {
+            "status": "read"
+          }
+        }
+      }
+    },
+    {
+      "name": "MessageStatus/status=failed",
+      "input": {
+        "id": "message_status",
+        "component": "MessageStatus",
+        "props": {
+          "status": "failed"
+        }
+      },
+      "expected": {
+        "id": "message_status",
+        "component": "Icon",
+        "props": {
+          "name": "ui-error",
+          "size": "sm",
+          "label": "$string.notSent"
+        },
+        "children": [],
+        "style": {
+          "width": 14,
+          "height": 14,
+          "flexShrink": 0
+        },
+        "recipe": {
+          "macro": "MessageStatus",
+          "part": "root",
+          "props": {
+            "status": "failed"
+          }
         }
       }
     },
@@ -76263,7 +76572,8 @@
                           "cases": {
                             "sending": "ui-clock",
                             "sent": "ui-check",
-                            "read": "ui-read"
+                            "read": "ui-read",
+                            "failed": "ui-error"
                           },
                           "default": "ui-check"
                         }
@@ -76278,7 +76588,8 @@
                           "cases": {
                             "sending": "$string.sending",
                             "sent": "$string.sent",
-                            "read": "$string.read"
+                            "read": "$string.read",
+                            "failed": "$string.notSent"
                           },
                           "default": "$string.sent"
                         }
@@ -85914,6 +86225,70 @@
           "macro": "RecordTable",
           "part": "root",
           "props": {}
+        }
+      }
+    },
+    {
+      "name": "MessageStatus/bound:status",
+      "input": {
+        "id": "message_status",
+        "component": "MessageStatus",
+        "props": {
+          "status": {
+            "@path": "/status"
+          }
+        }
+      },
+      "expected": {
+        "id": "message_status",
+        "component": "Icon",
+        "props": {
+          "name": {
+            "@call": "map",
+            "args": {
+              "value": {
+                "@path": "/status"
+              },
+              "cases": {
+                "sending": "ui-clock",
+                "sent": "ui-check",
+                "read": "ui-read",
+                "failed": "ui-error"
+              },
+              "default": "ui-check"
+            }
+          },
+          "size": "sm",
+          "label": {
+            "@call": "map",
+            "args": {
+              "value": {
+                "@path": "/status"
+              },
+              "cases": {
+                "sending": "$string.sending",
+                "sent": "$string.sent",
+                "read": "$string.read",
+                "failed": "$string.notSent"
+              },
+              "default": "$string.sent"
+            }
+          }
+        },
+        "children": [],
+        "style": {
+          "width": 14,
+          "height": 14,
+          "flexShrink": 0
+        },
+        "recipe": {
+          "macro": "MessageStatus",
+          "part": "root",
+          "props": {
+            "status": {
+              "@path": "/status"
+            }
+          }
         }
       }
     },

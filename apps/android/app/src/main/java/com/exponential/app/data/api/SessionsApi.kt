@@ -67,6 +67,9 @@ data class SessionsSendInput(
      * `null`); a Kotlin null = omitted. Build it with [scope].
      */
     val scopeTeamIds: JsonElement? = null,
+    /** #FEED-237 (F21): the sender's idempotency key, the outbox entry's
+     *  clientId; a resend with the same key gets the row already stored. */
+    val clientMessageId: String? = null,
 ) {
     companion object {
         /** #EXP-1715: the wire of a Teams pick (null = every team). */

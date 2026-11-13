@@ -759,7 +759,7 @@ function componentCases(): ComponentCase[] {
 const INLINE_SPECIMENS = new Set([
   `Avatar`, `Badge`, `Button`, `Checkbox`, `Chip`, `Icon`, `Link`, `Menu`,
   `Radio`, `Ring`, `Spinner`, `Switch`, `Toggle`, `Segmented`, `Tooltip`, `Popover`, `Pagination`, `QrCode`,
-  `CountBadge`,
+  `CountBadge`, `MessageStatus`,
 ])
 /** The enum props a specimen shows, in priority order (at most two of them). */
 const SPECIMEN_ENUMS = [`variant`, `shape`, `surface`, `openOn`, `type`, `kind`, `level`, `size`, `tone`, `tint`, `chevron`, `density`, `orientation`, `direction`, `fit`]
@@ -969,6 +969,8 @@ const SPECIMEN_OVERRIDES: Record<string, { label: string; node: NestedNode }[]> 
     { label: `example`, node: { id: `bubble`, component: `MessageBubble`, props: { text: `Is the printer fixed?`, side: `out`, time: `18:00`, status: `read` }, style: { width: 360 } } },
     { label: `side · in · author + attachment`, node: { id: `bubble`, component: `MessageBubble`, props: { text: `There you go.`, author: `spezl`, time: `20:21` }, style: { width: 360 }, slots: { attachment: { id: `file`, component: `Chip`, props: { label: `IMG_2041.jpg`, icon: `ui-file`, shape: `rect` } } } } },
   ],
+  // #FEED-237: the four delivery marks (packages/domain-contract/fixtures/message-delivery.json `marks`).
+  MessageStatus: [`sending`, `sent`, `read`, `failed`].map((status) => ({ label: `status · ${status}`, node: { id: `status`, component: `MessageStatus`, props: { status } } })),
   CallSurface: [
     { label: `state · ringing`, node: { id: `call`, component: `CallSurface`, props: { name: `Assistant`, seed: `agent-assistant`, state: `ringing`, status: `Calling…` }, style: { minHeight: 480 } } },
     { label: `state · talking`, node: { id: `call`, component: `CallSurface`, props: { name: `Assistant`, seed: `agent-assistant`, state: `talking`, activity: `speaking`, level: 0.6, bands: [0.9, 0.5, 1, 0.6], status: `01:24`, caption: `Sure, Friday at eight works. Shall I book it?`, speaker: true }, style: { minHeight: 480 } } },
@@ -1012,6 +1014,36 @@ const AVATAR_PICTURE = `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACA
 const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
   // #FEED-232: past the cap (`99+`) on the muted tone.
   CountBadge: [{ label: `count 120 · muted`, node: { id: `count_badge_capped`, component: `CountBadge`, props: { count: 120, tone: `muted` } } }],
+  // #EXP-1813: the placeholder shows only while no chip is in (Compose kept it beside the chips).
+  ChipInput: [{ label: `chips · the placeholder hides`, node: { id: `chip_input_hint`, component: `ChipInput`, props: { label: `Required checks`, name: `required`, values: [`build`], placeholder: `Check name` } } }],
+  // #EXP-1804: a CI job's live log: ansi, six lines tall, sticks to the bottom.
+  CodeBlock: [
+    {
+      label: `follow · a live log`,
+      node: {
+        id: `code_block_log`,
+        component: `CodeBlock`,
+        props: {
+          title: `test · bun run test`,
+          language: `ansi`,
+          maxLines: 6,
+          follow: true,
+          code: [
+            `$ bun install --frozen-lockfile`,
+            `\u001b[2mResolved 1204 packages in 812ms\u001b[0m`,
+            `$ bun run typecheck`,
+            `\u001b[32m✓\u001b[0m apps/web`,
+            `\u001b[32m✓\u001b[0m packages/db-schema`,
+            `$ bun run test`,
+            `\u001b[32m✓\u001b[0m src/lib/sessions/send.test.ts \u001b[2m(42 tests)\u001b[0m`,
+            `\u001b[32m✓\u001b[0m src/lib/emcp/gate.test.ts \u001b[2m(18 tests)\u001b[0m`,
+            `\u001b[31m✗\u001b[0m src/lib/ci/runner.test.ts \u001b[2m(1 failed)\u001b[0m`,
+            `\u001b[1mTests\u001b[0m  \u001b[32m60 passed\u001b[0m, \u001b[31m1 failed\u001b[0m`,
+          ].join(`\n`),
+        },
+      },
+    },
+  ],
   // #EXP-1760: the open grids, in a box tall enough for them (an extra:
   // the wrapper keeps its own child).
   IconPicker: [
@@ -1461,6 +1493,12 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
       { id: `tool`, component: `Button`, props: { label: `Add`, icon: `ui-add`, variant: `ghost`, size: `icon-xs`, tone: `muted` } },
       { id: `dismiss`, component: `Button`, props: { label: `Dismiss`, icon: `ui-close`, variant: `ghost`, size: `icon-xs` } },
     ] },
+  }, {
+    // #EXP-1813: a Button is a flex item like any other: a stretch column (a
+    // Section's rows, a vertical Stack) stretches it; a row, `align: start`
+    // or a trigger slot keeps its own width (every other case here).
+    label: `in a stretch column`,
+    node: { id: `stretch`, component: `Stack`, props: { direction: `vertical`, gap: `xs` }, style: { alignSelf: `stretch` }, children: [{ id: `add`, component: `Button`, props: { label: `Add secret`, variant: `outline`, size: `sm` } }] },
   }],
   // VAPP-162: a conversation (in, out, the three delivery states).
   MessageBubble: [{

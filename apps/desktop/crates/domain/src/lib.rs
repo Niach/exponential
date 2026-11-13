@@ -84,6 +84,9 @@
 //! * [`inbox_route`] — #EXP-1456: where an inbox row / toast opens (issue,
 //!   session, nothing) and where a session opens (agent page, chat,
 //!   session), byte-locked ×4 by `fixtures/inbox-route.json`;
+//! * [`notification_delivery`] — #EXP-1815: a notification's thread, where
+//!   it shows (nothing, the toast, the OS), when it clears and the source
+//!   switches, byte-locked ×4 by `fixtures/notification-delivery.json`;
 //! * [`chat_row_action`] — #EXP-1464: what a conversation's session row
 //!   does when tapped (expand into its card, open, nothing), byte-locked ×4
 //!   by `fixtures/chat-row-action.json`;
@@ -138,6 +141,8 @@ pub mod client_version;
 pub mod coding_readiness;
 /// S-3: the New-chat composer's agent picker row (composer-home.json `agentRow`).
 pub mod composer_agent_row;
+// #FEED-219: every composer's synced draft, fixture-locked ×4.
+pub mod composer_draft;
 // EXP-1537: what a send leaves in THE composer, fixture-locked ×4.
 pub mod composer_send;
 // EXP-1162: the detail chrome (title collapse + edge strips), fixture-locked ×4.
@@ -155,6 +160,8 @@ pub mod hydrate;
 pub mod image_message;
 // #EXP-1456: where an inbox row (and its toast) opens, fixture-locked ×4.
 pub mod inbox_route;
+// #EXP-1815: where a notification shows, when it clears, who mutes it, fixture-locked ×4.
+pub mod notification_delivery;
 pub mod issue_draft;
 pub mod issue_estimate;
 pub mod issue_graph;
@@ -169,6 +176,8 @@ pub mod issue_search;
 pub mod list_item;
 // #EXP-1730: messages are keyed by their own session, fixture-locked ×4.
 pub mod message_session;
+// #FEED-237: a person's own message bubble (delivery mark, outbox, menu), fixture-locked ×4.
+pub mod message_delivery;
 pub mod options;
 // EXP-1280: THE plan / question card (answer text, issues, uploads, tiles), fixture-locked ×4.
 pub mod plan_card;
@@ -184,11 +193,17 @@ pub mod results_tab;
 pub mod placeholder_status;
 // #EXP-1611: CI on the chat's PR (Merge pill, Checks submenu), fixture-locked ×4.
 pub mod pr_checks;
+// #EXP-1804: the CI run page and a device's CI runner section, fixture-locked ×4.
+pub mod ci_run;
 pub mod pr_graph;
 pub mod pr_stack;
 // EXP-1230: every confirm/choice prompt's words + roles, fixture-locked ×4.
 pub mod prompts;
 pub mod relations;
+// #EXP-1616: THE repo page (PR tree, branches, checks rollup, tabs), fixture-locked ×4.
+pub mod repo_page;
+// #EXP-1617 E4 part 4: the repo page's Runs tab + CI settings, fixture-locked ×4.
+pub mod repo_ci;
 // EXP-1097: the issue detail's relations view (parent line, sub-issues, bands).
 pub mod relations_view;
 pub mod reporter_reply;

@@ -101,6 +101,18 @@ fn drafts() {
 }
 
 #[test]
+fn composer_drafts() {
+    let f = fixture();
+    let who = identity(&f["issues"]["team"]["identity"]);
+    for c in f["composerDrafts"]["upsert"]["cases"].as_array().unwrap() {
+        let existing = c["existing"].as_object().cloned();
+        let row = composer_draft_row(&obj(&c["input"]), &who, existing.as_ref(), c["id"].as_str().unwrap(), c["now"].as_str().unwrap());
+        assert_eq!(Value::Object(row), c["expected"], "{}", c["name"]);
+    }
+    assert_eq!(composer_draft_empty_refusal(), "An empty draft is a delete");
+}
+
+#[test]
 fn comments() {
     let f = fixture();
     let team = &f["issues"]["team"];
@@ -130,6 +142,22 @@ fn sessions_send() {
         if let Some(title) = c.get("expectedTitle") {
             assert_eq!(rows[0].1["title"], *title, "{}", c["name"]);
         }
+    }
+}
+
+#[test]
+fn sessions_wake() {
+    let f = fixture();
+    let device = f["sessions"]["deviceId"].as_str().unwrap();
+    let rows = |v: &Value| v.as_array().unwrap().iter().map(obj).collect::<Vec<_>>();
+    for c in f["sessions"]["wake"]["cases"].as_array().unwrap() {
+        let live: Vec<String> = c["live"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect();
+        let refused: std::collections::HashMap<String, Vec<String>> = serde_json::from_value(c["refused"].clone()).unwrap();
+        let got: Vec<Value> = wake_plan(device, &rows(&c["sessions"]), &rows(&c["messages"]), &live, &refused)
+            .into_iter()
+            .map(|w| json!({"sessionId": w.session_id, "mode": if w.live { "send" } else { "wake" }, "messageIds": w.message_ids}))
+            .collect();
+        assert_eq!(Value::Array(got), c["expected"], "{}", c["name"]);
     }
 }
 

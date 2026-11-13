@@ -49,6 +49,8 @@ final class AppDependencies: @unchecked Sendable {
     // EXP-878: issue drafts — rows sync (22nd shape), the three writes
     // (upsert / delete / listAttachments) are tRPC.
     let issueDraftsApi: IssueDraftsApi
+    /// #FEED-219: every composer's synced draft (the writes; rows sync).
+    let composerDrafts: ComposerDrafts
     // EXP-1291: the session tree — chat roots, team agents and their
     // children sync (`sessions`, `session-issues`, `messages`); every start
     // and every message is ONE `sessions.send`, plus the stop/end/title/
@@ -62,6 +64,8 @@ final class AppDependencies: @unchecked Sendable {
     let repositoriesApi: RepositoriesApi
     // The caller's registered machines (EXP-403) — polled, never synced.
     let devicesApi: DevicesApi
+    /// #EXP-1804: the CI run page's log tail + actions, the runner section's write.
+    let ciApi: CiApi
     // Team actions (EXP-253) = saved prompts — synced for reads; tRPC for
     // the prompt body and the owner-gated writes.
     let promptsApi: PromptsApi
@@ -195,11 +199,13 @@ final class AppDependencies: @unchecked Sendable {
         self.voiceApi = VoiceApi(trpc: trpc)
         self.relationsApi = RelationsApi(trpc: trpc)
         self.issueDraftsApi = IssueDraftsApi(trpc: trpc)
+        self.composerDrafts = ComposerDrafts(db: db, api: ComposerDraftsApi(trpc: trpc))
         self.sessionsApi = SessionsApi(trpc: trpc)
         self.pullRequestsApi = PullRequestsApi(trpc: trpc)
         self.onboardingApi = OnboardingApi(trpc: trpc)
         self.repositoriesApi = RepositoriesApi(trpc: trpc)
         self.devicesApi = DevicesApi(trpc: trpc)
+        self.ciApi = CiApi(trpc: trpc)
         self.promptsApi = PromptsApi(trpc: trpc)
         self.skillsApi = SkillsApi(trpc: trpc)
         let appsApi = AppsApi(trpc: trpc)

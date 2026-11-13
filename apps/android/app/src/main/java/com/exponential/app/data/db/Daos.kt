@@ -321,6 +321,26 @@ interface IssueDraftDao {
     suspend fun clear()
 }
 
+// #FEED-219: the caller's composer drafts (the shape is `user_id = me`), one
+// per target key; a composer reads only its own key.
+@Dao
+interface ComposerDraftDao {
+    @Query("SELECT * FROM composer_drafts WHERE `key` = :key ORDER BY updated_at DESC LIMIT 1")
+    fun observeByKey(key: String): Flow<ComposerDraftEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: ComposerDraftEntity)
+
+    @Query("DELETE FROM composer_drafts WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM composer_drafts WHERE `key` = :key")
+    suspend fun deleteByKey(key: String)
+
+    @Query("DELETE FROM composer_drafts")
+    suspend fun clear()
+}
+
 // EXP-1291: the session tree. Roots (`parent_id IS NULL`) are
 // chats (`kind = thread`) and team agents (`kind = agent`); every session
 // of one tree shares `root_id`.
@@ -382,6 +402,20 @@ abstract class SessionDao {
 
     // NEW-2: the agents' CONVERSATION sessions (roots with `agent_id`; the
     // definitions live in `agents`), creation order.
+    // #ERR-19: [observeTree] / [observeAgents] / [observeLive] WITHOUT the
+    // digest, for readers that never read it (SESSION_COLUMNS_NO_DIGEST).
+    @Query("SELECT $SESSION_COLUMNS_NO_DIGEST FROM sessions WHERE root_id = :rootId OR id = :rootId ORDER BY created_at, id")
+    abstract fun rawObserveTreeNoDigest(rootId: String): Flow<List<SessionEntity>>
+    fun observeTreeNoDigest(rootId: String): Flow<List<SessionEntity>> = rawObserveTreeNoDigest(rootId).openedSessions()
+
+    @Query("SELECT $SESSION_COLUMNS_NO_DIGEST FROM sessions WHERE parent_id IS NULL AND agent_id IS NOT NULL ORDER BY created_at, id")
+    abstract fun rawObserveAgentsNoDigest(): Flow<List<SessionEntity>>
+    fun observeAgentsNoDigest(): Flow<List<SessionEntity>> = rawObserveAgentsNoDigest().openedSessions()
+
+    @Query("SELECT $SESSION_COLUMNS_NO_DIGEST FROM sessions WHERE status != 'ended' ORDER BY created_at, id")
+    abstract fun rawObserveLiveNoDigest(): Flow<List<SessionEntity>>
+    fun observeLiveNoDigest(): Flow<List<SessionEntity>> = rawObserveLiveNoDigest().openedSessions()
+
     @Query("SELECT * FROM sessions WHERE parent_id IS NULL AND agent_id IS NOT NULL ORDER BY created_at, id")
     abstract fun rawObserveAgents(): Flow<List<SessionEntity>>
     fun observeAgents(): Flow<List<SessionEntity>> = rawObserveAgents().openedSessions()
@@ -429,6 +463,10 @@ interface SessionIssueDao {
     @Query("SELECT * FROM session_issues WHERE issue_id = :issueId ORDER BY created_at, id")
     fun observeByIssue(issueId: String): Flow<List<SessionIssueEntity>>
 
+    // FEED-243: a team's links (the app host's `exp:issues?touched=`).
+    @Query("SELECT * FROM session_issues WHERE team_id = :teamId ORDER BY session_id, issue_id, id")
+    fun observeByTeam(teamId: String): Flow<List<SessionIssueEntity>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: SessionIssueEntity)
 
@@ -467,15 +505,20 @@ abstract class MessageDao {
     fun observeNewestByRoot(rootId: String, limit: Int): Flow<List<MessageEntity>> =
         rawObserveNewestByRoot(rootId, limit).openedMessages()
 
-    // results-tab.json: a chat's result CANDIDATES = the tree's session-authored
-    // card rows, never the loaded window (the Results tab + its count).
+    // results-tab.json: a chat's result CANDIDATES = the tree's sessions' OWN
+    // card rows (author_session_id = session_id), never the loaded window
+    // (the Results tab + its count). #ERR-19: read as STAMPS (no body, no
+    // card), the rows themselves only when new or changed ([observeResultCards]).
     @Query(
-        "SELECT * FROM messages WHERE root_id = :rootId AND author_session_id IS NOT NULL " +
+        "SELECT id, (updated_at || '|' || IFNULL(answered_at, '') || '|' || IFNULL(consumed_at, '') || '|' || " +
+            "length(card) || '|' || length(body)) AS stamp FROM messages WHERE root_id = :rootId " +
+            "AND author_session_id IS NOT NULL AND author_session_id = session_id " +
             "AND card IS NOT NULL AND card != 'null' ORDER BY created_at, id",
     )
-    abstract fun rawObserveResultCardsByRoot(rootId: String): Flow<List<MessageEntity>>
-    fun observeResultCardsByRoot(rootId: String): Flow<List<MessageEntity>> =
-        rawObserveResultCardsByRoot(rootId).openedMessages()
+    abstract fun observeResultCardStamps(rootId: String): Flow<List<RowStamp>>
+
+    @Query("SELECT * FROM messages WHERE id IN (:ids) AND card IS NOT NULL AND card != 'null'")
+    abstract suspend fun cardRowsByIds(ids: List<String>): List<MessageEntity>
 
     // Large chats: the newest createdAt of a session's rows by one author kind
     // (the session view's "news arrived" stamp) — the max the whole session
@@ -488,35 +531,37 @@ abstract class MessageDao {
 
     // Large chats: a session's CARD rows (replies, plans, questions, surfaces):
     // everything the composer's quick replies and the session's own cards
-    // read; a card-less row can never carry a card once opened.
+    // read; a card-less row can never carry a card once opened. #ERR-19: as
+    // STAMPS, the rows loaded only when new or changed
+    // ([observeCardRowsBySession] with the kinds a reader keeps).
     @Query(
-        "SELECT * FROM messages WHERE session_id = :sessionId AND card IS NOT NULL AND card != 'null' " +
-            "ORDER BY created_at, id",
+        "SELECT id, (updated_at || '|' || IFNULL(answered_at, '') || '|' || IFNULL(consumed_at, '') || '|' || " +
+            "length(card) || '|' || length(body)) AS stamp FROM messages WHERE session_id = :sessionId " +
+            "AND card IS NOT NULL AND card != 'null' ORDER BY created_at, id",
     )
-    abstract fun rawObserveCardRowsBySession(sessionId: String): Flow<List<MessageEntity>>
-    fun observeCardRowsBySession(sessionId: String): Flow<List<MessageEntity>> =
-        rawObserveCardRowsBySession(sessionId).openedMessages()
+    abstract fun observeCardRowStampsBySession(sessionId: String): Flow<List<RowStamp>>
 
-    // Large chats (session-title.json `firstPrompt`): the rows of one tree a
-    // session TITLE can read — card-less, a person's or ANOTHER session's
-    // input — never the tree's whole transcript.
+    // Large chats (session-title.json `firstPrompt`): the rows a session TITLE
+    // can read — card-less, a person's or ANOTHER session's input. #ERR-19:
+    // summarized per session (count + newest stamp, no bodies), and only each
+    // session's OLDEST rows up to its first usable prompt are ever loaded
+    // ([observeFirstTitleRows] / [observeFirstTitleRowsByRoot]), never whole
+    // transcripts.
     @Query(
-        "SELECT * FROM messages WHERE root_id = :rootId AND (card IS NULL OR card = 'null') " +
-            "AND (author_kind = 'user' OR (author_session_id IS NOT NULL AND author_session_id != '' " +
-            "AND author_session_id != session_id)) ORDER BY created_at, id",
+        "SELECT session_id, (COUNT(*) || '|' || MAX(updated_at) || '|' || MIN(created_at)) AS stamp FROM messages " +
+            "WHERE session_id IN (:sessionIds) AND $TITLE_ROW GROUP BY session_id ORDER BY session_id",
     )
-    abstract fun rawObserveTitleRowsByRoot(rootId: String): Flow<List<MessageEntity>>
-    fun observeTitleRowsByRoot(rootId: String): Flow<List<MessageEntity>> =
-        rawObserveTitleRowsByRoot(rootId).openedMessages()
+    abstract fun observeTitleStamps(sessionIds: List<String>): Flow<List<TitleStamp>>
 
-    // #EXP-1380: the card-less rows of the given sessions —
-    // all a session TITLE reads (its first prompt), never a whole transcript.
     @Query(
-        "SELECT * FROM messages WHERE (card IS NULL OR card = 'null') AND session_id IN (:sessionIds) " +
-            "AND (author_kind = 'user' OR author_session_id IS NOT NULL) ORDER BY created_at, id",
+        "SELECT session_id, (COUNT(*) || '|' || MAX(updated_at) || '|' || MIN(created_at)) AS stamp FROM messages " +
+            "WHERE root_id = :rootId AND session_id IS NOT NULL AND session_id != '' AND $TITLE_ROW " +
+            "GROUP BY session_id ORDER BY session_id",
     )
-    abstract fun rawObserveTitleRows(sessionIds: List<String>): Flow<List<MessageEntity>>
-    fun observeTitleRows(sessionIds: List<String>): Flow<List<MessageEntity>> = rawObserveTitleRows(sessionIds).openedMessages()
+    abstract fun observeTitleStampsByRoot(rootId: String): Flow<List<TitleStamp>>
+
+    @Query("SELECT * FROM messages WHERE session_id = :sessionId AND $TITLE_ROW ORDER BY created_at, id LIMIT :limit OFFSET :offset")
+    abstract suspend fun titleRowsPage(sessionId: String, limit: Int, offset: Int): List<MessageEntity>
 
     // #EXP-1399: the given messages by id (an `ask` mirror's ORIGIN card,
     // which lives in another tree than the conversation drawing it).
@@ -531,6 +576,32 @@ abstract class MessageDao {
     )
     abstract fun rawObserveQueued(sessionId: String): Flow<List<MessageEntity>>
     fun observeQueued(sessionId: String): Flow<List<MessageEntity>> = rawObserveQueued(sessionId).openedMessages()
+
+    // #FEED-237 (message-delivery.json `outboxCases`): the viewer's newest own
+    // rows of a session (an outbox entry's synced row, matched by id or text).
+    @Query(
+        "SELECT * FROM messages WHERE session_id = :sessionId AND author_kind = 'user' " +
+            "AND author_id = :authorId ORDER BY created_at DESC, id DESC LIMIT :limit",
+    )
+    abstract fun rawObserveNewestOwn(sessionId: String, authorId: String, limit: Int): Flow<List<MessageEntity>>
+    fun observeNewestOwn(sessionId: String, authorId: String, limit: Int): Flow<List<MessageEntity>> =
+        rawObserveNewestOwn(sessionId, authorId, limit).openedMessages()
+
+    // #FEED-237: the rows the given outbox entries were stored as.
+    @Query("SELECT id FROM messages WHERE id IN (:ids)")
+    abstract suspend fun existingIds(ids: List<String>): List<String>
+
+    // Android 0.14.134 (steer-enet.json SENT INPUTS): a session's NEWEST
+    // [limit] card-less person inputs the device consumed, oldest first:
+    // what a no-feed placeholder shows as the viewer's own bubbles.
+    @Query(
+        "SELECT * FROM (SELECT * FROM messages WHERE session_id = :sessionId AND author_kind = 'user' " +
+            "AND consumed_at IS NOT NULL AND (card IS NULL OR card = 'null') " +
+            "ORDER BY created_at DESC, id DESC LIMIT :limit) ORDER BY created_at, id",
+    )
+    abstract fun rawObserveConsumedInputs(sessionId: String, limit: Int): Flow<List<MessageEntity>>
+    fun observeConsumedInputs(sessionId: String, limit: Int): Flow<List<MessageEntity>> =
+        rawObserveConsumedInputs(sessionId, limit).openedMessages()
 
     // EXP-1459: one message RAW (sealed as synced): the answer re-seals its card.
     @Query("SELECT * FROM messages WHERE id = :id LIMIT 1")
@@ -570,6 +641,18 @@ interface SessionReadDao {
     @Query("DELETE FROM session_reads")
     suspend fun clear()
 }
+
+// #ERR-19: every `sessions` column but the list digest (NULL): the readers
+// that never show a preview. A sealed digest keeps its bodies whole (~24 KB
+// a child of a busy tree), and Room re-runs every sessions query on any row's
+// write (a message's digest update): a digest-less reader no longer re-reads
+// them all per write.
+private const val SESSION_COLUMNS_NO_DIGEST =
+    "id, team_id, parent_id, root_id, user_id, device_id, cli, account, model, effort, plan_mode, computer_use, ultracode, repository_id, branch, status, busy, background, needs_input, blocked, started_at, last_turn_at, ended_at, shared, title, guide, created_at, updated_at, agent_id, app_id, agent_instructions_at, started_by_agent_id, seal_public_key, seal_epoch, sealed_title, via_app_id, scope_team_ids, NULL AS digest"
+
+// session-title.json `firstPrompt`: a row a session title can read.
+private const val TITLE_ROW = "(card IS NULL OR card = 'null') AND (author_kind = 'user' OR " +
+    "(author_session_id IS NOT NULL AND author_session_id != '' AND author_session_id != session_id))"
 
 // EXP-1459 (sealed-content.json): the screens read OPENED rows; Room keeps
 // them as synced. Re-emits when this install gains a tree key; off the main
@@ -687,6 +770,36 @@ interface AppRecordOutboxDao {
     suspend fun delete(writeIds: List<String>)
 }
 
+// #FEED-237: the session outbox (message-delivery.json), oldest first.
+@Dao
+interface OutboxDao {
+    @Query("SELECT * FROM outbox WHERE session_id = :sessionId ORDER BY created_at, client_id")
+    fun observeBySession(sessionId: String): Flow<List<OutboxEntity>>
+
+    @Query("SELECT * FROM outbox WHERE client_id = :clientId LIMIT 1")
+    suspend fun get(clientId: String): OutboxEntity?
+
+    // On start: a `sending` entry the server never answered is sent again.
+    @Query("SELECT * FROM outbox WHERE state = 'sending' AND message_id IS NULL ORDER BY created_at, client_id")
+    suspend fun unanswered(): List<OutboxEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: OutboxEntity)
+
+    @Query("UPDATE outbox SET state = :state WHERE client_id = :clientId")
+    suspend fun setState(clientId: String, state: String)
+
+    @Query("UPDATE outbox SET message_id = :messageId WHERE client_id = :clientId")
+    suspend fun setMessageId(clientId: String, messageId: String)
+
+    // One file landed: its id joins the landed ones, it leaves the pending list.
+    @Query("UPDATE outbox SET attachment_ids = :attachmentIds, pending_files = :pendingFiles WHERE client_id = :clientId")
+    suspend fun setUploads(clientId: String, attachmentIds: String?, pendingFiles: String?)
+
+    @Query("DELETE FROM outbox WHERE client_id IN (:clientIds)")
+    suspend fun delete(clientIds: List<String>)
+}
+
 // NEW-2: the member teams' events, newest first.
 @Dao
 interface EventDao {
@@ -799,6 +912,56 @@ interface PullRequestCheckDao {
     suspend fun clear()
 }
 
+// #EXP-1617 / #EXP-1804: our own CI's runs (the run page).
+@Dao
+interface CiRunDao {
+    @Query("SELECT * FROM ci_runs WHERE id = :id LIMIT 1")
+    fun observeById(id: String): Flow<CiRunEntity?>
+
+    @Query("SELECT * FROM ci_runs WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): CiRunEntity?
+
+    @Query("SELECT * FROM ci_runs WHERE id IN (:ids)")
+    fun observeByIds(ids: List<String>): Flow<List<CiRunEntity>>
+
+    /** #EXP-1617 (repo-ci.json): a repository's runs (the Runs tab, the CI section). */
+    @Query("SELECT * FROM ci_runs WHERE repository_id = :repositoryId ORDER BY number DESC")
+    fun observeByRepository(repositoryId: String): Flow<List<CiRunEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: CiRunEntity)
+
+    @Query("DELETE FROM ci_runs WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM ci_runs")
+    suspend fun clear()
+}
+
+// #EXP-1617 / #EXP-1804: the jobs of every run (the run page, a runner's
+// recent jobs).
+@Dao
+interface CiJobDao {
+    @Query("SELECT * FROM ci_jobs WHERE run_id = :runId ORDER BY position, id")
+    fun observeByRun(runId: String): Flow<List<CiJobEntity>>
+
+    /** #EXP-1617 (repo-ci.json): the jobs of a repository's runs. */
+    @Query("SELECT * FROM ci_jobs WHERE run_id IN (SELECT id FROM ci_runs WHERE repository_id = :repositoryId) ORDER BY position, id")
+    fun observeByRepository(repositoryId: String): Flow<List<CiJobEntity>>
+
+    @Query("SELECT * FROM ci_jobs WHERE runner_device_id = :deviceRowId ORDER BY started_at DESC LIMIT :limit")
+    fun observeByRunner(deviceRowId: String, limit: Int): Flow<List<CiJobEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: CiJobEntity)
+
+    @Query("DELETE FROM ci_jobs WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM ci_jobs")
+    suspend fun clear()
+}
+
 // EXP-1291: which issues a PR closes.
 @Dao
 interface PullRequestIssueDao {
@@ -907,6 +1070,10 @@ interface IssueSubscriberDao {
 interface IssueEventDao {
     @Query("SELECT * FROM issue_events WHERE issue_id = :issueId ORDER BY created_at ASC")
     fun observeByIssue(issueId: String): Flow<List<IssueEventEntity>>
+
+    // FEED-243: a team's timeline (the app host's `exp:issues?touched=`).
+    @Query("SELECT * FROM issue_events WHERE team_id = :teamId ORDER BY created_at ASC, id")
+    fun observeByTeam(teamId: String): Flow<List<IssueEventEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: IssueEventEntity)

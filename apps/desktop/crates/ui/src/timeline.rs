@@ -39,6 +39,8 @@ use gpui::{
     IntoElement, ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled,
     Subscription, Window,
 };
+use crate::composer_drafts::DraftField;
+use domain::composer_draft::{Kind as DraftKind, Target};
 use gpui_component::{
     h_flex,
     input::{InputEvent, TextareaState},
@@ -233,6 +235,8 @@ struct ReplyState {
     submitting: bool,
     /// Files picked for the reply, uploaded on send (EXP-554 rules).
     pending: Vec<PendingCommentAttachment>,
+    /// #FEED-219: the reply's synced draft (`reply:<topCommentId>`).
+    draft: DraftField,
     /// Cmd/Ctrl+Enter submits, like the bottom composer.
     _subscription: Subscription,
 }
@@ -289,6 +293,8 @@ pub struct IssueTimeline {
     /// Mention-capable wrapper around the composer (§4.2: "the lightweight
     /// `@`-autocomplete textarea from §4.6, not the heavy block editor").
     composer_mention: Entity<MentionInput>,
+    /// #FEED-219: the bottom composer's synced draft (`comment:<issueId>`).
+    composer_draft: DraftField,
     /// Attachment bytes for images referenced in comment bodies (auth-gated
     /// fetch through the account transport).
     images: Entity<ImageCache>,
@@ -383,8 +389,13 @@ impl IssueTimeline {
                 InputEvent::PressEnter { secondary: true, .. } => {
                     this.submit_comment(window, cx);
                 }
-                // Re-render so the Send button's disabled state tracks the draft.
-                InputEvent::Change => cx.notify(),
+                // Re-render so the Send button's disabled state tracks the
+                // draft; #FEED-219: the edit is the person's, written synced.
+                InputEvent::Change => {
+                    let text = this.composer.read(cx).value().to_string();
+                    this.composer_draft.edited(&text, cx);
+                    cx.notify();
+                }
                 _ => {}
             },
         ));
@@ -409,12 +420,24 @@ impl IssueTimeline {
             this.refresh_scope(cx);
             cx.notify();
         }));
+        // #FEED-219: an untouched composer follows its synced draft.
+        subscriptions.push(cx.observe_in(&collections.composer_drafts, window, |this, _, window, cx| {
+            this.follow_drafts(window, cx);
+        }));
+        // #FEED-219: the view goes away (its window closed): write what is pending.
+        subscriptions.push(cx.on_release(|this, cx| {
+            this.composer_draft.leave(cx);
+            if let Some(reply) = this.reply.as_ref() {
+                reply.draft.leave(cx);
+            }
+        }));
 
         Self {
             issue_id: None,
             team_id: None,
             composer,
             composer_mention,
+            composer_draft: DraftField::default(),
             images,
             submitting: false,
             lazy_rows: Default::default(),
@@ -514,7 +537,17 @@ impl IssueTimeline {
         pending.retain(|item| after.attachments.contains(&item.key.to_string()));
         let emptied = after.text.is_empty() && pending.is_empty();
         if after.text != current.text {
-            input.update(cx, |input, cx| input.set_value(after.text, window, cx));
+            input.update(cx, |input, cx| input.set_value(after.text.clone(), window, cx));
+        }
+        // #FEED-219: the field the send leaves is written at once.
+        match scope {
+            PendingScope::Composer => self.composer_draft.write_now(&after.text, cx),
+            PendingScope::Reply => {
+                if let Some(reply) = self.reply.as_mut() {
+                    reply.draft.write_now(&after.text, cx);
+                }
+            }
+            PendingScope::Edit => {}
         }
         match scope {
             PendingScope::Composer => {
@@ -551,6 +584,16 @@ impl IssueTimeline {
         if self.issue_id == issue_id {
             return;
         }
+        // #FEED-219: the composers leaving write what is pending now; the
+        // next issue's composer follows its own draft.
+        if let Some(reply) = self.reply.as_ref() {
+            reply.draft.leave(cx);
+        }
+        self.composer_draft.retarget(
+            issue_id.clone().map(|id| Target::new(DraftKind::Comment, id)),
+            None,
+            cx,
+        );
         self.issue_id = issue_id;
         self.team_id = None;
         self.editing = None;
@@ -569,7 +612,23 @@ impl IssueTimeline {
         self.composer
             .update(cx, |input, cx| input.set_value("", window, cx));
         self.refresh_scope(cx);
+        crate::composer_drafts::apply_follow(&self.composer_draft, &self.composer, window, cx);
         cx.notify();
+    }
+
+    /// #FEED-219: the composer_drafts shape changed: drop echoed local
+    /// copies, and an untouched composer shows its draft.
+    fn follow_drafts(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        self.composer_draft.reconcile(cx);
+        let mut changed =
+            crate::composer_drafts::apply_follow(&self.composer_draft, &self.composer, window, cx);
+        if let Some(reply) = self.reply.as_ref() {
+            reply.draft.reconcile(cx);
+            changed |= crate::composer_drafts::apply_follow(&reply.draft, &reply.input, window, cx);
+        }
+        if changed {
+            cx.notify();
+        }
     }
 
     /// EXP-894: the unsent drafts a tab switch would throw away (see
@@ -596,18 +655,18 @@ impl IssueTimeline {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        self.composer
-            .update(cx, |input, cx| input.set_value(draft.composer, window, cx));
+        // #FEED-219: the TEXT comes back from the synced draft (the
+        // composers follow `comment:` / `reply:` keys); the stash keeps the
+        // picks and which reply composer was open.
         self.pending_attachments = draft.pending;
         self.reply = None;
         if let Some(reply) = draft.reply {
             self.open_reply(&reply.parent_id, false, window, cx);
             if let Some(open) = self.reply.as_mut() {
                 open.pending = reply.pending;
-                open.input
-                    .update(cx, |input, cx| input.set_value(reply.text, window, cx));
             }
         }
+        crate::composer_drafts::apply_follow(&self.composer_draft, &self.composer, window, cx);
         cx.notify();
     }
 
@@ -623,6 +682,11 @@ impl IssueTimeline {
             return;
         }
         self.team_id = team_id.clone();
+        // #FEED-219: writes wait for the team the row files under.
+        self.composer_draft.set_team(team_id.clone(), cx);
+        if let Some(reply) = self.reply.as_mut() {
+            reply.draft.set_team(team_id.clone(), cx);
+        }
         // EXP-551: with no team resolved yet the `:` emoji typeahead still
         // works — only `@`/`#` need synced data.
         let source = Some(match team_id {
@@ -743,10 +807,26 @@ impl IssueTimeline {
                 InputEvent::PressEnter { secondary: true, .. } => {
                     this.submit_reply(window, cx);
                 }
-                InputEvent::Change => cx.notify(),
+                InputEvent::Change => {
+                    if let Some(reply) = this.reply.as_mut() {
+                        let text = reply.input.read(cx).value().to_string();
+                        reply.draft.edited(&text, cx);
+                    }
+                    cx.notify();
+                }
                 _ => {}
             },
         );
+        // #FEED-219: the reply composer it replaces writes what is pending;
+        // this one follows `reply:<topCommentId>`.
+        if let Some(old) = self.reply.take() {
+            old.draft.leave(cx);
+        }
+        let draft = DraftField::new(
+            Some(Target::new(DraftKind::Reply, parent_id)),
+            self.team_id.clone(),
+        );
+        crate::composer_drafts::apply_follow(&draft, &input, window, cx);
         // The caret lands in the new composer the moment it mounts.
         if focus {
             input.read(cx).focus_handle(cx).focus(window, cx);
@@ -757,6 +837,7 @@ impl IssueTimeline {
             mention,
             submitting: false,
             pending: Vec::new(),
+            draft,
             _subscription: subscription,
         });
         if self.emoji_open == Some(PendingScope::Reply) {
@@ -766,7 +847,10 @@ impl IssueTimeline {
     }
 
     pub(crate) fn cancel_reply(&mut self, cx: &mut gpui::Context<Self>) {
-        self.reply = None;
+        // #FEED-219: Cancel = discard (the draft row goes).
+        if let Some(mut reply) = self.reply.take() {
+            reply.draft.write_now("", cx);
+        }
         if self.emoji_open == Some(PendingScope::Reply) {
             self.emoji_open = None;
         }
@@ -853,6 +937,13 @@ impl IssueTimeline {
         let audience = (scope == PendingScope::Composer && self.reply_to_reporter)
             .then_some(domain::contract::COMMENT_AUDIENCE_REPORTER);
         let reply_parent = parent_id.clone();
+        // #FEED-219: the draft the send came from (settled elsewhere when its
+        // composer is gone by the time the create lands).
+        let sent_draft = match scope {
+            PendingScope::Composer => Some(self.composer_draft.clone()),
+            PendingScope::Reply => self.reply.as_ref().map(|reply| reply.draft.clone()),
+            PendingScope::Edit => None,
+        };
         cx.spawn_in(window, async move |this, cx| {
             let upload_issue = issue_id.clone();
             let (stamped, result) = cx
@@ -894,6 +985,10 @@ impl IssueTimeline {
                             || this.reply.as_ref().map(|reply| &reply.parent_id) == reply_parent.as_ref();
                         if this.issue_id.as_deref() == Some(issue_id.as_str()) && same_reply {
                             this.settle_sent(scope, &input, &sent, window, cx);
+                        } else if let Some(field) = sent_draft.as_ref() {
+                            if let (Some(key), Some(team)) = (field.key(), field.team_id()) {
+                                crate::composer_drafts::settle_elsewhere(key, team, &sent.text, cx);
+                            }
                         }
                         // SLOP-4: the contract's delivery toasts — `true`
                         // sent, `false` saved without a mail transport, `None`

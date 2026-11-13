@@ -130,6 +130,14 @@ fun sessionTargetRoute(sessionId: String, target: InboxRoute.SessionTarget?): St
         null -> Routes.session(sessionId)
     }
 
+/** waiting-cards.json DEEP LINKS: the route of an [InboxRoute.Landing]
+ *  (null = the session's own, [sessionTargetRoute]). */
+fun landingRoute(landing: InboxRoute.Landing): String? = when (landing) {
+    is InboxRoute.Landing.Plan -> Routes.chatPlan(landing.rootId, landing.messageId)
+    is InboxRoute.Landing.Card -> Routes.chatCard(landing.rootId, landing.messageId)
+    InboxRoute.Landing.Session -> null
+}
+
 /** results-tab.json: what `?tab=` lands on the Results tab. */
 private val LEGACY_RESULTS_TABS = setOf(Routes.CHAT_TAB_RESULTS, "stories", Routes.CHAT_TAB_GUIDE)
 
@@ -151,6 +159,9 @@ fun NavHostController.openLinkDestination(destination: LinkDestination, uri: Uri
                     Routes.chat(destination.id, Routes.CHAT_TAB_RESULTS)
                 destination.sessionPath && query("tab") in LEGACY_RESULTS_TABS ->
                     Routes.chat(destination.id, Routes.CHAT_TAB_RESULTS)
+                // waiting-cards.json DEEP LINKS: `?card=` names a card: the
+                // Conversation's pending deep link.
+                !query("card").isNullOrBlank() -> Routes.chatCard(destination.id, query("card")!!)
                 else -> Routes.chat(destination.id)
             },
         )
@@ -170,5 +181,6 @@ fun NavHostController.openLinkDestination(destination: LinkDestination, uri: Uri
         LinkDestination.AppsList -> selectTab(MainTabs.APPS, tabSwitch, restore = false)
         is LinkDestination.AppRun -> navigate(Routes.appRun(destination.appId))
         is LinkDestination.AppScreen -> navigate(Routes.appScreen(destination.appId, destination.screen, destination.params))
+        is LinkDestination.CiRun -> navigate(Routes.ciRun(destination.runId, query("job")))
     }
 }

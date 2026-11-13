@@ -7704,6 +7704,22 @@
           "style": {
             "color": "$color.mutedForeground"
           }
+        },
+        {
+          "when": {
+            "status": "read"
+          },
+          "style": {
+            "color": "$color.info"
+          }
+        },
+        {
+          "when": {
+            "status": "failed"
+          },
+          "style": {
+            "color": "$color.destructive"
+          }
         }
       ]
     },
@@ -8341,6 +8357,31 @@
         {
           "style": {
             "backgroundColor": "$color.foreground"
+          }
+        }
+      ]
+    },
+    "MessageStatus": {
+      "root": [
+        {
+          "style": {
+            "color": "$color.mutedForeground"
+          }
+        },
+        {
+          "when": {
+            "status": "read"
+          },
+          "style": {
+            "color": "$color.info"
+          }
+        },
+        {
+          "when": {
+            "status": "failed"
+          },
+          "style": {
+            "color": "$color.destructive"
           }
         }
       ]

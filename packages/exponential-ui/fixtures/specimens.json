@@ -2859,6 +2859,36 @@
                 }
               }
             ]
+          },
+          {
+            "id": "specimen_code_block_case_5",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_code_block_case_5_label",
+                "component": "Text",
+                "props": {
+                  "text": "follow · a live log",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c5_code_block_log",
+                "component": "CodeBlock",
+                "props": {
+                  "title": "test · bun run test",
+                  "language": "ansi",
+                  "maxLines": 6,
+                  "follow": true,
+                  "code": "$ bun install --frozen-lockfile\n\u001b[2mResolved 1204 packages in 812ms\u001b[0m\n$ bun run typecheck\n\u001b[32m✓\u001b[0m apps/web\n\u001b[32m✓\u001b[0m packages/db-schema\n$ bun run test\n\u001b[32m✓\u001b[0m src/lib/sessions/send.test.ts \u001b[2m(42 tests)\u001b[0m\n\u001b[32m✓\u001b[0m src/lib/emcp/gate.test.ts \u001b[2m(18 tests)\u001b[0m\n\u001b[31m✗\u001b[0m src/lib/ci/runner.test.ts \u001b[2m(1 failed)\u001b[0m\n\u001b[1mTests\u001b[0m  \u001b[32m60 passed\u001b[0m, \u001b[31m1 failed\u001b[0m"
+                }
+              }
+            ]
           }
         ]
       }
@@ -10508,6 +10538,47 @@
                 ]
               }
             ]
+          },
+          {
+            "id": "specimen_button_case_10",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen_button_case_10_label",
+                "component": "Text",
+                "props": {
+                  "text": "in a stretch column",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c10_stretch",
+                "component": "Stack",
+                "props": {
+                  "direction": "vertical",
+                  "gap": "xs"
+                },
+                "style": {
+                  "alignSelf": "stretch"
+                },
+                "children": [
+                  {
+                    "id": "c10_add",
+                    "component": "Button",
+                    "props": {
+                      "label": "Add secret",
+                      "variant": "outline",
+                      "size": "sm"
+                    }
+                  }
+                ]
+              }
+            ]
           }
         ]
       }
@@ -14061,6 +14132,37 @@
                     "ios"
                   ],
                   "disabled": true
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_chip_input_case_2",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_chip_input_case_2_label",
+                "component": "Text",
+                "props": {
+                  "text": "chips · the placeholder hides",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c2_chip_input_hint",
+                "component": "ChipInput",
+                "props": {
+                  "label": "Required checks",
+                  "name": "required",
+                  "values": [
+                    "build"
+                  ],
+                  "placeholder": "Check name"
                 }
               }
             ]
@@ -18061,6 +18163,128 @@
                   "path": "/recordTable/expenses/editor/draft",
                   "editorOpen": false,
                   "deleteOpen": false
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "exponential-ui-message-status",
+      "component": "MessageStatus",
+      "title": "MessageStatus",
+      "node": {
+        "id": "specimen_message_status",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen_message_status_case_0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen_message_status_case_0_label",
+                "component": "Text",
+                "props": {
+                  "text": "status · sending",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0_status",
+                "component": "MessageStatus",
+                "props": {
+                  "status": "sending"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_message_status_case_1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen_message_status_case_1_label",
+                "component": "Text",
+                "props": {
+                  "text": "status · sent",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1_status",
+                "component": "MessageStatus",
+                "props": {
+                  "status": "sent"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_message_status_case_2",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen_message_status_case_2_label",
+                "component": "Text",
+                "props": {
+                  "text": "status · read",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c2_status",
+                "component": "MessageStatus",
+                "props": {
+                  "status": "read"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_message_status_case_3",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen_message_status_case_3_label",
+                "component": "Text",
+                "props": {
+                  "text": "status · failed",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c3_status",
+                "component": "MessageStatus",
+                "props": {
+                  "status": "failed"
                 }
               }
             ]

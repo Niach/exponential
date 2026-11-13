@@ -31,6 +31,10 @@ enum AppRoute: Hashable {
     /// PUBLISHED package full screen (a list row tap); `screen` = an app
     /// screen link's screen.
     case appRun(accountId: String, appId: String, screen: Apps.ScreenRequest? = nil)
+    /// #EXP-1617 / #EXP-1804 (ci-run.json): THE run page of our own CI (a
+    /// check's `details_url`, `/t/<team>/ci/<runId>?job=`); `job` = the
+    /// requested job (nil = the default one).
+    case ciRun(accountId: String, runId: String, job: String? = nil)
     /// The Inbox page (EXP-1373: pushed from the Chats header's inbox
     /// circle, notifications only — My issues and Drafts moved to the board).
     case myWork
@@ -78,11 +82,15 @@ enum AppRoute: Hashable {
     case serverDetail(accountId: String)
     /// NEW-67: the account's Settings → Voice page (`voice.json`).
     case voiceSettings(accountId: String)
+    /// #EXP-1815: the account's Settings › Notifications (the source switches).
+    case notificationSettings(accountId: String)
     /// #EXP-1381 (settings-nav.json): a Team page row → that category's
     /// OWN page (Devices included: it left the tab bar for the Team page).
     case teamSettingsSection(accountId: String, teamId: String, section: TeamSettingsSection)
     /// #VAPP-185: Settings › MCP › Activity (settings-mcp.json `activityPage`).
     case mcpActivity(accountId: String, teamId: String)
+    /// #EXP-1616 (repo-page.json): Settings › Repositories › a repo's page.
+    case repo(accountId: String, teamId: String, repositoryId: String, isOwner: Bool)
     case invite(token: String)
     case syncDebug
     /// About (EXP-262): the app's version surface, pushed from Settings →
@@ -120,11 +128,43 @@ extension AppRoute {
     /// (`PlanPage.planPageFor`) opens its chat's plan tab; else
     /// `openingSession`.
     /// #PERF-5: these read the store off main (async), never on a tap.
-    @MainActor static func openingInbox(_ sessionId: String, accountId: String, deps: AppDependencies) async -> AppRoute {
-        if let messageId = await planPageTarget(sessionId, accountId: accountId, deps: deps) {
+    /// waiting-cards.json DEEP LINKS: a push's `card` (its `messageId`), else
+    /// the session's own waiting question, opens its chat AT that card
+    /// (`.card`, THE pending deep link: paged in, centred, rung).
+    @MainActor static func openingInbox(
+        _ sessionId: String, card: NotificationRouting.Card? = nil, accountId: String, deps: AppDependencies
+    ) async -> AppRoute {
+        if card == nil, let messageId = await planPageTarget(sessionId, accountId: accountId, deps: deps) {
             return await openingPlan(sessionId, messageId: messageId, accountId: accountId, deps: deps)
         }
-        return await openingSession(sessionId, accountId: accountId, deps: deps)
+        let viewerId = deps.auth.accounts.first { $0.id == accountId }?.userId
+        let read = try? await deps.db.pool(forAccountId: accountId).read { db -> (InboxRoute.SessionTarget, String, String?)? in
+            guard let session = try SessionEntity.fetchOne(db, key: sessionId) else { return nil }
+            let target = try InboxRoute.sessionTarget(db: db, sessionId: sessionId, viewerId: viewerId)
+            // The synced messages + the session's digest (its `waits`): the
+            // messages sync on demand, the digest always (web's inbox reads it).
+            let waiting = card == nil
+                ? ChatRowAction.sessionWaitingCard(
+                    sessionId: sessionId,
+                    messages: try SessionQueries.cardRows(db: db, sessionId: sessionId).map(TreeMessage.init(messageRow:))
+                        + Chats.digestMessages(sessionId: sessionId, digest: session.digest, rootId: session.rootId)
+                )
+                : nil
+            return (target, session.rootId.isEmpty ? session.id : session.rootId, waiting)
+        }
+        // Not synced yet (a cold push tap): the push's own `rootId`.
+        let landing = InboxRoute.landing(
+            target: read?.0, rootId: read?.1 ?? card?.rootId,
+            messageId: card?.messageId ?? read?.2, plan: card?.plan ?? false
+        )
+        switch landing {
+        case let .plan(rootId, messageId):
+            return .chat(accountId: accountId, chatId: rootId, child: .plan(messageId))
+        case let .card(rootId, messageId):
+            return .chat(accountId: accountId, chatId: rootId, child: .card(messageId))
+        case .session:
+            return await openingSession(sessionId, accountId: accountId, deps: deps)
+        }
     }
 
     /// #EXP-1662: a plan opens as a tab of its session's root (a chat or an
@@ -570,6 +610,10 @@ struct MainNavigator: View {
         .onChange(of: currentBoard) { _, board in
             if case .board = sidebar, let board { sidebar = .board(board.boardId) }
         }
+        // #EXP-1815: the screen's thread (`willPresent` stays quiet on it).
+        .onChange(of: viewingRoute, initial: true) { _, route in
+            ViewingThread.shared.publish(route, deps: deps)
+        }
         .environment(teamState)
         .environment(sessionLists)
         .environment(tabBarChrome)
@@ -714,11 +758,12 @@ struct MainNavigator: View {
         .onChange(of: deps.deepLinkBus.pendingSessionId) { _, sessionId in
             if let sessionId {
                 let accountId = issueAccountId(forUserId: deps.deepLinkBus.pendingSessionUserId)
+                let card = deps.deepLinkBus.pendingSessionCard
                 _ = deps.deepLinkBus.consumeSession()
                 navigate {
                     Task { @MainActor in
                         await activateTeam(forSession: sessionId, accountId: accountId)
-                        path.append(await AppRoute.openingInbox(sessionId, accountId: accountId, deps: deps))
+                        path.append(await AppRoute.openingInbox(sessionId, card: card, accountId: accountId, deps: deps))
                     }
                 }
             }
@@ -767,10 +812,11 @@ struct MainNavigator: View {
                 path.append(AppRoute.invite(token: token))
             }
             let sessionUserId = deps.deepLinkBus.pendingSessionUserId
+            let sessionCard = deps.deepLinkBus.pendingSessionCard
             if let sessionId = deps.deepLinkBus.consumeSession() {
                 let accountId = issueAccountId(forUserId: sessionUserId)
                 await activateTeam(forSession: sessionId, accountId: accountId)
-                path.append(await AppRoute.openingInbox(sessionId, accountId: accountId, deps: deps))
+                path.append(await AppRoute.openingInbox(sessionId, card: sessionCard, accountId: accountId, deps: deps))
             }
             if deps.deepLinkBus.pendingInbox { openInboxFromPush() }
             if deps.deepLinkBus.pendingDeviceRowId != nil { openDeviceFromLink() }
@@ -886,6 +932,18 @@ struct MainNavigator: View {
 
     /// #FEED-232: the page header's Inbox count: the unread rows of the
     /// ACTIVE team (or team-less ones).
+    /// #EXP-1815: the screen on top (the split layout's chat / agent entry
+    /// is its detail root when nothing is pushed over it).
+    private var viewingRoute: AppRoute? {
+        if let top = path.last { return top }
+        guard isSplit, let accountId = deps.auth.activeAccountId else { return nil }
+        switch sidebar {
+        case let .chat(rootId): return .chat(accountId: accountId, chatId: rootId)
+        case let .agentChannel(agentId): return .agentChannel(accountId: accountId, agentId: agentId)
+        default: return nil
+        }
+    }
+
     private var activeInboxUnreadCount: Int {
         unreadTeamIds.filter { $0 == nil || $0 == teamState.activeTeamId }.count
     }
@@ -1358,6 +1416,10 @@ extension MainNavigator {
             AppRunScreen(appId: appId, screen: screen)
                 .id(appId)
                 .environment(\.accountId, accountId)
+        case let .ciRun(accountId, runId, job):
+            CiRunScreen(runId: runId, requestedJob: job)
+                .id(runId)
+                .environment(\.accountId, accountId)
         case .myWork:
             InboxPage()
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
@@ -1433,11 +1495,18 @@ extension MainNavigator {
         case let .voiceSettings(accountId):
             VoiceSettingsPage(accountId: accountId)
                 .environment(\.accountId, accountId)
+        case let .notificationSettings(accountId):
+            NotificationSettingsPage(accountId: accountId)
+                .environment(\.accountId, accountId)
         case let .teamSettingsSection(accountId, teamId, section):
             TeamSettingsPage(teamId: teamId, section: section)
                 .environment(\.accountId, accountId)
         case let .mcpActivity(accountId, teamId):
             McpActivityPage(teamId: teamId)
+                .environment(\.accountId, accountId)
+        case let .repo(accountId, teamId, repositoryId, isOwner):
+            RepoPageView(teamId: teamId, repositoryId: repositoryId, isOwner: isOwner)
+                .id(repositoryId)
                 .environment(\.accountId, accountId)
         case let .invite(token):
             InviteAcceptView(token: token)

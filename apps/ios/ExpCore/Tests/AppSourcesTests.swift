@@ -51,7 +51,12 @@ final class AppSourcesTests: XCTestCase {
                 .init(id: s($0, "id"), issueId: o($0, "issueId"), commentId: o($0, "commentId"), uploaderId: o($0, "uploaderId"),
                       filename: s($0, "filename"), contentType: s($0, "contentType"), sizeBytes: n($0, "sizeBytes") ?? 0,
                       width: n($0, "width"), height: n($0, "height"), createdAt: s($0, "createdAt"))
-            }
+            },
+            // FEED-243: who touched which issue, and when.
+            issueEvents: try list("issueEvents").map {
+                .init(id: s($0, "id"), issueId: s($0, "issueId"), actorUserId: o($0, "actorUserId"), createdAt: s($0, "createdAt"))
+            },
+            sessionIssues: try list("sessionIssues").map { .init(sessionId: s($0, "sessionId"), issueId: s($0, "issueId")) }
         )
     }
 
@@ -75,7 +80,9 @@ final class AppSourcesTests: XCTestCase {
                 params: try XCTUnwrap(item["params"] as? [String: String], name),
                 store: store,
                 me: item["me"] as? String,
-                access: item["access"] as? String
+                access: item["access"] as? String,
+                // FEED-243: the team zone date-only `since` / `until` read in.
+                timeZone: item["timeZone"] as? String
             )
             // CardJSON objects compare key-order-insensitively.
             let expected = CardJSON(any: item["expected"]) ?? .null

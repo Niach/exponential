@@ -4,18 +4,17 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.net.Uri
 import android.util.Log
-import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationManagerCompat
-import com.exponential.app.ExponentialApp
 import com.exponential.app.MainActivity
-import com.exponential.app.R
 import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.electric.SyncManager
 import com.exponential.app.data.sealed.SealedFfi
 import com.exponential.app.data.sealed.SealedKeys
 import com.exponential.app.data.sealed.TreeKeyStore
 import com.google.firebase.messaging.FirebaseMessagingService
+import com.exponential.app.domain.NotificationDelivery
 import com.google.firebase.messaging.RemoteMessage
+import kotlinx.coroutines.runBlocking
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
@@ -28,6 +27,8 @@ class FcmService : FirebaseMessagingService() {
     @Inject lateinit var pushKeyStore: PushKeyStore
     @Inject lateinit var treeKeyStore: TreeKeyStore
     @Inject lateinit var liveActivities: LiveActivityNotifier
+    @Inject lateinit var inApp: InAppNotifications
+    @Inject lateinit var databaseHolder: DatabaseHolder
 
     override fun onNewToken(token: String) {
         Log.i(TAG, "FCM token rotated")
@@ -73,6 +74,12 @@ class FcmService : FirebaseMessagingService() {
             }
             return
         }
+        // #EXP-1815: a read row's silent push clears what it matches and
+        // shows NOTHING.
+        if (payload.data["type"] == NotificationDelivery.Keys.DISMISS_TYPE) {
+            PushNotifier.dismiss(this, payload.data)
+            return
+        }
         // #VAPP-45: a question push carries its tree-sealed text; opened
         // here with the tree keys this install holds, else the push's body.
         val body = payload.body ?: payload.data["body"]
@@ -113,6 +120,12 @@ class FcmService : FirebaseMessagingService() {
             issueId = data["issueId"],
             sessionId = data["sessionId"],
             deviceId = data["deviceId"],
+            // waiting-cards.json DEEP LINKS: a question / plan push lands on its card.
+            card = PushDeepLinks.card(
+                data[NotificationActions.KEY_MESSAGE_ID],
+                data[NotificationActions.KEY_CARD_KIND],
+                data[QuestionPush.ROOT_ID_KEY],
+            ),
         )
 
         // The push carries its recipient's server user id. A push for a
@@ -136,7 +149,23 @@ class FcmService : FirebaseMessagingService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-        val notificationId = target?.hashCode() ?: System.currentTimeMillis().toInt()
+        // #EXP-1815 (notification-delivery.json): the thread it stacks and
+        // clears under; id = the notification id's hash.
+        val thread = PushThreads.thread(data)
+        val notificationId = PushThreads.notificationKey(data["notificationId"], target?.hashCode())
+        // In the foreground nothing is posted: THE toast shows it, unless the
+        // screen on top already is its thread (or the Inbox).
+        if (inApp.foreground()) {
+            val presentation = NotificationDelivery.notificationPresentation(
+                platform = "android",
+                active = true,
+                viewing = viewingThread(),
+                thread = thread,
+                muted = false,
+            )
+            if (presentation == NotificationDelivery.Presentation.None) return
+            if (inApp.toast(InAppNotifications.Push(title, body, intent))) return
+        }
         // #EXP-1641: the push's account (its userId, as a tap resolves it)
         // runs the actions; none on this device = no actions.
         val actionAccount = when (account) {
@@ -145,21 +174,37 @@ class FcmService : FirebaseMessagingService() {
             is PushDeepLinks.Account.Switch -> account.id
             PushDeepLinks.Account.Unknown -> null
         }
-        val builder = NotificationCompat.Builder(this, ExponentialApp.ISSUE_CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_stat_notification)
-            .setContentTitle(title)
-            .setContentText(body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-            .setAutoCancel(true)
-            .setContentIntent(pendingIntent)
-        NotificationActionReceiver.build(this, actions, data, actionAccount, notificationId, pendingIntent)
-            .forEach(builder::addAction)
-        val notification = builder.build()
-        try {
-            NotificationManagerCompat.from(this).notify(notificationId, notification)
-        } catch (err: SecurityException) {
-            // POST_NOTIFICATIONS not granted — drop silently.
-            Log.w(TAG, "notify denied: ${err.message}")
+        val actionViews = NotificationActionReceiver.build(this, actions, data, actionAccount, notificationId, pendingIntent, thread)
+        PushNotifier.post(
+            context = this,
+            post = PushNotifier.Post(
+                thread = thread,
+                id = notificationId,
+                notificationId = data["notificationId"],
+                teamId = data[NotificationDelivery.Keys.TEAM_ID],
+                channel = NotificationDelivery.androidChannel(
+                    data[NotificationDelivery.Keys.SOURCE]?.takeIf { it.isNotEmpty() },
+                    data[NotificationDelivery.Keys.SOURCE_NAME],
+                ),
+                title = title,
+                body = body,
+            ),
+            contentIntent = pendingIntent,
+            actions = actionViews,
+        )
+    }
+
+    /** The thread of the screen on top (a session view resolves to its chat). */
+    private fun viewingThread(): String? = when (val screen = inApp.viewing.value) {
+        null -> null
+        is ViewingScreen.Thread -> screen.thread
+        is ViewingScreen.Session -> {
+            val root = auth.activeAccountId.value?.let { account ->
+                runCatching {
+                    runBlocking { databaseHolder.database(account).sessionDao().getById(screen.sessionId)?.rootId }
+                }.getOrNull()
+            }
+            "session:${root?.takeIf { it.isNotEmpty() } ?: screen.sessionId}"
         }
     }
 

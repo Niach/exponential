@@ -21,6 +21,9 @@ import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.ComposerSend
+import com.exponential.app.domain.ComposerDraft
+import com.exponential.app.data.composer.ComposerDraftBinding
+import com.exponential.app.data.composer.ComposerDrafts
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.data.steer.SteerConnectionStore
 import com.exponential.app.domain.MARKDOWN_PREVIEW_MAX_BYTES
@@ -98,6 +101,8 @@ class IssueCommentsViewModel @Inject constructor(
     private val mediaPreparer: MediaPreparer,
     // EXP-1543: a comment send outlives the screen (`launchDetached`).
     private val store: SteerConnectionStore,
+    // #FEED-219: the composer's synced draft.
+    private val composerDrafts: ComposerDrafts,
 ) : ViewModel() {
 
     // Reactive account scoping: all queries re-scope on account switch (no
@@ -133,26 +138,29 @@ class IssueCommentsViewModel @Inject constructor(
     // scale (EXP-630). The teamId comes off the issue's BOARD (issues don't
     // denormalize it), re-keyed on issue/account switches, feeding the
     // timeline's status-change glyphs and estimate phrases.
-    private val teamVocabulary: Flow<Pair<List<IssueStatusEntity>, TeamEntity?>> =
+    private val issueTeamId: Flow<String?> =
         combine(dbFlow, issueIdFlow) { db, id -> db to id }
             .flatMapLatest { (db, id) ->
                 if (db == null || id == null) {
-                    flowOf(emptyList<IssueStatusEntity>() to null)
+                    flowOf(null)
                 } else {
                     combine(db.issueDao().observeById(id), db.boardDao().observeAll()) { issue, boards ->
                         boards.firstOrNull { it.id == issue?.boardId }?.teamId
                     }
-                        .distinctUntilChanged()
-                        .flatMapLatest { teamId ->
-                            if (teamId == null) {
-                                flowOf(emptyList<IssueStatusEntity>() to null)
-                            } else {
-                                combine(
-                                    db.issueStatusDao().observeByTeam(teamId),
-                                    db.teamDao().observeById(teamId),
-                                ) { rows, team -> rows to team }
-                            }
-                        }
+                }
+            }
+            .distinctUntilChanged()
+
+    private val teamVocabulary: Flow<Pair<List<IssueStatusEntity>, TeamEntity?>> =
+        combine(dbFlow, issueTeamId) { db, teamId -> db to teamId }
+            .flatMapLatest { (db, teamId) ->
+                if (db == null || teamId == null) {
+                    flowOf(emptyList<IssueStatusEntity>() to null)
+                } else {
+                    combine(
+                        db.issueStatusDao().observeByTeam(teamId),
+                        db.teamDao().observeById(teamId),
+                    ) { rows, team -> rows to team }
                 }
             }
 
@@ -189,10 +197,10 @@ class IssueCommentsViewModel @Inject constructor(
             _replyTarget.value = null
             _reporterAudience.value = false
         }
-        // F34: the draft + its queued files stay with the issue they were
-        // typed on (the Work screen's Stack swap rebinds this screen-level VM).
+        // F34: the queued files stay with the issue they were typed on (the
+        // Work screen's Stack swap rebinds this screen-level VM); the TEXT is
+        // the issue's synced draft (#FEED-219, [draftBinding]).
         val carry = commentComposerAfterBind(issueIdFlow.value, issueId, _draft.value, _pendingAttachments.value)
-        _draft.value = carry.draft
         _pendingAttachments.value = carry.pending
         issueIdFlow.value = issueId
     }
@@ -222,7 +230,15 @@ class IssueCommentsViewModel @Inject constructor(
     val replyTarget: StateFlow<CommentReplyTarget?> = _replyTarget
 
     fun setReplyTarget(target: CommentReplyTarget?) {
+        // #FEED-219: leaving a reply (the composer folds) keeps its draft.
         _replyTarget.value = target
+    }
+
+    /** The reply bar's ✕ = the reply's Cancel: its draft is discarded
+     *  (composer-draft.json), then the composer is the issue's again. */
+    fun cancelReply() {
+        if (_replyTarget.value != null) draftBinding.discard()
+        _replyTarget.value = null
     }
 
     // ── Comment attachments (EXP-554) ────────────────────────────────────────
@@ -455,6 +471,23 @@ class IssueCommentsViewModel @Inject constructor(
     private val _draft = MutableStateFlow("")
     val draft: StateFlow<String> = _draft
 
+    // #FEED-219 (composer-draft.json): the field is the synced draft of its
+    // target, `comment:<issueId>` or, under a card, `reply:<topCommentId>`.
+    private val draftBinding = ComposerDraftBinding(viewModelScope, composerDrafts, _draft) { _draft.value = it }
+
+    init {
+        viewModelScope.launch {
+            combine(auth.activeAccountId, issueIdFlow, issueTeamId, _replyTarget) { account, issueId, teamId, reply ->
+                Triple(account, commentDraftTarget(issueId, reply), teamId)
+            }.collect { (account, target, teamId) -> draftBinding.bind(account, target, teamId) }
+        }
+    }
+
+    override fun onCleared() {
+        draftBinding.flush()
+        super.onCleared()
+    }
+
     private val _sending = MutableStateFlow(false)
     val sending: StateFlow<Boolean> = _sending
 
@@ -513,18 +546,24 @@ class IssueCommentsViewModel @Inject constructor(
         } else {
             null
         }
+        val sentDraft = draftBinding.bound
         store.launchDetached {
             _sending.value = true
             try {
                 val result = createComment(accountId, issueId, body, sent, parentId, audience)
                     ?: return@launchDetached
-                // A rebind to another issue already swapped the draft out.
-                if (issueIdFlow.value == issueId) {
+                // A rebind to another issue (or target) already swapped the
+                // draft out; the binding clears the sent one's row then.
+                if (draftBinding.bound?.id == sentDraft?.id) {
                     val after = ComposerSend.settle(
                         ComposerSend.Outcome.Sent, sentText, sent, _draft.value, _pendingAttachments.value,
                     )
                     _draft.value = after.text
                     _pendingAttachments.value = after.attachments
+                }
+                // #FEED-219: then the draft the send leaves is written.
+                draftBinding.settleSent(sentDraft, sentText)
+                if (issueIdFlow.value == issueId) {
                     if (_replyTarget.value?.parentId == parentId) _replyTarget.value = null
                     _reporterAudience.value = false
                 }
@@ -596,6 +635,14 @@ class IssueCommentsViewModel @Inject constructor(
             .onFailure { reportFailure(it, "delete", "the comment") }
     }
 
+}
+
+/** #FEED-219: the docked composer's draft target — the reply's top comment
+ *  under a card, else the issue's comment composer. */
+internal fun commentDraftTarget(issueId: String?, reply: CommentReplyTarget?): ComposerDraft.Target? = when {
+    reply != null -> ComposerDraft.Target(ComposerDraft.Kind.Reply, reply.parentId)
+    issueId != null -> ComposerDraft.Target(ComposerDraft.Kind.Comment, issueId)
+    else -> null
 }
 
 /** EXP-741: the comment the docked composer replies to. */

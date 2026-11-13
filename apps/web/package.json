@@ -33,6 +33,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.888.0",
+    "@aws-sdk/s3-request-presigner": "3.1045.0",
     "@aws-sdk/client-sesv2": "^3.1081.0",
     "@better-auth/api-key": "1.7.15",
     "@noble/ciphers": "^2.2.0",
@@ -48,6 +49,7 @@
     "@exp/domain-contract": "workspace:*",
     "@exp/etalk": "workspace:*",
     "@exp/eagent": "workspace:*",
+    "@exp/ecode": "workspace:*",
     "@exp/emcp": "workspace:*",
     "@exp/emoji": "workspace:*",
     "@exp/icons": "workspace:*",
@@ -99,6 +101,7 @@
     "sonner": "^2.0.7",
     "tailwindcss": "^4.1.13",
     "tiptap-markdown": "^0.9.0",
+    "yaml": "^2.9.1",
     "zod": "^4.0.14"
   },
   "devDependencies": {

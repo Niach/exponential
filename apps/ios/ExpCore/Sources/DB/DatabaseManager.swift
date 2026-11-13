@@ -3314,7 +3314,131 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v105 (#FEED-219): the synced `composer_drafts` table (a brand-new
+        // table, no cursor yet): every composer's draft, per (user, key).
+        migrator.registerMigration("v105_composer_drafts") { db in
+            try createComposerDraftsTable(db)
+        }
+
+        // v106 (#EXP-1617 / #EXP-1804): eCode's own CI — the synced `ci_runs`
+        // and `ci_jobs` tables (brand-new, no cursor yet) and `devices.runner`
+        // (the CI runner settings). The devices cursor resets only when the
+        // column was added, so synced rows re-arrive carrying it.
+        migrator.registerMigration("v106_ci_runs") { db in
+            try createCiTables(db)
+            guard try db.tableExists("devices") else { return }
+            guard try db.columns(in: "devices").contains(where: { $0.name == "runner" }) == false else { return }
+            try db.alter(table: "devices") { t in
+                t.add(column: "runner", .text)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'devices'
+                    """)
+            }
+        }
+
+        // v107 (#FEED-237, message-delivery.json): `messages.delivered_at`
+        // (the device received it: one check) and the LOCAL `outbox` table
+        // (a person's message from the press until its row syncs). The
+        // messages cursor resets only when the column was added.
+        migrator.registerMigration("v107_message_delivery") { db in
+            try createMessageOutboxTable(db)
+            guard try db.tableExists("messages") else { return }
+            guard try db.columns(in: "messages").contains(where: { $0.name == "delivered_at" }) == false else { return }
+            try db.alter(table: "messages") { t in
+                t.add(column: "delivered_at", .text)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'messages'
+                    """)
+            }
+        }
+
         return migrator
+    }
+
+    /// #FEED-237: the local `outbox` table (never synced).
+    static func createMessageOutboxTable(_ db: Database) throws {
+        try db.create(table: "outbox", ifNotExists: true) { t in
+            t.primaryKey("client_id", .text)
+            t.column("session_id", .text).notNull().indexed()
+            t.column("text", .text).notNull().defaults(to: "")
+            t.column("created_at", .text).notNull()
+            // sending | failed.
+            t.column("state", .text).notNull().defaults(to: "sending")
+            t.column("message_id", .text)
+            // The send's attachment ids as JSON text (a resend carries them).
+            t.column("attachment_ids", .text).notNull().defaults(to: "[]")
+        }
+    }
+
+    /// #EXP-1617 / #EXP-1804: the `ci_runs` / `ci_jobs` tables, mirroring the
+    /// shape allowlists (`/api/shapes/ci-runs`, `/api/shapes/ci-jobs`); jsonb
+    /// columns as JSON text.
+    static func createCiTables(_ db: Database) throws {
+        try db.create(table: "ci_runs", ifNotExists: true) { t in
+            t.primaryKey("id", .text)
+            t.column("team_id", .text).notNull().indexed()
+            t.column("repository_id", .text).notNull().defaults(to: "")
+            t.column("number", .integer).notNull().defaults(to: 0)
+            t.column("name", .text).notNull().defaults(to: "")
+            t.column("sha", .text).notNull().defaults(to: "")
+            t.column("ref", .text)
+            t.column("trigger", .text).notNull().defaults(to: "push")
+            t.column("pull_request_id", .text)
+            t.column("state", .text).notNull().defaults(to: "pending")
+            t.column("error", .text)
+            t.column("rerun_of", .text)
+            t.column("created_by_user_id", .text)
+            t.column("started_at", .text)
+            t.column("completed_at", .text)
+            t.column("created_at", .text).notNull()
+            t.column("updated_at", .text).notNull()
+        }
+        try db.create(table: "ci_jobs", ifNotExists: true) { t in
+            t.primaryKey("id", .text)
+            t.column("team_id", .text).notNull().indexed()
+            t.column("run_id", .text).notNull().indexed()
+            t.column("key", .text).notNull().defaults(to: "")
+            t.column("check", .text).notNull().defaults(to: "")
+            t.column("position", .integer).notNull().defaults(to: 0)
+            t.column("runs_on", .text)
+            t.column("needs", .text)
+            t.column("matrix", .text)
+            t.column("timeout_min", .integer).notNull().defaults(to: 60)
+            t.column("status", .text).notNull().defaults(to: "queued")
+            t.column("conclusion", .text)
+            t.column("reason", .text)
+            t.column("runner_device_id", .text).indexed()
+            t.column("steps", .text)
+            t.column("log_key", .text)
+            t.column("log_bytes", .integer).notNull().defaults(to: 0)
+            t.column("queued_at", .text)
+            t.column("started_at", .text)
+            t.column("completed_at", .text)
+            t.column("created_at", .text).notNull()
+            t.column("updated_at", .text).notNull()
+        }
+    }
+
+    /// #FEED-219: the `composer_drafts` table, mirroring the shape allowlist
+    /// (`/api/shapes/composer-drafts`).
+    static func createComposerDraftsTable(_ db: Database) throws {
+        try db.create(table: "composer_drafts", ifNotExists: true) { t in
+            t.primaryKey("id", .text)
+            t.column("user_id", .text).notNull()
+            t.column("team_id", .text).notNull()
+            t.column("key", .text).notNull().indexed()
+            t.column("text", .text).notNull().defaults(to: "")
+            t.column("created_at", .text).notNull()
+            t.column("updated_at", .text).notNull()
+        }
     }
 
     /// #EXP-1661: the `skills` table, mirroring the shape allowlist
@@ -3627,12 +3751,17 @@ public final class DatabaseManager: @unchecked Sendable {
             try db.execute(sql: "DELETE FROM pins")
             // EXP-878: drafts resolve a board — wiped with the rest.
             try db.execute(sql: "DELETE FROM issue_drafts")
+            // #FEED-219: the composers' drafts.
+            try db.execute(sql: "DELETE FROM composer_drafts")
             // EXP-1291: the session tree's children before the sessions they
             // hang off, all before the issues they reference.
             try db.execute(sql: "DELETE FROM session_reads")
             try db.execute(sql: "DELETE FROM pull_request_issues")
             // #EXP-1611: a PR's CI rows, wiped with their PR.
             try db.execute(sql: "DELETE FROM pull_request_checks")
+            // #EXP-1804: eCode's CI, jobs before their runs.
+            try db.execute(sql: "DELETE FROM ci_jobs")
+            try db.execute(sql: "DELETE FROM ci_runs")
             try db.execute(sql: "DELETE FROM pull_requests")
             try db.execute(sql: "DELETE FROM messages")
             try db.execute(sql: "DELETE FROM session_issues")

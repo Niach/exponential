@@ -429,6 +429,9 @@
         "maxLines": {
           "description": "Lines before it scrolls."
         },
+        "follow": {
+          "description": "Sticks to the bottom while the code grows (a live log)."
+        },
         "variant": {
           "description": "destructive = failed output."
         },
@@ -1838,7 +1841,7 @@
           "description": "Label while held."
         }
       },
-      "description": "Press target: label + optional icon, or one custom child.",
+      "description": "Press target: label + optional icon, or one custom child. A stretch column (Section rows, a vertical Stack) stretches it; a row, `align: start` or a trigger slot keeps its own width.",
       "example": {
         "label": "Submit",
         "variant": "default"
@@ -2832,7 +2835,7 @@
           "description": "Under the text."
         },
         "status": {
-          "description": "Delivery, out only."
+          "description": "Delivery mark, out only (MessageStatus)."
         },
         "author": {
           "description": "Caption above, in only."
@@ -3533,6 +3536,17 @@
         "path": "/recordTable/deals/editor/draft",
         "editorOpen": false,
         "deleteOpen": false
+      }
+    },
+    "MessageStatus": {
+      "props": {
+        "status": {
+          "description": "Delivery state."
+        }
+      },
+      "description": "A message's delivery mark: clock, check, double check (info), error (danger).",
+      "example": {
+        "status": "read"
       }
     }
   },

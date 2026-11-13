@@ -30,8 +30,15 @@ private const val KEY_PERUSER_DB_CLEANUP = "peruser_db_cleanup_v1"
 
 @HiltAndroidApp
 class ExponentialApp : Application(), SingletonImageLoader.Factory {
+    init {
+        // #PERF-11: before any binding loads (MobileNativeLibrary).
+        MobileNativeLibrary.install()
+    }
+
     @Inject lateinit var syncManager: SyncManager
+    @Inject lateinit var composerDrafts: com.exponential.app.data.composer.ComposerDrafts
     @Inject lateinit var appRecordOutbox: com.exponential.app.ui.apps.AppRecordOutbox
+    @Inject lateinit var sessionOutbox: com.exponential.app.data.outbox.SessionOutbox
     @Inject lateinit var pushTokenManager: PushTokenManager
     @Inject lateinit var enetNodeManager: EnetNodeManager
     @Inject lateinit var timezoneClaimer: TimezoneClaimer
@@ -81,6 +88,8 @@ class ExponentialApp : Application(), SingletonImageLoader.Factory {
         systemSearchIndexer.start()
         // VAPP-235: replay the offline outbox at launch and whenever sync comes back.
         appRecordOutbox.start()
+        // #FEED-237: resend the session messages the server never answered.
+        sessionOutbox.start()
         pushTokenManager.start()
         // EXP-1457: one eNet node per signed-in account, started lazily on
         // Dispatchers.IO (JNA + the .so never load on the main thread).
@@ -120,6 +129,9 @@ class ExponentialApp : Application(), SingletonImageLoader.Factory {
             }
 
             override fun onStop(owner: LifecycleOwner) {
+                // #FEED-219: the app hiding writes every pending composer
+                // draft now (web's `pagehide`).
+                composerDrafts.flushAll()
                 syncManager.setForeground(false)
                 steerConnectionStore.setForeground(false)
             }

@@ -368,6 +368,27 @@ pub struct Pin {
     pub updated_at: Option<String>,
 }
 
+/// `composer_drafts` shape row (#FEED-219, composer-draft.json) — one
+/// composer's synced draft, from a STATIC per-user shape (`user_id = me`).
+/// `key` = `<kind>:<id>` ([`crate::composer_draft::parse_key`]); a row whose
+/// key does not parse is ignored by every reader.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct ComposerDraftRow {
+    pub id: String,
+    #[serde(default)]
+    pub user_id: Option<String>,
+    #[serde(default)]
+    pub team_id: Option<String>,
+    #[serde(default)]
+    pub key: Option<String>,
+    #[serde(default)]
+    pub text: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
 /// `issue_drafts` shape row (EXP-878) — one unfiled create-issue dialog,
 /// from a STATIC per-user shape (`user_id = me`), neither team- nor
 /// trash-scoped. A row renders only once its `board_id` resolves in the
@@ -1007,6 +1028,11 @@ pub struct MessageRow {
     pub answered_at: Option<String>,
     #[serde(default)]
     pub consumed_at: Option<String>,
+    /// #FEED-237: the device's pickup received the pending row (one check,
+    /// `crate::message_delivery`); None = not yet, or a server without the
+    /// column.
+    #[serde(default)]
+    pub delivered_at: Option<String>,
     /// EXP-1323: the session that posted it (a child asking its parent,
     /// a report, a suggestions card); `None` = a person or the root itself.
     #[serde(default)]
@@ -1597,6 +1623,97 @@ pub struct IssueStatusRow {
     pub updated_at: Option<String>,
 }
 
+/// #EXP-1617 `ci_runs` shape row: one run of our own CI (the run page,
+/// `domain::ci_run`). `state` = pending | success | failure, RAW.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct CiRunRow {
+    pub id: String,
+    #[serde(default)]
+    pub team_id: Option<String>,
+    #[serde(default)]
+    pub repository_id: Option<String>,
+    #[serde(default, deserialize_with = "tolerant_opt_i64")]
+    pub number: Option<i64>,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub sha: String,
+    #[serde(default)]
+    pub r#ref: Option<String>,
+    #[serde(default)]
+    pub trigger: Option<String>,
+    #[serde(default)]
+    pub pull_request_id: Option<String>,
+    #[serde(default)]
+    pub state: String,
+    /// The pipeline file did not plan (the run page's Alert).
+    #[serde(default)]
+    pub error: Option<String>,
+    #[serde(default)]
+    pub rerun_of: Option<String>,
+    #[serde(default)]
+    pub created_by_user_id: Option<String>,
+    #[serde(default)]
+    pub started_at: Option<String>,
+    #[serde(default)]
+    pub completed_at: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
+/// #EXP-1617 `ci_jobs` shape row: one planned check of a run. `status` /
+/// `conclusion` = the pr-checks wire strings, RAW; `steps` = jsonb
+/// `[{name, status, conclusion, startedAt, completedAt}]`. The log is never
+/// synced (tRPC `ci.log`).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct CiJobRow {
+    pub id: String,
+    #[serde(default)]
+    pub team_id: Option<String>,
+    #[serde(default)]
+    pub run_id: String,
+    #[serde(default)]
+    pub key: Option<String>,
+    #[serde(default)]
+    pub check: String,
+    #[serde(default, deserialize_with = "tolerant_opt_i64")]
+    pub position: Option<i64>,
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub runs_on: Option<serde_json::Value>,
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub needs: Option<serde_json::Value>,
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub matrix: Option<serde_json::Value>,
+    #[serde(default, deserialize_with = "tolerant_opt_i64")]
+    pub timeout_min: Option<i64>,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub conclusion: Option<String>,
+    #[serde(default)]
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub runner_device_id: Option<String>,
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub steps: Option<serde_json::Value>,
+    #[serde(default)]
+    pub log_key: Option<String>,
+    #[serde(default, deserialize_with = "tolerant_opt_i64")]
+    pub log_bytes: Option<i64>,
+    #[serde(default)]
+    pub queued_at: Option<String>,
+    #[serde(default)]
+    pub started_at: Option<String>,
+    #[serde(default)]
+    pub completed_at: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
 /// `devices` shape row (EXP-481) — the per-user machine registry, own rows
 /// plus team-shared server rows. SERVER-AUTHORITATIVE: `launch_defaults` is
 /// the canonical copy this machine's settings.json converges to; online-ness
@@ -1680,6 +1797,11 @@ pub struct DeviceRow {
     pub is_default: Option<bool>,
     #[serde(default)]
     pub update_requested_at: Option<String>,
+    /// #EXP-1617 jsonb `{enabled, labels, slots, timeoutMin}` = the CI
+    /// runner settings the owner picked (NULL = never set up; the section
+    /// fills `runner-settings.json` `defaults`). Parsed by `domain::ci_run`.
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub runner: Option<serde_json::Value>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]

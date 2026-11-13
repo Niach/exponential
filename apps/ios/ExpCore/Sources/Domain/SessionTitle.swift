@@ -229,11 +229,22 @@ public enum SessionTitle {
         return "\(trimmedHead)…"
     }
 
-    /// The first usable line of a body: non-blank, not an image embed.
+    /// One line as a title reads it: trimmed, the composer's `[Image #N]`
+    /// markers (EXP-698) removed, each run of them with the spaces and tabs
+    /// around it one space.
+    static func titleLine(_ line: String) -> String {
+        line
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "[ \\t]*(?:\\[Image #[0-9]+\\][ \\t]*)+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// The first usable line of a body: non-blank once its image markers
+    /// are gone, not an image embed.
     static func firstLine(_ body: String) -> String? {
         body
             .components(separatedBy: "\n")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .map(titleLine)
             .first { !$0.isEmpty && !$0.hasPrefix("![") }
     }
 

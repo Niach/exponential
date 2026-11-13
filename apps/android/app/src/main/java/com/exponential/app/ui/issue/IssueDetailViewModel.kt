@@ -1,5 +1,6 @@
 package com.exponential.app.ui.issue
 
+import com.exponential.app.data.db.observeFirstTitleRows
 import com.exponential.app.data.db.keyedMessages
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -589,7 +590,7 @@ class IssueDetailViewModel @AssistedInject constructor(
                 // #EXP-1380: only the card-less rows the roots' titles read,
                 // never every synced message.
                 roots.map { rows -> rows.map { it.id }.sorted() }.distinctUntilChanged().flatMapLatest { ids ->
-                    if (ids.isEmpty()) flowOf(emptyList()) else db.keyedMessages(db.messageDao().observeTitleRows(ids))
+                    if (ids.isEmpty()) flowOf(emptyList()) else db.keyedMessages(db.messageDao().observeFirstTitleRows(ids))
                 },
             ) { roots: List<SessionEntity>, all: List<SessionEntity>, links: List<SessionIssueEntity>,
                 issues: List<IssueEntity>, messages: List<SessionTree.Message> ->

@@ -104,6 +104,10 @@ CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON pull_request_checks
 -- EXP-1709: the merge train's runs and per-commit checks.
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON merge_trains FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON commit_checks FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+-- #EXP-1617: eCode's CI.
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON ci_runs FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON ci_jobs FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON ci_secrets FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON session_issues FOR EACH ROW
   WHEN (NEW.board_deleted_at IS NOT DISTINCT FROM OLD.board_deleted_at
     AND NEW.board_archived_at IS NOT DISTINCT FROM OLD.board_archived_at
@@ -562,14 +566,17 @@ RETURNS text AS $$
   SELECT E' \t\r\f\x0B' || U&'\00A0\FEFF\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000'
 $$ LANGUAGE sql IMMUTABLE;
 
--- The 1-based index of a body's first usable line (non-blank, not an image
--- embed: session-title `firstLine`), NULL = none.
+-- The 1-based index of a body's first usable line (non-blank once its
+-- composer `[Image #N]` markers are gone, not an image embed: session-title
+-- `firstLine` / `titleLine`), NULL = none.
 CREATE OR REPLACE FUNCTION conversation_digest_first_line_at(body text)
 RETURNS integer AS $$
   SELECT min(t.n)::integer
-  FROM regexp_split_to_table(body, E'\n') WITH ORDINALITY AS t(line, n)
-  WHERE btrim(t.line, conversation_digest_ws()) <> ''
-    AND btrim(t.line, conversation_digest_ws()) NOT LIKE '![%'
+  FROM regexp_split_to_table(body, E'\n') WITH ORDINALITY AS t(line, n),
+    LATERAL (SELECT btrim(regexp_replace(btrim(t.line, conversation_digest_ws()),
+      E'[ \t]*(\\[Image #[0-9]+\\][ \t]*)+', ' ', 'g'), conversation_digest_ws()) AS l) x
+  WHERE x.l <> ''
+    AND x.l NOT LIKE '![%'
 $$ LANGUAGE sql IMMUTABLE;
 
 -- `digestFirstBody`: the body from its first usable line on.

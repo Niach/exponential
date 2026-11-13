@@ -1,5 +1,5 @@
 {
-  "$comment": "#EXP-1725 (IDE adopts the eDE shell): what the IDE's sidebar shows, a pure projection of the host's state, replayed in TS (src/ide.ts) and Rust (uicore-model ide.rs). The document apps/ede/ui/sidebar.json binds the result under /shell/ide; eDE never feeds that path. The nav's order is Needs you (while any, or on its page), Chats, Devices, Drafts (while any, or on its page): the IDE has no start menu (#EXP-1741), so Devices is a nav row; the person's Assistant is the sidebar's corner. screen = the open screen as <kind> or <kind>:<id>. A row's selected follows screen; an active row is lit on its root and on any session of its tree; an app row on its id or its slug. #FEED-232 (domain-contract nav-badges.json): a row's badge is THE count badge, never a dot: count = its label (null at zero, 99+ past 99), tone = attention | muted (null without a count). Needs you = its rows, attention; Chats = the host's chatsBadge {count, tone}; Drafts = its pile, muted; an agent = rowBadge(unread, needsYou): its unread, at least 1 while it needs you, attention when it does; busy is no count; devices, apps, boards none. gear = the row's hover gear: agents and apps for every member, boards for owners; agents.add = the owner's new agent button. boards.empty = the team has no boards, the list's empty state. Pinned and Active hide while empty: the document reads their length. base holds the input every case starts from; a case overrides keys of it. copy = the nav's words (chat-list.json copy.title and needs-you.json copy.entry). tabs: the bottom tab bar (#EXP-1726, docs/tabbar.json): every open tab in tab order, work tabs and terminals merged, activeTab = the active key while a tab holds the screen.",
+  "$comment": "#EXP-1725 (IDE adopts the eDE shell): what the IDE's sidebar shows, a pure projection of the host's state, replayed in TS (src/ide.ts) and Rust (uicore-model ide.rs). The document apps/ede/ui/sidebar.json binds the result under /shell/ide; eDE never feeds that path. The nav's order is Needs you (while any, or on its page), Chats, Devices, Drafts (while any, or on its page): the IDE has no start menu (#EXP-1741), so Devices is a nav row; the person's Assistant is the sidebar's corner. screen = the open screen as <kind> or <kind>:<id>. A row's selected follows screen; an active row is lit on its root and on any session of its tree; an app row on its id or its slug. #FEED-232 (domain-contract nav-badges.json): a row's badge is THE count badge, never a dot: count = its label (null at zero, 99+ past 99), tone = attention | muted (null without a count). Needs you = its rows, attention; Chats = the host's chatsBadge {count, tone}; Drafts = its pile, muted; an agent = rowBadge(unread, needsYou): its unread, at least 1 while it needs you, attention when it does; busy is no count; devices, apps, boards none. gear = the row's hover gear: agents and apps for every member, boards for owners; agents.add = the owner's new agent button. boards.empty = the team has no boards, the list's empty state. Pinned and Active hide while empty: the document reads their length. prs (#EXP-1616, repo-page.json: \"Desktop also lists the PR tree in the IDE sidebar with the same Section/Row tree\"): the Pull requests section, a Section{tree} of Rows over repos = the team's Exponential (provider ecode) repositories in the host's order, each with its live PRs already placed by repoPrTree ({id, identifier #n, title, subtitle head → base, depth}): a repository with PRs is a row at depth 0 (its name, icon ui-repository, no identifier or subtitle, selected on repo:<id>), its PRs follow it at their tree depth + 1 (icon null, never selected); a repository without live PRs has no row, and the section hides while prs is empty. Every row's press opens its repo's page (repo). base holds the input every case starts from; a case overrides keys of it. copy = the nav's words (chat-list.json copy.title and needs-you.json copy.entry). tabs: the IDE's tab bar (#EXP-1726, docs/tabbar.json): every open tab in tab order, work tabs and terminals merged in ONE strip (a terminal is a tab like any other: same strip, same close, close others/all and neighbour rules), activeTab = the active key while a tab holds the screen. placement (Danny 2026-11-13): where that strip sits: top in the standalone IDE (macOS, Windows, Linux; the band above the content card that also carries the window controls and the drag), bottom while the IDE runs inside Exponential Desktop (eDE = XDG_CURRENT_DESKTOP names Exponential; its taskbar holds the top edge's role), the +N menu opening away from the window edge.",
   "version": 1,
   "copy": {
     "needs-you": "Needs you",
@@ -20,7 +20,8 @@
     "agents": [],
     "apps": [],
     "boards": [],
-    "active": []
+    "active": [],
+    "repos": []
   },
   "cases": [
     {
@@ -57,7 +58,8 @@
           "rows": [],
           "empty": true
         },
-        "active": []
+        "active": [],
+        "prs": []
       }
     },
     {
@@ -104,7 +106,8 @@
           "rows": [],
           "empty": true
         },
-        "active": []
+        "active": [],
+        "prs": []
       }
     },
     {
@@ -151,7 +154,8 @@
           "rows": [],
           "empty": true
         },
-        "active": []
+        "active": [],
+        "prs": []
       }
     },
     {
@@ -198,7 +202,8 @@
           "rows": [],
           "empty": true
         },
-        "active": []
+        "active": [],
+        "prs": []
       }
     },
     {
@@ -245,7 +250,8 @@
           "rows": [],
           "empty": true
         },
-        "active": []
+        "active": [],
+        "prs": []
       }
     },
     {
@@ -288,7 +294,8 @@
           "rows": [],
           "empty": true
         },
-        "active": []
+        "active": [],
+        "prs": []
       }
     },
     {
@@ -352,7 +359,8 @@
           "rows": [],
           "empty": true
         },
-        "active": []
+        "active": [],
+        "prs": []
       }
     },
     {
@@ -458,7 +466,8 @@
           "rows": [],
           "empty": true
         },
-        "active": []
+        "active": [],
+        "prs": []
       }
     },
     {
@@ -551,7 +560,8 @@
           ],
           "empty": false
         },
-        "active": []
+        "active": [],
+        "prs": []
       }
     },
     {
@@ -623,7 +633,8 @@
           "rows": [],
           "empty": true
         },
-        "active": []
+        "active": [],
+        "prs": []
       }
     },
     {
@@ -693,7 +704,8 @@
           ],
           "empty": false
         },
-        "active": []
+        "active": [],
+        "prs": []
       }
     },
     {
@@ -768,6 +780,350 @@
             "selected": false,
             "unread": true
           }
+        ],
+        "prs": []
+      }
+    },
+    {
+      "name": "the Pull requests tree hides while no Exponential repository has a live PR",
+      "input": {
+        "repos": [
+          {
+            "id": "r1",
+            "name": "engine",
+            "prs": []
+          }
+        ]
+      },
+      "expected": {
+        "nav": [
+          {
+            "id": "chats",
+            "title": "Chats",
+            "icon": "nav-chats",
+            "selected": true,
+            "count": null,
+            "tone": null
+          },
+          {
+            "id": "devices",
+            "title": "Devices",
+            "icon": "nav-devices",
+            "selected": false,
+            "count": null,
+            "tone": null
+          }
+        ],
+        "pins": [],
+        "agents": {
+          "add": true,
+          "rows": []
+        },
+        "apps": {
+          "rows": []
+        },
+        "boards": {
+          "rows": [],
+          "empty": true
+        },
+        "active": [],
+        "prs": []
+      }
+    },
+    {
+      "name": "each Exponential repository with live PRs heads its PR tree, nested one level deeper; a repository without PRs has no row; the repo row lights on its page",
+      "input": {
+        "screen": "repo:r1",
+        "repos": [
+          {
+            "id": "r1",
+            "name": "engine",
+            "prs": [
+              {
+                "id": "p3",
+                "identifier": "#3",
+                "title": "Faster sync",
+                "subtitle": "sync → main",
+                "depth": 0
+              },
+              {
+                "id": "p4",
+                "identifier": "#4",
+                "title": "Sync tests",
+                "subtitle": "sync-tests → sync",
+                "depth": 1
+              },
+              {
+                "id": "p1",
+                "identifier": "#1",
+                "title": "Docs",
+                "subtitle": "docs → main",
+                "depth": 0
+              }
+            ]
+          },
+          {
+            "id": "r2",
+            "name": "empty",
+            "prs": []
+          },
+          {
+            "id": "r3",
+            "name": "site",
+            "prs": [
+              {
+                "id": "p9",
+                "identifier": "#9",
+                "title": "Landing copy",
+                "subtitle": "copy → main",
+                "depth": 0
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "nav": [
+          {
+            "id": "chats",
+            "title": "Chats",
+            "icon": "nav-chats",
+            "selected": false,
+            "count": null,
+            "tone": null
+          },
+          {
+            "id": "devices",
+            "title": "Devices",
+            "icon": "nav-devices",
+            "selected": false,
+            "count": null,
+            "tone": null
+          }
+        ],
+        "pins": [],
+        "agents": {
+          "add": true,
+          "rows": []
+        },
+        "apps": {
+          "rows": []
+        },
+        "boards": {
+          "rows": [],
+          "empty": true
+        },
+        "active": [],
+        "prs": [
+          {
+            "id": "r1",
+            "repo": "r1",
+            "title": "engine",
+            "identifier": null,
+            "subtitle": null,
+            "icon": "ui-repository",
+            "depth": 0,
+            "selected": true
+          },
+          {
+            "id": "p3",
+            "repo": "r1",
+            "title": "Faster sync",
+            "identifier": "#3",
+            "subtitle": "sync → main",
+            "icon": null,
+            "depth": 1,
+            "selected": false
+          },
+          {
+            "id": "p4",
+            "repo": "r1",
+            "title": "Sync tests",
+            "identifier": "#4",
+            "subtitle": "sync-tests → sync",
+            "icon": null,
+            "depth": 2,
+            "selected": false
+          },
+          {
+            "id": "p1",
+            "repo": "r1",
+            "title": "Docs",
+            "identifier": "#1",
+            "subtitle": "docs → main",
+            "icon": null,
+            "depth": 1,
+            "selected": false
+          },
+          {
+            "id": "r3",
+            "repo": "r3",
+            "title": "site",
+            "identifier": null,
+            "subtitle": null,
+            "icon": "ui-repository",
+            "depth": 0,
+            "selected": false
+          },
+          {
+            "id": "p9",
+            "repo": "r3",
+            "title": "Landing copy",
+            "identifier": "#9",
+            "subtitle": "copy → main",
+            "icon": null,
+            "depth": 1,
+            "selected": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "a PR row lights while the chat that opened it is open (a PR has no page of its own; its press opens the repo page)",
+      "input": {
+        "screen": "chat:s4",
+        "repos": [
+          {
+            "id": "r1",
+            "name": "engine",
+            "prs": [
+              {
+                "id": "p3",
+                "identifier": "#3",
+                "title": "Faster sync",
+                "subtitle": "sync → main",
+                "depth": 0
+              },
+              {
+                "id": "p4",
+                "identifier": "#4",
+                "title": "Sync tests",
+                "subtitle": "sync-tests → sync",
+                "depth": 1,
+                "session": "s4"
+              },
+              {
+                "id": "p1",
+                "identifier": "#1",
+                "title": "Docs",
+                "subtitle": "docs → main",
+                "depth": 0
+              }
+            ]
+          },
+          {
+            "id": "r2",
+            "name": "empty",
+            "prs": []
+          },
+          {
+            "id": "r3",
+            "name": "site",
+            "prs": [
+              {
+                "id": "p9",
+                "identifier": "#9",
+                "title": "Landing copy",
+                "subtitle": "copy → main",
+                "depth": 0
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "nav": [
+          {
+            "id": "chats",
+            "title": "Chats",
+            "icon": "nav-chats",
+            "selected": false,
+            "count": null,
+            "tone": null
+          },
+          {
+            "id": "devices",
+            "title": "Devices",
+            "icon": "nav-devices",
+            "selected": false,
+            "count": null,
+            "tone": null
+          }
+        ],
+        "pins": [],
+        "agents": {
+          "add": true,
+          "rows": []
+        },
+        "apps": {
+          "rows": []
+        },
+        "boards": {
+          "rows": [],
+          "empty": true
+        },
+        "active": [],
+        "prs": [
+          {
+            "id": "r1",
+            "repo": "r1",
+            "title": "engine",
+            "identifier": null,
+            "subtitle": null,
+            "icon": "ui-repository",
+            "depth": 0,
+            "selected": false
+          },
+          {
+            "id": "p3",
+            "repo": "r1",
+            "title": "Faster sync",
+            "identifier": "#3",
+            "subtitle": "sync → main",
+            "icon": null,
+            "depth": 1,
+            "selected": false
+          },
+          {
+            "id": "p4",
+            "repo": "r1",
+            "title": "Sync tests",
+            "identifier": "#4",
+            "subtitle": "sync-tests → sync",
+            "icon": null,
+            "depth": 2,
+            "selected": true
+          },
+          {
+            "id": "p1",
+            "repo": "r1",
+            "title": "Docs",
+            "identifier": "#1",
+            "subtitle": "docs → main",
+            "icon": null,
+            "depth": 1,
+            "selected": false
+          },
+          {
+            "id": "r3",
+            "repo": "r3",
+            "title": "site",
+            "identifier": null,
+            "subtitle": null,
+            "icon": "ui-repository",
+            "depth": 0,
+            "selected": false
+          },
+          {
+            "id": "p9",
+            "repo": "r3",
+            "title": "Landing copy",
+            "identifier": "#9",
+            "subtitle": "copy → main",
+            "icon": null,
+            "depth": 1,
+            "selected": false
+          }
         ]
       }
     }
@@ -832,6 +1188,24 @@
       "expected": {
         "tabs": [],
         "activeTab": null
+      }
+    }
+  ],
+  "placement": [
+    {
+      "name": "the standalone IDE draws its tabs on top",
+      "ede": false,
+      "expected": {
+        "placement": "top",
+        "moreSide": "bottom"
+      }
+    },
+    {
+      "name": "inside Exponential Desktop the tabs stay at the bottom",
+      "ede": true,
+      "expected": {
+        "placement": "bottom",
+        "moreSide": "top"
       }
     }
   ]

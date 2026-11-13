@@ -1370,11 +1370,11 @@ describe.skipIf(!ready.ok)(`EXP-1397: Guide ownership across PRs`, async () => {
     const t = await chat()
     const other = await chat()
     const installation = 100_000 + Math.floor(Math.random() * 1_000_000)
-    await db.update(repositories).set({ installationId: installation }).where(eq(repositories.id, t.repo.id))
+    await db.update(repositories).set({ providerConfig: { installationId: installation } }).where(eq(repositories.id, t.repo.id))
     // Another team registered the same full name under another installation.
     const [theirs] = await db
       .insert(repositories)
-      .values({ teamId: other.w.teamId, fullName: t.repo.fullName, installationId: installation + 1 })
+      .values({ teamId: other.w.teamId, fullName: t.repo.fullName, providerConfig: { installationId: installation + 1 } })
       .returning({ id: repositories.id })
     const mine = await t.kid(`exp/scoped`)
     const foreign = await other.kid(`exp/scoped`)

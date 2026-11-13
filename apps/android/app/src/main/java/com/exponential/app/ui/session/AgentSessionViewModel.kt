@@ -1,6 +1,12 @@
 package com.exponential.app.ui.session
 
+import kotlinx.coroutines.flow.shareIn
+import com.exponential.app.data.db.observeCardRowsBySession
+import com.exponential.app.data.db.observeFirstTitleRowsByRoot
 import com.exponential.app.domain.ComposerSend
+import com.exponential.app.domain.ComposerDraft
+import com.exponential.app.data.composer.ComposerDraftBinding
+import com.exponential.app.data.composer.ComposerDrafts
 import com.exponential.app.domain.Chats
 import android.net.Uri
 import android.os.SystemClock
@@ -33,7 +39,10 @@ import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.keyedMessages
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.data.electric.SyncStats
+import com.exponential.app.data.steer.STEER_NO_FEED_INPUTS_MAX
 import com.exponential.app.data.steer.SteerConnectionStore
+import com.exponential.app.data.steer.SteerInputRow
+import com.exponential.app.data.steer.steerNoFeedInputs
 import com.exponential.app.data.steer.stopHandingBackQueue
 import com.exponential.app.domain.ActivityFeedState
 import com.exponential.app.domain.SessionKind
@@ -88,6 +97,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 
@@ -174,6 +184,10 @@ class AgentSessionViewModel @AssistedInject constructor(
     private val store: SteerConnectionStore,
     stats: SyncStats,
     selection: com.exponential.app.data.TeamSelection,
+    // #FEED-219: the composer's synced draft.
+    composerDrafts: ComposerDrafts,
+    // #FEED-237: the persisted session outbox (message-delivery.json).
+    private val outbox: com.exponential.app.data.outbox.SessionOutbox,
 ) : ViewModel() {
 
     @AssistedFactory
@@ -449,7 +463,7 @@ class AgentSessionViewModel @AssistedInject constructor(
             if (id == null) {
                 flowOf(false)
             } else {
-                dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeTree(id) }
+                dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeTreeNoDigest(id) }
                     .map { tree -> tree.any { it.id != id } }
             }
         },
@@ -731,14 +745,33 @@ class AgentSessionViewModel @AssistedInject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
+     * Large chats + #ERR-19: THE session's card rows the quick replies and the
+     * tool cards read (`replies`, `plan`, `question`, `surface`), opened ONCE
+     * and folded incrementally, shared by both. An Assistant root holds
+     * thousands of report / ask / `thread_started` cards: those are never kept,
+     * and an unchanged row is never re-read on a write.
+     */
+    private val cardRows: kotlinx.coroutines.flow.Flow<List<SessionTree.Message>> = dbFlow
+        .scopedQuery(emptyList<SessionTree.Message>()) {
+            it.messageDao().observeCardRowsBySession(
+                codingSessionId,
+                setOf(
+                    com.exponential.app.domain.DomainContract.messageCardKindReplies,
+                    com.exponential.app.domain.DomainContract.messageCardKindPlan,
+                    com.exponential.app.domain.DomainContract.messageCardKindQuestion,
+                    com.exponential.app.domain.DomainContract.messageCardKindSurface,
+                ),
+            )
+        }
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
+
+    /**
      * EXP-1211: the quick replies above THIS session's composer
      * ([SessionTree.composerReplies] over its synced messages; null = none).
      * The chat's composer reads its ROOT's, the raw view its own.
      */
-    val composerReplies: StateFlow<SessionTree.ComposerReplies?> = dbFlow
-        // Large chats: a replies card is a CARD row: the session's card rows only.
-        .scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeCardRowsBySession(codingSessionId) }
-        .map { rows -> SessionTree.composerReplies(codingSessionId, rows.map { SessionTree.message(it, codingSessionId) }) }
+    val composerReplies: StateFlow<SessionTree.ComposerReplies?> = cardRows
+        .map { rows -> SessionTree.composerReplies(codingSessionId, rows) }
         .distinctUntilChanged()
         // EXP-1521: per-message card JSON parsing, off the main thread.
         .flowOn(kotlinx.coroutines.Dispatchers.Default)
@@ -802,11 +835,11 @@ class AgentSessionViewModel @AssistedInject constructor(
                 flowOf(null)
             } else {
                 combine(
-                    dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeTree(root) },
+                    dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeTreeNoDigest(root) },
                     // Large chats: the titles (header / origin) read only the
                     // tree's title rows (session-title.json `firstPrompt`).
                     dbFlow.scopedQuery(emptyList<SessionTree.Message>()) { db ->
-                        db.keyedMessages(db.messageDao().observeTitleRowsByRoot(root))
+                        db.keyedMessages(db.messageDao().observeFirstTitleRowsByRoot(root))
                     },
                     dbFlow.scopedQuery(emptyList<SessionIssueEntity>()) { it.sessionIssueDao().observeByRoot(root) },
                     issues,
@@ -884,12 +917,12 @@ class AgentSessionViewModel @AssistedInject constructor(
                 flowOf(null)
             } else {
                 combine(
-                    dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeTree(root) },
-                    dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeAgents() },
+                    dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeTreeNoDigest(root) },
+                    dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeAgentsNoDigest() },
                     // Large chats: the titles (header / origin) read only the
                     // tree's title rows (session-title.json `firstPrompt`).
                     dbFlow.scopedQuery(emptyList<SessionTree.Message>()) { db ->
-                        db.keyedMessages(db.messageDao().observeTitleRowsByRoot(root))
+                        db.keyedMessages(db.messageDao().observeFirstTitleRowsByRoot(root))
                     },
                     dbFlow.scopedQuery(emptyList<SessionIssueEntity>()) { it.sessionIssueDao().observeByRoot(root) },
                     issues,
@@ -919,26 +952,167 @@ class AgentSessionViewModel @AssistedInject constructor(
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
-     * EXP-1291: the viewer's OWN messages the server still holds for this
-     * session (`consumed_at` NULL) — the queue bar; X = [unqueueMessage].
+     * Android 0.14.134 (fixtures/steer-enet.json SENT INPUTS): the session's
+     * consumed person inputs, newest [STEER_NO_FEED_INPUTS_MAX] oldest first,
+     * drawn as the viewer's bubbles while a no-feed placeholder shows (the
+     * brief the claim consumed at once included). Opened like the queue.
+     */
+    val noFeedInputs: StateFlow<List<com.exponential.app.domain.MessageDelivery.Bubble>> =
+        dbFlow.scopedQuery(emptyList<MessageEntity>()) {
+            it.messageDao().observeConsumedInputs(codingSessionId, STEER_NO_FEED_INPUTS_MAX)
+        }.map { rows ->
+            steerNoFeedInputs(rows) { row ->
+                SteerInputRow(
+                    id = row.id,
+                    authorKind = row.authorKind,
+                    hasCard = row.card != null && row.card != "null",
+                    consumedAt = row.consumedAt,
+                    createdAt = row.createdAt,
+                )
+            }.mapNotNull { row ->
+                val opened = com.exponential.app.data.sealed.SealedContent.openMessage(row)
+                val text = opened.locked?.let(com.exponential.app.domain.SealedPlaceholder::copy) ?: opened.body
+                // #FEED-237 (message-delivery.json): ONE own-bubble
+                // mechanism: a consumed input = processed (`read`), drawn
+                // like the own tail that follows it.
+                text.takeIf { it.isNotBlank() }?.let {
+                    com.exponential.app.domain.MessageDelivery.Bubble(
+                        key = row.id,
+                        text = it,
+                        createdAt = row.createdAt,
+                        state = com.exponential.app.domain.MessageDelivery.State.Read,
+                        stored = true,
+                        clientId = null,
+                        messageId = row.id,
+                    )
+                }
+            }
+        }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * #FEED-237 (message-delivery.json): the viewer's OWN bubbles at the
+     * transcript's bottom: the consumed rows whose echo has not reached the
+     * transcript yet (HANDOFF, reading `read`: no flicker between the row
+     * being consumed and its echo appearing), their synced rows the device
+     * has not consumed (oldest first), then the kept outbox entries, each
+     * with its delivery state. An entry whose synced row arrived drops
+     * (`outboxMerge`). Re-evaluated when the rows, the outbox or the
+     * transcript's echoes change, and once [MessageDelivery.HANDOFF_MAX_MS]
+     * after the newest held row's consumedAt.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
-    val queuedMessages: StateFlow<List<QueuedMessage>> = combine(
-        dbFlow.scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeQueued(codingSessionId) },
-        auth.userId,
-    ) { rows, me ->
-        rows.filter { me != null && it.authorId == me }
-            .map { row ->
-                // EXP-1459: a queued message this install cannot open reads the locked copy.
-                val opened = com.exponential.app.data.sealed.SealedContent.openMessage(row)
-                QueuedMessage(id = row.id, text = opened.locked?.let(com.exponential.app.domain.SealedPlaceholder::copy) ?: opened.body)
+    val ownTail: StateFlow<List<com.exponential.app.domain.MessageDelivery.Bubble>> = combine(
+        auth.userId.flatMapLatest { me ->
+            if (me == null) {
+                kotlinx.coroutines.flow.flowOf(emptyList())
+            } else {
+                dbFlow.scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeNewestOwn(codingSessionId, me, OWN_ROWS) }
             }
-        // EXP-1522: opening a sealed body is native crypto: off the main thread.
-    }.flowOn(kotlinx.coroutines.Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        },
+        dbFlow.scopedQuery(emptyList<com.exponential.app.data.db.OutboxEntity>()) { it.outboxDao().observeBySession(codingSessionId) },
+        auth.userId,
+        // HANDOFF's echoes: the transcript's person rows of the main lane.
+        activity.map { state ->
+            state.feed.isEmpty() to state.feed.mapNotNull { item ->
+                (item as? com.exponential.app.domain.AgentFeedItem.UserMessage)
+                    ?.takeIf { it.subagentId == null }
+                    ?.let { com.exponential.app.domain.MessageDelivery.Echo(it.text, it.at) }
+            }
+        }.distinctUntilChanged(),
+    ) { rows, entries, me, (feedEmpty, echoes) ->
+        OwnTailInputs(
+            me = me,
+            entries = entries.mapNotNull { e ->
+                val state = com.exponential.app.domain.MessageDelivery.Local.of(e.state) ?: return@mapNotNull null
+                com.exponential.app.domain.MessageDelivery.Entry(e.clientId, e.text, e.createdAt, state, e.messageId)
+            },
+            rows = rows.map { row ->
+                // EXP-1459: a row this install cannot open reads the locked copy.
+                val opened = com.exponential.app.data.sealed.SealedContent.openMessage(row)
+                com.exponential.app.domain.MessageDelivery.Row(
+                    id = row.id,
+                    authorKind = row.authorKind,
+                    authorId = row.authorId,
+                    body = opened.locked?.let(com.exponential.app.domain.SealedPlaceholder::copy) ?: opened.body,
+                    createdAt = row.createdAt,
+                    deliveredAt = row.deliveredAt,
+                    consumedAt = row.consumedAt,
+                    hasCard = row.card != null && row.card != "null",
+                )
+            },
+            feedEmpty = feedEmpty,
+            echoes = echoes,
+        )
+    }.transformLatest { input ->
+        while (true) {
+            val now = System.currentTimeMillis()
+            val held = com.exponential.app.domain.MessageDelivery.ownHandoff(input.me, now, input.feedEmpty, input.rows, input.echoes)
+            val tail = com.exponential.app.domain.MessageDelivery.tail(input.me, input.entries, input.rows, held)
+            val account = auth.activeAccountId.value
+            if (account != null && tail.drop.isNotEmpty()) outbox.drop(account, tail.drop)
+            emit(tail.bubbles)
+            // Once the newest held row's hold runs out, evaluate again.
+            val expiry = com.exponential.app.domain.MessageDelivery.handoffExpiry(held, input.rows) ?: break
+            kotlinx.coroutines.delay(maxOf(1L, expiry - now + 1))
+        }
+    }.distinctUntilChanged()
+        .flowOn(kotlinx.coroutines.Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private data class OwnTailInputs(
+        val me: String?,
+        val entries: List<com.exponential.app.domain.MessageDelivery.Entry>,
+        val rows: List<com.exponential.app.domain.MessageDelivery.Row>,
+        val feedEmpty: Boolean,
+        val echoes: List<com.exponential.app.domain.MessageDelivery.Echo>,
+    )
+
+    /** #FEED-237: a bubble's menu action (message-delivery.json `actionCases`). */
+    fun ownBubbleAction(bubble: com.exponential.app.domain.MessageDelivery.Bubble, action: com.exponential.app.domain.MessageDelivery.Action) {
+        val account = auth.activeAccountId.value ?: return
+        when (action) {
+            com.exponential.app.domain.MessageDelivery.Action.Retry -> bubble.clientId?.let { outbox.retry(account, it) }
+            com.exponential.app.domain.MessageDelivery.Action.Delete -> bubble.clientId?.let { outbox.delete(account, it) }
+            com.exponential.app.domain.MessageDelivery.Action.Cancel -> bubble.messageId?.let { id ->
+                viewModelScope.launch {
+                    try {
+                        sessionsApi.unqueue(account, id)
+                        // The row is gone server-side: its entry goes too.
+                        bubble.clientId?.let { outbox.delete(account, it) }
+                    } catch (t: Throwable) {
+                        if (t is CancellationException) throw t
+                        _cancelError.value = com.exponential.app.domain.MessageDelivery.Copy.CANCEL_FAILED
+                    }
+                }
+            }
+        }
+    }
+
+    /** #FEED-237: a refused Cancel sending (CONFLICT: consumed meanwhile). */
+    private val _cancelError = MutableStateFlow<String?>(null)
+    val cancelError: StateFlow<String?> = _cancelError
+    fun clearCancelError() {
+        _cancelError.value = null
+    }
 
     /** The composer's typed text — held by the connection, so it survives a
      *  reconnect, a back-tap and a rotation alike. */
     val draft: StateFlow<String> = connection.draft
+
+    // #FEED-219 (composer-draft.json): the connection's draft is the synced
+    // `session:<id>` draft, so another device, a relaunch or an evicted
+    // connection shows the text again.
+    private val draftBinding = ComposerDraftBinding(viewModelScope, composerDrafts, connection.draft, connection::setDraft)
+
+    init {
+        viewModelScope.launch {
+            combine(auth.activeAccountId, session.map { it?.teamId }.distinctUntilChanged()) { account, teamId ->
+                account to teamId
+            }.collect { (account, teamId) ->
+                draftBinding.bind(account, ComposerDraft.Target(ComposerDraft.Kind.Session, codingSessionId), teamId)
+            }
+        }
+    }
 
     /**
      * EXP-746: the agent's LIVE configuration behind the composer chips —
@@ -1253,15 +1427,16 @@ class AgentSessionViewModel @AssistedInject constructor(
     /**
      * EXP-1291: send the composed message as `sessions.send({sessionId})` —
      * the server holds it until the device takes it (an idle session resumes,
-     * an ended one continues). Picked files upload against the session first
-     * and ride as `attachmentIds`. The draft and the thumbnails clear only
-     * once the server took it.
+     * an ended one continues). #FEED-237 (message-delivery.json): the field,
+     * its synced draft (FEED-219) and its files clear AT THE PRESS and the
+     * message becomes an outbox bubble at the transcript's bottom; the
+     * uploads and the send run on the outbox's app-wide scope (a failure =
+     * the bubble's red mark, no toast).
      */
     fun sendDraft() {
         val text = draft.value
         val images = pendingImages.value
         if (text.isBlank() && images.isEmpty()) return
-        if (_sending.value) return
         // A slash command is the WHOLE message: with
         // attachments around it the send refuses, like web — never an
         // ordinary message carrying the command text.
@@ -1269,71 +1444,35 @@ class AgentSessionViewModel @AssistedInject constructor(
             _sendRefusal.value = SlashCommands.COMMAND_WITH_ATTACHMENTS
             return
         }
-        // EXP-1522: on the store's scope, not the ViewModel's: backing out
-        // right after Send must not cancel the upload or the send.
-        store.launchDetached {
-            val accountId = auth.activeAccountId.value ?: return@launchDetached
-            _sending.value = true
-            _uploadError.value = null
-            try {
-                val ids = mutableListOf<String>()
-                for (image in images) {
-                    val id = image.uploadedId ?: try {
-                        issueImagesApi.uploadSessionImage(
-                            accountId,
-                            codingSessionId,
-                            image.bytes,
-                            image.filename,
-                            image.contentType,
-                        ).also { connection.stampPendingUpload(image, it.id, it.filename) }.id
-                    } catch (t: Throwable) {
-                        if (t is CancellationException) throw t
-                        _uploadError.value = trpcErrorMessage(
-                            t,
-                            if (image.isImage) "The image could not be uploaded" else "The file could not be uploaded",
-                        )
-                        return@launchDetached
-                    }
-                    ids += id
+        val accountId = auth.activeAccountId.value ?: return
+        _uploadError.value = null
+        // The press: the field and the files leave, the synced draft is deleted.
+        connection.settleSend(ComposerSend.Outcome.Sent, text, images)
+        draftBinding.discard()
+        val mcpPick = agentMcpSendPick()
+        val move = appMove
+        // #EXP-1729: an ended app editor root's Account / Model picks ride
+        // its next send (the revive takes them).
+        val picks = appPicks?.takeIf { session.value?.isEnded == true }
+        val scope = if (toAssistant.value) SessionsSendInput.scope(_teamsPick.value) else null
+        val builder = com.exponential.app.data.outbox.SessionOutbox.Builder(
+            input = { body, uploaded ->
+                val ids = uploaded.takeIf { it.isNotEmpty() }
+                fun SessionsSendInput.withPicks() = if (picks == null) this else copy(account = picks.account, model = picks.model)
+                if (move != null) {
+                    SessionsSendInput.toApp(move.appId, body, move.deviceId, uploaded).withPicks()
+                } else if (picks != null) {
+                    SessionsSendInput.message(codingSessionId, body, ids).withPicks()
+                } else {
+                    // #EXP-1715: every send to the viewer's Assistant carries
+                    // its Teams pick (null = every team).
+                    SessionsSendInput.message(codingSessionId, body, ids, scopeTeamIds = scope)
+                        .copy(mcpServerIds = mcpPick)
                 }
-                val mcpPick = agentMcpSendPick()
-                try {
-                    val move = appMove
-                    // #EXP-1729: an ended app editor root's Account / Model
-                    // picks ride its next send (the revive takes them).
-                    val picks = appPicks?.takeIf { session.value?.isEnded == true }
-                    fun SessionsSendInput.withPicks() = if (picks == null) this else copy(account = picks.account, model = picks.model)
-                    sessionsApi.send(
-                        accountId,
-                        if (move != null) {
-                            SessionsSendInput.toApp(move.appId, text, move.deviceId, ids).withPicks()
-                        } else if (picks != null) {
-                            SessionsSendInput.message(codingSessionId, text, ids.takeIf { it.isNotEmpty() }).withPicks()
-                        } else {
-                            SessionsSendInput.message(
-                                codingSessionId,
-                                text,
-                                ids.takeIf { it.isNotEmpty() },
-                                // #EXP-1715: every send to the viewer's Assistant
-                                // carries its Teams pick (null = every team).
-                                scopeTeamIds = if (toAssistant.value) SessionsSendInput.scope(_teamsPick.value) else null,
-                            ).copy(mcpServerIds = mcpPick)
-                        },
-                    )
-                    mcpPick?.let(::agentMcpSent)
-                } catch (t: Throwable) {
-                    if (t is CancellationException) throw t
-                    _sendError.value = trpcErrorMessage(t, "")
-                    return@launchDetached
-                }
-                // EXP-1537 (composer-send.json): the text clears only if the
-                // field still holds what went out; exactly the sent files
-                // leave, one picked or removed meanwhile is left alone.
-                connection.settleSend(ComposerSend.Outcome.Sent, text, images)
-            } finally {
-                _sending.value = false
-            }
-        }
+            },
+            onSent = { mcpPick?.let(::agentMcpSent) },
+        )
+        outbox.submit(accountId, codingSessionId, text.trim(), images, builder)
     }
 
     /** EXP-893: send a command line (`/model opus`) as a plain message
@@ -1518,10 +1657,8 @@ class AgentSessionViewModel @AssistedInject constructor(
      * answers through `sessions.answer` (the picks + the surface's data
      * model) and the device delivers the answer as the next turn.
      */
-    val sessionCards: StateFlow<List<Pair<AskDock.SessionCard, SessionTree.SessionChatRow>>> = dbFlow
-        // Large chats: [AskDock.sessionCards] reads card rows only.
-        .scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeCardRowsBySession(codingSessionId) }
-        .map { rows -> SessionTree.sessionCardRows(rows.map { SessionTree.message(it, codingSessionId) }) }
+    val sessionCards: StateFlow<List<Pair<AskDock.SessionCard, SessionTree.SessionChatRow>>> = cardRows
+        .map { rows -> SessionTree.sessionCardRows(rows) }
         .distinctUntilChanged()
         .flowOn(kotlinx.coroutines.Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -1580,6 +1717,7 @@ class AgentSessionViewModel @AssistedInject constructor(
     }
 
     override fun onCleared() {
+        draftBinding.flush()
         store.release(codingSessionId)
         super.onCleared()
     }
@@ -1643,3 +1781,6 @@ internal fun dockActivityOf(state: ActivityFeedState) = AgentSessionViewModel.Do
     turnState = state.turnState,
     compacting = state.compacting,
 )
+
+/** #FEED-237: how many of the viewer's newest own rows the outbox matches against. */
+private const val OWN_ROWS = 100

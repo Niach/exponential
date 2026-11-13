@@ -77,3 +77,14 @@ export function parseDirectShareId(id: string): DirectShareTarget | null {
   const rest = id.slice((kind === `agent` ? agentPrefix : chatPrefix).length)
   return rest ? { kind, id: rest } : null
 }
+
+/** New issue's boards on the picked team, and the one it opens on. */
+export function shareIssueBoards<T extends { id: string; teamId: string }>(input: {
+  teamId: string | null | undefined
+  boards: readonly T[]
+  lastBoardId: string | null | undefined
+}): { boards: T[]; board: T | null } {
+  const boards = input.teamId ? input.boards.filter((board) => board.teamId === input.teamId) : []
+  const board = boards.find((row) => row.id === input.lastBoardId) ?? boards[0] ?? null
+  return { boards, board }
+}

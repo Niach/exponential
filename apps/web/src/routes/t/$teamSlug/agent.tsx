@@ -36,6 +36,8 @@ import {
 import { HOME_GEOMETRY, HOME_TEST_IDS } from "@exp/domain-contract/home-greeting"
 import { CHATS_COPY } from "@exp/domain-contract/chats"
 import { useSteerConfig } from "@/hooks/use-steer-config"
+import { CiRunSpecimen } from "@/components/ci/ci-run-page"
+import { RunnerSettingsSpecimen } from "@/components/ci/runner-section"
 import { GettingStartedSection } from "@/components/getting-started/getting-started-section"
 import { LaunchComposer } from "@/components/launch-composer"
 import { useLaunchComposer } from "@/hooks/use-launch-composer"
@@ -94,7 +96,9 @@ const str = (value: unknown): string | undefined =>
 // `phone-page-header`, #EXP-1388 `chat-selection` the chats.json specimens;
 // S-3 `voice-call` / `voice-call-overlay` / `call-controls` the voice-call.json
 // ones: web's ringing and in-call surface, the desktop pill, the round
-// buttons; EXP-1681 `call-pill` THE floating call pill; #EXP-1611 `pr-checks` the
+// buttons; EXP-1681 `call-pill` THE floating call pill; #EXP-1804 `ci-run` /
+// `runner-settings` the CI run page and runner section over their fixtures'
+// specimens; #EXP-1611 `pr-checks` the
 // Merge pill's check states + the Checks submenu; #FEED-191
 // `results-tab` THE Results tab body, `needs-you` THE Needs you list; EXP-1558
 // `mention-pill` / `schedule-picker` / `pr-row` / `sealed-locked` the
@@ -122,6 +126,8 @@ const DEV_VIEWS = [
   `call-controls`,
   `call-pill`,
   `pr-checks`,
+  `ci-run`,
+  `runner-settings`,
   `results-tab`,
   `needs-you`,
   `mention-pill`,
@@ -188,6 +194,10 @@ function AgentRoute() {
           <ChatTranscriptSpecimen single />
         ) : dev === `pr-checks` ? (
           <PrChecksSpecimen />
+        ) : dev === `ci-run` ? (
+          <CiRunSpecimen />
+        ) : dev === `runner-settings` ? (
+          <RunnerSettingsSpecimen />
         ) : dev === `results-tab` ? (
           <ResultsTabSpecimen size={isMobile ? `phone` : `wide`} />
         ) : dev === `needs-you` ? (

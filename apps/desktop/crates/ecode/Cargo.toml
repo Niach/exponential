@@ -1,0 +1,84 @@
+[package]
+name = "ecode"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "eCode on devices (#EXP-1615): the Remote, Forge, Ci, Store and SecretSource traits, LocalRepo on gitoxide, and the local, github and exponential providers behind features. Server-free: eDE, Spezl and Rerusted link it as is."
+repository = "https://github.com/Niach/exponential"
+readme = "README.md"
+# Consumed as a git dependency on `ecode-v<version>` (docs/libraries.md),
+# carrying ecode-core from the same checkout.
+publish = false
+
+# THE RULE (gated by `tests/dependency_gate.rs`): no Exponential app crate;
+# the one path dependency is ecode-core (the same git checkout). Hosts depend
+# on ecode, never the reverse.
+[dependencies]
+ecode-core = { path = "../ecode-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+# The content ids of the Store's objects (already in the tree).
+sha2 = "0.10"
+# `repo`: LocalRepo on gitoxide (MIT OR Apache-2.0). Minimal features: object
+# and ref access, rev walks and merge bases; no network, no index-backed
+# status, no blob merge (mergeability is the spec's path-wise three-way).
+gix = { version = "0.90", default-features = false, features = ["sha1", "revision"], optional = true }
+# `github` + `exponential`: the workspace's blocking reqwest (rustls on ring).
+reqwest = { workspace = true, optional = true }
+rustls = { workspace = true, optional = true }
+
+# `workflows`: YAML text → `ecode_core::read_workflow` for a host without a
+# server (#EXP-1617, Rerusted): a maintained YAML 1.2 parser (MIT OR Apache-2.0).
+yaml-rust2 = { version = "0.13", optional = true, default-features = false }
+
+# `runner`: the process-group kill of a job's step tree (#EXP-1617).
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true, optional = true }
+
+[features]
+default = ["local"]
+# LocalRepo on gix; push, squash merge, rebase --onto and bundles on git argv.
+repo = ["dep:gix"]
+# Forge over a file Store plus LocalRepo (no server).
+local = ["repo"]
+# GitHub over REST: a token or the OAuth device flow, events by polling.
+github = ["dep:reqwest", "dep:rustls"]
+# Credentials from an Exponential server's `repositories.credentials` op.
+exponential = ["dep:reqwest", "dep:rustls"]
+# The CI runner (#EXP-1617): one planned job in a clean worktree behind a
+# `Sandbox` (process backend), env allowlist, secrets via `SecretSource`,
+# redacted logs to a `LogSink`, timeouts and a process-tree kill.
+runner = ["dep:libc"]
+# `.github/workflows/*.yml` TEXT read into the pipeline model (the server
+# parses with `yaml`; this is the same step for a host without one).
+workflows = ["dep:yaml-rust2"]
+# The merge train's engine (#EXP-1617): compose.ts on git argv (squash, the
+# generated-file resolver rules, the checks mode); the `compose` device job.
+compose = []
+
+[dev-dependencies]
+toml = "0.8"
+
+[[example]]
+name = "local_flow"
+required-features = ["local"]
+
+[[test]]
+name = "forge_replay"
+required-features = ["local"]
+
+[[test]]
+name = "local_flow"
+required-features = ["local"]
+
+[[test]]
+name = "repo"
+required-features = ["repo"]
+
+[[test]]
+name = "workflows"
+required-features = ["workflows"]
+
+[[test]]
+name = "compose"
+required-features = ["compose"]

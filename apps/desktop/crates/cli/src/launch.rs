@@ -402,15 +402,15 @@ fn foreground_pass(
     use coding::pickup::PickupAction;
     let rows: Vec<SessionRow> = crate::commands::daemon::read_shape_rows(store, "sessions");
     // #EXP-1730: keyed by their own `session_id`.
-    let messages: Vec<domain::rows::MessageRow> = crate::commands::daemon::read_keyed_messages(store);
+    // #EXP-1821: this process acts on its one session only.
+    let messages: Vec<domain::rows::MessageRow> =
+        crate::commands::daemon::read_keyed_messages(store, &[session_id.to_string()]);
     deps.live.settle_handed(&messages);
     let views = deps.live.live_views();
     let in_flight = std::collections::HashSet::new();
     let revive_held = deps.live.revive_held();
     // EXP-1542: the move records, once that shape synced (else empty).
-    let moves = coding::pickup::move_records(&crate::commands::daemon::read_shape_rows::<domain::rows::EventRow>(
-        store, "events",
-    ));
+    let moves = crate::commands::daemon::read_move_records(store);
     let actions = coding::pickup::plan(coding::pickup::PickupInput {
         device_id: &deps.device_id,
         sessions: &rows,
