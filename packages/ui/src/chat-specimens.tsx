@@ -1,3 +1,4 @@
+import { MessageBubble } from "./user-message-bubble"
 import { useState, type ComponentProps, type ReactNode } from "react"
 import chats from "@exp/domain-contract/fixtures/chats.json"
 import {
@@ -433,8 +434,18 @@ const SPECIMEN_CHAT = { sessionId: `r`, title: `Reduce cold start`, agentId: nul
 const SPECIMEN_VIEWER = `u-alex`
 const specimenMember = (id: string) => (id === `u-dana` ? { id, name: `Dana Reyes` } : null)
 
+/** #FEED-237 (message-delivery.json): the viewer's own messages in each
+ *  delivery state, WhatsApp-style, at the transcript's bottom. */
+const DELIVERY_BUBBLES = [
+  { id: `dv-read`, text: `Ship it once the checks are green.`, time: `09:31`, status: `read` },
+  { id: `dv-sent`, text: `And bump the CLI while you're at it.`, time: `09:32`, status: `sent` },
+  { id: `dv-sending`, text: `Then the docs.`, time: `09:32`, status: `sending` },
+  { id: `dv-failed`, text: `Tag the release too.`, time: `09:33`, status: `failed` },
+] as const
+
 function Transcript({ layout }: { layout: `transcript` | `bubbles` }) {
   return (
+    <>
     <ChatConversation
       rows={TRANSCRIPT_ROWS}
       layout={layout}
@@ -447,6 +458,20 @@ function Transcript({ layout }: { layout: `transcript` | `bubbles` }) {
       onSurfaceReply={() => {}}
       arrived={() => false}
     />
+    <div data-testid="chat-delivery-specimen" className="mt-3 flex flex-col gap-1.5">
+      {DELIVERY_BUBBLES.map((bubble) => (
+        <MessageBubble
+          key={bubble.id}
+          side="out"
+          text={bubble.text}
+          renderText={paragraph}
+          time={bubble.time}
+          status={bubble.status}
+          menu={bubble.status === `failed` ? [{ kind: `item`, id: `retry`, label: `Retry`, onSelect: () => {} }] : undefined}
+        />
+      ))}
+    </div>
+    </>
   )
 }
 

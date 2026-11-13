@@ -100,6 +100,7 @@ import {
   TranscriptRow,
   transcriptSenderName,
   type WorkCardLaneTarget,
+  type MenuEntry,
 } from "@exp/ui"
 import {
   feedInput,
@@ -137,9 +138,6 @@ import {
   nestedWorkflowId,
   orphanWorkflowIds,
   pendingAnswerable,
-  QUEUE_REMOVE_LABEL,
-  QUEUE_STRIP_TITLE,
-  type QueuedMessage,
   rateLimitBanner,
   rateLimitDetail,
   rowClass,
@@ -173,7 +171,20 @@ import {
 import { anchorSessionCards, sessionCards } from "@exp/domain-contract/ask-dock"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { loadEarlierMessages, useSessionCard, useSessionMessages } from "@/hooks/use-session-tree"
-import { useAnswerMessage, useUnqueueMessage } from "@/hooks/use-answer-message"
+import { unqueueMessage, useAnswerMessage, useUnqueueMessage } from "@/hooks/use-answer-message"
+import {
+  deleteOutboxEntry,
+  retryOutboxEntry,
+  useSessionOutbox,
+  type WebOutboxEntry,
+} from "@/hooks/use-session-outbox"
+import {
+  MESSAGE_DELIVERY_COPY,
+  bubbleActions,
+  deliveryState,
+  type DeliveryState,
+  type OutboxRow,
+} from "@exp/domain-contract/message-delivery"
 import { useSession } from "@/hooks/use-session"
 import { useOpenPlan } from "@/hooks/use-open-plan"
 import { renderChatText } from "@/components/chat/chat-markdown"
@@ -234,8 +245,6 @@ const UiRefreshIcon = conceptIcon(`ui-refresh`)
 const UiWarningIcon = conceptIcon(`ui-warning`)
 const TraceChevronIcon = conceptIcon(`trace-chevron`)
 const TraceToolIcon = conceptIcon(`trace-tool`)
-const UiQueuedIcon = conceptIcon(`ui-queued`)
-const UiCloseIcon = conceptIcon(`ui-close`)
 /** EXP-1321: the Queue's test ids, the fixture's (×4). */
 const TASK_QUEUE_TEST_IDS = taskQueueSpec.testIds
 // EXP-529: multi-select options carry an explicit checkbox state (Android
@@ -462,6 +471,37 @@ export function AgentSessionView({
     },
     [sessionMessages]
   )
+  // #FEED-237 (message-delivery.json): the viewer's own row's mark off its
+  // synced lifecycle (the device's `delivered_at`, `consumed_at`).
+  const deliveryOf = useCallback(
+    (row: { id: string }): DeliveryState | null => {
+      const message = sessionMessages.find((candidate) => candidate.id === row.id)
+      if (!message) return null
+      return deliveryState({
+        local: null,
+        stored: true,
+        deliveredAt: message.deliveredAt ? String(message.deliveredAt) : null,
+        consumedAt: message.consumedAt ? String(message.consumedAt) : null,
+        echoed: false,
+      })
+    },
+    [sessionMessages]
+  )
+  // #FEED-237: the composer's outbox, minus what a synced row replaced.
+  const outboxRows = useMemo<OutboxRow[]>(
+    () =>
+      sessionMessages
+        .filter((message) => message.authorKind === `user` && message.authorId === viewerId && !message.card)
+        .map((message) => ({
+          id: message.id,
+          authorKind: message.authorKind,
+          authorId: message.authorId ?? null,
+          body: toTreeMessage(message).body,
+          createdAt: new Date(message.createdAt).toISOString(),
+        })),
+    [sessionMessages, viewerId]
+  )
+  const outbox = useSessionOutbox(session.id, viewerId, outboxRows)
   const dockedIds = useMemo(
     () => (suggestions ? chatDockedIds(suggestionRows, noSessionName) : NO_DOCKED),
     [suggestions, suggestionRows]
@@ -870,6 +910,8 @@ export function AgentSessionView({
             }
             fold={!link}
             time={item.at ? userMessageTime(item.at) : null}
+            // #FEED-237: the transcript's echo = processed into the session.
+            status={layout?.side === `other` ? null : `read`}
           />
         )
       }
@@ -986,7 +1028,7 @@ export function AgentSessionView({
   // Dock's) and the viewer's queued messages (a person's FIRST message
   // included) show under any empty-feed placeholder too, same column.
   const chatExtras =
-    suggestionRows.length + queuedRows.length > 0 ? (
+    suggestionRows.length + queuedRows.length + outbox.length > 0 ? (
       <div className={TRANSCRIPT_GAP_CLASS.gapBlock} data-testid="session-chat-extras">
         <ChatConversation
           rows={[...suggestionRows, ...queuedRows]}
@@ -996,12 +1038,16 @@ export function AgentSessionView({
           viewerId={viewerId}
           messageTime={messageTime}
           onUnqueue={(rowId) => void unqueue(rowId)}
+          deliveryOf={deliveryOf}
           onOpenSession={onOpenSession}
           suggestions={suggestions}
           docked={dockedIds}
           renderIssueRef={renderIssueRef}
           pending={cardsPending}
         />
+        {outbox.map((entry) => (
+          <OutboxBubble key={entry.clientId} sessionId={session.id} entry={entry} />
+        ))}
       </div>
     ) : null
   // #EXP-1785 (waiting-cards.json NO FEED): a placeholder has no transcript
@@ -1342,6 +1388,42 @@ const NO_ROWS: SessionChatRow[] = []
 const NO_TREE: readonly SessionRow[] = []
 const NO_ISSUES: readonly TreeIssue[] = []
 const NO_DOCKED: ReadonlySet<string> = new Set()
+
+/** #FEED-237 (message-delivery.json): an outbox entry = the viewer's own
+ *  bubble with the clock, or the red mark whose menu retries or deletes. */
+function OutboxBubble({ sessionId, entry }: { sessionId: string; entry: WebOutboxEntry }) {
+  const state = deliveryState({
+    local: entry.state,
+    stored: entry.messageId !== null,
+    deliveredAt: null,
+    consumedAt: null,
+    echoed: false,
+  })
+  const actions = bubbleActions({ state, stored: entry.messageId !== null })
+  return (
+    <UserMessageBubble
+      text={entry.text}
+      time={userMessageTime(new Date(entry.createdAt))}
+      status={state}
+      menu={actions.map((action) => ({
+        kind: `item` as const,
+        id: action,
+        label: MESSAGE_DELIVERY_COPY.menu[action],
+        destructive: action !== `retry`,
+        onSelect: () => {
+          if (action === `retry`) retryOutboxEntry(sessionId, entry.clientId)
+          else if (action === `delete`) deleteOutboxEntry(sessionId, entry.clientId)
+          else if (entry.messageId) {
+            const messageId = entry.messageId
+            void unqueueMessage(messageId).then((removed) => {
+              if (removed) deleteOutboxEntry(sessionId, entry.clientId)
+            })
+          }
+        },
+      }))}
+    />
+  )
+}
 
 /** #EXP-1732: the session's suggested-tasks cards and the person's queued
  *  messages (`consumedAt` null) in THE chat row form, oldest first. */
@@ -1713,60 +1795,6 @@ function TaskQueueLines({
   })
 }
 
-/** EXP-861: the strip directly below the background one — one line per
- *  message the agent has not read yet (the queue is on the DEVICE; this is
- *  its latest-wins mirror). A held line carries an X that revokes it; a
- *  `sent` one (EXP-873, already with the agent) draws none. Absent when
- *  nothing is queued. The composer is never disabled by it. */
-function QueueStrip({
-  messages,
-  onRemove,
-  plain = false,
-}: {
-  messages: QueuedMessage[]
-  onRemove: (entry: QueuedMessage) => void
-  /** N-12: inside THE Dock's sheet (no column). */
-  plain?: boolean
-}) {
-  if (messages.length === 0) return null
-  return (
-    <div
-      className={plain ? undefined : `py-1.5`}
-      aria-label={QUEUE_STRIP_TITLE}
-      data-testid="session-queue-strip"
-    >
-      {/* EXP-927: the transcript's reading column, like the strip above. */}
-      <div className={cn(plain ? undefined : TRANSCRIPT_COLUMN, `flex flex-col gap-0.5`)}>
-      {messages.map((entry) => (
-        <div
-          key={entry.id}
-          className={cn(
-            `flex min-w-0 items-center gap-1.5 text-muted-foreground`,
-            TRANSCRIPT_TOOL_TEXT
-          )}
-        >
-          <UiQueuedIcon className="size-3 shrink-0" />
-          <span className="min-w-0 flex-1 truncate" title={entry.text}>
-            {entry.text}
-          </span>
-          {entry.sent !== true && (
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              className="shrink-0"
-              aria-label={QUEUE_REMOVE_LABEL}
-              title={QUEUE_REMOVE_LABEL}
-              onClick={() => onRemove(entry)}
-            >
-              <UiCloseIcon className="size-3" />
-            </Button>
-          )}
-        </div>
-      ))}
-      </div>
-    </div>
-  )
-}
 
 /** EXP-916: ONE lane's items — a subagent's fold or a subagent's own
  *  conversation TAB (EXP-1225: a workflow agent's too) — through the same
@@ -2003,6 +2031,8 @@ const UserMessageBubble = memo(function UserMessageBubble({
   relay = null,
   fold = true,
   time = null,
+  status = null,
+  menu,
 }: {
   /** #EXP-1772: a relay's session name above the bubble (its one link). */
   relay?: { name: string; onPress?: () => void } | null
@@ -2015,6 +2045,10 @@ const UserMessageBubble = memo(function UserMessageBubble({
   onPress?: () => void
   /** #EXP-1756: the bubble's `HH:mm` (transcript-grouping.json). */
   time?: string | null
+  /** #FEED-237: the viewer's own bubble's delivery mark. */
+  status?: DeliveryState | null
+  /** #FEED-237: the bubble's menu (an outbox entry's Retry / Delete). */
+  menu?: readonly MenuEntry[]
 }) {
   const { text: body, attachmentIds, files, markers } = parseSteerMessage(text)
   const hasImages = attachmentIds.length > 0
@@ -2035,7 +2069,7 @@ const UserMessageBubble = memo(function UserMessageBubble({
     <>
       {/* #EXP-1736: THE message bubble (EXP-696's neutral glass for the
           viewer's own turn). */}
-      <MessageBubble side={side} author={author} onPress={onPress} relay={relay} time={time}>
+      <MessageBubble side={side} author={author} onPress={onPress} relay={relay} time={time} status={status} menu={menu}>
       <div className={TRANSCRIPT_BODY_TEXT}>
         {/* A height clamp, not `line-clamp`: line clamping needs a plain text
             flow, and a markdown body is a stack of blocks. */}
@@ -2498,7 +2532,8 @@ export function useSessionDock(
   const hintSource = agentHint.source
   const sources = useMemo<DockSource[]>(() => {
     const out: DockSource[] = [
-      { kind: `queued`, messages: queue.map((entry) => ({ id: entry.id, text: entry.text })) },
+      // #FEED-237: no `queued` card: a sent message is its own bubble at
+      // the transcript's bottom (message-delivery.json).
       { kind: `tasks`, sessionName: queueOwner.sessionName, queue: queueOwner.model },
     ]
     if (stateBanner) out.push({ kind: `banner`, ...stateBanner })
@@ -2578,13 +2613,6 @@ export function useSessionDock(
             completedOpen={completedOpen}
             onCompletedOpenChange={setCompletedOpen}
           />
-        </DockSheetBody>
-      )
-    }
-    if (row.kind === `queued`) {
-      return (
-        <DockSheetBody>
-          <QueueStrip messages={queue} onRemove={(entry) => store.unqueue(entry.id)} plain />
         </DockSheetBody>
       )
     }
