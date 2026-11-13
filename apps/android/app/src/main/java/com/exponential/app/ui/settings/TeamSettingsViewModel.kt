@@ -46,6 +46,7 @@ import com.exponential.app.data.db.TeamMemberEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.ui.markdown.MarkdownMediaUtils
+import com.exponential.app.ui.repo.toRepoPr
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -191,6 +192,17 @@ class TeamSettingsViewModel @Inject constructor(
         if (db == null || id == null || !observes(SettingsNav.BOARDS, SettingsNav.REPOSITORIES)) flowOf(emptyList())
         else db.boardDao().observeByTeam(id)
     }
+
+    /** #EXP-1616 (repo-page.json): each repo row's checks rollup over its
+     *  live PRs (`repoChecksRollup`), by repository id; absent = no chip. */
+    val repoChecks: StateFlow<Map<String, String>> = dbAndSelected.flatMapLatest { (db, id) ->
+        if (db == null || id == null || !observes(SettingsNav.REPOSITORIES)) flowOf(emptyList())
+        else db.pullRequestDao().observeByTeam(id)
+    }.map { prs ->
+        prs.groupBy { it.repositoryId }.mapNotNull { (repo, rows) ->
+            com.exponential.app.domain.RepoPage.repoChecksRollup(rows.map { it.toRepoPr() })?.let { repo to it }
+        }.toMap()
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     private val _transient = MutableStateFlow<FailedAction?>(null)
     private val _teamDeleted = MutableStateFlow(false)
@@ -610,6 +622,22 @@ class TeamSettingsViewModel @Inject constructor(
         val teamId = selection.selectedId.value ?: return
         repositoriesApi.add(accountId, teamId, fullName, defaultBranch, isPrivate)
         refreshGithub()
+    }
+
+    /** #EXP-1616 (owners): create an Exponential repo (`repositories.create`);
+     *  true = created (the sheet closes), a failure toasts and keeps it open. */
+    suspend fun createRepository(name: String, defaultBranch: String, mirrorUrl: String?): Boolean {
+        val accountId = auth.activeAccountId.value ?: return false
+        val teamId = selection.selectedId.value ?: return false
+        return try {
+            repositoriesApi.create(accountId, teamId, name, defaultBranch, mirrorUrl)
+            refreshRepos()
+            true
+        } catch (t: Throwable) {
+            if (t is CancellationException) throw t
+            fail("create", "the repository", t)
+            false
+        }
     }
 
     // Remove a repo from the registry (sharer-or-owner, EXP-557). Blocked

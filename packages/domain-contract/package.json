@@ -58,6 +58,7 @@
     "./task-queue": "./src/task-queue.ts",
     "./ask-dock": "./src/ask-dock.ts",
     "./waiting-cards": "./src/waiting-cards.ts",
+    "./repo-page": "./src/repo-page.ts",
     "./results-tab": "./src/results-tab.ts",
     "./nav-badges": "./src/nav-badges.ts",
     "./needs-you": "./src/needs-you.ts",

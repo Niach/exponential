@@ -191,6 +191,8 @@ pub mod pr_stack;
 // EXP-1230: every confirm/choice prompt's words + roles, fixture-locked ×4.
 pub mod prompts;
 pub mod relations;
+// #EXP-1616: THE repo page (PR tree, branches, checks rollup, tabs), fixture-locked ×4.
+pub mod repo_page;
 // EXP-1097: the issue detail's relations view (parent line, sub-issues, bands).
 pub mod relations_view;
 pub mod reporter_reply;

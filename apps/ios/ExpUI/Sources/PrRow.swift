@@ -55,6 +55,7 @@ public struct PrRow<Trailing: View>: View {
     private let identifier: String?
     private let title: String
     private let word: String?
+    private let subtitle: String?
     private let guide: TreeGuide
     private let rail: PrRailSegments?
     private let active: Bool
@@ -64,6 +65,10 @@ public struct PrRow<Trailing: View>: View {
     ///   - title: the PR's issue title, or the base branch's name on a
     ///     `base` row (mono, muted).
     ///   - word: a quiet trailing word (`stack` on a stack's top row).
+    ///   - subtitle: #EXP-1616: a second line under the title (genUI
+    ///     `Row.subtitle`: the repo page's `head → base`) in the plain Row
+    ///     subtitle style (web `text-xs text-muted-foreground`), never mono;
+    ///     the row grows to two lines.
     ///   - guide: tree shape — this row's connector (its depth indents).
     ///   - rail: stack shape — the rail through the node centres.
     public init(
@@ -71,6 +76,7 @@ public struct PrRow<Trailing: View>: View {
         identifier: String? = nil,
         title: String,
         word: String? = nil,
+        subtitle: String? = nil,
         guide: TreeGuide = TreeGuide(),
         rail: PrRailSegments? = nil,
         active: Bool = false,
@@ -80,6 +86,7 @@ public struct PrRow<Trailing: View>: View {
         self.identifier = identifier
         self.title = title
         self.word = word
+        self.subtitle = subtitle
         self.guide = guide
         self.rail = rail
         self.active = active
@@ -95,14 +102,29 @@ public struct PrRow<Trailing: View>: View {
                     .font(.expMono(.caption))
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .lineLimit(1)
-                    .frame(minWidth: 72, alignment: .leading)
+                    .frame(minWidth: hasSubtitle ? 32 : 72, alignment: .leading)
                     .fixedSize()
             }
-            Text(title)
-                .font(base ? .expMono(.caption) : .subheadline)
-                .foregroundStyle(base ? .white.opacity(TextOpacity.tertiary) : .white)
-                .lineLimit(1)
-                .truncationMode(.tail)
+            if let subtitle, hasSubtitle {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title)
+                        .font(.subheadline)
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(DesignTokens.Palette.mutedForeground)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            } else {
+                Text(title)
+                    .font(base ? .expMono(.caption) : .subheadline)
+                    .foregroundStyle(base ? .white.opacity(TextOpacity.tertiary) : .white)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
             Spacer(minLength: 0)
             if let word, !word.isEmpty {
                 Text(word)
@@ -115,7 +137,8 @@ public struct PrRow<Trailing: View>: View {
         }
         .padding(.leading, ListItem.leadX(depth: guide.depth))
         .padding(.trailing, ListItem.base)
-        .frame(height: ListItem.prRowPhone)
+        .padding(.vertical, hasSubtitle ? 6 : 0)
+        .frame(minHeight: hasSubtitle ? 48 : ListItem.prRowPhone, maxHeight: hasSubtitle ? nil : ListItem.prRowPhone)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(TreeGuidesOverlay(guide: guide, base: ListItem.base))
         .background(railOverlay)
@@ -123,6 +146,8 @@ public struct PrRow<Trailing: View>: View {
         .flatRow(isActive: active)
         .accessibilityElement(children: .combine)
     }
+
+    private var hasSubtitle: Bool { !(subtitle ?? "").isEmpty }
 
     @ViewBuilder
     private var railOverlay: some View {

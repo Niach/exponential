@@ -23,6 +23,10 @@ struct GithubRepoPicker: View {
     /// Adds the picked repo. Runs inside the sheet: a throw keeps it open and
     /// toasts the error, a return dismisses it.
     var onAdd: @MainActor (GithubPickerRepo) async throws -> Void
+    /// #EXP-1616: the Add repository sheet's own title and the provider
+    /// tiles above the picker (owners); nil = the plain GitHub picker.
+    var title: String = GithubCopy.pickerTitle
+    var header: AnyView?
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.dismiss) private var dismiss
@@ -49,8 +53,9 @@ struct GithubRepoPicker: View {
     // Bottom-sheet presentation (EXP-390, Android parity): the shared glass
     // sheet chrome, content-fitted (EXP-577).
     var body: some View {
-        GlassSheetChrome(title: GithubCopy.pickerTitle) {
+        GlassSheetChrome(title: title) {
             VStack(alignment: .leading, spacing: 16) {
+                if let header { header }
                 content
             }
             .padding(.horizontal, 16)
