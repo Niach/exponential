@@ -242,25 +242,37 @@ fun GlassPill(
 object GlassPillDefaults {
     /** [PillSize.Md] — the control rung every other 32dp control sits on. */
     val MdHeight: Dp = GlassTokens.ControlSize
-    val MdHorizontalPadding: Dp = 12.dp
-    val MdSpacing: Dp = 6.dp
-    val MdGlyphSize: Dp = 16.dp
+    val MdHorizontalPadding: Dp = DesignTokens.Size.PillPaddingMd
+    val MdSpacing: Dp = DesignTokens.Size.PillGapMd
+    val MdGlyphSize: Dp = DesignTokens.Size.PillGlyphMd
 
     /** [PillSize.Sm] — an inline badge inside a list row or a title line. */
-    val SmHeight: Dp = 24.dp
-    val SmHorizontalPadding: Dp = 8.dp
-    val SmSpacing: Dp = 4.dp
-    val SmGlyphSize: Dp = 12.dp
+    val SmHeight: Dp = DesignTokens.Size.ControlSm
+    val SmHorizontalPadding: Dp = DesignTokens.Size.PillPaddingSm
+    val SmSpacing: Dp = DesignTokens.Size.PillGapSm
+    val SmGlyphSize: Dp = DesignTokens.Size.PillGlyphSm
 
     /** The colour disc of a label / agent pill. */
-    val DotSize: Dp = 6.dp
+    val DotSize: Dp = DesignTokens.Size.PillDot
 
     /**
      * A person in a pill (the assignee chip). An avatar is a face, not a
-     * glyph: at the 12dp glyph rung its initials fell to ~5sp and stopped
-     * being readable, so it gets its own slightly larger rung.
+     * glyph, so it gets its own rung above the 12dp glyph — the shared
+     * `size.pillAvatar` (16, web `UserAvatar size={16}`, iOS, the IDE's
+     * XSmall). EXP-1822: it was 18dp here alone, which left the face 3dp
+     * off a 24dp capsule's edges where every other client keeps 4.
      */
-    val AvatarSize: Dp = 18.dp
+    val AvatarSize: Dp = DesignTokens.Size.PillAvatar
+
+    /**
+     * The labels chip's colour dots (web `h-2 w-2`): the LAYOUT box; the
+     * page-coloured ring is drawn outside it, as web's `ring-1` is.
+     */
+    val LabelDotSize: Dp = DesignTokens.Size.PillLabelDot
+
+    /** The property chip box (issue page, New issue): wrap gap + inner padding. */
+    val ChipBoxGap: Dp = DesignTokens.Size.ChipBoxGap
+    val ChipBoxPadding: Dp = DesignTokens.Size.ChipBoxPadding
 
     fun height(size: PillSize): Dp = if (size == PillSize.Md) MdHeight else SmHeight
 

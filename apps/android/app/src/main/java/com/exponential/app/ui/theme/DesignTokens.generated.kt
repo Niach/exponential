@@ -111,6 +111,17 @@ object DesignTokens {
         val ControlSm: Dp = 24.dp
         val InputHeight: Dp = 36.dp
         val RowHeight: Dp = 32.dp
+        val PillPaddingSm: Dp = 8.dp
+        val PillPaddingMd: Dp = 12.dp
+        val PillGapSm: Dp = 4.dp
+        val PillGapMd: Dp = 6.dp
+        val PillGlyphSm: Dp = 12.dp
+        val PillGlyphMd: Dp = 16.dp
+        val PillDot: Dp = 6.dp
+        val PillAvatar: Dp = 16.dp
+        val PillLabelDot: Dp = 8.dp
+        val ChipBoxGap: Dp = 6.dp
+        val ChipBoxPadding: Dp = 10.dp
     }
 
     // Menu row geometry (EXP-1074), two density classes. Android draws the

@@ -1,6 +1,8 @@
 package com.exponential.app.ui.share
 
 import com.exponential.app.data.TeamSelection
+import com.exponential.app.data.applyTeamSwitch
+import com.exponential.app.data.planTeamSwitch
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.BoardEntity
@@ -8,6 +10,7 @@ import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.SessionTree
+import com.exponential.app.domain.ShareTargets
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -18,6 +21,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.launch
 
 data class TeamBoards(val team: TeamEntity, val boards: List<BoardEntity>)
 
@@ -36,15 +40,15 @@ data class ShareTargetState(
 
 /**
  * Data source for the single-screen share composer (`share-compose`): the
- * active account's teams → boards, with the most recently opened board
- * surfaced as the default. Consumed by [com.exponential.app.ui.issue.IssueDraftScreen]
+ * picked team's boards (share-targets.json `shareIssueBoards`, #EXP-1823),
+ * with its most recently opened board surfaced as the default. Consumed by [com.exponential.app.ui.issue.IssueDraftScreen]
  * in share mode, whose board chip picks the destination (EXP-60/1170), backed
  * by [ShareBoardPickerSheet].
  */
 @HiltViewModel
 class ShareTargetPickerViewModel @Inject constructor(
-    auth: AuthRepository,
-    holder: DatabaseHolder,
+    private val auth: AuthRepository,
+    private val holder: DatabaseHolder,
     private val selection: TeamSelection,
 ) : ViewModel() {
 
@@ -54,16 +58,16 @@ class ShareTargetPickerViewModel @Inject constructor(
     val state: StateFlow<ShareTargetState> = combine(
         dbFlow.scopedQuery(emptyList()) { it.teamDao().observeAll() },
         dbFlow.scopedQuery(emptyList()) { it.boardDao().observeAll() },
+        selection.selectedId,
         auth.activeAccountId,
-    ) { teams, boards, accountId ->
-        val byTeam = boards.groupBy { it.teamId }
-        val groups = teams.mapNotNull { ws ->
-            val ps = byTeam[ws.id].orEmpty()
-            if (ps.isEmpty()) null else TeamBoards(ws, ps)
-        }
+        selection.lastBoardVersion,
+    ) { teams, boards, teamId, accountId, _ ->
+        // The picked team's boards only: never another team's last board.
+        val picked = ShareTargets.shareIssueBoards(teamId, boards, accountId?.let { selection.lastBoard(it) }, { it.id }, { it.teamId })
+        val team = teams.firstOrNull { it.id == teamId }
         ShareTargetState(
-            groups = groups,
-            recentBoardId = accountId?.let { selection.lastBoard(it) },
+            groups = if (team == null || picked.boards.isEmpty()) emptyList() else listOf(TeamBoards(team, picked.boards)),
+            recentBoardId = picked.board?.id,
             isLoading = false,
         )
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ShareTargetState())
@@ -86,7 +90,11 @@ class ShareTargetPickerViewModel @Inject constructor(
         )
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ShareToState())
 
+    /** THE team switch (chats.json): the Board tab moves onto the team too. */
     fun selectTeam(teamId: String) {
-        selection.select(teamId)
+        val accountId = auth.activeAccountId.value ?: return selection.select(teamId)
+        viewModelScope.launch {
+            selection.applyTeamSwitch(selection.planTeamSwitch(holder, accountId, teamId), auth)
+        }
     }
 }
