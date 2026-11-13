@@ -47,6 +47,15 @@ public struct TeamRepo: Decodable, Sendable, Identifiable, Equatable {
     public let isPrivate: Bool
     public let boards: [RepoBoardSummary]
     public let sharedBy: RepoSharer?
+    /// #EXP-1616: `github` | `ecode` (Exponential's own git); older servers
+    /// omit it = GitHub.
+    public let provider: String
+
+    /// `ecode` = Exponential hosts the repo.
+    public var isEcode: Bool { provider == "ecode" }
+
+    /// The route's `$name`: the full name's last segment.
+    public var name: String { fullName.split(separator: "/").last.map(String.init) ?? fullName }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -57,10 +66,11 @@ public struct TeamRepo: Decodable, Sendable, Identifiable, Equatable {
         isPrivate = (try? c.decode(Bool.self, forKey: .isPrivate)) ?? false
         boards = (try? c.decode([RepoBoardSummary].self, forKey: .boards)) ?? []
         sharedBy = try c.decodeIfPresent(RepoSharer.self, forKey: .sharedBy)
+        provider = (try? c.decodeIfPresent(String.self, forKey: .provider)) ?? "github"
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, fullName, defaultBranch, githubDefaultBranch, boards, sharedBy
+        case id, fullName, defaultBranch, githubDefaultBranch, boards, sharedBy, provider
         case isPrivate = "private"
     }
 }
@@ -73,6 +83,111 @@ public struct RepoBranches: Decodable, Sendable {
     public init(branches: [String]) {
         self.branches = branches
     }
+}
+
+/// #EXP-1616 `repositories.settings`: an Exponential repo's Settings tab.
+public struct EcodeRepoSettings: Decodable, Sendable, Equatable {
+    public struct Backup: Decodable, Sendable, Equatable, Identifiable {
+        public let id: String
+        /// ISO-8601 wire timestamp.
+        public let createdAt: String
+        public let bytes: Int
+        /// How many refs the bundle holds.
+        public let refs: Int
+
+        public init(id: String, createdAt: String, bytes: Int, refs: Int) {
+            self.id = id
+            self.createdAt = createdAt
+            self.bytes = bytes
+            self.refs = refs
+        }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            id = try c.decode(String.self, forKey: .id)
+            createdAt = (try? c.decode(String.self, forKey: .createdAt)) ?? ""
+            bytes = (try? c.decode(Int.self, forKey: .bytes)) ?? 0
+            refs = (try? c.decode(Int.self, forKey: .refs)) ?? 0
+        }
+
+        enum CodingKeys: String, CodingKey { case id, createdAt, bytes, refs }
+    }
+
+    public let id: String
+    public let fullName: String
+    /// The clone URL, `exp://<team>/<name>`.
+    public let remoteUrl: String?
+    public let defaultBranch: String
+    public let mirrorUrl: String?
+    public let mirrorEnabled: Bool
+    /// Newest first.
+    public let backups: [Backup]
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        fullName = (try? c.decode(String.self, forKey: .fullName)) ?? ""
+        remoteUrl = try? c.decodeIfPresent(String.self, forKey: .remoteUrl)
+        defaultBranch = (try? c.decode(String.self, forKey: .defaultBranch)) ?? "main"
+        mirrorUrl = try? c.decodeIfPresent(String.self, forKey: .mirrorUrl)
+        mirrorEnabled = (try? c.decode(Bool.self, forKey: .mirrorEnabled)) ?? false
+        let rows = (try? c.decode([Backup].self, forKey: .backups)) ?? []
+        backups = rows.sorted { $0.createdAt > $1.createdAt }
+    }
+
+    enum CodingKeys: String, CodingKey { case id, fullName, remoteUrl, defaultBranch, mirrorUrl, mirrorEnabled, backups }
+}
+
+/// #EXP-1616 `repositories.branches`: an Exponential repo's branch heads.
+public struct EcodeBranch: Decodable, Sendable, Equatable {
+    public let name: String
+    public let sha: String
+
+    public init(name: String, sha: String) {
+        self.name = name
+        self.sha = sha
+    }
+}
+
+private struct EcodeBranches: Decodable { let branches: [EcodeBranch] }
+
+/// `repositories.create {teamId, name, defaultBranch?, mirrorUrl?}`.
+private struct CreateRepoInput: Encodable {
+    let teamId: String
+    let name: String
+    let defaultBranch: String
+    let mirrorUrl: String?
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(teamId, forKey: .teamId)
+        try c.encode(name, forKey: .name)
+        try c.encode(defaultBranch, forKey: .defaultBranch)
+        try c.encode(mirrorUrl, forKey: .mirrorUrl)
+    }
+
+    enum CodingKeys: String, CodingKey { case teamId, name, defaultBranch, mirrorUrl }
+}
+
+/// `repositories.setMirror`: `mirrorUrl: nil` is sent as an explicit null.
+private struct SetMirrorInput: Encodable {
+    let repositoryId: String
+    let mirrorUrl: String?
+    let enabled: Bool
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(repositoryId, forKey: .repositoryId)
+        try c.encode(mirrorUrl, forKey: .mirrorUrl)
+        try c.encode(enabled, forKey: .enabled)
+    }
+
+    enum CodingKeys: String, CodingKey { case repositoryId, mirrorUrl, enabled }
+}
+
+private struct RestoreInput: Encodable {
+    let repositoryId: String
+    let backupId: String
 }
 
 /// `repositories.add` returns the upserted registry row; only its id matters.
@@ -167,6 +282,63 @@ public final class RepositoriesApi: Sendable {
             accountId: accountId,
             path: "repositories.setDefaultBranch",
             input: SetDefaultBranchInput(repositoryId: repositoryId, branch: branch)
+        )
+    }
+
+    // MARK: - Exponential repos (#EXP-1616, repo-page.json)
+
+    /// Owners: create an EMPTY Exponential repo on the team bucket; its
+    /// first `git push exp://<team>/<name>` fills it. Returns the new id.
+    @discardableResult
+    public func create(
+        accountId: String,
+        teamId: String,
+        name: String,
+        defaultBranch: String,
+        mirrorUrl: String?
+    ) async throws -> String? {
+        let result: AddRepoResult = try await trpc.mutation(
+            accountId: accountId,
+            path: "repositories.create",
+            input: CreateRepoInput(teamId: teamId, name: name, defaultBranch: defaultBranch, mirrorUrl: mirrorUrl)
+        )
+        return result.repository?.id
+    }
+
+    /// Member-readable: the repo page's Settings tab.
+    public func settings(accountId: String, repositoryId: String) async throws -> EcodeRepoSettings {
+        try await trpc.query(
+            accountId: accountId,
+            path: "repositories.settings",
+            input: RepositoryIdInput(repositoryId: repositoryId)
+        )
+    }
+
+    /// Member-readable: the repo's branch heads with their shas.
+    public func branches(accountId: String, repositoryId: String) async throws -> [EcodeBranch] {
+        let result: EcodeBranches = try await trpc.query(
+            accountId: accountId,
+            path: "repositories.branches",
+            input: RepositoryIdInput(repositoryId: repositoryId)
+        )
+        return result.branches
+    }
+
+    /// Owners: the optional GitHub mirror, pushed after each landing.
+    public func setMirror(accountId: String, repositoryId: String, mirrorUrl: String?, enabled: Bool) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId,
+            path: "repositories.setMirror",
+            input: SetMirrorInput(repositoryId: repositoryId, mirrorUrl: mirrorUrl, enabled: enabled)
+        )
+    }
+
+    /// Owners: restore a bundle backup (a device job).
+    public func restore(accountId: String, repositoryId: String, backupId: String) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId,
+            path: "repositories.restore",
+            input: RestoreInput(repositoryId: repositoryId, backupId: backupId)
         )
     }
 

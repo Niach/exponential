@@ -6460,6 +6460,13 @@
         "bytes": 28350,
         "sha256": "91e8ef430238adf20cfc2d0a71b2b34c50dc35aded97a34761b97c35503c15cf"
       },
+      "ios": {
+        "file": "shots/repo/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 29728,
+        "sha256": "771a101bee446d9c3cd69358d67cdd0471f50402f387cdcf6bd5a51e650866da"
+      },
       "web": {
         "file": "shots/repo/web.webp",
         "width": 1800,
@@ -7339,8 +7346,8 @@
         "file": "shots/settings-repositories/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 19822,
-        "sha256": "d7699d478577b71c8bd072fd85a68b41a26e9f740ca0b495f06e90bd3570ec08"
+        "bytes": 28926,
+        "sha256": "4e4e9a75c29f4685d66007df480a1a75d5f87bb4ab30a1b2cec7309d32324a3f"
       },
       "web": {
         "file": "shots/settings-repositories/web.webp",
