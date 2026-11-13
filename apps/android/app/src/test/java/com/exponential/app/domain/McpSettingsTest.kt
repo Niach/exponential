@@ -51,6 +51,7 @@ class McpSettingsTest {
         }
         assertEquals(fixture.str("revoke"), McpSettings.REVOKE)
         assertEquals(fixture.str("activity"), McpSettings.ACTIVITY)
+        assertEquals(fixture.str("everyoneElse"), McpSettings.EVERYONE_ELSE)
         assertEquals(options("scopes"), McpSettings.SCOPES)
         assertEquals(options("levels"), McpSettings.LEVELS)
         assertEquals(fixture.map("kindLabels"), McpSettings.KIND_LABELS)

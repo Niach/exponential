@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-13-app-default-access`,
+    date: `2026-11-13`,
+    title: `Choose who can use each app`,
+    summary: `Owners can now set an app's access for everyone else, so an app can be limited to the members you pick.`,
+    body: `- **Everyone else**: in Settings › MCP › Access each app has an Everyone else row. Set it to None and only the members you give access, the app's creator and owners see the app; Read only lets them look without changing anything.
+- **Agents can set it too**: owners' agents set the default and per-member access with the apps tool.`,
+  },
+  {
     id: `2026-11-13-android-8-notifications-fix`,
     date: `2026-11-13`,
     title: `Notifications work on Android 8`,
