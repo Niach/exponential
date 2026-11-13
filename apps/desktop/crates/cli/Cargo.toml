@@ -49,6 +49,8 @@ uuid = { workspace = true }
 # Raw-mode termios for the interactive PTY attach + signal handling + the
 # registry's pid liveness probe (kill(pid, 0)) — already in the tree.
 libc = { workspace = true }
+# #EXP-1617: the pinned actions/runner download is checked by sha256.
+sha2 = { workspace = true }
 log = "0.4"
 
 # EXP-1196/1273: the device's computer-use endpoint, on every OS (pure-Rust

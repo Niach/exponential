@@ -1438,6 +1438,9 @@ export interface DeviceRunnerSettings {
 export interface RepositoryCiConfig {
   requiredChecks?: string[]
   githubStatuses?: boolean
+  /** GitHub repos: the team's runner devices also serve its Actions as
+   *  self-hosted runners (`lib/ci/actions-runners.ts`). */
+  actionsRunners?: boolean
 }
 
 // #EXP-1617: one step of a CI job as the runner reports it.

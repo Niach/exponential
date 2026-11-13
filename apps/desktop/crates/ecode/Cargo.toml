@@ -27,6 +27,10 @@ gix = { version = "0.90", default-features = false, features = ["sha1", "revisio
 reqwest = { workspace = true, optional = true }
 rustls = { workspace = true, optional = true }
 
+# `workflows`: YAML text → `ecode_core::read_workflow` for a host without a
+# server (#EXP-1617, Rerusted): a maintained YAML 1.2 parser (MIT OR Apache-2.0).
+yaml-rust2 = { version = "0.13", optional = true, default-features = false }
+
 # `runner`: the process-group kill of a job's step tree (#EXP-1617).
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true, optional = true }
@@ -45,6 +49,9 @@ exponential = ["dep:reqwest", "dep:rustls"]
 # `Sandbox` (process backend), env allowlist, secrets via `SecretSource`,
 # redacted logs to a `LogSink`, timeouts and a process-tree kill.
 runner = ["dep:libc"]
+# `.github/workflows/*.yml` TEXT read into the pipeline model (the server
+# parses with `yaml`; this is the same step for a host without one).
+workflows = ["dep:yaml-rust2"]
 
 [dev-dependencies]
 toml = "0.8"
@@ -64,3 +71,7 @@ required-features = ["local"]
 [[test]]
 name = "repo"
 required-features = ["repo"]
+
+[[test]]
+name = "workflows"
+required-features = ["workflows"]

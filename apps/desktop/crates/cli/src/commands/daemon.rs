@@ -70,6 +70,10 @@ fn device_caps(advertised: &coding::AgentAdvertisement) -> Vec<String> {
     // #EXP-1617: this build runs `ci_job` commands (the server dispatches
     // only to a device whose owner enabled its runner).
     caps.push(crate::ci_runner::CI_RUNNER_CAP.to_string());
+    // #EXP-1617 (Q6): it also serves GitHub Actions for opted-in repos.
+    if crate::actions_runner::platform_asset().is_some() {
+        caps.push(crate::actions_runner::ACTIONS_RUNNER_CAP.to_string());
+    }
     caps
 }
 
@@ -387,6 +391,8 @@ fn run_daemon(args: &[String]) -> CommandResult {
     // daemon self-update never re-execs while `claude update` is mid-download.
     let logins_inflight: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
     let check_in = Arc::new(AtomicBool::new(false));
+    // #EXP-1617 (Q6): the team's opted-in GitHub repos, served as Actions runners.
+    crate::actions_runner::spawn(Arc::clone(&ctx));
     let device_worker = spawn_device_worker(
         Arc::clone(&ctx),
         Arc::clone(&sessions),
@@ -4334,6 +4340,9 @@ mod tests {
         shared.push(UPDATE_CHECK_CAP.to_string());
         shared.push(crate::ecode_jobs::ECODE_JOBS_CAP.to_string());
         shared.push(crate::ci_runner::CI_RUNNER_CAP.to_string());
+        if crate::actions_runner::platform_asset().is_some() {
+            shared.push(crate::actions_runner::ACTIONS_RUNNER_CAP.to_string());
+        }
         assert_eq!(device_caps(&advert(&["claude"])), shared);
         let caps = device_caps(&advert(&["claude"]));
         for cap in coding::DEVICE_CAPS {
@@ -4344,8 +4353,9 @@ mod tests {
         }
         // Nothing runnable = build caps only.
         let signed_out = device_caps(&advert(&[]));
-        // + update-check + ecode-jobs (#EXP-1616) + ci-runner (#EXP-1617).
-        assert_eq!(signed_out.len(), coding::DEVICE_CAPS.len() + 3);
+        // + update-check + ecode-jobs (#EXP-1616) + ci-runner (+ actions-runner) (#EXP-1617).
+        let actions = usize::from(crate::actions_runner::platform_asset().is_some());
+        assert_eq!(signed_out.len(), coding::DEVICE_CAPS.len() + 3 + actions);
         assert!(signed_out.contains(&"agent-login".to_string()));
         assert!(!signed_out.contains(&"triggers".to_string()));
         assert!(!signed_out.contains(&"automations".to_string()), "nor the legacy trigger cap");

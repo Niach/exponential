@@ -23,14 +23,13 @@ import {
   PIPELINE_FILE,
   RUNNER_LOST_MS,
   planPipeline,
-  readWorkflow,
   schedule,
   validatePipeline,
   type PlannedJob,
   type RunnerState,
   type Trigger,
 } from "@exp/ecode"
-import { parse as parseYaml } from "yaml"
+import { readWorkflowText } from "@exp/ecode/workflow-text"
 import { db } from "@/db/connection"
 import {
   ciJobs,
@@ -194,14 +193,7 @@ async function pipelineSources(repo: RepoRow, sha: string): Promise<PipelineSour
       const fallbackName = name.replace(/\.ya?ml$/, ``).slice(0, 64)
       const workflowText = await forge.readFile(forgeRepo(repo), `${WORKFLOW_DIR}/${name}`, sha)
       if (workflowText === null) continue
-      let parsed: unknown
-      try {
-        parsed = parseYaml(workflowText)
-      } catch (err) {
-        sources.push({ fallbackName, failure: [`${WORKFLOW_DIR}/${name}: ${err instanceof Error ? err.message : String(err)}`] })
-        continue
-      }
-      const read = readWorkflow(parsed)
+      const read = readWorkflowText(workflowText)
       sources.push(
         read.file
           ? { fallbackName, file: read.file }

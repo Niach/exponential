@@ -38,6 +38,9 @@ mod local;
 #[cfg(feature = "runner")]
 mod runner;
 
+#[cfg(feature = "workflows")]
+mod workflows;
+
 #[cfg(feature = "github")]
 pub mod github;
 
@@ -72,3 +75,6 @@ pub use local::*;
 
 #[cfg(feature = "runner")]
 pub use runner::*;
+
+#[cfg(feature = "workflows")]
+pub use workflows::*;

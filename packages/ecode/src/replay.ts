@@ -11,6 +11,7 @@ import { globMatch, planPipeline, validatePipeline, type TriggerInput } from "./
 import { credentialHelperKey, needsRefresh, parseRemote, redact } from "./remote"
 import { emptyRunnerState, runConclusion, schedule, type RunnerState } from "./runner"
 import { readWorkflow } from "./workflow"
+import { readWorkflowText } from "./workflow-text"
 
 type Json = Record<string, unknown>
 
@@ -138,7 +139,9 @@ export function replayRemote(fixture: RemoteFixture) {
 
 interface WorkflowFixture extends Json {
   cases: Array<{ name: string; workflow: unknown; file?: unknown; errors?: unknown }>
+  text?: Array<{ name: string; yaml: string; file?: unknown; errors?: unknown }>
 }
+
 
 /** workflow.json: every case's {file, errors}; a file that reads must also
  *  be a VALID pipeline (pipeline.json `validate`). */
@@ -153,6 +156,14 @@ export function replayWorkflow(fixture: WorkflowFixture) {
       }
       return { name: row.name, workflow: row.workflow, file: read.file, errors: read.errors }
     }),
+    ...(fixture.text
+      ? {
+          text: fixture.text.map((row) => {
+            const read = readWorkflowText(row.yaml)
+            return { name: row.name, yaml: row.yaml, file: read.file, errors: read.errors }
+          }),
+        }
+      : {}),
   }
 }
 

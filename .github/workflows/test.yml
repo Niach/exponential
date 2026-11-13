@@ -323,7 +323,7 @@ jobs:
           cargo nextest run --locked --no-fail-fast
           -p ecore -p ecode-core -p ecode -p eengine -p eengine-ffi -p eengine-desktop -p eengine-runner -p eengine-bundle
           -p eagent -p coding -p ui -p engine -p elocal -p api -p exp-http -p exp-cli -p git-remote-exp
-          --features eengine/sqlite,eengine/hub,eengine-ffi/hub,eagent/local-model,ecode/github,ecode/exponential
+          --features eengine/sqlite,eengine/hub,eengine-ffi/hub,eagent/local-model,ecode/github,ecode/exponential,ecode/workflows
           -E 'kind(lib) | not (package(eagent) | package(coding) | package(ui))'
       # #ERR-4: the vendored gpui-pre-linux's own patch tests, never upstream's
       # other tests (vendor/gpui-pre-linux/PATCHES.md). A path dependency

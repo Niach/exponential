@@ -1,5 +1,5 @@
 {
-  "$comment": "GITHUB WORKFLOW YAML → THE PIPELINE MODEL (#EXP-1617; src/workflow.ts, ecode-core workflow.rs). `readWorkflow(workflow)` takes a GitHub Actions workflow ALREADY PARSED from YAML (the host parses the text) and returns {file, errors}: `file` = the `.exponential/ci.json` it reads as (pipeline.json's shape; every file here also passes pipeline.json `validate`), null when there are errors; `errors` = EVERY reason it cannot, as {path (JSON pointer INTO THE WORKFLOW), code}, sorted by path then code, each (path, code) once. A SUBSET, strict: a key not read below is `unknown_field` unless listed as ignored. TOP: `name` (no expression; sliced to the pipeline name limit), `on`, `env`, `jobs`; ignored `permissions`, `concurrency`, `run-name`. ON: a string, a list or a mapping of events: `push` {branches?, tags?, paths?} → push {branches} (when branches are given or tags are not) and tag {tags} (when tags are given: a tags-only filter never fires on branch pushes); `pull_request` {branches?, paths?, types? (ignored)} → pull_request {branches}; `workflow_dispatch` {inputs? (ignored)} → manual {}; `merge_group` → merge_train {}; any other event = `unsupported_event`; event `paths` become every job's `paths` (two events with different lists = `invalid_value`). ENV (top, job, step): scalar values become strings; `NAME: ${{ secrets.NAME }}` (the same name) makes NAME a secret of that scope (top → `secrets`, job and step → the job's `secrets`), any other expression = `expression`; names must be env names (`invalid_name`). JOBS: an id lowercased must be a job key and unique (`invalid_name`); `name` (no expression); `runs-on` (required; a string or a list; expressions = `expression`): `self-hosted` is dropped, ubuntu-*/linux → linux, macos-*/mac → mac, windows-* → windows, any other label lowercased if it is a valid label else `invalid_label`, deduplicated; `needs` (ids, lowercased); `timeout-minutes` → timeoutMin; `env`; `strategy` {matrix, fail-fast and max-parallel ignored}: matrix keys must be matrix keys (`invalid_name`), values scalar lists (`type`), `include`/`exclude` = `unknown_field`; ignored `permissions`, `concurrency`; anything else (if, container, services, outputs, environment, defaults…) = `unknown_field`. STEPS: `uses` only `actions/checkout` and `actions/cache` (any ref; `with` ignored; dropped: our runner checks the commit out, caches are a no-op) else `unsupported_action`, `uses` with `run` = `invalid_value`; a `run` step: `name` (else its first non-empty line, 64 chars), `run` where `${{ matrix.K }}` → `${MATRIX_K}`, `${{ env.NAME }}` → `${NAME}`, `${{ secrets.NAME }}` → `${NAME}` (and NAME becomes a job secret), any other expression = `expression`; `env`, `timeout-minutes`, `continue-on-error`, `working-directory`; `shell` only bash or sh; ignored `id`; `with` on a run step = `unknown_field`. The host plans one run per workflow file (`.github/workflows/*.yml`) on an ecode repository without `.exponential/ci.json`.",
+  "$comment": "GITHUB WORKFLOW YAML → THE PIPELINE MODEL (#EXP-1617; src/workflow.ts, ecode-core workflow.rs). `readWorkflow(workflow)` takes a GitHub Actions workflow ALREADY PARSED from YAML (the host parses the text) and returns {file, errors}: `file` = the `.exponential/ci.json` it reads as (pipeline.json's shape; every file here also passes pipeline.json `validate`), null when there are errors; `errors` = EVERY reason it cannot, as {path (JSON pointer INTO THE WORKFLOW), code}, sorted by path then code, each (path, code) once. A SUBSET, strict: a key not read below is `unknown_field` unless listed as ignored. TOP: `name` (no expression; sliced to the pipeline name limit), `on`, `env`, `jobs`; ignored `permissions`, `concurrency`, `run-name`. ON: a string, a list or a mapping of events: `push` {branches?, tags?, paths?} → push {branches} (when branches are given or tags are not) and tag {tags} (when tags are given: a tags-only filter never fires on branch pushes); `pull_request` {branches?, paths?, types? (ignored)} → pull_request {branches}; `workflow_dispatch` {inputs? (ignored)} → manual {}; `merge_group` → merge_train {}; any other event = `unsupported_event`; event `paths` become every job's `paths` (two events with different lists = `invalid_value`). ENV (top, job, step): scalar values become strings; `NAME: ${{ secrets.NAME }}` (the same name) makes NAME a secret of that scope (top → `secrets`, job and step → the job's `secrets`), any other expression = `expression`; names must be env names (`invalid_name`). JOBS: an id lowercased must be a job key and unique (`invalid_name`); `name` (no expression); `runs-on` (required; a string or a list; expressions = `expression`): `self-hosted` is dropped, ubuntu-*/linux → linux, macos-*/mac → mac, windows-* → windows, any other label lowercased if it is a valid label else `invalid_label`, deduplicated; `needs` (ids, lowercased); `timeout-minutes` → timeoutMin; `env`; `strategy` {matrix, fail-fast and max-parallel ignored}: matrix keys must be matrix keys (`invalid_name`), values scalar lists (`type`), `include`/`exclude` = `unknown_field`; ignored `permissions`, `concurrency`; anything else (if, container, services, outputs, environment, defaults…) = `unknown_field`. STEPS: `uses` only `actions/checkout` and `actions/cache` (any ref; `with` ignored; dropped: our runner checks the commit out, caches are a no-op) else `unsupported_action`, `uses` with `run` = `invalid_value`; a `run` step: `name` (else its first non-empty line, 64 chars), `run` where `${{ matrix.K }}` → `${MATRIX_K}`, `${{ env.NAME }}` → `${NAME}`, `${{ secrets.NAME }}` → `${NAME}` (and NAME becomes a job secret), any other expression = `expression`; `env`, `timeout-minutes`, `continue-on-error`, `working-directory`; `shell` only bash or sh; ignored `id`; `with` on a run step = `unknown_field`. The host plans one run per workflow file (`.github/workflows/*.yml`) on an ecode repository without `.exponential/ci.json`. TEXT: `text` cases are workflow YAML TEXT as a host reads it from `.github/workflows/*.yml` (YAML 1.2 core schema: `on` is a plain key, only true/false are booleans, maps and lists may be block or flow, block scalars `|` keep their newlines): parse, then `readWorkflow`; text that does not parse = errors [{path: '', code: 'yaml'}]. The server parses with `yaml` (npm), ecode's `workflows` feature with yaml-rust2; both must read every text case alike.",
   "cases": [
     {
       "name": "a typical workflow",
@@ -522,6 +522,81 @@
         {
           "path": "",
           "code": "type"
+        }
+      ]
+    }
+  ],
+  "text": [
+    {
+      "name": "block scalars, comments, flow lists and a plain `on` key",
+      "yaml": "# CI for the app\nname: \"CI\"\non:\n  push:\n    branches: [main, 'release/**']\n  pull_request: {}\n  workflow_dispatch:\nenv:\n  RUST_LOG: info\n  RETRIES: 3\n  STRICT: true\njobs:\n  test:\n    runs-on: [self-hosted, linux]\n    timeout-minutes: 30\n    strategy:\n      fail-fast: false\n      matrix:\n        node: [22, 24]\n        flag: [\"on\", off]\n    steps:\n      - uses: actions/checkout@v4\n      - name: Test\n        run: |\n          echo \"node ${{ matrix.node }}\"\n          bun test --flag=${{ matrix.flag }}\n        env:\n          TOKEN: ${{ secrets.TOKEN }}\n",
+      "file": {
+        "version": 1,
+        "name": "CI",
+        "on": {
+          "push": {
+            "branches": [
+              "main",
+              "release/**"
+            ]
+          },
+          "pull_request": {},
+          "manual": {}
+        },
+        "env": {
+          "RETRIES": "3",
+          "RUST_LOG": "info",
+          "STRICT": "true"
+        },
+        "jobs": {
+          "test": {
+            "runsOn": [
+              "linux"
+            ],
+            "timeoutMin": 30,
+            "matrix": {
+              "node": [
+                "22",
+                "24"
+              ],
+              "flag": [
+                "on",
+                "off"
+              ]
+            },
+            "steps": [
+              {
+                "name": "Test",
+                "run": "echo \"node ${MATRIX_NODE}\"\nbun test --flag=${MATRIX_FLAG}\n"
+              }
+            ],
+            "secrets": [
+              "TOKEN"
+            ]
+          }
+        }
+      },
+      "errors": []
+    },
+    {
+      "name": "YAML that does not parse",
+      "yaml": "on: [push\njobs:\n  a: {\n",
+      "file": null,
+      "errors": [
+        {
+          "path": "",
+          "code": "yaml"
+        }
+      ]
+    },
+    {
+      "name": "booleans are only true and false: `on: yes` is the string yes, an unknown event",
+      "yaml": "on: yes\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n",
+      "file": null,
+      "errors": [
+        {
+          "path": "/on/yes",
+          "code": "unsupported_event"
         }
       ]
     }

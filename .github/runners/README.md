@@ -18,6 +18,19 @@ App Store review rejects a beta-macOS host and the signing steps rewrite the
 user's keychain list), build-cli (its glibc floor is Ubuntu 22.04), arm64 and
 Windows.
 
+## Next: the Exponential daemon serves these (#EXP-1617)
+
+A team device whose CI runner is on (Device settings › CI runner) ALSO serves
+GitHub Actions for every team repository with **Self-hosted GitHub Actions on
+team devices** on (the repo's CI settings). The daemon keeps one official
+`actions/runner` (pinned, sha256-checked) per repository, `--ephemeral`, with
+the labels `self-hosted` + its OS + the device's runner labels. So giving the
+Mint the device label `exp-linux` and the MacBook `exp-mac` keeps
+`pick-runner.yml` working unchanged. Registration tokens come from the GitHub
+App, which needs **Administration: write** on the repository for that. The
+Docker runners below stay until that has run the dogfood; then this file shrinks
+to that paragraph.
+
 ## Secret
 
 `RUNNER_STATUS_TOKEN` (repo secret): a fine-grained token on Niach/exponential
