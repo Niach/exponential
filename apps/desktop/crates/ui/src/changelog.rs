@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-13-composer-drafts-on-phones",
+    date: "2026-11-13",
+    title: "Drafts follow you to your phone",
+    summary: "iPhone, iPad and Android keep what you type in any composer as a synced draft, links open right at their card, and tables fit their columns.",
+    body: r##"- **Synced drafts**: text you type in a chat, comment or issue composer on a phone stays as a draft and shows up on your other devices until you send it.
+- **Links land on their card**: a notification, an inbox row or a link to a question, plan or result opens the chat scrolled to that card.
+- **Tables fit**: Markdown tables size their columns by the same rule on every app."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_270: ChangelogEntry = ChangelogEntry {
     id: "2026-11-13-desktop-drafts-badges",
     date: "2026-11-13",
     title: "Drafts follow you into the desktop app",

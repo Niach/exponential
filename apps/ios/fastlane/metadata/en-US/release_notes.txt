@@ -1,3 +1,6 @@
+- What you type in a composer stays as a draft, on every device
+- Notification and deep links open right at their card
+- Markdown tables fit their columns
 - A session's to-do sheet shows its title once
 - Question and plan cards stay next to the step that posted them
 - Chats with many issue links no longer freeze while syncing
