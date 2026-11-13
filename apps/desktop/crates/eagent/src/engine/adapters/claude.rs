@@ -531,7 +531,11 @@ struct State {
     replaying_history: bool,
     /// One settle channel per in-flight `session/prompt`, oldest first: claude
     /// emits one `result` per turn, so the front of the queue owns the next.
-    turns: VecDeque<flume::Sender<TurnOutcome>>,
+    turns: VecDeque<OpenTurn>,
+    /// #FEED-229: bumped by every `session_state_changed` frame, so the
+    /// stranded-prompt check an `idle` arms stands down once the CLI moves
+    /// again (it starts the queued turn after all).
+    cli_state_seq: u64,
     /// An outcome held back while background subagents of that turn are still
     /// live — settling at the `result` would strand their permission requests
     /// on an RPC nobody answers.
@@ -719,6 +723,106 @@ struct RateLimitState {
     /// window must not un-publish the other one. Outlives the slot: a
     /// cleared notice keeps them.
     windows: Vec<crate::usage::UsageWindow>,
+}
+
+/// #FEED-229: how long the CLI must stay `idle` with a prompt still open
+/// before the adapter treats that prompt as stranded. A CLI that queued the
+/// prompt starts its turn at once (`running`), well inside this.
+const STRANDED_PROMPT_GRACE: Duration = Duration::from_secs(2);
+
+/// One in-flight `session/prompt`: its settle channel, plus what #FEED-229's
+/// idle check needs to rescue it — the line it wrote to stdin, and whether
+/// the CLI has replayed it (`--replay-user-messages`: it took the prompt in).
+struct OpenTurn {
+    tx: flume::Sender<TurnOutcome>,
+    /// The prompt's text as the CLI echoes it (trimmed); empty = none to
+    /// match (a `/new`'s injected `/clear`).
+    text: String,
+    /// The stdin `user` line, for the one resend; `None` = never resent.
+    line: Option<Value>,
+    /// The CLI replayed this prompt: it read it, folded in or as its own turn.
+    echoed: bool,
+    /// #FEED-229: already resent once after a stranded `idle`.
+    resent: bool,
+}
+
+impl OpenTurn {
+    fn new(tx: flume::Sender<TurnOutcome>, text: &str, line: Option<Value>) -> OpenTurn {
+        OpenTurn {
+            tx,
+            text: text.trim().to_string(),
+            line,
+            echoed: false,
+            resent: false,
+        }
+    }
+
+    fn send(&self, outcome: TurnOutcome) -> Result<(), flume::SendError<TurnOutcome>> {
+        self.tx.send(outcome)
+    }
+}
+
+#[cfg(test)]
+impl From<flume::Sender<TurnOutcome>> for OpenTurn {
+    fn from(tx: flume::Sender<TurnOutcome>) -> OpenTurn {
+        OpenTurn::new(tx, "", None)
+    }
+}
+
+/// #FEED-229: what an `idle` that strands prompts does with each, in order.
+/// A prompt the CLI replayed was read (folded into a turn whose `result`
+/// carried no `queued_turn_count`) and settles; one it never replayed was
+/// dropped and goes in ONCE more — the CLI is idle, so it runs as a turn of
+/// its own and its `result` settles it; one already resent settles too, so
+/// a CLI that drops it again cannot wedge the run. A cancelled run resends
+/// nothing. Returns the lines to resend; `turns` keeps only their prompts.
+fn rescue_stranded(state: &mut State) -> Vec<Value> {
+    let cancelled = state.cancelled;
+    let mut resend = Vec::new();
+    let mut kept = VecDeque::new();
+    for mut turn in state.turns.drain(..) {
+        let line = (!cancelled && !turn.echoed && !turn.resent).then(|| turn.line.clone()).flatten();
+        match line {
+            Some(line) => {
+                turn.resent = true;
+                resend.push(line);
+                kept.push_back(turn);
+            }
+            None => {
+                let outcome = if cancelled { TurnOutcome::Cancelled } else { TurnOutcome::EndTurn };
+                let _ = turn.send(outcome);
+            }
+        }
+    }
+    state.turns = kept;
+    resend
+}
+
+/// #FEED-229: prompts are open, yet nothing the CLI runs or still owes will
+/// settle them: no continuation, no deferred settlement, no continuation end
+/// waiting on its tasks.
+fn stranded(state: &State) -> bool {
+    !state.turns.is_empty()
+        && state.deferred.is_none()
+        && !state.continuation_running
+        && !state.continuation_end_pending
+        && !state.closed
+}
+
+/// #FEED-229: the CLI replayed a main-lane user message — the first open
+/// prompt it spells is read.
+fn mark_echoed(state: &mut State, text: &str) {
+    let text = text.trim();
+    if text.is_empty() {
+        return;
+    }
+    if let Some(turn) = state
+        .turns
+        .iter_mut()
+        .find(|turn| !turn.echoed && !turn.text.is_empty() && (turn.text == text || text.contains(turn.text.as_str())))
+    {
+        turn.echoed = true;
+    }
 }
 
 /// One `result`'s settlement, kept whole so a deferral (a live subagent)
@@ -1629,6 +1733,7 @@ impl ClaudeSession {
         // between turns.
         let new_conversation = super::is_new_conversation_command(&text);
         let (tx, rx) = flume::bounded(1);
+        let message = claude_user_message(&request.prompt, &text);
         let clear_first;
         {
             let mut state = self.lock();
@@ -1657,7 +1762,9 @@ impl ClaudeSession {
             // EXP-1224 review: this prompt is the next turn; a notification
             // that landed before it is answered in it.
             state.notification_pending = false;
-            state.turns.push_back(tx);
+            let line = (!new_conversation).then(|| message.clone());
+            let echo = if new_conversation { String::new() } else { wire::prompt_to_claude(&text) };
+            state.turns.push_back(OpenTurn::new(tx, &echo, line));
         }
         if clear_first {
             self.inject_prompt(cx, "/clear");
@@ -1673,7 +1780,7 @@ impl ClaudeSession {
                 _ => Ok(PromptResponse::new(StopReason::EndTurn)),
             };
         }
-        self.send(claude_user_message(&request.prompt, &text))?;
+        self.send(message)?;
         // EXP-758: a cancel that raced this turn's lazy spawn had no child to
         // reach. It does now, and the turn it meant to stop is running.
         self.deliver_pending_interrupt();
@@ -1815,6 +1922,44 @@ impl ClaudeSession {
             {
                 log::debug!("engine: claude never continued after its notification");
                 session.end_continuation(&out, &mut state);
+            }
+            Ok(())
+        });
+    }
+
+    /// #FEED-229: the CLI went `idle` with prompts still open. Wait
+    /// [`STRANDED_PROMPT_GRACE`]; if it has not moved since (no
+    /// `session_state_changed` at all) and they are still stranded, rescue
+    /// them ([`rescue_stranded`]): settle what it read, resend what it
+    /// dropped.
+    fn arm_stranded_check(self: &Arc<Self>, cx: &ConnectionTo<Client>, state: &State) {
+        let seq = state.cli_state_seq;
+        let session = self.clone();
+        let out = cx.clone();
+        let _ = cx.spawn(async move {
+            tokio::time::sleep(STRANDED_PROMPT_GRACE).await;
+            let resend = {
+                let mut state = session.lock();
+                if state.cli_state_seq != seq || !stranded(&state) {
+                    return Ok(());
+                }
+                let open = state.turns.len();
+                let resend = rescue_stranded(&mut state);
+                log::warn!(
+                    "engine: claude went idle with {open} prompt(s) open: settled {}, resending {}",
+                    open - resend.len(),
+                    resend.len()
+                );
+                if !resend.is_empty() {
+                    // The resent prompts are the next turns.
+                    state.turn_seq = state.turn_seq.wrapping_add(1);
+                    state.delivered_text = false;
+                }
+                session.close_reopened_turn(&out, &state);
+                resend
+            };
+            for line in resend {
+                let _ = session.send(line);
             }
             Ok(())
         });
@@ -2900,6 +3045,10 @@ impl ClaudeSession {
             }
             SystemSubtype::SessionStateChanged => {
                 let state_name = system.extra.get("state").and_then(Value::as_str).unwrap_or("");
+                {
+                    let mut state = self.lock();
+                    state.cli_state_seq = state.cli_state_seq.wrapping_add(1);
+                }
                 if state_name == "idle" {
                     let mut state = self.lock();
                     // EXP-1224: the CLI says it is idle, so no turn of its
@@ -2915,6 +3064,12 @@ impl ClaudeSession {
                         self.publish_turn(cx, crate::wire::TurnState::Ended);
                     }
                     self.settle_deferred(cx, &mut state);
+                    // #FEED-229: a prompt still open now has no `result`
+                    // coming — the CLI folded it in without a count, or
+                    // dropped it.
+                    if stranded(&state) {
+                        self.arm_stranded_check(cx, &state);
+                    }
                 }
             }
             SystemSubtype::TaskStarted => {
@@ -3730,6 +3885,15 @@ impl ClaudeSession {
         // none of it becomes a user bubble. The `tool_result` blocks of such
         // an entry are still honoured: they are the agent's own plumbing.
         let injected = message.is_meta || message.is_synthetic || message.is_compact_summary;
+        // #FEED-229: a main-lane replay means the CLI read that prompt.
+        if message.is_replay && !injected && parent.is_none() {
+            let text: Vec<&str> = blocks
+                .iter()
+                .filter(|block| block.get("type").and_then(Value::as_str) == Some("text"))
+                .filter_map(|block| block.get("text").and_then(Value::as_str))
+                .collect();
+            mark_echoed(&mut self.lock(), &text.join("\n"));
+        }
 
         for block in &blocks {
             match block.get("type").and_then(Value::as_str) {
@@ -6210,7 +6374,7 @@ mod tests {
         state.tasks.insert("old-live".to_string(), task(2, true, Duration::ZERO));
         state.tasks.insert("now-done".to_string(), task(7, false, Duration::ZERO));
         let (tx, _rx) = flume::bounded(1);
-        state.turns.push_back(tx);
+        state.turns.push_back(tx.into());
 
         settle_turns(
             &mut state,
@@ -6252,7 +6416,7 @@ mod tests {
 
         // A prompt in flight owns the generation: pruned, but never bumped.
         let (tx, _rx) = flume::bounded(1);
-        state.turns.push_back(tx);
+        state.turns.push_back(tx.into());
         retire_continuation_tasks(&mut state);
         assert_eq!(state.turn_seq, 6);
     }
@@ -6266,8 +6430,8 @@ mod tests {
             let mut state = State::default();
             let (first_tx, first) = flume::bounded(1);
             let (second_tx, second) = flume::bounded(1);
-            state.turns.push_back(first_tx);
-            state.turns.push_back(second_tx);
+            state.turns.push_back(first_tx.into());
+            state.turns.push_back(second_tx.into());
             (state, first, second)
         }
 
@@ -6309,6 +6473,57 @@ mod tests {
         assert_eq!(first.try_recv(), Ok(TurnOutcome::EndTurn));
         assert!(second.try_recv().is_err());
         assert_eq!(silent.turns.len(), 1);
+    }
+
+    /// #FEED-229: a stranded `idle` settles what the CLI read, resends what
+    /// it dropped (once), and settles a resent one that is still stranded;
+    /// a cancelled run resends nothing.
+    #[test]
+    fn a_stranded_idle_settles_the_read_and_resends_the_dropped_once() {
+        let line = |text: &str| json!({ "type": "user", "text": text });
+        let mut state = State::default();
+        let (read_tx, read) = flume::bounded(1);
+        let (dropped_tx, dropped) = flume::bounded(1);
+        state.turns.push_back(OpenTurn::new(read_tx, "Make it two words.", Some(line("a"))));
+        state.turns.push_back(OpenTurn::new(dropped_tx, "And a third.", Some(line("b"))));
+        mark_echoed(&mut state, "  Make it two words.\n");
+        assert!(stranded(&state));
+
+        assert_eq!(rescue_stranded(&mut state), vec![line("b")]);
+        assert_eq!(read.try_recv(), Ok(TurnOutcome::EndTurn));
+        assert!(dropped.try_recv().is_err(), "the resent prompt waits for its own result");
+        assert_eq!(state.turns.len(), 1);
+
+        // Dropped again: settled, never a second resend.
+        assert!(rescue_stranded(&mut state).is_empty());
+        assert_eq!(dropped.try_recv(), Ok(TurnOutcome::EndTurn));
+        assert!(!stranded(&state));
+
+        // A cancelled run settles as cancelled and resends nothing.
+        let (tx, rx) = flume::bounded(1);
+        state.turns.push_back(OpenTurn::new(tx, "x", Some(line("x"))));
+        state.cancelled = true;
+        assert!(rescue_stranded(&mut state).is_empty());
+        assert_eq!(rx.try_recv(), Ok(TurnOutcome::Cancelled));
+    }
+
+    /// #FEED-229: anything that will still settle the prompt (a deferred
+    /// settle, a continuation running or ending) is no strand.
+    #[test]
+    fn a_prompt_something_will_still_settle_is_not_stranded() {
+        let mut state = State::default();
+        assert!(!stranded(&state));
+        let (tx, _rx) = flume::bounded(1);
+        state.turns.push_back(tx.into());
+        assert!(stranded(&state));
+        state.continuation_running = true;
+        assert!(!stranded(&state));
+        state.continuation_running = false;
+        state.continuation_end_pending = true;
+        assert!(!stranded(&state));
+        state.continuation_end_pending = false;
+        state.deferred = Some(DeferredSettle { outcome: TurnOutcome::EndTurn, queued: None });
+        assert!(!stranded(&state));
     }
 
     #[test]

@@ -46,16 +46,18 @@ extension TeamPermissions {
         currentUserId: String?,
         isAdmin: Bool,
         dbPool: DatabasePool
-    ) -> TeamPermissions {
+    ) async -> TeamPermissions {
         guard let team else {
             return resolve(team: nil, currentUserId: currentUserId, isAdmin: isAdmin, memberRole: nil)
         }
-        let memberRole: String? = {
-            guard let uid = currentUserId else { return nil }
-            return try? dbPool.read { db in
-                try Self.memberRole(teamId: team.id, userId: uid, db: db)
-            }
-        }()
+        // #PERF-5: GRDB's async read, never a blocking one on the caller's thread.
+        let teamId = team.id
+        var memberRole: String?
+        if let uid = currentUserId {
+            memberRole = (try? await dbPool.read { db in
+                try Self.memberRole(teamId: teamId, userId: uid, db: db)
+            }) ?? nil
+        }
         return resolve(team: team, currentUserId: currentUserId, isAdmin: isAdmin, memberRole: memberRole)
     }
 

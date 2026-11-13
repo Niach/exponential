@@ -49,7 +49,7 @@ struct AppExportSheet: View {
         )
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AppExport.TestIds.dialog)
-        .task(id: app.id) { loadRecords() }
+        .task(id: app.id) { await loadRecords() }
         // The share sheet is the system's (iOS: Export = the share sheet).
         .sheet(item: $share, onDismiss: {
             if let exportedDir { try? FileManager.default.removeItem(at: exportedDir) }
@@ -60,10 +60,11 @@ struct AppExportSheet: View {
         }
     }
 
-    private func loadRecords() {
+    /// #PERF-5: GRDB's async read, off main.
+    private func loadRecords() async {
         guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
         let appId = app.id
-        records = (try? pool.read { db in
+        records = (try? await pool.read { db in
             try AppRecordEntity.filter(Column("app_id") == appId).fetchAll(db)
         }) ?? []
     }

@@ -472,7 +472,7 @@ final class IssueDraftViewModel {
             }
         }
 
-        permissions = TeamPermissions.resolve(
+        permissions = await TeamPermissions.resolve(
             team: team,
             currentUserId: deps.auth.userId,
             isAdmin: deps.auth.isAdmin,

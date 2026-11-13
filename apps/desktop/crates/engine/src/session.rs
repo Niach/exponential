@@ -522,6 +522,12 @@ impl coding::pickup::LiveEngine for EngineSession {
         self.turn_signal().is_idle()
     }
 
+    /// #FEED-229: the engine was handed this message and never reported it
+    /// consumed — its agent has not read it.
+    fn holds_unread(&self, message_id: &str) -> bool {
+        self.0.holds_unread(message_id)
+    }
+
     /// EXP-1252: a move waits for no turn, no background task (the
     /// synced `busy` input) and no open card.
     fn quiescent(&self) -> bool {

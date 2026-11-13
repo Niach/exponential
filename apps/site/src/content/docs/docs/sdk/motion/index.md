@@ -14,6 +14,14 @@ description: "genUI's vector animations: one Rust engine samples every frame int
 | The players | Each renderer paints the display list: one Canvas2D painter for React, Solid and the web component (the engine runs as WebAssembly, about 200 KB gzipped, loaded on the first Motion a page paints), SwiftUI and Compose through UniFFI, gpui natively. |
 | The state machine | dotLottie 2 state machines turn an animation into a control; the engine interprets them, the renderer reports pointer input and restarts the clock. |
 
+## The web player
+
+A custom web renderer paints Motion, Canvas and the VoiceWave with the shared player from `@exponential_app/eui/web/motion` (`MotionView`, `CanvasView`, `paintMotionFrame`, `paintText`, `voiceWaveClock` and the rest). React, Solid and the web component use it already.
+
+:::caution[Moved]
+These exports used to come from `@exponential_app/eui/web`, which no longer has them. Change `import { MotionView } from "@exponential_app/eui/web"` to `import { MotionView } from "@exponential_app/eui/web/motion"`. Nothing else changes.
+:::
+
 ## Sources
 
 A `Motion` node takes exactly one source:

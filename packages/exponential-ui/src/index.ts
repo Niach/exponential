@@ -128,6 +128,8 @@ export { voiceWaveBars, voiceWaveBarsBox, voiceWaveVariant, VOICE_WAVE_BARS, VOI
 export type { VoiceWaveBar, VoiceWaveBars, VoiceWaveBarsInput, VoiceWaveSizeName, VoiceWaveVariant } from "./voice-wave"
 export { qrMatrix, qrLayout, qrLevel, qrVersion, QR_CODE, QR_LEVELS } from "./qr-code"
 export type { QrLevel, QrMatrix } from "./qr-code"
+export { countBadgeLabel, countBadgeTone, COUNT_BADGE_MAX, COUNT_BADGE_TONES } from "./count-badge"
+export type { CountBadgeTone } from "./count-badge"
 export { A11Y_ROLES, A11Y_RULES, A11Y_COMMANDS, COMPONENT_A11Y, componentA11y, isA11yRole } from "./a11y"
 export { chartData, chartExtent, chartSummaryParams, formatChartValue, sparklineSummaryParams, niceTicks, seriesColor, DONUT_HOLE, WINDOW_THRESHOLD } from "./chart"
 export type { ChartSeries, ChartValueFormat } from "./chart"

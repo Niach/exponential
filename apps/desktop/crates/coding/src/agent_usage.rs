@@ -545,6 +545,7 @@ pub fn collect_if_due(
     report: &DoctorReport,
     now: u64,
 ) -> AgentStatusPayload {
+    let _pass = one_pass();
     collect_inner(data_dir, settings, report, now, Forced::None)
 }
 
@@ -567,6 +568,7 @@ pub fn collect_now(
     report: &DoctorReport,
     now: u64,
 ) -> Vec<crate::account_rotation::ProfileUsage> {
+    let _pass = one_pass();
     {
         let mut cache = usage_cache::load(data_dir);
         for profile in monitored_profiles(data_dir, agent) {
@@ -660,6 +662,15 @@ pub fn profile_usage_snapshot(
         .collect()
 }
 
+/// #FEED-211 — ONE pass at a time per process. The beat's pass and a forced
+/// refresh run on threads of their own; two passes side by side would read
+/// the same cache and could both spend a request on a login. Every public
+/// entry into [`collect_inner`] holds it, its own cache prep included.
+fn one_pass() -> std::sync::MutexGuard<'static, ()> {
+    static PASS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    PASS.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// Which logins a pass puts past the stagger (and, for a forced refresh,
 /// past the poll schedule).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -689,281 +700,60 @@ fn collect_inner(
     let mut accounts = detail.accounts;
     let mut usage = AgentUsageMap::new();
     let mut cache = usage_cache::load(data_dir);
-    let mut changed = false;
     // EXP-849/EXP-852: read off the run registry at most ONCE per pass, and
     // only when a keep-alive (either agent's) is actually in question.
-    let mut used_logins: Option<std::collections::BTreeSet<String>> = None;
+    let used_logins = std::sync::OnceLock::new();
 
     // EXP-862: the plan reads the cache this pass then updates — one load,
     // taken before the loop so "has this login ever been read?" and the
     // probe accounting can never disagree.
     let plan = usage_targets(data_dir, report, &detail.usage_eligible, &cache, now, forced);
 
-    for target in plan {
-        let agent = target.agent;
-        let id = agent.id().to_string();
-        // EXP-792 (EXP-747 B6): the cache is keyed per LOGIN
-        // (`agent:profileId`), so one profile's 429 never backs off its
-        // siblings.
-        let cache_id = usage_cache::entry_key(&id, &target.profile);
-        let check = report.check_for(agent);
-        let mut entry = cache.get(&cache_id).cloned().unwrap_or_default();
-        let mut polled = false;
-        // EXP-849 — codex keep-alive: a probe this pass was going to make
-        // anyway asks codex to refresh the login's own token while it answers,
-        // once per [`usage_cache::CODEX_REFRESH_INTERVAL_SECS`] per login.
-        //
-        // Only for a login this machine RUNS: the last used login, or one some
-        // recorded run used. A parked account (added, signed in, never run
-        // here) is deliberately left to expire — keeping a credential warm is
-        // the machine asserting it needs it, and this machine does not.
-        let keep_alive = agent == CodingAgent::Codex
-            && usage_cache::refresh_due(&entry, now)
-            && (target.active || {
-                let used = used_logins
-                    .get_or_insert_with(|| logins_used_on_this_machine(data_dir));
-                used.contains(&cache_id)
-            });
-        // EXP-852/EXP-909 — the claude refresh, ONE path: every login this
-        // machine monitors is rotated when its token is due — inside the
-        // margin before expiry or already past it (`claude_refresh_due`
-        // reads a cached `expiresAt`, so a healthy login costs nothing on a
-        // beat). No setting and no "this machine runs this login" rule: a
-        // usage read on an expired token 401s, a 401 paints `Needs re-login`
-        // on an account that is perfectly fine, and a PARKED account's
-        // numbers are shown like everybody's — so its token is kept good
-        // like everybody's. The SAME machine-wide claim as codex's below.
-        //
-        // Deliberately NOT riding the usage probe the way codex's does:
-        // codex's is a flag on a request the poll already makes, claude's is a
-        // separate POST to another host that the usage budget does not ration
-        // — and a secondary profile's probe slot can be 20+ minutes apart
-        // (60s stagger × up to 12 profiles × 2 agents, ANDed with the poll
-        // floors), longer than any sane margin. So it runs here, every beat,
-        // before the live/poll match; on success the probe below rides the
-        // NEW token and skips a second store read.
-        // EXP-1607: a token-only login has no browser login to keep warm.
-        let claude_refresh = agent == CodingAgent::Claude
-            && !target.token_usage
-            && usage_cache::claude_refresh_due(&entry, now);
-        // ONE refresh actor per login, MACHINE-WIDE: the shared poll floors
-        // keep the two processes from spending two requests, but a refresh
-        // also ROTATES the credential — the IDE and the daemon both
-        // refreshing one profile would rotate it twice, the loser writing a
-        // token the winner already replaced. The claim is held across the
-        // work below and released when this iteration ends; a process that
-        // cannot take it probes WITHOUT the refresh.
-        let refresh_claim = (keep_alive || claude_refresh)
-            .then(|| usage_cache::claim_refresh(data_dir, &id, &target.profile, now))
-            .flatten();
-        let keep_alive = keep_alive && refresh_claim.is_some();
-        let claude_refresh = claude_refresh && refresh_claim.is_some();
-        let fresh_token = if claude_refresh {
-            let token = claude_keep_alive_step(target.dir.as_deref(), &mut entry, now);
-            // EXP-881: a rotation on a login whose numbers are DIMMED takes
-            // down the wall the failure put up — the next read is the one
-            // that can undim them, so it happens on THIS beat rather than
-            // after the failure backoff. The 429 floor is untouched.
-            if token.is_some() && entry.usage.as_ref().is_some_and(|usage| usage.stale) {
-                usage_cache::note_token_rotated(&mut entry, now);
-            }
-            // Persist the backoff / dead marker / new expiry NOW, before the
-            // slow probe, so the sibling process sees the attempt as taken.
-            changed = true;
-            cache.insert(cache_id.clone(), entry.clone());
-            usage_cache::save(data_dir, &cache);
-            token
-        } else {
-            None
-        };
-        // EXP-754: a live session on this login has already been told the
-        // numbers. Reading them spawns nothing, sends nothing and contends
-        // with no sibling process, so this runs BEFORE (and instead of) the
-        // poll policy. EXP-909: EVERY login is consulted, not just the active
-        // one — the registry is keyed by `(agent, profile)`, so a run on a
-        // secondary account answers for THAT account and for nothing else.
-        let live = live_probe(agent, &target.profile, &entry, now);
-        // A PARTIAL frame (claude) never carries the endpoint's other windows,
-        // so the endpoint keeps its own slower cadence under a live session —
-        // otherwise the model-scoped weekly froze at its pre-run number for
-        // as long as the run kept turning.
-        let endpoint_owed = live.is_some()
-            && !target.token_usage
-            && live_source(agent) == Some(LiveSource::Partial)
-            && target.may_poll
-            && usage_cache::live_endpoint_due(&entry, now);
-        match live.filter(|_| !endpoint_owed) {
-            Some(probe) => {
-                // Read BEFORE the apply: `apply_outcome` stamps `fetched_at`,
-                // which is what `poll_due` keys on.
-                let due = usage_cache::poll_due(&entry, now);
-                // A failed probe left the numbers dimmed. A live session
-                // confirming those exact numbers is the freshest attempt
-                // there is, so it clears the flag (and refreshes the
-                // sibling's `fetched_at`) even mid-backoff.
-                let dimmed = entry.usage.as_ref().is_some_and(|usage| usage.stale);
-                // EXP-881: `due` is NOT a reason to apply. A poll being owed
-                // says nothing about the frame, and re-applying an UNCHANGED
-                // frame restamped `fetched_at` — which made numbers that had
-                // not moved in hours read as freshly fetched, the whole bug.
-                // Only a frame that says something new, or one that clears a
-                // dim, touches the cache.
-                if dimmed || probe.outcome == PollOutcome::Changed {
-                    // Deliberately past `MIN_POLL_SECS`: the floor exists to
-                    // ration requests, and a live read is not one. Moving
-                    // numbers reach the bar as fast as codex reports them.
-                    changed = true;
-                    usage_cache::apply_outcome(&mut entry, probe.outcome, probe.windows, now, &stamp);
-                    cache.insert(cache_id.clone(), entry.clone());
-                }
-                // A rate-limit frame names nobody, so a machine that has
-                // never probed (fresh cache, or a login just called
-                // `usage_cache::forget`) would report codex's presence-only
-                // row for the whole session. Spend ONE app-server probe on
-                // the identity when a beat is due; every later beat rides
-                // the live shortcut above.
-                // EXP-909: `may_poll` too — a secondary login's identity
-                // probe is still a request, and it waits its stagger slot
-                // like every other one.
-                if due && target.may_poll && entry.account.is_none() && probe_names_account(agent) {
-                    polled = true;
-                    changed = true;
-                    // Claim the slot before the (slow) spawn, as the poll arm
-                    // does — the live apply already moved it, never backwards.
-                    entry.next_poll_at_secs = entry
-                        .next_poll_at_secs
-                        .max(now + usage_cache::MIN_POLL_SECS);
-                    cache.insert(cache_id.clone(), entry.clone());
-                    usage_cache::save(data_dir, &cache);
-                    let probe = probe_agent(
-                        agent,
-                        settings,
-                        check.version.as_deref(),
-                        target.dir.as_deref(),
-                        &mut entry,
-                        now,
-                        keep_alive,
-                        fresh_token.as_deref(),
-                    );
-                    // Only the identity: the live windows are at least as
-                    // fresh as this probe's, so its outcome never dims them.
-                    if let Some(account) = probe.account {
-                        entry.account = Some(account.clone());
-                        apply_account(&mut accounts, &id, &target, account);
-                    }
-                    cache.insert(cache_id.clone(), entry.clone());
-                }
-            }
-            // No live session (or its numbers went stale): today's path.
-            None if target.may_poll
-                && if target.token_usage {
-                    // EXP-1607: the probe is a model request, so a PARKED
-                    // login (never run here) is read once and on demand,
-                    // never on the cadence.
-                    usage_cache::token_probe_due(&entry, now, target.forced)
-                        && (target.active
-                            || target.forced
-                            || entry.fetched_at_secs == 0
-                            || used_logins
-                                .get_or_insert_with(|| logins_used_on_this_machine(data_dir))
-                                .contains(&cache_id))
-                } else {
-                    endpoint_owed || usage_cache::poll_due(&entry, now)
-                } =>
-            {
-                polled = true;
-                changed = true;
-                // EXP-1626: may the CLI probe stand in for an endpoint that
-                // declines this login? Judged BEFORE the slot is claimed (the
-                // claim makes nothing due), on the token probe's own rationed
-                // cadence — it is a model request, never one per endpoint beat.
-                let holds_token = agent == CodingAgent::Claude
-                    && !target.token_usage
-                    && target
-                        .dir
-                        .as_deref()
-                        .and_then(crate::claude_token::valid)
-                        .is_some();
-                let token_fallback =
-                    holds_token && usage_cache::token_probe_due(&entry, now, target.forced);
-                // Claim the slot BEFORE the (slow) fetch and persist it, so the
-                // sibling process sharing this token (IDE vs daemon) sees the
-                // poll as taken instead of spending a second request.
-                entry.next_poll_at_secs = now + usage_cache::MIN_POLL_SECS;
-                entry.endpoint_due_at_secs = Some(now + usage_cache::LIVE_ENDPOINT_POLL_SECS);
-                cache.insert(cache_id.clone(), entry.clone());
-                usage_cache::save(data_dir, &cache);
-                let probe = if target.token_usage {
-                    token_probe(data_dir, settings, target.dir.as_deref())
-                } else if holds_token && entry.relogin_required {
-                    // EXP-1626: a PERSISTED login whose browser refresh grant
-                    // is known dead: the browser login cannot serve usage any
-                    // more, so the endpoint is not asked at all — the token
-                    // answers (runs already spend it).
-                    AgentProbe { endpoint_declined: true, ..AgentProbe::NONE }
-                } else {
-                    probe_agent(
-                        agent,
-                        settings,
-                        check.version.as_deref(),
-                        target.dir.as_deref(),
-                        &mut entry,
-                        now,
-                        keep_alive,
-                        fresh_token.as_deref(),
-                    )
-                };
-                let rate_limited_secs = probe.rate_limited_secs;
-                // EXP-1626: the browser login cannot serve this login's usage
-                // — the endpoint declined it (inference-only, 429), refused
-                // it (401/403: the browser login is dead) or was never asked
-                // (its grant is dead, above).
-                let browser_declined = browser_cannot_serve(&probe);
-                // A declined endpoint on a profile that holds a token: the
-                // token probe answers in its place when its cadence is due;
-                // between two of its probes the decline dims nothing (the
-                // token's numbers are the ones shown), only the 429's hold
-                // stands. Never `needs_relogin` for it either: runs spend the
-                // token ([`apply_health`]).
-                let (probe, from_token) = match (browser_declined && holds_token, token_fallback) {
-                    (true, true) => (Some(token_probe(data_dir, settings, target.dir.as_deref())), true),
-                    (true, false) => (None, false),
-                    (false, _) => (Some(probe), target.token_usage),
-                };
-                if probe.is_none() {
-                    polled = false;
-                }
-                if let Some(probe) = probe {
-                    // EXP-1626: which login the reported numbers came from
-                    // (`usageSource`), moved only by a read that produced some.
-                    if probe.windows.is_some() {
-                        entry.usage_from_token = from_token;
-                    }
-                    if let Some(account) = probe.account {
-                        // Persist the identity: the not-due beats in between re-use it
-                        // instead of dropping back to the doctor's presence-only row.
-                        entry.account = Some(account.clone());
-                        apply_account(&mut accounts, &id, &target, account);
-                    }
-                    // EXP-881: the ENDPOINT answered, so stamp the read that a
-                    // live frame is compared against. Only here — a live apply
-                    // moves `fetched_at_secs`, never this.
-                    if probe.windows.is_some() {
-                        entry.endpoint_fetched_at_secs = Some(now);
-                    }
-                    usage_cache::apply_outcome(&mut entry, probe.outcome, probe.windows, now, &stamp);
-                }
-                if let Some(secs) = rate_limited_secs {
-                    usage_cache::hold_rate_limited(&mut entry, now, secs);
-                }
-                usage_cache::schedule_live_endpoint(&mut entry, now);
-                cache.insert(cache_id.clone(), entry.clone());
-            }
-            None => {}
+    // #FEED-211: every login's slow work (the keep-alive POST, the usage GET,
+    // the codex app-server, the token CLI probe) runs on its OWN thread. In
+    // series, three claude logins each waiting out a refresh lock and a
+    // timeout made one pass take minutes; in parallel a pass takes as long as
+    // its slowest login. Each login's state is its own cache entry, so the
+    // threads share nothing but the per-entry writes ([`usage_cache::store_entry`]).
+    let passes: Vec<TargetPass> = std::thread::scope(|scope| {
+        let handles: Vec<_> = plan
+            .iter()
+            .map(|target| {
+                let entry = cache
+                    .get(&usage_cache::entry_key(target.agent.id(), &target.profile))
+                    .cloned()
+                    .unwrap_or_default();
+                let (stamp, used_logins) = (&stamp, &used_logins);
+                let fallback = entry.clone();
+                let handle = std::thread::Builder::new()
+                    .name(format!("usage-{}", target.agent.id()))
+                    .spawn_scoped(scope, move || {
+                        collect_target(data_dir, settings, report, now, stamp, target, entry, used_logins)
+                    });
+                (handle, fallback)
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|(handle, fallback)| {
+                // A login whose thread could not start or panicked reports what
+                // the cache holds, exactly like a login that was not due.
+                handle.ok().and_then(|handle| handle.join().ok()).unwrap_or_else(|| {
+                    log::error!("usage collection: a login's probe thread failed — its cached numbers stand");
+                    TargetPass::untouched(fallback)
+                })
+            })
+            .collect()
+    });
+
+    let mut changed_entries = Vec::new();
+    for (target, pass) in plan.iter().zip(passes) {
+        let id = target.agent.id();
+        let cache_id = usage_cache::entry_key(id, &target.profile);
+        let TargetPass { entry, changed, polled, probed_account } = pass;
+        if let Some(account) = probed_account {
+            apply_account(&mut accounts, id, target, account);
         }
-        // Every probe this login could make is behind us: release the
-        // keep-alive claim now rather than at the end of the iteration.
-        drop(refresh_claim);
         // A pass that did not probe — nothing due, the live numbers answered,
         // or this login's stagger slot has not come round — keeps the
         // identity the last probe named: it still enriches what the doctor's
@@ -972,16 +762,16 @@ fn collect_inner(
         if let (false, Some(account)) = (polled, &entry.account) {
             let mut account = account.clone();
             account.checked_at = stamp.clone();
-            enrich_account(&mut accounts, &id, &target, account);
+            enrich_account(&mut accounts, id, target, account);
         }
         // EXP-808: the top-level `agentUsage` map is the ACTIVE login's;
         // every login also carries its own numbers in its profile row, so a
         // beat that polled nobody still reports what the cache holds.
         if let Some(snapshot) = &entry.usage {
             if target.active {
-                usage.insert(id.clone(), snapshot.clone());
+                usage.insert(id.to_string(), snapshot.clone());
             }
-            if let Some(row) = profile_row(&mut accounts, &id, &target.profile) {
+            if let Some(row) = profile_row(&mut accounts, id, &target.profile) {
                 row.usage = Some(snapshot.clone());
                 // EXP-1626: the persisted token's probe answers for it.
                 row.usage_source = entry
@@ -989,11 +779,13 @@ fn collect_inner(
                     .then(|| crate::agent_accounts::USAGE_SOURCE_TOKEN.to_string());
             }
         }
+        if changed {
+            changed_entries.push((cache_id.clone(), entry.clone()));
+        }
+        cache.insert(cache_id, entry);
     }
 
-    if changed {
-        usage_cache::save(data_dir, &cache);
-    }
+    usage_cache::store_entries(data_dir, &changed_entries);
     // EXP-849: last, so it sees every outcome this pass folded in.
     apply_health(&mut accounts, &cache, data_dir);
     // EXP-1013: the usage probe may have named (or cleared) an email since.
@@ -1004,6 +796,301 @@ fn collect_inner(
     report.stamp_versions(&mut accounts);
     AgentStatusPayload { accounts, usage }
 }
+
+/// #FEED-211 — what one login's share of a pass produced: its updated cache
+/// entry, whether that entry moved, whether a probe was spent, and the
+/// identity a probe named (folded into the wire map by the caller, in plan
+/// order).
+struct TargetPass {
+    entry: AgentCacheEntry,
+    changed: bool,
+    polled: bool,
+    probed_account: Option<AgentAccount>,
+}
+
+impl TargetPass {
+    fn untouched(entry: AgentCacheEntry) -> Self {
+        Self { entry, changed: false, polled: false, probed_account: None }
+    }
+}
+
+/// #FEED-211 — ONE login's share of [`collect_inner`], run on its own thread.
+/// Every write it makes before a slow step (the claimed poll slot, the
+/// keep-alive's backoff) lands at once through [`usage_cache::store_entry`],
+/// so the sibling process sharing this login sees it as taken.
+#[allow(clippy::too_many_arguments)]
+fn collect_target(
+    data_dir: &Path,
+    settings: &Settings,
+    report: &DoctorReport,
+    now: u64,
+    stamp: &str,
+    target: &UsageTarget,
+    mut entry: AgentCacheEntry,
+    used_logins: &std::sync::OnceLock<std::collections::BTreeSet<String>>,
+) -> TargetPass {
+    let agent = target.agent;
+    let id = agent.id().to_string();
+    // EXP-792 (EXP-747 B6): the cache is keyed per LOGIN
+    // (`agent:profileId`), so one profile's 429 never backs off its
+    // siblings.
+    let cache_id = usage_cache::entry_key(&id, &target.profile);
+    let check = report.check_for(agent);
+    let mut polled = false;
+    let mut changed = false;
+    let mut probed_account: Option<AgentAccount> = None;
+    // EXP-849 — codex keep-alive: a probe this pass was going to make
+    // anyway asks codex to refresh the login's own token while it answers,
+    // once per [`usage_cache::CODEX_REFRESH_INTERVAL_SECS`] per login.
+    //
+    // Only for a login this machine RUNS: the last used login, or one some
+    // recorded run used. A parked account (added, signed in, never run
+    // here) is deliberately left to expire — keeping a credential warm is
+    // the machine asserting it needs it, and this machine does not.
+    let keep_alive = agent == CodingAgent::Codex
+        && usage_cache::refresh_due(&entry, now)
+        && (target.active || {
+            let used = used_logins
+                .get_or_init(|| logins_used_on_this_machine(data_dir));
+            used.contains(&cache_id)
+        });
+    // EXP-852/EXP-909 — the claude refresh, ONE path: every login this
+    // machine monitors is rotated when its token is due — inside the
+    // margin before expiry or already past it (`claude_refresh_due`
+    // reads a cached `expiresAt`, so a healthy login costs nothing on a
+    // beat). No setting and no "this machine runs this login" rule: a
+    // usage read on an expired token 401s, a 401 paints `Needs re-login`
+    // on an account that is perfectly fine, and a PARKED account's
+    // numbers are shown like everybody's — so its token is kept good
+    // like everybody's. The SAME machine-wide claim as codex's below.
+    //
+    // Deliberately NOT riding the usage probe the way codex's does:
+    // codex's is a flag on a request the poll already makes, claude's is a
+    // separate POST to another host that the usage budget does not ration
+    // — and a secondary profile's probe slot can be 20+ minutes apart
+    // (60s stagger × up to 12 profiles × 2 agents, ANDed with the poll
+    // floors), longer than any sane margin. So it runs here, every beat,
+    // before the live/poll match; on success the probe below rides the
+    // NEW token and skips a second store read.
+    // EXP-1607: a token-only login has no browser login to keep warm.
+    let claude_refresh = agent == CodingAgent::Claude
+        && !target.token_usage
+        && usage_cache::claude_refresh_due(&entry, now);
+    // ONE refresh actor per login, MACHINE-WIDE: the shared poll floors
+    // keep the two processes from spending two requests, but a refresh
+    // also ROTATES the credential — the IDE and the daemon both
+    // refreshing one profile would rotate it twice, the loser writing a
+    // token the winner already replaced. The claim is held across the
+    // work below and released when this iteration ends; a process that
+    // cannot take it probes WITHOUT the refresh.
+    let refresh_claim = (keep_alive || claude_refresh)
+        .then(|| usage_cache::claim_refresh(data_dir, &id, &target.profile, now))
+        .flatten();
+    let keep_alive = keep_alive && refresh_claim.is_some();
+    let claude_refresh = claude_refresh && refresh_claim.is_some();
+    let fresh_token = if claude_refresh {
+        let token = claude_keep_alive_step(target.dir.as_deref(), &mut entry, now);
+        // EXP-881: a rotation on a login whose numbers are DIMMED takes
+        // down the wall the failure put up — the next read is the one
+        // that can undim them, so it happens on THIS beat rather than
+        // after the failure backoff. The 429 floor is untouched.
+        if token.is_some() && entry.usage.as_ref().is_some_and(|usage| usage.stale) {
+            usage_cache::note_token_rotated(&mut entry, now);
+        }
+        // Persist the backoff / dead marker / new expiry NOW, before the
+        // slow probe, so the sibling process sees the attempt as taken.
+        changed = true;
+        usage_cache::store_entry(data_dir, &cache_id, &entry);
+        token
+    } else {
+        None
+    };
+    // EXP-754: a live session on this login has already been told the
+    // numbers. Reading them spawns nothing, sends nothing and contends
+    // with no sibling process, so this runs BEFORE (and instead of) the
+    // poll policy. EXP-909: EVERY login is consulted, not just the active
+    // one — the registry is keyed by `(agent, profile)`, so a run on a
+    // secondary account answers for THAT account and for nothing else.
+    let live = live_probe(agent, &target.profile, &entry, now);
+    // A PARTIAL frame (claude) never carries the endpoint's other windows,
+    // so the endpoint keeps its own slower cadence under a live session —
+    // otherwise the model-scoped weekly froze at its pre-run number for
+    // as long as the run kept turning.
+    let endpoint_owed = live.is_some()
+        && !target.token_usage
+        && live_source(agent) == Some(LiveSource::Partial)
+        && target.may_poll
+        && usage_cache::live_endpoint_due(&entry, now);
+    match live.filter(|_| !endpoint_owed) {
+        Some(probe) => {
+            // Read BEFORE the apply: `apply_outcome` stamps `fetched_at`,
+            // which is what `poll_due` keys on.
+            let due = usage_cache::poll_due(&entry, now);
+            // A failed probe left the numbers dimmed. A live session
+            // confirming those exact numbers is the freshest attempt
+            // there is, so it clears the flag (and refreshes the
+            // sibling's `fetched_at`) even mid-backoff.
+            let dimmed = entry.usage.as_ref().is_some_and(|usage| usage.stale);
+            // EXP-881: `due` is NOT a reason to apply. A poll being owed
+            // says nothing about the frame, and re-applying an UNCHANGED
+            // frame restamped `fetched_at` — which made numbers that had
+            // not moved in hours read as freshly fetched, the whole bug.
+            // Only a frame that says something new, or one that clears a
+            // dim, touches the cache.
+            if dimmed || probe.outcome == PollOutcome::Changed {
+                // Deliberately past `MIN_POLL_SECS`: the floor exists to
+                // ration requests, and a live read is not one. Moving
+                // numbers reach the bar as fast as codex reports them.
+                changed = true;
+                usage_cache::apply_outcome(&mut entry, probe.outcome, probe.windows, now, stamp);
+            }
+            // A rate-limit frame names nobody, so a machine that has
+            // never probed (fresh cache, or a login just called
+            // `usage_cache::forget`) would report codex's presence-only
+            // row for the whole session. Spend ONE app-server probe on
+            // the identity when a beat is due; every later beat rides
+            // the live shortcut above.
+            // EXP-909: `may_poll` too — a secondary login's identity
+            // probe is still a request, and it waits its stagger slot
+            // like every other one.
+            if due && target.may_poll && entry.account.is_none() && probe_names_account(agent) {
+                polled = true;
+                changed = true;
+                // Claim the slot before the (slow) spawn, as the poll arm
+                // does — the live apply already moved it, never backwards.
+                entry.next_poll_at_secs = entry
+                    .next_poll_at_secs
+                    .max(now + usage_cache::MIN_POLL_SECS);
+                usage_cache::store_entry(data_dir, &cache_id, &entry);
+                let probe = probe_agent(
+                    agent,
+                    settings,
+                    check.version.as_deref(),
+                    target.dir.as_deref(),
+                    &mut entry,
+                    now,
+                    keep_alive,
+                    fresh_token.as_deref(),
+                );
+                // Only the identity: the live windows are at least as
+                // fresh as this probe's, so its outcome never dims them.
+                if let Some(account) = probe.account {
+                    entry.account = Some(account.clone());
+                    probed_account = Some(account);
+                }
+            }
+        }
+        // No live session (or its numbers went stale): today's path.
+        None if target.may_poll
+            && if target.token_usage {
+                // EXP-1607: the probe is a model request, so a PARKED
+                // login (never run here) is read once and on demand,
+                // never on the cadence.
+                usage_cache::token_probe_due(&entry, now, target.forced)
+                    && (target.active
+                        || target.forced
+                        || entry.fetched_at_secs == 0
+                        || used_logins
+                            .get_or_init(|| logins_used_on_this_machine(data_dir))
+                            .contains(&cache_id))
+            } else {
+                endpoint_owed || usage_cache::poll_due(&entry, now)
+            } =>
+        {
+            polled = true;
+            changed = true;
+            // EXP-1626: may the CLI probe stand in for an endpoint that
+            // declines this login? Judged BEFORE the slot is claimed (the
+            // claim makes nothing due), on the token probe's own rationed
+            // cadence — it is a model request, never one per endpoint beat.
+            let holds_token = agent == CodingAgent::Claude
+                && !target.token_usage
+                && target
+                    .dir
+                    .as_deref()
+                    .and_then(crate::claude_token::valid)
+                    .is_some();
+            let token_fallback =
+                holds_token && usage_cache::token_probe_due(&entry, now, target.forced);
+            // Claim the slot BEFORE the (slow) fetch and persist it, so the
+            // sibling process sharing this token (IDE vs daemon) sees the
+            // poll as taken instead of spending a second request.
+            entry.next_poll_at_secs = now + usage_cache::MIN_POLL_SECS;
+            entry.endpoint_due_at_secs = Some(now + usage_cache::LIVE_ENDPOINT_POLL_SECS);
+            usage_cache::store_entry(data_dir, &cache_id, &entry);
+            let probe = if target.token_usage {
+                token_probe(data_dir, settings, target.dir.as_deref())
+            } else if holds_token && entry.relogin_required {
+                // EXP-1626: a PERSISTED login whose browser refresh grant
+                // is known dead: the browser login cannot serve usage any
+                // more, so the endpoint is not asked at all — the token
+                // answers (runs already spend it).
+                AgentProbe { endpoint_declined: true, ..AgentProbe::NONE }
+            } else {
+                probe_agent(
+                    agent,
+                    settings,
+                    check.version.as_deref(),
+                    target.dir.as_deref(),
+                    &mut entry,
+                    now,
+                    keep_alive,
+                    fresh_token.as_deref(),
+                )
+            };
+            let rate_limited_secs = probe.rate_limited_secs;
+            // EXP-1626: the browser login cannot serve this login's usage
+            // — the endpoint declined it (inference-only, 429), refused
+            // it (401/403: the browser login is dead) or was never asked
+            // (its grant is dead, above).
+            let browser_declined = browser_cannot_serve(&probe);
+            // A declined endpoint on a profile that holds a token: the
+            // token probe answers in its place when its cadence is due;
+            // between two of its probes the decline dims nothing (the
+            // token's numbers are the ones shown), only the 429's hold
+            // stands. Never `needs_relogin` for it either: runs spend the
+            // token ([`apply_health`]).
+            let (probe, from_token) = match (browser_declined && holds_token, token_fallback) {
+                (true, true) => (Some(token_probe(data_dir, settings, target.dir.as_deref())), true),
+                (true, false) => (None, false),
+                (false, _) => (Some(probe), target.token_usage),
+            };
+            if probe.is_none() {
+                polled = false;
+            }
+            if let Some(probe) = probe {
+                // EXP-1626: which login the reported numbers came from
+                // (`usageSource`), moved only by a read that produced some.
+                if probe.windows.is_some() {
+                    entry.usage_from_token = from_token;
+                }
+                if let Some(account) = probe.account {
+                    // Persist the identity: the not-due beats in between re-use it
+                    // instead of dropping back to the doctor's presence-only row.
+                    entry.account = Some(account.clone());
+                    probed_account = Some(account);
+                }
+                // EXP-881: the ENDPOINT answered, so stamp the read that a
+                // live frame is compared against. Only here — a live apply
+                // moves `fetched_at_secs`, never this.
+                if probe.windows.is_some() {
+                    entry.endpoint_fetched_at_secs = Some(now);
+                }
+                usage_cache::apply_outcome(&mut entry, probe.outcome, probe.windows, now, stamp);
+            }
+            if let Some(secs) = rate_limited_secs {
+                usage_cache::hold_rate_limited(&mut entry, now, secs);
+            }
+            usage_cache::schedule_live_endpoint(&mut entry, now);
+        }
+        None => {}
+    }
+    // Every probe this login could make is behind us: release the
+    // keep-alive claim now rather than at the end of the iteration.
+    drop(refresh_claim);
+    TargetPass { entry, changed, polled, probed_account }
+}
+
 
 /// EXP-792: a FORCED refresh for ONE login (`agent_usage_refresh`): the
 /// poll policy's schedule and the shared TTL are set aside for this one
@@ -1024,6 +1111,7 @@ pub fn force_collect(
     profile: &str,
     now: u64,
 ) -> Result<AgentStatusPayload, u64> {
+    let _pass = one_pass();
     // An id this machine does not have — a picker that raced a profile
     // deletion — refreshes the last used login, the one a run without an
     // account lands on. No profile at all: nothing to read.
@@ -1068,6 +1156,7 @@ pub fn refresh_on_demand(
     profile: &str,
     now: u64,
 ) -> Option<AgentStatusPayload> {
+    let _pass = one_pass();
     let profile = crate::agent_profiles::get(data_dir, agent, profile)
         .map(|row| row.id)
         .or_else(|| crate::agent_profiles::active_profile(data_dir, agent))?;
@@ -2917,6 +3006,68 @@ mod tests {
         // Past the floor it reads again.
         collect_if_due(&dir, &settings, &report, now + 620 + usage_cache::TOKEN_PROBE_SECS);
         assert_eq!(std::fs::read_to_string(&calls).unwrap().lines().count(), 2);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #FEED-211 — a pass probes its logins in PARALLEL: three logins whose
+    /// probe takes a second each cost one second, not three (in series, three
+    /// slow logins held the heartbeat for minutes), and every login still
+    /// lands its own numbers in its own row and its own cache entry.
+    #[cfg(unix)]
+    #[test]
+    fn a_pass_probes_its_logins_in_parallel() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let _lock = live_lock();
+        live::reset();
+        let dir = usage_dir("parallel");
+        let cli = dir.join("slow-claude");
+        std::fs::write(
+            &cli,
+            "#!/bin/sh\nsleep 1\n\
+             echo '{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"allowed\",\"unifiedWindows\":{\"seven_day\":{\"utilization\":0.31,\"resetsAt\":4092066000}}}}'\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let settings = Settings {
+            claude_path: cli.to_string_lossy().into_owned(),
+            ..Settings::default()
+        };
+        let mut ids = vec![MAIN.to_string()];
+        for _ in 0..2 {
+            ids.push(crate::agent_profiles::create(&dir, CodingAgent::Claude).unwrap().id);
+        }
+        let token = crate::claude_token::SetupToken::minted(
+            "sk-ant-oat01-parallel".into(),
+            chrono::Utc::now(),
+            crate::claude_token::TOKEN_LIFETIME_SECS,
+        );
+        for id in &ids {
+            let home = crate::agent_profiles::profile_dir(&dir, CodingAgent::Claude, id).unwrap();
+            crate::claude_token::write(&home, &token).unwrap();
+        }
+        let mut report = claude_ready_report();
+        report.claude.usage_eligible = false;
+        report.claude.profiles = ids
+            .iter()
+            .map(|id| crate::doctor::ProfileProbe { usage_eligible: false, ..probe(id) })
+            .collect();
+
+        let started = std::time::Instant::now();
+        let payload = collect_if_due(&dir, &settings, &report, crate::run_registry::now_secs());
+        let took = started.elapsed();
+        assert!(
+            took < Duration::from_millis(2500),
+            "three one-second probes ran side by side, took {took:?}"
+        );
+        let rows = &payload.accounts["claude"].profiles;
+        let cache = usage_cache::load(&dir);
+        for id in &ids {
+            let row = rows.iter().find(|row| &row.id == id).expect("a row per login");
+            assert_eq!(row.usage.as_ref().expect("its numbers").windows[0].percent, 31, "{id}");
+            let entry = cache.get(&usage_cache::entry_key("claude", id)).expect("its cache entry");
+            assert!(entry.fetched_at_secs > 0, "{id}: persisted");
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 

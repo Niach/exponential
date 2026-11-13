@@ -194,6 +194,25 @@ fn is_workspace_target(target: &str) -> bool {
     WORKSPACE_TARGETS.contains(&root)
 }
 
+/// #ERR-4: a record with an EMPTY target (gpui-pre-util's `log_err` derives
+/// it from a `crates/` path segment, which registry paths lack) is named by
+/// its call site: `<crate dir>/src/…/file.rs:<line>`, so the log line and
+/// the diagnostics event point at the code that logged it.
+pub fn call_site_target(file: Option<&str>, line: Option<u32>, module_path: Option<&str>) -> String {
+    let Some(file) = file.filter(|file| !file.is_empty()) else {
+        return module_path.filter(|path| !path.is_empty()).unwrap_or("unknown").to_string();
+    };
+    let parts: Vec<&str> = file.split(['/', '\\']).filter(|part| !part.is_empty()).collect();
+    // From the crate directory: the component before the LAST `src`
+    // (`~/.cargo/registry/src/<index>/<crate>/src/…` has two).
+    let start = parts.iter().rposition(|part| *part == "src").map_or(0, |src| src.saturating_sub(1));
+    let short = parts[start..].join("/");
+    match line {
+        Some(line) => format!("{short}:{line}"),
+        None => short,
+    }
+}
+
 /// The line format: `<UTC ms timestamp> <LEVEL> <target>: <message>`.
 pub fn format_line(level: log::Level, target: &str, message: &std::fmt::Arguments<'_>) -> String {
     format!(
@@ -279,6 +298,22 @@ impl log::Log for ExpLogger {
         if !self.enabled(record.metadata()) {
             return;
         }
+        let named;
+        let rebuilt;
+        let record = if record.target().is_empty() {
+            named = call_site_target(record.file(), record.line(), record.module_path());
+            rebuilt = log::Record::builder()
+                .args(*record.args())
+                .level(record.level())
+                .target(&named)
+                .file(record.file())
+                .line(record.line())
+                .module_path(record.module_path())
+                .build();
+            &rebuilt
+        } else {
+            record
+        };
         if let Some(file) = &self.file {
             file.write_line(&format_line(record.level(), record.target(), record.args()));
         }
@@ -519,6 +554,44 @@ mod tests {
         let (stamp, rest) = line.split_once(' ').unwrap();
         assert!(stamp.ends_with('Z') && stamp.contains('T') && stamp.contains('.'));
         assert_eq!(rest, "WARN  ui::device_sync: hello");
+    }
+
+    #[test]
+    fn an_empty_target_is_named_by_its_call_site() {
+        let registry = "/home/u/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gpui-pre-linux-0.3.11/src/linux/x11/client.rs";
+        assert_eq!(
+            call_site_target(Some(registry), Some(1018), Some("gpui::platform")),
+            "gpui-pre-linux-0.3.11/src/linux/x11/client.rs:1018"
+        );
+        let windows = r"C:\Users\u\.cargo\registry\src\index.crates.io-x\gpui-pre-0.3.11\src\app.rs";
+        assert_eq!(call_site_target(Some(windows), None, None), "gpui-pre-0.3.11/src/app.rs");
+        assert_eq!(call_site_target(None, Some(3), Some("gpui::x11")), "gpui::x11");
+        assert_eq!(call_site_target(None, None, None), "unknown");
+    }
+
+    static TAPPED: Mutex<Option<String>> = Mutex::new(None);
+
+    #[test]
+    fn the_file_line_and_the_tap_name_an_empty_target_by_its_call_site() {
+        use log::Log as _;
+        let dir = temp_dir("call-site");
+        let logger = ExpLogger::new(log::LevelFilter::Info)
+            .with_file(&dir, "exponential.log")
+            .with_tap(|record| *TAPPED.lock().unwrap() = Some(record.target().to_string()));
+        logger.log(
+            &log::Record::builder()
+                .args(format_args!("relative URL without a base"))
+                .level(log::Level::Error)
+                .target("")
+                .file(Some("/r/.cargo/registry/src/idx/gpui-pre-linux-0.3.11/src/linux/x11/client.rs"))
+                .line(Some(1018))
+                .build(),
+        );
+        let site = "gpui-pre-linux-0.3.11/src/linux/x11/client.rs:1018";
+        assert_eq!(TAPPED.lock().unwrap().as_deref(), Some(site));
+        let written = std::fs::read_to_string(logger.file_path().unwrap()).unwrap();
+        assert!(written.contains(&format!("ERROR {site}: relative URL without a base")), "{written}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

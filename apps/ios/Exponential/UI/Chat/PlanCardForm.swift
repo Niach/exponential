@@ -812,8 +812,9 @@ private final class PlanCardSurfaceHost: HostPlugin {
         )
     }
 
-    /// #EXP-1674: `~/x` = the card's team.
-    private lazy var linkBase: String? = LinkOpener.linkBase(teamId: teamId, accountId: accountId, deps: deps)
+    /// #EXP-1674: `~/x` = the card's team. #PERF-5: read each time, never
+    /// lazily held: the slug is a memo peek, nil until it has loaded.
+    private var linkBase: String? { LinkOpener.linkBase(teamId: teamId, accountId: accountId, deps: deps) }
 
     // https, plus the instance's own scheme (a LAN self-host may be plain http).
     var urlPolicy: UrlPolicy? {

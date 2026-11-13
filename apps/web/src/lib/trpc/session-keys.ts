@@ -27,6 +27,7 @@ import {
   ownInstall,
   PUBLIC_KEY_RE,
   treeReaders,
+  treeReadersMany,
   WRAPPED_RE,
   type Reader,
 } from "@/lib/sessions/tree-keys"
@@ -38,6 +39,8 @@ const EPOCH_MAX = 2_147_483_647
 /** `pending` returns at most this many pairs per call. */
 export const SESSION_KEYS_PENDING_MAX = 200
 const BATCH_MAX = 500
+/** `pending` resolves readers this many trees at a time. */
+const PENDING_CHUNK = 100
 
 
 const uuid = z.string().uuid()
@@ -61,6 +64,22 @@ async function wrappedInstalls(database: Reader, rootId: string, keyEpoch: numbe
     .from(sessionKeys)
     .where(and(eq(sessionKeys.rootId, rootId), eq(sessionKeys.epoch, keyEpoch)))
   return new Set(rows.filter((row) => row.rootId === rootId && row.epoch === keyEpoch).map((row) => row.installId))
+}
+
+/** The install ids holding a wrap for each root's CURRENT epoch, one query. */
+async function wrappedInstallsMany(database: Reader, roots: readonly Session[]): Promise<Map<string, Set<string>>> {
+  const epochOf = new Map(roots.map((root) => [root.id, root.sealEpoch]))
+  const out = new Map<string, Set<string>>()
+  if (roots.length === 0) return out
+  const rows = await database
+    .select({ rootId: sessionKeys.rootId, epoch: sessionKeys.epoch, installId: sessionKeys.installId })
+    .from(sessionKeys)
+    .where(inArray(sessionKeys.rootId, [...epochOf.keys()]))
+  for (const row of rows) {
+    if (!epochOf.has(row.rootId) || epochOf.get(row.rootId) !== row.epoch) continue
+    out.set(row.rootId, (out.get(row.rootId) ?? new Set()).add(row.installId))
+  }
+  return out
 }
 
 type PendingPair = {
@@ -187,15 +206,39 @@ export const sessionKeysRouter = router({
       const held = await heldEpochs(ctx.db, input.installId)
       const rootIds = [...new Set(held.map((row) => row.rootId))].sort()
       if (rootIds.length === 0) return []
-      const roots = (await ctx.db.select().from(sessions).where(inArray(sessions.id, rootIds))).filter(
-        (root) => rootIds.includes(root.id) && root.parentId === null
-      )
-      roots.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      // #PERF-6: only the trees whose CURRENT epoch this install holds, their
+      // readers and wraps fetched per chunk in a fixed number of queries.
+      const roots = (await ctx.db.select().from(sessions).where(inArray(sessions.id, rootIds)))
+        .filter(
+          (root) =>
+            rootIds.includes(root.id) &&
+            root.parentId === null &&
+            root.sealEpoch !== null &&
+            !!root.sealPublicKey &&
+            held.some((row) => row.rootId === root.id && row.epoch === root.sealEpoch)
+        )
+        .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
       const out: PendingPair[] = []
-      for (const root of roots) {
-        const holds = held.some((row) => row.rootId === root.id && row.epoch === root.sealEpoch)
-        out.push(...(await pendingFor(ctx.db, root, input.installId, holds)))
-        if (out.length >= input.limit) break
+      for (let at = 0; at < roots.length && out.length < input.limit; at += PENDING_CHUNK) {
+        const chunk = roots.slice(at, at + PENDING_CHUNK)
+        const readersOf = await treeReadersMany(ctx.db, chunk)
+        const doneOf = await wrappedInstallsMany(ctx.db, chunk)
+        for (const root of chunk) {
+          const readers = readersOf.get(root.id)
+          if (!readers?.has(input.installId)) continue
+          const done = doneOf.get(root.id) ?? new Set<string>()
+          for (const reader of readers.values()) {
+            if (done.has(reader.installId)) continue
+            out.push({
+              rootId: root.id,
+              epoch: root.sealEpoch!,
+              publicKey: root.sealPublicKey!,
+              targetInstallId: reader.installId,
+              targetX25519Public: reader.x25519Public,
+            })
+          }
+          if (out.length >= input.limit) break
+        }
       }
       return out.slice(0, input.limit)
     }),

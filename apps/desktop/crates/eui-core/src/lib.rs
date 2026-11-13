@@ -84,6 +84,7 @@ pub mod catalog;
 pub mod chart;
 pub mod code;
 pub mod conditions;
+pub mod count_badge;
 pub mod data;
 pub mod cel;
 pub mod dates;

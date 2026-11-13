@@ -411,6 +411,29 @@ object Markdown {
     private class Scan(val s: String) {
         private val hits = HashMap<String, IntArray>()
 
+        /**
+         * #FEED-214: each `[`'s balancing `]` (-1 = none), found in ONE pass
+         * with a stack (`\` + any character is skipped), like web's
+         * LinkScanner: a label holds nested brackets (`[![x](1.png)](u)`).
+         */
+        private val bracketClose: IntArray by lazy {
+            val out = IntArray(s.length) { -1 }
+            val open = ArrayList<Int>()
+            var i = 0
+            while (i < s.length) {
+                when (s[i]) {
+                    '\\' -> i += 1
+                    '[' -> open.add(i)
+                    ']' -> if (open.isNotEmpty()) out[open.removeAt(open.size - 1)] = i
+                }
+                i += 1
+            }
+            out
+        }
+
+        /** The `]` balancing the `[` at [at]; -1 = none. */
+        fun closeBracket(at: Int): Int = bracketClose[at]
+
         fun indexOf(needle: String, from: Int): Int {
             val memo = hits.getOrPut(needle) { intArrayOf(-2, -2) } // [from, result]
             if (memo[0] >= 0 && from >= memo[0]) {
@@ -489,15 +512,16 @@ object Markdown {
     }
 
     /**
-     * `[label](href)` at `s[at]` → (label, href, consumed). The destination
+     * `[label](href)` at `s[at]` → (label, href, consumed). The label
+     * balances brackets (#FEED-214, as web, Swift and gpui). The destination
      * follows CommonMark: balanced parentheses (`A_(b)`), `\` escapes, no
      * whitespace, never empty.
      */
     private fun linkAt(scan: Scan, at: Int, image: Boolean = false): LinkMatch? {
         val s = scan.s
         if (at >= s.length || s[at] != '[') return null
-        val close = scan.indexOf("](", at + 1)
-        if (close < 0) return null
+        val close = scan.closeBracket(at)
+        if (close < 0 || close + 1 >= s.length || s[close + 1] != '(') return null
         val start = close + 2
         val end = scan.destinationEnd(start)
         if (end < 0) return null

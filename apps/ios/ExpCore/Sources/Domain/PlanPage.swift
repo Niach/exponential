@@ -37,6 +37,8 @@ public enum PlanPage {
         public static let titleSize: Double = 28
         public static let rowHeight: Double = 44
         public static let tabMaxWidth: Double = 260
+        /// #EXP-1786: the document's readable floor (`planPaneLayout`).
+        public static let documentMinWidth: Double = 360
     }
 
     /// #EXP-1662: the questions float over the document's foot.
@@ -187,6 +189,28 @@ public enum PlanPage {
     /// the plan glyph.
     public static func planTabGlyph(_ decision: String?) -> TabGlyph {
         decision == "approved" ? TabGlyph(icon: "ui-check", tone: "approved") : TabGlyph(icon: "coding-plan", tone: "text")
+    }
+
+    /// #EXP-1786: which wide columns the plan body's OWN width holds
+    /// (`paneCases`). `outline` false = no outline column; `rail` false = the
+    /// questions float (`Panel`).
+    public struct PaneLayout: Equatable, Sendable {
+        public let outline: Bool
+        public let rail: Bool
+
+        public init(outline: Bool, rail: Bool) {
+            self.outline = outline
+            self.rail = rail
+        }
+    }
+
+    /// The three columns while the document keeps `documentMinWidth` beside
+    /// both, else the document + the rail, else the document alone.
+    public static func planPaneLayout(_ width: Double) -> PaneLayout {
+        PaneLayout(
+            outline: width >= Layout.outlineWidth + Layout.railWidth + Layout.documentMinWidth,
+            rail: width >= Layout.railWidth + Layout.documentMinWidth
+        )
     }
 
     /// #EXP-1662: `Plan: title`, the row's and the wide tab's label

@@ -759,6 +759,7 @@ function componentCases(): ComponentCase[] {
 const INLINE_SPECIMENS = new Set([
   `Avatar`, `Badge`, `Button`, `Checkbox`, `Chip`, `Icon`, `Link`, `Menu`,
   `Radio`, `Ring`, `Spinner`, `Switch`, `Toggle`, `Segmented`, `Tooltip`, `Popover`, `Pagination`, `QrCode`,
+  `CountBadge`,
 ])
 /** The enum props a specimen shows, in priority order (at most two of them). */
 const SPECIMEN_ENUMS = [`variant`, `shape`, `surface`, `openOn`, `type`, `kind`, `level`, `size`, `tone`, `tint`, `chevron`, `density`, `orientation`, `direction`, `fit`]
@@ -1009,6 +1010,8 @@ const AVATAR_PICTURE = `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACA
  *  centred under their icons), a label-less search field (the placeholder
  *  centred in the box). */
 const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
+  // #FEED-232: past the cap (`99+`) on the muted tone.
+  CountBadge: [{ label: `count 120 · muted`, node: { id: `count_badge_capped`, component: `CountBadge`, props: { count: 120, tone: `muted` } } }],
   // #EXP-1760: the open grids, in a box tall enough for them (an extra:
   // the wrapper keeps its own child).
   IconPicker: [

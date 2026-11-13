@@ -995,6 +995,21 @@ struct BlockTextEditor: UIViewRepresentable {
         /// (nil after a ranged selection).
         private var lastCollapsedCaret: Int?
 
+        /// #PERF-5: the chip and attachment resolvers answer from memory
+        /// (`StoreMemo`); when a load lands the block re-runs its chip pass, so
+        /// a typed ref chips a moment later instead of the keystroke waiting
+        /// on the database.
+        override init() {
+            super.init()
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(storeDidLoad), name: StoreMemoLoads.didLoad, object: StoreMemoLoads.shared)
+        }
+
+        @objc private func storeDidLoad() {
+            model?.attachmentsDidChange()
+            scheduleChipPass()
+        }
+
         func beginProgrammaticChange() { isProgrammaticChange = true }
         func endProgrammaticChange() { isProgrammaticChange = false }
 

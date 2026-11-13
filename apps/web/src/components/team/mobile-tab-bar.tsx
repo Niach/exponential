@@ -30,7 +30,7 @@ import { readLastVisited } from "@/lib/last-visited"
 import { useChromeHeightVar } from "@/hooks/use-chrome-height-var"
 import { useMobileChrome } from "@/hooks/use-mobile-chrome"
 import { useOpenNewDraft } from "@/hooks/use-open-new-draft"
-import { useChatsNav } from "@/hooks/use-nav-counts"
+import { useChatsBadge } from "@/hooks/use-nav-counts"
 
 // EXP-317: the cross-client nav glyphs come from the shared registry
 // (packages/icons/icons.json) so web, desktop, iOS and Android agree.
@@ -145,15 +145,6 @@ export function resolveBoardTarget(
   return boards[0]
 }
 
-// EXP-1293 → chat 58cb32df: the Chats tab's dot — amber while a chat
-// needs you, green while one runs, else the unread dot while a chat holds
-// an unread reply (green-500/yellow-400 = the natives' semantic tokens,
-// EXP-699). Phones read the ONE active team (chats.json `shell`).
-function chatsDot(nav: { live: boolean; needsYou: boolean; unread: boolean }): string | null {
-  if (!nav.live && !nav.unread) return null
-  return nav.needsYou ? `bg-yellow-400` : nav.live ? `bg-green-500` : `bg-primary`
-}
-
 // The detached FAB beside the nav pill: ONE 52px capsule with two 52px arms
 // — Start chat | New issue — split by a hairline (`FAB_GROUP_CLASS` +
 // `FAB_ARM_CLASS`). The capsule is the circle STRETCHED, so it says 52px the
@@ -218,8 +209,9 @@ export function MobileTabBar({
   const publishTabBarHeight = useChromeHeightVar(`--tabbar-h`)
 
   const boardTarget = resolveBoardTarget(teamSlug, boards, boardSlug)
-  // chats.json: ONE active team drives every phone screen, the dot too.
-  const nav = useChatsNav(team?.id)
+  // chats.json: ONE active team drives every phone screen; #FEED-232: the
+  // Chats tab's count badge = `chatsBadge`.
+  const chatsCount = useChatsBadge(team?.id)
   const openNewDraft = useOpenNewDraft(teamSlug)
 
   const onBoard = Boolean(
@@ -352,7 +344,7 @@ export function MobileTabBar({
           label={CHATS_COPY.tabs.chats}
           icon={<ChatsTabIcon className="size-5" />}
           selected={onChats}
-          dot={chatsDot(nav)}
+          badge={chatsCount}
           data-testid="tab-chats"
         >
           <Link to="/t/$teamSlug/chats" params={{ teamSlug }} />
@@ -394,8 +386,8 @@ export function MobileTabBar({
           EXP-739 made it a LINK to the team's Agent page, EXP-827 merged it
           with New issue on a board (×3 mobile), and EXP-973 made that one
           capsule the whole story — it rides every top-level surface, with the
-          New-issue arm dimmed only when the team has no board. EXP-1327: no
-          dot here; the live dot rides Chats. */}
+          New-issue arm dimmed only when the team has no board. No badge here:
+          the count rides Chats (#FEED-232). */}
       <div className={FAB_GROUP_CLASS} data-testid="fab-group">
         <Link
           to="/t/$teamSlug/agent"

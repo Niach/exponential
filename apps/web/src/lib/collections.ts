@@ -29,6 +29,7 @@ import {
   selectIssueLabelSchema,
   selectIssueRelationSchema,
   selectIssueDraftSchema,
+  selectComposerDraftSchema,
   selectIssueSchema,
   selectIssueSubscriberSchema,
   selectIssueStatusRowSchema,
@@ -329,6 +330,18 @@ export const issueDraftCollection = createCollection(
     id: `issue-drafts`,
     shapeOptions: shapeOptions(`/api/shapes/issue-drafts`),
     schema: selectIssueDraftSchema,
+    getKey: (item) => item.id,
+  })
+)
+
+// #FEED-219: the caller's composer drafts (composer-draft.json), keyed by
+// row id; a composer reads the one row whose `key` is its target. Per-USER
+// shape (static `user_id = me`).
+export const composerDraftCollection = createCollection(
+  electricCollectionOptions({
+    id: `composer-drafts`,
+    shapeOptions: shapeOptions(`/api/shapes/composer-drafts`),
+    schema: selectComposerDraftSchema,
     getKey: (item) => item.id,
   })
 )

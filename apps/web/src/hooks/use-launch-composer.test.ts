@@ -20,6 +20,8 @@ const mockState = vi.hoisted(() => ({
   toastError: vi.fn(),
 }))
 
+// #FEED-219: the composer field as a plain field (no drafts shape here).
+vi.mock(`@/hooks/use-composer-draft`, () => import(`@/test/composer-draft-plain`))
 vi.mock(`@tanstack/react-db`, async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>
   return {

@@ -44,11 +44,8 @@ struct MobileTabBar: View {
     var onTeamPage = false
     /// The active team (the Team tab's mark and label); nil = none yet.
     var team: TeamEntity?
-    /// The Chats dot: amber = a chat needs me, green = one runs, primary =
-    /// one holds news I have not read.
-    var chatsRunning = false
-    var chatsNeedYou = false
-    var chatsUnread = false
+    /// #FEED-232: the Chats tab's count badge (`NavBadges.chatsBadge`).
+    var chatsBadge: NavBadges.Value = .none
     /// EXP-973: whether the New-issue arm can go anywhere.
     var composeEnabled = true
     /// The board menu's rows: the active team's boards in sidebar order.
@@ -202,13 +199,9 @@ struct MobileTabBar: View {
             tabIcon(tab)
                 .frame(height: 22)
                 .overlay(alignment: .topTrailing) {
-                    if tab == .chats, chatsRunning || chatsNeedYou || chatsUnread {
-                        Circle()
-                            .fill(chatsNeedYou
-                                ? DesignTokens.Semantic.yellow
-                                : chatsRunning ? DesignTokens.Semantic.green : DesignTokens.Palette.primary)
-                            .frame(width: 8, height: 8)
-                            .offset(x: 5, y: -1)
+                    if tab == .chats {
+                        CountBadge(chatsBadge)
+                            .offset(x: 10, y: -4)
                     }
                 }
                 // An overlay, so it takes no room: the tab's width (and the

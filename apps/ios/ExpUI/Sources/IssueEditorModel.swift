@@ -178,6 +178,11 @@ public final class IssueEditorModel {
     /// recent). nil disables the #-autocomplete.
     public var issueRefSearch: ((String) -> [IssueRefCandidate])?
 
+    /// #PERF-5: the same local ranking read off the main thread, which the `#`
+    /// sheet awaits. A host that sets it answers `issueRefSearch` from memory
+    /// and hands the read's rows back through `offerIssueRefCandidates`.
+    public var issueRefLocalSearch: ((String) async -> [IssueRefCandidate])?
+
     /// SLOP-28 (EXP-1259 D4): the `#` typeahead opens THE search list as a
     /// bottom sheet (`issueRefSearchRequest`) instead of the inline candidate
     /// bar. The app's editors turn it on; the inline bar is what a host
@@ -892,16 +897,15 @@ public final class IssueEditorModel {
     }
 
     /// EXP-892 — replace the open `#` menu's rows with the host's merged list
-    /// (locally ranked rows first, then the server's full-text hits), but only
+    /// (locally ranked rows first, then the server's full-text hits) or, since
+    /// #PERF-5, with its local rows read off the main thread, but only
     /// while the menu is still showing `query`: a response that outlived its
     /// keystroke is dropped, never rendered under a newer token.
     public func offerIssueRefCandidates(_ candidates: [IssueRefCandidate], for query: String) {
-        guard activeIssueRef != nil, activeIssueRefQuery == query, !candidates.isEmpty else {
-            return
-        }
+        guard activeIssueRef != nil, activeIssueRefQuery == query else { return }
         guard candidates != issueRefCandidates else { return }
         issueRefCandidates = candidates
-        autocompleteSelection = min(autocompleteSelection, candidates.count - 1)
+        autocompleteSelection = max(0, min(autocompleteSelection, candidates.count - 1))
     }
 
     /// EXP-551 — `:shortcode` typeahead. Mirrors the mention/issue-ref

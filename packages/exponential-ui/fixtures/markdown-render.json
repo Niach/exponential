@@ -1752,6 +1752,42 @@
    ]
   },
   {
+   "name": "image_in_link_is_alt",
+   "text": "see [![x](1.png)](https://a.example)",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "see "
+      },
+      {
+       "text": "x",
+       "link": "https://a.example"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "link_label_balances_brackets",
+   "text": "[a [b] c](https://a.example) d",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "a [b] c",
+       "link": "https://a.example"
+      },
+      {
+       "text": " d"
+      }
+     ]
+    }
+   ]
+  },
+  {
    "name": "rule_variants",
    "text": "***\n\n___",
    "blocks": [

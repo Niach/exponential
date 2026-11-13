@@ -1,9 +1,9 @@
-// VAPP-87: Ring, Spinner, Skeleton, TreeGuides, VoiceWave (Chart: chart.tsx).
+// VAPP-87: Ring, Spinner, Skeleton, TreeGuides, VoiceWave (Chart: chart.tsx); #FEED-232: CountBadge.
 
 import { useEffect, useLayoutEffect, useRef } from "react"
-import { resolveRecipe, nativeRecipeProps, voiceWave, voiceWaveBars, voiceWaveChildBox, voiceWavePath, voiceWaveVariant, TREE_GUIDE_BRIDGE, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS, VOICE_WAVE_ACTIVITIES } from "@exponential_app/eui"
+import { countBadgeLabel, resolveRecipe, nativeRecipeProps, voiceWave, voiceWaveBars, voiceWaveChildBox, voiceWavePath, voiceWaveVariant, TREE_GUIDE_BRIDGE, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS, VOICE_WAVE_ACTIVITIES } from "@exponential_app/eui"
 import type { VoiceWaveActivity, VoiceWaveSizeName } from "@exponential_app/eui"
-import { voiceWaveAnimates, voiceWaveClock, voiceWaveFitChild, voiceWaveName } from "@exponential_app/eui/web"
+import { voiceWaveAnimates, voiceWaveClock, voiceWaveFitChild, voiceWaveName } from "@exponential_app/eui/web/motion"
 import { useSurfaceContext } from "../context"
 import { CHROME } from "../icons"
 import type { NativeProps } from "../node-view"
@@ -35,6 +35,15 @@ export function RingNative({ node, props, rootProps }: NativeProps) {
       {label ? <span {...(part(`label`) as Record<string, string>)}>{label}</span> : null}
     </span>
   )
+}
+
+/** #FEED-232: CountBadge = THE count badge (the `Badge` primitive's label
+ *  rule, `countBadgeLabel`; the look is the `CountBadge/root` recipe, the
+ *  primitive's numbers): `''` (0 or less) renders nothing at all. */
+export function CountBadgeNative({ props, rootProps }: NativeProps) {
+  const label = countBadgeLabel(num(props.count, 0), num(props.max, 99))
+  if (!label) return null
+  return <span {...(rootProps as Record<string, unknown>)}>{label}</span>
 }
 
 export function SpinnerNative({ props, rootProps }: NativeProps) {

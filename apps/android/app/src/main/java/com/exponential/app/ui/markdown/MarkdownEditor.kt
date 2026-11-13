@@ -242,9 +242,14 @@ fun rememberMarkdownImagePicker(
                 return@launch
             }
             if (uploader == null) return@launch
-            val bytes = MarkdownMediaUtils.readBytes(context, uri)
-            val name = MarkdownMediaUtils.guessFilename(context, uri)
-            val size = MarkdownMediaUtils.probeSize(context, uri)
+            // #PERF-5: the picked file is read and probed off the main thread.
+            val (bytes, name, size) = withContext(Dispatchers.IO) {
+                Triple(
+                    MarkdownMediaUtils.readBytes(context, uri),
+                    MarkdownMediaUtils.guessFilename(context, uri),
+                    MarkdownMediaUtils.probeSize(context, uri),
+                )
+            }
             if (bytes == null) {
                 // No preview bytes — fall back to upload-then-insert (nothing to
                 // show while the upload runs).

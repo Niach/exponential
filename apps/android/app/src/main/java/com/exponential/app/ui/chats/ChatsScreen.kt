@@ -106,7 +106,7 @@ fun ChatsScreen(
     /** The agent menu's Agent settings (owners). */
     onOpenAgentSettings: (agentId: String) -> Unit = {},
     /** The inbox circle's dot: any notification unread. */
-    inboxUnread: Boolean = false,
+    inboxUnread: Int = 0,
     /** #EXP-1388: the list, or the pushed Archived page. */
     view: Chats.ChatListView = Chats.ChatListView.List,
     /** #EXP-1388: the Archived entry pushes the Archived page. */
@@ -273,7 +273,7 @@ fun ChatsContent(
     onLongPressChat: (Chats.ChatRow) -> Unit,
     onLongPressAgent: (Chats.AgentChatRow) -> Unit,
     onOpenInbox: () -> Unit,
-    inboxUnread: Boolean,
+    inboxUnread: Int,
     modifier: Modifier = Modifier,
     /** #EXP-1388: the list, or the Archived page. */
     view: Chats.ChatListView = Chats.ChatListView.List,

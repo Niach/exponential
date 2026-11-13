@@ -881,11 +881,13 @@ fn issueless_kind_renderable(kind: Option<&str>) -> bool {
     )
 }
 
-/// EXP-699: the rail's Inbox dot — any unread notification the inbox can
-/// render (issue-keyed rows need the issue AND its board synced, issue-less
-/// rows count only as `agent_message`, `session_blocked` or `agent_signed_out`): the [`inbox`]
-/// renderability rule without the grouping work.
-pub fn inbox_unread(cx: &App) -> bool {
+/// #FEED-232: the Inbox button's count = the active team's unread
+/// notifications the inbox can render (issue-keyed rows need the issue AND
+/// its board synced, issue-less rows count only as `agent_message`,
+/// `session_blocked` or `agent_signed_out`): the [`inbox`] renderability rule
+/// without the grouping work. A row of another team never counts; a
+/// team-less row (a device's lost login) counts everywhere.
+pub fn inbox_unread_count(team_id: Option<&str>, cx: &App) -> usize {
     let collections = Store::global(cx).collections();
     let issues = collections.issues.read(cx);
     let boards = collections.boards.read(cx);
@@ -893,17 +895,22 @@ pub fn inbox_unread(cx: &App) -> bool {
         .notifications
         .read(cx)
         .iter()
-        .any(|notification| {
+        .filter(|notification| {
             if notification.read_at.is_some() {
                 return false;
             }
             match notification.issue_id.as_deref() {
                 Some(issue_id) => issues
                     .get(issue_id)
-                    .is_some_and(|issue| boards.get(&issue.board_id).is_some()),
-                None => issueless_kind_renderable(notification.kind.as_deref()),
+                    .and_then(|issue| boards.get(&issue.board_id))
+                    .is_some_and(|board| team_id.is_none_or(|team| board.team_id == team)),
+                None => {
+                    issueless_kind_renderable(notification.kind.as_deref())
+                        && notification.team_id.as_deref().is_none_or(|own| team_id.is_none_or(|team| own == team))
+                }
             }
         })
+        .count()
 }
 
 /// The pure grouping core of [`inbox`]. `resolve_issue` returns the synced

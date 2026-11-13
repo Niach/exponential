@@ -1033,13 +1033,28 @@ export function resumePullRequest(pullRequestId: string): Promise<StepOutcome | 
 export async function mergeNowPullRequest(pullRequestId: string): Promise<StepOutcome | null> {
   const ids = await stackOf(pullRequestId)
   let outcome: StepOutcome | null = null
+  const now = new Date()
   for (const id of ids) {
-    const step = await stepPullRequest(id, { type: `merge_now` }, { base: ``, now: new Date() })
+    const step = await stepPullRequest(id, { type: `merge_now`, at: now.toISOString() }, { base: ``, now })
     if (id === pullRequestId) outcome = step
   }
   mergeTrainEdge({ pullRequestId })
   return outcome
 }
+/** #FEED-233 (merge-train.json `merge_now`): an agent's plain `pr merge`
+ *  (a person asked for it) re-queues a stack held by the limits (bounces,
+ *  timeout, no_checks, conflict) like Needs you Retry; a person's Hold
+ *  stays. Then it approves like Needs approval. */
+export async function queuePullRequest(pullRequestId: string, now: Date = new Date()): Promise<void> {
+  const ids = await stackOf(pullRequestId)
+  const held = await db
+    .select({ id: pullRequests.id, base: pullRequests.base })
+    .from(pullRequests)
+    .where(and(inArray(pullRequests.id, ids), eq(pullRequests.mergeState, `held`), ne(pullRequests.mergeHold, `person`)))
+  for (const pr of held) await stepPullRequest(pr.id, { type: `resume` }, { base: pr.base, now })
+  await approvePullRequest(pullRequestId, now)
+}
+
 /** `approval` mode: a person's Needs approval (then it queues). */
 export async function approvePullRequest(pullRequestId: string, now: Date = new Date()): Promise<void> {
   const ids = await stackOf(pullRequestId)

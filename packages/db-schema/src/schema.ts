@@ -3297,6 +3297,34 @@ export const issueDrafts = pgTable(
   ]
 )
 
+// #FEED-219: every composer's DRAFT (composer-draft.json) — the text a
+// comment, reply, session, agent, app or New chat composer holds, kept per
+// USER and per TARGET key (`<kind>:<id>`) so a tab switch, a reload or
+// another device shows it again. Same sync posture as `issue_drafts`: the
+// shape is the static `user_id = me`. `team_id` = the team the target lives
+// in (the cascade, and what a drafts surface narrows by); the key carries no
+// FK (a target that is gone leaves a row nobody opens; the team cascade and
+// the next send/discard clean it up).
+export const composerDrafts = pgTable(
+  `composer_drafts`,
+  {
+    id: uuidPk(),
+    userId: text(`user_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    key: varchar({ length: 80 }).notNull(),
+    text: text().notNull().default(``),
+    ...timestamps,
+  },
+  (table) => [
+    unique(`composer_drafts_user_key_unique`).on(table.userId, table.key),
+    index(`idx_composer_drafts_team`).on(table.teamId),
+  ]
+)
+
 // Activity log (D9): status/assignee/label/PR/plan/error events, rendered as a
 // Linear-style timeline on every client. `payload` carries event-specific data
 // (e.g. { from, to } for a status change).
@@ -4434,6 +4462,8 @@ export const selectIssueDraftSchema = createSelectSchema(issueDrafts, {
   priority: issuePrioritySchema,
 })
 
+export const selectComposerDraftSchema = createSelectSchema(composerDrafts)
+
 export const selectIssueSubscriberSchema = createSelectSchema(
   issueSubscribers,
   {
@@ -4624,6 +4654,7 @@ export type Notification = InferSelectModel<typeof notifications>
 export type Pin = InferSelectModel<typeof pins>
 export type SessionRead = InferSelectModel<typeof sessionReads>
 export type IssueDraft = InferSelectModel<typeof issueDrafts>
+export type ComposerDraft = InferSelectModel<typeof composerDrafts>
 export type IssueSubscriber = InferSelectModel<typeof issueSubscribers>
 export type IssueEvent = InferSelectModel<typeof issueEvents>
 export type Session = InferSelectModel<typeof sessions>

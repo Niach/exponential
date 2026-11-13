@@ -1,7 +1,7 @@
 import { CHATS_COPY } from "@exp/domain-contract/chats"
 import { useApps } from "@/hooks/use-apps"
 import { SidebarAppsSection } from "@/components/team/sidebar-apps"
-import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type { ReactNode } from "react"
 import {
   Link,
@@ -45,7 +45,8 @@ import {
 } from "@exp/ui"
 import { NEEDS_YOU_COPY, NEEDS_YOU_TEST_IDS } from "@exp/domain-contract/needs-you"
 import { InboxPopover } from "@/components/team/inbox-popover"
-import { useNeedsYou } from "@/hooks/use-needs-you"
+import { useNeedsYou, useNeedsYouCounts } from "@/hooks/use-needs-you"
+import { appIconBadge, chatsBadge } from "@exp/domain-contract/nav-badges"
 import { useAgents, useSessionReads, useChatsList } from "@/hooks/use-session-tree"
 import { chatWordOf, useTeamPullRequestsByRoot } from "@/components/chat/chats-list"
 import { useSession } from "@/hooks/use-session"
@@ -60,27 +61,16 @@ import { CreateTeamDialog } from "@/components/create-team-dialog"
 import { JoinTeamDialog } from "@/components/join-team-dialog"
 import { SettingsSidebar } from "@/components/team/settings-sidebar"
 import { SidebarPinned } from "@/components/team/sidebar-pinned"
-import {
-  SidebarRunningSection,
-  chatsNavState,
-  type SidebarChats,
-} from "@/components/team/sidebar-running"
-import { SidebarAgentsSection } from "@/components/team/sidebar-agents"
+import { SidebarRunningSection, type SidebarChats } from "@/components/team/sidebar-running"
+import { SidebarAgentsSection, useAgentBadges } from "@/components/team/sidebar-agents"
 import { mainPanelEdge } from "@/components/team/app-shell"
-import {
-  TeamLiveDot,
-  ChatsLiveBadge,
-  UserAvatar,
-  UserMenuItems,
-} from "@/components/team/sidebar-shared"
+import { NavCountBadge, UserAvatar, UserMenuItems } from "@/components/team/sidebar-shared"
 import { useOpenNewDraft } from "@/hooks/use-open-new-draft"
 import {
   DRAFTS_LABEL,
   NavDraftsIcon,
   useDraftCount,
 } from "@/components/team/sidebar-nav-entries"
-import { useTeamLiveRuns } from "@/hooks/use-team-live-runs"
-import { otherTeamsLive } from "@/lib/sessions/team-live-runs"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import type { SidebarOccupant } from "@/lib/detail-origin"
 import {
@@ -166,10 +156,13 @@ export function TeamSidebar({
   // reserves room under its last row only while the card floats over it.
   const whatsNew = useWhatsNew()
   const { myTeams } = useTeamMemberships(session?.user?.id)
-  // EXP-1075: session lists are team-scoped, so the picker carries the only
-  // hint that a session of mine is alive in a team I am not looking at.
-  const teamLive = useTeamLiveRuns(session?.user?.id)
-  const otherLive = otherTeamsLive(teamLive, team?.id)
+  // #FEED-232 (nav-badges.json): the picker counts each OTHER team's Needs
+  // you rows; the switcher's corner sums them (`appIconBadge`).
+  const myTeamIds = useMemo(() => myTeams.map((t) => t.id), [myTeams])
+  const teamNeedsYou = useNeedsYouCounts(myTeamIds, session?.user?.id)
+  const otherNeedsYou = appIconBadge(
+    myTeamIds.filter((id) => id !== team?.id).map((id) => ({ needsYou: teamNeedsYou.byTeam.get(id) ?? 0 }))
+  )
   const openNewDraft = useOpenNewDraft(teamSlug)
   // EXP-878: the Drafts entry lists only while a draft is parked.
   const draftCount = useDraftCount(team?.id)
@@ -184,8 +177,9 @@ export function TeamSidebar({
     wordOf: (row) => chatWordOf(row, teamPrs.byRoot.get(row.sessionId) ?? [], teamPrs.all),
   }
   const sessionReads = useSessionReads()
-  const chatsNav = chatsNavState(chatsList.groups, sessionReads)
+  const chatsCount = chatsBadge(chatsList.groups, sessionReads)
   const { agents } = useAgents(team?.id, session?.user?.id)
+  const agentBadges = useAgentBadges(team?.id, agents, session?.user?.id)
   // The guarded /t/$teamSlug layout is the only render site, so a session is
   // guaranteed — the reactive useSession store may still be pending on cold
   // load, and we render the authed chrome throughout rather than flash a
@@ -261,14 +255,15 @@ export function TeamSidebar({
                       {team?.name ?? teamSlug}
                     </span>
                     {/* `overflow-visible!`: the menu button truncates its LAST
-                        span, which would clip the corner dot. */}
+                        span, which would clip the corner badge. */}
                     <span className="relative ml-auto flex shrink-0 items-center overflow-visible!">
                       <NavTeamSwitcherIcon className="h-4 w-4" />
-                      <TeamLiveDot
-                        live={otherLive.any ? otherLive : undefined}
-                        placement="corner"
-                        title="Sessions in other teams"
-                        data-testid="team-switcher-live-dot"
+                      <Badge
+                        count={otherNeedsYou}
+                        tone="attention"
+                        title="Needs you in other teams"
+                        data-testid="team-switcher-needs-you-badge"
+                        className="absolute -right-1.5 -top-2 ring-2 ring-sidebar"
                       />
                     </span>
                   </SidebarMenuButton>
@@ -294,10 +289,11 @@ export function TeamSidebar({
                       {ws.slug === teamSlug ? (
                         <UiCheckIcon className="ml-auto h-4 w-4" />
                       ) : (
-                        <TeamLiveDot
-                          live={teamLive.get(ws.id)}
-                          placement="trailing"
-                          title="Sessions in this team"
+                        <Badge
+                          count={teamNeedsYou.byTeam.get(ws.id) ?? 0}
+                          tone="attention"
+                          title={NEEDS_YOU_COPY.entry}
+                          className="ml-auto"
                         />
                       )}
                     </DropdownMenuItem>
@@ -317,7 +313,7 @@ export function TeamSidebar({
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-              {team && <InboxPopover />}
+              {team && <InboxPopover teamId={team.id} />}
               {team && (
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -406,13 +402,13 @@ export function TeamSidebar({
                                 </Link>
                               </SidebarMenuButton>
                               <SidebarMenuTrailing className="pointer-events-none">
-                                <Badge count={needsYou.rows.length} data-testid="needs-you-count-badge" />
+                                <Badge count={needsYou.rows.length} tone="attention" data-testid="needs-you-count-badge" />
                               </SidebarMenuTrailing>
                             </SidebarMenuItem>
                           )}
                           {/* EXP-1293: Chats replaced Reviews and the
-                              Agent page's history — green while a chat of the
-                              team runs, yellow while one needs you. */}
+                              Agent page's history; #FEED-232: its count
+                              badge = `chatsBadge`. */}
                           <SidebarMenuItem>
                             <SidebarMenuButton asChild density="compact">
                               <Link
@@ -424,7 +420,7 @@ export function TeamSidebar({
                                 <span>{CHATS_COPY.title}</span>
                               </Link>
                             </SidebarMenuButton>
-                            <ChatsLiveBadge state={chatsNav} />
+                            <NavCountBadge value={chatsCount} data-testid="nav-chats-badge" />
                           </SidebarMenuItem>
                           <SidebarMenuItem>
                             <SidebarMenuButton asChild density="compact">
@@ -450,7 +446,7 @@ export function TeamSidebar({
                                 </Link>
                               </SidebarMenuButton>
                               <SidebarMenuTrailing className="pointer-events-none">
-                                <Badge count={draftCount} data-testid="drafts-count-badge" />
+                                <Badge count={draftCount} tone="muted" data-testid="drafts-count-badge" />
                               </SidebarMenuTrailing>
                             </SidebarMenuItem>
                           )}
@@ -470,6 +466,7 @@ export function TeamSidebar({
                       agents={agents}
                       isOwner={isOwner}
                       activeAgentId={activeAgentId}
+                      badges={agentBadges}
                     />
 
                     {/* VAPP-110: the team's apps, drawn like the agents

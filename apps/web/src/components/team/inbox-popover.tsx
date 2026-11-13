@@ -1,8 +1,8 @@
 import { CHATS_COPY } from "@exp/domain-contract/chats"
 import {
   Button,
+  Badge,
   conceptIcon,
-  LiveDot,
   MENU_SURFACE_CLASS,
   Popover,
   PopoverContent,
@@ -17,7 +17,8 @@ import { markAllNotificationsRead, useUnreadNotificationCount } from "@/hooks/us
 import { cn } from "@/lib/utils"
 
 // #FEED-191 (owner-approved draft): the WIDE Inbox: an icon in the sidebar's
-// header row, the unread dot on its corner, opening a menu-surface popover over
+// header row, (#FEED-232) THE count badge of the active team's unread
+// notifications on its corner (muted), opening a menu-surface popover over
 // the page: the `Inbox` caption with the mark-all-read glyph, then THE inbox's
 // groups (`InboxView compact`), scrolling past `max-h`. A row marks read,
 // navigates by its target and closes the popover. Phones keep the pushed page.
@@ -25,9 +26,11 @@ import { cn } from "@/lib/utils"
 const NavInboxIcon = conceptIcon(`nav-inbox`)
 const MarkReadIcon = conceptIcon(`notification-mark-read`)
 
-export function InboxPopover() {
+export function InboxPopover({ teamId }: { teamId: string }) {
   const open = useInboxPopoverOpen()
-  const unread = useUnreadNotificationCount()
+  const unread = useUnreadNotificationCount(teamId)
+  // The popover lists every team's rows; Mark all read follows the list.
+  const unreadAnywhere = useUnreadNotificationCount()
   return (
     <Popover open={open} onOpenChange={setInboxPopoverOpen}>
       <Tooltip>
@@ -41,13 +44,12 @@ export function InboxPopover() {
               data-testid="nav-inbox"
             >
               <NavInboxIcon className="size-4" />
-              {unread > 0 && (
-                <LiveDot
-                  tone="unread"
-                  data-testid="nav-inbox-dot"
-                  className="pointer-events-none absolute top-1 right-1"
-                />
-              )}
+              <Badge
+                count={unread}
+                tone="muted"
+                data-testid="nav-inbox-dot"
+                className="absolute -top-1 -right-1"
+              />
             </Button>
           </PopoverTrigger>
         </TooltipTrigger>
@@ -61,7 +63,7 @@ export function InboxPopover() {
       >
         <div className="flex h-8 items-center justify-between px-2">
           <span className="text-xs font-medium text-muted-foreground">{CHATS_COPY.inbox}</span>
-          {unread > 0 && (
+          {unreadAnywhere > 0 && (
             <Button
               variant="ghost"
               size="icon"
