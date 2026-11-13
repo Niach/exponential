@@ -19,7 +19,7 @@ import org.junit.Test
 
 /**
  * #EXP-1804: [CiRunView] builds the SAME genUI trees as web
- * `apps/web/src/lib/ci-run-view.ts`. `ci-run-view.golden.json` holds web's
+ * `apps/web/src/lib/ci-run-view.ts`. `packages/domain-contract/fixtures/ci-run-view.json` holds web's
  * own output (its `ciRunTree`, `runnerSectionTree` and `runnerSettingsAfter`
  * over the fixtures' specimens and a few variations), replayed here node for
  * node: ids, props and child order.
@@ -27,7 +27,7 @@ import org.junit.Test
 class CiRunViewTest {
 
     private val golden: JsonObject by lazy {
-        val text = javaClass.classLoader!!.getResourceAsStream("ci-run-view.golden.json")!!.bufferedReader().readText()
+        val text = contractFixtureJson("ci-run-view.json")
         Json.parseToJsonElement(text).jsonObject
     }
 

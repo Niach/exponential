@@ -1,4 +1,5 @@
 {
+ "$comment": "#EXP-1804 THE CI RUN PAGE AND RUNNER SECTION AS genUI TREES, the same on every platform (ci-run.json and runner-settings.json say what; this pins HOW, node for node). `ciRun`: inputs of the run page builder (`model` {run, jobs with runnerLabel and steps}, `selected` job id, `log` = the selected job's log as read so far (null = not read), `now`, `phone`, `busy` = the button in flight: rerun | cancel | null) → `tree` (A2UI nested nodes: id, component, props, children, slots, on). `runner`: the runner section (`client`, `caps`, `platform`, `settings`, `owner`, `refused` = the last labels entry was refused, `recent` true = the rows of runner-settings.json recentJobs[0]) → `tree`. `after`: a control event of the section (`event` id, `payload`) on `current` settings → the `settings` to write (null = nothing to write) and `refused`. The reference is apps/web/src/lib/ci-run-view.ts (its test replays this file); desktop, iOS and Android build the same trees. Regenerate after a deliberate change with `bun apps/web/scripts/bless-ci-run-view.ts` and review the diff.",
  "ciRun": [
   {
    "name": "specimen phone",
