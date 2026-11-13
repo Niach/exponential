@@ -573,6 +573,20 @@ abstract class MessageDao {
     abstract fun rawObserveQueued(sessionId: String): Flow<List<MessageEntity>>
     fun observeQueued(sessionId: String): Flow<List<MessageEntity>> = rawObserveQueued(sessionId).openedMessages()
 
+    // #FEED-237 (message-delivery.json `outboxCases`): the viewer's newest own
+    // rows of a session (an outbox entry's synced row, matched by id or text).
+    @Query(
+        "SELECT * FROM messages WHERE session_id = :sessionId AND author_kind = 'user' " +
+            "AND author_id = :authorId ORDER BY created_at DESC, id DESC LIMIT :limit",
+    )
+    abstract fun rawObserveNewestOwn(sessionId: String, authorId: String, limit: Int): Flow<List<MessageEntity>>
+    fun observeNewestOwn(sessionId: String, authorId: String, limit: Int): Flow<List<MessageEntity>> =
+        rawObserveNewestOwn(sessionId, authorId, limit).openedMessages()
+
+    // #FEED-237: the rows the given outbox entries were stored as.
+    @Query("SELECT id FROM messages WHERE id IN (:ids)")
+    abstract suspend fun existingIds(ids: List<String>): List<String>
+
     // EXP-1459: one message RAW (sealed as synced): the answer re-seals its card.
     @Query("SELECT * FROM messages WHERE id = :id LIMIT 1")
     abstract suspend fun getById(id: String): MessageEntity?
@@ -738,6 +752,35 @@ interface AppRecordOutboxDao {
 
     @Query("DELETE FROM app_record_outbox WHERE write_id IN (:writeIds)")
     suspend fun delete(writeIds: List<String>)
+}
+
+// #FEED-237: the session outbox (message-delivery.json), oldest first.
+@Dao
+interface OutboxDao {
+    @Query("SELECT * FROM outbox WHERE session_id = :sessionId ORDER BY created_at, client_id")
+    fun observeBySession(sessionId: String): Flow<List<OutboxEntity>>
+
+    @Query("SELECT * FROM outbox WHERE client_id = :clientId LIMIT 1")
+    suspend fun get(clientId: String): OutboxEntity?
+
+    // On start: a `sending` entry the server never answered is sent again.
+    @Query("SELECT * FROM outbox WHERE state = 'sending' AND message_id IS NULL ORDER BY created_at, client_id")
+    suspend fun unanswered(): List<OutboxEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: OutboxEntity)
+
+    @Query("UPDATE outbox SET state = :state WHERE client_id = :clientId")
+    suspend fun setState(clientId: String, state: String)
+
+    @Query("UPDATE outbox SET message_id = :messageId WHERE client_id = :clientId")
+    suspend fun setMessageId(clientId: String, messageId: String)
+
+    @Query("UPDATE outbox SET attachment_ids = :attachmentIds WHERE client_id = :clientId")
+    suspend fun setAttachmentIds(clientId: String, attachmentIds: String?)
+
+    @Query("DELETE FROM outbox WHERE client_id IN (:clientIds)")
+    suspend fun delete(clientIds: List<String>)
 }
 
 // NEW-2: the member teams' events, newest first.

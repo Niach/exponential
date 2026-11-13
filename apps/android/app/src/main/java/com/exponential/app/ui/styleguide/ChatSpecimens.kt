@@ -1,5 +1,6 @@
 package com.exponential.app.ui.styleguide
 
+import com.exponential.app.domain.MessageDelivery
 import com.exponential.app.ui.components.ChatRow
 import com.exponential.app.domain.SealedPlaceholder
 import com.exponential.app.data.sealed.SealedContent
@@ -580,7 +581,10 @@ private val SPECIMEN_CHAT = com.exponential.app.domain.TranscriptGrouping.Chat(
  *  (avatar + name), the agent's group of two, a child's report (`›`), the
  *  viewer's own bubble. */
 private val TRANSCRIPT: List<SessionTree.SessionChatRow> = listOf(
-    message("m1", "user", "Cold start is at 1.4 s on the Pixel 6a. Profile the launch path and cut the sync bootstrap out of it."),
+    message("m1", "user", "Cold start is at 1.4 s on the Pixel 6a. Profile the launch path and cut the sync bootstrap out of it.", authorId = SPECIMEN_VIEWER),
+    message("o1", "user", "Use the Pixel 6a numbers as the baseline.", authorId = SPECIMEN_VIEWER),
+    message("o2", "user", "And keep the cache behind a flag.", authorId = SPECIMEN_VIEWER),
+    message("o3", "user", "Ping me when it's under a second.", authorId = SPECIMEN_VIEWER),
     SessionTree.SessionChatRow.Plan(id = "p-old", sessionId = "r", plan = "# Plan\nProfile first", decision = "superseded"),
     message(
         "m2",
@@ -617,7 +621,16 @@ private val TRANSCRIPT: List<SessionTree.SessionChatRow> = listOf(
     SessionTree.SessionChatRow.Divider(id = "d2", kind = Chats.DIVIDER_KIND_NEW, at = "2026-10-24T09:30:00.000Z"),
 )
 
-private val TIMES = mapOf("m1" to "21:02", "m2" to "21:14", "m2b" to "21:14", "m3" to "09:02", "m4" to "09:03", "m6" to "07:00", "x2" to "08:41")
+/** #FEED-237 (message-delivery.json): the viewer's own bubbles under the
+ *  first one, in every delivery state (iOS parity); a consumed own row
+ *  reads two checks. */
+private val DELIVERY = mapOf(
+    "o1" to MessageDelivery.State.Sent,
+    "o2" to MessageDelivery.State.Sending,
+    "o3" to MessageDelivery.State.Failed,
+)
+
+private val TIMES = mapOf("m1" to "21:02", "o1" to "21:02", "o2" to "21:03", "o3" to "21:03", "m2" to "21:14", "m2b" to "21:14", "m3" to "09:02", "m4" to "09:03", "m6" to "07:00", "x2" to "08:41")
 
 /** The specimen's names by member id. */
 private fun specimenAuthor(row: SessionTree.SessionChatRow.MessageRow): String =
@@ -652,6 +665,10 @@ fun ChatTranscriptSpecimenScreen() {
                 clock = ::specimenClock,
                 chat = SPECIMEN_CHAT,
                 viewerId = SPECIMEN_VIEWER,
+                deliveryState = { row -> DELIVERY[row.id] },
+                // #FEED-237: the own bubbles in every state sit under the
+                // first message (iOS parity), so the shot shows the head.
+                startAtTop = true,
             )
         }
     }
