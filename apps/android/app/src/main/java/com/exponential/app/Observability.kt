@@ -3,6 +3,7 @@ package com.exponential.app
 import android.app.Application
 import android.content.Context
 import android.content.SharedPreferences
+import android.provider.Settings
 import android.util.Log
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
@@ -117,6 +118,25 @@ object Observability {
         beforeSpan = { span, request, _ -> if (isTracedPath(request.url.encodedPath)) span else null },
     )
 
+    /** Google's documented marker for a Firebase Test Lab (Play pre-launch report) device. */
+    private fun isTestLabDevice(app: Application): Boolean =
+        runCatching { Settings.System.getString(app.contentResolver, "firebase.test.lab") == "true" }.getOrDefault(false)
+
+    /** A Test Lab device reports as [PRELAUNCH_ENVIRONMENT], whatever the server asks for. */
+    internal fun environmentFor(configured: String?, testLab: Boolean): String = when {
+        testLab -> PRELAUNCH_ENVIRONMENT
+        configured != null -> configured
+        BuildConfig.DEBUG -> "dev"
+        BuildConfig.IS_STAGING -> "staging"
+        else -> "prod"
+    }
+
+    const val PRELAUNCH_ENVIRONMENT = "prelaunch"
+
+    /** The OkHttp integration's event for a 5xx answer. */
+    internal fun isHttpClientError(event: SentryEvent): Boolean =
+        event.exceptions?.any { it.type == "SentryHttpClientException" } == true
+
     internal fun isTracedPath(path: String): Boolean =
         path.startsWith("/api/") && !path.startsWith("/api/attachments/") && !path.startsWith("/api/monitoring")
 
@@ -139,7 +159,12 @@ object Observability {
             options.setTransportFactory { o, details -> TunnelTransport(o, RequestDetails(tunnel, details.headers)) }
             BuildConfig.SENTRY_PROGUARD_UUID.takeIf { it.isNotBlank() }?.let { options.proguardUuid = it }
             options.release = "exponential-android@${BuildConfig.VERSION_NAME}+${BuildConfig.VERSION_CODE}"
-            options.environment = cfg.environment ?: if (BuildConfig.DEBUG) "dev" else if (BuildConfig.IS_STAGING) "staging" else "prod"
+            val testLab = isTestLabDevice(app)
+            options.environment = environmentFor(cfg.environment, testLab)
+            // Play's pre-launch report robots run every uploaded build on
+            // Firebase Test Lab devices whose network answers some requests
+            // with an empty 504 of its own; those never reach our server, so
+            // their HTTP errors stay out (crashes and ANRs still come in).
             options.sampleRate = 1.0
             options.tracesSampleRate = cfg.tracesSampleRate ?: 0.1
             options.isSendDefaultPii = false
@@ -148,7 +173,7 @@ object Observability {
             options.logs.isEnabled = true
             // Trace headers only to the server we report through.
             options.setTracePropagationTargets(listOfNotNull(host))
-            options.setBeforeSend { event, _ -> SentryScrubber.scrub(event) }
+            options.setBeforeSend { event, _ -> if (testLab && isHttpClientError(event)) null else SentryScrubber.scrub(event) }
             options.setBeforeBreadcrumb { breadcrumb, _ -> SentryScrubber.scrub(breadcrumb) }
         }
         setUser(userId)
