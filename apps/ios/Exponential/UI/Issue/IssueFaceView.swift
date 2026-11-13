@@ -395,6 +395,7 @@ struct IssueFaceView: View {
                     onOpenProperties: { activeSheet = .properties },
                     onStartCoding: onStartCoding,
                     replyTarget: $commentReplyTarget,
+                    teamId: vm.board?.teamId,
                     // SLOP-4: the reporter-reply pill keys off the submission.
                     widgetSubmission: vm.widgetSubmission
                 )

@@ -125,7 +125,7 @@ pub enum Screen {
     /// shell or an agent login, never a coding run (EXP-773). The
     /// terminal used to live in a sliding bottom dock; it renders FULLSCREEN
     /// in the center now, like every other screen, and its tab sits in the
-    /// bottom bar (EXP-870: the only kind of tab there).
+    /// one tab strip with every other tab.
     /// Keyed by the manager's stable [`terminal::TabId`] — never persisted
     /// (EXP-301: nothing terminal-side survives a relaunch).
     Terminal { tab: terminal::TabId },
@@ -163,13 +163,6 @@ impl Screen {
         matches!(self, Screen::IssueDetail { .. })
     }
 
-    /// EXP-769: whether the screen's tab lives in the BOTTOM bar rather than
-    /// the top strip. EXP-870: terminals only — a session lives in its
-    /// chat's top tab, and the bottom bar is this machine's processes.
-    pub(crate) fn is_dock_tab(&self) -> bool {
-        matches!(self, Screen::Terminal { .. })
-    }
-
     /// EXP-288: whether the screen is a DETAIL view — the only kind that
     /// gets a tab chip. Settings is a tab-less full-screen mode (leave via
     /// the settings nav's back button, or by clicking any open tab); Source
@@ -177,7 +170,7 @@ impl Screen {
     /// never tabs; Home, Chats and Devices are tab-less pages.
     /// EXP-1294: a chat, a session of its tree (sharing the chat's tab)
     /// and an agent's channel are detail tabs. EXP-769: so is a PTY terminal
-    /// (its chip sits in the bottom bar, [`Self::is_dock_tab`]).
+    /// (one strip with every other tab).
     pub(crate) fn is_detail(&self) -> bool {
         matches!(
             self,

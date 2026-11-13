@@ -489,10 +489,15 @@ fn tab_key(screen: &Screen) -> String {
     format!("{:x}", std::hash::Hasher::finish(&hasher))
 }
 
-/// The bottom tab bar (#EXP-1726): `docs/tabbar.json` in the window, over
-/// the screens panel's tabs. Terminals and work tabs are one strip.
+/// The tab bar (#EXP-1726): `docs/tabbar.json` in the window, over the
+/// screens panel's tabs. Terminals and work tabs are one strip; it sits on
+/// top in the standalone IDE and at the bottom inside eDE
+/// ([`crate::shell::tab_placement`]).
 pub(crate) struct TabBarRegion {
     view: Entity<SurfaceView>,
+    /// The region's painted bounds: a press right of the strip's last
+    /// control falls through to the window drag behind it.
+    bounds: Rc<std::cell::Cell<Option<gpui::Bounds<gpui::Pixels>>>>,
     doc: uicore_gpui::inline::Document,
     tabs: Rc<RefCell<OpenTabs>>,
     hover: Rc<RefCell<Option<usize>>>,
@@ -509,7 +514,12 @@ impl TabBarRegion {
             let tabs = Rc::new(RefCell::new(OpenTabs::default()));
             let hover = Rc::new(RefCell::new(None));
             let host = Rc::new(TabHost { tabs: tabs.clone(), hover: hover.clone(), window: window.window_handle(), region: cx.weak_entity() });
-            let doc = uicore_gpui::inline::document(&uicore_docs::TABBAR);
+            let mut doc = uicore_gpui::inline::document(&uicore_docs::TABBAR);
+            // The +N menu opens away from the window edge the strip sits on.
+            let more_side = crate::shell::tab_placement().more_side;
+            if more_side == uicore_model::ide::IdeEdge::Bottom {
+                uicore_gpui::inline::set_prop(&mut doc, "ide_tabs_more", "side", json!("bottom"));
+            }
             let theme = uicore_gpui::inline::theme(&eui_core::themes::default_theme());
             let view = uicore_gpui::inline::mount(&doc, &uicore_data::Feed::new(), theme, host, Mode::Dark, window, cx);
             let nav = crate::navigation::nav_for_window(window, cx);
@@ -520,7 +530,7 @@ impl TabBarRegion {
                 observers.push(cx.observe(&issues, |_, _, cx| cx.notify()));
             }
             observers.extend(crate::session_data::observe_session_collections(cx));
-            Self { view, doc, tabs, hover, keys: Vec::new(), shown: None, more: None, observes_panel: false, _observers: observers }
+            Self { view, bounds: Rc::default(), doc, tabs, hover, keys: Vec::new(), shown: None, more: None, observes_panel: false, _observers: observers }
         })
     }
 
@@ -585,6 +595,18 @@ impl TabBarRegion {
         self.apply(&value, true, cx);
     }
 
+    /// Where the strip's controls end (region coordinates): its tabs, their
+    /// closes, the + and the +N. Right of this the band is empty.
+    fn strip_right(&self, cx: &App) -> f32 {
+        let view = self.view.read(cx);
+        view.placed_nodes()
+            .iter()
+            .filter(|n| n.owner.as_deref() == Some("ide_tabs") && matches!(n.part.as_deref(), Some("tab" | "close" | "new" | "more")))
+            .filter_map(|n| view.frame(n.index))
+            .map(|f| f.x + f.w)
+            .fold(0., f32::max)
+    }
+
     /// The tab under the pointer, for the context menu and middle-click.
     fn hovered(&self) -> Option<Screen> {
         let index = (*self.hover.borrow())?;
@@ -605,7 +627,14 @@ impl Render for TabBarRegion {
         self.refresh(window, cx);
         let region = cx.weak_entity();
         let menu_region = region.clone();
-        div()
+        let (record, bounds) = (self.bounds.clone(), self.bounds.clone());
+        let strip_right = self.strip_right(cx);
+        // On the top band the strip sits inside the window's titlebar: a
+        // press on a control is the strip's (never a window drag, never the
+        // Linux window menu), a press on the empty rest is the titlebar's.
+        let on_control = move |position: gpui::Point<gpui::Pixels>| bounds.get().is_none_or(|b| f32::from(position.x - b.origin.x) <= strip_right);
+        let on_control_right = on_control.clone();
+        let strip = div()
             .id("tab-bar")
             .size_full()
             .child(uicore_gpui::inline::region(&self.view))
@@ -637,7 +666,23 @@ impl Render for TabBarRegion {
                 .item(crate::controls::pointer_label_item("Close all", false).on_click(|_, window, cx| {
                     with_panel(window, cx, |panel, window, cx| panel.close_every_tab(window, cx));
                 }))
+            });
+        // A wrapper, so the strip's own listeners (the genUI view's, the
+        // context menu) run before the stop below.
+        div()
+            .size_full()
+            .on_children_prepainted(move |children, _, _| record.set(children.first().copied()))
+            .on_mouse_down(gpui::MouseButton::Left, move |ev, _, cx| {
+                if on_control(ev.position) {
+                    cx.stop_propagation();
+                }
             })
+            .on_mouse_down(gpui::MouseButton::Right, move |ev, _, cx| {
+                if on_control_right(ev.position) {
+                    cx.stop_propagation();
+                }
+            })
+            .child(strip)
     }
 }
 

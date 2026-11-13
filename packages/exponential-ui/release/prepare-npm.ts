@@ -35,6 +35,7 @@ const SPECS: Spec[] = [
       "./host": { types: `./dist/types/src/host/index.d.ts`, import: `./dist/host/index.js`, default: `./dist/host/index.js` },
       "./host/query": { types: `./dist/types/src/host/query.d.ts`, import: `./dist/host/query.js`, default: `./dist/host/query.js` },
       "./web": { types: `./dist/types/src/web/index.d.ts`, import: `./dist/web/index.js`, default: `./dist/web/index.js` },
+      "./web/motion": { types: `./dist/types/src/web/motion.d.ts`, import: `./dist/web/motion.js`, default: `./dist/web/motion.js` },
       "./web/primitives": { types: `./dist/types/src/web/primitives/index.d.ts`, import: `./dist/web/primitives/index.js`, default: `./dist/web/primitives/index.js` },
       "./catalog/*": `./catalog/*`,
       "./fixtures/*": `./fixtures/*`,

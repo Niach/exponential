@@ -1299,3 +1299,45 @@ fn manager_runs_all_15_shapes_and_stops_cleanly() {
     // The DB stays on disk for offline resume (§5.10).
     assert!(dir.db_path().exists());
 }
+
+// ---------------------------------------------------------------------------
+// #FEED-219: a server that predates `composer_drafts` 404s it. That is "not
+// served yet", never an outage: no PollFailed (the offline banner stays out
+// of it) while an ordinary shape's 404 still surfaces.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_shape_the_server_does_not_serve_yet_parks_without_poll_failed() {
+    let _serial = serial();
+    let server = MockShapeServer::start(live_idle("h-1", "0_0", Duration::from_millis(100)));
+    server.push(MockResponse::new(404, json!({"message": "not found"})));
+
+    let dir = TempDir::new("404-absent");
+    let store = Arc::new(ShapeStore::open(&dir.db_path()).unwrap());
+    let mut harness = ClientHarness::spawn(&server, Arc::clone(&store), "composer_drafts");
+
+    assert!(
+        harness.deltas.recv_timeout(Duration::from_millis(1500)).is_err(),
+        "a not-yet-served shape must stay silent"
+    );
+    // Parked: one request, no retry storm.
+    assert_eq!(server.requests().len(), 1);
+    harness.stop();
+}
+
+#[test]
+fn an_ordinary_shape_404_still_surfaces_poll_failed() {
+    let _serial = serial();
+    let server = MockShapeServer::start(live_idle("h-1", "0_0", Duration::from_millis(100)));
+    server.push(MockResponse::new(404, json!({"message": "not found"})));
+
+    let dir = TempDir::new("404-ordinary");
+    let store = Arc::new(ShapeStore::open(&dir.db_path()).unwrap());
+    let mut harness = ClientHarness::spawn(&server, Arc::clone(&store), "issues");
+
+    match harness.deltas.recv_timeout(Duration::from_secs(5)).unwrap() {
+        ShapeDelta::PollFailed { shape, .. } => assert_eq!(shape, "issues"),
+        other => panic!("expected PollFailed, got {other:?}"),
+    }
+    harness.stop();
+}

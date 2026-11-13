@@ -1514,6 +1514,15 @@ struct ChatComposer: View {
                     }
                 }
                 .animation(motion.standard, value: open)
+                // #FEED-219: the chat's draft (an agent's before its
+                // conversation exists).
+                .composerDraft(
+                    draft.sessionId.isEmpty ? draft.agentId.map { .agent($0) } : .session(draft.sessionId),
+                    teamId: draftTeamId,
+                    revision: draft.draftText,
+                    read: { draft.draftText },
+                    apply: { draft.draftText = $0 }
+                )
                 .onChange(of: draft.draftText) { _, _ in
                     slashHighlight = 0
                 }

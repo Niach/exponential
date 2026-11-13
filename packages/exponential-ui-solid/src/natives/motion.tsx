@@ -1,12 +1,12 @@
 // EXP-1604 (React's natives/motion.tsx): Motion, a thin wrapper over the
-// shared web painter (`MotionView`, @exponential_app/eui/web: source, slots,
+// shared web painter (`MotionView`, @exponential_app/eui/web/motion: source, slots,
 // clock, Canvas2D). The box: the node's style, else the composition's px
 // size shrinking to the width (`motionBoxStyle`); the canvas fills it. M4
 // (EXP-1605): the view's events reach the node's `on` through `emit`; with
 // `on.press` it is a button.
 
 import { createEffect, onCleanup, onMount, type Component, type JSX } from "solid-js"
-import { MotionView, motionA11y, motionBoxStyle, motionDeclaredSize } from "@exponential_app/eui/web"
+import { MotionView, motionA11y, motionBoxStyle, motionDeclaredSize } from "@exponential_app/eui/web/motion"
 import { useSurfaceContext } from "../context"
 import { mergeStyle, type NativeProps } from "../node-view"
 

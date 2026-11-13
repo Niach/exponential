@@ -335,3 +335,16 @@ val MIGRATION_122_123: Migration = object : Migration(122, 123) {
         )
     }
 }
+
+// v124 (#FEED-219, composer-draft.json): the `composer_drafts` table, every
+// composer's synced draft. A new shape: nothing else refetches.
+val MIGRATION_123_124: Migration = object : Migration(123, 124) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `composer_drafts` (`id` TEXT NOT NULL, `user_id` TEXT NOT NULL, " +
+                "`team_id` TEXT NOT NULL, `key` TEXT NOT NULL, `text` TEXT NOT NULL, " +
+                "`created_at` TEXT NOT NULL, `updated_at` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_composer_drafts_key` ON `composer_drafts` (`key`)")
+    }
+}

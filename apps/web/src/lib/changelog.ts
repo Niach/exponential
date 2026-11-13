@@ -34,6 +34,24 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Select text in the desktop chat**: dragging across a message selects its text again instead of scrolling the chat; the chat only scrolls once you drag to its edge.`,
   },
   {
+    id: `2026-11-13-tabs-on-top`,
+    date: `2026-11-13`,
+    title: `Tabs are back on top in the desktop app`,
+    summary: `The desktop app draws its tabs on top again, terminals included, in one strip; inside Exponential Desktop they stay at the bottom.`,
+    body: `- **Tabs on top**: on macOS, Windows and Linux the desktop app's tabs sit in the top band again, next to the window controls; the empty space beside them still moves the window.
+- **Terminals are tabs like any other**: a terminal sits in the same strip as issues and chats, and Close others and Close all take terminals too; closing a terminal that still runs something asks first.
+- **Exponential Desktop**: inside Exponential Desktop the tabs stay at the bottom.`,
+  },
+  {
+    id: `2026-11-12-phones-todo-title-cards`,
+    date: `2026-11-12`,
+    title: `Tidier session sheets on phones`,
+    summary: `A session's to-do sheet shows its title once on every app, question cards stay with the step that posted them, and iPhone chats full of issue links no longer stall.`,
+    body: `- **One to-do title**: a session's to-do sheet lists its items under one title instead of repeating it, on the web, the desktop app, iPhone, iPad and Android.
+- **Cards stay put**: a question or plan card stays next to the step that posted it, even after the Assistant edits its status card.
+- **No stall on iPhone**: a chat with many issue links no longer freezes the iPhone or iPad app while it syncs.`,
+  },
+  {
     id: `2026-11-12-count-badges`,
     date: `2026-11-12`,
     title: `One count badge everywhere`,
