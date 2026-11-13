@@ -341,8 +341,9 @@ impl RepoPage {
         let pulls: Vec<Value> = repo_pr_tree(&prs)
             .into_iter()
             .map(|row| {
-                let pill = rows.iter().find(|pull| pull.id == row.id).map(domain::repo_page::merge_pill_label).unwrap_or_default();
-                json!({"key": row.id, "identifier": row.identifier, "title": row.title, "subtitle": row.subtitle, "depth": row.depth, "checks": row.checks, "pill": pill})
+                let pill = rows.iter().find(|pull| pull.id == row.id).map(domain::repo_page::merge_pill);
+                let (label, glyph) = pill.map_or((String::new(), ""), |p| (p.label, p.glyph.id()));
+                json!({"key": row.id, "identifier": row.identifier, "title": row.title, "subtitle": row.subtitle, "depth": row.depth, "checks": row.checks, "pill": label, "pillGlyph": glyph})
             })
             .collect();
         let default_branch = self
@@ -457,12 +458,25 @@ fn pulls_tab(data: &Value) -> Value {
             let id = format!("pr_{ix}");
             let mut meta: Vec<Value> = checks_chip(&format!("{id}_checks"), row["checks"].as_str()).into_iter().collect();
             if let Some(pill) = row["pill"].as_str().filter(|pill| !pill.is_empty()) {
-                meta.push(json!({"id": format!("{id}_pill"), "component": "Badge", "props": {"text": pill, "variant": "outline"}, "style": {"flexShrink": 0, "alignSelf": "center"}}));
+                // The merge-train pill: its glyph (the spinner = the
+                // `ci-running` concept) then its label, as on web and phones.
+                let glyph = match row["pillGlyph"].as_str().unwrap_or_default() {
+                    "spinner" => "ci-running",
+                    other => other,
+                };
+                let mut badge = json!({"id": format!("{id}_pill"), "component": "Badge", "props": {"text": pill, "variant": "outline"}, "style": {"flexShrink": 0, "alignSelf": "center"}});
+                if !glyph.is_empty() {
+                    badge["props"]["icon"] = json!(glyph);
+                }
+                meta.push(badge);
             }
             json!({"id": id, "component": "Row",
                 "props": {"title": row["title"], "identifier": row["identifier"], "subtitle": row["subtitle"], "depth": row["depth"], "pressable": true},
                 "on": {"press": {"event": {"name": "pr", "context": {"key": row["key"]}}}},
-                "slots": {"trailing": {"id": format!("{id}_meta"), "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": 6, "flexShrink": 0}, "children": meta}}})
+                // THE PR node ×4 (web `PrNode`): a 12px ring in the success
+                // tone before the identifier.
+                "slots": {"leading": {"id": format!("{id}_node"), "component": "Box", "style": {"width": 12, "height": 12, "borderRadius": 9999, "borderWidth": 1.5, "borderColor": "$color.success", "flexShrink": 0, "alignSelf": "center"}},
+                    "trailing": {"id": format!("{id}_meta"), "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": 6, "flexShrink": 0}, "children": meta}}})
         })
         .collect();
     column("pulls", vec![json!({"id": "pulls_tree", "component": "Section", "props": {"tree": true}, "children": rows})])
@@ -583,8 +597,8 @@ mod tests {
 
     fn ready() -> Value {
         json!({"phase": "ready", "name": "web", "provider": "Exponential", "ecode": true, "owner": true,
-            "pulls": [{"key": "p1", "identifier": "#2", "title": "Root", "subtitle": "exp/a → main", "depth": 0, "checks": "success", "pill": "Checks running"},
-                      {"key": "p2", "identifier": "#3", "title": "Child", "subtitle": "exp/b → exp/a", "depth": 1, "checks": null, "pill": "Draft"}],
+            "pulls": [{"key": "p1", "identifier": "#2", "title": "Root", "subtitle": "exp/a → main", "depth": 0, "checks": "success", "pill": "Checks running", "pillGlyph": "spinner"},
+                      {"key": "p2", "identifier": "#3", "title": "Child", "subtitle": "exp/b → exp/a", "depth": 1, "checks": null, "pill": "Draft", "pillGlyph": "pr-draft"}],
             "branches": [{"name": "main", "sha": "0123456", "isDefault": true, "pr": null}],
             "defaultBranch": "main", "branchNames": ["main"], "cloneUrl": "exp://acme/web",
             "backups": [{"key": "b1", "title": "2026-11-12 10:00", "subtitle": "3 refs · 4 KB"}]})

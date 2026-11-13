@@ -20,7 +20,7 @@ use gpui::{div, prelude::*, AnyElement, AnyWindowHandle, App, Entity, Hsla, Shar
 use gpui_component::{ActiveTheme as _, Icon, Sizable as _};
 use serde_json::{json, Value};
 use sync::Store;
-use uicore_model::ide::{IdeTabInput, ide_sidebar, IdeActiveInput, IdeAgentInput, IdeAppInput, IdeBoardInput, IdeCount, IdePinInput, IdeSidebarInput, IdeTone};
+use uicore_model::ide::{IdeTabInput, ide_sidebar, IdeActiveInput, IdeAgentInput, IdeAppInput, IdeBoardInput, IdeCount, IdePinInput, IdePrInput, IdeRepoInput, IdeSidebarInput, IdeTone};
 
 use crate::navigation::{self, active_board_id, active_team_id, navigate, resolved_screen, Navigation, Screen};
 use crate::settings::SettingsSection;
@@ -89,6 +89,38 @@ fn parse_count(rest: &str) -> Option<crate::sidebar::RailBadge> {
     Some(crate::sidebar::RailBadge::Count(count, tone))
 }
 
+/// #EXP-1616: an Exponential (`ecode`) PR's repository name, read off its
+/// url (`<app>/t/<team>/repos/<name>/pulls/<n>`, `ecode-host.ts`): the
+/// repositories list is not synced, the PRs are.
+fn ecode_repo_name(url: &str) -> Option<&str> {
+    let (_, rest) = url.split_once("/t/")?;
+    let (_, rest) = rest.split_once("/repos/")?;
+    let (name, number) = rest.split_once("/pulls/")?;
+    (!name.is_empty() && !name.contains('/') && number.parse::<u64>().is_ok()).then_some(name)
+}
+
+/// #EXP-1616: the team's Exponential repositories by name, each with its
+/// live PR tree (`repo_pr_tree`, the repo page's).
+fn ecode_repos<'a>(team_id: &str, pulls: impl IntoIterator<Item = &'a domain::rows::PullRequestRow>) -> Vec<IdeRepoInput> {
+    use domain::repo_page::{repo_pr_tree, RepoPr};
+    let mut repos: std::collections::BTreeMap<(String, String), Vec<RepoPr>> = std::collections::BTreeMap::new();
+    for pull in pulls {
+        if pull.team_id.as_deref().is_some_and(|team| team != team_id) {
+            continue;
+        }
+        let (Some(repo), Some(name)) = (pull.repository_id.as_deref(), pull.url.as_deref().and_then(ecode_repo_name)) else { continue };
+        repos.entry((name.to_string(), repo.to_string())).or_default().push(RepoPr::from_row(pull));
+    }
+    repos
+        .into_iter()
+        .map(|((name, id), prs)| IdeRepoInput {
+            id,
+            name,
+            prs: repo_pr_tree(&prs).into_iter().map(|row| IdePrInput { id: row.id, identifier: row.identifier, title: row.title, subtitle: row.subtitle, depth: row.depth }).collect(),
+        })
+        .collect()
+}
+
 /// One team's rows as the fixture's input, with the glyphs they name.
 fn gather(nav: &Entity<Navigation>, cx: &mut App) -> (IdeSidebarInput, HashMap<String, Glyph>) {
     let mut glyphs = HashMap::new();
@@ -141,6 +173,10 @@ fn gather(nav: &Entity<Navigation>, cx: &mut App) -> (IdeSidebarInput, HashMap<S
         glyphs.insert(icon, Glyph::Board(board));
     }
     drop(apps_span);
+    {
+        let _span = tracing::trace_span!("rail.prs").entered();
+        input.repos = ecode_repos(&team_id, collections.pull_requests.read(cx).iter());
+    }
     let _span = tracing::trace_span!("rail.live_roots").entered();
     for row in crate::session_data::live_roots_for_rail(&team_id, cx) {
         let agent = row
@@ -187,6 +223,40 @@ fn shaped(input: &IdeSidebarInput, glyphs: &HashMap<String, Glyph>, hover: Optio
     value
 }
 
+/// #EXP-1616: the Pull requests tree's rows as nodes. A Row's `depth`
+/// never binds (the tree guides are computed against its siblings), so the
+/// host writes them into the document's `Section{tree}` itself.
+fn pr_tree_rows(prs: &Value) -> Vec<Value> {
+    prs.as_array()
+        .into_iter()
+        .flatten()
+        .enumerate()
+        .map(|(ix, row)| {
+            let mut props = json!({"title": row["title"], "depth": row["depth"], "density": "compact", "pressable": true, "selected": row["selected"]});
+            for key in ["identifier", "subtitle", "icon"] {
+                if !row[key].is_null() {
+                    props[key] = row[key].clone();
+                }
+            }
+            json!({"id": format!("ide_pr_{ix}"), "component": "Row", "props": props, "on": {"press": {"event": {"name": "ide_open", "context": {"kind": "repo", "id": row["repo"]}}}}})
+        })
+        .collect()
+}
+
+/// The document with `prs` as the `ide_prs_tree` Section's rows.
+fn with_pr_tree(doc: &uicore_gpui::inline::Document, prs: &Value) -> Option<eui_core::types::NestedNode> {
+    fn fill(node: &mut Value, rows: &[Value]) -> bool {
+        if node["id"] == "ide_prs_tree" {
+            node["children"] = Value::Array(rows.to_vec());
+            return true;
+        }
+        node["children"].as_array_mut().into_iter().flatten().any(|child| fill(child, rows))
+            || node["slots"].as_object_mut().into_iter().flat_map(|slots| slots.values_mut()).any(|slot| fill(slot, rows))
+    }
+    let mut root = uicore_gpui::inline::root_json(doc)?;
+    fill(&mut root, &pr_tree_rows(prs)).then(|| serde_json::from_value(root).ok()).flatten()
+}
+
 /// The row a hover names: a template instance `<row>.<key>`; a control
 /// inside the row is not the row.
 fn row_key(component: &str) -> Option<&str> {
@@ -196,6 +266,10 @@ fn row_key(component: &str) -> Option<&str> {
 /// The sidebar document in the window: one per [`crate::sidebar::RailView`].
 pub(crate) struct SidebarRegion {
     view: Entity<SurfaceView>,
+    /// The mounted document, for the Pull requests tree's rows.
+    doc: uicore_gpui::inline::Document,
+    /// The `prs` the document's tree holds.
+    prs_built: Value,
     glyphs: Rc<RefCell<HashMap<String, Glyph>>>,
     hover: Rc<RefCell<Option<String>>>,
     pub(crate) input: IdeSidebarInput,
@@ -226,6 +300,8 @@ impl SidebarRegion {
             let view = uicore_gpui::inline::mount(&doc, &uicore_data::Feed::new(), theme, host, Mode::Dark, window, cx);
             Self {
                 view,
+                doc,
+                prs_built: json!([]),
                 glyphs,
                 hover,
                 input: IdeSidebarInput::default(),
@@ -295,6 +371,17 @@ impl SidebarRegion {
         }
         self.shown = Some(value.clone());
         let _span = tracing::trace_span!("rail.push").entered();
+        if value["prs"] != self.prs_built {
+            self.prs_built = value["prs"].clone();
+            if let Some(tree) = with_pr_tree(&self.doc, &self.prs_built) {
+                self.view.update(cx, |view, cx| {
+                    let outcome = view.set_nested(tree, cx);
+                    if !outcome.issues.is_empty() {
+                        tracing::warn!("the sidebar's Pull requests tree: {:?}", outcome.issues);
+                    }
+                });
+            }
+        }
         self.view.update(cx, |view, cx| {
             // The IDE's sidebar never folds: the nodes the rail hides read it.
             let _ = view.set_data("/shell/rail", Some(json!(false)), cx);
@@ -379,6 +466,11 @@ fn open_row(kind: &str, id: String, window: &mut Window, cx: &mut App) {
             navigate(window, cx, Screen::BoardIssues { board_id: id });
         }
         "active" => navigation::navigate_from_live_rail(window, cx, Screen::Chat { session_id: id }),
+        // #EXP-1616: a Pull requests row opens its repository's page.
+        "repo" => {
+            crate::sidebar::select_settings_section(window, cx, SettingsSection::Repository(id));
+            navigate(window, cx, Screen::Settings);
+        }
         "assistant" => navigate(window, cx, Screen::Agent { agent_id: id }),
         "settings" => navigate(window, cx, Screen::Settings),
         _ => {}
@@ -1001,6 +1093,60 @@ mod tests {
         assert!(matches!(parse_count("attention:3"), Some(crate::sidebar::RailBadge::Count(3, crate::surface::BadgeTone::Attention))));
         assert!(matches!(parse_count("muted:99+"), Some(crate::sidebar::RailBadge::Count(100, crate::surface::BadgeTone::Muted))));
         assert!(parse_count("amber:3").is_none());
+    }
+
+    /// #EXP-1616: only eCode PRs (their url) of the team make the tree.
+    #[test]
+    fn the_pr_tree_reads_ecode_prs_off_their_url() {
+        assert_eq!(ecode_repo_name("https://exponential.at/t/acme/repos/engine/pulls/12"), Some("engine"));
+        assert_eq!(ecode_repo_name("https://github.com/acme/engine/pull/12"), None);
+        assert_eq!(ecode_repo_name("https://exponential.at/t/acme/repos/engine/pulls/x"), None);
+        let pull = |id: &str, team: &str, url: &str, number: i64, head: &str, base: &str| {
+            serde_json::from_value::<domain::rows::PullRequestRow>(json!({
+                "id": id, "team_id": team, "repository_id": "r1", "url": url, "number": number, "title": id, "head": head, "base": base, "state": "open",
+            }))
+            .unwrap()
+        };
+        let url = |n: i64| format!("https://exponential.at/t/acme/repos/engine/pulls/{n}");
+        let pulls = vec![
+            pull("p1", "t1", &url(1), 1, "sync", "main"),
+            pull("p2", "t1", &url(2), 2, "sync-tests", "sync"),
+            pull("gh", "t1", "https://github.com/acme/engine/pull/3", 3, "x", "main"),
+            pull("other", "t2", &url(4), 4, "y", "main"),
+        ];
+        let repos = ecode_repos("t1", &pulls);
+        assert_eq!(repos.len(), 1);
+        assert_eq!(repos[0].name, "engine");
+        let rows: Vec<(&str, usize, &str)> = repos[0].prs.iter().map(|p| (p.identifier.as_str(), p.depth, p.subtitle.as_str())).collect();
+        assert_eq!(rows, vec![("#1", 0, "sync → main"), ("#2", 1, "sync-tests → sync")]);
+    }
+
+    /// #EXP-1616: the tree's rows land in the document's Section{tree}.
+    #[test]
+    fn the_pr_tree_fills_its_section() {
+        let doc = uicore_gpui::inline::document(uicore_docs::doc("sidebar").expect("the sidebar"));
+        let input = IdeSidebarInput {
+            repos: vec![IdeRepoInput { id: "r1".into(), name: "engine".into(), prs: vec![IdePrInput { id: "p1".into(), identifier: "#1".into(), title: "Sync".into(), subtitle: "sync → main".into(), depth: 0 }] }],
+            ..Default::default()
+        };
+        let value = shaped(&input, &HashMap::new(), None, None);
+        let tree = serde_json::to_value(with_pr_tree(&doc, &value["prs"]).expect("the tree")).unwrap();
+        fn find<'a>(node: &'a Value, id: &str) -> Option<&'a Value> {
+            if node["id"] == id {
+                return Some(node);
+            }
+            node["children"].as_array().into_iter().flatten().chain(node["slots"].as_object().into_iter().flat_map(|slots| slots.values())).find_map(|c| find(c, id))
+        }
+        let section = find(&tree, "ide_prs_tree").expect("the section");
+        assert_eq!(section["props"]["tree"], true);
+        let rows = section["children"].as_array().unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["props"]["title"], "engine");
+        assert_eq!(rows[0]["props"]["depth"], 0);
+        assert_eq!(rows[1]["props"]["identifier"], "#1");
+        assert_eq!(rows[1]["props"]["subtitle"], "sync → main");
+        assert_eq!(rows[1]["props"]["depth"], 1);
+        assert_eq!(rows[1]["on"]["press"]["event"]["context"], json!({"kind": "repo", "id": "r1"}));
     }
 
     #[test]

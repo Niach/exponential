@@ -292,6 +292,12 @@ pub fn repo_tab(param: Option<&str>) -> &'static str {
 
 /// The merge-train pill label of a live PR row (a draft reads the draft pill).
 pub fn merge_pill_label(row: &PullRequestRow) -> String {
+    merge_pill(row).label
+}
+
+/// The merge-train status pill of a PR row (merge-train.json `statusPill`):
+/// its label, glyph and tone, for the repo page's Badge.
+pub fn merge_pill(row: &PullRequestRow) -> crate::merge_train::StatusPillView {
     let state = crate::merge_train::pr_merge_state(row);
     crate::merge_train::status_pill(crate::merge_train::StatusPillInput {
         state,
@@ -302,7 +308,6 @@ pub fn merge_pill_label(row: &PullRequestRow) -> String {
         stack: false,
         checks: 0,
     })
-    .label
 }
 
 #[cfg(test)]
