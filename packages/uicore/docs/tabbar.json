@@ -1,5 +1,5 @@
 {
-  "$comment": "The IDE's tab bar (#EXP-1726): every open tab, work tabs and terminals merged in ONE strip in tab order, as the genUI Tabs strip: icon + title, close on hover, +N overflow, drag to reorder, + for a new terminal. eDE keeps Mint's icon-only taskbar (taskbar.json); this document is the IDE's alone, so it lives here and not in apps/ede/ui. The Tabs component takes its tabs as a literal, so the host writes ide-sidebar.json's tabs projection into the tree; /shell/ide/more lists the tabs folded into +N while its menu is open. Placement (ide-sidebar.json placement): the standalone IDE draws this strip in its TOP band, beside the window controls (the empty strip right of the tabs stays the window's drag area), and flips ide_tabs_more to side bottom; inside Exponential Desktop it stays the bottom band this surface describes.",
+  "$comment": "The IDE's tab bar (#EXP-1726): every open tab, work tabs and terminals merged in ONE strip in tab order, as the genUI Tabs strip: icon + title, close on hover, +N overflow, drag to reorder, + for a new terminal. The +N menu hangs from tabbar_end, a zero-width box at the strip's end edge: an anchor becomes its overlay's pressable trigger, so anchoring the full-width Tabs made the whole band a pointer that swallowed the window drag. eDE keeps Mint's icon-only taskbar (taskbar.json); this document is the IDE's alone, so it lives here and not in apps/ede/ui. The Tabs component takes its tabs as a literal, so the host writes ide-sidebar.json's tabs projection into the tree; /shell/ide/more lists the tabs folded into +N while its menu is open. Placement (ide-sidebar.json placement): the standalone IDE draws this strip in its TOP band, beside the window controls (the empty strip right of the tabs stays the window's drag area), and flips ide_tabs_more to side bottom; inside Exponential Desktop it stays the bottom band this surface describes.",
   "surface": {
     "layer": "top",
     "anchor": ["bottom", "left", "right"],
@@ -12,27 +12,40 @@
     "style": { "display": "flex", "flexDirection": "column", "height": "100%", "paddingTop": 6, "minWidth": 0 },
     "children": [
       {
-        "id": "ide_tabs",
-        "component": "Tabs",
-        "props": {
-          "tabs": [],
-          "value": { "@path": "/shell/ide/activeTab" },
-          "variant": "strip",
-          "closable": "hover",
-          "addable": true
-        },
-        "on": {
-          "change": { "event": { "name": "ide_tab", "context": { "action": "open" } } },
-          "close": { "event": { "name": "ide_tab", "context": { "action": "close" } } },
-          "new": { "event": { "name": "ide_tab", "context": { "action": "new" } } },
-          "reorder": { "event": { "name": "ide_tab", "context": { "action": "reorder" } } },
-          "more": { "event": { "name": "ide_tab", "context": { "action": "more" } } }
-        }
+        "id": "tabbar_row",
+        "component": "Box",
+        "style": { "display": "flex", "flexDirection": "row", "minWidth": 0 },
+        "children": [
+          {
+            "id": "ide_tabs",
+            "component": "Tabs",
+            "props": {
+              "tabs": [],
+              "value": { "@path": "/shell/ide/activeTab" },
+              "variant": "strip",
+              "closable": "hover",
+              "addable": true
+            },
+            "on": {
+              "change": { "event": { "name": "ide_tab", "context": { "action": "open" } } },
+              "close": { "event": { "name": "ide_tab", "context": { "action": "close" } } },
+              "new": { "event": { "name": "ide_tab", "context": { "action": "new" } } },
+              "reorder": { "event": { "name": "ide_tab", "context": { "action": "reorder" } } },
+              "more": { "event": { "name": "ide_tab", "context": { "action": "more" } } }
+            },
+            "style": { "flexGrow": 1, "minWidth": 0 }
+          },
+          {
+            "id": "tabbar_end",
+            "component": "Box",
+            "style": { "width": 0, "flexShrink": 0, "pointerEvents": "none" }
+          }
+        ]
       },
       {
         "id": "ide_tabs_more",
         "component": "Popover",
-        "props": { "anchor": "ide_tabs", "side": "top", "align": "end", "open": { "@path": "/shell/ide/moreOpen" } },
+        "props": { "anchor": "tabbar_end", "side": "top", "align": "end", "open": { "@path": "/shell/ide/moreOpen" } },
         "on": { "change": { "event": { "name": "ide_tab", "context": { "action": "more_closed" } } } },
         "children": [
           {
