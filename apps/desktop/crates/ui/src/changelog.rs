@@ -46,6 +46,16 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-13-phones-one-native-library",
+    date: "2026-11-13",
+    title: "Smaller phone apps",
+    summary: "Android 0.14.137 and iOS 0.14.127 ship one native library instead of three, so both apps download and install smaller.",
+    body: r##"- **Smaller phone apps**: the Android and iOS apps now carry a single native library, about 3.5 MB less on Android and 2.9 MB less on iOS."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_281: ChangelogEntry = ChangelogEntry {
     id: "2026-11-13-desktop-notifications-ticks",
     date: "2026-11-13",
     title: "Desktop notifications, delivery ticks and a lighter daemon",
