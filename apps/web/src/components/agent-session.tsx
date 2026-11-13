@@ -1068,7 +1068,7 @@ export function AgentSessionView({
       // A card drawn above a window that can still grow (its anchor rows
       // are older than the window) sits pinned at the top, never centred:
       // the window pages in first.
-      if (!measured.centred && canLoadEarlier && scroller.scrollTop <= 1) {
+      if (measured.delta < -2 && canLoadEarlier && scroller.scrollTop <= 1) {
         return { ...base, found: false, laidOut: false, centred: false, more: true }
       }
       return {

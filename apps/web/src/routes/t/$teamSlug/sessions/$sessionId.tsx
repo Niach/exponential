@@ -213,7 +213,8 @@ function ChatPage({
       <Navigate
         to="/t/$teamSlug/agents/$agentId"
         params={{ teamSlug, agentId: chat.root.agentId }}
-        search={search.back ? { back: search.back } : {}}
+        // DEEP LINKS: a card in the agent's conversation rides along.
+        search={{ ...(search.back ? { back: search.back } : {}), ...(search.card ? { card: search.card } : {}) }}
         replace
       />
     )

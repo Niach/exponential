@@ -91,6 +91,10 @@ import { PLAN_PAGE_COPY, planTabTarget } from "@exp/domain-contract/plan-page"
 // agent's (`/t/$teamSlug/agents/$agentId`) both render it; the route owns
 // the search and how it navigates.
 
+/** waiting-cards.json DEEP LINKS: how long a link waits for a cold load's
+ *  messages to sync before its card counts as missing. */
+const DEEP_LINK_SYNC_GRACE_MS = 4_000
+
 export { validateChatSearch, type ChatSearch } from "@/lib/session-screen-search"
 
 const PrivateIcon = conceptIcon(`ui-private`)
@@ -340,9 +344,12 @@ export function ChatScreen({
     () => {
       const found = seeking ? viewRowsRef.current.some((row) => row.id === seeking.id) : false
       const page = messagePageRef.current
+      // A cold load (a fresh `?card=`) reads an empty page before the
+      // messages sync: a young link waits for them before it is missing.
+      const syncing = !found && !page.more && seeking !== null && Date.now() - seeking.takenAt < DEEP_LINK_SYNC_GRACE_MS
       // Finding the message is this screen's half: the session's view
       // waits for the layout and centres it.
-      return { found, laidOut: found, centred: found, paging: !page.ready, more: page.more, mark: page.loaded }
+      return { found, laidOut: found, centred: found, paging: !page.ready || syncing, more: page.more, mark: page.loaded }
     },
     {
       page: () => messagePageRef.current.loadMore(),
