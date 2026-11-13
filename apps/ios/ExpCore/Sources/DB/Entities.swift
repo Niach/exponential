@@ -763,6 +763,9 @@ public struct MessageEntity: FetchableRecord, PersistableRecord, Identifiable, E
     public let card: String?
     public let answeredAt: String?
     public let consumedAt: String?
+    /// #FEED-237: the device RECEIVED it (its pickup holds it while a turn
+    /// runs): the bubble's one check (message-delivery.json); nil = not yet.
+    public let deliveredAt: String?
     public let createdAt: String
     public let updatedAt: String
     /// EXP-1323: the session that posted it (a child asking its parent);
@@ -787,8 +790,10 @@ public struct MessageEntity: FetchableRecord, PersistableRecord, Identifiable, E
         updatedAt: String,
         authorSessionId: String? = nil,
         attachmentIds: [String] = [],
-        sessionId: String? = nil
+        sessionId: String? = nil,
+        deliveredAt: String? = nil
     ) {
+        self.deliveredAt = deliveredAt
         self.authorSessionId = authorSessionId
         self.attachmentIds = attachmentIds
         self.conversationId = conversationId
@@ -818,6 +823,7 @@ public struct MessageEntity: FetchableRecord, PersistableRecord, Identifiable, E
         case attachmentIds = "attachment_ids"
         case answeredAt = "answered_at"
         case consumedAt = "consumed_at"
+        case deliveredAt = "delivered_at"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -836,6 +842,9 @@ extension MessageEntity: Codable {
         card = c.decodeWireJsonString(forKey: .card)
         answeredAt = try c.decodeIfPresent(String.self, forKey: .answeredAt)
         consumedAt = try c.decodeIfPresent(String.self, forKey: .consumedAt)
+        // #FEED-237: absent on a pre-v107 row or an older server = never
+        // delivered (the clock until consumed).
+        deliveredAt = try c.decodeIfPresent(String.self, forKey: .deliveredAt)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
         authorSessionId = try c.decodeIfPresent(String.self, forKey: .authorSessionId)
@@ -1888,6 +1897,61 @@ extension AppRecordEntity: Codable {
         shareName = try? c.decodeIfPresent(String.self, forKey: .shareName)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
+    }
+}
+
+// #FEED-237 (message-delivery.json): a person's message from the press of
+// Send until its synced row takes its place, PERSISTED so an app restart
+// keeps it. LOCAL ONLY (never synced; a resync's `clearAllData` keeps it).
+// `state` = sending | failed; `message_id` = the row the server stored it
+// as (nil until `sessions.send` answers); `client_id` = the
+// `clientMessageId` of every (re)send.
+public struct MessageOutboxEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
+    public static let databaseTableName = "outbox"
+
+    public var id: String { clientId }
+    public let clientId: String
+    public let sessionId: String
+    public let text: String
+    public let createdAt: String
+    /// `sending` | `failed`.
+    public var state: String
+    public var messageId: String?
+    /// The send's attachment ids as JSON text (`[]` = none).
+    public let attachmentIds: String
+
+    public init(
+        clientId: String, sessionId: String, text: String, createdAt: String, state: String = "sending",
+        messageId: String? = nil, attachmentIds: [String] = []
+    ) {
+        self.attachmentIds = (try? String(data: JSONEncoder().encode(attachmentIds), encoding: .utf8)) ?? "[]"
+        self.clientId = clientId
+        self.sessionId = sessionId
+        self.text = text
+        self.createdAt = createdAt
+        self.state = state
+        self.messageId = messageId
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case text, state
+        case clientId = "client_id"
+        case sessionId = "session_id"
+        case createdAt = "created_at"
+        case messageId = "message_id"
+        case attachmentIds = "attachment_ids"
+    }
+
+    public var attachmentIdList: [String] {
+        (try? JSONDecoder().decode([String].self, from: Data(attachmentIds.utf8))) ?? []
+    }
+
+    /// The domain entry (an unknown state reads as `sending`).
+    public var entry: MessageDelivery.OutboxEntry {
+        MessageDelivery.OutboxEntry(
+            clientId: clientId, text: text, createdAt: createdAt,
+            state: MessageDelivery.LocalState(rawValue: state) ?? .sending, messageId: messageId
+        )
     }
 }
 

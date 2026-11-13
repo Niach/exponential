@@ -948,6 +948,10 @@ struct AgentSessionView: View {
                                         prev: entries.last?.row.rowClass, cur: .tool
                                     )))
                             }
+                            // #FEED-237 (message-delivery.json ORDER): the
+                            // viewer's own messages the device has not
+                            // consumed, then the outbox, each with its mark.
+                            ownPendingBubbles(model)
                         }
                         // N-12: THE Queue left the transcript for THE Dock
                         // (`SessionDock`).
@@ -1058,6 +1062,12 @@ struct AgentSessionView: View {
                     if atBottom {
                         proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
                     }
+                }
+                // #FEED-237: a press puts the bubble at the bottom: follow it.
+                .onChange(of: model.ownPending.count) { old, new in
+                    guard new > old else { return }
+                    atBottom = true
+                    proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
                 }
                 // Switching conversation tabs re-pins to the newest event
                 // (EXP-356).
@@ -1255,7 +1265,8 @@ struct AgentSessionView: View {
                     // origin's bubble (the session that started this one).
                     senderBubble(text, layout: layout, streaming: false, time: time)
                 } else {
-                    UserMessageBubble(text: text, context: markdownContext, caption: time)
+                    // #FEED-237: the live transcript's echo of the turn = two checks.
+                    UserMessageBubble(text: text, context: markdownContext, caption: time, status: .read)
                 }
             case let .question(question):
                 questionCard(question)
@@ -1787,8 +1798,46 @@ struct AgentSessionView: View {
         }
     }
 
-    /// N-12: THE Dock's rows: THE Queue, the queued messages and the
-    /// banners (`SessionDock`). S-3 (dock.json): a waiting plan or question
+    /// #FEED-237 (message-delivery.json): the viewer's own pending bubbles,
+    /// the `HH:mm` of the row (an outbox entry's own until its row arrives)
+    /// then the mark; the menu per `bubbleActions`.
+    @ViewBuilder
+    private func ownPendingBubbles(_ model: AgentSessionModel) -> some View {
+        ForEach(Array(model.ownBubbles.enumerated()), id: \.element.id) { index, bubble in
+            TranscriptRow(
+                side: .own,
+                gap: index == 0 ? TranscriptGrouping.Layout.gapBetween : TranscriptGrouping.Layout.gapInGroup,
+                avatar: nil
+            ) {
+                UserMessageBubble(
+                    text: bubble.text,
+                    context: markdownContext,
+                    caption: bubble.at.map { GlassTimeRow.formatted($0) },
+                    status: bubble.state,
+                    actions: bubble.actions,
+                    onAction: { action in ownBubbleAction(action, bubble: bubble, model: model) }
+                )
+            }
+            .id("own-\(bubble.id)")
+        }
+    }
+
+    private func ownBubbleAction(_ action: MessageDelivery.Action, bubble: OwnPendingBubble, model: AgentSessionModel) {
+        switch action {
+        case .retry:
+            if let clientId = bubble.clientId { model.retryOutbox(clientId) }
+        case .delete:
+            if let clientId = bubble.clientId { model.deleteOutbox(clientId) }
+        case .cancel:
+            Task {
+                if await !model.cancelSending(bubble) {
+                    toaster.error(MessageDelivery.Copy.cancelFailed)
+                }
+            }
+        }
+    }
+
+    /// N-12: THE Dock's rows: THE Queue and the banners (`SessionDock`). S-3 (dock.json): a waiting plan or question
     /// is never a DockCard; it stays inline in the transcript.
     private func dockRows(_ model: AgentSessionModel) -> [Dock.Row] {
         // EXP-1323 / #EXP-1732: a root's suggested tasks with an open item
@@ -2755,12 +2804,16 @@ struct NarrationBubble: View {
 struct UserMessageBubble: View {
     let text: String
     let context: AgentMarkdownContext
-    /// EXP-1553 (chats.json TRANSCRIPT ×4): the bubble's caption (`HH:mm`,
-    /// ` · queued`) INSIDE it bottom-right; nil = none.
+    /// EXP-1553 (chats.json TRANSCRIPT ×4): the bubble's caption (`HH:mm`)
+    /// INSIDE it bottom-right; nil = none.
     var caption: String?
-    /// EXP-1317: a person's OWN queued message — the `Remove from queue` X
-    /// at the END of the caption line (`sessions.unqueue`); nil = no X.
-    var onRemove: (() -> Void)? = nil
+    /// #FEED-237 (message-delivery.json): the delivery mark after the time
+    /// (the viewer's own bubbles); nil = none.
+    var status: MessageDelivery.State? = nil
+    /// The bubble's menu (`bubbleActions`; long-press, a failed mark's
+    /// press); empty = none.
+    var actions: [MessageDelivery.Action] = []
+    var onAction: (MessageDelivery.Action) -> Void = { _ in }
 
     @State private var expanded = false
 
@@ -2792,7 +2845,7 @@ struct UserMessageBubble: View {
         // more "lines" of nothing, and they used to push a two-line steer into
         // the fold — which then hid the images the fold was measuring.
         let clampable = isClampable(hasImages ? parsed.text : text)
-        let hasCaption = (caption?.isEmpty == false) || onRemove != nil
+        let hasCaption = (caption?.isEmpty == false) || status != nil
         return MessageBubble(side: .own, hasFooter: hasCaption) {
             VStack(alignment: .leading, spacing: 4) {
                 Group {
@@ -2851,15 +2904,52 @@ struct UserMessageBubble: View {
                 }
             }
         } footer: {
-            BubbleCaptionLine(caption: caption, onRemove: onRemove)
+            BubbleCaptionLine(caption: caption, status: status, actions: actions, onAction: onAction)
+        }
+        .modifier(MessageBubbleContextMenu(actions: actions, onAction: onAction))
+    }
+}
+
+/// The long-press menu, only on a bubble that has one.
+private struct MessageBubbleContextMenu: ViewModifier {
+    let actions: [MessageDelivery.Action]
+    let onAction: (MessageDelivery.Action) -> Void
+
+    func body(content: Content) -> some View {
+        if actions.isEmpty {
+            content
+        } else {
+            content.contextMenu {
+                MessageBubbleMenu(actions: actions, onAction: onAction)
+            }
         }
     }
 }
 
-/// The caption line itself: the muted text, then the `Remove from queue` X.
+/// #FEED-237: the own bubble's menu (message-delivery.json `copy.menu`).
+private struct MessageBubbleMenu: View {
+    let actions: [MessageDelivery.Action]
+    let onAction: (MessageDelivery.Action) -> Void
+
+    var body: some View {
+        ForEach(actions, id: \.self) { action in
+            Button(role: action == .delete ? .destructive : nil) {
+                onAction(action)
+            } label: {
+                Text(MessageDelivery.Copy.menu(action))
+            }
+            .accessibilityIdentifier("\(MessageDelivery.TestIds.menu)-\(action.rawValue)")
+        }
+    }
+}
+
+/// The caption line itself: the muted time, then the delivery mark (a
+/// failed one is a press target opening the bubble's menu).
 private struct BubbleCaptionLine: View {
     let caption: String?
-    var onRemove: (() -> Void)?
+    var status: MessageDelivery.State?
+    var actions: [MessageDelivery.Action] = []
+    var onAction: (MessageDelivery.Action) -> Void = { _ in }
 
     var body: some View {
         HStack(spacing: 4) {
@@ -2870,16 +2960,18 @@ private struct BubbleCaptionLine: View {
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .accessibilityIdentifier("user-message-caption")
             }
-            if let onRemove {
-                Button(action: onRemove) {
-                    AppIcon(AppIcons.uiClose, size: 10, weight: .semibold)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .frame(width: 22, height: 22)
-                        .contentShape(Rectangle())
+            if let status {
+                if status == .failed, !actions.isEmpty {
+                    Menu {
+                        MessageBubbleMenu(actions: actions, onAction: onAction)
+                    } label: {
+                        MessageStatusMark(status)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier(MessageDelivery.TestIds.menu)
+                } else {
+                    MessageStatusMark(status)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(AgentFeed.queueRemoveLabel)
-                .accessibilityIdentifier("chat-queue-remove")
             }
         }
     }

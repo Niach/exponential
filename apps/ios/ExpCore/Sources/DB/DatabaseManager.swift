@@ -3340,7 +3340,42 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v107 (#FEED-237, message-delivery.json): `messages.delivered_at`
+        // (the device received it: one check) and the LOCAL `outbox` table
+        // (a person's message from the press until its row syncs). The
+        // messages cursor resets only when the column was added.
+        migrator.registerMigration("v107_message_delivery") { db in
+            try createMessageOutboxTable(db)
+            guard try db.tableExists("messages") else { return }
+            guard try db.columns(in: "messages").contains(where: { $0.name == "delivered_at" }) == false else { return }
+            try db.alter(table: "messages") { t in
+                t.add(column: "delivered_at", .text)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'messages'
+                    """)
+            }
+        }
+
         return migrator
+    }
+
+    /// #FEED-237: the local `outbox` table (never synced).
+    static func createMessageOutboxTable(_ db: Database) throws {
+        try db.create(table: "outbox", ifNotExists: true) { t in
+            t.primaryKey("client_id", .text)
+            t.column("session_id", .text).notNull().indexed()
+            t.column("text", .text).notNull().defaults(to: "")
+            t.column("created_at", .text).notNull()
+            // sending | failed.
+            t.column("state", .text).notNull().defaults(to: "sending")
+            t.column("message_id", .text)
+            // The send's attachment ids as JSON text (a resend carries them).
+            t.column("attachment_ids", .text).notNull().defaults(to: "[]")
+        }
     }
 
     /// #EXP-1617 / #EXP-1804: the `ci_runs` / `ci_jobs` tables, mirroring the

@@ -253,6 +253,10 @@ final class AgentSessionModel {
     /// empty list closes the strip above the composer). Lives on the device,
     /// so a reconnecting or second viewer gets it from the join replay.
     private(set) var queued: [QueuedMessage] = []
+    /// #FEED-237 (message-delivery.json): the viewer's own bubbles at the
+    /// transcript's bottom: their synced rows the device has not consumed,
+    /// then the outbox entries, each with its delivery mark.
+    private(set) var ownPending: [OwnPendingBubble] = []
     /// EXP-1321: the Queue's open waits — one per UNSETTLED `wait` call by
     /// call id (web/desktop count every open wait; two on one subject are
     /// two), derived ONCE per feed change in `reproject` (EXP-582: an O(feed)
@@ -1077,6 +1081,8 @@ final class AgentSessionModel {
     private var dialStartedAt: Date?
     @ObservationIgnored private var lastFrameAt: Date?
     private var sessionObservationTask: Task<Void, Never>?
+    /// #FEED-237: the viewer's own rows of this session + its outbox entries.
+    private var ownObservationTask: Task<Void, Never>?
     /// EXP-549/550: the synced `devices` rows behind `hostDevice`, plus the
     /// clock that re-derives offline-ness (GRDB only re-fires on WRITES, and
     /// a machine going quiet writes nothing).
@@ -1225,6 +1231,8 @@ final class AgentSessionModel {
     /// drops after that auto-reconnect (EXP-243).
     func start() {
         startObservingSession()
+        startObservingOwnMessages()
+        SessionOutbox.shared.resume(accountId: accountId, db: db, api: sessionsApi)
         startObservingHostDevice()
         startObservingMentionMembers()
         configureDraftEditor()
@@ -1331,6 +1339,7 @@ final class AgentSessionModel {
     func resume() {
         guard stopped else { return }
         startObservingSession()
+        startObservingOwnMessages()
         startObservingHostDevice()
         startActivityClock()
         openViewStats()
@@ -1355,6 +1364,8 @@ final class AgentSessionModel {
         clearLiveWork()
         sessionObservationTask?.cancel()
         sessionObservationTask = nil
+        ownObservationTask?.cancel()
+        ownObservationTask = nil
         deviceObservationTask?.cancel()
         deviceObservationTask = nil
         deviceLivenessTask?.cancel()
@@ -1600,6 +1611,119 @@ final class AgentSessionModel {
     private func cancelAnswerExpiries() {
         for task in answerExpiryTasks.values { task.cancel() }
         answerExpiryTasks = [:]
+    }
+
+    // MARK: - The outbox (#FEED-237, message-delivery.json)
+
+    /// The own bubbles the transcript draws: a stored row whose `user_message`
+    /// already reached the live transcript is that echo (`read`) before its
+    /// consumed stamp syncs, never a second bubble.
+    var ownBubbles: [OwnPendingBubble] {
+        guard ownPending.contains(where: { $0.stored }) else { return ownPending }
+        var echoes: [(text: String, at: Double)] = []
+        for item in feed.suffix(40) {
+            if case let .userMessage(_, text, _, at) = item {
+                echoes.append((text.trimmingCharacters(in: .whitespacesAndNewlines), Double(at ?? 0) / 1000))
+            }
+        }
+        var used = Set<Int>()
+        return ownPending.filter { bubble in
+            guard bubble.stored else { return true }
+            let since = (bubble.at?.timeIntervalSince1970 ?? 0) - 5
+            guard let index = echoes.indices.first(where: {
+                !used.contains($0) && echoes[$0].text == bubble.text && echoes[$0].at >= since
+            }) else { return true }
+            used.insert(index)
+            return false
+        }
+    }
+
+    /// Whether `text` goes out as an outbox bubble: a plain message into
+    /// this session by a viewer who may post (an app editor's move to
+    /// another device, a changed MCP pick and a slash command keep their
+    /// own sends).
+    func sendsThroughOutbox(_ text: String) -> Bool {
+        mayPost && currentUserId != nil && sendAppMove == nil && mcpPick?.outgoing == nil
+            && SlashCommands.command(for: text, agent: catalogAgent) == nil
+    }
+
+    /// Put the message at the transcript's bottom and send it (the send
+    /// outlives this screen); the composer already cleared.
+    func sendThroughOutbox(_ text: String, attachmentIds: [String]) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty || !attachmentIds.isEmpty, sendsThroughOutbox(trimmed) else { return false }
+        sendError = nil
+        SessionOutbox.shared.send(
+            accountId: accountId, sessionId: sessionId, text: trimmed, attachmentIds: attachmentIds,
+            scope: sendScope, db: db, api: sessionsApi
+        )
+        return true
+    }
+
+    /// A failed bubble's Retry (the same clientId).
+    func retryOutbox(_ clientId: String) {
+        SessionOutbox.shared.retry(accountId: accountId, clientId: clientId, db: db, api: sessionsApi)
+    }
+
+    /// A failed bubble's Delete (its text is gone).
+    func deleteOutbox(_ clientId: String) {
+        SessionOutbox.shared.remove(accountId: accountId, clientIds: [clientId], db: db)
+    }
+
+    /// A stored, unconsumed bubble's Cancel sending (`sessions.unqueue`):
+    /// false = the server refused (the device consumed it meanwhile).
+    func cancelSending(_ bubble: OwnPendingBubble) async -> Bool {
+        guard let messageId = bubble.messageId else { return false }
+        do {
+            try await sessionsApi.unqueue(accountId: accountId, messageId: messageId)
+        } catch {
+            return false
+        }
+        if let clientId = bubble.clientId {
+            SessionOutbox.shared.remove(accountId: accountId, clientIds: [clientId], db: db)
+        }
+        return true
+    }
+
+    /// The viewer's own rows of this session (the newest ones: the outbox
+    /// dedupe and the unconsumed bubbles) and the session's outbox entries.
+    private func startObservingOwnMessages() {
+        guard ownObservationTask == nil, let viewerId = currentUserId else { return }
+        guard let pool = try? db.pool(forAccountId: accountId) else { return }
+        let id = sessionId
+        let observation = ValueObservation.tracking { db -> ([MessageEntity], [MessageOutboxEntity]) in
+            let rows = try MessageEntity
+                .filter(Column("session_id") == id)
+                .filter(Column("author_kind") == "user")
+                .filter(Column("author_id") == viewerId)
+                .filter(Column("card") == nil)
+                .order(Column("created_at").desc)
+                .limit(50)
+                .fetchAll(db)
+            let outbox = try MessageOutboxEntity
+                .filter(Column("session_id") == id)
+                .fetchAll(db)
+            return (rows, outbox)
+        }
+        ownObservationTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    for try await (rows, outbox) in observation.values(in: pool) {
+                        guard let self else { return }
+                        let built = OwnPendingBubble.build(viewerId: viewerId, rows: rows, outbox: outbox)
+                        if built.bubbles != self.ownPending { self.ownPending = built.bubbles }
+                        if !built.drop.isEmpty {
+                            SessionOutbox.shared.remove(accountId: self.accountId, clientIds: built.drop, db: self.db)
+                        }
+                    }
+                    return
+                } catch is CancellationError {
+                    return
+                } catch {
+                    try? await Task.sleep(for: .seconds(1))
+                }
+            }
+        }
     }
 
     // MARK: - Synced session row

@@ -3,8 +3,7 @@ import ExpUI
 import SwiftUI
 
 /// N-12: a session's Dock beyond the asks (web `useSessionDock`): THE Queue
-/// (task-queue.json), the queued messages (EXP-861, the X revokes a held
-/// one) and the status banners (a dropped stream with its Reconnect, EXP-804
+/// (task-queue.json) and the status banners (a dropped stream with its Reconnect, EXP-804
 /// the usage wall with EXP-849's account switch, EXP-724 compacting, EXP-784
 /// the rate-limit window, the starting line) as `Dock.Source`s with their
 /// sheets (dock.json `banner`: the host's words). EXP-1374: a background or
@@ -30,8 +29,9 @@ enum SessionDock {
     /// chat's ONE tasks card, `Dock.chatDockQueue`).
     static func sources(_ model: AgentSessionModel, session: SessionEntity, tasks: Bool = true) -> [Dock.Source] {
         var out: [Dock.Source] = []
+        // #FEED-237 (dock.json): no `queued` source: the viewer's own pending
+        // messages are bubbles at the transcript's bottom (message-delivery.json).
         if !model.isOver {
-            out.append(.queued(model.queued.map(\.text)))
             if tasks {
                 out.append(.tasks(model.taskQueue(now: Date()).map(Dock.QueueSummary.init)))
             }
@@ -122,7 +122,7 @@ enum SessionDock {
         )
     }
 
-    /// THE Queue's and the queued messages' sheets; nil for any other row.
+    /// THE Queue's sheet; nil for any other row.
     static func sheet(_ row: Dock.Row, model: AgentSessionModel, close: @escaping () -> Void) -> AnyView? {
         switch row.kind {
         case .tasks:
@@ -131,10 +131,6 @@ enum SessionDock {
                     completedOpen: Bindable(model).queueCompletedOpen,
                     build: { model.taskQueue(now: $0) }
                 )
-            })
-        case .queued:
-            return AnyView(DockSheetChrome(row: row, onClose: close) {
-                SessionQueuedList(model: model)
             })
         default:
             return nil
@@ -148,17 +144,5 @@ enum SessionDock {
             GlassPill("Reconnect", icon: AppIcons.uiRefresh, mode: .action { model.connect(force: true) })
                 .accessibilityIdentifier("session-reconnect")
         )
-    }
-}
-
-/// The queued messages' sheet body: the list with the remove glyphs (it
-/// observes the model, so a revoked row leaves at once).
-private struct SessionQueuedList: View {
-    let model: AgentSessionModel
-
-    var body: some View {
-        AgentQueueStrip(messages: model.queued, plain: true) { id in
-            model.unqueue(id)
-        }
     }
 }
