@@ -33,7 +33,7 @@ describe(`ecode spec: bound to domain-contract's checks`, () => {
     expect(ecodeContract.checkConclusion.failing).toEqual(contract.prChecks.failingConclusions)
     expect(ecodeContract.checksState.values).toEqual(contract.prChecksState.values)
     expect(ecodeContract.runner.queuedFlagMinutes).toBe(contract.prChecks.queuedFlagMinutes)
-    expect(ecodeContract.prState.values.toSorted()).toEqual([...contract.prState.values].sort())
+    expect([...ecodeContract.prState.values].sort()).toEqual([...contract.prState.values].sort())
   })
 
   it(`the rollup is aggregateChecksState`, () => {
