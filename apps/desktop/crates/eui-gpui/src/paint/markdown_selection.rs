@@ -9,7 +9,7 @@
 //! (the chip's label), never the placeholder: a selection inside a code span
 //! was all whitespace, which the layer drops, and Copy came back empty.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::ops::Range;
 use std::rc::Rc;
 
@@ -58,6 +58,65 @@ fn painted_copy(painted: &Painted) -> String {
 fn document_order(bounds: &Bounds<Pixels>) -> u64 {
     let quantize = |value: Pixels| (((f32::from(value) + 131_072.0).max(0.0)) * 8.0) as u64;
     (quantize(bounds.origin.y) << 24) | (quantize(bounds.origin.x) & 0xFF_FFFF)
+}
+
+thread_local! {
+    /// The scroll viewports around the element being prepainted, innermost
+    /// last ([`viewport_markers`]).
+    static VIEWPORTS: RefCell<Vec<Bounds<Pixels>>> = const { RefCell::new(Vec::new()) };
+}
+
+/// The innermost scroll viewport around the element being prepainted.
+pub fn scroll_viewport() -> Option<Bounds<Pixels>> {
+    VIEWPORTS.with(|v| v.borrow().last().copied())
+}
+
+/// A scroll container's two markers, its FIRST and LAST child: the first
+/// (absolute, the container's box) publishes the container's visible box to
+/// the units prepainted between them, the last withdraws it.
+///
+/// Danny's drag bug: the selection layer's drag auto-scroll measures its
+/// edge zone (16 px in, gpui-base `AutoScroll::compute_delta`) against the
+/// unit's hitbox content mask. Inside a transcript that mask is the Markdown
+/// leaf's own clip (its `overflow_hidden` box, the bubble), so a drag inside
+/// a two-line bubble was already "at the edge" and scrolled the transcript
+/// instead of selecting. A unit registers the VIEWPORT as its mask instead
+/// (the mask is read by the auto-scroll alone), so only a drag that reaches
+/// the transcript's own edge scrolls.
+pub fn viewport_markers() -> (AnyElement, AnyElement) {
+    use gpui::Styled as _;
+    let depth = Rc::new(Cell::new(None::<usize>));
+    let enter = {
+        let depth = depth.clone();
+        gpui::canvas(
+            move |bounds, window, _| {
+                let visible = bounds.intersect(&window.content_mask().bounds);
+                VIEWPORTS.with(|v| {
+                    let mut v = v.borrow_mut();
+                    depth.set(Some(v.len()));
+                    v.push(visible);
+                });
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
+        .into_any_element()
+    };
+    let leave = gpui::canvas(
+        move |_, _, _| {
+            if let Some(len) = depth.take() {
+                VIEWPORTS.with(|v| v.borrow_mut().truncate(len));
+            }
+        },
+        |_, _, _, _| {},
+    )
+    .absolute()
+    .size_0()
+    .into_any_element();
+    (enter, leave)
 }
 
 struct UnitState {
@@ -165,7 +224,10 @@ impl gpui::Element for SelectableUnit {
         // vendored gpui-component only: the `overlay-anchor` feature).
         #[cfg(feature = "overlay-anchor")]
         gpui_component::overlay_anchor::report_anchor("overlay-anchor", bounds, window, cx);
-        let hitbox = window.insert_hitbox(bounds, gpui::HitboxBehavior::Normal);
+        let mut hitbox = window.insert_hitbox(bounds, gpui::HitboxBehavior::Normal);
+        if let Some(viewport) = scroll_viewport() {
+            hitbox.content_mask.bounds = viewport;
+        }
         selection.register(TextSelectionRegistration::new(hitbox, bounds).with_document_order(document_order(&bounds)).with_text_bounds(vec![bounds]), window, cx);
         (selection, painted)
     }
@@ -227,5 +289,38 @@ mod tests {
         let boxes = range_boxes(&layout, start..start + 7);
         assert_eq!(boxes.len(), 1);
         assert_eq!(((boxes[0].top() - top) / line_height).round() as usize, 2);
+    }
+
+    /// Danny's drag bug: text inside a short clipped box (a bubble) in a tall
+    /// scroll container sees the CONTAINER as its auto-scroll viewport, so a
+    /// drag across the bubble selects instead of scrolling the transcript.
+    #[gpui::test]
+    fn a_unit_inside_a_clipped_bubble_auto_scrolls_against_the_viewport(cx: &mut TestAppContext) {
+        type Seen = Rc<RefCell<Option<(Option<Bounds<Pixels>>, Bounds<Pixels>)>>>;
+        struct View(Seen);
+        impl Render for View {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                let seen = self.0.clone();
+                let probe = gpui::canvas(move |_, window, _| *seen.borrow_mut() = Some((scroll_viewport(), window.content_mask().bounds)), |_, _, _, _| {}).size_full();
+                let (enter, leave) = viewport_markers();
+                let bubble = div().absolute().top(px(300.)).left(px(20.)).w(px(300.)).h(px(40.)).overflow_hidden().child(probe);
+                div().relative().w(px(600.)).h(px(400.)).overflow_hidden().child(enter).child(bubble).child(leave)
+            }
+        }
+        let seen: Seen = Rc::default();
+        let (_view, cx) = cx.add_window_view(|_, _| View(seen.clone()));
+        let cx: &mut VisualTestContext = cx;
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let (viewport, mask) = seen.borrow().expect("the bubble prepainted");
+        let viewport = viewport.expect("the container published its viewport");
+        assert_eq!(viewport.size.height, px(400.), "the container's box");
+        assert_eq!(mask.size.height, px(40.), "the bubble clips its own content");
+        // A drag 10 px above the bubble's bottom edge: inside its 16 px zone,
+        // nowhere near the viewport's.
+        let y = mask.bottom() - px(10.);
+        assert!(gpui_base::AutoScroll::compute_delta(y, mask).is_some(), "the bubble's own mask scrolled (the bug)");
+        assert!(gpui_base::AutoScroll::compute_delta(y, viewport).is_none(), "the viewport does not");
+        assert!(gpui_base::AutoScroll::compute_delta(viewport.bottom() - px(4.), viewport).is_some(), "the transcript's own edge still scrolls");
+        assert!(scroll_viewport().is_none(), "withdrawn after the container");
     }
 }

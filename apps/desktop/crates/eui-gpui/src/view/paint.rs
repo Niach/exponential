@@ -417,7 +417,14 @@ impl SurfaceView {
         // core; the native suppresses it), its element dropped.
         let kids = self.children_elements(index, child_place, window, cx);
         let kids = if kids_shown { kids } else { Vec::new() };
-        el = el.children(kids);
+        // A scroll container's viewport reaches the selectable text inside
+        // (`markdown_selection::viewport_markers`: the drag auto-scroll's edge).
+        if self.scrolls.contains_key(&index) && !kids.is_empty() {
+            let (enter, leave) = crate::paint::markdown_selection::viewport_markers();
+            el = el.child(enter).children(kids).child(leave);
+        } else {
+            el = el.children(kids);
+        }
         // FEED-200: the trackpad pages a swipeable Tabs (`view/swipe.rs`):
         // its content's probe paints after the subtree, a node that pans
         // itself inside reports the pointer over it.
