@@ -40,6 +40,15 @@ const BUILT_FROM: &str = concat!("exp-built-from:", env!("CARGO_MANIFEST_DIR"));
 const SESSION_DEVICE_ENV: &str = "EXPONENTIAL_SESSION_DEVICE";
 
 fn main() {
+    // #EXP-1616: started AS `git-remote-exp` (the link installed below):
+    // git's remote helper for exp:// and nothing else (stdout is git's pipe).
+    if git_remote_exp::invoked_as_helper() {
+        api::http::init();
+        std::process::exit(match git_remote_exp::main_with(coding::ecode_helper::helper_auth) {
+            code if code == std::process::ExitCode::SUCCESS => 0,
+            _ => 128,
+        });
+    }
     // #ERR-12: the crash monitor (this binary, `__exp-crash-monitor`) runs
     // and exits here, before anything else starts.
     observability::run_crash_monitor_if_requested();
@@ -63,6 +72,8 @@ fn main() {
     // heartbeat included) went nowhere. Panics land in the file too. The
     // data dir resolves exactly as `AuthStore::load` sees it below.
     let log_data_dir = api::default_data_dir();
+    // #EXP-1616: `git … exp://` in every terminal and session this app starts.
+    coding::ecode_helper::install_git_helper(&log_data_dir);
     let logger = coding::logging::ExpLogger::new(coding::logging::level_from_env())
         .with_file(&log_data_dir, "exponential.log")
         .with_tap(observability::log_tap);

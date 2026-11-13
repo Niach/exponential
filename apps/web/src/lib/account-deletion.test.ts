@@ -365,6 +365,8 @@ describe(`guardAndCleanupTeamsForUserDeletion — storage (REV2-36)`, () => {
     // A draft in the dying solo team shows up in BOTH arms: the team query
     // by team_id and the draft query by user. One key, one S3 delete.
     selectQueue.push([{ storageKey: `a.png` }, { storageKey: `drafts/d-1/x.png` }])
+    // #EXP-1616: the dying team's eCode repo objects (none).
+    selectQueue.push([])
     selectQueue.push([
       { storageKey: `drafts/d-1/x.png`, posterStorageKey: null },
       { storageKey: `drafts/d-2/y.png`, posterStorageKey: null },

@@ -265,7 +265,10 @@ export async function getTeamUsage(
         .where(eq(widgetConfigs.teamId, teamId)),
     ])
 
-  const totalBytes = Number(storageSum.totalBytes)
+  // #EXP-1616: an eCode repo's packs and kept backups live in the team
+  // bucket too: they count toward the same budget.
+  const { teamRepoBytes } = await import(`@/lib/ecode/git-store`)
+  const totalBytes = Number(storageSum.totalBytes) + (await teamRepoBytes(teamId))
 
   return {
     members: memberCount,
@@ -515,7 +518,7 @@ export async function assertWithinStorageLimit(
   const currentBytes = usage.storageMb * 1024 * 1024
   if (currentBytes + additionalBytes > limitBytes) {
     throw planLimitError(
-      `up to ${limits.storageMb >= 1024 ? `${Math.round(limits.storageMb / 1024)} GB` : `${limits.storageMb} MB`} of attachment storage. Upgrade to upload more.`
+      `up to ${limits.storageMb >= 1024 ? `${Math.round(limits.storageMb / 1024)} GB` : `${limits.storageMb} MB`} of storage (attachments and repositories). Upgrade to upload more.`
     )
   }
 }

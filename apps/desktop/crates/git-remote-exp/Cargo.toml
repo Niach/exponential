@@ -1,0 +1,20 @@
+[package]
+name = "git-remote-exp"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "git's remote helper for exp://<team>/<repo> (#EXP-1616): eCode's own git, the team bucket as the remote, on the ecode crate. Ships inside the `exponential` CLI and the desktop app (argv[0] dispatch) and as this standalone binary."
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "git-remote-exp"
+path = "src/main.rs"
+
+[dependencies]
+ecode = { path = "../ecode", default-features = false, features = ["repo", "exponential"] }
+serde_json = { workspace = true }
+
+[dev-dependencies]

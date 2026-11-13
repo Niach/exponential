@@ -12,6 +12,7 @@
 mod agent_login_host;
 mod commands;
 mod context;
+mod ecode_jobs;
 mod launch;
 mod prefs;
 mod registry;
@@ -172,6 +173,12 @@ fn maybe_prompt_auto_update() {
 }
 
 fn main() -> ExitCode {
+    // #EXP-1616: started AS `git-remote-exp` (the link the daemon installs):
+    // git's remote helper for exp:// and nothing else (stdout is git's pipe).
+    if git_remote_exp::invoked_as_helper() {
+        api::http::init();
+        return git_remote_exp::main_with(coding::ecode_helper::helper_auth);
+    }
     // #ERR-12: the crash monitor (this binary, `__exp-crash-monitor`) runs
     // and exits here, before anything else starts.
     observability::run_crash_monitor_if_requested();

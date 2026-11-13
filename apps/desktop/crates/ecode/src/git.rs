@@ -79,6 +79,27 @@ impl GitCommand {
         command
     }
 
+    /// Runs it with `stdin` from a file and `stdout` into a file (packs:
+    /// `pack-objects`, `index-pack`; never held in memory). `Err` on a
+    /// non-zero exit, with the scrubbed stderr.
+    pub fn run_files(&self, stdin: Option<&Path>, stdout: Option<&Path>) -> Result<()> {
+        let op = self.describe();
+        let mut command = self.command();
+        if let Some(path) = stdin {
+            command.stdin(std::fs::File::open(path).map_err(|e| Error::git(&op, format!("open {}: {e}", path.display())))?);
+        }
+        command.stdout(match stdout {
+            Some(path) => Stdio::from(std::fs::File::create(path).map_err(|e| Error::git(&op, format!("create {}: {e}", path.display())))?),
+            None => Stdio::null(),
+        });
+        let out = command.stderr(Stdio::piped()).output().map_err(|e| Error::git(&op, format!("spawn git: {e}")))?;
+        if out.status.success() {
+            Ok(())
+        } else {
+            Err(Error::git(op, ecode_core::redact(String::from_utf8_lossy(&out.stderr).trim(), &self.scrub)))
+        }
+    }
+
     /// Runs it and captures the (scrubbed) output.
     pub(crate) fn output(&self) -> Result<GitOutput> {
         let op = self.describe();

@@ -52,10 +52,13 @@ function providerUpdated(at: Date): { providerUpdatedAt: Date } {
   return { providerUpdatedAt: at }
 }
 
-/** `owner/repo` out of a GitHub PR URL. */
+/** `owner/repo` out of a GitHub PR URL, or `team/name` out of an eCode one
+ *  (`/t/<team>/repos/<name>/pulls/<n>`, #EXP-1616). */
 export function repoFromPrUrl(prUrl: string): string | null {
   const match = prUrl.match(/github\.com\/([^/]+\/[^/]+)\/pull\/\d+/)
-  return match ? match[1]! : null
+  if (match) return match[1]!
+  const ecode = prUrl.match(/\/t\/([^/]+)\/repos\/([^/]+)\/pulls\/\d+$/)
+  return ecode ? `${ecode[1]}/${ecode[2]}` : null
 }
 
 // Parse a team issue identifier ("MET-12") out of a PR head-branch name.

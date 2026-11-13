@@ -16,7 +16,8 @@ pub struct ExponentialCredentials {
     client: reqwest::blocking::Client,
     base_url: String,
     bearer: String,
-    repository_id: String,
+    /// `{"repositoryId": …}` or `{"remote": "exp://team/repo"}`.
+    target: serde_json::Value,
     cached: Mutex<Option<Credentials>>,
     now_ms: fn() -> i64,
 }
@@ -33,10 +34,18 @@ impl ExponentialCredentials {
             client: client("ecode")?,
             base_url: base_url.trim_end_matches('/').to_string(),
             bearer: bearer.into(),
-            repository_id: repository_id.into(),
+            target: json!({ "repositoryId": repository_id.into() }),
             cached: Mutex::new(None),
             now_ms: system_now_ms,
         })
+    }
+
+    /// The repo an `exp://<team>/<repo>` URL names (#EXP-1616): what
+    /// `git-remote-exp` knows; the server resolves it.
+    pub fn for_remote(base_url: &str, bearer: impl Into<String>, remote: &str) -> Result<Self> {
+        let mut source = Self::new(base_url, bearer, "")?;
+        source.target = json!({ "remote": remote });
+        Ok(source)
     }
 
     /// The clock the refresh rule reads (tests).
@@ -51,7 +60,7 @@ impl ExponentialCredentials {
             .client
             .post(url)
             .bearer_auth(&self.bearer);
-        let request = crate::http::with_json(request, &json!({ "repositoryId": self.repository_id }));
+        let request = crate::http::with_json(request, &self.target);
         let body = send(request, &[&self.bearer])?.ok(&[&self.bearer])?;
         let data = body.pointer("/result/data").cloned().unwrap_or(body);
         let credentials: Credentials = serde_json::from_value(data)

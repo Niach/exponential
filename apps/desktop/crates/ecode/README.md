@@ -33,7 +33,8 @@ commit kept) and bundles (gix 0.90 has no bundle support).
 |---|---|
 | `local` (default) | `LocalForge`: branches in a `LocalRepo`, PRs and events in a `Store` table |
 | `github` | `GithubForge` over REST with a token, `DeviceFlow` for OAuth without a server, events by polling the PR list with an ETag |
-| `exponential` | `ExponentialCredentials`: `repositories.credentials`, cached until the refresh margin |
+| `exponential` | `ExponentialCredentials`: `repositories.credentials` (by id, or by `exp://` URL), cached until the refresh margin |
+| `exponential` + `repo` | `exp_git::ExpGit`: `exp://<team>/<repo>`, eCode's own git (#EXP-1616). The team bucket is the remote: refs are compare-and-swap rows on the server, packs move device ↔ bucket over presigned URLs (fetch = every pack past a cursor, `git index-pack`; push = `git pack-objects` of what the remote lacks, one CAS for every ref). `exp_jobs`: the git jobs a team device runs for the server's forge (mergeability, squash, files, `rebase --onto`, ancestry, bundle backup, restore, repack, mirror). `git-remote-exp` (crate beside this one) is git's remote helper on top. |
 
 ## Tests
 
@@ -43,5 +44,9 @@ commit kept) and bundles (gix 0.90 has no bundle support).
 - `examples/local_flow.rs` (run as `tests/local_flow.rs`): init → branches →
   a PR on a non-default base → retarget → ordered merge, no server.
 - `tests/dependency_gate.rs`: no Exponential app crate, gix's features pinned.
+- `crates/git-remote-exp/tests/roundtrip.rs`: real git through the helper
+  against a stand-in server (push, clone, fetch, a refused non-fast-forward),
+  the device jobs, and the backup test: back up, wipe, restore, verify every
+  ref and object.
 
 Licence: Apache-2.0.
