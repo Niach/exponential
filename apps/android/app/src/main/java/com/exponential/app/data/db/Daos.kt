@@ -402,6 +402,20 @@ abstract class SessionDao {
 
     // NEW-2: the agents' CONVERSATION sessions (roots with `agent_id`; the
     // definitions live in `agents`), creation order.
+    // #ERR-19: [observeTree] / [observeAgents] / [observeLive] WITHOUT the
+    // digest, for readers that never read it (SESSION_COLUMNS_NO_DIGEST).
+    @Query("SELECT $SESSION_COLUMNS_NO_DIGEST FROM sessions WHERE root_id = :rootId OR id = :rootId ORDER BY created_at, id")
+    abstract fun rawObserveTreeNoDigest(rootId: String): Flow<List<SessionEntity>>
+    fun observeTreeNoDigest(rootId: String): Flow<List<SessionEntity>> = rawObserveTreeNoDigest(rootId).openedSessions()
+
+    @Query("SELECT $SESSION_COLUMNS_NO_DIGEST FROM sessions WHERE parent_id IS NULL AND agent_id IS NOT NULL ORDER BY created_at, id")
+    abstract fun rawObserveAgentsNoDigest(): Flow<List<SessionEntity>>
+    fun observeAgentsNoDigest(): Flow<List<SessionEntity>> = rawObserveAgentsNoDigest().openedSessions()
+
+    @Query("SELECT $SESSION_COLUMNS_NO_DIGEST FROM sessions WHERE status != 'ended' ORDER BY created_at, id")
+    abstract fun rawObserveLiveNoDigest(): Flow<List<SessionEntity>>
+    fun observeLiveNoDigest(): Flow<List<SessionEntity>> = rawObserveLiveNoDigest().openedSessions()
+
     @Query("SELECT * FROM sessions WHERE parent_id IS NULL AND agent_id IS NOT NULL ORDER BY created_at, id")
     abstract fun rawObserveAgents(): Flow<List<SessionEntity>>
     fun observeAgents(): Flow<List<SessionEntity>> = rawObserveAgents().openedSessions()
@@ -597,6 +611,14 @@ interface SessionReadDao {
     @Query("DELETE FROM session_reads")
     suspend fun clear()
 }
+
+// #ERR-19: every `sessions` column but the list digest (NULL): the readers
+// that never show a preview. A sealed digest keeps its bodies whole (~24 KB
+// a child of a busy tree), and Room re-runs every sessions query on any row's
+// write (a message's digest update): a digest-less reader no longer re-reads
+// them all per write.
+private const val SESSION_COLUMNS_NO_DIGEST =
+    "id, team_id, parent_id, root_id, user_id, device_id, cli, account, model, effort, plan_mode, computer_use, ultracode, repository_id, branch, status, busy, background, needs_input, blocked, started_at, last_turn_at, ended_at, shared, title, guide, created_at, updated_at, agent_id, app_id, agent_instructions_at, started_by_agent_id, seal_public_key, seal_epoch, sealed_title, via_app_id, scope_team_ids, NULL AS digest"
 
 // session-title.json `firstPrompt`: a row a session title can read.
 private const val TITLE_ROW = "(card IS NULL OR card = 'null') AND (author_kind = 'user' OR " +

@@ -306,7 +306,7 @@ class ChatViewModel @Inject constructor(
             if (key == null) {
                 flowOf(emptyList())
             } else {
-                dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeAgents() }
+                dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeAgentsNoDigest() }
                     .map { rows -> rows.filter { it.agentId == key.first && it.userId == key.second } }
             }
         }

@@ -457,7 +457,7 @@ class AgentSessionViewModel @AssistedInject constructor(
             if (id == null) {
                 flowOf(false)
             } else {
-                dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeTree(id) }
+                dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeTreeNoDigest(id) }
                     .map { tree -> tree.any { it.id != id } }
             }
         },
@@ -829,7 +829,7 @@ class AgentSessionViewModel @AssistedInject constructor(
                 flowOf(null)
             } else {
                 combine(
-                    dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeTree(root) },
+                    dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeTreeNoDigest(root) },
                     // Large chats: the titles (header / origin) read only the
                     // tree's title rows (session-title.json `firstPrompt`).
                     dbFlow.scopedQuery(emptyList<SessionTree.Message>()) { db ->
@@ -911,8 +911,8 @@ class AgentSessionViewModel @AssistedInject constructor(
                 flowOf(null)
             } else {
                 combine(
-                    dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeTree(root) },
-                    dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeAgents() },
+                    dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeTreeNoDigest(root) },
+                    dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeAgentsNoDigest() },
                     // Large chats: the titles (header / origin) read only the
                     // tree's title rows (session-title.json `firstPrompt`).
                     dbFlow.scopedQuery(emptyList<SessionTree.Message>()) { db ->
