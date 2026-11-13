@@ -1,0 +1,21 @@
+[package]
+name = "exponential-mobile-ffi"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "#PERF-11: the Exponential phone apps' ONE native library: links genUI's, the Engine's and P2P's UniFFI facades into a single cdylib (Android) / staticlib (iOS), so one Rust std and one copy of their shared dependencies ship instead of three. The facades stay separate SDK crates with their own bindings."
+
+[lib]
+name = "exponential_mobile_ffi"
+# Built as ONE crate type at a time (`cargo rustc --crate-type cdylib|staticlib`
+# in build-android.sh / build-ios.sh), so the `mobile` profile's LTO applies.
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+# The feature sets both apps already shipped: genUI with its built-in themes,
+# the Engine without its bundled sqlite (the apps' records live in Room/GRDB),
+# the full P2P node with its persistent blob store.
+exponential-ui-ffi = { path = "../exponential-ui-ffi" }
+eengine-ffi = { path = "../eengine-ffi", default-features = false }
+exponential-net-ffi = { path = "../exponential-net-ffi" }

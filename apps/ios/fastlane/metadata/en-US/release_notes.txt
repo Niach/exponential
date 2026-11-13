@@ -1,3 +1,4 @@
+- A smaller download: the app ships one native library instead of three
 - Notifications clear when you read them on another device, and show as a short notice while the app is open
 - Sent messages show delivery ticks
 - Agent replies span the full column on phones

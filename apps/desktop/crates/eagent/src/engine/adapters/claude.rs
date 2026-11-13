@@ -689,6 +689,8 @@ struct State {
     /// cleared by it — the CLI's own prewait latch, ported.
     cancel_epoch: u64,
     closed: bool,
+    /// #EXP-1828: a second `quiet` with no new prompt interrupts the turn.
+    quiet_guard: wire::QuietGuard,
 }
 
 /// EXP-784: what the adapter knows about the plan window, from the CLI's
@@ -1762,6 +1764,8 @@ impl ClaudeSession {
             // EXP-1224 review: this prompt is the next turn; a notification
             // that landed before it is answered in it.
             state.notification_pending = false;
+            // #EXP-1828: a real message: the agent may answer it with quiet.
+            state.quiet_guard.on_prompt();
             let line = (!new_conversation).then(|| message.clone());
             let echo = if new_conversation { String::new() } else { wire::prompt_to_claude(&text) };
             state.turns.push_back(OpenTurn::new(tx, &echo, line));
@@ -3662,6 +3666,25 @@ impl ClaudeSession {
         // next narrated.
         if model != Some(wire::SYNTHETIC_MODEL) && wire::is_real_assistant_activity(&blocks) {
             self.clear_rate_limit_notice(cx);
+        }
+        // #EXP-1828: `quiet` is final. A second one since the last prompt
+        // means the turn was re-woken without a new message (Claude Code's
+        // silent-turn reminder looped a team agent 17 times): stop the turn
+        // (not a Stop: queued messages still flow, the turn ends normally).
+        if parent.is_none() && wire::calls_quiet(&blocks) {
+            let repeat = {
+                let mut state = self.lock();
+                !state.replaying_history && !state.closed && state.quiet_guard.on_quiet()
+            };
+            if repeat {
+                log::warn!("engine: claude called quiet again without a new message; interrupting the turn");
+                if let Err(error) = self.send(wire::control_request(
+                    &wire::new_request_id(),
+                    wire::interrupt(false),
+                )) {
+                    log::warn!("engine: claude quiet-loop interrupt failed: {error}");
+                }
+            }
         }
 
         // Each text/thinking block may already have streamed as deltas: diff
