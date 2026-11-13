@@ -175,7 +175,6 @@ fn job_detail(input: &PageInput, job: &CiJobRow, log: Option<&str>) -> Value {
         children.push(json!({"id": log_id, "component": "Text", "props": {"text": model::copy("emptyLog"), "variant": "muted"}}));
     } else {
         let max_lines = model::CI_RUN["logMaxLines"][if input.phone { "phone" } else { "wide" }].clone();
-        let failing = domain::pr_checks::is_failing(&job.status, job.conclusion.as_deref());
         children.push(json!({
             "id": log_id,
             "component": "CodeBlock",
@@ -187,7 +186,6 @@ fn job_detail(input: &PageInput, job: &CiJobRow, log: Option<&str>) -> Value {
                 "wrap": false,
                 "copyable": true,
                 "maxLines": max_lines,
-                "variant": if failing { "destructive" } else { "default" },
                 "highlight": view.highlight,
                 "follow": job.status != "completed",
             },
@@ -215,7 +213,10 @@ pub(crate) fn page_tree(input: &PageInput) -> Value {
             json!({
                 "id": format!("{}.{index}", id("tiles")),
                 "component": "StatTile",
-                "props": {"label": tile.label, "value": tile.value, "tone": tile.tone.id()},
+                "props": match &tile.delta {
+                    Some(delta) => json!({"label": tile.label, "value": tile.value, "tone": tile.tone.id(), "delta": delta}),
+                    None => json!({"label": tile.label, "value": tile.value, "tone": tile.tone.id()}),
+                },
             })
         })
         .collect();

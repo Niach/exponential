@@ -27,6 +27,7 @@ object CiRun {
         const val RERUN_FAILED = "Re-run failed"
         const val CANCEL = "Cancel"
         const val EMPTY_LOG = "No log yet."
+        const val FAILED_JOBS = "{count} failed"
         const val PIPELINE_ERROR = "The pipeline file did not plan"
         const val NONE = "—"
         const val TILE_STATUS = "Status"
@@ -114,7 +115,8 @@ object CiRun {
         val completedAt: String?,
     )
 
-    data class Tile(val label: String, val value: String, val tone: Tone)
+    /** `delta`: the Status tile of a failed run, `{count} failed` (red); else null. */
+    data class Tile(val label: String, val value: String, val tone: Tone, val delta: String? = null)
 
     data class JobRow(
         val id: String,
@@ -161,8 +163,10 @@ object CiRun {
         val started = msOf(run.startedAt)
         val end = msOf(run.completedAt) ?: nowMs
         val runners = jobs.mapNotNull { it.runnerLabel?.takeIf(String::isNotEmpty) }.distinct()
+        val failing = jobs.count(::isFailing)
+        val delta = if (status == RunStatus.Failed && failing > 0) Copy.FAILED_JOBS.replace("{count}", failing.toString()) else null
         return listOf(
-            Tile(Copy.TILE_STATUS, Copy.STATUS.getValue(status), tone),
+            Tile(Copy.TILE_STATUS, Copy.STATUS.getValue(status), tone, delta),
             Tile(Copy.TILE_DURATION, if (started == null) Copy.NONE else PrChecks.formatDuration(end - started), Tone.Neutral),
             Tile(Copy.TILE_RUNNER, if (runners.isEmpty()) Copy.NONE else runners.joinToString(", "), Tone.Neutral),
             Tile(Copy.TILE_COMMIT, run.sha.take(7), Tone.Neutral),

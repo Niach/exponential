@@ -137,7 +137,8 @@
         "props": {
          "label": "Status",
          "value": "Failed",
-         "tone": "danger"
+         "tone": "danger",
+         "delta": "1 failed"
         }
        },
        {
@@ -323,7 +324,6 @@
              "wrap": false,
              "copyable": true,
              "maxLines": 20,
-             "variant": "destructive",
              "highlight": [
               11
              ],
@@ -514,7 +514,8 @@
         "props": {
          "label": "Status",
          "value": "Failed",
-         "tone": "danger"
+         "tone": "danger",
+         "delta": "1 failed"
         }
        },
        {
@@ -763,7 +764,6 @@
              "wrap": false,
              "copyable": true,
              "maxLines": 32,
-             "variant": "destructive",
              "highlight": [
               11
              ],
@@ -1102,7 +1102,6 @@
              "wrap": false,
              "copyable": true,
              "maxLines": 20,
-             "variant": "default",
              "highlight": [],
              "follow": true
             }

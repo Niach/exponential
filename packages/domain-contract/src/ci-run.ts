@@ -45,6 +45,8 @@ export interface CiTile {
   label: string
   value: string
   tone: CiTone
+  /** The Status tile of a failed run: `{count} failed` (red); else null. */
+  delta: string | null
 }
 
 const msOf = (value: string | null | undefined): number | null => {
@@ -64,11 +66,13 @@ export function ciRunTiles(
   const started = msOf(run.startedAt)
   const end = msOf(run.completedAt) ?? (typeof now === `string` ? Date.parse(now) : now.getTime())
   const runners = [...new Set(jobs.flatMap((job) => (job.runnerLabel ? [job.runnerLabel] : [])))]
+  const failing = jobs.filter(isFailingCheck).length
+  const delta = status === `failed` && failing > 0 ? copy.failedJobs.replace(`{count}`, String(failing)) : null
   return [
-    { label: copy.tiles.status, value: copy.status[status], tone },
-    { label: copy.tiles.duration, value: started === null ? copy.none : formatCheckDuration(end - started), tone: `neutral` },
-    { label: copy.tiles.runner, value: runners.length > 0 ? runners.join(`, `) : copy.none, tone: `neutral` },
-    { label: copy.tiles.commit, value: run.sha.slice(0, 7), tone: `neutral` },
+    { label: copy.tiles.status, value: copy.status[status], tone, delta },
+    { label: copy.tiles.duration, value: started === null ? copy.none : formatCheckDuration(end - started), tone: `neutral`, delta: null },
+    { label: copy.tiles.runner, value: runners.length > 0 ? runners.join(`, `) : copy.none, tone: `neutral`, delta: null },
+    { label: copy.tiles.commit, value: run.sha.slice(0, 7), tone: `neutral`, delta: null },
   ]
 }
 

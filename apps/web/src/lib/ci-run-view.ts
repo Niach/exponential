@@ -21,7 +21,6 @@ import {
   type CiStepLike,
   type RunnerClient,
 } from "@exp/domain-contract/ci-run"
-import { isFailingCheck } from "@exp/domain-contract/pr-checks"
 
 // #EXP-1617 / #EXP-1804 (fixtures/ci-run.json, fixtures/runner-settings.json):
 // the CI run page and a device's CI runner section as genUI trees (the core
@@ -110,7 +109,6 @@ function jobDetail(
         wrap: false,
         copyable: true,
         maxLines: phone ? CI_RUN_LOG_MAX_LINES.phone : CI_RUN_LOG_MAX_LINES.wide,
-        variant: isFailingCheck(job) ? `destructive` : `default`,
         highlight: view.highlight,
         follow: running,
       },
@@ -146,7 +144,7 @@ export function ciRunTree(
       children: tiles.map((tile, i) => ({
         id: `${CI_RUN_TEST_IDS.tiles}.${i}`,
         component: `StatTile`,
-        props: { label: tile.label, value: tile.value, tone: tile.tone },
+        props: { label: tile.label, value: tile.value, tone: tile.tone, ...(tile.delta ? { delta: tile.delta } : {}) },
       })),
     },
   ]

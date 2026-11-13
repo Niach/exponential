@@ -114,7 +114,6 @@ object CiRunView {
                 put("wrap", false)
                 put("copyable", true)
                 put("maxLines", if (phone) CiRun.LOG_MAX_LINES_PHONE else CiRun.LOG_MAX_LINES_WIDE)
-                put("variant", if (CiRun.isFailing(job)) "destructive" else "default")
                 putJsonArray("highlight") { view.highlight.forEach { add(JsonPrimitive(it)) } }
                 put("follow", running)
             })
@@ -149,7 +148,7 @@ object CiRunView {
                 "Grid",
                 { put("columns", if (phone) 2 else 4); put("gap", "md") },
                 tiles.mapIndexed { i, tile ->
-                    node("${ids.TILES}.$i", "StatTile", { put("label", tile.label); put("value", tile.value); put("tone", tile.tone.wire) })
+                    node("${ids.TILES}.$i", "StatTile", { put("label", tile.label); put("value", tile.value); put("tone", tile.tone.wire); tile.delta?.let { put("delta", it) } })
                 },
             ),
         )

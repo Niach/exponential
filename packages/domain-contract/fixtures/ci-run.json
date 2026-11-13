@@ -1,5 +1,5 @@
 {
-  "$comment": "#EXP-1617 / #EXP-1804 THE CI RUN PAGE (view `ci-run`, ×4: web /t/$teamSlug/ci/$runId?job=<jobId>, the desktop, iOS, Android; the target of every check's `details_url` our CI writes). genUI catalog only. DATA: the synced `ci_runs` row + its `ci_jobs` rows (shapes ci-runs/ci-jobs; never fetched), the runner devices from the devices shape, and the selected job's LOG fetched on demand (tRPC `ci.log{jobId, offset}` → {text, nextOffset, complete}; logs are never synced): read once from 0, then while `complete` is false read again from `nextOffset` every `liveTailMs` and append. LAYOUT, top to bottom: a `Heading` = copy.title with {number} and the run's `name` as its muted subtitle; a `Grid` of four `StatTile`s = `tiles` (label, value, tone; wide: 4 columns, phones: 2); the actions `Row` of `Button`s = `actions` (copy.rerunFailed = `ci.rerun{runId, failedOnly: true}` then open the new run; copy.cancel = `ci.cancel{runId}`, variant destructive; Re-run failed is the default variant); when the run has an `error` (the pipeline file did not plan) an `Alert` type error titled copy.pipelineError with the error text as its message replaces the jobs; then the JOBS = `jobRows` in planner order (`position`): WIDE (web, desktop) a `Section` titled copy.jobs holding one `Row` per job (leading slot = the glyph as an `Icon` tinted by its tone: green = success, red = danger, muted = muted; title = check name, subtitle = reason text, meta = duration, selected = the selected job) beside the selected job's detail; PHONES one `Collapsible` per job (title = check name, count none) whose body is that job's detail, only the selected one open. The DETAIL of a job: its steps as a `Trace` of `TraceItem`s = `steps` (title, status, description = duration), then the log as ONE `CodeBlock{title: copy.log, language: ansi, lineNumbers: true, wrap: false, copyable: true, maxLines: logMaxLines.wide | .phone, variant: destructive when the job's conclusion is failing, highlight: logView(text).highlight, follow: the job is not completed}` holding logView(text).code (copy.emptyLog when the job has no log and is not running). SELECTION (`defaultJob`): the `job` query param when it names a job of the run, else the first FAILING job, else the first RUNNING one, else the first; selecting a job rewrites `?job=`. RULES: `tiles` = Status (`runStatus`: queued = pending with nothing in progress, running = pending with a job in progress, passed = success, cancelled = failure whose failing jobs are ALL cancelled, failed = any other failure; tone neutral|primary|success|neutral|danger), Duration (pr-checks formatDuration of completedAt (or now) − startedAt; copy.none before it started), Runner (the distinct runner LABELS of the jobs that ran, in planner order, joined by `, `; copy.none when none ran), Commit (the sha's first 7 characters). `jobRows`: glyph/tone = pr-checks checkGlyph of the job; duration = pr-checks checkDuration (null while queued); subtitle = copy.reasons[reason] when the job completed with a reason, else null. `steps`: status queued → pending, in_progress → running, completed with success → done, with skipped or neutral → skipped, any other conclusion → error; description = the step's duration (formatDuration; null until it started). `logView`: the runner's markers become plain lines: `##[group]X` → `▸ X`, `##[endgroup]` lines are dropped, `##[error]X` → `Error: X` (its 1-based DISPLAYED line goes into `highlight`), `##[warning]X` → `Warning: X`; a trailing newline adds no empty last line. `actions`: rerunFailed when the run is completed and failed (state failure, not a pipeline error that a person must fix in the file: those re-plan, still rerunFailed), cancel when the run is pending. testIds name the parts for the e2e/shots.",
+  "$comment": "#EXP-1617 / #EXP-1804 THE CI RUN PAGE (view `ci-run`, ×4: web /t/$teamSlug/ci/$runId?job=<jobId>, the desktop, iOS, Android; the target of every check's `details_url` our CI writes). genUI catalog only. DATA: the synced `ci_runs` row + its `ci_jobs` rows (shapes ci-runs/ci-jobs; never fetched), the runner devices from the devices shape, and the selected job's LOG fetched on demand (tRPC `ci.log{jobId, offset}` → {text, nextOffset, complete}; logs are never synced): read once from 0, then while `complete` is false read again from `nextOffset` every `liveTailMs` and append. LAYOUT, top to bottom: a `Heading` = copy.title with {number} and the run's `name` as its muted subtitle; a `Grid` of four `StatTile`s = `tiles` (label, value, tone, and `delta` when it is not null; wide: 4 columns, phones: 2); the actions `Row` of `Button`s = `actions` (copy.rerunFailed = `ci.rerun{runId, failedOnly: true}` then open the new run; copy.cancel = `ci.cancel{runId}`, variant destructive; Re-run failed is the default variant); when the run has an `error` (the pipeline file did not plan) an `Alert` type error titled copy.pipelineError with the error text as its message replaces the jobs; then the JOBS = `jobRows` in planner order (`position`): WIDE (web, desktop) a `Section` titled copy.jobs holding one `Row` per job (leading slot = the glyph as an `Icon` tinted by its tone: green = success, red = danger, muted = muted; title = check name, subtitle = reason text, meta = duration, selected = the selected job) beside the selected job's detail; PHONES one `Collapsible` per job (title = check name, count none) whose body is that job's detail, only the selected one open. The DETAIL of a job: its steps as a `Trace` of `TraceItem`s = `steps` (title, status, description = duration), then the log as ONE `CodeBlock{title: copy.log, language: ansi, lineNumbers: true, wrap: false (long lines scroll sideways), copyable: true, maxLines: logMaxLines.wide | .phone, highlight: logView(text).highlight, follow: the job is not completed}`: NEVER the destructive variant, a failed log keeps its ANSI colours; the failure shows as the red Status tile (its delta) and the highlighted error lines holding logView(text).code (copy.emptyLog when the job has no log and is not running). SELECTION (`defaultJob`): the `job` query param when it names a job of the run, else the first FAILING job, else the first RUNNING one, else the first; selecting a job rewrites `?job=`. RULES: `tiles` = Status (delta = copy.failedJobs with {count} = the failing jobs when the status is failed and one failed, else null; `runStatus`: queued = pending with nothing in progress, running = pending with a job in progress, passed = success, cancelled = failure whose failing jobs are ALL cancelled, failed = any other failure; tone neutral|primary|success|neutral|danger), Duration (pr-checks formatDuration of completedAt (or now) − startedAt; copy.none before it started), Runner (the distinct runner LABELS of the jobs that ran, in planner order, joined by `, `; copy.none when none ran), Commit (the sha's first 7 characters). `jobRows`: glyph/tone = pr-checks checkGlyph of the job; duration = pr-checks checkDuration (null while queued); subtitle = copy.reasons[reason] when the job completed with a reason, else null. `steps`: status queued → pending, in_progress → running, completed with success → done, with skipped or neutral → skipped, any other conclusion → error; description = the step's duration (formatDuration; null until it started). `logView`: the runner's markers become plain lines: `##[group]X` → `▸ X`, `##[endgroup]` lines are dropped, `##[error]X` → `Error: X` (its 1-based DISPLAYED line goes into `highlight`), `##[warning]X` → `Warning: X`; a trailing newline adds no empty last line. `actions`: rerunFailed when the run is completed and failed (state failure, not a pipeline error that a person must fix in the file: those re-plan, still rerunFailed), cancel when the run is pending. testIds name the parts for the e2e/shots.",
   "copy": {
     "title": "Run #{number}",
     "jobs": "Jobs",
@@ -8,6 +8,7 @@
     "rerunFailed": "Re-run failed",
     "cancel": "Cancel",
     "emptyLog": "No log yet.",
+    "failedJobs": "{count} failed",
     "pipelineError": "The pipeline file did not plan",
     "none": "—",
     "tiles": { "status": "Status", "duration": "Duration", "runner": "Runner", "commit": "Commit" },
@@ -51,10 +52,10 @@
         { "status": "queued", "conclusion": null, "runnerLabel": null }
       ],
       "expected": [
-        { "label": "Status", "value": "Running", "tone": "primary" },
-        { "label": "Duration", "value": "5m 0s", "tone": "neutral" },
-        { "label": "Runner", "value": "mint, macbook", "tone": "neutral" },
-        { "label": "Commit", "value": "8f3c2a9", "tone": "neutral" }
+        { "label": "Status", "value": "Running", "tone": "primary", "delta": null },
+        { "label": "Duration", "value": "5m 0s", "tone": "neutral", "delta": null },
+        { "label": "Runner", "value": "mint, macbook", "tone": "neutral", "delta": null },
+        { "label": "Commit", "value": "8f3c2a9", "tone": "neutral", "delta": null }
       ]
     },
     {
@@ -63,10 +64,10 @@
       "run": { "state": "pending", "sha": "abcdef0123456789", "startedAt": null, "completedAt": null },
       "jobs": [{ "status": "queued", "conclusion": null, "runnerLabel": null }],
       "expected": [
-        { "label": "Status", "value": "Queued", "tone": "neutral" },
-        { "label": "Duration", "value": "—", "tone": "neutral" },
-        { "label": "Runner", "value": "—", "tone": "neutral" },
-        { "label": "Commit", "value": "abcdef0", "tone": "neutral" }
+        { "label": "Status", "value": "Queued", "tone": "neutral", "delta": null },
+        { "label": "Duration", "value": "—", "tone": "neutral", "delta": null },
+        { "label": "Runner", "value": "—", "tone": "neutral", "delta": null },
+        { "label": "Commit", "value": "abcdef0", "tone": "neutral", "delta": null }
       ]
     },
     {
@@ -75,10 +76,10 @@
       "run": { "state": "failure", "sha": "0123456789abcdef", "startedAt": "2026-11-13T10:00:00.000Z", "completedAt": "2026-11-13T10:12:40.000Z" },
       "jobs": [{ "status": "completed", "conclusion": "failure", "runnerLabel": "mint" }],
       "expected": [
-        { "label": "Status", "value": "Failed", "tone": "danger" },
-        { "label": "Duration", "value": "12m 40s", "tone": "neutral" },
-        { "label": "Runner", "value": "mint", "tone": "neutral" },
-        { "label": "Commit", "value": "0123456", "tone": "neutral" }
+        { "label": "Status", "value": "Failed", "tone": "danger", "delta": "1 failed" },
+        { "label": "Duration", "value": "12m 40s", "tone": "neutral", "delta": null },
+        { "label": "Runner", "value": "mint", "tone": "neutral", "delta": null },
+        { "label": "Commit", "value": "0123456", "tone": "neutral", "delta": null }
       ]
     }
   ],

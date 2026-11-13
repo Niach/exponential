@@ -44,6 +44,8 @@ describe(`ciRunTree (ci-run.json LAYOUT)`, () => {
     const grid = find(tree, ciFixture.testIds.tiles)!
     expect(grid.props?.columns).toBe(4)
     expect(grid.children?.map((t) => t.props?.value)).toEqual([`Failed`, `12m 40s`, `mint`, `8f3c2a9`])
+    // The failure reads from the red Status tile; the log keeps its colours.
+    expect(grid.children?.[0]?.props).toMatchObject({ tone: `danger`, delta: `1 failed` })
     expect(find(tree, ciFixture.testIds.rerun)?.props?.label).toBe(ciFixture.copy.rerunFailed)
     expect(find(tree, ciFixture.testIds.cancel)).toBeUndefined()
     const rows = all(tree, `Row`)
@@ -53,13 +55,13 @@ describe(`ciRunTree (ci-run.json LAYOUT)`, () => {
     expect(rows[1]!.slots?.leading?.props).toMatchObject({ name: `ci-failed`, tone: `danger` })
     const code = all(tree, `CodeBlock`)
     expect(code).toHaveLength(1)
+    expect(code[0]!.props?.variant).toBeUndefined()
     expect(code[0]!.props).toMatchObject({
       language: `ansi`,
       lineNumbers: true,
       wrap: false,
       copyable: true,
       maxLines: ciFixture.logMaxLines.wide,
-      variant: `destructive`,
       follow: false,
       code: ciLogView(CI_RUN_SPECIMEN.log).code,
       highlight: ciLogView(CI_RUN_SPECIMEN.log).highlight,
@@ -96,7 +98,7 @@ describe(`ciRunTree (ci-run.json LAYOUT)`, () => {
     const tree = ciRunTree(model, { ...opts, log: `` })
     expect(find(tree, ciFixture.testIds.cancel)?.props?.variant).toBe(`destructive`)
     expect(find(tree, ciFixture.testIds.rerun)).toBeUndefined()
-    expect(find(tree, `${ciFixture.testIds.log}.j2`)?.props).toMatchObject({ follow: true, variant: `default`, code: `` })
+    expect(find(tree, `${ciFixture.testIds.log}.j2`)?.props).toMatchObject({ follow: true, code: `` })
   })
 
   it(`a finished job without a log says so`, () => {

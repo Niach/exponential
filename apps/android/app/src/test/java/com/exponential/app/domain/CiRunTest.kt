@@ -118,8 +118,8 @@ class CiRunTest {
     fun `every tiles case matches the fixture`() {
         for (case in fixture.cases("tiles")) {
             val actual = CiRun.tiles(run(case.obj("run")), case.getValue("jobs").jsonArray.map(::job), epoch(case.str("now")!!))
-            val expected = case.getValue("expected").jsonArray.map { it.jsonObject.let { o -> listOf(o.str("label"), o.str("value"), o.str("tone")) } }
-            assertEquals(case.str("name"), expected, actual.map { listOf(it.label, it.value, it.tone.wire) })
+            val expected = case.getValue("expected").jsonArray.map { it.jsonObject.let { o -> listOf(o.str("label"), o.str("value"), o.str("tone"), o.str("delta")) } }
+            assertEquals(case.str("name"), expected, actual.map { listOf(it.label, it.value, it.tone.wire, it.delta) })
         }
     }
 

@@ -146,6 +146,8 @@ pub struct CiTile {
     pub label: String,
     pub value: String,
     pub tone: CiTone,
+    /// The Status tile of a failed run: `{count} failed` (red); else None.
+    pub delta: Option<String>,
 }
 
 fn ms_of(value: Option<&str>) -> Option<i64> {
@@ -180,15 +182,18 @@ pub fn ci_run_tiles(
         }
     }
     let none = copy("none").to_string();
+    let failing = jobs.iter().filter(|job| job_failing(job)).count();
+    let delta = (status.id() == "failed" && failing > 0).then(|| copy("failedJobs").replace("{count}", &failing.to_string()));
     vec![
-        CiTile { label: copy("tiles.status").into(), value: copy(&format!("status.{}", status.id())).into(), tone: status.tone() },
-        CiTile { label: copy("tiles.duration").into(), value: duration.unwrap_or_else(|| none.clone()), tone: CiTone::Neutral },
+        CiTile { label: copy("tiles.status").into(), value: copy(&format!("status.{}", status.id())).into(), tone: status.tone(), delta },
+        CiTile { label: copy("tiles.duration").into(), value: duration.unwrap_or_else(|| none.clone()), tone: CiTone::Neutral, delta: None },
         CiTile {
             label: copy("tiles.runner").into(),
             value: if runners.is_empty() { none } else { runners.join(", ") },
             tone: CiTone::Neutral,
+            delta: None,
         },
-        CiTile { label: copy("tiles.commit").into(), value: run.sha.chars().take(7).collect(), tone: CiTone::Neutral },
+        CiTile { label: copy("tiles.commit").into(), value: run.sha.chars().take(7).collect(), tone: CiTone::Neutral, delta: None },
     ]
 }
 
@@ -697,7 +702,7 @@ mod tests {
         for case in fixture()["tiles"].as_array().unwrap() {
             let tiles = ci_run_tiles(&fixture_run(&case["run"]), &fixture_jobs(&case["jobs"]), &|job| job.runner_device_id.clone(), now(case));
             let got: Vec<Value> =
-                tiles.iter().map(|tile| json!({"label": tile.label, "value": tile.value, "tone": tile.tone.id()})).collect();
+                tiles.iter().map(|tile| json!({"label": tile.label, "value": tile.value, "tone": tile.tone.id(), "delta": tile.delta})).collect();
             assert_eq!(Value::Array(got), case["expected"], "{}", case["name"]);
         }
     }
