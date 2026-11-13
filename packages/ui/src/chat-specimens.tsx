@@ -437,10 +437,9 @@ const specimenMember = (id: string) => (id === `u-dana` ? { id, name: `Dana Reye
 /** #FEED-237 (message-delivery.json): the viewer's own messages in each
  *  delivery state, WhatsApp-style, at the transcript's bottom. */
 const DELIVERY_BUBBLES = [
-  { id: `dv-read`, text: `Ship it once the checks are green.`, time: `09:31`, status: `read` },
-  { id: `dv-sent`, text: `And bump the CLI while you're at it.`, time: `09:32`, status: `sent` },
-  { id: `dv-sending`, text: `Then the docs.`, time: `09:32`, status: `sending` },
-  { id: `dv-failed`, text: `Tag the release too.`, time: `09:33`, status: `failed` },
+  { id: `o1`, text: `Use the Pixel 6a numbers as the baseline.`, time: `09:04`, status: `sent` },
+  { id: `o2`, text: `And keep the cache behind a flag.`, time: `09:05`, status: `sending` },
+  { id: `o3`, text: `Ping me when it's under a second.`, time: `09:05`, status: `failed` },
 ] as const
 
 function Transcript({ layout }: { layout: `transcript` | `bubbles` }) {
