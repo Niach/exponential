@@ -366,6 +366,29 @@ pub fn unqueue(trpc: &TrpcClient, message_id: &str) -> Result<TxOutput, ApiError
     trpc.mutation("sessions.unqueue", &MessageIdInput { message_id })
 }
 
+/// #FEED-237 `sessions.delivered` input.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DeliveredInput<'a> {
+    session_id: &'a str,
+    message_ids: &'a [String],
+}
+
+/// #FEED-237 (message-delivery.json): the hosting DEVICE received these
+/// pending person messages (the bubble's one check). Idempotent server-side
+/// (only rows still unstamped and unconsumed move). Chunked to 100 ids per
+/// call; an empty slice is a no-op. Stops at the first failing chunk.
+pub fn delivered(trpc: &TrpcClient, session_id: &str, message_ids: &[String]) -> Result<(), ApiError> {
+    for chunk in message_ids.chunks(DELIVERED_CHUNK) {
+        let _: serde::de::IgnoredAny =
+            trpc.mutation("sessions.delivered", &DeliveredInput { session_id, message_ids: chunk })?;
+    }
+    Ok(())
+}
+
+/// The server's cap on one `sessions.delivered` call.
+pub const DELIVERED_CHUNK: usize = 100;
+
 /// EXP-1323: mark `session_id` read for the viewer (`session_reads`; a
 /// root = the chat, a child = that session's view).
 pub fn mark_read(trpc: &TrpcClient, session_id: &str) -> Result<serde::de::IgnoredAny, ApiError> {

@@ -534,6 +534,9 @@ pub const SHAPES: [ShapeSpec; 37] = [
             "issue_brief",
             "answered_at",
             "consumed_at",
+            // #FEED-237: the device received the pending row (one check;
+            // `domain::message_delivery`).
+            "delivered_at",
             "created_at",
             "updated_at",
         ],
@@ -1473,6 +1476,7 @@ mod tests {
         let messages = shape_by_name("messages").unwrap();
         assert_eq!(messages.path, "/api/shapes/messages");
         assert!(messages.columns.contains(&"consumed_at"));
+        assert!(messages.columns.contains(&"delivered_at"));
         assert!(!messages.columns.contains(&"owner_id"));
         // #EXP-1730: a message is keyed by its own `session_id` (the legacy
         // `conversation_id` still syncs, never read).

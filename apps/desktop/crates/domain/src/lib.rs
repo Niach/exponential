@@ -171,6 +171,8 @@ pub mod issue_search;
 pub mod list_item;
 // #EXP-1730: messages are keyed by their own session, fixture-locked ×4.
 pub mod message_session;
+// #FEED-237: a person's own message bubble (delivery mark, outbox, menu), fixture-locked ×4.
+pub mod message_delivery;
 pub mod options;
 // EXP-1280: THE plan / question card (answer text, issues, uploads, tiles), fixture-locked ×4.
 pub mod plan_card;

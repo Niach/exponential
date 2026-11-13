@@ -381,12 +381,6 @@ pub(crate) fn dismiss_card(message_id: String, cx: &mut App) {
     answer_card(api::sessions::AnswerInput { message_id, dismissed: Some(true), ..Default::default() }, cx);
 }
 
-/// `sessions.unqueue` — take back a message the device has not consumed.
-#[cfg(test)]
-pub(crate) fn unqueue_message(message_id: String, cx: &mut App) {
-    background_write("remove", "the message", cx, move |trpc| api::sessions::unqueue(trpc, &message_id));
-}
-
 /// A session card (or a `Report from` / event line) was clicked: #EXP-1464
 /// opens it by inbox-route.json `session_target`
 /// ([`crate::navigation::session_screen_for`]): the viewer's own agent
@@ -1020,10 +1014,6 @@ fn body_text(element: gpui::Div) -> gpui::Div {
         .line_height(px(theme::tokens::transcript::BODY_LINE_HEIGHT))
 }
 
-/// The queued row's caption word (session-chat.json: a person's row
-/// reads `queued`), lowercase like the web.
-pub(crate) const QUEUED_WORD: &str = "queued";
-
 /// EXP-1317: a queued row offers its `Remove from queue` X only to its
 /// author, and only while it is queued.
 #[cfg(test)]
@@ -1097,24 +1087,146 @@ pub(crate) struct MessageBubble {
     /// ABOVE the bubble, outside it, and is the only press (it opens this
     /// session); the bubble itself is never a link.
     pub link: Option<String>,
-    /// A person's row the device has not consumed yet.
-    pub queued: bool,
-    /// The author's `Remove from queue` X while queued.
-    pub unqueue: Option<AnyElement>,
+    /// #FEED-237 (message-delivery.json): the viewer's own bubble's
+    /// delivery mark, beside its `HH:mm` (the clock, one check, two checks,
+    /// the red mark); every other sender's bubble has none.
+    pub status: Option<domain::message_delivery::DeliveryState>,
+    /// #FEED-237: the bubble's menu (right-click, the hover `…`; a failed
+    /// mark is itself its trigger), `None` = no menu.
+    pub menu: Option<BubbleMenu>,
     /// A definite width (the raw session view's measured prompt), else
     /// content-sized up to `layout.maxWidth.wide` of the column.
     pub width: Option<gpui::Pixels>,
 }
 
+/// #FEED-237: an own bubble's menu: `bubbleActions` in order, each pick
+/// handed to `on_pick`.
+#[derive(Clone)]
+pub(crate) struct BubbleMenu {
+    pub actions: Vec<domain::message_delivery::BubbleAction>,
+    pub on_pick: Rc<dyn Fn(domain::message_delivery::BubbleAction, &mut Window, &mut App)>,
+}
+
 /// The bubble's text block (tests measure from it).
 pub(crate) const MESSAGE_BUBBLE_BODY: &str = "message-bubble-body";
+
+/// #FEED-237: the mark's glyph by concept (`marks[state].icon`).
+pub(crate) fn delivery_icon(state: domain::message_delivery::DeliveryState) -> crate::icons::ExpIcon {
+    use domain::message_delivery::DeliveryState;
+    match state {
+        DeliveryState::Sending => registry::UI_CLOCK,
+        DeliveryState::Sent => registry::UI_CHECK,
+        DeliveryState::Read => registry::UI_READ,
+        DeliveryState::Failed => registry::UI_ERROR,
+    }
+}
+
+/// #FEED-237: the mark's ink (`marks[state].tone`): muted = the time's.
+pub(crate) fn delivery_tint(state: domain::message_delivery::DeliveryState, cx: &App) -> gpui::Hsla {
+    use domain::message_delivery::MarkTone;
+    let theme = cx.theme();
+    match state.tone() {
+        MarkTone::Muted => theme.muted_foreground,
+        MarkTone::Info => theme.info,
+        MarkTone::Danger => theme.danger,
+    }
+}
+
+/// #FEED-237: the menu's rows (`copy.menu`), Delete destructive.
+pub(crate) fn bubble_menu_rows(
+    mut menu: gpui_component::menu::PopupMenu,
+    bubble_menu: &BubbleMenu,
+    cx: &mut gpui::Context<gpui_component::menu::PopupMenu>,
+) -> gpui_component::menu::PopupMenu {
+    use domain::message_delivery::BubbleAction;
+    for &action in &bubble_menu.actions {
+        let on_pick = bubble_menu.on_pick.clone();
+        menu = match action {
+            BubbleAction::Delete => menu.item(
+                crate::controls::danger_menu_item(action.label(), Icon::new(registry::UI_DELETE), cx)
+                    .on_click(move |_, window, cx| on_pick(action, window, cx)),
+            ),
+            BubbleAction::Retry | BubbleAction::Cancel => {
+                let icon = if action == BubbleAction::Retry { registry::UI_REFRESH } else { registry::UI_CLOSE };
+                menu.item(crate::controls::pointer_menu_item(Some(icon), action.label(), |_| None, move |window, cx| {
+                    on_pick(action, window, cx)
+                }))
+            }
+        };
+    }
+    menu
+}
+
+/// #FEED-237: the time row's trailing mark (14 px, `copy.status` its
+/// label); a failed one is its menu's trigger, and a bubble with a menu
+/// gets the hover `…`.
+fn delivery_mark(
+    id: &SharedString,
+    status: Option<domain::message_delivery::DeliveryState>,
+    menu: Option<&BubbleMenu>,
+    group: &SharedString,
+    cx: &App,
+) -> Vec<AnyElement> {
+    use crate::controls::PointerMenuButtonExt as _;
+    use domain::message_delivery::{DeliveryState, MARK_SIZE, TEST_ID_MENU, TEST_ID_STATUS};
+    let mut out = Vec::new();
+    let menu_button = |button_id: String, icon: crate::icons::ExpIcon, tint: gpui::Hsla, label: &str, menu: &BubbleMenu| {
+        let menu = menu.clone();
+        gpui_component::button::Button::new(SharedString::from(button_id))
+            .ghost()
+            .xsmall()
+            .cursor_pointer()
+            .icon(Icon::from(icon).with_size(px(MARK_SIZE)).text_color(tint))
+            .tooltip(label.to_string())
+            .pointer_menu(move |popup, _, cx| bubble_menu_rows(popup, &menu, cx))
+            .into_any_element()
+    };
+    if let (Some(DeliveryState::Failed), Some(menu)) = (status, menu) {
+        out.push(
+            div()
+                .debug_selector(move || format!("{TEST_ID_STATUS}.failed"))
+                .child(menu_button(format!("{id}-status"), delivery_icon(DeliveryState::Failed), delivery_tint(DeliveryState::Failed, cx), DeliveryState::Failed.label(), menu))
+                .into_any_element(),
+        );
+        return out;
+    }
+    if let Some(state) = status {
+        let label = SharedString::from(state.label());
+        out.push(
+            div()
+                .id(SharedString::from(format!("{id}-status")))
+                .flex_shrink_0()
+                .role(gpui::Role::Image)
+                .aria_label(label)
+                .debug_selector(move || format!("{TEST_ID_STATUS}.{}", state.as_str()))
+                .child(Icon::from(delivery_icon(state)).with_size(px(MARK_SIZE)).text_color(delivery_tint(state, cx)))
+                .into_any_element(),
+        );
+    }
+    if let Some(menu) = menu.filter(|menu| !menu.actions.is_empty()) {
+        let muted = cx.theme().muted_foreground;
+        out.push(
+            div()
+                .invisible()
+                .group_hover(group.clone(), |style| style.visible())
+                .debug_selector(|| TEST_ID_MENU.to_string())
+                .child(menu_button(format!("{id}-menu"), registry::UI_MORE, muted, "More", menu))
+                .into_any_element(),
+        );
+    }
+    out
+}
 
 /// THE bubble ([`MessageBubble`]).
 pub(crate) fn message_bubble(bubble: MessageBubble, cx: &App) -> AnyElement {
     let theme = cx.theme();
     let muted = theme.muted_foreground;
     let sizes = transcript_sizes();
-    let MessageBubble { id, body, time, own, name, link, queued, unqueue, width } = bubble;
+    let MessageBubble { id, body, time, own, name, link, status, menu, width } = bubble;
+    // #FEED-237: only the viewer's own bubble carries a mark or a menu.
+    let (status, menu) = if own { (status, menu.filter(|menu| !menu.actions.is_empty())) } else { (None, None) };
+    let group = SharedString::from(format!("{id}-group"));
+    let marks = delivery_mark(&id, status, menu.as_ref(), &group, cx);
     let name = name.filter(|name| !name.is_empty() && !own);
     // #EXP-1772: a relay's name line goes above the bubble as its press.
     let relay = link.and_then(|session_id| name.clone().map(|name| (session_id, name)));
@@ -1158,7 +1270,6 @@ pub(crate) fn message_bubble(bubble: MessageBubble, cx: &App) -> AnyElement {
                 card.border_color(theme::tokens::glass::STROKE_CARD.to_hsla()).bg(crate::dock::card_fill())
             }
         })
-        .when(queued, |card| card.opacity(0.7))
         // The sender's name: the bubble's own `author` line, at its top.
         .when_some(inner_name, |card, name| {
             card.child(
@@ -1174,34 +1285,36 @@ pub(crate) fn message_bubble(bubble: MessageBubble, cx: &App) -> AnyElement {
             )
         })
         .child(div().min_w_0().debug_selector(|| MESSAGE_BUBBLE_BODY.to_string()).child(body))
-        .when(!time.is_empty(), |card| {
+        .when(!time.is_empty() || !marks.is_empty(), |card| {
             card.child(
                 h_flex()
                     .w_full()
                     .justify_end()
+                    .items_center()
+                    .gap_1()
                     .text_2xs()
                     .text_color(muted)
-                    .child(SharedString::from(time)),
+                    .when(!time.is_empty(), |row| row.child(SharedString::from(time)))
+                    .children(marks),
             )
         });
+    // #FEED-237: the bubble's menu on a right-click too.
+    let card = match menu {
+        Some(menu) => {
+            use crate::controls::PointerContextMenuExt as _;
+            card.pointer_context_menu(move |popup, _, cx| bubble_menu_rows(popup, &menu, cx)).into_any_element()
+        }
+        None => card.into_any_element(),
+    };
     v_flex()
+        .id(group.clone())
+        .group(group)
         .w_full()
         .min_w_0()
         .gap_1()
         .map(|column| if own { column.items_end() } else { column.items_start() })
         .children(relay_line)
         .child(card)
-        .when(queued || unqueue.is_some(), |column| {
-            column.child(
-                h_flex()
-                    .gap_1()
-                    .items_center()
-                    .text_2xs()
-                    .text_color(muted)
-                    .when(queued, |row| row.child(SharedString::from(QUEUED_WORD)))
-                    .children(unqueue),
-            )
-        })
         .into_any_element()
 }
 
@@ -1358,9 +1471,13 @@ pub(crate) fn transcript_message(
         .and_then(|layout| layout.sender.as_ref())
         .map(|sender| sender.display_name());
     let markdown = message_markdown(SharedString::from(format!("{key}-{id}")), body, text, images);
-    let unqueue_id = id.clone();
-    let unqueue = unqueue_offered(queued, own).then(|| {
-        unqueue_button("chat-unqueue", id, queued, cx, move |_, _, cx| unqueue_message(unqueue_id.clone(), cx))
+    // #FEED-237: the viewer's own row wears its delivery mark.
+    let status = own.then(|| {
+        if queued {
+            domain::message_delivery::DeliveryState::Sending
+        } else {
+            domain::message_delivery::DeliveryState::Read
+        }
     });
     Some(message_bubble(
         MessageBubble {
@@ -1370,8 +1487,8 @@ pub(crate) fn transcript_message(
             own,
             name,
             link: sender.and_then(|sender| sender.link.clone()),
-            queued,
-            unqueue,
+            status,
+            menu: None,
             width: None,
         },
         cx,
@@ -5355,7 +5472,6 @@ mod tests {
     /// (so its tooltip state) changes when the row flips queued → consumed.
     #[test]
     fn the_unqueue_x_dies_with_the_queued_state() {
-        assert_eq!(QUEUED_WORD, "queued");
         assert!(unqueue_offered(true, true));
         assert!(!unqueue_offered(false, true), "a consumed row carries no X");
         assert!(!unqueue_offered(true, false), "only the author's");

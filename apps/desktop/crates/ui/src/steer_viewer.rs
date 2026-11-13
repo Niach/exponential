@@ -203,6 +203,14 @@ fn synthetic_row_id(at: usize) -> Option<FeedItemId> {
         .filter(|id| *id < WORKING_ROW_ID)
 }
 
+/// #FEED-237: an own bubble's measure (its text, time and mark).
+fn own_bubble_fingerprint(bubble: &crate::session_outbox::OwnBubble) -> u64 {
+    use std::hash::{Hash as _, Hasher as _};
+    let mut hasher = std::hash::DefaultHasher::new();
+    (&bubble.key, &bubble.text, &bubble.created_at, bubble.state, bubble.stored).hash(&mut hasher);
+    hasher.finish()
+}
+
 /// A conversation card's measure: its whole row (an answer, a decision, a
 /// draft-free state change re-measures it).
 fn conversation_card_fingerprint(row: Option<&domain::session_tree::SessionChatRow>) -> u64 {
@@ -712,6 +720,12 @@ pub(crate) struct SteerSessionView {
     /// tail (`conv_trailing`: indices into `conv_cards`).
     tree_suggestions: Vec<domain::session_tree::SessionChatRow>,
     conv_trailing: Vec<usize>,
+    /// #FEED-237 (message-delivery.json ORDER): the viewer's own bubbles at
+    /// the transcript's bottom: its synced rows the device has not consumed,
+    /// then the outbox's kept entries, synthetic rows after the trailing
+    /// cards and before the working row; and the inputs they were read at.
+    own_tail: Vec<crate::session_outbox::OwnBubble>,
+    own_tail_key: Option<(usize, u64, Option<String>)>,
     /// #LOGS-7: the memoised cards and suggestions `conv_cards` /
     /// `tree_suggestions` were last taken from.
     conv_memo: Option<ConvMemo>,
@@ -1011,6 +1025,8 @@ impl SteerSessionView {
             conv_unanchored: Vec::new(),
             tree_suggestions: Vec::new(),
             conv_trailing: Vec::new(),
+            own_tail: Vec::new(),
+            own_tail_key: None,
             conv_memo: None,
             queue_from: None,
             dock: cx.new(|_| crate::dock::DockState::default()),
@@ -1808,6 +1824,11 @@ impl SteerSessionView {
             let _span = tracing::trace_span!("steer.conversation_cards").entered();
             self.refresh_conversation_cards(focus.is_none(), cx);
         }
+        // #FEED-237: the viewer's own pending bubbles under the transcript.
+        {
+            let _span = tracing::trace_span!("steer.own_tail").entered();
+            self.refresh_own_tail(focus.is_none(), cx);
+        }
         // #EXP-1736: who sent each row (the bubbles, the avatars, the gaps);
         // the origin only when the main transcript's window holds the feed's
         // first row (nothing above it, no device page left to load).
@@ -1946,8 +1967,17 @@ impl SteerSessionView {
             let fingerprint = transcript_rows::fold_gap(self.conv_prints.get(card).copied().unwrap_or_default(), gap);
             keys.push(RowKey { id: row_id, fingerprint });
         }
+        // #FEED-237: the own bubbles, keyed after the trailing cards.
+        let before_own = self.orphan_workflows.len() + self.conv_tail().len();
+        self.own_tail.truncate(SYNTHETIC_ROWS.saturating_sub(before_own));
+        for (ix, bubble) in self.own_tail.iter().enumerate() {
+            let Some(row_id) = synthetic_row_id(before_own + ix) else { break };
+            let gap = f32::from(self.row_gap(self.rows.len() + before_own + ix));
+            let fingerprint = transcript_rows::fold_gap(own_bubble_fingerprint(bubble), gap);
+            keys.push(RowKey { id: row_id, fingerprint });
+        }
         if self.working {
-            let gap = f32::from(self.row_gap(self.rows.len() + self.orphan_workflows.len() + self.conv_tail().len()));
+            let gap = f32::from(self.row_gap(self.rows.len() + self.orphan_workflows.len() + self.conv_tail().len() + self.own_tail.len()));
             // EXP-850 §5: the working row's text is no longer a constant (a
             // verb, a ticking duration, a workflow's caption), so its
             // fingerprint folds in what it will say.
@@ -4202,6 +4232,20 @@ impl SteerSessionView {
             let mut input = Self::message_input(&editor_move, &self.session_id, &text, Vec::new());
             input.scope_team_ids = scope;
             input.mcp_server_ids = mcp_ids;
+            // #FEED-237 (message-delivery.json): a message INTO this session
+            // clears the field and its synced draft at the press and becomes
+            // an outbox bubble at the transcript's bottom; the send outlives
+            // the view and a failure is the bubble's red mark. A move of an
+            // ended editor root (no session to land in) keeps the old path.
+            if editor_move.0.is_none() {
+                if let Some(ids) = input.mcp_server_ids.clone() {
+                    self.mcp_sent(ids);
+                }
+                self.clear_at_press(window, cx);
+                crate::session_outbox::send(&self.session_id.to_string(), &text, input, cx);
+                cx.notify();
+                return;
+            }
             self.post_message(input, sent, window, cx);
             return;
         }
@@ -4441,6 +4485,17 @@ impl SteerSessionView {
             }
         })
         .detach();
+    }
+
+    /// #FEED-237: the session composer at the press: the field and its
+    /// synced draft (composer-draft.json) empty at once.
+    fn clear_at_press(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        self.input.update(cx, |state, cx| state.set_value("", window, cx));
+        self.draft_seen = String::new();
+        self.composer_draft.write_now("", cx);
+        self.notice = None;
+        self.slash = None;
+        self.slash_dismissed_for = None;
     }
 
     /// EXP-1537: a landed send takes out of the draft only what it sent
@@ -5749,6 +5804,68 @@ impl SteerSessionView {
         }
     }
 
+    /// #FEED-237 (message-delivery.json): the viewer's own synced rows the
+    /// device has not consumed, then the outbox's kept entries (a synced
+    /// row took the place of the ones `outboxMerge` drops). The main
+    /// transcript only; re-read when the rows or the outbox moved.
+    fn refresh_own_tail(&mut self, main: bool, cx: &mut gpui::Context<Self>) {
+        let viewer = crate::queries::active_account(cx).map(|account| account.user_id);
+        let (true, Some(viewer)) = (main, viewer) else {
+            self.own_tail.clear();
+            self.own_tail_key = None;
+            return;
+        };
+        let rows = crate::session_data::messages_of_session(&self.session_id, cx);
+        let key = (Rc::as_ptr(&rows) as usize, crate::session_outbox::revision(cx), Some(viewer.clone()));
+        if self.own_tail_key.as_ref() == Some(&key) {
+            return;
+        }
+        let kept = crate::session_outbox::reconcile(&self.session_id, &viewer, &rows, cx);
+        self.own_tail = crate::session_outbox::own_tail(&viewer, &rows, &kept);
+        // The reconcile may have dropped entries (a new revision).
+        self.own_tail_key = Some((key.0, crate::session_outbox::revision(cx), key.2));
+    }
+
+    /// #FEED-237: one own bubble (the viewer's, right) with its delivery
+    /// mark beside its `HH:mm` and its menu (`bubbleActions`).
+    fn render_own_bubble(
+        &self,
+        row_id: FeedItemId,
+        bubble: &crate::session_outbox::OwnBubble,
+        window: &Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
+        use domain::message_delivery::{bubble_actions, BubbleAction};
+        let width = self.user_bubble_width(&bubble.text, 0., window);
+        let session_id = self.session_id.clone();
+        let target = bubble.clone();
+        let actions = if self.may_message { bubble_actions(bubble.state, bubble.stored) } else { Vec::new() };
+        let menu = (!actions.is_empty()).then(|| crate::session_chat::BubbleMenu {
+            actions,
+            on_pick: Rc::new(move |action: BubbleAction, _: &mut Window, cx: &mut App| match (action, target.client_id.as_deref()) {
+                (BubbleAction::Retry, Some(client_id)) => crate::session_outbox::retry(&session_id, client_id, cx),
+                (BubbleAction::Delete, Some(client_id)) => crate::session_outbox::delete(&session_id, client_id, cx),
+                (BubbleAction::Cancel, _) => crate::session_outbox::cancel(&session_id, &target, cx),
+                _ => {}
+            }),
+        });
+        let at = domain::instant::parse_instant(&bubble.created_at);
+        crate::session_chat::message_bubble(
+            crate::session_chat::MessageBubble {
+                id: SharedString::from(format!("steer-own-bubble-{}", bubble.key)),
+                body: self.render_user_message(row_id, &bubble.text, cx),
+                time: at.map(crate::session_chat::clock_ms).unwrap_or_default(),
+                own: true,
+                name: None,
+                link: None,
+                status: Some(bubble.state),
+                menu,
+                width: Some(width),
+            },
+            cx,
+        )
+    }
+
     /// One transcript row by list index: the cached spec resolved against
     /// the feed and rendered exactly as before, or — past the last spec —
     /// the synthetic "Working…" line. EXP-787: the row's own vertical padding
@@ -5773,11 +5890,19 @@ impl SteerSessionView {
                 return self.render_workflow_card(&workflow, None, cx);
             }
             // Session 58cb32df: the unanchored conversation cards.
-            let tail = past.checked_sub(self.orphan_workflows.len()).and_then(|t| self.conv_tail().get(t).copied());
-            return match tail {
-                Some(card) => self.render_conversation_cards(&[card], window, cx),
-                None => self.render_working_row(cx),
-            };
+            let conv_tail = self.conv_tail();
+            let at = past.checked_sub(self.orphan_workflows.len());
+            let tail = at.and_then(|t| conv_tail.get(t).copied());
+            if let Some(card) = tail {
+                return self.render_conversation_cards(&[card], window, cx);
+            }
+            // #FEED-237: then the viewer's own bubbles.
+            let own = at.and_then(|t| t.checked_sub(conv_tail.len()));
+            if let Some(bubble) = own.and_then(|o| self.own_tail.get(o).cloned()) {
+                let row_id = synthetic_row_id(past).unwrap_or(ORPHAN_ROW_BASE);
+                return self.render_own_bubble(row_id, &bubble, window, cx);
+            }
+            return self.render_working_row(cx);
         };
         let live = self.phase == ViewerPhase::Live;
         let last_row = self.rows.len().saturating_sub(1);
@@ -5860,8 +5985,8 @@ impl SteerSessionView {
                 own: false,
                 name: layout.filter(|layout| layout.name).and_then(|layout| layout.sender.as_ref()).map(|sender| sender.display_name()),
                 link: layout.and_then(|layout| layout.sender.as_ref()).and_then(|sender| sender.link.clone()),
-                queued: false,
-                unqueue: None,
+                status: None,
+                menu: None,
                 width: None,
             },
             cx,
@@ -5981,8 +6106,9 @@ impl SteerSessionView {
                         own,
                         name: layout.filter(|layout| layout.name).and_then(|layout| layout.sender.as_ref()).map(|sender| sender.display_name()),
                         link: layout.and_then(|layout| layout.sender.as_ref()).and_then(|sender| sender.link.clone()),
-                        queued: false,
-                        unqueue: None,
+                        // #FEED-237: the echo of the viewer's own turn = two checks.
+                        status: own.then_some(domain::message_delivery::DeliveryState::Read),
+                        menu: None,
                         width: Some(width),
                     },
                     cx,
@@ -8475,21 +8601,13 @@ impl SteerSessionView {
         })
     }
 
-    /// N-12: the session's own DockCards (web `useSessionDock`): the queued
-    /// messages, THE Queue and the status banners. The session view adds
+    /// N-12: the session's own DockCards (web `useSessionDock`): THE Queue
+    /// and the status banners (#FEED-237: no queued card, a sent message is
+    /// the viewer's own bubble). The session view adds
     /// its waiting cards; a root's host (chat, agent channel) adds the
     /// tree's.
     pub(crate) fn session_dock_sources(&self, cx: &App) -> Vec<domain::dock::DockSource> {
-        use domain::dock::{DockQueuedMessage, DockSource};
-        let queued = if self.run_open() {
-            self.feed
-                .queue()
-                .iter()
-                .map(|message| DockQueuedMessage { id: message.id.clone(), text: message.text.split_whitespace().collect::<Vec<_>>().join(" ") })
-                .collect()
-        } else {
-            Vec::new()
-        };
+        use domain::dock::DockSource;
         // #EXP-1545: a root's Dock shows its picked Live child's Queue.
         let tasks = match &self.queue_from {
             Some((child, name)) => DockSource::Tasks { session_name: Some(name.clone()), queue: child.read(cx).dock_queue() },
@@ -8501,7 +8619,9 @@ impl SteerSessionView {
         } else {
             Vec::new()
         };
-        out.extend([DockSource::Queued { messages: queued }, tasks]);
+        // #FEED-237 (dock.json): no `queued` source any more: a sent message
+        // is the viewer's own bubble at the transcript's bottom.
+        out.push(tasks);
         out.extend(self.dock_banners(cx));
         out
     }
