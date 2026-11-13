@@ -136,10 +136,22 @@ pub fn theme(base: &ResolvedTheme) -> Arc<ResolvedTheme> {
 
 /// The document's view for one region of the host's window.
 pub fn mount(doc: &Document, feed: &Feed, theme: Arc<ResolvedTheme>, host: Rc<dyn HostPlugin>, mode: Mode, window: &mut Window, cx: &mut App) -> Entity<SurfaceView> {
+    mount_with(doc, feed, theme, host, mode, false, window, cx)
+}
+
+/// [`mount`] for a region thinner than its popups (a 44px tab band): its
+/// layers are placed, flipped and clamped against the WINDOW
+/// (`lift_layers`), not the region's own box.
+pub fn mount_lifted(doc: &Document, feed: &Feed, theme: Arc<ResolvedTheme>, host: Rc<dyn HostPlugin>, mode: Mode, window: &mut Window, cx: &mut App) -> Entity<SurfaceView> {
+    mount_with(doc, feed, theme, host, mode, true, window, cx)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn mount_with(doc: &Document, feed: &Feed, theme: Arc<ResolvedTheme>, host: Rc<dyn HostPlugin>, mode: Mode, lift_layers: bool, window: &mut Window, cx: &mut App) -> Entity<SurfaceView> {
     let (doc, feed) = (doc.clone(), feed.clone());
     cx.new(|cx| {
         let settings = SurfaceSettings { locale: "en-US".into(), mode: ModeSetting::Dark, ..SurfaceSettings::default() };
-        let mut view = SurfaceView::new(SurfaceViewOptions { surface_id: doc.name.clone(), theme: Some(theme), mode, host, settings: Some(settings), ..Default::default() }, window, cx);
+        let mut view = SurfaceView::new(SurfaceViewOptions { surface_id: doc.name.clone(), theme: Some(theme), mode, host, settings: Some(settings), lift_layers, ..Default::default() }, window, cx);
         view.record_bounds(true);
         crate::load(&mut view, &doc, &feed, cx);
         view

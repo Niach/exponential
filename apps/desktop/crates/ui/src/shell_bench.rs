@@ -122,7 +122,7 @@ impl gpui::Render for DragBand {
         gpui::div()
             .size_full()
             .on_mouse_down(gpui::MouseButton::Left, move |_, _, _| presses.set(presses.get() + 1))
-            .child(self.region.clone())
+            .child(gpui::div().w_full().h(px(crate::app_title_bar::WORK_TABS_BAND_H)).child(self.region.clone()))
     }
 }
 
@@ -175,6 +175,46 @@ fn the_tab_band_is_pressable_only_on_its_controls() {
         press(&mut cx, (first_left + first_right) / 2.);
         assert_eq!(presses.get(), 0, "{titles:?}: a press on a tab is the tab's");
     }
+    std::mem::forget(cx);
+}
+
+/// #EXP-1814: the +N menu opens BELOW the top band and stays inside the
+/// window (it used to land above the band, off screen): the strip's popups
+/// are placed against the window, not the 44px region.
+#[test]
+fn the_more_menu_opens_below_the_top_band() {
+    let mut cx = headless();
+    cx.update(seeded);
+    let presses = std::rc::Rc::new(std::cell::Cell::new(0));
+    let (window_w, window_h) = (1100., 500.);
+    let handle = cx
+        .open_window(size(px(window_w), px(window_h)), move |window: &mut Window, cx| {
+            let region = crate::shell_regions::TabBarRegion::new(window, cx);
+            cx.new(|_| DragBand { region, presses })
+        })
+        .expect("a headless window");
+    let window: gpui::AnyWindowHandle = handle.into();
+    let region = cx.update(|cx| handle.update(cx, |band, _, _| band.region.clone()).expect("the band"));
+    let titles = ["APP-1 Crash on launch", "Fix the login redirect", "APP-12 Offline queue for issue edits", "zsh", "Mobile App", "Release checklist", "APP-31 Rewrite the image cache", "npm run dev", "One more", "And another"];
+    cx.update(|cx| region.update(cx, |region, cx| region.show(&titles, cx)));
+    for _ in 0..4 {
+        draw(window, &mut cx);
+        cx.run_until_parked();
+    }
+    let (menu, more) = cx.update(|cx| region.read(cx).more_menu_frame(cx));
+    assert!(menu.is_none(), "closed until +N is pressed");
+    assert!(more.is_some_and(|f| f.w > 0.), "the strip overflows into +N");
+    cx.update(|cx| region.update(cx, |region, cx| region.show_more(&titles, 4, cx)));
+    for _ in 0..6 {
+        draw(window, &mut cx);
+        cx.run_until_parked();
+    }
+    let (menu, _) = cx.update(|cx| region.read(cx).more_menu_frame(cx));
+    let menu = menu.expect("+N opens its menu");
+    let band = crate::app_title_bar::WORK_TABS_BAND_H;
+    assert!(menu.y >= band - 6., "the menu hangs below the band: {menu:?}");
+    assert!(menu.h > 0. && menu.y + menu.h <= window_h, "inside the window: {menu:?}");
+    assert!(menu.x >= 0. && menu.x + menu.w <= window_w, "inside the window: {menu:?}");
     std::mem::forget(cx);
 }
 
