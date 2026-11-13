@@ -219,7 +219,13 @@ import {
   type SessionChatRow,
 } from "@/lib/session-tree"
 import { cn } from "@/lib/utils"
-import { STEER_ENET_NO_FEED_IDLE, steerNoFeedAway, steerNoFeedState } from "@exp/domain-contract/steer-enet"
+import {
+  STEER_ENET_NO_FEED_IDLE,
+  STEER_NO_FEED_INPUTS_MAX,
+  steerNoFeedAway,
+  steerNoFeedInputs,
+  steerNoFeedState,
+} from "@exp/domain-contract/steer-enet"
 
 // EXP-317: the session glyphs the native clients also draw resolve through
 // the shared registry (packages/icons/icons.json).
@@ -375,9 +381,10 @@ export function AgentSessionView({
   const compactingNow = compacting !== null
   useEffect(() => store.connect(), [store])
   // The synced row is the truth for "still running" inside the redial loops.
+  // steer-enet.json ROW WAKE: `busy` + `deviceId` cut a starting backoff short.
   useEffect(
-    () => store.noteSessionStatus(session.status),
-    [store, session.status]
+    () => store.noteSessionStatus(session.status, { busy: session.busy, deviceId: session.deviceId }),
+    [store, session.status, session.busy, session.deviceId]
   )
 
   /** EXP-356: the selected conversation tab — `null` is the main agent; a
@@ -448,12 +455,19 @@ export function AgentSessionView({
   const unqueue = useUnqueueMessage()
   const { data: auth } = useSession()
   const viewerId = auth?.user?.id ?? null
+  // steer-enet.json SENT INPUTS: the session's consumed person inputs (the
+  // newest few, oldest first), drawn above a no-feed placeholder.
+  const sentInputIds = useMemo(() => noFeedSentIds(sessionMessages), [sessionMessages])
   const chatRows = useMemo(
-    () => chatExtraRows(session, sessionMessages, tree ?? NO_TREE, issues ?? NO_ISSUES),
-    [session, sessionMessages, tree, issues]
+    () => chatExtraRows(session, sessionMessages, tree ?? NO_TREE, issues ?? NO_ISSUES, sentInputIds),
+    [session, sessionMessages, tree, issues, sentInputIds]
   )
   const suggestionRows = useMemo(() => chatRows.filter((row) => row.type === `suggestions`), [chatRows])
-  const queuedRows = useMemo(() => chatRows.filter((row) => row.type === `message`), [chatRows])
+  const queuedRows = useMemo(
+    () => chatRows.filter((row) => row.type === `message` && !sentInputIds.has(row.id)),
+    [chatRows, sentInputIds]
+  )
+  const sentRows = useMemo(() => chatRows.filter((row) => sentInputIds.has(row.id)), [chatRows, sentInputIds])
   // #EXP-1756: a queued bubble's `HH:mm`, off its synced row.
   const messageTime = useCallback(
     (row: { id: string }) => {
@@ -695,7 +709,10 @@ export function AgentSessionView({
    *  "Starting on <device>"; there is no status row over the feed, the live
    *  row at its bottom is the working signal (needs-you = the Dock's card).
    *  S-3: an offline host looks like any idle session (no Paused state). */
-  const starting = !awaitingInput && !working && session.status === `queued`
+  //  steer-enet.json SENT INPUTS: a QUEUED row with NO FEED reads this,
+  //  never the idle "No live transcript" state.
+  const starting =
+    session.status === `queued` && (phase.kind !== `live` || (!awaitingInput && !working))
   const startingCaption = STARTING_COPY.label.replace(`{device}`, deviceName)
 
   const ownerName =
@@ -962,6 +979,7 @@ export function AgentSessionView({
   const noFeedIdle =
     feedPlaceholder &&
     phase.kind === `starting` &&
+    session.status !== `queued` &&
     steerNoFeedState({ ended: sessionEnded, busy: Boolean(session.busy) }) === `idle`
   // #EXP-1703 (steer-enet.json A DEVICE THAT IS AWAY): a live row whose host
   // is offline says so at once, never "starting"; a cached feed shows instead.
@@ -1018,6 +1036,7 @@ export function AgentSessionView({
     (feedPlaceholder && (phase.kind === `connecting` || phase.kind === `starting`)) ||
     (feedPlaceholder && live) ||
     (feedPlaceholder && deviceOffline && phase.kind === `ended`)
+  const sentShown = placeholderShown && !sessionEnded && sentRows.length > 0
   /** The transcript STREAMS: a live publisher mid-turn (`TranscriptStreamingContext`). */
   const streaming = live && !sessionEnded && turnState === `started`
 
@@ -1150,6 +1169,22 @@ export function AgentSessionView({
             )}
             style={{ bottom: dockHeight, ...edgeFadeStyle(follow.scrolled) }}
           >
+            {/* steer-enet.json SENT INPUTS: what was sent (the brief the
+                claim consumed included) above the placeholder's copy. */}
+            {sentShown && (
+              <div className={cn(`shrink-0 pt-2`, TRANSCRIPT_COLUMN)} data-testid="transcript-sent-inputs">
+                <ChatConversation
+                  rows={sentRows}
+                  renderText={renderChatText}
+                  attachmentSrc={attachmentUrl}
+                  chat={{ sessionId: session.id, title: sessionCardModel?.name ?? session.title ?? ``, agentId: session.agentId ?? null }}
+                  viewerId={viewerId}
+                  messageTime={messageTime}
+                  onOpenSession={onOpenSession}
+                  renderIssueRef={renderIssueRef}
+                />
+              </div>
+            )}
             {noFeedAway ? (
               <CenteredState>
                 <div data-testid="transcript-device-away">
@@ -1345,16 +1380,18 @@ const NO_DOCKED: ReadonlySet<string> = new Set()
 
 /** #EXP-1732: the session's suggested-tasks cards and the person's queued
  *  messages (`consumedAt` null) in THE chat row form, oldest first. */
-function chatExtraRows(
+export function chatExtraRows(
   session: SessionRow,
   messages: readonly MessageRowLike[],
   tree: readonly SessionRow[],
-  issues: readonly TreeIssue[]
+  issues: readonly TreeIssue[],
+  sentIds: ReadonlySet<string> = NO_SENT_IDS
 ): SessionChatRow[] {
   const picks = messages.filter(
     (message) =>
       (message.card as { kind?: unknown } | null)?.kind === `suggestions` ||
-      (message.authorKind === `user` && message.consumedAt === null)
+      (message.authorKind === `user` && message.consumedAt === null) ||
+      sentIds.has(message.id)
   )
   if (picks.length === 0) return []
   return buildSessionChat({
@@ -1365,7 +1402,34 @@ function chatExtraRows(
     messages: picks.map(toTreeMessage),
     pullRequests: [],
     now: new Date().toISOString(),
-  }).rows.filter((row) => row.type === `suggestions` || (row.type === `message` && row.queued))
+  }).rows.filter(
+    (row) =>
+      row.type === `suggestions` ||
+      (row.type === `message` && row.queued) ||
+      ((row.type === `message` || row.type === `locked`) && sentIds.has(row.id))
+  )
+}
+
+const NO_SENT_IDS: ReadonlySet<string> = new Set()
+
+/** steer-enet.json SENT INPUTS: the ids of the session's card-less person
+ *  inputs the device consumed, the newest `noFeedInputsMax` (the messages
+ *  are this session's own, `useSessionMessages`). */
+export function noFeedSentIds(
+  messages: readonly MessageRowLike[],
+  max: number = STEER_NO_FEED_INPUTS_MAX
+): ReadonlySet<string> {
+  const ids = steerNoFeedInputs(
+    messages.map((message) => ({
+      id: message.id,
+      authorKind: message.authorKind,
+      card: message.card,
+      consumedAt: message.consumedAt == null ? null : String(message.consumedAt),
+      createdAt: new Date(message.createdAt).toISOString(),
+    })),
+    max
+  ).map((message) => message.id)
+  return ids.length === 0 ? NO_SENT_IDS : new Set(ids)
 }
 const NO_DOCK_SLOTS: SteerDockSlots = { taskList: [], backgroundTasks: [], queue: [], compacting: null, rateLimit: null }
 
@@ -1503,7 +1567,10 @@ export function SessionLiveTail({ session }: { session: SessionRow }) {
     runningWorkflow,
   } = useSyncExternalStore(store.subscribe, store.getSnapshot)
   useEffect(() => store.connect(), [store])
-  useEffect(() => store.noteSessionStatus(session.status), [store, session.status])
+  useEffect(
+    () => store.noteSessionStatus(session.status, { busy: session.busy, deviceId: session.deviceId }),
+    [store, session.status, session.busy, session.deviceId]
+  )
   const live = phase.kind === `live`
   const questionIds = useMemo(() => activeQuestionIds(feed), [feed])
   const working = sessionIsWorking({

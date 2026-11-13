@@ -569,6 +569,77 @@ describe(`AgentSessionView as the Chat tab (#EXP-1732)`, () => {
   })
 })
 
+// steer-enet.json SENT INPUTS: under a no-feed placeholder of a live row,
+// the session's consumed card-less person inputs draw as bubbles.
+describe(`AgentSessionView sent inputs under NO FEED`, () => {
+  for (const c of enetFixture.noFeedInputCases) {
+    it(`noFeedInputCases: ${c.name}`, async () => {
+      const { noFeedSentIds } = await import(`./agent-session`)
+      expect([...noFeedSentIds(c.messages as never, c.max)]).toEqual(c.expected)
+    })
+  }
+
+  const input = (id: string, body: string, consumedAt: string | null, createdAt: string) => ({
+    id,
+    sessionId: `s1`,
+    teamId: `t1`,
+    authorSessionId: null,
+    answeredAt: null,
+    authorKind: `user`,
+    authorId: `u1`,
+    body,
+    card: null,
+    consumedAt,
+    createdAt,
+  })
+
+  it(`an idle row with no feed shows the consumed brief above the idle state`, () => {
+    messages = [input(`m1`, `Fix the login`, `2026-11-13T11:08:31.590Z`, `2026-11-13T11:08:31.000Z`)]
+    snapshot = snap({ phase: { kind: `starting` }, feed: [], connected: false })
+    render(
+      <TooltipProvider>
+        <AgentSessionView session={{ ...session, status: `idle`, busy: false } as unknown as SessionRow} />
+      </TooltipProvider>
+    )
+    const sent = screen.getByTestId(`transcript-sent-inputs`)
+    expect(sent.textContent).toContain(`Fix the login`)
+    expect(within(sent).queryByTestId(`chat-unqueue`)).toBeNull()
+    const idle = screen.getByText(enetFixture.noFeedIdle.title)
+    expect(sent.compareDocumentPosition(idle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it(`a queued row with no feed reads "Starting on" (never idle), the brief above it`, () => {
+    messages = [
+      input(`m1`, `Fix the login`, `2026-11-13T11:08:31.590Z`, `2026-11-13T11:08:31.000Z`),
+      input(`m2`, `Also the CLI`, null, `2026-11-13T11:08:40.000Z`),
+    ]
+    snapshot = snap({ phase: { kind: `starting` }, feed: [], connected: false })
+    render(
+      <TooltipProvider>
+        <AgentSessionView session={{ ...session, status: `queued`, busy: false } as unknown as SessionRow} />
+      </TooltipProvider>
+    )
+    expect(screen.getByTestId(`transcript-placeholder`).textContent).toContain(`Starting on`)
+    expect(document.body.textContent).not.toContain(enetFixture.noFeedIdle.title)
+    const sent = screen.getByTestId(`transcript-sent-inputs`)
+    expect(sent.textContent).toContain(`Fix the login`)
+    // A not-consumed one is the queue, under the placeholder, with its X.
+    expect(sent.textContent).not.toContain(`Also the CLI`)
+    expect(screen.getByTestId(`session-placeholder-extras`).textContent).toContain(`Also the CLI`)
+  })
+
+  it(`a feed replaces them; an ended row never shows them`, () => {
+    messages = [input(`m1`, `Fix the login`, `2026-11-13T11:08:31.590Z`, `2026-11-13T11:08:31.000Z`)]
+    snapshot = snap({ feed: [{ id: 1, seq: 1, kind: `narration`, text: `On it.` }] })
+    const { unmount } = render(<AgentSessionView session={session} />)
+    expect(screen.queryByTestId(`transcript-sent-inputs`)).toBeNull()
+    unmount()
+    snapshot = snap({ phase: { kind: `ended`, detail: `buildbox is offline.` }, deviceOffline: true, connected: false })
+    render(<AgentSessionView session={{ ...session, status: `ended` } as unknown as SessionRow} />)
+    expect(screen.queryByTestId(`transcript-sent-inputs`)).toBeNull()
+  })
+})
+
 describe(`AgentSessionView relay ask (S-3)`, () => {
   it(`the engine's waiting question stays inline, undocked, and its hotkeys answer it through the relay`, () => {
     snapshot = snap({

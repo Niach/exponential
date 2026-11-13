@@ -62,7 +62,9 @@ import {
   STEER_ENET_STALE_MS,
   steerOfflineRedial,
   steerShowConnectionLost,
+  steerRowWakes,
   steerStartingRetryDelayMs,
+  type SteerWakeRow,
 } from "@exp/domain-contract/steer-enet"
 
 import { CLOSE_ENET_LOST, openEnetSteer } from "@/lib/enet/steer-enet-viewer"
@@ -768,8 +770,13 @@ export interface SteerSessionStore {
   /** The synced row is the truth for "still running" inside the redial
    *  loops — the OWNING view feeds it; an unwatched store falls back to the
    *  device's own signals plus the dock reaper. EXP-1293: the `sessions`
-   *  row's status — `queued` reads as starting, `ended` as over. */
-  noteSessionStatus(status: SessionStatus): void
+   *  row's status — `queued` reads as starting, `ended` as over.
+   *  steer-enet.json ROW WAKE: `row` (the synced `busy` + `deviceId`) lets
+   *  the row saying its device has it now cut a `starting` backoff short. */
+  noteSessionStatus(
+    status: SessionStatus,
+    row?: { busy: boolean; deviceId: string | null }
+  ): void
   /** EXP-773: the host machine's label, for the history phases' copy. */
   noteDeviceLabel(label: string | null): void
   /** #EXP-1703: the host device is offline in presence (the synced devices
@@ -862,6 +869,11 @@ export function createSteerSessionStore(
   // the backoff; a live connection resets it so the next stall starts fast.
   let retries = 0
   let sessionStatus: SessionStatus | null = null
+  /** steer-enet.json ROW WAKE: the last synced row seen (null = none yet)
+   *  and whether it woke since the last NO FEED wait: the next starting
+   *  wait is skipped and the backoff restarts at n = 0. */
+  let wakeRow: SteerWakeRow | null = null
+  let rowWoke = false
   /** EXP-773: the host machine's label, for the device-offline copy. The
    *  owning view feeds it off the synced devices row. */
   let deviceLabel: string | null = null
@@ -1125,6 +1137,7 @@ export function createSteerSessionStore(
    *  message, undoing the REV-33 coalescing. */
   const markLive = (): boolean => {
     retries = 0
+    rowWoke = false
     // EXP-1487: a successful join ends the drop.
     droppedAt = null
     failedRedials = 0
@@ -1948,6 +1961,24 @@ export function createSteerSessionStore(
     }, startingRetryDelay(retries++))
   }
 
+  /** NO FEED on a live row: wait in `starting` on the backoff (or the away
+   *  cadence), unless the synced row woke while the dial was out (ROW WAKE):
+   *  then redial at once, the backoff from n = 0. */
+  const scheduleStartingRedial = () => {
+    if (rowWoke) {
+      rowWoke = false
+      retries = 0
+      clearRetryTimer()
+      retryTimer = setTimeout(() => {
+        retryTimer = null
+        void dial(true)
+      }, 0)
+      return
+    }
+    if (hostOffline) scheduleAwayRedial()
+    else scheduleRedial()
+  }
+
   /** EXP-1487: one more failed redial of a dropped live feed. True = it
    *  redials silently (the phase holds); false = the drop is shown (the
    *  caller takes the drop off and sets its phase). */
@@ -2053,8 +2084,7 @@ export function createSteerSessionStore(
       } else {
         phase = { kind: `starting` }
         commit()
-        if (hostOffline) scheduleAwayRedial()
-        else scheduleRedial()
+        scheduleStartingRedial()
       }
       return
     }
@@ -2220,7 +2250,7 @@ export function createSteerSessionStore(
         if (sessionStatus !== `ended`) {
           phase = { kind: `starting` }
           commit()
-          scheduleRedial()
+          scheduleStartingRedial()
         } else {
           phase = { kind: `ended` }
           restoreQueueToDraft()
@@ -2434,8 +2464,29 @@ export function createSteerSessionStore(
           return
       }
     },
-    noteSessionStatus(status) {
+    noteSessionStatus(status, row) {
       sessionStatus = status
+      // steer-enet.json ROW WAKE: the device has it now (the claim, a turn
+      // starting, a move). A `starting` row waiting out its backoff redials
+      // at once from n = 0; a dial that is out redials as soon as it says
+      // NO FEED (`scheduleStartingRedial`).
+      const next: SteerWakeRow = {
+        status,
+        busy: row?.busy ?? wakeRow?.busy ?? false,
+        deviceId: row ? row.deviceId : (wakeRow?.deviceId ?? null),
+      }
+      const wakes = steerRowWakes(wakeRow, next)
+      wakeRow = next
+      if (wakes && !disposed && (phase.kind === `starting` || phase.kind === `connecting`)) {
+        if (phase.kind === `starting` && retryTimer !== null) {
+          rowWoke = false
+          retries = 0
+          clearRetryTimer()
+          void dial(true)
+        } else {
+          rowWoke = true
+        }
+      }
       // VAPP-173: a run that came back = live (steer-enet.json OFFLINE REDIAL).
       if (status !== `ended` && endedByRow && connected && phase.kind === `ended`) {
         endedByRow = false

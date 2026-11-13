@@ -2268,6 +2268,15 @@ impl SteerSessionView {
         let may_message = row
             .as_ref()
             .is_some_and(|row| may_steer(row, me.as_deref()));
+        // Android 0.14.134 (steer-enet.json ROW WAKE): the row saying its
+        // device has the session now (the claim, a turn starting, a move)
+        // cuts a starting backoff short.
+        if let (Some(next), Some(handle)) = (row.as_ref(), self.source.handle()) {
+            if steer::enet_steer::row_wakes(self.row.as_ref().map(wake_row).as_ref(), &wake_row(next)) {
+                log::debug!("[ui] steer viewer {}: row wake", self.session_id);
+                handle.note_row_wake();
+            }
+        }
         if self.row != row || self.may_message != may_message {
             // #EXP-1715: the stored pick changed (this send or another
             // client's): the composer follows it.
@@ -5560,6 +5569,23 @@ impl SteerSessionView {
                     cx,
                 )
                 .into_any_element()])
+            } else if self.phase != ViewerPhase::Live
+                && self.row.as_ref().is_some_and(|row| !row.is_ended() && row.is_queued())
+            {
+                // Android 0.14.134 (steer-enet.json SENT INPUTS): a QUEUED
+                // row (sent, its device not on it yet) reads "Starting on
+                // {device}" (feedback-states.json), never the idle state.
+                let device = self.device(cx).label.filter(|name| !name.is_empty());
+                centered(vec![
+                    Spinner::new().icon(crate::icons::registry::UI_LOADING).small().into_any_element(),
+                    div()
+                        .text_xs()
+                        .text_color(muted)
+                        .child(crate::feedback::starting_label(
+                            device.as_deref().unwrap_or(steer::enet_steer::NO_FEED_AWAY_DEVICE),
+                        ))
+                        .into_any_element(),
+                ])
             } else if self.phase == ViewerPhase::Starting
                 && self.row.as_ref().is_some_and(|row| {
                     steer::enet_steer::no_feed_state(row.is_ended(), row.busy)
@@ -5632,15 +5658,22 @@ impl SteerSessionView {
                 .map(|(index, _)| index)
                 .collect();
             self.placeholder_deep_link(&waiting, cx);
-            if waiting.is_empty() {
+            // Android 0.14.134 (steer-enet.json SENT INPUTS): what was sent
+            // shows at once as the viewer's own bubbles above the copy, the
+            // brief a claim consumed included, until the feed lands.
+            let inputs = (!self.row_ended())
+                .then(|| self.render_no_feed_inputs(window, cx))
+                .flatten();
+            if waiting.is_empty() && inputs.is_none() {
                 return div().flex_1().min_h_0().child(body).into_any_element();
             }
-            let cards = self.render_conversation_cards(&waiting, window, cx);
+            let cards = (!waiting.is_empty()).then(|| self.render_conversation_cards(&waiting, window, cx));
             return v_flex()
                 .flex_1()
                 .min_h_0()
+                .children(inputs)
                 .child(div().flex_1().min_h_0().child(body))
-                .child(div().w_full().flex_shrink_0().px_4().pb_2().child(cards))
+                .children(cards.map(|cards| div().w_full().flex_shrink_0().px_4().pb_2().child(cards)))
                 .into_any_element();
         }
 
@@ -5654,6 +5687,49 @@ impl SteerSessionView {
         self.chat
             .element(before, cx.entity_id())
             .unwrap_or_else(|| div().flex_1().min_h_0().into_any_element())
+    }
+
+    /// Android 0.14.134 (steer-enet.json SENT INPUTS): the session's
+    /// consumed person inputs ([`no_feed_inputs`]) as the transcript's own
+    /// message bubbles, oldest first; `None` when there are none.
+    fn render_no_feed_inputs(&self, window: &mut Window, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        let messages = crate::session_data::messages_of_session(&self.session_id, cx);
+        let inputs: Vec<(String, String)> = no_feed_inputs(&messages)
+            .into_iter()
+            .filter_map(|message| {
+                let text = match message.locked() {
+                    Some(reason) => domain::sealed::PLACEHOLDER.text(reason).to_string(),
+                    None => message.body_text().to_string(),
+                };
+                (!text.trim().is_empty()).then(|| (message.id.clone(), text))
+            })
+            .collect();
+        if inputs.is_empty() {
+            return None;
+        }
+        let count = inputs.len() as FeedItemId;
+        let mut column = v_flex().w_full().flex_shrink_0().px_4().pt_2().gap_2();
+        for (index, (id, text)) in inputs.into_iter().enumerate() {
+            // A synthetic item id just below the synthetic rows' (the feed
+            // is empty while these show).
+            let item = ORPHAN_ROW_BASE - count + index as FeedItemId;
+            let width = self.user_bubble_width(&text, 0., window);
+            column = column.child(crate::session_chat::message_bubble(
+                crate::session_chat::MessageBubble {
+                    id: SharedString::from(format!("steer-sent-input-{id}")),
+                    body: self.render_user_message(item, &text, cx),
+                    time: String::new(),
+                    own: true,
+                    name: None,
+                    link: None,
+                    queued: false,
+                    unqueue: None,
+                    width: Some(width),
+                },
+                cx,
+            ));
+        }
+        Some(column.into_any_element())
     }
 
     /// EXP-1228 — the transcript's right-click menu: the composer's own
@@ -9766,6 +9842,30 @@ fn journal_page(all: &[(u64, steer::frames::ActivityEvent)], before: u64, limit:
         .collect();
     page.reverse();
     page
+}
+
+/// The synced row as ROW WAKE reads it ([`steer::enet_steer::row_wakes`]).
+fn wake_row(row: &domain::rows::SessionRow) -> steer::enet_steer::WakeRow {
+    steer::enet_steer::WakeRow {
+        status: row.status.clone().unwrap_or_default(),
+        busy: row.busy,
+        device_id: row.device_id.clone(),
+    }
+}
+
+/// Android 0.14.134 (steer-enet.json SENT INPUTS): the session's consumed
+/// card-less person inputs a no-feed placeholder shows, oldest first, the
+/// newest [`steer::enet_steer::NO_FEED_INPUTS_MAX`].
+fn no_feed_inputs(messages: &[domain::rows::MessageRow]) -> Vec<&domain::rows::MessageRow> {
+    steer::enet_steer::no_feed_inputs(messages, steer::enet_steer::NO_FEED_INPUTS_MAX, |m| {
+        steer::enet_steer::NoFeedInputRow {
+            id: &m.id,
+            author_kind: m.author_kind.as_deref().unwrap_or_default(),
+            has_card: m.card.as_ref().is_some_and(|card| !card.is_null()),
+            consumed_at: m.consumed_at.as_deref().filter(|at| !at.is_empty()),
+            created_at: m.created_at.as_deref().unwrap_or_default(),
+        }
+    })
 }
 
 /// #EXP-1412: whether a relay view may start from this machine's journal.

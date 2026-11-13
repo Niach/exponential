@@ -615,9 +615,14 @@ pub fn strip_input_tag(text: &str) -> &str {
 /// EXP-905: the ONE title normaliser — trim, collapse every whitespace run
 /// (newlines included) to one space, cap at [`AGENT_TITLE_MAX`] UTF-16 units
 /// on a char boundary. `None` for a title that is blank once normalised.
-/// #EXP-1772: a title derived from a tagged first input drops the tag.
+/// #EXP-1772: a title derived from a tagged first input drops the tag; one
+/// derived from a first prompt drops the composer's `[Image #N]` markers
+/// (EXP-698; session-title.json reads a prompt line without them).
 pub fn normalize_agent_title(raw: &str) -> Option<String> {
-    let collapsed = strip_input_tag(raw).split_whitespace().collect::<Vec<_>>().join(" ");
+    static MARKERS: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    let markers = MARKERS.get_or_init(|| Regex::new(r"\[Image #[0-9]+\]").unwrap());
+    let unmarked = markers.replace_all(strip_input_tag(raw), " ");
+    let collapsed = unmarked.split_whitespace().collect::<Vec<_>>().join(" ");
     if collapsed.is_empty() {
         return None;
     }
@@ -1458,6 +1463,12 @@ mod exp905_agent_title_tests {
         );
         assert_eq!(normalize_agent_title(" \n\t "), None);
         assert_eq!(normalize_agent_title(""), None);
+        // A first-prompt title loses the composer's image markers.
+        assert_eq!(normalize_agent_title("[Image #1]"), None);
+        assert_eq!(
+            normalize_agent_title("eapps: [Image #1] [Image #2] the title").as_deref(),
+            Some("eapps: the title")
+        );
         // 300 multi-byte chars cap at 255, never mid-codepoint.
         let long = "\u{e9}".repeat(300);
         let capped = normalize_agent_title(&long).unwrap();

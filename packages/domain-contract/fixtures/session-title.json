@@ -1,5 +1,5 @@
 {
-  "$comment": "EXP-1341/NEW-1: THE display title of ANY session (root, child or agent; never `Session N`), ONE reference ×4 (TS packages/domain-contract/src/session-title.ts, desktop `domain::session_title`, iOS ExpCore `SessionTitle.swift`, Android `domain/SessionTitle.kt`; the server's `deriveSessionTitle` and `listSessions` call the TS one). sessionTitle(session, links, issues, messages) = the FIRST rung that yields text, every value trimmed: (1) the explicit name: `title` (a name passed to `sessions_send`, else the agent CLI's own auto-title, written once by `sessions.report` into a blank title; both live in `title`, so an explicit name always wins); (2) the session's OWN issues: every `session_issues` row with `sessionId == id` (NEW-1: a row sits on the session that holds the issue, root or child alike; a root's chat strip shows the union over its tree, its title only its own rows), ordered by `sortOrder` then `issueId`, resolved through `issues` (unknown ids skipped): one = `titles.issue`, several = `titles.issues` with {more} = n-1; when the label is longer than `titleMax` characters the {title} part alone is cut to fit and ends in `…`; (3) the first prompt: that session's messages with `card == null` that are a person's (`authorKind == user`) or another session's input (`authorSessionId` set and != the session's id), oldest first (`createdAt`, then `id`), the first whose body has a usable line: the first line that is non-blank after trimming and does not start with `![` (an image embed); longer than `titleMax` characters = cut to titleMax-1, trailing whitespace trimmed, `…` appended; (4) `untitled`.",
+  "$comment": "EXP-1341/NEW-1: THE display title of ANY session (root, child or agent; never `Session N`), ONE reference ×4 (TS packages/domain-contract/src/session-title.ts, desktop `domain::session_title`, iOS ExpCore `SessionTitle.swift`, Android `domain/SessionTitle.kt`; the server's `deriveSessionTitle` and `listSessions` call the TS one). sessionTitle(session, links, issues, messages) = the FIRST rung that yields text, every value trimmed: (1) the explicit name: `title` (a name passed to `sessions_send`, else the agent CLI's own auto-title, written once by `sessions.report` into a blank title; both live in `title`, so an explicit name always wins); (2) the session's OWN issues: every `session_issues` row with `sessionId == id` (NEW-1: a row sits on the session that holds the issue, root or child alike; a root's chat strip shows the union over its tree, its title only its own rows), ordered by `sortOrder` then `issueId`, resolved through `issues` (unknown ids skipped): one = `titles.issue`, several = `titles.issues` with {more} = n-1; when the label is longer than `titleMax` characters the {title} part alone is cut to fit and ends in `…`; (3) the first prompt: that session's messages with `card == null` that are a person's (`authorKind == user`) or another session's input (`authorSessionId` set and != the session's id), oldest first (`createdAt`, then `id`), the first whose body has a usable line: the first line that, with every composer image marker `[Image #<digits>]` (EXP-698; bodies keep them, session-chat.json draws them as chips) removed (each run of markers, with the spaces and tabs around it, becomes ONE space) and the line trimmed again, is non-blank and does not start with `![` (an image embed); a line of only markers is not usable (the next line is tried, then the next message); longer than `titleMax` characters = cut to titleMax-1, trailing whitespace trimmed, `…` appended; (4) `untitled`.",
   "titles": {
     "issue": "#{identifier} {title}",
     "issues": "#{identifier} {title} + {more}"
@@ -408,6 +408,135 @@
         ]
       },
       "expected": "Untitled"
+    },
+    {
+      "name": "a first line of only image markers falls to the next line",
+      "input": {
+        "session": {
+          "id": "s1",
+          "rootId": "s1",
+          "title": null
+        },
+        "links": [],
+        "issues": [],
+        "messages": [
+          {
+            "id": "m1",
+            "sessionId": "s1",
+            "authorKind": "user",
+            "authorSessionId": null,
+            "body": "[Image #1]\n\nmake the agent chat bubble narrower\n\n![image](/api/attachments/a1)",
+            "card": null,
+            "createdAt": "2026-10-17T10:00:00.000Z"
+          }
+        ]
+      },
+      "expected": "make the agent chat bubble narrower"
+    },
+    {
+      "name": "image markers inside a line are removed, the gap collapsed to one space",
+      "input": {
+        "session": {
+          "id": "s1",
+          "rootId": "s1",
+          "title": null
+        },
+        "links": [],
+        "issues": [],
+        "messages": [
+          {
+            "id": "m1",
+            "sessionId": "s1",
+            "authorKind": "user",
+            "authorSessionId": null,
+            "body": "eapps: [Image #1] [Image #2] the apps title should not be clickable\n\nalso open the app full screen",
+            "card": null,
+            "createdAt": "2026-10-17T10:00:00.000Z"
+          }
+        ]
+      },
+      "expected": "eapps: the apps title should not be clickable"
+    },
+    {
+      "name": "a body of only markers and embeds falls to the next message",
+      "input": {
+        "session": {
+          "id": "s1",
+          "rootId": "s1",
+          "title": null
+        },
+        "links": [],
+        "issues": [],
+        "messages": [
+          {
+            "id": "m1",
+            "sessionId": "s1",
+            "authorKind": "user",
+            "authorSessionId": null,
+            "body": "[Image #1] [Image #2]\n\n![image](/api/attachments/a1)\n![image](/api/attachments/a2)",
+            "card": null,
+            "createdAt": "2026-10-17T10:00:00.000Z"
+          },
+          {
+            "id": "m2",
+            "sessionId": "s1",
+            "authorKind": "user",
+            "authorSessionId": null,
+            "body": "  [Image #12]Why is the badge cut off?",
+            "card": null,
+            "createdAt": "2026-10-17T10:00:01.000Z"
+          }
+        ]
+      },
+      "expected": "Why is the badge cut off?"
+    },
+    {
+      "name": "a body of only markers and embeds and nothing else = Untitled",
+      "input": {
+        "session": {
+          "id": "s1",
+          "rootId": "s1",
+          "title": null
+        },
+        "links": [],
+        "issues": [],
+        "messages": [
+          {
+            "id": "m1",
+            "sessionId": "s1",
+            "authorKind": "user",
+            "authorSessionId": null,
+            "body": "[Image #1]\n\n![image](/api/attachments/a1)",
+            "card": null,
+            "createdAt": "2026-10-17T10:00:00.000Z"
+          }
+        ]
+      },
+      "expected": "Untitled"
+    },
+    {
+      "name": "text that only looks like a marker stays",
+      "input": {
+        "session": {
+          "id": "s1",
+          "rootId": "s1",
+          "title": null
+        },
+        "links": [],
+        "issues": [],
+        "messages": [
+          {
+            "id": "m1",
+            "sessionId": "s1",
+            "authorKind": "user",
+            "authorSessionId": null,
+            "body": "[Image #x] and [image #1] stay",
+            "card": null,
+            "createdAt": "2026-10-17T10:00:00.000Z"
+          }
+        ]
+      },
+      "expected": "[Image #x] and [image #1] stay"
     },
     {
       "name": "a title's replacement patterns ($&, $$, $`, $') land literally",

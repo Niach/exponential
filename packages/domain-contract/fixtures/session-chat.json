@@ -5245,7 +5245,7 @@
       },
       "expected": {
         "rootId": "r6",
-        "title": "eapps: [Image #1] [Image #2] the apps title should not be clickable",
+        "title": "eapps: the apps title should not be clickable",
         "private": false,
         "focusId": null,
         "tabs": [

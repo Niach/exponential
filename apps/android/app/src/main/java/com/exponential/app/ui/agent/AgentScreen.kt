@@ -541,23 +541,26 @@ fun AgentScreen(
     if (onBack == null) {
         val selection = remember(context) { com.exponential.app.ui.share.shareSelection(context) }
         val chatShare by selection.pendingChatShare.collectAsStateWithLifecycle()
+        val shareScope = rememberCoroutineScope()
         LaunchedEffect(chatShare) {
             val waiting = chatShare?.takeIf { it.sessionId == null } ?: return@LaunchedEffect
-            if (!selection.takePendingChatShare(waiting)) return@LaunchedEffect
-            waiting.pick?.let { pick ->
-                agentPick = pick
-                viewModel.applyRowPick(pick)
+            // The delivery outlives this effect (taking the share restarts it).
+            com.exponential.app.ui.share.takeChatShare(shareScope, { selection.takePendingChatShare(waiting) }) {
+                waiting.pick?.let { pick ->
+                    agentPick = pick
+                    viewModel.applyRowPick(pick)
+                }
+                com.exponential.app.ui.share.deliverChatShare(
+                    context = context,
+                    share = waiting.share,
+                    currentDraft = composerField.text,
+                    onText = { text ->
+                        composerField = TextFieldValue(text, TextRange(text.length))
+                        viewModel.setDraft(text)
+                    },
+                    onPick = addPick,
+                )
             }
-            com.exponential.app.ui.share.deliverChatShare(
-                context = context,
-                share = waiting.share,
-                currentDraft = composerField.text,
-                onText = { text ->
-                    composerField = TextFieldValue(text, TextRange(text.length))
-                    viewModel.setDraft(text)
-                },
-                onPick = addPick,
-            )
         }
     }
 
