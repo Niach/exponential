@@ -6499,6 +6499,13 @@
       }
     },
     "repo-ci": {
+      "android": {
+        "file": "shots/repo-ci/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 32636,
+        "sha256": "c712d97b1d5290eb49faaa31f942c4ae2e8ed7671ccbe5a02802f1d82c3e59d7"
+      },
       "ios": {
         "file": "shots/repo-ci/ios.webp",
         "width": 828,
@@ -6508,6 +6515,13 @@
       }
     },
     "repo-runs": {
+      "android": {
+        "file": "shots/repo-runs/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 17548,
+        "sha256": "d837b5ebc8b578c767fb65d5ad1a93f380d9062cee3ca3570e4c09325b9520ef"
+      },
       "ios": {
         "file": "shots/repo-runs/ios.webp",
         "width": 828,
