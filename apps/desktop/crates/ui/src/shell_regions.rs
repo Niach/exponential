@@ -639,7 +639,9 @@ impl TabBarRegion {
                 uicore_gpui::inline::set_prop(&mut doc, "ide_tabs_more", "side", json!("bottom"));
             }
             let theme = uicore_gpui::inline::theme(&eui_core::themes::default_theme());
-            let view = uicore_gpui::inline::mount(&doc, &uicore_data::Feed::new(), theme, host, Mode::Dark, window, cx);
+            // #EXP-1814: the +N menu is taller than the 44px band: it is
+            // placed against the window (below the top band, on screen).
+            let view = uicore_gpui::inline::mount_lifted(&doc, &uicore_data::Feed::new(), theme, host, Mode::Dark, window, cx);
             let nav = crate::navigation::nav_for_window(window, cx);
             // #LOGS-4: the strip is a cached region now, so it observes what
             // its titles and leads read (issues, session states) itself.
@@ -713,6 +715,18 @@ impl TabBarRegion {
         self.apply(&value, true, cx);
     }
 
+    /// The sample strip's +N menu open on its `count` last tabs, as the
+    /// host's `more` answer writes it.
+    #[cfg(test)]
+    pub(crate) fn show_more(&mut self, titles: &[&str], count: usize, cx: &mut gpui::Context<Self>) {
+        let inputs: Vec<IdeTabInput> = titles.iter().enumerate().map(|(i, title)| IdeTabInput { key: format!("t{i}"), title: title.to_string(), icon: "nav-chats".into() }).collect();
+        let mut value = serde_json::to_value(uicore_model::ide::ide_tabs(&inputs, Some("t1"))).unwrap();
+        let tabs = value["tabs"].as_array().cloned().unwrap_or_default();
+        value["more"] = Value::Array(tabs[tabs.len().saturating_sub(count)..].to_vec());
+        value["moreOpen"] = json!(true);
+        self.apply(&value, false, cx);
+    }
+
     /// Where the strip's controls end (region coordinates): its tabs, their
     /// closes, the + and the +N. Right of this the band is empty.
     fn strip_right(&self, cx: &App) -> f32 {
@@ -723,6 +737,30 @@ impl TabBarRegion {
             .filter_map(|n| view.frame(n.index))
             .map(|f| f.x + f.w)
             .fold(0., f32::max)
+    }
+
+    /// The strip's pressable areas as laid out (region coordinates): each
+    /// pressable node or overlay trigger with its x span, and where the
+    /// controls end.
+    #[cfg(test)]
+    pub(crate) fn pressable_spans(&self, cx: &App) -> (Vec<(String, f32, f32)>, f32) {
+        let view = self.view.read(cx);
+        let spans = view
+            .placed_nodes()
+            .iter()
+            .filter(|n| n.pressable || n.trigger_for.is_some())
+            .filter_map(|n| view.frame(n.index).filter(|f| f.w > 0. && f.h > 0.).map(|f| (n.id.clone(), f.x, f.x + f.w)))
+            .collect();
+        (spans, self.strip_right(cx))
+    }
+
+    /// The open +N menu's frame (region coordinates) and the +N's.
+    #[cfg(test)]
+    pub(crate) fn more_menu_frame(&self, cx: &App) -> (Option<eui_core::surface::Frame>, Option<eui_core::surface::Frame>) {
+        let view = self.view.read(cx);
+        let menu = view.layers().iter().find(|l| l.owner == "ide_tabs_more").and_then(|l| view.frame(l.root));
+        let more = view.index_of("ide_tabs.more").and_then(|i| view.frame(i));
+        (menu, more)
     }
 
     /// The tab under the pointer, for the context menu and middle-click.
