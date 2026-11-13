@@ -151,6 +151,9 @@ fun NavHostController.openLinkDestination(destination: LinkDestination, uri: Uri
                     Routes.chat(destination.id, Routes.CHAT_TAB_RESULTS)
                 destination.sessionPath && query("tab") in LEGACY_RESULTS_TABS ->
                     Routes.chat(destination.id, Routes.CHAT_TAB_RESULTS)
+                // waiting-cards.json DEEP LINKS: `?card=` names a card: the
+                // Conversation's pending deep link.
+                !query("card").isNullOrBlank() -> Routes.chatCard(destination.id, query("card")!!)
                 else -> Routes.chat(destination.id)
             },
         )
