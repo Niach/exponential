@@ -46,6 +46,16 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-13-android-8-notifications-fix",
+    date: "2026-11-13",
+    title: "Notifications work on Android 8",
+    summary: "Android 0.14.136 fixes a crash on Android 8.0 and 8.1 when the first agent notification arrived.",
+    body: r##"- **Android 8.0 and 8.1**: the first notification from an agent no longer crashes the app while it sets up its notification channels."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_279: ChangelogEntry = ChangelogEntry {
     id: "2026-11-13-phones-notifications-ticks",
     date: "2026-11-13",
     title: "Notifications and delivery ticks on your phone",

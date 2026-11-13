@@ -1,0 +1,3 @@
+- Fixes a crash on Android 8.0 and 8.1 when the first agent notification arrived
+- Notifications clear when you read them on another device, and show as a short notice while the app is open
+- Sent messages show delivery ticks
