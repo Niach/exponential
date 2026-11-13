@@ -698,7 +698,7 @@ export const sessionsRouter = router({
         // FIRST start: a moved session re-queues with its messages pending.
         if (session.status === `queued` && !session.startedAt) {
           await tx.execute(sql`
-            UPDATE ${messages} SET consumed_at = ${now}, updated_at = ${now}
+            UPDATE ${messages} SET consumed_at = ${now}, delivered_at = COALESCE(delivered_at, ${now}), updated_at = ${now}
             WHERE id = (
               SELECT id FROM ${messages}
               WHERE conversation_id = ${sessionConversation(session.id)} AND card IS NULL
@@ -1190,6 +1190,34 @@ export const sessionsRouter = router({
     )
     .query(({ ctx, input }) => sendTarget(ctx.session.user.id, input)),
 
+  /** #FEED-237 (message-delivery.json): the device RECEIVED these pending
+   *  person messages (its pickup holds them; a turn may still be running):
+   *  the bubble's one check. Idempotent: only rows still unstamped and
+   *  unconsumed move. */
+  delivered: authedProcedure
+    .input(z.object({ sessionId: uuid, messageIds: z.array(uuid).min(1).max(100) }))
+    .mutation(async ({ ctx, input }) => {
+      const session = await loadDeviceSession(ctx, input.sessionId)
+      if (!session) return noOpTx(ctx.db)
+      return ctx.db.transaction(async (tx) => {
+        const txid = await generateTxId(tx)
+        const now = new Date()
+        await tx
+          .update(messages)
+          .set({ deliveredAt: now, updatedAt: now })
+          .where(
+            and(
+              inSession(session.id),
+              inArray(messages.id, input.messageIds),
+              eq(messages.authorKind, `user`),
+              isNull(messages.deliveredAt),
+              isNull(messages.consumedAt)
+            )
+          )
+        return { txid }
+      })
+    }),
+
   /** The device delivered these pending inputs (person messages, another
    *  session's question or report) into the agent. EXP-1280: also the
    *  session's OWN answered plan/question card (`exponential_plan_propose`,
@@ -1204,7 +1232,8 @@ export const sessionsRouter = router({
         const now = new Date()
         const consumed = await tx
           .update(messages)
-          .set({ consumedAt: now, updatedAt: now })
+          // #FEED-237: consumed = received too (an older device never acked).
+          .set({ consumedAt: now, deliveredAt: sql`COALESCE(${messages.deliveredAt}, ${now})`, updatedAt: now })
           .where(
             and(
               inSession(session.id),

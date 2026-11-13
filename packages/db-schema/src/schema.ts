@@ -2955,6 +2955,10 @@ export const messages = pgTable(
     // A person's message: when the device delivered it into the agent.
     // NULL = queued (the queue bar ×4).
     consumedAt: timestamp(`consumed_at`, { withTimezone: true }),
+    // #FEED-237 (message-delivery.json): a person's message: when the
+    // session's DEVICE received it (`sessions.delivered`, before the turn
+    // takes it). NULL = not on the device yet (the bubble's clock). SYNCED.
+    deliveredAt: timestamp(`delivered_at`, { withTimezone: true }),
     // #NEW-57: a meeting transcript batch (`sessions.send {meeting: true}`)
     // expires `contract.meeting.retentionDays` after it lands; the watchdog
     // deletes it then. NULL = kept. SERVER-ONLY: never in the shape's columns.
