@@ -25,6 +25,13 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-13-phones-one-native-library`,
+    date: `2026-11-13`,
+    title: `Smaller phone apps`,
+    summary: `Android 0.14.137 and iOS 0.14.127 ship one native library instead of three, so both apps download and install smaller.`,
+    body: `- **Smaller phone apps**: the Android and iOS apps now carry a single native library, about 3.5 MB less on Android and 2.9 MB less on iOS.`,
+  },
+  {
     id: `2026-11-13-desktop-notifications-ticks`,
     date: `2026-11-13`,
     title: `Desktop notifications, delivery ticks and a lighter daemon`,
