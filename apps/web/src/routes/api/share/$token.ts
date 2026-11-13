@@ -12,14 +12,14 @@ export const Route = createFileRoute(`/api/share/$token`)({
         try {
           return await handleSharePage(request, params.token)
         } catch (error) {
-          return errorToResponse(error)
+          return errorToResponse(error, request)
         }
       },
       POST: async ({ request, params }) => {
         try {
           return await handleShareSubmit(request, params.token)
         } catch (error) {
-          return errorToResponse(error)
+          return errorToResponse(error, request)
         }
       },
     },

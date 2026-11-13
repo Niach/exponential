@@ -11,7 +11,7 @@ export const Route = createFileRoute(`/api/teams/$teamId/icon`)({
         try {
           return await handleTeamIconUpload(context)
         } catch (error) {
-          return errorToResponse(error)
+          return errorToResponse(error, context.request)
         }
       },
     },

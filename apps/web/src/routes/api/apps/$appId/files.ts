@@ -10,7 +10,7 @@ export const Route = createFileRoute(`/api/apps/$appId/files`)({
         try {
           return await handleAppFileUpload(context)
         } catch (error) {
-          return errorToResponse(error)
+          return errorToResponse(error, context.request)
         }
       },
     },

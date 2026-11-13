@@ -124,7 +124,7 @@ export const Route = createFileRoute(`/api/guide-uploads/$token`)({
         try {
           return await uploadGuidePicture(context)
         } catch (error) {
-          return errorToResponse(error)
+          return errorToResponse(error, context.request)
         }
       },
     },

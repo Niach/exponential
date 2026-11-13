@@ -11,7 +11,7 @@ export const Route = createFileRoute(`/api/apps/hooks/$appId/$name`)({
         try {
           return await handleWebhookDelivery(request, params.appId, params.name)
         } catch (error) {
-          return errorToResponse(error)
+          return errorToResponse(error, request)
         }
       },
     },
