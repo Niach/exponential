@@ -424,7 +424,15 @@ impl Feeds {
             Query::Source { name, params } => {
                 // VAPP-206: `exp:me` reads the viewer's app access.
                 let access = self.records.scope.as_ref().map(|s| if s.read_only { "read" } else { "write" });
-                domain::app_sources::source_value_as(name, params, &self.sources.store, self.sources.me.as_deref(), access)
+                // FEED-243: date-only `since` / `until` read in the team zone.
+                domain::app_sources::source_value_in(
+                    name,
+                    params,
+                    &self.sources.store,
+                    self.sources.me.as_deref(),
+                    access,
+                    self.records.zone.as_deref(),
+                )
             }
             Query::Records(query) => records_feed_value(&self.records, query, &now_iso()),
         }
@@ -575,6 +583,8 @@ enum SourcePart {
     Sessions,
     Comments,
     Attachments,
+    /// FEED-243: the issue events and session links `exp:issues?touched=` reads.
+    Touches,
 }
 
 /// A store row's timestamp as the web's `toISOString` (missing = empty).
@@ -631,6 +641,36 @@ fn source_attachments(
         .collect()
 }
 
+/// FEED-243: who acted on the team's issues (`issue_events`) and which
+/// sessions link them (`session_issues`).
+fn source_touches(
+    store: &sync::Store,
+    issues: &HashSet<&str>,
+    cx: &App,
+) -> (Vec<domain::app_sources::SourceIssueEvent>, Vec<domain::app_sources::SourceSessionIssue>) {
+    let collections = store.collections();
+    let events = collections
+        .issue_events
+        .read(cx)
+        .iter()
+        .filter(|e| issues.contains(e.issue_id.as_str()))
+        .map(|e| domain::app_sources::SourceIssueEvent {
+            id: e.id.clone(),
+            issue_id: e.issue_id.clone(),
+            actor_user_id: e.actor_user_id.clone(),
+            created_at: iso_of(e.created_at.as_deref()),
+        })
+        .collect();
+    let links = collections
+        .session_issues
+        .read(cx)
+        .iter()
+        .filter(|l| issues.contains(l.issue_id.as_str()))
+        .map(|l| domain::app_sources::SourceSessionIssue { session_id: l.session_id.clone(), issue_id: l.issue_id.clone() })
+        .collect();
+    (events, links)
+}
+
 /// VAPP-119: rebuild `part` of the sources store off the IDE store for the
 /// scope's team (no team = no rows), re-published only on a move.
 fn refresh_sources(feeds: &Rc<RefCell<Feeds>>, part: SourcePart, cx: &App) {
@@ -683,8 +723,17 @@ fn refresh_sources(feeds: &Rc<RefCell<Feeds>>, part: SourcePart, cx: &App) {
             let issues: HashSet<&str> = next.store.issues.iter().map(|i| i.id.as_str()).collect();
             let comments = source_comments(store, &issues, cx);
             let attachments = source_attachments(store, &issues, cx);
+            let (events, links) = source_touches(store, &issues, cx);
             next.store.comments = comments;
             next.store.attachments = attachments;
+            next.store.issue_events = events;
+            next.store.session_issues = links;
+        }
+        SourcePart::Touches => {
+            let issues: HashSet<&str> = next.store.issues.iter().map(|i| i.id.as_str()).collect();
+            let (events, links) = source_touches(store, &issues, cx);
+            next.store.issue_events = events;
+            next.store.session_issues = links;
         }
         SourcePart::Comments => {
             let issues: HashSet<&str> = next.store.issues.iter().map(|i| i.id.as_str()).collect();
@@ -1635,6 +1684,8 @@ impl IdeHost {
             observe_part!(collections.sessions, SourcePart::Sessions);
             observe_part!(collections.comments, SourcePart::Comments);
             observe_part!(collections.attachments, SourcePart::Attachments);
+            observe_part!(collections.issue_events, SourcePart::Touches);
+            observe_part!(collections.session_issues, SourcePart::Touches);
             let f = feeds.clone();
             subscriptions.push(cx.observe(&records, move |_, cx| refresh_records(&f, cx)));
             let f = feeds.clone();
@@ -2201,6 +2252,19 @@ mod tests {
         assert_eq!(issues_now["rows"][0]["status"], "in_progress");
         assert_eq!(issues_now["rows"][0]["boardSlug"], "mobile-app");
         assert_eq!(issues_now["rows"][0]["updatedAt"], "2026-10-20T09:00:00.000Z");
+        // FEED-243: `touched=` follows the synced issue events (team-scoped).
+        cx.update(|cx| {
+            let c = sync::Store::global(cx).collections().clone();
+            seed(&c.issue_events, json!([
+                {"id": "e1", "issue_id": "i1", "actor_user_id": "u2", "type": "status_changed", "created_at": "2026-10-22 09:00:00+00"},
+                {"id": "e9", "issue_id": "i9", "actor_user_id": "u2", "type": "status_changed", "created_at": "2026-10-22 09:00:00+00"}
+            ]), cx);
+        });
+        let (touched, _t) = bind("exp:issues?touched=u2&since=2026-10-22T00:00:00Z");
+        let touched_now = touched.lock().unwrap().last().cloned().unwrap();
+        assert_eq!(touched_now["count"], 1);
+        assert_eq!(touched_now["rows"][0]["touches"], json!(["event"]));
+        assert_eq!(touched_now["rows"][0]["touchedAt"], "2026-10-22T09:00:00.000Z");
 
         // A new comment re-emits the comments binding, not the members one.
         let (m_before, c_before) = (members.lock().unwrap().len(), comments.lock().unwrap().len());

@@ -43,7 +43,9 @@ import {
   commentCollection,
   deviceCollection,
   issueCollection,
+  issueEventCollection,
   sessionCollection,
+  sessionIssueCollection,
   teamCollection,
   teamMemberCollection,
   userCollection,
@@ -189,6 +191,10 @@ const SOURCE_TABLES: Record<string, readonly StoreTable[]> = {
   comments: [`comments`, `issues`, `boards`, `users`],
   attachments: [`attachments`, `issues`, `boards`, `users`],
 }
+/** FEED-243: `exp:issues?touched=` also reads who touched what. */
+const TOUCH_TABLES: readonly StoreTable[] = [`issueEvents`, `comments`, `sessions`, `sessionIssues`]
+const sourceTables = (source: ParsedSource): readonly StoreTable[] =>
+  source.name === `issues` && source.params.touched ? [...SOURCE_TABLES.issues!, ...TOUCH_TABLES] : (SOURCE_TABLES[source.name] ?? [])
 
 const STORE_COLLECTIONS: Record<StoreTable, { preload: () => Promise<unknown> }> = {
   boards: boardCollection,
@@ -198,6 +204,8 @@ const STORE_COLLECTIONS: Record<StoreTable, { preload: () => Promise<unknown> }>
   sessions: sessionCollection,
   comments: commentCollection,
   attachments: attachmentCollection,
+  issueEvents: issueEventCollection,
+  sessionIssues: sessionIssueCollection,
 }
 
 /** VAPP-119 / VAPP-159: the team's synced rows as the contract's
@@ -270,6 +278,10 @@ export function createTeamStore(teamId: string | null, tables: readonly StoreTab
         }
       : null
   )
+  const issueEvents = keep(`issueEvents`, changes(issueEventCollection), (e) =>
+    e.teamId === teamId ? { id: e.id, issueId: e.issueId, actorUserId: e.actorUserId ?? null, createdAt: iso(e.createdAt) } : null
+  )
+  const sessionIssues = keep(`sessionIssues`, changes(sessionIssueCollection), (l) => (l.teamId === teamId ? { sessionId: l.sessionId, issueId: l.issueId } : null))
   const teamIssues = memoByVersions(
     () => [boards?.version() ?? 0, issues?.version() ?? 0],
     () => {
@@ -286,6 +298,8 @@ export function createTeamStore(teamId: string | null, tables: readonly StoreTab
       sessions: sessions?.rows() ?? [],
       comments: comments?.rows() ?? [],
       attachments: attachments?.rows() ?? [],
+      issueEvents: issueEvents?.rows() ?? [],
+      sessionIssues: sessionIssues?.rows() ?? [],
     }),
     unsubscribe: () => kept.forEach((t) => t.unsubscribe()),
   }
@@ -297,12 +311,16 @@ export function createTeamStore(teamId: string | null, tables: readonly StoreTab
  *  source reads (kept incrementally, `createTeamStore`); a value equal to
  *  the last one is not re-emitted. */
 function teamSource(source: ParsedSource, emit: SourceEmit, scope: RecordsScope): () => void {
-  const tables = SOURCE_TABLES[source.name] ?? []
+  const tables = sourceTables(source)
   let last: string | null = null
   let ready = false
   const push = () => {
     if (!ready) return
-    const value = sourceValue(source.name, source.params, team.store(), { me: scope.me, access: scope.access })
+    const value = sourceValue(source.name, source.params, team.store(), {
+      me: scope.me,
+      access: scope.access,
+      timeZone: scope.teamId ? (teamCollection.get(scope.teamId)?.timeZone ?? null) : null,
+    })
     const key = JSON.stringify(value)
     if (key === last) return
     last = key

@@ -25,6 +25,13 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-13-apps-touched-issues`,
+    date: `2026-11-13`,
+    title: `Apps can list the issues you touched`,
+    summary: `App bindings to exp:issues can now list the issues a member worked on in a time window, newest touch first.`,
+    body: `- **Touched issues**: \`exp:issues?touched=me&since=…&until=…\` lists the issues you changed, commented on or ran a session for in that window, with when and how you touched each one; a bare date covers that whole day in the team time zone.`,
+  },
+  {
     id: `2026-11-13-phones-one-native-library`,
     date: `2026-11-13`,
     title: `Smaller phone apps`,

@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-119 the `exp:` binding SOURCES ×4 beyond devices (web-pinned per platform) and records (app-records.json): what an app host emits for `exp:issues`, `exp:boards`, `exp:members`, `exp:sessions`, `exp:comments` and `exp:attachments` over the team's synced rows, the SAME on web (TanStack DB), desktop (the store), iOS (GRDB) and Android (Room): the TS reference `app-sources.ts` (`sourceValue(name, params, store, {me})`); desktop `domain::app_sources`, iOS `AppSources.swift`, Android `AppSources.kt` replay every case of `cases` over `store` (one team's rows, ISO timestamps). QUERY (params as `parseSource` gives them): `limit` (`limits.default`, capped at `limits.max`); issues: `board=<id|slug>` (unknown = empty), `status=<anchor>`, `priority=<p>`, `assignee=<userId|me|none>`, `search=<text>` (case-insensitive substring of title or identifier), `sort=sortOrder|updatedAt|createdAt` (sortOrder asc by default, the timestamps desc), `order=asc|desc`; sessions: `status=`, `mine=1`; comments / attachments: `issue=<identifier|id>` (REQUIRED: without a resolvable issue the value is null). VALUES: issues {rows: [{id, identifier, title, status, priority, assignee, assigneeName, board, boardSlug, dueDate, updatedAt, value: identifier, label: `identifier title`}], count}; boards {rows: [{id, slug, name, prefix, icon, color, value: id, label: name}] (live boards by sortOrder, then name), count}; members {rows: [{id, name, email, avatar, role, value: id, label: name}] (by name), count, me}; the `value` + `label` pair makes a row a Select / ChipInput option (`shape: option`), so an app binds the rows straight into `options` / `suggestions`; sessions {rows: [{id, title, status, busy, needsInput, kind: chat|agent, updatedAt}] (roots only, no app editor sessions, newest first), count}; comments {rows: [{id, body, author, authorName, parent, source, createdAt}] (oldest first), count}; attachments {rows: [{id, name, type, size, url: /api/attachments/<id> (the media policy resolves it), width, height, uploader, uploaderName, createdAt}] (oldest first), count}. `count` counts before the limit; ties sort by id; text compares by code points (no locale). A name outside `sources` emits null. VAPP-206: `exp:me` = the viewer: {id, name, email, avatar, role, access}: role = their team role, null when they are no member; access = the app access the host passes (`access`, absent = write); id null when signed out.",
+  "$comment": "VAPP-119 the `exp:` binding SOURCES ×4 beyond devices (web-pinned per platform) and records (app-records.json): what an app host emits for `exp:issues`, `exp:boards`, `exp:members`, `exp:sessions`, `exp:comments` and `exp:attachments` over the team's synced rows, the SAME on web (TanStack DB), desktop (the store), iOS (GRDB) and Android (Room): the TS reference `app-sources.ts` (`sourceValue(name, params, store, {me})`); desktop `domain::app_sources`, iOS `AppSources.swift`, Android `AppSources.kt` replay every case of `cases` over `store` (one team's rows, ISO timestamps). QUERY (params as `parseSource` gives them): `limit` (`limits.default`, capped at `limits.max`); issues: `board=<id|slug>` (unknown = empty), `status=<anchor>`, `priority=<p>`, `assignee=<userId|me|none>`, `search=<text>` (case-insensitive substring of title or identifier), `sort=sortOrder|updatedAt|createdAt` (sortOrder asc by default, the timestamps desc), `order=asc|desc`; FEED-243 `touched=<me|userId>` (+ `since`, `until`, each optional: `YYYY-MM-DD` or an instant `YYYY-MM-DDTHH:MM:SS[.f](Z|±HH:MM)`; anything else = no bound; without `touched` they do nothing) = only the issues the actor TOUCHED in the window: an `issueEvents` row with `actorUserId` = actor, a comment they authored, or a session they started (`sessions.userId`) linked to the issue (`sessionIssues`), which touches at its `createdAt` and its `updatedAt`; an instant bound is inclusive, a date-only one reads in the TEAM zone (the case's `timeZone`, team-zone.json; the host's `resolveZone`, else the device's): `since` = that day's start, `until` = before the next day's start; `touched=me` signed out = no rows; the rows gain `touchedAt` (the latest touch in the window, the stored timestamp) and `touches` (the kinds, a sorted subset of comment, event, session); the default sort becomes `touchedAt` desc (`sort=touchedAt` too), an explicit `sort=` still wins; every other filter combines; sessions: `status=`, `mine=1`; comments / attachments: `issue=<identifier|id>` (REQUIRED: without a resolvable issue the value is null). VALUES: issues {rows: [{id, identifier, title, status, priority, assignee, assigneeName, board, boardSlug, dueDate, updatedAt, value: identifier, label: `identifier title`}], count}; boards {rows: [{id, slug, name, prefix, icon, color, value: id, label: name}] (live boards by sortOrder, then name), count}; members {rows: [{id, name, email, avatar, role, value: id, label: name}] (by name), count, me}; the `value` + `label` pair makes a row a Select / ChipInput option (`shape: option`), so an app binds the rows straight into `options` / `suggestions`; sessions {rows: [{id, title, status, busy, needsInput, kind: chat|agent, updatedAt}] (roots only, no app editor sessions, newest first), count}; comments {rows: [{id, body, author, authorName, parent, source, createdAt}] (oldest first), count}; attachments {rows: [{id, name, type, size, url: /api/attachments/<id> (the media policy resolves it), width, height, uploader, uploaderName, createdAt}] (oldest first), count}. `count` counts before the limit; ties sort by id; text compares by code points (no locale). A name outside `sources` emits null. VAPP-206: `exp:me` = the viewer: {id, name, email, avatar, role, access}: role = their team role, null when they are no member; access = the app access the host passes (`access`, absent = write); id null when signed out.",
   "sources": [
     "issues",
     "boards",
@@ -300,6 +300,58 @@
         "height": null,
         "createdAt": "2026-10-01T10:05:00Z"
       }
+    ],
+    "issueEvents": [
+      {
+        "id": "e1",
+        "issueId": "i2",
+        "actorUserId": "u1",
+        "createdAt": "2026-10-22T09:00:00Z"
+      },
+      {
+        "id": "e2",
+        "issueId": "i3",
+        "actorUserId": "u2",
+        "createdAt": "2026-10-21T12:00:00Z"
+      },
+      {
+        "id": "e3",
+        "issueId": "i1",
+        "actorUserId": "u1",
+        "createdAt": "2026-10-19T09:00:00Z"
+      },
+      {
+        "id": "e4",
+        "issueId": "i4",
+        "actorUserId": "u1",
+        "createdAt": "2026-10-22T23:30:00Z"
+      },
+      {
+        "id": "e5",
+        "issueId": "i5",
+        "actorUserId": null,
+        "createdAt": "2026-10-22T09:00:00Z"
+      },
+      {
+        "id": "e6",
+        "issueId": "i4",
+        "actorUserId": "u2",
+        "createdAt": "2026-10-23T08:00:00Z"
+      }
+    ],
+    "sessionIssues": [
+      {
+        "sessionId": "s1",
+        "issueId": "i5"
+      },
+      {
+        "sessionId": "s3",
+        "issueId": "i3"
+      },
+      {
+        "sessionId": "s2",
+        "issueId": "i1"
+      }
     ]
   },
   "cases": [
@@ -549,6 +601,593 @@
           }
         ],
         "count": 2
+      }
+    },
+    {
+      "name": "issues touched by the viewer, ever: events, comments, sessions; latest touch first",
+      "source": "issues",
+      "params": {
+        "touched": "me"
+      },
+      "me": "u1",
+      "expected": {
+        "rows": [
+          {
+            "id": "i1",
+            "identifier": "APP-1",
+            "title": "Crash on launch",
+            "value": "APP-1",
+            "label": "APP-1 Crash on launch",
+            "status": "in_progress",
+            "priority": "high",
+            "assignee": "u1",
+            "assigneeName": "Alex Carter",
+            "board": "b1",
+            "boardSlug": "mobile-app",
+            "dueDate": "2026-10-30",
+            "updatedAt": "2026-10-20T09:00:00Z",
+            "touchedAt": "2026-10-24T08:10:00Z",
+            "touches": [
+              "comment",
+              "event",
+              "session"
+            ]
+          },
+          {
+            "id": "i5",
+            "identifier": "APP-5",
+            "title": "Reduce cold start",
+            "value": "APP-5",
+            "label": "APP-5 Reduce cold start",
+            "status": "in_progress",
+            "priority": "medium",
+            "assignee": "u1",
+            "assigneeName": "Alex Carter",
+            "board": "b1",
+            "boardSlug": "mobile-app",
+            "dueDate": null,
+            "updatedAt": "2026-10-22T09:00:00Z",
+            "touchedAt": "2026-10-24T08:00:00Z",
+            "touches": [
+              "session"
+            ]
+          },
+          {
+            "id": "i4",
+            "identifier": "FB-1",
+            "title": "Launch feedback form",
+            "value": "FB-1",
+            "label": "FB-1 Launch feedback form",
+            "status": "done",
+            "priority": null,
+            "assignee": "u1",
+            "assigneeName": "Alex Carter",
+            "board": "b2",
+            "boardSlug": "feedback",
+            "dueDate": null,
+            "updatedAt": "2026-10-22T09:00:00Z",
+            "touchedAt": "2026-10-22T23:30:00Z",
+            "touches": [
+              "event"
+            ]
+          },
+          {
+            "id": "i2",
+            "identifier": "APP-2",
+            "title": "Dark mode toggle",
+            "value": "APP-2",
+            "label": "APP-2 Dark mode toggle",
+            "status": "backlog",
+            "priority": "low",
+            "assignee": null,
+            "assigneeName": "",
+            "board": "b1",
+            "boardSlug": "mobile-app",
+            "dueDate": null,
+            "updatedAt": "2026-10-22T09:00:00Z",
+            "touchedAt": "2026-10-22T09:00:00Z",
+            "touches": [
+              "event"
+            ]
+          }
+        ],
+        "count": 4
+      }
+    },
+    {
+      "name": "issues touched: instant bounds are inclusive both ways",
+      "source": "issues",
+      "params": {
+        "touched": "me",
+        "since": "2026-10-21T10:00:00Z",
+        "until": "2026-10-22T09:00:00Z"
+      },
+      "me": "u1",
+      "timeZone": "UTC",
+      "expected": {
+        "rows": [
+          {
+            "id": "i2",
+            "identifier": "APP-2",
+            "title": "Dark mode toggle",
+            "value": "APP-2",
+            "label": "APP-2 Dark mode toggle",
+            "status": "backlog",
+            "priority": "low",
+            "assignee": null,
+            "assigneeName": "",
+            "board": "b1",
+            "boardSlug": "mobile-app",
+            "dueDate": null,
+            "updatedAt": "2026-10-22T09:00:00Z",
+            "touchedAt": "2026-10-22T09:00:00Z",
+            "touches": [
+              "event"
+            ]
+          },
+          {
+            "id": "i1",
+            "identifier": "APP-1",
+            "title": "Crash on launch",
+            "value": "APP-1",
+            "label": "APP-1 Crash on launch",
+            "status": "in_progress",
+            "priority": "high",
+            "assignee": "u1",
+            "assigneeName": "Alex Carter",
+            "board": "b1",
+            "boardSlug": "mobile-app",
+            "dueDate": "2026-10-30",
+            "updatedAt": "2026-10-20T09:00:00Z",
+            "touchedAt": "2026-10-21T10:00:00Z",
+            "touches": [
+              "comment"
+            ]
+          }
+        ],
+        "count": 2
+      }
+    },
+    {
+      "name": "issues touched: one day, a comment only",
+      "source": "issues",
+      "params": {
+        "touched": "me",
+        "since": "2026-10-21",
+        "until": "2026-10-21"
+      },
+      "me": "u1",
+      "timeZone": "UTC",
+      "expected": {
+        "rows": [
+          {
+            "id": "i1",
+            "identifier": "APP-1",
+            "title": "Crash on launch",
+            "value": "APP-1",
+            "label": "APP-1 Crash on launch",
+            "status": "in_progress",
+            "priority": "high",
+            "assignee": "u1",
+            "assigneeName": "Alex Carter",
+            "board": "b1",
+            "boardSlug": "mobile-app",
+            "dueDate": "2026-10-30",
+            "updatedAt": "2026-10-20T09:00:00Z",
+            "touchedAt": "2026-10-21T10:00:00Z",
+            "touches": [
+              "comment"
+            ]
+          }
+        ],
+        "count": 1
+      }
+    },
+    {
+      "name": "issues touched: sessions the viewer started count at their last update",
+      "source": "issues",
+      "params": {
+        "touched": "me",
+        "since": "2026-10-24"
+      },
+      "me": "u1",
+      "timeZone": "UTC",
+      "expected": {
+        "rows": [
+          {
+            "id": "i1",
+            "identifier": "APP-1",
+            "title": "Crash on launch",
+            "value": "APP-1",
+            "label": "APP-1 Crash on launch",
+            "status": "in_progress",
+            "priority": "high",
+            "assignee": "u1",
+            "assigneeName": "Alex Carter",
+            "board": "b1",
+            "boardSlug": "mobile-app",
+            "dueDate": "2026-10-30",
+            "updatedAt": "2026-10-20T09:00:00Z",
+            "touchedAt": "2026-10-24T08:10:00Z",
+            "touches": [
+              "session"
+            ]
+          },
+          {
+            "id": "i5",
+            "identifier": "APP-5",
+            "title": "Reduce cold start",
+            "value": "APP-5",
+            "label": "APP-5 Reduce cold start",
+            "status": "in_progress",
+            "priority": "medium",
+            "assignee": "u1",
+            "assigneeName": "Alex Carter",
+            "board": "b1",
+            "boardSlug": "mobile-app",
+            "dueDate": null,
+            "updatedAt": "2026-10-22T09:00:00Z",
+            "touchedAt": "2026-10-24T08:00:00Z",
+            "touches": [
+              "session"
+            ]
+          }
+        ],
+        "count": 2
+      }
+    },
+    {
+      "name": "issues touched by another member: the viewer's touches never count, ties by id",
+      "source": "issues",
+      "params": {
+        "touched": "u2"
+      },
+      "me": "u1",
+      "expected": {
+        "rows": [
+          {
+            "id": "i3",
+            "identifier": "APP-3",
+            "title": "Image cache leak",
+            "value": "APP-3",
+            "label": "APP-3 Image cache leak",
+            "status": "in_progress",
+            "priority": "high",
+            "assignee": "u2",
+            "assigneeName": "Jonas Weber",
+            "board": "b1",
+            "boardSlug": "mobile-app",
+            "dueDate": null,
+            "updatedAt": "2026-10-21T09:00:00Z",
+            "touchedAt": "2026-10-23T08:00:00Z",
+            "touches": [
+              "event",
+              "session"
+            ]
+          },
+          {
+            "id": "i4",
+            "identifier": "FB-1",
+            "title": "Launch feedback form",
+            "value": "FB-1",
+            "label": "FB-1 Launch feedback form",
+            "status": "done",
+            "priority": null,
+            "assignee": "u1",
+            "assigneeName": "Alex Carter",
+            "board": "b2",
+            "boardSlug": "feedback",
+            "dueDate": null,
+            "updatedAt": "2026-10-22T09:00:00Z",
+            "touchedAt": "2026-10-23T08:00:00Z",
+            "touches": [
+              "event"
+            ]
+          },
+          {
+            "id": "i1",
+            "identifier": "APP-1",
+            "title": "Crash on launch",
+            "value": "APP-1",
+            "label": "APP-1 Crash on launch",
+            "status": "in_progress",
+            "priority": "high",
+            "assignee": "u1",
+            "assigneeName": "Alex Carter",
+            "board": "b1",
+            "boardSlug": "mobile-app",
+            "dueDate": "2026-10-30",
+            "updatedAt": "2026-10-20T09:00:00Z",
+            "touchedAt": "2026-10-20T10:00:00Z",
+            "touches": [
+              "comment"
+            ]
+          }
+        ],
+        "count": 3
+      }
+    },
+    {
+      "name": "issues touched + search, a limit, the count before it",
+      "source": "issues",
+      "params": {
+        "touched": "me",
+        "search": "launch",
+        "limit": "1"
+      },
+      "me": "u1",
+      "expected": {
+        "rows": [
+          {
+            "id": "i1",
+            "identifier": "APP-1",
+            "title": "Crash on launch",
+            "value": "APP-1",
+            "label": "APP-1 Crash on launch",
+            "status": "in_progress",
+            "priority": "high",
+            "assignee": "u1",
+            "assigneeName": "Alex Carter",
+            "board": "b1",
+            "boardSlug": "mobile-app",
+            "dueDate": "2026-10-30",
+            "updatedAt": "2026-10-20T09:00:00Z",
+            "touchedAt": "2026-10-24T08:10:00Z",
+            "touches": [
+              "comment",
+              "event",
+              "session"
+            ]
+          }
+        ],
+        "count": 2
+      }
+    },
+    {
+      "name": "issues touched: an explicit sort wins",
+      "source": "issues",
+      "params": {
+        "touched": "me",
+        "sort": "createdAt"
+      },
+      "me": "u1",
+      "expected": {
+        "rows": [
+          {
+            "id": "i5",
+            "identifier": "APP-5",
+            "title": "Reduce cold start",
+            "value": "APP-5",
+            "label": "APP-5 Reduce cold start",
+            "status": "in_progress",
+            "priority": "medium",
+            "assignee": "u1",
+            "assigneeName": "Alex Carter",
+            "board": "b1",
+            "boardSlug": "mobile-app",
+            "dueDate": null,
+            "updatedAt": "2026-10-22T09:00:00Z",
+            "touchedAt": "2026-10-24T08:00:00Z",
+            "touches": [
+              "session"
+            ]
+          },
+          {
+            "id": "i2",
+            "identifier": "APP-2",
+            "title": "Dark mode toggle",
+            "value": "APP-2",
+            "label": "APP-2 Dark mode toggle",
+            "status": "backlog",
+            "priority": "low",
+            "assignee": null,
+            "assigneeName": "",
+            "board": "b1",
+            "boardSlug": "mobile-app",
+            "dueDate": null,
+            "updatedAt": "2026-10-22T09:00:00Z",
+            "touchedAt": "2026-10-22T09:00:00Z",
+            "touches": [
+              "event"
+            ]
+          },
+          {
+            "id": "i1",
+            "identifier": "APP-1",
+            "title": "Crash on launch",
+            "value": "APP-1",
+            "label": "APP-1 Crash on launch",
+            "status": "in_progress",
+            "priority": "high",
+            "assignee": "u1",
+            "assigneeName": "Alex Carter",
+            "board": "b1",
+            "boardSlug": "mobile-app",
+            "dueDate": "2026-10-30",
+            "updatedAt": "2026-10-20T09:00:00Z",
+            "touchedAt": "2026-10-24T08:10:00Z",
+            "touches": [
+              "comment",
+              "event",
+              "session"
+            ]
+          },
+          {
+            "id": "i4",
+            "identifier": "FB-1",
+            "title": "Launch feedback form",
+            "value": "FB-1",
+            "label": "FB-1 Launch feedback form",
+            "status": "done",
+            "priority": null,
+            "assignee": "u1",
+            "assigneeName": "Alex Carter",
+            "board": "b2",
+            "boardSlug": "feedback",
+            "dueDate": null,
+            "updatedAt": "2026-10-22T09:00:00Z",
+            "touchedAt": "2026-10-22T23:30:00Z",
+            "touches": [
+              "event"
+            ]
+          }
+        ],
+        "count": 4
+      }
+    },
+    {
+      "name": "issues touched: a date-only day runs in the team zone (Vienna, UTC+2)",
+      "source": "issues",
+      "params": {
+        "touched": "me",
+        "since": "2026-10-23",
+        "until": "2026-10-23"
+      },
+      "me": "u1",
+      "timeZone": "Europe/Vienna",
+      "expected": {
+        "rows": [
+          {
+            "id": "i4",
+            "identifier": "FB-1",
+            "title": "Launch feedback form",
+            "value": "FB-1",
+            "label": "FB-1 Launch feedback form",
+            "status": "done",
+            "priority": null,
+            "assignee": "u1",
+            "assigneeName": "Alex Carter",
+            "board": "b2",
+            "boardSlug": "feedback",
+            "dueDate": null,
+            "updatedAt": "2026-10-22T09:00:00Z",
+            "touchedAt": "2026-10-22T23:30:00Z",
+            "touches": [
+              "event"
+            ]
+          }
+        ],
+        "count": 1
+      }
+    },
+    {
+      "name": "issues touched: the same day in UTC",
+      "source": "issues",
+      "params": {
+        "touched": "me",
+        "since": "2026-10-23",
+        "until": "2026-10-23"
+      },
+      "me": "u1",
+      "timeZone": "UTC",
+      "expected": {
+        "rows": [],
+        "count": 0
+      }
+    },
+    {
+      "name": "issues touched: an unparseable bound is no bound",
+      "source": "issues",
+      "params": {
+        "touched": "me",
+        "until": "yesterday"
+      },
+      "me": "u1",
+      "timeZone": "UTC",
+      "expected": {
+        "rows": [
+          {
+            "id": "i1",
+            "identifier": "APP-1",
+            "title": "Crash on launch",
+            "value": "APP-1",
+            "label": "APP-1 Crash on launch",
+            "status": "in_progress",
+            "priority": "high",
+            "assignee": "u1",
+            "assigneeName": "Alex Carter",
+            "board": "b1",
+            "boardSlug": "mobile-app",
+            "dueDate": "2026-10-30",
+            "updatedAt": "2026-10-20T09:00:00Z",
+            "touchedAt": "2026-10-24T08:10:00Z",
+            "touches": [
+              "comment",
+              "event",
+              "session"
+            ]
+          },
+          {
+            "id": "i5",
+            "identifier": "APP-5",
+            "title": "Reduce cold start",
+            "value": "APP-5",
+            "label": "APP-5 Reduce cold start",
+            "status": "in_progress",
+            "priority": "medium",
+            "assignee": "u1",
+            "assigneeName": "Alex Carter",
+            "board": "b1",
+            "boardSlug": "mobile-app",
+            "dueDate": null,
+            "updatedAt": "2026-10-22T09:00:00Z",
+            "touchedAt": "2026-10-24T08:00:00Z",
+            "touches": [
+              "session"
+            ]
+          },
+          {
+            "id": "i4",
+            "identifier": "FB-1",
+            "title": "Launch feedback form",
+            "value": "FB-1",
+            "label": "FB-1 Launch feedback form",
+            "status": "done",
+            "priority": null,
+            "assignee": "u1",
+            "assigneeName": "Alex Carter",
+            "board": "b2",
+            "boardSlug": "feedback",
+            "dueDate": null,
+            "updatedAt": "2026-10-22T09:00:00Z",
+            "touchedAt": "2026-10-22T23:30:00Z",
+            "touches": [
+              "event"
+            ]
+          },
+          {
+            "id": "i2",
+            "identifier": "APP-2",
+            "title": "Dark mode toggle",
+            "value": "APP-2",
+            "label": "APP-2 Dark mode toggle",
+            "status": "backlog",
+            "priority": "low",
+            "assignee": null,
+            "assigneeName": "",
+            "board": "b1",
+            "boardSlug": "mobile-app",
+            "dueDate": null,
+            "updatedAt": "2026-10-22T09:00:00Z",
+            "touchedAt": "2026-10-22T09:00:00Z",
+            "touches": [
+              "event"
+            ]
+          }
+        ],
+        "count": 4
+      }
+    },
+    {
+      "name": "issues touched by me while signed out = none",
+      "source": "issues",
+      "params": {
+        "touched": "me"
+      },
+      "me": null,
+      "expected": {
+        "rows": [],
+        "count": 0
       }
     },
     {

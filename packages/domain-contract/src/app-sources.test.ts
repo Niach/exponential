@@ -5,7 +5,7 @@ import { sourceValue, type SourceStore } from "./app-sources"
 describe(`app sources (VAPP-119)`, () => {
   const store = fixture.store as unknown as SourceStore
   test.each(fixture.cases)(`$source: $name`, (c) => {
-    expect(sourceValue(c.source, c.params, store, { me: c.me, access: (c as { access?: string }).access })).toEqual(c.expected as never)
+    expect(sourceValue(c.source, c.params, store, { me: c.me, access: (c as { access?: string }).access, timeZone: (c as { timeZone?: string }).timeZone ?? null })).toEqual(c.expected as never)
   })
   test(`the fixture names every source the reference derives`, () => {
     for (const name of fixture.sources) expect(sourceValue(name, {}, store, { me: null })).not.toBeUndefined()
