@@ -18,4 +18,5 @@ export const LIBRARIES: Library[] = [
   { slug: `mcp-proxy`, name: `MCP Proxy`, product: `/sdk/mcp-proxy/`, from: `/mcp/` },
   { slug: `agents`, name: `Agents`, product: `/sdk/agents/`, from: `/agent/` },
   { slug: `core`, name: `Core`, product: `/sdk/core/`, from: `/core/` },
+  { slug: `code`, name: `Code`, product: `/sdk/code/`, from: `/code/` },
 ]

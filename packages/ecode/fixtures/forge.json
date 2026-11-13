@@ -1,0 +1,1796 @@
+{
+  "$comment": "THE FORGE (#EXP-1613; src/forge.ts, ecode-core forge.rs). The PR-tree primitives every provider offers (#NEW-36, the session playbook): a PR's base is ANY branch (`pr.open{base}`); `pr.list_by_base`; `pr.retarget`; `pr.mergeability` = a path-wise three-way merge of head and base over their merge base (clean | dirty + the conflicting paths); `pr.squash_merge` lands the merged tree as ONE commit `m<n>` on the base, then every live child of the merged PR is retargeted onto its base (EXP-324) and the merged head branch is deleted (never the default branch); `pr.merge_ordered` squash-merges several PRs in the given order, each its own transaction, and stops at the first refusal; `pr.close` (children stay); `pr.files` = head against the merge base; `branch.rebase_onto{branch, onto, upstream}` replays the commits after `upstream` onto `onto` as `r<n>` (a dirty child after its parent landed: upstream = the parent's `headSha`); `push` (fast-forward unless `force`). MODEL: a commit = {parent, changes: path → content | null (removed)}; a branch names a commit. A refusal = {code, reason} (contract forgeReason), the state unchanged, no events. Every step lists the events it emits (contract forgeEvent). `expect` = the branches, the PRs and the commits the case created, after the last step. Replayed by packages/ecode (bun test), apps/web/src/lib/ecode/ecode-spec.test.ts and ecode-core (cargo test); GithubForge and every Forge implementation conform to it.",
+  "capabilities": [
+    {
+      "provider": "github",
+      "capability": "squash_merge",
+      "supported": true
+    },
+    {
+      "provider": "github",
+      "capability": "ordered_merge",
+      "supported": false
+    },
+    {
+      "provider": "github",
+      "capability": "rebase_onto",
+      "supported": false
+    },
+    {
+      "provider": "github",
+      "capability": "webhooks",
+      "supported": true
+    },
+    {
+      "provider": "ecode",
+      "capability": "ordered_merge",
+      "supported": true
+    },
+    {
+      "provider": "ecode",
+      "capability": "rebase_onto",
+      "supported": true
+    },
+    {
+      "provider": "ecode",
+      "capability": "webhooks",
+      "supported": false
+    },
+    {
+      "provider": "ecode",
+      "capability": "mirror",
+      "supported": true
+    }
+  ],
+  "cases": [
+    {
+      "name": "a PR's base is any branch: a root on main, a child on the root",
+      "given": {
+        "commits": {
+          "c1": {
+            "changes": {
+              "a.txt": "1"
+            }
+          },
+          "c2": {
+            "parent": "c1",
+            "changes": {
+              "b.txt": "root"
+            }
+          },
+          "c3": {
+            "parent": "c2",
+            "changes": {
+              "c.txt": "child"
+            }
+          }
+        },
+        "branches": {
+          "main": "c1",
+          "root": "c2",
+          "child": "c3"
+        }
+      },
+      "steps": [
+        {
+          "op": "pr.open",
+          "args": {
+            "head": "root",
+            "base": "main",
+            "title": "Root"
+          },
+          "result": {
+            "number": 1
+          },
+          "events": [
+            {
+              "kind": "pr_opened",
+              "number": 1
+            }
+          ]
+        },
+        {
+          "op": "pr.open",
+          "args": {
+            "head": "child",
+            "base": "root",
+            "title": "Child",
+            "draft": true
+          },
+          "result": {
+            "number": 2
+          },
+          "events": [
+            {
+              "kind": "pr_opened",
+              "number": 2
+            }
+          ]
+        },
+        {
+          "op": "pr.list_by_base",
+          "args": {
+            "base": "main"
+          },
+          "result": {
+            "numbers": [
+              1
+            ]
+          },
+          "events": []
+        },
+        {
+          "op": "pr.list_by_base",
+          "args": {
+            "base": "root"
+          },
+          "result": {
+            "numbers": [
+              2
+            ]
+          },
+          "events": []
+        },
+        {
+          "op": "pr.list_by_base",
+          "args": {
+            "base": "child"
+          },
+          "result": {
+            "numbers": []
+          },
+          "events": []
+        }
+      ],
+      "expect": {
+        "branches": {
+          "child": "c3",
+          "main": "c1",
+          "root": "c2"
+        },
+        "prs": [
+          {
+            "number": 1,
+            "head": "root",
+            "base": "main",
+            "title": "Root",
+            "state": "open",
+            "headSha": null,
+            "mergedSha": null
+          },
+          {
+            "number": 2,
+            "head": "child",
+            "base": "root",
+            "title": "Child",
+            "state": "draft",
+            "headSha": null,
+            "mergedSha": null
+          }
+        ],
+        "commits": {}
+      }
+    },
+    {
+      "name": "open refuses an unknown branch, the same branch, a second live PR for a head and a loop",
+      "given": {
+        "commits": {
+          "c1": {
+            "changes": {
+              "a.txt": "1"
+            }
+          },
+          "c2": {
+            "parent": "c1",
+            "changes": {
+              "b.txt": "x"
+            }
+          },
+          "c3": {
+            "parent": "c1",
+            "changes": {
+              "c.txt": "y"
+            }
+          }
+        },
+        "branches": {
+          "main": "c1",
+          "a": "c2",
+          "b": "c3"
+        },
+        "prs": [
+          {
+            "number": 1,
+            "head": "a",
+            "base": "b",
+            "title": "A on B"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "op": "pr.open",
+          "args": {
+            "head": "nope",
+            "base": "main",
+            "title": "x"
+          },
+          "failure": {
+            "code": "not_found",
+            "reason": "head"
+          },
+          "events": []
+        },
+        {
+          "op": "pr.open",
+          "args": {
+            "head": "b",
+            "base": "nope",
+            "title": "x"
+          },
+          "failure": {
+            "code": "not_found",
+            "reason": "base"
+          },
+          "events": []
+        },
+        {
+          "op": "pr.open",
+          "args": {
+            "head": "a",
+            "base": "a",
+            "title": "x"
+          },
+          "failure": {
+            "code": "invalid",
+            "reason": "same_branch"
+          },
+          "events": []
+        },
+        {
+          "op": "pr.open",
+          "args": {
+            "head": "a",
+            "base": "main",
+            "title": "x"
+          },
+          "failure": {
+            "code": "conflict",
+            "reason": "exists"
+          },
+          "events": []
+        },
+        {
+          "op": "pr.open",
+          "args": {
+            "head": "b",
+            "base": "a",
+            "title": "B on A"
+          },
+          "failure": {
+            "code": "invalid",
+            "reason": "cycle"
+          },
+          "events": []
+        },
+        {
+          "op": "pr.open",
+          "args": {
+            "head": "b",
+            "base": "main",
+            "title": "B"
+          },
+          "result": {
+            "number": 2
+          },
+          "events": [
+            {
+              "kind": "pr_opened",
+              "number": 2
+            }
+          ]
+        }
+      ],
+      "expect": {
+        "branches": {
+          "a": "c2",
+          "b": "c3",
+          "main": "c1"
+        },
+        "prs": [
+          {
+            "number": 1,
+            "head": "a",
+            "base": "b",
+            "title": "A on B",
+            "state": "open",
+            "headSha": null,
+            "mergedSha": null
+          },
+          {
+            "number": 2,
+            "head": "b",
+            "base": "main",
+            "title": "B",
+            "state": "open",
+            "headSha": null,
+            "mergedSha": null
+          }
+        ],
+        "commits": {}
+      }
+    },
+    {
+      "name": "retarget moves a live PR to another base; refuses a loop, an unknown base and a closed PR",
+      "given": {
+        "commits": {
+          "c1": {
+            "changes": {
+              "a.txt": "1"
+            }
+          },
+          "c2": {
+            "parent": "c1",
+            "changes": {
+              "b.txt": "x"
+            }
+          },
+          "c3": {
+            "parent": "c2",
+            "changes": {
+              "c.txt": "y"
+            }
+          }
+        },
+        "branches": {
+          "main": "c1",
+          "root": "c2",
+          "child": "c3"
+        },
+        "prs": [
+          {
+            "number": 1,
+            "head": "root",
+            "base": "main",
+            "title": "Root"
+          },
+          {
+            "number": 2,
+            "head": "child",
+            "base": "root",
+            "title": "Child"
+          },
+          {
+            "number": 3,
+            "head": "child",
+            "base": "main",
+            "title": "Old",
+            "state": "closed"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "op": "pr.retarget",
+          "args": {
+            "number": 1,
+            "base": "child"
+          },
+          "failure": {
+            "code": "invalid",
+            "reason": "cycle"
+          },
+          "events": []
+        },
+        {
+          "op": "pr.retarget",
+          "args": {
+            "number": 2,
+            "base": "nope"
+          },
+          "failure": {
+            "code": "not_found",
+            "reason": "base"
+          },
+          "events": []
+        },
+        {
+          "op": "pr.retarget",
+          "args": {
+            "number": 3,
+            "base": "root"
+          },
+          "failure": {
+            "code": "invalid",
+            "reason": "not_open"
+          },
+          "events": []
+        },
+        {
+          "op": "pr.retarget",
+          "args": {
+            "number": 9,
+            "base": "main"
+          },
+          "failure": {
+            "code": "not_found",
+            "reason": "pr"
+          },
+          "events": []
+        },
+        {
+          "op": "pr.retarget",
+          "args": {
+            "number": 2,
+            "base": "root"
+          },
+          "result": {},
+          "events": []
+        },
+        {
+          "op": "pr.retarget",
+          "args": {
+            "number": 2,
+            "base": "main"
+          },
+          "result": {},
+          "events": [
+            {
+              "kind": "pr_retargeted",
+              "number": 2,
+              "from": "root",
+              "to": "main"
+            }
+          ]
+        },
+        {
+          "op": "pr.list_by_base",
+          "args": {
+            "base": "main"
+          },
+          "result": {
+            "numbers": [
+              1,
+              2
+            ]
+          },
+          "events": []
+        }
+      ],
+      "expect": {
+        "branches": {
+          "child": "c3",
+          "main": "c1",
+          "root": "c2"
+        },
+        "prs": [
+          {
+            "number": 1,
+            "head": "root",
+            "base": "main",
+            "title": "Root",
+            "state": "open",
+            "headSha": null,
+            "mergedSha": null
+          },
+          {
+            "number": 2,
+            "head": "child",
+            "base": "main",
+            "title": "Child",
+            "state": "open",
+            "headSha": null,
+            "mergedSha": null
+          },
+          {
+            "number": 3,
+            "head": "child",
+            "base": "main",
+            "title": "Old",
+            "state": "closed",
+            "headSha": null,
+            "mergedSha": null
+          }
+        ],
+        "commits": {}
+      }
+    },
+    {
+      "name": "mergeability: clean when only one side touched a path, dirty when both changed it differently",
+      "given": {
+        "commits": {
+          "c1": {
+            "changes": {
+              "a.txt": "1",
+              "b.txt": "1"
+            }
+          },
+          "c2": {
+            "parent": "c1",
+            "changes": {
+              "a.txt": "main"
+            }
+          },
+          "c3": {
+            "parent": "c1",
+            "changes": {
+              "b.txt": "feature"
+            }
+          },
+          "c4": {
+            "parent": "c1",
+            "changes": {
+              "a.txt": "other",
+              "z.txt": "new"
+            }
+          },
+          "c5": {
+            "parent": "c1",
+            "changes": {
+              "a.txt": "main",
+              "b.txt": null
+            }
+          }
+        },
+        "branches": {
+          "main": "c2",
+          "clean": "c3",
+          "dirty": "c4",
+          "same": "c5"
+        },
+        "prs": [
+          {
+            "number": 1,
+            "head": "clean",
+            "base": "main"
+          },
+          {
+            "number": 2,
+            "head": "dirty",
+            "base": "main"
+          },
+          {
+            "number": 3,
+            "head": "same",
+            "base": "main"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "op": "pr.mergeability",
+          "args": {
+            "number": 1
+          },
+          "result": {
+            "mergeability": "clean",
+            "conflicts": []
+          },
+          "events": []
+        },
+        {
+          "op": "pr.mergeability",
+          "args": {
+            "number": 2
+          },
+          "result": {
+            "mergeability": "dirty",
+            "conflicts": [
+              "a.txt"
+            ]
+          },
+          "events": []
+        },
+        {
+          "op": "pr.mergeability",
+          "args": {
+            "number": 3
+          },
+          "result": {
+            "mergeability": "clean",
+            "conflicts": []
+          },
+          "events": []
+        },
+        {
+          "op": "pr.mergeability",
+          "args": {
+            "number": 4
+          },
+          "failure": {
+            "code": "not_found",
+            "reason": "pr"
+          },
+          "events": []
+        }
+      ],
+      "expect": {
+        "branches": {
+          "clean": "c3",
+          "dirty": "c4",
+          "main": "c2",
+          "same": "c5"
+        },
+        "prs": [
+          {
+            "number": 1,
+            "head": "clean",
+            "base": "main",
+            "title": "",
+            "state": "open",
+            "headSha": null,
+            "mergedSha": null
+          },
+          {
+            "number": 2,
+            "head": "dirty",
+            "base": "main",
+            "title": "",
+            "state": "open",
+            "headSha": null,
+            "mergedSha": null
+          },
+          {
+            "number": 3,
+            "head": "same",
+            "base": "main",
+            "title": "",
+            "state": "open",
+            "headSha": null,
+            "mergedSha": null
+          }
+        ],
+        "commits": {}
+      }
+    },
+    {
+      "name": "squash merge lands the root as one commit, retargets its children onto main and deletes its branch",
+      "given": {
+        "commits": {
+          "c1": {
+            "changes": {
+              "a.txt": "1"
+            }
+          },
+          "c2": {
+            "parent": "c1",
+            "changes": {
+              "b.txt": "root"
+            }
+          },
+          "c3": {
+            "parent": "c2",
+            "changes": {
+              "b.txt": "root 2"
+            }
+          },
+          "c4": {
+            "parent": "c3",
+            "changes": {
+              "c.txt": "child"
+            }
+          },
+          "c5": {
+            "parent": "c3",
+            "changes": {
+              "d.txt": "child 2"
+            }
+          }
+        },
+        "branches": {
+          "main": "c1",
+          "root": "c3",
+          "child": "c4",
+          "child2": "c5"
+        },
+        "prs": [
+          {
+            "number": 1,
+            "head": "root",
+            "base": "main",
+            "title": "Root"
+          },
+          {
+            "number": 2,
+            "head": "child",
+            "base": "root",
+            "title": "Child"
+          },
+          {
+            "number": 3,
+            "head": "child2",
+            "base": "root",
+            "title": "Child 2",
+            "state": "draft"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "op": "pr.squash_merge",
+          "args": {
+            "number": 1,
+            "expectedHead": "c3"
+          },
+          "result": {
+            "sha": "m1"
+          },
+          "events": [
+            {
+              "kind": "pr_merged",
+              "number": 1,
+              "sha": "m1"
+            },
+            {
+              "kind": "pr_retargeted",
+              "number": 2,
+              "from": "root",
+              "to": "main"
+            },
+            {
+              "kind": "pr_retargeted",
+              "number": 3,
+              "from": "root",
+              "to": "main"
+            },
+            {
+              "kind": "branch_deleted",
+              "branch": "root"
+            }
+          ]
+        },
+        {
+          "op": "pr.list_by_base",
+          "args": {
+            "base": "main"
+          },
+          "result": {
+            "numbers": [
+              2,
+              3
+            ]
+          },
+          "events": []
+        },
+        {
+          "op": "pr.mergeability",
+          "args": {
+            "number": 2
+          },
+          "result": {
+            "mergeability": "clean",
+            "conflicts": []
+          },
+          "events": []
+        },
+        {
+          "op": "pr.squash_merge",
+          "args": {
+            "number": 2
+          },
+          "result": {
+            "sha": "m2"
+          },
+          "events": [
+            {
+              "kind": "pr_merged",
+              "number": 2,
+              "sha": "m2"
+            },
+            {
+              "kind": "branch_deleted",
+              "branch": "child"
+            }
+          ]
+        },
+        {
+          "op": "pr.files",
+          "args": {
+            "number": 3
+          },
+          "result": {
+            "files": [
+              {
+                "path": "b.txt",
+                "change": "added"
+              },
+              {
+                "path": "d.txt",
+                "change": "added"
+              }
+            ]
+          },
+          "events": []
+        }
+      ],
+      "expect": {
+        "branches": {
+          "child2": "c5",
+          "main": "m2"
+        },
+        "prs": [
+          {
+            "number": 1,
+            "head": "root",
+            "base": "main",
+            "title": "Root",
+            "state": "merged",
+            "headSha": "c3",
+            "mergedSha": "m1"
+          },
+          {
+            "number": 2,
+            "head": "child",
+            "base": "main",
+            "title": "Child",
+            "state": "merged",
+            "headSha": "c4",
+            "mergedSha": "m2"
+          },
+          {
+            "number": 3,
+            "head": "child2",
+            "base": "main",
+            "title": "Child 2",
+            "state": "draft",
+            "headSha": null,
+            "mergedSha": null
+          }
+        ],
+        "commits": {
+          "m1": {
+            "parent": "c1",
+            "changes": {
+              "b.txt": "root 2"
+            }
+          },
+          "m2": {
+            "parent": "m1",
+            "changes": {
+              "c.txt": "child"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "squash merge refuses a draft, a moved head, a dirty PR and a merged one",
+      "given": {
+        "commits": {
+          "c1": {
+            "changes": {
+              "a.txt": "1"
+            }
+          },
+          "c2": {
+            "parent": "c1",
+            "changes": {
+              "a.txt": "main"
+            }
+          },
+          "c3": {
+            "parent": "c1",
+            "changes": {
+              "a.txt": "feature"
+            }
+          },
+          "c4": {
+            "parent": "c1",
+            "changes": {
+              "b.txt": "draft"
+            }
+          }
+        },
+        "branches": {
+          "main": "c2",
+          "feature": "c3",
+          "wip": "c4"
+        },
+        "prs": [
+          {
+            "number": 1,
+            "head": "feature",
+            "base": "main"
+          },
+          {
+            "number": 2,
+            "head": "wip",
+            "base": "main",
+            "state": "draft"
+          },
+          {
+            "number": 3,
+            "head": "old",
+            "base": "main",
+            "state": "merged",
+            "headSha": "c4",
+            "mergedSha": "c2"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "op": "pr.squash_merge",
+          "args": {
+            "number": 2
+          },
+          "failure": {
+            "code": "invalid",
+            "reason": "draft"
+          },
+          "events": []
+        },
+        {
+          "op": "pr.squash_merge",
+          "args": {
+            "number": 1,
+            "expectedHead": "c1"
+          },
+          "failure": {
+            "code": "conflict",
+            "reason": "head_moved"
+          },
+          "events": []
+        },
+        {
+          "op": "pr.squash_merge",
+          "args": {
+            "number": 1
+          },
+          "failure": {
+            "code": "conflict",
+            "reason": "dirty"
+          },
+          "events": []
+        },
+        {
+          "op": "pr.squash_merge",
+          "args": {
+            "number": 3
+          },
+          "failure": {
+            "code": "invalid",
+            "reason": "not_open"
+          },
+          "events": []
+        }
+      ],
+      "expect": {
+        "branches": {
+          "feature": "c3",
+          "main": "c2",
+          "wip": "c4"
+        },
+        "prs": [
+          {
+            "number": 1,
+            "head": "feature",
+            "base": "main",
+            "title": "",
+            "state": "open",
+            "headSha": null,
+            "mergedSha": null
+          },
+          {
+            "number": 2,
+            "head": "wip",
+            "base": "main",
+            "title": "",
+            "state": "draft",
+            "headSha": null,
+            "mergedSha": null
+          },
+          {
+            "number": 3,
+            "head": "old",
+            "base": "main",
+            "title": "",
+            "state": "merged",
+            "headSha": "c4",
+            "mergedSha": "c2"
+          }
+        ],
+        "commits": {}
+      }
+    },
+    {
+      "name": "a dirty child after its parent landed is rebased --onto main past the parent's head, then lands clean",
+      "given": {
+        "commits": {
+          "c1": {
+            "changes": {
+              "a.txt": "1"
+            }
+          },
+          "c2": {
+            "parent": "c1",
+            "changes": {
+              "a.txt": "2"
+            }
+          },
+          "c3": {
+            "parent": "c2",
+            "changes": {
+              "a.txt": "3",
+              "c.txt": "child"
+            }
+          }
+        },
+        "branches": {
+          "main": "c1",
+          "root": "c2",
+          "child": "c3"
+        },
+        "prs": [
+          {
+            "number": 1,
+            "head": "root",
+            "base": "main",
+            "title": "Root"
+          },
+          {
+            "number": 2,
+            "head": "child",
+            "base": "root",
+            "title": "Child"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "op": "pr.squash_merge",
+          "args": {
+            "number": 1
+          },
+          "result": {
+            "sha": "m1"
+          },
+          "events": [
+            {
+              "kind": "pr_merged",
+              "number": 1,
+              "sha": "m1"
+            },
+            {
+              "kind": "pr_retargeted",
+              "number": 2,
+              "from": "root",
+              "to": "main"
+            },
+            {
+              "kind": "branch_deleted",
+              "branch": "root"
+            }
+          ]
+        },
+        {
+          "op": "pr.mergeability",
+          "args": {
+            "number": 2
+          },
+          "result": {
+            "mergeability": "dirty",
+            "conflicts": [
+              "a.txt"
+            ]
+          },
+          "events": []
+        },
+        {
+          "op": "branch.rebase_onto",
+          "args": {
+            "branch": "child",
+            "onto": "main",
+            "upstream": "zz"
+          },
+          "failure": {
+            "code": "invalid",
+            "reason": "upstream"
+          },
+          "events": []
+        },
+        {
+          "op": "branch.rebase_onto",
+          "args": {
+            "branch": "child",
+            "onto": "main",
+            "upstream": "c2"
+          },
+          "result": {
+            "sha": "r2"
+          },
+          "events": [
+            {
+              "kind": "pushed",
+              "branch": "child",
+              "sha": "r2",
+              "forced": true
+            }
+          ]
+        },
+        {
+          "op": "pr.mergeability",
+          "args": {
+            "number": 2
+          },
+          "result": {
+            "mergeability": "clean",
+            "conflicts": []
+          },
+          "events": []
+        },
+        {
+          "op": "pr.squash_merge",
+          "args": {
+            "number": 2
+          },
+          "result": {
+            "sha": "m3"
+          },
+          "events": [
+            {
+              "kind": "pr_merged",
+              "number": 2,
+              "sha": "m3"
+            },
+            {
+              "kind": "branch_deleted",
+              "branch": "child"
+            }
+          ]
+        }
+      ],
+      "expect": {
+        "branches": {
+          "main": "m3"
+        },
+        "prs": [
+          {
+            "number": 1,
+            "head": "root",
+            "base": "main",
+            "title": "Root",
+            "state": "merged",
+            "headSha": "c2",
+            "mergedSha": "m1"
+          },
+          {
+            "number": 2,
+            "head": "child",
+            "base": "main",
+            "title": "Child",
+            "state": "merged",
+            "headSha": "r2",
+            "mergedSha": "m3"
+          }
+        ],
+        "commits": {
+          "m1": {
+            "parent": "c1",
+            "changes": {
+              "a.txt": "2"
+            }
+          },
+          "m3": {
+            "parent": "m1",
+            "changes": {
+              "a.txt": "3",
+              "c.txt": "child"
+            }
+          },
+          "r2": {
+            "parent": "m1",
+            "changes": {
+              "a.txt": "3",
+              "c.txt": "child"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "ordered multi-merge lands root first, then its children, and stops at the first refusal",
+      "given": {
+        "commits": {
+          "c1": {
+            "changes": {
+              "a.txt": "1"
+            }
+          },
+          "c2": {
+            "parent": "c1",
+            "changes": {
+              "b.txt": "root"
+            }
+          },
+          "c3": {
+            "parent": "c2",
+            "changes": {
+              "d.txt": "one"
+            }
+          },
+          "c4": {
+            "parent": "c2",
+            "changes": {
+              "d.txt": "two"
+            }
+          }
+        },
+        "branches": {
+          "main": "c1",
+          "root": "c2",
+          "one": "c3",
+          "two": "c4"
+        },
+        "prs": [
+          {
+            "number": 1,
+            "head": "root",
+            "base": "main",
+            "title": "Root"
+          },
+          {
+            "number": 2,
+            "head": "one",
+            "base": "root",
+            "title": "One"
+          },
+          {
+            "number": 3,
+            "head": "two",
+            "base": "root",
+            "title": "Two"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "op": "pr.merge_ordered",
+          "args": {
+            "numbers": [
+              1,
+              1
+            ]
+          },
+          "failure": {
+            "code": "invalid",
+            "reason": "duplicate"
+          },
+          "events": []
+        },
+        {
+          "op": "pr.merge_ordered",
+          "args": {
+            "numbers": [
+              1,
+              7
+            ]
+          },
+          "failure": {
+            "code": "not_found",
+            "reason": "pr"
+          },
+          "events": []
+        },
+        {
+          "op": "pr.merge_ordered",
+          "args": {
+            "numbers": [
+              1,
+              2,
+              3
+            ]
+          },
+          "result": {
+            "merged": [
+              {
+                "number": 1,
+                "sha": "m1"
+              },
+              {
+                "number": 2,
+                "sha": "m2"
+              }
+            ],
+            "failed": {
+              "number": 3,
+              "code": "conflict",
+              "reason": "dirty"
+            }
+          },
+          "events": [
+            {
+              "kind": "pr_merged",
+              "number": 1,
+              "sha": "m1"
+            },
+            {
+              "kind": "pr_retargeted",
+              "number": 2,
+              "from": "root",
+              "to": "main"
+            },
+            {
+              "kind": "pr_retargeted",
+              "number": 3,
+              "from": "root",
+              "to": "main"
+            },
+            {
+              "kind": "branch_deleted",
+              "branch": "root"
+            },
+            {
+              "kind": "pr_merged",
+              "number": 2,
+              "sha": "m2"
+            },
+            {
+              "kind": "branch_deleted",
+              "branch": "one"
+            }
+          ]
+        }
+      ],
+      "expect": {
+        "branches": {
+          "main": "m2",
+          "two": "c4"
+        },
+        "prs": [
+          {
+            "number": 1,
+            "head": "root",
+            "base": "main",
+            "title": "Root",
+            "state": "merged",
+            "headSha": "c2",
+            "mergedSha": "m1"
+          },
+          {
+            "number": 2,
+            "head": "one",
+            "base": "main",
+            "title": "One",
+            "state": "merged",
+            "headSha": "c3",
+            "mergedSha": "m2"
+          },
+          {
+            "number": 3,
+            "head": "two",
+            "base": "main",
+            "title": "Two",
+            "state": "open",
+            "headSha": null,
+            "mergedSha": null
+          }
+        ],
+        "commits": {
+          "m1": {
+            "parent": "c1",
+            "changes": {
+              "b.txt": "root"
+            }
+          },
+          "m2": {
+            "parent": "m1",
+            "changes": {
+              "d.txt": "one"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "close keeps the branch and leaves the children on it",
+      "given": {
+        "commits": {
+          "c1": {
+            "changes": {
+              "a.txt": "1"
+            }
+          },
+          "c2": {
+            "parent": "c1",
+            "changes": {
+              "b.txt": "x"
+            }
+          },
+          "c3": {
+            "parent": "c2",
+            "changes": {
+              "c.txt": "y"
+            }
+          }
+        },
+        "branches": {
+          "main": "c1",
+          "root": "c2",
+          "child": "c3"
+        },
+        "prs": [
+          {
+            "number": 1,
+            "head": "root",
+            "base": "main"
+          },
+          {
+            "number": 2,
+            "head": "child",
+            "base": "root"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "op": "pr.close",
+          "args": {
+            "number": 1
+          },
+          "result": {},
+          "events": [
+            {
+              "kind": "pr_closed",
+              "number": 1
+            }
+          ]
+        },
+        {
+          "op": "pr.close",
+          "args": {
+            "number": 1
+          },
+          "failure": {
+            "code": "invalid",
+            "reason": "not_open"
+          },
+          "events": []
+        },
+        {
+          "op": "pr.list_by_base",
+          "args": {
+            "base": "root"
+          },
+          "result": {
+            "numbers": [
+              2
+            ]
+          },
+          "events": []
+        },
+        {
+          "op": "pr.open",
+          "args": {
+            "head": "root",
+            "base": "main",
+            "title": "Reopened as new"
+          },
+          "result": {
+            "number": 3
+          },
+          "events": [
+            {
+              "kind": "pr_opened",
+              "number": 3
+            }
+          ]
+        }
+      ],
+      "expect": {
+        "branches": {
+          "child": "c3",
+          "main": "c1",
+          "root": "c2"
+        },
+        "prs": [
+          {
+            "number": 1,
+            "head": "root",
+            "base": "main",
+            "title": "",
+            "state": "closed",
+            "headSha": "c2",
+            "mergedSha": null
+          },
+          {
+            "number": 2,
+            "head": "child",
+            "base": "root",
+            "title": "",
+            "state": "open",
+            "headSha": null,
+            "mergedSha": null
+          },
+          {
+            "number": 3,
+            "head": "root",
+            "base": "main",
+            "title": "Reopened as new",
+            "state": "open",
+            "headSha": null,
+            "mergedSha": null
+          }
+        ],
+        "commits": {}
+      }
+    },
+    {
+      "name": "files = the head against the merge base: added, modified, removed in code-point path order",
+      "given": {
+        "commits": {
+          "c1": {
+            "changes": {
+              "keep.txt": "k",
+              "edit.txt": "1",
+              "gone.txt": "g"
+            }
+          },
+          "c2": {
+            "parent": "c1",
+            "changes": {
+              "main-only.txt": "m"
+            }
+          },
+          "c3": {
+            "parent": "c1",
+            "changes": {
+              "10": "ten",
+              "edit.txt": "2",
+              "gone.txt": null,
+              "new/file.txt": "n",
+              "b.txt": "😀",
+              "ﬁ.txt": "ligature",
+              "😀.txt": "emoji",
+              "-dash.txt": "d"
+            }
+          }
+        },
+        "branches": {
+          "main": "c2",
+          "feature": "c3"
+        },
+        "prs": [
+          {
+            "number": 1,
+            "head": "feature",
+            "base": "main"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "op": "pr.files",
+          "args": {
+            "number": 1
+          },
+          "result": {
+            "files": [
+              {
+                "path": "-dash.txt",
+                "change": "added"
+              },
+              {
+                "path": "10",
+                "change": "added"
+              },
+              {
+                "path": "b.txt",
+                "change": "added"
+              },
+              {
+                "path": "edit.txt",
+                "change": "modified"
+              },
+              {
+                "path": "gone.txt",
+                "change": "removed"
+              },
+              {
+                "path": "new/file.txt",
+                "change": "added"
+              },
+              {
+                "path": "ﬁ.txt",
+                "change": "added"
+              },
+              {
+                "path": "😀.txt",
+                "change": "added"
+              }
+            ]
+          },
+          "events": []
+        }
+      ],
+      "expect": {
+        "branches": {
+          "feature": "c3",
+          "main": "c2"
+        },
+        "prs": [
+          {
+            "number": 1,
+            "head": "feature",
+            "base": "main",
+            "title": "",
+            "state": "open",
+            "headSha": null,
+            "mergedSha": null
+          }
+        ],
+        "commits": {}
+      }
+    },
+    {
+      "name": "push fast-forwards, refuses a rewrite unless forced, and refuses unknown or duplicate commits",
+      "given": {
+        "commits": {
+          "c1": {
+            "changes": {
+              "a.txt": "1"
+            }
+          },
+          "c2": {
+            "parent": "c1",
+            "changes": {
+              "a.txt": "2"
+            }
+          }
+        },
+        "branches": {
+          "main": "c2"
+        }
+      },
+      "steps": [
+        {
+          "op": "push",
+          "args": {
+            "branch": "main",
+            "commit": {
+              "id": "c3",
+              "parent": "c2",
+              "changes": {
+                "a.txt": "3"
+              }
+            }
+          },
+          "result": {
+            "sha": "c3"
+          },
+          "events": [
+            {
+              "kind": "pushed",
+              "branch": "main",
+              "sha": "c3"
+            }
+          ]
+        },
+        {
+          "op": "push",
+          "args": {
+            "branch": "main",
+            "commit": {
+              "id": "x1",
+              "parent": "c1",
+              "changes": {
+                "b.txt": "x"
+              }
+            }
+          },
+          "failure": {
+            "code": "conflict",
+            "reason": "non_fast_forward"
+          },
+          "events": []
+        },
+        {
+          "op": "push",
+          "args": {
+            "branch": "main",
+            "sha": "c1"
+          },
+          "failure": {
+            "code": "conflict",
+            "reason": "non_fast_forward"
+          },
+          "events": []
+        },
+        {
+          "op": "push",
+          "args": {
+            "branch": "main",
+            "sha": "c1",
+            "force": true
+          },
+          "result": {
+            "sha": "c1"
+          },
+          "events": [
+            {
+              "kind": "pushed",
+              "branch": "main",
+              "sha": "c1"
+            }
+          ]
+        },
+        {
+          "op": "push",
+          "args": {
+            "branch": "topic",
+            "sha": "c3"
+          },
+          "result": {
+            "sha": "c3"
+          },
+          "events": [
+            {
+              "kind": "pushed",
+              "branch": "topic",
+              "sha": "c3"
+            }
+          ]
+        },
+        {
+          "op": "push",
+          "args": {
+            "branch": "topic",
+            "sha": "nope"
+          },
+          "failure": {
+            "code": "not_found",
+            "reason": "commit"
+          },
+          "events": []
+        },
+        {
+          "op": "push",
+          "args": {
+            "branch": "topic",
+            "commit": {
+              "id": "c3",
+              "parent": "c2",
+              "changes": {}
+            }
+          },
+          "failure": {
+            "code": "conflict",
+            "reason": "commit_exists"
+          },
+          "events": []
+        },
+        {
+          "op": "push",
+          "args": {
+            "branch": "topic",
+            "commit": {
+              "id": "c9",
+              "parent": "nope",
+              "changes": {}
+            }
+          },
+          "failure": {
+            "code": "not_found",
+            "reason": "parent"
+          },
+          "events": []
+        }
+      ],
+      "expect": {
+        "branches": {
+          "main": "c1",
+          "topic": "c3"
+        },
+        "prs": [],
+        "commits": {
+          "c3": {
+            "parent": "c2",
+            "changes": {
+              "a.txt": "3"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

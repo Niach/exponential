@@ -1,0 +1,131 @@
+{
+  "$comment": "REMOTES (#EXP-1613; src/remote.ts, ecode-core remote.rs). `parse`: `https://host[:port]/a/b[.git]` → {scheme, host (lowercased), path (no `.git`, no trailing slash)}; `exp://<team>/<repo>` → eCode's own (exactly one path segment); anything else is null: http, ssh, scp-style, credentials or a query in the URL, `.`/`..` segments. `helperKey` = the git config key that scopes the device's credential helper to EXACTLY that https remote (`credential.https://host/path.git.helper`), so a token never reaches another host; exp remotes authenticate inside `git-remote-exp` and get none. `refresh`: a token is refreshed when it expires within contract remote.refreshMarginMs (null = never expires). `redact`: every non-empty secret, longest first, becomes contract remote.redaction in any text a runner or git call logs.",
+  "parse": [
+    {
+      "url": "https://github.com/Niach/exponential.git",
+      "remote": {
+        "scheme": "https",
+        "host": "github.com",
+        "path": "Niach/exponential"
+      },
+      "helperKey": "credential.https://github.com/Niach/exponential.git.helper"
+    },
+    {
+      "url": "https://GitHub.com/Niach/exponential",
+      "remote": {
+        "scheme": "https",
+        "host": "github.com",
+        "path": "Niach/exponential"
+      },
+      "helperKey": "credential.https://github.com/Niach/exponential.git.helper"
+    },
+    {
+      "url": "https://git.example.at:8443/team/sub/repo.git/",
+      "remote": {
+        "scheme": "https",
+        "host": "git.example.at:8443",
+        "path": "team/sub/repo"
+      },
+      "helperKey": "credential.https://git.example.at:8443/team/sub/repo.git.helper"
+    },
+    {
+      "url": "exp://feedback/rerusted",
+      "remote": {
+        "scheme": "exp",
+        "host": "feedback",
+        "path": "rerusted"
+      },
+      "helperKey": null
+    },
+    {
+      "url": "exp://feedback/a/b",
+      "remote": null,
+      "helperKey": null
+    },
+    {
+      "url": "http://github.com/Niach/exponential.git",
+      "remote": null,
+      "helperKey": null
+    },
+    {
+      "url": "git@github.com:Niach/exponential.git",
+      "remote": null,
+      "helperKey": null
+    },
+    {
+      "url": "ssh://git@github.com/Niach/exponential.git",
+      "remote": null,
+      "helperKey": null
+    },
+    {
+      "url": "https://x-access-token:abc@github.com/Niach/exponential.git",
+      "remote": null,
+      "helperKey": null
+    },
+    {
+      "url": "https://github.com/Niach/../etc",
+      "remote": null,
+      "helperKey": null
+    },
+    {
+      "url": "https://github.com/Niach/exponential?x=1",
+      "remote": null,
+      "helperKey": null
+    },
+    {
+      "url": "https://github.com/",
+      "remote": null,
+      "helperKey": null
+    }
+  ],
+  "refresh": [
+    {
+      "expiresAt": null,
+      "now": 1000,
+      "refresh": false
+    },
+    {
+      "expiresAt": 10000000,
+      "now": 1000,
+      "refresh": false
+    },
+    {
+      "expiresAt": 10000000,
+      "now": 9700000,
+      "refresh": true
+    },
+    {
+      "expiresAt": 10000000,
+      "now": 9699999,
+      "refresh": false
+    },
+    {
+      "expiresAt": 10000000,
+      "now": 20000000,
+      "refresh": true
+    }
+  ],
+  "redact": [
+    {
+      "text": "push https://x-access-token:ghs_abc123@github.com/a/b.git failed",
+      "secrets": [
+        "ghs_abc123"
+      ],
+      "out": "push https://x-access-token:***@github.com/a/b.git failed"
+    },
+    {
+      "text": "token=abcdef and abc",
+      "secrets": [
+        "abc",
+        "abcdef",
+        ""
+      ],
+      "out": "token=*** and ***"
+    },
+    {
+      "text": "nothing secret here",
+      "secrets": [],
+      "out": "nothing secret here"
+    }
+  ]
+}

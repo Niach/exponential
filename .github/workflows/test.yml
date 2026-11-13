@@ -99,7 +99,7 @@ jobs:
           # packages/ is include_str!-ed as .md); markdown inside apps/ does
           # (runbook.md, the editor's test.md), so it stays.
           rfiles="$(grep -vE '^packages/.*\.md$|^packages/exponential-ui/skills/' <<<"$files" || true)"
-          desktop='^(apps/desktop/|samples/apps/photobook|packages/(domain-contract|ecore|eengine|etalk|exponential-ui|icons|design-tokens|emoji|electric-protocol)/|packages/ui/exponential-ui/|\.github/actions/cargo-fetch/|\.github/workflows/test\.yml$)'
+          desktop='^(apps/desktop/|samples/apps/photobook|packages/(domain-contract|ecode|ecore|eengine|etalk|exponential-ui|icons|design-tokens|emoji|electric-protocol)/|packages/ui/exponential-ui/|\.github/actions/cargo-fetch/|\.github/workflows/test\.yml$)'
           echo "desktop=$(grep -qE "$desktop" <<<"$rfiles" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # The catalog, the six renderers, the facade, what they bundle (tokens, icons), the desktop lockfile (gpui revs).
           eui='^(packages/exponential-ui[a-z-]*/|apps/desktop/crates/(eui-[a-z-]+|exponential-ui-ffi)/|apps/desktop/vendor/gpui-pre-wgpu/|apps/desktop/Cargo\.(lock|toml)$|packages/(design-tokens|icons)/|\.github/workflows/(test|exponential-ui|pick-runner)\.yml$)'
@@ -115,7 +115,7 @@ jobs:
           ede_shell='^(apps/desktop/crates/(ede-shell|ede-protocol|uicore-[a-z]+)/|packages/uicore/|apps/ede/ui/|apps/ede/crates/(ede-ui|ede-services|ede-theme)/|apps/desktop/crates/(eui-core|eui-gpui|eui-motion|ecore)/|apps/desktop/vendor/(gpui-component|gpui-pre-wgpu)/|\.github/workflows/test\.yml$)'
           echo "ede_shell=$(grep -qE "$ede_shell" <<<"$rfiles" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # ExpCore + every file its tests read through `#filePath`.
-          ios='^(apps/ios/(ExpCore|Tuist)/|packages/(domain-contract|ecore|etalk)/|packages/exponential-ui/fixtures/|packages/icons/icons\.json$|\.github/workflows/(test|ios-core)\.yml$)'
+          ios='^(apps/ios/(ExpCore|Tuist)/|packages/(domain-contract|ecode|ecore|etalk)/|packages/exponential-ui/fixtures/|packages/icons/icons\.json$|\.github/workflows/(test|ios-core)\.yml$)'
           echo "ios=$(grep -qE "$ios" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # #EXP-1680: the app and what it links. Not test.yml: an unrelated gate
           # edit must not take a Mac for this.
@@ -128,7 +128,7 @@ jobs:
           # generator that writes Kotlin into it, the fixtures and vectors its
           # unit tests read, the eNet / eUI facades (committed Kotlin bindings +
           # the host library the tests load through JNA).
-          android='^(apps/android/|packages/(domain-contract|ecore|etalk|exponential-ui-compose|icons|design-tokens|emoji)/|packages/exponential-ui/fixtures/|packages/ui/exponential-ui/extension\.json$|apps/desktop/crates/(exponential-net-ffi|enet-core|exponential-ui-ffi|eengine|eengine-ffi)/|apps/desktop/Cargo\.lock$|\.github/workflows/test\.yml$)'
+          android='^(apps/android/|packages/(domain-contract|ecode|ecore|etalk|exponential-ui-compose|icons|design-tokens|emoji)/|packages/exponential-ui/fixtures/|packages/ui/exponential-ui/extension\.json$|apps/desktop/crates/(exponential-net-ffi|enet-core|exponential-ui-ffi|eengine|eengine-ffi)/|apps/desktop/Cargo\.lock$|\.github/workflows/test\.yml$)'
           echo "android=$(grep -qE "$android" <<<"$rfiles" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # #VAPP-267: the Android runner, the modules it builds from (eUI
           # Compose, the Engine AAR + its facade and core) and the fixtures its
@@ -303,6 +303,7 @@ jobs:
         run: cargo check --workspace --locked
       - uses: taiki-e/install-action@nextest
       # #EXP-1504: eCore's size/dependency gate and its fixture replay (seconds);
+      # #EXP-1613: eCode's pure core (ecode-core) replaying packages/ecode's fixtures;
       # #VAPP-261: the Engine's dependency gate and its fixture replay;
       # #VAPP-263: its UniFFI facade; #VAPP-265: the desktop capabilities (fakes);
       # #VAPP-266: the desktop runner's glue (headless) and its dependency gate;
@@ -316,7 +317,7 @@ jobs:
         working-directory: apps/desktop
         run: >-
           cargo nextest run --locked --no-fail-fast
-          -p ecore -p eengine -p eengine-ffi -p eengine-desktop -p eengine-runner -p eengine-bundle
+          -p ecore -p ecode-core -p eengine -p eengine-ffi -p eengine-desktop -p eengine-runner -p eengine-bundle
           -p eagent -p coding -p ui -p engine -p elocal -p api -p exp-http -p exp-cli
           --features eengine/sqlite,eengine/hub,eengine-ffi/hub,eagent/local-model
           -E 'kind(lib) | not (package(eagent) | package(coding) | package(ui))'

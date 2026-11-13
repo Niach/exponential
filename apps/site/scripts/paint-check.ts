@@ -154,7 +154,7 @@ for (const theme of THEMES) {
 }
 
 // 7. Pictures of the key pages (CI uploads them; mint captures nothing).
-const PAGES = [`/`, `/sdk/genui/`, `/sdk/motion/`, `/sdk/apps/`, `/sdk/voice/`, `/sdk/p2p/`, `/sdk/computer-use/`, `/sdk/mcp-proxy/`, `/sdk/agents/`, `/sdk/core/`, `/docs/`, `/docs/using/sessions/`, `/docs/sdk/apps/`, `/docs/build/mcp/`, `/docs/sdk/motion/`, `/docs/sdk/motion/guides/animate/`, `/docs/sdk/motion/reference/`, `/docs/sdk/genui/`, `/docs/sdk/genui/guides/react/`, `/docs/sdk/genui/reference/components/`, `/docs/sdk/genui/reference/components/button/`, `/docs/sdk/genui/reference/themes/`, `/docs/sdk/genui/tools/playground/`, `/docs/sdk/genui/tools/theme-builder/`, `/docs/sdk/voice/`, `/pricing/`, `/download/`, `/contact/`, `/imprint/`, `/blog/`, `/blog/exponentialos/`, `/blog/session-as-interface/`]
+const PAGES = [`/`, `/sdk/genui/`, `/sdk/motion/`, `/sdk/apps/`, `/sdk/voice/`, `/sdk/p2p/`, `/sdk/computer-use/`, `/sdk/mcp-proxy/`, `/sdk/agents/`, `/sdk/core/`, `/sdk/code/`, `/docs/`, `/docs/using/sessions/`, `/docs/sdk/apps/`, `/docs/build/mcp/`, `/docs/sdk/motion/`, `/docs/sdk/motion/guides/animate/`, `/docs/sdk/motion/reference/`, `/docs/sdk/genui/`, `/docs/sdk/genui/guides/react/`, `/docs/sdk/genui/reference/components/`, `/docs/sdk/genui/reference/components/button/`, `/docs/sdk/genui/reference/themes/`, `/docs/sdk/genui/tools/playground/`, `/docs/sdk/genui/tools/theme-builder/`, `/docs/sdk/voice/`, `/pricing/`, `/download/`, `/contact/`, `/imprint/`, `/blog/`, `/blog/exponentialos/`, `/blog/session-as-interface/`]
 if (shots) {
   for (const path of PAGES) {
     for (const theme of THEMES) {
