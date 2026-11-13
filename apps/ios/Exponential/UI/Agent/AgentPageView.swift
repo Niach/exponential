@@ -105,6 +105,14 @@ struct AgentPageView: View {
                                 AgentComposerCard(model: composer) { issueId in
                                     deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId)
                                 }
+                                // #FEED-219: the team's New chat draft.
+                                .composerDraft(
+                                    composer.teamId.map { .newChat($0) },
+                                    teamId: composer.teamId,
+                                    revision: composer.draftText,
+                                    read: { composer.draftText },
+                                    apply: { composer.draftText = $0 }
+                                )
                                 .overlay(alignment: .top) {
                                     if !composer.draftEditor.showsAutocompleteMenu, slashMenuVisible(composer) {
                                         Color.clear.frame(height: 0).overlay(alignment: .bottom) {

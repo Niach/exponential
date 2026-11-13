@@ -32,6 +32,7 @@ import com.exponential.app.data.db.IssueSubscriberEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.NotificationEntity
 import com.exponential.app.data.db.IssueDraftEntity
+import com.exponential.app.data.db.ComposerDraftEntity
 import com.exponential.app.data.db.PinEntity
 import com.exponential.app.data.db.MessageEntity
 import com.exponential.app.data.db.PullRequestCheckEntity
@@ -364,12 +365,15 @@ class SyncManager @Inject constructor(
     private fun launchPipeline(accountId: String, db: ExponentialDatabase): Pipeline {
         // Threaded into every shape so each one reports phase/rows/errors to the
         // Sync Diagnostics screen.
-        fun reporter(shape: String) = ShapeReporter(
+        // [optional] = a shape an older server may not serve yet (#FEED-219
+        // composer_drafts): its failures stay in the stats and never reach
+        // the offline banner, so a 404 there leaves sync healthy.
+        fun reporter(shape: String, optional: Boolean = false) = ShapeReporter(
             onPhase = { phase -> stats.setPhase(accountId, shape, phase) },
             onApplied = { n -> stats.addRows(accountId, shape, n) },
             onError = { authFailure, message, schema ->
                 stats.incError(accountId, shape, authFailure = authFailure, message = message, schema = schema)
-                health.recordFailure(accountId, message ?: "sync poll failed")
+                if (!optional) health.recordFailure(accountId, message ?: "sync poll failed")
             },
             onSuccess = {
                 stats.clearError(accountId, shape)
@@ -422,6 +426,7 @@ class SyncManager @Inject constructor(
         val deviceWorktreeDao = db.deviceWorktreeDao()
         val pinDao = db.pinDao()
         val issueDraftDao = db.issueDraftDao()
+        val composerDraftDao = db.composerDraftDao()
         val sessionDao = db.sessionDao()
         val sessionIssueDao = db.sessionIssueDao()
         val messageDao = db.messageDao()
@@ -613,6 +618,18 @@ class SyncManager @Inject constructor(
                 onInsert = { issueDraftDao.upsert(it) },
                 onDelete = { issueDraftDao.deleteById(it.id) },
                 onRefetch = { issueDraftDao.clear() },
+            ),
+            // #FEED-219: every composer's synced draft — static per user like
+            // issue_drafts. Optional: a server without the shape 404s here
+            // alone, every other shape keeps syncing and the banner stays off.
+            launchShape(
+                shape = "composer_drafts", path = "/api/shapes/composer-drafts", tableName = "composer_drafts",
+                serializer = ComposerDraftEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("composer_drafts", optional = true),
+                onInsert = { composerDraftDao.upsert(it) },
+                onDelete = { composerDraftDao.deleteById(it.id) },
+                onRefetch = { composerDraftDao.clear() },
             ),
             // EXP-1291: the session tree (chats, agents and their
             // sub-sessions) — `shared OR user_id = me` inside the member teams.

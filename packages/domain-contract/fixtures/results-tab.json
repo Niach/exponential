@@ -510,6 +510,134 @@
           "surface": true
         }
       ]
+    },
+    {
+      "name": "a sealed show card once opened (its pictures uploaded after sealing): no flag, a surface with null data, unsized pictures whose ids came from the clear projection = a result; the same card with its pictures still unresolved is none",
+      "input": {
+        "now": 1800000000000,
+        "rootId": "r1",
+        "sessions": [
+          {
+            "id": "r1",
+            "rootId": "r1",
+            "name": "Chat"
+          }
+        ],
+        "messages": [
+          {
+            "id": "opened",
+            "sessionId": "r1",
+            "authorSessionId": "r1",
+            "createdAt": 1799996400000,
+            "card": {
+              "kind": "surface",
+              "surface": {
+                "root": {
+                  "id": "s",
+                  "component": "Stack",
+                  "children": [
+                    {
+                      "id": "h",
+                      "component": "Heading",
+                      "props": {
+                        "text": "Sample UI"
+                      }
+                    }
+                  ]
+                },
+                "data": null
+              },
+              "title": "Sample UI",
+              "description": "Two mockups.",
+              "pictures": [
+                {
+                  "label": "desktop-default",
+                  "width": null,
+                  "height": null,
+                  "caption": "Default desktop",
+                  "attachmentId": "00000000-0000-4000-8000-0000000000b1"
+                },
+                {
+                  "label": "desktop-onboarding",
+                  "width": null,
+                  "height": null,
+                  "caption": "Onboarding",
+                  "attachmentId": "00000000-0000-4000-8000-0000000000b2"
+                }
+              ]
+            }
+          },
+          {
+            "id": "unresolved",
+            "sessionId": "r1",
+            "authorSessionId": "r1",
+            "createdAt": 1799996500000,
+            "card": {
+              "kind": "surface",
+              "surface": {
+                "root": {
+                  "id": "s",
+                  "component": "Stack",
+                  "children": [
+                    {
+                      "id": "h",
+                      "component": "Heading",
+                      "props": {
+                        "text": "Sample UI"
+                      }
+                    }
+                  ]
+                },
+                "data": null
+              },
+              "title": "Sample UI",
+              "description": "Two mockups.",
+              "pictures": [
+                {
+                  "label": "desktop-default",
+                  "width": null,
+                  "height": null,
+                  "caption": "Default desktop"
+                },
+                {
+                  "label": "desktop-onboarding",
+                  "width": null,
+                  "height": null,
+                  "caption": "Onboarding"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected": [
+        {
+          "id": "opened",
+          "sessionId": "r1",
+          "sessionName": "Chat",
+          "createdAt": 1799996400000,
+          "age": "1h",
+          "title": "Sample UI",
+          "description": "Two mockups.",
+          "pictures": [
+            {
+              "label": "desktop-default",
+              "attachmentId": "00000000-0000-4000-8000-0000000000b1",
+              "width": null,
+              "height": null,
+              "caption": "Default desktop"
+            },
+            {
+              "label": "desktop-onboarding",
+              "attachmentId": "00000000-0000-4000-8000-0000000000b2",
+              "width": null,
+              "height": null,
+              "caption": "Onboarding"
+            }
+          ],
+          "surface": true
+        }
+      ]
     }
   ],
   "prPictureCases": [

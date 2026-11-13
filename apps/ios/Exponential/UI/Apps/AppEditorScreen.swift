@@ -1660,6 +1660,14 @@ private struct AppFirstMessageComposer: View {
                     )
                 }
                 .animation(motion.standard, value: open)
+                // #FEED-219: the app editor's draft before its first session.
+                .composerDraft(
+                    .app(draft.appId),
+                    teamId: draft.teamId.isEmpty ? nil : draft.teamId,
+                    revision: draft.draftText,
+                    read: { draft.draftText },
+                    apply: { draft.draftText = $0 }
+                )
                 .onChange(of: draft.sendError) { _, message in
                     guard let message else { return }
                     toaster.error(FeedbackStates.Errors.title(verb: "send", thing: "the message"), description: message)

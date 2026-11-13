@@ -1535,6 +1535,63 @@ extension SkillEntity: Codable {
     }
 }
 
+// MARK: - Composer drafts (#FEED-219)
+
+// #FEED-219 (fixtures/composer-draft.json): one composer's synced DRAFT, per
+// (user, key) — the `composer_drafts` shape, static `user_id = me` like
+// `pins`. `key` = `<kind>:<id>` (`ComposerDraft.parse`); an unparsable key is
+// ignored by every reader.
+public struct ComposerDraftEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
+    public static let databaseTableName = "composer_drafts"
+
+    public let id: String
+    public let userId: String
+    public let teamId: String
+    public let key: String
+    public let text: String
+    public let createdAt: String
+    public let updatedAt: String
+
+    public init(
+        id: String,
+        userId: String,
+        teamId: String,
+        key: String,
+        text: String,
+        createdAt: String,
+        updatedAt: String
+    ) {
+        self.id = id
+        self.userId = userId
+        self.teamId = teamId
+        self.key = key
+        self.text = text
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, key, text
+        case userId = "user_id"
+        case teamId = "team_id"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+extension ComposerDraftEntity: Codable {
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        userId = try c.decode(String.self, forKey: .userId)
+        teamId = try c.decode(String.self, forKey: .teamId)
+        key = try c.decodeIfPresent(String.self, forKey: .key) ?? ""
+        text = try c.decodeIfPresent(String.self, forKey: .text) ?? ""
+        createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt) ?? ""
+        updatedAt = try c.decodeIfPresent(String.self, forKey: .updatedAt) ?? ""
+    }
+}
+
 // MARK: - Pin
 
 // MARK: - Apps (VAPP-110)

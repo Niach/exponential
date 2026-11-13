@@ -63,6 +63,7 @@ mod comments;
 mod composer;
 mod computer_indicator;
 mod composer_dialog;
+mod composer_drafts;
 mod composer_images;
 mod commit_graph;
 mod context_layout;

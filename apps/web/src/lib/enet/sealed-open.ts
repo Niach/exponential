@@ -14,6 +14,7 @@ import {
   lockedReason,
   openBody,
   openCard,
+  resolveClearPictures,
   type LockedReason,
   type OpenedBody,
   type OpenStatus,
@@ -64,9 +65,11 @@ export function openCardCached(card: Card, keys: TreeKeys): { status: OpenStatus
     return { status: result.status, epoch: result.epoch, inner: result.status === `opened` ? result.card : null }
   })
   if (opened.status !== `opened`) return { status: opened.status, epoch: opened.epoch, card: clear }
-  // The clear `pictures` is a projection: the sealed ones stay whole.
-  const { pictures: _projected, ...over } = clear
-  return { status: `opened`, epoch: opened.epoch, card: { ...opened.inner!, ...over } }
+  // The clear `pictures` is a projection: the sealed ones stay whole, and
+  // only take the ids of pictures uploaded after sealing (`openCard`'s rule;
+  // without it a show card's pictures never resolve: no result, no thumbnails).
+  const { pictures: projected, ...over } = clear
+  return { status: `opened`, epoch: opened.epoch, card: resolveClearPictures({ ...opened.inner!, ...over }, projected) }
 }
 
 /** A message opened with its root's keys (`openMessage`'s rules, the fixture's

@@ -121,10 +121,17 @@ export function ideSidebar(input: IdeSidebarInput): IdeSidebar {
   }
 }
 
-/** The bottom tab bar: every open tab in tab order, the active one by key. */
+/** The tab bar: every open tab in tab order, the active one by key. */
 export function ideTabs(tabs: IdeTabInput[], active: string | null): IdeTabs {
   return {
     tabs: tabs.map((t) => ({ value: t.key, label: t.title, icon: t.icon })),
     activeTab: tabs.some((t) => t.key === active) ? active : null,
   }
+}
+
+export type IdeTabPlacement = { placement: "top" | "bottom"; moreSide: "top" | "bottom" }
+
+/** Where the tab bar sits: on top in the standalone IDE, at the bottom inside Exponential Desktop; +N opens away from the edge. */
+export function ideTabPlacement(ede: boolean): IdeTabPlacement {
+  return ede ? { placement: "bottom", moreSide: "top" } : { placement: "top", moreSide: "bottom" }
 }

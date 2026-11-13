@@ -259,10 +259,37 @@ pub struct IdeTabs {
     pub active_tab: Option<String>,
 }
 
-/// The bottom tab bar: every open tab in tab order, the active one by key.
+/// The tab bar: every open tab in tab order, the active one by key.
 pub fn ide_tabs(tabs: &[IdeTabInput], active: Option<&str>) -> IdeTabs {
     IdeTabs {
         tabs: tabs.iter().map(|t| IdeTab { value: t.key.clone(), label: t.title.clone(), icon: t.icon.clone() }).collect(),
         active_tab: active.filter(|a| tabs.iter().any(|t| t.key == *a)).map(str::to_string),
+    }
+}
+
+/// Which edge of the IDE's window a strip sits on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum IdeEdge {
+    Top,
+    Bottom,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IdeTabPlacement {
+    /// The tab bar's edge.
+    pub placement: IdeEdge,
+    /// The side the +N menu opens on: away from that edge.
+    pub more_side: IdeEdge,
+}
+
+/// Where the tab bar sits: on top in the standalone IDE, at the bottom
+/// inside Exponential Desktop (`ede`).
+pub fn ide_tab_placement(ede: bool) -> IdeTabPlacement {
+    if ede {
+        IdeTabPlacement { placement: IdeEdge::Bottom, more_side: IdeEdge::Top }
+    } else {
+        IdeTabPlacement { placement: IdeEdge::Top, more_side: IdeEdge::Bottom }
     }
 }

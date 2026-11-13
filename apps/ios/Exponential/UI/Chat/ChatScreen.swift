@@ -83,6 +83,9 @@ struct ChatScreen: View {
     /// #EXP-1562: the scroll a waiting card asks for (the root's session
     /// view scrolls to it and lights it).
     @State private var waitingFocus: WaitingFocus?
+    /// waiting-cards.json DEEP LINKS (plan-page.json): a held plan link
+    /// waiting for its plan's message (older pages paging in).
+    @State private var planLink: WaitingCards.DeepLink?
     /// #EXP-1785: the waiting button's Menu sheet, its pick (run once the
     /// sheet has dismissed).
     @State private var waitingOpen = false
@@ -362,6 +365,13 @@ struct ChatScreen: View {
             syncIssueModels()
         }
         .onChange(of: opened) { _, _ in syncIssueModels() }
+        // A page of older messages landed under a held plan link.
+        .onChange(of: rows?.messages.count) { _, _ in
+            guard var link = planLink else { return }
+            link.pageLanded()
+            planLink = link
+            stepPlanLink()
+        }
         // The navigator popped back to THIS page for a filed issue: land on
         // the tab it names.
         .onChange(of: chatLoaded, initial: true) { _, _ in focusPendingCard() }
@@ -483,8 +493,7 @@ struct ChatScreen: View {
         pendingPage = nil
         switch target.open {
         case .plan:
-            setTab(.chat)
-            openItem(.plan(id))
+            land(on: .plan(id))
         case .card:
             opened = nil
             setTab(.chat)
@@ -498,12 +507,56 @@ struct ChatScreen: View {
     /// #FEED-191 (needs-you.json): a Needs you row's `card`: the Chat,
     /// scrolled to the card, once the chat is there.
     private func focusPendingCard() {
-        guard let id = pendingCard, model?.view != nil else { return }
+        guard let id = pendingCard, let rows, model?.view != nil else { return }
         pendingCard = nil
         pendingPage = nil
+        // A card a session under the root asked: that session, in place
+        // (`waitingTarget`); else (the root's, or not loaded yet) the Chat.
+        if let sessionId = rows.messages.first(where: { $0.id == id })?.sessionId,
+           sessionId != rows.root.id, reaches(.session(sessionId)) {
+            waitingFocus = WaitingFocus(id: id, at: Date())
+            openSession(sessionId)
+            return
+        }
         opened = nil
         setTab(.chat)
         waitingFocus = WaitingFocus(id: id, at: Date())
+    }
+
+    /// waiting-cards.json DEEP LINKS (plan-page.json): a plan link not in
+    /// the loaded messages pages them in, ONE `windowStep` at a time, until
+    /// its plan is there (opens it) or nothing older is left (stays).
+    private func stepPlanLink() {
+        guard case let .plan(messageId?)? = pendingPage, let rows, model?.view != nil else {
+            planLink = nil
+            return
+        }
+        let now = Date().timeIntervalSince1970 * 1000
+        if planLink?.target != messageId {
+            planLink = WaitingCards.DeepLink(target: messageId, takenAtMs: now)
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(WaitingCards.Constants.deepLinkMs + 16))
+                if planLink?.target == messageId { stepPlanLink() }
+            }
+        }
+        guard var link = planLink else { return }
+        let found = reaches(.plan(messageId))
+        let action = link.step(
+            .init(found: found, distance: found ? 0 : nil, more: rows.messagesMore),
+            nowMs: now
+        )
+        planLink = link.settled ? nil : link
+        switch action {
+        case .ring:
+            pendingPage = nil
+            openItem(.plan(messageId))
+        case .missing:
+            pendingPage = nil
+        case .page:
+            Chats.MessageLimits.shared.loadEarlier(rows.root.id)
+        case .none, .reveal, .scroll:
+            break
+        }
     }
 
     /// EXP-1343 / #EXP-1732: a session under this root opens in place (the
@@ -1099,9 +1152,11 @@ struct ChatScreen: View {
     private func hold(_ request: ChatPage, item: ChatOpenedItem) {
         guard model?.view != nil, reaches(item) else {
             pendingPage = request
+            if case .plan = item { stepPlanLink() }
             return
         }
         pendingPage = nil
+        planLink = nil
         openItem(item)
     }
 
@@ -1459,6 +1514,15 @@ struct ChatComposer: View {
                     }
                 }
                 .animation(motion.standard, value: open)
+                // #FEED-219: the chat's draft (an agent's before its
+                // conversation exists).
+                .composerDraft(
+                    draft.sessionId.isEmpty ? draft.agentId.map { .agent($0) } : .session(draft.sessionId),
+                    teamId: draftTeamId,
+                    revision: draft.draftText,
+                    read: { draft.draftText },
+                    apply: { draft.draftText = $0 }
+                )
                 .onChange(of: draft.draftText) { _, _ in
                     slashHighlight = 0
                 }

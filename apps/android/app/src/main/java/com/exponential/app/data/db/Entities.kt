@@ -636,6 +636,23 @@ data class IssueDraftEntity(
     val assigneeAgentId: String? = null,
 )
 
+// #FEED-219 (fixture `composer-draft.json`): one composer's synced DRAFT,
+// keyed by its target (`comment:<issueId>`, `reply:<topCommentId>`,
+// `session:<id>`, `agent:<id>`, `app:<id>`, `newChat:<teamId>`). Static per
+// user like issue_drafts and pins; only the TEXT is kept. Every field but the
+// PK defaults: a column absent on the wire must never drop the row.
+@Entity(tableName = "composer_drafts", indices = [Index("key")])
+@Serializable
+data class ComposerDraftEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "user_id") @SerialName("user_id") @JsonNames("userId") val userId: String = "",
+    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String = "",
+    val key: String = "",
+    val text: String = "",
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
+)
+
 // EXP-1291: ONE session tree (the `sessions` shape). A chat IS a
 // root session (`kind = thread`, `parent_id` NULL); a team agent is a root of
 // `kind = agent`; children are sub-sessions (kind `thread`, `parent_id` /

@@ -40,6 +40,8 @@ struct IssueDetailBottomBar: View {
     /// composer in reply mode ("Replying to …" + `parentId` on send); the ✕,
     /// a send and a collapse clear it.
     @Binding var replyTarget: CommentReplyTarget?
+    /// #FEED-219: the issue's team — the composer's synced draft files under it.
+    let teamId: String?
     /// SLOP-4: the widget submission behind this issue (server-only, fetched
     /// by the detail view model). A reporter EMAIL on it offers the "Reply to
     /// reporter" pill; its name fills the placeholder.
@@ -57,6 +59,9 @@ struct IssueDetailBottomBar: View {
     @State private var expanded = false
     @State private var submitting = false
     @State private var composerHasText = false
+    /// #FEED-219: bumped on every edit — the synced draft reads the
+    /// markdown only then (serialising per render is the costly part).
+    @State private var draftRevision = 0
     /// SLOP-4: the "Reply to reporter" pill — OFF by default, per composer;
     /// ON sends the comment with `audience: reporter` (emailed to them).
     @State private var replyToReporter = false
@@ -155,6 +160,20 @@ struct IssueDetailBottomBar: View {
             collapse()
         }
         .onAppear { configureComposer() }
+        // #FEED-219 (composer-draft.json): the field keeps a synced draft per
+        // target — the issue's comment, or the thread a reply goes under.
+        .composerDraft(
+            replyTarget.map { .reply($0.parentId) } ?? .comment(issue.id),
+            teamId: teamId,
+            revision: draftRevision,
+            read: { composerEditor.currentMarkdown() },
+            apply: { text in
+                composerEditor.load(
+                    markdown: text, baseURL: deps.auth.instanceBaseURL(forAccountId: accountId)
+                )
+                composerEditor.onEdit?()
+            }
+        )
     }
 
     // MARK: - Collapsed bar
@@ -388,6 +407,7 @@ struct IssueDetailBottomBar: View {
 
     private func configureComposer() {
         composerEditor.onEdit = {
+            draftRevision &+= 1
             // EXP-1358: emptiness off the typed text and the block kinds —
             // serialising the whole draft to markdown per keystroke was the
             // comment composer's biggest per-key cost.
@@ -419,6 +439,7 @@ struct IssueDetailBottomBar: View {
     private func resetComposer() {
         composerEditor = IssueEditorModel()
         composerHasText = false
+        draftRevision &+= 1
         pendingAttachments = []
         attachmentError = nil
         // The pill is per composer: a sent reply puts it back OFF.
@@ -512,6 +533,11 @@ struct IssueDetailBottomBar: View {
                 text: composerEditor.currentMarkdown(),
                 attachments: pendingAttachments.map(\.id.uuidString)
             )
+        )
+        // #FEED-219: the sent target's draft keeps what the field keeps.
+        deps.composerDrafts.settle(
+            parentId.map { .reply($0) } ?? .comment(issue.id),
+            teamId: teamId, accountId: accountId, text: after.text
         )
         let keep = Set(after.attachments)
         let remaining = pendingAttachments.filter { keep.contains($0.id.uuidString) }

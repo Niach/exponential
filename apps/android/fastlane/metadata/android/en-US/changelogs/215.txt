@@ -1,0 +1,2 @@
+- A session's to-do sheet shows its title once
+- Question and plan cards stay next to the step that posted them

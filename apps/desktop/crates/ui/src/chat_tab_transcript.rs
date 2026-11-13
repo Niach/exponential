@@ -214,6 +214,10 @@ struct HostState {
     /// the run is live): its Markdown streams (genUI holds the unfinished
     /// tail back), as `render_narration` did.
     streaming: Option<String>,
+    /// Moves every time a row measured at a height other than it was laid
+    /// out at (the rows below it moved): a deep link's scroll settles only
+    /// once a layout moved nothing.
+    relayouts: u64,
     /// Painted ids [`TranscriptHost::host_leaf`] filled (tests).
     #[cfg(test)]
     painted: Vec<String>,
@@ -240,7 +244,11 @@ impl HostState {
         self.width = Some(width);
         self.heights.insert(id.to_string(), height);
         self.measured_at.insert(id.to_string(), (fingerprint, width));
-        (answered - height).abs() > 0.5
+        let moved = (answered - height).abs() > 0.5;
+        if moved {
+            self.relayouts += 1;
+        }
+        moved
     }
 
     fn fresh(&self, id: &str, fingerprint: u64, width: f32) -> bool {
@@ -284,6 +292,15 @@ pub(crate) struct ChatTranscript {
     follow: bool,
     to_end: bool,
     scroll_to: Option<(u32, &'static str)>,
+    /// waiting-cards.json DEEP LINKS: a deep link is pending, the list holds
+    /// its place (no FOLLOW to the newest row).
+    pinned: bool,
+    /// The last reveal: the relayout count it was applied at and the
+    /// layouts since.
+    revealed: Option<(u64, u32)>,
+    /// The reader scrolled the list themselves (wheel, trackpad, a drag's
+    /// auto-scroll) since the last take.
+    reader_scrolled: Rc<std::cell::Cell<bool>>,
 }
 
 impl Default for ChatTranscript {
@@ -307,6 +324,9 @@ impl ChatTranscript {
             follow: true,
             to_end: true,
             scroll_to: None,
+            pinned: false,
+            revealed: None,
+            reader_scrolled: Rc::default(),
         }
     }
 
@@ -498,6 +518,51 @@ impl ChatTranscript {
         self.scroll_to = Some((ix as u32 + 1, align));
     }
 
+    /// waiting-cards.json DEEP LINKS: a deep link holds (`true`) or releases
+    /// the list. Holding stops the FOLLOW; releasing forgets the reveal.
+    pub(crate) fn pin(&mut self, on: bool) {
+        if on && !self.pinned {
+            self.follow = false;
+            self.to_end = false;
+            self.reader_scrolled.set(false);
+        }
+        if !on {
+            self.revealed = None;
+        }
+        self.pinned = on;
+    }
+
+    /// The document laid out since the rows were last pushed (a found row
+    /// can be scrolled to).
+    pub(crate) fn laid_out(&self, cx: &App) -> bool {
+        !self.dirty && self.extent(cx).is_some()
+    }
+
+    /// A frame begins: the last frame laid the list out (call before the
+    /// deep link's step reads [`Self::reveal_settled`]). A row measured
+    /// anew since the reveal restarts its count.
+    pub(crate) fn note_layout(&mut self) {
+        if self.scroll_to.is_some() {
+            return;
+        }
+        if let Some((at, layouts)) = self.revealed {
+            let relayouts = self.state.borrow().relayouts;
+            self.revealed = Some(if at == relayouts { (at, layouts + 1) } else { (relayouts, 0) });
+        }
+    }
+
+    /// The last reveal was applied and a layout since measured no row anew
+    /// (the row stands where the scroll put it).
+    pub(crate) fn reveal_settled(&self) -> bool {
+        let relayouts = self.state.borrow().relayouts;
+        self.scroll_to.is_none() && self.revealed.is_some_and(|(at, layouts)| at == relayouts && layouts >= 1)
+    }
+
+    /// The reader scrolled the list since the last take.
+    pub(crate) fn take_reader_scrolled(&self) -> bool {
+        self.reader_scrolled.replace(false)
+    }
+
     /// `(offset, viewport, content)` of the list, as last laid out.
     fn extent(&self, cx: &App) -> Option<(f32, f32, f32)> {
         self.view.as_ref()?.read(cx).scroll_extent(SCROLL)
@@ -515,9 +580,10 @@ impl ChatTranscript {
         self.follow || self.distance_from_bottom(cx).is_none_or(|d| d <= domain::chats::CHATS.transcript.follow_slack)
     }
 
-    /// Rows arrived: a reader inside the slack is still on the tail.
+    /// Rows arrived: a reader inside the slack is still on the tail (never
+    /// while a deep link holds the list).
     pub(crate) fn arrival(&mut self, cx: &App) {
-        if !self.follow && self.near_tail(cx) {
+        if !self.pinned && !self.follow && self.near_tail(cx) {
             self.scroll_to_end();
         }
     }
@@ -539,10 +605,16 @@ impl ChatTranscript {
                 view.keep_list_place(SCROLL, false, 1, cx);
                 view.scroll_to_index(SCROLL, index, Some(align), cx);
             });
-        } else if std::mem::take(&mut self.to_end) {
+            self.revealed = Some((self.state.borrow().relayouts, 0));
+        }
+        if std::mem::take(&mut self.to_end) {
             view.update(cx, |view, cx| view.keep_list_place(SCROLL, true, 1, cx));
         }
-        self.follow = view.read(cx).list_follows(SCROLL).unwrap_or(true);
+        // DEEP LINKS: a pending link holds the reader's place, never the tail.
+        if self.pinned && view.read(cx).list_follows(SCROLL).unwrap_or(true) {
+            view.update(cx, |view, cx| view.keep_list_place(SCROLL, false, 1, cx));
+        }
+        self.follow = !self.pinned && view.read(cx).list_follows(SCROLL).unwrap_or(true);
         self.extent(cx)
     }
 
@@ -568,7 +640,24 @@ impl ChatTranscript {
         )
         .absolute()
         .size_0();
-        Some(div().relative().flex_1().min_h_0().w_full().child(uicore_gpui::inline::region(&view)).child(probe).into_any_element())
+        // DEEP LINKS: the reader's own scroll over the list (capture phase:
+        // the document's scroller consumes the wheel) drops a pending link.
+        let scrolled = self.reader_scrolled.clone();
+        let reader = gpui::canvas(
+            |bounds, _, _| bounds,
+            move |bounds, _, window, _| {
+                window.on_mouse_event(move |ev: &gpui::ScrollWheelEvent, phase, _, _| {
+                    if phase == gpui::DispatchPhase::Capture && bounds.contains(&ev.position) {
+                        scrolled.set(true);
+                    }
+                });
+            },
+        )
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full();
+        Some(div().relative().flex_1().min_h_0().w_full().child(uicore_gpui::inline::region(&view)).child(probe).child(reader).into_any_element())
     }
 
     /// Test aid: the host rows the document had the host paint.

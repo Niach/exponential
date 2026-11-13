@@ -104,27 +104,38 @@ const PANEL_MARGIN_TOP: f32 = 0.;
 /// hairline) and is a bare band on the ground now, exactly like the
 /// decoration band above — so the gap between card and band is the same
 /// tighter [`PANEL_MARGIN_TOP`] value, and the band itself ends flush at the
-/// window bottom. EXP-791: the bar only shows while a terminal tab is open
-/// (`session_bar::bar_visible`), so the shell toggles between this and the
-/// plain [`PANEL_MARGIN`] exactly like the web twin does (`app-shell.ts`
-/// `mainPanelClass(docked)`).
+/// window bottom. Only inside eDE now: the standalone IDE draws its tabs on
+/// top ([`tab_placement`]) and the card takes the plain [`PANEL_MARGIN`].
 const PANEL_MARGIN_BOTTOM_BAR: f32 = 6.;
 
+/// The tab bar's left inset in the top band (the pre-#EXP-1726 titlebar's
+/// `BAR_INSET`): the strip starts 8px right of the left column.
+const TAB_BAND_INSET: f32 = 8.;
+
+/// Where this process draws the tab bar (`ide-sidebar.json` `placement`):
+/// on top in the standalone IDE, at the bottom inside Exponential Desktop.
+pub(crate) fn tab_placement() -> uicore_model::ide::IdeTabPlacement {
+    uicore_model::ide::ide_tab_placement(crate::local_desktops::available())
+}
+
 /// EXP-1163: the content card's gaps to the body row's top and bottom — the
-/// card's own `mt`/`mb` plus, above, the decoration band (`client_chrome`)
-/// and, below, the session bar band (`bar_visible`, which clears the CSD
-/// resize band by `bottom_resize_inset`). The left column's edge handle is
-/// pinned to exactly this span.
-fn card_vertical_gaps(client_chrome: bool, bar_visible: bool, bottom_resize_inset: f32) -> (f32, f32) {
-    let top = if client_chrome {
+/// card's own `mt`/`mb` plus, above, the decoration band (`client_chrome`;
+/// the 44px tab band while the tabs are on top, `tabs_top`) and, below, the
+/// bottom tab band (eDE, which clears the CSD resize band by
+/// `bottom_resize_inset`). The left column's edge handle is pinned to
+/// exactly this span.
+fn card_vertical_gaps(client_chrome: bool, tabs_top: bool, bottom_resize_inset: f32) -> (f32, f32) {
+    let top = if tabs_top {
+        crate::app_title_bar::WORK_TABS_BAND_H + PANEL_MARGIN_TOP
+    } else if client_chrome {
         crate::app_title_bar::WINDOW_BAND_H + PANEL_MARGIN_TOP
     } else {
         PANEL_MARGIN
     };
-    let bottom = if bar_visible {
-        PANEL_MARGIN_BOTTOM_BAR + crate::app_title_bar::WORK_TABS_BAND_H + bottom_resize_inset
-    } else {
+    let bottom = if tabs_top {
         PANEL_MARGIN
+    } else {
+        PANEL_MARGIN_BOTTOM_BAR + crate::app_title_bar::WORK_TABS_BAND_H + bottom_resize_inset
     };
     (top, bottom)
 }
@@ -197,7 +208,7 @@ pub struct Shell {
     /// window's `TerminalManager`; a terminal's content renders in the
     /// center as `Screen::Terminal`.
     session_bar: Entity<crate::session_bar::SessionBar>,
-    /// #EXP-1726: the bottom tab bar: work tabs and terminals, one strip.
+    /// #EXP-1726: the tab bar: work tabs and terminals, one strip (top in the IDE, bottom in eDE).
     tab_bar: Entity<crate::shell_regions::TabBarRegion>,
     /// #EXP-1725: the left column's fixed header, the shared document's.
     header: Entity<crate::shell_regions::HeaderRegion>,
@@ -400,6 +411,8 @@ impl Shell {
             }
         })
         .detach();
+        // #FEED-219: composer drafts not written yet go out on quit.
+        cx.on_app_quit(|_: &mut Self, cx| crate::composer_drafts::on_quit(cx)).detach();
 
         // ---- EXP-263: enforce the minimum window size ourselves ------------
         // macOS enforces `window_min_size` natively; on Linux the option is
@@ -699,6 +712,17 @@ impl Shell {
         }
     }
 
+    /// The tab bar's band content, top or bottom. #LOGS-4: a cached region,
+    /// like the rail and the dock.
+    fn render_tab_band(&self) -> impl IntoElement {
+        eui_gpui::controls::glyph_scope(
+            "tabs",
+            self.band_region
+                .clone()
+                .cached(StyleRefinement::default().size_full()),
+        )
+    }
+
     /// EXP-1156: the left column's edge handle, an overlay the Shell's body
     /// row positions (the card clips, so it cannot carry the strip itself).
     /// It drives the occupant's panel — the settings nav's (the rail is
@@ -714,7 +738,7 @@ impl Shell {
     fn render_left_edge_handle(
         &self,
         client_chrome: bool,
-        bar_visible: bool,
+        tabs_top: bool,
         window: &Window,
         cx: &gpui::Context<Self>,
     ) -> Option<AnyElement> {
@@ -729,7 +753,7 @@ impl Shell {
         let card_left = left_column_width_for(occupant, extent) + PANEL_MARGIN;
         let (top, bottom) = card_vertical_gaps(
             client_chrome,
-            bar_visible,
+            tabs_top,
             f32::from(crate::window_frame::frame_bottom_resize_inset(window)),
         );
         let active = self
@@ -906,6 +930,7 @@ impl Render for Shell {
         // updates. This wins over the session switch (login OR board): the
         // whole window becomes the blocking "Update required" surface.
         let client_chrome = crate::app_title_bar::client_chrome(window);
+        let tabs_top = tab_placement().placement == uicore_model::ide::IdeEdge::Top;
         let blocked = UpdateState::global_ref(cx).is_some_and(|m| m.read(cx).is_blocked());
         if blocked {
             // EXP-1557: the in-window dialogs, above the content.
@@ -1018,16 +1043,53 @@ impl Render for Shell {
                                     window_extent(window),
                                 )))
                             .max(px(160.));
-                            let band: AnyElement = div()
-                                .w(band_w)
-                                .h(px(crate::app_title_bar::WINDOW_BAND_H))
-                                .child(crate::app_title_bar::chrome_only_title_bar())
-                                .into_any_element();
+                            // The standalone IDE's tabs ride the decoration band
+                            // (EXP-277/EXP-877, back after #EXP-1726): the 44px
+                            // band, the strip from the left column to the window
+                            // controls; its empty rest stays the drag area.
+                            let band: AnyElement = if tabs_top {
+                                div()
+                                    .w(band_w)
+                                    .h(px(crate::app_title_bar::WORK_TABS_BAND_H))
+                                    .child(
+                                        // No hairline: the card's own stroke is the
+                                        // edge (EXP-723).
+                                        crate::title_bar::TitleBar::new()
+                                            .border_b_0()
+                                            .h(px(crate::app_title_bar::WORK_TABS_BAND_H))
+                                            .pl(px(TAB_BAND_INSET))
+                                            .child(
+                                                div()
+                                                    .flex_1()
+                                                    .min_w_0()
+                                                    .h_full()
+                                                    .child(self.render_tab_band()),
+                                            ),
+                                    )
+                                    .into_any_element()
+                            } else {
+                                div()
+                                    .w(band_w)
+                                    .h(px(crate::app_title_bar::WINDOW_BAND_H))
+                                    .child(crate::app_title_bar::chrome_only_title_bar())
+                                    .into_any_element()
+                            };
                             col.child(
                                 // EXP-723: NO fill of its own — the band is
                                 // bare ground above the panel, which is what
                                 // makes the panel read as a cutout.
                                 h_flex().flex_shrink_0().child(band),
+                            )
+                        })
+                        .when(tabs_top && !client_chrome, |col| {
+                            // The Linux server-decoration fallback: no titlebar
+                            // of ours, the tab band alone above the card.
+                            col.child(
+                                div()
+                                    .flex_shrink_0()
+                                    .h(px(crate::app_title_bar::WORK_TABS_BAND_H))
+                                    .mx(px(PANEL_MARGIN))
+                                    .child(self.render_tab_band()),
                             )
                         })
                         .child(
@@ -1037,14 +1099,19 @@ impl Render for Shell {
                                 .flex_1()
                                 .min_h_0()
                                 .min_w_0()
-                                .mt(px(if client_chrome {
+                                .mt(px(if client_chrome || tabs_top {
                                     PANEL_MARGIN_TOP
                                 } else {
                                     PANEL_MARGIN
                                 }))
                                 .mx(px(PANEL_MARGIN))
-                                // The tab bar below takes the rest of the margin.
-                                .mb(px(PANEL_MARGIN_BOTTOM_BAR))
+                                // A bottom tab bar (eDE) takes the rest of the
+                                // margin.
+                                .mb(px(if tabs_top {
+                                    PANEL_MARGIN
+                                } else {
+                                    PANEL_MARGIN_BOTTOM_BAR
+                                }))
                                 .overflow_hidden()
                                 .relative()
                                 // The card FACE is a backdrop child (EXP-760)
@@ -1086,29 +1153,24 @@ impl Render for Shell {
                                     ),
                                 )),
                         )
-                        .child(
-                            // #EXP-1726: the tab bar, the content column's last
-                            // child, OUTSIDE the card on the bare ground, with the
-                            // card's horizontal margins. It clears the Linux CSD
-                            // resize band (EXP-781).
-                            div()
-                                .flex_shrink_0()
-                                .h(px(crate::app_title_bar::WORK_TABS_BAND_H))
-                                .mx(px(PANEL_MARGIN))
-                                .mb(crate::window_frame::frame_bottom_resize_inset(window))
-                                // #LOGS-4: a cached region, like the rail
-                                // and the dock.
-                                .child(eui_gpui::controls::glyph_scope(
-                                    "tabs",
-                                    self.band_region
-                                        .clone()
-                                        .cached(StyleRefinement::default().size_full()),
-                                )),
-                        )
+                        .when(!tabs_top, |col| {
+                            // #EXP-1726: inside eDE the tab bar is the content
+                            // column's last child, OUTSIDE the card on the bare
+                            // ground, with the card's horizontal margins. It
+                            // clears the Linux CSD resize band (EXP-781).
+                            col.child(
+                                div()
+                                    .flex_shrink_0()
+                                    .h(px(crate::app_title_bar::WORK_TABS_BAND_H))
+                                    .mx(px(PANEL_MARGIN))
+                                    .mb(crate::window_frame::frame_bottom_resize_inset(window))
+                                    .child(self.render_tab_band()),
+                            )
+                        })
                 })
                 // EXP-1156: the edge handle LAST, so it hit-tests above the
                 // content column it overhangs; then the live drag's capture.
-                .children(self.render_left_edge_handle(client_chrome, true, window, cx))
+                .children(self.render_left_edge_handle(client_chrome, tabs_top, window, cx))
                 .children(crate::resize_edge::drag_capture(self.resize_drag, cx))
                 .into_any_element(),
             // No rail here, so the whole window is content on the root's
@@ -1659,16 +1721,30 @@ mod tests {
         assert_eq!(crate::app_title_bar::WORK_TABS_BAND_H, 44.);
     }
 
-    /// EXP-1163: the left column's edge handle spans the CARD — under the
-    /// 34px band (10px without client chrome), down to the card's bottom:
-    /// 10px above the window edge, or above the 6px gap + 44px tab bar
-    /// (+ the CSD resize band it clears).
+    /// EXP-1163: the left column's edge handle spans the CARD. Tabs on top
+    /// (the standalone IDE): under the 44px tab band (with or without our
+    /// own chrome), 10px above the window edge. Tabs at the bottom (eDE):
+    /// under the 34px band (10px without client chrome), above the 6px gap
+    /// + 44px tab bar (+ the CSD resize band it clears).
     #[test]
     fn the_edge_handle_spans_the_card() {
-        assert_eq!(card_vertical_gaps(true, false, 0.), (34., 10.));
-        assert_eq!(card_vertical_gaps(false, false, 0.), (10., 10.));
-        assert_eq!(card_vertical_gaps(true, true, 0.), (34., 50.));
-        assert_eq!(card_vertical_gaps(true, true, 5.), (34., 55.));
+        assert_eq!(card_vertical_gaps(true, true, 0.), (44., 10.));
+        assert_eq!(card_vertical_gaps(false, true, 5.), (44., 10.));
+        assert_eq!(card_vertical_gaps(true, false, 0.), (34., 50.));
+        assert_eq!(card_vertical_gaps(false, false, 0.), (10., 50.));
+        assert_eq!(card_vertical_gaps(true, false, 5.), (34., 55.));
+    }
+
+    /// The tabs sit on top in the standalone IDE and at the bottom inside
+    /// eDE (`ide-sidebar.json` `placement`, replayed by uicore-model); the
+    /// +N menu opens away from the edge.
+    #[test]
+    fn tabs_sit_on_top_outside_ede() {
+        use uicore_model::ide::{ide_tab_placement, IdeEdge};
+        assert_eq!(ide_tab_placement(false).placement, IdeEdge::Top);
+        assert_eq!(ide_tab_placement(false).more_side, IdeEdge::Bottom);
+        assert_eq!(ide_tab_placement(true).placement, IdeEdge::Bottom);
+        assert_eq!(TAB_BAND_INSET, 8.);
     }
 
     /// EXP-851/EXP-1192: the occupant rule — Settings replaces the rail,

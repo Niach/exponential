@@ -36,6 +36,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshotFlow
@@ -45,7 +46,6 @@ import com.exponential.app.domain.ChatRowAction
 import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.session.LocalAskCardTrailing
 import com.exponential.app.ui.session.DismissedCardLine
-import com.exponential.app.ui.session.centreOnItem
 import com.exponential.app.domain.ResultsTab
 import com.exponential.app.ui.plan.LocalOpenPlanPage
 import com.exponential.app.ui.session.CardDismissButton
@@ -462,10 +462,24 @@ fun ChatConversation(
         }
         placedCount[0] = itemCount
     }
+    // waiting-cards.json DEEP LINKS: THE pending jump into a card (a waiting
+    // chip, a Needs you row): Load earlier ONE step at a time until it is
+    // painted, its layout, the centre, the ring; the list stops following.
+    val deepLink = com.exponential.app.ui.session.rememberDeepLink(
+        listState = state,
+        request = com.exponential.app.ui.session.LocalCardScrollRequest.current,
+        indexOf = { id -> painted.indexOfFirst { it.id == id }.takeIf { it >= 0 }?.let { it + header } },
+        more = { windowStart > 0 },
+        loadedMark = { painted.size },
+        page = { loadedSteps += 1 },
+        onTake = { follow = false },
+    )
+    val linkPending = rememberUpdatedState(deepLink.pending)
     LaunchedEffect(state, followSlackPx) {
         snapshotFlow { state.isScrollInProgress to state.isNearBottom(followSlackPx) }
             .distinctUntilChanged()
-            .collect { (dragging, nearBottom) -> if (dragging) follow = nearBottom }
+            // A deep link's own scrolls never re-arm follow.
+            .collect { (dragging, nearBottom) -> if (dragging && !linkPending.value) follow = nearBottom }
     }
     // The floating band's height lands after the first layout: a follower
     // re-pins to the true end when it does (the session view's rule).
@@ -480,20 +494,13 @@ fun ChatConversation(
     LaunchedEffect(painted.size, follow, jumpBottomInset) {
         if (follow && painted.isNotEmpty()) state.pinToEnd()
     }
-    // #EXP-1562 (waiting-cards.json CHIPS): a waiting chip's pick stops
-    // following and centres that card (its ring is the host's highlight).
-    val cardScroll = com.exponential.app.ui.session.LocalCardScrollRequest.current
-    LaunchedEffect(cardScroll, painted.size) {
-        val request = cardScroll ?: return@LaunchedEffect
-        val at = painted.indexOfFirst { it.id == request.id }
-        if (at < 0) return@LaunchedEffect
-        follow = false
-        state.centreOnItem(header + at)
-    }
     // EXP-760 ×4 (web `chat-markdown.tsx`): every conversation text chips
     // BARE identifiers too (`FB-8`; agents omit the `#`) when the screen
     // provides [LocalIssueRefs]. Display-only: the composer sits outside.
-    CompositionLocalProvider(LocalIssueRefBare provides true) {
+    CompositionLocalProvider(
+        LocalIssueRefBare provides true,
+        com.exponential.app.ui.session.LocalCardHighlight provides deepLink.ringing,
+    ) {
         Box(modifier = modifier) {
         LazyColumn(
             state = state,

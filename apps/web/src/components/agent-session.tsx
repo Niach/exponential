@@ -112,6 +112,7 @@ import type { SessionXref as SessionXrefModel, TreeIssue } from "@exp/domain-con
 import { codeText } from "@exponential_app/eui"
 import { Empty } from "@/components/empty"
 import { useFollowScroll } from "@/hooks/use-follow-scroll"
+import { cardElement, DeepLinkContext, measureCard, useDeepLinkDriver, useReaderScrollDrops } from "@/hooks/use-deep-link"
 import { useSessionDevice } from "@/hooks/use-session-device"
 import { SessionDeviceMoveButton } from "@/components/session-device-move"
 import { useTeamUsers } from "@/hooks/use-team-data"
@@ -306,6 +307,11 @@ function transcriptGapClass(prev: RowClass | null, cur: RowClass): string {
 // store that OUTLIVES this view. This file only renders.
 
 // ── The raw session view: structured activity feed over the relay ──────────
+
+
+/** waiting-cards.json DEEP LINKS: how long a link waits for a placeholder
+ *  to give way to the transcript before it settles on the placeholder's copy. */
+const DEEP_LINK_PLACEHOLDER_GRACE_MS = 4_000
 
 export function AgentSessionView({
   session,
@@ -1015,6 +1021,86 @@ export function AgentSessionView({
   /** The transcript STREAMS: a live publisher mid-turn (`TranscriptStreamingContext`). */
   const streaming = live && !sessionEnded && turnState === `started`
 
+  // waiting-cards.json DEEP LINKS: THE pending link into one of this
+  // session's cards (a Needs you row, a waiting chip, `?card=`). It pages
+  // the window / the messages in until the card mounts, waits for the feed
+  // and the card's real layout, scrolls it to the centre, then rings it.
+  // While it is pending the feed never follows its newest row; the reader's
+  // own scroll drops it.
+  const deepLinks = useContext(DeepLinkContext)
+  const deepLink = deepLinks?.link && deepLinks.link.sessionId === session.id ? deepLinks.link : null
+  const settleDeepLink = deepLinks?.settle
+  const holdFollow = follow.hold
+  useEffect(() => {
+    holdFollow(deepLink !== null)
+  }, [deepLink, holdFollow])
+  useEffect(() => () => holdFollow(false), [holdFollow])
+  // The feed still dialing in (its replay lands next): a card drawn under
+  // the placeholder now moves once it does, so the link waits for it.
+  const feedSettling =
+    feedPlaceholder &&
+    (phase.kind === `connecting` || phase.kind === `starting`) &&
+    !noFeedAway &&
+    !noFeedIdle &&
+    !(waitingForRoom && stalled)
+  useDeepLinkDriver(
+    deepLink ? { key: deepLink.nonce, takenAt: deepLink.takenAt } : null,
+    () => {
+      const scroller = scrollRef.current
+      const el = deepLink ? cardElement(scroller, deepLink.id) : null
+      const loaded = deepLink ? sessionMessages.some((message) => message.id === deepLink.id) : false
+      // Any placeholder may still give way to the transcript (a live room
+      // whose replay lands next shows `Waiting for activity` first): the
+      // card under it moves then, so a young link waits for the feed and
+      // only settles on the placeholder's copy past the grace.
+      const placeholderFinal = noFeedAway || noFeedIdle || (deviceOffline && phase.kind === `ended`)
+      const placeholderYoung = placeholderShown && !placeholderFinal && deepLink !== null && Date.now() - deepLink.takenAt < DEEP_LINK_PLACEHOLDER_GRACE_MS
+      const base = {
+        paging:
+          feedSettling ||
+          placeholderYoung ||
+          (anchorRef.current !== null && performance.now() - loadingSinceRef.current < 2_000),
+        more: canLoadEarlier || !loaded,
+        mark: `${feed.length}:${windowStart}:${sessionMessages.length}`,
+      }
+      if (!scroller || !el || placeholderYoung) return { ...base, found: false, laidOut: false, centred: false }
+      // Older rows just mounted: the reader's place is being restored, the
+      // card's measurement is stale until it is.
+      if (anchorRef.current !== null) return { ...base, found: true, laidOut: false, centred: false }
+      const measured = measureCard(scroller, el)
+      // A card drawn above a window that can still grow (its anchor rows
+      // are older than the window) sits pinned at the top, never centred:
+      // the window pages in first.
+      if (measured.delta < -2 && canLoadEarlier && scroller.scrollTop <= 1) {
+        return { ...base, found: false, laidOut: false, centred: false, more: true }
+      }
+      return {
+        ...base,
+        found: true,
+        laidOut: measured.laidOut && !feedSettling,
+        centred: measured.centred,
+      }
+    },
+    {
+      page: loadEarlier,
+      scroll: () => {
+        const scroller = scrollRef.current
+        const el = deepLink ? cardElement(scroller, deepLink.id) : null
+        if (scroller && el) scroller.scrollTop += measureCard(scroller, el).delta
+      },
+      ring: () => {
+        if (deepLink) settleDeepLink?.(deepLink, `ring`)
+      },
+      missing: () => {
+        if (deepLink) settleDeepLink?.(deepLink, `missing`)
+      },
+    }
+  )
+  const dropDeepLink = () => {
+    if (deepLink) settleDeepLink?.(deepLink, `dropped`)
+  }
+  useReaderScrollDrops(scrollRef, deepLink !== null, dropDeepLink)
+
   return (
     <SessionResultsRawContext.Provider value={session.guide}>
     <RunCardsContext.Provider value={runCards}>
@@ -1211,7 +1297,10 @@ export function AgentSessionView({
             visible={!atBottom && feed.length > 0}
             className="absolute left-1/2 z-30 -translate-x-1/2"
             style={{ bottom: dockHeight + JUMP_TO_BOTTOM_GAP }}
-            onClick={jumpToBottom}
+            onClick={() => {
+              dropDeepLink()
+              jumpToBottom()
+            }}
           />
           {/* N-12: THE Dock over the transcript's bottom edge: the waiting
               cards (the relay's, the tool-posted ones), THE Queue, the

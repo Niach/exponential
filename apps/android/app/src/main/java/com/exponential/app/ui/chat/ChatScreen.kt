@@ -205,6 +205,39 @@ fun ChatScreen(
     val openedPlan = remember(view?.rows, openKind, openId, messagesById) {
         if (openKind == SessionScreen.Open.Plan.wire) chatOpenedPlan(view?.rows.orEmpty(), openId, messagesById) else null
     }
+    // waiting-cards.json DEEP LINKS (plan-page.json): a plan link waits for its
+    // message before it draws it: one older page at a time while the plan is
+    // not loaded; `missing` (or past `deepLinkMs`) leaves the plan page.
+    val messagesMore by viewModel.messagesMore.collectAsStateWithLifecycle()
+    val planWaiting = openKind == SessionScreen.Open.Plan.wire && openId != null && openedPlan == null && view != null
+    val latestPlanFound by rememberUpdatedState(openedPlan != null)
+    val latestMessagesMore by rememberUpdatedState(messagesMore)
+    val latestMessageCount by rememberUpdatedState(messages.size)
+    LaunchedEffect(planWaiting, openId) {
+        val id = openId
+        if (!planWaiting || id == null) return@LaunchedEffect
+        val driver = com.exponential.app.domain.DeepLinkDriver()
+        driver.take(id, android.os.SystemClock.uptimeMillis())
+        while (driver.link != null) {
+            androidx.compose.runtime.withFrameNanos { }
+            val step = driver.step(
+                found = latestPlanFound,
+                laidOut = true,
+                centred = true,
+                more = latestMessagesMore,
+                loadedMark = latestMessageCount,
+                nowMs = android.os.SystemClock.uptimeMillis(),
+            )
+            when (step) {
+                WaitingCards.DeepLinkStep.Page -> viewModel.loadEarlierMessages()
+                WaitingCards.DeepLinkStep.Missing -> {
+                    openKind = null
+                    openId = null
+                }
+                else -> Unit
+            }
+        }
+    }
     // A plan of this tree opens in place as the pushed item (a session
     // page's row too); anything else takes the host's way in.
     val outerOpenPlan = LocalOpenPlanPage.current
@@ -551,6 +584,7 @@ fun ChatScreen(
             com.exponential.app.ui.session.LocalCardDismiss provides viewModel::dismissCard,
             // #EXP-1380: the chat's Load earlier also widens its loaded messages.
             com.exponential.app.ui.session.LocalLoadEarlierMessages provides viewModel::loadEarlierMessages,
+            com.exponential.app.ui.session.LocalChatMessagesMore provides messagesMore,
             LocalOpenPlanPage provides openPlanHere,
             LocalDetailHaze provides hazeState,
             LocalTitleCollapse provides titleCollapse,
@@ -845,19 +879,24 @@ fun ChatContent(
     /** #EXP-1662 (plan-page.json): the opened plan (`open: plan`). */
     plan: PlanPageState? = null,
 ) {
-    // needs-you.json: a way in's waiting card is centred in the root's
-    // session view (its feed honours [LocalCardScrollRequest]) and rung for `constants.highlightMs`.
+    // waiting-cards.json DEEP LINKS: a way in's card is ONE pending deep link,
+    // held here until the transcript that draws it (the root's session view,
+    // or an opened descendant's; [LocalCardScrollRequest]) reports it settled:
+    // paged in, laid out, centred and rung for `constants.highlightMs`.
     var cardScroll by remember { mutableStateOf<com.exponential.app.ui.session.CardScrollRequest?>(null) }
-    LaunchedEffect(cardScroll) {
-        if (cardScroll == null) return@LaunchedEffect
-        kotlinx.coroutines.delay(WaitingCards.Constants.HIGHLIGHT_MS)
-        cardScroll = null
+    var cardScrollNonce by remember { mutableStateOf(0) }
+    val takeDeepLink: (String) -> Unit = { id ->
+        cardScrollNonce += 1
+        cardScroll = com.exponential.app.ui.session.CardScrollRequest(id, cardScrollNonce)
+    }
+    val settleDeepLink: (com.exponential.app.ui.session.CardScrollRequest) -> Unit = { settled ->
+        if (cardScroll == settled) cardScroll = null
     }
     val latestScreen by rememberUpdatedState(screen)
     val pickWaiting: (String) -> Unit = { id ->
         if (latestScreen.open != null) onCloseItem()
         if (latestScreen.active != SessionScreen.Tab.Chat) onSelectTab(SessionScreen.Tab.Chat)
-        cardScroll = com.exponential.app.ui.session.CardScrollRequest(id, (cardScroll?.nonce ?: 0) + 1)
+        takeDeepLink(id)
     }
     // #EXP-1785 (waiting-cards.json, phones = `button`): THE TREE's waiting
     // plans + questions (ask-dock `chatPendingAsks` over the chat rows: the
@@ -878,7 +917,7 @@ fun ChatContent(
             // A descendant's question: that session opened in place, at its card.
             WaitingCards.Open.Session -> {
                 onOpen(SessionScreen.Open.Session, target.sessionId)
-                cardScroll = com.exponential.app.ui.session.CardScrollRequest(chip.id, (cardScroll?.nonce ?: 0) + 1)
+                takeDeepLink(chip.id)
             }
         }
     }
@@ -921,7 +960,7 @@ fun ChatContent(
                 // centred + rung like the Chat tab's.
                 CompositionLocalProvider(
                     com.exponential.app.ui.session.LocalCardScrollRequest provides cardScroll,
-                    com.exponential.app.ui.session.LocalCardHighlight provides cardScroll?.id,
+                    com.exponential.app.ui.session.LocalCardScrollSettled provides settleDeepLink,
                 ) {
                 PageViewModelStore {
                     val id = openId
@@ -999,7 +1038,7 @@ fun ChatContent(
         val listPadding = PaddingValues(top = topInset + 8.dp, bottom = bottomInset + 16.dp)
         CompositionLocalProvider(
             com.exponential.app.ui.session.LocalCardScrollRequest provides cardScroll,
-            com.exponential.app.ui.session.LocalCardHighlight provides cardScroll?.id,
+            com.exponential.app.ui.session.LocalCardScrollSettled provides settleDeepLink,
         ) {
             when (screen.active) {
                 // #EXP-1732: the Chat tab = the ROOT's own session view (its

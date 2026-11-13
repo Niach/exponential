@@ -2,7 +2,7 @@
 import { describe, expect, test } from "bun:test"
 
 import fixture from "../fixtures/waiting-cards.json" with { type: "json" }
-import { cardState, dismissedCard, waitingChips, waitingTarget } from "./waiting-cards"
+import { cardState, deepLinkStep, dismissedCard, waitingChips, waitingTarget } from "./waiting-cards"
 
 describe(`cardState`, () => {
   for (const entry of fixture.stateCases) {
@@ -32,6 +32,14 @@ describe(`waitingTarget`, () => {
   for (const entry of fixture.targetCases) {
     test(entry.name, () => {
       expect(waitingTarget(entry.card as never, entry.rootId)).toEqual(entry.expected as never)
+    })
+  }
+})
+
+describe(`deepLinkStep`, () => {
+  for (const entry of fixture.deepLinkCases) {
+    test(entry.name, () => {
+      expect(deepLinkStep(entry.input)).toBe(entry.expected)
     })
   }
 })

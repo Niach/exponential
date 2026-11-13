@@ -41,6 +41,41 @@ before the first `up` (`sudo cp expci.slice /etc/systemd/system/ && sudo
 systemctl daemon-reload`). `RUNNER_CPUS` in a `.env` next to `compose.yaml`
 caps EACH runner (default 6; the Mint: 12).
 
+### Desktop first (PERF-4, 2026-11-12)
+
+On the Mint, an IDE frame that needed 180 ms of CPU took 2.1 s at load average
+25–50. The Mint has 32 cores. Most of that load is background work, ranked
+so the desktop always wins:
+
+| What | Where | Priority |
+| --- | --- | --- |
+| CI runners | `expci.slice` (root level) | `CPUWeight=idle`, `IOWeight=10`, 12 + 12 cores max |
+| Agent runs + their builds | `user@1000.service/app.slice/run-*.scope` | `CPUWeight=idle` + nice 10 (the desktop and CLI set both from the release after PERF-4, `crates/eagent` `run_scope`; `run-scope-background.conf` until then) |
+| Lane builds (`scripts/lanes/lane.sh`) | inside the agent's scope | nice 19, `ionice -c 3` |
+| Cinnamon session (desktop app, browser) | `session-<id>.scope` | `CPUWeight=1000` (`session-interactive.conf`) |
+| Everything else in user@ (games, flatpaks, pipewire) | `user@1000.service` | default 100; pipewire's RT threads ignore weights |
+
+The measurements (`/proc/<pid>/task/<pid>/schedstat`, a probe burning 180 ms of
+CPU every 50 ms, 48 busy threads as the "build"):
+
+- 48 threads in an agent-like user scope at weight 100: the 180 ms frame
+  took 416 ms median, 692 ms p90, 1.4 s max. The desktop's main thread waited
+  49% of its run time, Cinnamon 20% (idle machine: 3% and 1%).
+- The same scope at `CPUWeight=idle`: 181 ms median. That protects only its
+  siblings in app.slice, though. The session scope sits one level up, where
+  user@1000.service still competes at full weight, so the desktop still
+  waited 39%. Hence `CPUWeight=1000` on the session: a weight-1000 scope next
+  to the default-weight burners kept 181 ms median, 217 ms max.
+- The runners' slice name matters. `exp-ci.slice` (the 2026-11-07 name) is
+  `exp.slice/exp-ci.slice` to systemd, so idle ranked it only against its own
+  siblings. The Mint's containers ran there until 2026-11-12 (recreated into
+  `expci.slice` by `recreate-when-idle.sh`, between jobs). Check with
+  `docker inspect -f '{{.HostConfig.CgroupParent}}' exp-runners-runner-1-1`.
+
+No CPU quota beyond `RUNNER_CPUS`: an idle-weight group gives a core back the
+moment anything else wants it. A quota would only slow CI while the desktop
+sits idle.
+
 Overflow: when the exp-linux jobs already waiting exceed two per online
 runner, `pick-runner.yml` sends the run to GitHub-hosted instead (input
 `linux-overflow`; 2026-11-03..07 the Mint queued 16 min at p90).
