@@ -1,5 +1,7 @@
 package com.exponential.app.navigation
 
+import com.exponential.app.domain.SidebarFolders
+import com.exponential.app.ui.components.rememberSidebarFolders
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -640,6 +642,8 @@ private fun AuthenticatedNav(
     val activeBlock = activeGroup?.teamBlocks?.firstOrNull { it.team.id == selectedTeamId }
     val teamBoards = activeBlock?.boards.orEmpty().sortedBy { it.sortOrder }
     val activeBoard = teamBoards.firstOrNull { it.id == composeBoardId }
+    // #EXP-1832: the member's board folders, read-only (the board menu folds them).
+    val boardFolders = rememberSidebarFolders(selectedTeamId, SidebarFolders.SECTION_BOARD, teamBoards.map { it.id })
     val onBoardView = currentRoute == MainTabs.ISSUES || currentRoute == "board/{boardId}"
     // #EXP-1645 (`shell.teamTab`): the Team tab, on the Team page itself (never
     // the settings or Devices pages pushed from it), opens the same menu over
@@ -1503,6 +1507,7 @@ private fun AuthenticatedNav(
                     // the viewer belongs to: a member may create boards
                     // (TeamPermissions.canCreate).
                     onNewBoard = if (activeBlock != null) ({ createBoardOpen = true }) else null,
+                    folders = boardFolders,
                 )
             },
             menuOpen = stripMenuOpen,

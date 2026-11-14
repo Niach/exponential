@@ -24,6 +24,7 @@ import androidx.room.TypeConverters
         DeviceEntity::class,
         DeviceWorktreeEntity::class,
         PinEntity::class,
+        SidebarLayoutEntity::class,
         IssueDraftEntity::class,
         ComposerDraftEntity::class,
         SessionEntity::class,
@@ -105,7 +106,10 @@ import androidx.room.TypeConverters
     // v127 (#FEED-237 FILES): outbox.pending_files (an entry's files not
     //      uploaded yet survive a restart), explicit [MIGRATION_126_127];
     //      nothing refetches.
-    version = 127,
+    // v128 (#EXP-1832, sidebar-folders.json): the `sidebar_layout` table (the
+    //      member's folders, read-only on phones), explicit
+    //      [MIGRATION_127_128]; the new shape starts fresh.
+    version = 128,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)
@@ -128,6 +132,7 @@ abstract class ExponentialDatabase : RoomDatabase() {
     abstract fun deviceDao(): DeviceDao
     abstract fun deviceWorktreeDao(): DeviceWorktreeDao
     abstract fun pinDao(): PinDao
+    abstract fun sidebarLayoutDao(): SidebarLayoutDao
     abstract fun issueDraftDao(): IssueDraftDao
     abstract fun composerDraftDao(): ComposerDraftDao
     abstract fun sessionDao(): SessionDao

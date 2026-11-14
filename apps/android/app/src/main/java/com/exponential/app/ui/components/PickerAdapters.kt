@@ -66,6 +66,7 @@ fun BoardEntity.toPickerBoard(): BoardPickerBoard = BoardPickerBoard(
     // picker draws the resolved NAME and never guesses from a null.
     icon = boardIconName(icon, repositoryId),
     colorHex = color,
+    teamId = teamId,
 )
 
 fun LabelEntity.toPickerLabel(): LabelPickerLabel =

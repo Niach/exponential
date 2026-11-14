@@ -61,6 +61,15 @@ import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.flatRow
+import androidx.compose.foundation.layout.heightIn
+import com.exponential.app.domain.SidebarFolders
+import com.exponential.app.domain.TreeGuide
+import com.exponential.app.domain.TreeGuides
+import com.exponential.app.ui.components.SidebarFolderGlyph
+import com.exponential.app.ui.components.SidebarFolderLayout
+import com.exponential.app.ui.components.SidebarFolderTrailing
+import com.exponential.app.ui.components.rememberSidebarFolders
+import com.exponential.app.ui.components.treeGuides
 
 // VAPP-110 (fixtures/apps.json THE LIST, web `components/apps/apps-list.tsx`):
 // the Apps TAB = the band whose `New app` pill opens THE NEW MENU (VAPP-242:
@@ -104,6 +113,9 @@ fun AppsScreen(
     val isOwner by viewModel.isOwner.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val failure by viewModel.failure.collectAsStateWithLifecycle()
+    val teamId by viewModel.teamId.collectAsStateWithLifecycle()
+    // #EXP-1832: the member's app folders, read-only (default order = by name).
+    val folders = rememberSidebarFolders(teamId, SidebarFolders.SECTION_APP, apps.orEmpty().map { it.id })
     FailedActionToast(failure, onShown = viewModel::clearFailure)
 
     var importing by rememberSaveable { mutableStateOf(false) }
@@ -125,6 +137,7 @@ fun AppsScreen(
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
             AppsListContent(
                 apps = apps,
+                folders = folders,
                 canManage = { viewModel.canManage(it, me, isOwner) },
                 onOpen = { onRunApp(it.id) },
                 onEdit = { onOpenApp(it.id) },
@@ -198,6 +211,8 @@ fun AppsListContent(
     creating: Boolean = false,
     /** VAPP-121: any member exports an app that has a version. */
     onExport: (AppListEntry) -> Unit = {},
+    /** #EXP-1832: the member's read-only folders over [apps]; null = flat. */
+    folders: SidebarFolderLayout? = null,
 ) {
     SectionHeader(Apps.Copy.TITLE) {
         AppsNewMenu(onNew = onNew, onImport = onImport, creating = creating)
@@ -205,41 +220,104 @@ fun AppsListContent(
     when {
         apps == null -> SkeletonRows(modifier = Modifier.padding(vertical = 4.dp))
         apps.isEmpty() -> EmptyState(title = Apps.Copy.EMPTY, icon = ExpIcons.navApps, size = EmptyStateSize.List)
-        else -> apps.forEach { app ->
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("${Apps.TestIds.ROW}-${app.slug}")
-                    .flatRow()
-                    .clickable { onOpen(app) }
-                    .padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
-            ) {
-                AppGlyph(app.icon, app.color)
-                Text(
-                    app.name,
-                    fontWeight = FontWeight.Medium,
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                AppVersionPill(app)
-                val manage = canManage(app)
-                if (manage || app.publishedVersion > 0) {
-                    AppRowMenu(
-                        app,
-                        canManage = manage,
+        else -> {
+            val byId = apps.associateBy { it.id }
+            val rows = folders?.rows ?: apps.map {
+                SidebarFolders.Row(SidebarFolders.KIND_ITEM, it.id, 0, group = false, name = null, open = false, count = 0)
+            }
+            val guides = remember(rows) { if (rows.any { it.depth > 0 }) TreeGuides.compute(rows.map { it.depth }) else null }
+            rows.forEachIndexed { index, row ->
+                if (row.group) {
+                    AppFolderRow(row, onToggle = { folders?.toggle?.invoke(row.id) })
+                } else {
+                    val app = byId[row.id] ?: return@forEachIndexed
+                    AppListRow(
+                        app = app,
+                        depth = row.depth,
+                        guide = guides?.get(index),
+                        canManage = canManage(app),
+                        onOpen = { onOpen(app) },
                         onEdit = { onEdit(app) },
                         onExport = { onExport(app) },
                         onDelete = { onDelete(app) },
                     )
-                } else {
-                    // The menu's slot keeps every pill on one column.
-                    Spacer(Modifier.size(32.dp))
                 }
             }
+        }
+    }
+}
+
+/** #EXP-1832: a read-only folder of the member's apps: the folder glyph, the
+ *  name, the count while folded, the chevron; a press folds it. */
+@Composable
+private fun AppFolderRow(row: SidebarFolders.Row, onToggle: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("apps-folder-${row.id}")
+            .flatRow()
+            .clickable(onClick = onToggle)
+            .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 6.dp)
+            .heightIn(min = 32.dp),
+    ) {
+        SidebarFolderGlyph(size = 16.dp)
+        Text(
+            row.name ?: SidebarFolders.DEFAULT_FOLDER_NAME,
+            fontWeight = FontWeight.Medium,
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        SidebarFolderTrailing(open = row.open, count = row.count)
+    }
+}
+
+@Composable
+private fun AppListRow(
+    app: AppListEntry,
+    depth: Int,
+    guide: TreeGuide?,
+    canManage: Boolean,
+    onOpen: () -> Unit,
+    onEdit: () -> Unit,
+    onExport: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("${Apps.TestIds.ROW}-${app.slug}")
+            .treeGuides(guide)
+            .flatRow()
+            .clickable { onOpen() }
+            .padding(start = 12.dp + (TreeGuides.INDENT_DP * depth).dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+    ) {
+        AppGlyph(app.icon, app.color)
+        Text(
+            app.name,
+            fontWeight = FontWeight.Medium,
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        AppVersionPill(app)
+        if (canManage || app.publishedVersion > 0) {
+            AppRowMenu(
+                app,
+                canManage = canManage,
+                onEdit = onEdit,
+                onExport = onExport,
+                onDelete = onDelete,
+            )
+        } else {
+            // The menu's slot keeps every pill on one column.
+            Spacer(Modifier.size(32.dp))
         }
     }
 }
