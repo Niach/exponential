@@ -97,7 +97,7 @@ impl Surface {
     }
 
     /// The rendered rows of a reorderable List (slot `list`), in order.
-    fn list_rows(&self, list: u32) -> Option<ListRows> {
+    fn reorder_list_rows(&self, list: u32) -> Option<ListRows> {
         let owner = self.layout_node(list)?;
         if owner.component != "List" || !reorderable(&owner.props) {
             return None;
@@ -150,7 +150,7 @@ impl Surface {
         match input {
             ListDragInput::Start { x, y } => {
                 let Some((list, row)) = self.list_reorder_row(index) else { return vec![] };
-                let Some(rows) = self.list_rows(list) else { return vec![] };
+                let Some(rows) = self.reorder_list_rows(list) else { return vec![] };
                 let Some(i) = rows.slots.iter().position(|&s| s == row) else { return vec![] };
                 if self.layout_node(list).is_some_and(|n| self.is_inert(n)) {
                     return vec![];
@@ -163,7 +163,7 @@ impl Surface {
             }
             ListDragInput::Move { x, y } => {
                 let Some(list) = self.live_list_drag() else { return vec![] };
-                let Some(rows) = self.list_rows(list) else {
+                let Some(rows) = self.reorder_list_rows(list) else {
                     self.local.list_drags.clear();
                     return vec![];
                 };
@@ -175,7 +175,7 @@ impl Surface {
             }
             ListDragInput::End { y, .. } => {
                 let Some(list) = self.live_list_drag() else { return vec![] };
-                let rows = self.list_rows(list);
+                let rows = self.reorder_list_rows(list);
                 let id = self.layout_node(list).map(|n| n.id.clone()).unwrap_or_default();
                 let Some(state) = self.local.list_drags.remove(&id) else { return vec![] };
                 let Some(rows) = rows else { return vec![] };
@@ -203,7 +203,7 @@ impl Surface {
         let mut out = vec![];
         for (id, state) in &self.local.list_drags {
             let Some(list) = self.index_of(id) else { continue };
-            let Some(rows) = self.list_rows(list) else { continue };
+            let Some(rows) = self.reorder_list_rows(list) else { continue };
             let Some(i) = rows.rows.iter().position(|r| r.key == state.key) else { continue };
             let row = rows.slots[i];
             let frame = self.last_frame(row).unwrap_or_default();
