@@ -57,6 +57,11 @@ final class AgentSettingsTests: XCTestCase {
         XCTAssertEqual(copy["triggers"] as? String, AgentSettings.Copy.triggers)
         XCTAssertEqual(copy["runsOn"] as? String, AgentSettings.Copy.runsOn)
         XCTAssertEqual(copy["checkIn"] as? String, AgentSettings.Copy.checkIn)
+        XCTAssertEqual(copy["record"] as? String, AgentSettings.Copy.record)
+        XCTAssertEqual(copy["recordOps"] as? [String: String], AgentSettings.Copy.recordOps)
+        XCTAssertEqual(copy["webhook"] as? String, AgentSettings.Copy.webhook)
+        XCTAssertEqual(copy["runs"] as? String, AgentSettings.Copy.runs)
+        XCTAssertEqual(copy["handsOff"] as? String, AgentSettings.Copy.handsOff)
         let testIds = try XCTUnwrap(fixture["testIds"] as? [String: String])
         XCTAssertEqual(testIds["list"], AgentSettings.TestIds.list)
         XCTAssertEqual(testIds["page"], AgentSettings.TestIds.page)
@@ -92,6 +97,19 @@ final class AgentSettingsTests: XCTestCase {
                 AgentSettings.triggerSummary(when, enabled: enabled),
                 testCase["expected"] as? String
             )
+        }
+    }
+
+    // #EXP-1850: a `run` trigger's second line.
+    func testTriggerDetailReplaysEveryCase() throws {
+        let cases = try XCTUnwrap(try fixture()["detailCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            var object = try XCTUnwrap(testCase["trigger"] as? [String: Any])
+            object["id"] = "t"
+            let raw = try XCTUnwrap(String(data: JSONSerialization.data(withJSONObject: [object]), encoding: .utf8))
+            let trigger = try XCTUnwrap(AgentTrigger.parseList(raw).first, raw)
+            XCTAssertEqual(AgentSettings.triggerDetail(trigger), testCase["expected"] as? String, raw)
         }
     }
 

@@ -11,7 +11,7 @@ import Foundation
 // `AgentTriggerInput` is one element of that array.
 //
 // #EXP-1846: a whole-array write must never ERASE what this build can't
-// read (a newer kind, e.g. the app agents' `record`/`webhook` of #EXP-1848):
+// read (a kind newer than this build; #EXP-1850 reads `record`/`webhook`):
 // `unreadableList` keeps those objects raw, every write appends them back
 // unchanged (`AgentTriggerInput(unreadable:)`), and a readable trigger keeps
 // its unknown extra keys (`extra`, e.g. `prompt`/`run`) under the edited ones.
@@ -47,10 +47,17 @@ public struct AgentTrigger: Identifiable, Sendable, Equatable {
     }
 
     /// The keys an `AgentTriggerInput` writes itself: never kept in `extra`.
-    static let modelledKeys: Set<String> = ["id", "enabled", "preset", "kind", "cron", "tz", "name"]
+    static let modelledKeys: Set<String> = ["id", "enabled", "preset", "kind", "cron", "tz", "name", "record", "op"]
 
     /// The Triggers row's text (`AgentSettings.triggerSummary`).
     public var summary: String { AgentSettings.triggerSummary(self) }
+
+    /// #EXP-1850: the row's second line (`AgentSettings.triggerDetail`).
+    public var detail: String? { AgentSettings.triggerDetail(self) }
+
+    /// #EXP-1850: the editor edits schedules and events; a record or webhook
+    /// row has none (⋯ = Delete only).
+    public var hasEditor: Bool { when.hasEditor }
 
     // MARK: - Tolerant parse
 
@@ -243,9 +250,17 @@ public extension Array where Element == AgentTrigger {
 }
 
 public extension TriggerWhen {
-    /// `kind: "schedule"` (else an event trigger).
+    /// `kind: "schedule"`.
     var isSchedule: Bool {
         if case .schedule = self { return true }
         return false
+    }
+
+    /// #EXP-1850: a schedule or an event (the editor's two kinds).
+    var hasEditor: Bool {
+        switch self {
+        case .schedule, .event: true
+        case .record, .webhook: false
+        }
     }
 }

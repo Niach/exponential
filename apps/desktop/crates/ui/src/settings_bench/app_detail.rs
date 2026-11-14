@@ -176,9 +176,7 @@ fn owner() -> AppShot {
         tool_busy: None,
         mcp_busy: None,
         upstream_busy: None,
-        hook_busy: None,
         share_busy: None,
-        hook_secrets: vec![("intake".into(), "whsec_9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d".into())],
     }
 }
 
@@ -191,14 +189,14 @@ fn settings_app_detail_owner() {
 #[test]
 #[ignore]
 fn settings_app_detail_member() {
-    let shot = AppShot { manage: false, grant: false, records_max: None, mcp: Some(mcp(false)), hook_secrets: Vec::new(), ..owner() };
+    let shot = AppShot { manage: false, grant: false, records_max: None, mcp: Some(mcp(false)), ..owner() };
     shoot("app-detail-member", shot, Pointer::Rest);
 }
 
 #[test]
 #[ignore]
 fn settings_app_detail_empty() {
-    let shot = AppShot { row: row(false, 0), records: 0, mcp: Some(api::app_access::AppToolsOut::default()), hook_secrets: Vec::new(), ..owner() };
+    let shot = AppShot { row: row(false, 0), records: 0, mcp: Some(api::app_access::AppToolsOut::default()), ..owner() };
     shoot("app-detail-empty", shot, Pointer::Rest);
 }
 
@@ -209,7 +207,6 @@ fn settings_app_detail_busy() {
         tool_busy: Some("exponential_issues_update_status".into()),
         mcp_busy: Some("s-sf".into()),
         upstream_busy: Some("crm".into()),
-        hook_busy: Some("billing".into()),
         share_busy: Some("contact-form".into()),
         ..owner()
     };
