@@ -16,11 +16,16 @@ public struct AgentTrigger: Identifiable, Sendable, Equatable {
     /// A paused trigger keeps its config.
     public let enabled: Bool
     public let when: TriggerWhen
+    /// #EXP-1846: the Check in preset this schedule is (an
+    /// `AgentSettings.assistantSchedules` id); nil = a listed trigger.
+    /// Every whole-array write carries it back, or the tag is lost.
+    public let preset: String?
 
-    public init(id: String, enabled: Bool = true, when: TriggerWhen) {
+    public init(id: String, enabled: Bool = true, when: TriggerWhen, preset: String? = nil) {
         self.id = id
         self.enabled = enabled
         self.when = when
+        self.preset = preset
     }
 
     /// The Triggers row's text (`AgentSettings.triggerSummary`).
@@ -55,7 +60,8 @@ public struct AgentTrigger: Identifiable, Sendable, Equatable {
            CFGetTypeID(number) == CFBooleanGetTypeID() {
             enabled = number.boolValue
         }
-        return AgentTrigger(id: id, enabled: enabled, when: when)
+        let preset = (object["preset"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        return AgentTrigger(id: id, enabled: enabled, when: when, preset: preset)
     }
 }
 
@@ -70,28 +76,32 @@ public struct AgentTriggerInput: Sendable, Equatable {
     public var id: String?
     public var enabled: Bool
     public var when: TriggerWhen
+    /// #EXP-1846: the Check in tag, sent back on every write.
+    public var preset: String?
 
-    public init(id: String? = nil, enabled: Bool = true, when: TriggerWhen) {
+    public init(id: String? = nil, enabled: Bool = true, when: TriggerWhen, preset: String? = nil) {
         self.id = id
         self.enabled = enabled
         self.when = when
+        self.preset = preset
     }
 
-    /// A stored trigger as it is sent back unchanged.
+    /// A stored trigger as it is sent back unchanged (its preset included).
     public init(_ trigger: AgentTrigger) {
-        self.init(id: trigger.id, enabled: trigger.enabled, when: trigger.when)
+        self.init(id: trigger.id, enabled: trigger.enabled, when: trigger.when, preset: trigger.preset)
     }
 }
 
 extension AgentTriggerInput: Encodable {
     private enum Keys: String, CodingKey {
-        case id, enabled
+        case id, enabled, preset
     }
 
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: Keys.self)
         try c.encodeIfPresent(id, forKey: .id)
         try c.encode(enabled, forKey: .enabled)
+        try c.encodeIfPresent(preset, forKey: .preset)
         // The when-part's keys land in the SAME object.
         try when.encode(to: encoder)
     }
@@ -112,6 +122,8 @@ public extension Array where Element == AgentTrigger {
             guard trigger.id == id else { return AgentTriggerInput(trigger) }
             var replaced = input
             replaced.id = id
+            // The editor never names a preset: the stored tag stays.
+            if replaced.preset == nil { replaced.preset = trigger.preset }
             return replaced
         }
     }
