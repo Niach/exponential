@@ -1,8 +1,10 @@
 //! Settings → New agent (EXP-1319): the agent page in CREATE mode, the web's
-//! `settings/agents/new` — every field of [`super::agent_detail`] (identity,
-//! Device, Account, Schedule, Instructions), all LOCAL until "Create agent"
-//! sends `agents.create`; then the page becomes the new agent's
-//! (`SettingsSection::Agent`). Owner-only.
+//! `settings/agents/new` — #EXP-1846 `page`'s order: identity; Runs on
+//! (Device, Account, Model); Triggers (THE list, [`super::agent_triggers`],
+//! over the local draft: Check in first); Instructions; Create. All LOCAL
+//! until "Create agent" sends `agents.create`; then the page becomes the new
+//! agent's (`SettingsSection::Agent`), where Skills and MCP servers are
+//! picked. Owner-only.
 //!
 //! Validation is the fixture's `validateAgentForm`, shown inline; a failed
 //! create is the "Couldn't create the agent" toast (FEED-79).
@@ -24,13 +26,13 @@ use eui_gpui::host::HostPlugin;
 use eui_gpui::view::SurfaceView;
 
 use super::agent_detail::{account_options, agent_devices, current_account, seed_device, AgentDevice};
-use super::agent_doc::{account_rows, agent_mark_icon, device_row, divided, field_error, identity, instructions_caption, instructions_field, schedule_rows, Chrome};
+use super::agent_doc::{account_rows, agent_mark_icon, device_row, divided, field_error, identity, instructions_caption, instructions_field, select_row, Chrome};
+use super::agent_triggers::{self, AgentTriggers, ListTarget};
 use super::doc::{path, Ink, SM};
 use super::SettingsSection;
 use crate::navigation::{navigate, Screen};
 use crate::queries;
-use crate::trigger_dialog::{self, DraftTriggers};
-use crate::trigger_editor;
+use crate::trigger_dialog::DraftTriggers;
 
 /// The page's create button label (web `agents-section.tsx`).
 const CREATE_AGENT: &str = "Create agent";
@@ -52,7 +54,12 @@ pub struct NewAgentPane {
     /// The picked login (`agent`, profile id); `None` = the machine's last
     /// used one, the Account row's own default.
     account: Option<(String, String)>,
-    /// The Schedule's draft — shared with the trigger dialog's save.
+    /// #EXP-1846: the pinned model; `None` = the device default for the
+    /// login's CLI (the Model row's own default).
+    model: Option<String>,
+    /// THE trigger list's state (the draft never writes, so never busy).
+    trigger_list: AgentTriggers,
+    /// The Triggers' draft — shared with the trigger dialog's save.
     triggers: Rc<RefCell<Vec<Value>>>,
     /// A create in flight.
     pending: bool,
@@ -84,7 +91,7 @@ impl NewAgentPane {
         let binding = cx.new(|_| {
             let mut binding = Binding::new(PATH, Value::Null, |state: &Value, _| state.clone());
             binding.set_toasts(Rc::new(super::doc::IdeToasts));
-            for name in ["icon", "color", "device", "account", "scheduleNew", "triggerAdd", "triggerOpen", "triggerToggle", "create"] {
+            for name in ["icon", "color", "device", "account", "model", "create"].into_iter().chain(agent_triggers::ACTIONS) {
                 let pane = pane.clone();
                 binding.on_action(name, move |_, event, cx| {
                     let context = event.context.clone();
@@ -112,6 +119,8 @@ impl NewAgentPane {
             color: defaults.color.clone(),
             device_id: None,
             account: None,
+            model: None,
+            trigger_list: AgentTriggers::default(),
             triggers: Rc::default(),
             pending: false,
             errors: Vec::new(),
@@ -231,10 +240,22 @@ impl NewAgentPane {
         }
     }
 
+    /// The CLI the Model row's choices are for: the picked login's, else claude.
+    fn cli(&self, devices: &[AgentDevice]) -> String {
+        let (_, current) = self.picked_account(devices);
+        current.map(|login| login.agent.id().to_string()).unwrap_or_else(|| "claude".to_string())
+    }
+
     /// A document action.
     fn action(&mut self, name: &str, context: &Value, payload: &Value, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        // #EXP-1846: THE trigger list's actions, over the draft.
+        if agent_triggers::ACTIONS.contains(&name) {
+            let target = ListTarget::Draft(self.draft(cx.entity().downgrade()));
+            agent_triggers::handle(self, |pane| &mut pane.trigger_list, name, target, true, context, payload, window, cx);
+            cx.notify();
+            return;
+        }
         let value = payload.get("value").and_then(Value::as_str).unwrap_or_default().to_string();
-        let key = context.get("key").and_then(Value::as_str).unwrap_or_default().to_string();
         match name {
             "icon" if !value.is_empty() => self.icon = value,
             "color" if !value.is_empty() => self.color = value,
@@ -248,25 +269,18 @@ impl NewAgentPane {
                 self.clear_error("device", cx);
             }
             "account" => {
-                let (options, _) = self.picked_account(&agent_devices(&self.team_id, cx));
+                let devices = agent_devices(&self.team_id, cx);
+                let before = self.cli(&devices);
+                let (options, _) = self.picked_account(&devices);
                 if let Some(option) = options.iter().find(|option| option.account_option_key() == value) {
                     self.account = Some((option.agent.id().to_string(), option.id.clone()));
                 }
-            }
-            "scheduleNew" | "triggerAdd" => {
-                let draft = self.draft(cx.entity().downgrade());
-                trigger_dialog::open_new_draft(window, cx, draft);
-            }
-            "triggerOpen" if !key.is_empty() => {
-                let draft = self.draft(cx.entity().downgrade());
-                trigger_dialog::open_edit_draft(window, cx, draft, key);
-            }
-            "triggerToggle" if !key.is_empty() => {
-                if let Some(on) = payload.get("checked").and_then(Value::as_bool) {
-                    let next = trigger_editor::triggers_with_enabled(&self.triggers.borrow(), &key, on);
-                    *self.triggers.borrow_mut() = next;
+                // A pinned model is its CLI's: another CLI's login drops it.
+                if self.cli(&devices) != before {
+                    self.model = None;
                 }
             }
+            "model" if !value.is_empty() => self.model = Some(value),
             "create" => self.submit(window, cx),
             _ => {}
         }
@@ -303,7 +317,7 @@ impl NewAgentPane {
             device_id: form.device_id.unwrap_or_default(),
             cli: login.as_ref().map(|login| login.agent.id().to_string()),
             account: login.as_ref().and_then(coding::AccountOption::wire_account),
-            model: None,
+            model: self.model.clone(),
         };
         cx.spawn_in(window, async move |this, window| {
             let result = window.background_executor().spawn(async move { api::agents::create(&trpc, &input) }).await;
@@ -363,31 +377,23 @@ impl NewAgentPane {
                 row
             })
             .collect();
-        let triggers = self.triggers.borrow();
-        let trigger_rows: Vec<Value> = triggers
-            .iter()
-            .filter_map(|trigger| {
-                let id = trigger_editor::trigger_id(trigger)?.to_string();
-                Some(json!({"key": id, "summary": domain::agent_settings::trigger_summary(trigger), "enabled": trigger_editor::trigger_enabled(trigger)}))
-            })
-            .collect();
-        let at_max = triggers.len() >= domain::contract::AGENT_TRIGGER_MAX_PER_AGENT;
-        // The identity block's one message: the name's, else the device's.
-        let identity_error = self.error("identity").or_else(|| self.error("device"));
+        // #EXP-1846: the Model row (unpinned = the device default for the
+        // login's CLI).
+        let cli = self.cli(&devices);
+        let models: &[(&str, &str)] = if cli == "codex" { &crate::coding_selects::CODEX_MODEL_CHOICES } else { &crate::coding_selects::MODEL_CHOICES };
+        let identity_error = self.error("identity");
+        let device_error = self.error("device");
         let instructions_error = self.error("instructions");
         json!({
-            // The draft's trigger rows carry no ⋯ (the agent page's owner menu).
-            "owner": false,
             "icon": self.icon,
             "color": self.color,
             "fields": {"name": self.name, "instructions": self.instructions},
             "device": {"value": self.device_id.clone().unwrap_or_default(), "options": device_options},
             "account": {"has": current.is_some(), "none": current.is_none(), "value": current.as_ref().map(|option| option.account_option_key()).unwrap_or_default(), "options": logins},
-            "noTriggers": trigger_rows.is_empty(),
-            "hasTriggers": !trigger_rows.is_empty(),
-            "canAdd": !trigger_rows.is_empty() && !at_max,
-            "triggers": trigger_rows,
-            "busy": false,
+            "model": {"value": domain::agent_settings::assistant_model_value(self.model.as_deref(), Some(&cli)), "options": models.iter().map(|(label, value)| json!({"label": label, "value": value})).collect::<Vec<_>>()},
+            "triggerList": agent_triggers::project_list(&self.triggers.borrow(), true, false),
+            "deviceError": device_error.clone().unwrap_or_default(),
+            "hasDeviceError": device_error.is_some(),
             "identityError": identity_error.clone().unwrap_or_default(),
             "hasIdentityError": identity_error.is_some(),
             "instructionsError": instructions_error.clone().unwrap_or_default(),
@@ -448,20 +454,21 @@ impl HostPlugin for PanePlugin {
     }
 }
 
-/// The page's tree (`gap_4`): the identity group (identity + Device) and its
-/// message; Account + Schedule; the Instructions card and its message; the
+/// The page's tree (`gap_4`, #EXP-1846 `page`): the identity group and its
+/// message; Runs on (Device, Account, Model) and the device's message; THE
+/// Triggers list over the draft; the Instructions card and its message; the
 /// right-aligned "Create agent".
 fn document(ink: &Ink, chrome: &Chrome) -> Value {
-    let mut first = vec![identity(ink)];
-    first.extend(divided(ink, device_row()));
     let identity_block = json!({"id": "identity_block", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.5), "width": "100%"},
-        "children": [ink.group("agent_group", first), field_error(ink, chrome, "identity_error", path("/pane/identityError"), path("/pane/hasIdentityError"))]});
+        "children": [ink.group("agent_group", vec![identity(ink)]), field_error(ink, chrome, "identity_error", path("/pane/identityError"), path("/pane/hasIdentityError"))]});
     let [account_pick, account_none] = account_rows(ink);
-    let [schedule_none, schedule_head, trigger_list] = schedule_rows(ink, chrome);
-    let mut second = vec![account_pick, account_none];
-    second.extend(divided(ink, schedule_none));
-    second.extend(divided(ink, schedule_head));
-    second.push(trigger_list);
+    let mut runs_on = vec![device_row()];
+    runs_on.extend(divided(ink, account_pick));
+    runs_on.extend(divided(ink, account_none));
+    runs_on.extend(divided(ink, select_row("model", crate::chat_screen::MENU_MODEL, "model", "model", json!({}))));
+    let runs_on_block = json!({"id": "runs_on_block", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%"},
+        "children": [ink.band("runs_on_band", &AGENT_SETTINGS.copy.runs_on, None), ink.group("runs_on_group", runs_on),
+            field_error(ink, chrome, "device_error", path("/pane/deviceError"), path("/pane/hasDeviceError"))]});
     let instructions = json!({"id": "instructions_card", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.25), "width": "100%"},
         "children": [ink.group("instructions_group", vec![instructions_field(json!(true))]), instructions_caption(ink),
             field_error(ink, chrome, "instructions_error", path("/pane/instructionsError"), path("/pane/hasInstructionsError"))]});
@@ -490,7 +497,7 @@ fn document(ink: &Ink, chrome: &Chrome) -> Value {
     };
     let create = json!({"id": "create_row", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "justifyContent": "flex-end", "width": "100%"}, "children": [draw(false), draw(true)]});
     json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(1.), "width": "100%", "minWidth": 0},
-        "children": [identity_block, ink.group("runner_group", second), instructions, create]})
+        "children": [identity_block, runs_on_block, agent_triggers::section(ink, chrome), instructions, create]})
 }
 
 /// One bench state of the page.

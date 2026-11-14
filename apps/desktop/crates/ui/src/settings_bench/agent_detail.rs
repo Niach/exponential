@@ -40,6 +40,8 @@ pub(super) fn agent(id: &str, role: &str, device: &str, triggers: serde_json::Va
 
 fn triggers() -> serde_json::Value {
     json!([
+        // #EXP-1846: the Check in (the preset trigger) leads, outside the list.
+        {"id": "t0", "kind": "schedule", "cron": "0 * * * *", "preset": "1h", "tz": "Europe/Vienna", "enabled": true},
         {"id": "t1", "kind": "schedule", "cron": "0 9 * * 1-5", "tz": "Europe/Vienna", "enabled": true},
         {"id": "t2", "kind": "schedule", "cron": "0 17 * * 5", "tz": "Europe/Vienna", "enabled": false},
     ])
@@ -191,4 +193,28 @@ fn settings_agent_mcp_member() {
 #[ignore]
 fn settings_agent_assistant() {
     page("agent-assistant", agent("a0", "assistant", "mint", json!([])), true, Some(Ok(String::new())));
+}
+
+/// #EXP-1846: the Assistant's page with a Check in and its Voice loaded.
+#[test]
+#[ignore]
+fn settings_agent_assistant_voice() {
+    let check_in = json!([{"id": "t-ci", "kind": "schedule", "cron": "0 * * * *", "preset": "1h", "enabled": true, "tz": "Europe/Vienna"}]);
+    let agent = agent("a0", "assistant", "mint", check_in);
+    let id = agent.id.clone();
+    shoot_pane_acted("agent-assistant-voice", move |window, cx| {
+        seed(agent, cx);
+        let mut pane = AgentDetailPane::for_shots(&id, window, cx);
+        pane.show(true, Some(Ok(String::new())), window, cx);
+        let settings = etalk::voice::VoiceSettings {
+            voice_device_id: Some("mint".into()),
+            agent_id: Some("a0".into()),
+            ptt_shortcut: "ctrl+shift+space".into(),
+            language: "de".into(),
+            wake_word: true,
+            ..Default::default()
+        };
+        pane.show_voice(crate::settings::voice_prefs::VoiceShot { settings, capture: None }, window, cx);
+        pane
+    }, |_, _| {}, Some(std::time::Duration::from_millis(1200)), &[], |_, _, _| {});
 }

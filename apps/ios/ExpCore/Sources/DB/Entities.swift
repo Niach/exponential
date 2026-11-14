@@ -3465,7 +3465,7 @@ public func getCommentBodyText(_ body: String?) -> String {
 /// display-only issue_events payload — re-encoding this preserves
 /// bools/numbers/null exactly, so a wire `"required": true` survives the
 /// store-as-string round trip as a real boolean.
-public indirect enum JSONWireValue: Codable, Sendable {
+public indirect enum JSONWireValue: Codable, Sendable, Equatable {
     case string(String)
     case number(Double)
     case bool(Bool)

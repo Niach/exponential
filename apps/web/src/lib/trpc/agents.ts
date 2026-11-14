@@ -38,7 +38,7 @@ import {
   resolveSessionDeviceInTx,
 } from "@/lib/sessions/send"
 import { AGENT_MCP_ROW, ASSISTANT_COPY, COORDINATOR_COPY, LEAD_COPY } from "@exp/domain-contract/agent-settings"
-import { assertAssistantTriggers, ensureAssistant, syncVoiceMirror } from "@/lib/agents/assistant"
+import { checkedAgentTriggers, ensureAssistant, syncVoiceMirror } from "@/lib/agents/assistant"
 
 // NEW-2: team AGENTS = definition rows (Settings → Agents; owner writes,
 // members read the synced `agents` shape). An agent runs as conversation
@@ -296,7 +296,7 @@ export const agentsRouter = router({
             instructions: input.instructions,
             // #EXP-1383 (chats.json `agentHint`): the text's birth.
             instructionsUpdatedAt: new Date(),
-            triggers: withTriggerIds(input.triggers),
+            triggers: withTriggerIds(checkedAgentTriggers(`agent`, input.triggers)),
             deviceId: input.deviceId,
             cli: input.cli ?? null,
             account: input.account ?? null,
@@ -335,7 +335,7 @@ export const agentsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id
       const agent = await loadOwnedAgent(userId, input.id)
-      if (agent.role === `assistant` && input.triggers !== undefined) assertAssistantTriggers(input.triggers)
+      const triggers = input.triggers === undefined ? undefined : checkedAgentTriggers(agent.role, input.triggers)
       // #EXP-1439: the Assistant's prompt is built in. An old client resends
       // the stored text unchanged on every save; only an EDIT is refused.
       if (agent.role === `assistant` && input.instructions !== undefined && input.instructions !== agent.instructions) {
@@ -394,7 +394,7 @@ export const agentsRouter = router({
             ...(input.instructions !== undefined && input.instructions !== agent.instructions
               ? { instructions: input.instructions, instructionsUpdatedAt: now }
               : {}),
-            ...(input.triggers !== undefined ? { triggers: withTriggerIds(input.triggers) } : {}),
+            ...(triggers !== undefined ? { triggers: withTriggerIds(triggers) } : {}),
             ...(input.cli !== undefined ? { cli: input.cli } : {}),
             ...accountWrite,
             ...(model !== undefined ? { model } : {}),

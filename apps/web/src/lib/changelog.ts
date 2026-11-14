@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-14-one-agent-settings-page`,
+    date: `2026-11-14`,
+    title: `One settings page for every agent`,
+    summary: `Your Assistant and your team agents now share one settings page: every agent gets a Model, a Check in and its own triggers.`,
+    body: `- **Same page for every agent**: Runs on (device, account, model, skills, MCP servers), then Triggers, in the same order for your Assistant and your team agents.
+- **Check in for every agent**: the first Triggers row picks how often an agent checks in (every 15 or 30 minutes, every hour, every day, or off).
+- **More triggers for your Assistant**: add schedules and events to your Assistant too, not just its check in.
+- **Model for team agents**: pick the model a team agent runs on, like your Assistant's.`,
+  },
+  {
     id: `2026-11-14-phones-chat-shell-release`,
     date: `2026-11-14`,
     title: `One chat menu and sidebar folders on your phone`,
