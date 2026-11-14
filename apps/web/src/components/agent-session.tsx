@@ -107,6 +107,7 @@ import {
 import {
   TRANSCRIPT_LAYOUT,
   feedInput,
+  traceNotice,
   transcriptLayout,
   type TranscriptItem,
   type TranscriptRowLayout,
@@ -923,7 +924,7 @@ export function AgentSessionView({
     switch (item.kind) {
       case `narration`:
         // EXP-1676: the run view's row on every form factor.
-        return wrap(<NarrationBubble text={item.text} author={bubbleName} />)
+        return wrap(<NarrationBubble text={item.text} author={bubbleName} time={item.at ? userMessageTime(item.at) : null} />)
       case `thought`:
         // EXP-1324: the reasoning line; still open only while the run lives.
         return wrap(
@@ -946,6 +947,9 @@ export function AgentSessionView({
             />
           )
         }
+        // #EXP-1864: `Ended turn quietly` gets its own line.
+        const notice = traceNotice(item.name)
+        if (notice) return wrap(<TranscriptMarker label={notice} />)
         // EXP-916: a call that CARRIES a patch draws a one-member card.
         if (item.diff) {
           return wrap(
@@ -1635,7 +1639,7 @@ function surfaceCardRows(session: SessionRow, messages: readonly MessageRowLike[
 
 /** The feed item ids a transcript row draws. */
 /** A raw feed row as the transcript sees it (#EXP-1736). */
-type FeedRowLike = { kind: string; id?: string | number; item?: { id: number; kind: string; text?: string; workflowId?: string | null } }
+type FeedRowLike = { kind: string; id?: string | number; item?: { id: number; kind: string; text?: string; name?: string; workflowId?: string | null } }
 
 /** The key a feed row's layout is stored under. */
 function feedRowKey(row: FeedRowLike): string {
@@ -1691,7 +1695,8 @@ export function feedTranscriptLayout(
       case `subagent`:
         return { id, kind: `trace` }
       case `tool`:
-        return { id, kind: item.workflowId ? `full` : `trace` }
+        // #EXP-1864: a notice is THE inline marker, never a trace line.
+        return { id, kind: item.workflowId || traceNotice(item.name) ? `full` : `trace` }
       default:
         return { id, kind: `full` }
     }
@@ -2022,7 +2027,7 @@ const LaneRows = memo(function LaneRows({
         if (item.kind === `narration`) {
           return (
             <div key={item.id} className={gap}>
-              <NarrationBubble text={item.text} />
+              <NarrationBubble text={item.text} time={item.at ? userMessageTime(item.at) : null} />
             </div>
           )
         }
@@ -2051,10 +2056,13 @@ const LaneRows = memo(function LaneRows({
 export const NarrationBubble = memo(function NarrationBubble({
   text,
   author = null,
+  time = null,
 }: {
   text: string
   /** #EXP-1736: the sender's name (the group's first bubble). */
   author?: string | null
+  /** #EXP-1864: every bubble's `HH:mm` (its first fragment's). */
+  time?: string | null
 }) {
   // #VAPP-258: a live turn's prose paints as a growing prefix.
   const streaming = useContext(TranscriptStreamingContext)
@@ -2062,7 +2070,7 @@ export const NarrationBubble = memo(function NarrationBubble({
     // #EXP-1736: THE message bubble on every client (was a bare paragraph
     // here, a bubble on iOS).
     // #FEED-238: THE FOLD, every message bubble.
-    <MessageBubble side="in" author={author} foldText={text}>
+    <MessageBubble side="in" author={author} time={time} foldText={text}>
       <div className={cn(`min-w-0 text-foreground/90`, TRANSCRIPT_BODY_TEXT)}>
         <FeedText text={text} ariaLabel="Agent message" hardBreaks streaming={streaming} />
       </div>

@@ -23278,7 +23278,8 @@
               "borderStrong",
               "ghostHover",
               "strokeActive",
-              "destructiveHover"
+              "destructiveHover",
+              "bubbleOwn"
             ]
           }
         },

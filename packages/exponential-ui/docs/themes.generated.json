@@ -1013,6 +1013,28 @@
             "dark": "#ff646733"
           }
         }
+      },
+      {
+        "name": "bubbleOwn",
+        "ref": "$color.bubbleOwn",
+        "values": {
+          "neutral": {
+            "light": "#ffffff",
+            "dark": "#171717"
+          },
+          "exponential": {
+            "light": "#e7f0fe",
+            "dark": "#132034"
+          },
+          "playful": {
+            "light": "#ffffff",
+            "dark": "#2a1b4d"
+          },
+          "orange": {
+            "light": "#e7f0fe",
+            "dark": "#132034"
+          }
+        }
       }
     ],
     "spacing": [

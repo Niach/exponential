@@ -1115,7 +1115,7 @@ fn derive_colors(theme: &mut ResolvedTheme) {
                 m.color.insert("destructiveHover".to_string(), with_alpha(&value, factor));
             }
         }
-        for (name, from) in [("link", "primary"), ("borderStrong", "border"), ("ghostHover", "accent"), ("strokeActive", "ring")] {
+        for (name, from) in [("link", "primary"), ("borderStrong", "border"), ("ghostHover", "accent"), ("strokeActive", "ring"), ("bubbleOwn", "popover")] {
             if !m.color.contains_key(name) {
                 if let Some(value) = m.color.get(from).cloned() {
                     m.color.insert(name.to_string(), value);
@@ -1701,7 +1701,9 @@ mod tests {
         let mut own = boxed;
         own["maxWidth"] = json!("100%");
         has(&bubble("out"), own);
-        has(&bubble("out"), json!({"backgroundColor": "#ffffff1c", "borderColor": "#ffffff1f"}));
+        // #EXP-1864: the own bubble's token, the same hairline.
+        has(&bubble("out"), json!({"backgroundColor": "#132034", "borderColor": "#ffffff1a"}));
+        assert_eq!(builtin_theme("neutral").unwrap().modes.dark.color["bubbleOwn"], builtin_theme("neutral").unwrap().modes.dark.color["popover"]);
         assert_eq!(resolve_recipe(&exp, &q("MessageBubble", "time", json!({}), &[]), Mode::Dark)["fontSize"], json!(10));
         assert!(resolve_recipe(&builtin_theme("neutral").unwrap(), &q("MessageBubble", "bubble", json!({"side": "in"}), &[]), Mode::Dark).get("maxWidth").is_none());
     }

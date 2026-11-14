@@ -694,6 +694,14 @@
           "message": "missing value for $color.destructiveHover"
         },
         {
+          "path": "modes.light.color.bubbleOwn",
+          "message": "missing value for $color.bubbleOwn"
+        },
+        {
+          "path": "modes.dark.color.bubbleOwn",
+          "message": "missing value for $color.bubbleOwn"
+        },
+        {
           "path": "tokens.spacing.none",
           "message": "missing value for $spacing.none"
         },
