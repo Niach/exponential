@@ -35,6 +35,8 @@ const HEADER_H: f32 = 44.;
 const HEADER_MARK_PX: f32 = 16.;
 
 pub(crate) const TEST_IDS: (&str, &str, &str) = ("assistant-fab", "assistant-widget-maximize", "assistant-widget-minimize");
+/// The open widget's body (the live tests read whether it paints).
+pub(crate) const WIDGET_TEST_ID: &str = "assistant-widget";
 
 /// What the FAB derives from the store: the viewer's Assistant in the
 /// active team and its conversation's badge.
@@ -182,6 +184,7 @@ impl RenderOnce for FabCircle {
         let pressed = theme::tokens::glass::FILL_ACTIVE.to_hsla();
         div()
             .id(TEST_IDS.0)
+            .debug_selector(|| TEST_IDS.0.into())
             .relative()
             .size(px(FAB_PX))
             .flex_shrink_0()
@@ -220,12 +223,14 @@ impl Render for AssistantFab {
             let minimize_fab = header_fab.clone();
             let agent_id = assistant_id.clone();
             let maximize = crate::controls::ghost_icon_button(TEST_IDS.1, Icon::new(registry::UI_MAXIMIZE), cx)
+                .debug_selector(|| TEST_IDS.1.into())
                 .tooltip(copy.maximize.clone())
                 .on_click(move |_, window, cx| {
                     let _ = maximize_fab.update(cx, |fab, cx| fab.set_open(false, cx));
                     navigate(window, cx, Screen::Agent { agent_id: agent_id.clone() });
                 });
             let minimize = crate::controls::ghost_icon_button(TEST_IDS.2, Icon::new(registry::UI_MINIMIZE), cx)
+                .debug_selector(|| TEST_IDS.2.into())
                 .tooltip(copy.minimize.clone())
                 .on_click(move |_, _, cx| {
                     let _ = minimize_fab.update(cx, |fab, cx| fab.set_open(false, cx));
@@ -251,6 +256,7 @@ impl Render for AssistantFab {
                 )
                 .child(minimize);
             v_flex()
+                .debug_selector(|| WIDGET_TEST_ID.into())
                 .size_full()
                 .min_h_0()
                 .overflow_hidden()
