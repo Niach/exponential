@@ -1060,22 +1060,22 @@
         "file": "shots/board/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 63950,
-        "sha256": "b23bd7956c036e212d75a8c6907d8258613e964c898742881dddbb95692eb668"
+        "bytes": 64580,
+        "sha256": "324b041b627a6af8ef610dca57dbf04050b57e65dff5ec6bd47d5caf01eb59f1"
       },
       "desktop": {
         "file": "shots/board/desktop.webp",
         "width": 1800,
         "height": 1125,
-        "bytes": 74488,
-        "sha256": "e0c3d9e44d53d5e3e712ca9a997bdfe440f215c105af2a046e164609016d725b"
+        "bytes": 77146,
+        "sha256": "2588f673c83b729b8c05d9712e6ff435f2ce181068cc1e9383478466c7a2d66c"
       },
       "ios": {
         "file": "shots/board/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 66498,
-        "sha256": "b6d90027ca993c64733a5195398afa69b1b57e40af81641a76d69383f6e2ec23"
+        "bytes": 66174,
+        "sha256": "92681dcebd4e2fa094a6a9149dd1e5c7112c2cb7254a6b3f5fa4bb6a6f2c10bb"
       },
       "ipad": {
         "file": "shots/board/ipad.webp",
@@ -5912,22 +5912,22 @@
         "file": "shots/my-issues/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 29842,
-        "sha256": "60e3c14fb5a2bcca670961e43bcbe2328df9260484edefd53e17915175f8a128"
+        "bytes": 29312,
+        "sha256": "9acda718bd9d9b5ec0bbb6a07719ff1ac2fd91f2f76b29d972e930bc56f95d39"
       },
       "desktop": {
         "file": "shots/my-issues/desktop.webp",
         "width": 1800,
-        "height": 1126,
-        "bytes": 36272,
-        "sha256": "6f51c908fadbf8e93d3023e192d61e5b5c1e597dbf8588bc9170b4f12130618c"
+        "height": 1125,
+        "bytes": 42684,
+        "sha256": "53efd80e902642e1c616a4eade57126218ddb347551662775f00ddd91e9b1e31"
       },
       "ios": {
         "file": "shots/my-issues/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 31828,
-        "sha256": "847901081906bb19b469467ec426da4d25e43d983338318604e39ae201b76f70"
+        "bytes": 30630,
+        "sha256": "79e9df6f4afa8ea68e91cd22722b32df13322edd232c5be9e63a68542fcddf60"
       },
       "web": {
         "file": "shots/my-issues/web.webp",
