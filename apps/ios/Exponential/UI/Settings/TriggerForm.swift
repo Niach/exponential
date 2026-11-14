@@ -46,7 +46,8 @@ struct TriggerDraft: Equatable {
                 eventPick = Self.customEvent
                 customName = e.name
             }
-        case nil:
+        case nil, .record?, .webhook?:
+            // #EXP-1850: no editor for these kinds.
             break
         }
     }

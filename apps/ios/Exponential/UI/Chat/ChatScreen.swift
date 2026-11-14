@@ -646,7 +646,7 @@ struct ChatScreen: View {
                 canEdit: canEdit,
                 mergeState: $mergeState
             )
-        case .preview, .data, .versions:
+        case .preview, .data, .events, .versions:
             if let pane = editor?.pane(tab) {
                 pane
             }
