@@ -67,42 +67,76 @@ public enum ComposerAttachments {
     /// LOST a marker gets the gap it left tidied; untouched lines keep their
     /// spacing.
     public static func renumberImageMarkers(_ text: String, removedIndex: Int) -> String {
-        text.components(separatedBy: "\n").map { line in
-            var dropped = false
-            var next = ""
-            var cursor = 0
+        renumberWithCaret(text, removedIndex: removedIndex, caret: 0).text
+    }
+
+    /// `renumberImageMarkers` with the caret carried along (the X keeps it
+    /// where it was): it moves left by what the removal took out before it,
+    /// so a caret right behind the removed placeholder lands where it began.
+    /// A caret INSIDE a marker counts as at that marker's start. UTF-16
+    /// offsets, like `insertImageMarker`.
+    public static func renumberWithCaret(
+        _ text: String, removedIndex: Int, caret: Int
+    ) -> (text: String, caret: Int) {
+        let whole = text as NSString
+        var at = max(0, min(caret, whole.length))
+        for match in markerRegex.matches(in: text, range: NSRange(location: 0, length: whole.length)) {
+            let start = match.range.location
+            if at > start, at < start + match.range.length { at = start }
+        }
+        let removedMarker = imageMarker(removedIndex)
+        var out: [String] = []
+        var lineStart = 0
+        var mappedCaret = 0
+        var outOffset = 0
+        for line in whole.components(separatedBy: "\n") {
             let ns = line as NSString
-            markerRegex.enumerateMatches(in: line, range: NSRange(location: 0, length: ns.length)) {
-                match, _, _ in
-                guard let match else { return }
-                next += ns.substring(with: NSRange(
-                    location: cursor, length: match.range.location - cursor
-                ))
-                cursor = match.range.location + match.range.length
+            let local = at >= lineStart && at <= lineStart + ns.length ? at - lineStart : -1
+            var dropped = false
+            let next = NSMutableString()
+            var cursor = 0
+            var mapped = -1
+            for match in markerRegex.matches(in: line, range: NSRange(location: 0, length: ns.length)) {
+                let start = match.range.location
+                if local >= cursor, local <= start, mapped == -1 { mapped = next.length + (local - cursor) }
+                next.append(ns.substring(with: NSRange(location: cursor, length: start - cursor)))
                 // A number that does not fit `Int` is prose (see
                 // `SteerImageMessage.markers`), copied through untouched.
-                guard let raw = Int(ns.substring(with: match.range(at: 1))) else {
-                    next += ns.substring(with: match.range)
-                    return
-                }
-                if raw == removedIndex {
-                    dropped = true
-                } else if raw > removedIndex {
-                    next += imageMarker(raw - 1)
+                if let raw = Int(ns.substring(with: match.range(at: 1))) {
+                    if raw == removedIndex {
+                        dropped = true
+                    } else if raw > removedIndex {
+                        next.append(imageMarker(raw - 1))
+                    } else {
+                        next.append(ns.substring(with: match.range))
+                    }
                 } else {
-                    next += ns.substring(with: match.range)
+                    next.append(ns.substring(with: match.range))
+                }
+                cursor = start + match.range.length
+                if local == cursor, mapped == -1 { mapped = next.length }
+            }
+            if local >= cursor, mapped == -1 { mapped = next.length + (local - cursor) }
+            next.append(ns.substring(from: cursor))
+            var tidied = next as String
+            if dropped {
+                let collapsed = collapseRuns(tidied, at: mapped)
+                tidied = collapsed.text
+                mapped = collapsed.at
+                tidied = trimmingTrailingSpacesAndTabs(tidied)
+                mapped = min(mapped, (tidied as NSString).length)
+                if line.hasPrefix(removedMarker) {
+                    let before = (tidied as NSString).length
+                    tidied = trimmingLeadingSpacesAndTabs(tidied)
+                    mapped = max(0, mapped - (before - (tidied as NSString).length))
                 }
             }
-            next += ns.substring(from: cursor)
-            guard dropped else { return next }
-            var tidied = collapseRuns(next)
-            tidied = trimmingTrailingSpacesAndTabs(tidied)
-            if line.hasPrefix(imageMarker(removedIndex)) {
-                tidied = trimmingLeadingSpacesAndTabs(tidied)
-            }
-            return tidied
+            if local != -1, mapped != -1 { mappedCaret = outOffset + mapped }
+            out.append(tidied)
+            outOffset += (tidied as NSString).length + 1
+            lineStart += ns.length + 1
         }
-        .joined(separator: "\n")
+        return (out.joined(separator: "\n"), mappedCaret)
     }
 
     // MARK: - stage
@@ -200,14 +234,19 @@ public enum ComposerAttachments {
 
     /// The strip's X. An image's markers leave the draft and every higher one
     /// slides down, so the numbers keep matching the strip; a file has none.
-    /// An out-of-range position is a no-op.
-    public static func drop(strip: [Kind], at: Int, text: String) -> (strip: [Kind], text: String) {
-        guard strip.indices.contains(at) else { return (strip, text) }
+    /// The caret stays where it was (`renumberWithCaret`). An out-of-range
+    /// position is a no-op.
+    public static func drop(
+        strip: [Kind], at: Int, text: String, caret: Int
+    ) -> (strip: [Kind], text: String, caret: Int) {
+        let caret = max(0, min(caret, (text as NSString).length))
+        guard strip.indices.contains(at) else { return (strip, text, caret) }
         var next = strip
         let kind = next.remove(at: at)
-        guard kind == .image else { return (next, text) }
+        guard kind == .image else { return (next, text, caret) }
         let number = imageCount(Array(strip.prefix(at))) + 1
-        return (next, renumberImageMarkers(text, removedIndex: number))
+        let renumbered = renumberWithCaret(text, removedIndex: number, caret: caret)
+        return (next, renumbered.text, renumbered.caret)
     }
 
     // MARK: - toasts
@@ -231,36 +270,44 @@ public enum ComposerAttachments {
         text.first.map { $0.isWhitespace } ?? false
     }
 
+    private static func isSpaceOrTab(_ unit: unichar) -> Bool { unit == 0x20 || unit == 0x09 }
+
     /// `/[ \t]{2,}/g → " "`: a run of two or more spaces/tabs becomes ONE
-    /// space; a lone space or tab is left exactly as it is.
-    private static func collapseRuns(_ text: String) -> String {
-        var result = ""
-        var run = ""
-        func flush() {
-            result += run.count >= 2 ? " " : run
-            run = ""
-        }
-        for character in text {
-            if character == " " || character == "\t" {
-                run.append(character)
-                continue
+    /// space; a lone space or tab is left exactly as it is. Maps `at` (UTF-16):
+    /// a caret inside a run (past its first character) lands behind the
+    /// single space.
+    private static func collapseRuns(_ text: String, at: Int) -> (text: String, at: Int) {
+        let units = Array(text.utf16)
+        var out: [unichar] = []
+        var mapped = at >= units.count ? -1 : at
+        var i = 0
+        while i < units.count {
+            if isSpaceOrTab(units[i]) {
+                var j = i
+                while j < units.count, isSpaceOrTab(units[j]) { j += 1 }
+                if j - i >= 2 {
+                    if at == i { mapped = out.count } else if at > i, at <= j { mapped = out.count + 1 }
+                    out.append(0x20)
+                    i = j
+                    continue
+                }
             }
-            flush()
-            result.append(character)
+            if at == i { mapped = out.count }
+            out.append(units[i])
+            i += 1
         }
-        flush()
-        return result
+        return (String(utf16CodeUnits: out, count: out.count), mapped == -1 ? out.count : mapped)
     }
 
     private static func trimmingTrailingSpacesAndTabs(_ text: String) -> String {
-        var result = Substring(text)
-        while let last = result.last, last == " " || last == "\t" { result = result.dropLast() }
-        return String(result)
+        var units = Array(text.utf16)
+        while let last = units.last, isSpaceOrTab(last) { units.removeLast() }
+        return String(utf16CodeUnits: units, count: units.count)
     }
 
     private static func trimmingLeadingSpacesAndTabs(_ text: String) -> String {
-        var result = Substring(text)
-        while let first = result.first, first == " " || first == "\t" { result = result.dropFirst() }
-        return String(result)
+        let units = Array(text.utf16)
+        let lead = units.prefix(while: isSpaceOrTab).count
+        return String(utf16CodeUnits: Array(units[lead...]), count: units.count - lead)
     }
 }

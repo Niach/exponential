@@ -103,14 +103,16 @@ final class ComposerAttachmentsTests: XCTestCase {
             let name = entry["name"] as? String ?? "?"
             let input = try XCTUnwrap(entry["input"] as? [String: Any], name)
             let expected = try XCTUnwrap(entry["expected"] as? [String: Any], name)
-            XCTAssertEqual(Set(expected.keys), ["strip", "text"], name)
+            XCTAssertEqual(Set(expected.keys), ["strip", "text", "caret"], name)
             let result = ComposerAttachments.drop(
                 strip: try kinds(input["strip"], name),
                 at: try XCTUnwrap(input["at"] as? Int, name),
-                text: try XCTUnwrap(input["text"] as? String, name)
+                text: try XCTUnwrap(input["text"] as? String, name),
+                caret: try XCTUnwrap(input["caret"] as? Int, name)
             )
             XCTAssertEqual(result.strip, try kinds(expected["strip"], name), name)
             XCTAssertEqual(result.text, try XCTUnwrap(expected["text"] as? String, name), name)
+            XCTAssertEqual(result.caret, try XCTUnwrap(expected["caret"] as? Int, name), name)
         }
     }
 
