@@ -29,6 +29,7 @@ import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.AgentDefinitionEntity
 import com.exponential.app.data.db.DatabaseHolder
+import com.exponential.app.data.db.PinEntity
 import com.exponential.app.data.db.SessionEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
@@ -79,13 +80,17 @@ class DirectShareShortcuts @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
-    /** [recent] = the long-press menu's recent chat, not a sharing shortcut. */
+    /** [recent] = a long-press chat entry (#EXP-1830: the Assistant, an
+     *  agent, a pinned or recent chat), not a sharing shortcut. */
     private data class Row(
         val entry: ShareTargets.Entry,
         val rank: Int,
         val agent: SessionTree.AgentRow?,
         val recent: Boolean = false,
     )
+
+    /** #EXP-1830: the long-press chat entries' inputs (pins in sidebar order). */
+    private data class ShortcutChats(val pins: List<String>, val sessions: List<SessionEntity>)
 
     fun start() {
         scope.launch {
@@ -98,13 +103,29 @@ class DirectShareShortcuts @Inject constructor(
                     }
                 }
             }
+            val shortcutChats = combine(selection.selectedId, auth.userId) { team, me -> team to me }
+                .distinctUntilChanged()
+                .flatMapLatest { (team, me) ->
+                    if (team == null || me == null) {
+                        flowOf(ShortcutChats(emptyList(), emptyList()))
+                    } else {
+                        dbFlow.scopedQuery(emptyList<PinEntity>()) { it.pinDao().observeSessionPins(team) }
+                            .map { pins -> pins.mapNotNull { it.sessionId } }
+                            .distinctUntilChanged()
+                            .flatMapLatest { pins ->
+                                dbFlow.scopedQuery(emptyList<SessionEntity>()) {
+                                    it.sessionDao().observeShortcutChats(team, me, pins, SHORTCUT_CHAT_LIMIT)
+                                }.map { ShortcutChats(pins, it) }
+                            }
+                    }
+                }
             combine(
                 dbFlow.scopedQuery(emptyList<AgentDefinitionEntity>()) { it.agentDefinitionDao().observeAll() },
                 chats,
+                shortcutChats,
                 selection.selectedId,
-                auth.userId,
-                auth.token.map { it != null }.distinctUntilChanged(),
-            ) { agents, sessions, team, me, signedIn -> rows(agents, sessions, team, me, signedIn) }
+                combine(auth.userId, auth.token.map { it != null }.distinctUntilChanged()) { me, signedIn -> me to signedIn },
+            ) { agents, sessions, shortcut, team, (me, signedIn) -> rows(agents, sessions, shortcut, team, me, signedIn) }
                 .debounce(DEBOUNCE_MS)
                 .distinctUntilChanged()
                 .collect(::publish)
@@ -114,6 +135,7 @@ class DirectShareShortcuts @Inject constructor(
     private fun rows(
         agents: List<AgentDefinitionEntity>,
         sessions: List<SessionEntity>,
+        shortcut: ShortcutChats,
         team: String?,
         me: String?,
         signedIn: Boolean,
@@ -121,9 +143,7 @@ class DirectShareShortcuts @Inject constructor(
         if (team == null) return emptyList()
         val listed = SessionTree.listAgents(agents.map(SessionTree::agentDefinition), emptyList(), team, me)
         val order = listed.withIndex().associate { (index, row) -> row.agentId to index }
-        val chats = sessions.map {
-            ShareTargets.Chat(it.id, it.title?.trim()?.takeIf(String::isNotEmpty) ?: SessionTitle.UNTITLED, it.updatedAt, it.agentId, it.sealPublicKey != null || it.sealedTitle != null)
-        }
+        val chats = sessions.map(::chat)
         val entries = ShareTargets.directShareEntries(listed, chats, me) { a ->
             ShareTargets.Agent(
                 id = a.agentId,
@@ -134,15 +154,32 @@ class DirectShareShortcuts @Inject constructor(
             )
         }
         val byId = listed.associateBy { "${ShareTargets.AGENT_PREFIX}${it.agentId}" }
+        // #EXP-1830 (app-shortcuts.json): the chat entries past the statics.
         val recent = if (signedIn) {
-            AppShortcuts.appShortcuts(chats)
-                .filter { it.id.startsWith(AppShortcuts.RECENT_CHAT_PREFIX) }
-                .map { Row(ShareTargets.Entry(it.id, it.title), 0, null, recent = true) }
+            val assistant = listed.firstOrNull { it.assistant }
+            val input = AppShortcuts.Input(
+                assistant = assistant?.let { AppShortcuts.Assistant(it.agentId, it.name) },
+                agents = listed.map { AppShortcuts.Agent(it.agentId, it.name, it.icon.ifEmpty { null }, it.color.ifEmpty { null }) },
+                pins = shortcut.pins,
+                chats = shortcut.sessions.map(::chat),
+            )
+            val agentById = listed.associateBy { "${AppShortcuts.AGENT_PREFIX}${it.agentId}" }
+            AppShortcuts.appShortcuts(input)
+                .filter { it.id !in AppShortcuts.STATICS }
+                .mapIndexed { rank, it -> Row(ShareTargets.Entry(it.id, it.title), rank, agentById[it.id], recent = true) }
         } else {
             emptyList()
         }
         return recent + entries.mapIndexed { rank, entry -> Row(entry, recent.size + rank, byId[entry.id]) }
     }
+
+    private fun chat(it: SessionEntity) = ShareTargets.Chat(
+        it.id,
+        it.title?.trim()?.takeIf(String::isNotEmpty) ?: SessionTitle.UNTITLED,
+        it.updatedAt,
+        it.agentId,
+        it.sealPublicKey != null || it.sealedTitle != null,
+    )
 
     /** This process's last pushes, for what the shortcut service cannot report back (an agent's look). */
     private var published: Map<String, Row> = emptyMap()
@@ -154,13 +191,22 @@ class DirectShareShortcuts @Inject constructor(
             val stale = live.keys.filter { it !in next }
             if (stale.isNotEmpty()) ShortcutManagerCompat.removeLongLivedShortcuts(context, stale)
             // #EXP-1638: a recent chat is a plain dynamic shortcut, not long-lived.
-            val staleRecent = stale.filter { it.startsWith(AppShortcuts.RECENT_CHAT_PREFIX) }
+            val staleRecent = stale.filter {
+                it.startsWith(AppShortcuts.RECENT_CHAT_PREFIX) || it.startsWith(AppShortcuts.AGENT_PREFIX)
+            }
             if (staleRecent.isNotEmpty()) ShortcutManagerCompat.removeDynamicShortcuts(context, staleRecent)
+            // #EXP-1830: once per intent version every row is re-pushed, so a
+            // shortcut already pinned to the home screen gets the launcher
+            // intent that names its chat (pushDynamicShortcut updates pinned
+            // ones in place).
+            val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            val repushAll = prefs.getInt(PREF_INTENT_VERSION, 0) < INTENT_VERSION
             rows.filter { row ->
                 val held = live[row.entry.id]
-                held == null || held.shortLabel != row.entry.title || held.rank != row.rank ||
+                repushAll || held == null || held.shortLabel != row.entry.title || held.rank != row.rank ||
                     published[row.entry.id]?.let { it != row } == true
             }.forEach { row -> ShortcutManagerCompat.pushDynamicShortcut(context, shortcut(row)) }
+            if (repushAll && rows.isNotEmpty()) prefs.edit().putInt(PREF_INTENT_VERSION, INTENT_VERSION).apply()
             published = next
         }
     }
@@ -182,23 +228,34 @@ class DirectShareShortcuts @Inject constructor(
             .setIcon(icon)
             .setRank(row.rank)
             .setCategories(setOf(CATEGORY))
-            // Tapped from a launcher, not the share sheet: just the app.
-            .setIntent(Intent(context, MainActivity::class.java).setAction(Intent.ACTION_VIEW))
+            // #EXP-1830: tapped from a launcher (a pinned one on the home
+            // screen too), not the share sheet: ITS chat (launcherShortcutId).
+            .setIntent(launcherIntent(AppShortcuts.launcherShortcutId(row.entry.id)))
             .build()
     }
 
-    /** #EXP-1638: a recent chat on the long-press menu, never in the share sheet. */
-    private fun recentChatShortcut(row: Row): ShortcutInfoCompat =
-        ShortcutInfoCompat.Builder(context, row.entry.id)
+    /** #EXP-1638 / #EXP-1830: a chat entry on the long-press menu (the
+     *  Assistant's brand mark, an agent's glyph in its colour, a chat's glyph),
+     *  never in the share sheet. */
+    private fun recentChatShortcut(row: Row): ShortcutInfoCompat {
+        val icon = when {
+            row.agent?.assistant == true -> IconCompat.createWithResource(context, R.mipmap.ic_launcher)
+            row.agent != null -> agentIcon(row.agent) ?: IconCompat.createWithResource(context, R.drawable.ic_shortcut_chat)
+            else -> IconCompat.createWithResource(context, R.drawable.ic_shortcut_chat)
+        }
+        return ShortcutInfoCompat.Builder(context, row.entry.id)
             .setShortLabel(row.entry.title)
-            .setIcon(IconCompat.createWithResource(context, R.drawable.ic_shortcut_chat))
+            .setIcon(icon)
             .setRank(row.rank)
-            .setIntent(
-                Intent(context, MainActivity::class.java)
-                    .setAction(Intent.ACTION_VIEW)
-                    .putExtra(MainActivity.EXTRA_APP_SHORTCUT, row.entry.id),
-            )
+            .setIntent(launcherIntent(row.entry.id))
             .build()
+    }
+
+    /** MainActivity on [shortcutId] (null = just the app). */
+    private fun launcherIntent(shortcutId: String?): Intent =
+        Intent(context, MainActivity::class.java)
+            .setAction(Intent.ACTION_VIEW)
+            .apply { if (shortcutId != null) putExtra(MainActivity.EXTRA_APP_SHORTCUT, shortcutId) }
 
     /** The agent's glyph in its colour on the bubble's fill, an adaptive bitmap. */
     private fun agentIcon(agent: SessionTree.AgentRow): IconCompat? = runCatching {
@@ -240,6 +297,12 @@ class DirectShareShortcuts @Inject constructor(
     private companion object {
         const val CATEGORY = "com.exponential.app.category.SHARE_TARGET"
         const val DEBOUNCE_MS = 2_000L
+        /** The long-press candidates read per team (pins ride along). */
+        const val SHORTCUT_CHAT_LIMIT = 12
+        const val PREFS = "direct_share_shortcuts"
+        const val PREF_INTENT_VERSION = "intent_version"
+        /** #EXP-1830: bump to re-push every shortcut (a pinned one's intent changed). */
+        const val INTENT_VERSION = 1
         const val ICON_PX = 216
         const val GLYPH_FRACTION = 0.4f
         val ICON_FILL = Color(0xFF27272A)

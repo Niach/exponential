@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- #EXP-1830 (home-widgets.json LOOK, iOS HomeWidgetView): header (glyph,
+     title sm semibold, muted count), one-line rows, or one muted centred line. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/home_widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/home_widget_background"
+    android:clipToOutline="true"
+    android:orientation="vertical"
+    android:padding="@dimen/home_widget_padding">
+
+    <LinearLayout
+        android:id="@+id/home_widget_header"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <ImageView
+            android:id="@+id/home_widget_glyph"
+            android:layout_width="@dimen/home_widget_glyph"
+            android:layout_height="@dimen/home_widget_glyph"
+            android:importantForAccessibility="no" />
+
+        <TextView
+            android:id="@+id/home_widget_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:fontFamily="sans-serif-medium"
+            android:maxLines="1"
+            android:textColor="@color/home_widget_foreground"
+            android:textSize="@dimen/home_widget_text_sm" />
+
+        <TextView
+            android:id="@+id/home_widget_count"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:fontFeatureSettings="tnum"
+            android:maxLines="1"
+            android:textColor="@color/home_widget_muted_foreground"
+            android:textSize="@dimen/home_widget_text_sm" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/home_widget_rows"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/home_widget_header_gap"
+        android:orientation="vertical" />
+
+    <TextView
+        android:id="@+id/home_widget_empty"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center"
+        android:textColor="@color/home_widget_muted_foreground"
+        android:textSize="@dimen/home_widget_text_sm"
+        android:visibility="gone" />
+</LinearLayout>
