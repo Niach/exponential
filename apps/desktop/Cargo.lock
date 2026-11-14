@@ -3633,6 +3633,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "eui-shot"
+version = "0.14.159"
+dependencies = [
+ "eui-core",
+ "eui-gpui",
+ "gpui-component",
+ "gpui-pre",
+ "gpui-pre-platform",
+ "image",
+ "rust-embed",
+ "serde_json",
+]
+
+[[package]]
 name = "event-listener"
 version = "5.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

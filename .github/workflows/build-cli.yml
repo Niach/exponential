@@ -83,6 +83,22 @@ jobs:
           if [ "$RUNNER_OS" = "macOS" ]; then export CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed; fi
           cargo build --release --locked --manifest-path apps/desktop/Cargo.toml \
             -p exp-cli --target ${{ matrix.target }}
+      # #FEED-244: the app-screen renderer (`exponential-shot`), its own
+      # binary and its OWN cargo invocation: it links gpui with
+      # `test-support` (the headless renderer), which must never unify into
+      # the CLI. Devices fetch it on the first `app_screenshot`, verified
+      # against this release's signed SHA256SUMS (updater::app_shot).
+      - name: Linux gpui deps (the app-screen renderer)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libxcb1-dev \
+            libfontconfig1-dev libx11-dev libxi-dev libxtst-dev clang
+      - name: Build the app-screen renderer
+        shell: bash
+        run: |
+          cargo build --release --locked --manifest-path apps/desktop/Cargo.toml \
+            -p eui-shot --bin exponential-shot --target ${{ matrix.target }}
       - name: Collect debug files
         id: dif
         shell: bash
@@ -112,10 +128,18 @@ jobs:
           fi
           mkdir -p dist
           cp "$bin" "dist/exponential-${{ matrix.target }}"
+          shot="apps/desktop/target/${{ matrix.target }}/release/exponential-shot"
+          strip "$shot" || true
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            codesign -s - -f "$shot"
+          fi
+          cp "$shot" "dist/exponential-shot-${{ matrix.target }}"
       - uses: actions/upload-artifact@v4
         with:
           name: exp-cli-${{ matrix.target }}
-          path: dist/exponential-${{ matrix.target }}
+          path: |
+            dist/exponential-${{ matrix.target }}
+            dist/exponential-shot-${{ matrix.target }}
           if-no-files-found: error
 
   release:
@@ -136,6 +160,7 @@ jobs:
           set -euo pipefail
           for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu aarch64-apple-darwin; do
             [ -f "dist/exponential-$target" ] || { echo "missing exponential-$target" >&2; exit 1; }
+            [ -f "dist/exponential-shot-$target" ] || { echo "missing exponential-shot-$target" >&2; exit 1; }
           done
       # Apache-2.0 section 4: a bare binary has no bundle to carry the
       # licence text — put LICENSE + NOTICE on the release page (and in the
