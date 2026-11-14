@@ -27,6 +27,16 @@ export function teamMeta(members: number, boards: number): string {
     .replace(`{members}`, `${members} ${members === 1 ? team.member : team.members}`)
     .replace(`{boards}`, `${boards} ${boards === 1 ? team.board : team.boards}`)
 }
+/** #EXP-1836: the board's My issues (`boardMineCases`): the viewer's
+ *  assigned issues on THIS board, input order kept; no viewer = none. */
+export function boardMineIssues<T extends { boardId: string; assigneeId: string | null }>(
+  issues: readonly T[],
+  boardId: string,
+  me: string | null | undefined
+): T[] {
+  if (!me) return []
+  return issues.filter((issue) => issue.boardId === boardId && issue.assigneeId === me)
+}
 export const CHATS_TEST_IDS = fixture.testIds
 export const CHATS_SHELL = fixture.shell
 /** #EXP-1380: the transcript window, its step and the follow slack (px). */

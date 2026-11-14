@@ -349,6 +349,21 @@ class ChatsTest {
                 Chats.Copy.teamMeta(case.getValue("members").jsonPrimitive.int, case.getValue("boards").jsonPrimitive.int),
             )
         }
+        // #EXP-1836: the board's My issues, mine on THIS board in input order.
+        for (case in cases("boardMineCases")) {
+            val issues = case.list("issues")
+            assertEquals(
+                case.str("name"),
+                case.getValue("expected").jsonArray.map { it.jsonPrimitive.content },
+                Chats.boardMineIssues(
+                    issues,
+                    case.str("boardId")!!,
+                    case.str("me"),
+                    boardOf = { it.str("boardId")!! },
+                    assigneeOf = { it.str("assigneeId") },
+                ).map { it.str("id")!! },
+            )
+        }
         for (case in cases("dotCases")) {
             val input = case.getValue("input").jsonObject
             assertEquals(

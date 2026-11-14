@@ -26,6 +26,7 @@ import {
   chatMenuEntries,
   transcriptWindowStart,
   teamMeta,
+  boardMineIssues,
 } from "./chats"
 
 // Chat 58cb32df: the Chats reference replays every case group of
@@ -47,6 +48,8 @@ describe(`chats.json`, () => {
     test(`digest: ${c.name}`, () => expect(digestMessages(c.sessionId, c.digest as never)).toEqual(c.messages as never))
   for (const c of fixture.selectionCases) test(`selection: ${c.name}`, () => expect(chatSelectionActions(c.input as never)).toEqual(c.expected as never))
   for (const c of fixture.rangeCases) test(`range: ${c.name}`, () => expect(chatSelectionRange(c.order, c.anchor, c.target)).toEqual(c.expected))
+  for (const c of fixture.boardMineCases)
+    test(`board mine: ${c.name}`, () => expect(boardMineIssues(c.issues, c.boardId, c.me).map((i) => i.id)).toEqual(c.expected))
   for (const c of fixture.teamMetaCases) test(`team meta: ${c.expected}`, () => expect(teamMeta(c.members, c.boards)).toBe(c.expected))
   for (const c of fixture.dotCases) test(`dot: ${c.name}`, () => expect(chatsUnread(c.input.groups as never, c.input.reads as never)).toBe(c.expected))
   test(`delete titles`, () => {
