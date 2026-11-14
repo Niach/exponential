@@ -3,10 +3,10 @@
 // reordering keeps each item's state), optionally in sections; past
 // `WINDOW_THRESHOLD` (50, the catalog's) items it windows on its axis.
 
-import { memo, useCallback, useContext, useEffect, useMemo, useRef, type FocusEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from "react"
-import { foldKey, listSections, sectionRows, WINDOW_THRESHOLD as CATALOG_WINDOW_THRESHOLD, type ListSection } from "@exponential_app/eui"
+import { memo, useCallback, useContext, useEffect, useMemo, useRef, type FocusEvent, type KeyboardEvent, type MouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react"
+import { foldKey, listSections, sectionRows, TREE_GUIDE_COLUMN, WINDOW_THRESHOLD as CATALOG_WINDOW_THRESHOLD, type ListSection } from "@exponential_app/eui"
 import { InstanceContext, ScopeContext, SurfaceContext, deriveContext, readView, useSurfaceContext } from "../context"
-import { getPointer, isKeyRecorderField, isPickerPick, keyRecorderKeyPayload, keyRecorderMousePayload, LITERAL_ROWS_ROOT, treeKeyTarget } from "@exponential_app/eui/web"
+import { getPointer, isKeyRecorderField, isPickerPick, keyRecorderKeyPayload, keyRecorderMousePayload, listReorderRows, listReorderStart, LITERAL_ROWS_ROOT, REORDER_DEPTH_ATTR, REORDER_GROUP_ATTR, REORDER_INDENT_ATTR, REORDER_KEY_ATTR, startListDrag, treeKeyTarget } from "@exponential_app/eui/web"
 import { ClosePickerContext } from "../form"
 import { WindowedList, type WindowedListHandle } from "../list"
 import type { NativeProps } from "../node-view"
@@ -114,7 +114,7 @@ type ListRow = { item: number } | { header: number }
  *  scroll, the nearest scroller or the viewport. Every item is a listitem
  *  with its position in the whole list; `scrollToIndex` (the host command)
  *  takes the data index. */
-export function ListNative({ node, props, rootProps, scope, domId }: NativeProps) {
+export function ListNative({ node, props, rootProps, scope, domId, emit }: NativeProps) {
   const ctx = useSurfaceContext()
   const part = useParts(node, props)
   const divided = bool(props.divided)
@@ -182,12 +182,34 @@ export function ListNative({ node, props, rootProps, scope, domId }: NativeProps
   // items are then treeitems (a tree owns treeitems only).
   const listRole = (rootProps as Record<string, unknown>).role === `tree` ? `tree` : `list`
   const itemRole = listRole === `tree` ? `treeitem` : `listitem`
+  // EXP-1832 (fixtures/list-reorder.json): a vertical `reorderable` List's
+  // items carry the web controller's DOM contract (key = the template key,
+  // else the child's id; `depth` / `group` = the item's fields; indent = a
+  // Row's TreeGuides gutter at that depth).
+  const reorderable = bool(props.reorderable) && !horizontal
+  const reorderAttrs = (item: number): Record<string, unknown> => {
+    if (item < childCount) return { [REORDER_KEY_ATTR]: node.children[item].id, [REORDER_DEPTH_ATTR]: 0, [REORDER_INDENT_ATTR]: 0 }
+    const it = tpl!.items[item - childCount]
+    const data = getPointer(ctx.data, it.path) as Record<string, unknown> | undefined
+    const depth = Math.max(0, Math.floor(num(data?.depth, 0)))
+    return { [REORDER_KEY_ATTR]: it.key, [REORDER_DEPTH_ATTR]: depth, [REORDER_GROUP_ATTR]: data?.group === true ? `true` : undefined, [REORDER_INDENT_ATTR]: depth * TREE_GUIDE_COLUMN }
+  }
   const itemAttrs = (r: number): Record<string, unknown> => {
     const row = rows[r]
     // A section header is a listitem holding its heading (a list owns
     // listitems only); items carry their position among the ITEMS.
-    return `item` in row ? { role: itemRole, "aria-setsize": itemCount, "aria-posinset": row.item + 1 } : { role: itemRole }
+    return `item` in row ? { role: itemRole, "aria-setsize": itemCount, "aria-posinset": row.item + 1, ...(reorderable ? reorderAttrs(row.item) : {}) } : { role: itemRole }
   }
+  // A press on one of this list's own rows (never inside a field) may become
+  // the drag; the drop fires `move` {id, before | after | into}.
+  const onPointerDown = reorderable
+    ? (e: ReactPointerEvent<HTMLDivElement>) => {
+        const start = listReorderStart(e.currentTarget, e.target)
+        if (!start) return
+        const root = e.currentTarget
+        startListDrag(e.nativeEvent, start.key, { rows: () => listReorderRows(root), maxDepth: Math.max(1, Math.floor(num(props.maxDepth, 1))) }, { move: (context) => void emit(`move`, context) })
+      }
+    : undefined
   const divider = (r: number) => {
     const before = dividerBefore(r)
     return before === null ? null : <div {...(part.at(`divider`, before) as Record<string, string>)} role="separator" />
@@ -195,7 +217,7 @@ export function ListNative({ node, props, rootProps, scope, domId }: NativeProps
   if (windowed) {
     const headerRows = sticky ? rows.flatMap((row, r) => (`header` in row ? [r] : [])) : undefined
     return (
-      <div ref={rootRef} {...(rootProps as Record<string, unknown>)} style={style} role={listRole}>
+      <div ref={rootRef} {...(rootProps as Record<string, unknown>)} style={style} role={listRole} onPointerDown={onPointerDown}>
         <WindowedList
           ref={windowRef}
           count={rows.length}
@@ -231,7 +253,7 @@ export function ListNative({ node, props, rootProps, scope, domId }: NativeProps
     )
   }
   return (
-    <div ref={rootRef} {...(rootProps as Record<string, unknown>)} style={style} role={listRole}>
+    <div ref={rootRef} {...(rootProps as Record<string, unknown>)} style={style} role={listRole} onPointerDown={onPointerDown}>
       {out}
     </div>
   )

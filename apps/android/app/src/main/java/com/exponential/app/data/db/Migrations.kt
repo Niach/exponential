@@ -411,3 +411,20 @@ val MIGRATION_126_127: Migration = object : Migration(126, 127) {
         db.execSQL("ALTER TABLE `outbox` ADD COLUMN `pending_files` TEXT")
     }
 }
+
+// v128 (#EXP-1832, sidebar-folders.json): the `sidebar_layout` table, the
+// member's own folders + order of their boards, agents and apps (synced per
+// user, shown read-only on the phone). A new shape: it starts fresh.
+val MIGRATION_127_128: Migration = object : Migration(127, 128) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `sidebar_layout` (`id` TEXT NOT NULL, `user_id` TEXT NOT NULL, " +
+                "`team_id` TEXT NOT NULL, `section` TEXT NOT NULL, `kind` TEXT NOT NULL, `target_id` TEXT, " +
+                "`parent_id` TEXT, `name` TEXT, `sort_order` REAL NOT NULL, `created_at` TEXT NOT NULL, " +
+                "`updated_at` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_sidebar_layout_team_id_section` ON `sidebar_layout` (`team_id`, `section`)",
+        )
+    }
+}

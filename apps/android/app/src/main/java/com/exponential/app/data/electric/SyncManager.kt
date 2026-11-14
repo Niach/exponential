@@ -17,6 +17,7 @@ import com.exponential.app.data.db.AppRecordEntity
 import com.exponential.app.data.db.EventEntity
 import com.exponential.app.data.db.PromptEntity
 import com.exponential.app.data.db.SkillEntity
+import com.exponential.app.data.db.SidebarLayoutEntity
 import com.exponential.app.data.db.AttachmentEntity
 import com.exponential.app.data.db.CommentEntity
 import com.exponential.app.data.db.DatabaseHolder
@@ -427,6 +428,7 @@ class SyncManager @Inject constructor(
         val deviceDao = db.deviceDao()
         val deviceWorktreeDao = db.deviceWorktreeDao()
         val pinDao = db.pinDao()
+        val sidebarLayoutDao = db.sidebarLayoutDao()
         val issueDraftDao = db.issueDraftDao()
         val composerDraftDao = db.composerDraftDao()
         val sessionDao = db.sessionDao()
@@ -611,6 +613,17 @@ class SyncManager @Inject constructor(
                 onInsert = { if (it.isKept) pinDao.upsert(it) else pinDao.deleteById(it.id) },
                 onDelete = { pinDao.deleteById(it.id) },
                 onRefetch = { pinDao.clear() },
+            ),
+            // #EXP-1832: the member's sidebar layout (folders + order) —
+            // static per user like pins; the phone shows it read-only.
+            launchShape(
+                shape = "sidebar_layout", path = "/api/shapes/sidebar-layout", tableName = "sidebar_layout",
+                serializer = SidebarLayoutEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("sidebar_layout"),
+                onInsert = { sidebarLayoutDao.upsert(it) },
+                onDelete = { sidebarLayoutDao.deleteById(it.id) },
+                onRefetch = { sidebarLayoutDao.clear() },
             ),
             // EXP-878: unsent issue drafts — static per user like pins, never
             // team/trash scoped (a row renders once its board resolves).
