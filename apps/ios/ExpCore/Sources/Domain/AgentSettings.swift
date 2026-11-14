@@ -70,7 +70,49 @@ public enum AgentSettings {
         public static let instructionsTooLong = "Instructions are too long"
         /// EXP-1306: the Account row with no login reported (muted).
         public static let accountLastUsed = "Last used"
+        /// #EXP-1846 (`page`): the group headers.
+        public static let triggers = "Triggers"
+        public static let runsOn = "Runs on"
+        public static let checkIn = "Check in"
     }
+
+    /// #EXP-1846 (fixture `page`): ONE agent page for the Assistant and every
+    /// team agent, its groups top to bottom (supersedes `fields` order and
+    /// `assistantSections`).
+    public struct PageSection: Equatable, Sendable {
+        public let id: String
+        /// The `copy` key of its header; nil = none.
+        public let label: String?
+        public let rows: [String]
+        public let assistantOnly: Bool
+        public let teamAgentOnly: Bool
+        public let ownerOnly: Bool
+
+        public init(
+            id: String,
+            label: String? = nil,
+            rows: [String] = [],
+            assistantOnly: Bool = false,
+            teamAgentOnly: Bool = false,
+            ownerOnly: Bool = false
+        ) {
+            self.id = id
+            self.label = label
+            self.rows = rows
+            self.assistantOnly = assistantOnly
+            self.teamAgentOnly = teamAgentOnly
+            self.ownerOnly = ownerOnly
+        }
+    }
+
+    public static let pageSections: [PageSection] = [
+        PageSection(id: "identity"),
+        PageSection(id: "runs-on", label: "runsOn", rows: ["device", "account", "model", "skills", "mcp-servers"]),
+        PageSection(id: "triggers", label: "triggers", rows: ["check-in", "trigger-list"]),
+        PageSection(id: "voice", label: "voice", assistantOnly: true),
+        PageSection(id: "instructions", teamAgentOnly: true),
+        PageSection(id: "delete", teamAgentOnly: true, ownerOnly: true),
+    ]
 
     /// #EXP-1793 (fixture `mcpRow`): the agent page's MCP servers row,
     /// right under Skills.
@@ -373,11 +415,82 @@ public enum AgentSettings {
         assistantScheduleOf(triggers.map { (when: $0.when, enabled: $0.enabled) })
     }
 
-    /// The whole-array `triggers` write a preset saves as (`off` = none).
+    /// The whole-array `triggers` write a preset saves as (`off` = none),
+    /// tagged as the Check in (#EXP-1846).
     public static func assistantScheduleTriggers(_ id: AssistantScheduleId, tz: String? = nil) -> [AgentTriggerInput] {
-        guard let cron = assistantSchedules.first(where: { $0.id == id })?.cron else { return [] }
+        guard let cron = presetCron(id) else { return [] }
         let zone = (tz?.isEmpty ?? true) ? nil : tz
-        return [AgentTriggerInput(enabled: true, when: .schedule(ScheduleTrigger(cron: cron, tz: zone)))]
+        return [AgentTriggerInput(enabled: true, when: .schedule(ScheduleTrigger(cron: cron, tz: zone)), preset: id.rawValue)]
+    }
+
+    // MARK: - #EXP-1846 the Check in (fixture `checkIn`)
+
+    /// A preset's cron; nil for `off` or an unknown id.
+    static func presetCron(_ id: AssistantScheduleId) -> String? {
+        assistantSchedules.first { $0.id == id }?.cron
+    }
+
+    static func presetCron(_ raw: String) -> String? {
+        AssistantScheduleId(rawValue: raw).flatMap(presetCron)
+    }
+
+    private static func isCheckIn(_ when: TriggerWhen, preset: String?) -> Bool {
+        when.isSchedule && !(preset?.isEmpty ?? true)
+    }
+
+    /// The Check in row's value (`checkInCases`): the preset trigger's id,
+    /// `off` when there is none or it is paused.
+    public static func checkInOf(_ triggers: [(when: TriggerWhen, enabled: Bool, preset: String?)]) -> AssistantScheduleId {
+        guard let trigger = triggers.first(where: { isCheckIn($0.when, preset: $0.preset) }),
+              trigger.enabled,
+              let preset = trigger.preset,
+              presetCron(preset) != nil
+        else { return .off }
+        return AssistantScheduleId(rawValue: preset) ?? .off
+    }
+
+    public static func checkInOf(_ triggers: [AgentTrigger]) -> AssistantScheduleId {
+        checkInOf(triggers.map { (when: $0.when, enabled: $0.enabled, preset: $0.preset) })
+    }
+
+    public static func checkInOf(_ triggers: [AgentTriggerInput]) -> AssistantScheduleId {
+        checkInOf(triggers.map { (when: $0.when, enabled: $0.enabled, preset: $0.preset) })
+    }
+
+    /// The whole-array write after a Check in pick (`withCheckInCases`): the
+    /// preset trigger replaced IN FRONT (keeping its id and stored zone; a
+    /// new one takes `tz`) or removed for `off`; the others unchanged, in order.
+    public static func withCheckIn(
+        _ triggers: [AgentTriggerInput],
+        _ id: AssistantScheduleId,
+        tz: String? = nil
+    ) -> [AgentTriggerInput] {
+        let index = triggers.firstIndex { isCheckIn($0.when, preset: $0.preset) }
+        var rest = triggers
+        let current = index.map { rest.remove(at: $0) }
+        guard let cron = presetCron(id) else { return rest }
+        let zone: String?
+        if let current {
+            if case let .schedule(schedule) = current.when { zone = schedule.tz } else { zone = nil }
+        } else {
+            zone = (tz?.isEmpty ?? true) ? nil : tz
+        }
+        let next = AgentTriggerInput(
+            id: current?.id,
+            enabled: true,
+            when: .schedule(ScheduleTrigger(cron: cron, tz: zone)),
+            preset: id.rawValue
+        )
+        return [next] + rest
+    }
+
+    public static func withCheckIn(_ triggers: [AgentTrigger], _ id: AssistantScheduleId, tz: String? = nil) -> [AgentTriggerInput] {
+        withCheckIn(triggers.map(AgentTriggerInput.init), id, tz: tz)
+    }
+
+    /// The rows under Check in (`listedCases`): every trigger without `preset`.
+    public static func listedTriggers(_ triggers: [AgentTrigger]) -> [AgentTrigger] {
+        triggers.filter { $0.preset?.isEmpty ?? true }
     }
 
     public static func isAssistant(role: String?) -> Bool {

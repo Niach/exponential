@@ -3,14 +3,14 @@ import ExpUI
 import GRDB
 import SwiftUI
 
-// EXP-1291: the AGENT PAGE — Team settings → Agents, laid out
-// exactly like a board (fixture `agent-settings.json` `fields`, top to
-// bottom): the board form's ONE identity row (icon picker + colour swatch +
-// name), Device (required), Account (the device's logins), Triggers (one row
-// per trigger: `AgentSettings.triggerSummary` + its switch, Add opens the
-// trigger editor), Instructions (markdown, server-only: `agents.get`) and
-// Delete (owner-only, confirmed). Members read; every owner-only control is
-// hidden or disabled for them.
+// EXP-1291 / #EXP-1846: THE AGENT PAGE, ONE for the Assistant and every
+// team agent (fixture `agent-settings.json` `page`, top to bottom): Identity
+// (the board form's icon picker + colour swatch + name; the Assistant: its
+// brand mark + name), Runs on (Device, Account, Model, Skills, MCP servers),
+// Triggers (`AgentTriggersSection`: Check in, then the trigger list + Add),
+// Voice (the Assistant only), Instructions (team agents only; markdown,
+// server-only: `agents.get`) and Delete (team agents, owners, confirmed).
+// A team agent's members read; the Assistant is its member's.
 //
 // NEW-2: an agent is a DEFINITION row (`agents`), never a session. A new one
 // is ONE `agents.create`; after that the fields save through `agents.update`
@@ -44,11 +44,9 @@ final class AgentSettingsDraft {
     /// False while an existing agent's `agents.get` is in flight.
     var instructionsLoaded = false
     var instructionsFailed = false
-    /// Stored order. A trigger added before the agent exists (or before the
-    /// echo lands) carries a `local-` id and is sent WITHOUT one.
-    var triggers: [AgentTrigger] = []
-    /// One trigger write at a time: each replaces the whole array.
-    var triggerBusy = false
+    /// The Triggers group's rows (`AgentTriggersSection`); a new agent
+    /// keeps them here until Create.
+    let triggerList = AgentTriggerList()
     var saving = false
     /// Field errors show once a submit was tried.
     var submitted = false
@@ -68,8 +66,6 @@ final class AgentSettingsDraft {
         var instructions: String?
     }
 
-    static let localTriggerPrefix = "local-"
-
     /// A new agent: nothing to load.
     func seedNew() {
         instructionsLoaded = true
@@ -86,7 +82,7 @@ final class AgentSettingsDraft {
         lockedCli = agent.cli
         account = AccountOptions.wireAccount(agent.account)
         model = agent.model
-        triggers = AgentTrigger.parseList(agent.triggers)
+        triggerList.triggers = AgentTrigger.parseList(agent.triggers)
         let instructionsBase = baseline.instructions
         snapshotBaseline()
         baseline.instructions = instructionsBase
@@ -148,7 +144,7 @@ final class AgentSettingsDraft {
     // MARK: - Patch
 
     /// Only what changed rides `agents.update`; the triggers write on
-    /// their own.
+    /// their own (`AgentTriggersSection`).
     var patch: AgentPatch {
         var patch = AgentPatch()
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -213,41 +209,24 @@ final class AgentSettingsDraft {
         }
     }
 
-    // MARK: - Triggers
-
-    /// The whole-array write of `list`: a local (unsaved) trigger travels
-    /// without an id, so the server mints one.
-    func inputs(_ list: [AgentTrigger]) -> [AgentTriggerInput] {
-        list.map { trigger in
-            var input = AgentTriggerInput(trigger)
-            if trigger.id.hasPrefix(Self.localTriggerPrefix) { input.id = nil }
-            return input
+    /// The Device row's pool: online with a runnable agent, plus the bound
+    /// one whatever its state; NEW-99 (`runsOnCases`): an Assistant's lists
+    /// desktops only (a bound non-desktop stays, naming itself), a team
+    /// agent's every team device.
+    static func runsOnDevices(_ all: [SteerDevice], boundId: String?, assistant: Bool) -> [SteerDevice] {
+        let candidates = all.filter { $0.isOnline && $0.hasRunnableAgent }
+        var pool = candidates
+        if let boundId,
+           !candidates.contains(where: { $0.deviceId == boundId }),
+           let row = all.first(where: { $0.deviceId == boundId }) {
+            pool = [row] + candidates
         }
-    }
-
-    /// The list with `input` added (`editing` nil) or swapped in.
-    func applying(_ input: AgentTriggerInput, editing: AgentTrigger?) -> [AgentTrigger] {
-        guard let editing else {
-            let added = AgentTrigger(
-                id: Self.localTriggerPrefix + UUID().uuidString,
-                enabled: input.enabled,
-                when: input.when
-            )
-            return triggers + [added]
-        }
-        return triggers.map { trigger in
-            trigger.id == editing.id
-                ? AgentTrigger(id: trigger.id, enabled: input.enabled, when: input.when)
-                : trigger
-        }
-    }
-
-    func settingEnabled(_ trigger: AgentTrigger, _ enabled: Bool) -> [AgentTrigger] {
-        triggers.map { $0.id == trigger.id ? AgentTrigger(id: $0.id, enabled: enabled, when: $0.when) : $0 }
-    }
-
-    func removing(_ trigger: AgentTrigger) -> [AgentTrigger] {
-        triggers.filter { $0.id != trigger.id }
+        let ids = Set(AgentSettings.runsOnDeviceIds(
+            pool.map { (deviceId: $0.deviceId, kind: $0.kind) },
+            boundId: boundId,
+            assistant: assistant
+        ))
+        return pool.filter { ids.contains($0.deviceId) }
     }
 }
 
@@ -270,26 +249,14 @@ struct AgentSettingsPage: View {
     @State private var allDevices: [SteerDevice] = []
     @State private var seeded = false
     @State private var observation: Task<Void, Never>?
-    @State private var triggerTarget: TriggerFormTarget?
-    @State private var pendingTriggerDelete: AgentTrigger?
     @State private var showDelete = false
     @State private var deleting = false
 
-    /// Sheet item for the trigger form: `id` is the trigger's id, or "new".
-    private struct TriggerFormTarget: Identifiable {
-        let id: String
-        let trigger: AgentTrigger?
-    }
-
     /// The machines an agent can live on: online with a runnable agent (the
-    /// composer's pool), plus the one it is bound to whatever its state.
+    /// composer's pool), plus the one it is bound to whatever its state;
+    /// every kind for a team agent (`runsOnCases`).
     private var devices: [SteerDevice] {
-        let candidates = allDevices.filter { $0.isOnline && $0.hasRunnableAgent }
-        guard let bound = draft.deviceId,
-              !candidates.contains(where: { $0.deviceId == bound }),
-              let row = allDevices.first(where: { $0.deviceId == bound })
-        else { return candidates }
-        return [row] + candidates
+        AgentSettingsDraft.runsOnDevices(allDevices, boundId: draft.deviceId, assistant: false)
     }
 
     private var title: String {
@@ -323,13 +290,6 @@ struct AgentSettingsPage: View {
                 accountId: accountId,
                 httpClient: deps.httpClient,
                 onRetryInstructions: { Task { await loadInstructions(retried: true) } },
-                onOpenTrigger: { trigger in
-                    triggerTarget = TriggerFormTarget(id: trigger?.id ?? "new", trigger: trigger)
-                },
-                onToggleTrigger: { trigger, enabled in
-                    writeTriggers(draft.settingEnabled(trigger, enabled), verb: "save")
-                },
-                onDeleteTrigger: { pendingTriggerDelete = $0 },
                 onDelete: isOwner && agentId != nil ? { showDelete = true } : nil,
                 teamId: teamId,
                 agentId: agentId,
@@ -360,28 +320,10 @@ struct AgentSettingsPage: View {
         // The synced row is the truth for the triggers once no write of ours
         // is in flight (the echo of the last one included).
         .onChange(of: agent?.triggers) { _, raw in
-            guard seeded, !draft.triggerBusy, let raw else { return }
-            draft.triggers = AgentTrigger.parseList(raw)
+            guard seeded, !draft.triggerList.busy, let raw else { return }
+            draft.triggerList.triggers = AgentTrigger.parseList(raw)
         }
-        .sheet(item: $triggerTarget) { target in
-            TriggerFormSheet(teamId: teamId, editing: target.trigger) { input in
-                writeTriggers(draft.applying(input, editing: target.trigger), verb: "save")
-            }
-            .environment(\.accountId, accountId)
-        }
-        // EXP-1215: the app's own alert card, each on a zero-size node of its
-        // own (two presentations on one node and SwiftUI drops the second).
-        .background {
-            Color.clear
-                .frame(width: 0, height: 0)
-                .allowsHitTesting(false)
-                .glassAlert(item: $pendingTriggerDelete) { trigger in
-                    GlassAlert(
-                        prompt: Prompts.DeleteTrigger.copy(),
-                        handlers: ["delete": { writeTriggers(draft.removing(trigger), verb: "delete") }]
-                    )
-                }
-        }
+        // EXP-1215: the app's own alert card, on a zero-size node of its own.
         .background {
             Color.clear
                 .frame(width: 0, height: 0)
@@ -462,34 +404,6 @@ struct AgentSettingsPage: View {
 
     // MARK: - Writes
 
-    /// A new agent keeps its triggers locally until Create; an existing one
-    /// writes the WHOLE array at once (optimistic, rolled back on refusal).
-    private func writeTriggers(_ next: [AgentTrigger], verb: String) {
-        guard let agentId else {
-            draft.triggers = next
-            return
-        }
-        guard !draft.triggerBusy else { return }
-        let previous = draft.triggers
-        draft.triggers = next
-        draft.triggerBusy = true
-        let inputs = draft.inputs(next)
-        Task {
-            do {
-                try await deps.agentsApi.update(
-                    accountId: accountId, id: agentId, patch: AgentPatch(triggers: inputs)
-                )
-            } catch {
-                draft.triggers = previous
-                toaster.error(
-                    FeedbackStates.Errors.title(verb: verb, thing: "the trigger"),
-                    description: error.trpcUserMessage
-                )
-            }
-            draft.triggerBusy = false
-        }
-    }
-
     /// The inline save of an existing agent: whatever changed, once the
     /// edit settles (`after`; a `.task(id:)` restart cancels the pause).
     private func autosave(after pause: Duration?) async {
@@ -530,10 +444,11 @@ struct AgentSettingsPage: View {
                         icon: draft.icon,
                         color: draft.color,
                         instructions: draft.instructions.currentMarkdown(),
-                        triggers: draft.inputs(draft.triggers),
+                        triggers: draft.triggerList.inputs(draft.triggerList.triggers),
                         deviceId: deviceId,
                         cli: draft.cli,
-                        account: draft.account
+                        account: draft.account,
+                        model: draft.model
                     )
                 )
                 dismiss()
@@ -566,21 +481,24 @@ struct AgentSettingsPage: View {
 
 // MARK: - Form
 
-/// The agent page's rows, top to bottom (fixture `fields`). Pure over the
+/// THE agent page's groups, top to bottom (fixture `page.sections`), for
+/// the Assistant (`assistant`) and every team agent alike. Pure over the
 /// draft + the device pool, so the capture seam draws it too.
 struct AgentSettingsForm: View {
     @Bindable var draft: AgentSettingsDraft
     let devices: [SteerDevice]
     let canEdit: Bool
+    /// The viewer's Assistant: brand mark identity, Voice, no Instructions
+    /// and no Delete.
+    var assistant = false
+    /// The Assistant's Voice group (nil = none).
+    var voice: VoiceSettingsModel? = nil
     var baseURL: URL? = nil
     var accountId: String = ""
     var httpClient: HTTPClient? = nil
     var onRetryInstructions: () -> Void = {}
-    /// nil = add.
-    var onOpenTrigger: (AgentTrigger?) -> Void = { _ in }
-    var onToggleTrigger: (AgentTrigger, Bool) -> Void = { _, _ in }
-    var onDeleteTrigger: (AgentTrigger) -> Void = { _ in }
-    /// nil hides the Delete row (members, or an agent not created yet).
+    /// nil hides the Delete row (members, an Assistant, or an agent not
+    /// created yet).
     var onDelete: (() -> Void)? = nil
     /// #EXP-1661: the Skills row (an existing agent only; nil hides it).
     var teamId: String? = nil
@@ -601,43 +519,60 @@ struct AgentSettingsForm: View {
 
     var body: some View {
         Form {
+            // identity
             Section {
                 identityRow
                 errorLine("identity")
-                deviceRow
+            }
+            .listRowBackground(glassFormRowFill)
+
+            // runs-on: device, account, model, skills, mcp-servers
+            Section {
+                AgentDeviceRow(draft: draft, devices: devices, canEdit: canEdit, title: label("device"))
                 errorLine("device")
-                // #EXP-1661 (skills.json `agentRow`): right under Device.
+                AgentAccountRow(draft: draft, device: device, canEdit: canEdit, title: label("account"))
+                modelRow
                 if let teamId, let agentId {
                     AgentSkillsRow(teamId: teamId, agentId: agentId, skillIds: skillIds, canEdit: canEdit)
-                    // #EXP-1793 (agent-settings.json `mcpRow`): right under Skills,
-                    // while the team has a server or the agent names one.
+                    // #EXP-1793 (`mcpRow`): while the team has a server or
+                    // the agent names one.
                     if !mcpServers.isEmpty || !mcpServerIds.isEmpty {
                         AgentMcpServersRow(
                             agentId: agentId, servers: mcpServers, mcpServerIds: mcpServerIds, canEdit: canEdit
                         )
                     }
                 }
+            } header: {
+                GlassSectionHeader(AgentSettings.Copy.runsOn)
             }
             .listRowBackground(glassFormRowFill)
 
-            Section {
-                accountRow
-                scheduleRows
+            // triggers: Check in, then the list + Add
+            if let teamId {
+                AgentTriggersSection(agentId: agentId, editable: canEdit, teamId: teamId, list: draft.triggerList)
             }
-            .listRowBackground(glassFormRowFill)
 
-            Section {
-                instructionsEditor
-                errorLine("instructions")
-            } footer: {
-                // Web's caption under the field.
-                Text(label("instructions"))
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            // voice: the Assistant only, THE block without its Voice device +
+            // Agent pickers.
+            if assistant, let voice {
+                VoiceSettingsBlock(model: voice, pickers: false, header: AgentSettings.AssistantCopy.voice)
             }
-            .listRowBackground(glassFormRowFill)
 
-            if let onDelete {
+            // instructions: team agents only (the Assistant's is built in).
+            if !assistant {
+                Section {
+                    instructionsEditor
+                    errorLine("instructions")
+                } footer: {
+                    // Web's caption under the field.
+                    Text(label("instructions"))
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                }
+                .listRowBackground(glassFormRowFill)
+            }
+
+            if !assistant, let onDelete {
                 // EXP-1554: THE destructive button, under the form,
                 // left-aligned, on no card (web's placement).
                 Section {
@@ -669,100 +604,43 @@ struct AgentSettingsForm: View {
         }
     }
 
-    /// The board form's ONE row: icon, colour, name (EXP-862, ×4).
-    private var identityRow: some View {
-        HStack(spacing: 8) {
-            IconPicker(selection: $draft.icon, tint: Color(hex: draft.color))
-            ColorSwatchPicker(selection: $draft.color)
-            TextField(AgentSettings.Copy.namePlaceholder, text: $draft.name)
-                .font(.subheadline)
-                .accessibilityIdentifier("agent-name")
-        }
-        .disabled(!canEdit)
-    }
-
-    private var deviceRow: some View {
-        AgentDeviceRow(draft: draft, devices: devices, canEdit: canEdit, title: label("device"))
-    }
-
-    private var accountRow: some View {
-        AgentAccountRow(draft: draft, device: device, canEdit: canEdit, title: label("account"))
-    }
-
-    /// Web's Triggers block: the "Triggers" row (`Waits for messages` while
-    /// there are none, the owner's "+ Add" pill trailing), then one row per
-    /// trigger (its summary + switch + ⋯ menu).
+    /// The board form's ONE row: icon, colour, name (EXP-862, ×4); the
+    /// Assistant's brand mark in place of the icon + colour pickers.
     @ViewBuilder
-    private var scheduleRows: some View {
-        HStack(spacing: 8) {
-            Text(label("triggers"))
-                .foregroundStyle(.white.opacity(TextOpacity.primary))
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-            Spacer(minLength: 8)
-            if draft.triggers.isEmpty {
-                Text(AgentSettings.Copy.noSchedule)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+    private var identityRow: some View {
+        if assistant {
+            HStack(spacing: 8) {
+                // Web's identity lead (`AssistantMark` size-9).
+                AssistantAvatar(size: 36)
+                TextField(AgentSettings.AssistantCopy.name, text: $draft.name)
+                    .font(.subheadline)
+                    .accessibilityIdentifier("agent-name")
             }
-            if canEdit, draft.triggers.count < DomainContract.agentTriggerMaxPerAgent {
-                GlassPill(AgentSettings.Copy.addTrigger, icon: AppIcons.uiAdd, mode: .action {
-                    onOpenTrigger(nil)
-                }, enabled: !draft.triggerBusy)
-                .fixedSize()
-                .accessibilityIdentifier("add-trigger")
+            .disabled(!canEdit)
+        } else {
+            HStack(spacing: 8) {
+                IconPicker(selection: $draft.icon, tint: Color(hex: draft.color))
+                ColorSwatchPicker(selection: $draft.color)
+                TextField(AgentSettings.Copy.namePlaceholder, text: $draft.name)
+                    .font(.subheadline)
+                    .accessibilityIdentifier("agent-name")
             }
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("agent-schedule-row")
-        ForEach(draft.triggers) { trigger in
-            triggerRow(trigger)
+            .disabled(!canEdit)
         }
     }
 
-    /// The row's body opens the editor; the switch and the ⋯ menu (Edit,
-    /// Delete) sit BESIDE it (a control nested in a button's label has its
-    /// tap swallowed).
-    private func triggerRow(_ trigger: AgentTrigger) -> some View {
-        let sentence = AgentSettings.triggerSummary(trigger)
-        return HStack(spacing: 8) {
-            Button { onOpenTrigger(trigger) } label: {
-                HStack(spacing: 0) {
-                    Text(sentence)
-                        .foregroundStyle(.white.opacity(trigger.enabled ? TextOpacity.primary : TextOpacity.tertiary))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    Spacer(minLength: 0)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(!canEdit)
-
-            GlassToggleRow(nil, isOn: Binding(
-                get: { trigger.enabled },
-                set: { onToggleTrigger(trigger, $0) }
-            ), style: .compact)
-            .disabled(!canEdit || draft.triggerBusy)
-            .accessibilityLabel("Enabled: \(sentence)")
-            .accessibilityIdentifier("trigger-enabled")
-
-            if canEdit {
-                GlassMenu {
-                    GlassMenuItem("Edit", icon: AppIcons.uiEdit) { onOpenTrigger(trigger) }
-                    GlassMenuItem("Delete", icon: AppIcons.uiDelete, destructive: true) {
-                        onDeleteTrigger(trigger)
-                    }
-                } label: {
-                    GhostIconLabel(AppIcons.uiMore)
-                        .accessibilityLabel("Trigger menu for \(sentence)")
-                }
-                .accessibilityIdentifier("trigger-menu")
-            }
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("trigger-row")
+    /// THE model picker over the login's agent, every agent's; unpinned
+    /// reads the device default for that agent (`modelValueCases`).
+    private var modelRow: some View {
+        let agent = draft.cli ?? "claude"
+        let value = AgentSettings.assistantModelValue(model: draft.model, cli: agent)
+        return ModelPickerRow(
+            "Model",
+            selection: Binding(get: { value }, set: { draft.model = $0 }),
+            agent: agent
+        )
+        .disabled(!canEdit)
+        .accessibilityIdentifier("agent-model-row")
     }
 
     private var instructionsEditor: some View {

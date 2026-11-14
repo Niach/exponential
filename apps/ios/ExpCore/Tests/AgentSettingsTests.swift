@@ -54,6 +54,9 @@ final class AgentSettingsTests: XCTestCase {
         XCTAssertEqual(errors["deviceRequired"], AgentSettings.Copy.deviceRequired)
         XCTAssertEqual(errors["instructionsTooLong"], AgentSettings.Copy.instructionsTooLong)
         XCTAssertEqual(copy["accountLastUsed"] as? String, AgentSettings.Copy.accountLastUsed)
+        XCTAssertEqual(copy["triggers"] as? String, AgentSettings.Copy.triggers)
+        XCTAssertEqual(copy["runsOn"] as? String, AgentSettings.Copy.runsOn)
+        XCTAssertEqual(copy["checkIn"] as? String, AgentSettings.Copy.checkIn)
         let testIds = try XCTUnwrap(fixture["testIds"] as? [String: String])
         XCTAssertEqual(testIds["list"], AgentSettings.TestIds.list)
         XCTAssertEqual(testIds["page"], AgentSettings.TestIds.page)
@@ -331,8 +334,11 @@ final class AgentSettingsTests: XCTestCase {
         for schedule in AgentSettings.assistantSchedules where schedule.id != .off {
             let saved = AgentSettings.assistantScheduleTriggers(schedule.id, tz: "Europe/Vienna")
             XCTAssertEqual(saved, [AgentTriggerInput(
-                enabled: true, when: .schedule(ScheduleTrigger(cron: schedule.cron!, tz: "Europe/Vienna"))
+                enabled: true,
+                when: .schedule(ScheduleTrigger(cron: schedule.cron!, tz: "Europe/Vienna")),
+                preset: schedule.id.rawValue
             )])
+            XCTAssertEqual(AgentSettings.checkInOf(saved), schedule.id)
             XCTAssertEqual(
                 AgentSettings.assistantScheduleOf(saved.map { (when: $0.when, enabled: $0.enabled) }),
                 schedule.id
@@ -342,6 +348,105 @@ final class AgentSettingsTests: XCTestCase {
             if case let .schedule(s) = $0.when { return s.tz }
             return nil
         })
+    }
+
+    // MARK: - #EXP-1846 one agent page, the Check in (`page`, `checkIn`)
+
+    func testPageSectionsMatchTheFixture() throws {
+        let page = try XCTUnwrap(try fixture()["page"] as? [String: Any])
+        let sections = try XCTUnwrap(page["sections"] as? [[String: Any]])
+        XCTAssertEqual(sections.count, AgentSettings.pageSections.count)
+        for (want, section) in zip(sections, AgentSettings.pageSections) {
+            XCTAssertEqual(want["id"] as? String, section.id)
+            XCTAssertEqual(want["label"] as? String, section.label, section.id)
+            XCTAssertEqual(want["rows"] as? [String] ?? [], section.rows, section.id)
+            XCTAssertEqual(want["assistantOnly"] as? Bool ?? false, section.assistantOnly, section.id)
+            XCTAssertEqual(want["teamAgentOnly"] as? Bool ?? false, section.teamAgentOnly, section.id)
+            XCTAssertEqual(want["ownerOnly"] as? Bool ?? false, section.ownerOnly, section.id)
+        }
+    }
+
+    private func checkInBlock() throws -> [String: Any] {
+        try XCTUnwrap(try fixture()["checkIn"] as? [String: Any])
+    }
+
+    /// One fixture trigger as a write element (its id optional).
+    private func triggerInput(_ object: [String: Any], _ name: String) throws -> AgentTriggerInput {
+        let when = try XCTUnwrap(TriggerWhen.parse(object: object), name)
+        return AgentTriggerInput(
+            id: object["id"] as? String,
+            enabled: object["enabled"] as? Bool ?? true,
+            when: when,
+            preset: object["preset"] as? String
+        )
+    }
+
+    func testCheckInOfReplaysEveryCase() throws {
+        let cases = try XCTUnwrap(try checkInBlock()["checkInCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let triggers = try XCTUnwrap(testCase["triggers"] as? [[String: Any]]).map { try triggerInput($0, name) }
+            XCTAssertEqual(AgentSettings.checkInOf(triggers).rawValue, testCase["expected"] as? String, name)
+            // The stored (parsed) model reads the same.
+            let stored = try XCTUnwrap(testCase["triggers"] as? [[String: Any]]).enumerated().map { index, raw in
+                var object = raw
+                object["id"] = "t\(index)"
+                return try XCTUnwrap(AgentTrigger.parse(object: object), name)
+            }
+            XCTAssertEqual(AgentSettings.checkInOf(stored).rawValue, testCase["expected"] as? String, name)
+        }
+    }
+
+    func testWithCheckInReplaysEveryCase() throws {
+        let cases = try XCTUnwrap(try checkInBlock()["withCheckInCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let triggers = try XCTUnwrap(testCase["triggers"] as? [[String: Any]]).map { try triggerInput($0, name) }
+            let preset = try XCTUnwrap(
+                AgentSettings.AssistantScheduleId(rawValue: try XCTUnwrap(testCase["preset"] as? String, name)), name
+            )
+            let written = AgentSettings.withCheckIn(triggers, preset, tz: testCase["tz"] as? String)
+            // The WHOLE wire array, as the server receives it.
+            let json = try JSONSerialization.jsonObject(with: try JSONEncoder().encode(written))
+            let got = try XCTUnwrap(json as? [[String: Any]], name)
+            let expected = try XCTUnwrap(testCase["expected"] as? [[String: Any]], name)
+            XCTAssertEqual(got as NSArray, expected as NSArray, name)
+        }
+    }
+
+    func testListedTriggersReplaysEveryCase() throws {
+        let cases = try XCTUnwrap(try checkInBlock()["listedCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let triggers = try XCTUnwrap(testCase["triggers"] as? [[String: Any]]).map {
+                try XCTUnwrap(AgentTrigger.parse(object: $0), name)
+            }
+            XCTAssertEqual(
+                AgentSettings.listedTriggers(triggers).map(\.id),
+                try XCTUnwrap(testCase["expected"] as? [String], name),
+                name
+            )
+        }
+    }
+
+    /// Every whole-array write keeps the Check in tag (toggle, edit, delete).
+    func testWholeArrayWritesKeepThePreset() {
+        let checkIn = AgentTrigger(
+            id: "ci", when: .schedule(ScheduleTrigger(cron: "0 * * * *")), preset: "1h"
+        )
+        let event = AgentTrigger(id: "ev", when: .event(EventTrigger(name: "pr.merged")))
+        let stored = [checkIn, event]
+        XCTAssertEqual(stored.settingEnabled(id: "ev", false).first?.preset, "1h")
+        XCTAssertEqual(stored.removing(id: "ev").first?.preset, "1h")
+        XCTAssertEqual(
+            stored.replacing(id: "ev", with: AgentTriggerInput(when: .event(EventTrigger(name: "pr.opened")))).first?.preset,
+            "1h"
+        )
+        XCTAssertEqual(stored.adding(AgentTriggerInput(when: .event(EventTrigger(name: "pr.opened")))).first?.preset, "1h")
+        XCTAssertEqual(AgentSettings.checkInOf(stored.settingEnabled(id: "ev", false)), .hourly)
     }
 
     func testVisibleAgentReplaysEveryCase() throws {
