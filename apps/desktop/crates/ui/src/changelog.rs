@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-14-app-triggers",
+    date: "2026-11-14",
+    title: "App automations are the app agent's triggers",
+    summary: "An app's automations now live on its agent as triggers: the same list as every agent's, and they can also wake the agent instead of running a binding.",
+    body: r##"- **One trigger list**: an app's automations moved onto its agent, so a schedule, a team event, a record write or a webhook is one trigger in the same list every agent has. Nothing to do on your side: existing automations moved over with their history and keep firing.
+- **Wake the agent**: a trigger without a binding wakes the app's agent with a card in its chat (and an optional prompt), so judgement goes to the agent, not a fixed binding.
+- **Runs as the owner**: a binding runs as the app agent's owner, the app's creator, like every trigger. It pauses while they lack write access, and the team's owners are told.
+- **Rate cap**: the 30 runs a minute per app counts only runs that actually ran, so a burst no longer blocks the next minute."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_295: ChangelogEntry = ChangelogEntry {
     id: "2026-11-14-one-agent-settings-page",
     date: "2026-11-14",
     title: "One settings page for every agent",

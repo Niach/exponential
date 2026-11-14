@@ -239,7 +239,7 @@ final class TriggerWhenTests: XCTestCase {
         )
         let trigger = try XCTUnwrap(contract["agentTrigger"] as? [String: Any])
         XCTAssertEqual(trigger["kindValues"] as? [String], DomainContract.agentTriggerKindValues)
-        XCTAssertEqual(DomainContract.agentTriggerKindValues, ["schedule", "event"])
+        XCTAssertEqual(DomainContract.agentTriggerKindValues, ["schedule", "event", "record", "webhook"])
         XCTAssertEqual(trigger["maxPerAgent"] as? Int, DomainContract.agentTriggerMaxPerAgent)
         XCTAssertEqual(trigger["cronMax"] as? Int, DomainContract.agentTriggerCronMax)
         XCTAssertEqual(trigger["tzMax"] as? Int, DomainContract.agentTriggerTzMax)

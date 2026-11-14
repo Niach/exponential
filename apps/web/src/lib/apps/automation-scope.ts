@@ -3,10 +3,8 @@
 // inside `runInAutomation`; every record write and event it causes (its
 // records write, the events its action emits) sees `inAutomation()` and
 // fires nothing (@exp/emcp automations.json `matchCases`). Kept free of the
-// broker's imports: the executor (`automations.ts`) loads lazily, only when
-// a published package has a matching automation.
+// broker's imports: the executor (`automations.ts`) loads lazily.
 import { AsyncLocalStorage } from "node:async_hooks"
-import { matchAutomations } from "@exp/emcp/automations"
 
 const scope = new AsyncLocalStorage<{ appId: string; name: string }>()
 
@@ -36,23 +34,19 @@ export function runInAutomation<T>(ctx: { appId: string; name: string }, fn: () 
   return scope.run(ctx, fn)
 }
 
-export function automationsOf(pkg: unknown): unknown[] {
-  const list = pkg && typeof pkg === `object` ? (pkg as { automations?: unknown }).automations : undefined
-  return Array.isArray(list) ? list : []
-}
-
 export type RecordTriggerOp = `create` | `update` | `delete`
 
-/** A committed record write: fires the PUBLISHED package's matching record
- *  automations (detached, after the caller's transaction). */
+/** A committed record write: fires the matching triggers of the app's
+ *  agent (#EXP-1829: its run triggers and wakes; detached, after the
+ *  caller's transaction). An app without an agent fires nothing. */
 export function afterRecordWrite(
-  app: { id: string; package: unknown },
+  app: { id: string; agentId?: string | null },
   kind: string,
   op: RecordTriggerOp,
   record: Record<string, unknown>
 ): void {
   if (inAutomation()) return
-  if (matchAutomations(automationsOf(app.package), { record: { kind, op } }, false).length === 0) return
+  if (app.agentId === null) return
   const sessionId = causingSessionId()
   void import(`@/lib/apps/automations`)
     .then((m) => m.fireRecordAutomations(app.id, kind, op, record, sessionId))

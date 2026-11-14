@@ -7,7 +7,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { and, eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { appHooks, appRecords, apps, mcpCalls, teamMembers, teams } from "@/db/schema"
+import { agents, appHooks, appRecords, apps, mcpCalls, teamMembers, teams } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
 
 vi.mock(`@/lib/integrations/notifications`, async (importOriginal) => {
@@ -23,6 +23,8 @@ if (!ready.ok) console.info(`[webhooks.real-db] skipped: ${ready.reason}`)
 
 const { handleWebhookDelivery, hookRows, rotateHookSecret, pruneHookNonces } = await import(`@/lib/apps/webhooks`)
 const { webhookSignature, WEBHOOK } = await import(`@exp/emcp/webhooks`)
+const { migrateAppAutomations } = await import(`@/lib/apps/automations-migrate`)
+const { triggerAutomationName } = await import(`@/lib/agents/app-triggers`)
 
 const id8 = () => crypto.randomUUID().slice(0, 8)
 const made = { teams: [] as string[], users: [] as string[] }
@@ -64,7 +66,11 @@ async function world() {
     .insert(apps)
     .values({ teamId, slug: `billing`, name: `Billing`, package: PACKAGE as never, headVersion: 1, publishedVersion: 1, publishedBy: owner, createdBy: owner })
     .returning({ id: apps.id })
-  return { owner, member, teamId, app: { id: app!.id, teamId, package: PACKAGE } }
+  // #EXP-1829: the boot pass moves the automation onto the app agent.
+  await migrateAppAutomations()
+  const [agent] = await db.select({ triggers: agents.triggers }).from(agents).innerJoin(apps, eq(apps.agentId, agents.id)).where(eq(apps.id, app!.id))
+  const cid = `automation:${triggerAutomationName(agent!.triggers[0]!.id)}`
+  return { owner, member, teamId, cid, app: { id: app!.id, teamId, package: PACKAGE } }
 }
 
 const NOW = new Date(`2026-11-03T12:00:00.000Z`)
@@ -109,7 +115,7 @@ describe.skipIf(!ready.ok)(`app webhooks (real db)`, () => {
     const signed = webhookSignature(secret, T, body)
     const ok = await deliver(w.app.id, body, signed)
     expect(ok.status).toBe(202)
-    expect(await ok.json()).toEqual({ ok: true, runs: [{ name: `stripe_paid`, status: `ok` }] })
+    expect(await ok.json()).toEqual({ ok: true, runs: [{ name: w.cid.slice(`automation:`.length), status: `ok` }] })
     const [payment] = await payments(w.app.id)
     expect(payment).toMatchObject({ data: { customer: `cus_1`, amount: 42 }, authorId: w.owner })
 
@@ -137,7 +143,7 @@ describe.skipIf(!ready.ok)(`app webhooks (real db)`, () => {
     const rows = Array.from({ length: WEBHOOK.callsPerMinute }, () => ({
       teamId: w.teamId,
       userId: w.owner,
-      clientId: `automation:stripe_paid`,
+      clientId: w.cid,
       appId: w.app.id,
       tool: `records.upsert:payment`,
       status: `ok`,
