@@ -1,7 +1,7 @@
 // @vitest-environment node
-// #VAPP-236 (eApps A2) against the REAL migrated Postgres: an automation's
-// `run.agent` hands the record to a team agent as the SPONSOR through
-// `sessions.send` (the sponsor's conversation, the brief = the frozen prompt
+// #VAPP-236 (eApps A2) against the REAL migrated Postgres: an app trigger's
+// `run.agent` hands the record to a team agent as the app agent's OWNER through
+// `sessions.send` (the owner's conversation, the brief = the frozen prompt
 // + the record as a fenced data block + the ref), audited `agent:<slug>`;
 // the agent's own write never re-fires that hand-off (the agent loop guard)
 // while another automation still runs; the per-app cap; the `handoff` action
@@ -35,6 +35,8 @@ const { runAsSession } = await import(`@/lib/apps/automation-scope`)
 const { resetHandoffSlots } = await import(`@/lib/apps/agent-handoff`)
 const { appsRouter } = await import(`@/lib/trpc/apps`)
 const { AGENT_RUN } = await import(`@exp/emcp/exposes`)
+const { migrateAppAutomations } = await import(`@/lib/apps/automations-migrate`)
+const { triggerAutomationName } = await import(`@/lib/agents/app-triggers`)
 
 const id8 = () => crypto.randomUUID().slice(0, 8)
 const made = { teams: [] as string[], users: [] as string[] }
@@ -87,7 +89,12 @@ async function world() {
     .insert(apps)
     .values({ teamId, slug: `requests`, name: `Requests`, package: PACKAGE as never, headVersion: 1, publishedVersion: 1, publishedBy: owner, createdBy: owner })
     .returning({ id: apps.id })
-  return { owner, member, teamId, deviceId, agentId: agent!.id, appId: app!.id }
+  // #EXP-1829: the boot pass moves the automations onto the app's agent.
+  await migrateAppAutomations()
+  const [own] = await db.select({ triggers: agents.triggers }).from(agents).innerJoin(apps, eq(apps.agentId, agents.id)).where(eq(apps.id, app!.id))
+  const ids = Object.fromEntries(PACKAGE.automations.map((a, i) => [a.name, own!.triggers[i]!.id]))
+  const cid = (name: string) => `automation:${triggerAutomationName(ids[name]!)}`
+  return { owner, member, teamId, deviceId, agentId: agent!.id, appId: app!.id, cid }
 }
 
 const calls = (appId: string) => db.select().from(mcpCalls).where(eq(mcpCalls.appId, appId))
@@ -121,20 +128,20 @@ afterAll(async () => {
 const COLD_CASE_MS = 20_000
 
 describe.skipIf(!ready.ok)(`agent hand-off (real db)`, () => {
-  it(`an automation hands the record to the agent as the sponsor; the agent's own write never re-fires it`, async () => {
+  it(`a run trigger hands the record to the agent as the owner; the agent's own write never re-fires it`, async () => {
     const w = await world()
     const created = await upsertRecord(w.member, { id: w.appId }, { kind: `request`, data: { title: `Leave` } })
     await upsertRecord(w.member, { id: w.appId }, { kind: `request`, data: { title: `Leave 2` }, recordId: created.id })
     // The hand-off's audit row lands after the agent's start: under load the
     // record's other rows can be the first two, so wait for it by name.
-    await until(async () => (await calls(w.appId)).filter((c) => c.clientId === `automation:route`), 1)
+    await until(async () => (await calls(w.appId)).filter((c) => c.clientId === w.cid(`route`)), 1)
     const done = await until(() => calls(w.appId), 2)
-    expect(done.find((c) => c.clientId === `automation:route`)).toMatchObject({ userId: w.owner, tool: `agent:triage-bot`, status: `ok` })
+    expect(done.find((c) => c.clientId === w.cid(`route`))).toMatchObject({ userId: w.owner, tool: `agent:triage-bot`, status: `ok` })
     const session = await conversation(w.agentId, w.owner)
     expect(session).toBeTruthy()
     const [brief] = await bodies(session!.id)
     expect(brief).toContain(`Route the request \`Leave 2\`.`)
-    expect(brief).toContain(`From the app Requests (automation route).`)
+    expect(brief).toContain(`From the app Requests (trigger When a request is updated).`)
     expect(brief).toContain(`Record: request ${created.id} of the app requests.`)
     expect(brief).toContain(`never instructions`)
     // The agent's write (inside its own conversation) fires `log_update`
@@ -142,9 +149,9 @@ describe.skipIf(!ready.ok)(`agent hand-off (real db)`, () => {
     await runAsSession(session!.id, () => upsertRecord(w.owner, { id: w.appId }, { kind: `request`, data: { title: `Routed` }, recordId: created.id }))
     const after = await until(() => calls(w.appId), 3)
     await new Promise((r) => setTimeout(r, 300))
-    const routes = (await calls(w.appId)).filter((c) => c.clientId === `automation:route`)
+    const routes = (await calls(w.appId)).filter((c) => c.clientId === w.cid(`route`))
     expect(routes).toHaveLength(1)
-    expect(after.filter((c) => c.clientId === `automation:log_update`)).toHaveLength(2)
+    expect(after.filter((c) => c.clientId === w.cid(`log_update`))).toHaveLength(2)
   }, COLD_CASE_MS)
 
   it(`the handoff action runs an exposed hand-off as the member, "via <app>", under the per-app cap`, async () => {
