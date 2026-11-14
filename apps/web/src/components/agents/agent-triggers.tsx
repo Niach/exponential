@@ -247,7 +247,9 @@ function AgentTriggerRow({
       interactive={!readOnly}
       onClick={readOnly ? undefined : onEdit}
       aria-label={readOnly ? undefined : sentence}
-      className="px-4"
+      // In a GlassGroup the hairline between rows is this row's border: a
+      // rounded row bends it at both ends (#EXP-1846 pictures).
+      className="rounded-none px-4"
       data-testid={`agent-trigger-${trigger.id}`}
     >
       <span className={`min-w-0 flex-1 truncate text-sm ${trigger.enabled ? `` : `text-muted-foreground`}`}>

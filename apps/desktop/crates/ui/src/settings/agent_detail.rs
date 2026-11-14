@@ -440,6 +440,14 @@ impl AgentDetailPane {
         cx.notify();
     }
 
+    /// The bench's Assistant page with its Voice block loaded.
+    #[cfg(test)]
+    pub(crate) fn show_voice(&mut self, shot: super::voice_prefs::VoiceShot, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let voice = self.voice.get_or_insert_with(|| cx.new(|cx| super::voice_prefs::VoicePrefsPane::assistant(window, cx))).clone();
+        voice.update(cx, |voice, cx| voice.show(shot, cx));
+        cx.notify();
+    }
+
     /// The page in a pinned state: `owner`, and the instructions read
     /// (`None` = still loading, `Some(Err)` = failed).
     #[cfg(test)]
