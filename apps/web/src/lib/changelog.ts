@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-14-phone-widgets-agent-shortcuts`,
+    date: `2026-11-14`,
+    title: `Home screen widgets and agent chat shortcuts`,
+    summary: `Phones get Board, My issues and Needs you widgets, and a shortcut to an agent's chat now opens that chat.`,
+    body: `- **Agent chat shortcuts**: long-press the app icon for your Assistant next to New issue, New chat and Search; a shortcut you pinned to the home screen now opens that chat instead of wherever the app was, and Back returns to the Agent tab.
+- **Home screen widgets**: add a board's open issues, your issues in the teams you pick, or the plans and questions waiting on you; a tap opens the issue or chat.
+- **Siri and Shortcuts**: on iOS, ask to open an agent's chat in Exponential.`,
+  },
+  {
     id: `2026-11-13-apps-touched-issues`,
     date: `2026-11-13`,
     title: `Apps can list the issues you touched`,
