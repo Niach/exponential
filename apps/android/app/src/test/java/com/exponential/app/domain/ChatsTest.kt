@@ -191,6 +191,20 @@ class ChatsTest {
     }
 
     @Test
+    fun `sidebar agents drop every app's agent`() {
+        for (case in cases("sidebarAgentCases")) {
+            val input = case.getValue("input").jsonObject
+            val agents = input.getValue("agents").jsonArray.map { it.jsonObject.getValue("agentId").jsonPrimitive.content }
+            val apps = input.getValue("apps").jsonArray.map { it.jsonObject.str("agentId") }
+            assertEquals(
+                case.str("name"),
+                case.getValue("expected").jsonArray.map { it.jsonPrimitive.content },
+                Chats.sidebarAgents(agents, apps) { it },
+            )
+        }
+    }
+
+    @Test
     fun `every agent row case matches the fixture (S-3)`() {
         for (case in cases("agentRowCases")) {
             val input = case.getValue("input").jsonObject

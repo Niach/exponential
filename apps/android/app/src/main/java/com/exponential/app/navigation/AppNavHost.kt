@@ -848,7 +848,9 @@ private fun AuthenticatedNav(
                 onOpenSession = { id -> navController.navigate(Routes.session(id)) },
                 // Session 58cb32df: the header's inbox circle pushes the inbox.
                 onOpenInbox = { navController.navigate(MainTabs.INBOX) { launchSingleTop = true } },
-                onOpenAgentSettings = { id -> navController.navigate(Routes.agentSettings(id)) },
+                // #FEED-239: an agent row's `…` › Agent settings opens that
+                // agent's chat with its settings item open.
+                onOpenAgentSettings = { id, rootId -> navController.navigate(Routes.agentChatSettings(id, rootId)) },
                 inboxUnread = unreadCountLatest.value,
                 // #EXP-1388: the Archived entry pushes the Archived page.
                 onOpenArchived = { navController.navigate(Routes.CHATS_ARCHIVED) { launchSingleTop = true } },
@@ -1238,9 +1240,6 @@ private fun AuthenticatedNav(
                 onOpenChat = { id -> navController.navigate(Routes.chat(id)) },
                 // The "+"'s New issue: filed + linked to this root on create.
                 onNewIssue = { boardId, rootId -> navController.openIssueDraft(boardId, chatId = rootId) },
-                // chats.json `agentMenuCases` + #EXP-1732 THE gear: an agent
-                // chat's settings page (the gear's pushed item on a phone).
-                onOpenAgentSettings = { id -> navController.navigate(Routes.agentSettings(id)) },
             )
         }
         composable(Routes.AGENTS_SETTINGS) {
@@ -1270,10 +1269,21 @@ private fun AuthenticatedNav(
                 onDeleted = { navController.popBackStack() },
             )
         }
-        composable(Routes.AGENT_DM_PATTERN) {
+        composable(
+            Routes.AGENT_DM_PATTERN,
+            arguments = listOf(
+                // #FEED-239: `settings` = open on the agent's settings item.
+                navArgument("open") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) { entry ->
             // NEW-7: my DM with an agent; once it exists it IS the chat
             // screen's agent channel, which replaces this entry.
             AgentConversationScreen(
+                openSettings = entry.arguments?.getString("open") == "settings",
                 onBack = { navController.popBackStack() },
                 onOpenConversation = { id ->
                     val here = navController.currentBackStackEntry?.destination?.id
@@ -1281,8 +1291,6 @@ private fun AuthenticatedNav(
                         if (here != null) popUpTo(here) { inclusive = true }
                     }
                 },
-                // #EXP-1732: THE gear pushes the agent's settings page.
-                onOpenAgentSettings = { id -> navController.navigate(Routes.agentSettings(id)) },
             )
         }
         composable(Routes.PROMPTS_SETTINGS) {

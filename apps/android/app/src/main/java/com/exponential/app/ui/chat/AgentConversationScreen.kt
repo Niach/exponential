@@ -111,6 +111,19 @@ class AgentConversationViewModel @Inject constructor(
         dbFlow.scopedQuery<AgentDefinitionEntity?>(null) { it.agentDefinitionDao().observeById(agentId) }
             .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    /** #FEED-239: the viewer may open the agent's settings from `…` (an
+     *  agent: team owners; the Assistant: its owner). */
+    val maySettings: StateFlow<Boolean> = combine(agent, auth.userId) { row, me -> row to me }
+        .flatMapLatest { (row, me) ->
+            when {
+                row == null || me == null -> flowOf(false)
+                row.isAssistant -> flowOf(row.ownerId == me)
+                else -> dbFlow.scopedQuery(emptyList()) { it.teamMemberDao().observeByTeam(row.teamId) }
+                    .map { members -> members.any { it.userId == me && it.role == "owner" } }
+            }
+        }
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
     // ── #FEED-219 (composer-draft.json): the field before the conversation
     // exists is the synced `agent:<id>` draft (EXP-1520: the screen adopts it
     // only on an outside rewrite, ComposerDraftSync).
@@ -394,8 +407,8 @@ fun AgentConversationScreen(
     onBack: () -> Unit,
     /** The conversation exists (synced, or my first send created it): open it in place. */
     onOpenConversation: (sessionId: String) -> Unit,
-    /** #EXP-1732: THE gear pushes the agent's (the Assistant's) settings. */
-    onOpenAgentSettings: ((agentId: String) -> Unit)? = null,
+    /** #FEED-239: open on the settings item (a row's `…` › Agent settings). */
+    openSettings: Boolean = false,
     viewModel: AgentConversationViewModel = hiltViewModel(),
 ) {
     val agent by viewModel.agent.collectAsStateWithLifecycle()
@@ -404,6 +417,7 @@ fun AgentConversationScreen(
     val sending by viewModel.sending.collectAsStateWithLifecycle()
     val failure by viewModel.failure.collectAsStateWithLifecycle()
     FailedActionToast(failure, onShown = viewModel::clearFailure)
+    val maySettings by viewModel.maySettings.collectAsStateWithLifecycle()
     val promptRows by viewModel.promptRows.collectAsStateWithLifecycle()
     val teamsPickState by viewModel.teamsPick.collectAsStateWithLifecycle()
     val mcpServers by viewModel.mcpServers.collectAsStateWithLifecycle()
@@ -446,13 +460,26 @@ fun AgentConversationScreen(
     // #EXP-1732 (session-screen.json): THE screen of an agent (the Assistant)
     // with nothing under it yet: no counts, the Chat tab by default.
     var requestedTab by rememberSaveable { mutableStateOf<String?>(null) }
+    // #FEED-239: the opened item = the agent's settings (`open: settings`).
+    var openKind by rememberSaveable { mutableStateOf(if (openSettings) SessionScreen.Open.Settings.wire else null) }
+    val kind = SessionScreen.kind(agentId = viewModel.agentId, appId = null, assistant = row?.isAssistant == true)
     val screen = SessionScreen.screen(
-        kind = SessionScreen.kind(agentId = viewModel.agentId, appId = null, assistant = row?.isAssistant == true),
+        kind = kind,
         wide = false,
         requested = requestedTab,
-        open = null,
+        open = openKind,
         counts = SessionScreen.Counts(),
     )
+    if (screen.open == SessionScreen.Open.Settings && row != null) {
+        AgentSettingsItem(agentId = viewModel.agentId, onClose = { openKind = null }, onDeleted = onBack)
+        return
+    }
+    // #FEED-239: THE `…`: its settings only until the conversation exists
+    // (Compact / New conversation need one to steer).
+    val menu = sessionScreenMenuGroups(
+        kind,
+        SessionScreen.menu(kind, phone = true, member = false, settings = row != null && maySettings, publish = false, export = false, delete = false),
+    ) { entry -> if (entry == SessionScreen.MenuEntry.Settings) openKind = SessionScreen.Open.Settings.wire }
     val trigger = remember(row?.triggers) {
         com.exponential.app.domain.parseAgentTriggers(row?.triggers)
             .firstOrNull { it.enabled }
@@ -464,8 +491,8 @@ fun AgentConversationScreen(
             modifier = Modifier.testTag("agent-channel-page"),
             topBar = {
                 // Session 58cb32df: THE chat header (back · the agent's disc ·
-                // its name over its trigger); no menu before the conversation
-                // exists, the telephone and THE gear already (NEW-69, #EXP-1732).
+                // its name over its trigger); the telephone (NEW-69) and THE
+                // `…` with the agent's settings (#FEED-239).
                 ChatHeader(
                     title = if (row == null) "" else name,
                     subtitle = if (row == null) null else SessionScreen.subtitle(SessionScreen.status(emptyList()), null, trigger),
@@ -492,11 +519,8 @@ fun AgentConversationScreen(
                         val callIcon = if (row.isAssistant) null else row.icon
                         { com.exponential.app.ui.call.AgentCallButton(agentId = viewModel.agentId, agentName = name, agentIcon = callIcon, agentColor = row.color) }
                     },
-                    gear = if (row != null && screen.gear && onOpenAgentSettings != null) {
-                        { onOpenAgentSettings?.invoke(viewModel.agentId) }
-                    } else {
-                        null
-                    },
+                    menu = menu.firstOrNull().orEmpty(),
+                    menuGroups = menu.drop(1),
                     tabs = if (row != null) {
                         { SessionScreenTabs(tabs = screen.tabs, active = screen.active, onSelect = { requestedTab = it.wire }) }
                     } else {
@@ -515,7 +539,6 @@ fun AgentConversationScreen(
                         issueStatus = { null },
                         issueTitle = { null },
                         onOpen = {},
-                        onAdd = null,
                         contentPadding = listPadding,
                     )
                     SessionScreen.Tab.Results -> ChatResultsPage(

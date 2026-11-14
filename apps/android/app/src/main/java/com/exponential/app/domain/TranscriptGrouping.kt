@@ -15,6 +15,10 @@ object TranscriptGrouping {
         const val GAP_BETWEEN = 12
         const val MAX_WIDTH_PHONE = 0.78f
         const val MAX_WIDTH_PHONE_IN = 1f
+
+        /** #FEED-239: an own bubble may take the whole column left of the
+         *  viewer's avatar, on every width. */
+        const val MAX_WIDTH_OWN = 1f
         const val MAX_WIDTH_WIDE = 0.62f
         const val RADIUS = 16
         const val NAME_SIZE = 12
@@ -23,6 +27,8 @@ object TranscriptGrouping {
     object Copy {
         const val FORMER_MEMBER = "Former member"
         const val LINK_CHEVRON = "›"
+        const val SHOW_MORE = "Show more"
+        const val SHOW_LESS = "Show less"
 
         /** #EXP-1772 `copy.markers`: a system input's marker label by key. */
         val MARKERS: Map<String, String> = linkedMapOf(
@@ -169,7 +175,8 @@ object TranscriptGrouping {
                 id = item.id,
                 side = side,
                 sender = sender,
-                avatar = side == Side.Other && !sameGroup,
+                // #FEED-239: the viewer's own group wears THEIR avatar on the right.
+                avatar = side != Side.Full && !sameGroup,
                 name = name,
                 gap = if (out.isEmpty()) 0 else if (sameGroup) Layout.GAP_IN_GROUP else Layout.GAP_BETWEEN,
             )
@@ -253,4 +260,15 @@ object TranscriptGrouping {
         pending?.let { shown[it] = false }
         return shown.toList()
     }
+
+    /** #FEED-238 `fold`: a bubble over [CHARS] characters or [LINES] lines folds. */
+    object Fold {
+        const val LINES = 6
+        const val CHARS = 600
+    }
+
+    /** #FEED-238 THE FOLD ×4 (`foldCases`): a message bubble longer than
+     *  `fold.chars` characters or `fold.lines` lines folds behind Show more. */
+    fun messageFolds(text: String): Boolean =
+        text.length > Fold.CHARS || text.split("\n").size > Fold.LINES
 }

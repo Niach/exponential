@@ -153,24 +153,23 @@ import dev.chrisbanes.haze.rememberHazeState
 // VAPP-110 / VAPP-177 / #EXP-1732 (fixtures/session-screen.json + apps.json
 // THE EDITOR, web `components/apps/app-editor.tsx`): THE EDITOR on a phone =
 // THE session screen of kind `app`: the header band (the app's glyph disc,
-// the name over `status · device`, the version pill, THE gear = the app's
-// settings as a pushed item, the `…` sheet: Publish while `Apps.canPublish`
-// and I may write the app, Export once there is a version, Delete app for the
-// creator or an owner) over THE segmented tabs Chat · Preview · Data ·
-// Versions · Sessions · Results, and ONE pane. Chat = the member's EDITOR
+// the name over `status · device`, the version pill, THE `…` sheet =
+// #FEED-239's `sessionScreenMenu`: Publish while `Apps.canPublish` and I may
+// write the app, Compact + New conversation (sent into the editor session),
+// App settings (a pushed item), Export once there is a version, Delete app
+// for the creator or an owner; no gear) over THE segmented tabs Chat ·
+// Preview · Data · Versions, and ONE pane. Chat = the member's EDITOR
 // SESSION (THE transcript + THE composer; none yet = the empty chat whose
 // first send opens it); Preview = `Apps.shownVersion`'s package's first
 // template through the app host (eApps V1, #VAPP-210: the head while my
 // editor session is live or nothing is published, else the published one);
 // Data = the app's records (VAPP-178, `AppDataTab`); Versions = the version
 // list (a row's Preview lands on the Preview tab with the viewing banner:
-// Publish, Restore = a new head, Current); Sessions = THE tree rows of the
-// editor session's tree (a row pushes that session); Results = the tree's
-// results. Leaving the editor ENDS the live editor session; the next send
+// Publish, Restore = a new head, Current). Leaving the editor ENDS the live editor session; the next send
 // continues it. VAPP-176: a DRAFT (no version yet) opens on Chat with the
 // starters and the composer focused; leaving an empty draft discards it. The
 // route keys the app by ID, so a draft's slug following its new name changes
-// nothing here. The retired `?tab=settings` opens the gear's settings.
+// nothing here. The retired `?tab=settings` opens the settings item.
 
 @Composable
 fun AppEditorScreen(
@@ -275,7 +274,7 @@ fun AppEditorScreen(
                     topBar = {
                         com.exponential.app.ui.chat.ChatHeader(
                             title = when (screen.open) {
-                                SessionScreen.Open.Settings -> SessionScreen.Copy.SETTINGS
+                                SessionScreen.Open.Settings -> SessionScreen.menuLabel(SessionScreen.Kind.App, SessionScreen.MenuEntry.Settings)
                                 SessionScreen.Open.Session -> openId?.let { items.session(it)?.name }.orEmpty()
                                 else -> ""
                             },
@@ -293,8 +292,6 @@ fun AppEditorScreen(
                                 records = records.size,
                                 canManage = canManage,
                                 canGrant = isOwner,
-                                onExport = { exportOpen = true },
-                                onDelete = { deleteOpen = true },
                             )
                         }
                         SessionScreen.Open.Session -> openId?.let { id ->
@@ -365,23 +362,37 @@ fun AppEditorScreen(
                         } else {
                             null
                         },
-                        gear = if (entry != null) {
-                            { openKind = SessionScreen.Open.Settings.wire }
-                        } else {
-                            null
-                        },
-                        // apps.json `editorTabs.menu` less Versions + Settings
-                        // (a tab and the gear now).
+                        // #FEED-239: THE `…` (`sessionScreenMenu`, kind app,
+                        // a phone); no gear.
                         more = if (entry != null) {
                             {
                                 AppEditorMenu(
                                     title = entry.name,
-                                    canPublish = canWrite && Apps.canPublish(entry.versions),
-                                    onPublish = { viewModel.publish(entry.headVersion) },
-                                    canExport = entry.headVersion > 0,
-                                    canDelete = canManage,
-                                    onExport = { exportOpen = true },
-                                    onDelete = { deleteOpen = true },
+                                    entries = SessionScreen.menu(
+                                        SessionScreen.Kind.App,
+                                        phone = true,
+                                        // Compact / New conversation steer the
+                                        // editor session: once it exists.
+                                        member = chat != null,
+                                        settings = true,
+                                        publish = canWrite && Apps.canPublish(entry.versions),
+                                        export = entry.headVersion > 0,
+                                        delete = canManage,
+                                    ),
+                                    onPick = { picked ->
+                                        when (picked) {
+                                            SessionScreen.MenuEntry.Publish -> viewModel.publish(entry.headVersion)
+                                            SessionScreen.MenuEntry.Compact,
+                                            SessionScreen.MenuEntry.NewConversation -> picked.send?.let { line -> chat?.send(line) }
+                                            SessionScreen.MenuEntry.Settings -> {
+                                                openKind = SessionScreen.Open.Settings.wire
+                                                openId = null
+                                            }
+                                            SessionScreen.MenuEntry.Export -> exportOpen = true
+                                            SessionScreen.MenuEntry.Delete -> deleteOpen = true
+                                            SessionScreen.MenuEntry.Separator, SessionScreen.MenuEntry.LinkIssue -> Unit
+                                        }
+                                    },
                                 )
                             }
                         } else {
@@ -473,26 +484,6 @@ fun AppEditorScreen(
                             .fillMaxSize()
                             .verticalScroll(rememberScrollState())
                             .padding(horizontal = 16.dp, vertical = 8.dp),
-                    )
-                    SessionScreen.Tab.Sessions -> com.exponential.app.ui.chat.SessionSessionsBody(
-                        sessions = items.sessions,
-                        onOpen = { id ->
-                            openKind = SessionScreen.Open.Session.wire
-                            openId = id
-                        },
-                        contentPadding = listPadding,
-                    )
-                    SessionScreen.Tab.Results -> com.exponential.app.ui.chat.ChatResultsPage(
-                        rootId = rootId.orEmpty(),
-                        results = tree.results,
-                        cards = tree.resultCards,
-                        onReply = { sessionId, text -> chat?.sendTo(sessionId, text) },
-                        pullRequests = tree.pullRequests,
-                        teamPullRequests = tree.teamPullRequests,
-                        pullRequestIssues = tree.pullRequestIssues,
-                        issues = tree.issues,
-                        padding = padding,
-                        onOpenChat = {},
                     )
                     else -> Unit
                 }
@@ -597,21 +588,17 @@ private fun rememberAppEditorTree(chat: ChatViewModel?): AppEditorTree {
     return AppEditorTree(view, sessions, messages, resultCards, results, pullRequests, teamPullRequests, pullRequestIssues, issues)
 }
 
-/** VAPP-177 / #EXP-1732: the header's `…` (`editorTabs.menu` less Versions
- *  and Settings, THE Menu's bottom sheet titled by the app): eApps V1 Publish
- *  first (`Apps.canPublish` + write access), Export (a version exists),
- *  Delete app (destructive; the creator or an owner). */
+/** VAPP-177 / #FEED-239: the header's `…` = THE session screen menu
+ *  ([entries], `sessionScreenMenu` of kind app) as THE Menu's bottom sheet
+ *  titled by the app; [onPick] runs the picked entry. */
 @Composable
 private fun AppEditorMenu(
     title: String,
-    canPublish: Boolean,
-    onPublish: () -> Unit,
-    canExport: Boolean,
-    canDelete: Boolean,
-    onExport: () -> Unit,
-    onDelete: () -> Unit,
+    entries: List<SessionScreen.MenuEntry>,
+    onPick: (SessionScreen.MenuEntry) -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
+    if (entries.isEmpty()) return
     Box {
         com.exponential.app.ui.chat.ChatHeaderButton(
             ExpIcons.uiMore,
@@ -625,41 +612,17 @@ private fun AppEditorMenu(
             title = title,
             onDismiss = { open = false },
             testTag = "app-menu-sheet",
-            items = buildList {
-                if (canPublish) add(
-                    ChatMenuItem(
-                        label = Apps.Copy.PUBLISH,
-                        icon = ExpIcons.uiSubmit,
-                        onClick = {
-                            open = false
-                            onPublish()
-                        },
-                        testTag = Apps.TestIds.PUBLISH,
-                    ),
-                )
-                if (canExport) add(
-                    ChatMenuItem(
-                        label = Apps.Copy.MENU_EXPORT,
-                        icon = ExpIcons.uiShare,
-                        onClick = {
-                            open = false
-                            onExport()
-                        },
-                        testTag = "app-editor-export",
-                    ),
-                )
-                if (canDelete) add(
-                    ChatMenuItem(
-                        label = Apps.Copy.MENU_DELETE,
-                        icon = ExpIcons.uiDelete,
-                        onClick = {
-                            open = false
-                            onDelete()
-                        },
-                        destructive = true,
-                        testTag = "app-editor-delete",
-                    ),
-                )
+            items = com.exponential.app.ui.chat.sessionScreenMenuItems(SessionScreen.Kind.App, entries) { entry ->
+                open = false
+                onPick(entry)
+            }.map { item ->
+                // The capture walks' tags for the app's own entries.
+                when (item.testTag) {
+                    "${SessionScreen.TestIds.MENU}-publish" -> item.copy(testTag = Apps.TestIds.PUBLISH)
+                    "${SessionScreen.TestIds.MENU}-export" -> item.copy(testTag = "app-editor-export")
+                    "${SessionScreen.TestIds.MENU}-delete" -> item.copy(testTag = "app-editor-delete")
+                    else -> item
+                }
             },
         )
     }

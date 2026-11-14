@@ -19,7 +19,7 @@ import org.junit.Test
 
 /**
  * #EXP-1732: THE session screen is fixture-locked ×4 — `session-screen.json`
- * `cases` (the WHOLE value), `kindCases`, `subtitleCases` and `statusCases` replay here (TS
+ * `cases` (the WHOLE value), `menuCases` (the whole list), `kindCases`, `subtitleCases` and `statusCases` replay here (TS
  * `session-screen.test.ts`, iOS `SessionScreenTests`, desktop
  * `domain::session_screen`); the embedded copy, test ids, kinds, legacy tabs
  * and beside numbers are proved equal to the fixture's.
@@ -45,14 +45,64 @@ class SessionScreenTest {
                         put("id", tab.tab.wire)
                         put("label", tab.label)
                         put("count", tab.count?.let(::JsonPrimitive) ?: JsonNull)
+                        put("disabled", tab.disabled)
                     }
                 },
             ),
         )
         put("active", screen.active.wire)
-        put("gear", screen.gear)
+        put("settings", screen.settings)
         put("open", nullable(screen.open?.wire))
         put("layout", screen.layout.wire)
+        put("collapse", screen.collapse)
+    }
+
+    @Test
+    fun `every menu case matches the fixture whole`() {
+        for (case in cases("menuCases")) {
+            val input = case.getValue("input").jsonObject
+            fun flag(key: String) = input.getValue(key).jsonPrimitive.boolean
+            val actual = SessionScreen.menu(
+                kind = input.str("kind"),
+                phone = flag("phone"),
+                member = flag("member"),
+                settings = flag("settings"),
+                publish = flag("publish"),
+                export = flag("export"),
+                delete = flag("delete"),
+                linkIssue = flag("linkIssue"),
+            )
+            assertEquals(
+                case.str("name"),
+                case.getValue("expected").jsonArray.map { it.jsonPrimitive.content },
+                actual.map { it.wire },
+            )
+        }
+    }
+
+    @Test
+    fun `the menu copy, icons and sends equal the fixture`() {
+        val menu = fixture.getValue("copy").jsonObject.getValue("menu").jsonObject
+        assertEquals(menu.str("publish"), SessionScreen.Copy.Menu.PUBLISH)
+        assertEquals(menu.str("compact"), SessionScreen.Copy.Menu.COMPACT)
+        assertEquals(menu.str("newConversation"), SessionScreen.Copy.Menu.NEW_CONVERSATION)
+        assertEquals(menu.str("export"), SessionScreen.Copy.Menu.EXPORT)
+        val settings = menu.getValue("settings").jsonObject
+        assertEquals(settings.keys.toList(), SessionScreen.Copy.Menu.SETTINGS.keys.toList())
+        for ((key, label) in SessionScreen.Copy.Menu.SETTINGS) assertEquals(settings.str(key), label)
+        val delete = menu.getValue("delete").jsonObject
+        assertEquals(delete.keys.toList(), SessionScreen.Copy.Menu.DELETE.keys.toList())
+        for ((key, label) in SessionScreen.Copy.Menu.DELETE) assertEquals(delete.str(key), label)
+        val icons = fixture.getValue("menuIcons").jsonObject
+        assertEquals(icons.keys.toList(), SessionScreen.MENU_ICONS.keys.toList())
+        for ((key, icon) in SessionScreen.MENU_ICONS) assertEquals(icons.str(key), icon)
+        val sends = fixture.getValue("menuSends").jsonObject
+        assertEquals(sends.keys.toList(), SessionScreen.MENU_SENDS.keys.toList())
+        for ((key, line) in SessionScreen.MENU_SENDS) assertEquals(sends.str(key), line)
+        assertEquals(
+            SessionScreen.MenuEntry.entries.filter { it != SessionScreen.MenuEntry.Separator }.map { it.wire },
+            icons.keys.toList(),
+        )
     }
 
     @Test
@@ -121,6 +171,7 @@ class SessionScreenTest {
         assertEquals(SessionScreen.Tab.entries.map { it.wire }, tabs.keys.toList())
         assertEquals(copy.str("settings"), SessionScreen.Copy.SETTINGS)
         assertEquals(copy.str("back"), SessionScreen.Copy.BACK)
+        assertEquals(copy.str("collapse"), SessionScreen.Copy.COLLAPSE)
         assertEquals(copy.str("separator"), SessionScreen.Copy.SEPARATOR)
         assertEquals(copy.str("linkIssue"), SessionScreen.Copy.LINK_ISSUE)
         val status = copy.getValue("status").jsonObject
@@ -132,7 +183,9 @@ class SessionScreenTest {
 
         val ids = fixture.getValue("testIds").jsonObject
         assertEquals(ids.str("tabs"), SessionScreen.TestIds.TABS)
-        assertEquals(ids.str("gear"), SessionScreen.TestIds.GEAR)
+        assertEquals(null, ids.str("gear"))
+        assertEquals(ids.str("collapse"), SessionScreen.TestIds.COLLAPSE)
+        assertEquals(ids.str("menu"), SessionScreen.TestIds.MENU)
         assertEquals(ids.str("beside"), SessionScreen.TestIds.BESIDE)
         assertEquals(ids.str("pane"), SessionScreen.TestIds.PANE)
         assertEquals(ids.str("issues"), SessionScreen.TestIds.ISSUES)
@@ -143,7 +196,8 @@ class SessionScreenTest {
         for ((kind, spec) in SessionScreen.KINDS) {
             val json = kinds.getValue(kind.wire).jsonObject
             assertEquals(kind.wire, json.getValue("tabs").jsonArray.map { it.jsonPrimitive.content }, spec.tabs.map { it.wire })
-            assertEquals(kind.wire, json.getValue("gear").jsonPrimitive.boolean, spec.gear)
+            assertEquals(kind.wire, json.getValue("settings").jsonPrimitive.boolean, spec.settings)
+            assertEquals(kind.wire, json.getValue("wideChatTab").jsonPrimitive.boolean, spec.wideChatTab)
             assertEquals(kind.wire, json.str("wideDefault"), spec.wideDefault.wire)
         }
         assertEquals(

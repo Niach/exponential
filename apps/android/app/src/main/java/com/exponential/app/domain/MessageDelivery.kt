@@ -40,6 +40,27 @@ object MessageDelivery {
      *  forever). */
     const val HANDOFF_MAX_MS = 60_000L
 
+    /** #FEED-239 `briefRequestHeading`: a session's BRIEFED first prompt
+     *  starts with it. */
+    const val BRIEF_REQUEST_HEADING = "## Request\n\n"
+
+    private val ATTACHMENT_LINE = Regex("^!?\\[[^\\]]*\\]\\(/api/attachments/[^)]*\\)$")
+
+    /** #FEED-239: an echo is the row's when its trimmed text equals the body,
+     *  or it is the session's BRIEFED first prompt (`## Request` + the body
+     *  without its attachment lines + the brief's other sections). */
+    fun echoMatches(text: String, body: String): Boolean {
+        val echo = text.trim()
+        if (echo == body) return true
+        if (!echo.startsWith(BRIEF_REQUEST_HEADING)) return false
+        val prose = body
+            .split("\n")
+            .filterNot { ATTACHMENT_LINE.matches(it.trim()) }
+            .joinToString("\n")
+            .trim()
+        return prose.isNotEmpty() && echo.substring(BRIEF_REQUEST_HEADING.length).startsWith(prose)
+    }
+
     enum class Tone(val wire: String) { Muted("muted"), Info("info"), Danger("danger") }
 
     /** genUI's `messageStatus`. */
@@ -249,7 +270,7 @@ object MessageDelivery {
             val body = row.body.trim()
             val from = ms(row.createdAt) - MATCH_WINDOW_MS
             val echo = echoes.indices.firstOrNull { i ->
-                !taken[i] && echoes[i].text.trim() == body && (echoes[i].at.let { it == null || it >= from })
+                !taken[i] && echoMatches(echoes[i].text, body) && (echoes[i].at.let { it == null || it >= from })
             }
             if (echo != null) taken[echo] = true else kept += row.id
         }

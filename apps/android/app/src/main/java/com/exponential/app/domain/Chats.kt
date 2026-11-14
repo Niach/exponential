@@ -1136,4 +1136,13 @@ object Chats {
     /** [surfaceReply] for a renderer's (name, context) pair. */
     fun surfaceReply(name: String?, context: JsonObject?): String? =
         surfaceReply(name?.let(::JsonPrimitive), context)
+
+    /** #FEED-239 (`sidebarAgentCases`): the sidebar's Agents group and
+     *  Settings › Agents = [agents] minus every app's agent ([appAgentIds],
+     *  `apps.agent_id`; an app's agent is listed under Apps only, the chat
+     *  list keeps it). */
+    fun <T> sidebarAgents(agents: List<T>, appAgentIds: List<String?>, agentId: (T) -> String): List<T> {
+        val owned = appAgentIds.filterNot { it.isNullOrEmpty() }.toSet()
+        return agents.filter { agentId(it) !in owned }
+    }
 }
