@@ -518,6 +518,63 @@ fn shell_tab_placement() {
     std::mem::forget(root);
 }
 
+/// #EXP-1837: the whole IDE window with the viewer's Assistant FAB and a
+/// toast: the stack rides `toastLift` above the FAB. `EXP_SKIP_ONBOARDING=1`.
+#[test]
+#[ignore]
+fn shell_toast_above_fab() {
+    let Some(dir) = std::env::var_os("EXP_SHELL_SHOTS") else { return };
+    let mut cx = headless();
+    let root = tempfile::tempdir().unwrap();
+    let data = root.path().to_path_buf();
+    std::fs::write(data.join("accounts.json"), json!({"accounts": [{"id": "acc", "instanceUrl": "https://app.exponential.at", "userId": "u1", "email": "demo@exponential.at", "name": "Demo", "onboardingCompletedAt": "2026-01-01T00:00:00Z"}]}).to_string()).unwrap();
+    let (_changes, rx) = flume::unbounded::<(String, Vec<String>)>();
+    cx.update(|cx| {
+        crate::init(cx);
+        let auth = api::AuthStore::load_with_token_store(data.clone(), api::TokenStore::file_only(data.clone()));
+        cx.set_global(crate::AuthContext { auth, client: Arc::new(api::AuthClient::new()), data_dir: data.clone() });
+        let store = sync::Store::open(cx, None, None);
+        cx.set_global(store);
+        sync::Store::global(cx).clone().connect_local("acc", &data.join("sync.sqlite"), rx, cx).expect("the store");
+        let c = sync::Store::global(cx).collections().clone();
+        seed(&c.teams, json!([{"id": "t1", "name": "Exponential", "slug": "exponential"}]), cx);
+        seed(&c.boards, json!([
+            {"id": "b1", "team_id": "t1", "name": "Mobile App", "slug": "mobile-app", "prefix": "APP", "color": "#22c55e", "sort_order": 1}
+        ]), cx);
+        seed(&c.issues, json!([
+            {"id": "i1", "board_id": "b1", "number": 1, "identifier": "APP-1", "title": "Crash on launch", "status": "todo", "description": "The app closes right after the splash screen on a cold start."}
+        ]), cx);
+        seed(&c.agents, json!([{"id": "as1", "team_id": "t1", "name": "Assistant", "role": "assistant", "owner_id": "u1"}]), cx);
+    });
+    let handle = cx
+        .open_window(size(px(1440.), px(900.)), |window: &mut Window, cx| {
+            let nav = nav_for_window(window, cx);
+            nav.update(cx, |nav, _| nav.team_id = Some("t1".into()));
+            let shell = cx.new(|cx| crate::Shell::new(0, window, cx));
+            cx.new(|cx| gpui_component::Root::new(shell, window, cx))
+        })
+        .expect("a headless window");
+    let window: gpui::AnyWindowHandle = handle.into();
+    cx.update_window(window, |_, window, cx| crate::navigation::navigate(window, cx, crate::navigation::Screen::IssueDetail { issue_id: "i1".into() })).unwrap();
+    for _ in 0..4 {
+        draw(window, &mut cx);
+        cx.run_until_parked();
+    }
+    cx.update_window(window, |_, window, cx| crate::toast::success("Link copied", window, cx)).unwrap();
+    // The toast's enter motion: the executor's (simulated) clock and the
+    // transitions' wall clock.
+    for _ in 0..12 {
+        std::thread::sleep(std::time::Duration::from_millis(60));
+        cx.advance_clock(std::time::Duration::from_millis(60));
+        draw(window, &mut cx);
+        cx.run_until_parked();
+    }
+    let shot = cx.capture_screenshot(window).expect("the frame");
+    shot.save(std::path::Path::new(&dir).join("ide-toast-above-fab.png")).expect("the PNG");
+    std::mem::forget(cx);
+    std::mem::forget(root);
+}
+
 /// #EXP-1832: the sidebar folders of the seeded demo (seed-screenshots.ts:
 /// board folder Product, app folder Ops tools), pictured at rest, folded,
 /// mid-drag (the line = reorder, the highlighted row = drop into) and with a
