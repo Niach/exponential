@@ -101,7 +101,7 @@ export type { ZoomFrame, ZoomInitial, ZoomMenuItem, ZoomPoint, ZoomSize, ZoomVie
 export { normalizeSizes, resizePanels, keyboardResize, panelExtents, dragDelta, RESIZE_STEP, PANEL_MIN, RESIZE_HANDLE_HIT } from "./resizable"
 export type { PanelLimits, ResizeKey } from "./resizable"
 export { partitionTabs, tabDropSlot, tabKeySlot, tabReorder, moveTab } from "./tabs-strip"
-export { listDropSlot, listMoveContext, LIST_DROP_EDGE, type ListDrop, type ListDropPosition, type ListReorderRow } from "./list-reorder"
+export { listDropSlot, listMoveContext, LIST_DROP_EDGE, type ListDrop, type ListDropPosition, type ListMoveContext, type ListReorderRow } from "./list-reorder"
 export { SWIPE, swipeBlocks, swipeIndicator, swipeLock, swipeOffset, swipeProgress, swipeSettle, swipeStep, type SwipeLock } from "./swipe"
 export { MIDDLE_MIN_KEPT, middleTruncateWidth } from "./text-truncate"
 export { TABLE_WORD_CAP, fitTableColumns, type TableFitColumn } from "./table-fit"

@@ -12,7 +12,7 @@ import { resolveTeamAccess } from "@/lib/team-membership"
 
 // #EXP-1832 (fixture `sidebar-folders.json`): the member's own sidebar layout.
 // The client runs the pure `sidebarMove` / `sidebarUngroup` over its synced
-// rows and sends the WRITES here (`apply`); the server only checks they keep
+// rows and sends the WRITES here (`save`); the server only checks they keep
 // the layout's shape: rows are the caller's (the `user_id` predicate IS the
 // authorization), a folder sits at the top level, an item's parent is a
 // folder of the same section, only folders are deleted. Targets carry no FK
@@ -23,28 +23,22 @@ export const SIDEBAR_LAYOUT_MAX_WRITES = 500
 
 const sectionSchema = z.enum(SIDEBAR_SECTIONS as [`board`, `agent`, `app`])
 
-const writeSchema = z.discriminatedUnion(`kind`, [
-  z.object({
-    kind: z.literal(`folder`),
-    id: z.string().uuid(),
-    targetId: z.null().optional(),
-    parentId: z.null().optional(),
+const writeSchema = z
+  .object({
+    id: z.string().uuid().nullable().optional(),
+    kind: z.enum([`folder`, `item`]),
+    targetId: z.string().uuid().nullable().optional(),
+    parentId: z.string().uuid().nullable().optional(),
     name: z.string().max(SIDEBAR_FOLDER_NAME_MAX * 4).nullable().optional(),
     sortOrder: z.number().finite(),
-  }),
-  z.object({
-    kind: z.literal(`item`),
-    id: z.string().uuid().nullable().optional(),
-    targetId: z.string().uuid(),
-    parentId: z.string().uuid().nullable().optional(),
-    name: z.null().optional(),
-    sortOrder: z.number().finite(),
-  }),
-])
+  })
+  .refine((write) => (write.kind === `folder` ? !!write.id && !write.targetId && !write.parentId : !!write.targetId), {
+    message: `A folder has an id and no target or parent; an item has a target`,
+  })
 
 export const sidebarLayoutRouter = router({
   /** Write one move's rows (`sidebarMove` / `sidebarUngroup` output). */
-  apply: authedProcedure
+  save: authedProcedure
     .input(
       z.object({
         teamId: z.string().uuid(),
@@ -69,15 +63,16 @@ export const sidebarLayoutRouter = router({
           if (row.kind === `folder` && row.teamId === input.teamId && row.section === input.section && !deleted.has(row.id)) folderIds.add(row.id)
         }
         for (const write of input.upserts) {
-          if (write.kind !== `folder`) continue
+          if (write.kind !== `folder` || !write.id) continue
           const row = mine.get(write.id)
           if (row && (row.kind !== `folder` || row.teamId !== input.teamId || row.section !== input.section)) {
             throw new TRPCError({ code: `BAD_REQUEST`, message: `Not a folder of this section` })
           }
-          if (!row && (await tx.select({ id: sidebarLayout.id }).from(sidebarLayout).where(eq(sidebarLayout.id, write.id)).limit(1)).length > 0) {
+          const id = write.id
+          if (!row && (await tx.select({ id: sidebarLayout.id }).from(sidebarLayout).where(eq(sidebarLayout.id, id)).limit(1)).length > 0) {
             throw new TRPCError({ code: `BAD_REQUEST`, message: `Folder id taken` })
           }
-          folderIds.add(write.id)
+          folderIds.add(id)
         }
         for (const write of input.upserts) {
           if (write.kind === `item` && write.parentId && !folderIds.has(write.parentId)) {
@@ -92,7 +87,7 @@ export const sidebarLayoutRouter = router({
         }
 
         for (const write of input.upserts) {
-          if (write.kind === `folder`) {
+          if (write.kind === `folder` && write.id) {
             const name = sidebarFolderName(write.name ?? ``)
             await tx
               .insert(sidebarLayout)
@@ -101,7 +96,7 @@ export const sidebarLayoutRouter = router({
                 target: sidebarLayout.id,
                 set: { name, sortOrder: write.sortOrder, updatedAt: new Date() },
               })
-          } else {
+          } else if (write.targetId) {
             // Raw SQL: the conflict target is a PARTIAL unique index
             // (uniq_sidebar_layout_user_target), whose predicate drizzle 0.39
             // drops from `targetWhere`.

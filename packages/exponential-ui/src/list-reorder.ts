@@ -88,6 +88,8 @@ export function listDropSlot(rows: readonly ListReorderRow[], dragKey: string, a
 }
 
 /** The `move` event's context for a drop: `{id, before | after | into}`. */
-export function listMoveContext(dragKey: string, drop: ListDrop): Record<string, string> {
+export type ListMoveContext = { id: string } & Partial<Record<ListDropPosition, string>>
+
+export function listMoveContext(dragKey: string, drop: ListDrop): ListMoveContext {
   return { id: dragKey, [drop.position]: drop.key }
 }
