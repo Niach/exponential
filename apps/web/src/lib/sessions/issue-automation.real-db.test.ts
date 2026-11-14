@@ -479,6 +479,7 @@ describe.skipIf(!ready.ok)(`EXP-1334 status automation`, () => {
     const sub = await w.issue(`Sub-issue`)
     await w.parentOf(epic.id, sub.id)
     const second = await w.openPr({ rootId, head: `exp/second`, issueIds: [epic.id, sub.id] })
+    expect(await w.status(epic.id)).toMatchObject({ status: `in_review` })
     const { unlinkPullRequestIssue } = await vi.importActual<typeof import("@/lib/pull-requests")>(`@/lib/pull-requests`)
     await expect(
       unlinkPullRequestIssue({ userId: w.owner, pullRequestId: second.id, issueId: epic.id })
@@ -490,8 +491,9 @@ describe.skipIf(!ready.ok)(`EXP-1334 status automation`, () => {
 
     await applyPullRequestMerged({ pullRequestId: second.id, actorUserId: w.owner })
     expect(await w.status(sub.id)).toMatchObject({ status: `done` })
-    // The old #2776 merge is spent: the person's reopen stands.
-    expect(await w.status(epic.id)).toMatchObject({ status: `in_progress` })
+    // The old #2776 merge is spent: the epic stays where #2781's open put
+    // it (in review), never done.
+    expect(await w.status(epic.id)).toMatchObject({ status: `in_review` })
   })
 
   it(`one PR closing a parent and its sub-issue moves both together`, async () => {
