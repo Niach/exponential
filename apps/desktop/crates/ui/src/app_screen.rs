@@ -1137,7 +1137,8 @@ impl AppScreenView {
                     window,
                     cx,
                 ),
-                SessionScreenMenuEntry::Publish | SessionScreenMenuEntry::Separator => {}
+                // #EXP-1834: `link_issue: false` above, never listed here.
+                SessionScreenMenuEntry::LinkIssue | SessionScreenMenuEntry::Publish | SessionScreenMenuEntry::Separator => {}
             }
         });
         crate::chat_actions::screen_menu_button(
