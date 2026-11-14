@@ -20,7 +20,8 @@ use gpui::{div, prelude::*, AnyElement, AnyWindowHandle, App, Entity, Hsla, Shar
 use gpui_component::{ActiveTheme as _, Icon, Sizable as _};
 use serde_json::{json, Value};
 use sync::Store;
-use uicore_model::ide::{IdeTabInput, ide_sidebar, IdeActiveInput, IdeAgentInput, IdeAppInput, IdeBoardInput, IdeCount, IdePinInput, IdePrInput, IdeRepoInput, IdeSidebarInput, IdeTone};
+use domain::sidebar_folders::{sidebar_entries, sidebar_folder_name, sidebar_folder_open_key, sidebar_move, sidebar_ungroup, SidebarEntry, SidebarEntryKind, SidebarMove, SidebarSection, SidebarWrites};
+use uicore_model::ide::{IdeTabInput, ide_sidebar, IdeActiveInput, IdeAgentInput, IdeAppInput, IdeBoardInput, IdeCount, IdeLayout, IdeLayoutEntry, IdePinInput, IdePrInput, IdeRepoInput, IdeSidebarInput, IdeTone};
 
 use crate::navigation::{self, active_board_id, active_team_id, navigate, resolved_screen, Navigation, Screen};
 use crate::settings::SettingsSection;
@@ -131,6 +132,71 @@ fn ecode_repos<'a>(team_id: &str, pulls: impl IntoIterator<Item = &'a domain::ro
         .collect()
 }
 
+/// #EXP-1832: the member's synced layout of one section of `team_id`.
+fn layout_entries(team_id: &str, section: SidebarSection, cx: &App) -> Vec<SidebarEntry> {
+    let Some(store) = Store::try_global(cx) else { return Vec::new() };
+    sidebar_entries(store.collections().sidebar_layout.read(cx).iter(), team_id, section)
+}
+
+fn layout_entry(entry: SidebarEntry) -> IdeLayoutEntry {
+    IdeLayoutEntry { id: entry.id, kind: entry.kind.as_str().into(), target_id: entry.target_id, parent_id: entry.parent_id, name: entry.name, sort_order: entry.sort_order }
+}
+
+/// #EXP-1832: every section's layout and the folders this device keeps
+/// folded (`ui_prefs`, under `sidebar_folder_open_key`).
+fn gather_layout(team_id: &str, input: &mut IdeSidebarInput, cx: &App) {
+    let mut layout = IdeLayout::default();
+    let mut closed = Vec::new();
+    for section in SidebarSection::ALL {
+        let entries = layout_entries(team_id, section, cx);
+        closed.extend(entries.iter().filter(|e| e.kind == SidebarEntryKind::Folder && !crate::ui_prefs::sidebar_folder_open(&sidebar_folder_open_key(team_id, &e.id))).map(|e| e.id.clone()));
+        let entries = entries.into_iter().map(layout_entry).collect();
+        match section {
+            SidebarSection::Board => layout.board = entries,
+            SidebarSection::Agent => layout.agent = entries,
+            SidebarSection::App => layout.app = entries,
+        }
+    }
+    input.layout = layout;
+    input.closed = closed;
+}
+
+/// #EXP-1832: a section's targets in the sidebar's default order (what the
+/// rows were gathered in).
+fn section_items(input: &IdeSidebarInput, section: SidebarSection) -> Vec<String> {
+    match section {
+        SidebarSection::Board => input.boards.iter().map(|b| b.id.clone()).collect(),
+        SidebarSection::Agent => input.agents.iter().map(|a| a.id.clone()).collect(),
+        SidebarSection::App => input.apps.iter().map(|a| a.id.clone()).collect(),
+    }
+}
+
+/// #EXP-1832: write one move's rows (`sidebarLayout.save`); the synced shape
+/// brings them back.
+fn save_layout(team_id: String, section: SidebarSection, writes: SidebarWrites, cx: &mut App) {
+    let Some(trpc) = crate::queries::trpc_client(cx) else { return };
+    cx.background_executor()
+        .spawn(async move {
+            let input = api::sidebar_layout::SidebarLayoutSaveInput::new(&team_id, section, &writes);
+            if let Err(err) = api::sidebar_layout::sidebar_layout_save(&trpc, &input) {
+                log::warn!("[ui] sidebarLayout.save({}) failed: {err}", section.as_str());
+            }
+        })
+        .detach();
+}
+
+/// #EXP-1832: name a folder (`sidebarLayout.rename`; empty = the default).
+fn rename_folder(id: String, name: String, cx: &mut App) {
+    let Some(trpc) = crate::queries::trpc_client(cx) else { return };
+    cx.background_executor()
+        .spawn(async move {
+            if let Err(err) = api::sidebar_layout::sidebar_layout_rename(&trpc, &id, &name) {
+                log::warn!("[ui] sidebarLayout.rename failed: {err}");
+            }
+        })
+        .detach();
+}
+
 /// One team's rows as the fixture's input, with the glyphs they name.
 fn gather(nav: &Entity<Navigation>, cx: &mut App) -> (IdeSidebarInput, HashMap<String, Glyph>) {
     let mut glyphs = HashMap::new();
@@ -183,6 +249,7 @@ fn gather(nav: &Entity<Navigation>, cx: &mut App) -> (IdeSidebarInput, HashMap<S
         glyphs.insert(icon, Glyph::Board(board));
     }
     drop(apps_span);
+    gather_layout(&team_id, &mut input, cx);
     {
         let _span = tracing::trace_span!("rail.prs").entered();
         input.repos = ecode_repos(&team_id, collections.pull_requests.read(cx).iter());
@@ -291,6 +358,11 @@ pub(crate) struct SidebarRegion {
     computer: Rc<RefCell<Option<crate::sidebar::ComputerState>>>,
     /// The Computer button changed since the document last repainted.
     computer_changed: bool,
+    /// #EXP-1832: the folder whose name is an Input in place, and whether
+    /// that Input still waits for the focus.
+    editing: Rc<RefCell<Option<String>>>,
+    focus_pending: bool,
+    window: AnyWindowHandle,
     /// The pictures show a sample, not the store.
     #[cfg(test)]
     frozen: bool,
@@ -302,7 +374,8 @@ impl SidebarRegion {
             let glyphs = Rc::new(RefCell::new(HashMap::new()));
             let hover = Rc::new(RefCell::new(None));
             let computer = Rc::new(RefCell::new(None));
-            let host = Rc::new(RegionHost { computer: computer.clone(), glyphs: glyphs.clone(), hover: hover.clone(), window: window.window_handle(), region: cx.weak_entity(), nav });
+            let editing = Rc::new(RefCell::new(None));
+            let host = Rc::new(RegionHost { computer: computer.clone(), glyphs: glyphs.clone(), hover: hover.clone(), editing: editing.clone(), window: window.window_handle(), region: cx.weak_entity(), nav });
             let mut doc = uicore_gpui::inline::document(uicore_docs::doc("sidebar").expect("the factory sidebar"));
             uicore_gpui::inline::without(&mut doc, PRUNED);
             // #EXP-1741: the IDE's sidebar never folds (eDE's is the rail).
@@ -320,6 +393,9 @@ impl SidebarRegion {
                 assistant: None,
                 computer,
                 computer_changed: true,
+                editing,
+                focus_pending: false,
+                window: window.window_handle(),
                 #[cfg(test)]
                 frozen: false,
             }
@@ -376,7 +452,11 @@ impl SidebarRegion {
 
     fn push(&mut self, cx: &mut gpui::Context<Self>) {
         let assistant = self.assistant.as_ref().map(|(id, name)| (id.as_str(), name.as_str()));
+        self.input.editing_folder = self.editing.borrow().clone();
         let value = shaped(&self.input, &self.glyphs.borrow(), self.hover.borrow().as_deref(), assistant);
+        if self.focus_pending {
+            self.focus_editing(&value, cx);
+        }
         if self.shown.as_ref() == Some(&value) {
             return;
         }
@@ -398,6 +478,51 @@ impl SidebarRegion {
             let _ = view.set_data("/shell/rail", Some(json!(false)), cx);
             let _ = view.set_data("/shell/ide", Some(value), cx);
         });
+    }
+
+    /// #EXP-1832: edit folder `id`'s name in place (a fresh folder after a
+    /// drop, or Rename); `None` ends the edit.
+    fn edit_folder(&mut self, id: Option<String>, cx: &mut gpui::Context<Self>) {
+        self.focus_pending = id.is_some();
+        *self.editing.borrow_mut() = id;
+        self.push(cx);
+    }
+
+    /// #EXP-1832: focus the name Input once its row is drawn (a fresh
+    /// folder's row arrives with the synced layout).
+    fn focus_editing(&mut self, value: &Value, cx: &mut gpui::Context<Self>) {
+        let Some(id) = self.editing.borrow().clone() else {
+            self.focus_pending = false;
+            return;
+        };
+        let section = ["boards", "agents", "apps"].into_iter().zip(["board", "agent", "app"]).find(|(rows, _)| value[*rows]["rows"].as_array().into_iter().flatten().any(|row| row["id"] == id.as_str() && row["editing"] == true));
+        let Some((_, section)) = section else { return };
+        self.focus_pending = false;
+        let field = format!("ide_{section}_folder_name.{id}");
+        let (view, handle) = (self.view.clone(), self.window);
+        // Outside this update (the rail may be mid-render): the field exists
+        // once the next frame has drawn the row.
+        App::defer(cx, move |cx| {
+            let _ = handle.update(cx, move |_, window, _| {
+                window.on_next_frame(move |window, cx| {
+                    view.update(cx, |view, cx| {
+                        view.focus_field(&field, window, cx);
+                    });
+                });
+            });
+        });
+    }
+
+    /// #EXP-1832: fold or unfold folder `id` on this device.
+    fn toggle_folder(&mut self, team_id: &str, id: &str, cx: &mut gpui::Context<Self>) {
+        let key = sidebar_folder_open_key(team_id, id);
+        let open = !crate::ui_prefs::sidebar_folder_open(&key);
+        crate::ui_prefs::set_sidebar_folder_open(&key, open);
+        self.input.closed.retain(|closed| closed != id);
+        if !open {
+            self.input.closed.push(id.to_string());
+        }
+        self.push(cx);
     }
 
     /// #EXP-1741: the Computer button's state, from the rail's render.
@@ -438,6 +563,7 @@ struct RegionHost {
     computer: Rc<RefCell<Option<crate::sidebar::ComputerState>>>,
     glyphs: Rc<RefCell<HashMap<String, Glyph>>>,
     hover: Rc<RefCell<Option<String>>>,
+    editing: Rc<RefCell<Option<String>>>,
     window: AnyWindowHandle,
     region: gpui::WeakEntity<SidebarRegion>,
     nav: Entity<Navigation>,
@@ -588,6 +714,63 @@ impl HostPlugin for RegionHost {
                 if let Some(team_id) = active_team_id(&nav, cx) {
                     crate::pins::toggle_pin(team_id, domain::contract::PIN_KIND_ISSUE, id, cx);
                 }
+            }
+            // #EXP-1832: a row dropped in its section's List.
+            "ide_move" => {
+                let Some(section) = SidebarSection::parse(&text("section")) else { return };
+                let Some(mv) = event.payload.as_ref().and_then(SidebarMove::from_context).or_else(|| SidebarMove::from_context(&event.context)) else { return };
+                let region = self.region.clone();
+                cx.defer(move |cx| {
+                    let Some(team_id) = active_team_id(&nav, cx) else { return };
+                    let Some(items) = region.read_with(cx, |region, _| section_items(&region.input, section)).ok() else { return };
+                    let entries = layout_entries(&team_id, section, cx);
+                    let new_folder = uuid::Uuid::new_v4().to_string();
+                    let Some(writes) = sidebar_move(&items, &entries, &mv, &new_folder) else { return };
+                    let created = writes.created_folder_id.clone();
+                    save_layout(team_id, section, writes, cx);
+                    if created.is_some() {
+                        let _ = region.update(cx, |region, cx| region.edit_folder(created, cx));
+                    }
+                });
+            }
+            // #EXP-1832: a folder row: its press folds it, its menu renames
+            // or ungroups it, its name Input saves (Enter) or keeps (leaving).
+            "ide_folder" => {
+                let Some(section) = SidebarSection::parse(&text("section")) else { return };
+                let value = event.payload.as_ref().and_then(|p| p["value"].as_str()).map(str::to_string);
+                let action = event.context["action"].as_str().map(str::to_string).or_else(|| value.clone()).unwrap_or_default();
+                let region = self.region.clone();
+                let editing = self.editing.clone();
+                cx.defer(move |cx| {
+                    let Some(team_id) = active_team_id(&nav, cx) else { return };
+                    match action.as_str() {
+                        "fold" => {
+                            let _ = region.update(cx, |region, cx| region.toggle_folder(&team_id, &id, cx));
+                        }
+                        "rename" => {
+                            let _ = region.update(cx, |region, cx| region.edit_folder(Some(id), cx));
+                        }
+                        "save" => {
+                            if editing.borrow().as_deref() != Some(id.as_str()) {
+                                return;
+                            }
+                            rename_folder(id, sidebar_folder_name(value.as_deref().unwrap_or_default()), cx);
+                            let _ = region.update(cx, |region, cx| region.edit_folder(None, cx));
+                        }
+                        "cancel" => {
+                            if editing.borrow().as_deref() == Some(id.as_str()) {
+                                let _ = region.update(cx, |region, cx| region.edit_folder(None, cx));
+                            }
+                        }
+                        "ungroup" => {
+                            let Some(items) = region.read_with(cx, |region, _| section_items(&region.input, section)).ok() else { return };
+                            if let Some(writes) = sidebar_ungroup(&items, &layout_entries(&team_id, section, cx), &id) {
+                                save_layout(team_id, section, writes, cx);
+                            }
+                        }
+                        _ => {}
+                    }
+                });
             }
             _ => {}
         }
@@ -1202,6 +1385,10 @@ mod tests {
     #[test]
     fn only_a_row_instance_is_a_hover_target() {
         assert_eq!(row_key("ide_board_row.b1"), Some("b1"));
+        // #EXP-1832: a row inside a folder, and the folder row itself.
+        assert_eq!(row_key("ide_board_child_row.b1"), Some("b1"));
+        assert_eq!(row_key("ide_board_folder_row.f1"), Some("f1"));
+        assert_eq!(row_key("ide_board_gear_child.b1"), None);
         assert_eq!(row_key("ide_board_gear.b1"), None);
         assert_eq!(row_key("ide_app_add"), None);
     }

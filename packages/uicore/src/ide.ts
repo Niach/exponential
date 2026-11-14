@@ -2,6 +2,9 @@
 // host's state. `fixtures/ide-sidebar.json` is the spec; the document
 // (`apps/ede/ui/sidebar.json`) binds the result under /shell/ide.
 import fixture from "../fixtures/ide-sidebar.json" with { type: "json" }
+// #EXP-1832: the folder tree is domain-contract's (sidebar-folders.json), by
+// path: uicore takes no package dependencies.
+import { sidebarRows, sidebarTree, type SidebarEntry, type SidebarSection } from "../../domain-contract/src/sidebar-folders"
 
 export type IdeDot = `amber` | `green` | `primary`
 
@@ -26,6 +29,12 @@ export interface IdeSidebarInput {
   apps: { id: string; slug: string; name: string; icon: string }[]
   boards: { id: string; name: string; icon: string }[]
   active: { id: string; title: string; icon: string; sessionIds: string[]; unread: boolean }[]
+  /** #EXP-1832: the member's `sidebar_layout` rows per section (none = default order). */
+  layout?: Partial<Record<SidebarSection, SidebarEntry[]>>
+  /** #EXP-1832: the folders this device keeps folded (`sidebarFolderOpenKey`; none = open). */
+  closed?: string[]
+  /** #EXP-1832: the folder whose name is being edited in place. */
+  editingFolder?: string | null
   /** #EXP-1616: the Exponential repositories, each with its live PR tree (`repoPrTree`, placed by the host). */
   repos?: { id: string; name: string; prs: { id: string; identifier: string; title: string; subtitle: string; depth: number; session?: string | null }[] }[]
 }
@@ -51,15 +60,56 @@ export interface IdeNavRow {
   tone: IdeTone | null
 }
 
+/** #EXP-1832: a Boards / Agents / Apps row: a target (`item`) or a folder
+ *  (`group`, never selected, no badge or gear; its press folds it). */
 export interface IdeRow {
+  kind: `item` | `folder`
   id: string
+  /** 0 = top level, 1 = inside a folder. */
+  depth: 0 | 1
+  group: boolean
+  /** A folder's expanded flag (false on an item). */
+  open: boolean
   title: string
   icon: string
   selected: boolean
   count: string | null
   tone: IdeTone | null
   gear: boolean
+  /** A FOLDED folder's item count; null otherwise. */
+  meta: string | null
+  /** A folder's fold glyph: ui-chevron-down open, ui-chevron-right folded. */
+  foldIcon: string | null
+  /** The folder's name is an Input in place. */
+  editing: boolean
 }
+
+type IdeRowBase = Pick<IdeRow, `id` | `title` | `icon` | `selected` | `count` | `tone` | `gear`>
+
+/** The section's rows as the member arranged it: its targets in default
+ *  order, placed by its layout; a folded folder's items left out. */
+export function folderRows(rows: IdeRowBase[], entries: readonly SidebarEntry[], closed: readonly string[], editing: string | null): IdeRow[] {
+  const byId = new Map(rows.map((row) => [row.id, row]))
+  const shut = new Set(closed)
+  return sidebarRows(sidebarTree(rows.map((row) => row.id), entries), (id) => !shut.has(id)).map((r): IdeRow => {
+    const node = { kind: r.kind, id: r.id, depth: r.depth, group: r.group, open: r.open }
+    if (r.kind === `item`) return { ...node, ...(byId.get(r.id) as IdeRowBase), meta: null, foldIcon: null, editing: false }
+    return {
+      ...node,
+      title: r.name ?? ``,
+      icon: FOLDER_ICON,
+      selected: false,
+      count: null,
+      tone: null,
+      gear: false,
+      meta: r.open ? null : String(r.count),
+      foldIcon: r.open ? `ui-chevron-down` : `ui-chevron-right`,
+      editing: editing === r.id,
+    }
+  })
+}
+
+const FOLDER_ICON = `ui-folder`
 
 export interface IdeSidebar {
   nav: IdeNavRow[]
@@ -107,6 +157,7 @@ export const agentCount = (unread: number, needsYou: boolean): IdeCount =>
 
 export function ideSidebar(input: IdeSidebarInput): IdeSidebar {
   const { screen } = input
+  const folders = (section: SidebarSection, base: IdeRowBase[]) => folderRows(base, input.layout?.[section] ?? [], input.closed ?? [], input.editingFolder ?? null)
   const rows: IdeNavRow[] = []
   if (input.needsYou > 0 || screen === `needs-you`) rows.push(nav(`needs-you`, `nav-needs-you`, screen === `needs-you`, input.needsYou, `attention`))
   rows.push(nav(`chats`, `nav-chats`, screen === `chats`, input.chats.count, input.chats.tone))
@@ -117,13 +168,13 @@ export function ideSidebar(input: IdeSidebarInput): IdeSidebar {
     pins: input.pins.map((p) => ({ ...p, selected: screen === `issue:${p.id}` })),
     agents: {
       add: input.owner,
-      rows: input.agents.map((a) => ({ id: a.id, title: a.name, icon: a.icon, selected: screen === `agent:${a.id}`, ...badge(agentCount(a.unread, a.needsYou).count, agentCount(a.unread, a.needsYou).tone), gear: true })),
+      rows: folders(`agent`, input.agents.map((a) => ({ id: a.id, title: a.name, icon: a.icon, selected: screen === `agent:${a.id}`, ...badge(agentCount(a.unread, a.needsYou).count, agentCount(a.unread, a.needsYou).tone), gear: true }))),
     },
     apps: {
-      rows: input.apps.map((a) => ({ id: a.id, title: a.name, icon: a.icon, selected: screen === `app:${a.id}` || screen === `app:${a.slug}`, count: null, tone: null, gear: true })),
+      rows: folders(`app`, input.apps.map((a) => ({ id: a.id, title: a.name, icon: a.icon, selected: screen === `app:${a.id}` || screen === `app:${a.slug}`, count: null, tone: null, gear: true }))),
     },
     boards: {
-      rows: input.boards.map((b) => ({ id: b.id, title: b.name, icon: b.icon, selected: screen === `board:${b.id}`, count: null, tone: null, gear: input.owner })),
+      rows: folders(`board`, input.boards.map((b) => ({ id: b.id, title: b.name, icon: b.icon, selected: screen === `board:${b.id}`, count: null, tone: null, gear: input.owner }))),
       empty: input.boards.length === 0,
     },
     active: input.active.map((a) => ({

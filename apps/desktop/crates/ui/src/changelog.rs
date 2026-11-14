@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-14-sidebar-folders",
+    date: "2026-11-14",
+    title: "Sidebar folders",
+    summary: "Drag boards, agents and apps to reorder them. Drop one onto another to make a folder; your layout follows you to your phone.",
+    body: r##"- **Reorder**: on the desktop app and wide web, drag a board, agent or app; a line shows where it lands.
+- **Folders**: drop a row onto another and both move into a new folder, named in place (Enter saves, Esc keeps "New folder"); drop onto a folder to move in. Right-click a folder to rename or ungroup it. Folders open and close, and each device remembers which ones you folded.
+- **Phones**: the board pickers and the Apps list show your folders."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_283: ChangelogEntry = ChangelogEntry {
     id: "2026-11-14-widget-reporter-emails",
     date: "2026-11-14",
     title: "Choose which emails widget reporters get",
