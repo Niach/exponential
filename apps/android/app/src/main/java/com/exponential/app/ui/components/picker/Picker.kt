@@ -20,6 +20,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import com.exponential.app.domain.TreeGuide
+import com.exponential.app.domain.TreeGuides
+import com.exponential.app.ui.components.SidebarFolderTrailing
+import com.exponential.app.ui.components.treeGuides
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -105,10 +110,19 @@ data class PickerItem<T>(
      * case) the state is derived from the set.
      */
     val checked: PickerChecked? = null,
+    /** #EXP-1832: the tree level (0 = top, 1 = inside a folder): the row
+     *  indents one level under the tree guides. */
+    val depth: Int = 0,
+    /** #EXP-1832: set = a FOLDER row (read-only sidebar folders): never
+     *  picked, a press folds it ([Picker]'s `onToggleGroup`). */
+    val folder: PickerFolder? = null,
 ) {
     /** The keywords the row matches on: the explicit ones, else its label. */
     val searchKeywords: List<String> get() = keywords.ifEmpty { listOf(label) }
 }
+
+/** #EXP-1832: a folder row's state: its item count and whether it is open. */
+data class PickerFolder(val count: Int, val open: Boolean)
 
 /**
  * What a row reads as, once tri-state exists: a bulk edit is the one caller
@@ -413,6 +427,14 @@ fun <T : Any> Picker(
     checkMarks: Boolean = false,
     /** The caller's explicit presentation; null = the host decides (N-6). */
     presentation: PickerPresentation? = null,
+    /**
+     * #EXP-1832: the rows WITH the member's folders (folder rows + their
+     * items at depth 1), shown while no query is typed; a query filters the
+     * flat [items]. Null = [items] always.
+     */
+    groupedItems: List<PickerItem<T>>? = null,
+    /** #EXP-1832: a folder row's press (folds / unfolds it). */
+    onToggleGroup: ((T) -> Unit)? = null,
     trigger: @Composable (open: () -> Unit) -> Unit = {},
 ) {
     var internalOpen by remember { mutableStateOf(false) }
@@ -444,9 +466,14 @@ fun <T : Any> Picker(
     if (!isOpen) return
 
     val currentQuery = query ?: internalQuery
-    val rows = remember(items, currentQuery, search, filter) {
-        if (search && filter) PickerRules.filter(items, currentQuery) else items
+    val rows = remember(items, groupedItems, currentQuery, search, filter) {
+        when {
+            groupedItems != null && currentQuery.isBlank() -> groupedItems
+            search && filter -> PickerRules.filter(items, currentQuery)
+            else -> items
+        }
     }
+    val guides = remember(rows) { if (rows.any { it.depth > 0 }) TreeGuides.compute(rows.map { it.depth }) else null }
 
     // N-6: ONE body for both presentations — the sheet's content, or the
     // same column in the host's flow.
@@ -511,11 +538,16 @@ fun <T : Any> Picker(
                 // own field is the call to action).
                 item { EmptyState(title = emptyText, size = EmptyStateSize.List) }
             }
-            items(rows, key = { it.value }) { item ->
+            itemsIndexed(rows, key = { _, row -> row.value }) { index, item ->
                 PickerRow(
                     item = item,
-                    mark = PickerDefaults.mark(mode, PickerRules.checked(item, value), checkMarks),
+                    mark = if (item.folder != null) PickerMark.None else PickerDefaults.mark(mode, PickerRules.checked(item, value), checkMarks),
+                    guide = guides?.get(index),
                     onClick = {
+                        if (item.folder != null) {
+                            onToggleGroup?.invoke(item.value)
+                            return@PickerRow
+                        }
                         val next = PickerRules.select(mode, value, item) ?: return@PickerRow
                         onChange(next)
                         if (PickerRules.closesOnPick(mode)) setOpen(false)
@@ -587,6 +619,8 @@ internal fun <T> PickerRow(
      * because an unpicked search row paints nothing else.
      */
     highlighted: Boolean = false,
+    /** #EXP-1832: the tree guide of a row inside a folder. */
+    guide: TreeGuide? = null,
 ) {
     val shape = RoundedCornerShape(PickerDefaults.RowRadius)
     Row(
@@ -598,6 +632,8 @@ internal fun <T> PickerRow(
             // is added ON TOP of the minimum and the row stands ~18dp taller
             // than the sheet rows beside it.
             .defaultMinSize(minHeight = PickerDefaults.RowHeight)
+            // Outside the clip, so the branch bridges the rows' 2dp gap.
+            .treeGuides(guide, gap = 2.dp, base = PickerDefaults.RowInnerPadding)
             .clip(shape)
             .background(
                 if (highlighted && mark == PickerMark.None) GlassTokens.RowFillActive else PickerDefaults.rowBackground(mark),
@@ -605,10 +641,19 @@ internal fun <T> PickerRow(
             )
             .border(GlassTokens.Hairline, PickerDefaults.rowStroke(mark), shape)
             .clickable(enabled = !item.disabled, onClick = onClick)
-            .padding(horizontal = PickerDefaults.RowInnerPadding, vertical = 8.dp),
+            .padding(
+                start = PickerDefaults.RowInnerPadding + (TreeGuides.INDENT_DP * item.depth).dp,
+                end = PickerDefaults.RowInnerPadding,
+                top = 8.dp,
+                bottom = 8.dp,
+            ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (body != null) body(item) else PickerItemBody(item)
+        item.folder?.let { folder ->
+            Spacer(Modifier.width(PickerDefaults.LeadingGap))
+            SidebarFolderTrailing(open = folder.open, count = folder.count)
+        }
         if (mark == PickerMark.Check) {
             // The single arm's whole mark: muted, trailing, and the last thing
             // in the row — every body above ends in a `weight(1f)` column, so

@@ -72,6 +72,10 @@ import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.domain.Chats
 import com.exponential.app.domain.NavBadges
+import com.exponential.app.domain.SidebarFolders
+import com.exponential.app.domain.TreeGuide
+import com.exponential.app.domain.TreeGuides
+import com.exponential.app.ui.components.picker.PickerFolder
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
@@ -135,6 +139,10 @@ data class PhoneBoardMenuRow(
     val active: Boolean,
     /** #FEED-232: another team's needs-you rows (attention); 0 = none. */
     val badge: Int = 0,
+    /** #EXP-1832: 1 = a board inside one of the member's folders. */
+    val depth: Int = 0,
+    /** #EXP-1832: set = a read-only FOLDER row (a press folds it). */
+    val folder: PickerFolder? = null,
     val glyph: @Composable () -> Unit,
 )
 
@@ -146,6 +154,8 @@ data class PhoneBoardMenu(
     val onSelect: (String) -> Unit,
     val onNew: (() -> Unit)?,
     val newLabel: String,
+    /** #EXP-1832: a folder row's press. */
+    val onToggleFolder: (String) -> Unit = {},
 ) {
     companion object {
         /** The active team's boards in sidebar order, New board for a viewer
@@ -155,16 +165,36 @@ data class PhoneBoardMenu(
             activeBoardId: String?,
             onSelect: (BoardEntity) -> Unit,
             onNewBoard: (() -> Unit)?,
-        ) = PhoneBoardMenu(
-            rows = boards.map { board ->
-                PhoneBoardMenuRow(board.id, board.name, board.id == activeBoardId) {
-                    BoardIcon(board, size = TabGlyphSize)
-                }
-            },
-            onSelect = { id -> boards.firstOrNull { it.id == id }?.let(onSelect) },
-            onNew = onNewBoard,
-            newLabel = Chats.Copy.BOARD_MENU_NEW_BOARD,
-        )
+            /** #EXP-1832: the member's read-only folders (`SidebarFolders.rows`
+             *  over [boards]); null = flat. */
+            folders: SidebarFolderLayout? = null,
+        ): PhoneBoardMenu {
+            val byId = boards.associateBy { it.id }
+            val layout = folders?.rows ?: boards.map {
+                SidebarFolders.Row(SidebarFolders.KIND_ITEM, it.id, 0, group = false, name = null, open = false, count = 0)
+            }
+            return PhoneBoardMenu(
+                rows = layout.mapNotNull { row ->
+                    if (row.group) {
+                        PhoneBoardMenuRow(
+                            row.id,
+                            row.name ?: SidebarFolders.DEFAULT_FOLDER_NAME,
+                            active = false,
+                            folder = PickerFolder(count = row.count, open = row.open),
+                        ) { SidebarFolderGlyph(size = TabGlyphSize) }
+                    } else {
+                        val board = byId[row.id] ?: return@mapNotNull null
+                        PhoneBoardMenuRow(board.id, board.name, board.id == activeBoardId, depth = row.depth) {
+                            BoardIcon(board, size = TabGlyphSize)
+                        }
+                    }
+                },
+                onSelect = { id -> boards.firstOrNull { it.id == id }?.let(onSelect) },
+                onNew = onNewBoard,
+                newLabel = Chats.Copy.BOARD_MENU_NEW_BOARD,
+                onToggleFolder = { id -> folders?.toggle?.invoke(id) },
+            )
+        }
 
         /** The member's teams, then New team. */
         fun teams(
@@ -747,16 +777,27 @@ private fun BoardMenuPanel(
                 .verticalScroll(rememberScrollState())
                 .padding(Chats.Shell.Bar.PADDING.dp),
         ) {
-            menu.rows.forEach { row ->
+            val guides = remember(menu.rows) {
+                if (menu.rows.any { it.depth > 0 }) TreeGuides.compute(menu.rows.map { it.depth }) else null
+            }
+            menu.rows.forEachIndexed { index, row ->
                 BoardMenuRow(
                     label = row.label,
                     active = row.active,
                     muted = false,
                     badge = row.badge,
                     glyph = row.glyph,
+                    depth = row.depth,
+                    guide = guides?.get(index),
+                    folder = row.folder,
                     onClick = {
-                        menu.onSelect(row.id)
-                        onClose()
+                        // #EXP-1832: a folder folds; it is never a destination.
+                        if (row.folder != null) {
+                            menu.onToggleFolder(row.id)
+                        } else {
+                            menu.onSelect(row.id)
+                            onClose()
+                        }
                     },
                 )
             }
@@ -791,17 +832,21 @@ private fun BoardMenuRow(
     glyph: @Composable () -> Unit,
     onClick: () -> Unit,
     badge: Int = 0,
+    depth: Int = 0,
+    guide: TreeGuide? = null,
+    folder: PickerFolder? = null,
 ) {
     val pill = RoundedCornerShape(percent = 50)
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .height(Chats.Shell.BoardMenu.ROW_HEIGHT.dp)
+            .treeGuides(guide, base = 16.dp)
             .clip(pill)
             .then(if (active) Modifier.background(GlassTokens.RowFillActive, pill) else Modifier)
             .clickable(onClick = onClick)
-            .testTag(Chats.TestIds.BOARD_MENU_ROW)
-            .padding(horizontal = 16.dp),
+            .testTag(if (folder != null) "board-menu-folder" else Chats.TestIds.BOARD_MENU_ROW)
+            .padding(start = 16.dp + (TreeGuides.INDENT_DP * depth).dp, end = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -817,6 +862,7 @@ private fun BoardMenuRow(
             modifier = Modifier.weight(1f),
         )
         CountBadge(badge, NavBadges.Tone.Attention, testTag = "board-menu-row-badge")
+        if (folder != null) SidebarFolderTrailing(open = folder.open, count = folder.count)
         if (active) {
             Icon(
                 ExpIcons.uiCheck,
