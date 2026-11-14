@@ -55,7 +55,11 @@ pub(crate) struct TriggerEditorState {
 
 /// ONE agent trigger element as written (`AgentTrigger`): `id`, `enabled`,
 /// then the when-part. `id` is absent on a NEW trigger (the server mints
-/// it). The server's schema is STRICT: nothing else rides along.
+/// it). The server's schema is STRICT: nothing else rides along. Only a
+/// listed trigger is ever edited, so `preset` (#EXP-1846: the Check in,
+/// `domain::agent_settings::with_check_in`) never goes through here; every
+/// whole-array write below clones the other elements as stored, `preset`
+/// included.
 pub(crate) fn agent_trigger_element(when: &Value, id: Option<&str>, enabled: bool) -> Value {
     let mut element = serde_json::Map::new();
     if let Some(id) = id {
@@ -84,7 +88,7 @@ pub(crate) fn trigger_enabled(trigger: &Value) -> bool {
 /// id and a when-part it understands (NEW-2: a schedule's `cron`, an
 /// event's `name`). Everything else is dropped by the read, so it never
 /// rides a write.
-fn is_readable(trigger: &Value) -> bool {
+pub(crate) fn is_readable(trigger: &Value) -> bool {
     let text = |key: &str| trigger.get(key).and_then(Value::as_str).is_some_and(|value| !value.trim().is_empty());
     trigger_id(trigger).is_some()
         && match trigger.get("kind").and_then(Value::as_str) {
@@ -92,6 +96,15 @@ fn is_readable(trigger: &Value) -> bool {
             Some("event") => text("name"),
             _ => false,
         }
+}
+
+/// #EXP-1848: a stored element of a KIND this build does not know (an app
+/// agent's `record` / `webhook` trigger) is kept as stored and rides every
+/// whole-array write back unchanged (it is never listed); a schedule or
+/// event this build cannot read (a pre-NEW-2 shape) is still dropped.
+fn is_kept(trigger: &Value) -> bool {
+    is_readable(trigger)
+        || (trigger_id(trigger).is_some() && !matches!(trigger.get("kind").and_then(Value::as_str), Some("schedule" | "event") | None))
 }
 
 /// The array an ADD sends: every readable existing trigger, then the new one.
@@ -208,7 +221,7 @@ pub(crate) fn agent_triggers(agent_id: &str, cx: &App) -> Vec<Value> {
     let Some(row) = store.collections().agents.read(cx).get(agent_id).cloned() else {
         return Vec::new();
     };
-    let synced: Vec<Value> = row.trigger_list().into_iter().filter(is_readable).collect();
+    let synced: Vec<Value> = row.trigger_list().into_iter().filter(is_kept).collect();
     let mut written = WRITTEN_TRIGGERS.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let pending = written.as_ref().and_then(|written| written.get(agent_id));
     match write_base(&synced, pending, std::time::Instant::now()) {
@@ -521,6 +534,11 @@ mod tests {
         assert!(!is_readable(&json!({"kind": "schedule", "cron": "0 9 * * *"})));
         assert!(!is_readable(&json!({"id": "t-4", "kind": "schedule", "interval": "daily", "minuteOfDay": 1})));
         assert!(!is_readable(&json!({"id": "t-5", "kind": "event", "event": "created"})));
+        // #EXP-1848: an app agent's record trigger is kept (never listed), a
+        // pre-NEW-2 schedule shape is not.
+        assert!(is_kept(&json!({"id": "t-6", "kind": "record", "record": "orders", "op": "insert"})));
+        assert!(!is_kept(&json!({"id": "t-4", "kind": "schedule", "interval": "daily", "minuteOfDay": 1})));
+        assert!(!is_kept(&json!({"kind": "record"})));
     }
 
     /// EXP-1294: every trigger write is the WHOLE `AgentTrigger[]` — the
@@ -557,5 +575,26 @@ mod tests {
 
         // A delete sends the array without it.
         assert_eq!(triggers_without(&existing, "t-1"), vec![existing[1].clone()]);
+    }
+
+    /// #EXP-1846: the Check in (the trigger carrying `preset`) and any key
+    /// this build does not know ride every whole-array write untouched.
+    #[test]
+    fn whole_array_writes_keep_the_check_in_and_unknown_keys() {
+        let check_in = json!({"id": "t-ci", "enabled": true, "kind": "schedule", "cron": "0 * * * *", "preset": "1h", "tz": "Europe/Vienna", "future": 1});
+        let mut existing = stored();
+        existing.insert(0, check_in.clone());
+        assert!(is_readable(&check_in));
+        let new_event = agent_trigger_element(&json!({"kind": "event", "name": "pr.merged"}), None, true);
+        assert_eq!(triggers_with_added(&existing, new_event)[0], check_in);
+        let edited = agent_trigger_element(&json!({"kind": "event", "name": "issue.created"}), Some("t-1"), true);
+        assert_eq!(triggers_with_replaced(&existing, "t-1", edited)[0], check_in);
+        assert_eq!(triggers_with_enabled(&existing, "t-2", true)[0], check_in);
+        assert_eq!(triggers_without(&existing, "t-1")[0], check_in);
+        // Pausing the Check in moves only its flag; `preset` stays.
+        let paused = triggers_with_enabled(&existing, "t-ci", false);
+        assert_eq!(paused[0]["preset"], json!("1h"));
+        assert_eq!(paused[0]["future"], json!(1));
+        assert_eq!(domain::agent_settings::check_in_of(&paused), "off");
     }
 }

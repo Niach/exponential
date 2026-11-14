@@ -46,6 +46,57 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-14-desktop-chat-shell-folders",
+    date: "2026-11-14",
+    title: "Folders, one chat menu and a floating Assistant on the desktop",
+    summary: "Desktop and CLI 0.14.161 and eDE 0.2.25: sidebar folders you can drag, one chat shell with a single … menu, the floating Assistant, one settings page for every agent, and [Image #N] in chat composers.",
+    body: r##"- **Sidebar folders**: group boards, agents and apps into folders and drag them into the order you want; the order follows you to every device.
+- **One chat shell**: every chat has one … menu, no gear, and your own messages show your avatar on the right.
+- **Floating Assistant**: a round button in the bottom-right corner opens your Assistant's chat over the page.
+- **One agent settings page**: your Assistant and your team agents share one settings page, with a Model, a Check in and triggers for every agent; an app's automations are now its agent's triggers.
+- **Images in the composer**: an image you attach shows up as [Image #1] right where you are typing.
+- **My issues tabs**: a board's My issues lists only your issues on that board."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_297: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-14-android-memory-stopgap",
+    date: "2026-11-14",
+    title: "Android stays open in long sessions",
+    summary: "Android 0.14.140 gives the app more memory, so it no longer crashes over and over on some phones while a large chat or session list is open.",
+    body: r##"- **Fewer crashes**: on phones where Exponential kept closing itself after a while in a big chat, the app now has more room and stays open. A proper fix for the memory use follows."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_296: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-14-app-triggers",
+    date: "2026-11-14",
+    title: "App automations are the app agent's triggers",
+    summary: "An app's automations now live on its agent as triggers: the same list as every agent's, and they can also wake the agent instead of running a binding.",
+    body: r##"- **One trigger list**: an app's automations moved onto its agent, so a schedule, a team event, a record write or a webhook is one trigger in the same list every agent has. Nothing to do on your side: existing automations moved over with their history and keep firing.
+- **Wake the agent**: a trigger without a binding wakes the app's agent with a card in its chat (and an optional prompt), so judgement goes to the agent, not a fixed binding.
+- **Runs as the owner**: a binding runs as the app agent's owner, the app's creator, like every trigger. It pauses while they lack write access, and the team's owners are told.
+- **Rate cap**: the 30 runs a minute per app counts only runs that actually ran, so a burst no longer blocks the next minute."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_295: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-14-one-agent-settings-page",
+    date: "2026-11-14",
+    title: "One settings page for every agent",
+    summary: "Your Assistant and your team agents now share one settings page: every agent gets a Model, a Check in and its own triggers.",
+    body: r##"- **Same page for every agent**: Runs on (device, account, model, skills, MCP servers), then Triggers, in the same order for your Assistant and your team agents.
+- **Check in for every agent**: the first Triggers row picks how often an agent checks in (every 15 or 30 minutes, every hour, every day, or off).
+- **More triggers for your Assistant**: add schedules and events to your Assistant too, not just its check in.
+- **Model for team agents**: pick the model a team agent runs on, like your Assistant's."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_294: ChangelogEntry = ChangelogEntry {
     id: "2026-11-14-phones-chat-shell-release",
     date: "2026-11-14",
     title: "One chat menu and sidebar folders on your phone",

@@ -987,7 +987,7 @@ final class StyleguideScreenshots: XCTestCase {
             expect(assistantRow, within: Wait.sync, "The Agents page has no Assistant row")
             assistantRow.tap()
             expect(
-                anyElement(app, identified: "assistant-check-in-row"),
+                anyElement(app, identified: "agent-check-in-row"),
                 within: Wait.network,
                 "The Assistant page drew no Check in row (no Assistant synced: does the demo member own a device?)"
             )

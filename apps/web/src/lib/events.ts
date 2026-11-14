@@ -1,9 +1,8 @@
-import { and, eq, isNull, lt, sql } from "drizzle-orm"
+import { eq, lt } from "drizzle-orm"
 import type { EventEmitter } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
 import { db } from "@/db/connection"
-import { apps, events, issues, type Event } from "@/db/schema"
-import { causingSessionId, inAutomation } from "@/lib/apps/automation-scope"
+import { events, issues, type Event } from "@/db/schema"
 import { fireEventTriggersInTx, type EventPrivateDetail } from "@/lib/agents/triggers"
 import type { Tx } from "@/lib/sessions/tx"
 
@@ -13,7 +12,8 @@ import type { Tx } from "@/lib/sessions/tx"
 // emitted by the writers that make those moments; anything else comes over
 // MCP `events_emit`. Every emit fans out to the agents listening on the
 // name (an event trigger) inside the same transaction, as pending input in
-// their owners' conversation sessions. #EXP-1409: the payload of an event
+// their owners' conversation sessions (#EXP-1829: an app agent's `run`
+// triggers run its binding after the commit). #EXP-1409: the payload of an event
 // about a session not visible to the whole team names ids only
 // (`session.ended`); `pr.*` and `issue.*` carry team-visible rows (the
 // `pull_requests` / `issues` shapes sync them to every member anyway), and
@@ -47,20 +47,6 @@ export async function emitEventInTx(tx: Tx, args: EmitEventArgs): Promise<Event>
     })
     .returning()
   await fireEventTriggersInTx(tx, row!, args.privateDetail)
-  // #VAPP-220: the apps' event automations (not for an event an automation
-  // run caused: the loop guard), run once the row is committed.
-  if (!inAutomation()) {
-    const listening = await tx
-      .select({ id: apps.id })
-      .from(apps)
-      .where(and(eq(apps.teamId, args.teamId), isNull(apps.deletedAt), sql`${apps.package} @> ${JSON.stringify({ automations: [{ on: { event: args.name } }] })}::jsonb`))
-    if (listening.length > 0) {
-      const causing = causingSessionId()
-      void import(`@/lib/apps/automations`)
-        .then((m) => m.fireEventAutomations(row!, listening.map((a) => a.id), causing))
-        .catch((err) => console.error(`[automations] event trigger failed:`, err))
-    }
-  }
   return row!
 }
 

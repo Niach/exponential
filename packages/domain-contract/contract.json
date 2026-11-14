@@ -505,9 +505,10 @@
     ]
   },
   "agentTrigger": {
-    "$comment": "NEW-2: triggers live on the `agents` definition and the SERVER fires them every watchdog tick. schedule = a 5-field cron with minutes (`m h dom mon dow`) read in an IANA `tz` (default UTC); a tick missed while the server was down is caught up on the next one within catchUpHours, once; a schedule never stacks while its last firing is unread. event = the name of an `events` row.",
-    "kindValues": ["schedule", "event"],
-    "maxPerAgent": 10,
+    "$comment": "NEW-2: triggers live on the `agents` definition and the SERVER fires them every watchdog tick. schedule = a 5-field cron with minutes (`m h dom mon dow`) read in an IANA `tz` (default UTC); a tick missed while the server was down is caught up on the next one within catchUpHours, once; a schedule never stacks while its last firing is unread. event = the name of an `events` row. #EXP-1829 (ONE trigger system): an app's agent also takes `appKindValues`: record = a write of the app's records ({record: kind, op}), webhook = a signed delivery to the app's hook ({name}); a trigger WAKES its agent (`prompt` = the card's text) unless it carries `run` (an app's agent only), which runs one app binding on the server as the agent's owner (@exp/emcp automations.json). App automations ARE these triggers.",
+    "kindValues": ["schedule", "event", "record", "webhook"],
+    "appKindValues": ["record", "webhook"],
+    "maxPerAgent": 16,
     "cronMax": 64,
     "tzMax": 64,
     "catchUpHours": 24

@@ -49,12 +49,8 @@ vi.mock(`@/lib/merge-train/worker`, async (importOriginal) => ({
 }))
 // Same for the schedules (automations.real-db and triggers.real-db cover
 // them): at this suite's NOW (2000) each sweep rewound the `checkedAt` of
-// EVERY app's automations and every agent's triggers, so a parallel suite's
-// schedule fired its due minute twice.
-vi.mock(`@/lib/apps/automations`, async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/apps/automations")>()),
-  fireScheduledAutomations: async () => 0,
-}))
+// every agent's triggers (#EXP-1829: app automations included), so a
+// parallel suite's schedule fired its due minute twice.
 vi.mock(`@/lib/agents/triggers`, async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/agents/triggers")>()),
   fireScheduledTriggers: async () => 0,

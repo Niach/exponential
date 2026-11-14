@@ -15,6 +15,7 @@ vi.mock(`@/db/connection`, () => ({
 vi.mock(`@/lib/email-enabled`, () => ({ emailEnabled: false }))
 // #VAPP-213: the built-in skills' reconcile has its own real-DB test.
 vi.mock(`@/lib/skills/builtin`, () => ({ reconcileBuiltinSkills: async () => {} }))
+vi.mock(`@/lib/apps/automations-migrate`, () => ({ migrateAppAutomations: async () => 0 }))
 
 // bootstrapCloud memoizes its promise in module state — re-import per test.
 async function importModule() {

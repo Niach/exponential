@@ -44,9 +44,9 @@ export async function agentBySlug(teamId: string, slug: string): Promise<{ id: s
   return rows.find((row) => agentSlug(row.name) === slug) ?? null
 }
 
-/** The slug of the agent acting in `sessionId`'s tree (its root's
- *  conversation agent, else the agent that started it), or null. */
-export async function actingAgentSlug(sessionId: string | null | undefined): Promise<string | null> {
+/** The agent acting in `sessionId`'s tree (its root's conversation agent,
+ *  else the agent that started it), or null. */
+export async function actingAgentId(sessionId: string | null | undefined): Promise<string | null> {
   if (!sessionId) return null
   const [row] = await db.select({ rootId: sessions.rootId }).from(sessions).where(eq(sessions.id, sessionId)).limit(1)
   if (!row) return null
@@ -55,7 +55,12 @@ export async function actingAgentSlug(sessionId: string | null | undefined): Pro
     .from(sessions)
     .where(eq(sessions.id, row.rootId))
     .limit(1)
-  const agentId = root ? treeAgentId(root) : null
+  return root ? treeAgentId(root) : null
+}
+
+/** The slug of the agent acting in `sessionId`'s tree, or null. */
+export async function actingAgentSlug(sessionId: string | null | undefined): Promise<string | null> {
+  const agentId = await actingAgentId(sessionId)
   if (!agentId) return null
   const [agent] = await db.select({ name: agents.name }).from(agents).where(eq(agents.id, agentId)).limit(1)
   return agent ? agentSlug(agent.name) : null
