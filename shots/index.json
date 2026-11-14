@@ -2565,9 +2565,9 @@
       "desktop": {
         "file": "shots/exponential-ui-button/desktop.webp",
         "width": 1800,
-        "height": 1126,
-        "bytes": 33436,
-        "sha256": "acbe372e493bc0955f90bd85e35d3b4d13b421c84a4f4875c2ceb212d8c7adff"
+        "height": 1125,
+        "bytes": 41996,
+        "sha256": "09b2d7a5924edb0cbbbaae8a8b81130e831589a79f4425cd7ffa2b577fb8d45a"
       },
       "ios": {
         "file": "shots/exponential-ui-button/ios.webp",
