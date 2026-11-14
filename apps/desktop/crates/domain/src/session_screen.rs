@@ -44,6 +44,8 @@ pub enum SessionScreenTab {
     Results,
     Preview,
     Data,
+    /// #EXP-1850: an app's Events tab.
+    Events,
     Versions,
 }
 
@@ -56,6 +58,7 @@ impl SessionScreenTab {
             SessionScreenTab::Results => "results",
             SessionScreenTab::Preview => "preview",
             SessionScreenTab::Data => "data",
+            SessionScreenTab::Events => "events",
             SessionScreenTab::Versions => "versions",
         }
     }
@@ -68,6 +71,7 @@ impl SessionScreenTab {
             "results" => Some(SessionScreenTab::Results),
             "preview" => Some(SessionScreenTab::Preview),
             "data" => Some(SessionScreenTab::Data),
+            "events" => Some(SessionScreenTab::Events),
             "versions" => Some(SessionScreenTab::Versions),
             _ => None,
         }
@@ -553,6 +557,11 @@ mod tests {
         assert_eq!(session_screen_menu_label("session", SessionScreenMenuEntry::Delete), "Delete");
         assert_eq!(session_screen_menu_icon(SessionScreenMenuEntry::Settings), "nav-settings");
         assert_eq!(session_screen_tabs("bogus"), session_screen_tabs("session"));
+        // #EXP-1850: an app's tabs, Events after Data.
+        assert_eq!(
+            session_screen_tabs("app"),
+            [SessionScreenTab::Chat, SessionScreenTab::Preview, SessionScreenTab::Data, SessionScreenTab::Events, SessionScreenTab::Versions]
+        );
     }
 
     #[test]
