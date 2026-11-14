@@ -90,11 +90,19 @@ trait Writer {
     /// `target_device`'s install too.
     fn new_root(&self, target_device: Option<&str>) -> Result<NewRootSeal, String>;
     fn adopt(&self, root_id: &str, seal: &NewRootSeal);
+    /// #FEED-250: `sessions.sendTarget`, the server's word on the caller's
+    /// conversation with an agent / app.
+    fn send_target(&self, agent_id: Option<&str>, app_id: Option<&str>) -> Result<api::sessions::SendTarget, String>;
+    /// Records a root's current key the server named.
+    fn note_key(&self, root_id: &str, epoch: u32, public: [u8; 32]);
 }
 
-struct Live(Option<InstallNode>);
+struct Live<'a> {
+    node: Option<InstallNode>,
+    trpc: Option<&'a api::TrpcClient>,
+}
 
-impl Writer for Live {
+impl Writer for Live<'_> {
     fn seal_body(&self, root_id: &str, text: &str) -> Result<String, String> {
         sealing::seal_body(root_id, text).map_err(|err| err.to_string())
     }
@@ -102,12 +110,21 @@ impl Writer for Live {
         sealing::seal_card(root_id, card).map_err(|err| err.to_string())
     }
     fn new_root(&self, target_device: Option<&str>) -> Result<NewRootSeal, String> {
-        self.0.as_ref().ok_or("P2P is not running")?.new_root_seal(target_device)
+        self.node.as_ref().ok_or("P2P is not running")?.new_root_seal(target_device)
     }
     fn adopt(&self, root_id: &str, seal: &NewRootSeal) {
         match sealing::service() {
             Some(service) => service.adopt(root_id, seal),
             None => sealing::adopt_new_root(root_id, seal),
+        }
+    }
+    fn send_target(&self, agent_id: Option<&str>, app_id: Option<&str>) -> Result<api::sessions::SendTarget, String> {
+        let trpc = self.trpc.ok_or("no tRPC client")?;
+        api::sessions::send_target(trpc, agent_id, app_id).map_err(|err| err.to_string())
+    }
+    fn note_key(&self, root_id: &str, epoch: u32, public: [u8; 32]) {
+        if let Some(service) = sealing::service() {
+            service.keyring().set_current(root_id, epoch, public);
         }
     }
 }
@@ -117,6 +134,12 @@ impl Writer for Live {
 pub enum SealTarget {
     /// An existing tree: seal for its root (its key is created if missing).
     Root(String),
+    /// #FEED-250: a conversation with an agent / app the store does not
+    /// have: the server names it (`sessions.sendTarget`) before anything is
+    /// sealed; a new root only when it names none.
+    Conversation { device_id: Option<String> },
+    /// The conversation the server named keyed: sealed to ITS key.
+    Keyed { root_id: String, epoch: u32, public: [u8; 32] },
     /// `sessions.send` creates the root: its key rides inline (`seal`),
     /// wrapped for the executing device's install too (`device_id`).
     NewRoot { device_id: Option<String> },
@@ -176,6 +199,8 @@ pub fn plan_send(input: &SendInput, cx: &App) -> SendPlan {
         root_of(parent_id).map_or(SealTarget::None, SealTarget::Root)
     } else if let Some(existing) = existing_conversation(input, &sessions.iter().collect::<Vec<_>>(), cx) {
         SealTarget::Root(existing)
+    } else if input.team_id.is_some() && is_conversation(input) {
+        SealTarget::Conversation { device_id: input.device_id.clone() }
     } else if input.team_id.is_some() {
         SealTarget::NewRoot { device_id: input.device_id.clone() }
     } else {
@@ -199,18 +224,85 @@ fn existing_conversation(input: &SendInput, sessions: &[&SessionRow], cx: &App) 
     None
 }
 
-/// Seals `input` per `plan` (BLOCKING): the text and name become body
-/// envelopes, a new root's key rides inline. Returns the new root's seal
-/// to adopt once the server names the root. Any failure leaves the content
-/// plaintext.
-fn seal_send(writer: &dyn Writer, input: &mut SendInput, plan: &SendPlan) -> Option<NewRootSeal> {
+/// A send to an agent / app that names no session: it lands in the
+/// caller's conversation with it.
+fn is_conversation(input: &SendInput) -> bool {
+    input.session_id.is_none() && input.parent_id.is_none() && (input.agent_id.is_some() || input.app_id.is_some())
+}
+
+/// #FEED-250 (`sealed-content.json` `staleTree`): `target` with the server
+/// asked where the store cannot know: a conversation it lacks, or (`fresh`:
+/// the server refused a key write, the store was wrong once) any agent /
+/// app conversation. BLOCKING.
+fn resolve(writer: &dyn Writer, input: &SendInput, target: &SealTarget, fresh: bool) -> SealTarget {
+    let ask = match target {
+        SealTarget::Conversation { .. } => true,
+        SealTarget::Root(_) | SealTarget::NewRoot { .. } => fresh && is_conversation(input),
+        SealTarget::None | SealTarget::Keyed { .. } => false,
+    };
+    if !ask {
+        return target.clone();
+    }
+    let device_id = match target {
+        SealTarget::Conversation { device_id } | SealTarget::NewRoot { device_id } => device_id.clone(),
+        _ => input.device_id.clone(),
+    };
+    match writer.send_target(input.agent_id.as_deref(), input.app_id.as_deref()) {
+        Ok(found) => {
+            let key = found.epoch.zip(found.public_key.as_deref().and_then(|key| sealing::public_key_from_b64(key).ok()));
+            match (found.root_id, key) {
+                (Some(root_id), Some((epoch, public))) => {
+                    writer.note_key(&root_id, epoch, public);
+                    SealTarget::Keyed { root_id, epoch, public }
+                }
+                // Keyless: keyed by this send's seal (`sessionKeys.create`).
+                (Some(root_id), None) => SealTarget::Root(root_id),
+                (None, _) => SealTarget::NewRoot { device_id },
+            }
+        }
+        Err(err) => {
+            log::warn!("[sealing] sessions.sendTarget failed: {err}");
+            match target {
+                SealTarget::Conversation { device_id } => SealTarget::NewRoot { device_id: device_id.clone() },
+                other => other.clone(),
+            }
+        }
+    }
+}
+
+/// Seals `input` for `target` (BLOCKING, resolved by [`resolve`]): the
+/// text and name become body envelopes, a new root's key rides inline.
+/// Returns the new root's seal to adopt once the server names the root.
+/// Any failure leaves the content plaintext.
+fn seal_send(writer: &dyn Writer, input: &mut SendInput, target: &SealTarget) -> Option<NewRootSeal> {
     // #EXP-1683: the server never appends to a sealed body: the attachment
     // lines go inside it.
     let text = input.text.as_deref().map(|text| {
         domain::sealed::with_attachment_embeds(text, input.attachment_ids.as_deref().unwrap_or_default(), domain::sealed::recorded_upload)
     });
-    match &plan.target {
-        SealTarget::None => None,
+    match target {
+        SealTarget::None | SealTarget::Conversation { .. } => None,
+        SealTarget::Keyed { root_id, epoch, public } => {
+            let body = |text: &str| enet_core::sealed::seal_body(public, *epoch, text).ok();
+            let sealed_text = match text.as_deref() {
+                Some(text) => match body(text) {
+                    Some(sealed) => Some(sealed),
+                    None => {
+                        log::warn!("[sealing] sending plaintext, can't seal for {root_id}");
+                        return None;
+                    }
+                },
+                None => None,
+            };
+            if let Some(sealed) = input.name.as_deref().and_then(body) {
+                input.sealed_name = Some(sealed);
+                input.name = None;
+            }
+            if sealed_text.is_some() {
+                input.text = sealed_text;
+            }
+            None
+        }
         SealTarget::Root(root_id) => {
             let sealed_text = match text.as_deref() {
                 Some(text) => match writer.seal_body(root_id, text) {
@@ -279,13 +371,42 @@ pub fn send_blocking(trpc: &api::TrpcClient, input: &SendInput, plan: &SendPlan)
     if !plan.ref_issue_ids.is_empty() {
         input.ref_issue_ids = Some(plan.ref_issue_ids.clone());
     }
-    let writer = Live(plan.node.clone());
-    let seal = sealing::service().and_then(|_| seal_send(&writer, &mut input, plan));
-    let out = api::sessions::send(trpc, &input)?;
-    if let Some(seal) = seal {
-        writer.adopt(&out.session_id, &seal);
+    if sealing::service().is_none() {
+        return api::sessions::send(trpc, &input);
     }
-    Ok(out)
+    let writer = Live { node: plan.node.clone(), trpc: Some(trpc) };
+    send_sealed(&writer, &input, &plan.target, &mut |input| api::sessions::send(trpc, input))
+}
+
+/// #FEED-250 (`staleTree`): resolves, seals and sends; a refused key write
+/// (the tree moved on behind this store) is resolved again from the server,
+/// re-sealed and re-sent ONCE by itself. A second refusal reads
+/// [`domain::sealed::STALE_TREE_REFUSAL`], never a raw epoch.
+fn send_sealed(
+    writer: &dyn Writer,
+    input: &SendInput,
+    target: &SealTarget,
+    send: &mut dyn FnMut(&SendInput) -> Result<SendOutput, api::ApiError>,
+) -> Result<SendOutput, api::ApiError> {
+    let mut attempt = |fresh: bool| {
+        let mut wire = input.clone();
+        let seal = seal_send(writer, &mut wire, &resolve(writer, input, target, fresh));
+        let out = send(&wire)?;
+        if let Some(seal) = seal {
+            writer.adopt(&out.session_id, &seal);
+        }
+        Ok(out)
+    };
+    let stale = |err: &api::ApiError| matches!(err, api::ApiError::Http { message, .. } if domain::sealed::is_stale_tree_refusal(message));
+    match attempt(false) {
+        Err(err) if stale(&err) => attempt(true).map_err(|err| match err {
+            api::ApiError::Http { status, message } if domain::sealed::is_stale_tree_refusal(&message) => {
+                api::ApiError::Http { status, message: domain::sealed::STALE_TREE_REFUSAL.to_string() }
+            }
+            other => other,
+        }),
+        other => other,
+    }
 }
 
 /// An answer's sealing facts: the card's tree and, for a SEALED card, the
@@ -370,7 +491,7 @@ fn answer_wire(writer: Option<&dyn Writer>, input: &AnswerInput, plan: &AnswerPl
 
 /// THE sealed `sessions.answer` (BLOCKING, off the UI thread).
 pub fn answer_blocking(trpc: &api::TrpcClient, input: &AnswerInput, plan: &AnswerPlan) -> Result<api::sessions::TxOutput, api::ApiError> {
-    let live = sealing::service().map(|_| Live(None));
+    let live = sealing::service().map(|_| Live { node: None, trpc: None });
     let wire = answer_wire(live.as_ref().map(|w| w as &dyn Writer), input, plan)
         .map_err(|message| api::ApiError::Http { status: 400, message })?;
     api::sessions::answer(trpc, &wire)
@@ -415,6 +536,10 @@ mod tests {
             })
         }
         fn adopt(&self, _root_id: &str, _seal: &NewRootSeal) {}
+        fn send_target(&self, _agent_id: Option<&str>, _app_id: Option<&str>) -> Result<api::sessions::SendTarget, String> {
+            Ok(api::sessions::SendTarget::default())
+        }
+        fn note_key(&self, _root_id: &str, _epoch: u32, _public: [u8; 32]) {}
     }
 
     fn tree() -> OneTree {
@@ -427,7 +552,7 @@ mod tests {
         let mut input = SendInput::message("s1", "hello @a@b.co", Vec::new());
         input.name = Some("Title".into());
         let plan = SendPlan { target: SealTarget::Root("r1".into()), ..SendPlan::default() };
-        assert!(seal_send(&writer, &mut input, &plan).is_none());
+        assert!(seal_send(&writer, &mut input, &plan.target).is_none());
         let text = input.text.as_deref().unwrap();
         assert!(text.starts_with("exp-sealed:v1:1:"));
         assert_eq!(writer.open_body(text).text.as_deref(), Some("hello @a@b.co"));
@@ -441,7 +566,7 @@ mod tests {
         let writer = tree();
         let mut input = SendInput { team_id: Some("t".into()), device_id: Some("d".into()), text: Some("go".into()), ..SendInput::default() };
         let plan = SendPlan { target: SealTarget::NewRoot { device_id: Some("d".into()) }, ..SendPlan::default() };
-        let seal = seal_send(&writer, &mut input, &plan).unwrap();
+        let seal = seal_send(&writer, &mut input, &plan.target).unwrap();
         assert_eq!(seal.secret, writer.key.secret);
         assert_eq!(writer.devices.lock().unwrap().clone(), vec![Some("d".to_string())]);
         let wire = input.seal.clone().unwrap();
@@ -551,5 +676,168 @@ mod tests {
                 other => panic!("{name}: unknown wire {other}"),
             }
         }
+    }
+
+    /// #FEED-250 (`sealed-content.json` `staleTree`): a tree as the server
+    /// has it, the store's view of it, and every server call the writer makes.
+    struct StaleTree {
+        key: contract::TreeKey,
+        local: String,
+        server: String,
+        asks: Mutex<Vec<String>>,
+    }
+
+    impl StaleTree {
+        fn ask(&self, what: &str) {
+            self.asks.lock().unwrap().push(what.to_string());
+        }
+        fn opens(&self, body: &str) -> Option<String> {
+            contract::open_body(body, &|epoch| (epoch == 1).then_some(self.key.secret)).text
+        }
+    }
+
+    impl Writer for StaleTree {
+        /// The key holder's `ensure_key`: the key the store synced, else
+        /// `publicKeys`, else `sessionKeys.create`.
+        fn seal_body(&self, _root_id: &str, text: &str) -> Result<String, String> {
+            if self.local != "keyed" {
+                self.ask("publicKeys");
+                if self.server != "keyed" {
+                    self.ask("create");
+                }
+            }
+            contract::seal_body(&self.key.public, 1, text).map_err(|e| e.to_string())
+        }
+        fn seal_card(&self, _root_id: &str, card: &Value) -> Result<Value, String> {
+            contract::seal_card(&self.key.public, 1, card).map_err(|e| e.to_string())
+        }
+        fn new_root(&self, _target_device: Option<&str>) -> Result<NewRootSeal, String> {
+            Ok(NewRootSeal { install_id: "me".into(), public_key: self.key.public_key(), epoch: 1, wraps: Vec::new(), secret: self.key.secret })
+        }
+        fn adopt(&self, _root_id: &str, _seal: &NewRootSeal) {}
+        fn send_target(&self, _agent_id: Option<&str>, _app_id: Option<&str>) -> Result<api::sessions::SendTarget, String> {
+            self.ask("sendTarget");
+            let root_id = (self.server != "none").then(|| "r1".to_string());
+            let keyed = self.server == "keyed";
+            Ok(api::sessions::SendTarget {
+                root_id,
+                epoch: keyed.then_some(1),
+                public_key: keyed.then(|| self.key.public_key()),
+            })
+        }
+        fn note_key(&self, _root_id: &str, _epoch: u32, _public: [u8; 32]) {}
+    }
+
+    fn stale_fixture() -> (Value, contract::TreeKey) {
+        let fixture: Value = serde_json::from_str(include_str!("../../../../../packages/domain-contract/fixtures/sealed-content.json")).unwrap();
+        let hex = fixture["tree"]["secret"].as_str().unwrap();
+        let secret: [u8; 32] =
+            (0..hex.len()).step_by(2).map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap()).collect::<Vec<_>>().try_into().unwrap();
+        let public = contract::public_key_from_b64(fixture["tree"]["publicKey"].as_str().unwrap()).unwrap();
+        (fixture["staleTree"].clone(), contract::TreeKey { secret, public })
+    }
+
+    fn agent_send() -> SendInput {
+        SendInput { team_id: Some("t1".into()), agent_id: Some("a1".into()), text: Some("hi".into()), ..SendInput::default() }
+    }
+
+    fn refused(message: &str) -> api::ApiError {
+        api::ApiError::Http { status: 409, message: message.into() }
+    }
+
+    #[test]
+    fn the_fixture_stale_tree_cases_ask_the_server_where_the_store_cannot_know() {
+        let (stale, key) = stale_fixture();
+        let cases = stale["cases"].as_array().unwrap();
+        assert!(cases.len() >= 5);
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let text = |field: &str| case[field].as_str().unwrap().to_string();
+            let writer = StaleTree { key: key.clone(), local: text("local"), server: text("server"), asks: Mutex::new(Vec::new()) };
+            let (input, target) = match (text("send").as_str(), writer.local.as_str()) {
+                ("agent", "missing") => (agent_send(), SealTarget::Conversation { device_id: None }),
+                ("agent", _) => (agent_send(), SealTarget::Root("r1".into())),
+                _ => (SendInput::message("r1", "hi", Vec::new()), SealTarget::Root("r1".into())),
+            };
+            let mut sent = Vec::new();
+            send_sealed(&writer, &input, &target, &mut |wire| {
+                sent.push(wire.clone());
+                Ok(SendOutput { session_id: "r1".into(), ..SendOutput::default() })
+            })
+            .unwrap();
+            // The desktop's key holder looks a root's key up (`publicKeys`)
+            // before it creates one: a refused create never leaves.
+            let mut want: Vec<String> = Vec::new();
+            for ask in case["asks"].as_array().unwrap().iter().map(|a| a.as_str().unwrap()) {
+                match ask {
+                    "create" => {
+                        want.push("publicKeys".into());
+                        if writer.server != "keyed" {
+                            want.push("create".into());
+                        }
+                    }
+                    "publicKeys" if want.last().is_some_and(|last| last == "publicKeys") => {}
+                    other => want.push(other.into()),
+                }
+            }
+            assert_eq!(*writer.asks.lock().unwrap(), want, "{name}");
+            let wire = sent.pop().unwrap();
+            match case["wire"].as_str().unwrap() {
+                "inline" => assert_eq!(wire.seal.as_ref().map(|seal| seal.epoch), Some(1), "{name}"),
+                _ => assert!(wire.seal.is_none(), "{name}"),
+            }
+            assert_eq!(writer.opens(wire.text.as_deref().unwrap()).as_deref(), Some("hi"), "{name}");
+        }
+    }
+
+    #[test]
+    fn the_fixture_stale_tree_retry_cases_reseal_once_by_themselves() {
+        let (stale, key) = stale_fixture();
+        let refusal = stale["refusal"].as_str().unwrap();
+        assert_eq!(refusal, domain::sealed::STALE_TREE_REFUSAL);
+        for case in stale["retryCases"].as_array().unwrap() {
+            let name = case["name"].as_str().unwrap();
+            // The store missed the keyed conversation; the server knows it.
+            let writer = StaleTree { key: key.clone(), local: "missing".into(), server: "keyed".into(), asks: Mutex::new(Vec::new()) };
+            let mut refusals = case["refusals"].as_u64().unwrap();
+            let mut sent = Vec::new();
+            let out = send_sealed(&writer, &agent_send(), &SealTarget::Conversation { device_id: None }, &mut |wire| {
+                sent.push(wire.clone());
+                if refusals > 0 {
+                    refusals -= 1;
+                    return Err(refused(refusal));
+                }
+                Ok(SendOutput { session_id: "r1".into(), ..SendOutput::default() })
+            });
+            match case["outcome"].as_str().unwrap() {
+                "sent" => assert_eq!(out.unwrap().session_id, "r1", "{name}"),
+                _ => assert_eq!(out.unwrap_err().user_message(), refusal, "{name}"),
+            }
+            assert_eq!(sent.len() as u64, case["sends"].as_u64().unwrap(), "{name}");
+            let last = sent.last().unwrap();
+            assert!(last.seal.is_none(), "{name}: the re-send is sealed to the server's key");
+            assert_eq!(writer.opens(last.text.as_deref().unwrap()).as_deref(), Some("hi"), "{name}");
+        }
+    }
+
+    #[test]
+    fn an_older_servers_epoch_refusal_is_resealed_and_never_shown_raw() {
+        let (_, key) = stale_fixture();
+        let writer = StaleTree { key, local: "keyed".into(), server: "keyed".into(), asks: Mutex::new(Vec::new()) };
+        let mut calls = 0;
+        let out = send_sealed(&writer, &agent_send(), &SealTarget::Root("r1".into()), &mut |_| {
+            calls += 1;
+            Err(refused("The tree is at epoch 3"))
+        });
+        assert_eq!(calls, 2);
+        assert_eq!(out.unwrap_err().user_message(), domain::sealed::STALE_TREE_REFUSAL);
+        // The re-send asked the server, not the store.
+        assert_eq!(*writer.asks.lock().unwrap(), vec!["sendTarget".to_string()]);
+        calls = 0;
+        let out = send_sealed(&writer, &agent_send(), &SealTarget::Root("r1".into()), &mut |_| {
+            calls += 1;
+            Err(refused("Session not found"))
+        });
+        assert_eq!((calls, out.unwrap_err().user_message().as_str()), (1, "Session not found"));
     }
 }

@@ -231,6 +231,18 @@ pub fn ref_issue_ids<'a>(text: &str, issues: impl IntoIterator<Item = (&'a str, 
     ids
 }
 
+/// #FEED-248 (`sealed-content.json` `staleTree.refusal`): the server's
+/// CONFLICT for a key write (an inline `seal` or `sessionKeys.create`) into
+/// a tree that already moved on. A writer that gets it resolves the tree
+/// from the server and re-seals once by itself.
+pub const STALE_TREE_REFUSAL: &str = "This chat's encryption key changed. Try again in a moment.";
+
+/// [`STALE_TREE_REFUSAL`], or what older servers said (`The tree is at epoch N`).
+pub fn is_stale_tree_refusal(message: &str) -> bool {
+    static OLDER: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"^The tree is at epoch \d+$").unwrap());
+    message == STALE_TREE_REFUSAL || OLDER.is_match(message)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -280,5 +292,18 @@ mod attachment_embed_tests {
             let got = with_attachment_embeds(case["text"].as_str().unwrap(), &ids, |id| uploads.get(id).cloned());
             assert_eq!(got, case["expected"].as_str().unwrap(), "{}", case["name"]);
         }
+    }
+
+    #[test]
+    fn the_stale_tree_refusal_is_the_fixtures() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../packages/domain-contract/fixtures/sealed-content.json"
+        ))
+        .unwrap();
+        assert_eq!(fixture["staleTree"]["refusal"], STALE_TREE_REFUSAL);
+        assert!(is_stale_tree_refusal(STALE_TREE_REFUSAL));
+        assert!(is_stale_tree_refusal("The tree is at epoch 3"));
+        assert!(!is_stale_tree_refusal("The tree is at epoch 3, really"));
+        assert!(!is_stale_tree_refusal("Session not found"));
     }
 }

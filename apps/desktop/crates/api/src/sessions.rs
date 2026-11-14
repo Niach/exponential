@@ -197,6 +197,35 @@ pub fn send(trpc: &TrpcClient, input: &SendInput) -> Result<SendOutput, ApiError
     trpc.mutation("sessions.send", input)
 }
 
+/// `sessions.sendTarget` (EXP-1458): the caller's conversation root with an
+/// agent / app (`None` = the send creates it) and that root's current key
+/// (`None` = keyless).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SendTarget {
+    #[serde(default)]
+    pub root_id: Option<String>,
+    #[serde(default)]
+    pub epoch: Option<u32>,
+    #[serde(default)]
+    pub public_key: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SendTargetInput<'a> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    agent_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    app_id: Option<&'a str>,
+}
+
+/// #FEED-250: the server's word on where an agent / app send lands (the
+/// synced store is a cache of the tree, never its authority).
+pub fn send_target(trpc: &TrpcClient, agent_id: Option<&str>, app_id: Option<&str>) -> Result<SendTarget, ApiError> {
+    trpc.query_with_input("sessions.sendTarget", &SendTargetInput { agent_id, app_id })
+}
+
 /// Every plain mutation's `{txid}`.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
