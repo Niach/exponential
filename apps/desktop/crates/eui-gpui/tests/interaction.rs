@@ -2136,8 +2136,9 @@ fn a_reorderable_list_row_drags_into_and_beside_and_esc_cancels(cx: &mut TestApp
     draw(cx);
     assert_eq!(moved(&log).len(), count, "a cancelled drag fires nothing");
     // A click without movement presses.
-    cx.simulate_mouse_down(bounds(cx, "row.d").center(), MouseButton::Left, Modifiers::default());
-    cx.simulate_mouse_up(bounds(cx, "row.d").center(), MouseButton::Left, Modifiers::default());
+    let d = bounds(cx, "row.d").center();
+    cx.simulate_mouse_down(d, MouseButton::Left, Modifiers::default());
+    cx.simulate_mouse_up(d, MouseButton::Left, Modifiers::default());
     draw(cx);
     assert!(log.0.borrow().actions.iter().any(|e| e.name == "open"), "a click presses");
 }
