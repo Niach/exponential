@@ -155,4 +155,22 @@ final class HomeWidgetsTests: XCTestCase {
             )
         }
     }
+
+    /// PRIVACY: the app seals before it writes the app group snapshot.
+    func testSealedItemsNeverCarryCardText() {
+        func item(_ rootId: String, _ title: String) -> HomeWidgets.Snapshot.NeedsYouItem {
+            HomeWidgets.Snapshot.NeedsYouItem(
+                row: HomeWidgets.NeedsYouInput(
+                    messageId: "m-\(rootId)", sessionId: rootId, rootId: rootId, kind: "plan", opens: "plan",
+                    title: title, age: ""
+                ),
+                createdAtMs: 1
+            )
+        }
+        let sealed = HomeWidgets.sealed(
+            [item("open", "Ship the widgets"), item("secret", "Rotate the keys")], sealedRootIds: ["secret"]
+        )
+        XCTAssertEqual(sealed.map(\.row.title), ["Ship the widgets", HomeWidgets.Copy.sealedRow])
+        XCTAssertEqual(sealed.map(\.row.messageId), ["m-open", "m-secret"])
+    }
 }

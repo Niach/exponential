@@ -32,10 +32,15 @@ struct HomeWidgetContent: Equatable {
         link: HomeWidgets.Links.app
     )
 
-    /// A board's open issues (`board`), none picked = the first board.
+    /// A board's open issues (`board`), none picked = the first board; a
+    /// picked board that is gone = the empty line, never another board.
     static func board(_ snapshot: HomeWidgets.Snapshot, boardId: String?, max: Int) -> HomeWidgetContent {
         guard snapshot.me != nil else { return .signedOut }
-        let board = boardId.flatMap { id in snapshot.boards.first { $0.id == id } } ?? orderedBoards(snapshot).first
+        let board = if let boardId {
+            snapshot.boards.first { $0.id == boardId }
+        } else {
+            orderedBoards(snapshot).first
+        }
         guard let board else {
             return HomeWidgetContent(
                 glyph: "", glyphTint: .clear, title: HomeWidgets.Copy.boardGallery, count: 0, rows: [],

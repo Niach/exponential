@@ -25,7 +25,10 @@ final class HomeWidgetsPublisher {
     private var boundAccountId: String?
     private var me: String?
     private var lists: Lists?
+    /// The rows the navigator last pushed, and its account: an account switch
+    /// keeps rows the new navigator pushed before `refresh` rebinds.
     private var needsYou: [HomeWidgets.Snapshot.NeedsYouItem] = []
+    private var needsYouAccountId: String?
 
     /// Reconcile with the auth state (call when the accounts may have changed).
     func refresh(auth: AuthRepository, db: DatabaseManager) {
@@ -58,7 +61,7 @@ final class HomeWidgetsPublisher {
     }
 
     /// THE Needs you rows of the active account (every team), newest first.
-    func setNeedsYou(_ rows: [NeedsYou.Row]) {
+    func setNeedsYou(_ rows: [NeedsYou.Row], accountId: String?) {
         let items = rows.map { row in
             HomeWidgets.Snapshot.NeedsYouItem(
                 row: HomeWidgets.NeedsYouInput(
@@ -69,8 +72,9 @@ final class HomeWidgetsPublisher {
                 createdAtMs: SessionTree.ms(row.createdAt) ?? 0
             )
         }
-        guard items != needsYou else { return }
+        guard items != needsYou || accountId != needsYouAccountId else { return }
         needsYou = items
+        needsYouAccountId = accountId
         write()
     }
 
@@ -80,7 +84,6 @@ final class HomeWidgetsPublisher {
         boundAccountId = nil
         me = nil
         lists = nil
-        needsYou = []
     }
 
     private func write() {
@@ -93,7 +96,8 @@ final class HomeWidgetsPublisher {
                 statuses: lists.statuses,
                 issues: lists.issues,
                 statusGlyphs: lists.statusGlyphs,
-                needsYou: needsYou,
+                needsYou: needsYouAccountId == boundAccountId
+                    ? HomeWidgets.sealed(needsYou, sealedRootIds: lists.sealedRootIds) : [],
                 sealedRootIds: lists.sealedRootIds,
                 glyphs: Self.glyphs
             )

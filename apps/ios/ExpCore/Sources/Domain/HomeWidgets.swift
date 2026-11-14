@@ -379,6 +379,26 @@ public enum HomeWidgets {
         }
     }
 
+    /// PRIVACY: the snapshot's needs-you items with every encrypted chat's
+    /// text already `copy.sealedRow`, so no card text of a sealed root ever
+    /// lands in the app group (the widget's own sealing stays as a second line).
+    public static func sealed(
+        _ items: [Snapshot.NeedsYouItem], sealedRootIds: [String]
+    ) -> [Snapshot.NeedsYouItem] {
+        let sealed = Set(sealedRootIds)
+        return items.map { item in
+            let row = item.row
+            guard sealed.contains(row.rootId) else { return item }
+            return Snapshot.NeedsYouItem(
+                row: NeedsYouInput(
+                    messageId: row.messageId, sessionId: row.sessionId, rootId: row.rootId, kind: row.kind,
+                    opens: row.opens, title: Copy.sealedRow, age: row.age
+                ),
+                createdAtMs: item.createdAtMs
+            )
+        }
+    }
+
     private static let snapshotFile = "home-widgets.json"
 
     private static var snapshotURL: URL? {

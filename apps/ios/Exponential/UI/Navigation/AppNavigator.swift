@@ -652,7 +652,7 @@ struct MainNavigator: View {
         }
         // #EXP-1830: the Needs you widget's rows (every team), newest first.
         .onChange(of: widgetNeedsYou, initial: true) { _, rows in
-            HomeWidgetsPublisher.shared.setNeedsYou(rows)
+            HomeWidgetsPublisher.shared.setNeedsYou(rows, accountId: deps.auth.activeAccountId)
         }
         .sheet(item: $createBoardTarget) { target in
             CreateBoardSheet(

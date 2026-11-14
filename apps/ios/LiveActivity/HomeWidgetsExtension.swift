@@ -151,18 +151,21 @@ struct NeedsYouWidgetProvider: TimelineProvider {
     }
 
     func getSnapshot(in context: Context, completion: @escaping (HomeWidgetEntry) -> Void) {
-        completion(entry(at: Date(), context))
+        completion(entry(HomeWidgets.readSnapshot() ?? .signedOut, at: Date(), context))
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<HomeWidgetEntry>) -> Void) {
         let now = Date()
-        let entries = (0..<Self.minutes).map { entry(at: now.addingTimeInterval(Double($0) * 60), context) }
+        // One read: every minute's entry folds the same snapshot.
+        let snapshot = HomeWidgets.readSnapshot() ?? .signedOut
+        let entries = (0..<Self.minutes).map {
+            entry(snapshot, at: now.addingTimeInterval(Double($0) * 60), context)
+        }
         completion(Timeline(entries: entries, policy: .atEnd))
     }
 
-    private func entry(at date: Date, _ context: Context) -> HomeWidgetEntry {
-        let snapshot = HomeWidgets.readSnapshot() ?? .signedOut
-        return HomeWidgetEntry(date: date, content: .needsYou(snapshot, now: date, max: capacity(context.family)))
+    private func entry(_ snapshot: HomeWidgets.Snapshot, at date: Date, _ context: Context) -> HomeWidgetEntry {
+        HomeWidgetEntry(date: date, content: .needsYou(snapshot, now: date, max: capacity(context.family)))
     }
 }
 
