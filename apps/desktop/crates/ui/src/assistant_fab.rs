@@ -53,6 +53,9 @@ pub(crate) struct AssistantFab {
     chat: Option<(String, Entity<crate::agent_screen::AgentScreenView>)>,
     /// The screen the widget opened over: any navigation closes it.
     opened_on: Option<Screen>,
+    /// DEV-ONLY: `EXP_DEV_ASSISTANT_OPEN=1` opens the widget once the
+    /// Assistant resolved (the desktop capture of the open widget).
+    dev_open: bool,
     refresh_queued: bool,
     _subscriptions: Vec<Subscription>,
 }
@@ -74,6 +77,7 @@ impl AssistantFab {
             open: false,
             chat: None,
             opened_on: None,
+            dev_open: std::env::var("EXP_DEV_ASSISTANT_OPEN").is_ok(),
             refresh_queued: false,
             _subscriptions: subscriptions,
         };
@@ -109,6 +113,11 @@ impl AssistantFab {
         if self.open && self.opened_on != screen {
             self.open = false;
         }
+        if self.dev_open && derived.is_some() && screen.is_some() {
+            self.dev_open = false;
+            self.open = true;
+            self.opened_on = screen;
+        }
         if derived != self.derived {
             self.derived = derived;
         }
@@ -119,6 +128,9 @@ impl AssistantFab {
     pub(crate) fn shows(&self, cx: &App) -> bool {
         let active_agent = match resolved_screen(&self.nav, cx) {
             Some(Screen::Agent { agent_id }) => Some(crate::agent_screen::resolve_agent_id(&agent_id, cx)),
+            // The dev-only specimen screens are catalogue pages (web draws
+            // them outside the team shell): no FAB over a specimen.
+            Some(Screen::ExponentialUiSpecimen { .. } | Screen::Specimen { .. }) => return false,
             _ => None,
         };
         assistant_fab_visible(true, self.derived.as_ref().map(|d| d.assistant_id.as_str()), active_agent.as_deref())
