@@ -287,14 +287,14 @@ export const appUpdateInputSchema = z.object({
 export async function checkAppImport(
   text: string,
   importer?: { userId: string; role: string | null; members: readonly string[] }
-): Promise<ParsedAppImport & { automations: Automation[] }> {
+): Promise<ParsedAppImport & { automations?: Automation[] }> {
   const { issues: structural, file, bare } = parseAppImportShape(text)
-  if (!file) return { issues: structural, file: null, automations: [] }
+  if (!file) return { issues: structural, file: null }
   // VAPP-161: a signed file (the package format's `author` + `signature`)
   // must verify; an unsigned one imports as before.
   if (!bare) {
     const verified = await verifyPackageFile(JSON.parse(text))
-    if (verified.status === `invalid`) return { issues: verified.issues, file: null, automations: [] }
+    if (verified.status === `invalid`) return { issues: verified.issues, file: null }
   }
   const at = (path: string) => (bare ? path : `/package${path === `/` ? `` : path}`)
   // #EXP-1829: a file's `automations` (the old format) become the new app
@@ -320,7 +320,7 @@ export async function checkAppImport(
       if (importer) record.author = importAuthor(importer.userId, importer.role, record.author, importer.members)
     })
   }
-  return issues.length > 0 ? { issues, file: null, automations: [] } : { issues: [], file, automations: Array.isArray(automations) ? (automations as Automation[]) : [] }
+  return issues.length > 0 ? { issues, file: null } : { issues: [], file, ...(Array.isArray(automations) && automations.length > 0 ? { automations: automations as Automation[] } : {}) }
 }
 
 /** VAPP-180: a written package's `upstreams` are MCP servers of the app's
@@ -385,7 +385,7 @@ async function importAppText(ctx: Context & { session: NonNullable<Context[`sess
       .returning()
     // #EXP-1730: an app comes with its agent.
     app!.agentId = await createAppAgentInTx(tx, app!, userId)
-    if (automations.length > 0) await importAutomationsInTx(tx, app!, automations)
+    if (automations?.length) await importAutomationsInTx(tx, app!, automations)
     const { number } = await writeVersionInTx(tx, app!, file.package, { note, sessionId: null, createdBy: userId, byOwner: false })
     // eApps V1: an imported app file is a finished app: v1 is published at once.
     await publishVersionInTx(tx, app!, { number, byOwner: false, userId })
