@@ -263,7 +263,12 @@ public struct SendSealing: Sendable {
 /// refusal, `TrpcErrorBody.presentableMessage`).
 public enum StaleTreeResend {
     /// `attempt(fresh)` prepares and sends; `fresh` = resolve from the server.
-    public static func send<R>(_ attempt: (_ fresh: Bool) async throws -> R) async throws -> R {
+    /// It runs in the caller's isolation (a main-actor submitter's closure
+    /// never crosses actors).
+    public static func send<R>(
+        isolation: isolated (any Actor)? = #isolation,
+        _ attempt: (_ fresh: Bool) async throws -> R
+    ) async throws -> R {
         do {
             return try await attempt(false)
         } catch {
