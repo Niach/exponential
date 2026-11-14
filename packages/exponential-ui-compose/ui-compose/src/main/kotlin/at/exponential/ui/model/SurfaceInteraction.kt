@@ -243,6 +243,44 @@ fun SurfaceModel.tabDrag(index: Int, phase: String, delta: Float) {
     fire(index, "drag", JsonValue.Obj(mapOf("phase" to JsonValue.Str(phase), "delta" to JsonValue.Num(delta.toDouble()))))
 }
 
+/** EXP-1832: a row of a `reorderable` List (a direct child that is no part of the List): it drags into place after a long press. */
+fun SurfaceModel.isReorderRow(index: Int): Boolean {
+    val n = node(index) ?: return false
+    val list = n.parent?.let { node(it) } ?: return false
+    if (list.component != "List" || list.part != null || list.props["reorderable"]?.bool != true) return false
+    return !(n.part != null && n.owner == list.id)
+}
+
+/**
+ * EXP-1832 (fixtures/list-reorder.json): one drag input on a reorderable
+ * List row (`phase` = start | move | end | cancel; `x`, `y` = the pointer
+ * in dp, UNSCROLLED surface space; ignored on cancel). The core keeps the
+ * drop, fires `move {id, before | after | into}` on an end with a slot and
+ * answers what to paint ([SurfaceModel.listDragPaints]).
+ */
+fun SurfaceModel.listDrag(index: Int, phase: String, x: Float = 0f, y: Float = 0f) {
+    val input = if (phase == "cancel") {
+        JsonValue.Obj(mapOf("phase" to JsonValue.Str(phase)))
+    } else {
+        JsonValue.Obj(mapOf("phase" to JsonValue.Str(phase), "x" to JsonValue.Num(x.toDouble()), "y" to JsonValue.Num(y.toDouble())))
+    }
+    val events = try {
+        surface.listDrag(index.toUInt(), input.json)
+    } catch (_: UiException) {
+        emptyList()
+    }
+    if (phase == "end" || phase == "cancel") listDragEndedAt = System.currentTimeMillis()
+    listDragPaints = surface.listDragPaint()
+    dispatch(events)
+}
+
+/** EXP-1832: a List drag is live or just ended (its release must not also press the row). */
+internal fun SurfaceModel.swallowsListPress(): Boolean =
+    surface.listDragging() || System.currentTimeMillis() - listDragEndedAt < 350
+
+/** EXP-1832: the dragged row (painted at `listDragStyle().dim`). */
+fun SurfaceModel.isListDragRow(index: Int): Boolean = listDragPaints.any { it.row.toInt() == index }
+
 /** FEED-200: the `content` part of a `swipeable` Tabs (its panels page by a horizontal touch swipe). */
 fun SurfaceModel.isSwipeableTabContent(index: Int): Boolean {
     val n = node(index) ?: return false
@@ -375,6 +413,8 @@ private fun lastSegment(id: String): String = id.split('.').lastOrNull() ?: ""
 
 /** A full press of node `index` (a tap, Enter / Space). */
 fun SurfaceModel.press(index: Int) {
+    // EXP-1832: a List drag's release is no press.
+    if (swallowsListPress()) return
     if (isDisabled(index)) return
     val n = node(index) ?: return
     val owner = owner(index) ?: n
