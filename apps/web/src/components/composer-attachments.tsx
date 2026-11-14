@@ -88,11 +88,17 @@ export function useComposerAttachments(args: {
     args.fieldRef.current?.setCaret(staged.caret)
   }
   const remove = (url: string) => {
-    const dropped = dropPendingImage(ref.current, url, args.textRef.current)
+    const text = args.textRef.current
+    const caret = args.fieldRef.current?.caret() ?? text.length
+    const dropped = dropPendingImage(ref.current, url, text, caret)
     if (dropped.images === ref.current) return
     URL.revokeObjectURL(url)
     setAttachments(dropped.images)
-    if (dropped.text !== args.textRef.current) args.setText(dropped.text)
+    // composer-attachments.json `drop`: the caret stays where it was.
+    if (dropped.text !== text) {
+      args.setText(dropped.text)
+      args.fieldRef.current?.setCaret(dropped.caret)
+    }
   }
   /** After a send: the entries that went out leave the strip (a pick added
    *  meanwhile stays, composer-send.json). */

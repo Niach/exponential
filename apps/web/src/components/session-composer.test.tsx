@@ -786,6 +786,20 @@ describe(`SessionComposer attachments (#EXP-1841)`, () => {
     expect(screen.getAllByRole(`button`, { name: `Remove image` })).toHaveLength(1)
   })
 
+  it(`the X keeps the caret where it was, minus what left before it`, async () => {
+    const field = renderComposer()
+    type(field, `crop  here`)
+    field.setSelectionRange(5, 5)
+    paste(field, [png(`a.png`)])
+    expect(field.value).toBe(`crop [Image #1] here`)
+    field.setSelectionRange(20, 20)
+    act(() => {
+      fireEvent.click(screen.getByRole(`button`, { name: `Remove image` }))
+    })
+    expect(field.value).toBe(`crop here`)
+    await waitFor(() => expect(field.selectionStart).toBe(9))
+  })
+
   it(`a fifth image toasts the cap and stays out`, () => {
     const field = renderComposer()
     paste(field, [png(`1.png`), png(`2.png`), png(`3.png`), png(`4.png`), png(`5.png`)])

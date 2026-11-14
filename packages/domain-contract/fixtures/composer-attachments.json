@@ -1,5 +1,5 @@
 {
-  "$comment": "#EXP-1841 (Danny 2026-11-14: 'the composer inside a chat should behave like the new-message composer when an image is attached', one composer, the exact same logic): THE attachment strip of EVERY composer x4 — a new chat's (the launch composer, 'To <agent>'), a session's, an agent chat's, the Assistant's, an app editor's — and its positional `[Image #N]` placeholders (EXP-698): web `lib/pending-images.ts` (both `hooks/use-launch-composer.ts` and `components/session-composer.tsx`), desktop `domain::composer_attachments` (ui `composer_images`), iOS ExpCore `ComposerAttachments.swift`, Android `domain/ComposerAttachments.kt`; model = pure `src/composer-attachments.ts`, every mirror replays ALL four case lists and compares the WHOLE expected value. The strip is a list of kinds in order; classifying a picked file stays the platform's (an accepted image type up to 10 MB = `image`, any other file up to 50 MB = `file`, empty or over its cap = `rejected`). ATTACH (picker, paste, drag-and-drop, the share sheet; one pick may carry several files): `stage` takes them in pick order; each TAKEN image drops its marker at the caret (`insert`: a space before it unless the caret is at the start or after whitespace, a space after it unless the caret is at the end or before whitespace) and the caret moves behind it, so several images read `[Image #1] [Image #2]`; numbering continues from the images ALREADY in the strip (image #1 = the strip's first IMAGE; files carry no marker and never count). Images and files each cap at FOUR; a pick over a cap or refused stays out and the composer shows `toasts` (in that order) as its error toast. REMOVE (the thumbnail's X): `drop` removes the entry; an image's markers leave the draft (every occurrence; only lines that LOST a marker are tidied: doubled spaces collapse, trailing ones go, and a line that started with it loses its lead space) and every higher marker slides down one (`renumber`), so the numbers keep matching the strip. A file's X leaves the text alone. A marker the user deleted or typed by hand is just text. SEND: the text goes as typed (markers included, plain text on the wire) with the attachment ids in strip order; the server writes the image embeds and file links (steer-image-message). Nothing else differs between the composers.",
+  "$comment": "#EXP-1841 (Danny 2026-11-14: 'the composer inside a chat should behave like the new-message composer when an image is attached', one composer, the exact same logic): THE attachment strip of EVERY composer x4 — a new chat's (the launch composer, 'To <agent>'), a session's, an agent chat's, the Assistant's, an app editor's — and its positional `[Image #N]` placeholders (EXP-698): web `lib/pending-images.ts` (both `hooks/use-launch-composer.ts` and `components/session-composer.tsx`), desktop `domain::composer_attachments` (ui `composer_images`), iOS ExpCore `ComposerAttachments.swift`, Android `domain/ComposerAttachments.kt`; model = pure `src/composer-attachments.ts`, every mirror replays ALL four case lists and compares the WHOLE expected value. The strip is a list of kinds in order; classifying a picked file stays the platform's (an accepted image type up to 10 MB = `image`, any other file up to 50 MB = `file`, empty or over its cap = `rejected`). ATTACH (picker, paste, drag-and-drop, the share sheet; one pick may carry several files): `stage` takes them in pick order; each TAKEN image drops its marker at the caret (`insert`: a space before it unless the caret is at the start or after whitespace, a space after it unless the caret is at the end or before whitespace) and the caret moves behind it, so several images read `[Image #1] [Image #2]`; numbering continues from the images ALREADY in the strip (image #1 = the strip's first IMAGE; files carry no marker and never count). Images and files each cap at FOUR; a pick over a cap or refused stays out and the composer shows `toasts` (in that order) as its error toast. REMOVE (the thumbnail's X): `drop` removes the entry; an image's markers leave the draft (every occurrence; only lines that LOST a marker are tidied: doubled spaces collapse, trailing ones go, and a line that started with it loses its lead space) and every higher marker slides down one (`renumber`), so the numbers keep matching the strip. A file's X leaves the text alone. The CARET after the X (`drop` `caret`, owner 2026-11-14): it stays where it was, moved left by whatever the removal took out before it (a caret right behind the removed placeholder lands where that placeholder began; one inside a marker counts as at its start; a caret before it never moves; a file's X leaves it alone); `renumberWithCaret` carries it through the renumber and the tidying, and the composer puts the field's selection there. A marker the user deleted or typed by hand is just text. SEND: the text goes as typed (markers included, plain text on the wire) with the attachment ids in strip order; the server writes the image embeds and file links (steer-image-message). Nothing else differs between the composers.",
   "insert": [
     {
       "name": "an empty draft holds the marker alone",
@@ -420,21 +420,23 @@
   ],
   "drop": [
     {
-      "name": "removing the only image removes its placeholder",
+      "name": "removing the only image removes its placeholder; a caret behind it lands where it began",
       "input": {
         "strip": [
           "image"
         ],
         "at": 0,
-        "text": "[Image #1] please check spoken again"
+        "text": "[Image #1] please check spoken again",
+        "caret": 10
       },
       "expected": {
         "strip": [],
-        "text": "please check spoken again"
+        "text": "please check spoken again",
+        "caret": 0
       }
     },
     {
-      "name": "removing the first of three renumbers the rest",
+      "name": "removing the first of three renumbers the rest; the caret keeps its place in the words",
       "input": {
         "strip": [
           "image",
@@ -442,18 +444,20 @@
           "image"
         ],
         "at": 0,
-        "text": "a [Image #1] b [Image #2] c [Image #3]"
+        "text": "a [Image #1] b [Image #2] c [Image #3]",
+        "caret": 14
       },
       "expected": {
         "strip": [
           "image",
           "image"
         ],
-        "text": "a b [Image #1] c [Image #2]"
+        "text": "a b [Image #1] c [Image #2]",
+        "caret": 3
       }
     },
     {
-      "name": "removing a file leaves the markers alone",
+      "name": "removing a file leaves the markers and the caret alone",
       "input": {
         "strip": [
           "image",
@@ -461,14 +465,16 @@
           "image"
         ],
         "at": 1,
-        "text": "[Image #1] [Image #2]"
+        "text": "[Image #1] [Image #2]",
+        "caret": 5
       },
       "expected": {
         "strip": [
           "image",
           "image"
         ],
-        "text": "[Image #1] [Image #2]"
+        "text": "[Image #1] [Image #2]",
+        "caret": 5
       }
     },
     {
@@ -480,14 +486,16 @@
           "image"
         ],
         "at": 2,
-        "text": "[Image #1] then [Image #2]"
+        "text": "[Image #1] then [Image #2]",
+        "caret": 26
       },
       "expected": {
         "strip": [
           "file",
           "image"
         ],
-        "text": "[Image #1] then"
+        "text": "[Image #1] then",
+        "caret": 15
       }
     },
     {
@@ -498,13 +506,15 @@
           "image"
         ],
         "at": 0,
-        "text": "only [Image #2] left"
+        "text": "only [Image #2] left",
+        "caret": 20
       },
       "expected": {
         "strip": [
           "image"
         ],
-        "text": "only [Image #1] left"
+        "text": "only [Image #1] left",
+        "caret": 20
       }
     },
     {
@@ -514,13 +524,133 @@
           "image"
         ],
         "at": 3,
-        "text": "[Image #1]"
+        "text": "[Image #1]",
+        "caret": 10
       },
       "expected": {
         "strip": [
           "image"
         ],
-        "text": "[Image #1]"
+        "text": "[Image #1]",
+        "caret": 10
+      }
+    },
+    {
+      "name": "a caret before the removed placeholder does not move",
+      "input": {
+        "strip": [
+          "image"
+        ],
+        "at": 0,
+        "text": "crop [Image #1] here",
+        "caret": 2
+      },
+      "expected": {
+        "strip": [],
+        "text": "crop here",
+        "caret": 2
+      }
+    },
+    {
+      "name": "a caret right behind a placeholder mid-line lands where it began",
+      "input": {
+        "strip": [
+          "image"
+        ],
+        "at": 0,
+        "text": "crop [Image #1] here",
+        "caret": 15
+      },
+      "expected": {
+        "strip": [],
+        "text": "crop here",
+        "caret": 5
+      }
+    },
+    {
+      "name": "a caret after the placeholder moves left by what left",
+      "input": {
+        "strip": [
+          "image"
+        ],
+        "at": 0,
+        "text": "crop [Image #1] here",
+        "caret": 20
+      },
+      "expected": {
+        "strip": [],
+        "text": "crop here",
+        "caret": 9
+      }
+    },
+    {
+      "name": "a caret inside the removed placeholder lands where it began",
+      "input": {
+        "strip": [
+          "image"
+        ],
+        "at": 0,
+        "text": "crop [Image #1] here",
+        "caret": 9
+      },
+      "expected": {
+        "strip": [],
+        "text": "crop here",
+        "caret": 5
+      }
+    },
+    {
+      "name": "a caret at the end behind a trailing placeholder lands at the new end",
+      "input": {
+        "strip": [
+          "image"
+        ],
+        "at": 0,
+        "text": "see [Image #1]",
+        "caret": 14
+      },
+      "expected": {
+        "strip": [],
+        "text": "see",
+        "caret": 3
+      }
+    },
+    {
+      "name": "a caret on a later line moves by what the earlier line lost",
+      "input": {
+        "strip": [
+          "image",
+          "image"
+        ],
+        "at": 0,
+        "text": "[Image #1] look\nthen [Image #2] ok",
+        "caret": 31
+      },
+      "expected": {
+        "strip": [
+          "image"
+        ],
+        "text": "look\nthen [Image #1] ok",
+        "caret": 20
+      }
+    },
+    {
+      "name": "a caret behind a renumbered marker stays behind it",
+      "input": {
+        "strip": [
+          "image",
+          "image"
+        ],
+        "at": 0,
+        "text": "[Image #1] and [Image #2]",
+        "caret": 25
+      },
+      "expected": {
+        "strip": [
+          "image"
+        ],
+        "text": "and [Image #1]",
+        "caret": 14
       }
     }
   ]

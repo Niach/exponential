@@ -115,6 +115,11 @@ export function LaunchComposer({
     const next = model.addFiles(files, caret)
     fieldRef.current?.setCaret(next)
   }
+  // composer-attachments.json `drop`: the X keeps the caret where it was.
+  const removeImage = (url: string) => {
+    const caret = fieldRef.current?.caret() ?? text.length
+    fieldRef.current?.setCaret(model.removeImage(url, caret))
+  }
 
   // EXP-1121: an issue subject that cannot start RIGHT NOW (no device
   // online, the board lost its repository…) says the missing step on the
@@ -197,7 +202,7 @@ export function LaunchComposer({
             )}
             {images.length > 0 && (
               <div className="flex flex-wrap gap-2 px-3 pt-3">
-                <ComposerAttachmentTiles attachments={images} onRemove={model.removeImage} disabled={busy} />
+                <ComposerAttachmentTiles attachments={images} onRemove={removeImage} disabled={busy} />
               </div>
             )}
           </>

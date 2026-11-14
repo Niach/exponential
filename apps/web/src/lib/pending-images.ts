@@ -109,12 +109,17 @@ export function stagePendingImages(
 export function dropPendingImage(
   images: PendingAttachment[],
   url: string,
-  text: string
-): { images: PendingAttachment[]; text: string } {
+  text: string,
+  caret: number = text.length
+): { images: PendingAttachment[]; text: string; caret: number } {
   const at = images.findIndex((image) => image.url === url)
-  if (at < 0) return { images, text }
-  const dropped = dropAttachment({ strip: images.map((entry) => entry.kind), at, text })
-  return { images: images.filter((image) => image.url !== url), text: dropped.text }
+  if (at < 0) return { images, text, caret: Math.max(0, Math.min(caret, text.length)) }
+  const dropped = dropAttachment({ strip: images.map((entry) => entry.kind), at, text, caret })
+  return {
+    images: images.filter((image) => image.url !== url),
+    text: dropped.text,
+    caret: dropped.caret,
+  }
 }
 
 /** `images` with `uploadedId` (and the server's filename) stamped on the

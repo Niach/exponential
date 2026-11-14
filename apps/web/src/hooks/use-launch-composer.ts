@@ -261,7 +261,8 @@ export interface LaunchComposerModel {
   /** Stages files and drops their markers at `caret`; returns the caret
    * behind the last marker. */
   addFiles: (files: File[], caret: number) => number
-  removeImage: (url: string) => void
+  /** The strip's X; returns the caret after (composer-attachments.json). */
+  removeImage: (url: string, caret?: number) => number
 
   /** The team's connected repositories (null until fetched). */
   repos: ChatRepoOption[] | null
@@ -556,11 +557,12 @@ export function useLaunchComposer({
   )
 
   const removeImage = useCallback(
-    (url: string) => {
-      const dropped = dropPendingImage(imagesRef.current, url, text)
+    (url: string, caret: number = text.length) => {
+      const dropped = dropPendingImage(imagesRef.current, url, text, caret)
       if (dropped.images !== imagesRef.current) URL.revokeObjectURL(url)
       setImages(dropped.images)
       setText(dropped.text)
+      return dropped.caret
     },
     [text]
   )

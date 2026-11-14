@@ -45,23 +45,91 @@ export function insertImageMarker(
  *  go, and every higher one slides down one. Only a line that LOST a marker
  *  gets the gap it left tidied; untouched lines keep their spacing. */
 export function renumberImageMarkers(text: string, removedIndex: number): string {
-  return text
-    .split(`\n`)
-    .map((line) => {
-      let dropped = false
-      const next = line.replace(IMAGE_MARKER_PATTERN, (match, raw: string) => {
-        const index = Number(raw)
-        if (index === removedIndex) {
-          dropped = true
-          return ``
-        }
-        return index > removedIndex ? imageMarker(index - 1) : match
-      })
-      if (!dropped) return next
-      const tidied = next.replace(/[ \t]{2,}/g, ` `).replace(/[ \t]+$/, ``)
-      return line.startsWith(imageMarker(removedIndex)) ? tidied.replace(/^[ \t]+/, ``) : tidied
-    })
-    .join(`\n`)
+  return renumberWithCaret(text, removedIndex, 0).text
+}
+
+/** Collapses each run of 2+ spaces/tabs to one space, mapping `at`: a caret
+ *  inside a run (past its first character) lands behind the single space. */
+function collapseRuns(line: string, at: number): { text: string; at: number } {
+  let out = ``
+  let mapped = at >= line.length ? -1 : at
+  let i = 0
+  while (i < line.length) {
+    const ch = line[i]
+    if (ch === ` ` || ch === `\t`) {
+      let j = i
+      while (j < line.length && (line[j] === ` ` || line[j] === `\t`)) j++
+      if (j - i >= 2) {
+        if (at === i) mapped = out.length
+        else if (at > i && at <= j) mapped = out.length + 1
+        out += ` `
+        i = j
+        continue
+      }
+    }
+    if (at === i) mapped = out.length
+    out += ch
+    i++
+  }
+  return { text: out, at: mapped === -1 ? out.length : mapped }
+}
+
+/** [renumberImageMarkers] with the caret carried along (the X keeps it
+ *  where it was): it moves left by what the removal took out before it, so
+ *  a caret right behind the removed placeholder lands where it began. A
+ *  caret INSIDE a marker counts as at that marker's start. */
+export function renumberWithCaret(
+  text: string,
+  removedIndex: number,
+  caret: number
+): { text: string; caret: number } {
+  let at = Math.max(0, Math.min(caret, text.length))
+  for (const match of text.matchAll(IMAGE_MARKER_PATTERN)) {
+    const start = match.index ?? 0
+    if (at > start && at < start + match[0].length) at = start
+  }
+  const lines = text.split(`\n`)
+  const out: string[] = []
+  let lineStart = 0
+  let mappedCaret = 0
+  let outOffset = 0
+  for (const line of lines) {
+    const local = at >= lineStart && at <= lineStart + line.length ? at - lineStart : -1
+    let dropped = false
+    let next = ``
+    let cursor = 0
+    let mapped = -1
+    for (const match of line.matchAll(IMAGE_MARKER_PATTERN)) {
+      const start = match.index ?? 0
+      if (local >= cursor && local <= start && mapped === -1) mapped = next.length + (local - cursor)
+      next += line.slice(cursor, start)
+      const index = Number(match[1])
+      if (index === removedIndex) dropped = true
+      else next += index > removedIndex ? imageMarker(index - 1) : match[0]
+      cursor = start + match[0].length
+      if (local === cursor && mapped === -1) mapped = next.length
+    }
+    if (local >= cursor && mapped === -1) mapped = next.length + (local - cursor)
+    next += line.slice(cursor)
+    if (dropped) {
+      const collapsed = collapseRuns(next, mapped)
+      next = collapsed.text
+      mapped = collapsed.at
+      const trimmedEnd = next.replace(/[ \t]+$/, ``)
+      next = trimmedEnd
+      mapped = Math.min(mapped, next.length)
+      if (line.startsWith(imageMarker(removedIndex))) {
+        const lead = next.length - next.replace(/^[ \t]+/, ``).length
+        next = next.slice(lead)
+        mapped = Math.max(0, mapped - lead)
+      }
+    }
+    if (local !== -1 && mapped !== -1) mappedCaret = outOffset + mapped
+    out.push(next)
+    outOffset += next.length + 1
+    lineStart += line.length + 1
+  }
+  return { text: out.join(`\n`), caret: mappedCaret }
 }
 
 export interface StageInput {
@@ -143,17 +211,29 @@ export interface DropInput {
   /** The position in the strip of the attachment the X removed. */
   at: number
   text: string
+  /** The field's caret when the X was pressed. */
+  caret: number
+}
+
+export interface DropResult {
+  strip: ComposerAttachmentKind[]
+  text: string
+  /** The caret after: where it was, moved left by what left before it. */
+  caret: number
 }
 
 /** The strip's X. An image's markers leave the draft and every higher one
- *  slides down, so the numbers keep matching the strip; a file has none. */
-export function dropAttachment(input: DropInput): { strip: ComposerAttachmentKind[]; text: string } {
+ *  slides down, so the numbers keep matching the strip; a file has none. The
+ *  caret stays where it was (`renumberWithCaret`). */
+export function dropAttachment(input: DropInput): DropResult {
+  const caret = Math.max(0, Math.min(input.caret, input.text.length))
   const kind = input.strip[input.at]
-  if (kind === undefined) return { strip: input.strip, text: input.text }
+  if (kind === undefined) return { strip: input.strip, text: input.text, caret }
   const strip = input.strip.filter((_, index) => index !== input.at)
-  if (kind !== `image`) return { strip, text: input.text }
+  if (kind !== `image`) return { strip, text: input.text, caret }
   const number = imageCount(input.strip.slice(0, input.at)) + 1
-  return { strip, text: renumberImageMarkers(input.text, number) }
+  const renumbered = renumberWithCaret(input.text, number, caret)
+  return { strip, text: renumbered.text, caret: renumbered.caret }
 }
 
 /** The toasts a stage owes, in order. */
