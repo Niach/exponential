@@ -3,7 +3,7 @@ import ExpUI
 import SwiftUI
 
 /// #EXP-1849 (apps.json `agentSlot`): App settings' AGENT group, right after
-/// the identity: a section header over THE agent page's Runs on rows (the
+/// the identity: THE section band (`GlassSectionBand`) over THE agent page's Runs on rows (the
 /// same rows): Device = `Each member's own device` + the team-shared devices
 /// (offline ones listed, disabled), Account and Model only while a device is
 /// set, then Skills and MCP servers. Writes = `agents.update {id, deviceId,
@@ -42,7 +42,7 @@ struct AppAgentSlotGroup: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            GlassSectionHeader(Apps.AgentSlot.Copy.title)
+            GlassSectionBand(Apps.AgentSlot.Copy.title)
             VStack(spacing: 0) {
                 deviceRow
                     .rowPadding()
@@ -66,7 +66,6 @@ struct AppAgentSlotGroup: View {
                 }
             }
             .glassSection()
-            .padding(.top, 4)
         }
         .tint(DesignTokens.Palette.primary)
         .modifier(AgentMcpServersLoader(teamId: agent.teamId, servers: $mcpServers))
