@@ -50,6 +50,9 @@ struct MobileTabBar: View {
     var composeEnabled = true
     /// The board menu's rows: the active team's boards in sidebar order.
     var boards: [BoardEntity] = []
+    /// #EXP-1832 (sidebar-folders.json): my synced `board` layout entries;
+    /// the menu folds its rows into the folders, read-only (empty = flat).
+    var boardFolders: [SidebarFolders.Entry] = []
     /// The viewer may create boards: the muted New board row.
     var onNewBoard: (() -> Void)?
     /// The team menu's rows: the member's teams, every server's.
@@ -96,6 +99,8 @@ struct MobileTabBar: View {
     @State private var menuMounted = false
     @State private var menuExpanded = false
     @State private var menu = Menu.board
+    /// #EXP-1832: folds flipped in the menu (also written to UserDefaults).
+    @State private var flipped: [String: Bool] = [:]
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -260,7 +265,54 @@ struct MobileTabBar: View {
     }
 
     private var menuRowCount: Int {
-        (menu == .team ? teams.count : boards.count) + (newRowAction == nil ? 0 : 1)
+        (menu == .team ? teams.count : boardRows.count) + (newRowAction == nil ? 0 : 1)
+    }
+
+    // MARK: - Board folders (#EXP-1832, read-only)
+
+    private var folderTeamId: String? { board?.teamId ?? team?.id }
+
+    /// The boards in sidebar order, folded by my folders.
+    private var boardRows: [SidebarFolders.Row] {
+        SidebarFolders.rows(SidebarFolders.tree(items: boards.map(\.id), entries: boardFolders), isOpen: isFolderOpen)
+    }
+
+    private func isFolderOpen(_ folderId: String) -> Bool {
+        guard let teamId = folderTeamId else { return true }
+        return flipped[folderId] ?? SidebarFolders.isOpen(teamId: teamId, folderId: folderId)
+    }
+
+    private func toggleFolder(_ folderId: String) {
+        guard let teamId = folderTeamId else { return }
+        let open = !isFolderOpen(folderId)
+        flipped[folderId] = open
+        SidebarFolders.setOpen(open, teamId: teamId, folderId: folderId)
+    }
+
+    /// A folder: never navigable, a tap folds it (the menu stays open).
+    private func folderRow(_ folder: SidebarFolders.Row) -> some View {
+        Button {
+            toggleFolder(folder.id)
+        } label: {
+            HStack(spacing: 12) {
+                AppIcon(AppIcons.uiFolder, size: 20)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .frame(width: 20, height: 20)
+                Text(folder.name ?? SidebarFolders.defaultFolderName)
+                    .font(.system(size: 15))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 0)
+                FolderRowTrailing(count: folder.count, open: folder.open)
+            }
+            .padding(.horizontal, 16)
+            .frame(height: MobileTabBarMetrics.menuRowHeight)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityValue(folder.open ? "Expanded" : "Collapsed")
+        .accessibilityIdentifier(Chats.TestIds.boardMenuRow)
     }
 
     private var openAnimation: Animation {
@@ -309,8 +361,14 @@ struct MobileTabBar: View {
             VStack(spacing: 0) {
                 switch menu {
                 case .board:
-                    ForEach(boards, id: \.id) { row in
-                        boardRow(row)
+                    let byId = Dictionary(boards.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                    ForEach(boardRows) { row in
+                        if row.group {
+                            folderRow(row)
+                        } else if let entity = byId[row.id] {
+                            // A folder's board indents one glyph + the gap.
+                            boardRow(entity).padding(.leading, CGFloat(row.depth) * 32)
+                        }
                     }
                 case .team:
                     ForEach(teams) { row in

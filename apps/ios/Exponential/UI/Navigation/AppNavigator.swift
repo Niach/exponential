@@ -427,12 +427,6 @@ struct AppNavigator: View {
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("chat-cards-screen")
         }
-        // #EXP-1832: the read-only folders (capture only).
-        .fullScreenCover(isPresented: .constant(
-            UITestingStyleguide.requested.map(SidebarFoldersSpecimen.kinds.contains) == true
-        )) {
-            SidebarFoldersSpecimen(kind: UITestingStyleguide.requested ?? "sidebar-folders-picker")
-        }
         // #EXP-1641: the expanded notification's actions (capture only, a mock).
         .fullScreenCover(isPresented: .constant(
             UITestingStyleguide.requested.map(NotificationActionsSpecimen.kinds.contains) == true
@@ -547,6 +541,8 @@ struct MainNavigator: View {
     /// tab and its dot, Home's Running band, the launcher dot and the board
     /// switcher's per-team dots.
     @State private var sessionLists = SessionListsModel()
+    /// #EXP-1832: my board folders for the board menu (read-only).
+    @State private var boardFolders = SidebarLayoutModel()
     @State private var currentBoard: CurrentBoardRef?
     // EXP-400: the current board resolved before the boards observation
     // delivered rows, so the active-team alignment couldn't look up its
@@ -860,6 +856,7 @@ struct MainNavigator: View {
                     // no board leaves the New-issue arm inert.
                     composeEnabled: composeTarget != nil,
                     boards: teamState.filteredBoards,
+                    boardFolders: boardFolders.entries,
                     onNewBoard: newBoardAction,
                     teams: teamMenuRows,
                     onNewTeam: { showTeamSetup = true },
@@ -894,6 +891,10 @@ struct MainNavigator: View {
             }
         }
         .animation(motion.standard, value: tabBarChrome.suppressed)
+        .onChange(of: "\(deps.auth.activeAccountId ?? "")|\(teamState.activeTeamId ?? "")", initial: true) { _, _ in
+            guard let accountId = deps.auth.activeAccountId else { return }
+            boardFolders.bind(accountId: accountId, teamId: teamState.activeTeamId, section: "board", db: deps.db)
+        }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
             keyboardVisible = true
         }
