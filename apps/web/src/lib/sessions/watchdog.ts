@@ -21,7 +21,8 @@ import { postMeetingStopNote } from "@/lib/sessions/meeting-access"
 // Nothing waits on a device's good behaviour: what stalls is flagged on
 // the row (`blocked.kind`), lands under Needs you (`needs_input`) and is
 // said ONCE in the parent's conversation through the bus. Each flag has
-// exactly one clearer: a claim (`unclaimed`), the next device report
+// exactly one clearer: a claim (`unclaimed`; #FEED-235: on a started session
+// also a consume or a busy report), the next device report
 // (`stuck`), the device's next heartbeat (`device_offline`). FEED-129: the
 // device-written usage wall (`rate_limit`) is the device's to clear, or
 // this watchdog's once its `resetsAt` passed. EXP-1374: an INTERRUPTION
@@ -40,6 +41,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 export interface WatchdogRun {
   unclaimed: number
   nudged: number
+  /** #FEED-235: input no turn ran for, on a person. */
+  undelivered: number
   stuck: number
   offline: number
   /** #FEED-211: parked runs that spoke again, busy again. */
@@ -133,12 +136,16 @@ export const CLEARED_BY_REPORT = [`stuck`, ...INTERRUPTIONS, `start_failed`] as 
 export function reportBlocked(
   current: CodingSessionBlocked | null,
   reported: CodingSessionBlocked | null | undefined,
-  handled: boolean
+  handled: boolean,
+  /** #FEED-235: the report's `busy`: a turn started clears `unclaimed` on a
+   *  claimed session (the device reports only once it holds the row). */
+  busy?: boolean
 ): { next: CodingSessionBlocked | null; newly: boolean } {
   const next =
     reported !== undefined
       ? reported
-      : (CLEARED_BY_REPORT as readonly string[]).includes(current?.kind ?? ``)
+      : (CLEARED_BY_REPORT as readonly string[]).includes(current?.kind ?? ``) ||
+          (current?.kind === `unclaimed` && busy === true)
         ? null
         : current
   const newly = !!reported && !current && !handled && reported.kind !== `start_failed`
@@ -243,6 +250,51 @@ async function nudgeStalled(now: Date): Promise<number> {
     void relayPostNudge(config, host, row.deviceId)
   }
   return seen.size
+}
+
+/** #FEED-235: input no turn ran for `undeliveredMinutes` on a claimed,
+ *  not-busy live session whose host is ONLINE: pending input the nudges did
+ *  not get in, or a first Request the claim delivered with nothing of the
+ *  session's own since (every turn's close writes the agent's row) =
+ *  `unclaimed` ('Not picked up') + Needs you, said once (waking). Cleared
+ *  by a consume, a busy report or a claim. */
+async function flagUndelivered(now: Date): Promise<number> {
+  const cutoff = new Date(now.getTime() - contract.sessionWatchdog.undeliveredMinutes * MIN)
+  const online = new Date(now.getTime() - contract.device.onlineWindowSeconds * 1000)
+  const mine = sql`${messages.conversationId} = ${sessionConversation(sessions.id)}`
+  return db.transaction(async (tx) => {
+    const rows = await tx
+      .select({ id: sessions.id, parentId: sessions.parentId })
+      .from(sessions)
+      .where(
+        and(
+          inArray(sessions.status, [...LIVE]),
+          NOT_SUBAGENT,
+          eq(sessions.busy, false),
+          isNull(sessions.blocked),
+          isNotNull(sessions.startedAt),
+          sql`EXISTS (SELECT 1 FROM ${devices} h WHERE ${hostRowCondition(`h`)} AND h.last_seen_at >= ${online})`,
+          or(
+            // `pendingInput()` names the messages table itself: no alias here.
+            sql`EXISTS (SELECT 1 FROM ${messages} WHERE ${mine} AND ${messages.consumedAt} IS NULL AND ${messages.createdAt} < ${cutoff} AND (${pendingInput()}))`,
+            and(
+              lt(sessions.startedAt, cutoff),
+              sql`EXISTS (SELECT 1 FROM ${messages} WHERE ${mine} AND ${messages.card} IS NULL AND (${pendingInput()}))`,
+              sql`NOT EXISTS (SELECT 1 FROM ${messages} WHERE ${mine} AND ${messages.authorKind} = 'agent' AND (${messages.authorSessionId} IS NULL OR ${messages.authorSessionId} = ${sessions.id}))`
+            )
+          )
+        )
+      )
+      .for(`update`, { skipLocked: true })
+    for (const row of rows) {
+      await tx
+        .update(sessions)
+        .set({ blocked: flag(`unclaimed`, now), needsInput: true, updatedAt: now })
+        .where(eq(sessions.id, row.id))
+      await busLine(tx, row, `session_unclaimed`, BUS_COPY.session_undelivered, { waking: true })
+    }
+    return rows.length
+  })
 }
 
 /** A busy session with NO SIGN OF LIFE for `stuckMinutes`: flagged once.
@@ -694,6 +746,7 @@ export async function runWatchdog(now: Date = new Date()): Promise<WatchdogRun> 
   return {
     unclaimed: await flagUnclaimed(now),
     nudged: await nudgeStalled(now),
+    undelivered: await flagUndelivered(now),
     stuck: await flagStuck(now),
     spoke: await restoreSpoken(now),
     offline: await flagOffline(now),
@@ -866,7 +919,7 @@ export function startSessionWatchdog(): void {
         reportSchedulerRun(`session-watchdog`, {
           ok: true,
           durationMs: performance.now() - begun,
-          detail: `${run.unclaimed} unclaimed, ${run.nudged} nudged, ${run.stuck} stuck, ${run.spoke} spoke again, ${run.offline} offline, ${run.unresumed} unresumed, ${run.offlineLong} offline too long, ${run.expired} walls expired, ${run.fired} fired, ${run.pruned} events pruned, ${run.meetingPruned} meeting messages pruned, ${run.meetingsStopped} meetings auto-stopped, ${run.recordsPurged} app records purged, ${run.recordEventsPurged} record events purged, ${run.recordsMigrated} records migrated, ${run.checksQueued} queued CI checks flagged`,
+          detail: `${run.unclaimed} unclaimed, ${run.nudged} nudged, ${run.undelivered} undelivered, ${run.stuck} stuck, ${run.spoke} spoke again, ${run.offline} offline, ${run.unresumed} unresumed, ${run.offlineLong} offline too long, ${run.expired} walls expired, ${run.fired} fired, ${run.pruned} events pruned, ${run.meetingPruned} meeting messages pruned, ${run.meetingsStopped} meetings auto-stopped, ${run.recordsPurged} app records purged, ${run.recordEventsPurged} record events purged, ${run.recordsMigrated} records migrated, ${run.checksQueued} queued CI checks flagged`,
         })
       )
       .catch((error: unknown) => {

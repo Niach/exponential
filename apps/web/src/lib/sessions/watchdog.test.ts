@@ -33,6 +33,12 @@ describe(`reportBlocked (sessions.report's blocked verdict)`, () => {
     }
   })
 
+  it(`#FEED-235: a busy report (a turn started) clears an undelivered unclaimed flag; an idle one keeps it`, () => {
+    expect(reportBlocked(flag(`unclaimed`), undefined, false, true).next).toBeNull()
+    expect(reportBlocked(flag(`unclaimed`), undefined, false, false).next).toEqual(flag(`unclaimed`))
+    expect(reportBlocked(flag(`rate_limit`), undefined, false, true).next).toEqual(flag(`rate_limit`))
+  })
+
   it(`says a new usage wall once, unless the device handles it`, () => {
     const wall = flag(`rate_limit`)
     expect(reportBlocked(null, wall, false)).toEqual({ next: wall, newly: true })

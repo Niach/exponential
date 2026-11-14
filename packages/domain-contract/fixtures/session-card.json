@@ -1,5 +1,5 @@
 {
-  "$comment": "EXP-1291 THE session card ×4 — a session inside a chat (the root's own session first, every child where its `session` card message sits, an agent channel's `thread_started` cards) is ONE card = the Work card's HEADER row (work-card.json geometry.header px, radius lg, card hairline, no shadow): the state `icon` (concept), the `name` (medium, truncates), the `kindWord`, trailing the muted `elapsed` (tabular figures) with a 12px spinner in front while `running`. No device, account, branch or other caption. Tapping it opens that session's raw view (today's session view). Model = pure `sessionCard(session, title, now)` (TS reference packages/domain-contract/src/session-tree.ts; mirrors desktop domain::session_tree, iOS ExpCore SessionTree.swift, Android domain/SessionTree.kt), every mirror replays `cases` and compares the WHOLE expected object. S-3 (owner 2026-10-28): FOUR states, nothing else ×4 (no running, paused, interrupted, blocked or stale word): state = `done` when status ended, else `needs_you` when needsInput (a card, a usage wall, an unclaimed/stuck watchdog flag, a failed start), else `working` when status queued or busy (background tasks included), else `idle` (between turns; an INTERRUPTION, blocked.kind device_offline/restarted, is invisible: its row reads by busy). name = `title`, the session's display title (EXP-1341 session-title.json `sessionTitle`; never `Session N`). kindWord = `copy.states[state]`, except a `needs_you` session whose blocked.kind is in `copy.blockedKinds` reads that word (EXP-1536: blocked.kind start_failed = the device could not start the run after the claim; it reads `Couldn't start`, never Idle; the next report of the relaunch clears it). elapsed ONLY while working (startedAt → now; null while queued) or done (startedAt → endedAt, else updatedAt), the work card's ladder ('37s', '2m 04s', '1h 03m'); idle and needs_you carry none (never 'Waiting 158h'); null without a parsable startedAt. running = state working. tone = `tones[state]`, icon = `icons[state]`. #EXP-1466 (owner 2026-10-30) the tone ×4: the icon is painted in `tone` (foreground, amber or muted); the kindWord is muted EXCEPT an amber tone, which paints it amber too (`Needs you`, `Usage limit`, `Not picked up`, `Stuck`, `Couldn't start`; a `Working` word stays muted). amber = design-tokens `semantic.yellow` (#FACC15) on every platform (web `text-yellow-400`, desktop `tokens::YELLOW`, iOS / Android `DesignTokens.Semantic.yellow`). A chat-row-action.json `tone` override (`Answered`, muted) replaces the card's tone for both. The Dock card = `sessionBanner(session)` (dock.json `banner` source, one model x4: web agent-session.tsx useSessionDock, desktop steer_viewer, iOS AgentSessionModel, Android AgentSessionScreen): null when ended or needsInput; `queued` (status queued: waiting for its device, #EXP-1405) or `background` (busy AND background, EXP-1374) = {id, icon = bannerIcons[id], label = bannerLabels[id], text = banner[id], tone muted, action null}; any other = null (S-3: no interrupted and no paused card ×4); `bannerCases` replay it. #EXP-1405: an IDLE session (started, not busy, not ended) shows its transcript on every device, not only the one that ran it: its viewer ticket names the host device as `live` (web `viewerHistoryClaims`), the relay asks that device to replay its journal and keeps the room up while it is watched; any failure answers the retryable `no_such_session`, never an ending. #EXP-1703 (owner 2026-11-05) A DEVICE AWAY ON A PERSON: a session the watchdog put on a person because its device stayed offline (#EXP-1675: needsInput, blocked.kind device_offline, NO blocked.resumeSince: the device never came back) is `offline` (`sessionOffline(session)`): its card's kindWord = `copy.blockedKinds.device_offline` ('Device offline', amber like every needs_you word); once the device is back (resumeSince set) the flag reads plain `Needs you`. Its Dock card = `sessionBanner(session, deviceName)` {id offline, icon bannerIcons.offline, label bannerLabels.offline, text = banner.offline with {device} = the host device's name (null or unknown = `bannerDevice`, 'Its device'), tone warning, action = bannerActions.offline ('Move')}: the action opens the EXISTING device-move picker (session-device-move.json) on that session; the session continues by itself when its device is back (no Retry: the transcript redials on presence, steer-enet.json OFFLINE REDIAL). A plain interruption (no needsInput) stays invisible (S-3). `bannerCases` carry `deviceName` (absent = null).",
+  "$comment": "EXP-1291 THE session card ×4 — a session inside a chat (the root's own session first, every child where its `session` card message sits, an agent channel's `thread_started` cards) is ONE card = the Work card's HEADER row (work-card.json geometry.header px, radius lg, card hairline, no shadow): the state `icon` (concept), the `name` (medium, truncates), the `kindWord`, trailing the muted `elapsed` (tabular figures) with a 12px spinner in front while `running`. No device, account, branch or other caption. Tapping it opens that session's raw view (today's session view). Model = pure `sessionCard(session, title, now)` (TS reference packages/domain-contract/src/session-tree.ts; mirrors desktop domain::session_tree, iOS ExpCore SessionTree.swift, Android domain/SessionTree.kt), every mirror replays `cases` and compares the WHOLE expected object. S-3 (owner 2026-10-28): FOUR states, nothing else ×4 (no running, paused, interrupted, blocked or stale word): state = `done` when status ended, else `needs_you` when needsInput (a card, a usage wall, an unclaimed/stuck watchdog flag, a failed start; #FEED-235: `unclaimed` also flags a STARTED session whose online device ran no turn on its input, eagent watchdog.json UNDELIVERED, read with the same 'Not picked up' word), else `working` when status queued or busy (background tasks included), else `idle` (between turns; an INTERRUPTION, blocked.kind device_offline/restarted, is invisible: its row reads by busy). name = `title`, the session's display title (EXP-1341 session-title.json `sessionTitle`; never `Session N`). kindWord = `copy.states[state]`, except a `needs_you` session whose blocked.kind is in `copy.blockedKinds` reads that word (EXP-1536: blocked.kind start_failed = the device could not start the run after the claim; it reads `Couldn't start`, never Idle; the next report of the relaunch clears it). elapsed ONLY while working (startedAt → now; null while queued) or done (startedAt → endedAt, else updatedAt), the work card's ladder ('37s', '2m 04s', '1h 03m'); idle and needs_you carry none (never 'Waiting 158h'); null without a parsable startedAt. running = state working. tone = `tones[state]`, icon = `icons[state]`. #EXP-1466 (owner 2026-10-30) the tone ×4: the icon is painted in `tone` (foreground, amber or muted); the kindWord is muted EXCEPT an amber tone, which paints it amber too (`Needs you`, `Usage limit`, `Not picked up`, `Stuck`, `Couldn't start`; a `Working` word stays muted). amber = design-tokens `semantic.yellow` (#FACC15) on every platform (web `text-yellow-400`, desktop `tokens::YELLOW`, iOS / Android `DesignTokens.Semantic.yellow`). A chat-row-action.json `tone` override (`Answered`, muted) replaces the card's tone for both. The Dock card = `sessionBanner(session)` (dock.json `banner` source, one model x4: web agent-session.tsx useSessionDock, desktop steer_viewer, iOS AgentSessionModel, Android AgentSessionScreen): null when ended or needsInput; `queued` (status queued: waiting for its device, #EXP-1405) or `background` (busy AND background, EXP-1374) = {id, icon = bannerIcons[id], label = bannerLabels[id], text = banner[id], tone muted, action null}; any other = null (S-3: no interrupted and no paused card ×4); `bannerCases` replay it. #EXP-1405: an IDLE session (started, not busy, not ended) shows its transcript on every device, not only the one that ran it: its viewer ticket names the host device as `live` (web `viewerHistoryClaims`), the relay asks that device to replay its journal and keeps the room up while it is watched; any failure answers the retryable `no_such_session`, never an ending. #EXP-1703 (owner 2026-11-05) A DEVICE AWAY ON A PERSON: a session the watchdog put on a person because its device stayed offline (#EXP-1675: needsInput, blocked.kind device_offline, NO blocked.resumeSince: the device never came back) is `offline` (`sessionOffline(session)`): its card's kindWord = `copy.blockedKinds.device_offline` ('Device offline', amber like every needs_you word); once the device is back (resumeSince set) the flag reads plain `Needs you`. Its Dock card = `sessionBanner(session, deviceName)` {id offline, icon bannerIcons.offline, label bannerLabels.offline, text = banner.offline with {device} = the host device's name (null or unknown = `bannerDevice`, 'Its device'), tone warning, action = bannerActions.offline ('Move')}: the action opens the EXISTING device-move picker (session-device-move.json) on that session; the session continues by itself when its device is back (no Retry: the transcript redials on presence, steer-enet.json OFFLINE REDIAL). A plain interruption (no needsInput) stays invisible (S-3). `bannerCases` carry `deviceName` (absent = null).",
   "copy": {
     "states": {
       "working": "Working",
@@ -253,6 +253,48 @@
         "icon": "coding-needs-input",
         "name": "#APP-14 Fix the importer",
         "kindWord": "Couldn't start",
+        "state": "needs_you",
+        "tone": "amber",
+        "elapsed": null,
+        "running": false,
+        "testId": "session-card"
+      }
+    },
+    {
+      "name": "#FEED-235: a started session whose device ran no turn on its input reads Not picked up (amber), never Idle",
+      "input": {
+        "session": {
+          "teamId": "t-team-1",
+          "parentId": null,
+          "userId": "u-dana",
+          "status": "idle",
+          "busy": false,
+          "needsInput": true,
+          "blocked": {
+            "kind": "unclaimed",
+            "agent": null,
+            "window": null,
+            "resetsAt": null,
+            "since": "2026-10-13T10:10:00.000Z"
+          },
+          "shared": true,
+          "title": null,
+          "guide": null,
+          "startedAt": "2026-10-13T10:00:00.000Z",
+          "endedAt": null,
+          "createdAt": "2026-10-13T10:00:00.000Z",
+          "updatedAt": "2026-10-13T10:00:00.000Z",
+          "rootId": "s14",
+          "id": "s14"
+        },
+        "title": "#APP-14 Fix the importer",
+        "now": "2026-10-13T10:12:34.000Z"
+      },
+      "expected": {
+        "sessionId": "s14",
+        "icon": "coding-needs-input",
+        "name": "#APP-14 Fix the importer",
+        "kindWord": "Not picked up",
         "state": "needs_you",
         "tone": "amber",
         "elapsed": null,

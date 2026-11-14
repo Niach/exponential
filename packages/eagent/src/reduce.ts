@@ -21,6 +21,7 @@ import {
   stampMs,
   stuckText,
   unclaimedText,
+  undeliveredText,
   offlineText,
   unresumedText,
 } from "./copy"
@@ -796,7 +797,12 @@ function report(ctx: Ctx, data: ReportData): StepResult {
   const nextBlocked =
     data.blocked !== undefined
       ? (blocked ?? null)
-      : row.blocked && (row.blocked.kind === `stuck` || row.blocked.kind === `start_failed` || INTERRUPTIONS.includes(row.blocked.kind))
+      : row.blocked &&
+          (row.blocked.kind === `stuck` ||
+            row.blocked.kind === `start_failed` ||
+            INTERRUPTIONS.includes(row.blocked.kind) ||
+            // #FEED-235: a turn started on an undelivered (claimed) session.
+            (row.blocked.kind === `unclaimed` && data.busy === true))
         ? null
         : row.blocked
   const turnEnded = (data.busy === false && row.busy) || status === `idle`
@@ -858,6 +864,9 @@ function consume(ctx: Ctx, data: { sessionId?: string; messageIds?: string[] }):
   for (const m of ctx.state.messages) {
     if (m.sessionId === data.sessionId && ids.has(m.id) && m.pending) m.pending = false
   }
+  // #FEED-235: its device took input in = no longer undelivered.
+  const row = ctx.state.sessions[data.sessionId ?? ``]
+  if (row && ids.size > 0 && isWorking(row) && row.startedAt !== null) clearBlocked(ctx, row, `unclaimed`)
   return { sessionId: data.sessionId }
 }
 
@@ -952,6 +961,21 @@ function tick(ctx: Ctx): StepResult {
       nudged.add(row.deviceId)
       ctx.effects.push({ kind: `nudge`, deviceId: row.deviceId })
     }
+  }
+  // #FEED-235 Undelivered: input its ONLINE host ran no turn for (pending past the nudges, or a claimed first Request with no
+  // turn closed since: every close writes the agent's own row) = `unclaimed` on a person, said once (waking).
+  for (const row of watched) {
+    if (!isWorking(row) || row.busy || row.blocked || row.startedAt === null || !online(ctx, row.deviceId)) continue
+    const cutoff = now - w.undeliveredMinutes * MIN
+    const mine = ctx.state.messages.filter((m) => m.sessionId === row.id)
+    const pending = mine.some((m) => m.pending && m.at < cutoff && isPendingInput(m))
+    const unstarted =
+      row.startedAt < cutoff &&
+      mine.some((m) => m.card === null && isPendingInput(m)) &&
+      !mine.some((m) => m.authorKind === `agent` && (m.authorSessionId === null || m.authorSessionId === row.id))
+    if (!pending && !unstarted) continue
+    Object.assign(row, { blocked: flag(`unclaimed`, now), needsInput: true, updatedAt: now })
+    busLine(ctx, row, `session_unclaimed`, undeliveredText(), { waking: true })
   }
   // Stuck: busy with no sign of life, unless its online host lists it live.
   for (const row of watched) {

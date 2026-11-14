@@ -1,5 +1,5 @@
 {
-  "$comment": "THE WATCHDOG (lib/sessions/watchdog.ts, trpc devices.heartbeat, sessions.report). `watchdog.tick` runs every minute; within one tick the rules run in this order, each over the sessions oldest first: (1) UNCLAIMED: queued, never started, not blocked, created more than unclaimedMinutes ago = blocked `unclaimed` + needsInput, said once (waking; with nobody listening, on itself). The claim clears it. (2) NUDGE: a running/idle session not parked `device_offline` whose host device is known and which holds pending input older than nudgeMinutes = a `nudge` of its device, once per device per tick, every tick while it lasts (no row write). (3) STUCK: running/idle, busy, not blocked, NO SIGN OF LIFE for stuckMinutes (liveness = the later of updatedAt and lastActivityAt: a report, a reply, the heartbeat's per-session activity), not listed live by its ONLINE host; a `background` run is alive for backgroundStuckMinutes first = blocked `stuck` + needsInput, said once (copy.stuck with the whole silent minutes, never fewer than the threshold). The device's next report or a heartbeat listing it clears it (needsInput re-derived from open cards). (4) OFFLINE: a busy running/idle session whose host was not seen within onlineWindowSeconds, and that did not itself speak to the server within it either (#FEED-210: lastActivityAt, an MCP call or a push by the run, proves the run and its device up whatever the beat says), = idle, not busy, blocked `device_offline` with resume (mid-turn) and resumeSince null: an INTERRUPTION, SILENT at first (no line, needsInput untouched; rule 5b after offlineMinutes); a running one between turns on a dead host just reads idle. (4a, runs just before 4) SPOKE AGAIN (#FEED-211): a `device_offline` with resume whose run itself spoke to the server AFTER the flag (lastActivityAt later than its since) and within onlineWindowSeconds = running + busy again, the flag cleared (needsInput re-derived from open cards), silent: the run is demonstrably alive though its device's beat is still late. A `restarted` run is never moved by it (its process died under a living device). (5) UNRESUMED: an interruption with resume whose resumeSince is more than resumeMinutes ago and that is not yet on a person = needsInput, said once as `session_interrupted` (copy.unresumed, waking). (5b) OFFLINE TOO LONG (#EXP-1675): a `device_offline` with resume, resumeSince still null (its device never came back), since more than offlineMinutes ago and not yet on a person = needsInput, said once as `session_interrupted` (copy.offline, waking); needsInput stays until the flag clears, so the resume clock never says it again. (6) WALLS: a `rate_limit` whose RFC 3339 resetsAt has passed = cleared silently (unparseable = the device's to clear). HEARTBEAT (`device.heartbeat {liveSessionIds?, activity?}`): the device is seen now; its `device_offline` sessions: no list (an older device) or not mid-turn = cleared; listed = running + busy again; unlisted mid-turn = keeps the flag, `resumeSince` stamped now (the resume clock starts when the device is back). Activity entries (valid ids, never later than now) move lastActivityAt forward on its running/idle sessions. With a list: every running + busy session of the device NOT listed (an empty list = all of them) = idle + blocked `restarted`, resume, resumeSince now (its process died; silent); a listed `stuck` one is cleared. ANY device report clears `stuck` and the interruptions (the device is back on it); a `lost` report (process_lost / daemon_restart) never ends: idle, and mid-turn = `restarted` with resume (silent), a usage wall stays. Ids in the live list follow eCore's id rule; anything else is dropped (`liveIdCases`).",
+  "$comment": "THE WATCHDOG (lib/sessions/watchdog.ts, trpc devices.heartbeat, sessions.report). `watchdog.tick` runs every minute; within one tick the rules run in this order, each over the sessions oldest first: (1) UNCLAIMED: queued, never started, not blocked, created more than unclaimedMinutes ago = blocked `unclaimed` + needsInput, said once (waking; with nobody listening, on itself). The claim clears it. (2) NUDGE: a running/idle session not parked `device_offline` whose host device is known and which holds pending input older than nudgeMinutes = a `nudge` of its device, once per device per tick, every tick while it lasts (no row write). (2a) UNDELIVERED (#FEED-235): a running/idle session, not busy, not blocked, claimed (startedAt set), whose host is ONLINE and which holds input no turn ran for: pending input older than undeliveredMinutes (the nudges did not help), or, claimed more than undeliveredMinutes ago, an input row but nothing of its own yet (the claim delivered its first Request and no turn closed: every turn's close writes the agent's own row) = blocked `unclaimed` (the card's amber 'Not picked up', no new word) + needsInput, said once as `session_unclaimed` with copy.undelivered (waking; with nobody listening, on itself). Its clearers: a consume of any of its messages (its device took input in), a report with busy true (a turn started), a claim; a report without busy keeps it. An offline host is rule 4's, never this one's. (3) STUCK: running/idle, busy, not blocked, NO SIGN OF LIFE for stuckMinutes (liveness = the later of updatedAt and lastActivityAt: a report, a reply, the heartbeat's per-session activity), not listed live by its ONLINE host; a `background` run is alive for backgroundStuckMinutes first = blocked `stuck` + needsInput, said once (copy.stuck with the whole silent minutes, never fewer than the threshold). The device's next report or a heartbeat listing it clears it (needsInput re-derived from open cards). (4) OFFLINE: a busy running/idle session whose host was not seen within onlineWindowSeconds, and that did not itself speak to the server within it either (#FEED-210: lastActivityAt, an MCP call or a push by the run, proves the run and its device up whatever the beat says), = idle, not busy, blocked `device_offline` with resume (mid-turn) and resumeSince null: an INTERRUPTION, SILENT at first (no line, needsInput untouched; rule 5b after offlineMinutes); a running one between turns on a dead host just reads idle. (4a, runs just before 4) SPOKE AGAIN (#FEED-211): a `device_offline` with resume whose run itself spoke to the server AFTER the flag (lastActivityAt later than its since) and within onlineWindowSeconds = running + busy again, the flag cleared (needsInput re-derived from open cards), silent: the run is demonstrably alive though its device's beat is still late. A `restarted` run is never moved by it (its process died under a living device). (5) UNRESUMED: an interruption with resume whose resumeSince is more than resumeMinutes ago and that is not yet on a person = needsInput, said once as `session_interrupted` (copy.unresumed, waking). (5b) OFFLINE TOO LONG (#EXP-1675): a `device_offline` with resume, resumeSince still null (its device never came back), since more than offlineMinutes ago and not yet on a person = needsInput, said once as `session_interrupted` (copy.offline, waking); needsInput stays until the flag clears, so the resume clock never says it again. (6) WALLS: a `rate_limit` whose RFC 3339 resetsAt has passed = cleared silently (unparseable = the device's to clear). HEARTBEAT (`device.heartbeat {liveSessionIds?, activity?}`): the device is seen now; its `device_offline` sessions: no list (an older device) or not mid-turn = cleared; listed = running + busy again; unlisted mid-turn = keeps the flag, `resumeSince` stamped now (the resume clock starts when the device is back). Activity entries (valid ids, never later than now) move lastActivityAt forward on its running/idle sessions. With a list: every running + busy session of the device NOT listed (an empty list = all of them) = idle + blocked `restarted`, resume, resumeSince now (its process died; silent); a listed `stuck` one is cleared. ANY device report clears `stuck` and the interruptions (the device is back on it); a `lost` report (process_lost / daemon_restart) never ends: idle, and mid-turn = `restarted` with resume (silent), a usage wall stays. Ids in the live list follow eCore's id rule; anything else is dropped (`liveIdCases`).",
   "cases": [
     {
       "name": "unclaimed: not before unclaimedMinutes, then flagged once and said to the parent",
@@ -227,6 +227,400 @@
           "result": {}
         }
       ]
+    },
+    {
+      "name": "#FEED-235 undelivered: a claimed first Request its online device ran no turn for is on a person after undeliveredMinutes, said once to the parent; a busy report clears it",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1"
+          },
+          {
+            "id": "c1",
+            "parentId": "r1",
+            "status": "idle",
+            "startedAt": 0,
+            "createdAt": 0
+          }
+        ],
+        "devices": [
+          {
+            "id": "d1",
+            "lastSeenAt": 0
+          }
+        ],
+        "messages": [
+          {
+            "id": "g1",
+            "sessionId": "c1",
+            "authorKind": "agent",
+            "authorSessionId": "r1",
+            "body": "Brief",
+            "pending": false,
+            "at": 0
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "device.heartbeat",
+            "at": 600000,
+            "data": {
+              "deviceId": "d1"
+            }
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "watchdog.tick",
+            "at": 600000
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "device.heartbeat",
+            "at": 600001,
+            "data": {
+              "deviceId": "d1"
+            }
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "watchdog.tick",
+            "at": 600001
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "r1",
+              "authorKind": "system",
+              "authorSessionId": "c1",
+              "body": "Not picked up by its device for 10 minutes (no turn started on its input). The device may need a restart; a person sees it under Needs you.",
+              "card": {
+                "kind": "event",
+                "event": "session_unclaimed",
+                "sessionId": "c1"
+              },
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "device.heartbeat",
+            "at": 660000,
+            "data": {
+              "deviceId": "d1"
+            }
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "watchdog.tick",
+            "at": 660000
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "device.report",
+            "at": 700000,
+            "data": {
+              "sessionId": "c1",
+              "deviceId": "d1",
+              "status": "running",
+              "busy": true
+            }
+          },
+          "effects": [],
+          "result": {
+            "sessionId": "c1"
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "c1": {
+            "status": "running",
+            "busy": true,
+            "blocked": null,
+            "needsInput": false
+          }
+        }
+      }
+    },
+    {
+      "name": "#FEED-235 undelivered: a turn that closed (its own reply) or a busy session is never flagged; neither is a session whose device is offline",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1"
+          },
+          {
+            "id": "c1",
+            "parentId": "r1",
+            "status": "idle",
+            "startedAt": 0
+          },
+          {
+            "id": "c2",
+            "parentId": "r1",
+            "status": "running",
+            "busy": true,
+            "startedAt": 0,
+            "updatedAt": 600000
+          },
+          {
+            "id": "c3",
+            "parentId": "r1",
+            "status": "idle",
+            "startedAt": 0,
+            "deviceId": "d2"
+          }
+        ],
+        "devices": [
+          {
+            "id": "d1",
+            "lastSeenAt": 0
+          },
+          {
+            "id": "d2",
+            "lastSeenAt": 0
+          }
+        ],
+        "messages": [
+          {
+            "id": "g1",
+            "sessionId": "c1",
+            "authorKind": "agent",
+            "authorSessionId": "r1",
+            "body": "Brief",
+            "pending": false,
+            "at": 0
+          },
+          {
+            "id": "g2",
+            "sessionId": "c1",
+            "authorKind": "agent",
+            "body": "Done",
+            "pending": false,
+            "at": 60000
+          },
+          {
+            "id": "g3",
+            "sessionId": "c2",
+            "authorKind": "agent",
+            "authorSessionId": "r1",
+            "body": "Brief",
+            "pending": false,
+            "at": 0
+          },
+          {
+            "id": "g4",
+            "sessionId": "c3",
+            "authorKind": "agent",
+            "authorSessionId": "r1",
+            "body": "Brief",
+            "pending": false,
+            "at": 0
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "device.heartbeat",
+            "at": 900000,
+            "data": {
+              "deviceId": "d1"
+            }
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "watchdog.tick",
+            "at": 900000
+          },
+          "effects": [],
+          "result": {}
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "c1": {
+            "blocked": null
+          },
+          "c2": {
+            "blocked": null
+          },
+          "c3": {
+            "blocked": null,
+            "needsInput": false
+          }
+        }
+      }
+    },
+    {
+      "name": "#FEED-235 undelivered: pending input a not-busy session's online device never consumed (the nudges did not help) is on a person after undeliveredMinutes, said once; a consume clears it",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1"
+          }
+        ],
+        "devices": [
+          {
+            "id": "d1",
+            "lastSeenAt": 0
+          }
+        ],
+        "messages": [
+          {
+            "id": "g0",
+            "sessionId": "r1",
+            "authorKind": "agent",
+            "body": "Earlier turn",
+            "pending": false,
+            "at": 0
+          },
+          {
+            "id": "g1",
+            "sessionId": "r1",
+            "body": "Hi",
+            "pending": true,
+            "at": 0
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "device.heartbeat",
+            "at": 600000,
+            "data": {
+              "deviceId": "d1"
+            }
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "watchdog.tick",
+            "at": 600000
+          },
+          "effects": [
+            {
+              "kind": "nudge",
+              "deviceId": "d1"
+            }
+          ],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "device.heartbeat",
+            "at": 600001,
+            "data": {
+              "deviceId": "d1"
+            }
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "watchdog.tick",
+            "at": 600001
+          },
+          "effects": [
+            {
+              "kind": "nudge",
+              "deviceId": "d1"
+            },
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "r1",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "Not picked up by its device for 10 minutes (no turn started on its input). The device may need a restart; a person sees it under Needs you.",
+              "card": {
+                "kind": "event",
+                "event": "session_unclaimed",
+                "sessionId": "r1"
+              },
+              "sealed": false,
+              "waking": false
+            }
+          ],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "device.heartbeat",
+            "at": 660000,
+            "data": {
+              "deviceId": "d1"
+            }
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "watchdog.tick",
+            "at": 660000
+          },
+          "effects": [
+            {
+              "kind": "nudge",
+              "deviceId": "d1"
+            }
+          ],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "device.consume",
+            "at": 670000,
+            "data": {
+              "sessionId": "r1",
+              "messageIds": [
+                "g1"
+              ]
+            }
+          },
+          "effects": [],
+          "result": {
+            "sessionId": "r1"
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "r1": {
+            "blocked": null,
+            "needsInput": false
+          }
+        }
+      }
     },
     {
       "name": "stuck: busy with no sign of life for stuckMinutes, said once with the silent minutes",

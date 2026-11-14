@@ -1191,6 +1191,8 @@ fn report(ctx: &mut Ctx, data: ReportData) -> Step<StepResult> {
     let next_blocked = match &blocked {
         Field::Missing => match &row.blocked {
             Some(b) if matches!(b.kind, BlockedKind::Stuck | BlockedKind::StartFailed) || b.kind.is_interruption() => None,
+            // #FEED-235: a turn started on an undelivered (claimed) session.
+            Some(b) if b.kind == BlockedKind::Unclaimed && data.busy == Some(true) => None,
             other => other.clone(),
         },
         other => other.value().cloned(),
@@ -1297,6 +1299,13 @@ fn consume(ctx: &mut Ctx, data: ConsumeData) -> Step<StepResult> {
     for m in &mut ctx.state.messages {
         if Some(&m.session_id) == data.session_id.as_ref() && ids.contains(&m.id) && m.pending {
             m.pending = false;
+        }
+    }
+    // #FEED-235: its device took input in = no longer undelivered.
+    if let Some(id) = data.session_id.as_ref().filter(|id| !ids.is_empty() && ctx.state.sessions.contains_key(*id)) {
+        let row = ctx.row(id);
+        if is_working(row) && row.started_at.is_some() {
+            clear_blocked(ctx, &id.clone(), Some(BlockedKind::Unclaimed));
         }
     }
     Ok(StepResult { session_id: data.session_id, ..StepResult::default() })
@@ -1438,6 +1447,31 @@ fn tick(ctx: &mut Ctx) -> Step<StepResult> {
         if stalled && nudged.insert(row.device_id.clone()) {
             ctx.effects.push(Effect::Nudge { device_id: row.device_id.clone() });
         }
+    }
+    // #FEED-235 Undelivered: input its ONLINE host ran no turn for (pending past the nudges, or a claimed first
+    // Request with no turn closed since: every close writes the agent's own row) = `unclaimed` on a person, said
+    // once (waking).
+    let cutoff = now - w.undelivered_minutes * MIN;
+    for id in watched.clone() {
+        let row = ctx.row(&id);
+        if !is_working(row) || row.busy || row.blocked.is_some() || !online(ctx, &row.device_id) {
+            continue;
+        }
+        let Some(started_at) = row.started_at else { continue };
+        let mine: Vec<&HubMessage> = ctx.state.messages.iter().filter(|m| m.session_id == id).collect();
+        let pending = mine.iter().any(|m| m.pending && m.at < cutoff && is_pending_input(m));
+        let unstarted = started_at < cutoff
+            && mine.iter().any(|m| m.card.is_none() && is_pending_input(m))
+            && !mine.iter().any(|m| m.author_kind == AuthorKind::Agent && m.author_session_id.as_ref().is_none_or(|a| *a == id));
+        if !pending && !unstarted {
+            continue;
+        }
+        let row = ctx.row_mut(&id);
+        row.blocked = Some(flag(BlockedKind::Unclaimed, now));
+        row.needs_input = true;
+        row.updated_at = now;
+        let row = row.clone();
+        bus_line(ctx, &row, "session_unclaimed", copy::undelivered_text(), true, None, true);
     }
     // Stuck: busy with no sign of life, unless its online host lists it live.
     for id in watched.clone() {
