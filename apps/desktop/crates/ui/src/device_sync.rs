@@ -192,7 +192,10 @@ pub fn start_device_sync(account: &api::Account, cx: &mut App) {
     spawn_presence_keeper(account_id.clone(), stop.clone(), last_sent.clone(), cx);
 
     cx.spawn(async move |cx| {
-        let mut ticks_since_beat = u32::MAX / 2; // beat immediately
+        // #FEED-245: wall time, not a tick count: on a congested main thread
+        // each 1 s tick ran late and 30 ticks stretched past a minute (the
+        // beat read "late" for hours while nothing was stuck).
+        let mut last_beat: Option<Instant> = None; // beat immediately
         let mut beats_since_inventory = INVENTORY_BEATS; // scan on the first beat
         let mut last_inventory_fp: Option<u64> = None;
         // EXP-484: what this loop last SENT, so an unchanged agent status
@@ -208,12 +211,11 @@ pub fn start_device_sync(account: &api::Account, cx: &mut App) {
             if stop.load(Ordering::SeqCst) {
                 return;
             }
-            ticks_since_beat = ticks_since_beat.saturating_add(1);
             let nudged = check_in.swap(false, Ordering::SeqCst);
-            if !nudged && Duration::from_secs(ticks_since_beat as u64) < HEARTBEAT_INTERVAL {
+            if !nudged && last_beat.is_some_and(|at| at.elapsed() < HEARTBEAT_INTERVAL) {
                 continue;
             }
-            ticks_since_beat = 0;
+            last_beat = Some(Instant::now());
 
             // Foreground snapshot: live sessions + the account's client.
             // EXP-1099: a missing snapshot (another account active, the tRPC

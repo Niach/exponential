@@ -1763,8 +1763,14 @@ impl Store {
         let deltas = self.manager.deltas();
         let store = self.clone();
         cx.spawn(async move |cx| {
-            while let Ok(delta) = deltas.recv_async().await {
-                store.apply_delta(delta, cx).await;
+            // #FEED-245: everything queued behind the first delta is folded
+            // into one batch per shape, so the drain never falls minutes
+            // behind a busy main thread (one pass per backlog, not per beat).
+            while let Ok(first) = deltas.recv_async().await {
+                let backlog = std::iter::once(first).chain(deltas.try_iter());
+                for delta in crate::client::coalesce_deltas(backlog) {
+                    store.apply_delta(delta, cx).await;
+                }
             }
         })
         .detach();
