@@ -1199,7 +1199,8 @@ impl SettingsNavPanel {
         }
         let agents = team_id
             .as_deref()
-            .map(|team_id| crate::session_data::agents_in_team(team_id, cx))
+            // #FEED-239: an app's agent is listed under Apps only.
+            .map(|team_id| crate::session_data::sidebar_agents_in_team(team_id, cx))
             .unwrap_or_default();
         // VAPP-110: the Apps group's rows = the apps the viewer manages.
         let apps = team_id

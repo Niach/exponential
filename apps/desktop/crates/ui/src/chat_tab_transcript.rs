@@ -103,10 +103,10 @@ pub(crate) fn prompt_is_plain(text: &str) -> bool {
 }
 
 /// #EXP-1772: a relay the document's bubble shows whole (no picture
-/// markers, no file chips; never folded).
+/// markers, no file chips); #FEED-238: one that folds is the IDE's bubble.
 fn plain_relay(text: &str) -> bool {
     let parsed = steer::parse_steer_message(text);
-    parsed.files.is_empty() && parsed.attachment_ids.is_empty()
+    parsed.files.is_empty() && parsed.attachment_ids.is_empty() && !crate::steer_viewer::clampable(text)
 }
 
 /// The document's gap spacers (3, 8, 12, 16 px): the nearest one.
@@ -117,8 +117,12 @@ fn spacer(gap: f32) -> u32 {
     [3u32, 8, 12, 16].into_iter().min_by(|a, b| (*a as f32 - gap).abs().total_cmp(&(*b as f32 - gap).abs())).unwrap_or(16)
 }
 
-/// One list row as the document's row: a bubble for a plain prompt or the
-/// agent's narration (no cards beside it), else a host row.
+/// One list row as the document's row: a bubble for anyone else's plain
+/// prompt or the agent's narration (no cards beside it, nothing to fold),
+/// else a host row. #FEED-239: the viewer's OWN bubble is the IDE's row (it
+/// wears the viewer's avatar on the right, [`crate::session_chat::own_row`],
+/// which the document's `out` bubble has no column for); #FEED-238: so is
+/// every bubble that folds (THE fold's Show more).
 pub(crate) fn chat_row(facts: &RowFacts) -> ChatRowInput {
     let host = || ChatRowInput::Host { id: facts.key.to_string() };
     if facts.cards {
@@ -126,7 +130,6 @@ pub(crate) fn chat_row(facts: &RowFacts) -> ChatRowInput {
     }
     let sender = facts.layout.and_then(|layout| layout.sender.as_ref());
     let other = facts.layout.is_some_and(|layout| layout.side == TranscriptSide::Other);
-    // #EXP-1772: a relay (a cross-session sender) is never folded.
     let relay = other && sender.is_some_and(|sender| sender.link.is_some());
     let own = match facts.content {
         // #EXP-1772: a system input is THE marker, the IDE's own row.
@@ -134,9 +137,12 @@ pub(crate) fn chat_row(facts: &RowFacts) -> ChatRowInput {
         RowContent::Prompt(text) if prompt_is_plain(text) || (relay && plain_relay(text)) => {
             facts.layout.is_none_or(|layout| layout.side == TranscriptSide::Own)
         }
-        RowContent::Narration(_) => false,
+        RowContent::Narration(text) if !crate::steer_viewer::clampable(text) => false,
         _ => return host(),
     };
+    if own {
+        return host();
+    }
     let body = match facts.content {
         // A session's input (`Message from …`) reads as its body alone.
         RowContent::Prompt(text) if !own => match feed_input(text) {
@@ -996,13 +1002,27 @@ mod tests {
         RowFacts { key: "r7", content, layout, gap, cards, at: None }
     }
 
+    /// #FEED-239: the viewer's own bubble wears THEIR avatar on the right:
+    /// the IDE paints it (the document's `out` bubble has no avatar column).
     #[test]
-    fn a_plain_prompt_is_the_viewers_own_bubble() {
-        let own = layout(TranscriptSide::Own, None, false, false);
-        let ChatRowInput::Message { id, author, body, name, group, .. } = chat_row(&facts(RowContent::Prompt("Ship it"), Some(&own), 16., false)) else { panic!("a bubble") };
-        assert_eq!((id.as_str(), author.as_str(), body.as_str(), name), ("r7", "user", "Ship it", None));
-        let group = group.expect("grouped");
-        assert_eq!((group.side.as_deref(), group.avatar, group.indent, group.link, group.gap), (Some("out"), None, false, None, 16));
+    fn the_viewers_own_prompt_is_the_ides_row() {
+        let own = layout(TranscriptSide::Own, None, true, false);
+        assert!(matches!(chat_row(&facts(RowContent::Prompt("Ship it"), Some(&own), 16., false)), ChatRowInput::Host { id } if id == "r7"));
+        assert!(matches!(chat_row(&facts(RowContent::Prompt("Ship it"), None, 16., false)), ChatRowInput::Host { .. }));
+    }
+
+    /// #FEED-238 THE FOLD: a bubble that folds is the IDE's row (its Show
+    /// more), the agent's narration and a relay included.
+    #[test]
+    fn a_bubble_that_folds_is_the_ides_row() {
+        let agent = TranscriptSender { kind: SenderKind::Agent, id: "ag1".into(), name: "Bro".into(), link: None };
+        let first = layout(TranscriptSide::Other, Some(agent), true, true);
+        let long = "word ".repeat(200);
+        assert!(matches!(chat_row(&facts(RowContent::Narration(&long), Some(&first), 12., false)), ChatRowInput::Host { .. }));
+        let session = TranscriptSender { kind: SenderKind::Session, id: "s2".into(), name: "Fix login".into(), link: Some("s2".into()) };
+        let relay = layout(TranscriptSide::Other, Some(session), true, true);
+        let text = format!("Message from Fix login (session s2): {long}");
+        assert!(matches!(chat_row(&facts(RowContent::Prompt(&text), Some(&relay), 8., false)), ChatRowInput::Host { .. }));
     }
 
     #[test]
@@ -1029,9 +1049,7 @@ mod tests {
         assert_eq!((author.as_str(), body.as_str()), ("agent", "All green."));
         assert_eq!(name.as_deref(), Some("Fix login"), "the document adds the chevron above the bubble");
         assert_eq!(group.and_then(|group| group.link).as_deref(), Some("s2"));
-        // #EXP-1772: a relay is never folded; a tagged system input is the IDE's marker row.
-        let long = format!("Message from Fix login (session s2): {}", "word ".repeat(400));
-        assert!(matches!(chat_row(&facts(RowContent::Prompt(&long), Some(&other), 8., false)), ChatRowInput::Message { .. }));
+        // A tagged system input is the IDE's marker row.
         let marker = "[schedule] Schedule `*/30 * * * *` fired.";
         assert!(matches!(chat_row(&facts(RowContent::Prompt(marker), None, 8., false)), ChatRowInput::Host { .. }));
     }
@@ -1054,7 +1072,9 @@ mod tests {
     #[test]
     fn a_prompt_carries_its_time() {
         let at = 1_762_700_000_000;
-        let prompt = RowFacts { at: Some(at), ..facts(RowContent::Prompt("Ship it"), None, 0., false) };
+        let member = TranscriptSender { kind: SenderKind::Member, id: "u2".into(), name: "Alex".into(), link: None };
+        let other = layout(TranscriptSide::Other, Some(member), true, true);
+        let prompt = RowFacts { at: Some(at), ..facts(RowContent::Prompt("Ship it"), Some(&other), 0., false) };
         let ChatRowInput::Message { time, .. } = chat_row(&prompt) else { panic!("a bubble") };
         assert_eq!(time, crate::session_chat::clock_ms(at));
         assert!(!time.is_empty());

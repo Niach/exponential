@@ -3,7 +3,7 @@
 //! the CALLER's own conversation with it (a root session with that
 //! `agent_id` and `user_id` = me). #EXP-1732: once it exists the page IS THE
 //! session screen ([`crate::session_chat::SessionChatScreenView`]); before,
-//! the same chrome (THE header with the gear, THE Segmented, the beside rule)
+//! the same chrome (THE header with THE `…`, THE Segmented, the beside rule)
 //! over an empty chat whose composer opens one with
 //! `sessions.send({agentId})`. The header is the `agents` row's tinted icon
 //! and name. #EXP-1732: the Chat tab = the ROOT's own session view (its
@@ -98,23 +98,51 @@ pub(crate) fn header_disc(glyph: AnyElement, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-/// The agent's `…` (`agentMenuEntries`); none without entries.
-pub(crate) fn agent_header_menu(agent_id: &str, cx: &App) -> Option<AnyElement> {
-    if crate::chat_actions::agent_entries(agent_id, cx).is_empty() {
-        return None;
-    }
+/// #FEED-239: the agent's `…` = THE session screen menu (kind agent /
+/// assistant); its settings entry = `on_settings` (the in-screen pane).
+pub(crate) fn agent_header_menu(
+    agent_id: &str,
+    on_settings: crate::session_chat::OnPress,
+    link: Option<crate::session_chat::ChatMenuTarget>,
+    cx: &App,
+) -> Option<AnyElement> {
+    let (kind, entries) = crate::chat_actions::agent_screen_entries(agent_id, link.is_some(), cx);
     let agent_id = agent_id.to_string();
-    let trigger = crate::controls::ghost_icon_button("agent-header-more", Icon::new(registry::UI_MORE), cx)
-        .accessibility_label("More");
-    Some(
-        div()
-            .flex_shrink_0()
-            .mr(px(-crate::work_header::GHOST_ICON_HANG))
-            .child(crate::controls::PointerMenu::for_button(trigger, move |menu, _, cx| {
-                crate::chat_actions::agent_menu_items(menu, &agent_id, cx)
-            }))
-            .into_any_element(),
+    crate::chat_actions::screen_menu_button(
+        !entries.is_empty(),
+        move |menu, window, cx| {
+            let id = agent_id.clone();
+            let on_settings = on_settings.clone();
+            let on_entry: crate::chat_actions::OnMenuEntry = Rc::new(move |entry, window, cx| {
+                crate::chat_actions::run_agent_screen_entry(entry, &id, &*on_settings, window, cx)
+            });
+            crate::session_chat::link_then_menu_items(menu, kind.as_str(), &entries, on_entry, link.as_ref(), window, cx)
+        },
+        cx,
     )
+}
+
+/// #FEED-239: the agent whose chat opens next with its settings open (a
+/// rail / chat-list row's `…` › settings), consumed by that agent's screen.
+#[derive(Default)]
+struct AgentSettingsRequest(Option<String>);
+
+impl gpui::Global for AgentSettingsRequest {}
+
+/// #FEED-239: open `agent_id`'s chat with its settings open (`open:
+/// settings`), never the Settings screen.
+pub(crate) fn open_agent_settings(window: &mut Window, cx: &mut App, agent_id: String) {
+    cx.set_global(AgentSettingsRequest(Some(agent_id.clone())));
+    crate::navigation::navigate(window, cx, crate::navigation::Screen::Agent { agent_id });
+}
+
+/// The pending settings request for `agent_id`, consumed.
+fn take_settings_request(agent_id: &str, cx: &mut App) -> bool {
+    let asked = cx.try_global::<AgentSettingsRequest>().and_then(|request| request.0.as_deref()) == Some(agent_id);
+    if asked {
+        cx.set_global(AgentSettingsRequest(None));
+    }
+    asked
 }
 
 /// NEW-55 (voice-call.json): THE telephone, left of `…`, the header's icon
@@ -263,7 +291,8 @@ pub struct AgentScreenView {
     /// Assistant's prompts, issue refs and mentions.
     nav: Entity<crate::navigation::Navigation>,
     /// #EXP-1732: before the conversation exists: the header tab on show,
-    /// THE gear's settings open, its page (built on first open) and scroll.
+    /// the settings open (THE `…`'s entry), its page (built on first open)
+    /// and scroll.
     tab: SessionScreenTab,
     settings_open: bool,
     settings: Option<Entity<crate::settings::agent_detail::AgentDetailPane>>,
@@ -303,6 +332,8 @@ impl AgentScreenView {
         )];
         // #FEED-219: the view going away writes what is pending.
         subscriptions.push(cx.on_release(|this, cx| this.first.draft.leave(cx)));
+        // #FEED-239: a row's `…` › settings asking this agent's chat.
+        subscriptions.push(cx.observe_global::<AgentSettingsRequest>(|_, cx| cx.notify()));
         if let Some(store) = Store::try_global(cx) {
             let collections = store.collections().clone();
             subscriptions.push(cx.observe_in(&collections.agents, window, |this, _, window, cx| {
@@ -1280,9 +1311,8 @@ impl AgentScreenView {
     }
 
     /// #EXP-1732 THE header (session-screen.json), the chat's own: the
-    /// agent's disc, its NAME over the subtitle, the telephone, THE gear,
-    /// THE agent menu (Session 58cb32df, chats.json `agentMenuCases`), THE
-    /// Segmented under it.
+    /// agent's disc, its NAME over the subtitle, the telephone, THE `…`
+    /// (#FEED-239 `sessionScreenMenu`, no gear), THE Segmented on the row.
     fn render_header(&self, screen: &SessionScreen, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         use crate::session_chat::{screen_header, screen_tabs, OnPress, OnTabPick, ScreenHeader};
         let panel = self.call_panel.read(cx).focus_handle(cx);
@@ -1290,7 +1320,14 @@ impl AgentScreenView {
         let agent = self.agent.as_ref();
         let name = agent.map(agent_def_name).unwrap_or_default();
         let call = agent.map(|agent| agent_header_call(&agent.id, &name, panel, cx));
-        let menu = agent.and_then(|agent| agent_header_menu(&agent.id, cx));
+        let this = cx.entity().downgrade();
+        let on_settings: OnPress = Rc::new(move |_window, cx| {
+            let _ = this.update(cx, |this, cx| {
+                this.settings_open = true;
+                cx.notify();
+            });
+        });
+        let menu = agent.and_then(|agent| agent_header_menu(&agent.id, on_settings, None, cx));
         let this = cx.entity().downgrade();
         let on_tab: OnTabPick = Rc::new(move |tab, _window, cx| {
             let _ = this.update(cx, |this, cx| {
@@ -1300,17 +1337,6 @@ impl AgentScreenView {
             });
         });
         let tabs = screen_tabs(&screen.tabs, screen.active, on_tab, cx);
-        let gear = screen.gear.then(|| {
-            let open = self.settings_open;
-            let this = cx.entity().downgrade();
-            let on_press: OnPress = Rc::new(move |_window, cx| {
-                let _ = this.update(cx, |this, cx| {
-                    this.settings_open = !open;
-                    cx.notify();
-                });
-            });
-            (on_press, open)
-        });
         let title = crate::session_chat::title_row(&name, false, cx).into_any_element();
         let subtitle = crate::session_chat::screen_subtitle(None, &[], agent, cx);
         screen_header(
@@ -1320,7 +1346,6 @@ impl AgentScreenView {
                 subtitle,
                 subtitle_color: None,
                 trailing: call.into_iter().collect(),
-                gear,
                 menu,
                 back,
                 tabs,
@@ -1329,9 +1354,9 @@ impl AgentScreenView {
         )
     }
 
-    /// #EXP-1732: the tab pane before the conversation exists: THE gear's
-    /// settings (the agent's settings page) under its `‹`; the tabs have
-    /// nothing to list yet.
+    /// #EXP-1732: the tab pane before the conversation exists: the
+    /// settings (the agent's settings page); the tabs have nothing to list
+    /// yet.
     fn render_pane(&mut self, screen: &SessionScreen, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         if screen.open != Some(SessionScreenOpen::Settings) {
             return div().flex_1().into_any_element();
@@ -1349,20 +1374,12 @@ impl AgentScreenView {
                 pane
             }
         };
-        let this = cx.entity().downgrade();
-        let on_back: crate::session_chat::OnPress = Rc::new(move |_window, cx| {
-            let _ = this.update(cx, |this, cx| {
-                this.settings_open = false;
-                cx.notify();
-            });
-        });
-        let body = crate::scroll_pane::v_scroll_pane(
+        crate::scroll_pane::v_scroll_pane(
             "agent-settings-scroll",
             &self.settings_scroll,
             div().w_full().px_6().py_4().child(pane),
         )
-        .into_any_element();
-        crate::session_chat::pane_item(&crate::session_chat::pane_back_label(screen.active), on_back, body, cx)
+        .into_any_element()
     }
 }
 
@@ -1390,6 +1407,12 @@ impl Render for AgentScreenView {
         // selection, Dock); this view keeps only the "no conversation yet"
         // page, whose first send = sessions.send({agentId}).
         if !editor {
+            // #FEED-239: a row's `…` › settings opened this agent's chat.
+            let asked = self
+                .agent
+                .as_ref()
+                .map(|agent| agent.id.clone())
+                .is_some_and(|agent_id| take_settings_request(&agent_id, cx));
             if let Some(root_id) = self.conversation.as_ref().map(|row| row.id.clone()) {
                 if self.chat.as_ref().map(|(id, _)| id.as_str()) != Some(root_id.as_str()) {
                     let id = root_id.clone();
@@ -1397,10 +1420,18 @@ impl Render for AgentScreenView {
                     self.chat = Some((root_id, view));
                 }
                 if let Some((_, chat)) = self.chat.as_ref() {
+                    if asked {
+                        chat.update(cx, |chat, cx| {
+                            chat.open_item(crate::session_chat::ChatOpened::Settings, window, cx)
+                        });
+                    }
                     return v_flex().track_focus(&self.focus_handle).size_full().min_h_0().child(chat.clone());
                 }
             } else {
                 self.chat = None;
+                if asked {
+                    self.settings_open = true;
+                }
             }
         }
         if !self.has_subject() {
@@ -1509,7 +1540,16 @@ impl Render for AgentScreenView {
             SessionScreenLayout::Chat => chat,
             _ => {
                 let pane = self.render_pane(&screen, window, cx);
-                crate::session_chat::screen_beside(chat, pane, cx)
+                // #FEED-239: THE collapse closes the right pane.
+                let this = cx.entity().downgrade();
+                let on_collapse: crate::session_chat::OnPress = Rc::new(move |_window, cx| {
+                    let _ = this.update(cx, |this, cx| {
+                        this.settings_open = false;
+                        this.tab = SessionScreenTab::Chat;
+                        cx.notify();
+                    });
+                });
+                crate::session_chat::screen_beside(chat, pane, on_collapse, cx)
             }
         };
         v_flex()

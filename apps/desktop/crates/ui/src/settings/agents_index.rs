@@ -261,7 +261,8 @@ impl AgentsIndexPane {
             return (shot.agents.clone(), shot.agents_ready);
         }
         (
-            crate::session_data::agents_in_team(team_id, cx),
+            // #FEED-239: an app's agent is listed under Apps only.
+            crate::session_data::sidebar_agents_in_team(team_id, cx),
             Store::global(cx).collections().agents.read(cx).is_ready(),
         )
     }
