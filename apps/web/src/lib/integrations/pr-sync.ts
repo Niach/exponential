@@ -496,8 +496,40 @@ async function applyLandedInTx(
   })
 }
 
+/** The last status a PERSON set on an issue (a status_changed not marked
+ *  `automation`), or null. */
+async function lastManualStatusAtInTx(tx: Tx, issueId: string): Promise<Date | null> {
+  const [row] = await tx
+    .select({ at: issueEvents.createdAt })
+    .from(issueEvents)
+    .where(
+      and(
+        eq(issueEvents.issueId, issueId),
+        eq(issueEvents.type, `status_changed`),
+        sql`(${issueEvents.payload} ->> 'automation') IS DISTINCT FROM 'true'`
+      )
+    )
+    .orderBy(desc(issueEvents.createdAt))
+    .limit(1)
+  return row?.at ?? null
+}
+
+/** Pure (#FEED-236): a PR's event still carries a parent only when it is
+ *  newer than the last status a person set on it (opened: the link's
+ *  write; merged: the landing). A person's move outranks an older PR. */
+export function carrierOutranksPerson(
+  event: PrAutomationEvent,
+  carrier: { linkedAt: Date | null; mergedAt: Date | null },
+  manualAt: Date | null
+): boolean {
+  if (!manualAt) return true
+  const at = event === `opened` ? carrier.linkedAt : carrier.mergedAt
+  return at != null && at > manualAt
+}
+
 /** A PR linking the parent carries the event (live/merged for `opened`,
- *  landed for `merged`): only then may it roll up. */
+ *  landed for `merged`) and is newer than a person's last move on it
+ *  (#FEED-236): only then may it roll up. */
 async function parentCarriedInTx(tx: Tx, parentId: string, event: PrAutomationEvent): Promise<boolean> {
   const prs = await tx
     .select({
@@ -505,11 +537,15 @@ async function parentCarriedInTx(tx: Tx, parentId: string, event: PrAutomationEv
       state: pullRequests.state,
       basePullRequestId: pullRequests.basePullRequestId,
       mergedAt: pullRequests.mergedAt,
+      linkedAt: pullRequestIssues.updatedAt,
     })
     .from(pullRequestIssues)
     .innerJoin(pullRequests, eq(pullRequests.id, pullRequestIssues.pullRequestId))
     .where(and(eq(pullRequestIssues.issueId, parentId), eq(pullRequestIssues.closes, true)))
+  if (prs.length === 0) return false
+  const manualAt = await lastManualStatusAtInTx(tx, parentId)
   for (const pr of prs) {
+    if (!carrierOutranksPerson(event, pr, manualAt)) continue
     if (event === `opened` ? pr.state !== `closed` : await prLandedInTx(tx, pr)) return true
   }
   return false

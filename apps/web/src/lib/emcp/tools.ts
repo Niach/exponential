@@ -3413,7 +3413,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_unlink`,
     {
-      description: `Unlink one issue (UUID or identifier) from a PR: it stays only a reference, the PR never moves it; its status stays as is. A later pr_open naming it in issueIds links it again. Name the PR by pullRequestId or repositoryId + prNumber; default = your session's newest open PR.`,
+      description: `Unlink one issue (UUID or identifier) from a PR: it stays only a reference, the PR never moves it; its status stays as is (already: true = it was unlinked before; errors when the PR never linked it). A later pr_open naming it in issueIds links it again. Name the PR by pullRequestId or repositoryId + prNumber; default = your session's newest open PR.`,
       inputSchema: strictInput({
         pullRequestId: prSelector.pullRequestId,
         repositoryId: prSelector.repositoryId,
