@@ -542,4 +542,32 @@ final class PickerContractTests: XCTestCase {
             ).footerReplacesEmpty
         )
     }
+
+    // #EXP-1832 (sidebar-folders.json): the board picker folds its rows into
+    // the member's folders; a closed folder hides its boards, a search finds
+    // them flat.
+    func testBoardFoldersFoldTheRows() {
+        let boards = ["exp", "feed", "err", "perf"].map { BoardPickerBoard(id: $0, name: $0.capitalized) }
+        let entries = [
+            SidebarFolders.Entry(id: "f-mon", kind: .folder, targetId: nil, parentId: nil, name: "Monitoring", sortOrder: 1),
+            SidebarFolders.Entry(id: "e-err", kind: .item, targetId: "err", parentId: "f-mon", name: nil, sortOrder: 1),
+            SidebarFolders.Entry(id: "e-perf", kind: .item, targetId: "perf", parentId: "f-mon", name: nil, sortOrder: 2),
+        ]
+        let folders = BoardPickerFolders(teamId: "t", entries: entries)
+        let open = BoardPicker<EmptyView>.items(boards, folders: folders) { _ in true }
+        XCTAssertEqual(open.map(\.value), ["f-mon", "err", "perf", "exp", "feed"])
+        XCTAssertEqual(open.map(\.depth), [0, 1, 1, 0, 0])
+        XCTAssertEqual(open.first?.group, PickerGroup(count: 2, open: true))
+        XCTAssertEqual(open.first?.icon, AppIcons.uiFolder)
+        XCTAssertEqual(open[1].parent, "f-mon")
+        XCTAssertEqual(PickerFolders.visible(open, query: "").map(\.value), ["f-mon", "err", "perf", "exp", "feed"])
+
+        let closed = BoardPicker<EmptyView>.items(boards, folders: folders) { _ in false }
+        XCTAssertEqual(PickerFolders.visible(closed, query: "").map(\.value), ["f-mon", "exp", "feed"])
+        let searched = PickerFolders.visible(PickerSearch.filter(closed, query: "per"), query: "per")
+        XCTAssertEqual(searched.map(\.value), ["perf"])
+        XCTAssertEqual(searched.map(\.depth), [0])
+        // No folders = the flat rows, untouched.
+        XCTAssertEqual(BoardPicker<EmptyView>.items(boards, folders: nil) { _ in true }.map(\.value), ["exp", "feed", "err", "perf"])
+    }
 }

@@ -146,7 +146,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v98_app_version_migration", "v99_message_attachment_ids",
              "v100_app_record_share_name", "v101_merge_train",
              "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers",
-             "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery"]
+             "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
+             "v108_sidebar_layout"]
         )
     }
 
@@ -214,7 +215,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v98_app_version_migration", "v99_message_attachment_ids",
              "v100_app_record_share_name", "v101_merge_train",
              "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers",
-             "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery"]
+             "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
+             "v108_sidebar_layout"]
         )
     }
 
@@ -754,7 +756,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v98_app_version_migration", "v99_message_attachment_ids",
              "v100_app_record_share_name", "v101_merge_train",
              "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers",
-             "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery"]
+             "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
+             "v108_sidebar_layout"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -870,7 +873,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v98_app_version_migration", "v99_message_attachment_ids",
              "v100_app_record_share_name", "v101_merge_train",
              "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers",
-             "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery"]
+             "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
+             "v108_sidebar_layout"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1819,7 +1823,7 @@ final class DatabaseMigrationTests: XCTestCase {
                       "issue_events", "issue_statuses", "pins",
                       "issue_drafts", "sessions", "session_issues", "messages",
                       "pull_requests", "pull_request_issues", "pull_request_checks", "ci_runs", "ci_jobs",
-                      "electric_offsets"] {
+                      "sidebar_layout", "electric_offsets"] {
             let exists = try pool.read { db in try db.tableExists(table) }
             XCTAssertTrue(exists, "missing table \(table)")
         }
@@ -1983,6 +1987,12 @@ final class DatabaseMigrationTests: XCTestCase {
              "log_key", "log_bytes", "queued_at", "started_at", "completed_at", "created_at", "updated_at"]
         )
         XCTAssertTrue(try columnNames(pool, "devices").contains("runner"))
+        // #EXP-1832: the sidebar-layout allowlist, column for column.
+        XCTAssertEqual(
+            try columnNames(pool, "sidebar_layout"),
+            ["id", "user_id", "team_id", "section", "kind", "target_id", "parent_id", "name",
+             "sort_order", "created_at", "updated_at"]
+        )
         XCTAssertEqual(
             try columnNames(pool, "pull_request_issues"),
             ["id", "pull_request_id", "issue_id", "team_id", "created_at", "updated_at"]
