@@ -12,8 +12,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-// #EXP-1638: the app icon's long-press menu, replayed off `app-shortcuts.json`
-// (TS `app-shortcuts.test.ts`, same case names).
+// #EXP-1638 / #EXP-1830: the app icon's long-press menu, replayed off
+// `app-shortcuts.json` (TS `app-shortcuts.test.ts`, same case names).
 class AppShortcutsTest {
     private val fixture: JsonObject = Json.parseToJsonElement(contractFixtureJson("app-shortcuts.json")).jsonObject
 
@@ -22,6 +22,27 @@ class AppShortcutsTest {
 
     private fun cases(key: String): List<JsonObject> =
         fixture.getValue(key).jsonArray.map { it.jsonObject }.also { assertTrue(key, it.isNotEmpty()) }
+
+    private fun input(json: JsonObject): AppShortcuts.Input = AppShortcuts.Input(
+        assistant = json["assistant"]?.takeUnless { it is JsonNull }?.jsonObject?.let {
+            AppShortcuts.Assistant(it.str("id")!!, it.str("name")!!)
+        },
+        agents = json.getValue("agents").jsonArray.map {
+            val a = it.jsonObject
+            AppShortcuts.Agent(a.str("id")!!, a.str("name")!!, a.str("icon"), a.str("color"))
+        },
+        pins = json.getValue("pins").jsonArray.map { it.jsonPrimitive.content },
+        chats = json.getValue("chats").jsonArray.map {
+            val c = it.jsonObject
+            ShareTargets.Chat(c.str("id")!!, c.str("title")!!, c.str("updatedAt")!!, c.str("agentId"), c["sealed"]?.jsonPrimitive?.booleanOrNull == true)
+        },
+    )
+
+    private fun expected(case: JsonObject): List<AppShortcuts.Shortcut> =
+        case.getValue("expected").jsonArray.map {
+            val e = it.jsonObject
+            AppShortcuts.Shortcut(e.str("id")!!, e.str("title")!!, e.str("icon")!!, e.str("color"))
+        }
 
     @Test
     fun `copy, icons, ids and limits are the fixture's`() {
@@ -34,23 +55,27 @@ class AppShortcutsTest {
         assertEquals(icons.str("newChat"), AppShortcuts.NEW_CHAT_ICON)
         assertEquals(icons.str("search"), AppShortcuts.SEARCH_ICON)
         assertEquals(icons.str("chat"), AppShortcuts.CHAT_ICON)
+        assertEquals(icons.str("assistant"), AppShortcuts.ASSISTANT_ICON)
+        assertEquals(icons.str("agent"), AppShortcuts.AGENT_ICON)
         assertEquals(fixture.getValue("statics").jsonArray.map { it.jsonPrimitive.content }, AppShortcuts.STATICS)
         assertEquals(fixture.str("recentChatPrefix"), AppShortcuts.RECENT_CHAT_PREFIX)
+        assertEquals(fixture.str("agentPrefix"), AppShortcuts.AGENT_PREFIX)
         assertEquals(fixture.getValue("maxEntries").jsonPrimitive.int, AppShortcuts.MAX_ENTRIES)
     }
 
     @Test
     fun `listCases match the fixture`() {
         for (case in cases("listCases")) {
-            val chats = case.getValue("input").jsonObject.getValue("chats").jsonArray.map {
-                val c = it.jsonObject
-                ShareTargets.Chat(c.str("id")!!, c.str("title")!!, c.str("updatedAt")!!, c.str("agentId"), c["sealed"]?.jsonPrimitive?.booleanOrNull == true)
-            }
-            val expected = case.getValue("expected").jsonArray.map {
-                val e = it.jsonObject
-                AppShortcuts.Shortcut(e.str("id")!!, e.str("title")!!, e.str("icon")!!)
-            }
-            assertEquals(case.str("name"), expected, AppShortcuts.appShortcuts(chats))
+            val got = AppShortcuts.appShortcuts(input(case.getValue("input").jsonObject))
+            assertEquals(case.str("name"), expected(case), got)
+        }
+    }
+
+    @Test
+    fun `chatEntryCases match the fixture`() {
+        for (case in cases("chatEntryCases")) {
+            val got = AppShortcuts.chatEntries(input(case.getValue("input").jsonObject))
+            assertEquals(case.str("name"), expected(case), got)
         }
     }
 
@@ -65,9 +90,23 @@ class AppShortcutsTest {
                 AppShortcuts.Target.NewChat -> "new-chat"
                 AppShortcuts.Target.Search -> "search"
                 is AppShortcuts.Target.Chat -> "chat"
+                is AppShortcuts.Target.Agent -> "agent"
+            }
+            val id = when (got) {
+                is AppShortcuts.Target.Chat -> got.id
+                is AppShortcuts.Target.Agent -> got.id
+                else -> null
             }
             assertEquals(case.str("name"), expected?.str("kind"), kind)
-            assertEquals(case.str("name"), expected?.str("id"), (got as? AppShortcuts.Target.Chat)?.id)
+            assertEquals(case.str("name"), expected?.str("id"), id)
+        }
+    }
+
+    @Test
+    fun `launcherCases match the fixture`() {
+        for (case in cases("launcherCases")) {
+            val got = AppShortcuts.launcherShortcutId(case.getValue("input").jsonPrimitive.content)
+            assertEquals(case.str("name"), case.str("expected"), got)
         }
     }
 }

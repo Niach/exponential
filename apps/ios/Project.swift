@@ -264,8 +264,8 @@ let shareExtensionConditions = "$(inherited) SHARE_EXTENSION" + (hasEnetPush ? "
 
 // Single source of truth for app + extension version; keep these in lockstep so
 // the extension's CFBundleVersion never drifts from the parent app.
-let appMarketingVersion = "0.14.127"
-let appBuildVersion = "330"
+let appMarketingVersion = "0.14.128"
+let appBuildVersion = "331"
 // Staging always runs one build AHEAD of prod (EXP-405): the staging apps have
 // their own store namespaces, so an equal number silently uploads and then
 // masquerades as prod's build in ASC. Derived, so one bump covers all targets.
@@ -308,6 +308,9 @@ let notificationServiceInfoPlist: [String: Plist.Value] = [
 // #EXP-1639 (live-activity.json): the Live Activity widget extension (prod +
 // staging): ExpPush + the curated token files only, no GRDB, no ExpCore. It
 // opens the sealed content-state with the push key in the shared keychain.
+// #EXP-1830 (home-widgets.json): it also hosts the home screen widgets,
+// which read the app's snapshot through ExpCore's Foundation-only
+// `HomeWidgets.swift` + `SharedAppGroup.swift` and draw the registry glyphs.
 let liveActivityInfoPlist: [String: Plist.Value] = [
     "CFBundleShortVersionString": .string(appMarketingVersion),
     "CFBundleVersion": .string(appBuildVersion),
@@ -317,6 +320,9 @@ let liveActivityInfoPlist: [String: Plist.Value] = [
 ]
 let liveActivitySources: SourceFilesList = [
     "LiveActivity/**",
+    "ExpCore/Sources/Domain/HomeWidgets.swift",
+    "ExpCore/Sources/Shared/SharedAppGroup.swift",
+    "ExpUI/Sources/ColorHex.swift",
     "ExpUI/Sources/DesignTokens.generated.swift",
     "ExpUI/Sources/GlassTokens.swift",
     // DesignTokens' motion curves.
@@ -324,6 +330,8 @@ let liveActivitySources: SourceFilesList = [
 ]
 let liveActivityResources: ResourceFileElements = [
     "LiveActivity/Assets.xcassets",
+    // #EXP-1830: the registry glyphs (status, board and nav icons).
+    "Exponential/Assets.xcassets",
     "LiveActivity/PrivacyInfo.xcprivacy",
 ]
 let liveActivityConditions = "$(inherited) LIVE_ACTIVITY_EXTENSION" + (hasEnetPush ? " ENET_PUSH" : "")
@@ -336,8 +344,8 @@ let sharedInfoPlist: [String: Plist.Value] = [
     "NSUserActivityTypes": .array([.string("INSendMessageIntent")]),
     // #EXP-1638 (app-shortcuts.json): the app icon's long-press menu, the
     // three statics in order (type = fixture id, title = fixture copy, icon =
-    // the concept's lucide imageset); the recent chat is set at runtime
-    // (`AppShortcutsPublisher`).
+    // the concept's lucide imageset); #EXP-1830: the chat entries (the
+    // Assistant, pins, recent chats) are set at runtime (`AppShortcutItems`).
     "UIApplicationShortcutItems": .array([
         .dictionary([
             "UIApplicationShortcutItemType": .string("new-issue"),

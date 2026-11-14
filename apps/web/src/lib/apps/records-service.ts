@@ -27,8 +27,9 @@ import { APP_RECORD_MAX_BYTES } from "@exp/domain-contract/apps"
 import { resolveZone, zoneDay, zoneOffset } from "@exp/domain-contract/team-zone"
 import { APP_RECORD_HISTORY, APP_RECORDS_ON_BEHALF, eventState, inverseWrite, recordAuthor, writeAsVerdict, type RecordEventOp, type RecordEventVia } from "@exp/domain-contract/app-records"
 import { db as defaultDb } from "@/db/connection"
-import { appAccess, appRecordEvents, appRecords, appVersions, apps, issues, teamMembers, teams, users, type App } from "@/db/schema"
+import { appRecordEvents, appRecords, appVersions, apps, issues, teamMembers, teams, users, type App } from "@/db/schema"
 import { assertTeamMember } from "@/lib/auth/membership"
+import { appAccessLevel as effectiveAppLevel } from "@/lib/apps/app-access-level"
 import { assertCanCreateAppRecord } from "@/lib/billing"
 import { packageBytes, recordKindSchema } from "@/lib/apps/package"
 import { generateTxId } from "@/lib/trpc"
@@ -108,11 +109,11 @@ function assertCanWriteAs(userId: string, role: string, author: string | undefin
   if (verdict === `notMember`) throw new TRPCError({ code: `BAD_REQUEST`, message: APP_RECORDS_ON_BEHALF.notMember })
 }
 
-/** eApps R3: the member's access level for the app (no row = write). Read
- *  BEFORE the role switch. */
+/** eApps R3: the member's access level for the app (#FEED-242: the row,
+ *  else creator/owner write, else the app's default). Read BEFORE the role
+ *  switch. */
 export async function appAccessLevel(executor: Pick<Tx, `select`>, appId: string, userId: string): Promise<AppAccessLevel> {
-  const [row] = await executor.select({ level: appAccess.level }).from(appAccess).where(and(eq(appAccess.appId, appId), eq(appAccess.userId, userId))).limit(1)
-  return (row?.level as AppAccessLevel | undefined) ?? `write`
+  return effectiveAppLevel(executor, appId, userId)
 }
 
 /** eApps R3: who is asking (membership + access); access `none` hides the

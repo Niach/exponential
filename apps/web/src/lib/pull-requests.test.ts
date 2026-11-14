@@ -546,16 +546,32 @@ describe(`closePullRequest / pullRequestFiles`, () => {
 })
 
 describe(`unlinkPullRequestIssue`, () => {
-  it(`turns the one closing pull_request_issues row into a reference and says whether it was closing (EXP-1706)`, async () => {
-    h.deleteRows.push([{ issueId: `issue-2` }], [])
+  it(`turns the one closing pull_request_issues row into a reference and re-renders the live PR's body (EXP-1706)`, async () => {
+    h.deleteRows.push([{ issueId: `issue-2` }])
+    h.selectQueue.push([{ id: `root-1`, teamId: `team-1` }])
     await expect(
       unlinkPullRequestIssue({ userId: `u-1`, pullRequestId: `pr-1`, issueId: `issue-2` })
     ).resolves.toEqual({ unlinked: true })
+    expect(h.db.update).toHaveBeenCalledTimes(1)
+    expect(h.db.delete).not.toHaveBeenCalled()
+    await vi.waitFor(() => expect(sync.livePullRequestsOfRoot).toHaveBeenCalledWith(`root-1`))
+  })
+
+  it(`#FEED-236: unlinking a reference again answers unlinked (already), never unlinked: false`, async () => {
+    h.deleteRows.push([])
+    h.selectQueue.push([{ issueId: `issue-2` }])
     await expect(
       unlinkPullRequestIssue({ userId: `u-1`, pullRequestId: `pr-1`, issueId: `issue-2` })
-    ).resolves.toEqual({ unlinked: false })
-    expect(h.db.update).toHaveBeenCalledTimes(2)
-    expect(h.db.delete).not.toHaveBeenCalled()
+    ).resolves.toEqual({ unlinked: true, already: true })
+    expect(sync.livePullRequestsOfRoot).not.toHaveBeenCalled()
+  })
+
+  it(`#FEED-236: an issue the PR never linked errors, saying so`, async () => {
+    h.deleteRows.push([])
+    h.selectQueue.push([])
+    await expect(
+      unlinkPullRequestIssue({ userId: `u-1`, pullRequestId: `pr-1`, issueId: `issue-9` })
+    ).rejects.toMatchObject({ code: `NOT_FOUND`, message: expect.stringContaining(`not linked to pull request #7`) })
   })
 
   it(`a foreign team's PR is NOT_FOUND and touches nothing`, async () => {

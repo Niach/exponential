@@ -4,10 +4,11 @@ import ExpUI
 import SwiftUI
 import UIKit
 
-/// #EXP-1638 (app-shortcuts.json): the app icon's long-press menu. The three
-/// statics live in Info.plist (`UIApplicationShortcutItems`, Project.swift);
-/// this publishes the recent chat as the dynamic item and routes a pick into
-/// `DeepLinkBus`.
+/// #EXP-1638 / #EXP-1830 (app-shortcuts.json): the app icon's long-press
+/// menu. The three statics live in Info.plist (`UIApplicationShortcutItems`,
+/// Project.swift); this publishes the chat entries (the Assistant, pins,
+/// recent chats) as the dynamic items and routes a pick into `DeepLinkBus`
+/// (OPENING: the back stack rule, cold and warm alike).
 @MainActor
 enum AppShortcutItems {
     /// Set once by `AppDependencies`; a pick that lands before it is kept.
@@ -15,6 +16,7 @@ enum AppShortcutItems {
         didSet { if let pendingType { self.pendingType = nil; _ = handle(pendingType) } }
     }
     private static var pendingType: String?
+    private static var published: [String]?
 
     /// The dynamic items: every entry past the Info.plist statics (the OS
     /// lists the static ones first, so the menu reads as the fixture's list).
@@ -29,8 +31,9 @@ enum AppShortcutItems {
             )
         }
         let app = UIApplication.shared
-        let current = (app.shortcutItems ?? []).map { "\($0.type)\u{1}\($0.localizedTitle)" }
-        guard current != items.map({ "\($0.type)\u{1}\($0.localizedTitle)" }) else { return }
+        let signature = entries.map { "\($0.id)\u{1}\($0.title)\u{1}\($0.icon)" }
+        guard signature != published else { return }
+        published = signature
         app.shortcutItems = items
     }
 
@@ -44,12 +47,17 @@ enum AppShortcutItems {
         guard deps.auth.hasAuthenticatedAccount, let target = AppShortcuts.parseAppShortcut(type) else {
             return false
         }
-        deps.deepLinkBus.navigateToShortcut(target)
+        deps.deepLinkBus.navigateToLaunch(.shortcut(target))
         return true
     }
 
-    private static func icon(_ concept: String) -> UIApplicationShortcutIcon? {
-        guard let asset = AppIcons.concepts[concept].flatMap(AppIcons.assetName) else { return nil }
+    /// A concept, an agent's registry icon, or `assistant` = THE brand mark
+    /// (the OS tints every item alike; an agent's colour cannot ride along).
+    private static func icon(_ icon: String) -> UIApplicationShortcutIcon? {
+        if icon == AppShortcuts.Icons.assistant {
+            return UIApplicationShortcutIcon(templateImageName: "shortcut-assistant")
+        }
+        guard let asset = AppIcons.assetName(AppIcons.concepts[icon] ?? icon) else { return nil }
         return UIApplicationShortcutIcon(templateImageName: asset)
     }
 }

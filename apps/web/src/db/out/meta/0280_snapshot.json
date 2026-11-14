@@ -1,5 +1,5 @@
 {
-  "id": "d58c7e45-5e24-4c19-90fb-1edf3fd6b7b7",
+  "id": "613d1622-3975-4264-ab46-bb3da9d90f29",
   "prevId": "d97f945c-eda3-4206-ac47-7270157ed7f9",
   "version": "7",
   "dialect": "postgresql",
@@ -1773,6 +1773,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'[]'::jsonb"
+        },
+        "default_access": {
+          "name": "default_access",
+          "type": "varchar(8)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'write'"
         },
         "agent_id": {
           "name": "agent_id",
@@ -13124,184 +13131,6 @@
         "sessions_root_check": {
           "name": "sessions_root_check",
           "value": "(parent_id IS NULL AND depth = 0 AND root_id = id) OR (parent_id IS NOT NULL AND depth > 0)"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.sidebar_layout": {
-      "name": "sidebar_layout",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "team_id": {
-          "name": "team_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "section": {
-          "name": "section",
-          "type": "varchar(16)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "kind": {
-          "name": "kind",
-          "type": "varchar(16)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "target_id": {
-          "name": "target_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "parent_id": {
-          "name": "parent_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "name": {
-          "name": "name",
-          "type": "varchar(80)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "sort_order": {
-          "name": "sort_order",
-          "type": "double precision",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "uniq_sidebar_layout_user_target": {
-          "name": "uniq_sidebar_layout_user_target",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "section",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "target_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "target_id IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_sidebar_layout_user": {
-          "name": "idx_sidebar_layout_user",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_sidebar_layout_team": {
-          "name": "idx_sidebar_layout_team",
-          "columns": [
-            {
-              "expression": "team_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "sidebar_layout_user_id_users_id_fk": {
-          "name": "sidebar_layout_user_id_users_id_fk",
-          "tableFrom": "sidebar_layout",
-          "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "sidebar_layout_team_id_teams_id_fk": {
-          "name": "sidebar_layout_team_id_teams_id_fk",
-          "tableFrom": "sidebar_layout",
-          "tableTo": "teams",
-          "columnsFrom": [
-            "team_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "sidebar_layout_section_check": {
-          "name": "sidebar_layout_section_check",
-          "value": "section IN ('board', 'agent', 'app')"
-        },
-        "sidebar_layout_kind_check": {
-          "name": "sidebar_layout_kind_check",
-          "value": "(kind = 'folder' AND target_id IS NULL AND parent_id IS NULL) OR (kind = 'item' AND target_id IS NOT NULL)"
         }
       },
       "isRLSEnabled": false

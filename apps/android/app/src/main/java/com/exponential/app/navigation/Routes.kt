@@ -53,11 +53,14 @@ object Routes {
         "chat/$rootSessionId?card=$messageId"
 
     /** #FEED-191 (needs-you.json): where a Needs you row opens, by `opens`. */
-    fun needsYou(row: NeedsYou.Row): String = when (row.opens) {
-        NeedsYou.Opens.Plan -> chatPlan(row.rootId, row.messageId)
-        NeedsYou.Opens.Card -> chatCard(row.rootId, row.messageId)
-        NeedsYou.Opens.Results -> chat(row.rootId, CHAT_TAB_RESULTS)
-        NeedsYou.Opens.Chat -> chat(row.rootId)
+    fun needsYou(row: NeedsYou.Row): String = needsYou(row.rootId, row.messageId, row.opens)
+
+    /** #EXP-1830: the same open for a home widget's Needs you row. */
+    fun needsYou(rootId: String, messageId: String, opens: NeedsYou.Opens): String = when (opens) {
+        NeedsYou.Opens.Plan -> chatPlan(rootId, messageId)
+        NeedsYou.Opens.Card -> chatCard(rootId, messageId)
+        NeedsYou.Opens.Results -> chat(rootId, CHAT_TAB_RESULTS)
+        NeedsYou.Opens.Chat -> chat(rootId)
     }
 
     /** #EXP-1381 (settings-nav.json): ONE team settings category's own page,

@@ -21,6 +21,8 @@ object McpSettings {
     const val COPIED = "Copied"
     const val REVOKE = "Revoke"
     const val ACTIVITY = "Activity"
+    /** #FEED-242: the owner's last Access row, the app's default level. */
+    const val EVERYONE_ELSE = "Everyone else"
 
     data class Option(val value: String, val label: String)
 

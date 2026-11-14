@@ -204,11 +204,22 @@ extension AppRoute {
     /// chat's Plan tab on that plan; a card = the Conversation scrolled to
     /// it; results = the Results tab; chat = the agent conversation.
     @MainActor static func openingNeedsYou(_ row: NeedsYou.Row, accountId: String, deps: AppDependencies) async -> AppRoute {
-        switch row.opens {
-        case .plan: .chat(accountId: accountId, chatId: row.rootId, child: .plan(row.messageId))
-        case .card: .chat(accountId: accountId, chatId: row.rootId, child: .card(row.messageId))
-        case .results: .chat(accountId: accountId, chatId: row.rootId, child: .results)
-        case .chat: await openingSession(row.rootId, accountId: accountId, deps: deps)
+        await openingNeedsYou(
+            rootId: row.rootId, messageId: row.messageId, opens: row.opens,
+            accountId: accountId, deps: deps
+        )
+    }
+
+    /// #EXP-1830: a needs-you widget row (its link carries the row's ids).
+    @MainActor static func openingNeedsYou(
+        rootId: String, messageId: String, opens: NeedsYou.Opens, accountId: String,
+        deps: AppDependencies
+    ) async -> AppRoute {
+        switch opens {
+        case .plan: .chat(accountId: accountId, chatId: rootId, child: .plan(messageId))
+        case .card: .chat(accountId: accountId, chatId: rootId, child: .card(messageId))
+        case .results: .chat(accountId: accountId, chatId: rootId, child: .results)
+        case .chat: await openingSession(rootId, accountId: accountId, deps: deps)
         }
     }
 
@@ -331,17 +342,21 @@ struct AppNavigator: View {
         // dialing on the previous account's ticket (with its draft still in
         // memory) belongs to nobody.
         .onChange(of: deps.auth.activeAccountId) { _, _ in
+            HomeWidgetsPublisher.shared.refresh(auth: deps.auth, db: deps.db)
             deps.steerSessions.removeAll()
             // NEW-69: a call belongs to the account that started it.
             voiceCall.end()
         }
         .onChange(of: deps.auth.authenticatedAccountIds) { old, new in
+            // #EXP-1830: the widgets follow the active account; signed out = their signed-out line.
+            HomeWidgetsPublisher.shared.refresh(auth: deps.auth, db: deps.db)
             deps.steerSessions.removeAll()
             // #PERF-9 STORED TAIL: signing out deletes the account's tails.
             SteerStoredTailStore.shared.removeAccounts(old.subtracting(new))
             systemSearch?.refresh()
         }
         .task {
+            HomeWidgetsPublisher.shared.refresh(auth: deps.auth, db: deps.db)
             // Capture runs index nothing (the store is the seed's).
             guard systemSearch == nil, !ProcessInfo.processInfo.arguments.contains("-uiTesting") else { return }
             systemSearch = SystemSearchIndexer(auth: deps.auth, db: deps.db)
@@ -473,9 +488,12 @@ struct AppNavigator: View {
         if url.host == "oauth-return", case .linked = OAuthReturn.parse(url) {
             NotificationCenter.default.post(name: .signInMethodsChanged, object: nil)
         }
-        // exponential://issue/<issueId>
-        if url.host == "issue", let issueId = url.pathComponents.dropFirst().first {
-            deps.deepLinkBus.navigateToIssue(String(issueId))
+        // #EXP-1830 (home-widgets.json TAPS): a widget's header or row —
+        // exponential://issue/<id>, board/<id>, my-issues, needs-you, home,
+        // session/<rootId>?opens=…&message=… — lands by THE back stack rule.
+        if let launch = LaunchTarget(url: url) {
+            deps.deepLinkBus.navigateToLaunch(launch)
+            return
         }
         // exponential://session/<sessionId>[?userId=<id>]: Android's session
         // link, the same route as a session push tap.
@@ -634,6 +652,10 @@ struct MainNavigator: View {
         .onChange(of: appIconBadgeCount, initial: true) { _, count in
             UNUserNotificationCenter.current().setBadgeCount(count)
         }
+        // #EXP-1830: the Needs you widget's rows (every team), newest first.
+        .onChange(of: widgetNeedsYou, initial: true) { _, rows in
+            HomeWidgetsPublisher.shared.setNeedsYou(rows, accountId: deps.auth.activeAccountId)
+        }
         .sheet(item: $createBoardTarget) { target in
             CreateBoardSheet(
                 accountId: target.accountId,
@@ -783,15 +805,16 @@ struct MainNavigator: View {
                 navigate({ openLinkLanding() }, dropped: { _ = deps.deepLinkBus.consumeLinkLanding() })
             }
         }
-        // #EXP-1638: a pick from the app icon's long-press menu.
-        .onChange(of: deps.deepLinkBus.pendingShortcut) { _, target in
+        // #EXP-1638 / #EXP-1830: a pick from the app icon's long-press menu,
+        // a widget tap, an App Intent.
+        .onChange(of: deps.deepLinkBus.pendingLaunch) { _, target in
             if target != nil {
-                navigate({ openShortcut() }, dropped: { _ = deps.deepLinkBus.consumeShortcut() })
+                navigate({ openLaunch() }, dropped: { _ = deps.deepLinkBus.consumeLaunch() })
             }
         }
         // A cold-launch New issue waits for the boards to arrive.
         .onChange(of: teamState.boards.map(\.id)) { _, _ in
-            if deps.deepLinkBus.pendingShortcut == .newIssue { openShortcut() }
+            if deps.deepLinkBus.pendingLaunch == .shortcut(.newIssue) { openLaunch() }
         }
         // A team was deleted in-app (EXP-43): back to the landing tab (Home)
         // so no pushed view (team settings, server detail) still targets it.
@@ -823,7 +846,7 @@ struct MainNavigator: View {
             if deps.deepLinkBus.pendingInbox { openInboxFromPush() }
             if deps.deepLinkBus.pendingDeviceRowId != nil { openDeviceFromLink() }
             if deps.deepLinkBus.pendingLinkLanding != nil { openLinkLanding() }
-            if deps.deepLinkBus.pendingShortcut != nil { openShortcut() }
+            if deps.deepLinkBus.pendingLaunch != nil { openLaunch() }
         }
         // A stack, not a safeAreaInset: an inset never moves the pushed pages'
         // navigation bars, so a banner covered their headers.
@@ -961,6 +984,16 @@ struct MainNavigator: View {
         NavBadges.appIconBadge(teamState.teams.map {
             sessionLists.needsYou(teamId: $0.id, me: deps.auth.userId, now: Date()).count
         })
+    }
+
+    /// #EXP-1830 (home-widgets.json `needs-you`): THE Needs you rows over
+    /// every team of the active account, newest first.
+    private var widgetNeedsYou: [NeedsYou.Row] {
+        var seen = Set<String>()
+        return teamState.teams
+            .flatMap { sessionLists.needsYou(teamId: $0.id, me: deps.auth.userId, now: Date()) }
+            .filter { seen.insert($0.messageId).inserted }
+            .sorted { $0.createdAt > $1.createdAt }
     }
 
     /// The bar floats only over the tab ROOTS (EXP-1210) and pushed board
@@ -1877,48 +1910,94 @@ extension MainNavigator {
         ))
     }
 
-    /// #EXP-1638 (app-shortcuts.json): open what an app-icon shortcut names,
-    /// through the openers the app already has: the tab bar's New-issue arm,
-    /// its chat arm (the Agent tab's composer), the header's Search push, and
-    /// a session push tap. A chat that is gone opens nothing (the start
-    /// screen). New issue opens on the current board, else the active
-    /// team's first (the page's board picker moves it); with no board synced
-    /// yet it waits for the boards, at most `shortcutBoardWait`, then drops.
-    private func openShortcut() {
+    /// #EXP-1638 / #EXP-1830 (app-shortcuts.json OPENING): open what an
+    /// app-icon shortcut, a widget tap or an App Intent names, through the
+    /// openers the app already has, with THE back stack rule: whatever was
+    /// showing drops back to the Agent tab root, then the target is pushed
+    /// (`launch`), so Back returns to the Agent tab; the target already on
+    /// top is not pushed twice. A chat that is gone opens the start screen.
+    /// New issue opens on the current board, else the active team's first
+    /// (the page's board picker moves it); with no board synced yet it waits
+    /// for the boards, at most `shortcutBoardWait`, then drops.
+    private func openLaunch() {
         let bus = deps.deepLinkBus
-        guard let target = bus.pendingShortcut else { return }
-        if case .newIssue = target, shortcutBoard == nil {
+        guard let target = bus.pendingLaunch else { return }
+        if target == .shortcut(.newIssue), shortcutBoard == nil {
             Task { @MainActor in
                 try? await Task.sleep(for: Self.shortcutBoardWait)
-                if bus.pendingShortcut == .newIssue { _ = bus.consumeShortcut() }
+                if bus.pendingLaunch == .shortcut(.newIssue) { _ = bus.consumeLaunch() }
             }
             return
         }
-        _ = bus.consumeShortcut()
+        _ = bus.consumeLaunch()
+        let accountId = deps.auth.activeAccountId ?? ""
         switch target {
-        case .newIssue:
+        case .home:
+            landOnRoot(of: .agent)
+        case .shortcut(.newIssue):
             guard let board = shortcutBoard else { return }
-            path.append(.issueDraft(
+            launch(.issueDraft(
                 accountId: board.accountId,
                 draftId: UUID().uuidString.lowercased(),
                 boardId: board.boardId
             ))
-        case .newChat:
+        case .shortcut(.newChat):
             landOnRoot(of: .agent)
             bus.pendingComposerFocus = true
-        case .search:
-            path.append(.search)
-        case let .chat(sessionId):
-            let accountId = deps.auth.activeAccountId ?? ""
+        case .shortcut(.search):
+            launch(.search)
+        case let .shortcut(.chat(sessionId)):
+            landOnRoot(of: .agent)
             Task { @MainActor in
                 let exists = (try? await deps.db.pool(forAccountId: accountId).read { db in
                     try Bool.fetchOne(db, sql: "SELECT EXISTS(SELECT 1 FROM \"sessions\" WHERE \"id\" = ?)", arguments: [sessionId])
                 }) ?? nil
                 guard exists == true else { return }
                 await activateTeam(forSession: sessionId, accountId: accountId)
-                path.append(await AppRoute.openingInbox(sessionId, accountId: accountId, deps: deps))
+                launch(await AppRoute.openingInbox(sessionId, accountId: accountId, deps: deps))
+            }
+        case let .shortcut(.agent(agentId)):
+            launch(.agentChannel(accountId: accountId, agentId: agentId))
+            Task { @MainActor in
+                await activateTeam(accountId: accountId) { db in
+                    try String.fetchOne(db, sql: "SELECT \"team_id\" FROM \"agents\" WHERE \"id\" = ?", arguments: [agentId])
+                }
+            }
+        case let .issue(issueId):
+            landOnRoot(of: .agent)
+            appendIssueRoute(accountId: accountId, issueId: issueId)
+        case let .board(boardId):
+            launch(.board(accountId: accountId, id: boardId))
+            Task { @MainActor in
+                await activateTeam(accountId: accountId) { db in
+                    try String.fetchOne(db, sql: "SELECT \"team_id\" FROM \"boards\" WHERE \"id\" = ?", arguments: [boardId])
+                }
+            }
+        case .myIssues:
+            // The Board tab's own chip: a tab root, not a push.
+            bus.pendingMyIssues = true
+            landOnRoot(of: .issues)
+        case .needsYou:
+            launch(.needsYou(accountId: accountId))
+        case let .needsYouRow(rootId, messageId, opens):
+            landOnRoot(of: .agent)
+            Task { @MainActor in
+                await activateTeam(forSession: rootId, accountId: accountId)
+                launch(await AppRoute.openingNeedsYou(
+                    rootId: rootId, messageId: messageId, opens: opens,
+                    accountId: accountId, deps: deps
+                ))
             }
         }
+    }
+
+    /// #EXP-1830 THE BACK STACK RULE: the Agent tab root under `route`;
+    /// `route` already on top of it is left alone.
+    private func launch(_ route: AppRoute) {
+        if tab == .agent, path == [route] { return }
+        if case .issueDraft = route, tab == .agent, path.count == 1, path.first?.isIssueDraft == true { return }
+        landOnRoot(of: .agent)
+        path = [route]
     }
 
     private static let shortcutBoardWait: Duration = .seconds(15)

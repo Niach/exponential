@@ -32,6 +32,61 @@ export const CHANGELOG: ChangelogEntry[] = [
     body: `- **Reorder**: on the desktop app and wide web, drag a board, agent or app; a line shows where it lands.\n- **Folders**: drop a row onto another and both move into a new folder, named in place (Enter saves, Esc keeps "New folder"); drop onto a folder to move in. Right-click a folder to rename or ungroup it. Folders open and close, and each device remembers which ones you folded.\n- **Phones**: the board pickers and the Apps list show your folders.`,
   },
   {
+    id: `2026-11-14-desktop-agent-picks-stick`,
+    date: `2026-11-14`,
+    title: `Agent Skills and MCP server picks stick on the desktop`,
+    summary: `Desktop and CLI 0.14.160: the Skills, MCP servers and account you pick for an agent stay picked, and your desktop or CLI device can take the screenshots an app's agent asks for.`,
+    body: `- **Picks stick**: in an agent's settings on the desktop app, opening or closing the Skills, MCP servers or account list no longer clears what you picked, and model and effort picks behave the same way.
+- **App screenshots on your device**: on Linux and Apple silicon, the desktop app and the CLI paint the app screens an agent asks to see, so it can check a screen and show it to you.`,
+  },
+  {
+    id: `2026-11-14-phones-widgets-release`,
+    date: `2026-11-14`,
+    title: `Widgets and agent shortcuts on your phone`,
+    summary: `Android 0.14.138 and iOS 0.14.128 bring the home screen widgets, agent chat shortcuts that open their chat from a cold start, and Everyone else access for apps.`,
+    body: `- **Home screen widgets**: Board, My issues and Needs you; a tap opens the issue or chat.
+- **Agent chat shortcuts**: long-press the app icon for your Assistant; a pinned shortcut opens that chat whether the app was closed or open.
+- **App access**: owners set an app's Everyone else access in Settings › MCP › Access on phones too.`,
+  },
+  {
+    id: `2026-11-14-phone-widgets-agent-shortcuts`,
+    date: `2026-11-14`,
+    title: `Home screen widgets and agent chat shortcuts`,
+    summary: `Phones get Board, My issues and Needs you widgets, and a shortcut to an agent's chat now opens that chat.`,
+    body: `- **Agent chat shortcuts**: long-press the app icon for your Assistant next to New issue and New chat; a shortcut you pinned to the home screen now opens that chat instead of wherever the app was, and Back returns to the Agent tab.
+- **Home screen widgets**: add a board's open issues, your issues in the teams you pick, or the plans and questions waiting on you; a tap opens the issue or chat.
+- **Siri and Shortcuts**: on iOS, ask to open an agent's chat in Exponential.`,
+  },
+  {
+    id: `2026-11-14-app-agents-render`,
+    date: `2026-11-14`,
+    title: `App agents can check their screens`,
+    summary: `An agent building an app can render or screenshot each screen as a member sees it, read the catalog in parts, and name members by user id, member id or email.`,
+    body: `- **Render before publish**: an app's agent reads any screen as text, bound to real data as you or another member would see it, with the problems it finds (empty lists, failed expressions).
+- **Screenshots**: on a Linux or Apple silicon device, the agent can also take a picture of a screen to check it and show you.
+- **Smaller catalog reads**: agents fetch only the parts of the app catalog they need.
+- **Members by any id**: writing a record for a member takes their user id, member id or email.`,
+  },
+  {
+    id: `2026-11-14-desktop-sessions-start-at-once`,
+    date: `2026-11-14`,
+    title: `Queued sessions start at once on the desktop`,
+    summary: `Desktop and CLI 0.14.159: a newly queued session starts right away even after a long sync backlog, typing ü through an X input method no longer crashes the app, a session nobody picked up now tells its parent, and CI runs no longer lose their runner.`,
+    body: `- **Sessions start at once**: the desktop app folds a long backlog of sync changes in one step, so a session you queue starts right away instead of after the backlog.
+- **No crash on ü**: typing an umlaut through an X input method on Linux no longer crashes the desktop app, and crash reports still arrive when the reporting tunnel refuses a connection.
+- **Not picked up**: when a device never starts a session's first turn, the session reads Not picked up and its parent hears about it.
+- **Recently touched issues**: app lists can show the issues you (or a teammate) touched within a time range.
+- **CI runs keep their runner**: the CLI runs CI job steps at idle priority while the daemon keeps normal priority, so long builds no longer end as runner lost, and the desktop Runs table shows when each run started.`,
+  },
+  {
+    id: `2026-11-14-app-default-access`,
+    date: `2026-11-14`,
+    title: `Choose who can use each app`,
+    summary: `Owners can now set an app's access for everyone else, so an app can be limited to the members you pick.`,
+    body: `- **Everyone else**: in Settings › MCP › Access each app has an Everyone else row. Set it to None and only the members you give access, the app's creator and owners see the app; Read only lets them look without changing anything.
+- **Agents can set it too**: owners' agents set the default and per-member access with the apps tool.`,
+  },
+  {
     id: `2026-11-14-widget-reporter-emails`,
     date: `2026-11-14`,
     title: `Choose which emails widget reporters get`,

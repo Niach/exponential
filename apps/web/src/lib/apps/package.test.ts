@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { APP_SOURCE_NAMES, appCatalogText, appPackageIssues, linkableScreens, upstreamIssues, validateAppPackage } from "@/lib/apps/package"
+import { APP_CATALOG_SECTIONS, APP_SOURCE_NAMES, appCatalogText, appPackageIssues, linkableScreens, upstreamIssues, validateAppPackage } from "@/lib/apps/package"
 import emcp from "@exp/emcp/fixtures/exposes.json" with { type: "json" }
 
 // VAPP-110 / VAPP-107: what a stored app package may be.
@@ -205,5 +205,35 @@ describe(`linkableScreens`, () => {
     const templates = { home: template, deal: template }
     const reserved = [{ template: `home`, title: `Home` }, { template: `deal`, title: `Deal`, nav: false, exposed: { description: `A deal`, params: { tab: {} } } }]
     expect(appPackageIssues(pkg({ templates, screens: reserved })).map((issue) => issue.path)).toContain(`/screens/1/exposed/params/tab`)
+  })
+})
+
+describe(`apps catalog sections (#FEED-218)`, () => {
+  const full = appCatalogText()
+  const parts = APP_CATALOG_SECTIONS.filter((name) => name !== `index`)
+
+  it(`the full text is every section but the index, in order`, () => {
+    expect(appCatalogText([...parts])).toBe(full)
+    expect(parts.map((name) => appCatalogText([name])).join(`\n\n`)).toBe(full)
+  })
+
+  it(`a section is a part of the full text, in the catalog's order whatever the order asked`, () => {
+    for (const name of parts) expect(full).toContain(appCatalogText([name]))
+    expect(appCatalogText([`sources`, `package`])).toBe(`${appCatalogText([`package`])}\n\n${appCatalogText([`sources`])}`)
+  })
+
+  it(`the index lists every component on one line, far smaller than the props`, () => {
+    const index = appCatalogText([`index`])
+    expect(index).toContain(`Stack (children): `)
+    expect(index.length).toBeLessThan(appCatalogText([`components`]).length / 3)
+  })
+
+  it(`names the sections an unknown name could have meant`, () => {
+    expect(appCatalogText([`nope`])).toBe(`No such section: nope (sections: ${APP_CATALOG_SECTIONS.join(`, `)})`)
+  })
+
+  it(`says member ids are user ids`, () => {
+    expect(appCatalogText([`records`])).toContain(`USER id (exponential_people id, never its memberId)`)
+    expect(appCatalogText([`tests`])).toContain(`as?: a user id`)
   })
 })

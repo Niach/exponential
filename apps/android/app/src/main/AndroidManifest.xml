@@ -168,6 +168,60 @@
                 android:resource="@xml/shortcuts" />
         </activity>
 
+        <!-- #EXP-1830 (home-widgets.json): the home screen widgets (board,
+             my-issues, needs-you) and the two picks made when one is added. -->
+        <receiver
+            android:name=".widget.BoardWidgetProvider"
+            android:exported="true"
+            android:label="@string/home_widget_board_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/home_widget_board" />
+        </receiver>
+        <receiver
+            android:name=".widget.MyIssuesWidgetProvider"
+            android:exported="true"
+            android:label="@string/home_widget_my_issues_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/home_widget_my_issues" />
+        </receiver>
+        <receiver
+            android:name=".widget.NeedsYouWidgetProvider"
+            android:exported="true"
+            android:label="@string/home_widget_needs_you_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/home_widget_needs_you" />
+        </receiver>
+        <activity
+            android:name=".widget.BoardWidgetConfigActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.Exponential">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name=".widget.MyIssuesWidgetConfigActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.Exponential">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+
         <!-- EXP-297: hands cached issue attachments to external viewers and
              share targets as content:// URIs. Not exported; every consumer
              gets a per-intent read grant (FLAG_GRANT_READ_URI_PERMISSION). -->
