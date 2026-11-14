@@ -125,7 +125,7 @@ private struct AssistantSettingsContent: View {
         // ours is in flight.
         .onChange(of: agent?.triggers) { _, raw in
             guard seeded, !draft.triggerList.busy, let raw else { return }
-            draft.triggerList.triggers = AgentTrigger.parseList(raw)
+            draft.triggerList.load(raw)
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("assistant-settings-page")

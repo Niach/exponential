@@ -22,48 +22,69 @@ final class AgentTriggerList {
     /// Stored order. A trigger added before the agent exists (or before the
     /// echo lands) carries a `local-` id and is sent WITHOUT one.
     var triggers: [AgentTrigger] = []
+    /// The stored objects this build can't read (#EXP-1848's `record`,
+    /// `webhook`): never rows, appended unchanged to every write.
+    var unreadable: [AgentTriggerObject] = []
     /// One write at a time: each replaces the whole array.
     var busy = false
 
     static let localPrefix = "local-"
 
+    /// The rows + the kept objects of the synced `triggers` column.
+    func load(_ raw: String?) {
+        triggers = AgentTrigger.parseList(raw)
+        unreadable = AgentTrigger.unreadableList(raw)
+    }
+
+    /// Everything stored, for the per-agent cap.
+    var count: Int { triggers.count + unreadable.count }
+
     /// The whole-array write of `list`: a local (unsaved) trigger travels
-    /// without an id, so the server mints one; the preset tag rides along.
+    /// without an id, so the server mints one; the preset tag and extra keys
+    /// ride along, the unreadable objects after them.
     func inputs(_ list: [AgentTrigger]) -> [AgentTriggerInput] {
         list.map { trigger in
             var input = AgentTriggerInput(trigger)
             if trigger.id.hasPrefix(Self.localPrefix) { input.id = nil }
             return input
-        }
+        } + unreadable.map(AgentTriggerInput.init(unreadable:))
     }
 
-    /// A write's elements as rows until the echo lands (a new one local).
+    /// A write's elements as rows until the echo lands (a new one local);
+    /// the unreadable objects stay in `unreadable`.
     func adopting(_ inputs: [AgentTriggerInput]) -> [AgentTrigger] {
-        inputs.map { input in
+        inputs.filter { $0.unreadable == nil }.map { input in
             AgentTrigger(
                 id: input.id ?? Self.localPrefix + UUID().uuidString,
                 enabled: input.enabled,
                 when: input.when,
-                preset: input.preset
+                preset: input.preset,
+                extra: input.extra
             )
         }
     }
 
-    /// The list with `input` added (`editing` nil) or swapped in.
+    /// The list with `input` added (`editing` nil) or swapped in (its preset
+    /// and extra keys kept).
     func applying(_ input: AgentTriggerInput, editing: AgentTrigger?) -> [AgentTrigger] {
         guard let editing else {
             return triggers + adopting([AgentTriggerInput(enabled: input.enabled, when: input.when)])
         }
         return triggers.map { trigger in
             trigger.id == editing.id
-                ? AgentTrigger(id: trigger.id, enabled: input.enabled, when: input.when, preset: trigger.preset)
+                ? AgentTrigger(
+                    id: trigger.id, enabled: input.enabled, when: input.when,
+                    preset: trigger.preset, extra: trigger.extra
+                )
                 : trigger
         }
     }
 
     func settingEnabled(_ trigger: AgentTrigger, _ enabled: Bool) -> [AgentTrigger] {
         triggers.map {
-            $0.id == trigger.id ? AgentTrigger(id: $0.id, enabled: enabled, when: $0.when, preset: $0.preset) : $0
+            $0.id == trigger.id
+                ? AgentTrigger(id: $0.id, enabled: enabled, when: $0.when, preset: $0.preset, extra: $0.extra)
+                : $0
         }
     }
 
@@ -125,7 +146,7 @@ struct AgentTriggersSection: View {
             }
         } header: {
             GlassSectionHeader(AgentSettings.Copy.triggers) {
-                if editable, list.triggers.count < DomainContract.agentTriggerMaxPerAgent {
+                if editable, list.count < DomainContract.agentTriggerMaxPerAgent {
                     GlassPill(AgentSettings.Copy.addTrigger, icon: AppIcons.uiAdd, mode: .action {
                         editorTarget = EditorTarget(id: "new", trigger: nil)
                     }, enabled: !list.busy)
@@ -292,7 +313,7 @@ struct AgentTriggersSection: View {
                 guard let row else { continue }
                 rowTeamId = row.teamId
                 // The synced row is the truth once no write of ours flies.
-                if !own.busy { own.triggers = AgentTrigger.parseList(row.triggers) }
+                if !own.busy { own.load(row.triggers) }
             }
         } catch {}
     }
