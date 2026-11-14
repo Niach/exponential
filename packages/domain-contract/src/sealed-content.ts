@@ -415,6 +415,19 @@ export function openCard(card: Card, keys: TreeKeys): OpenedCard {
   return { status: `opened`, epoch: opened.epoch, card: resolveClearPictures({ ...(inner as Card), ...over }, projected) }
 }
 
+// ── a tree that moved on (fixtures/sealed-content.json `staleTree`) ────────
+
+/** #FEED-248: the server's CONFLICT for a key write (inline `seal` or
+ *  `sessionKeys.create`) into a tree that already moved on. A writer that
+ *  gets it resolves the tree from the server and re-seals once by itself. */
+export const STALE_TREE_REFUSAL: string = placeholderFixture.staleTree.refusal
+
+/** Older servers said `The tree is at epoch N`. */
+export function isStaleTreeRefusal(message: string | null | undefined): boolean {
+  if (!message) return false
+  return message === STALE_TREE_REFUSAL || /^The tree is at epoch \d+$/.test(message)
+}
+
 // ── the locked state (fixtures/sealed-content.json `placeholder`) ───────────
 
 /** Why content stays locked here: `noKey` = waiting for a holder's wrap
