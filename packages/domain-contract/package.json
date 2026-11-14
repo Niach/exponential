@@ -29,6 +29,7 @@
     "./script-card": "./src/script-card.ts",
     "./home-greeting": "./src/home-greeting.ts",
     "./composer-send": "./src/composer-send.ts",
+    "./composer-attachments": "./src/composer-attachments.ts",
     "./message-delivery": "./src/message-delivery.ts",
     "./composer-draft": "./src/composer-draft.ts",
     "./share-targets": "./src/share-targets.ts",

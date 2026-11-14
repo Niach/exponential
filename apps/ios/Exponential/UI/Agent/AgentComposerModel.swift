@@ -67,7 +67,6 @@ final class AgentComposerModel {
     /// Wave D: non-image files, uploaded beside the images and sent as
     /// `[<filename>](/api/attachments/<id>)` lines after the embeds.
     var pendingFiles: [PendingSteerFile] = []
-    var imageError: String?
     /// EXP-615/739: a free request's repository — the team's FIRST one (a
     /// phone never picks it, EXP-993); `""` = none (a scratch dir).
     var chatRepoId = ""
@@ -653,80 +652,6 @@ final class AgentComposerModel {
         }
     }
 
-    // MARK: - Attachments (EXP-511/EXP-698, the steer composer's rules)
-
-    /// Both lists full: nothing more can be attached (the "+" row dims).
-    var attachFull: Bool {
-        imagesFull && filesFull
-    }
-
-    var imagesFull: Bool {
-        pendingImages.count >= AgentComposerPrompt.maxImages
-    }
-
-    var filesFull: Bool {
-        pendingFiles.count >= SteerImageMessage.maxFiles
-    }
-
-    /// Wave D: a picked file. An inline image joins the images (marker and
-    /// all); anything else queues as a file tile.
-    func queuePicked(_ picked: PendingCommentAttachment) {
-        if AttachmentFiles.isInlineImage(contentType: picked.contentType) {
-            guard !imagesFull else { return }
-            queueImage(picked)
-            return
-        }
-        guard !filesFull else {
-            imageError = SteerImageMessage.filesFullMessage
-            return
-        }
-        touched = true
-        pendingFiles.append(PendingSteerFile(
-            data: picked.data,
-            filename: picked.filename,
-            contentType: picked.contentType
-        ))
-    }
-
-    /// The strip's × — an image (renumbering the markers) or a file.
-    func removeAttachment(id: UUID) {
-        if pendingImages.contains(where: { $0.id == id }) {
-            removeImage(id: id)
-        } else {
-            pendingFiles.removeAll { $0.id == id }
-        }
-    }
-
-    /// Queue one normalized image and drop its positional `[Image #k]`
-    /// marker at the END of the draft, so a sentence can name the picture it
-    /// means (EXP-698).
-    func queueImage(_ normalized: PendingCommentAttachment) {
-        guard !imagesFull else { return }
-        touched = true
-        pendingImages.append(PendingSteerImage(
-            data: normalized.data,
-            filename: normalized.filename,
-            contentType: normalized.contentType,
-            uploadedId: nil
-        ))
-        let inserted = SteerImageMessage.insertImageMarker(
-            text: draftText,
-            caret: (draftText as NSString).length,
-            index: pendingImages.count
-        )
-        draftText = inserted.text
-    }
-
-    /// Dropping a pending image renumbers the draft's markers, so
-    /// `[Image #N]` keeps naming the N-th image that will actually be sent.
-    func removeImage(id: UUID) {
-        guard let position = pendingImages.firstIndex(where: { $0.id == id }) else { return }
-        pendingImages.remove(at: position)
-        draftText = SteerImageMessage.renumberImageMarkers(
-            draftText, removedIndex: position + 1
-        )
-    }
-
     // MARK: - Submit
 
     /// Upload the pending attachments (sequentially, stamping `uploadedId`
@@ -743,7 +668,6 @@ final class AgentComposerModel {
         guard messagedAgentId != nil || device != nil else { return }
         sending = true
         touched = true
-        imageError = nil
         dismissErrorToast()
         // A DM never starts on one of the caller's machines: no starting row.
         if messagedAgentId == nil, let device {
@@ -951,5 +875,13 @@ final class AgentComposerModel {
         subjectState.clearSubject()
         // S-3: the agent row's pick is no draft: it stays.
         seededDraft = ""
+    }
+}
+
+// #EXP-1841: THE composer strip (`ComposerAttachmentHost`), the same staging,
+// caps, toasts and `[Image #N]` placeholders as every chat's composer.
+extension AgentComposerModel: ComposerAttachmentHost {
+    func attachmentsStaged() {
+        touched = true
     }
 }

@@ -1045,6 +1045,20 @@ impl AgentScreenView {
         cx.notify();
     }
 
+    fn on_first_paste(
+        &mut self,
+        _: &gpui_component::input::Paste,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let files = composer_images::clipboard_images(cx);
+        if files.is_empty() {
+            return;
+        }
+        cx.stop_propagation();
+        self.stage_first_files(files, window, cx);
+    }
+
     fn remove_first_file(&mut self, key: u64, window: &mut Window, cx: &mut gpui::Context<Self>) {
         self.first.images.remove(key, &self.first.input, window, cx);
         cx.notify();
@@ -1090,6 +1104,17 @@ impl AgentScreenView {
                 .tool(self.render_first_plus(cx)),
             cx,
         );
+        // #EXP-1841: a paste or a drop stages like the "+" pick (Home's
+        // launch composer's handlers).
+        let composer = div()
+            .w_full()
+            .min_w_0()
+            .child(composer)
+            .capture_action(cx.listener(Self::on_first_paste))
+            .on_drop(cx.listener(|this, paths: &gpui::ExternalPaths, window, cx| {
+                this.stage_first_files(composer_images::dropped_files(paths), window, cx)
+            }))
+            .into_any_element();
         match notice {
             Some(notice) => v_flex()
                 .w_full()

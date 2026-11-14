@@ -226,6 +226,8 @@ let shareExtensionSources: SourceFilesList = [
     "ExpCore/Sources/Domain/HomeGreeting.swift",
     "ExpCore/Sources/Domain/FeedbackStates.swift",
     "ExpCore/Sources/SteerImageMessage.swift",
+    // #EXP-1841: SteerImageMessage's marker edits forward to THE strip logic.
+    "ExpCore/Sources/Domain/ComposerAttachments.swift",
     "ExpCore/Sources/API/SessionsSendInput.swift",
     "ExpCore/Sources/API/SessionKeysApi.swift",
     "ExpCore/Sources/API/InstallsApi.swift",

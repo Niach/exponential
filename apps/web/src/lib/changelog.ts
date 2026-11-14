@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-14-image-placeholders-in-every-chat`,
+    date: `2026-11-14`,
+    title: `[Image #1] in every chat`,
+    summary: `An image you attach in an open chat now drops its [Image #1] placeholder at the cursor, just like a new message does.`,
+    body: `- **Placeholders everywhere**: attaching an image in a chat, an agent chat, the Assistant or an app editor puts \`[Image #1]\`, \`[Image #2]\` and so on at the cursor, so you can say which image you mean.
+- **Removing an image**: its placeholder goes too and the others renumber.
+- **Same limits**: four images and four files per message, with the same messages when a pick does not fit.`,
+  },
+  {
     id: `2026-11-14-one-chat-shell`,
     date: `2026-11-14`,
     title: `One menu for every chat`,

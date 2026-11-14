@@ -382,6 +382,40 @@ impl ComposerDoc {
         self.view.as_ref()?.read(cx).field_focus_handle(COMPOSER, cx)
     }
 
+    /// #EXP-1841: the drawn field's live text and caret (byte offset), once
+    /// mounted: what an attach stages against, like the launch composer's
+    /// own field.
+    pub(crate) fn field_draft(&self, cx: &App) -> Option<(String, usize)> {
+        let view = self.view.as_ref()?.read(cx);
+        Some((view.field_text(COMPOSER, cx)?, view.field_caret(COMPOSER, cx)?))
+    }
+
+    /// #EXP-1841: `inserted` typed into the drawn field at byte `at` (the
+    /// caret lands behind it); `draft` = the field's text after, so the
+    /// host's draft already matches and no echo follows.
+    pub(crate) fn insert_at(&mut self, at: usize, inserted: &str, draft: String, window: &mut Window, cx: &mut App) -> bool {
+        let Some(view) = self.view.clone() else { return false };
+        if !view.update(cx, |view, cx| view.insert_into_field(COMPOSER, at, inserted, window, cx)) {
+            return false;
+        }
+        self.draft = draft;
+        true
+    }
+
+    /// #EXP-1841: a draft the host rewrote (an X's renumbering) goes into
+    /// the field even while it is focused (a programmatic write), its caret
+    /// at byte `caret` (`None` = the end).
+    pub(crate) fn assign_draft(&mut self, draft: String, caret: Option<usize>, cx: &mut App) {
+        let Some(view) = self.view.clone() else { return };
+        self.draft = draft.clone();
+        view.update(cx, |view, cx| {
+            if let Some(caret) = caret {
+                view.caret_on_write(COMPOSER, caret);
+            }
+            let _ = view.assign_data("/chat/draft", Some(json!(draft)), cx);
+        });
+    }
+
     fn mount(&mut self, steer: WeakEntity<SteerSessionView>, team_id: Option<String>, window: &mut Window, cx: &mut App) {
         if self.view.is_some() {
             return;
@@ -479,7 +513,7 @@ impl ComposerDoc {
     }
 }
 
-use gpui::{IntoElement as _, ParentElement as _, Styled as _};
+use gpui::{InteractiveElement as _, IntoElement as _, ParentElement as _, Styled as _};
 
 // ---------------------------------------------------------------------------
 // The host
@@ -524,6 +558,11 @@ impl HostPlugin for FooterHost {
     }
 
     fn media_request(&self, src: &str) -> Option<eui_core::host::MediaRequest> {
+        // #EXP-1841: a staged image's own picture is a `data:` url (`strip`);
+        // the card host's policy refuses those, which left its glyph.
+        if src.starts_with("data:image/") {
+            return eui_core::host::media_request(src, &self.media_options());
+        }
         self.md.media_request(src)
     }
 
@@ -615,6 +654,16 @@ impl SteerSessionView {
             });
         }
         let element = element.unwrap_or_else(|| gpui::div().into_any_element());
+        // #EXP-1841: a drop stages like a pick or a paste (the launch
+        // composer's).
+        let element = gpui::div()
+            .w_full()
+            .min_w_0()
+            .child(element)
+            .on_drop(cx.listener(|this, paths: &gpui::ExternalPaths, window, cx| {
+                this.stage_images(crate::composer_images::dropped_files(paths), window, cx)
+            }))
+            .into_any_element();
         match self.mcp_picker(window, cx) {
             Some(picker) => gpui::div().w_full().min_w_0().child(element).child(picker).into_any_element(),
             None => element,
