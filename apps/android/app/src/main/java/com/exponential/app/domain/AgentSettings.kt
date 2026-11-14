@@ -1,5 +1,8 @@
 package com.exponential.app.domain
 
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+
 /**
  * EXP-1291: Team settings → Agents — the Android mirror of
  * `packages/domain-contract/src/agent-settings.ts` (desktop
@@ -98,6 +101,17 @@ object AgentSettings {
         const val TRIGGERS = "Triggers"
         const val RUNS_ON = "Runs on"
         const val CHECK_IN = "Check in"
+        /** #EXP-1850: an app agent's record / webhook trigger, a `run`
+         *  trigger's second line. */
+        const val RECORD = "When a {record} is {op}"
+        val RECORD_OPS: Map<String, String> = linkedMapOf(
+            "create" to "created",
+            "update" to "updated",
+            "delete" to "deleted",
+        )
+        const val WEBHOOK = "When webhook {name} is called"
+        const val RUNS = "Runs {tool}"
+        const val HANDS_OFF = "Hands off to {agent}"
     }
 
     /** #EXP-1846 (agent-settings.json `page.sections`): ONE agent page ×4
@@ -164,8 +178,13 @@ object AgentSettings {
         /** schedule: the 5-field cron and its IANA zone. */
         val cron: String? = null,
         val tz: String? = null,
-        /** event: the events row name it listens on. */
+        /** event: the events row name it listens on; webhook: the hook. */
         val name: String? = null,
+        /** #EXP-1850 record: the record kind and the op it listens on. */
+        val record: String? = null,
+        val op: String? = null,
+        /** #EXP-1850: an app binding the trigger runs instead of a wake. */
+        val run: JsonObject? = null,
     )
 
     /** One Triggers row's text. */
@@ -173,6 +192,12 @@ object AgentSettings {
         val text = if (trigger.kind == "schedule") {
             // NEW-2: nobody speaks cron — THE schedule picker's sentence.
             SchedulePicker.scheduleSummary(trigger.cron ?: "", trigger.tz)
+        } else if (trigger.kind == "record") {
+            // #EXP-1850: an app agent's record trigger.
+            val op = Copy.RECORD_OPS[trigger.op ?: ""] ?: trigger.op ?: ""
+            Copy.RECORD.replace("{record}", trigger.record ?: "").replace("{op}", op)
+        } else if (trigger.kind == "webhook") {
+            Copy.WEBHOOK.replace("{name}", trigger.name ?: "")
         } else {
             val name = trigger.name ?: ""
             Copy.EVENTS[name] ?: Copy.EVENT.replace("{name}", name)
@@ -181,17 +206,51 @@ object AgentSettings {
     }
 
     /** A stored agent trigger as [triggerSummary] reads it. */
-    fun triggerSummary(trigger: AgentTrigger): String = triggerSummary(
-        when (val part = trigger.whenPart) {
-            is TriggerWhen.Schedule -> TriggerLike(
-                kind = "schedule",
-                enabled = trigger.enabled,
-                cron = part.cron,
-                tz = part.tz,
-            )
-            is TriggerWhen.Event -> TriggerLike(kind = "event", enabled = trigger.enabled, name = part.name)
-        },
-    )
+    fun triggerSummary(trigger: AgentTrigger): String = triggerSummary(triggerLike(trigger))
+
+    /** A stored agent trigger as [triggerSummary] / [triggerDetail] read it. */
+    fun triggerLike(trigger: AgentTrigger): TriggerLike = when (val part = trigger.whenPart) {
+        is TriggerWhen.Schedule -> TriggerLike(
+            kind = "schedule",
+            enabled = trigger.enabled,
+            cron = part.cron,
+            tz = part.tz,
+            run = trigger.run,
+        )
+        is TriggerWhen.Event -> TriggerLike(kind = "event", enabled = trigger.enabled, name = part.name, run = trigger.run)
+        is TriggerWhen.Record -> TriggerLike(
+            kind = "record",
+            enabled = trigger.enabled,
+            record = part.record,
+            op = part.op,
+            run = trigger.run,
+        )
+        is TriggerWhen.Webhook -> TriggerLike(kind = "webhook", enabled = trigger.enabled, name = part.name, run = trigger.run)
+    }
+
+    /** #EXP-1850 (`detailCases`): an app binding in a few words
+     *  (`records.<op> <kind>`, the action, `<upstream>/<tool>`). */
+    fun runLabel(run: JsonObject): String {
+        fun JsonObject.text(key: String): String? = (this[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
+        val records = run["records"] as? JsonObject
+        if (records != null) return "records.${records.text("op") ?: ""} ${records.text("kind") ?: ""}"
+        run.text("action")?.let { return it }
+        run.text("upstream")?.let { upstream -> return "$upstream/${run.text("tool") ?: ""}" }
+        return ""
+    }
+
+    /** #EXP-1850 (`detailCases`): a Triggers row's second line = what a
+     *  `run` trigger runs; null for a wake. */
+    fun triggerDetail(trigger: TriggerLike): String? {
+        val run = trigger.run ?: return null
+        (run["agent"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.let { agent ->
+            return Copy.HANDS_OFF.replace("{agent}", agent)
+        }
+        return Copy.RUNS.replace("{tool}", runLabel(run))
+    }
+
+    /** [triggerDetail] of a stored agent trigger. */
+    fun triggerDetail(trigger: AgentTrigger): String? = triggerDetail(triggerLike(trigger))
 
     data class Form(val name: String, val deviceId: String?, val instructions: String)
 
@@ -461,6 +520,8 @@ object AgentSettings {
                 when (val part = trigger.whenPart) {
                     is TriggerWhen.Schedule -> TriggerLike("schedule", trigger.enabled, part.cron, part.tz)
                     is TriggerWhen.Event -> TriggerLike("event", trigger.enabled, name = part.name)
+                    is TriggerWhen.Record -> TriggerLike("record", trigger.enabled, record = part.record, op = part.op)
+                    is TriggerWhen.Webhook -> TriggerLike("webhook", trigger.enabled, name = part.name)
                 }
             },
         )

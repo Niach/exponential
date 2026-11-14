@@ -19,6 +19,7 @@ public enum SessionScreen {
             "results": "Results",
             "preview": "Preview",
             "data": "Data",
+            "events": "Events",
             "versions": "Versions",
         ]
         public static let settings = "Settings"
@@ -97,7 +98,7 @@ public enum SessionScreen {
     }
 
     public enum Tab: String, Sendable, CaseIterable, Hashable {
-        case chat, issues, sessions, results, preview, data, versions
+        case chat, issues, sessions, results, preview, data, events, versions
 
         public var label: String { Copy.tabs[rawValue] ?? rawValue }
     }
@@ -124,7 +125,7 @@ public enum SessionScreen {
         .session: KindSpec(tabs: [.chat, .issues, .sessions, .results], settings: false, wideChatTab: true, wideDefault: .chat),
         .agent: KindSpec(tabs: [.chat, .issues, .sessions, .results], settings: true, wideChatTab: true, wideDefault: .chat),
         .assistant: KindSpec(tabs: [.chat, .issues, .sessions, .results], settings: true, wideChatTab: true, wideDefault: .chat),
-        .app: KindSpec(tabs: [.chat, .preview, .data, .versions], settings: true, wideChatTab: false, wideDefault: .preview),
+        .app: KindSpec(tabs: [.chat, .preview, .data, .events, .versions], settings: true, wideChatTab: false, wideDefault: .preview),
     ]
 
     /// The tabs that carry a count.

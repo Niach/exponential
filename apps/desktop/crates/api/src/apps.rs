@@ -270,6 +270,31 @@ pub fn publish(trpc: &TrpcClient, id: &str, number: i64) -> Result<PublishOutput
     trpc.mutation("apps.publish", &RestoreInput { id, number })
 }
 
+/// #EXP-1850 (apps.json `eventsTab`): one audit row of the app's triggers.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppEventRun {
+    #[serde(default)]
+    pub trigger_id: Option<String>,
+    pub at: String,
+    pub status: String,
+    #[serde(default)]
+    pub error: Option<String>,
+    #[serde(default)]
+    pub tool: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+pub struct EventsOutput {
+    #[serde(default)]
+    pub runs: Vec<AppEventRun>,
+}
+
+/// #EXP-1850 `apps.events {id}`: the Events tab's Recent runs (newest first).
+pub fn events(trpc: &TrpcClient, id: &str) -> Result<EventsOutput, ApiError> {
+    trpc.query_with_input("apps.events", &IdInput { id })
+}
+
 /// `apps.get {version}`: one version's package.
 pub fn get_version(trpc: &TrpcClient, id: &str, version: i64) -> Result<GetOutput, ApiError> {
     trpc.query_with_input("apps.get", &VersionInput { id, version })
