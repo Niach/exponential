@@ -14,7 +14,7 @@ export const SESSION_SCREEN_MENU_ICONS = fixture.menuIcons
 export const SESSION_SCREEN_MENU_SENDS = fixture.menuSends
 
 export type SessionScreenKind = `session` | `agent` | `assistant` | `app`
-export type SessionScreenTab = `chat` | `issues` | `sessions` | `results` | `preview` | `data` | `versions`
+export type SessionScreenTab = `chat` | `issues` | `sessions` | `results` | `preview` | `data` | `events` | `versions`
 export type SessionScreenOpen = `issue` | `session` | `plan` | `settings`
 export type SessionScreenLayout = `chat` | `beside` | `tab` | `item`
 
