@@ -66,7 +66,7 @@ struct AgentComposerCard: View {
                 model: model.draftEditor,
                 placeholder: model.placeholder,
                 onReturn: { handleReturn() },
-                onPasteImage: { image in ingestPastedImage(image) },
+                onPasteImage: { image in model.ingestPastedImage(image) },
                 onIssueRefTap: onIssueRefTap,
                 // Web's `min-h-20` (80pt with its 12pt top pad, spelled 6 + 6
                 // below), Android's two lines: a home card, not a chat line.
@@ -96,16 +96,6 @@ struct AgentComposerCard: View {
                 }
                 .padding(.horizontal, 8)
                 .padding(.bottom, 4)
-            }
-            // A pick refused for its size or type is INPUT: it stays inline
-            // (FEED-79), at the 13pt error size.
-            if let imageError = model.imageError {
-                Text(imageError)
-                    .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
-                    .foregroundStyle(DesignTokens.Semantic.red)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 4)
             }
         } tools: {
             // EXP-1249 ×4: the "+" is the composer's ONLY tool. Every
@@ -142,7 +132,10 @@ struct AgentComposerCard: View {
             )
             .onChange(of: photoItems) { _, newItems in
                 guard !newItems.isEmpty else { return }
-                Task { await ingestPhotos(newItems) }
+                Task {
+                    await model.ingestPhotos(newItems)
+                    photoItems = []
+                }
             }
             .background {
                 Color.clear
@@ -157,7 +150,7 @@ struct AgentComposerCard: View {
             .background {
                 // EXP-1635: a shot lands as a paste does.
                 Color.clear
-                    .systemCamera(isPresented: $showCamera) { image in ingestPastedImage(image) }
+                    .systemCamera(isPresented: $showCamera) { image in model.ingestPastedImage(image) }
             }
             .background {
                 Color.clear
@@ -167,7 +160,7 @@ struct AgentComposerCard: View {
                         allowsMultipleSelection: true
                     ) { result in
                         guard case let .success(urls) = result else { return }
-                        Task { await ingestFiles(urls) }
+                        Task { await model.ingestFiles(urls) }
                     }
             }
         } submit: {
@@ -333,62 +326,6 @@ struct AgentComposerCard: View {
             return
         }
         model.submit()
-    }
-
-    // MARK: - Images
-
-    /// Turn a photo pick into pending images: transcode anything the
-    /// server's inline-image pipeline doesn't accept (notably HEIC) to JPEG,
-    /// exactly as the share extension does, and cap the strip at four.
-    private func ingestPhotos(_ items: [PhotosPickerItem]) async {
-        defer { photoItems = [] }
-        model.imageError = nil
-        for item in items {
-            guard !model.imagesFull else { break }
-            guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
-            let type = item.supportedContentTypes.first
-            // EXP-554: one shared normalizer for every composer.
-            let outcome = AttachmentPicks.normalizedPhoto(
-                data: data,
-                contentTypeHint: type?.preferredMIMEType,
-                filenameExtensionHint: type?.preferredFilenameExtension
-            )
-            guard let normalized = outcome.attachment else {
-                model.imageError = outcome.failure
-                continue
-            }
-            model.queueImage(normalized)
-        }
-    }
-
-    /// Wave D: Files-app picks, ANY type — an image queues as an image, the
-    /// rest as file tiles; over a cap = the one rejection copy.
-    private func ingestFiles(_ urls: [URL]) async {
-        model.imageError = nil
-        for url in urls {
-            let outcome = await AttachmentPicks.readPickedSteerFile(at: url)
-            guard let picked = outcome.attachment else {
-                model.imageError = outcome.failure
-                continue
-            }
-            model.queuePicked(picked)
-        }
-    }
-
-    /// EXP-802: a PASTED image joins the strip like a picked one — it can
-    /// never become an image BLOCK: the draft is exactly one text block.
-    private func ingestPastedImage(_ image: UIImage) {
-        guard !model.imagesFull else { return }
-        guard let data = image.jpegData(compressionQuality: 0.85) else { return }
-        model.imageError = nil
-        let outcome = AttachmentPicks.normalizedPhoto(
-            data: data, contentTypeHint: "image/jpeg", filenameExtensionHint: "jpg"
-        )
-        guard let normalized = outcome.attachment else {
-            model.imageError = outcome.failure
-            return
-        }
-        model.queueImage(normalized)
     }
 }
 
