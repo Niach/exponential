@@ -1,0 +1,60 @@
+{
+  "$comment": "#NEW-18 (FEED-102 ask 3, owner 2026-11-14) THE DUPLICATE-START WARNING (lib/sessions/issue-overlap.ts, send.ts sendSession; server only: the hub knows no issues, so eagent-hub-core does not replay this file). A send naming `issueIds` (a root's or a child's start, a forward into a session) NEVER fails over it: the result gains `warning` (joined with the send's other warnings by a space). `overlapWarning(issues)` = per named issue, in input order, each once: `done` (its status is done, cancelled or duplicate) → copy.done; else live HOLDERS = sessions not ended holding it (session_issues) OUTSIDE the tree the send lands in (a child of the same tree working on its root's issue is the normal case): the holders the caller may see (shared, or theirs) → copy.held with their ids (oldest first, comma-joined); none visible but some private to another member → copy.heldPrivate (ANONYMOUS: never an id, a title or a name); no holder → nothing. The lines join with a space; nothing = null (no warning). `cases` replay overlapWarning comparing the whole value.",
+  "copy": {
+    "done": "#{issue} is already done; check before working on it again.",
+    "held": "#{issue} already has a live session: {ids}. Coordinate with it before doing the same work.",
+    "heldPrivate": "Another member's private session works on #{issue}."
+  },
+  "cases": [
+    {
+      "name": "no issue, no warning",
+      "issues": [],
+      "expected": null
+    },
+    {
+      "name": "an open issue nobody else holds: no warning",
+      "issues": [{ "identifier": "MA-1", "done": false, "holders": [] }],
+      "expected": null
+    },
+    {
+      "name": "a done issue",
+      "issues": [{ "identifier": "MA-1", "done": true, "holders": [] }],
+      "expected": "#MA-1 is already done; check before working on it again."
+    },
+    {
+      "name": "done wins over live holders",
+      "issues": [{ "identifier": "MA-1", "done": true, "holders": [{ "sessionId": "s1", "visible": true }] }],
+      "expected": "#MA-1 is already done; check before working on it again."
+    },
+    {
+      "name": "visible holders are named, private ones are not",
+      "issues": [
+        {
+          "identifier": "MA-2",
+          "done": false,
+          "holders": [
+            { "sessionId": "s1", "visible": true },
+            { "sessionId": "s2", "visible": false },
+            { "sessionId": "s3", "visible": true }
+          ]
+        }
+      ],
+      "expected": "#MA-2 already has a live session: s1, s3. Coordinate with it before doing the same work."
+    },
+    {
+      "name": "only private holders: anonymous",
+      "issues": [{ "identifier": "MA-3", "done": false, "holders": [{ "sessionId": "s2", "visible": false }] }],
+      "expected": "Another member's private session works on #MA-3."
+    },
+    {
+      "name": "several issues in input order, a repeat once",
+      "issues": [
+        { "identifier": "MA-3", "done": false, "holders": [{ "sessionId": "s2", "visible": false }] },
+        { "identifier": "MA-1", "done": true, "holders": [] },
+        { "identifier": "MA-4", "done": false, "holders": [] },
+        { "identifier": "MA-3", "done": false, "holders": [{ "sessionId": "s2", "visible": false }] }
+      ],
+      "expected": "Another member's private session works on #MA-3. #MA-1 is already done; check before working on it again."
+    }
+  ]
+}

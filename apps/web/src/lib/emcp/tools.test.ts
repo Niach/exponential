@@ -2684,11 +2684,12 @@ describe(`exponential_sessions_get / list`, () => {
       limit: 50,
       offset: 0,
     })
-    await tool(`exponential_sessions_list`)({ agentId: UUID, teamId: WS, live: true })
+    await tool(`exponential_sessions_list`)({ agentId: UUID, teamId: WS, live: true, children: true })
     expect(sessionsCore.listSessions).toHaveBeenLastCalledWith(USER.id, {
       agentId: UUID,
       teamId: WS,
       live: true,
+      children: true,
       limit: 50,
       offset: 0,
     })
