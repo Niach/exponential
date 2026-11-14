@@ -278,10 +278,13 @@ public struct McpAppAccess: Decodable, Equatable, Sendable {
         public let toolCount: Int
         /// Its exposed tools in package order (the open Team apps row).
         public let tools: [McpToolRow]
+        /// #FEED-242: the level of members without their own row
+        /// (`none | read | write`; missing = write).
+        public var defaultAccess: String
 
         public init(
             id: String, slug: String, name: String, icon: String? = nil, color: String? = nil, toolCount: Int,
-            tools: [McpToolRow] = []
+            tools: [McpToolRow] = [], defaultAccess: String = "write"
         ) {
             self.id = id
             self.slug = slug
@@ -290,9 +293,13 @@ public struct McpAppAccess: Decodable, Equatable, Sendable {
             self.color = color
             self.toolCount = toolCount
             self.tools = tools
+            self.defaultAccess = defaultAccess
         }
 
-        enum CodingKeys: String, CodingKey { case id, slug, name, icon, color, toolCount, tools }
+        /// #FEED-242: `defaultAccess` as a level (unknown = Full).
+        public var defaultLevel: McpSettings.Level { McpSettings.Level(rawValue: defaultAccess) ?? .write }
+
+        enum CodingKeys: String, CodingKey { case id, slug, name, icon, color, toolCount, tools, defaultAccess }
 
         public init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -303,6 +310,7 @@ public struct McpAppAccess: Decodable, Equatable, Sendable {
             color = try c.decodeIfPresent(String.self, forKey: .color)
             toolCount = try c.decode(Int.self, forKey: .toolCount)
             tools = (try? c.decodeIfPresent([McpToolRow].self, forKey: .tools)) ?? []
+            defaultAccess = (try? c.decodeIfPresent(String.self, forKey: .defaultAccess)) ?? "write"
         }
     }
 
@@ -332,7 +340,7 @@ public struct McpAppAccess: Decodable, Equatable, Sendable {
     }
 
     public let canEdit: Bool
-    public let apps: [App]
+    public var apps: [App]
     public var rows: [Row]
 
     public init(canEdit: Bool, apps: [App], rows: [Row]) {
@@ -414,6 +422,12 @@ private struct AppAccessSetInput: Encodable {
     let level: String
 }
 
+/// #FEED-242 `appAccess.setDefault {appId, level}` (owners only).
+private struct AppAccessSetDefaultInput: Encodable {
+    let appId: String
+    let level: String
+}
+
 public final class McpServersApi: Sendable {
     private let trpc: TrpcClient
 
@@ -485,6 +499,15 @@ public final class McpServersApi: Sendable {
             accountId: accountId,
             path: "appAccess.set",
             input: AppAccessSetInput(appId: appId, userId: userId, level: level.rawValue)
+        )
+    }
+
+    /// #FEED-242: an app's default level for members without their own row.
+    public func setAppDefaultAccess(accountId: String, appId: String, level: McpSettings.Level) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId,
+            path: "appAccess.setDefault",
+            input: AppAccessSetDefaultInput(appId: appId, level: level.rawValue)
         )
     }
 

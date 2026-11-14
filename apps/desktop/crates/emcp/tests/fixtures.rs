@@ -182,7 +182,12 @@ fn access_cases() {
     }
     for case in f["policyCases"].as_array().unwrap() {
         let row = (!case["row"].is_null()).then(|| level(&case["row"]));
-        assert_eq!(access::member_policy(row), level(&case["expected"]));
+        if case.get("default").is_none() {
+            assert_eq!(access::member_policy(row), level(&case["expected"]));
+        }
+        let default = case.get("default").filter(|d| !d.is_null()).map(level);
+        let exempt = case["exempt"].as_bool().unwrap_or(false);
+        assert_eq!(access::member_policy_with(row, default, exempt), level(&case["expected"]), "{case}");
     }
     for case in f["accessCases"].as_array().unwrap() {
         let input: AccessInput = serde_json::from_value(case["input"].clone()).unwrap();

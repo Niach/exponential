@@ -141,6 +141,8 @@ data class AppAccessApp(
     val toolCount: Int = 0,
     /** Settings › MCP: the app's exposed tools (the open Team apps row). */
     val tools: List<McpToolDto> = emptyList(),
+    /** #FEED-242: the level of members without their own row (none|read|write). */
+    val defaultAccess: String = "write",
 )
 
 @Serializable
@@ -299,6 +301,9 @@ internal fun setUpstreamMappingInput(appId: String, upstream: String, serverId: 
 private data class AppAccessSetInput(val appId: String, val userId: String, val level: String)
 
 @Serializable
+private data class AppAccessSetDefaultInput(val appId: String, val level: String)
+
+@Serializable
 data class McpCallRow(
     val id: String,
     val tool: String = "",
@@ -368,6 +373,11 @@ class McpSettingsApi @Inject constructor(private val trpc: TrpcClient) {
 
     suspend fun setAppAccess(accountId: String, appId: String, userId: String, level: String) {
         trpc.mutationUnit(accountId, "appAccess.set", AppAccessSetInput(appId, userId, level), AppAccessSetInput.serializer())
+    }
+
+    /** #FEED-242: an owner sets the app's default level (`appAccess.setDefault`). */
+    suspend fun setAppDefaultAccess(accountId: String, appId: String, level: String) {
+        trpc.mutationUnit(accountId, "appAccess.setDefault", AppAccessSetDefaultInput(appId, level), AppAccessSetDefaultInput.serializer())
     }
 
     suspend fun activity(accountId: String, teamId: String): McpActivityList =

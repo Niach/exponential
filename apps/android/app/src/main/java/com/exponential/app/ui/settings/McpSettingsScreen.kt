@@ -155,6 +155,7 @@ fun McpSettingsScreen(
         onScope = viewModel::setScope,
         onRevoke = viewModel::revoke,
         onLevel = viewModel::setLevel,
+        onDefaultLevel = viewModel::setDefaultLevel,
         onOpenActivity = onOpenActivity,
     )
 }
@@ -178,6 +179,7 @@ internal fun McpSettingsPage(
     onRevoke: (McpClientRow) -> Unit,
     onLevel: (appId: String, userId: String, level: String) -> Unit,
     onOpenActivity: () -> Unit,
+    onDefaultLevel: (appId: String, level: String) -> Unit = { _, _ -> },
     /** The rows open at first (closed by default; the captures open some). */
     initiallyOpen: List<String> = emptyList(),
 ) {
@@ -200,7 +202,7 @@ internal fun McpSettingsPage(
             onLoadTools = onLoadTools,
         )
         access?.takeIf { it.apps.isNotEmpty() }?.let { data ->
-            AccessSection(data, onLevel = onLevel, onOpenActivity = onOpenActivity)
+            AccessSection(data, onLevel = onLevel, onDefaultLevel = onDefaultLevel, onOpenActivity = onOpenActivity)
         }
         ClientsSection(isOwner = isOwner, scope = scope, onScope = onScope, data = clients, pending = pending, onRevoke = onRevoke)
     }
@@ -766,7 +768,12 @@ private fun AppGlyph(app: AppAccessApp) {
 }
 
 @Composable
-private fun AccessSection(data: AppAccessList, onLevel: (appId: String, userId: String, level: String) -> Unit, onOpenActivity: () -> Unit) {
+private fun AccessSection(
+    data: AppAccessList,
+    onLevel: (appId: String, userId: String, level: String) -> Unit,
+    onDefaultLevel: (appId: String, level: String) -> Unit,
+    onOpenActivity: () -> Unit,
+) {
     val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
     Column(Modifier.testTag(McpSettings.TestIds.ACCESS)) {
         SectionHeader(McpSettings.LABELS.getValue("access"))
@@ -796,6 +803,32 @@ private fun AccessSection(data: AppAccessList, onLevel: (appId: String, userId: 
                             AccessMemberRow(name, member.image, member.userId, level, onClick = null, testTag = "mcp-access-${app.slug}-${member.userId}")
                         }
                     }
+                    // #FEED-242: owners end the group with the app's default.
+                    if (data.canEdit) {
+                        GroupDivider()
+                        Picker(
+                            items = McpSettings.LEVELS.map { PickerItem(it.value, it.label) },
+                            mode = PickerMode.Single,
+                            value = setOf(app.defaultAccess),
+                            onChange = { picked -> picked.firstOrNull()?.let { onDefaultLevel(app.id, it) } },
+                            title = McpSettings.EVERYONE_ELSE,
+                        ) { open ->
+                            AccessLevelRow(
+                                leading = {
+                                    Icon(
+                                        ExpIcons.settingsMembers,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp),
+                                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                                    )
+                                },
+                                name = McpSettings.EVERYONE_ELSE,
+                                level = app.defaultAccess,
+                                onClick = open,
+                                testTag = "mcp-access-${app.slug}-default",
+                            )
+                        }
+                    }
                 }
             }
             McpGroup {
@@ -810,9 +843,21 @@ private fun AccessSection(data: AppAccessList, onLevel: (appId: String, userId: 
 
 @Composable
 private fun AccessMemberRow(name: String, image: String?, userId: String, level: String, onClick: (() -> Unit)?, testTag: String) {
+    AccessLevelRow(
+        leading = { MemberAvatar(imageUrl = image, nameOrEmail = name, userId = userId, size = 20.dp) },
+        name = name,
+        level = level,
+        onClick = onClick,
+        testTag = testTag,
+    )
+}
+
+/** One Access row: [leading] (the avatar, or the default's glyph at its size), the name, the level. */
+@Composable
+private fun AccessLevelRow(leading: @Composable () -> Unit, name: String, level: String, onClick: (() -> Unit)?, testTag: String) {
     val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
     McpRow(Modifier.testTag(testTag), onClick = onClick) {
-        MemberAvatar(imageUrl = image, nameOrEmail = name, userId = userId, size = 20.dp)
+        leading()
         Text(name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
         Text(McpSettings.levelLabel(level), style = MaterialTheme.typography.bodyMedium, color = if (onClick != null) MaterialTheme.colorScheme.onSurface else muted)
         if (onClick != null) RowGlyph(ExpIcons.uiChevronDown)

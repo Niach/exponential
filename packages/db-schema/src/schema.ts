@@ -2610,6 +2610,11 @@ export const apps = pgTable(
     // off: the broker (`/api/mcp/apps`) never lists or runs them. SERVER-ONLY
     // (behind the apps shape's column allowlist; tRPC `apps.mcp`).
     mcpDisabledTools: jsonb(`mcp_disabled_tools`).$type<string[]>().notNull().default([]),
+    // #FEED-242 (@exp/emcp access.json `memberPolicy`): the level of a member
+    // without an `app_access` row ("Everyone else"): none | read | write;
+    // the creator and team owners are exempt (write). SERVER-ONLY (behind
+    // the apps shape's column allowlist; tRPC `appAccess.levels`).
+    defaultAccess: varchar(`default_access`, { length: 8 }).notNull().default(`write`),
     // #EXP-1730 (one-tree model): the app's agent (its editor = the agent's
     // root session, its automations = the agent's triggers); creating an app
     // creates it. NULL = a standalone app (an exported one). SYNCED.
@@ -4342,8 +4347,8 @@ export const mcpGrants = pgTable(
 
 // #VAPP-183 (@exp/emcp access.json `memberPolicy`): the member × app access
 // policy, the Settings › MCP Access table. One row per (app, member) an
-// owner set: `level` none | read | write; no row = `write` (a member's
-// default is Full). The broker intersects it with the client's grant and the
+// owner set: `level` none | read | write; no row = the app's
+// `default_access` (#FEED-242; creator + owners: `write`). The broker intersects it with the client's grant and the
 // tool's level. SERVER-ONLY (tRPC `appAccess`), never a shape. Rows go with
 // the app (cascade) and with the member's leaving the team (B5,
 // lib/emcp/revoke.ts).

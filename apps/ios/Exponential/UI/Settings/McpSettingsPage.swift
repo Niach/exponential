@@ -629,6 +629,9 @@ struct McpSettingsPage: View {
                             ForEach(access.rows) { member in
                                 accessRow(app: app, member: member, canEdit: access.canEdit)
                             }
+                            if access.canEdit {
+                                defaultAccessRow(app: app)
+                            }
                         }
                         .glassSection()
                         .accessibilityElement(children: .contain)
@@ -689,6 +692,54 @@ struct McpSettingsPage: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
+        }
+    }
+
+    /// #FEED-242: "Everyone else" = the app's default level for members
+    /// without their own row; owners only, built like a member row.
+    private func defaultAccessRow(app: McpAppAccess.App) -> some View {
+        let level = app.defaultLevel
+        return GlassPicker(
+            items: McpSettings.Level.allCases.map { PickerItem(value: $0, label: $0.label) },
+            mode: .single,
+            value: [level],
+            onChange: { picked in
+                guard let next = picked.first, next != level else { return }
+                Task { await setDefaultLevel(app: app, level: next) }
+            },
+            title: McpSettings.everyoneElse
+        ) {
+            HStack(spacing: 12) {
+                AppIcon(AppIcons.settingsMembers, size: 20)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .frame(width: 20, height: 20)
+                GlassPickerRowLabel(McpSettings.everyoneElse, value: level.label)
+                    .font(.subheadline)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .contentShape(Rectangle())
+        }
+        .accessibilityIdentifier("mcp-access-\(app.slug)-default")
+    }
+
+    /// Optimistic; members without a row follow the default, so the list
+    /// rereads after the save.
+    private func setDefaultLevel(app: McpAppAccess.App, level: McpSettings.Level) async {
+        guard var next = access else { return }
+        let before = next
+        if let i = next.apps.firstIndex(where: { $0.id == app.id }) {
+            next.apps[i].defaultAccess = level.rawValue
+        }
+        access = next
+        do {
+            try await api.setAppDefaultAccess(accountId: accountId, appId: app.id, level: level)
+            if specimen == nil, let fresh = try? await api.appAccess(accountId: accountId, teamId: teamId) {
+                access = fresh
+            }
+        } catch {
+            access = before
+            toaster.error(FeedbackStates.Errors.title(verb: "save", thing: "the access"))
         }
     }
 

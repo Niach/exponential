@@ -14,13 +14,14 @@ import {
   slugify,
 } from "@exp/domain-contract/apps"
 import { router, authedProcedure, generateTxId, type Context } from "@/lib/trpc"
-import { appAccess, appVersions, apps, mcpServers, sessions, type App, type AppPackageJson } from "@/db/schema"
+import { appVersions, apps, mcpServers, sessions, type App, type AppPackageJson } from "@/db/schema"
 import { assertTeamMember, getTeamMember } from "@/lib/auth/membership"
 import { resolveTeamAccess } from "@/lib/auth/access"
 import { appPackageIssues, packageBytes, recordKindSchema, upstreamIssues, validateAppPackage } from "@/lib/apps/package"
 import { APP_TEMPLATES_COPY } from "@exp/domain-contract/app-templates"
 import { APP_EXPORT_COPY, APP_EXPORT_LIMITS, parseAppImportShape, type ImportIssue, type ParsedAppImport } from "@exp/domain-contract/app-export"
 import { ACTION_LIMITS, validateRecord, verifyPackageFile, type AppPackage } from "@exponential_app/eui"
+import { teamAppLevels } from "@/lib/apps/app-access-level"
 import { appAccessLevel, commitRecordBatch, deleteRecord, importRecords, listRecordEvents, listRecords, loadApp, queryRecords, restoreRecord, teamMemberIds, undoEvents, upsertRecord, type RecordWriteVia } from "@/lib/apps/records-service"
 import { RECORD_POLICY_COPY, migrationRefusal, packageMigrations } from "@exponential_app/eui/host"
 import { APP_RECORD_KIND_PATTERN, APP_RECORD_MAX_BYTES } from "@exp/domain-contract/apps"
@@ -429,16 +430,10 @@ export const appsRouter = router({
         .from(apps)
         .where(and(eq(apps.teamId, input.teamId), isNull(apps.deletedAt)))
         .orderBy(asc(apps.name))
-      // eApps R3: an app at access none is hidden.
-      const hidden = new Set(
-        (
-          await ctx.db
-            .select({ appId: appAccess.appId })
-            .from(appAccess)
-            .where(and(eq(appAccess.teamId, input.teamId), eq(appAccess.userId, ctx.session.user.id), eq(appAccess.level, `none`)))
-        ).map((r) => r.appId)
-      )
-      return { apps: rows.filter((r) => !hidden.has(r.id)) }
+      // eApps R3: an app at access none is hidden (#FEED-242: the row, else
+      // creator/owner write, else the app's default).
+      const levels = await teamAppLevels(ctx.db, ctx.session.user.id, input.teamId)
+      return { apps: rows.filter((r) => levels.get(r.id) !== `none`) }
     }),
 
   /** One app with its head package, or a named version's. */
