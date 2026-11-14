@@ -25,6 +25,13 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-14-widget-reporter-emails`,
+    date: `2026-11-14`,
+    title: `Choose which emails widget reporters get`,
+    summary: `Each widget can now turn off the confirmation and the resolved email its reporters get.`,
+    body: `- **Reporter emails**: a widget's General tab has two switches, one for the confirmation on submit and one for the email when the issue is closed; Reply to reporter still always sends.`,
+  },
+  {
     id: `2026-11-13-apps-touched-issues`,
     date: `2026-11-13`,
     title: `Apps can list the issues you touched`,

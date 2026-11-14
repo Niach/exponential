@@ -104,4 +104,16 @@ const result = await ExponentialWidget.submit({
 
 ## What lands
 
-Each report becomes one issue on the widget's board: the message as its description, the reporter's labels, the screenshot and pictures embedded, and a block with the reporter's email, the page URL, browser, viewport and custom data. A reporter with an email is told when the issue is resolved.
+Each report becomes one issue on the widget's board: the message as its description, the reporter's labels, the screenshot and pictures embedded, and a block with the reporter's email, the page URL, browser, viewport and custom data.
+
+## Emails to reporters
+
+Only a reporter who left an email gets mail, and only for these events:
+
+| Event | Mail | Switch |
+|---|---|---|
+| Report submitted | A confirmation with the private conversation link | **Reporter emails → Confirmation on submit** |
+| Issue closed (any *completed* or *cancelled* status, once per issue, not again after a reopen) | "Your report has been resolved" | **Reporter emails → When the issue is closed** |
+| A member posts **Reply to reporter** (also `audience: "reporter"` over MCP) | The reply with the conversation link | Always sent: replying is a deliberate act |
+
+Both switches sit on the widget editor's **General** tab and are on by default. Other status changes, team comments, assignments and labels never mail a reporter.
