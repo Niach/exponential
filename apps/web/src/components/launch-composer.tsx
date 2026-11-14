@@ -14,13 +14,12 @@ import { ComposerPlusMenu } from "@/components/launch-dialog/composer-plus-menu"
 import { LaunchHeadline } from "@/components/launch-dialog/launch-headline"
 import { LaunchNotes } from "@/components/launch-dialog/launch-notes"
 import { ComposerAgentRow } from "@exp/ui"
+import { ComposerAttachmentTiles } from "@/components/composer-attachments"
 import {
   ComposerInlineTools,
   type ComposerInlineToolsHandle,
 } from "@/components/composer-inline-tools"
 import {
-  AttachmentFileTile,
-  AttachmentThumb,
   conceptIcon,
   Composer,
   ComposerFrame,
@@ -198,25 +197,7 @@ export function LaunchComposer({
             )}
             {images.length > 0 && (
               <div className="flex flex-wrap gap-2 px-3 pt-3">
-                {images.map((image) =>
-                  image.kind === `image` ? (
-                    <AttachmentThumb
-                      key={image.url}
-                      src={image.url}
-                      removeLabel="Remove image"
-                      onRemove={() => model.removeImage(image.url)}
-                      disabled={busy}
-                    />
-                  ) : (
-                    <AttachmentFileTile
-                      key={image.url}
-                      name={image.uploadedName ?? image.file.name}
-                      removeLabel={`Remove ${image.file.name}`}
-                      onRemove={() => model.removeImage(image.url)}
-                      disabled={busy}
-                    />
-                  )
-                )}
+                <ComposerAttachmentTiles attachments={images} onRemove={model.removeImage} disabled={busy} />
               </div>
             )}
           </>

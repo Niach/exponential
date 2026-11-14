@@ -747,3 +747,49 @@ describe(`SessionComposer, an agent chat's MCP servers (#EXP-1793)`, () => {
     expect(mocks.mcpPicks).not.toHaveBeenCalled()
   })
 })
+
+// #EXP-1841 (composer-attachments.json): a chat's composer stages images
+// exactly like the launch composer: `[Image #N]` at the caret, the X takes
+// its placeholder along and renumbers the rest.
+describe(`SessionComposer attachments (#EXP-1841)`, () => {
+  URL.createObjectURL ??= () => ``
+  URL.revokeObjectURL ??= () => undefined
+  let urls = 0
+  beforeEach(() => {
+    urls = 0
+    URL.createObjectURL = () => `blob:${++urls}`
+  })
+  const png = (name: string) => new File([new Uint8Array([1, 2, 3])], name, { type: `image/png` })
+  function paste(field: HTMLTextAreaElement, files: File[]) {
+    act(() => {
+      fireEvent.paste(field, { clipboardData: { files, types: [`Files`] } })
+    })
+  }
+
+  it(`a pasted image drops [Image #1] at the caret`, () => {
+    const field = renderComposer()
+    type(field, `please check spoken again`)
+    field.setSelectionRange(0, 0)
+    paste(field, [png(`a.png`)])
+    expect(field.value).toBe(`[Image #1] please check spoken again`)
+    expect(screen.getAllByRole(`button`, { name: `Remove image` })).toHaveLength(1)
+  })
+
+  it(`several images number on, and removing one renumbers the rest`, () => {
+    const field = renderComposer()
+    paste(field, [png(`a.png`), png(`b.png`)])
+    expect(field.value).toBe(`[Image #1] [Image #2]`)
+    act(() => {
+      fireEvent.click(screen.getAllByRole(`button`, { name: `Remove image` })[0]!)
+    })
+    expect(field.value).toBe(`[Image #1]`)
+    expect(screen.getAllByRole(`button`, { name: `Remove image` })).toHaveLength(1)
+  })
+
+  it(`a fifth image toasts the cap and stays out`, () => {
+    const field = renderComposer()
+    paste(field, [png(`1.png`), png(`2.png`), png(`3.png`), png(`4.png`), png(`5.png`)])
+    expect(screen.getAllByRole(`button`, { name: `Remove image` })).toHaveLength(4)
+    expect(mocks.toastError).toHaveBeenCalledWith(`Up to 4 images per message`)
+  })
+})

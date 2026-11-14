@@ -23,12 +23,16 @@ export interface SteerFileRef {
 // drops `[Image #k]` at the caret when the k-th image is attached, so the
 // agent reads "crop [Image #2]" instead of guessing which embed a sentence
 // means. The marker is plain text on the wire — the embeds below the text stay
-// the only image payload — and the viewer renders it as a chip.
-export const IMAGE_MARKER_PATTERN = /\[Image #(\d+)\]/g
+// the only image payload — and the viewer renders it as a chip. #EXP-1841:
+// the rules are composer-attachments.json's, ONE implementation ×4.
+import {
+  IMAGE_MARKER_PATTERN,
+  imageMarker,
+  insertImageMarker,
+  renumberImageMarkers,
+} from "@exp/domain-contract/composer-attachments"
 
-export function imageMarker(index: number): string {
-  return `[Image #${index}]`
-}
+export { IMAGE_MARKER_PATTERN, imageMarker, insertImageMarker, renumberImageMarkers }
 
 // One embed line, exactly as `buildSteerImageMessage` writes it.
 const EMBED_LINE = /^!\[image\]\(\/api\/attachments\/([^)\s]+)\)$/
@@ -118,51 +122,4 @@ export function parseSteerMessage(message: string): ParsedSteerMessage {
     if (!markers.includes(index)) markers.push(index)
   }
   return { text, attachmentIds, files, markers }
-}
-
-/** Drops `[Image #index]` at `caret`, space-separated from whatever it lands
- *  against. Returns the new draft and the caret behind the insertion. */
-export function insertImageMarker(
-  text: string,
-  caret: number,
-  index: number
-): { text: string; caret: number } {
-  const at = Math.max(0, Math.min(caret, text.length))
-  const before = text.slice(0, at)
-  const after = text.slice(at)
-  const marker = imageMarker(index)
-  const lead = before.length > 0 && !/\s$/.test(before) ? ` ` : ``
-  const trail = after.length > 0 && !/^\s/.test(after) ? ` ` : ``
-  return {
-    text: `${before}${lead}${marker}${trail}${after}`,
-    caret: at + lead.length + marker.length + trail.length,
-  }
-}
-
-/** Removing the `removedIndex`-th pending image renumbers the draft: its own
- *  markers go, and every higher one slides down one. Only a line that LOST a
- *  marker gets the gap it left tidied — untouched lines keep their spacing. */
-export function renumberImageMarkers(
-  text: string,
-  removedIndex: number
-): string {
-  return text
-    .split(`\n`)
-    .map((line) => {
-      let dropped = false
-      const next = line.replace(IMAGE_MARKER_PATTERN, (match, raw: string) => {
-        const index = Number(raw)
-        if (index === removedIndex) {
-          dropped = true
-          return ``
-        }
-        return index > removedIndex ? imageMarker(index - 1) : match
-      })
-      if (!dropped) return next
-      const tidied = next.replace(/[ \t]{2,}/g, ` `).replace(/[ \t]+$/, ``)
-      return line.startsWith(imageMarker(removedIndex))
-        ? tidied.replace(/^[ \t]+/, ``)
-        : tidied
-    })
-    .join(`\n`)
 }

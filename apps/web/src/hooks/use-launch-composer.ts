@@ -33,12 +33,10 @@ import {
 import type { CodingLaunchPrefs } from "@/lib/coding-launch-prefs"
 import { byCreatedAtDesc } from "@/lib/ordering"
 import {
-  ATTACHMENT_REJECTED_TOAST,
   dropPendingImage,
-  FILE_CAP_TOAST,
-  IMAGE_CAP_TOAST,
   markPendingImageUploaded,
   stagePendingImages,
+  stageToasts,
   type PendingAttachment,
 } from "@/lib/pending-images"
 import {
@@ -548,9 +546,7 @@ export function useLaunchComposer({
       setImages(staged.images)
       setText(staged.text)
     }
-    if (staged.rejected > 0) toast.error(ATTACHMENT_REJECTED_TOAST)
-    if (staged.overflow > 0) toast.error(IMAGE_CAP_TOAST)
-    if (staged.fileOverflow > 0) toast.error(FILE_CAP_TOAST)
+    for (const message of stageToasts(staged)) toast.error(message)
     return staged.caret
   }
 
