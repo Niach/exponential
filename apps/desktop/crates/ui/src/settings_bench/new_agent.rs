@@ -34,6 +34,8 @@ fn seed(cx: &mut gpui::App) {
 
 fn triggers() -> Vec<serde_json::Value> {
     vec![
+        // #EXP-1846: the Check in (the preset trigger) leads, outside the list.
+        json!({"id": "t0", "kind": "schedule", "cron": "0 * * * *", "preset": "1h", "tz": "Europe/Vienna", "enabled": true}),
         json!({"id": "t1", "kind": "schedule", "cron": "0 9 * * 1-5", "tz": "Europe/Vienna", "enabled": true}),
         json!({"id": "t2", "kind": "schedule", "cron": "0 17 * * 5", "tz": "Europe/Vienna", "enabled": false}),
     ]

@@ -40,6 +40,8 @@ pub(super) fn agent(id: &str, role: &str, device: &str, triggers: serde_json::Va
 
 fn triggers() -> serde_json::Value {
     json!([
+        // #EXP-1846: the Check in (the preset trigger) leads, outside the list.
+        {"id": "t0", "kind": "schedule", "cron": "0 * * * *", "preset": "1h", "tz": "Europe/Vienna", "enabled": true},
         {"id": "t1", "kind": "schedule", "cron": "0 9 * * 1-5", "tz": "Europe/Vienna", "enabled": true},
         {"id": "t2", "kind": "schedule", "cron": "0 17 * * 5", "tz": "Europe/Vienna", "enabled": false},
     ])

@@ -70,6 +70,10 @@ pub struct AgentSettingsCopy {
     pub errors: AgentErrorCopy,
     /// The Account row with no login reported (`Last used`, muted).
     pub account_last_used: String,
+    /// #EXP-1846 (`page`): the section headers of the one agent page.
+    pub triggers: String,
+    pub runs_on: String,
+    pub check_in: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -405,11 +409,86 @@ pub fn assistant_schedule_triggers(id: &str, tz: Option<&str>) -> Vec<Value> {
     else {
         return Vec::new();
     };
-    let mut trigger = serde_json::json!({ "kind": "schedule", "cron": cron, "enabled": true });
+    let mut trigger = serde_json::json!({ "kind": "schedule", "cron": cron, "preset": id, "enabled": true });
     if let Some(tz) = tz.filter(|tz| !tz.is_empty()) {
         trigger["tz"] = Value::String(tz.to_string());
     }
     vec![trigger]
+}
+
+// ---------------------------------------------------------------------------
+// #EXP-1846 (`checkIn`): THE CHECK IN = the one schedule trigger carrying
+// `preset`, any agent's. Replays `checkInCases`, `withCheckInCases`,
+// `listedCases`.
+// ---------------------------------------------------------------------------
+
+fn preset_cron(id: &str) -> Option<&'static str> {
+    ASSISTANT
+        .schedules
+        .iter()
+        .find(|schedule| schedule.id == id)
+        .and_then(|schedule| schedule.cron.as_deref())
+}
+
+fn is_check_in(trigger: &Value) -> bool {
+    trigger["kind"].as_str() == Some("schedule")
+        && trigger["preset"].as_str().is_some_and(|preset| !preset.is_empty())
+}
+
+/// TS `checkInOf` (`checkInCases`): the Check in row's value = the preset
+/// trigger's id, `off` when there is none or it is paused.
+pub fn check_in_of(triggers: &[Value]) -> String {
+    let Some(trigger) = triggers.iter().find(|trigger| is_check_in(trigger)) else {
+        return "off".to_string();
+    };
+    let preset = trigger["preset"].as_str().unwrap_or_default();
+    if trigger["enabled"].as_bool() == Some(false) || preset_cron(preset).is_none() {
+        return "off".to_string();
+    }
+    preset.to_string()
+}
+
+/// TS `withCheckIn` (`withCheckInCases`): the triggers after a Check in pick
+/// = the preset trigger replaced IN FRONT (keeping its `id` and stored `tz`;
+/// a new one takes `tz`) or removed for `off`; every other trigger stays as
+/// it is, in order.
+pub fn with_check_in(triggers: &[Value], id: &str, tz: Option<&str>) -> Vec<Value> {
+    let current = triggers.iter().position(is_check_in);
+    let rest = triggers
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| Some(*index) != current)
+        .map(|(_, trigger)| trigger.clone());
+    let Some(cron) = preset_cron(id) else {
+        return rest.collect();
+    };
+    let current = current.map(|index| &triggers[index]);
+    let mut next = serde_json::Map::new();
+    if let Some(trigger_id) = current.and_then(|trigger| trigger["id"].as_str()).filter(|id| !id.is_empty()) {
+        next.insert("id".into(), Value::String(trigger_id.to_string()));
+    }
+    next.insert("kind".into(), Value::String("schedule".into()));
+    next.insert("cron".into(), Value::String(cron.to_string()));
+    next.insert("preset".into(), Value::String(id.to_string()));
+    next.insert("enabled".into(), Value::Bool(true));
+    let zone = match current {
+        Some(trigger) => trigger["tz"].as_str(),
+        None => tz,
+    };
+    if let Some(zone) = zone.filter(|zone| !zone.is_empty()) {
+        next.insert("tz".into(), Value::String(zone.to_string()));
+    }
+    std::iter::once(Value::Object(next)).chain(rest).collect()
+}
+
+/// TS `listedTriggers` (`listedCases`): the rows under Check in = every
+/// trigger without `preset`, in order, with their index in `triggers`.
+pub fn listed_triggers(triggers: &[Value]) -> Vec<(usize, &Value)> {
+    triggers
+        .iter()
+        .enumerate()
+        .filter(|(_, trigger)| trigger["preset"].as_str().is_none_or(str::is_empty))
+        .collect()
 }
 
 /// TS `isAssistant`.
@@ -817,11 +896,46 @@ mod tests {
     }
 
     #[test]
+    fn check_in_cases_match_the_fixture() {
+        let fixture = fixture();
+        let check_in = &fixture["checkIn"];
+        let cases = check_in["checkInCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let triggers = case["triggers"].as_array().unwrap();
+            assert_eq!(check_in_of(triggers), case["expected"].as_str().unwrap(), "{}", case["name"]);
+        }
+        let cases = check_in["withCheckInCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let triggers = case["triggers"].as_array().unwrap();
+            let next = with_check_in(triggers, case["preset"].as_str().unwrap(), case["tz"].as_str());
+            assert_eq!(&next, case["expected"].as_array().unwrap(), "{}", case["name"]);
+        }
+        let cases = check_in["listedCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let triggers = case["triggers"].as_array().unwrap();
+            let ids: Vec<&str> = listed_triggers(triggers)
+                .into_iter()
+                .map(|(_, trigger)| trigger["id"].as_str().unwrap())
+                .collect();
+            let expected: Vec<&str> =
+                case["expected"].as_array().unwrap().iter().map(|id| id.as_str().unwrap()).collect();
+            assert_eq!(ids, expected, "{}", case["name"]);
+        }
+        assert_eq!(AGENT_SETTINGS.copy.triggers, "Triggers");
+        assert_eq!(AGENT_SETTINGS.copy.runs_on, "Runs on");
+        assert_eq!(AGENT_SETTINGS.copy.check_in, "Check in");
+    }
+
+    #[test]
     fn assistant_schedule_triggers_round_trip() {
         assert!(assistant_schedule_triggers("off", None).is_empty());
         for schedule in &ASSISTANT.schedules {
             let triggers = assistant_schedule_triggers(&schedule.id, Some("Europe/Vienna"));
             assert_eq!(assistant_schedule_of(&triggers).as_deref(), Some(schedule.id.as_str()));
+            assert_eq!(check_in_of(&triggers), schedule.id);
         }
     }
 

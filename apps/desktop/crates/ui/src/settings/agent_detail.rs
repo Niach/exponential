@@ -1,13 +1,15 @@
-//! Settings → one team agent's page (EXP-1294 — the Agents group lists every
+//! Settings → one agent's page (EXP-1294 — the Agents group lists every
 //! agent root as its own nav entry; this pane is the selected one's page).
 //!
-//! The board page's layout, field for field (`fixtures/agent-settings.json`
-//! `fields`, labels and copy through `domain::agent_settings`): ONE glass
-//! group holding the identity row (icon picker, colour picker, name — the
-//! board form's one field) and the Device row; a second group with the
-//! Account row and the Schedule rows (one per trigger, a toggle each, the
-//! trigger editor in its dialog); the Instructions card (server-only,
-//! `agents.get`, saved on blur); the owner-only "Delete agent".
+//! #EXP-1846 (`fixtures/agent-settings.json` `page`): ONE page for the
+//! Assistant and every team agent, each section a band over one glass
+//! group: identity (icon picker, colour picker, name; the Assistant: its
+//! brand mark + name); Runs on (Device, Account, Model, Skills, MCP
+//! servers); Triggers (THE reusable list, [`super::agent_triggers`]: Check
+//! in, then the other triggers); Voice (the Assistant only); the
+//! Instructions card (team agents only; server-only, `agents.get`, saved on
+//! blur); the owner-only "Delete agent" (team agents only). A team agent's
+//! editors are its team's owners, the Assistant's its member.
 //!
 //! Every write is `agents.update` / `agents.delete`; icon,
 //! colour, device and account save at once, the name on blur/Enter. A failed
@@ -41,9 +43,10 @@ use crate::queries;
 use crate::sidebar::RailShared;
 use crate::trigger_editor;
 
-use super::agent_doc::{account_rows, agent_mark_icon, device_row, divided, field_error, identity, instructions_caption, instructions_field, schedule_rows, select_row, value_row, Chrome};
+use super::agent_doc::{account_rows, agent_mark_icon, device_row, divided, field_error, identity, instructions_caption, instructions_field, select_row, value_row, Chrome};
+use super::agent_triggers::{self, AgentTriggers};
 use super::doc::{failed_state, path, Ink, SM};
-use super::{is_owner, SettingsSection};
+use super::SettingsSection;
 
 /// A fixture field's label (`agent-settings.json` `fields[key].label`).
 pub(crate) fn field_label(key: &str) -> &'static str {
@@ -317,9 +320,8 @@ pub struct AgentDetailPane {
     load: InstructionsLoad,
     /// The form's own validation message (INVALID INPUT, FEED-79).
     error: Option<SharedString>,
-    /// A trigger toggle in flight — the next whole-array write starts from
-    /// this one's array, so one at a time.
-    trigger_writing: bool,
+    /// #EXP-1846: THE trigger list's state (a whole-array write in flight).
+    triggers: AgentTriggers,
     /// Monotonic guard: a stale instructions read must not clobber a newer one.
     generation: u64,
     /// S-3: the Assistant page's Voice section = THE Voice settings block
@@ -363,7 +365,7 @@ impl AgentDetailPane {
         let binding = cx.new(|_| {
             let mut binding = Binding::new(PATH, Value::Null, |state: &Value, _| state.clone());
             binding.set_toasts(Rc::new(super::doc::IdeToasts));
-            for name in ["icon", "color", "device", "account", "skills", "mcpServers", "model", "checkIn", "scheduleNew", "triggerAdd", "triggerOpen", "triggerToggle", "triggerMenu", "retry", "delete"] {
+            for name in ["icon", "color", "device", "account", "skills", "mcpServers", "model", "retry", "delete"].into_iter().chain(agent_triggers::ACTIONS) {
                 let pane = pane.clone();
                 binding.on_action(name, move |_, event, cx| {
                     let context = event.context.clone();
@@ -390,7 +392,7 @@ impl AgentDetailPane {
             loaded_agent: None,
             load: InstructionsLoad::Loading,
             error: None,
-            trigger_writing: false,
+            triggers: AgentTriggers::default(),
             generation: 0,
             voice: None,
             fixed_agent: None,
@@ -452,13 +454,14 @@ impl AgentDetailPane {
         cx.notify();
     }
 
-    /// Whether the viewer owns `team_id` (the bench pins it).
-    fn owner(&self, team_id: &str, cx: &App) -> bool {
+    /// Whether the viewer edits `agent` (`page` EDITORS: a team agent's
+    /// team owners, the Assistant's member; the bench pins it).
+    fn editor(&self, agent: &AgentDefRow, team_id: &str, cx: &App) -> bool {
         #[cfg(test)]
         if let Some(owner) = self.shot_owner {
             return owner;
         }
-        is_owner(cx, team_id)
+        agent_triggers::editor_of(agent, team_id, cx)
     }
 
     /// The selected agent id from the shared settings selection. S-3: the
@@ -673,43 +676,6 @@ impl AgentDetailPane {
         }
     }
 
-    /// A trigger row's switch: only that trigger's `enabled` moves.
-    fn set_trigger_enabled(&mut self, agent_id: String, trigger_id: String, enabled: bool, cx: &mut gpui::Context<Self>) {
-        let triggers = trigger_editor::triggers_with_enabled(&trigger_editor::agent_triggers(&agent_id, cx), &trigger_id, enabled);
-        self.write_triggers(agent_id, triggers, if enabled { "resume" } else { "pause" }, cx);
-    }
-
-    /// A trigger row's ⋯ Delete (after THE prompt): the array without it.
-    fn delete_trigger(&mut self, agent_id: String, trigger_id: String, cx: &mut gpui::Context<Self>) {
-        let triggers = trigger_editor::triggers_without(&trigger_editor::agent_triggers(&agent_id, cx), &trigger_id);
-        self.write_triggers(agent_id, triggers, "delete", cx);
-    }
-
-    /// One whole-array `agents.update({triggers})`; a failure toasts `verb`.
-    fn write_triggers(&mut self, agent_id: String, triggers: Vec<Value>, verb: &'static str, cx: &mut gpui::Context<Self>) {
-        if self.trigger_writing {
-            return;
-        }
-        let Some(trpc) = queries::trpc_client(cx) else {
-            return;
-        };
-        self.trigger_writing = true;
-        cx.notify();
-        let input = api::agents::UpdateInput { triggers: Some(triggers.clone()), ..api::agents::UpdateInput::new(agent_id.clone()) };
-        cx.spawn(async move |this, cx| {
-            let result = cx.background_executor().spawn(async move { api::agents::update(&trpc, &input) }).await;
-            let _ = this.update(cx, |this, cx| {
-                this.trigger_writing = false;
-                match result {
-                    Ok(_) => trigger_editor::note_triggers_written(&agent_id, triggers),
-                    Err(err) => crate::action_error::failed_action_err(verb, "the trigger", &err, cx),
-                }
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
     /// The Delete confirm: the fixture's `deleteConfirm`, a Danger answer
     /// (Return lands on Cancel). The nav clamps the stale `Agent(id)` away on
     /// the sessions delta.
@@ -742,11 +708,21 @@ impl AgentDetailPane {
             return;
         };
         let agent_id = agent.id.clone();
+        let team_id = agent.team_id.clone().or_else(|| active_team_id(&self.nav, cx)).unwrap_or_default();
+        let editor = self.editor(&agent, &team_id, cx);
+        // #EXP-1846: THE trigger list's own actions.
+        if agent_triggers::ACTIONS.contains(&name) {
+            agent_triggers::handle(self, |pane| &mut pane.triggers, name, agent_triggers::ListTarget::Agent(agent_id), editor, context, payload, window, cx);
+            return;
+        }
+        // A member reads every row.
+        if !editor && name != "retry" {
+            return;
+        }
         // #FEED-247: a popup opening or closing fires `change` too, with no
         // value: never a pick.
         let picked = super::doc::picked_value(payload).is_some();
         let value = super::doc::picked_value(payload).unwrap_or_default().to_string();
-        let key = context.get("key").and_then(Value::as_str).unwrap_or_default().to_string();
         match name {
             "icon" if !value.is_empty() => update_agent(cx, "change", "the agent's icon", api::agents::UpdateInput { icon: Some(Some(value)), ..api::agents::UpdateInput::new(agent_id) }),
             "color" if !value.is_empty() => update_agent(cx, "change", "the agent's color", api::agents::UpdateInput { color: Some(Some(value)), ..api::agents::UpdateInput::new(agent_id) }),
@@ -756,7 +732,6 @@ impl AgentDetailPane {
                 update_agent(cx, "change", "the agent's device", api::agents::UpdateInput { device_id: Some(value), account: Some(None), ..api::agents::UpdateInput::new(agent_id) })
             }
             "account" if picked => {
-                let team_id = agent.team_id.clone().or_else(|| active_team_id(&self.nav, cx)).unwrap_or_default();
                 let devices = self.devices(&agent, &team_id, cx);
                 let options = agent.device_id.as_deref().and_then(|id| devices.iter().find(|device| device.device_id == id)).map(account_options).unwrap_or_default();
                 if let Some(option) = options.iter().find(|option| option.account_option_key() == value) {
@@ -771,7 +746,6 @@ impl AgentDetailPane {
             // servers rows: a server the viewer has not connected opens
             // Settings > MCP servers to connect instead of toggling.
             "mcpServers" if picked => {
-                let team_id = agent.team_id.clone().or_else(|| active_team_id(&self.nav, cx)).unwrap_or_default();
                 let entries = self.team_mcp(&team_id);
                 let ids: Vec<String> = value.split(',').filter(|id| !id.is_empty()).map(str::to_string).collect();
                 let blocked_new = ids.iter().any(|id| {
@@ -789,32 +763,9 @@ impl AgentDetailPane {
                 picked.truncate(domain::agent_settings::MCP_ROW_MAX);
                 update_agent(cx, "change", "the agent's MCP servers", api::agents::UpdateInput { mcp_server_ids: Some(picked), ..api::agents::UpdateInput::new(agent_id) });
             }
-            "model" if !value.is_empty() => update_agent(cx, "change", "the Assistant's model", api::agents::UpdateInput { model: Some(Some(value)), ..api::agents::UpdateInput::new(agent_id) }),
-            "checkIn" if !value.is_empty() => {
-                let tz = agent.trigger_list().first().and_then(|trigger| trigger["tz"].as_str()).map(str::to_string);
-                let triggers = domain::agent_settings::assistant_schedule_triggers(&value, tz.as_deref());
-                update_agent(cx, "change", "the check-in", api::agents::UpdateInput { triggers: Some(triggers), ..api::agents::UpdateInput::new(agent_id) });
+            "model" if !value.is_empty() && agent.model.as_deref() != Some(value.as_str()) => {
+                update_agent(cx, "change", "the agent's model", api::agents::UpdateInput { model: Some(Some(value)), ..api::agents::UpdateInput::new(agent_id) })
             }
-            "scheduleNew" | "triggerAdd" => crate::trigger_dialog::open_new(window, cx, agent_id),
-            "triggerOpen" if !key.is_empty() => crate::trigger_dialog::open_edit(window, cx, agent_id, key),
-            "triggerToggle" if !key.is_empty() => {
-                if let Some(on) = payload.get("checked").and_then(Value::as_bool) {
-                    self.set_trigger_enabled(agent_id, key, on, cx);
-                }
-            }
-            "triggerMenu" if !key.is_empty() => match value.as_str() {
-                "edit" => crate::trigger_dialog::open_edit(window, cx, agent_id, key),
-                "delete" => {
-                    let view = cx.entity().downgrade();
-                    let spec = AlertSpec::from_prompt("Delete trigger", &domain::prompts::delete_trigger()).on_ok(move |_, cx| {
-                        let (agent_id, key) = (agent_id.clone(), key.clone());
-                        let _ = view.update(cx, |this, cx| this.delete_trigger(agent_id, key, cx));
-                        true
-                    });
-                    native_dialog::open_alert(window, cx, spec);
-                }
-                _ => {}
-            },
             "retry" => self.fetch_instructions(window, cx),
             "delete" => Self::open_delete_dialog(agent_id, window, cx),
             _ => {}
@@ -823,7 +774,7 @@ impl AgentDetailPane {
 
     /// The page as the document binds it.
     fn project(&self, agent: &AgentDefRow, team_id: &str, cx: &App) -> Value {
-        let owner = self.owner(team_id, cx);
+        let owner = self.editor(agent, team_id, cx);
         let assistant = agent.is_assistant();
         let defaults = &domain::session_tree::CHATS_LIST.agent_defaults;
         let devices = self.devices(agent, team_id, cx);
@@ -870,35 +821,14 @@ impl AgentDetailPane {
         let mcp_picked: Vec<&api::mcp_servers::McpServerListEntry> = mcp_entries.iter().filter(|entry| agent.mcp_server_ids.contains(&entry.config.id)).collect();
         let mcp_names: Vec<&str> = mcp_picked.iter().map(|entry| entry.config.name.as_str()).collect();
         let mcp_shown = !mcp_entries.is_empty() || !agent.mcp_server_ids.is_empty();
-        // Schedule rows (web/iOS/Android): the synced triggers.
-        let triggers: Vec<Value> = if assistant { Vec::new() } else { trigger_editor::agent_triggers(&agent.id, cx) };
-        let trigger_rows: Vec<Value> = triggers
-            .iter()
-            .filter_map(|trigger| {
-                let id = trigger_editor::trigger_id(trigger)?.to_string();
-                let sentence = domain::agent_settings::trigger_summary(trigger);
-                Some(json!({
-                    "key": id,
-                    "summary": sentence,
-                    "enabled": trigger_editor::trigger_enabled(trigger),
-                    "menuLabel": format!("Trigger menu for {sentence}"),
-                    "items": [
-                        {"label": "Edit", "value": "edit", "icon": "ui-edit"},
-                        {"label": "Delete", "value": "delete", "icon": "ui-delete", "destructive": true},
-                    ],
-                }))
-            })
-            .collect();
-        // The Assistant (S-3): the model (unpinned = the dispatcher root's
-        // default for the login's CLI) and the check-in preset.
+        // #EXP-1846: every agent's Model row (unpinned = the device default
+        // for the login's CLI).
         let cli = agent.cli.clone().unwrap_or_else(|| "claude".to_string());
         let models: &[(&str, &str)] = if cli == "codex" { &crate::coding_selects::CODEX_MODEL_CHOICES } else { &crate::coding_selects::MODEL_CHOICES };
-        let check_in = domain::agent_settings::assistant_schedule_of(&agent.trigger_list()).unwrap_or_else(|| domain::agent_settings::ASSISTANT.default_schedule.clone());
         let instructions_text = match &self.load {
             InstructionsLoad::Ready(text) => self.instructions_draft.clone().unwrap_or_else(|| text.clone()),
             _ => String::new(),
         };
-        let at_max = triggers.len() >= domain::contract::AGENT_TRIGGER_MAX_PER_AGENT;
         json!({
             "assistant": assistant,
             "agentPage": !assistant,
@@ -922,17 +852,13 @@ impl AgentDetailPane {
                 "pick": owner && mcp_shown, "read": !owner && mcp_shown,
                 "options": mcp_entries.iter().map(mcp_option).collect::<Vec<_>>()},
             "model": {"value": domain::agent_settings::assistant_model_value(agent.model.as_deref(), Some(&cli)), "options": models.iter().map(|(label, value)| json!({"label": label, "value": value})).collect::<Vec<_>>()},
-            "checkIn": {"value": check_in, "options": domain::agent_settings::ASSISTANT.schedules.iter().map(|preset| json!({"label": preset.label, "value": preset.id})).collect::<Vec<_>>()},
-            "noTriggers": trigger_rows.is_empty(),
-            "hasTriggers": !trigger_rows.is_empty(),
-            "canAdd": !trigger_rows.is_empty() && !at_max,
-            "triggers": trigger_rows,
-            "busy": self.trigger_writing,
+            "triggerList": agent_triggers::project(&self.triggers, &agent.id, owner, cx),
             "instructionsLoading": matches!(self.load, InstructionsLoad::Loading),
             "instructionsFailed": matches!(self.load, InstructionsLoad::Failed),
             "instructionsReady": matches!(self.load, InstructionsLoad::Ready(_)),
             "error": self.error.as_ref().map(|message| message.to_string()).unwrap_or_default(),
-            "hasError": self.error.is_some(),
+            // The Assistant's message follows its Voice block (`render`).
+            "hasError": self.error.is_some() && !assistant,
             "canDelete": owner && !assistant,
         })
     }
@@ -1087,29 +1013,36 @@ fn banded(ink: &Ink, id: &str, label: &str, group: Value) -> Value {
     json!({"id": id, "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%"}, "children": [ink.band(&format!("{id}_band"), label, None), group]})
 }
 
-/// The pane's tree (`gap_4`): the agent page (identity + Device + Skills;
-/// Account + Schedule; Instructions; the error; the owner's Delete), or the
-/// Assistant page (identity; Runs on; Check in; the Voice band — its block
-/// follows the document).
+/// The pane's tree (`gap_4`, #EXP-1846 `page`): identity; Runs on; the
+/// Triggers list; the Voice band (the Assistant's; its block follows the
+/// document); Instructions, the error and the owner's Delete (team agents).
 fn document(ink: &Ink, chrome: &Chrome) -> Value {
-    let copy = &domain::agent_settings::ASSISTANT.copy;
-    // The agent page.
+    let copy = &AGENT_SETTINGS.copy;
+    let assistant_copy = &domain::agent_settings::ASSISTANT.copy;
+    // Identity: the team agent's icon + colour + name, or the Assistant's mark + name.
+    let mut agent_identity = identity(ink);
+    agent_identity["visible"] = path("/pane/agentPage");
+    let mut mark_identity = assistant_identity(ink, chrome);
+    mark_identity["visible"] = path("/pane/assistant");
+    let identity_group = ink.group("identity_group", vec![agent_identity, mark_identity]);
+    // Runs on: device, account, model, skills, MCP servers (members read).
+    let read_only = |mut row: Value| {
+        row["props"]["disabled"] = path("/pane/member");
+        row
+    };
     let [skills_pick, skills_read] = skills_rows(ink);
     let [mcp_pick, mcp_read] = mcp_rows(ink);
     let [account_pick, account_none] = account_rows(ink);
-    let [schedule_none, schedule_head, trigger_list] = schedule_rows(ink, chrome);
-    let mut first = vec![identity(ink)];
-    first.extend(divided(ink, device_row()));
-    first.extend(divided(ink, skills_pick.clone()));
-    first.extend(divided(ink, skills_read.clone()));
-    first.extend(divided(ink, mcp_pick.clone()));
-    first.extend(divided(ink, mcp_read.clone()));
-    let mut second = vec![account_pick.clone(), account_none.clone()];
-    second.extend(divided(ink, schedule_none));
-    second.extend(divided(ink, schedule_head));
-    second.push(trigger_list);
-    let first = ink.group("agent_group", first);
-    let second = ink.group("runner_group", second);
+    let mut runs_on = vec![read_only(device_row())];
+    runs_on.extend(divided(ink, read_only(account_pick)));
+    runs_on.extend(divided(ink, account_none));
+    runs_on.extend(divided(ink, read_only(select_row("model", crate::chat_screen::MENU_MODEL, "model", "model", json!({})))));
+    runs_on.extend(divided(ink, skills_pick));
+    runs_on.extend(divided(ink, skills_read));
+    runs_on.extend(divided(ink, mcp_pick));
+    runs_on.extend(divided(ink, mcp_read));
+    let mut voice = ink.band("voice_band", &assistant_copy.voice, None);
+    voice["visible"] = path("/pane/assistant");
     let error = field_error(ink, chrome, "error", path("/pane/error"), path("/pane/hasError"));
     let size = ink.r(SM);
     let delete = json!({"id": "delete", "component": "Box", "visible": path("/pane/canDelete"), "props": {"pressable": true}, "accessibility": {"label": field_label("delete")}, "on": {"press": {"event": {"name": "delete"}}},
@@ -1118,25 +1051,16 @@ fn document(ink: &Ink, chrome: &Chrome) -> Value {
             {"id": "delete_icon", "component": "Icon", "props": {"name": "ui-delete"}, "style": {"width": ink.r(SM), "height": ink.r(SM), "color": chrome.danger_fg, "flexShrink": 0}},
             {"id": "delete_text", "component": "Text", "props": {"text": field_label("delete")}, "style": {"fontSize": size, "lineHeight": size, "color": chrome.danger_fg, "flexShrink": 0}},
         ]});
-    let agent_page = json!({"id": "agent_page", "component": "Box", "visible": path("/pane/agentPage"), "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(1.), "width": "100%", "minWidth": 0},
-        "children": [first, second, instructions(ink, chrome), error, delete]});
-    // The Assistant page.
-    let mut runs_on = vec![device_row()];
-    runs_on.extend(divided(ink, account_pick));
-    runs_on.extend(divided(ink, account_none));
-    runs_on.extend(divided(ink, select_row("model", crate::chat_screen::MENU_MODEL, "model", "model", json!({}))));
-    runs_on.extend(divided(ink, skills_pick));
-    runs_on.extend(divided(ink, skills_read));
-    runs_on.extend(divided(ink, mcp_pick));
-    runs_on.extend(divided(ink, mcp_read));
-    let assistant_page = json!({"id": "assistant_page", "component": "Box", "visible": path("/pane/assistant"), "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(1.), "width": "100%", "minWidth": 0},
+    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(1.), "width": "100%", "minWidth": 0},
         "children": [
-            ink.group("assistant_identity_group", vec![assistant_identity(ink, chrome)]),
+            identity_group,
             banded(ink, "runs_on", &copy.runs_on, ink.group("runs_on_group", runs_on)),
-            banded(ink, "check_in", &copy.check_in, ink.group("check_in_group", vec![select_row("check_in_select", &copy.check_in, "checkIn", "checkIn", json!({}))])),
-            ink.band("voice_band", &copy.voice, None),
-        ]});
-    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0}, "children": [agent_page, assistant_page]})
+            agent_triggers::section(ink, chrome),
+            voice,
+            instructions(ink, chrome),
+            error,
+            delete,
+        ]})
 }
 
 #[cfg(test)]

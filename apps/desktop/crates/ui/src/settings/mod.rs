@@ -52,6 +52,7 @@ pub(crate) mod add_repository_dialog;
 // candidates + picker are shared with the New agent dialog.
 pub(crate) mod agent_detail;
 mod agent_doc;
+pub(crate) mod agent_triggers;
 // VAPP-177: the app editor's Settings tab (rendered by the app screen).
 pub(crate) mod app_detail;
 pub(crate) mod app_mcp;

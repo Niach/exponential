@@ -55,7 +55,11 @@ pub(crate) struct TriggerEditorState {
 
 /// ONE agent trigger element as written (`AgentTrigger`): `id`, `enabled`,
 /// then the when-part. `id` is absent on a NEW trigger (the server mints
-/// it). The server's schema is STRICT: nothing else rides along.
+/// it). The server's schema is STRICT: nothing else rides along. Only a
+/// listed trigger is ever edited, so `preset` (#EXP-1846: the Check in,
+/// `domain::agent_settings::with_check_in`) never goes through here; every
+/// whole-array write below clones the other elements as stored, `preset`
+/// included.
 pub(crate) fn agent_trigger_element(when: &Value, id: Option<&str>, enabled: bool) -> Value {
     let mut element = serde_json::Map::new();
     if let Some(id) = id {
@@ -557,5 +561,26 @@ mod tests {
 
         // A delete sends the array without it.
         assert_eq!(triggers_without(&existing, "t-1"), vec![existing[1].clone()]);
+    }
+
+    /// #EXP-1846: the Check in (the trigger carrying `preset`) and any key
+    /// this build does not know ride every whole-array write untouched.
+    #[test]
+    fn whole_array_writes_keep_the_check_in_and_unknown_keys() {
+        let check_in = json!({"id": "t-ci", "enabled": true, "kind": "schedule", "cron": "0 * * * *", "preset": "1h", "tz": "Europe/Vienna", "future": 1});
+        let mut existing = stored();
+        existing.insert(0, check_in.clone());
+        assert!(is_readable(&check_in));
+        let new_event = agent_trigger_element(&json!({"kind": "event", "name": "pr.merged"}), None, true);
+        assert_eq!(triggers_with_added(&existing, new_event)[0], check_in);
+        let edited = agent_trigger_element(&json!({"kind": "event", "name": "issue.created"}), Some("t-1"), true);
+        assert_eq!(triggers_with_replaced(&existing, "t-1", edited)[0], check_in);
+        assert_eq!(triggers_with_enabled(&existing, "t-2", true)[0], check_in);
+        assert_eq!(triggers_without(&existing, "t-1")[0], check_in);
+        // Pausing the Check in moves only its flag; `preset` stays.
+        let paused = triggers_with_enabled(&existing, "t-ci", false);
+        assert_eq!(paused[0]["preset"], json!("1h"));
+        assert_eq!(paused[0]["future"], json!(1));
+        assert_eq!(domain::agent_settings::check_in_of(&paused), "off");
     }
 }
