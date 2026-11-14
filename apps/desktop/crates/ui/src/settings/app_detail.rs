@@ -1057,21 +1057,15 @@ pub(super) fn row_shell(ink: &Ink, id: &str, children: Vec<Value>) -> Value {
 }
 
 /// A group's heading (`px_1`, `text_sm` MEDIUM).
-fn heading(ink: &Ink, id: &str, title: &str) -> Value {
-    let mut text = ink.text(id, json!(title), SM, &ink.foreground);
-    text["style"]["fontWeight"] = json!(500);
-    text["style"]["paddingHorizontal"] = json!(ink.r(0.25));
-    text
-}
-
-/// A titled group (`gap_1`) shown where `<data>/show`: the heading over
-/// the `glass_group` of `<data>/rows`, one `item` each.
+/// A titled group shown where `<data>/show`: THE section band (apps.json
+/// `agentSlot` HEADERS, the agent page's) over the `glass_group` of
+/// `<data>/rows`, one `item` each.
 pub(super) fn titled(ink: &Ink, id: &str, title: &str, data: &str, item: Value, _tints: &Tints) -> Value {
     let template = item["id"].as_str().expect("the item's id").to_string();
     let list = json!({"id": format!("{id}_rows"), "component": "List", "props": {"gap": "none"},
         "template": {"component": template, "path": format!("{data}/rows"), "key": "key"}, "children": [item]});
-    json!({"id": id, "component": "Box", "visible": path(&format!("{data}/show")), "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "gap": ink.r(0.25)},
-        "children": [heading(ink, &format!("{id}_title"), title), ink.group(&format!("{id}_group"), vec![list])]})
+    json!({"id": id, "component": "Box", "visible": path(&format!("{data}/show")), "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0},
+        "children": [ink.band(&format!("{id}_title"), title, None), ink.group(&format!("{id}_group"), vec![list])]})
 }
 
 
@@ -1110,11 +1104,13 @@ fn tools(ink: &Ink) -> Value {
         "template": {"component": "tool_item", "path": "/pane/tools/rows", "key": "key"}, "children": [row]});
     let none = json!({"id": "tools_none", "component": "Box", "visible": path("/pane/tools/none"), "style": {"display": "flex", "flexDirection": "column", "paddingHorizontal": ink.r(1.), "paddingVertical": ink.r(0.75)},
         "children": [ink.text("tools_none_text", json!(copy.none), SM, &ink.muted)]});
+    // #EXP-1849 HEADERS: THE section band, the hint a muted line under it.
     let mut hint = ink.text("tools_hint", json!(copy.hint), SM, &ink.muted);
     hint["style"]["paddingHorizontal"] = json!(ink.r(0.25));
-    json!({"id": "app-settings-tools", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "gap": ink.r(0.25)},
+    hint["style"]["paddingBottom"] = json!(ink.r(0.25));
+    json!({"id": "app-settings-tools", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0},
         "children": [
-            {"id": "tools_head", "component": "Box", "style": {"display": "flex", "flexDirection": "column"}, "children": [heading(ink, "tools_title", &copy.title), hint]},
+            {"id": "tools_head", "component": "Box", "style": {"display": "flex", "flexDirection": "column"}, "children": [ink.band("tools_title", &copy.title, None), hint]},
             ink.group("tools_group", vec![list, none]),
         ]})
 }
