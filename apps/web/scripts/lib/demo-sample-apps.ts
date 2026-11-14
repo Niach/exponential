@@ -152,5 +152,21 @@ export async function seedSampleApps(teamId: string, userId: string): Promise<vo
     leads
   )
   await db.insert(appShareLinks).values({ appId: DEMO_OPS_APP_ID, teamId, name: `signup`, token: DEMO_OPS_SHARE_TOKEN, enabledBy: userId })
-  await db.insert(mcpCalls).values({ teamId, userId, appId: DEMO_OPS_APP_ID, clientId: `automation:${triggerAutomationName(ops.log_deploy!)}`, tool: `records.upsert:lead`, status: `ok`, latencyMs: 42, argsHash: `seed` })
+  // #EXP-1850: the Events tab's rows: a wake trigger beside the two runs,
+  // and recent runs of every badge (ran, woke, dropped, refused).
+  const greet = crypto.randomUUID()
+  const [opsAgent] = await db.select({ id: agents.id, triggers: agents.triggers }).from(agents).innerJoin(apps, eq(apps.agentId, agents.id)).where(eq(apps.id, DEMO_OPS_APP_ID))
+  await db
+    .update(agents)
+    .set({ triggers: [...(opsAgent!.triggers ?? []), { id: greet, enabled: true, kind: `record`, record: `lead`, op: `create`, prompt: `Greet \${record.email} and log what they asked for.` }] })
+    .where(eq(agents.id, opsAgent!.id))
+  const at = (minutesAgo: number) => new Date(Date.now() - minutesAgo * 60_000)
+  const call = (id: string, tool: string, status: `ok` | `denied` | `failed`, error: string | null, minutesAgo: number) => ({ teamId, userId, appId: DEMO_OPS_APP_ID, clientId: `automation:${triggerAutomationName(id)}`, tool, status, error, latencyMs: 42, argsHash: `seed`, createdAt: at(minutesAgo) })
+  await db.insert(mcpCalls).values([
+    call(ops.log_deploy!, `records.upsert:lead`, `ok`, null, 4),
+    call(greet, `agent:ops-desk`, `ok`, null, 18),
+    call(ops.log_deploy!, `webhook:deploys`, `denied`, `badSignature`, 52),
+    call(ops.morning_digest!, `records.upsert:lead`, `denied`, `rateLimited`, 130),
+    call(ops.morning_digest!, `records.upsert:lead`, `ok`, null, 60 * 9),
+  ])
 }

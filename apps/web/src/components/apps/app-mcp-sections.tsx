@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
-import { Button, conceptIcon, GlassGroup, Menu, Pill, Prompt, Switch, toast } from "@exp/ui"
+import { Button, conceptIcon, GlassGroup, GlassSectionHeader, Menu, Pill, Prompt, Switch, toast } from "@exp/ui"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { trpc } from "@/lib/trpc-client"
 import { accountCaption, accountRow, APPS_COPY, APPS_TEST_IDS, UPSTREAM_PICKER_NONE, webhookRow } from "@exp/domain-contract/apps"
@@ -230,8 +230,9 @@ export function AppMcpSections({
       )}
 
       {!settings && data.hooks.length > 0 && (
-        <div className="space-y-1" data-testid={APPS_TEST_IDS.webhooks}>
-          <h2 className="px-1 text-sm font-medium">{APPS_COPY.webhooks.title}</h2>
+        <div data-testid={APPS_TEST_IDS.webhooks}>
+          {/* #EXP-1850: on the Events tab, the same section band as Triggers and Recent runs. */}
+          <GlassSectionHeader label={APPS_COPY.webhooks.title} />
           <GlassGroup>
             {data.hooks.map((h) => {
               const row = webhookRow(h, data.canToggle)
