@@ -33,7 +33,7 @@ pub(crate) fn set(count: usize) {
 #[cfg(target_os = "macos")]
 mod backend {
     use cocoa::base::{id, nil};
-    use cocoa::foundation::{NSAutoreleasePool, NSString};
+    use cocoa::foundation::NSString;
     use objc::{class, msg_send, sel, sel_impl};
 
     /// On the main thread (the shell's render / observer).
