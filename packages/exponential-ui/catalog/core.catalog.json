@@ -6338,7 +6338,7 @@
         "attachment",
         "avatar"
       ],
-      "description": "Chat bubble, in (left, after an avatar) or out (right).",
+      "description": "Chat bubble, in (left, after an avatar) or out (right, before one).",
       "props": {
         "text": {
           "type": "markdown",

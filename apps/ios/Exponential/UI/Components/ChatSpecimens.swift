@@ -452,7 +452,7 @@ private struct ClearNavigationBackground: ViewModifier {
 
 /// `chat-header` (#EXP-1688, chats.json `shell.chatHeader`): THE chat header:
 /// a chat waiting on you (#EXP-1732: THE tabs under it), a working one, an
-/// agent chat with its telephone and THE gear.
+/// agent chat with its telephone and THE `…` (#FEED-239: no gear).
 struct ChatHeaderSpecimens: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -499,7 +499,6 @@ struct ChatHeaderSpecimens: View {
                 )
             } trailing: {
                 ChatHeaderGhostButton(icon: AppIcons.voiceCall, label: "Call") {}
-                SessionScreenGear {}
                 more
             }
         }
@@ -574,6 +573,11 @@ struct ChatTranscriptSpecimens: View {
 
     private static let member = UserEntity(
         id: "u2", name: "Dana Reyes", email: "dana@example.com", image: nil, createdAt: "", updatedAt: ""
+    )
+
+    /// #FEED-239: the viewer (Alex) whose own bubbles wear their avatar.
+    private static let viewer = UserEntity(
+        id: "u1", name: "Alex", email: "alex@example.com", image: nil, createdAt: "", updatedAt: ""
     )
 
     private static func message(
@@ -657,7 +661,9 @@ struct ChatTranscriptSpecimens: View {
                     time: row.time,
                     onPress: layout?.sender?.link.map { _ -> () -> Void in {} }
                 ) {
-                    AgentMarkdownText(text: text, context: context, hugsWidth: true)
+                    MessageFold(text: text) {
+                        AgentMarkdownText(text: text, context: context, hugsWidth: true)
+                    }
                 }
             }
         } else if let marker = row.marker {
@@ -690,7 +696,8 @@ struct ChatTranscriptSpecimens: View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Self.rows, id: \.item.id) { row in
                 let layout = Self.layouts[row.item.id]
-                TranscriptRow(layout: layout, avatar: Self.avatar) {
+                // #FEED-239: the viewer's own group wears Alex's avatar right.
+                TranscriptRow(layout: layout, avatar: Self.avatar, ownAvatar: .member(user: Self.viewer, id: "u1")) {
                     rowContent(row, layout: layout)
                 }
             }
@@ -700,23 +707,24 @@ struct ChatTranscriptSpecimens: View {
     }
 }
 
-/// `chat-menus` (web `ChatMenusSpecimen`'s set + captions ×4): a live
-/// chat's menu, an ended chat's, the agent menu for the busy owner and for
-/// an idle member, then the delete confirm (THE `GlassAlert`).
+/// `chat-menus` (web `ChatMenusSpecimen`'s set + captions ×4): #FEED-239
+/// THE session screen menu (`SessionScreen.menu`) of a chat, an agent for
+/// its owner and for a member, an app on a phone, then the delete confirm
+/// (THE `GlassAlert`).
 struct ChatMenuSpecimens: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            captioned("A live chat") {
-                menu("Spike: offline queue", Chats.chatMenuEntries(rootStatus: "running", canSteer: true, canDelete: true).map { .chat($0) })
+            captioned("A chat") {
+                menu("Spike: offline queue", screenMenu(.session, settings: false, delete: true))
             }
-            captioned("An ended chat") {
-                menu("#APP-16 Fix flaky scroll restore", Chats.chatMenuEntries(rootStatus: "ended", canSteer: true, canDelete: true).map { .chat($0) })
+            captioned("The agent menu (owner)") {
+                menu("Triage", screenMenu(.agent, settings: true))
             }
-            captioned("The agent menu (busy, owner)") {
-                menu("Triage", Chats.agentMenuEntries(busy: true, isOwner: true).map { .agent($0) })
+            captioned("The agent menu (member)") {
+                menu("Triage", screenMenu(.agent, settings: false))
             }
-            captioned("The agent menu (idle, member)") {
-                menu("Triage", Chats.agentMenuEntries(busy: false, isOwner: false).map { .agent($0) })
+            captioned("An app on a phone") {
+                menu("Arbeitsstunden", screenMenu(.app, settings: true, publish: true, export: true, delete: true))
             }
             captioned("The delete confirm") {
                 GlassAlert(
@@ -739,6 +747,18 @@ struct ChatMenuSpecimens: View {
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             content()
         }
+    }
+
+    private func screenMenu(
+        _ kind: SessionScreen.Kind, settings: Bool, publish: Bool = false, export: Bool = false, delete: Bool = false
+    ) -> [ChatMenuSheet.Entry] {
+        ChatMenuSheet.screenEntries(
+            SessionScreen.menu(
+                kind: kind, phone: true, member: true, linkIssue: kind != .app, settings: settings,
+                publish: publish, export: export, delete: delete
+            ),
+            kind: kind
+        )
     }
 
     private func menu(_ title: String, _ entries: [ChatMenuSheet.Entry]) -> some View {

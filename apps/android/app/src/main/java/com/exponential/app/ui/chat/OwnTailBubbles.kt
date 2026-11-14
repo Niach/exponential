@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -15,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.MessageDelivery
+import com.exponential.app.domain.TranscriptGrouping
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.markdown.MarkdownView
@@ -56,7 +58,14 @@ private fun OwnTailBubble(
 ) {
     val actions = bubble.actions
     var open by remember { mutableStateOf(false) }
-    Box(modifier = Modifier.fillMaxWidth()) {
+    // #FEED-239: aligned with the transcript's own bubbles (the viewer's
+    // avatar column on the right stays clear: the group's avatar sits on
+    // its first transcript row).
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(end = (TranscriptGrouping.Layout.AVATAR + TranscriptGrouping.Layout.AVATAR_GAP).dp),
+    ) {
         MessageBubble(
             own = true,
             time = clock(bubble.createdAt),
@@ -65,7 +74,7 @@ private fun OwnTailBubble(
             onStatusClick = if (bubble.state == MessageDelivery.State.Failed) ({ open = true }) else null,
             testTag = "chat-own-pending",
         ) {
-            if (bubble.text.isNotBlank()) MarkdownView(markdown = bubble.text, softBreaksAsNewlines = true)
+            if (bubble.text.isNotBlank()) MessageFold(bubble.text) { MarkdownView(markdown = bubble.text, softBreaksAsNewlines = true) }
         }
         // The menu anchors at the bubble's bottom-right corner.
         Box(Modifier.align(Alignment.BottomEnd)) {

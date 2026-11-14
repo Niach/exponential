@@ -325,6 +325,7 @@ public enum AppIcons {
         "palette",
         "panel-left-close",
         "panel-left-open",
+        "panel-right-close",
         "paperclip",
         "pause",
         "pen-tool",
@@ -703,6 +704,7 @@ public enum AppIcons {
         "ui-offline": "wifi-off",
         "ui-organization": "building-2",
         "ui-owner": "crown",
+        "ui-pane-collapse": "panel-right-close",
         "ui-permission": "shield-question-mark",
         "ui-photos": "images",
         "ui-pin": "pin",
@@ -1332,6 +1334,8 @@ public enum AppIcons {
     public static let uiOrganization: String = "building-2"
     /// Concept `ui-owner`.
     public static let uiOwner: String = "crown"
+    /// Concept `ui-pane-collapse`.
+    public static let uiPaneCollapse: String = "panel-right-close"
     /// Concept `ui-permission`.
     public static let uiPermission: String = "shield-question-mark"
     /// Concept `ui-photos`.

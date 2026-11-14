@@ -1143,8 +1143,9 @@ class StyleguideScreenshotsTest {
             // --- sg_app-versions / sg_app-settings (VAPP-177, #EXP-1732
             // session-screen.json): the Versions TAB (Working hours' three
             // versions, the head row `Current`, the others Preview + Restore),
-            // then THE gear → Settings (identity, description, records line,
-            // Tools, Export + Delete app), the pushed item over the editor.
+            // then `…` › App settings (identity, description, records line,
+            // Tools; #FEED-239: Export + Delete app are `…` entries), the
+            // pushed item over the editor.
             if (ScreenshotFlow.anyRequested("sg_app-versions")) {
                 composeRule.onNode(hasTestTag(SessionScreen.TestIds.tab(SessionScreen.Tab.Versions))).performClick()
                 flow.waitFor(hasTestTag(Apps.TestIds.VERSIONS), NAV_TIMEOUT)
@@ -1156,7 +1157,10 @@ class StyleguideScreenshotsTest {
                 flow.settle()
             }
             if (ScreenshotFlow.anyRequested("sg_app-settings")) {
-                composeRule.onNode(hasTestTag(SessionScreen.TestIds.GEAR)).performClick()
+                // #FEED-239: no gear: `…` › App settings.
+                composeRule.onNode(hasTestTag(Apps.TestIds.MENU)).performClick()
+                flow.waitFor(hasTestTag("${SessionScreen.TestIds.MENU}-settings"), NAV_TIMEOUT)
+                composeRule.onNode(hasTestTag("${SessionScreen.TestIds.MENU}-settings")).performClick()
                 flow.waitFor(hasTestTag(Apps.TestIds.SETTINGS), NAV_TIMEOUT)
                 flow.waitFor(hasTestTag("app-settings-tools"), SYNC_TIMEOUT)
                 Espresso.closeSoftKeyboard()
@@ -1280,7 +1284,10 @@ class StyleguideScreenshotsTest {
                 flow.settle()
                 flow.screenshot("sg_app-connect")
                 openEditorFromRun()
-                composeRule.onNode(hasTestTag(SessionScreen.TestIds.GEAR)).performClick()
+                // #FEED-239: no gear: `…` › App settings.
+                composeRule.onNode(hasTestTag(Apps.TestIds.MENU)).performClick()
+                flow.waitFor(hasTestTag("${SessionScreen.TestIds.MENU}-settings"), NAV_TIMEOUT)
+                composeRule.onNode(hasTestTag("${SessionScreen.TestIds.MENU}-settings")).performClick()
                 flow.waitFor(hasTestTag(Apps.TestIds.SETTINGS), NAV_TIMEOUT)
                 flow.waitFor(hasText("Public links"), SYNC_TIMEOUT)
                 flow.waitFor(hasText("Accounts"), SYNC_TIMEOUT)
@@ -1288,7 +1295,8 @@ class StyleguideScreenshotsTest {
                 Espresso.closeSoftKeyboard()
                 flow.settle()
                 flow.screenshot("sg_app-settings-links")
-                composeRule.onNode(hasText(Apps.Copy.MENU_DELETE)).performScrollTo()
+                // #FEED-239: Delete app left the page; the webhooks end it.
+                composeRule.onNode(hasTestTag(Apps.TestIds.WEBHOOKS)).performScrollTo()
                 flow.settle()
                 flow.screenshot("sg_app-settings-automations")
                 Espresso.pressBack()

@@ -37,6 +37,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.domain.Chats
+import com.exponential.app.domain.SessionScreen
+import com.exponential.app.ui.chat.sessionScreenMenuItems
 import com.exponential.app.domain.EmptyStateCopy
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.chats.NeedsYouEntryRow
@@ -68,7 +70,6 @@ import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.GlassSheetSearchField
 import com.exponential.app.ui.components.InlineSpinner
 import com.exponential.app.ui.components.LocalToaster
-import com.exponential.app.ui.components.agentMenuItems
 import com.exponential.app.ui.components.chatMenuItems
 import com.exponential.app.ui.components.deviceIcon
 import com.exponential.app.ui.icons.ExpIcons
@@ -103,8 +104,9 @@ fun ChatsScreen(
     onOpenApp: (appId: String) -> Unit = {},
     /** chats.json: the header's inbox circle pushes the inbox-only page. */
     onOpenInbox: () -> Unit = {},
-    /** The agent menu's Agent settings (owners). */
-    onOpenAgentSettings: (agentId: String) -> Unit = {},
+    /** #FEED-239: an agent row's `…` › Agent settings = that agent's chat
+     *  ([rootSessionId], null = its empty DM) with its settings open. */
+    onOpenAgentSettings: (agentId: String, rootSessionId: String?) -> Unit = { _, _ -> },
     /** The inbox circle's dot: any notification unread. */
     inboxUnread: Int = 0,
     /** #EXP-1388: the list, or the pushed Archived page. */
@@ -138,6 +140,7 @@ fun ChatsScreen(
 
     val haptics = LocalHapticFeedback.current
     var agentMenuFor by remember { mutableStateOf<SessionTree.AgentRow?>(null) }
+    var agentMenuSession by remember { mutableStateOf<String?>(null) }
     var deleteFor by remember { mutableStateOf<List<String>?>(null) }
 
     // #EXP-1388: the selection; it keeps only rows still in the list, and
@@ -191,6 +194,7 @@ fun ChatsScreen(
                     agents.firstOrNull { it.agentId == row.agentId }?.let { agent ->
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                         agentMenuFor = agent
+                        agentMenuSession = row.sessionId
                     }
                 },
                 agentRows = agentRows,
@@ -235,12 +239,28 @@ fun ChatsScreen(
     agentMenuFor?.let { agent ->
         ChatMenuSheet(
             title = agent.name,
-            items = agentMenuItems(Chats.agentMenuEntries(busy = agent.busy, isOwner = isOwner)) { entry ->
-                agentMenuFor = null
-                when (entry) {
-                    Chats.AgentMenuEntry.Compact, Chats.AgentMenuEntry.NewConversation ->
-                        Chats.agentMenuSend(entry)?.let { viewModel.sendToAgent(agent.agentId, it) }
-                    Chats.AgentMenuEntry.Settings -> onOpenAgentSettings(agent.agentId)
+            // #FEED-239: THE session screen `…` (kind agent / assistant).
+            items = run {
+                val kind = if (agent.assistant) SessionScreen.Kind.Assistant else SessionScreen.Kind.Agent
+                sessionScreenMenuItems(
+                    kind,
+                    SessionScreen.menu(
+                        kind,
+                        phone = false,
+                        member = true,
+                        settings = agent.assistant || isOwner,
+                        publish = false,
+                        export = false,
+                        delete = false,
+                    ),
+                ) { entry ->
+                    agentMenuFor = null
+                    when (entry) {
+                        SessionScreen.MenuEntry.Compact, SessionScreen.MenuEntry.NewConversation ->
+                            entry.send?.let { viewModel.sendToAgent(agent.agentId, it) }
+                        SessionScreen.MenuEntry.Settings -> onOpenAgentSettings(agent.agentId, agentMenuSession)
+                        else -> Unit
+                    }
                 }
             },
             onDismiss = { agentMenuFor = null },

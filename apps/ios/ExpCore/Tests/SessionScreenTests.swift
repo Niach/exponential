@@ -30,12 +30,16 @@ final class SessionScreenTests: XCTestCase {
     private func json(_ screen: SessionScreen.Screen) -> NSDictionary {
         [
             "tabs": screen.tabs.map { entry -> [String: Any] in
-                ["id": entry.id.rawValue, "label": entry.label, "count": entry.count.map { $0 as Any } ?? NSNull()]
+                [
+                    "id": entry.id.rawValue, "label": entry.label, "count": entry.count.map { $0 as Any } ?? NSNull(),
+                    "disabled": entry.disabled,
+                ]
             },
             "active": screen.active.rawValue,
-            "gear": screen.gear,
+            "settings": screen.settings,
             "open": screen.open.map { $0.rawValue as Any } ?? NSNull(),
             "layout": screen.layout.rawValue,
+            "collapse": screen.collapse,
         ] as NSDictionary
     }
 
@@ -45,6 +49,17 @@ final class SessionScreenTests: XCTestCase {
         XCTAssertEqual(copy["tabs"] as? [String: String], SessionScreen.Copy.tabs)
         XCTAssertEqual(copy["settings"] as? String, SessionScreen.Copy.settings)
         XCTAssertEqual(copy["back"] as? String, SessionScreen.Copy.back)
+        XCTAssertEqual(copy["collapse"] as? String, SessionScreen.Copy.collapse)
+        let menu = try XCTUnwrap(copy["menu"] as? [String: Any])
+        XCTAssertEqual(menu["linkIssue"] as? String, SessionScreen.Copy.Menu.linkIssue)
+        XCTAssertEqual(menu["publish"] as? String, SessionScreen.Copy.Menu.publish)
+        XCTAssertEqual(menu["compact"] as? String, SessionScreen.Copy.Menu.compact)
+        XCTAssertEqual(menu["newConversation"] as? String, SessionScreen.Copy.Menu.newConversation)
+        XCTAssertEqual(menu["settings"] as? [String: String], SessionScreen.Copy.Menu.settings)
+        XCTAssertEqual(menu["export"] as? String, SessionScreen.Copy.Menu.export)
+        XCTAssertEqual(menu["delete"] as? [String: String], SessionScreen.Copy.Menu.delete)
+        XCTAssertEqual(f["menuIcons"] as? [String: String], SessionScreen.menuIcons)
+        XCTAssertEqual(f["menuSends"] as? [String: String], SessionScreen.menuSends)
         XCTAssertEqual(copy["separator"] as? String, SessionScreen.Copy.separator)
         XCTAssertEqual(copy["linkIssue"] as? String, SessionScreen.Copy.linkIssue)
         XCTAssertEqual(copy["status"] as? [String: String], [
@@ -53,16 +68,18 @@ final class SessionScreenTests: XCTestCase {
             "idle": SessionScreen.Copy.Status.idle,
         ])
         XCTAssertEqual(f["testIds"] as? [String: String], [
-            "tabs": SessionScreen.TestIds.tabs, "gear": SessionScreen.TestIds.gear,
+            "tabs": SessionScreen.TestIds.tabs,
             "beside": SessionScreen.TestIds.beside, "pane": SessionScreen.TestIds.pane,
             "issues": SessionScreen.TestIds.issues, "sessions": SessionScreen.TestIds.sessions,
+            "collapse": SessionScreen.TestIds.collapse, "menu": SessionScreen.TestIds.menu,
         ])
         let kinds = try XCTUnwrap(f["kinds"] as? [String: [String: Any]])
         XCTAssertEqual(Set(kinds.keys), Set(SessionScreen.Kind.allCases.map(\.rawValue)))
         for (name, raw) in kinds {
             let spec = try XCTUnwrap(SessionScreen.Kind(rawValue: name).flatMap { SessionScreen.kinds[$0] }, name)
             XCTAssertEqual(raw["tabs"] as? [String], spec.tabs.map(\.rawValue), name)
-            XCTAssertEqual(raw["gear"] as? Bool, spec.gear, name)
+            XCTAssertEqual(raw["settings"] as? Bool, spec.settings, name)
+            XCTAssertEqual(raw["wideChatTab"] as? Bool, spec.wideChatTab, name)
             XCTAssertEqual(raw["wideDefault"] as? String, spec.wideDefault.rawValue, name)
         }
         XCTAssertEqual(f["counted"] as? [String], SessionScreen.counted.map(\.rawValue))
@@ -90,6 +107,25 @@ final class SessionScreenTests: XCTestCase {
             )
             let expected = try XCTUnwrap(testCase["expected"] as? NSDictionary, name)
             XCTAssertEqual(json(screen), expected, name)
+        }
+    }
+
+    func testReplaysEveryMenuCase() throws {
+        for testCase in try cases("menuCases") {
+            let name = string(testCase["name"]) ?? ""
+            let input = try XCTUnwrap(testCase["input"] as? [String: Any], name)
+            let entries = SessionScreen.menu(
+                kind: try XCTUnwrap(string(input["kind"]), name),
+                phone: try XCTUnwrap(input["phone"] as? Bool, name),
+                member: try XCTUnwrap(input["member"] as? Bool, name),
+                linkIssue: try XCTUnwrap(input["linkIssue"] as? Bool, name),
+                settings: try XCTUnwrap(input["settings"] as? Bool, name),
+                publish: try XCTUnwrap(input["publish"] as? Bool, name),
+                export: try XCTUnwrap(input["export"] as? Bool, name),
+                delete: try XCTUnwrap(input["delete"] as? Bool, name)
+            )
+            let expected = try XCTUnwrap(testCase["expected"] as? [String], name)
+            XCTAssertEqual(entries.map(\.rawValue), expected, name)
         }
     }
 

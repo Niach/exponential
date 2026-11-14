@@ -2,6 +2,7 @@ import { createTRPCProxyClient, httpBatchLink, TRPCClientError } from "@trpc/cli
 import type { TRPCLink } from "@trpc/client"
 import { observable } from "@trpc/server/observable"
 import { toast } from "@exp/ui"
+import { isStaleTreeRefusal } from "@exp/domain-contract/sealed-content"
 import {
   reportTransportFailure,
   reportTransportSuccess,
@@ -69,7 +70,10 @@ const mutationErrorToastLink: TRPCLink<AppRouter> = () => {
       next(op).subscribe({
         next: (value) => observer.next(value),
         error: (error) => {
-          if (op.type === `mutation` && op.context?.skipErrorToast !== true) {
+          // #FEED-248: a stale tree on a send's first try is re-sealed and
+          // re-sent by `sendSessionMessage`, never toasted.
+          const resealed = op.context?.resealOnStaleTree === true && isStaleTreeRefusal(error.message)
+          if (op.type === `mutation` && op.context?.skipErrorToast !== true && !resealed) {
             toast.error(mutationErrorTitle(op.path), {
               description: serverErrorDetail(error),
             })

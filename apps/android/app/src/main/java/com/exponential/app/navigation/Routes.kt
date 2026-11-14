@@ -89,8 +89,14 @@ object Routes {
     /** NEW-7: an agent's conversation = the CALLER's DM with it (the root
      *  session with that `agent_id` and `user_id` = me); none yet = the same
      *  screen empty, whose composer creates it. */
-    const val AGENT_DM_PATTERN = "agent-dm/{agentId}"
-    fun agentDm(agentId: String): String = "agent-dm/$agentId"
+    const val AGENT_DM_PATTERN = "agent-dm/{agentId}?open={open}"
+    fun agentDm(agentId: String, open: String? = null): String =
+        if (open == null) "agent-dm/$agentId" else "agent-dm/$agentId?open=$open"
+
+    /** #FEED-239: an agent row's `…` › Agent settings = that agent's chat
+     *  with its settings item open (never the Settings screen). */
+    fun agentChatSettings(agentId: String, rootSessionId: String?): String =
+        if (rootSessionId != null) chat(rootSessionId, "settings") else agentDm(agentId, "settings")
 
     /** NEW-7: Settings → Prompts (prompts replaced actions). */
     const val PROMPTS_SETTINGS = "settings/prompts"

@@ -16,9 +16,16 @@ import { AgentRunMark, AgentWorkingMark, type RunMarkState } from "./agent-brand
 import { AgentAvatar } from "./chat-list"
 import { EmptyState } from "./empty-state"
 import { GlassSectionHeader } from "./glass-rows"
+import type { IconConcept } from "@exp/icons"
 import { conceptIcon } from "./icons.generated"
 import { menuProps, type MenuEntry, type MenuIcon } from "./menu"
-import { CHATS_COPY, type AgentMenuEntry, type ChatMenuEntry } from "@exp/domain-contract/chats"
+import { CHATS_COPY, type ChatMenuEntry } from "@exp/domain-contract/chats"
+import {
+  SESSION_SCREEN_MENU_ICONS,
+  SESSION_SCREEN_TEST_IDS,
+  sessionScreenMenuLabel,
+  type SessionScreenMenuEntry,
+} from "@exp/domain-contract/session-screen"
 import { ChatsListItem } from "./session-chat-view"
 import { SkeletonRows } from "./skeleton"
 
@@ -42,11 +49,6 @@ export const CHAT_ROW_MENU_KIND = `chat`
 export const AGENT_ROW_MENU_KIND = `agent`
 
 const ChatDeleteIcon = conceptIcon(`ui-delete`)
-const AGENT_MENU_ICONS: Record<AgentMenuEntry, MenuIcon> = {
-  compact: conceptIcon(`coding-compact`),
-  newConversation: conceptIcon(`ui-clean`),
-  settings: conceptIcon(`nav-settings`),
-}
 
 /** A chat's menu (`chatMenuEntries`) as THE Menu's rows: the destructive
  *  Delete (S-3: no Stop). */
@@ -65,29 +67,47 @@ export function chatMenuRows(
   }))
 }
 
-/** The agent menu (`agentMenuEntries`) as THE Menu's rows: the
- *  conversation pair, a divider, then Agent settings. */
-export function agentMenuRows(
-  entries: readonly AgentMenuEntry[],
-  run: (entry: AgentMenuEntry) => void
+type SessionMenuItem = Exclude<SessionScreenMenuEntry, `separator`>
+
+const SESSION_MENU_ICONS = Object.fromEntries(
+  Object.entries(SESSION_SCREEN_MENU_ICONS).map(([entry, concept]) => [entry, conceptIcon(concept as IconConcept)])
+) as Record<SessionMenuItem, MenuIcon>
+
+/** #FEED-239 (session-screen.json `menuCases`): THE session screen menu
+ *  (`sessionScreenMenu`) as THE Menu's rows, for every kind: the labels
+ *  `copy.menu` (settings and delete by kind), the icons `menuIcons`, a
+ *  divider per `separator`, Delete destructive. The header's `…` and a
+ *  sidebar agent row's right-click draw the same rows. */
+export function sessionScreenMenuRows(
+  kind: string,
+  entries: readonly SessionScreenMenuEntry[],
+  run: (entry: SessionMenuItem) => void,
+  /** #EXP-1834: the `linkIssue` entry's submenu rows (THE link menu:
+   *  Link an issue ›, New issue). */
+  linkIssue?: readonly MenuEntry[]
 ): MenuEntry[] {
-  const rows: MenuEntry[] = []
-  let divided = false
-  for (const entry of entries) {
-    if (!divided && entry === `settings`) {
-      rows.push({ kind: `separator`, id: `sep` })
-      divided = true
-    }
-    rows.push({
-      kind: `item`,
-      id: entry,
-      label: CHATS_COPY.menu[entry],
-      icon: AGENT_MENU_ICONS[entry],
-      "data-testid": `agent-menu-${entry}`,
-      onSelect: () => run(entry),
-    })
-  }
-  return rows
+  return entries.map((entry, index): MenuEntry =>
+    entry === `separator`
+      ? { kind: `separator`, id: `sep-${index}` }
+      : entry === `linkIssue`
+        ? {
+            kind: `submenu`,
+            id: entry,
+            label: sessionScreenMenuLabel(kind, entry),
+            icon: SESSION_MENU_ICONS[entry],
+            entries: linkIssue ?? [],
+            "data-testid": `${SESSION_SCREEN_TEST_IDS.menu}-${entry}`,
+          }
+        : {
+          kind: `item`,
+          id: entry,
+          label: sessionScreenMenuLabel(kind, entry),
+          icon: SESSION_MENU_ICONS[entry],
+          destructive: entry === `delete`,
+          "data-testid": `${SESSION_SCREEN_TEST_IDS.menu}-${entry}`,
+          onSelect: () => run(entry),
+        }
+  )
 }
 
 const NeedsYouIcon = conceptIcon(`coding-needs-input`)

@@ -30,7 +30,6 @@ import {
   getActionIcon,
   GlassGroup,
   ListRow,
-  Menu,
   type MenuEntry,
   Pill,
   Prompt,
@@ -41,6 +40,7 @@ import {
   SelectTrigger,
   SelectValue,
   SETTINGS_LIST_CLASS,
+  sessionScreenMenuRows,
   toast,
   useIsMobile,
   type DevicePickerDevice,
@@ -56,6 +56,7 @@ import { requestDeviceMove } from "@/components/session-device-move"
 import {
   SESSION_SCREEN_COPY,
   sessionScreen,
+  sessionScreenMenu,
   sessionScreenStatus,
   sessionScreenSubtitle,
   sessionScreenTone,
@@ -63,11 +64,10 @@ import {
   type SessionScreenTab,
 } from "@exp/domain-contract/session-screen"
 import { SessionScreenFrame } from "@/components/chat/session-screen-frame"
+import { SessionScreenMenuButton, sessionMenuLine } from "@/components/chat/chat-menu"
 import { CHAT_HEADER_TONE_CLASS } from "@/components/chat/chat-header"
 import { useEditorRunner } from "@/components/apps/editor-runner"
-import { SessionResultsTab, SessionSessionsTab, useSessionTreeRows } from "@/components/chat/session-screen-bodies"
 import { InPlaceSession } from "@/components/chat/session-body"
-import { useResultsTab } from "@/hooks/use-results-tab"
 import { AppExportDialog } from "@/components/apps/app-export-dialog"
 import { AppImportDialog } from "@/components/apps/app-import-dialog"
 import { APP_TEMPLATES_COPY, APP_TEMPLATES_TEST_IDS } from "@exp/domain-contract/app-templates"
@@ -86,26 +86,24 @@ import type { SessionRow } from "@/lib/session-tree"
 import { trpc } from "@/lib/trpc-client"
 import { cn } from "@/lib/utils"
 
-// VAPP-110 (fixtures/apps.json): THE EDITOR. Leaving the editor ENDS the
-// member's live editor session (the tree); the next send revives it.
+// VAPP-110 (fixtures/apps.json): THE EDITOR. #FEED-239: leaving the editor
+// no longer ends the member's editor session (it stays as it is); leaving
+// an EMPTY draft still discards it.
 //
 // #EXP-1732 (session-screen.json): the editor IS THE session screen of
 // kind `app` (an app IS its agent's session): the header (the BoardGlyph,
-// the name + the version pill over ONE subtitle line, Publish, THE gear =
-// the app's settings, the `…` = Export, Delete) and THE SegmentedControl
-// Chat · Preview · Data · Versions · Sessions · Results; wide = the chat
+// the name + the version pill over ONE subtitle line, Publish, THE `…` =
+// THE session screen menu: Compact · New conversation (sent into the
+// editor session), App settings (the opened item), Export, Delete app;
+// #FEED-239: no gear) and THE SegmentedControl Chat · Preview · Data ·
+// Versions (wide drops Chat: the chat IS the left pane); wide = the chat
 // (the member's editor session: THE chat conversation rows + THE session
 // composer) beside the tab's pane (default Preview), phones = one pane. A
 // version's Preview shows it read-only on the Preview tab with a Restore
-// banner; Restore = a new head. Sessions / Results run over the editor
-// session's tree (empty while there is none).
+// banner; Restore = a new head.
 
 const NavAppsIcon = conceptIcon(`nav-apps`)
 const UiHistoryIcon = conceptIcon(`ui-history`)
-const UiMoreIcon = conceptIcon(`ui-more`)
-const UiShareIcon = conceptIcon(`ui-share`)
-const UiSubmitIcon = conceptIcon(`ui-submit`)
-const UiDeleteIcon = conceptIcon(`ui-delete`)
 
 /** VAPP-176: `apps.discardDraft` on leaving an EMPTY draft's editor
  *  (keepalive); the server deletes it only while it is still empty. */
@@ -116,18 +114,6 @@ function discardDraft(id: string) {
     keepalive: true,
     headers: { "content-type": `application/json` },
     body: JSON.stringify({ id }),
-  }).catch(() => undefined)
-}
-
-/** `sessions.end` on the editor root, surviving navigation and tab close
- *  (keepalive). */
-function endEditorSession(sessionId: string) {
-  void fetch(`/api/trpc/sessions.end`, {
-    method: `POST`,
-    credentials: `include`,
-    keepalive: true,
-    headers: { "content-type": `application/json` },
-    body: JSON.stringify({ sessionId }),
   }).catch(() => undefined)
 }
 
@@ -379,17 +365,15 @@ export function AppEditor({
     if (root && root.status !== `ended` && deviceMovePick(next, root) === `move`) void requestDeviceMove(root.id, next)
   }
 
-  // Leaving the editor ends the live editor session (its whole tree).
   // VAPP-176: leaving an EMPTY draft (nothing ever sent) discards it.
+  // #FEED-239: leaving never ends the editor session any more.
   const rootRef = useRef<SessionRow | null>(null)
   rootRef.current = root
   const draftRef = useRef(isDraftApp(app))
   draftRef.current = isDraftApp(app)
   useEffect(() => {
     const onPageHide = () => {
-      const live = rootRef.current
-      if (live && live.status !== `ended`) endEditorSession(live.id)
-      if (!live && draftRef.current) discardDraft(app.id)
+      if (!rootRef.current && draftRef.current) discardDraft(app.id)
     }
     window.addEventListener(`pagehide`, onPageHide)
     return () => {
@@ -460,8 +444,7 @@ export function AppEditor({
     }
   }
 
-  // The delete prompt (the Settings tab's button and the phone menu's item):
-  // leaves for the Apps list.
+  // The delete prompt (THE `…`'s Delete app): leaves for the Apps list.
   const confirmDelete = async () => {
     setDeleting(true)
     try {
@@ -478,16 +461,14 @@ export function AppEditor({
     }
   }
 
-  // #EXP-1732: the editor session's tree (the Sessions tab, Results).
+  // #EXP-1732: the editor session's tree (the status word, a session
+  // opened in place).
   const tree = useMemo(
     () => (root ? teamSessions.filter((row) => (row.rootId ?? row.id) === root.id) : []),
     [teamSessions, root]
   )
   const { titles } = useSessionTitles(tree)
-  const sessionRows = useSessionTreeRows(tree, titles, root?.id ?? null)
-  const results = useResultsTab(teamId, root?.id ?? null)
-  const [review, setReview] = useState<{ open: boolean; file: string | null }>({ open: false, file: null })
-  /** A session of the editor tree opens IN PLACE (its Sessions tab); any
+  /** A session of the editor tree opens IN PLACE (the opened item); any
    *  other on its own route. */
   const openSession = (session: SessionRow) => {
     if (root && session.id !== root.id && (session.rootId ?? session.id) === root.id) {
@@ -729,8 +710,6 @@ export function AppEditor({
         app={app}
         canManage={canManage}
         canGrant={canGrant}
-        onExport={() => setExportOpen(true)}
-        onDelete={() => setDeleteOpen(true)}
       />
     </div>
   )
@@ -787,13 +766,13 @@ export function AppEditor({
     wide: !isMobile,
     requested: tab,
     open,
-    counts: { issues: 0, sessions: sessionRows.length, results: results.results.length },
+    counts: { issues: 0, sessions: 0, results: 0 },
   })
   const pickTab = (next: SessionScreenTab) => {
     setOpened(null)
     setTab(next)
   }
-  /** The opened item's `‹`: back to the tab (a requested `settings` too). */
+  /** Phones: the opened item's `‹`: back to the tab (a requested `settings` too). */
   const closeItem = () => {
     setOpened(null)
     setTab(screen.active)
@@ -803,27 +782,6 @@ export function AppEditor({
   if (screen.active === `preview`) pane = preview
   else if (screen.active === `data`) pane = <div className="h-full overflow-y-auto p-4">{dataBody}</div>
   else if (screen.active === `versions`) pane = <div className="h-full overflow-y-auto p-4">{versionsBody}</div>
-  else if (screen.active === `sessions`)
-    pane = (
-      <SessionSessionsTab
-        rows={sessionRows}
-        activeId={openSessionRow?.id ?? null}
-        onOpen={(sessionId) => setOpened({ open: `session`, sessionId })}
-      />
-    )
-  else if (screen.active === `results`)
-    pane = (
-      <SessionResultsTab
-        teamId={teamId}
-        teamSlug={teamSlug}
-        results={results}
-        pullRequest={null}
-        canMerge={isMember}
-        review={review.open}
-        file={review.file}
-        onReview={(next, file) => setReview({ open: next, file: next ? (file ?? null) : null })}
-      />
-    )
 
   const item: ReactNode =
     screen.open === `settings` ? (
@@ -832,62 +790,44 @@ export function AppEditor({
       <InPlaceSession key={openSessionRow.id} row={openSessionRow} floating={isMobile} />
     ) : null
 
-  // The header's `…` (apps.json): Export and Delete (phones: Publish first,
-  // the wide header's button).
-  const menuEntries: MenuEntry[] = [
-    ...(showPublish && isMobile
-      ? [
-          {
-            kind: `item` as const,
-            id: `publish`,
-            label: APPS_COPY.publish,
-            icon: UiSubmitIcon,
-            onSelect: () => void publish(head),
-            "data-testid": APPS_TEST_IDS.publish,
-          },
-        ]
-      : []),
-    ...(head > 0
-      ? [
-          {
-            kind: `item` as const,
-            id: `export`,
-            label: APPS_COPY.menu.export,
-            icon: UiShareIcon,
-            onSelect: () => setExportOpen(true),
-            "data-testid": `${APPS_TEST_IDS.menu}-export`,
-          },
-        ]
-      : []),
-    ...(canManage
-      ? [
-          ...(head > 0 || (showPublish && isMobile) ? [{ kind: `separator` as const, id: `sep` }] : []),
-          {
-            kind: `item` as const,
-            id: `delete`,
-            label: APPS_COPY.menu.delete,
-            icon: UiDeleteIcon,
-            destructive: true,
-            onSelect: () => setDeleteOpen(true),
-            "data-testid": `${APPS_TEST_IDS.menu}-delete`,
-          },
-        ]
-      : []),
-  ]
-  const headerMenu = (className: string) =>
-    menuEntries.length > 0 ? (
-      <Menu
-        align="end"
-        aria-label={`${app.name} actions`}
-        title={app.name}
-        entries={menuEntries}
-        trigger={
-          <Button variant="ghost" size="icon-sm" className={className} aria-label={`Menu for ${app.name}`} data-testid={APPS_TEST_IDS.menu}>
-            <UiMoreIcon />
-          </Button>
-        }
-      />
-    ) : null
+  // #FEED-239 (session-screen.json `menuCases`): the header's `…` = THE
+  // session screen menu: Publish (phones; the wide header's button) ·
+  // Compact, New conversation (sent into the editor session, the agent
+  // menu's path) · App settings (the opened item) · Export, Delete app.
+  const sendLine = async (text: string) => {
+    try {
+      const result = root
+        ? await sendSessionMessage({ teamId, sessionId: root.id, text }, SKIP_ERROR_TOAST)
+        : await sendSessionMessage({ teamId, appId: app.id, deviceId: deviceId ?? undefined, text, ...heldRunner?.send }, SKIP_ERROR_TOAST)
+      await sessionCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
+    } catch (error) {
+      failedAction(`send`, `the message`, error)
+    }
+  }
+  const menuEntries: MenuEntry[] = sessionScreenMenuRows(
+    `app`,
+    sessionScreenMenu({
+      kind: `app`,
+      phone: isMobile,
+      member: isMember,
+      linkIssue: false,
+      settings: true,
+      publish: showPublish,
+      export: head > 0,
+      delete: canManage,
+    }),
+    (entry) => {
+      const line = sessionMenuLine(entry)
+      if (line) void sendLine(line)
+      else if (entry === `publish`) void publish(head)
+      else if (entry === `settings`) setOpened({ open: `settings` })
+      else if (entry === `export`) setExportOpen(true)
+      else if (entry === `delete`) setDeleteOpen(true)
+    }
+  )
+  const headerMenu = (className: string) => (
+    <SessionScreenMenuButton entries={menuEntries} title={app.name} className={className} />
+  )
 
   // #EXP-1732 (session-screen.json STATUS WORD): THE tree's word (never
   // dropped) · apps.json `editorHeader`'s DEVICE part (the name, else `no
@@ -922,7 +862,6 @@ export function AppEditor({
             </Button>
           ) : undefined
         }
-        onGear={() => setOpened({ open: `settings` })}
         menu={headerMenu}
         onBack={() => void navigate({ to: `/t/$teamSlug/apps`, params: { teamSlug } })}
         onTab={pickTab}

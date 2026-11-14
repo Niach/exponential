@@ -2,15 +2,20 @@ import { useMemo, useState, type ReactNode } from "react"
 import { sendSessionMessage } from "@/lib/enet/send-sealed"
 import { useNavigate, useRouter } from "@tanstack/react-router"
 import {
-  agentMenuEntries,
-  AGENT_MENU_SENDS,
   CHATS_COPY,
   chatMenuEntries,
 } from "@exp/domain-contract/chats"
+import { isAssistant } from "@exp/domain-contract/agent-settings"
 import {
-  agentMenuRows,
+  SESSION_SCREEN_MENU_SENDS,
+  SESSION_SCREEN_TEST_IDS,
+  sessionScreenMenu,
+  type SessionScreenMenuEntry,
+} from "@exp/domain-contract/session-screen"
+import {
   Button,
   chatMenuRows,
+  sessionScreenMenuRows,
   conceptIcon,
   Menu,
   Prompt,
@@ -31,16 +36,18 @@ import { canSteerSession } from "@/lib/session-account-switch"
 import type { SessionRow } from "@/lib/session-tree"
 import { trpc } from "@/lib/trpc-client"
 
-// Chat 58cb32df (fixtures/chats.json `menuCases` + `agentMenuCases`): the
-// chat's and the agent's menus ×web. ONE set of entries behind every way in:
-// a chat row's right-click / long-press (kind `chat` through THE team
-// layout's `MenuGestureHost`, `menuProps(CHAT_MENU_KIND, rootId)`), the
-// chat header's `…`; the agent row's right-click / long-press (kind
-// `agent`) and the agent chat header's `…`.
+// Chat 58cb32df (fixtures/chats.json `menuCases`) + #FEED-239
+// (session-screen.json `menuCases`): the chat's and the agent's menus ×web.
+// A chat row's right-click / long-press (kind `chat` through THE team
+// layout's `MenuGestureHost`, `menuProps(CHAT_MENU_KIND, rootId)`) = Delete;
+// every session screen's `…` and an agent row's right-click / long-press
+// (kind `agent`) = THE session screen menu (`sessionScreenMenu`):
 //
-//   Delete           `sessions.delete` (the server ends what is live first)
 //   Compact / New    SEND `/compact` / `/new` (one path with the typed ones)
-//   Agent settings   the agent's settings page (owners)
+//   Agent settings   the agent's settings as the screen's opened item (a
+//                    sidebar row: that agent's chat with `?open=settings`),
+//                    never the Settings screen
+//   Delete           `sessions.delete` (the server ends what is live first)
 //
 // S-3: no Stop / End anywhere (the composer's stop-turn is the only stop).
 //
@@ -111,20 +118,57 @@ export function useChatActions(teamSlug: string | undefined): {
   return { requestDelete: setDeleting, dialog }
 }
 
+/** Whether the viewer may delete the chat: its starter or a team owner
+ *  (`sessions.delete`), while they may steer it. */
+function useCanDeleteChat(root: Pick<SessionRow, `teamId` | `shared` | `userId`> | null): boolean {
+  const { data: auth } = useSession()
+  const me = auth?.user?.id ?? null
+  const { members } = useTeamUsers(root?.teamId)
+  if (!root || !me) return false
+  const isOwner = members.some((m) => m.userId === me && m.role === `owner`)
+  return (root.userId === me || isOwner) && canSteerSession(root, me)
+}
+
 /** A chat's menu entries for the viewer (`chatMenuEntries`): the delete
  *  entries only for the chat's starter or a team owner (`sessions.delete`). */
 export function useChatMenuEntries(
   root: Pick<SessionRow, `id` | `teamId` | `status` | `shared` | `userId`> | null,
   actions: Pick<ReturnType<typeof useChatActions>, `requestDelete`>
 ): MenuEntry[] {
-  const { data: auth } = useSession()
-  const me = auth?.user?.id ?? null
-  const { members } = useTeamUsers(root?.teamId)
+  const canDelete = useCanDeleteChat(root)
   if (!root) return []
-  const isOwner = Boolean(me) && members.some((m) => m.userId === me && m.role === `owner`)
-  const canDelete = Boolean(me) && (root.userId === me || isOwner)
-  const entries = chatMenuEntries({ rootStatus: root.status, canSteer: canSteerSession(root, me), canDelete })
+  const entries = chatMenuEntries({ rootStatus: root.status, canSteer: canDelete, canDelete })
   return chatMenuRows(entries, () => actions.requestDelete(root.id))
+}
+
+/** #FEED-239: a chat's session screen menu (`sessionScreenMenu`, kind
+ *  `session`): Delete for its starter or a team owner. */
+export function useChatScreenMenuRows(
+  root: Pick<SessionRow, `id` | `teamId` | `status` | `shared` | `userId`> | null,
+  actions: Pick<ReturnType<typeof useChatActions>, `requestDelete`>,
+  /** #EXP-1834: THE link menu's rows (a member), absent = no Link entry. */
+  linkIssue?: readonly MenuEntry[]
+): MenuEntry[] {
+  const canDelete = useCanDeleteChat(root)
+  if (!root) return []
+  const entries = sessionScreenMenu({
+    kind: `session`,
+    phone: false,
+    member: false,
+    linkIssue: Boolean(linkIssue?.length),
+    settings: false,
+    publish: false,
+    export: false,
+    delete: canDelete,
+  })
+  return sessionScreenMenuRows(
+    `session`,
+    entries,
+    (entry) => {
+      if (entry === `delete`) actions.requestDelete(root.id)
+    },
+    linkIssue
+  )
 }
 
 const SelectIcon = conceptIcon(`ui-selected`)
@@ -181,18 +225,22 @@ export function ChatMenuSession({
   )
 }
 
-/** The chat header's `…`: the chat's entries (+ the host's extra rows,
- *  the Guide PR's Close). */
-export function ChatHeaderMenu({
+/** #FEED-239: THE session screen's `…` (every kind): the entries the host
+ *  builds (`sessionScreenMenuRows`, + a chat's Guide PR rows). */
+export function SessionScreenMenuButton({
   entries,
   title,
   className,
+  closeRef,
 }: {
   entries: readonly MenuEntry[]
   title: string
   className?: string
+  /** #EXP-1834: set to this menu's close (the link list's pick closes it). */
+  closeRef?: { current: () => void }
 }) {
   const [open, setOpen] = useState(false)
+  if (closeRef) closeRef.current = () => setOpen(false)
   if (entries.length === 0) return null
   return (
     <Menu
@@ -202,7 +250,7 @@ export function ChatHeaderMenu({
       aria-label={title}
       title={title}
       contentClassName="w-60"
-      data-testid="chat-header-menu"
+      data-testid={`${SESSION_SCREEN_TEST_IDS.menu}-content`}
       entries={entries}
       trigger={
         <Button
@@ -210,7 +258,7 @@ export function ChatHeaderMenu({
           variant="ghost"
           size="icon"
           aria-label="More"
-          data-testid="chat-header-more"
+          data-testid={SESSION_SCREEN_TEST_IDS.menu}
           className={className}
         >
           <MoreIcon />
@@ -221,7 +269,7 @@ export function ChatHeaderMenu({
 }
 
 
-/** An agent menu line (`AGENT_MENU_SENDS`: `/compact`, `/new`) into the
+/** A menu line (`SESSION_SCREEN_MENU_SENDS`: `/compact`, `/new`) into the
  *  viewer's conversation with the agent (or a fresh one), the failure as a
  *  toast. #EXP-1383: the Dock's "Instructions changed" banner sends its
  *  `/new` through here too, so both are one path. */
@@ -246,14 +294,28 @@ export async function sendAgentLine({
   }
 }
 
-/** The agent menu's rows (`agentMenuEntries`): Compact and New conversation
- *  SEND their builtin line; settings for owners. */
-export function useAgentMenuEntries({
+/** #FEED-239: what a menu entry sends (`menuSends`), null = not a line. */
+export function sessionMenuLine(entry: Exclude<SessionScreenMenuEntry, `separator`>): string | null {
+  return (SESSION_SCREEN_MENU_SENDS as Record<string, string>)[entry] ?? null
+}
+
+/** #FEED-239: THE session screen menu of an agent (or the Assistant):
+ *  Compact and New conversation SEND their line (members), Agent settings
+ *  (team owners; the Assistant: its owner) opens the settings as the
+ *  screen's item: `onSettings` on its own screen, else (a sidebar row)
+ *  that agent's chat with `?open=settings`. */
+export function useAgentMenuRows({
   team,
   agentId,
+  onSettings,
+  linkIssue,
 }: {
   team: Team | null | undefined
   agentId: string | null
+  /** On the agent's own screen: open the settings item there. */
+  onSettings?: () => void
+  /** #EXP-1834: on the agent's own screen, THE link menu's rows. */
+  linkIssue?: readonly MenuEntry[]
 }): MenuEntry[] {
   const navigate = useNavigate()
   const permissions = useTeamPermissions(team ?? null)
@@ -262,21 +324,39 @@ export function useAgentMenuEntries({
   const conversation = useMyAgentConversation(agentId, me)
   const { agent } = useAgentRow(agentId)
   // #EXP-1714: the viewer's global Assistant lives outside the team.
-  const inTeam = agent?.teamId === team?.id || (agent?.role === `assistant` && agent.ownerId === me)
+  const assistant = agent ? isAssistant(agent) : false
+  const inTeam = agent?.teamId === team?.id || (assistant && agent?.ownerId === me)
   if (!team || !agentId || !agent || !inTeam || !permissions.isMember) return []
-  const busy = conversation?.busy ?? false
-
-  const send = (text: string) =>
-    sendAgentLine({ teamId: team.id, agentId, conversationId: conversation?.id ?? null, text })
-  return agentMenuRows(agentMenuEntries({ busy, isOwner: permissions.isOwner }), (entry) => {
-    const line = AGENT_MENU_SENDS[entry]
-    if (line) void send(line)
-    else void navigate({ to: `/t/$teamSlug/settings/agents/$agentId`, params: { teamSlug: team.slug, agentId } })
+  const kind = assistant ? `assistant` : `agent`
+  const entries = sessionScreenMenu({
+    kind,
+    phone: false,
+    member: permissions.isMember,
+    linkIssue: Boolean(linkIssue?.length),
+    settings: assistant ? agent.ownerId === me : permissions.isOwner,
+    publish: false,
+    export: false,
+    delete: false,
   })
+  return sessionScreenMenuRows(kind, entries, (entry) => {
+    const line = sessionMenuLine(entry)
+    if (line) {
+      void sendAgentLine({ teamId: team.id, agentId, conversationId: conversation?.id ?? null, text: line })
+      return
+    }
+    if (entry !== `settings`) return
+    if (onSettings) onSettings()
+    else
+      void navigate({
+        to: `/t/$teamSlug/agents/$agentId`,
+        params: { teamSlug: team.slug, agentId },
+        search: { open: `settings` },
+      })
+  }, linkIssue)
 }
 
 /** The `agent` kind's menu at the pointer (a bubble's long-press, the
- *  rail's agent row). */
+ *  sidebar's agent row). */
 export function AgentMenuSession({
   target,
   open,
@@ -284,7 +364,7 @@ export function AgentMenuSession({
   team,
 }: MenuSessionProps & { team: Team | null }) {
   const { agent } = useAgentRow(target.id)
-  const entries = useAgentMenuEntries({ team, agentId: target.id })
+  const entries = useAgentMenuRows({ team, agentId: target.id })
   if (entries.length === 0) return null
   const title = agent?.name ?? ``
   return (
@@ -303,18 +383,24 @@ export function AgentMenuSession({
   )
 }
 
-/** The agent chat header's `…`. */
+/** The agent chat header's `…` (THE session screen menu). */
 export function AgentHeaderMenu({
   team,
   agentId,
   title,
+  onSettings,
+  linkIssue,
+  closeRef,
   className,
 }: {
   team: Team | null | undefined
   agentId: string
   title: string
+  onSettings: () => void
+  linkIssue?: readonly MenuEntry[]
+  closeRef?: { current: () => void }
   className?: string
 }) {
-  const entries = useAgentMenuEntries({ team, agentId })
-  return <ChatHeaderMenu entries={entries} title={title} className={className} />
+  const entries = useAgentMenuRows({ team, agentId, onSettings, linkIssue })
+  return <SessionScreenMenuButton entries={entries} title={title} className={className} closeRef={closeRef} />
 }

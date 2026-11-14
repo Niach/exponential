@@ -122,6 +122,24 @@ export interface HandoffEcho {
   at: number | null
 }
 
+const BRIEF_REQUEST_HEADING: string = fixture.briefRequestHeading
+const ATTACHMENT_LINE = /^!?\[[^\]]*\]\(\/api\/attachments\/[^)]*\)$/
+
+/** #FEED-239: an echo is the row's when its trimmed text equals the body,
+ *  or it is the session's BRIEFED first prompt (`## Request` + the body
+ *  without its attachment lines + the brief's other sections). */
+function echoMatches(text: string, body: string): boolean {
+  const echo = text.trim()
+  if (echo === body) return true
+  if (!echo.startsWith(BRIEF_REQUEST_HEADING)) return false
+  const prose = body
+    .split(`\n`)
+    .filter((line) => !ATTACHMENT_LINE.test(line.trim()))
+    .join(`\n`)
+    .trim()
+  return prose.length > 0 && echo.slice(BRIEF_REQUEST_HEADING.length).startsWith(prose)
+}
+
 /** HANDOFF: the consumed own rows whose transcript echo has not arrived yet
  *  (oldest first); each keeps its bubble so it never vanishes in between. */
 export function ownHandoff(input: {
@@ -150,7 +168,7 @@ export function ownHandoff(input: {
     const from = Date.parse(row.createdAt) - MESSAGE_DELIVERY_MATCH_WINDOW_MS
     const echo = input.echoes.findIndex(
       (candidate, index) =>
-        !taken.has(index) && candidate.text.trim() === body && (candidate.at == null || candidate.at >= from)
+        !taken.has(index) && echoMatches(candidate.text, body) && (candidate.at == null || candidate.at >= from)
     )
     if (echo >= 0) taken.add(echo)
     else kept.push(row.id)

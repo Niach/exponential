@@ -141,6 +141,7 @@
     "session-shell": "terminal",
     "nav-rail-collapse": "panel-left-close",
     "nav-rail-expand": "panel-left-open",
+    "ui-pane-collapse": "panel-right-close",
 
     "settings-general": "building-2",
     "settings-members": "users",

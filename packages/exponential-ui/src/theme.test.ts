@@ -319,8 +319,8 @@ describe(`#EDE-65 the IDE's chat bubble`, () => {
     // `in` = the opaque card fill (dock::card_fill = popover over the glass card) + STROKE_CARD.
     expect(bubble(`in`)).toMatchObject({ ...box, backgroundColor: exp.modes.dark.color.popover, borderColor: `#ffffff1a` })
     expect(exp.modes.dark.color.popover).toMatch(/^#[0-9a-f]{6}$/)
-    // `out` = FILL_ACTIVE + STROKE_STRONG.
-    expect(bubble(`out`)).toMatchObject({ ...box, backgroundColor: `#ffffff1c`, borderColor: `#ffffff1f` })
+    // `out` = FILL_ACTIVE + STROKE_STRONG; #FEED-239: no leading inset, it may take the whole row left of its avatar.
+    expect(bubble(`out`)).toMatchObject({ ...box, maxWidth: `100%`, backgroundColor: `#ffffff1c`, borderColor: `#ffffff1f` })
     expect(resolveRecipe(exp, { component: `MessageBubble`, part: `time`, props: {} }, `dark`).fontSize).toBe(10)
     // Neutral keeps the macro's own box (no width cap or corner from the theme).
     expect(resolveRecipe(builtinTheme(`neutral`), { component: `MessageBubble`, part: `bubble`, props: { side: `in` } }, `dark`).maxWidth).toBeUndefined()

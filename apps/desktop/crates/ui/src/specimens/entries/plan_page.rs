@@ -56,12 +56,8 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let row = row();
     let screen = domain::session_screen::session_screen("session", true, None, Some("plan"), Default::default());
     let tabs = crate::session_chat::screen_tabs(&screen.tabs, screen.active, std::rc::Rc::new(|_, _, _| {}), cx);
-    let back = crate::session_screen::back_link_row(
-        "sg-plan-page-back",
-        crate::session_chat::pane_back_label(screen.active),
-        |_, _| {},
-        cx,
-    );
+    // #FEED-239: the opened plan's pane leads with THE collapse (no back).
+    let collapse = crate::session_chat::collapse_row(std::rc::Rc::new(|_, _| {}), cx);
     let header = v_flex()
         .flex_shrink_0()
         .w_full()
@@ -71,7 +67,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         .child(crate::session_chat::title_row(&PLAN_PAGE.specimen.chat_name, false, cx))
         .child(tabs)
         .child(div().w_full().h(px(1.)).bg(cx.theme().border))
-        .child(back);
+        .child(collapse);
     let page = crate::plan_page::plan_page(
         crate::plan_page::PlanPageProps {
             row: &row,

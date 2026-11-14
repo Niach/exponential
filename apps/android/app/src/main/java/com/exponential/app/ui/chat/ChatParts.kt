@@ -577,7 +577,7 @@ fun ChatConversation(
                                         time = rowMeta?.time,
                                         onOpen = if (link != null && open != null) ({ open(link) }) else null,
                                         queued = row.queued,
-                                    ) { MarkdownView(markdown = row.body, softBreaksAsNewlines = true) }
+                                    ) { MessageFold(row.body) { MarkdownView(markdown = row.body, softBreaksAsNewlines = true) } }
                                 } else {
                                     MessageBubble(
                                         text = row.body,
@@ -687,7 +687,10 @@ fun ChatConversation(
                             author = layout.authorLine(),
                             time = null,
                             onOpen = open?.let { { it(row.sessionId) } },
-                        ) { MarkdownView(markdown = row.summary.ifEmpty { row.text }, softBreaksAsNewlines = true) }
+                        ) {
+                            val text = row.summary.ifEmpty { row.text }
+                            MessageFold(text) { MarkdownView(markdown = text, softBreaksAsNewlines = true) }
+                        }
                     }
                     is SessionTree.SessionChatRow.Suggestions -> ChatSuggestionsCard(
                         row = row,

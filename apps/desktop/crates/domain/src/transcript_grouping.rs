@@ -22,6 +22,9 @@ pub struct TranscriptMaxWidth {
     pub phone: f32,
     /// Anyone but the viewer's bubble on a phone.
     pub phone_in: f32,
+    /// #FEED-239: the viewer's own bubble, every width (the column left of
+    /// the own avatar).
+    pub own: f32,
     pub wide: f32,
 }
 
@@ -54,12 +57,24 @@ pub struct TranscriptCopy {
     pub link_chevron: String,
     /// #EXP-1772: the inline marker's label per system-input key.
     pub markers: std::collections::BTreeMap<String, String>,
+    /// #FEED-238: THE fold's text button.
+    pub show_more: String,
+    pub show_less: String,
+}
+
+/// #FEED-238 THE FOLD (`fold`): a bubble over `chars` characters or
+/// `lines` lines shows its first `lines` lines behind Show more.
+#[derive(Debug, Clone, Copy, Deserialize)]
+pub struct TranscriptFold {
+    pub lines: usize,
+    pub chars: usize,
 }
 
 #[derive(Debug, Deserialize)]
 struct Fixture {
     layout: TranscriptLayout,
     copy: TranscriptCopy,
+    fold: TranscriptFold,
 }
 
 static FIXTURE: LazyLock<Fixture> = LazyLock::new(|| {
@@ -74,6 +89,19 @@ pub fn layout() -> &'static TranscriptLayout {
 /// `copy` of transcript-grouping.json.
 pub fn copy() -> &'static TranscriptCopy {
     &FIXTURE.copy
+}
+
+/// `fold` of transcript-grouping.json.
+pub fn fold() -> &'static TranscriptFold {
+    &FIXTURE.fold
+}
+
+/// #FEED-238 THE FOLD ×4 (`messageFolds`, `foldCases`): a message bubble
+/// longer than `fold.chars` characters (UTF-16 units, the TS reference's
+/// `length`) or `fold.lines` lines folds behind Show more.
+pub fn message_folds(text: &str) -> bool {
+    let fold = fold();
+    text.encode_utf16().count() > fold.chars || text.split('\n').count() > fold.lines
 }
 
 /// What a transcript row is to the grouping.
@@ -235,7 +263,7 @@ impl TranscriptSender {
 /// Where a row sits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TranscriptSide {
-    /// The viewer's own: right, no avatar, no name.
+    /// The viewer's own: right, under the VIEWER's avatar (#FEED-239), no name.
     Own,
     /// Anyone else: left, under the sender's avatar.
     Other,
@@ -380,7 +408,8 @@ pub fn transcript_layout(input: &TranscriptInput) -> Vec<TranscriptRowLayout> {
             id: item.id.clone(),
             side,
             sender,
-            avatar: side == TranscriptSide::Other && !same_group,
+            // #FEED-239: the viewer's own group wears THEIR avatar on the right.
+            avatar: side != TranscriptSide::Full && !same_group,
             name,
             gap,
         });
@@ -699,7 +728,21 @@ mod tests {
         assert_eq!(layout.max_width.wide, 0.62);
         assert_eq!(layout.max_width.phone, 0.78);
         assert_eq!(layout.max_width.phone_in, 1.0);
+        assert_eq!(layout.max_width.own, 1.0);
         assert_eq!(copy().link_chevron, "›");
+        assert_eq!(copy().show_more, "Show more");
+        assert_eq!(copy().show_less, "Show less");
+    }
+
+    #[test]
+    fn every_fold_case_matches() {
+        let fixture = fixture();
+        let cases = fixture["foldCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            assert_eq!(message_folds(case["text"].as_str().unwrap()), case["expected"].as_bool().unwrap(), "{name}");
+        }
     }
 
     #[test]

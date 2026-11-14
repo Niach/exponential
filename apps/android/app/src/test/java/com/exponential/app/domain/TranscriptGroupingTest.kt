@@ -37,11 +37,17 @@ class TranscriptGroupingTest {
         assertEquals(maxWidth.getValue("phone").jsonPrimitive.float, TranscriptGrouping.Layout.MAX_WIDTH_PHONE, 0f)
         assertEquals(maxWidth.getValue("phoneIn").jsonPrimitive.float, TranscriptGrouping.Layout.MAX_WIDTH_PHONE_IN, 0f)
         assertEquals(maxWidth.getValue("wide").jsonPrimitive.float, TranscriptGrouping.Layout.MAX_WIDTH_WIDE, 0f)
+        assertEquals(maxWidth.getValue("own").jsonPrimitive.float, TranscriptGrouping.Layout.MAX_WIDTH_OWN, 0f)
         assertEquals(layout.getValue("radius").jsonPrimitive.int, TranscriptGrouping.Layout.RADIUS)
         assertEquals(layout.getValue("nameSize").jsonPrimitive.int, TranscriptGrouping.Layout.NAME_SIZE)
         val copy = fixture.getValue("copy").jsonObject
         assertEquals(copy.str("formerMember"), TranscriptGrouping.Copy.FORMER_MEMBER)
         assertEquals(copy.str("linkChevron"), TranscriptGrouping.Copy.LINK_CHEVRON)
+        assertEquals(copy.str("showMore"), TranscriptGrouping.Copy.SHOW_MORE)
+        assertEquals(copy.str("showLess"), TranscriptGrouping.Copy.SHOW_LESS)
+        val fold = fixture.getValue("fold").jsonObject
+        assertEquals(fold.getValue("lines").jsonPrimitive.int, TranscriptGrouping.Fold.LINES)
+        assertEquals(fold.getValue("chars").jsonPrimitive.int, TranscriptGrouping.Fold.CHARS)
         val markers = copy.getValue("markers").jsonObject.mapValues { it.value.jsonPrimitive.content }
         assertEquals(markers, TranscriptGrouping.Copy.MARKERS)
     }
@@ -95,6 +101,19 @@ class TranscriptGroupingTest {
         name = o.getValue("name").jsonPrimitive.boolean,
         gap = o.getValue("gap").jsonPrimitive.int,
     )
+
+    @Test
+    fun `every fold case matches the fixture`() {
+        val cases = fixture.getValue("foldCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            assertEquals(
+                case.str("name"),
+                case.getValue("expected").jsonPrimitive.boolean,
+                TranscriptGrouping.messageFolds(case.str("text")!!),
+            )
+        }
+    }
 
     @Test
     fun `every case matches the fixture`() {

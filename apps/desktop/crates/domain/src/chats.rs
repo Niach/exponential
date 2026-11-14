@@ -1530,6 +1530,20 @@ pub fn digest_messages(session_id: &str, digest: Option<&ConversationDigest>) ->
     out
 }
 
+/// #FEED-239 (`sidebarAgentCases`): the IDE rail's Agents group and
+/// Settings › Agents = the agents minus every app's agent (an app's agent
+/// is listed under Apps only; the chat list keeps it). `agent_id` reads an
+/// agent's id, `app_agents` = every live app's `agent_id`.
+pub fn sidebar_agents<'a, T>(
+    agents: &'a [T],
+    agent_id: impl Fn(&T) -> &str,
+    app_agents: impl IntoIterator<Item = Option<&'a str>>,
+) -> Vec<&'a T> {
+    let owned: std::collections::HashSet<&str> =
+        app_agents.into_iter().flatten().filter(|id| !id.is_empty()).collect();
+    agents.iter().filter(|agent| !owned.contains(agent_id(agent))).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2093,4 +2107,26 @@ mod tests {
         }
     }
 
+    /// #FEED-239: `sidebarAgentCases` (TS `sidebarAgents`), the ids in order.
+    #[test]
+    fn sidebar_agent_cases_match_the_fixture() {
+        let fixture = fixture();
+        let cases = fixture["sidebarAgentCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let agents = case["input"]["agents"].as_array().unwrap().clone();
+            let apps = case["input"]["apps"].as_array().unwrap();
+            let got: Vec<&str> = sidebar_agents(
+                &agents,
+                |agent| agent["agentId"].as_str().unwrap(),
+                apps.iter().map(|app| app["agentId"].as_str()),
+            )
+            .into_iter()
+            .map(|agent| agent["agentId"].as_str().unwrap())
+            .collect();
+            let expected: Vec<&str> =
+                case["expected"].as_array().unwrap().iter().map(|id| id.as_str().unwrap()).collect();
+            assert_eq!(got, expected, "{}", case["name"]);
+        }
+    }
 }

@@ -1438,10 +1438,13 @@ final class StyleguideScreenshots: XCTestCase {
                 let editItem = anyElement(app, identified: "app-menu-edit")
                 expect(editItem, within: Wait.nav, "Ops desk's menu has no Edit app")
                 editItem.tap()
-                // #EXP-1732: Settings = THE gear's page (an opened item).
-                let gear = anyElement(app, identified: "session-gear")
-                expect(gear, within: Wait.sync, "Ops desk's editor has no gear")
-                gear.tap()
+                // #FEED-239: App settings = THE `…`'s entry (an opened item).
+                let menu = anyElement(app, identified: "session-menu")
+                expect(menu, within: Wait.sync, "Ops desk's editor has no … menu")
+                menu.tap()
+                let settingsItem = anyElement(app, identified: "app-menu-settings")
+                expect(settingsItem, within: Wait.nav, "Ops desk's … menu has no App settings")
+                settingsItem.tap()
                 let sheet = anyElement(app, identified: "app-editor-settings")
                 expect(sheet, within: Wait.sync, "Ops desk's Settings page never opened")
                 expect(anyElement(app, identified: "app-settings-share-links"), within: Wait.network, "Ops desk's Settings drew no Public links")
@@ -1464,7 +1467,7 @@ final class StyleguideScreenshots: XCTestCase {
 
         if wanted(["sg_app-publish", "sg_app-versions-sweep", "sg_app-version-preview"]) {
             openAppEditor(app, slug: "team-dashboard")
-            let menu = anyElement(app, identified: "app-editor-menu")
+            let menu = anyElement(app, identified: "session-menu")
             expect(menu, within: Wait.sync, "Team dashboard's editor has no … menu")
             menu.tap()
             let publish = anyElement(app, identified: "app-editor-publish")
@@ -1681,16 +1684,20 @@ final class StyleguideScreenshots: XCTestCase {
         settle(1)
     }
 
-    /// #EXP-1732 (session-screen.json `gear`): the editor header's gear
-    /// (`session-gear`) → the app's settings page (an opened item, gated on
-    /// its container) → `sg_app-settings` → back; ends on the editor.
+    /// #FEED-239 (session-screen.json `menuCases`): the editor header's `…`
+    /// (`session-menu`) › App settings → the app's settings page (an opened
+    /// item, gated on its container) → `sg_app-settings` → back; ends on the
+    /// editor.
     @MainActor
     private func walkAppSettings(_ app: XCUIApplication) {
-        let gear = anyElement(app, identified: "session-gear")
-        expect(gear, within: Wait.nav, "The \(Self.appName) editor has no gear")
-        gear.tap()
+        let menu = anyElement(app, identified: "session-menu")
+        expect(menu, within: Wait.nav, "The \(Self.appName) editor has no … menu")
+        menu.tap()
+        let settingsItem = anyElement(app, identified: "app-menu-settings")
+        expect(settingsItem, within: Wait.nav, "The editor's … menu has no App settings")
+        settingsItem.tap()
         let container = anyElement(app, identified: "app-editor-settings")
-        expect(container, within: Wait.sync, "The gear opened no app-editor-settings page")
+        expect(container, within: Wait.sync, "App settings opened no app-editor-settings page")
         snapshot("sg_app-settings", settle: 2)
         goBack(app)
         settle(1)
@@ -1701,7 +1708,7 @@ final class StyleguideScreenshots: XCTestCase {
     /// editor (#EXP-1650: over the Chat segment, like web-mobile).
     @MainActor
     private func walkAppExport(_ app: XCUIApplication) {
-        let menu = anyElement(app, identified: "app-editor-menu")
+        let menu = anyElement(app, identified: "session-menu")
         expect(menu, within: Wait.nav, "The \(Self.appName) editor has no … menu")
         menu.tap()
         let exportItem = anyElement(app, identified: "app-menu-export")

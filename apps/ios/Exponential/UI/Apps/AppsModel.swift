@@ -23,6 +23,9 @@ struct AppListEntry: Identifiable, Equatable, Sendable {
     let draftPackage: String?
     /// VAPP-120: the typed actions granted (the synced row, as stored).
     let grantedTools: [String]
+    /// #EXP-1730: the app's agent (`apps.agent_id`); #FEED-239: the sidebar
+    /// and Settings › Agents leave it out (`Chats.sidebarAgents`).
+    let agentId: String?
 
     init(row: AppEntity) {
         id = row.id
@@ -38,6 +41,7 @@ struct AppListEntry: Identifiable, Equatable, Sendable {
         package = row.package
         draftPackage = row.draftPackage
         grantedTools = row.grantedTools
+        agentId = row.agentId
     }
 
     /// eApps V1: the two pointers (`Apps.shownVersion`, `listPill`, …).

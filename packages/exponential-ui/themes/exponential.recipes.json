@@ -59,7 +59,7 @@
     "Table": { "row": [ { "when": { "state": "hover" }, "style": { "backgroundColor": "$color.secondary" } }, { "when": { "striped": true }, "style": { "backgroundColor": "$color.card" } } ] },
     "FileUpload": { "dropzone": [ { "style": { "backgroundColor": "$color.card", "borderColor": "$color.border" } }, { "when": { "state": "dragover" }, "style": { "backgroundColor": "$color.accent", "borderColor": "$color.ring" } } ] },
     "Sidebar": { "sidebar": [ { "style": { "backgroundColor": "$color.card" } } ] },
-    "MessageBubble": { "bubble": [ { "style": { "backgroundColor": "$color.popover", "color": "$color.popoverForeground", "borderWidth": "$border.hairline", "borderColor": "$color.border", "borderRadius": 16, "borderTopLeftRadius": 16, "paddingHorizontal": 14, "paddingVertical": 10, "maxWidth": "62%" } }, { "when": { "side": "out" }, "style": { "backgroundColor": "$color.accent", "color": "$color.accentForeground", "borderColor": "$color.borderStrong" } } ], "time": [ { "style": { "fontSize": 10 } } ] },
+    "MessageBubble": { "bubble": [ { "style": { "backgroundColor": "$color.popover", "color": "$color.popoverForeground", "borderWidth": "$border.hairline", "borderColor": "$color.border", "borderRadius": 16, "borderTopLeftRadius": 16, "paddingHorizontal": 14, "paddingVertical": 10, "maxWidth": "62%" } }, { "when": { "side": "out" }, "style": { "backgroundColor": "$color.accent", "color": "$color.accentForeground", "borderColor": "$color.borderStrong", "maxWidth": "100%" } } ], "time": [ { "style": { "fontSize": 10 } } ] },
     "KeyRecorder": {
       "field": [ { "style": { "paddingHorizontal": 7, "paddingVertical": 3.5, "borderRadius": 5.25 } } ],
       "none": [ { "style": { "fontSize": 12.25, "lineHeight": 19.82 } } ],

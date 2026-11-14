@@ -6443,7 +6443,15 @@
               "display": "flex",
               "flexDirection": "column",
               "gap": "$spacing.xxs",
-              "maxWidth": "80%",
+              "maxWidth": {
+                "$map": {
+                  "from": "props.side",
+                  "cases": {
+                    "out": "100%"
+                  },
+                  "default": "80%"
+                }
+              },
               "minWidth": 0,
               "paddingHorizontal": "$spacing.md",
               "paddingVertical": "$spacing.sm",
@@ -6561,6 +6569,15 @@
                 ]
               }
             ]
+          },
+          {
+            "$slot": "avatar",
+            "$if": {
+              "$eq": [
+                "{props.side|in}",
+                "out"
+              ]
+            }
           }
         ]
       }

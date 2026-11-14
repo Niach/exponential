@@ -6,6 +6,9 @@
 //! `MessageDelivery.swift`, Android `MessageDelivery.kt`.
 
 use std::collections::HashSet;
+use std::sync::LazyLock;
+
+use regex::Regex;
 
 use serde::{Deserialize, Serialize};
 
@@ -17,6 +20,9 @@ pub const MATCH_WINDOW_MS: i64 = 60_000;
 /// How long after its row was consumed an own bubble waits for the
 /// transcript's echo before it stops holding (`handoffMaxMs`).
 pub const HANDOFF_MAX_MS: i64 = 60_000;
+/// #FEED-239: the heading a BRIEFED first prompt opens with
+/// (`briefRequestHeading`).
+pub const BRIEF_REQUEST_HEADING: &str = "## Request\n\n";
 /// The mark's size beside the bubble's `HH:mm` (`markSize`).
 pub const MARK_SIZE: f32 = 14.0;
 /// The mark's test id (`testIds.status`).
@@ -311,6 +317,26 @@ pub struct HandoffEcho {
     pub at: Option<i64>,
 }
 
+static ATTACHMENT_LINE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^!?\[[^\]]*\]\(/api/attachments/[^)]*\)$").expect("attachment line regex"));
+
+/// #FEED-239 (`echoMatches`): an echo is the row's when its trimmed text
+/// equals the body, or it is the session's BRIEFED first prompt
+/// (`## Request` + the body without its attachment lines + the brief's
+/// other sections). `body` arrives trimmed.
+fn echo_matches(text: &str, body: &str) -> bool {
+    let echo = text.trim();
+    if echo == body {
+        return true;
+    }
+    let Some(rest) = echo.strip_prefix(BRIEF_REQUEST_HEADING) else {
+        return false;
+    };
+    let prose = body.split('\n').filter(|line| !ATTACHMENT_LINE.is_match(line.trim())).collect::<Vec<_>>().join("\n");
+    let prose = prose.trim();
+    !prose.is_empty() && rest.starts_with(prose)
+}
+
 /// HANDOFF (`ownHandoff`): the consumed own rows whose transcript echo has
 /// not arrived yet (oldest first, ties by id); each keeps its bubble so it
 /// never vanishes in between. `now` = epoch ms.
@@ -337,7 +363,7 @@ pub fn own_handoff(viewer_id: &str, now: i64, feed_empty: bool, rows: &[HandoffR
         let echo = echoes
             .iter()
             .enumerate()
-            .position(|(index, echo)| !taken.contains(&index) && echo.text.trim() == body && echo.at.is_none_or(|at| at >= from));
+            .position(|(index, echo)| !taken.contains(&index) && echo_matches(&echo.text, body) && echo.at.is_none_or(|at| at >= from));
         match echo {
             Some(index) => {
                 taken.insert(index);
@@ -531,6 +557,7 @@ mod tests {
             assert_eq!(fixture.copy.menu.get(action.as_str()).map(String::as_str), Some(action.label()));
         }
         assert!(fixture_comment_names_the_toast());
+        assert!(FIXTURE_JSON.contains("\"briefRequestHeading\": \"## Request\\n\\n\""));
     }
 
     fn fixture_comment_names_the_toast() -> bool {

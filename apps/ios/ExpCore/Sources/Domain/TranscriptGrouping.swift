@@ -21,6 +21,9 @@ public enum TranscriptGrouping {
         /// Anyone but the viewer's bubble on a phone.
         public static let maxWidthPhoneIn: CGFloat = 1
         public static let maxWidthWide: CGFloat = 0.62
+        /// #FEED-239: the viewer's OWN bubble on every width (the column
+        /// left of the own avatar; no left inset).
+        public static let maxWidthOwn: CGFloat = 1
         public static let radius: CGFloat = 16
         public static let nameSize: CGFloat = 12
     }
@@ -29,6 +32,9 @@ public enum TranscriptGrouping {
     public enum Copy {
         public static let formerMember = "Former member"
         public static let linkChevron = "›"
+        /// #FEED-238 THE FOLD's text button.
+        public static let showMore = "Show more"
+        public static let showLess = "Show less"
         /// #EXP-1772 `copy.markers`: a system input's marker label by key.
         public static let markers: [String: String] = [
             "schedule": "Schedule",
@@ -184,7 +190,8 @@ public enum TranscriptGrouping {
         public let id: String
         public let side: Side
         public let sender: Sender?
-        /// The sender's avatar beside this row (a group's first, not own).
+        /// The sender's avatar beside this row (a group's first; #FEED-239:
+        /// own groups too, the viewer's avatar on the RIGHT).
         public let avatar: Bool
         /// The sender's name on this row (a group's first message, not own).
         public let name: Bool
@@ -274,13 +281,27 @@ public enum TranscriptGrouping {
                 id: item.id,
                 side: side,
                 sender: sender,
-                avatar: side == .other && !sameGroup,
+                // #FEED-239: the viewer's own group wears THEIR avatar on the right.
+                avatar: side != .full && !sameGroup,
                 name: name,
                 gap: out.isEmpty ? 0 : sameGroup ? Layout.gapInGroup : Layout.gapBetween
             ))
             prevKey = key
         }
         return out
+    }
+
+    /// #FEED-238 THE FOLD ×4 (fixture `fold`).
+    public enum Fold {
+        public static let lines = 6
+        public static let chars = 600
+    }
+
+    /// THE FOLD (`foldCases`): a message bubble longer than `Fold.chars`
+    /// characters (UTF-16, as the TS reference counts) or `Fold.lines` lines
+    /// folds behind Show more.
+    public static func messageFolds(_ text: String) -> Bool {
+        text.utf16.count > Fold.chars || text.components(separatedBy: "\n").count > Fold.lines
     }
 
     /// A session input as the device words it (`coding::pickup::input_text`).

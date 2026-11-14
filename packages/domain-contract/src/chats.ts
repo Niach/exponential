@@ -826,3 +826,14 @@ export function agentInstructionsChanged(input: {
 
 /** #EXP-1383: the banner row itself (dock.json kind `banner`). */
 export const AGENT_HINT_BANNER = fixture.agentHint.banner
+
+/** #FEED-239 (`sidebarAgentCases`): the sidebar's Agents group and
+ *  Settings › Agents = the agents minus every app's agent (an app's agent
+ *  is listed under Apps only; the chat list keeps it). */
+export function sidebarAgents<T extends { agentId: string }>(
+  agents: readonly T[],
+  apps: readonly { agentId: string | null | undefined }[]
+): T[] {
+  const owned = new Set(apps.map((app) => app.agentId).filter((id): id is string => Boolean(id)))
+  return agents.filter((agent) => !owned.has(agent.agentId))
+}

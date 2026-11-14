@@ -38,13 +38,31 @@ final class TranscriptGroupingTests: XCTestCase {
         XCTAssertEqual(try number(maxWidth["phone"]), TranscriptGrouping.Layout.maxWidthPhone)
         XCTAssertEqual(try number(maxWidth["phoneIn"]), TranscriptGrouping.Layout.maxWidthPhoneIn)
         XCTAssertEqual(try number(maxWidth["wide"]), TranscriptGrouping.Layout.maxWidthWide)
+        XCTAssertEqual(try number(maxWidth["own"]), TranscriptGrouping.Layout.maxWidthOwn)
         XCTAssertEqual(try number(layout["radius"]), TranscriptGrouping.Layout.radius)
         XCTAssertEqual(try number(layout["nameSize"]), TranscriptGrouping.Layout.nameSize)
         let copy = try XCTUnwrap(fixture["copy"] as? [String: Any])
-        XCTAssertEqual(Set(copy.keys), ["formerMember", "linkChevron", "markers"])
+        XCTAssertEqual(Set(copy.keys), ["formerMember", "linkChevron", "showMore", "showLess", "markers"])
+        XCTAssertEqual(copy["showMore"] as? String, TranscriptGrouping.Copy.showMore)
+        XCTAssertEqual(copy["showLess"] as? String, TranscriptGrouping.Copy.showLess)
         XCTAssertEqual(copy["formerMember"] as? String, TranscriptGrouping.Copy.formerMember)
         XCTAssertEqual(copy["linkChevron"] as? String, TranscriptGrouping.Copy.linkChevron)
         XCTAssertEqual(copy["markers"] as? [String: String], TranscriptGrouping.Copy.markers)
+    }
+
+    func testFoldReplaysEveryCase() throws {
+        let fixture = try fixture()
+        let fold = try XCTUnwrap(fixture["fold"] as? [String: Any])
+        XCTAssertEqual((fold["lines"] as? NSNumber)?.intValue, TranscriptGrouping.Fold.lines)
+        XCTAssertEqual((fold["chars"] as? NSNumber)?.intValue, TranscriptGrouping.Fold.chars)
+        let cases = try XCTUnwrap(fixture["foldCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for entry in cases {
+            let name = string(entry["name"]) ?? ""
+            let text = try XCTUnwrap(string(entry["text"]), name)
+            let expected = try XCTUnwrap(entry["expected"] as? Bool, name)
+            XCTAssertEqual(TranscriptGrouping.messageFolds(text), expected, name)
+        }
     }
 
     private func named(_ rows: Any?) throws -> [TranscriptGrouping.Named] {

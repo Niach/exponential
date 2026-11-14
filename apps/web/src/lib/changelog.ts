@@ -32,6 +32,20 @@ export const CHANGELOG: ChangelogEntry[] = [
     body: `- **My issues**: the tab counts and lists the issues assigned to you on the board you are looking at, not across every board of the team.\n- **Board tabs**: All issues, My issues and Drafts now use the same tab strip as a session.`,
   },
   {
+    id: `2026-11-14-one-chat-shell`,
+    date: `2026-11-14`,
+    title: `One menu for every chat`,
+    summary: `Chats, agents and apps share one \`…\` menu with settings opening beside the chat, a collapse button instead of Back, your own picture on your messages, and long messages fold.`,
+    body: `- **One \`…\` menu**: a chat, an agent, the Assistant and an app now share the same menu: Link or file an issue (chats and agents), Compact conversation, New conversation, the agent or app settings, then Export and Delete. The settings gear in the header and the + over the Issues tab are gone.
+- **Empty tabs**: Issues, Sessions and Results stay greyed out until there is something in them.
+- **Settings beside the chat**: Agent settings and App settings open next to the conversation on wide screens and as their own page on phones, never on the Settings screen. Right-clicking an agent in the sidebar offers the same menu.
+- **Collapse**: on wide screens the pane next to the chat starts with a collapse button that brings the chat back to full width; pressing a tab, even the one already selected, closes whatever was open over it.
+- **Apps**: the editor's tabs are Preview, Data and Versions, with the chat always on the left; Export and Delete app moved from the app's settings into the \`…\` menu, and leaving the editor no longer stops its session.
+- **Sidebar**: an app's agent is listed under Apps only, in the sidebar and in Settings › Agents.
+- **Your messages**: your own messages carry your picture on the right and may use the full width of the conversation.
+- **Long messages**: every message longer than six lines, including reports from other sessions, folds behind Show more, and long links or codes wrap instead of stretching the bubble.`,
+  },
+  {
     id: `2026-11-14-sidebar-folders`,
     date: `2026-11-14`,
     title: `Sidebar folders`,

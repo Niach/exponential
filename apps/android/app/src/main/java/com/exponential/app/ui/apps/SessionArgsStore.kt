@@ -27,10 +27,20 @@ import androidx.navigation.NavBackStackEntry
  * [com.exponential.app.ui.components.PageViewModelStore] rule).
  */
 @Composable
-fun SessionArgsStore(sessionId: String, content: @Composable () -> Unit) {
-    val parent = checkNotNull(LocalViewModelStoreOwner.current) { "SessionArgsStore needs a ViewModelStoreOwner" }
+fun SessionArgsStore(sessionId: String, content: @Composable () -> Unit) =
+    ArgsStore("sessionId", sessionId, content)
+
+/**
+ * The [SessionArgsStore] rule for any one route argument: view models inside
+ * [content] read [key] = [value] from their SavedStateHandle (#FEED-239: an
+ * agent's settings opened IN the chat read `agentId` as on
+ * `settings/agent/{agentId}`). Cleared when it leaves composition.
+ */
+@Composable
+fun ArgsStore(key: String, value: String, content: @Composable () -> Unit) {
+    val parent = checkNotNull(LocalViewModelStoreOwner.current) { "ArgsStore needs a ViewModelStoreOwner" }
     val context = LocalContext.current
-    val owner = remember(parent, sessionId) {
+    val owner = remember(parent, key, value) {
         val factory: ViewModelProvider.Factory = when (parent) {
             is NavBackStackEntry -> HiltViewModelFactory(context, parent.defaultViewModelProviderFactory)
             is HasDefaultViewModelProviderFactory -> parent.defaultViewModelProviderFactory
@@ -39,15 +49,14 @@ fun SessionArgsStore(sessionId: String, content: @Composable () -> Unit) {
         val base = (parent as? HasDefaultViewModelProviderFactory)?.defaultViewModelCreationExtras ?: CreationExtras.Empty
         val extras = MutableCreationExtras(base).apply {
             val args = Bundle(base[DEFAULT_ARGS_KEY] ?: Bundle())
-            args.putString("sessionId", sessionId)
+            args.putString(key, value)
             set(DEFAULT_ARGS_KEY, args)
         }
         ArgsOwner(factory, extras).also { owner ->
             // Release train 2026-10-23 (VAPP-110): `createSavedStateHandle`
             // caches each view model's handle in the VIEW_MODEL_STORE_OWNER's
             // store under the view model's key; left on the editor screen's
-            // entry, a new [sessionId] would get the old handle (old
-            // sessionId). Keyed to this owner, the handle dies with it.
+            // entry, a new [value] would get the old handle (old value). Keyed to this owner, the handle dies with it.
             extras[VIEW_MODEL_STORE_OWNER_KEY] = owner
         }
     }

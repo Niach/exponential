@@ -7,7 +7,12 @@
 //!
 //!   Delete           `sessions.delete` (the server ends what is live first)
 //!   Compact / New    SEND `/compact` / `/new` (one path with the typed ones)
-//!   Agent settings   the agent's settings page (owners)
+//!   Agent settings   the agent's settings IN its chat (owners; #FEED-239:
+//!                    never a navigation to the Settings screen)
+//!
+//! #FEED-239: every `…` is THE session screen menu
+//! (session-screen.json `sessionScreenMenu`): [`screen_menu_items`] draws
+//! its entries for a chat, an agent, the Assistant and an app alike.
 //!
 //! S-3 (owner 2026-10-28): no Stop/End entry anywhere; the composer's
 //! stop-turn is the one stop.
@@ -15,11 +20,18 @@
 //! A delete asks first (`copy.confirmDelete`); after it the chat's tab and
 //! screen close back to the list. Failures toast `copy.toasts.*`.
 
-use gpui::{App, SharedString, Window};
-use gpui_component::menu::PopupMenu;
+use std::rc::Rc;
 
-use domain::chats::{agent_menu_entries, chat_menu_entries, AgentMenuEntry, ChatMenuEntry, CHATS};
+use gpui::{div, px, AnyElement, App, IntoElement as _, ParentElement as _, SharedString, Styled as _, Window};
+use gpui_component::menu::PopupMenu;
+use gpui_component::Icon;
+
+use domain::chats::{chat_menu_entries, ChatMenuEntry, CHATS};
 use domain::rows::SessionRow;
+use domain::session_screen::{
+    session_screen_menu, session_screen_menu_icon, session_screen_menu_label, SessionScreenKind,
+    SessionScreenMenuEntry, SessionScreenMenuInput, SESSION_SCREEN,
+};
 
 use crate::icons::registry;
 use crate::navigation::Screen;
@@ -304,58 +316,145 @@ fn close_chat_screens(root_id: &str, cx: &mut App) {
     }
 }
 
-/// The agent menu's entries for the viewer (`agentMenuEntries`): busy =
-/// the viewer's conversation with it works; settings for team owners.
-pub(crate) fn agent_entries(agent_id: &str, cx: &App) -> Vec<AgentMenuEntry> {
-    let Some(team_id) = crate::session_data::agent_def(agent_id, cx).and_then(|agent| agent.team_id) else {
-        return Vec::new();
-    };
-    if !crate::settings::is_member(cx, &team_id) {
-        return Vec::new();
-    }
-    let busy = crate::session_data::my_conversation(agent_id, cx).is_some_and(|row| row.busy);
-    agent_menu_entries(busy, crate::settings::is_owner(cx, &team_id))
-}
+/// A `…` entry's press.
+pub(crate) type OnMenuEntry = Rc<dyn Fn(SessionScreenMenuEntry, &mut Window, &mut App)>;
 
-/// Append the agent's entries to `menu` (the rail row's right-click, the
-/// agent chat header's `…`): the conversation pair, a rule, then Agent
-/// settings.
-pub(crate) fn agent_menu_items(menu: PopupMenu, agent_id: &str, cx: &App) -> PopupMenu {
-    let entries = agent_entries(agent_id, cx);
-    agent_entry_items(menu, agent_id, &entries)
-}
-
-/// THE agent menu's rows for `entries` (the styleguide's specimen too).
-pub(crate) fn agent_entry_items(mut menu: PopupMenu, agent_id: &str, entries: &[AgentMenuEntry]) -> PopupMenu {
-    for (index, entry) in entries.iter().copied().enumerate() {
-        if index > 0 && entry == AgentMenuEntry::Settings {
-            menu = menu.separator();
-        }
-        let agent_id = agent_id.to_string();
-        let icon = registry::concept_by_name(entry.icon());
-        menu = menu.item(crate::controls::pointer_menu_item(icon, entry.label(), |_| None, move |window, cx| {
-            run_agent_entry(entry, &agent_id, window, cx);
-        }));
+/// #FEED-239 THE `…`'s rows (session-screen.json `sessionScreenMenu`):
+/// `entries` in order, labels `copy.menu` by `kind`, icons `menuIcons`,
+/// Delete destructive, a rule per `Separator`.
+pub(crate) fn screen_menu_items(
+    mut menu: PopupMenu,
+    kind: &str,
+    entries: &[SessionScreenMenuEntry],
+    on_entry: OnMenuEntry,
+) -> PopupMenu {
+    for entry in entries.iter().copied() {
+        let label = session_screen_menu_label(kind, entry);
+        let icon = registry::concept_by_name(session_screen_menu_icon(entry));
+        let on_entry = on_entry.clone();
+        menu = match entry {
+            SessionScreenMenuEntry::Separator => menu.separator(),
+            SessionScreenMenuEntry::Delete => menu.item(crate::controls::danger_pointer_menu_item(
+                icon.unwrap_or(registry::UI_DELETE),
+                label,
+                move |window, cx| on_entry(entry, window, cx),
+            )),
+            _ => menu.item(crate::controls::pointer_menu_item(icon, label, |_| None, move |window, cx| {
+                on_entry(entry, window, cx)
+            })),
+        };
     }
     menu
 }
 
-fn run_agent_entry(entry: AgentMenuEntry, agent_id: &str, window: &mut Window, cx: &mut App) {
-    if let Some(line) = entry.sends() {
-        send_to_agent(agent_id, line, cx);
-        return;
+/// THE `…` trigger of the session screen header (the ghost `ui-more`,
+/// testId `testIds.menu`) over `build`'s rows; `None` = no entries.
+pub(crate) fn screen_menu_button(
+    has_entries: bool,
+    build: impl Fn(PopupMenu, &mut Window, &mut gpui::Context<PopupMenu>) -> PopupMenu + 'static,
+    cx: &App,
+) -> Option<AnyElement> {
+    if !has_entries {
+        return None;
     }
+    let trigger = crate::controls::ghost_icon_button(
+        SharedString::from(SESSION_SCREEN.test_ids.menu.clone()),
+        Icon::new(registry::UI_MORE),
+        cx,
+    )
+    .accessibility_label("More");
+    Some(
+        div()
+            .flex_shrink_0()
+            .mr(px(-crate::work_header::GHOST_ICON_HANG))
+            .child(crate::controls::PointerMenu::for_button(trigger, build))
+            .into_any_element(),
+    )
+}
+
+/// A chat's `…` entries (kind `session`: Delete for its starter or an
+/// owner, when the viewer may steer it).
+pub(crate) fn chat_screen_entries(root_id: &str, link_issue: bool, cx: &App) -> Vec<SessionScreenMenuEntry> {
+    let delete = chat_entries(root_id, cx).contains(&ChatMenuEntry::Delete);
+    session_screen_menu(SessionScreenMenuInput {
+        kind: SessionScreenKind::Session.as_str(),
+        link_issue,
+        delete,
+        ..Default::default()
+    })
+}
+
+/// A chat's `…` press (Delete asks first).
+pub(crate) fn run_chat_screen_entry(entry: SessionScreenMenuEntry, root_id: &str, window: &mut Window, cx: &mut App) {
+    if entry == SessionScreenMenuEntry::Delete {
+        confirm_delete(root_id, window, cx);
+    }
+}
+
+/// The agent's kind (`agent` | `assistant`) and its `…` entries for the
+/// viewer: the conversation pair for a member, settings for a team owner
+/// (the Assistant: its owner).
+pub(crate) fn agent_screen_entries(
+    agent_id: &str,
+    link_issue: bool,
+    cx: &App,
+) -> (SessionScreenKind, Vec<SessionScreenMenuEntry>) {
+    let Some(agent) = crate::session_data::agent_def(agent_id, cx) else {
+        return (SessionScreenKind::Agent, Vec::new());
+    };
+    let me = crate::queries::active_account(cx).map(|account| account.user_id);
+    let assistant = agent.is_assistant();
+    let kind = if assistant { SessionScreenKind::Assistant } else { SessionScreenKind::Agent };
+    let team = agent.team_id.as_deref();
+    let mine = me.is_some() && agent.owner_id == me;
+    let member = team.is_some_and(|team_id| crate::settings::is_member(cx, team_id)) || (assistant && mine);
+    if !member {
+        return (kind, Vec::new());
+    }
+    let settings = if assistant { mine } else { team.is_some_and(|team_id| crate::settings::is_owner(cx, team_id)) };
+    let entries = session_screen_menu(SessionScreenMenuInput {
+        kind: kind.as_str(),
+        member,
+        link_issue,
+        settings,
+        ..Default::default()
+    });
+    (kind, entries)
+}
+
+/// The agent's `…` press: Compact / New SEND `menuSends` into the viewer's
+/// conversation; settings = `on_settings` (the header: the pane; a row:
+/// [`crate::agent_screen::open_agent_settings`]).
+pub(crate) fn run_agent_screen_entry(
+    entry: SessionScreenMenuEntry,
+    agent_id: &str,
+    on_settings: &dyn Fn(&mut Window, &mut App),
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let sends = &SESSION_SCREEN.menu_sends;
     match entry {
-        AgentMenuEntry::Settings => {
-            crate::sidebar::select_settings_section(
-                window,
-                cx,
-                crate::settings::SettingsSection::Agent(agent_id.to_string()),
-            );
-            crate::navigation::navigate(window, cx, Screen::Settings);
-        }
-        AgentMenuEntry::Compact | AgentMenuEntry::NewConversation => {}
+        SessionScreenMenuEntry::Compact => send_to_agent(agent_id, &sends.compact, cx),
+        SessionScreenMenuEntry::NewConversation => send_to_agent(agent_id, &sends.new_conversation, cx),
+        SessionScreenMenuEntry::Settings => on_settings(window, cx),
+        _ => {}
     }
+}
+
+/// A rail / chat-list agent row's right-click: THE `…` of its chat (kind
+/// agent / assistant, phone false); its settings open that agent's chat
+/// with the settings open.
+pub(crate) fn agent_menu_items(menu: PopupMenu, agent_id: &str, cx: &App) -> PopupMenu {
+    let (kind, entries) = agent_screen_entries(agent_id, false, cx);
+    let id = agent_id.to_string();
+    let on_entry: OnMenuEntry = Rc::new(move |entry, window, cx| {
+        let target = id.clone();
+        let on_settings = move |window: &mut Window, cx: &mut App| {
+            crate::agent_screen::open_agent_settings(window, cx, target.clone())
+        };
+        run_agent_screen_entry(entry, &id, &on_settings, window, cx);
+    });
+    screen_menu_items(menu, kind.as_str(), &entries, on_entry)
 }
 
 /// Compact / New conversation SEND their builtin line through THE send path
@@ -432,9 +531,17 @@ mod tests {
     #[test]
     fn the_entries_read_the_fixture_copy() {
         assert_eq!(ChatMenuEntry::Delete.label(), "Delete");
-        assert_eq!(AgentMenuEntry::NewConversation.label(), "New conversation");
-        for entry in [AgentMenuEntry::Compact, AgentMenuEntry::NewConversation, AgentMenuEntry::Settings] {
-            assert!(registry::concept_by_name(entry.icon()).is_some(), "{entry:?}");
+        assert_eq!(session_screen_menu_label("agent", SessionScreenMenuEntry::NewConversation), "New conversation");
+        // #FEED-239: every `…` entry's icon is a registry concept.
+        for entry in [
+            SessionScreenMenuEntry::Publish,
+            SessionScreenMenuEntry::Compact,
+            SessionScreenMenuEntry::NewConversation,
+            SessionScreenMenuEntry::Settings,
+            SessionScreenMenuEntry::Export,
+            SessionScreenMenuEntry::Delete,
+        ] {
+            assert!(registry::concept_by_name(session_screen_menu_icon(entry)).is_some(), "{entry:?}");
         }
     }
 }

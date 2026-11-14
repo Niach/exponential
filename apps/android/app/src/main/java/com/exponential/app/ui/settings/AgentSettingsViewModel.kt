@@ -96,10 +96,21 @@ class AgentSettingsViewModel @Inject constructor(
         sessionRows,
         teamId,
         auth.userId,
-        dbFlow.scopedQuery(emptyList()) { it.teamDao().observeAll() },
-    ) { defs, sessions, team, me, teams ->
+        // #FEED-239 (`sidebarAgents`): an app's agent is listed under Apps only.
+        combine(
+            dbFlow.scopedQuery(emptyList()) { it.teamDao().observeAll() },
+            dbFlow.scopedQuery(emptyList()) { it.appDao().observeAll() },
+        ) { teams, apps -> teams to apps },
+    ) { defs, sessions, team, me, (teams, apps) ->
         // #EXP-1714: `teamIds` brings the viewer's global Assistant along.
-        if (team == null) emptyList() else SessionTree.listAgents(defs.map(SessionTree::agentDefinition), sessions, team, me, teams.map { it.id })
+        if (team == null) {
+            emptyList()
+        } else {
+            com.exponential.app.domain.Chats.sidebarAgents(
+                SessionTree.listAgents(defs.map(SessionTree::agentDefinition), sessions, team, me, teams.map { it.id }),
+                apps.map { it.agentId },
+            ) { it.agentId }
+        }
     }.flowOn(Dispatchers.Default).stateIn<List<SessionTree.AgentRow>?>(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** #EXP-1735: the Lead Assistant row: its options (null id = None) and

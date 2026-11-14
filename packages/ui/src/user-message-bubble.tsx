@@ -2,8 +2,9 @@ import { useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } 
 import type { DeliveryState } from "@exp/domain-contract/message-delivery"
 import { MESSAGE_DELIVERY_TEST_IDS } from "@exp/domain-contract/message-delivery"
 import type { TranscriptRowLayout, TranscriptSender } from "@exp/domain-contract/transcript-grouping"
-import { TRANSCRIPT_COPY, TRANSCRIPT_LAYOUT } from "@exp/domain-contract/transcript-grouping"
+import { TRANSCRIPT_COPY, TRANSCRIPT_FOLD, TRANSCRIPT_LAYOUT, messageFolds } from "@exp/domain-contract/transcript-grouping"
 import { AttachmentFileLink } from "./attachment-thumb"
+import { Button } from "./button"
 import { cn } from "./cn"
 import { conceptIcon } from "./icons.generated"
 import { Menu, type MenuEntry } from "./menu"
@@ -11,7 +12,8 @@ import { MessageStatusMark } from "./message-status-mark"
 import { UserAvatar, type UserAvatarAgent, type UserAvatarUser } from "./user-avatar"
 
 // #EXP-1736 (transcript-grouping.json): THE message bubble ×4, every chat a
-// group chat. `side="out"` = the viewer's own (right, no avatar, no name);
+// group chat. `side="out"` = the viewer's own (right, #FEED-239: under the
+// viewer's own avatar on the right, no name, no left inset);
 // `side="in"` = anyone else's, its sender's name on the group's first bubble
 // (a cross-session sender's ends in `›` and the whole bubble opens that
 // session). `TranscriptRow` frames a row: the sender's avatar column, the
@@ -53,10 +55,43 @@ const MoreIcon = conceptIcon(`ui-more`)
 /** #FEED-237: a touch long-press opens the bubble's menu after this long. */
 const LONG_PRESS_MS = 500
 
-/** The bubble's width cap: phones `maxWidth.phone` (an `in` bubble
- *  `maxWidth.phoneIn`), md+ `maxWidth.wide` (Tailwind needs the literal
- *  classes). */
-const BUBBLE_WIDTH = { out: `max-w-[78%] md:max-w-[62%]`, in: `max-w-full md:max-w-[62%]` }
+/** The bubble's width cap: an `in` bubble `maxWidth.phoneIn` on phones,
+ *  md+ `maxWidth.wide`; #FEED-239: an own bubble `maxWidth.own` (the whole
+ *  column left of the own avatar) on every width (Tailwind needs the
+ *  literal classes). */
+const BUBBLE_WIDTH = { out: `max-w-full`, in: `max-w-full md:max-w-[62%]` }
+
+/** #FEED-238 THE FOLD ×4 (transcript-grouping.json `fold`): a message whose
+ *  text `messageFolds` shows its first `fold.lines` lines, then THE text
+ *  button Show more / Show less under them. `text` = what is measured
+ *  (the prose, without its attachment lines). */
+export function MessageFold({ text, children }: { text: string; children: ReactNode }) {
+  const [expanded, setExpanded] = useState(false)
+  if (!messageFolds(text)) return <>{children}</>
+  return (
+    <>
+      {/* A height clamp, not `line-clamp`: line clamping needs a plain text
+          flow, and a markdown body is a stack of blocks. */}
+      <div
+        data-slot="message-fold"
+        data-expanded={expanded}
+        className={cn(!expanded && `overflow-hidden`)}
+        style={expanded ? undefined : { maxHeight: `${TRANSCRIPT_FOLD.lines}lh` }}
+      >
+        {children}
+      </div>
+      <Button
+        variant="text"
+        size="inline"
+        className="mt-1 font-medium"
+        data-slot="message-fold-toggle"
+        onClick={() => setExpanded((value) => !value)}
+      >
+        {expanded ? TRANSCRIPT_COPY.showLess : TRANSCRIPT_COPY.showMore}
+      </Button>
+    </>
+  )
+}
 
 export function MessageBubble({
   side = `out`,
@@ -73,6 +108,7 @@ export function MessageBubble({
   relay = null,
   status = null,
   menu,
+  foldText,
   variant = `chat`,
   className,
 }: {
@@ -109,6 +145,9 @@ export function MessageBubble({
   /** #FEED-237: the bubble's menu (right-click, the hover `…`, a touch
    *  long-press; a `failed` mark opens it too). Empty/absent = none. */
   menu?: readonly MenuEntry[]
+  /** #FEED-238: `children` fold behind Show more when this text
+   *  `messageFolds` (a `text` bubble measures its own text). */
+  foldText?: string
   /** @deprecated #EXP-1736: one bubble everywhere; kept for old call sites. */
   variant?: `transcript` | `chat`
   className?: string
@@ -147,7 +186,17 @@ export function MessageBubble({
           {name}
         </div>
       ) : null}
-      {children ?? (text !== undefined ? renderText ? renderText(text) : <p className="whitespace-pre-wrap">{text}</p> : null)}
+      {children !== undefined && children !== null ? (
+        foldText !== undefined ? (
+          <MessageFold text={foldText}>{children}</MessageFold>
+        ) : (
+          children
+        )
+      ) : text !== undefined ? (
+        <MessageFold text={text}>
+          {renderText ? renderText(text) : <p className="whitespace-pre-wrap">{text}</p>}
+        </MessageFold>
+      ) : null}
       {imageSrc ? (
         <img
           src={imageSrc}
@@ -205,8 +254,10 @@ export function MessageBubble({
       ) : null}
     </>
   )
+  // #FEED-238: a long unbroken token (a base64 payload, a URL) wraps
+  // anywhere, never widening the bubble.
   const bubbleClass = cn(
-    `min-w-0 rounded-2xl border px-3.5 py-2.5 text-sm`,
+    `min-w-0 rounded-2xl border px-3.5 py-2.5 text-sm [overflow-wrap:anywhere]`,
     BUBBLE_WIDTH[out ? `out` : `in`],
     out
       ? `border-glass-stroke-strong bg-glass-active text-foreground/90`
@@ -318,9 +369,11 @@ export function SenderAvatar({
   )
 }
 
-/** One transcript row: the gap above it, then `own` right, `full` across,
- *  `other` under its sender's avatar column (the avatar on the group's
- *  first row, top-aligned; the same space below it). */
+/** One transcript row: the gap above it, then `own` right (#FEED-239: the
+ *  viewer's own avatar column RIGHT of it when `avatar` is given, the
+ *  mirror of the left), `full` across, `other` under its sender's avatar
+ *  column (the avatar on the group's first row, top-aligned; the same space
+ *  below it). */
 export function TranscriptRow({
   layout,
   avatar,
@@ -333,6 +386,25 @@ export function TranscriptRow({
   className?: string
 }) {
   const style = layout && layout.gap > 0 ? { paddingTop: layout.gap } : undefined
+  if (layout?.side === `own` && avatar !== undefined && avatar !== null) {
+    return (
+      <div
+        data-slot="transcript-row"
+        data-side="own"
+        className={cn(`flex min-w-0 items-start`, className)}
+        style={{ ...style, gap: TRANSCRIPT_LAYOUT.avatarGap }}
+      >
+        <div className="flex min-w-0 flex-1 flex-col items-end *:max-w-full">{children}</div>
+        <div
+          data-slot="transcript-own-avatar"
+          className="flex size-8 shrink-0 items-start"
+          aria-hidden={layout.avatar ? undefined : true}
+        >
+          {layout.avatar ? avatar : null}
+        </div>
+      </div>
+    )
+  }
   if (!layout || layout.side !== `other`) {
     return (
       <div data-slot="transcript-row" data-side={layout?.side ?? `full`} className={cn(`flex min-w-0 flex-col`, className)} style={style}>

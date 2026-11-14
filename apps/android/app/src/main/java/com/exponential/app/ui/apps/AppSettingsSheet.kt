@@ -50,7 +50,6 @@ import com.exponential.app.domain.shareRowSubtitle
 import com.exponential.app.domain.shareSwitchOn
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.ColorPicker
-import com.exponential.app.ui.components.DestructiveButton
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPill
@@ -76,8 +75,8 @@ import com.exponential.app.ui.theme.TextEmphasis
 // description (saved on focus loss), the records line (app-records.json
 // `recordsCountLabel`), the Tools group (app-actions.json: one row per
 // function the head package declares, a Switch for a team OWNER only, a
-// destructive action `Always asks`), then Export (a version exists) and
-// Delete app (the creator or an owner). Everyone else reads it.
+// destructive action `Always asks`). #FEED-239: Export and Delete app are
+// NOT on it (they are `…` entries). Everyone else reads it.
 
 private const val DEFAULT_COLOR = "#6366f1"
 
@@ -88,8 +87,6 @@ internal fun AppSettingsBody(
     records: Int,
     canManage: Boolean,
     canGrant: Boolean,
-    onExport: () -> Unit,
-    onDelete: () -> Unit,
 ) {
     val granted by viewModel.grantedTools.collectAsStateWithLifecycle()
     val grantBusy by viewModel.grantBusy.collectAsStateWithLifecycle()
@@ -699,29 +696,6 @@ internal fun AppSettingsBody(
             )
         }
 
-        // ── Export + Delete app ──────────────────────────────────────────
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        ) {
-            if (app.headVersion > 0) {
-                GlassPill(
-                    Apps.Copy.MENU_EXPORT,
-                    icon = ExpIcons.uiShare,
-                    onClick = onExport,
-                    modifier = Modifier.testTag("app-export"),
-                )
-            }
-            // EXP-1554: THE destructive button, beside Export, left-aligned (web).
-            if (canManage) {
-                DestructiveButton(
-                    Apps.Copy.MENU_DELETE,
-                    onClick = onDelete,
-                    modifier = Modifier.testTag("app-delete"),
-                )
-            }
-        }
         Spacer(Modifier.height(8.dp))
     }
 }

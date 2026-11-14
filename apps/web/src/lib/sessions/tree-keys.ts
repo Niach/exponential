@@ -2,6 +2,7 @@
 // the tRPC `sessionKeys` router and `sessions.send {seal}` (a new root's key
 // in its own transaction). Router-free: lib/sessions never imports a router
 // (suites mock @/lib/trpc whole).
+import { STALE_TREE_REFUSAL } from "@exp/domain-contract/sealed-content"
 import { TRPCError } from "@trpc/server"
 import { and, eq, inArray, notInArray, sql } from "drizzle-orm"
 import { devices, installs, sessionKeys, sessions, teamMembers, type Session } from "@/db/schema"
@@ -208,7 +209,10 @@ export async function createTreeKeyInTx(
     }
   } else {
     if (input.epoch !== root.sealEpoch + 1) {
-      throw new TRPCError({ code: `CONFLICT`, message: `The tree is at epoch ${root.sealEpoch}` })
+      // #FEED-248: a writer whose view of the tree is stale (an inline
+      // `seal` for a conversation it did not know was keyed): it resolves
+      // the tree again and re-seals (sealed-content.json `staleTree`).
+      throw new TRPCError({ code: `CONFLICT`, message: STALE_TREE_REFUSAL })
     }
     if (root.userId !== userId && !caller.executing) {
       throw new TRPCError({

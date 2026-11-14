@@ -10,9 +10,11 @@
 //!   the agent's disc, the Assistant's brand mark), the title (EXP-1316:
 //!   derived, plain text; a lock while private) over ONE subtitle line
 //!   (`session_screen_subtitle`: state · device · trigger), then the merge
-//!   status pill while the chat's PR is open, an agent's telephone, THE gear
-//!   (agents and the Assistant: the agent's settings page in the pane) and
-//!   the `…`.
+//!   status pill while the chat's PR is open, an agent's telephone and THE
+//!   `…` (#FEED-239 `sessionScreenMenu`, no gear: an agent's settings entry
+//!   opens the agent's settings page in the pane).
+//! * #FEED-239: the right pane leads with THE collapse ([`collapse_row`]);
+//!   no Back row over an opened item.
 //! * ON THE TITLE ROW (#EXP-1762), THE Segmented ([`screen_tabs`], the app
 //!   editor's): Chat · Issues · Sessions · Results, each with its muted count.
 //! * THE BODY (the IDE is WIDE: the beside rule, [`screen_beside`]): the
@@ -95,7 +97,7 @@ pub(crate) enum ChatOpened {
     Issue(String),
     /// A plan card (plan-page.json): its plan page.
     Plan(String),
-    /// THE gear's settings (agents, the Assistant).
+    /// The settings (agents, the Assistant; THE `…`'s settings entry).
     Settings,
 }
 
@@ -788,17 +790,18 @@ fn chat_member(model: &ChatModel, cx: &App) -> bool {
 /// Resume auto-merge (members), Close PR (members, a live PR; EXP-1338: no
 /// GitHub entry). No entries = none.
 ///
-/// Session 58cb32df (chats.json): the same `…` leads with the chat's own
-/// entries (`chatMenuEntries`: Stop, Stop and delete | Delete), the Guide
-/// PR's rows after a rule.
-fn guide_menu(model: &ChatModel, cx: &App) -> Option<AnyElement> {
+/// #FEED-239: the same `…` leads with THE session screen menu's entries
+/// (kind `session`: Delete), the Guide PR's rows after a rule.
+fn guide_menu(model: &ChatModel, link: ChatMenuTarget, cx: &App) -> Option<AnyElement> {
     use domain::merge_train::{merge_menu_entries, pr_merge_state, MergeMenuEntry, MERGE_TRAIN};
     let root_id = model.root.id.clone();
-    let chat = !crate::chat_actions::chat_entries(&root_id, cx).is_empty();
+    let member = chat_member(model, cx);
+    // #EXP-1834: Link or file an issue leads (a member, on every tab).
+    let screen_entries = crate::chat_actions::chat_screen_entries(&root_id, member, cx);
+    let chat = !screen_entries.is_empty();
     let pull = model.pull();
     // #EXP-1611: the PR's synced check rows lead the menu (any viewer).
     let checks = pull.map(|pull| crate::pr_checks::checks_of(&pull.id, cx)).unwrap_or_default();
-    let member = chat_member(model, cx);
     let owner = member
         && model
             .root
@@ -816,18 +819,22 @@ fn guide_menu(model: &ChatModel, cx: &App) -> Option<AnyElement> {
     let pull_request_id = pull.map(|pull| pull.id.clone()).unwrap_or_default();
     // The batch line names the issues the PR closes beyond one.
     let others = crate::pr_checks::linked_issue_count(&pull_request_id, cx).saturating_sub(1);
-    let trigger = crate::controls::ghost_icon_button(
-        SharedString::from(SESSION_CHAT.test_ids.guide_menu.clone()),
-        Icon::new(registry::UI_MORE),
-        cx,
-    )
-    .accessibility_label("More");
-    Some(
-        div()
-            .flex_shrink_0()
-            .mr(px(-crate::work_header::GHOST_ICON_HANG))
-            .child(crate::controls::PointerMenu::for_button(trigger, move |mut menu, window, cx| {
-                menu = crate::chat_actions::chat_menu_items(menu, &root_id, false, cx);
+    crate::chat_actions::screen_menu_button(
+        true,
+        move |mut menu, window, cx| {
+                let id = root_id.clone();
+                let on_entry: crate::chat_actions::OnMenuEntry = Rc::new(move |entry, window, cx| {
+                    crate::chat_actions::run_chat_screen_entry(entry, &id, window, cx)
+                });
+                menu = link_then_menu_items(
+                    menu,
+                    SessionScreenKind::Session.as_str(),
+                    &screen_entries,
+                    on_entry,
+                    Some(&link),
+                    window,
+                    cx,
+                );
                 if chat && !entries.is_empty() {
                     menu = menu.separator();
                 }
@@ -871,8 +878,8 @@ fn guide_menu(model: &ChatModel, cx: &App) -> Option<AnyElement> {
                     };
                 }
                 menu
-            }))
-            .into_any_element(),
+        },
+        cx,
     )
 }
 
@@ -1265,7 +1272,9 @@ pub(crate) fn message_bubble(bubble: MessageBubble, cx: &App) -> AnyElement {
         .py(px(10.))
         .map(|card| match width {
             Some(width) => card.w(width),
-            None => card.max_w(gpui::relative(sizes.max_width.wide)),
+            // #FEED-239: an own bubble may take the whole column left of the
+            // own avatar (`maxWidth.own`).
+            None => card.max_w(gpui::relative(if own { sizes.max_width.own } else { sizes.max_width.wide })),
         })
         .map(|card| {
             if own {
@@ -1389,11 +1398,38 @@ pub(crate) fn sender_avatar_of(
     }
 }
 
+/// #FEED-239: THE VIEWER's own avatar at `layout.avatar` (their picture,
+/// else their initials in their hue), the mirror of a member sender's.
+pub(crate) fn viewer_avatar(cx: &mut App) -> Option<AnyElement> {
+    let me = crate::queries::active_account(cx)?.user_id;
+    let user = Store::try_global(cx).and_then(|store| store.collections().users.read(cx).get(&me).cloned());
+    let name = crate::comments::user_label(&me, user.as_ref());
+    let image = crate::user_avatar::cached_avatar_image(cx, user.as_ref().and_then(|user| user.image.as_deref()));
+    let size = gpui_component::Size::Size(px(transcript_sizes().avatar));
+    Some(crate::user_avatar::avatar_element(&me, &name, image, size))
+}
+
+/// #FEED-239: the viewer's own row: the content in the column LEFT of the
+/// own avatar (`layout.avatarGap` between), the avatar on the group's first
+/// row (`avatar`), its spacer on the later ones.
+pub(crate) fn own_row(avatar: bool, content: AnyElement, cx: &mut App) -> AnyElement {
+    let sizes = transcript_sizes();
+    let avatar = if avatar { viewer_avatar(cx) } else { None };
+    h_flex()
+        .w_full()
+        .min_w_0()
+        .items_start()
+        .gap(px(sizes.avatar_gap))
+        .child(v_flex().flex_1().min_w_0().items_end().child(content))
+        .child(div().flex_shrink_0().w(px(sizes.avatar)).children(avatar))
+        .into_any_element()
+}
+
 /// One transcript row under its [`TranscriptRowLayout`]: anyone else's
 /// row (a bubble, the agent's trace) sits in the bubble column right of
 /// the sender's avatar (a group's first row; a spacer of its width on the
-/// later ones, `layout.avatarGap` between); the viewer's own and every card
-/// are the content alone.
+/// later ones, `layout.avatarGap` between); #FEED-239: the viewer's own
+/// sits left of THEIR avatar ([`own_row`]); every card is the content alone.
 ///
 /// [`TranscriptRowLayout`]: domain::transcript_grouping::TranscriptRowLayout
 pub(crate) fn sender_row(
@@ -1401,7 +1437,11 @@ pub(crate) fn sender_row(
     content: AnyElement,
     cx: &mut App,
 ) -> AnyElement {
-    let Some(layout) = layout.filter(|layout| layout.side == domain::transcript_grouping::TranscriptSide::Other) else {
+    use domain::transcript_grouping::TranscriptSide;
+    if let Some(layout) = layout.filter(|layout| layout.side == TranscriptSide::Own) {
+        return own_row(layout.avatar, content, cx);
+    }
+    let Some(layout) = layout.filter(|layout| layout.side == TranscriptSide::Other) else {
         return content;
     };
     let sizes = transcript_sizes();
@@ -2487,7 +2527,7 @@ pub(crate) fn issue_chats_row(issue_id: &str, cx: &App) -> Option<AnyElement> {
 // header, THE Segmented under it, the beside split and the tree rows.
 // ---------------------------------------------------------------------------
 
-/// A press with no payload (the gear, an opened item's back).
+/// A press with no payload (a menu entry, the pane's collapse).
 pub(crate) type OnPress = Rc<dyn Fn(&mut Window, &mut App)>;
 /// A header tab's pick.
 pub(crate) type OnTabPick = Rc<dyn Fn(SessionScreenTab, &mut Window, &mut App)>;
@@ -2513,13 +2553,10 @@ pub(crate) struct ScreenHeader {
     /// #EXP-1729: the subtitle's tone (the app editor's `editorHeader`:
     /// amber / foreground); `None` = muted.
     pub(crate) subtitle_color: Option<gpui::Hsla>,
-    /// Before the gear: the merge status pill, an app's Publish, an agent's
+    /// Before the `…`: the merge status pill, an app's Publish, an agent's
     /// telephone.
     pub(crate) trailing: Vec<AnyElement>,
-    /// THE gear (agents, the Assistant, apps): its press and whether the
-    /// settings are open.
-    pub(crate) gear: Option<(OnPress, bool)>,
-    /// The `…`.
+    /// THE `…` ([`crate::chat_actions::screen_menu_button`]; #FEED-239: no gear).
     pub(crate) menu: Option<AnyElement>,
     /// A session link's Back over the row (chats.json THE WAY BACK).
     pub(crate) back: Option<AnyElement>,
@@ -2529,10 +2566,9 @@ pub(crate) struct ScreenHeader {
 
 /// THE session screen header: the Back (a link opened it), the avatar, the
 /// title over its subtitle, THE Segmented (#EXP-1762: ON the title row,
-/// web `session-screen-frame.tsx`), the trailing slot, the gear, the `…`;
-/// the hairline spans the content card.
+/// web `session-screen-frame.tsx`), the trailing slot, the `…`; the
+/// hairline spans the content card.
 pub(crate) fn screen_header(header: ScreenHeader, cx: &App) -> AnyElement {
-    let gear = header.gear.map(|(on_press, open)| gear_button(on_press, open, cx));
     let theme = cx.theme();
     let subtitle_color = header.subtitle_color.unwrap_or(theme.muted_foreground);
     let subtitle = (!header.subtitle.is_empty()).then(|| {
@@ -2566,7 +2602,6 @@ pub(crate) fn screen_header(header: ScreenHeader, cx: &App) -> AnyElement {
                         .child(v_flex().flex_1().min_w(px(160.)).child(header.title).children(subtitle))
                         .child(div().flex_shrink_0().child(header.tabs))
                         .children(header.trailing)
-                        .children(gear)
                         .children(header.menu),
                 ),
         )
@@ -2574,18 +2609,28 @@ pub(crate) fn screen_header(header: ScreenHeader, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-/// THE gear: the existing ghost icon button (concept `nav-settings`, label
-/// `copy.settings`), toggled while the settings are open.
-pub(crate) fn gear_button(on_press: OnPress, open: bool, cx: &App) -> AnyElement {
+/// #FEED-239 THE collapse (session-screen.json `collapse`): the slim
+/// right-aligned row leading the right pane, THE existing ghost icon button
+/// (concept `ui-pane-collapse`, label `copy.collapse`); its press closes the
+/// right pane (tab Chat, no opened item: the chat full width).
+pub(crate) fn collapse_row(on_collapse: OnPress, cx: &App) -> AnyElement {
     let button = crate::controls::ghost_icon_button(
-        SharedString::from(SESSION_SCREEN.test_ids.gear.clone()),
-        Icon::new(registry::NAV_SETTINGS),
+        SharedString::from(SESSION_SCREEN.test_ids.collapse.clone()),
+        Icon::new(registry::UI_PANE_COLLAPSE),
         cx,
     )
-    .tooltip(SESSION_SCREEN.copy.settings.clone())
-    .toggled(open)
-    .on_click(move |_, window, cx| on_press(window, cx));
-    div().flex_shrink_0().child(button).into_any_element()
+    .tooltip(SESSION_SCREEN.copy.collapse.clone())
+    .accessibility_label(SESSION_SCREEN.copy.collapse.clone())
+    .on_click(move |_, window, cx| on_collapse(window, cx));
+    h_flex()
+        .w_full()
+        .flex_shrink_0()
+        .justify_end()
+        .px_2()
+        .pt_1()
+        .debug_selector(|| SESSION_SCREEN.test_ids.collapse.clone())
+        .child(button)
+        .into_any_element()
 }
 
 /// THE Segmented under the header (the app editor's, every kind's): the
@@ -2607,7 +2652,8 @@ pub(crate) fn screen_tabs(
             let on_pick = on_pick.clone();
             // TAB SIZING ×4: sized to its label (+ count), never stretched
             // to equal widths, never squeezed.
-            crate::controls::segmented_item(active == id, cx)
+            let disabled = tab.disabled;
+            let item = crate::controls::segmented_item(active == id, cx)
                 .flex_none()
                 .px_3()
                 .id(SharedString::from(format!("{}-{}", SESSION_SCREEN.test_ids.tabs, id.as_str())))
@@ -2615,9 +2661,14 @@ pub(crate) fn screen_tabs(
                 .aria_label(SharedString::from(name))
                 .aria_selected(active == id)
                 .child(SharedString::from(tab.label.clone()))
-                .children(count.map(|count| div().text_color(muted).child(SharedString::from(count))))
-                .on_click(move |_, window, cx| on_pick(id, window, cx))
-                .into_any_element()
+                .children(count.map(|count| div().text_color(muted).child(SharedString::from(count))));
+            // #EXP-1834: an empty counted tab is disabled (web's disabled
+            // trigger: half opacity, not pressable), never opened.
+            if disabled {
+                item.opacity(0.5).cursor_default().into_any_element()
+            } else {
+                item.on_click(move |_, window, cx| on_pick(id, window, cx)).into_any_element()
+            }
         })
         .collect();
     // The strip scrolls sideways when it overflows (the capsule keeps its
@@ -2642,8 +2693,9 @@ pub(crate) fn screen_tabs(
 
 /// The beside rule (wide = the IDE, always): the chat pane (`beside.chat`
 /// fr, min `beside.chatMinWidth` px, THE chat body with its composer) : the
-/// tab pane (`beside.pane` fr), a hairline between.
-pub(crate) fn screen_beside(chat: AnyElement, pane: AnyElement, cx: &App) -> AnyElement {
+/// tab pane (`beside.pane` fr), a hairline between. #FEED-239: the tab pane
+/// leads with THE collapse ([`collapse_row`]).
+pub(crate) fn screen_beside(chat: AnyElement, pane: AnyElement, on_collapse: OnPress, cx: &App) -> AnyElement {
     let beside = &SESSION_SCREEN.beside;
     let share = beside.chat / (beside.chat + beside.pane);
     h_flex()
@@ -2672,34 +2724,10 @@ pub(crate) fn screen_beside(chat: AnyElement, pane: AnyElement, cx: &App) -> Any
                 .min_h_0()
                 .min_w_0()
                 .flex_1()
-                .child(pane),
+                .child(collapse_row(on_collapse, cx))
+                .child(div().flex_1().min_h_0().w_full().flex().flex_col().child(pane)),
         )
         .into_any_element()
-}
-
-/// An opened item in the pane (an issue, a session, a plan, settings): the
-/// `‹` back to where it came from over its body.
-pub(crate) fn pane_item(label: &str, on_back: OnPress, body: AnyElement, cx: &App) -> AnyElement {
-    let back = crate::session_screen::back_link_row(
-        "session-pane-back",
-        label.to_string(),
-        move |window, cx| on_back(window, cx),
-        cx,
-    );
-    v_flex()
-        .size_full()
-        .min_h_0()
-        .child(div().w_full().flex_shrink_0().px(px(crate::work_header::WORK_GUTTER)).pt_4().pb_2().child(back))
-        .child(div().flex_1().min_h_0().w_full().flex().flex_col().child(body))
-        .into_any_element()
-}
-
-/// The back's label: the tab the item was opened from (`Back` from Chat).
-pub(crate) fn pane_back_label(active: SessionScreenTab) -> String {
-    match active {
-        SessionScreenTab::Chat => SESSION_SCREEN.copy.back.clone(),
-        tab => tab.label(),
-    }
 }
 
 /// A session opened in the pane: its raw work and its own composer (the
@@ -3010,25 +3038,37 @@ pub(crate) fn tab_list(id: &str, lead: Option<AnyElement>, rows: Vec<AnyElement>
         .into_any_element()
 }
 
-/// The Issues tab's `+` (THE Menu: Link an issue › the search list, New
-/// issue), right-aligned over the rows.
-pub(crate) fn issues_add(prefix: &str, target: ChatMenuTarget, cx: &App) -> AnyElement {
-    let trigger = crate::controls::ghost_icon_button(
-        SharedString::from(format!("{prefix}-issues-add")),
-        Icon::new(registry::UI_ADD),
-        cx,
-    )
-    .tooltip(SESSION_SCREEN.copy.link_issue.clone());
-    h_flex()
-        .w_full()
-        .pb_1()
-        .child(div().flex_1())
-        .child(crate::controls::PointerMenu::new(
-            SharedString::from(format!("{prefix}-issues-add-menu")),
-            trigger,
-            move |menu, window, cx| chat_menu(menu, &target, window, cx),
-        ))
-        .into_any_element()
+/// #EXP-1834: THE session screen menu's rows with its `linkIssue` entry as
+/// THE chat menu's submenu (Link an issue › the search list, New issue);
+/// the rest through [`crate::chat_actions::screen_menu_items`]. No target =
+/// no link row (the entries carry none then).
+pub(crate) fn link_then_menu_items(
+    mut menu: gpui_component::menu::PopupMenu,
+    kind: &str,
+    entries: &[domain::session_screen::SessionScreenMenuEntry],
+    on_entry: crate::chat_actions::OnMenuEntry,
+    link: Option<&ChatMenuTarget>,
+    window: &mut Window,
+    cx: &mut gpui::Context<gpui_component::menu::PopupMenu>,
+) -> gpui_component::menu::PopupMenu {
+    use domain::session_screen::{session_screen_menu_icon, session_screen_menu_label, SessionScreenMenuEntry};
+    let mut rest = entries;
+    if let (Some(SessionScreenMenuEntry::LinkIssue), Some(target)) = (entries.first(), link) {
+        let target = target.clone();
+        let icon = registry::concept_by_name(session_screen_menu_icon(SessionScreenMenuEntry::LinkIssue))
+            .unwrap_or(registry::NAV_SEARCH);
+        menu = crate::picker::search_list::search_submenu_parent(menu).submenu_with_icon(
+            Some(Icon::new(icon)),
+            session_screen_menu_label(kind, SessionScreenMenuEntry::LinkIssue),
+            window,
+            cx,
+            move |sub, window, cx| chat_menu(sub, &target, window, cx),
+        );
+        rest = &entries[1..];
+    }
+    let rest: Vec<SessionScreenMenuEntry> =
+        rest.iter().copied().filter(|entry| *entry != SessionScreenMenuEntry::LinkIssue).collect();
+    crate::chat_actions::screen_menu_items(menu, kind, &rest, on_entry)
 }
 
 // ---------------------------------------------------------------------------
@@ -3240,7 +3280,7 @@ pub(crate) struct SessionChatScreenView {
     /// The `focus` was opened from the Sessions tab of a tree no route
     /// hosts in place (an agent's): this view owns its session view.
     focus_owned: bool,
-    /// THE gear's agent settings page (built on first open) and its scroll.
+    /// The agent settings page (built on first open) and its scroll.
     settings: Option<(String, Entity<crate::settings::agent_detail::AgentDetailPane>)>,
     settings_scroll: gpui::ScrollHandle,
     /// EXP-1346: shared, never deep-cloned per frame.
@@ -3731,7 +3771,7 @@ impl SessionChatScreenView {
 
     /// #EXP-1732 THE header (session-screen.json): the lead avatar, the
     /// title over its subtitle, the merge status pill, an agent's telephone,
-    /// THE gear (agents, the Assistant), the `…`; THE Segmented under it.
+    /// THE `…` (#FEED-239 `sessionScreenMenu`, no gear); THE Segmented.
     fn render_header(
         &mut self,
         model: &ChatModel,
@@ -3760,19 +3800,10 @@ impl SessionChatScreenView {
             let _ = this.update(cx, |this, cx| this.set_tab(tab, window, cx));
         });
         let tabs = screen_tabs(&screen.tabs, screen.active, on_tab, cx);
-        let gear = screen.gear.then(|| {
-            let open = matches!(self.opened, Some(ChatOpened::Settings));
-            let this = cx.entity().downgrade();
-            let on_press: OnPress = Rc::new(move |window, cx| {
-                let _ = this.update(cx, |this, cx| {
-                    if open {
-                        this.close_item(window, cx);
-                    } else {
-                        this.open_item(ChatOpened::Settings, window, cx);
-                    }
-                });
-            });
-            (on_press, open)
+        // #FEED-239: THE `…`'s settings entry opens the settings in the pane.
+        let this = cx.entity().downgrade();
+        let on_settings: OnPress = Rc::new(move |window, cx| {
+            let _ = this.update(cx, |this, cx| this.open_item(ChatOpened::Settings, window, cx));
         });
         // #EXP-1785 (waiting-cards.json): the tree's WAITING plans and
         // questions, at the START of the trailing slot (after the tabs).
@@ -3793,7 +3824,8 @@ impl SessionChatScreenView {
                 let name = agent.as_ref().map(crate::agent_screen::agent_def_name).unwrap_or_default();
                 let panel = self.call_panel.read(cx).focus_handle(cx);
                 let call = agent.as_ref().map(|agent| crate::agent_screen::agent_header_call(&agent.id, &name, panel, cx));
-                let menu = crate::agent_screen::agent_header_menu(agent_id, cx);
+                let link = chat_member(model, cx).then(|| self.menu_target(None));
+                let menu = crate::agent_screen::agent_header_menu(agent_id, on_settings, link, cx);
                 let avatar = crate::agent_screen::agent_header_disc(agent.as_ref(), cx);
                 let title = title_row(&name, false, cx).id("chat-title").into_any_element();
                 (avatar, title, merge.into_iter().chain(call).collect::<Vec<_>>(), menu, agent)
@@ -3801,7 +3833,7 @@ impl SessionChatScreenView {
             // EXP-1316: a chat's title is derived, plain text (no rename).
             None => {
                 let title = title_row(&model.view.title, model.view.private, cx).id("chat-title").into_any_element();
-                (chat_header_lead(model, cx), title, merge.into_iter().collect::<Vec<_>>(), guide_menu(model, cx), None)
+                (chat_header_lead(model, cx), title, merge.into_iter().collect::<Vec<_>>(), guide_menu(model, self.menu_target(None), cx), None)
             }
         };
         drop(lead_span);
@@ -3812,7 +3844,7 @@ impl SessionChatScreenView {
         let _span = tracing::trace_span!("header.build").entered();
         let subtitle_color = Some(tone_color(tone, cx));
         let trailing = waiting.into_iter().chain(trailing).collect();
-        screen_header(ScreenHeader { avatar, title, subtitle, subtitle_color, trailing, gear, menu, back, tabs }, cx)
+        screen_header(ScreenHeader { avatar, title, subtitle, subtitle_color, trailing, menu, back, tabs }, cx)
     }
 
     /// #EXP-1545 + #EXP-1678 (dock.json ONE CHILD STREAM): keep a viewer
@@ -4151,7 +4183,7 @@ impl SessionChatScreenView {
         }
     }
 
-    /// THE gear's settings: the agent's settings page (agent-settings.json:
+    /// The `…`'s settings: the agent's settings page (agent-settings.json:
     /// prompt, triggers, defaults; the Assistant's = its own page), built on
     /// first open.
     fn render_settings(&mut self, model: &ChatModel, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
@@ -4196,9 +4228,9 @@ impl SessionChatScreenView {
         let member = chat_member(model, cx);
         let linked: HashSet<String> = model.links.iter().map(|link| link.issue_id.clone()).collect();
         let menu = member.then(|| (self.menu_target(None), linked));
-        let lead = member.then(|| issues_add("chat", self.menu_target(None), cx));
+        // #EXP-1834: no `+` here: linking is the `…`'s entry.
         let rows = tree_rows(&SESSION_SCREEN.test_ids.issues, &items, open.as_deref(), on_pick, menu, cx);
-        tab_list(&SESSION_SCREEN.test_ids.issues, lead, rows)
+        tab_list(&SESSION_SCREEN.test_ids.issues, None, rows)
     }
 
     /// The Sessions tab: THE tree rows of every session under the root; a
@@ -4217,7 +4249,8 @@ impl SessionChatScreenView {
     }
 
     /// The tab pane: an opened item (the session in place, an issue, a
-    /// plan, the settings) under its `‹`, else the active tab's body.
+    /// plan, the settings), else the active tab's body (#FEED-239: no back
+    /// row; THE collapse leads the pane, [`screen_beside`]).
     fn render_pane(
         &mut self,
         model: &ChatModel,
@@ -4225,13 +4258,6 @@ impl SessionChatScreenView {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
-        // The `‹` goes back to the tab the item came from (the opened item
-        // makes Sessions / Issues active, session-screen.json).
-        let label = pane_back_label(self.tab);
-        let this = cx.entity().downgrade();
-        let on_back: OnPress = Rc::new(move |window, cx| {
-            let _ = this.update(cx, |this, cx| this.close_item(window, cx));
-        });
         if let Some((_, view)) = self.focus.clone() {
             // #EXP-1736: the view's S-3 origin = the sender of the prompt
             // that started it (its bubble replaces the `Started by` line).
@@ -4240,25 +4266,15 @@ impl SessionChatScreenView {
             if inner.read(cx).transcript_origin_xref() != origin.as_ref() {
                 inner.update(cx, |inner, cx| inner.set_transcript_origin(origin, cx));
             }
-            let body = session_pane(&view, cx);
-            return pane_item(&label, on_back, body, cx);
+            return session_pane(&view, cx);
         }
         match self.opened.clone() {
-            Some(ChatOpened::Issue(_)) => {
-                let body = self.render_issue_child();
-                pane_item(&label, on_back, body, cx)
-            }
-            Some(ChatOpened::Plan(id)) => {
-                let body = match self.plan_row(model, &id, cx) {
-                    Some(row) => self.render_plan_child(&row, window, cx),
-                    None => div().flex_1().into_any_element(),
-                };
-                pane_item(&label, on_back, body, cx)
-            }
-            Some(ChatOpened::Settings) => {
-                let body = self.render_settings(model, window, cx);
-                pane_item(&label, on_back, body, cx)
-            }
+            Some(ChatOpened::Issue(_)) => self.render_issue_child(),
+            Some(ChatOpened::Plan(id)) => match self.plan_row(model, &id, cx) {
+                Some(row) => self.render_plan_child(&row, window, cx),
+                None => div().flex_1().into_any_element(),
+            },
+            Some(ChatOpened::Settings) => self.render_settings(model, window, cx),
             None => match screen.active {
                 SessionScreenTab::Issues => self.render_issues(model, cx),
                 SessionScreenTab::Sessions => self.render_sessions(model, cx),
@@ -4434,7 +4450,12 @@ impl Render for SessionChatScreenView {
             SessionScreenLayout::Chat => chat,
             SessionScreenLayout::Beside | SessionScreenLayout::Tab | SessionScreenLayout::Item => {
                 let pane = self.render_pane(&model, &screen, window, cx);
-                screen_beside(chat, pane, cx)
+                // #FEED-239: THE collapse = tab Chat, no opened item.
+                let this = cx.entity().downgrade();
+                let on_collapse: OnPress = Rc::new(move |window, cx| {
+                    let _ = this.update(cx, |this, cx| this.set_tab(SessionScreenTab::Chat, window, cx));
+                });
+                screen_beside(chat, pane, on_collapse, cx)
             }
         };
         v_flex()
@@ -4574,11 +4595,11 @@ mod tests {
         view.read_with(cx, |view, _| assert_eq!(view.opened, None));
         assert!(cx.debug_bounds(beside).is_none());
 
-        // Results (an agent's chat has one now) opens beside the chat.
+        // #EXP-1834: an EMPTY Results tab is disabled: asked for, it never
+        // opens beside the chat (the chat stays full width).
         cx.update(|window, cx| view.update(cx, |view, cx| view.set_tab(SessionScreenTab::Results, window, cx)));
         draw(cx);
-        view.read_with(cx, |view, _| assert_eq!(view.tab, SessionScreenTab::Results));
-        assert!(cx.debug_bounds(beside).is_some());
+        assert!(cx.debug_bounds(beside).is_none());
     }
 
     /// One agent chat ("r1") holding one agent message `body`.
@@ -4715,20 +4736,23 @@ mod tests {
         let document = chat_document(&view, cx);
         let markdowns = painted_markdowns(&document, cx);
         let y_of = |text: &str| markdowns.iter().find(|(_, painted, _)| painted == text).map(|(y, _, _)| *y);
-        let prompt = y_of("Ship the fix").expect("the prompt is the document's bubble");
+        // #FEED-239: the viewer's own prompt is the IDE's row (its avatar on
+        // the right), a host row; the agent's narration the document's bubble.
+        assert!(y_of("Ship the fix").is_none(), "the own prompt is a host row: {markdowns:?}");
         let reply = y_of("All green.").expect("the narration is the document's bubble");
-        assert!(prompt < reply, "the feed's order: {markdowns:?}");
-        // The tool row: a host row the view painted, between the two.
         let painted = cx.update(|_, cx| view.read(cx).root_view.read(cx).inner().read(cx).chat_transcript().painted());
-        let tool = painted
+        let mut hosts: Vec<(String, gpui::Bounds<gpui::Pixels>)> = painted
             .iter()
             .filter(|id| id.starts_with("chat_row_host.r"))
             .filter_map(|id| {
                 let bounds = cx.update(|_, cx| document.read(cx).painted_bounds(id))?;
-                let y = f32::from(bounds.origin.y);
-                (y > prompt && y < reply).then(|| (id.clone(), bounds))
+                (f32::from(bounds.origin.y) < reply).then(|| (id.clone(), bounds))
             })
-            .next();
+            .collect();
+        hosts.sort_by(|a, b| f32::from(a.1.origin.y).total_cmp(&f32::from(b.1.origin.y)));
+        assert!(hosts.len() >= 2, "the prompt and the tool row are host rows above the reply: {hosts:?}");
+        // The tool row: the host row after the prompt's, before the reply.
+        let tool = hosts.get(1).cloned();
         let (id, bounds) = tool.expect("the tool row is painted by the host between the bubbles");
         assert!(f32::from(bounds.size.height) > 0., "the host row has its height");
         let measured = cx.update(|_, cx| view.read(cx).root_view.read(cx).inner().read(cx).chat_transcript().host_height(&id));
@@ -5375,11 +5399,12 @@ mod tests {
         cx.update(|window, cx| view.update(cx, |view, cx| view.open_item(ChatOpened::Plan("m1".into()), window, cx)));
         draw(cx);
         assert!(cx.debug_bounds(SESSION_SCREEN.test_ids.beside.as_str()).is_some(), "the plan opens beside");
-        assert!(cx.debug_bounds("session-pane-back").is_some(), "the opened plan's back");
+        // #FEED-239: no back row over it; THE collapse leads the pane.
+        assert!(cx.debug_bounds(SESSION_SCREEN.test_ids.collapse.as_str()).is_some(), "the pane's collapse");
         assert!(cx.debug_bounds(BACK).is_some());
         cx.update(|window, cx| view.update(cx, |view, cx| view.close_item(window, cx)));
         draw(cx);
-        assert!(cx.debug_bounds("session-pane-back").is_none());
+        assert!(cx.debug_bounds(SESSION_SCREEN.test_ids.collapse.as_str()).is_none());
         assert!(cx.debug_bounds(BACK).is_some());
     }
 

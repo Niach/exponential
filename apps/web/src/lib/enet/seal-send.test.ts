@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest"
 import fixture from "@exp/domain-contract/fixtures/sealed-content.json"
 import { b64urlEncode, openBody, openCard, pushPublicKey, unwrapTreeKey } from "@exp/domain-contract/sealed-content"
 import { KeyHolder, type SessionKeysApi } from "./key-holder"
-import { sealAnswerInput, sealSendInput, type InstallRow, type SealDeps, type SealSessionRow } from "./seal-send"
+import { sealAnswerInput, sealSendInput, sendSealed, type InstallRow, type SealDeps, type SealSessionRow } from "./seal-send"
 import { memoryTreeKeyStore } from "./tree-key-store"
 import { answeredCard } from "@/lib/sessions/card-answer"
 
@@ -53,6 +53,8 @@ function deps(holder: KeyHolder | undefined, rows: SealSessionRow[] = []): SealD
     teamInstalls: async () => team,
     userIdsByEmail: (emails) => emails.flatMap((email) => (email === `dana@acme.dev` ? [`u-dana`] : [])),
     issueIdsByIdentifier: (_team, identifiers) => identifiers.flatMap((id) => (id === `EXP-12` ? [`i-12`] : [])),
+    sendTarget: async () => ({ rootId: null, epoch: null, publicKey: null }),
+    publicKey: async () => undefined,
   }
 }
 
@@ -217,4 +219,89 @@ describe(`sealAnswerInput (fixture answerCases)`, () => {
       expect(stamped.ok && stamped.card).toMatchObject(c.server as Card)
     })
   }
+})
+
+// #FEED-248 (sealed-content.json `staleTree`): the synced store is a cache.
+describe(`sealSendInput (fixture staleTree)`, () => {
+  const stale = fixture.staleTree
+  const treeKey = { epoch: 1, publicKey: fixture.tree.publicKey }
+  for (const c of stale.cases) {
+    it(c.name, async () => {
+      const asks: string[] = []
+      const serverKeyed = c.server === `keyed`
+      const { holder } = holderWith({
+        create: vi.fn(async () => {
+          asks.push(`create`)
+          if (serverKeyed) throw new Error(stale.refusal)
+          return {}
+        }),
+      })
+      const local =
+        c.local === `missing`
+          ? []
+          : [{ ...keyedRoot, agentId: `a1`, ...(c.local === `keyless` ? { sealPublicKey: null, sealEpoch: null } : {}) }]
+      const base = deps(holder, local)
+      const d: SealDeps = {
+        ...base,
+        sendTarget: async () => {
+          asks.push(`sendTarget`)
+          return c.server === `none`
+            ? { rootId: null, epoch: null, publicKey: null }
+            : { rootId: `r1`, ...(serverKeyed ? treeKey : { epoch: null, publicKey: null }) }
+        },
+        publicKey: async () => {
+          asks.push(`publicKeys`)
+          return serverKeyed ? treeKey : undefined
+        },
+      }
+      const input = c.send === `agent` ? { agentId: `a1`, teamId: `t1`, text: `hi` } : { sessionId: `r1`, text: `hi` }
+      const sealed = await sealSendInput(input, d)
+      expect(asks).toEqual(c.asks)
+      if (c.wire === `inline`) {
+        expect(sealed.input.seal?.epoch).toBe(1)
+        return
+      }
+      expect(sealed.input.seal).toBeUndefined()
+      const keys = c.wire === `create` ? holder.keysFor(`r1`) : new Map([[1, hex(fixture.tree.secret)]])
+      expect(openBody(sealed.input.text!, keys).text).toBe(`hi`)
+    })
+  }
+
+  for (const c of stale.retryCases) {
+    it(c.name, async () => {
+      // The tab missed the keyed conversation; the server knows it.
+      const d: SealDeps = { ...deps(holderWith().holder), sendTarget: async () => ({ rootId: `r1`, ...treeKey }) }
+      const sent: Array<Record<string, unknown>> = []
+      let refusals = c.refusals
+      const run = sendSealed({ agentId: `a1`, teamId: `t1`, text: `hi` }, d, async (input) => {
+        sent.push(input)
+        if (refusals-- > 0) throw new Error(stale.refusal)
+        return { sessionId: `r1` }
+      })
+      if (c.outcome === `sent`) await expect(run).resolves.toEqual({ sessionId: `r1` })
+      else await expect(run).rejects.toThrow(stale.refusal)
+      expect(sent).toHaveLength(c.sends)
+      // The re-send is sealed to the server's key, never a new inline one.
+      expect(sent.at(-1)!.seal).toBeUndefined()
+      expect(openBody(sent.at(-1)!.text as string, new Map([[1, hex(fixture.tree.secret)]])).text).toBe(`hi`)
+    })
+  }
+
+  it(`an older server's raw epoch refusal is re-sealed too; anything else is not`, async () => {
+    const d = deps(holderWith().holder, [keyedRoot])
+    let calls = 0
+    await sendSealed({ sessionId: `r1`, text: `hi` }, d, async () => {
+      if (calls++ === 0) throw new Error(`The tree is at epoch 3`)
+      return { sessionId: `r1` }
+    })
+    expect(calls).toBe(2)
+    calls = 0
+    await expect(
+      sendSealed({ sessionId: `r1`, text: `hi` }, d, async () => {
+        calls++
+        throw new Error(`Session not found`)
+      })
+    ).rejects.toThrow(`Session not found`)
+    expect(calls).toBe(1)
+  })
 })
