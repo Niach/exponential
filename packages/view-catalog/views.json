@@ -3362,8 +3362,8 @@
     {
       "id": "app-settings-automations",
       "group": "coding",
-      "title": "App settings · tools and automations",
-      "blurb": "VAPP-183 + VAPP-220 + VAPP-237: Ops desk's Settings further down: the MCP tools switches, Automations (a running one, a paused one with its reason) and Webhooks.",
+      "title": "App settings · tools",
+      "blurb": "VAPP-183: Ops desk's Settings further down: the MCP tools switches. #EXP-1850: its automations (the agent's triggers), Webhooks and recent runs moved to the Events tab.",
       "order": 76,
       "web": {
         "route": "/t/$teamSlug/app-editor/ops-desk?tab=settings",
