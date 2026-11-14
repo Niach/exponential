@@ -92,7 +92,7 @@ final class ShareTargetsPublisher {
     private struct Snapshot: Equatable, Sendable {
         let targets: MirroredShareTargets
         let rows: [DirectShareDonations.Row]
-        /// #EXP-1638: the long-press menu (statics + the recent chat).
+        /// #EXP-1638 / #EXP-1830: the long-press menu (statics + chat entries).
         let shortcuts: [AppShortcuts.Entry]
     }
 
@@ -174,17 +174,38 @@ final class ShareTargetsPublisher {
             }
             return DirectShareDonations.Row(id: entry.id, title: entry.title, glyph: agent.glyph, color: agent.color)
         }
-        // #EXP-1638: the recent chat, same filter; a sealed root never
-        // reaches the OS (the query already drops them; `sealed` restates it).
-        let shortcuts = AppShortcuts.appShortcuts(chats: roots.map { root in
-            AppShortcuts.Chat(
-                id: root.id,
-                title: root.openedTitle ?? ShareTargets.Copy.newChat,
-                updatedAt: root.updatedAt,
-                agentId: root.agentId,
-                sealed: root.sealKey != nil || root.sealedTitle != nil
-            )
-        })
+        // #EXP-1638 / #EXP-1830 (app-shortcuts.json): the Assistant, the
+        // session pins, then the recent chats; an own agent conversation is
+        // its agent's entry, a sealed plain chat never reaches the OS (the
+        // roots query already drops them; `sealed` restates it).
+        let visible = definitions.filter { AgentOrdering.visibleAgent(role: $0.role, ownerId: $0.ownerId, me: userId) }
+        let assistant = visible.first { AgentOrdering.isAssistant(role: $0.role) && $0.ownerId == userId }
+        let pins: [String] = userId == nil ? [] : try String.fetchAll(db, sql: """
+            SELECT "session_id" FROM "pins"
+            WHERE "kind" = 'session' AND "user_id" = ? AND "session_id" IS NOT NULL
+            ORDER BY COALESCE("sort_order", 0) ASC, "created_at" ASC
+            """, arguments: [userId])
+        let listed = Set((conversations + roots).map(\.id))
+        let pinnedRoots = try SessionEntity.fetchAll(db, keys: pins.filter { !listed.contains($0) })
+            .filter { $0.parentId == nil }
+        let shortcuts = AppShortcuts.appShortcuts(AppShortcuts.Input(
+            assistant: assistant.map { AppShortcuts.Assistant(id: $0.id, name: $0.name) },
+            agents: visible.map { agent in
+                AppShortcuts.Agent(
+                    id: agent.id, name: agent.name, icon: BoardTypeDisplay.iconName(for: agent.icon), color: agent.color
+                )
+            },
+            pins: pins,
+            chats: (conversations + roots + pinnedRoots).map { root in
+                AppShortcuts.Chat(
+                    id: root.id,
+                    title: root.openedTitle ?? ShareTargets.Copy.newChat,
+                    updatedAt: root.updatedAt,
+                    agentId: root.agentId,
+                    sealed: root.sealKey != nil || root.sealedTitle != nil
+                )
+            }
+        ))
         return Snapshot(targets: targets, rows: rows, shortcuts: shortcuts)
     }
 

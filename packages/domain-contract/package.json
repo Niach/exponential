@@ -33,6 +33,7 @@
     "./composer-draft": "./src/composer-draft.ts",
     "./share-targets": "./src/share-targets.ts",
     "./app-shortcuts": "./src/app-shortcuts.ts",
+    "./home-widgets": "./src/home-widgets.ts",
     "./notification-actions": "./src/notification-actions.ts",
     "./notification-delivery": "./src/notification-delivery.ts",
     "./app-intents": "./src/app-intents.ts",

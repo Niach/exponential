@@ -1,6 +1,7 @@
 package com.exponential.app.navigation
 
 import android.net.Uri
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavHostController
 import com.exponential.app.data.push.LinkDestination
 import com.exponential.app.domain.InboxRoute
@@ -101,6 +102,41 @@ fun NavHostController.navigateIssueDeepLink(issueId: String, commentId: String? 
     if (alreadyOnTop) return
     navigate(issueRoute(issueId, commentId))
 }
+
+/**
+ * #EXP-1830 THE BACK STACK RULE (app-shortcuts.json): an app shortcut, a
+ * pinned shortcut or a home widget drops whatever the app was showing back to
+ * THE start screen (the Agent tab root), then pushes its target, so Back
+ * returns to the Agent tab and then leaves the app. The target already on top
+ * of the Agent root ([isTarget] on the top entry) is left alone.
+ */
+fun NavHostController.launchOnAgentRoot(
+    marker: TabSwitchMarker?,
+    isTarget: (NavBackStackEntry) -> Boolean,
+    push: NavHostController.() -> Unit,
+) {
+    val top = currentBackStackEntry
+    if (top != null && isTarget(top) && previousBackStackEntry?.destination?.route == MainTabs.AGENT) return
+    selectTab(MainTabs.AGENT, marker, restore = false)
+    push()
+}
+
+/** [launchOnAgentRoot] for a concrete [route] (compared like [navigateDeepLink]). */
+fun NavHostController.launchOnAgentRoot(route: String, marker: TabSwitchMarker?): Unit = launchOnAgentRoot(
+    marker,
+    isTarget = { top -> DeepLinkRoutes.isOnTop(top.destination.route, { top.arguments?.getString(it) }, route) },
+    push = { navigate(route) },
+)
+
+/** [launchOnAgentRoot] for an issue (its optional `comment` compared by argument). */
+fun NavHostController.launchIssueOnAgentRoot(issueId: String, marker: TabSwitchMarker?): Unit = launchOnAgentRoot(
+    marker,
+    isTarget = { top ->
+        top.destination.route == ISSUE_ROUTE && top.arguments?.getString("issueId") == issueId &&
+            top.arguments?.getString("comment") == null
+    },
+    push = { navigate(issueRoute(issueId)) },
+)
 
 /** The issue screen's route pattern — (EXP-1241) `comment` is an OPTIONAL
  *  query arg. */
