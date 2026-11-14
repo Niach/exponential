@@ -458,6 +458,46 @@ describe.skipIf(!ready.ok)(`EXP-1334 status automation`, () => {
     expect(await w.status(issue.id)).toMatchObject({ status: `done` })
   })
 
+  it(`#FEED-236: an issue a merged PR closed, reopened by a person, never closes again on its sub-issue's merge`, async () => {
+    const w = await world()
+    const epic = await w.issue(`Epic phase`)
+    const rootId = await w.worker([epic.id])
+    // #2776: a plain issue then: its merge closes it.
+    const first = await w.openPr({ rootId, head: `exp/first`, issueIds: [epic.id] })
+    await applyPullRequestMerged({ pullRequestId: first.id, actorUserId: w.owner })
+    expect(await w.status(epic.id)).toMatchObject({ status: `done` })
+    // A person reopens it (a status_changed that is no automation).
+    await db.update(issues).set({ status: `in_progress`, statusId: null }).where(eq(issues.id, epic.id))
+    const [epicRow] = await db.select({ boardId: issues.boardId }).from(issues).where(eq(issues.id, epic.id))
+    await db.insert(issueEvents).values({
+      issueId: epic.id,
+      teamId: w.teamId,
+      boardId: epicRow!.boardId,
+      actorUserId: w.owner,
+      type: `status_changed`,
+      payload: { fromName: `Done`, toName: `In Progress` },
+    })
+    // #2781: links the epic, unlinks it, links a new sub-issue instead.
+    const sub = await w.issue(`Sub-issue`)
+    await w.parentOf(epic.id, sub.id)
+    const second = await w.openPr({ rootId, head: `exp/second`, issueIds: [epic.id, sub.id] })
+    expect(await w.status(epic.id)).toMatchObject({ status: `in_review` })
+    const { unlinkPullRequestIssue } = await vi.importActual<typeof import("@/lib/pull-requests")>(`@/lib/pull-requests`)
+    await expect(
+      unlinkPullRequestIssue({ userId: w.owner, pullRequestId: second.id, issueId: epic.id })
+    ).resolves.toEqual({ unlinked: true })
+    // The repeat answers unlinked, never unlinked: false.
+    await expect(
+      unlinkPullRequestIssue({ userId: w.owner, pullRequestId: second.id, issueId: epic.id })
+    ).resolves.toEqual({ unlinked: true, already: true })
+
+    await applyPullRequestMerged({ pullRequestId: second.id, actorUserId: w.owner })
+    expect(await w.status(sub.id)).toMatchObject({ status: `done` })
+    // The old #2776 merge is spent: the epic stays where #2781's open put
+    // it (in review), never done.
+    expect(await w.status(epic.id)).toMatchObject({ status: `in_review` })
+  })
+
   it(`one PR closing a parent and its sub-issue moves both together`, async () => {
     const w = await world()
     const parent = await w.issue(`Parent`)
