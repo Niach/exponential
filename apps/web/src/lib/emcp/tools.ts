@@ -2695,15 +2695,16 @@ export function registerExponentialTools(
     `exponential_sessions_list`,
     {
       annotations: READ_ONLY,
-      description: `List root sessions you can see, newest first (agentId = your conversations with that agent instead). teamId narrows to one team; live: true = not ended.`,
+      description: `List root sessions you can see (yours and teammates' shared ones), newest first (agentId = the conversations with that agent instead). teamId narrows to one team; live: true = not ended; children: true = their child sessions too (rows carry parentId, rootId, depth).`,
       inputSchema: strictInput({
         teamId: uuidString.optional(),
         agentId: uuidString.optional(),
         live: z.boolean().optional(),
+        children: z.boolean().optional(),
         ...pageInput,
       }),
     },
-    async ({ agentId, teamId: namedTeam, live, limit, offset }) => {
+    async ({ agentId, teamId: namedTeam, live, children, limit, offset }) => {
       try {
         // #EXP-1383: a confined caller (a team agent's session) lists its
         // own session's team unless it names one.
@@ -2717,6 +2718,7 @@ export function registerExponentialTools(
             ...(agentId ? { agentId } : {}),
             ...(teamId ? { teamId } : {}),
             ...(live !== undefined ? { live } : {}),
+            ...(children ? { children } : {}),
             limit: limit ?? 50,
             offset: offset ?? 0,
           })

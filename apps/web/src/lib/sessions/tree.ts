@@ -1,4 +1,5 @@
-import { and, asc, desc, eq, inArray, isNull, ne, or } from "drizzle-orm"
+import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, or } from "drizzle-orm"
+import { alias } from "drizzle-orm/pg-core"
 import { db } from "@/db/connection"
 import {
   devices,
@@ -171,6 +172,10 @@ export async function getSessionTree(
 export interface SessionListRow {
   id: string
   teamId: string
+  /** #NEW-18: null = a root; `children: true` lists children too. */
+  parentId: string | null
+  rootId: string
+  depth: number
   /** NEW-2: the agent this is a conversation of (null = a chat). */
   agentId: string | null
   title: string
@@ -192,11 +197,13 @@ export interface SessionListRow {
 }
 
 /** Roots the caller may see, most recently active first: chats, or with
- *  `agentId` the caller's conversations with that agent. `live` = not
- *  ended. */
+ *  `agentId` the conversations with that agent the caller may see (theirs
+ *  and teammates' shared ones, #NEW-18). `children` = also every visible
+ *  child session (#FEED-112), of chats and of agent conversations alike, or
+ *  with `agentId` of those conversations' trees. `live` = not ended. */
 export async function listSessions(
   userId: string,
-  args: { teamId?: string; agentId?: string; live?: boolean; limit: number; offset: number }
+  args: { teamId?: string; agentId?: string; live?: boolean; children?: boolean; limit: number; offset: number }
 ): Promise<SessionListRow[]> {
   const memberTeams = await getUserTeamIds(userId)
   const teamIds = args.teamId
@@ -204,12 +211,22 @@ export async function listSessions(
     : memberTeams
   if (teamIds.length === 0) return []
 
+  const root = alias(sessions, `list_root`)
+  const roots = and(
+    isNull(sessions.parentId),
+    args.agentId ? eq(sessions.agentId, args.agentId) : isNull(sessions.agentId)
+  )
+  const children = args.children
+    ? and(isNotNull(sessions.parentId), ...(args.agentId ? [eq(root.agentId, args.agentId)] : []))
+    : undefined
   const rows = await db
     .select({
       id: sessions.id,
       teamId: sessions.teamId,
       agentId: sessions.agentId,
+      parentId: sessions.parentId,
       rootId: sessions.rootId,
+      depth: sessions.depth,
       title: sessions.title,
       status: sessions.status,
       busy: sessions.busy,
@@ -224,15 +241,14 @@ export async function listSessions(
       updatedAt: sessions.updatedAt,
     })
     .from(sessions)
+    .innerJoin(root, eq(root.id, sessions.rootId))
     .where(
       and(
         inArray(sessions.teamId, teamIds),
-        isNull(sessions.parentId),
-        // NEW-2: `agentId` = the caller's OWN conversations with that agent.
-        args.agentId
-          ? and(eq(sessions.agentId, args.agentId), eq(sessions.userId, userId))
-          : isNull(sessions.agentId),
+        children ? or(roots, children) : roots,
+        // THE visibility rule (lib/sessions/access.ts), on the row and its root.
         or(eq(sessions.shared, true), eq(sessions.userId, userId)),
+        or(eq(root.shared, true), eq(root.userId, userId)),
         ...(args.live ? [ne(sessions.status, `ended`)] : [])
       )
     )
@@ -242,7 +258,7 @@ export async function listSessions(
   // EXP-1341: THE title chain (session-title.json), never a SQL copy.
   const titles = await deriveSessionTitles(rows)
   const accounts = await resolveSessionAccounts(rows)
-  return rows.map(({ rootId: _root, ...row }) => ({
+  return rows.map((row) => ({
     ...row,
     title: titles.get(row.id)!,
     ...accounts.get(row.id)!,

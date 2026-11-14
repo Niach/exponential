@@ -6,6 +6,7 @@ import { isValidId } from "@exp/ecore"
 import reuse from "../fixtures/reuse.json" with { type: "json" }
 import watchdog from "../fixtures/watchdog.json" with { type: "json" }
 import { silentMinutes } from "./copy"
+import { overlap, overlapWarning } from "./overlap"
 import { cleanLiveSessionIds, reduce, reuseRefusal } from "./reduce"
 import { replayScenarios, SCENARIOS } from "./suite"
 
@@ -16,6 +17,12 @@ describe(`reuse.json refusalCases`, () => {
     test(entry.name, () =>
       expect(reuseRefusal(entry.root as never, entry.children, entry.now, entry.awaitsCaller ?? false)).toBe(entry.expected)
     )
+  }
+})
+
+describe(`overlap.json cases`, () => {
+  for (const entry of overlap.cases) {
+    test(entry.name, () => expect(overlapWarning(entry.issues)).toBe(entry.expected))
   }
 })
 
