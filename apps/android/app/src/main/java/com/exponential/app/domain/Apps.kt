@@ -207,6 +207,72 @@ object Apps {
         // #VAPP-243: the Record access group + one of its rows.
         const val POLICIES = "app-settings-policies"
         const val POLICY_ROW = "app-policy"
+        // #EXP-1850: the Events tab, its Recent runs group, one run row.
+        const val EVENTS_TAB = "app-events"
+        const val RECENT_RUNS = "app-events-runs"
+        const val RUN_ROW = "app-event-run"
+    }
+
+    /** #EXP-1850 (apps.json `eventsTab`): the Events tab's copy and limits. */
+    object EventsTab {
+        const val LIMIT = 50
+        const val DAYS = 7
+        val PAUSED_ERRORS = listOf("sponsorGone", "sponsorReadOnly", "sponsorNotAllowed")
+        const val RECENT_RUNS = "Recent runs"
+        const val NO_RUNS = "No runs yet"
+        const val REMOVED_TRIGGER = "A removed trigger"
+        val BADGES: Map<String, String> = linkedMapOf(
+            "ran" to "Ran",
+            "woke" to "Woke agent",
+            "failed" to "Failed",
+            "dropped" to "Dropped",
+            "paused" to "Paused",
+            "refused" to "Refused",
+        )
+        val ERRORS: Map<String, String> = linkedMapOf(
+            "rateLimited" to "30 runs a minute reached",
+            "sponsorGone" to "The agent's owner left the team",
+            "sponsorReadOnly" to "The agent's owner has read-only access",
+            "sponsorNotAllowed" to "Only an owner can make it run as someone else",
+            "toolError" to "The binding failed",
+            "badSignature" to "The signature did not match",
+            "missingSignature" to "No signature",
+            "stale" to "The delivery was too old",
+            "replayed" to "A delivery sent twice",
+        )
+    }
+
+    /** One audit row of an app's trigger (tRPC `apps.events` `runs`). */
+    data class AppEventRun(
+        val triggerId: String?,
+        val status: String,
+        val error: String?,
+        val tool: String,
+        /** ISO-8601; the row's relative time. */
+        val at: String = "",
+    )
+
+    enum class AppEventBadge(val wire: String) {
+        RAN("ran"), WOKE("woke"), FAILED("failed"), DROPPED("dropped"), PAUSED("paused"), REFUSED("refused");
+
+        val label: String get() = EventsTab.BADGES.getValue(wire)
+    }
+
+    data class AppEventRow(val title: String, val badge: AppEventBadge, val detail: String?)
+
+    /** #EXP-1850 (`runCases`): a Recent runs row's title, badge and detail. */
+    fun eventRunRow(run: AppEventRun, triggers: List<AgentTrigger>): AppEventRow {
+        val trigger = run.triggerId?.let { id -> triggers.firstOrNull { it.id == id } }
+        val title = trigger?.let { AgentSettings.triggerSummary(it.copy(enabled = true)) } ?: EventsTab.REMOVED_TRIGGER
+        val error = run.error?.takeIf { it.isNotEmpty() }
+        val badge = when {
+            error == "rateLimited" -> AppEventBadge.DROPPED
+            error != null && error in EventsTab.PAUSED_ERRORS -> AppEventBadge.PAUSED
+            run.status == "denied" && error != null -> AppEventBadge.REFUSED
+            run.status == "ok" -> if (run.tool.startsWith("agent:")) AppEventBadge.WOKE else AppEventBadge.RAN
+            else -> AppEventBadge.FAILED
+        }
+        return AppEventRow(title, badge, error?.let { EventsTab.ERRORS[it] ?: it })
     }
 
     /** VAPP-177 (fixture `editorTabs`): the editor's tabs. Wide (web ≥ md,

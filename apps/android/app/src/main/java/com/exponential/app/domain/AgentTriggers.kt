@@ -27,6 +27,17 @@ sealed interface TriggerWhen {
     /** `kind: "event"`: fires when an `events` row named [name] lands. */
     data class Event(val name: String) : TriggerWhen
 
+    /** #EXP-1850 `kind: "record"`: an app agent's trigger on a [record]
+     *  kind's [op] (create | update | delete). No editor here. */
+    data class Record(val record: String, val op: String) : TriggerWhen
+
+    /** #EXP-1850 `kind: "webhook"`: an app agent's trigger on hook [name].
+     *  No editor here. */
+    data class Webhook(val name: String) : TriggerWhen
+
+    /** True for the kinds the trigger editor edits (schedule, event). */
+    val editable: Boolean get() = this is Schedule || this is Event
+
     /** The wire JSON object with the server's field names, keys in the
      *  canonical order (kind, cron, tz | kind, name); an empty tz is omitted. */
     fun toWireJson(): JsonObject = when (this) {
@@ -39,6 +50,15 @@ sealed interface TriggerWhen {
             put("kind", "event")
             put("name", name)
         }
+        is Record -> buildJsonObject {
+            put("kind", "record")
+            put("record", record)
+            put("op", op)
+        }
+        is Webhook -> buildJsonObject {
+            put("kind", "webhook")
+            put("name", name)
+        }
     }
 
     /** Compact wire JSON string (kotlinx renders JsonObject compactly). */
@@ -46,6 +66,13 @@ sealed interface TriggerWhen {
 
     companion object {
         private val json = Json { ignoreUnknownKeys = true }
+
+        /** A record trigger's ops (`agentTriggerSchema`). */
+        val RECORD_OPS = setOf("create", "update", "delete")
+
+        /** #EXP-1850: the kinds this client reads and writes: every write
+         *  names them all (`agents.update` `triggerKinds`). */
+        val KINDS: List<String> get() = DomainContract.agentTriggerKindValues
 
         /** Tolerant parse of a when-part JSON string; any malformation = null. */
         fun parse(raw: String?): TriggerWhen? {
@@ -62,6 +89,12 @@ sealed interface TriggerWhen {
                 Schedule(cron = cron, tz = obj.stringValue("tz")?.trim()?.takeIf { it.isNotEmpty() })
             }
             "event" -> obj.stringValue("name")?.trim()?.takeIf { it.isNotEmpty() }?.let { Event(it) }
+            "record" -> {
+                val record = obj.stringValue("record")?.takeIf { it.isNotEmpty() }
+                val op = obj.stringValue("op")?.takeIf { it in RECORD_OPS }
+                if (record != null && op != null) Record(record, op) else null
+            }
+            "webhook" -> obj.stringValue("name")?.takeIf { it.isNotEmpty() }?.let { Webhook(it) }
             else -> null
         }
 
@@ -83,24 +116,40 @@ data class AgentTrigger(
      *  schedule is (an `assistant.schedules` id other than `off`); null = a
      *  listed trigger. Kept as stored on every whole-array write. */
     val preset: String? = null,
+    /** #EXP-1850: every other stored key (`prompt`, `run`, …), kept as
+     *  stored and written back on every whole-array write. */
+    val extras: JsonObject = JsonObject(emptyMap()),
 ) {
     /** This trigger as an `agents.create/update({triggers})` array element. */
-    fun toWireJson(): JsonObject = agentTriggerWireJson(id, enabled, whenPart, preset)
+    fun toWireJson(): JsonObject = agentTriggerWireJson(id, enabled, whenPart, preset, extras)
+
+    /** #EXP-1850: the app binding this trigger runs instead of a wake. */
+    val run: JsonObject? get() = extras["run"] as? JsonObject
 }
+
+/** The keys a stored trigger's typed fields own (the rest are [AgentTrigger.extras]). */
+private val TYPED_TRIGGER_KEYS = setOf("id", "enabled", "kind", "cron", "tz", "name", "record", "op", "preset")
 
 /**
  * One element of the `triggers` array (`agentTriggerSchema`, strict): `id`
  * (absent = new), `enabled`, then the when-part's keys
- * ([TriggerWhen.toWireJson]), then a schedule's `preset` (#EXP-1846). No
- * other key travels.
+ * ([TriggerWhen.toWireJson]), then a schedule's `preset` (#EXP-1846), then
+ * the stored [extras] (#EXP-1850: `prompt`, `run`) unchanged.
  */
-fun agentTriggerWireJson(id: String?, enabled: Boolean, whenPart: TriggerWhen, preset: String? = null): JsonObject =
+fun agentTriggerWireJson(
+    id: String?,
+    enabled: Boolean,
+    whenPart: TriggerWhen,
+    preset: String? = null,
+    extras: JsonObject = JsonObject(emptyMap()),
+): JsonObject =
     buildJsonObject {
         id?.let { put("id", it) }
         put("enabled", enabled)
         whenPart.toWireJson().forEach { (key, value) -> put(key, value) }
         // #EXP-1846: only a schedule carries the Check in tag.
         if (whenPart is TriggerWhen.Schedule) preset?.takeIf { it.isNotEmpty() }?.let { put("preset", it) }
+        extras.forEach { (key, value) -> if (key !in TYPED_TRIGGER_KEYS) put(key, value) }
     }
 
 private val triggersJson = Json { ignoreUnknownKeys = true }
@@ -117,7 +166,9 @@ fun parseAgentTrigger(value: JsonElement?): AgentTrigger? {
         ?.takeIf { !it.isString }?.content != "false"
     val preset = (obj["preset"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.isNotEmpty() }
         ?.takeIf { whenPart is TriggerWhen.Schedule }
-    return AgentTrigger(id = id, enabled = enabled, whenPart = whenPart, preset = preset)
+    // #EXP-1850: prompt, run and any key this build has no field for ride along.
+    val extras = JsonObject(obj.filterKeys { it !in TYPED_TRIGGER_KEYS })
+    return AgentTrigger(id = id, enabled = enabled, whenPart = whenPart, preset = preset, extras = extras)
 }
 
 /** Tolerant read of an agent's `triggers` (the synced column's raw JSON
@@ -132,7 +183,8 @@ fun parseAgentTriggers(raw: String?): List<AgentTrigger> {
 /**
  * The stored trigger objects this build CANNOT read (a kind from a newer
  * client or MCP). `triggers` is a whole-array replace, so every write sends
- * these back unchanged, appended: an edit here never erases them.
+ * these back unchanged, appended: an edit here never erases them. A
+ * readable trigger keeps its other keys itself ([AgentTrigger.extras]).
  */
 fun unreadableAgentTriggers(raw: String?): List<JsonObject> {
     if (raw.isNullOrBlank()) return emptyList()

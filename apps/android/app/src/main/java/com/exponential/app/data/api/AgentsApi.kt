@@ -77,6 +77,9 @@ data class UpdateAgentPatch(
     val instructions: String? = null,
     /** `agentTriggerWireJson` elements; the WHOLE array is replaced. */
     val triggers: List<JsonObject>? = null,
+    /** #EXP-1850: the trigger kinds this write names (`agents.update`
+     *  replaces only those); sent with every [triggers] write. */
+    val triggerKinds: List<String>? = null,
     val deviceId: String? = null,
     val cli: String? = null,
     val account: String? = null,
@@ -98,6 +101,7 @@ internal fun updateAgentInput(agentId: String, patch: UpdateAgentPatch): JsonObj
         patch.color?.let { put("color", it) }
         patch.instructions?.let { put("instructions", it) }
         patch.triggers?.let { put("triggers", JsonArray(it)) }
+        patch.triggerKinds?.let { kinds -> put("triggerKinds", JsonArray(kinds.map(::JsonPrimitive))) }
         patch.deviceId?.let { put("deviceId", it) }
         patch.cli?.let { put("cli", it) }
         when {
