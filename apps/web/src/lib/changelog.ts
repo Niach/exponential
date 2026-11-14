@@ -39,6 +39,14 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Long messages**: every message longer than six lines, including reports from other sessions, folds behind Show more, and long links or codes wrap instead of stretching the bubble.`,
   },
   {
+    id: `2026-11-14-desktop-agent-picks-stick`,
+    date: `2026-11-14`,
+    title: `Agent Skills and MCP server picks stick on the desktop`,
+    summary: `Desktop and CLI 0.14.160: the Skills, MCP servers and account you pick for an agent stay picked, and your desktop or CLI device can take the screenshots an app's agent asks for.`,
+    body: `- **Picks stick**: in an agent's settings on the desktop app, opening or closing the Skills, MCP servers or account list no longer clears what you picked, and model and effort picks behave the same way.
+- **App screenshots on your device**: on Linux and Apple silicon, the desktop app and the CLI paint the app screens an agent asks to see, so it can check a screen and show it to you.`,
+  },
+  {
     id: `2026-11-14-phones-widgets-release`,
     date: `2026-11-14`,
     title: `Widgets and agent shortcuts on your phone`,
