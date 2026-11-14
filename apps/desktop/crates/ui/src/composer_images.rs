@@ -19,6 +19,15 @@
 //! the same ✕ — with NO marker; files cap at [`MAX_STEER_FILES`] × 50 MB
 //! beside the 4 × 10 MB images, upload through the same sequential idempotent
 //! path and ride the message's file block (`domain::image_message::build_steer_message`).
+//!
+//! #EXP-1841: the strip's rules (caps, numbering, marker insertion, the X's
+//! renumbering, the toasts) are `domain::composer_attachments`'s, the ONE
+//! implementation replaying `composer-attachments.json`; this module only
+//! classifies picks and applies the result to a field. EVERY composer
+//! stages through it: the launch composers (Home, an agent's first message)
+//! on their own `TextareaState` ([`PendingImages::stage`]/[`PendingImages::remove`]),
+//! a session chat's document composer on its drawn field's text and caret
+//! ([`PendingImages::stage_text`]/[`PendingImages::drop_text`]).
 
 use std::sync::Arc;
 
@@ -30,18 +39,13 @@ use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::TextareaState;
 use gpui_component::{h_flex, ActiveTheme as _, Disableable as _, Sizable as _};
 
-use steer::{insert_image_marker, renumber_image_markers, MAX_STEER_FILES, MAX_STEER_IMAGES};
-
+use domain::composer_attachments::{
+    clamp_to_char_boundary, drop_attachment, stage_attachments, AttachmentKind, PickKind,
+};
 use domain::composer_send::{after_send, ComposerContent, SendOutcome};
 
 use crate::icons::registry;
 use crate::markdown::image_paste::{self, max_upload_bytes_for, pasted_image_parts};
-
-/// Wave D: the ONE rejection notice ×4 (type/size/empty).
-pub(crate) const ATTACH_REJECTED: &str = "Images up to 10 MB and files up to 50 MB can be attached";
-
-/// Wave D: the file cap notice ×4.
-pub(crate) const FILES_CAP: &str = "Up to 4 files per message";
 
 /// The FILE tile's width — glyph + a truncated filename.
 const FILE_TILE_W: f32 = 160.;
@@ -116,20 +120,24 @@ impl PendingImages {
         &self.pending
     }
 
-    fn image_count(&self) -> usize {
-        self.pending.iter().filter(|item| !item.is_file).count()
-    }
-
+    #[cfg(test)]
     fn file_count(&self) -> usize {
         self.pending.iter().filter(|item| item.is_file).count()
     }
 
-    /// Add clipboard / picked images AND files to the draft, applying the web
-    /// composer's caps (images: inline type + 10 MB + at most
-    /// [`MAX_STEER_IMAGES`]; files: any type + 50 MB + at most
-    /// [`MAX_STEER_FILES`]; an empty entry is refused), and drop the k-th
-    /// marker at `input`'s caret for each IMAGE staged. Returns the notice to
-    /// show (`None` = everything staged).
+    /// The strip as `domain::composer_attachments` reads it.
+    fn kinds(&self) -> Vec<AttachmentKind> {
+        self.pending
+            .iter()
+            .map(|item| if item.is_file { AttachmentKind::File } else { AttachmentKind::Image })
+            .collect()
+    }
+
+    /// Add clipboard / picked images AND files to the draft (#EXP-1841:
+    /// `domain::composer_attachments::stage_attachments`: images = inline
+    /// type + 10 MB, files = any type + 50 MB, four of each, an empty entry
+    /// refused) and drop one `[Image #N]` per staged IMAGE at `input`'s
+    /// caret. Returns the notice to show (`None` = everything staged).
     pub(crate) fn stage(
         &mut self,
         images: Vec<StagedFile>,
@@ -137,32 +145,39 @@ impl PendingImages {
         window: &mut Window,
         cx: &mut App,
     ) -> Option<SharedString> {
-        let notice = self.stage_entries(images);
-        for index in notice.markers {
-            insert_marker(input, index, window, cx);
+        let (text, caret) = {
+            let state = input.read(cx);
+            (state.value().to_string(), state.cursor())
+        };
+        let outcome = self.stage_text(images, &text, caret);
+        if let Some((_, inserted)) = outcome.inserted {
+            // The field does the insert so it owns the caret and the undo
+            // entry; the slice is the one the contract inserted.
+            input.update(cx, |state, cx| state.insert(inserted, window, cx));
         }
-        notice.message
+        outcome.notice
     }
 
-    /// The gpui-free half of [`Self::stage`]: stages what passes and reports
-    /// the image numbers whose markers the caller drops, plus the notice.
-    fn stage_entries(&mut self, entries: Vec<StagedFile>) -> StageOutcome {
-        let mut rejected = false;
-        let mut images_full = false;
-        let mut files_full = false;
-        let mut markers = Vec::new();
-        for (filename, content_type, bytes) in entries {
-            if bytes.is_empty() || bytes.len() > max_upload_bytes_for(&content_type) {
-                rejected = true;
-                continue;
-            }
-            let is_file = !is_inline_image(&content_type);
-            if is_file && self.file_count() >= MAX_STEER_FILES {
-                files_full = true;
-                continue;
-            }
-            if !is_file && self.image_count() >= MAX_STEER_IMAGES {
-                images_full = true;
+    /// The field-free half of [`Self::stage`]: stages what passes against
+    /// the draft `text` with its caret, and returns what to insert where
+    /// plus the notice. Every composer's attach goes through here.
+    pub(crate) fn stage_text(&mut self, entries: Vec<StagedFile>, text: &str, caret: usize) -> StageOutcome {
+        let picks: Vec<PickKind> = entries
+            .iter()
+            .map(|(_, content_type, bytes)| {
+                if bytes.is_empty() || bytes.len() > max_upload_bytes_for(content_type) {
+                    PickKind::Rejected
+                } else if is_inline_image(content_type) {
+                    PickKind::Image
+                } else {
+                    PickKind::File
+                }
+            })
+            .collect();
+        let at = clamp_to_char_boundary(text, caret);
+        let staged = stage_attachments(&self.kinds(), &picks, text, at);
+        for ((filename, content_type, bytes), (pick, taken)) in entries.into_iter().zip(picks.iter().zip(&staged.taken)) {
+            if !taken {
                 continue;
             }
             let preview = pending_preview(&content_type, bytes);
@@ -173,25 +188,18 @@ impl PendingImages {
                 preview,
                 uploaded_id: None,
                 uploaded_name: None,
-                is_file,
+                is_file: *pick == PickKind::File,
             });
             self.next_key += 1;
-            if !is_file {
-                markers.push(self.image_count() as u32);
-            }
         }
-        let message = if images_full {
-            Some(SharedString::from(format!(
-                "Up to {MAX_STEER_IMAGES} images per message"
-            )))
-        } else if files_full {
-            Some(SharedString::from(FILES_CAP))
-        } else if rejected {
-            Some(SharedString::from(ATTACH_REJECTED))
-        } else {
-            None
-        };
-        StageOutcome { markers, message }
+        // Markers only ever go in at the caret, so the draft after = the
+        // draft before with one slice at `at`.
+        let inserted = (staged.caret > at)
+            .then(|| staged.text.get(at..staged.caret).map(|slice| (at, slice.to_string())))
+            .flatten();
+        let toasts = staged.toasts();
+        let notice = (!toasts.is_empty()).then(|| SharedString::from(toasts.join("\n")));
+        StageOutcome { inserted, text: staged.text, notice }
     }
 
     /// Wave D: the message to send once every upload landed (call after
@@ -233,7 +241,7 @@ impl PendingImages {
         self.pending.retain(|item| keep.contains(&item.key.to_string()));
     }
 
-    /// Drop a staged image and renumber the draft's markers behind it: the
+    /// Drop a staged entry and renumber the draft's markers behind it: the
     /// removed image's own `[Image #k]` goes and every higher one slides
     /// down, so the markers keep naming the right pictures.
     pub(crate) fn remove(
@@ -243,25 +251,11 @@ impl PendingImages {
         window: &mut Window,
         cx: &mut App,
     ) {
-        let Some(position) = self.pending.iter().position(|image| image.key == key) else {
+        let text = input.read(cx).value().to_string();
+        let Some(next) = self.drop_text(key, &text) else {
             return;
         };
-        let removed = self.pending.remove(position);
-        if removed.is_file {
-            // Files carry no marker — nothing in the draft to renumber.
-            return;
-        }
-        // The removed image's NUMBER counts images only.
-        let position = self.pending[..position]
-            .iter()
-            .filter(|item| !item.is_file)
-            .count();
         input.update(cx, |state, cx| {
-            let text = state.value().to_string();
-            let next = renumber_image_markers(&text, position as u32 + 1);
-            if next == text {
-                return;
-            }
             // `set_value` parks the caret at the start of a multi-line field
             // (upstream `InputState::set_value`), which would throw the
             // writer back to the top of their draft for removing a
@@ -274,6 +268,16 @@ impl PendingImages {
             state.set_value(next, window, cx);
             state.set_cursor_position(caret, window, cx);
         });
+    }
+
+    /// The field-free half of [`Self::remove`]
+    /// (`domain::composer_attachments::drop_attachment`): drops entry `key`
+    /// and returns the renumbered draft, `None` when the text stays.
+    pub(crate) fn drop_text(&mut self, key: u64, text: &str) -> Option<String> {
+        let at = self.pending.iter().position(|item| item.key == key)?;
+        let (_, next) = drop_attachment(&self.kinds(), at, text);
+        self.pending.remove(at);
+        (next != text).then_some(next)
     }
 
     /// Record the ids that landed — a retry after a mid-batch failure only
@@ -401,23 +405,6 @@ impl PendingImages {
     }
 }
 
-/// Insert `[Image #index]` at the composer's caret, padded exactly as the
-/// shared contract pads it. The component does the actual insert so it owns
-/// the caret and the undo entry; the SLICE it inserts is the one
-/// [`insert_image_marker`] would have produced.
-fn insert_marker(input: &Entity<TextareaState>, index: u32, window: &mut Window, cx: &mut App) {
-    let (text, caret) = {
-        let state = input.read(cx);
-        (state.value().to_string(), state.cursor())
-    };
-    let (next, after) = insert_image_marker(&text, caret, index);
-    let Some(inserted) = next.get(caret..after) else {
-        return;
-    };
-    let inserted = inserted.to_string();
-    input.update(cx, |state, cx| state.insert(inserted, window, cx));
-}
-
 /// EXP-1537: a send landed: the field clears only if it still holds
 /// exactly `sent.text`, and only the attachments that went out leave the
 /// strip (`domain::composer_send::after_send`). The field is only written
@@ -463,6 +450,12 @@ pub(crate) fn clipboard_images(cx: &App) -> Vec<StagedFile> {
         }
     }
     images
+}
+
+/// #EXP-1841: files dropped on a composer (drag-and-drop), read like a
+/// pick; they stage through the same [`PendingImages`] path.
+pub(crate) fn dropped_files(paths: &gpui::ExternalPaths) -> Vec<StagedFile> {
+    paths.paths().iter().filter_map(|path| read_pick(path)).collect()
 }
 
 /// The attach button (the Agent composer's "+" → Add file or image, the
@@ -518,25 +511,19 @@ fn pending_preview(content_type: &str, bytes: Vec<u8>) -> Arc<gpui::Image> {
     Arc::new(gpui::Image::from_bytes(format, bytes))
 }
 
-/// What [`PendingImages::stage_entries`] staged: the image numbers whose
-/// markers go at the caret, and the notice.
-struct StageOutcome {
-    markers: Vec<u32>,
-    message: Option<SharedString>,
-}
-
-/// Snap a byte offset to the nearest char boundary at or before it.
-fn clamp_to_char_boundary(text: &str, at: usize) -> usize {
-    let mut at = at.min(text.len());
-    while at > 0 && !text.is_char_boundary(at) {
-        at -= 1;
-    }
-    at
+/// What [`PendingImages::stage_text`] staged: the slice to insert and the
+/// byte offset it goes at (`None` = no image taken), the whole draft after,
+/// and the notice (the toasts, in order).
+pub(crate) struct StageOutcome {
+    pub(crate) inserted: Option<(usize, String)>,
+    pub(crate) text: String,
+    pub(crate) notice: Option<SharedString>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use domain::composer_attachments::{ATTACHMENT_REJECTED_TOAST as ATTACH_REJECTED, FILE_CAP_TOAST as FILES_CAP};
 
     /// Wave D: a non-image pick is READ (any type, 50 MB) and stages as a
     /// file; an empty one comes back bare and is refused with the notice.
@@ -567,7 +554,7 @@ mod tests {
     #[test]
     fn a_landed_send_keeps_what_was_added_meanwhile() {
         let mut strip = PendingImages::default();
-        strip.stage_entries(vec![entry("a.png", "image/png", 4), entry("spec.pdf", "application/pdf", 4)]);
+        strip.stage_text(vec![entry("a.png", "image/png", 4), entry("spec.pdf", "application/pdf", 4)], "", 0);
         let jobs = strip.jobs();
         let resolved: Vec<Uploaded> = jobs
             .iter()
@@ -578,7 +565,7 @@ mod tests {
         assert_eq!(uploaded_message("look", &file_keys, &resolved), strip.message("look"));
 
         let sent = strip.content("look".into());
-        strip.stage_entries(vec![entry("b.png", "image/png", 4)]);
+        strip.stage_text(vec![entry("b.png", "image/png", 4)], "", 0);
         let current = strip.content("look again".into());
         let next = domain::composer_send::after_send(SendOutcome::Sent, &sent, &current);
         strip.retain_keys(&next.attachments);
@@ -586,44 +573,72 @@ mod tests {
         assert_eq!(strip.content(String::new()).attachments, vec!["2".to_string()]);
     }
 
-    /// Wave D: images and files cap apart (4 + 4), markers count images
-    /// only, and the ONE rejection copy covers type, size and emptiness.
+    /// Wave D / #EXP-1841: images and files cap apart (4 + 4), markers
+    /// count images only and land at the caret, and the ONE rejection copy
+    /// covers type, size and emptiness.
     #[test]
     fn staging_caps_images_and_files_apart_and_numbers_images_only() {
         let mut strip = PendingImages::default();
-        let outcome = strip.stage_entries(vec![
-            entry("a.png", "image/png", 3),
-            entry("notes.pdf", "application/pdf", 3),
-            entry("b.jpg", "image/jpeg", 3),
-        ]);
-        assert_eq!(outcome.markers, vec![1, 2]);
-        assert_eq!(outcome.message, None);
-        let outcome = strip.stage_entries(vec![
-            entry("c.zip", "application/zip", 3),
-            entry("d.txt", "text/plain", 3),
-            entry("e.svg", "image/svg+xml", 3),
-            entry("f.md", "text/markdown", 3),
-        ]);
-        assert!(outcome.markers.is_empty(), "files carry no marker");
-        assert_eq!(outcome.message.as_deref(), Some(FILES_CAP));
-        assert_eq!(strip.file_count(), 4);
-        let outcome = strip.stage_entries(vec![entry(
-            "big.png",
-            "image/png",
-            image_paste::MAX_IMAGE_UPLOAD_BYTES + 1,
-        )]);
-        assert_eq!(outcome.message.as_deref(), Some(ATTACH_REJECTED));
-        assert_eq!(
-            ATTACH_REJECTED,
-            "Images up to 10 MB and files up to 50 MB can be attached"
+        let outcome = strip.stage_text(
+            vec![
+                entry("a.png", "image/png", 3),
+                entry("notes.pdf", "application/pdf", 3),
+                entry("b.jpg", "image/jpeg", 3),
+            ],
+            "please check",
+            0,
         );
-        let outcome = strip.stage_entries(vec![
-            entry("c.png", "image/png", 3),
-            entry("d.png", "image/png", 3),
-            entry("e.png", "image/png", 3),
-        ]);
-        assert_eq!(outcome.markers, vec![3, 4]);
-        assert_eq!(outcome.message.as_deref(), Some("Up to 4 images per message"));
+        assert_eq!(outcome.inserted, Some((0, "[Image #1] [Image #2] ".to_string())));
+        assert_eq!(outcome.text, "[Image #1] [Image #2] please check");
+        assert_eq!(outcome.notice, None);
+        let outcome = strip.stage_text(
+            vec![
+                entry("c.zip", "application/zip", 3),
+                entry("d.txt", "text/plain", 3),
+                entry("e.svg", "image/svg+xml", 3),
+                entry("f.md", "text/markdown", 3),
+            ],
+            "x",
+            1,
+        );
+        assert_eq!(outcome.inserted, None, "files carry no marker");
+        assert_eq!(outcome.notice.as_deref(), Some(FILES_CAP));
+        assert_eq!(strip.file_count(), 4);
+        let outcome = strip.stage_text(
+            vec![entry("big.png", "image/png", image_paste::MAX_IMAGE_UPLOAD_BYTES + 1)],
+            "",
+            0,
+        );
+        assert_eq!(outcome.notice.as_deref(), Some(ATTACH_REJECTED));
+        assert_eq!(ATTACH_REJECTED, "Images up to 10 MB and files up to 50 MB can be attached");
+        let outcome = strip.stage_text(
+            vec![
+                entry("c.png", "image/png", 3),
+                entry("d.png", "image/png", 3),
+                entry("e.png", "image/png", 3),
+            ],
+            "look",
+            4,
+        );
+        assert_eq!(outcome.text, "look [Image #3] [Image #4]");
+        assert_eq!(outcome.notice.as_deref(), Some("Up to 4 images per message"));
+    }
+
+    /// #EXP-1841: the X drops its image's marker and renumbers the rest; a
+    /// file's X leaves the draft alone.
+    #[test]
+    fn removing_an_image_renumbers_and_a_file_leaves_the_text() {
+        let mut strip = PendingImages::default();
+        let outcome = strip.stage_text(
+            vec![entry("a.png", "image/png", 3), entry("spec.pdf", "application/pdf", 3), entry("b.png", "image/png", 3)],
+            "",
+            0,
+        );
+        assert_eq!(outcome.text, "[Image #1] [Image #2]");
+        let keys: Vec<u64> = strip.pending.iter().map(|item| item.key).collect();
+        assert_eq!(strip.drop_text(keys[1], &outcome.text), None);
+        assert_eq!(strip.drop_text(keys[0], &outcome.text).as_deref(), Some("[Image #1]"));
+        assert_eq!(strip.len(), 1);
     }
 
     /// Wave D: the sent message = prose, image embeds, then the file lines
@@ -631,10 +646,11 @@ mod tests {
     #[test]
     fn the_message_carries_images_then_files_with_the_server_names() {
         let mut strip = PendingImages::default();
-        strip.stage_entries(vec![
-            entry("notes.pdf", "application/pdf", 3),
-            entry("a.png", "image/png", 3),
-        ]);
+        strip.stage_text(
+            vec![entry("notes.pdf", "application/pdf", 3), entry("a.png", "image/png", 3)],
+            "",
+            0,
+        );
         let keys: Vec<u64> = strip.pending.iter().map(|item| item.key).collect();
         strip.note_uploaded(&[
             (keys[0], "33333333-3333-4333-8333-333333333333".into(), "notes (1).pdf".into()),
@@ -644,13 +660,5 @@ mod tests {
             strip.message("look [Image #1]"),
             "look [Image #1]\n\n![image](/api/attachments/11111111-1111-4111-8111-111111111111)\n[notes (1).pdf](/api/attachments/33333333-3333-4333-8333-333333333333)"
         );
-    }
-
-    #[test]
-    fn clamp_snaps_to_a_char_boundary() {
-        let text = "aé b";
-        assert_eq!(clamp_to_char_boundary(text, 2), 1);
-        assert_eq!(clamp_to_char_boundary(text, 99), text.len());
-        assert_eq!(clamp_to_char_boundary(text, 0), 0);
     }
 }

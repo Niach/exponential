@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- `SurfaceView::field_caret` / `insert_into_field` (#EXP-1841): a host reads a field's caret and types text in at a byte offset through the platform text-input entry point (its change, undo and caret behind it, no focus move): the IDE composer's `[Image #N]` placeholders.
 - Markdown tables fit their columns (#FEED-224): `markdown::table_columns` through `eui_core::table_fit` instead of equal shares (fitted once from the chips at their natural widths, each cell's chips then capped at its column; `Block::table_cols`, `BlockBox::cols`); a short table hugs its content, one wider than the box scrolls horizontally (`restrict_scroll_to_axis`, the page keeps the vertical wheel).
 - `CountBadge` (#FEED-232): `natives::count_badge` paints the core's label centred (role Label), the measurer one tabular line. `controls::count_badge` gains `BadgeTone::Attention` (#facc15 fill, black figures), takes its label from `eui_core::count_badge` and sets tabular figures.
 - Text `truncate: "middle"` cuts by the shared rule (#EXP-1789): the line is `eui_core::text_truncate::middle_truncate_width` over the content box, each character measured by its advance in the leaf's font (`natives::middle_cut`), painted as is, no longer gpui's `text_ellipsis_middle`; a cut keeping fewer than 4 characters shows the `…` alone. `natives::text_lines` takes the `Window`.
