@@ -67,7 +67,296 @@
       "instructionsTooLong": "Instructions are too long"
     },
     "accountLastUsed": "Last used",
-    "event": "On {name}"
+    "event": "On {name}",
+    "triggers": "Triggers",
+    "runsOn": "Runs on",
+    "checkIn": "Check in"
+  },
+  "page": {
+    "$comment": "#EXP-1846 (owner 2026-11-14, #EXP-1835 plan option B): ONE AGENT PAGE ×4 for the Assistant AND every team agent, SUPERSEDING `fields` order and `assistant.sections`. `sections` top to bottom, each a header (`copy[label]`) over one grouped card: `identity` (the board form's icon picker + colour swatch + name; the Assistant: its brand mark + name, never icon/colour), `runs-on` (rows in order: device, account, model, skills, mcp-servers: the MODEL row is every agent's now, value = `assistantModelValue({model, cli})` for any agent; mcp-servers keeps `mcpRow`'s visibility; the Assistant's device picker keeps NEW-99's desktops-only list, a team agent lists every team device), `triggers` (header `copy.triggers` with the `+ Add` pill on its trailing edge for editors; first row = `check-in`: THE single-select Picker in its row trigger over `assistant.schedules` (Off · Every 15 minutes · Every 30 minutes · Every hour · Every day), value `checkInOf(triggers)`; a pick writes `withCheckIn(triggers, id, tz)` whole; then one row per `listedTriggers(triggers)` (triggerSummary · Switch · ⋯ Edit/Delete, the row opens the editor), `copy.noSchedule` muted under Check in when none; `+ Add` opens THE trigger editor (schedule or event), for the Assistant too), `voice` (the Assistant only, as before: voice.json's Settings group; per-agent voice = #EXP-1847), `instructions` (team agents only; the Assistant's prompt is built in), `delete` (team agents only, owners). EDITORS: a team agent's rows are its team's OWNERS' (members read every row, no `+ Add`, no ⋯, no Delete); the Assistant's are its member's. THE TRIGGER LIST is ONE reusable piece per platform taking an agent id (web AgentTriggers, desktop settings::agent_triggers, iOS AgentTriggersSection, Android AgentTriggersSection) so the app screen's Events tab (#EXP-1829) mounts the same rows.",
+    "sections": [
+      {
+        "id": "identity"
+      },
+      {
+        "id": "runs-on",
+        "label": "runsOn",
+        "rows": [
+          "device",
+          "account",
+          "model",
+          "skills",
+          "mcp-servers"
+        ]
+      },
+      {
+        "id": "triggers",
+        "label": "triggers",
+        "rows": [
+          "check-in",
+          "trigger-list"
+        ]
+      },
+      {
+        "id": "voice",
+        "label": "voice",
+        "assistantOnly": true
+      },
+      {
+        "id": "instructions",
+        "teamAgentOnly": true
+      },
+      {
+        "id": "delete",
+        "teamAgentOnly": true,
+        "ownerOnly": true
+      }
+    ]
+  },
+  "checkIn": {
+    "$comment": "#EXP-1846: THE CHECK IN = the ONE schedule trigger carrying `preset` (an `assistant.schedules` id other than `off`; its `cron` is that preset's cron, the server refuses a mismatch and a second preset). It lives in `agents.triggers` beside the other triggers and fires exactly like them (wakeups.json); only the page shows it apart. `checkInOf(triggers)` (`checkInCases`) = the preset trigger's id, `off` when there is none or it is paused (enabled false). `withCheckIn(triggers, id, tz)` (`withCheckInCases`) = the triggers with the preset trigger replaced IN FRONT (it keeps its `id`, and so its firing history, and its stored `tz`; a new one takes `tz` when given) or removed for `off`; every other trigger stays as it is, in order. `listedTriggers(triggers)` (`listedCases`) = every trigger WITHOUT `preset`, in order (the rows under Check in). Any agent may hold one; the Assistant may now hold other schedule and event triggers too (`agents.update` no longer refuses them: `assistant.copy.scheduleRefused` is kept for old clients only). MIGRATION 0282 tagged each Assistant's single preset-cron schedule with its preset. An OLD client's Assistant page still writes one untagged preset schedule: the server tags an Assistant's write that is exactly one untagged schedule on a preset cron (`legacyCheckIn`).",
+    "checkInCases": [
+      {
+        "name": "no triggers = off",
+        "triggers": [],
+        "expected": "off"
+      },
+      {
+        "name": "the preset trigger names the check in",
+        "triggers": [
+          {
+            "kind": "schedule",
+            "cron": "0 * * * *",
+            "preset": "1h",
+            "enabled": true
+          }
+        ],
+        "expected": "1h"
+      },
+      {
+        "name": "a paused check in reads off",
+        "triggers": [
+          {
+            "kind": "schedule",
+            "cron": "*/15 * * * *",
+            "preset": "15m",
+            "enabled": false
+          }
+        ],
+        "expected": "off"
+      },
+      {
+        "name": "an untagged schedule on a preset cron is a trigger, not the check in",
+        "triggers": [
+          {
+            "kind": "schedule",
+            "cron": "0 * * * *",
+            "enabled": true
+          }
+        ],
+        "expected": "off"
+      },
+      {
+        "name": "the check in among other triggers",
+        "triggers": [
+          {
+            "kind": "event",
+            "name": "pr.merged",
+            "enabled": true
+          },
+          {
+            "kind": "schedule",
+            "cron": "*/30 * * * *",
+            "preset": "30m",
+            "enabled": true
+          }
+        ],
+        "expected": "30m"
+      }
+    ],
+    "withCheckInCases": [
+      {
+        "name": "set on an agent without triggers",
+        "triggers": [],
+        "preset": "1h",
+        "tz": "Europe/Vienna",
+        "expected": [
+          {
+            "kind": "schedule",
+            "cron": "0 * * * *",
+            "preset": "1h",
+            "enabled": true,
+            "tz": "Europe/Vienna"
+          }
+        ]
+      },
+      {
+        "name": "change keeps the id, the stored zone and the other triggers",
+        "triggers": [
+          {
+            "id": "t-ev",
+            "kind": "event",
+            "name": "pr.merged",
+            "enabled": true
+          },
+          {
+            "id": "t-ci",
+            "kind": "schedule",
+            "cron": "0 * * * *",
+            "preset": "1h",
+            "enabled": false,
+            "tz": "Europe/Berlin"
+          }
+        ],
+        "preset": "15m",
+        "tz": "Europe/Vienna",
+        "expected": [
+          {
+            "id": "t-ci",
+            "kind": "schedule",
+            "cron": "*/15 * * * *",
+            "preset": "15m",
+            "enabled": true,
+            "tz": "Europe/Berlin"
+          },
+          {
+            "id": "t-ev",
+            "kind": "event",
+            "name": "pr.merged",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "name": "off removes only the check in",
+        "triggers": [
+          {
+            "id": "t-ci",
+            "kind": "schedule",
+            "cron": "0 9 * * *",
+            "preset": "daily",
+            "enabled": true
+          },
+          {
+            "id": "t-s",
+            "kind": "schedule",
+            "cron": "0 9 * * *",
+            "enabled": true
+          }
+        ],
+        "preset": "off",
+        "tz": null,
+        "expected": [
+          {
+            "id": "t-s",
+            "kind": "schedule",
+            "cron": "0 9 * * *",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "name": "no zone given and none stored: none",
+        "triggers": [],
+        "preset": "daily",
+        "tz": null,
+        "expected": [
+          {
+            "kind": "schedule",
+            "cron": "0 9 * * *",
+            "preset": "daily",
+            "enabled": true
+          }
+        ]
+      }
+    ],
+    "listedCases": [
+      {
+        "name": "the preset trigger is not listed",
+        "triggers": [
+          {
+            "id": "a",
+            "kind": "schedule",
+            "cron": "0 * * * *",
+            "preset": "1h",
+            "enabled": true
+          },
+          {
+            "id": "b",
+            "kind": "event",
+            "name": "issue.created",
+            "enabled": true
+          },
+          {
+            "id": "c",
+            "kind": "schedule",
+            "cron": "45 * * * *",
+            "enabled": false
+          }
+        ],
+        "expected": [
+          "b",
+          "c"
+        ]
+      },
+      {
+        "name": "none",
+        "triggers": [],
+        "expected": []
+      }
+    ],
+    "legacyCases": [
+      {
+        "name": "one untagged preset schedule = the old check in",
+        "triggers": [
+          {
+            "kind": "schedule",
+            "cron": "*/30 * * * *",
+            "enabled": true
+          }
+        ],
+        "expected": "30m"
+      },
+      {
+        "name": "a custom cron is no check in",
+        "triggers": [
+          {
+            "kind": "schedule",
+            "cron": "*/10 * * * *",
+            "enabled": true
+          }
+        ],
+        "expected": null
+      },
+      {
+        "name": "already tagged: nothing to do",
+        "triggers": [
+          {
+            "kind": "schedule",
+            "cron": "0 * * * *",
+            "preset": "1h",
+            "enabled": true
+          }
+        ],
+        "expected": null
+      },
+      {
+        "name": "more than one trigger: nothing to do",
+        "triggers": [
+          {
+            "kind": "schedule",
+            "cron": "0 * * * *",
+            "enabled": true
+          },
+          {
+            "kind": "event",
+            "name": "pr.merged",
+            "enabled": true
+          }
+        ],
+        "expected": null
+      }
+    ]
   },
   "mcpRow": {
     "$comment": "#EXP-1793 (owner 2026-11-12: 'agent settings need also mcps please'): the agent page gains ONE row `mcp-servers` right UNDER Skills (skills.json `agentRow`; on the Assistant's page: after Skills, the last row of `runs-on`): label `label`, value = the picked servers' names in the team list's order through THE shared picker summary (`a`, `a, b`, `a, b +N`; `mcpValueCases`, the same rule as skills.json `agentSkillsValue`), `none` muted when nothing is picked; it opens THE composer's MCP servers multi picker rows (composer-menu.json `mcp-servers`: a server the viewer has not connected opens Settings > MCP to connect instead of toggling); owners edit (`agents.update {mcpServerIds}`, saved at once), members read. Shown only while the team has an MCP server or the agent already names one. DATA: `agents.mcp_server_ids` (SYNCED, ids of the agent's team's `mcp_servers`, at most `max`): every run of the agent starts with them: its conversation sessions (created with them; `agents.update` carries a change onto them), its trigger firings (they fire into a conversation) and the roots its tree starts without an explicit pick; children inherit their parent's. `exponential_agents` create/update take `mcpServerIds`; `sessions.send {agentId, mcpServerIds}` sets the conversation's pick (an id outside the agent's team is an error).",

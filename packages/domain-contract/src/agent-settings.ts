@@ -18,6 +18,8 @@ export interface AgentTriggerLike {
   tz?: string | null
   /** event: the events row name it listens on. */
   name?: string
+  /** #EXP-1846: the Check in preset this schedule is (`checkIn`). */
+  preset?: string | null
 }
 
 /** One Triggers row's text. */
@@ -147,14 +149,15 @@ export function assistantScheduleOf(triggers: AgentTriggerLike[]): AssistantSche
   return trigger!.enabled === false ? `off` : preset.id
 }
 
-/** The triggers a preset saves as (`off` = none). */
+/** The triggers a preset saves as (`off` = none), tagged as the Check in
+ *  (#EXP-1846). */
 export function assistantScheduleTriggers(
   id: AssistantScheduleId,
   tz?: string | null
-): { kind: `schedule`; cron: string; enabled: true; tz?: string }[] {
+): { kind: `schedule`; cron: string; preset: Exclude<AssistantScheduleId, `off`>; enabled: true; tz?: string }[] {
   const cron = ASSISTANT_SCHEDULES.find((schedule) => schedule.id === id)?.cron
-  if (!cron) return []
-  return [{ kind: `schedule`, cron, enabled: true, ...(tz ? { tz } : {}) }]
+  if (!cron || id === `off`) return []
+  return [{ kind: `schedule`, cron, preset: id, enabled: true, ...(tz ? { tz } : {}) }]
 }
 
 /** The Assistant's Model row value (`modelValueCases`): the pinned model,
@@ -286,4 +289,70 @@ export function agentMcpServersValue(names: readonly string[]): string {
   if (names.length === 0) return fixture.mcpRow.none
   if (names.length <= 2) return names.join(`, `)
   return `${names.slice(0, 2).join(`, `)} +${names.length - 2}`
+}
+
+// #EXP-1846 (`page`, `checkIn`): ONE agent page ×4; the Check in is the one
+// schedule trigger carrying `preset`, any agent's.
+export const AGENT_PAGE = fixture.page
+export const CHECK_IN = fixture.checkIn
+
+const presetCron = (id: string) => ASSISTANT_SCHEDULES.find((schedule) => schedule.id === id)?.cron ?? null
+
+/** The Check in row's value (`checkInCases`): the preset trigger's id, `off`
+ *  when there is none or it is paused. */
+export function checkInOf(triggers: readonly AgentTriggerLike[]): AssistantScheduleId {
+  const trigger = triggers.find((candidate) => candidate.kind === `schedule` && candidate.preset)
+  if (!trigger || trigger.enabled === false || !presetCron(trigger.preset!)) return `off`
+  return trigger.preset as AssistantScheduleId
+}
+
+/** The triggers after a Check in pick (`withCheckInCases`): the preset
+ *  trigger replaced in front (keeping its id and stored zone) or removed
+ *  for `off`; the others unchanged, in order. */
+export function withCheckIn<T extends AgentTriggerLike & { id?: string }>(
+  triggers: readonly T[],
+  id: AssistantScheduleId,
+  tz?: string | null
+): (T | (AgentTriggerLike & { id?: string }))[] {
+  const current = triggers.find((candidate) => candidate.kind === `schedule` && candidate.preset)
+  const rest = triggers.filter((candidate) => candidate !== current)
+  const cron = presetCron(id)
+  if (!cron) return rest
+  const zone = current ? current.tz : tz
+  const next: AgentTriggerLike & { id?: string } = {
+    ...(current?.id ? { id: current.id } : {}),
+    kind: `schedule`,
+    cron,
+    preset: id,
+    enabled: true,
+    ...(zone ? { tz: zone } : {}),
+  }
+  return [next, ...rest]
+}
+
+/** The rows under Check in (`listedCases`): every trigger without `preset`. */
+export function listedTriggers<T extends AgentTriggerLike>(triggers: readonly T[]): T[] {
+  return triggers.filter((trigger) => !trigger.preset)
+}
+
+/** An OLD client's Assistant Check in write (`legacyCases`): exactly one
+ *  untagged schedule on a preset cron = that preset; anything else null. */
+export function legacyCheckIn(triggers: readonly AgentTriggerLike[]): AssistantScheduleId | null {
+  if (triggers.length !== 1) return null
+  const [trigger] = triggers
+  if (trigger!.kind !== `schedule` || trigger!.preset) return null
+  const preset = ASSISTANT_SCHEDULES.find((schedule) => schedule.cron !== null && schedule.cron === trigger!.cron)
+  return preset ? preset.id : null
+}
+
+/** The server's rule (`checkIn`): at most one preset trigger, a schedule on
+ *  its preset's cron. Null = fine, else the reason. */
+export function checkInProblem(triggers: readonly AgentTriggerLike[]): string | null {
+  const presets = triggers.filter((trigger) => trigger.preset)
+  if (presets.length > 1) return `Only one Check in per agent`
+  const [preset] = presets
+  if (preset && (preset.kind !== `schedule` || presetCron(preset.preset!) !== preset.cron)) {
+    return `The Check in runs on its preset's schedule`
+  }
+  return null
 }

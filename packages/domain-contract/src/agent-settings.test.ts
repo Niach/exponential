@@ -13,6 +13,11 @@ import {
   ASSISTANT_SCHEDULES,
   assigneeOptions,
   assistantScheduleOf,
+  checkInOf,
+  checkInProblem,
+  legacyCheckIn,
+  listedTriggers,
+  withCheckIn,
   assistantScheduleTriggers,
   issueActor,
   orderedAgents,
@@ -93,6 +98,40 @@ describe(`agent-settings.json assistant`, () => {
     for (const schedule of ASSISTANT_SCHEDULES) {
       expect(assistantScheduleOf(assistantScheduleTriggers(schedule.id))).toBe(schedule.id)
     }
+  })
+})
+
+describe(`agent-settings.json checkIn (#EXP-1846)`, () => {
+  for (const c of fixture.checkIn.checkInCases) {
+    it(`checkInCases: ${c.name}`, () => {
+      expect(checkInOf(c.triggers as AgentTriggerLike[])).toBe(c.expected)
+    })
+  }
+  for (const c of fixture.checkIn.withCheckInCases) {
+    it(`withCheckInCases: ${c.name}`, () => {
+      expect(withCheckIn(c.triggers as AgentTriggerLike[], c.preset as never, c.tz)).toEqual(c.expected)
+    })
+  }
+  for (const c of fixture.checkIn.listedCases) {
+    it(`listedCases: ${c.name}`, () => {
+      expect(listedTriggers(c.triggers as (AgentTriggerLike & { id: string })[]).map((trigger) => trigger.id)).toEqual(c.expected)
+    })
+  }
+  for (const c of fixture.checkIn.legacyCases) {
+    it(`legacyCases: ${c.name}`, () => {
+      expect(legacyCheckIn(c.triggers as AgentTriggerLike[])).toBe(c.expected)
+    })
+  }
+  it(`every preset write reads back and passes the server rule`, () => {
+    for (const schedule of ASSISTANT_SCHEDULES) {
+      const written = withCheckIn([], schedule.id, `Europe/Vienna`)
+      expect(checkInOf(written)).toBe(schedule.id)
+      expect(checkInProblem(written)).toBeNull()
+    }
+  })
+  it(`checkInProblem refuses a second preset and a foreign cron`, () => {
+    expect(checkInProblem([{ kind: `schedule`, cron: `0 * * * *`, preset: `1h` }, { kind: `schedule`, cron: `0 9 * * *`, preset: `daily` }])).not.toBeNull()
+    expect(checkInProblem([{ kind: `schedule`, cron: `*/10 * * * *`, preset: `1h` }])).not.toBeNull()
   })
 })
 

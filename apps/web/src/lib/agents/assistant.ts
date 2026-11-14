@@ -3,8 +3,9 @@ import { and, asc, desc, eq } from "drizzle-orm"
 import {
   ASSISTANT,
   ASSISTANT_COPY,
-  assistantScheduleOf,
   assistantScheduleTriggers,
+  checkInProblem,
+  legacyCheckIn,
   type AgentTriggerLike,
 } from "@exp/domain-contract/agent-settings"
 import type { AgentTrigger } from "@exp/db-schema/domain"
@@ -80,12 +81,16 @@ export async function ensureAssistant(userId: string, teamId: string, exec: Exec
   return assistant
 }
 
-/** `agents.update` on an Assistant: exactly one schedule preset, never an
- *  event (agent-settings.json `assistant.scheduleCases`). */
-export function assertAssistantTriggers(triggers: AgentTriggerLike[]): void {
-  if (assistantScheduleOf(triggers) === null) {
-    throw new TRPCError({ code: `BAD_REQUEST`, message: ASSISTANT_COPY.scheduleRefused })
-  }
+/** #EXP-1846 (agent-settings.json `checkIn`): any agent's triggers as
+ *  `agents.create`/`update` store them. An OLD client's Assistant page
+ *  writes its Check in as one untagged preset schedule: that write is
+ *  tagged (`legacyCases`). Then at most one Check in, on its preset's cron. */
+export function checkedAgentTriggers<T extends AgentTriggerLike>(role: string, triggers: T[]): T[] {
+  const legacy = role === `assistant` ? legacyCheckIn(triggers) : null
+  const next = legacy ? triggers.map((trigger) => ({ ...trigger, preset: legacy })) : triggers
+  const problem = checkInProblem(next)
+  if (problem) throw new TRPCError({ code: `BAD_REQUEST`, message: problem })
+  return next
 }
 
 /** The voice Assistant + device a member's voice runs on: the stored
