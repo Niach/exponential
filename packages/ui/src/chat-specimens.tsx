@@ -434,7 +434,8 @@ const TIMES: Record<string, string> = { m1: `21:02`, m2: `21:14`, m3: `09:02`, m
 /** #EXP-1736: the specimens' chat (a plain session) and its people. */
 const SPECIMEN_CHAT = { sessionId: `r`, title: `Reduce cold start`, agentId: null }
 const SPECIMEN_VIEWER = `u-alex`
-const specimenMember = (id: string) => (id === `u-dana` ? { id, name: `Dana Reyes` } : null)
+const specimenMember = (id: string) =>
+  id === `u-dana` ? { id, name: `Dana Reyes` } : id === SPECIMEN_VIEWER ? { id, name: `Alex Chen` } : null
 
 /** #FEED-237 (message-delivery.json): the viewer's own messages in each
  *  delivery state, WhatsApp-style, at the transcript's bottom. */
