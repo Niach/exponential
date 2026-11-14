@@ -2239,6 +2239,10 @@ impl SteerSessionView {
             self.refresh_slash(cx);
             cx.notify();
         }
+        if let Some(path) = crate::screens::take_dev_composer_image() {
+            let picked = composer_images::read_pick(&path).into_iter().collect();
+            self.stage_images(picked, window, cx);
+        }
     }
 
     /// Whether the run is over — a merged/ended session offers no Merge
@@ -4564,13 +4568,13 @@ impl SteerSessionView {
     /// Drop a staged entry and renumber the draft's markers behind it, in
     /// the drawn field even while it has the focus (#EXP-1841).
     fn remove_pending(&mut self, key: u64, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let Some((text, _)) = self.composer_doc.field_draft(cx) else {
+        let Some((text, caret)) = self.composer_doc.field_draft(cx) else {
             self.pending_images.remove(key, &self.input, window, cx);
             cx.notify();
             return;
         };
-        if let Some(next) = self.pending_images.drop_text(key, &text) {
-            self.composer_doc.assign_draft(next.clone(), cx);
+        if let Some((next, caret)) = self.pending_images.drop_text(key, &text, caret) {
+            self.composer_doc.assign_draft(next.clone(), Some(caret), cx);
             chat_tab_composer::mirror_draft(&self.input, next, window, cx);
         }
         cx.notify();

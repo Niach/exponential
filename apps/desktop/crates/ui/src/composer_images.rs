@@ -251,19 +251,21 @@ impl PendingImages {
         window: &mut Window,
         cx: &mut App,
     ) {
-        let text = input.read(cx).value().to_string();
-        let Some(next) = self.drop_text(key, &text) else {
+        let (text, caret) = {
+            let state = input.read(cx);
+            (state.value().to_string(), state.cursor())
+        };
+        let Some((next, caret)) = self.drop_text(key, &text, caret) else {
             return;
         };
         input.update(cx, |state, cx| {
             // `set_value` parks the caret at the start of a multi-line field
             // (upstream `InputState::set_value`), which would throw the
             // writer back to the top of their draft for removing a
-            // thumbnail. Carry the caret over, clamped into the shortened
-            // text and snapped to a char boundary — the same restore the
-            // markdown toolbar's transforms do. It focuses the field, which
-            // is where the writer was anyway: they are mid-draft.
-            let caret = clamp_to_char_boundary(&next, state.cursor());
+            // thumbnail. The caret stays where it was, moved left by what
+            // the removal took out before it (composer-attachments.json
+            // `drop.caret`). It focuses the field, which is where the
+            // writer was anyway: they are mid-draft.
             let caret = crate::markdown::byte_offset_to_position(&next, caret);
             state.set_value(next, window, cx);
             state.set_cursor_position(caret, window, cx);
@@ -272,12 +274,13 @@ impl PendingImages {
 
     /// The field-free half of [`Self::remove`]
     /// (`domain::composer_attachments::drop_attachment`): drops entry `key`
-    /// and returns the renumbered draft, `None` when the text stays.
-    pub(crate) fn drop_text(&mut self, key: u64, text: &str) -> Option<String> {
+    /// and returns the renumbered draft with the caret (bytes) carried
+    /// along, `None` when the text stays.
+    pub(crate) fn drop_text(&mut self, key: u64, text: &str, caret: usize) -> Option<(String, usize)> {
         let at = self.pending.iter().position(|item| item.key == key)?;
-        let (_, next) = drop_attachment(&self.kinds(), at, text);
+        let (_, next, caret) = drop_attachment(&self.kinds(), at, text, caret);
         self.pending.remove(at);
-        (next != text).then_some(next)
+        (next != text).then_some((next, caret))
     }
 
     /// Record the ids that landed — a retry after a mid-batch failure only
@@ -636,8 +639,8 @@ mod tests {
         );
         assert_eq!(outcome.text, "[Image #1] [Image #2]");
         let keys: Vec<u64> = strip.pending.iter().map(|item| item.key).collect();
-        assert_eq!(strip.drop_text(keys[1], &outcome.text), None);
-        assert_eq!(strip.drop_text(keys[0], &outcome.text).as_deref(), Some("[Image #1]"));
+        assert_eq!(strip.drop_text(keys[1], &outcome.text, 21), None);
+        assert_eq!(strip.drop_text(keys[0], &outcome.text, 10), Some(("[Image #1]".to_string(), 0)));
         assert_eq!(strip.len(), 1);
     }
 

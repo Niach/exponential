@@ -5798,11 +5798,15 @@ mod tests {
 
     /// #EXP-1841: the chat composer stages like the launch composer: each
     /// pasted image drops `[Image #N]` at the drawn field's caret, and a
-    /// thumbnail's X removes its marker and renumbers the rest.
+    /// thumbnail's X removes its marker and renumbers the rest, the caret
+    /// staying where it was (composer-attachments.json `drop.caret`).
     #[gpui::test]
     fn the_chat_tabs_composer_drops_and_renumbers_image_markers(cx: &mut gpui::TestAppContext) {
         let (inner, document, cx) = chat_tab_composer(cx);
-        type_draft(&document, "see", cx);
+        type_draft(&document, "now", cx);
+        // The writer's caret goes back in front of "now".
+        cx.update(|window, cx| document.update(cx, |document, cx| document.insert_into_field("chat_composer", 0, "see ", window, cx)));
+        settle(cx);
         let dir = std::env::temp_dir().join(format!("ui-chat-tab-markers-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let png = dir.join("shot.png");
@@ -5813,8 +5817,10 @@ mod tests {
             settle(cx);
         }
         let field = |cx: &mut gpui::VisualTestContext| cx.update(|_, cx| document.read(cx).field_text("chat_composer", cx));
-        assert_eq!(field(cx).as_deref(), Some("see [Image #1] [Image #2]"), "the markers are in the drawn field");
-        assert_eq!(cx.update(|_, cx| inner.read(cx).composer_draft(cx)), "see [Image #1] [Image #2]");
+        let caret = |cx: &mut gpui::VisualTestContext| cx.update(|_, cx| document.read(cx).field_caret("chat_composer", cx));
+        assert_eq!(field(cx).as_deref(), Some("see [Image #1] [Image #2] now"), "the markers are in the drawn field, at the caret");
+        assert_eq!(caret(cx), Some(26), "the caret behind the last marker");
+        assert_eq!(cx.update(|_, cx| inner.read(cx).composer_draft(cx)), "see [Image #1] [Image #2] now");
         assert_eq!(cx.update(|_, cx| inner.read(cx).composer_files()), 2);
         let remove = cx.update(|_, cx| {
             let document = document.read(cx);
@@ -5823,8 +5829,9 @@ mod tests {
         let index = cx.update(|_, cx| document.read(cx).index_of(&remove.expect("the first image's X"))).unwrap();
         cx.update(|window, cx| document.update(cx, |document, cx| document.press(index, window, cx)));
         settle(cx);
-        assert_eq!(field(cx).as_deref(), Some("see [Image #1]"), "its marker left and the rest renumbered");
-        assert_eq!(cx.update(|_, cx| inner.read(cx).composer_draft(cx)), "see [Image #1]");
+        assert_eq!(field(cx).as_deref(), Some("see [Image #1] now"), "its marker left and the rest renumbered");
+        assert_eq!(caret(cx), Some(15), "the caret stays in front of \"now\", moved left by the removed marker");
+        assert_eq!(cx.update(|_, cx| inner.read(cx).composer_draft(cx)), "see [Image #1] now");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

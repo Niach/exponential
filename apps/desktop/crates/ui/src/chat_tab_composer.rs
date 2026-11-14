@@ -403,11 +403,15 @@ impl ComposerDoc {
     }
 
     /// #EXP-1841: a draft the host rewrote (an X's renumbering) goes into
-    /// the field even while it is focused (a programmatic write).
-    pub(crate) fn assign_draft(&mut self, draft: String, cx: &mut App) {
+    /// the field even while it is focused (a programmatic write), its caret
+    /// at byte `caret` (`None` = the end).
+    pub(crate) fn assign_draft(&mut self, draft: String, caret: Option<usize>, cx: &mut App) {
         let Some(view) = self.view.clone() else { return };
         self.draft = draft.clone();
         view.update(cx, |view, cx| {
+            if let Some(caret) = caret {
+                view.caret_on_write(COMPOSER, caret);
+            }
             let _ = view.assign_data("/chat/draft", Some(json!(draft)), cx);
         });
     }

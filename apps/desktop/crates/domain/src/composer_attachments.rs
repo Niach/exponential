@@ -47,11 +47,6 @@ fn marker_pattern() -> &'static Regex {
     PATTERN.get_or_init(|| Regex::new(r"\[Image #(\d+)\]").expect("the image marker pattern is a valid regex"))
 }
 
-fn tidy_runs() -> &'static Regex {
-    static PATTERN: OnceLock<Regex> = OnceLock::new();
-    PATTERN.get_or_init(|| Regex::new(r"[ \t]{2,}").expect("a valid regex"))
-}
-
 /// The largest char boundary at or before `at` (and never past the end).
 pub fn clamp_to_char_boundary(text: &str, at: usize) -> usize {
     let mut at = at.min(text.len());
@@ -76,35 +71,114 @@ pub fn insert_image_marker(text: &str, caret: usize, index: u32) -> (String, usi
 /// and every higher one slides down one. Only a line that LOST a marker gets
 /// the gap it left tidied; untouched lines keep their spacing.
 pub fn renumber_image_markers(text: &str, removed: u32) -> String {
-    text.split('\n')
-        .map(|line| {
-            let mut dropped = false;
-            let next = marker_pattern().replace_all(line, |captures: &regex::Captures| {
-                let Ok(index) = captures[1].parse::<u32>() else {
-                    return captures[0].to_string();
-                };
-                if index == removed {
-                    dropped = true;
-                    String::new()
-                } else if index > removed {
-                    image_marker(index - 1)
-                } else {
-                    captures[0].to_string()
+    renumber_with_caret(text, removed, 0).0
+}
+
+/// Collapses each run of 2+ spaces/tabs to one space, mapping `at`: a caret
+/// inside a run (past its first character) lands behind the single space.
+fn collapse_runs(line: &str, at: usize) -> (String, usize) {
+    let blank = |b: u8| b == b' ' || b == b'\t';
+    let bytes = line.as_bytes();
+    let mut out = String::with_capacity(line.len());
+    // Every in-range `at` sits on a char start the walk passes; past the
+    // end = the new end.
+    let mut mapped: Option<usize> = None;
+    let mut i = 0;
+    while i < line.len() {
+        if blank(bytes[i]) {
+            let mut j = i;
+            while j < line.len() && blank(bytes[j]) {
+                j += 1;
+            }
+            if j - i >= 2 {
+                if at == i {
+                    mapped = Some(out.len());
+                } else if at > i && at <= j {
+                    mapped = Some(out.len() + 1);
                 }
-            });
-            if !dropped {
-                return next.into_owned();
+                out.push(' ');
+                i = j;
+                continue;
             }
-            let tidied = tidy_runs().replace_all(&next, " ");
-            let tidied = tidied.trim_end_matches([' ', '\t']);
+        }
+        if at == i {
+            mapped = Some(out.len());
+        }
+        let ch = line[i..].chars().next().expect("a char at a boundary");
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    let at = mapped.unwrap_or(out.len());
+    (out, at)
+}
+
+/// [`renumber_image_markers`] with the caret carried along (the X keeps it
+/// where it was): it moves left by what the removal took out before it, so
+/// a caret right behind the removed placeholder lands where it began. A
+/// caret INSIDE a marker counts as at that marker's start. TS
+/// `renumberWithCaret`, in byte offsets.
+pub fn renumber_with_caret(text: &str, removed: u32, caret: usize) -> (String, usize) {
+    let mut at = clamp_to_char_boundary(text, caret);
+    for found in marker_pattern().find_iter(text) {
+        if at > found.start() && at < found.end() {
+            at = found.start();
+        }
+    }
+    let mut out: Vec<String> = Vec::new();
+    let mut line_start = 0;
+    let mut mapped_caret = 0;
+    let mut out_offset = 0;
+    for line in text.split('\n') {
+        let local = (at >= line_start && at <= line_start + line.len()).then(|| at - line_start);
+        let mut dropped = false;
+        let mut next = String::with_capacity(line.len());
+        let mut cursor = 0;
+        let mut mapped: Option<usize> = None;
+        for captures in marker_pattern().captures_iter(line) {
+            let whole = captures.get(0).expect("the whole match");
+            let start = whole.start();
+            if let Some(local) = local {
+                if local >= cursor && local <= start && mapped.is_none() {
+                    mapped = Some(next.len() + (local - cursor));
+                }
+            }
+            next.push_str(&line[cursor..start]);
+            match captures[1].parse::<u32>() {
+                Ok(index) if index == removed => dropped = true,
+                Ok(index) if index > removed => next.push_str(&image_marker(index - 1)),
+                _ => next.push_str(whole.as_str()),
+            }
+            cursor = whole.end();
+            if local == Some(cursor) && mapped.is_none() {
+                mapped = Some(next.len());
+            }
+        }
+        if let Some(local) = local {
+            if local >= cursor && mapped.is_none() {
+                mapped = Some(next.len() + (local - cursor));
+            }
+        }
+        next.push_str(&line[cursor..]);
+        if dropped {
+            // TS passes -1 (no caret on this line) through as "past the end".
+            let (collapsed, at) = collapse_runs(&next, mapped.unwrap_or(usize::MAX));
+            next = collapsed.trim_end_matches([' ', '\t']).to_string();
+            let at = at.min(next.len());
+            mapped = mapped.map(|_| at);
             if line.starts_with(&image_marker(removed)) {
-                tidied.trim_start_matches([' ', '\t']).to_string()
-            } else {
-                tidied.to_string()
+                let lead = next.len() - next.trim_start_matches([' ', '\t']).len();
+                next = next[lead..].to_string();
+                mapped = mapped.map(|at| at.saturating_sub(lead));
             }
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+        }
+        if let (Some(_), Some(mapped)) = (local, mapped) {
+            mapped_caret = out_offset + mapped;
+        }
+        out_offset += next.len() + 1;
+        out.push(next);
+        line_start += line.len() + 1;
+    }
+    (out.join("\n"), mapped_caret)
 }
 
 /// How many images the strip holds.
@@ -201,17 +275,20 @@ pub fn stage_attachments(strip: &[AttachmentKind], add: &[PickKind], text: &str,
 
 /// The strip's X on the entry at `at`. An image's markers leave the draft
 /// and every higher one slides down, so the numbers keep matching the strip;
-/// a file has none.
-pub fn drop_attachment(strip: &[AttachmentKind], at: usize, text: &str) -> (Vec<AttachmentKind>, String) {
+/// a file has none. The caret (bytes) stays where it was
+/// ([`renumber_with_caret`]). Returns the strip, the draft and the caret.
+pub fn drop_attachment(strip: &[AttachmentKind], at: usize, text: &str, caret: usize) -> (Vec<AttachmentKind>, String, usize) {
+    let caret = clamp_to_char_boundary(text, caret);
     let Some(kind) = strip.get(at) else {
-        return (strip.to_vec(), text.to_string());
+        return (strip.to_vec(), text.to_string(), caret);
     };
     let rest: Vec<AttachmentKind> = strip.iter().enumerate().filter(|(index, _)| *index != at).map(|(_, kind)| *kind).collect();
     if *kind != AttachmentKind::Image {
-        return (rest, text.to_string());
+        return (rest, text.to_string(), caret);
     }
     let number = image_count(&strip[..at]) as u32 + 1;
-    (rest, renumber_image_markers(text, number))
+    let (text, caret) = renumber_with_caret(text, number, caret);
+    (rest, text, caret)
 }
 
 #[cfg(test)]
@@ -266,12 +343,30 @@ mod tests {
         strip: Vec<String>,
         at: usize,
         text: String,
+        caret: usize,
     }
 
     #[derive(Deserialize, Debug, PartialEq)]
     struct DropExpected {
         strip: Vec<String>,
         text: String,
+        caret: usize,
+    }
+
+    /// The fixture's offsets are UTF-16 code units (JS string indices).
+    fn utf16_to_byte(text: &str, at: usize) -> usize {
+        let mut units = 0;
+        for (byte, ch) in text.char_indices() {
+            if units >= at {
+                return byte;
+            }
+            units += ch.len_utf16();
+        }
+        text.len()
+    }
+
+    fn byte_to_utf16(text: &str, at: usize) -> usize {
+        text[..at].encode_utf16().count()
     }
 
     #[derive(Deserialize)]
@@ -361,13 +456,21 @@ mod tests {
         assert!(!cases.is_empty());
         for case in cases {
             let strip: Vec<AttachmentKind> = case.input.strip.iter().map(|name| kind(name)).collect();
-            let (rest, text) = drop_attachment(&strip, case.input.at, &case.input.text);
-            assert_eq!(DropExpected { strip: names(&rest), text }, case.expected, "{}", case.name);
+            let caret = utf16_to_byte(&case.input.text, case.input.caret);
+            let (rest, text, caret) = drop_attachment(&strip, case.input.at, &case.input.text, caret);
+            let caret = byte_to_utf16(&text, caret);
+            assert_eq!(DropExpected { strip: names(&rest), text, caret }, case.expected, "{}", case.name);
         }
     }
 
     #[test]
     fn a_caret_inside_a_multi_byte_character_clamps() {
         assert_eq!(insert_image_marker("é", 1, 1).0, "[Image #1] é");
+    }
+
+    #[test]
+    fn the_x_keeps_a_byte_caret_past_multi_byte_text() {
+        // "é" is two bytes: the caret behind the marker lands where it began.
+        assert_eq!(renumber_with_caret("é [Image #1] ok", 1, 13), ("é ok".to_string(), 3));
     }
 }
