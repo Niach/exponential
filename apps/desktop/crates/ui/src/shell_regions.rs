@@ -230,8 +230,9 @@ fn gather(nav: &Entity<Navigation>, cx: &mut App) -> (IdeSidebarInput, HashMap<S
     // #FEED-232: an agent row counts its conversation's unread replies.
     // #PERF-10: the counts alone (the whole Chats model derived per write).
     let unread: HashMap<String, usize> = crate::session_data::agent_unread_counts(&team_id, cx);
-    // #FEED-239: an app's agent is listed under Apps only.
-    for agent in crate::session_data::sidebar_agents_in_team(&team_id, cx) {
+    // #FEED-239: an app's agent is listed under Apps only; #EXP-1837: the
+    // viewer's Assistant is THE FAB, not a rail row.
+    for agent in crate::session_data::rail_agents_in_team(&team_id, cx) {
         let icon = format!("ide:agent:{}", agent.agent_id);
         let unread = unread.get(&agent.agent_id).copied().unwrap_or(0);
         input.agents.push(IdeAgentInput { id: agent.agent_id.clone(), name: agent.name.clone(), icon: icon.clone(), needs_you: agent.needs_you, unread });
