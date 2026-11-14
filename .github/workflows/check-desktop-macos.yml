@@ -1,0 +1,43 @@
+name: check-desktop-macos
+
+# #EXP-1805: the gate's desktop `cargo check` runs on Linux, so `cfg(target_os
+# = "macos")` code merges uncompiled: #2723's `.autorelease()` without the
+# `NSAutoreleasePool` trait (E0599) reached the desktop-v0.14.156 tag. This
+# checks what the release builds (the app and the CLI daemon) for Apple
+# silicon on every PR that touches the desktop workspace. Informational: not
+# part of `gate`, but visible before merge.
+#
+# Native, not a cross-check from Linux: the tree's C/C++ build scripts
+# (sqlite, simdutf, tree-sitter grammars, ring, webp, ...) need the macOS
+# SDK's headers. GitHub-hosted (free, the repo is public), never the two
+# self-hosted Macs, so it never queues behind an iOS leg.
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/check-desktop-macos.yml"
+      - ".github/actions/cargo-fetch/**"
+      - "apps/desktop/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-desktop-macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop
+          key: macos-check
+      - uses: ./.github/actions/cargo-fetch
+      - name: cargo check
+        run: cargo check --locked --manifest-path apps/desktop/Cargo.toml -p app -p exp-cli
