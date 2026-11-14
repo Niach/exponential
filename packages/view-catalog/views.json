@@ -3397,6 +3397,42 @@
       }
     },
     {
+      "id": "app-events",
+      "group": "coding",
+      "title": "App · Events tab",
+      "blurb": "#EXP-1850: Ops desk's Events tab: its agent's triggers (a webhook and a schedule that run bindings, a record wake), the Webhooks group and Recent runs (Ran, Woke agent, Refused, Dropped).",
+      "order": 78,
+      "web": {
+        "route": "/t/$teamSlug/app-editor/ops-desk?tab=events",
+        "anchor": {
+          "testId": "app-events-runs",
+          "timeoutMs": 30000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "manual"
+        }
+      },
+      "ios": {
+        "shot": "sg_app-events",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_app-events",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "The seed's Ops desk (scripts/lib/demo-sample-apps.ts): three triggers and five audit rows.",
+        "web-mobile": "Inherits web at the phone's width.",
+        "desktop": "Manual: open app:ops-desk:events on the seeded stack (fresh data dir, What's new dismissed), then write `.shots-raw/desktop/app-events.png`.",
+        "ios": "The live walk in the styleguide screenshot suite.",
+        "android": "The live walk in the styleguide screenshot suite."
+      }
+    },
+    {
       "id": "app-guest",
       "group": "coding",
       "title": "App · public link",
