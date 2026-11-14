@@ -20,6 +20,13 @@ export function triggerAutomationName(triggerId: string): string {
   return `t_${triggerId.replace(/-/g, ``).toLowerCase()}`
 }
 
+/** The trigger id an automation name stands for (`t_<32 hex>`), else null. */
+export function triggerIdOfAutomation(name: string): string | null {
+  const hex = /^t_([0-9a-f]{32})$/.exec(name)?.[1]
+  if (!hex) return null
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+
 /** The trigger's when-part as an automation `on`. */
 export function triggerOn(trigger: AgentTrigger): AutomationTrigger {
   switch (trigger.kind) {

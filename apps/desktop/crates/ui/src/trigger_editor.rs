@@ -93,9 +93,34 @@ pub(crate) fn is_readable(trigger: &Value) -> bool {
     trigger_id(trigger).is_some()
         && match trigger.get("kind").and_then(Value::as_str) {
             Some("schedule") => text("cron"),
-            Some("event") => text("name"),
+            Some("event") | Some("webhook") => text("name"),
+            // #EXP-1850: an app agent's record trigger is listed too.
+            Some("record") => text("record") && text("op"),
             _ => false,
         }
+}
+
+/// #EXP-1850: the editor edits schedules and events; a record or webhook
+/// row has none (its ⋯ = Delete only).
+pub(crate) fn is_editable(trigger: &Value) -> bool {
+    matches!(trigger.get("kind").and_then(Value::as_str), Some("schedule" | "event"))
+}
+
+/// #EXP-1850: an EDITED stored element: the new when-part over the stored
+/// one, its id and flag kept and every other key (prompt, run) with them;
+/// the old when-part's keys (and a Check in's `preset`) go.
+pub(crate) fn edited_trigger_element(existing: &Value, when: &Value, id: &str, enabled: bool) -> Value {
+    let mut element = existing.as_object().cloned().unwrap_or_default();
+    for key in ["cron", "tz", "name", "preset", "record", "op"] {
+        element.remove(key);
+    }
+    let mut next = agent_trigger_element(when, Some(id), enabled);
+    if let Some(next) = next.as_object_mut() {
+        for (key, value) in element {
+            next.entry(key).or_insert(value);
+        }
+    }
+    next
 }
 
 /// #EXP-1848: a stored element of a KIND this build does not know (an app
@@ -534,9 +559,11 @@ mod tests {
         assert!(!is_readable(&json!({"kind": "schedule", "cron": "0 9 * * *"})));
         assert!(!is_readable(&json!({"id": "t-4", "kind": "schedule", "interval": "daily", "minuteOfDay": 1})));
         assert!(!is_readable(&json!({"id": "t-5", "kind": "event", "event": "created"})));
-        // #EXP-1848: an app agent's record trigger is kept (never listed), a
-        // pre-NEW-2 schedule shape is not.
-        assert!(is_kept(&json!({"id": "t-6", "kind": "record", "record": "orders", "op": "insert"})));
+        // #EXP-1850: an app agent's record and webhook triggers are listed;
+        // a pre-NEW-2 schedule shape is not kept.
+        assert!(is_readable(&json!({"id": "t-6", "kind": "record", "record": "orders", "op": "create"})));
+        assert!(is_readable(&json!({"id": "t-7", "kind": "webhook", "name": "stripe"})));
+        assert!(is_kept(&json!({"id": "t-8", "kind": "moon_phase"})));
         assert!(!is_kept(&json!({"id": "t-4", "kind": "schedule", "interval": "daily", "minuteOfDay": 1})));
         assert!(!is_kept(&json!({"kind": "record"})));
     }
@@ -596,5 +623,15 @@ mod tests {
         assert_eq!(paused[0]["preset"], json!("1h"));
         assert_eq!(paused[0]["future"], json!(1));
         assert_eq!(domain::agent_settings::check_in_of(&paused), "off");
+    }
+
+    /// #EXP-1850: an edit keeps every other key of the stored trigger.
+    #[test]
+    fn an_edit_keeps_the_prompt_and_the_run() {
+        let stored = json!({"id": "t-1", "enabled": false, "kind": "event", "name": "pr.merged", "prompt": "Look", "run": {"action": "x"}});
+        let edited = edited_trigger_element(&stored, &json!({"kind": "schedule", "cron": "0 9 * * *", "tz": "Europe/Vienna"}), "t-1", false);
+        assert_eq!(edited, json!({"id": "t-1", "enabled": false, "kind": "schedule", "cron": "0 9 * * *", "tz": "Europe/Vienna", "prompt": "Look", "run": {"action": "x"}}));
+        assert!(is_editable(&stored));
+        assert!(!is_editable(&json!({"kind": "webhook"})));
     }
 }

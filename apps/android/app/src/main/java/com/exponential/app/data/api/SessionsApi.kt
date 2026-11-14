@@ -1,6 +1,7 @@
 package com.exponential.app.data.api
 
 import com.exponential.app.data.sealed.SealedWriter
+import com.exponential.app.data.sealed.StaleTree
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.Serializable
@@ -214,6 +215,18 @@ data class SealInput(
     val wraps: List<TreeKeyWrap>,
 )
 
+@Serializable
+data class SendTargetInput(val agentId: String? = null, val appId: String? = null)
+
+/** `sessions.sendTarget`: the conversation root (null = none yet) and its key (null = keyless). */
+@Serializable
+data class SessionSendTarget(
+    val rootId: String? = null,
+    val epoch: Int? = null,
+    val publicKey: String? = null,
+    val brief: String? = null,
+)
+
 /** `sessions.send`'s answer: the session it landed in and the message row
  *  (null for a start without text). */
 @Serializable
@@ -329,20 +342,33 @@ class SessionsApi @Inject constructor(
      * THE entrypoint: start a root / child, or message a session / agent.
      * EXP-1459: the text goes out SEALED for its tree ([SealedWriter]).
      */
-    suspend fun send(accountId: String, input: SessionsSendInput): SessionsSendResult {
-        val prepared = sealer.get().prepareSend(accountId, input)
-        val result = trpc.mutation(
+    suspend fun send(accountId: String, input: SessionsSendInput): SessionsSendResult =
+        // #FEED-250 (sealed-content.json `staleTree`): a key write the server
+        // refuses as stale re-resolves the tree from the server and goes again once.
+        StaleTree.sendOnce { fresh ->
+            val prepared = sealer.get().prepareSend(accountId, input, fresh)
+            val result = trpc.mutation(
+                accountId,
+                path = "sessions.send",
+                input = prepared.input,
+                inputSerializer = SessionsSendInput.serializer(),
+                outputSerializer = SessionsSendResult.serializer(),
+            )
+            // EXP-1522: a new tree's key is kept here (Keystore + a synchronous
+            // prefs commit): never on the caller's (main) thread.
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { prepared.onSent(result) }
+            result
+        }
+
+    /** #FEED-250 `sessions.sendTarget`: the server's word on the caller's conversation with an agent / app. */
+    suspend fun sendTarget(accountId: String, agentId: String?, appId: String?): SessionSendTarget =
+        trpc.query(
             accountId,
-            path = "sessions.send",
-            input = prepared.input,
-            inputSerializer = SessionsSendInput.serializer(),
-            outputSerializer = SessionsSendResult.serializer(),
+            path = "sessions.sendTarget",
+            input = SendTargetInput(agentId, appId),
+            inputSerializer = SendTargetInput.serializer(),
+            outputSerializer = SessionSendTarget.serializer(),
         )
-        // EXP-1522: a new tree's key is kept here (Keystore + a synchronous
-        // prefs commit): never on the caller's (main) thread.
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { prepared.onSent(result) }
-        return result
-    }
 
     /**
      * #EXP-1641: [send] into the encrypted tree [rootId] named explicitly (a

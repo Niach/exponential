@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/apps.json" with { type: "json" }
+import { eventRunRow } from "./apps"
 import { accountCaption, accountRow, automationDropped, automationSponsor, upstreamPicker, policyCaption, type PolicyLevel, type PolicyOp, appMediaAllowed, appUploadPath, appUploadTarget, withUploadedUrl, APP_FILES, automationRow, type AutomationRowInput, canPublish, editorBrief, editorDevice, editorHeader, editorTab, grantVersion, listPill, previewTemplate, previewTemplates, runAsOptions, shownVersion, slugify, sortApps, versionLabel, versionMigration, type VersionMigration, versionRow, webhookRow } from "./apps"
 import { screenParamsFromQuery, screenPath, screenShell, surfaceState } from "./apps"
 import { rollbackBody, rollbackTitle, rollbackWarns } from "./apps"
@@ -100,3 +101,12 @@ describe(`appFiles (VAPP-221)`, () => {
 test.each(fixture.screenShellCases)(`screenShell %j`, (c) => expect(screenShell(c.screens, c.phone)).toBe(c.shell as never))
 test.each(fixture.screenPathCases)(`screenPath %j`, (c) => expect(screenPath(c.teamSlug, c.appSlug, c.screen, c.params as Record<string, string>)).toBe(c.path))
 test.each(fixture.screenQueryCases)(`screenParamsFromQuery %j`, (c) => expect(screenParamsFromQuery(c.query)).toEqual(c.params))
+
+// #EXP-1850: the Events tab's Recent runs rows.
+describe(`eventRunRow`, () => {
+  for (const entry of fixture.eventsTab.runCases) {
+    test(entry.name, () => {
+      expect(eventRunRow(entry.run as never, entry.triggers as never)).toEqual(entry.expected as never)
+    })
+  }
+})

@@ -66,7 +66,7 @@ import { useSession } from "@/hooks/use-session"
 import { useNow } from "@/hooks/use-now"
 import { BoardIdentityRow } from "@/components/board-form-fields"
 import { APPS_AGENT_SLOT } from "@exp/domain-contract/apps"
-import { AgentTriggers, readTriggers } from "@/components/agents/agent-triggers"
+import { AgentTriggers, readTriggers, WRITTEN_TRIGGER_KINDS } from "@/components/agents/agent-triggers"
 import {
   accountPinOf,
   seedAccountPin,
@@ -484,7 +484,7 @@ export function AgentSettingsPage({
   const writeTriggers = async (next: AgentTrigger[]) => {
     const previous = triggers
     setTriggers(next)
-    if (!creating) await update({ triggers: next }, () => setTriggers(previous))
+    if (!creating) await update({ triggers: next, triggerKinds: WRITTEN_TRIGGER_KINDS }, () => setTriggers(previous))
   }
 
   // ── Instructions (server-only: `agents.get`) ──

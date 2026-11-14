@@ -54,6 +54,10 @@ import com.exponential.app.ui.theme.TextEmphasis
 // and a row per `listedTriggers` (sentence · Switch · ⋯ Edit/Delete; the row
 // opens the editor). Every write is the WHOLE array, each trigger kept as
 // stored (its `preset` included).
+// #EXP-1850: every kind is listed; a record or webhook row has no editor (⋯ =
+// Delete only), a `run` trigger reads what it runs on a muted second line
+// (`triggerDetail`), an edit keeps prompt and run, and every write names all
+// four kinds (`triggerKinds`).
 
 /** A whole-array trigger write: [build] maps the current triggers to the
  *  next; [onDone] runs once it landed (closes the editor). */
@@ -147,7 +151,7 @@ fun AgentTriggersSection(
                     onToggle = { enabled ->
                         onWrite({}) { current -> current.replacing(trigger, trigger.copy(enabled = enabled)) }
                     },
-                    onEdit = { sheet = TriggerSheet(trigger) },
+                    onEdit = if (trigger.whenPart.editable) ({ sheet = TriggerSheet(trigger) }) else null,
                     onDelete = { deleting = trigger },
                 )
             }
@@ -201,35 +205,48 @@ private fun List<AgentTrigger>.replacing(target: AgentTrigger, with: AgentTrigge
 }
 
 /** One Triggers row (web `AgentTriggerRow`): its sentence (muted while
- *  paused), the switch and the editors' ⋯ (Edit, Delete); a tap edits. */
+ *  paused) over the muted `triggerDetail`, the switch and the editors' ⋯
+ *  (Edit, Delete); a tap edits. [onEdit] null = no editor for this kind
+ *  (record, webhook): ⋯ = Delete only, the row does not tap. */
 @Composable
 private fun AgentTriggerRow(
     trigger: AgentTrigger,
     editable: Boolean,
     onToggle: (Boolean) -> Unit,
-    onEdit: () -> Unit,
+    onEdit: (() -> Unit)?,
     onDelete: () -> Unit,
 ) {
     val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
     // The switch says paused; the sentence stays the trigger's own.
     val sentence = AgentSettings.triggerSummary(trigger.copy(enabled = true))
+    val detail = AgentSettings.triggerDetail(trigger)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         modifier = Modifier
             .fillMaxWidth()
             .testTag("agent-settings-trigger")
-            .clickable(enabled = editable, onClick = onEdit)
+            .clickable(enabled = editable && onEdit != null, onClick = { onEdit?.invoke() })
             .padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
     ) {
-        Text(
-            sentence,
-            style = MaterialTheme.typography.bodyMedium,
-            color = if (trigger.enabled) MaterialTheme.colorScheme.onSurface else muted,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
+        Column(Modifier.weight(1f)) {
+            Text(
+                sentence,
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (trigger.enabled) MaterialTheme.colorScheme.onSurface else muted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (detail != null) {
+                Text(
+                    detail,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = muted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
         GlassSwitch(
             checked = trigger.enabled,
             onCheckedChange = if (editable) onToggle else null,
@@ -248,14 +265,16 @@ private fun AgentTriggerRow(
                     size = 32.dp,
                 )
                 GlassDropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                    GlassMenuItem(
-                        leadingIcon = { Icon(ExpIcons.uiEdit, contentDescription = null) },
-                        text = { Text("Edit") },
-                        onClick = {
-                            menu = false
-                            onEdit()
-                        },
-                    )
+                    if (onEdit != null) {
+                        GlassMenuItem(
+                            leadingIcon = { Icon(ExpIcons.uiEdit, contentDescription = null) },
+                            text = { Text("Edit") },
+                            onClick = {
+                                menu = false
+                                onEdit()
+                            },
+                        )
+                    }
                     GlassMenuItem(
                         leadingIcon = { Icon(ExpIcons.uiDelete, contentDescription = null) },
                         text = { Text("Delete") },

@@ -116,6 +116,7 @@
     { "id": "app-csv-import", "class": "expressible", "with": "Dialog: a multi-line TextField, Choose file Button, a Select per field, a List of Row with destructive Text issues, Import Button" },
     { "id": "app-settings-links", "class": "expressible", "with": "the Settings tab: grouped Rows with a Switch (Public links) and a Button (Accounts)" },
     { "id": "app-settings-automations", "class": "expressible", "with": "the Settings tab: grouped Rows with Switch + Chip (MCP tools), Chip (Automations), Buttons (Webhooks)" },
+    { "id": "app-events", "class": "expressible", "with": "the Events tab: grouped Rows with Switch + Menu (triggers), Buttons (Webhooks), Rows with a Chip (recent runs)" },
     { "id": "app-guest", "class": "expressible", "with": "Page + the RecordForm macro on a public page" },
     { "id": "device-attention", "class": "expressible", "with": "Row with an attention Badge + a Popover of account Rows" },
     { "id": "os-live-activity", "class": "native", "with": "drawn by the OS (ActivityKit's Lock Screen card, Android's ProgressStyle Live Update): never a surface, the widget extension and the notifier draw it" },

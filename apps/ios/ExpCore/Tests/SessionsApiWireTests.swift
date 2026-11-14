@@ -272,7 +272,9 @@ final class SessionsApiWireTests: XCTestCase {
             id: "ag-1",
             patch: AgentPatch(name: "Renamed", triggers: [], account: .some(nil), model: .some(nil))
         ))
-        XCTAssertEqual(cleared.keys.sorted(), ["account", "id", "model", "name", "triggers"])
+        XCTAssertEqual(cleared.keys.sorted(), ["account", "id", "model", "name", "triggerKinds", "triggers"])
+        // #EXP-1850: every triggers write names all four kinds.
+        XCTAssertEqual(cleared["triggerKinds"] as? [String], ["schedule", "event", "record", "webhook"])
         XCTAssertTrue(cleared["account"] is NSNull)
         XCTAssertTrue(cleared["model"] is NSNull)
         XCTAssertEqual((cleared["triggers"] as? [Any])?.count, 0)

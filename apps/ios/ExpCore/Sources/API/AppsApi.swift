@@ -163,6 +163,10 @@ private struct AppIdInput: Encodable {
     let id: String
 }
 
+private struct AppEventsResult: Decodable {
+    let runs: [Apps.EventsTab.Run]
+}
+
 private struct AppVersionInput: Encodable {
     let id: String
     let version: Int
@@ -734,6 +738,15 @@ public final class AppsApi: Sendable {
     /// owner only.
     public func update(accountId: String, _ input: AppUpdateInput) async throws {
         try await trpc.mutationVoid(accountId: accountId, path: "apps.update", input: input)
+    }
+
+    /// #EXP-1850 `apps.events {id}`: the Events tab's Recent runs (the app's
+    /// `automation:*` audit rows, newest first).
+    public func events(accountId: String, id: String) async throws -> [Apps.EventsTab.Run] {
+        let result: AppEventsResult = try await trpc.query(
+            accountId: accountId, path: "apps.events", input: AppIdInput(id: id)
+        )
+        return result.runs
     }
 
     /// `apps.delete` (the trash mirror) — the creator or a team owner.
