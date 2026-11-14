@@ -1,0 +1,35 @@
+---
+title: How do I theme an A2UI surface at runtime?
+description: A genUI theme is one JSON file of tokens and component recipes. Every renderer loads it at runtime, from your bundle, a URL or an app package.
+---
+
+Pass the renderer a theme. In genUI, a theme is a single JSON file, and every renderer loads it at runtime. No build step, generated code or app release is needed to change how a surface looks.
+
+## What is in a theme?
+
+- **Tokens** are named values: colours per mode (`modes.light`, `modes.dark`), spacing, radius, type sizes, control heights, shadows, borders and motion.
+- **Recipes** style one part of a component (`Button.root`, `Switch.thumb`, `Tabs.tab`) as a list of rules. A rule can depend on recipe props such as `variant` and `size` and on states such as `hover`, `pressed`, `focus`, `disabled`, `checked`, `open` and `selected`.
+
+The model never sees colours or pixel values. It picks components and variants from the catalog, and the theme decides how they look. One surface can therefore look native inside different apps.
+
+## Do I have to write a theme from scratch?
+
+No. Four themes are built in: `neutral`, `exponential`, `playful` and `orange`. Start from one with `extends` and override only what changes; a child theme keeps its parent's hover and variant rules. The [theme builder](/docs/sdk/genui/tools/theme-builder/) previews the result and imports a shadcn `globals.css`.
+
+## How do I load a theme?
+
+| Platform | Load |
+|---|---|
+| React | `<HostSurface theme={brandJson} … />` |
+| Solid | `<ExponentialSurface theme={brandJson} … />` |
+| Web component | `<exponential-surface theme="orange">` or `el.theme = brandJson` |
+| SwiftUI | `ThemeHandle.load(json:)` and `model.setTheme(…)` |
+| Compose | `ThemeHandle.load(json, parents)` and `model.setTheme(…)` |
+| gpui / Rust | `eui_core::theme::load_theme(&json, &options)` |
+
+Every loader flattens the `extends` chain, reports all problems at once (an unknown token, a misspelled part) and keeps running.
+
+## Next
+
+- [Write your own theme](/docs/sdk/genui/guides/themes/): the full guide, compiled in CI
+- [Themes reference](/docs/sdk/genui/reference/themes/): every component's parts

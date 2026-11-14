@@ -24,6 +24,16 @@ export const EUI_GUIDES: [string, string][] = [
   [`agents`, `Agents`],
 ]
 
+/** The question-style explainers and the comparisons (slug → sidebar label). */
+export const EUI_LEARN: [string, string][] = [
+  [`learn/what-is-a2ui`, `What is A2UI?`],
+  [`learn/native-rendering`, `Native rendering`],
+  [`learn/theming`, `Theming at runtime`],
+  [`learn/a2ui-over-mcp`, `A2UI over MCP`],
+  [`compare/a2ui-vs-server-driven-ui`, `A2UI vs server-driven UI`],
+  [`compare/generative-ui-vs-native-code`, `vs hand-written native`],
+]
+
 const componentGroups = EUI_GROUP_ORDER.map((group) => ({
   label: EUI_GROUP_LABELS[group] ?? group,
   collapsed: true,
@@ -40,6 +50,7 @@ const eui = {
       collapsed: false,
       items: [{ label: `All guides`, link: `${EUI}/guides/` }, ...EUI_GUIDES.map(([slug, label]) => ({ label, link: `${EUI}/guides/${slug}/` }))],
     },
+    { label: `Learn`, collapsed: true, items: EUI_LEARN.map(([slug, label]) => ({ label, link: `${EUI}/${slug}/` })) },
     {
       label: `Reference`,
       collapsed: true,
