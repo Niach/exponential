@@ -12,7 +12,7 @@ import { resolveTeamAccess } from "@/lib/team-membership"
 
 // #EXP-1832 (fixture `sidebar-folders.json`): the member's own sidebar layout.
 // The client runs the pure `sidebarMove` / `sidebarUngroup` over its synced
-// rows and sends the WRITES here (`apply`); the server only checks they keep
+// rows and sends the WRITES here (`save`); the server only checks they keep
 // the layout's shape: rows are the caller's (the `user_id` predicate IS the
 // authorization), a folder sits at the top level, an item's parent is a
 // folder of the same section, only folders are deleted. Targets carry no FK
@@ -44,7 +44,7 @@ const writeSchema = z.discriminatedUnion(`kind`, [
 
 export const sidebarLayoutRouter = router({
   /** Write one move's rows (`sidebarMove` / `sidebarUngroup` output). */
-  apply: authedProcedure
+  save: authedProcedure
     .input(
       z.object({
         teamId: z.string().uuid(),

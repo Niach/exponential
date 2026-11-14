@@ -15,6 +15,7 @@ import { Route as pinsRoute } from "@/routes/api/shapes/pins"
 import { Route as sessionReadsRoute } from "@/routes/api/shapes/session-reads"
 import { Route as issueDraftsRoute } from "@/routes/api/shapes/issue-drafts"
 import { Route as composerDraftsRoute } from "@/routes/api/shapes/composer-drafts"
+import { Route as sidebarLayoutRoute } from "@/routes/api/shapes/sidebar-layout"
 import { Route as issueStatusesRoute } from "@/routes/api/shapes/issue-statuses"
 import { Route as devicesRoute } from "@/routes/api/shapes/devices"
 import { Route as deviceWorktreesRoute } from "@/routes/api/shapes/device-worktrees"
@@ -861,6 +862,43 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
     expect(anon.status).toBe(401)
   })
 
+  // #EXP-1832: the sidebar-layout shape — the caller's own folders + order,
+  // static per user like pins.
+  it(`sidebar-layout clause is fully static per user and never anonymous`, async () => {
+    const originUrl = new URL(`https://electric.example/v1/shape`)
+    resolveSession.mockResolvedValue({ user: { id: `user-1` } })
+    prepareElectricUrl.mockReturnValue(originUrl)
+
+    await shapeHandler(sidebarLayoutRoute)({
+      request: new Request(`https://example.com/api/shapes/sidebar-layout`, {
+        headers: { authorization: `Bearer t` },
+      }),
+    })
+
+    expect(originUrl.searchParams.get(`table`)).toBe(`sidebar_layout`)
+    expect(originUrl.searchParams.get(`where`)).toBe(`"user_id" = 'user-1'`)
+    expect(membership.getUserTeamIds).not.toHaveBeenCalled()
+    expect(originUrl.searchParams.get(`columns`)?.split(`,`)).toEqual([
+      `id`,
+      `user_id`,
+      `team_id`,
+      `section`,
+      `kind`,
+      `target_id`,
+      `parent_id`,
+      `name`,
+      `sort_order`,
+      `created_at`,
+      `updated_at`,
+    ])
+
+    resolveSession.mockResolvedValue(null)
+    const anon = await shapeHandler(sidebarLayoutRoute)({
+      request: new Request(`https://example.com/api/shapes/sidebar-layout`),
+    })
+    expect(anon.status).toBe(401)
+  })
+
   // EXP-481: the devices shape — own rows + team-shared SERVER rows.
   it(`devices: own rows plus sorted shared-team server arm; anonymous is 401`, async () => {
     const originUrl = new URL(`https://electric.example/v1/shape`)
@@ -994,6 +1032,7 @@ describe(`every shape proxy pins a columns allowlist (REV-49)`, () => {
     [`issue-relations`, issueRelationsRoute],
     [`issue-drafts`, issueDraftsRoute],
     [`composer-drafts`, composerDraftsRoute],
+    [`sidebar-layout`, sidebarLayoutRoute],
     [`issue-statuses`, issueStatusesRoute],
     [`issue-subscribers`, issueSubscribersRoute],
     [`issues`, issuesRoute],
