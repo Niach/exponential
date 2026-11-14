@@ -10416,7 +10416,7 @@
                 "id": "specimen_button_case_6_label",
                 "component": "Text",
                 "props": {
-                  "text": "size · sm",
+                  "text": "variant · fab",
                   "variant": "caption"
                 }
               },
@@ -10425,8 +10425,7 @@
                 "component": "Button",
                 "props": {
                   "label": "Submit",
-                  "variant": "default",
-                  "size": "sm"
+                  "variant": "fab"
                 }
               }
             ]
@@ -10444,7 +10443,7 @@
                 "id": "specimen_button_case_7_label",
                 "component": "Text",
                 "props": {
-                  "text": "size · default",
+                  "text": "size · sm",
                   "variant": "caption"
                 }
               },
@@ -10454,7 +10453,7 @@
                 "props": {
                   "label": "Submit",
                   "variant": "default",
-                  "size": "default"
+                  "size": "sm"
                 }
               }
             ]
@@ -10552,12 +10551,40 @@
                 "id": "specimen_button_case_10_label",
                 "component": "Text",
                 "props": {
+                  "text": "variant · fab, icon",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c10_fab",
+                "component": "Button",
+                "props": {
+                  "label": "New issue",
+                  "icon": "ui-add",
+                  "variant": "fab"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_button_case_11",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen_button_case_11_label",
+                "component": "Text",
+                "props": {
                   "text": "in a stretch column",
                   "variant": "caption"
                 }
               },
               {
-                "id": "c10_stretch",
+                "id": "c11_stretch",
                 "component": "Stack",
                 "props": {
                   "direction": "vertical",
@@ -10568,7 +10595,7 @@
                 },
                 "children": [
                   {
-                    "id": "c10_add",
+                    "id": "c11_add",
                     "component": "Button",
                     "props": {
                       "label": "Add secret",

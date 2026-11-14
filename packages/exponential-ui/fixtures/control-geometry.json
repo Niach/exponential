@@ -140,6 +140,23 @@
               "borderRadius": 8
             }
           },
+          "variant=fab": {
+            "props": {
+              "variant": "fab",
+              "size": "default",
+              "disabled": false,
+              "loading": false,
+              "tone": "default"
+            },
+            "geometry": {
+              "width": 52,
+              "height": 52,
+              "paddingHorizontal": 0,
+              "gap": 8,
+              "borderWidth": 1,
+              "borderRadius": 9999
+            }
+          },
           "size=sm": {
             "props": {
               "variant": "default",
@@ -1779,6 +1796,23 @@
               "gap": 8,
               "borderWidth": 0,
               "borderRadius": 10
+            }
+          },
+          "variant=fab": {
+            "props": {
+              "variant": "fab",
+              "size": "default",
+              "disabled": false,
+              "loading": false,
+              "tone": "default"
+            },
+            "geometry": {
+              "width": 52,
+              "height": 52,
+              "paddingHorizontal": 0,
+              "gap": 8,
+              "borderWidth": 1,
+              "borderRadius": 9999
             }
           },
           "size=sm": {
@@ -3431,6 +3465,23 @@
               "borderRadius": 9999
             }
           },
+          "variant=fab": {
+            "props": {
+              "variant": "fab",
+              "size": "default",
+              "disabled": false,
+              "loading": false,
+              "tone": "default"
+            },
+            "geometry": {
+              "width": 52,
+              "height": 52,
+              "paddingHorizontal": 0,
+              "gap": 8,
+              "borderWidth": 2,
+              "borderRadius": 9999
+            }
+          },
           "size=sm": {
             "props": {
               "variant": "default",
@@ -5073,6 +5124,23 @@
               "gap": 8,
               "borderWidth": 0,
               "borderRadius": 10
+            }
+          },
+          "variant=fab": {
+            "props": {
+              "variant": "fab",
+              "size": "default",
+              "disabled": false,
+              "loading": false,
+              "tone": "default"
+            },
+            "geometry": {
+              "width": 52,
+              "height": 52,
+              "paddingHorizontal": 0,
+              "gap": 8,
+              "borderWidth": 1,
+              "borderRadius": 9999
             }
           },
           "size=sm": {
