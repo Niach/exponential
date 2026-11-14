@@ -298,6 +298,36 @@ final class ChatsTests: XCTestCase {
         }
     }
 
+    /// #EXP-1849 (chats.json): the member's chat with an app's agent is ONE
+    /// root carrying `appId` AND `agentId`: the Agents section drops the
+    /// app's agent (`sidebarAgents`), so the chat shows once, as the app row.
+    func testAppAgentChatShowsOnceAsTheAppRow() {
+        let root = TreeSession(
+            id: "root-1", teamId: "t1", parentId: nil, rootId: "root-1", userId: "me",
+            status: "idle", busy: false, needsInput: false, blocked: nil, shared: false,
+            title: nil, guide: nil, startedAt: nil, endedAt: nil,
+            createdAt: "2026-11-14T10:00:00.000Z", updatedAt: "2026-11-14T10:00:00.000Z",
+            deviceId: "mint", agentId: "agent-app", appId: "app-1"
+        )
+        let agents = [
+            AgentRow(agentId: "agent-app", teamId: "t1", name: "Ops desk", icon: "bot", color: "#fff", busy: false, needsYou: false),
+            AgentRow(agentId: "agent-plain", teamId: "t1", name: "Triage", icon: "bot", color: "#fff", busy: false, needsYou: false),
+        ]
+        let apps = [Chats.ChatApp(appId: "app-1", slug: "ops-desk", name: "Ops desk", icon: nil, color: nil, agentId: "agent-app")]
+        let agentRows = Chats.agentChatRows(
+            agents: Chats.chatAgents(agents, apps: apps), sessions: [root], messages: [],
+            me: "me", now: "2026-11-14T12:00:00.000Z", utcOffsetMinutes: 0
+        )
+        XCTAssertEqual(agentRows.map(\.agentId), ["agent-plain"])
+        let appRows = Chats.appChatRows(
+            apps: apps, sessions: [root], messages: [],
+            me: "me", now: "2026-11-14T12:00:00.000Z", utcOffsetMinutes: 0
+        )
+        XCTAssertEqual(appRows.map(\.sessionId), ["root-1"])
+        // Never a root session row either.
+        XCTAssertTrue(SessionScreen.kind(agentId: "agent-app", appId: "app-1", assistant: false) == .app)
+    }
+
     func testAgentMenuCases() throws {
         for testCase in try cases("agentMenuCases") {
             let input = try XCTUnwrap(testCase["input"] as? [String: Any])

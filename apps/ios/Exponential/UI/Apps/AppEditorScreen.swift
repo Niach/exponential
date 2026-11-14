@@ -731,7 +731,8 @@ struct AppVersionsList: View {
 /// clients' Settings body, built
 /// from the existing pieces: the board form's identity row (icon + colour +
 /// name, the name saved when editing ends), the description (saved when
-/// editing ends), the records line, the Tools group (a team OWNER flips the
+/// editing ends), #EXP-1849 the Agent group (`AppAgentSlotGroup`), the
+/// records line, the Tools group (a team OWNER flips the
 /// grants: `apps.update {id, headVersion: grantVersion, grantedTools}`).
 /// Read-only for everyone else. #FEED-239: Export and Delete app are NOT on
 /// it (they are `…` entries).
@@ -824,6 +825,11 @@ struct AppSettingsPage: View {
             }
             .onChange(of: descriptionFocused) { _, focused in
                 if !focused { saveDescription() }
+            }
+            // #EXP-1849 (apps.json `agentSlot`): the app agent's slot.
+            if let agent = model.agent {
+                AppAgentSlotGroup(agent: agent, canEdit: canManage)
+                    .id(agent.id)
             }
             Text(AppRecords.recordsCountLabel(count: model.recordsCount, max: nil))
                 .font(.subheadline)

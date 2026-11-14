@@ -444,15 +444,21 @@ public enum Apps {
 
     /// `rootStatus` nil = no editor root yet. `candidates` = the member's
     /// online devices (with a root: the targets a move accepts). A live root
-    /// keeps its device: only a pick moves it (#EXP-1738).
+    /// keeps its device: only a pick moves it (#EXP-1738). `slot` = the app
+    /// agent's slot (#EXP-1849, a team-shared device; nil or "" = empty): it
+    /// wins over a remembered pick for a new or ended root.
     public static func editorDevice(
         rootStatus: String?,
         rootDeviceId: String?,
         candidates: [(deviceId: String, isDefault: Bool)],
-        remembered: String?
+        remembered: String?,
+        slot: String? = nil
     ) -> EditorDeviceChoice {
         if let rootStatus, rootStatus != DomainContract.sessionStatusEnded {
             return EditorDeviceChoice(deviceId: rootDeviceId, move: false)
+        }
+        if let slot, !slot.isEmpty {
+            return EditorDeviceChoice(deviceId: slot, move: rootStatus != nil && slot != rootDeviceId)
         }
         func known(_ id: String?) -> Bool {
             guard let id else { return false }
@@ -1137,5 +1143,49 @@ public enum AppHostSources {
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         guard let data = try? encoder.encode(value) else { return "null" }
         return String(decoding: data, as: UTF8.self)
+    }
+}
+
+// MARK: - #EXP-1849 THE AGENT SLOT (apps.json `agentSlot`)
+
+extension Apps {
+    /// The app agent's `deviceId` IS the app's slot: empty = every member's
+    /// app chat runs on that member's own device, else a device shared with
+    /// the team runs every member's. App Settings shows it as the AGENT group
+    /// right after the identity: a section header over THE agent page's Runs
+    /// on rows (Device over `Copy.eachMember` + the team-shared devices,
+    /// Account and Model only while a device is set, Skills, MCP servers).
+    public enum AgentSlot {
+        public static let testId = "app-settings-agent"
+
+        public enum Copy {
+            public static let title = "Agent"
+            public static let runsOn = "Runs on"
+            public static let eachMember = "Each member's own device"
+        }
+
+        /// The Device picker's id for `Copy.eachMember` (writes `deviceId: ""`).
+        public static let eachMemberId = "__each-member__"
+
+        /// The slot a stored `deviceId` names; nil = empty (each member's own).
+        public static func slot(_ deviceId: String?) -> String? {
+            guard let deviceId, !deviceId.isEmpty else { return nil }
+            return deviceId
+        }
+
+        /// The `deviceId` a picker pick writes (`agents.update`).
+        public static func write(_ picked: String) -> String {
+            picked == eachMemberId ? "" : picked
+        }
+
+        /// The Device picker's devices after `Copy.eachMember`: the ones
+        /// shared with `teamId` only (a member's private machine never runs a
+        /// teammate's chat), in the given order.
+        public static func deviceIds(
+            _ devices: [(deviceId: String, sharedTeamIds: [String])],
+            teamId: String
+        ) -> [String] {
+            devices.filter { $0.sharedTeamIds.contains(teamId) }.map(\.deviceId)
+        }
     }
 }

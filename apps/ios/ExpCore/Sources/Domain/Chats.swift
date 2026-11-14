@@ -556,13 +556,17 @@ public enum Chats {
         public let name: String
         public let icon: String?
         public let color: String?
+        /// #EXP-1849: the app's agent (`apps.agent_id`): its chat IS this
+        /// row, so the Agents section leaves it out (`sidebarAgents`).
+        public let agentId: String?
 
-        public init(appId: String, slug: String, name: String, icon: String?, color: String?) {
+        public init(appId: String, slug: String, name: String, icon: String?, color: String?, agentId: String? = nil) {
             self.appId = appId
             self.slug = slug
             self.name = name
             self.icon = icon
             self.color = color
+            self.agentId = agentId
         }
     }
 
@@ -1117,15 +1121,22 @@ public enum Chats {
         return entries
     }
 
-    /// #FEED-239 (`sidebarAgentCases`): the tablet sidebar's Agents group
-    /// and Settings › Agents = the agents minus every app's agent (an app's
-    /// agent is listed under Apps only; the chat list keeps it).
+    /// #FEED-239 (`sidebarAgentCases`): the tablet sidebar's Agents group,
+    /// Settings › Agents and (#EXP-1849) the Chats list's Agents section =
+    /// the agents minus every app's agent (an app's agent is listed under
+    /// Apps only: the member's chat with it IS the app row).
     public static func sidebarAgents<T>(_ agents: [T], agentId: (T) -> String, appAgentIds: [String?]) -> [T] {
         let owned = Set(appAgentIds.compactMap { id -> String? in
             guard let id, !id.isEmpty else { return nil }
             return id
         })
         return agents.filter { !owned.contains(agentId($0)) }
+    }
+
+    /// #EXP-1849 (chats.json): the Chats list's Agents section input,
+    /// `agentChatRows` takes `sidebarAgents(agents, apps)`.
+    public static func chatAgents(_ agents: [AgentRow], apps: [ChatApp]) -> [AgentRow] {
+        sidebarAgents(agents, agentId: \.agentId, appAgentIds: apps.map(\.agentId))
     }
 
     /// A press inside an inline preview (`replyCases`): an event named

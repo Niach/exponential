@@ -594,7 +594,7 @@ final class AgentSessionModel {
     /// row yet). Rules + copy: `SessionDeviceMove`.
     var devicePin: SessionDevicePin? {
         guard let session,
-              SessionDeviceMove.pinVisible(kind: sessionKindOf(agentId: session.agentId))
+              SessionDeviceMove.pinVisible(kind: sessionKindOf(agentId: session.agentId), appId: session.appId)
         else { return nil }
         let devices = moveCandidateDevices
         let agent = SessionAccountSwitch.agent(
