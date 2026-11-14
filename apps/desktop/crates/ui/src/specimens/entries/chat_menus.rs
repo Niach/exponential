@@ -108,7 +108,7 @@ mod tests {
         let specimens = specimens();
         assert!(matches!(&specimens[0].1, Specimen::Chat(entries) if entries == &[ChatMenuEntry::Delete]));
         assert!(matches!(&specimens[1].1, Specimen::Chat(entries) if entries == &[ChatMenuEntry::Delete]));
-        // The pair, a rule, Agent settings.
-        assert!(matches!(&specimens[2].1, Specimen::Agent(entries) if entries.len() == 4));
+        // #EXP-1834: Link or file an issue, a rule, the pair, a rule, Agent settings.
+        assert!(matches!(&specimens[2].1, Specimen::Agent(entries) if entries.len() == 6));
     }
 }

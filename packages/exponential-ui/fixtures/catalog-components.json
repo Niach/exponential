@@ -1070,6 +1070,48 @@
       }
     },
     {
+      "name": "List/reorderable=true",
+      "node": {
+        "id": "list",
+        "component": "List",
+        "props": {
+          "direction": "vertical",
+          "divided": true,
+          "reorderable": true
+        },
+        "children": [
+          {
+            "id": "list_child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "List/reorderable=false",
+      "node": {
+        "id": "list",
+        "component": "List",
+        "props": {
+          "direction": "vertical",
+          "divided": true,
+          "reorderable": false
+        },
+        "children": [
+          {
+            "id": "list_child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "Resizable/example",
       "node": {
         "id": "resizable",

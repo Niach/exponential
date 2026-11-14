@@ -1,4 +1,4 @@
-//! The 37 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
+//! The 38 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
 //! iterates and the store builds its schema from. gpui-free.
 //!
 //! Each [`ShapeSpec`] carries the SQLite table name, the kebab-case proxy URL
@@ -88,13 +88,13 @@ impl ShapeSpec {
     }
 }
 
-/// The 37 shapes, in §5.9 order (#EXP-1656 appended `skills`; #FEED-219
+/// The 38 shapes, in §5.9 order (#EXP-1656 appended `skills`; #FEED-219
 /// added `composer_drafts` after `issue_drafts`; #EXP-1804 appended
-/// `ci_runs` + `ci_jobs`). Column sets mirror `packages/db-schema`
+/// `ci_runs` + `ci_jobs`; #EXP-1832 appended `sidebar_layout`). Column sets mirror `packages/db-schema`
 /// (minus the §5.4 exclusions: no `email` on `issue_subscribers`, web-only
 /// billing fields dropped from `users`, no `body` on `actions`, no scoping
 /// mirrors on `device_worktrees`).
-pub const SHAPES: [ShapeSpec; 37] = [
+pub const SHAPES: [ShapeSpec; 38] = [
     ShapeSpec {
         name: "teams",
         path: "/api/shapes/teams",
@@ -1021,10 +1021,35 @@ pub const SHAPES: [ShapeSpec; 37] = [
         ],
         pk: PkKind::Id,
     },
+    ShapeSpec {
+        name: "sidebar_layout",
+        path: "/api/shapes/sidebar-layout",
+        // #EXP-1832: the member's own sidebar folders + the order of their
+        // boards, agents and apps (sidebar-folders.json). A STATIC per-user
+        // shape (`user_id = me`) like `pins`, neither team- nor trash-scoped:
+        // a row only places a target the other shapes already resolve.
+        // Byte-matches the proxy's SIDEBAR_LAYOUT_COLUMNS (apps/web
+        // routes/api/shapes/sidebar-layout.ts); an older server 404s it
+        // ([`ShapeSpec::may_be_absent`]).
+        columns: &[
+            "id",
+            "user_id",
+            "team_id",
+            "section",
+            "kind",
+            "target_id",
+            "parent_id",
+            "name",
+            "sort_order",
+            "created_at",
+            "updated_at",
+        ],
+        pk: PkKind::Id,
+    },
 ];
 
 /// Shapes a server older than this build may not serve (#FEED-219).
-pub const MAY_BE_ABSENT: &[&str] = &["composer_drafts", "ci_runs", "ci_jobs"];
+pub const MAY_BE_ABSENT: &[&str] = &["composer_drafts", "ci_runs", "ci_jobs", "sidebar_layout"];
 
 /// Look a shape up by its table name.
 pub fn shape_by_name(name: &str) -> Option<&'static ShapeSpec> {
@@ -1036,8 +1061,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_has_34_shapes_with_kebab_paths() {
-        assert_eq!(SHAPES.len(), 37);
+    fn registry_has_38_shapes_with_kebab_paths() {
+        assert_eq!(SHAPES.len(), 38);
         for spec in &SHAPES {
             assert!(spec.path.starts_with("/api/shapes/"), "{}", spec.name);
             assert!(!spec.path.contains('_'), "paths are kebab-case: {}", spec.path);
@@ -1076,7 +1101,12 @@ mod tests {
                 .filter(|item| !item.is_empty())
                 .collect()
         };
-        for (name, file, constant) in [("ci_runs", "ci-runs.ts", "CI_RUN_COLUMNS"), ("ci_jobs", "ci-jobs.ts", "CI_JOB_COLUMNS")] {
+        // #EXP-1832: `sidebar_layout` byte-matches SIDEBAR_LAYOUT_COLUMNS the same way.
+        for (name, file, constant) in [
+            ("ci_runs", "ci-runs.ts", "CI_RUN_COLUMNS"),
+            ("ci_jobs", "ci-jobs.ts", "CI_JOB_COLUMNS"),
+            ("sidebar_layout", "sidebar-layout.ts", "SIDEBAR_LAYOUT_COLUMNS"),
+        ] {
             let spec = shape_by_name(name).unwrap();
             assert_eq!(spec.pk, PkKind::Id);
             assert!(spec.may_be_absent(), "{name}");

@@ -14,6 +14,7 @@ import {
   issues,
   messages,
   pins,
+  sidebarLayout,
   prompts,
   skills,
   pullRequestChecks,
@@ -29,6 +30,7 @@ import {
 import { ISSUE_COLUMNS } from "./issues"
 import { ISSUE_DRAFT_COLUMNS } from "./issue-drafts"
 import { COMPOSER_DRAFT_COLUMNS } from "./composer-drafts"
+import { SIDEBAR_LAYOUT_COLUMNS } from "./sidebar-layout"
 import { SESSION_COLUMNS } from "./sessions"
 import { SESSION_ISSUE_COLUMNS } from "./session-issues"
 import { MESSAGE_COLUMNS } from "./messages"
@@ -58,6 +60,8 @@ const lists = {
   issues: [ISSUE_COLUMNS, issues],
   issue_drafts: [ISSUE_DRAFT_COLUMNS, issueDrafts],
   composer_drafts: [COMPOSER_DRAFT_COLUMNS, composerDrafts],
+  // #EXP-1832
+  sidebar_layout: [SIDEBAR_LAYOUT_COLUMNS, sidebarLayout],
   // EXP-1291
   sessions: [SESSION_COLUMNS, sessions],
   session_issues: [SESSION_ISSUE_COLUMNS, sessionIssues],

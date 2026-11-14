@@ -1,3 +1,4 @@
+import { useMemo } from "react"
 import { Link } from "@tanstack/react-router"
 import { APPS_COPY, APPS_TEST_IDS } from "@exp/domain-contract/apps"
 import {
@@ -7,12 +8,12 @@ import {
   SidebarGroupAction,
   SidebarGroupContent,
   SidebarGroupLabel,
-  SidebarMenu,
   SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@exp/ui"
 import { AppsNewMenu } from "@/components/apps/apps-new-menu"
+import { SidebarFolderList } from "@/components/team/sidebar-folders"
 import type { AppListEntry } from "@/hooks/use-apps"
 import { cn } from "@/lib/utils"
 
@@ -43,6 +44,10 @@ export function SidebarAppsSection({
   apps: readonly AppListEntry[]
   activeAppSlug: string | null
 }) {
+  // #EXP-1832: the default order is the list's (by name); the member's
+  // folders and drag order sit on top (sidebar-folders.json).
+  const ids = useMemo(() => apps.map((app) => app.id), [apps])
+  const byId = useMemo(() => new Map(apps.map((app) => [app.id, app])), [apps])
   return (
     <SidebarGroup data-testid="sidebar-apps">
       <SidebarGroupLabel>{APPS_COPY.title}</SidebarGroupLabel>
@@ -57,32 +62,40 @@ export function SidebarAppsSection({
         }
       />
       <SidebarGroupContent>
-        <SidebarMenu>
-          {apps.map((app) => (
-            <SidebarMenuItem key={app.id}>
-              <SidebarMenuButton asChild density="compact" isActive={activeAppSlug === app.slug}>
-                <Link
-                  to="/t/$teamSlug/apps/$appSlug"
-                  params={{ teamSlug, appSlug: app.slug }}
-                  data-testid="apps-row"
-                >
-                  <AppIcon app={app} />
-                  <span className="min-w-0 flex-1 truncate">{app.name}</span>
-                </Link>
-              </SidebarMenuButton>
-              <SidebarMenuAction asChild showOnHover title="App settings">
-                <Link
-                  to="/t/$teamSlug/app-editor/$appSlug"
-                  params={{ teamSlug, appSlug: app.slug }}
-                  search={{ tab: `settings` }}
-                  aria-label={`Settings for ${app.name}`}
-                >
-                  <NavSettingsIcon />
-                </Link>
-              </SidebarMenuAction>
-            </SidebarMenuItem>
-          ))}
-        </SidebarMenu>
+        <SidebarFolderList
+          teamId={teamId}
+          section="app"
+          ids={ids}
+          renderItem={(id, itemProps, guides) => {
+            const app = byId.get(id)
+            if (!app) return null
+            return (
+              <SidebarMenuItem key={app.id} {...itemProps}>
+                {guides}
+                <SidebarMenuButton asChild density="compact" isActive={activeAppSlug === app.slug}>
+                  <Link
+                    to="/t/$teamSlug/apps/$appSlug"
+                    params={{ teamSlug, appSlug: app.slug }}
+                    data-testid="apps-row"
+                  >
+                    <AppIcon app={app} />
+                    <span className="min-w-0 flex-1 truncate">{app.name}</span>
+                  </Link>
+                </SidebarMenuButton>
+                <SidebarMenuAction asChild showOnHover title="App settings">
+                  <Link
+                    to="/t/$teamSlug/app-editor/$appSlug"
+                    params={{ teamSlug, appSlug: app.slug }}
+                    search={{ tab: `settings` }}
+                    aria-label={`Settings for ${app.name}`}
+                  >
+                    <NavSettingsIcon />
+                  </Link>
+                </SidebarMenuAction>
+              </SidebarMenuItem>
+            )
+          }}
+        />
       </SidebarGroupContent>
     </SidebarGroup>
   )

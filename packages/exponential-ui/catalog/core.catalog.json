@@ -1704,6 +1704,16 @@
           "default": false,
           "description": "Pins the current header."
         },
+        "reorderable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Rows drag to reorder (vertical); fires `move` {id, before|after|into}."
+        },
+        "maxDepth": {
+          "type": "number",
+          "default": 1,
+          "description": "With `reorderable`: nesting levels; 2 = a row dropped on a row nests. Items: `depth`, `group`."
+        },
         "style": {
           "type": "style",
           "description": "Extra Box styles for the list frame."
@@ -1712,7 +1722,10 @@
       "example": {
         "direction": "vertical",
         "divided": true
-      }
+      },
+      "events": [
+        "move"
+      ]
     },
     "Resizable": {
       "kind": "native",

@@ -1,5 +1,23 @@
 package at.exponential.ui.compose
 
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.unit.dp
+import at.exponential.ui.ffi.FfiFrame
+import at.exponential.ui.ffi.listDragStyle
+import at.exponential.ui.model.isListDragRow
+import at.exponential.ui.model.isReorderRow
+import at.exponential.ui.model.listDrag
+import at.exponential.ui.theme.ShadowLayer
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.snap
@@ -359,6 +377,7 @@ private fun NodeBody(index: Int, node: NodeInfo, model: SurfaceModel, modifier: 
             .then(press)
             .then(resizeHandle(node, model, !invisible) { inputMode.inputMode == InputMode.Keyboard })
             .then(tabStripDrag(node, model, !invisible))
+            .then(listReorderDrag(node, model, !invisible && !disabled))
             .then(tabPagerSwipe(node, model, !invisible))
             .paintedBox(style, size)
             .then(clip)
@@ -386,6 +405,8 @@ private fun NodeBody(index: Int, node: NodeInfo, model: SurfaceModel, modifier: 
                 SelectPopup(LeafContext(model, trigger, model.frame(t).size, model.boxStyle(t), model.ink(t), model.textStyle(t)))
             }
         }
+        // EXP-1832: a reorderable List paints its live drag over its rows.
+        if (node.component == "List" && node.part == null) ListDragOverlay(index, model)
         // An invisible box swallows the pointer over its whole area, so the
         // self-handling controls below (sliders, pickers) take nothing either.
         if (invisible && !LocalInvisible.current) Box(Modifier.matchParentSize().pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent().changes.forEach { it.consume() } } })
@@ -631,6 +652,112 @@ private fun tabStripDrag(node: NodeInfo, model: SurfaceModel, enabled: Boolean):
                 onDragCancel = { model.tabDrag(index, "end", 0f) },
             )
         }
+}
+
+/** EXP-1832: inside a List drag's lifted copy (never dimmed, never dragged). */
+private val LocalListLift = compositionLocalOf { false }
+
+/**
+ * EXP-1832 (fixtures/list-reorder.json): a `reorderable` List's row drags
+ * after a long press (the platform's long-press timeout, `tabLongPressMs`
+ * on the web), like a strip tab: `start` with the press point, a `move`
+ * per change, `end` on the release (the core fires `move {id, before |
+ * after | into}`), `cancel` when the gesture is taken back. Points are the
+ * row's local pointer plus its UNSCROLLED frame origin, in dp (the row
+ * never moves: the lifted copy is paint). The dragged row paints at the
+ * style's `dim`.
+ */
+@Composable
+private fun listReorderDrag(node: NodeInfo, model: SurfaceModel, enabled: Boolean): Modifier {
+    if (!model.isReorderRow(node.index)) return Modifier
+    val lifted = LocalListLift.current
+    val index = node.index
+    val dim = if (!lifted && model.isListDragRow(index)) Modifier.graphicsLayer { alpha = listDragStyle().dim } else Modifier
+    if (!enabled || lifted) return dim
+    return dim.pointerInput(node.id) {
+        fun at(p: Offset): Offset {
+            val o = model.frame(index).topLeft
+            return Offset(o.x + p.x / density, o.y + p.y / density)
+        }
+        var last = Offset.Zero
+        detectDragGesturesAfterLongPress(
+            onDragStart = { p ->
+                last = at(p)
+                model.listDrag(index, "start", last.x, last.y)
+                model.listDrag(index, "move", last.x, last.y)
+            },
+            onDrag = { change, _ ->
+                last = at(change.position)
+                model.listDrag(index, "move", last.x, last.y)
+                change.consume()
+            },
+            onDragEnd = { model.listDrag(index, "end", last.x, last.y) },
+            onDragCancel = { model.listDrag(index, "cancel") },
+        )
+    }
+}
+
+/**
+ * EXP-1832: the live drag's paint over its List (the core's frames,
+ * UNSCROLLED surface dp, mapped into the List's box): the into highlight
+ * (the primary at `intoFill`, an inset primary stroke, `$radius.md`), the
+ * drop line (primary, radius 1) and its ring (a circle on the background
+ * colour, a primary stroke `line` wide), and the lifted copy of the row
+ * (the popover colour, `$radius.md`, shadow 0 8 24 black 35%, at
+ * `liftOpacity`). Paint only: it takes no pointer.
+ */
+@Composable
+private fun BoxScope.ListDragOverlay(index: Int, model: SurfaceModel) {
+    val paint = model.listDragPaints.firstOrNull { it.listIndex.toInt() == index } ?: return
+    val style = listDragStyle()
+    val origin = model.frame(index).topLeft
+    val scroll = model.scrolls[index]
+    val dx = origin.x + (scroll?.offsetX ?: 0f)
+    val dy = origin.y + (scroll?.offsetY ?: 0f)
+    fun rect(f: FfiFrame) = Rect(f.x - dx, f.y - dy, f.x - dx + f.w, f.y - dy + f.h)
+    val primary = model.color("primary") ?: Color.White
+    val background = model.color("background") ?: Color.Transparent
+    val popover = model.color("popover") ?: background
+    val radius = model.effectiveTheme?.radius("md") ?: 6f
+    val line = style.line
+    Canvas(Modifier.matchParentSize()) {
+        val d = density
+        paint.into?.let { f ->
+            val r = rect(f)
+            val inset = line * d / 2f
+            drawRoundRect(primary.copy(alpha = style.intoFill), Offset(r.left * d, r.top * d), Size(r.width * d, r.height * d), CornerRadius(radius * d))
+            drawRoundRect(primary, Offset(r.left * d + inset, r.top * d + inset), Size(r.width * d - 2 * inset, r.height * d - 2 * inset), CornerRadius(radius * d - inset), style = Stroke(line * d))
+        }
+        paint.line?.let { f ->
+            val r = rect(f)
+            drawRoundRect(primary, Offset(r.left * d, r.top * d), Size(r.width * d, r.height * d), CornerRadius(d))
+        }
+        paint.ring?.let { f ->
+            val r = rect(f)
+            val c = Offset(r.center.x * d, r.center.y * d)
+            val outer = r.width * d / 2f
+            drawCircle(background, outer, c)
+            drawCircle(primary, outer - line * d / 2f, c, style = Stroke(line * d))
+        }
+    }
+    val lift = rect(paint.lift)
+    CompositionLocalProvider(LocalListLift provides true) {
+        Box(
+            Modifier
+                .offset(lift.left.dp, lift.top.dp)
+                .requiredSize(lift.width.dp, lift.height.dp)
+                .graphicsLayer { alpha = style.liftOpacity }
+                .drawBehind {
+                    val box = RoundRect(0f, 0f, size.width, size.height, CornerRadius(radius * density))
+                    drawShadowLayer(ShadowLayer(0f, 8f, 24f, 0f, Color.Black.copy(alpha = 0.35f)), box)
+                    drawRoundRect(popover, cornerRadius = CornerRadius(radius * density))
+                }
+                .clip(RoundedCornerShape(radius.dp))
+                .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } },
+        ) {
+            NodeView(paint.row.toInt(), Modifier.requiredSize(lift.width.dp, lift.height.dp))
+        }
+    }
 }
 
 /**

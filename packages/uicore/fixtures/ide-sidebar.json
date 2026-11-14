@@ -1,5 +1,5 @@
 {
-  "$comment": "#EXP-1725 (IDE adopts the eDE shell): what the IDE's sidebar shows, a pure projection of the host's state, replayed in TS (src/ide.ts) and Rust (uicore-model ide.rs). The document apps/ede/ui/sidebar.json binds the result under /shell/ide; eDE never feeds that path. The nav's order is Needs you (while any, or on its page), Chats, Devices, Drafts (while any, or on its page): the IDE has no start menu (#EXP-1741), so Devices is a nav row; the person's Assistant is the sidebar's corner. screen = the open screen as <kind> or <kind>:<id>. A row's selected follows screen; an active row is lit on its root and on any session of its tree; an app row on its id or its slug. #FEED-232 (domain-contract nav-badges.json): a row's badge is THE count badge, never a dot: count = its label (null at zero, 99+ past 99), tone = attention | muted (null without a count). Needs you = its rows, attention; Chats = the host's chatsBadge {count, tone}; Drafts = its pile, muted; an agent = rowBadge(unread, needsYou): its unread, at least 1 while it needs you, attention when it does; busy is no count; devices, apps, boards none. gear = the row's hover gear: agents and apps for every member, boards for owners; agents.add = the owner's new agent button. boards.empty = the team has no boards, the list's empty state. Pinned and Active hide while empty: the document reads their length. prs (#EXP-1616, repo-page.json: \"Desktop also lists the PR tree in the IDE sidebar with the same Section/Row tree\"): the Pull requests section, a Section{tree} of Rows over repos = the team's Exponential (provider ecode) repositories in the host's order, each with its live PRs already placed by repoPrTree ({id, identifier #n, title, subtitle head → base, depth}): a repository with PRs is a row at depth 0 (its name, icon ui-repository, no identifier or subtitle, selected on repo:<id>), its PRs follow it at their tree depth + 1 (icon null, never selected); a repository without live PRs has no row, and the section hides while prs is empty. Every row's press opens its repo's page (repo). base holds the input every case starts from; a case overrides keys of it. copy = the nav's words (chat-list.json copy.title and needs-you.json copy.entry). tabs: the IDE's tab bar (#EXP-1726, docs/tabbar.json): every open tab in tab order, work tabs and terminals merged in ONE strip (a terminal is a tab like any other: same strip, same close, close others/all and neighbour rules), activeTab = the active key while a tab holds the screen. placement (Danny 2026-11-13): where that strip sits: top in the standalone IDE (macOS, Windows, Linux; the band above the content card that also carries the window controls and the drag), bottom while the IDE runs inside Exponential Desktop (eDE = XDG_CURRENT_DESKTOP names Exponential; its taskbar holds the top edge's role), the +N menu opening away from the window edge.",
+  "$comment": "#EXP-1725 (IDE adopts the eDE shell): what the IDE's sidebar shows, a pure projection of the host's state, replayed in TS (src/ide.ts) and Rust (uicore-model ide.rs). The document apps/ede/ui/sidebar.json binds the result under /shell/ide; eDE never feeds that path. The nav's order is Needs you (while any, or on its page), Chats, Devices, Drafts (while any, or on its page): the IDE has no start menu (#EXP-1741), so Devices is a nav row; the person's Assistant is the sidebar's corner. screen = the open screen as <kind> or <kind>:<id>. A row's selected follows screen; an active row is lit on its root and on any session of its tree; an app row on its id or its slug. #FEED-232 (domain-contract nav-badges.json): a row's badge is THE count badge, never a dot: count = its label (null at zero, 99+ past 99), tone = attention | muted (null without a count). Needs you = its rows, attention; Chats = the host's chatsBadge {count, tone}; Drafts = its pile, muted; an agent = rowBadge(unread, needsYou): its unread, at least 1 while it needs you, attention when it does; busy is no count; devices, apps, boards none. gear = the row's hover gear: agents and apps for every member, boards for owners; agents.add = the owner's new agent button. boards.empty = the team has no boards, the list's empty state. Pinned and Active hide while empty: the document reads their length. prs (#EXP-1616, repo-page.json: \"Desktop also lists the PR tree in the IDE sidebar with the same Section/Row tree\"): the Pull requests section, a Section{tree} of Rows over repos = the team's Exponential (provider ecode) repositories in the host's order, each with its live PRs already placed by repoPrTree ({id, identifier #n, title, subtitle head → base, depth}): a repository with PRs is a row at depth 0 (its name, icon ui-repository, no identifier or subtitle, selected on repo:<id>), its PRs follow it at their tree depth + 1 (icon null, never selected); a repository without live PRs has no row, and the section hides while prs is empty. Every row's press opens its repo's page (repo). base holds the input every case starts from; a case overrides keys of it. copy = the nav's words (chat-list.json copy.title and needs-you.json copy.entry). FOLDERS (#EXP-1832, domain-contract sidebar-folders.json): agents, apps and boards rows are the member's arrangement of that section: layout = the member's synced sidebar_layout rows per section (board | agent | app; absent = none), closed = the folder ids this device keeps folded (the IDE settings file under sidebarFolderOpenKey(team, folder); absent = every folder open), editingFolder = the folder whose name is an Input in place (a fresh folder after a drop, or Rename). Each section's rows = sidebarRows(sidebarTree(its row ids in the host's order, its layout), open unless closed): every row carries kind (item | folder), depth (0 top, 1 inside a folder), group (true on a folder), open (a folder's; false on an item), meta (a FOLDED folder's item count as text, else null), foldIcon (a folder's ui-chevron-down open, ui-chevron-right folded; null on an item) and editing (true only on editingFolder's row). An item row is the row it was (its badge, gear and selected unchanged inside a folder); a folder row = title its name (New folder when unnamed), icon ui-folder, never selected, no count, no gear. A section reads only its own layout; the Assistant corner, nav, pins, active and the Pull requests tree never fold. The document drags them (List reorderable, maxDepth 2, key id; a row's depth/group read off the item) and the host applies the move (sidebarMove, sidebarUngroup, sidebarFolderName). tabs: the IDE's tab bar (#EXP-1726, docs/tabbar.json): every open tab in tab order, work tabs and terminals merged in ONE strip (a terminal is a tab like any other: same strip, same close, close others/all and neighbour rules), activeTab = the active key while a tab holds the screen. placement (Danny 2026-11-13): where that strip sits: top in the standalone IDE (macOS, Windows, Linux; the band above the content card that also carries the window controls and the drag), bottom while the IDE runs inside Exponential Desktop (eDE = XDG_CURRENT_DESKTOP names Exponential; its taskbar holds the top edge's role), the +N menu opening away from the window edge.",
   "version": 1,
   "copy": {
     "needs-you": "Needs you",
@@ -422,40 +422,68 @@
           "add": true,
           "rows": [
             {
+              "kind": "item",
               "id": "a1",
+              "depth": 0,
+              "group": false,
+              "open": false,
               "title": "Reviewer",
               "icon": "ide:agent:a1",
               "selected": false,
               "count": "1",
               "tone": "attention",
-              "gear": true
+              "gear": true,
+              "meta": null,
+              "foldIcon": null,
+              "editing": false
             },
             {
+              "kind": "item",
               "id": "a2",
+              "depth": 0,
+              "group": false,
+              "open": false,
               "title": "Triage",
               "icon": "ide:agent:a2",
               "selected": true,
               "count": null,
               "tone": null,
-              "gear": true
+              "gear": true,
+              "meta": null,
+              "foldIcon": null,
+              "editing": false
             },
             {
+              "kind": "item",
               "id": "a3",
+              "depth": 0,
+              "group": false,
+              "open": false,
               "title": "Docs",
               "icon": "ide:agent:a3",
               "selected": false,
               "count": "3",
               "tone": "muted",
-              "gear": true
+              "gear": true,
+              "meta": null,
+              "foldIcon": null,
+              "editing": false
             },
             {
+              "kind": "item",
               "id": "a4",
+              "depth": 0,
+              "group": false,
+              "open": false,
               "title": "Release",
               "icon": "ide:agent:a4",
               "selected": false,
               "count": "2",
               "tone": "attention",
-              "gear": true
+              "gear": true,
+              "meta": null,
+              "foldIcon": null,
+              "editing": false
             }
           ]
         },
@@ -523,39 +551,60 @@
           "add": false,
           "rows": [
             {
+              "kind": "item",
               "id": "a1",
+              "depth": 0,
+              "group": false,
+              "open": false,
               "title": "Reviewer",
               "icon": "ide:agent:a1",
               "selected": false,
               "count": null,
               "tone": null,
-              "gear": true
+              "gear": true,
+              "meta": null,
+              "foldIcon": null,
+              "editing": false
             }
           ]
         },
         "apps": {
           "rows": [
             {
+              "kind": "item",
               "id": "x1",
+              "depth": 0,
+              "group": false,
+              "open": false,
               "title": "CRM",
               "icon": "ide:app:x1",
               "selected": false,
               "count": null,
               "tone": null,
-              "gear": true
+              "gear": true,
+              "meta": null,
+              "foldIcon": null,
+              "editing": false
             }
           ]
         },
         "boards": {
           "rows": [
             {
+              "kind": "item",
               "id": "b1",
+              "depth": 0,
+              "group": false,
+              "open": false,
               "title": "Mobile app",
               "icon": "ide:board:b1",
               "selected": false,
               "count": null,
               "tone": null,
-              "gear": false
+              "gear": false,
+              "meta": null,
+              "foldIcon": null,
+              "editing": false
             }
           ],
           "empty": false
@@ -610,22 +659,36 @@
         "apps": {
           "rows": [
             {
+              "kind": "item",
               "id": "x1",
+              "depth": 0,
+              "group": false,
+              "open": false,
               "title": "CRM",
               "icon": "ide:app:x1",
               "selected": true,
               "count": null,
               "tone": null,
-              "gear": true
+              "gear": true,
+              "meta": null,
+              "foldIcon": null,
+              "editing": false
             },
             {
+              "kind": "item",
               "id": "x2",
+              "depth": 0,
+              "group": false,
+              "open": false,
               "title": "HR",
               "icon": "ide:app:x2",
               "selected": false,
               "count": null,
               "tone": null,
-              "gear": true
+              "gear": true,
+              "meta": null,
+              "foldIcon": null,
+              "editing": false
             }
           ]
         },
@@ -684,22 +747,36 @@
         "boards": {
           "rows": [
             {
+              "kind": "item",
               "id": "b1",
+              "depth": 0,
+              "group": false,
+              "open": false,
               "title": "Mobile app",
               "icon": "ide:board:b1",
               "selected": true,
               "count": null,
               "tone": null,
-              "gear": true
+              "gear": true,
+              "meta": null,
+              "foldIcon": null,
+              "editing": false
             },
             {
+              "kind": "item",
               "id": "b2",
+              "depth": 0,
+              "group": false,
+              "open": false,
               "title": "Web",
               "icon": "ide:board:b2",
               "selected": false,
               "count": null,
               "tone": null,
-              "gear": true
+              "gear": true,
+              "meta": null,
+              "foldIcon": null,
+              "editing": false
             }
           ],
           "empty": false
@@ -1125,6 +1202,831 @@
             "selected": false
           }
         ]
+      }
+    },
+    {
+      "name": "#EXP-1832 a folder heads its items one level deeper; placed rows first, the rest after in the host's order",
+      "input": {
+        "screen": "board:b3",
+        "boards": [
+          {
+            "id": "b1",
+            "name": "Exponential",
+            "icon": "ide:board:b1"
+          },
+          {
+            "id": "b2",
+            "name": "Feedback",
+            "icon": "ide:board:b2"
+          },
+          {
+            "id": "b3",
+            "name": "Errors",
+            "icon": "ide:board:b3"
+          },
+          {
+            "id": "b4",
+            "name": "Performance",
+            "icon": "ide:board:b4"
+          },
+          {
+            "id": "b5",
+            "name": "Next",
+            "icon": "ide:board:b5"
+          }
+        ],
+        "layout": {
+          "board": [
+            {
+              "id": "e-b2",
+              "kind": "item",
+              "targetId": "b2",
+              "parentId": null,
+              "name": null,
+              "sortOrder": 1
+            },
+            {
+              "id": "f-mon",
+              "kind": "folder",
+              "targetId": null,
+              "parentId": null,
+              "name": "Monitoring",
+              "sortOrder": 2
+            },
+            {
+              "id": "e-b3",
+              "kind": "item",
+              "targetId": "b3",
+              "parentId": "f-mon",
+              "name": null,
+              "sortOrder": 1
+            },
+            {
+              "id": "e-b4",
+              "kind": "item",
+              "targetId": "b4",
+              "parentId": "f-mon",
+              "name": null,
+              "sortOrder": 2
+            }
+          ]
+        }
+      },
+      "expected": {
+        "nav": [
+          {
+            "id": "chats",
+            "title": "Chats",
+            "icon": "nav-chats",
+            "selected": false,
+            "count": null,
+            "tone": null
+          },
+          {
+            "id": "devices",
+            "title": "Devices",
+            "icon": "nav-devices",
+            "selected": false,
+            "count": null,
+            "tone": null
+          }
+        ],
+        "pins": [],
+        "agents": {
+          "add": true,
+          "rows": []
+        },
+        "apps": {
+          "rows": []
+        },
+        "boards": {
+          "rows": [
+            {
+              "kind": "item",
+              "id": "b2",
+              "depth": 0,
+              "group": false,
+              "open": false,
+              "title": "Feedback",
+              "icon": "ide:board:b2",
+              "selected": false,
+              "count": null,
+              "tone": null,
+              "gear": true,
+              "meta": null,
+              "foldIcon": null,
+              "editing": false
+            },
+            {
+              "kind": "folder",
+              "id": "f-mon",
+              "depth": 0,
+              "group": true,
+              "open": true,
+              "title": "Monitoring",
+              "icon": "ui-folder",
+              "selected": false,
+              "count": null,
+              "tone": null,
+              "gear": false,
+              "meta": null,
+              "foldIcon": "ui-chevron-down",
+              "editing": false
+            },
+            {
+              "kind": "item",
+              "id": "b3",
+              "depth": 1,
+              "group": false,
+              "open": false,
+              "title": "Errors",
+              "icon": "ide:board:b3",
+              "selected": true,
+              "count": null,
+              "tone": null,
+              "gear": true,
+              "meta": null,
+              "foldIcon": null,
+              "editing": false
+            },
+            {
+              "kind": "item",
+              "id": "b4",
+              "depth": 1,
+              "group": false,
+              "open": false,
+              "title": "Performance",
+              "icon": "ide:board:b4",
+              "selected": false,
+              "count": null,
+              "tone": null,
+              "gear": true,
+              "meta": null,
+              "foldIcon": null,
+              "editing": false
+            },
+            {
+              "kind": "item",
+              "id": "b1",
+              "depth": 0,
+              "group": false,
+              "open": false,
+              "title": "Exponential",
+              "icon": "ide:board:b1",
+              "selected": false,
+              "count": null,
+              "tone": null,
+              "gear": true,
+              "meta": null,
+              "foldIcon": null,
+              "editing": false
+            },
+            {
+              "kind": "item",
+              "id": "b5",
+              "depth": 0,
+              "group": false,
+              "open": false,
+              "title": "Next",
+              "icon": "ide:board:b5",
+              "selected": false,
+              "count": null,
+              "tone": null,
+              "gear": true,
+              "meta": null,
+              "foldIcon": null,
+              "editing": false
+            }
+          ],
+          "empty": false
+        },
+        "active": [],
+        "prs": []
+      }
+    },
+    {
+      "name": "#EXP-1832 a folded folder leaves its items out and shows their count",
+      "input": {
+        "screen": "board:b3",
+        "boards": [
+          {
+            "id": "b1",
+            "name": "Exponential",
+            "icon": "ide:board:b1"
+          },
+          {
+            "id": "b2",
+            "name": "Feedback",
+            "icon": "ide:board:b2"
+          },
+          {
+            "id": "b3",
+            "name": "Errors",
+            "icon": "ide:board:b3"
+          },
+          {
+            "id": "b4",
+            "name": "Performance",
+            "icon": "ide:board:b4"
+          },
+          {
+            "id": "b5",
+            "name": "Next",
+            "icon": "ide:board:b5"
+          }
+        ],
+        "layout": {
+          "board": [
+            {
+              "id": "e-b2",
+              "kind": "item",
+              "targetId": "b2",
+              "parentId": null,
+              "name": null,
+              "sortOrder": 1
+            },
+            {
+              "id": "f-mon",
+              "kind": "folder",
+              "targetId": null,
+              "parentId": null,
+              "name": "Monitoring",
+              "sortOrder": 2
+            },
+            {
+              "id": "e-b3",
+              "kind": "item",
+              "targetId": "b3",
+              "parentId": "f-mon",
+              "name": null,
+              "sortOrder": 1
+            },
+            {
+              "id": "e-b4",
+              "kind": "item",
+              "targetId": "b4",
+              "parentId": "f-mon",
+              "name": null,
+              "sortOrder": 2
+            }
+          ]
+        },
+        "closed": [
+          "f-mon"
+        ]
+      },
+      "expected": {
+        "nav": [
+          {
+            "id": "chats",
+            "title": "Chats",
+            "icon": "nav-chats",
+            "selected": false,
+            "count": null,
+            "tone": null
+          },
+          {
+            "id": "devices",
+            "title": "Devices",
+            "icon": "nav-devices",
+            "selected": false,
+            "count": null,
+            "tone": null
+          }
+        ],
+        "pins": [],
+        "agents": {
+          "add": true,
+          "rows": []
+        },
+        "apps": {
+          "rows": []
+        },
+        "boards": {
+          "rows": [
+            {
+              "kind": "item",
+              "id": "b2",
+              "depth": 0,
+              "group": false,
+              "open": false,
+              "title": "Feedback",
+              "icon": "ide:board:b2",
+              "selected": false,
+              "count": null,
+              "tone": null,
+              "gear": true,
+              "meta": null,
+              "foldIcon": null,
+              "editing": false
+            },
+            {
+              "kind": "folder",
+              "id": "f-mon",
+              "depth": 0,
+              "group": true,
+              "open": false,
+              "title": "Monitoring",
+              "icon": "ui-folder",
+              "selected": false,
+              "count": null,
+              "tone": null,
+              "gear": false,
+              "meta": "2",
+              "foldIcon": "ui-chevron-right",
+              "editing": false
+            },
+            {
+              "kind": "item",
+              "id": "b1",
+              "depth": 0,
+              "group": false,
+              "open": false,
+              "title": "Exponential",
+              "icon": "ide:board:b1",
+              "selected": false,
+              "count": null,
+              "tone": null,
+              "gear": true,
+              "meta": null,
+              "foldIcon": null,
+              "editing": false
+            },
+            {
+              "kind": "item",
+              "id": "b5",
+              "depth": 0,
+              "group": false,
+              "open": false,
+              "title": "Next",
+              "icon": "ide:board:b5",
+              "selected": false,
+              "count": null,
+              "tone": null,
+              "gear": true,
+              "meta": null,
+              "foldIcon": null,
+              "editing": false
+            }
+          ],
+          "empty": false
+        },
+        "active": [],
+        "prs": []
+      }
+    },
+    {
+      "name": "#EXP-1832 the folder being named holds its Input in place",
+      "input": {
+        "boards": [
+          {
+            "id": "b1",
+            "name": "Exponential",
+            "icon": "ide:board:b1"
+          },
+          {
+            "id": "b2",
+            "name": "Feedback",
+            "icon": "ide:board:b2"
+          },
+          {
+            "id": "b3",
+            "name": "Errors",
+            "icon": "ide:board:b3"
+          },
+          {
+            "id": "b4",
+            "name": "Performance",
+            "icon": "ide:board:b4"
+          },
+          {
+            "id": "b5",
+            "name": "Next",
+            "icon": "ide:board:b5"
+          }
+        ],
+        "layout": {
+          "board": [
+            {
+              "id": "e-b2",
+              "kind": "item",
+              "targetId": "b2",
+              "parentId": null,
+              "name": null,
+              "sortOrder": 1
+            },
+            {
+              "id": "f-mon",
+              "kind": "folder",
+              "targetId": null,
+              "parentId": null,
+              "name": "Monitoring",
+              "sortOrder": 2
+            },
+            {
+              "id": "e-b3",
+              "kind": "item",
+              "targetId": "b3",
+              "parentId": "f-mon",
+              "name": null,
+              "sortOrder": 1
+            },
+            {
+              "id": "e-b4",
+              "kind": "item",
+              "targetId": "b4",
+              "parentId": "f-mon",
+              "name": null,
+              "sortOrder": 2
+            }
+          ]
+        },
+        "editingFolder": "f-mon"
+      },
+      "expected": {
+        "nav": [
+          {
+            "id": "chats",
+            "title": "Chats",
+            "icon": "nav-chats",
+            "selected": true,
+            "count": null,
+            "tone": null
+          },
+          {
+            "id": "devices",
+            "title": "Devices",
+            "icon": "nav-devices",
+            "selected": false,
+            "count": null,
+            "tone": null
+          }
+        ],
+        "pins": [],
+        "agents": {
+          "add": true,
+          "rows": []
+        },
+        "apps": {
+          "rows": []
+        },
+        "boards": {
+          "rows": [
+            {
+              "kind": "item",
+              "id": "b2",
+              "depth": 0,
+              "group": false,
+              "open": false,
+              "title": "Feedback",
+              "icon": "ide:board:b2",
+              "selected": false,
+              "count": null,
+              "tone": null,
+              "gear": true,
+              "meta": null,
+              "foldIcon": null,
+              "editing": false
+            },
+            {
+              "kind": "folder",
+              "id": "f-mon",
+              "depth": 0,
+              "group": true,
+              "open": true,
+              "title": "Monitoring",
+              "icon": "ui-folder",
+              "selected": false,
+              "count": null,
+              "tone": null,
+              "gear": false,
+              "meta": null,
+              "foldIcon": "ui-chevron-down",
+              "editing": true
+            },
+            {
+              "kind": "item",
+              "id": "b3",
+              "depth": 1,
+              "group": false,
+              "open": false,
+              "title": "Errors",
+              "icon": "ide:board:b3",
+              "selected": false,
+              "count": null,
+              "tone": null,
+              "gear": true,
+              "meta": null,
+              "foldIcon": null,
+              "editing": false
+            },
+            {
+              "kind": "item",
+              "id": "b4",
+              "depth": 1,
+              "group": false,
+              "open": false,
+              "title": "Performance",
+              "icon": "ide:board:b4",
+              "selected": false,
+              "count": null,
+              "tone": null,
+              "gear": true,
+              "meta": null,
+              "foldIcon": null,
+              "editing": false
+            },
+            {
+              "kind": "item",
+              "id": "b1",
+              "depth": 0,
+              "group": false,
+              "open": false,
+              "title": "Exponential",
+              "icon": "ide:board:b1",
+              "selected": false,
+              "count": null,
+              "tone": null,
+              "gear": true,
+              "meta": null,
+              "foldIcon": null,
+              "editing": false
+            },
+            {
+              "kind": "item",
+              "id": "b5",
+              "depth": 0,
+              "group": false,
+              "open": false,
+              "title": "Next",
+              "icon": "ide:board:b5",
+              "selected": false,
+              "count": null,
+              "tone": null,
+              "gear": true,
+              "meta": null,
+              "foldIcon": null,
+              "editing": false
+            }
+          ],
+          "empty": false
+        },
+        "active": [],
+        "prs": []
+      }
+    },
+    {
+      "name": "#EXP-1832 agents and apps fold alike: an item keeps its badge and gear inside a folder; a section reads only its own layout; an unnamed folder says New folder; a folder with no visible item and an entry for a hidden target are skipped",
+      "input": {
+        "agents": [
+          {
+            "id": "a1",
+            "name": "Glitchtip Triage",
+            "icon": "ide:agent:a1",
+            "needsYou": false,
+            "unread": 0
+          },
+          {
+            "id": "a2",
+            "name": "Reruster",
+            "icon": "ide:agent:a2",
+            "needsYou": true,
+            "unread": 0
+          },
+          {
+            "id": "a3",
+            "name": "Voicer",
+            "icon": "ide:agent:a3",
+            "needsYou": false,
+            "unread": 4
+          }
+        ],
+        "apps": [
+          {
+            "id": "x1",
+            "slug": "crm",
+            "name": "CRM",
+            "icon": "ide:app:x1"
+          },
+          {
+            "id": "x2",
+            "slug": "standup",
+            "name": "Standup",
+            "icon": "ide:app:x2"
+          }
+        ],
+        "layout": {
+          "agent": [
+            {
+              "id": "f-bots",
+              "kind": "folder",
+              "targetId": null,
+              "parentId": null,
+              "name": null,
+              "sortOrder": 2
+            },
+            {
+              "id": "e-a2",
+              "kind": "item",
+              "targetId": "a2",
+              "parentId": "f-bots",
+              "name": null,
+              "sortOrder": 1
+            },
+            {
+              "id": "e-a3",
+              "kind": "item",
+              "targetId": "a3",
+              "parentId": "f-bots",
+              "name": null,
+              "sortOrder": 2
+            },
+            {
+              "id": "e-a1",
+              "kind": "item",
+              "targetId": "a1",
+              "parentId": null,
+              "name": null,
+              "sortOrder": 1
+            }
+          ],
+          "app": [
+            {
+              "id": "f-empty",
+              "kind": "folder",
+              "targetId": null,
+              "parentId": null,
+              "name": "Ops",
+              "sortOrder": 1
+            },
+            {
+              "id": "e-gone",
+              "kind": "item",
+              "targetId": "x9",
+              "parentId": "f-empty",
+              "name": null,
+              "sortOrder": 1
+            },
+            {
+              "id": "e-x2",
+              "kind": "item",
+              "targetId": "x2",
+              "parentId": null,
+              "name": null,
+              "sortOrder": 1
+            }
+          ],
+          "board": [
+            {
+              "id": "f-b",
+              "kind": "folder",
+              "targetId": null,
+              "parentId": null,
+              "name": "Boards only",
+              "sortOrder": 1
+            },
+            {
+              "id": "e-a1b",
+              "kind": "item",
+              "targetId": "a1",
+              "parentId": "f-b",
+              "name": null,
+              "sortOrder": 1
+            }
+          ]
+        }
+      },
+      "expected": {
+        "nav": [
+          {
+            "id": "chats",
+            "title": "Chats",
+            "icon": "nav-chats",
+            "selected": true,
+            "count": null,
+            "tone": null
+          },
+          {
+            "id": "devices",
+            "title": "Devices",
+            "icon": "nav-devices",
+            "selected": false,
+            "count": null,
+            "tone": null
+          }
+        ],
+        "pins": [],
+        "agents": {
+          "add": true,
+          "rows": [
+            {
+              "kind": "item",
+              "id": "a1",
+              "depth": 0,
+              "group": false,
+              "open": false,
+              "title": "Glitchtip Triage",
+              "icon": "ide:agent:a1",
+              "selected": false,
+              "count": null,
+              "tone": null,
+              "gear": true,
+              "meta": null,
+              "foldIcon": null,
+              "editing": false
+            },
+            {
+              "kind": "folder",
+              "id": "f-bots",
+              "depth": 0,
+              "group": true,
+              "open": true,
+              "title": "New folder",
+              "icon": "ui-folder",
+              "selected": false,
+              "count": null,
+              "tone": null,
+              "gear": false,
+              "meta": null,
+              "foldIcon": "ui-chevron-down",
+              "editing": false
+            },
+            {
+              "kind": "item",
+              "id": "a2",
+              "depth": 1,
+              "group": false,
+              "open": false,
+              "title": "Reruster",
+              "icon": "ide:agent:a2",
+              "selected": false,
+              "count": "1",
+              "tone": "attention",
+              "gear": true,
+              "meta": null,
+              "foldIcon": null,
+              "editing": false
+            },
+            {
+              "kind": "item",
+              "id": "a3",
+              "depth": 1,
+              "group": false,
+              "open": false,
+              "title": "Voicer",
+              "icon": "ide:agent:a3",
+              "selected": false,
+              "count": "4",
+              "tone": "muted",
+              "gear": true,
+              "meta": null,
+              "foldIcon": null,
+              "editing": false
+            }
+          ]
+        },
+        "apps": {
+          "rows": [
+            {
+              "kind": "item",
+              "id": "x2",
+              "depth": 0,
+              "group": false,
+              "open": false,
+              "title": "Standup",
+              "icon": "ide:app:x2",
+              "selected": false,
+              "count": null,
+              "tone": null,
+              "gear": true,
+              "meta": null,
+              "foldIcon": null,
+              "editing": false
+            },
+            {
+              "kind": "item",
+              "id": "x1",
+              "depth": 0,
+              "group": false,
+              "open": false,
+              "title": "CRM",
+              "icon": "ide:app:x1",
+              "selected": false,
+              "count": null,
+              "tone": null,
+              "gear": true,
+              "meta": null,
+              "foldIcon": null,
+              "editing": false
+            }
+          ]
+        },
+        "boards": {
+          "rows": [],
+          "empty": true
+        },
+        "active": [],
+        "prs": []
       }
     }
   ],

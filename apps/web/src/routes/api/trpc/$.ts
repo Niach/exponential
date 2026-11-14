@@ -44,6 +44,7 @@ import { mcpActivityRouter, mcpClientsRouter } from "@/lib/trpc/mcp-clients"
 import { mcpGrantsRouter } from "@/lib/trpc/mcp-grants"
 import { mcpServersRouter } from "@/lib/trpc/mcp-servers"
 import { pinsRouter } from "@/lib/trpc/pins"
+import { sidebarLayoutRouter } from "@/lib/trpc/sidebar-layout"
 import { sessionsRouter } from "@/lib/trpc/sessions"
 import { pullRequestsRouter } from "@/lib/trpc/pull-requests"
 import { importsRouter } from "@/lib/trpc/imports"
@@ -98,6 +99,7 @@ export const appRouter = router({
   mcpActivity: mcpActivityRouter,
   mcpServers: mcpServersRouter,
   pins: pinsRouter,
+  sidebarLayout: sidebarLayoutRouter,
   imports: importsRouter,
 })
 

@@ -209,6 +209,17 @@ pub(crate) struct TabDrag {
     pub started: bool,
 }
 
+/// EXP-1832: a press on a reorderable List's row that may become a drag
+/// (past `tabDragThreshold`): the pressed node, its List's slot and where
+/// the press landed (surface px, before the List's scroll offsets).
+#[derive(Debug, Clone)]
+pub(crate) struct ListDragPress {
+    pub node: String,
+    pub list: u32,
+    pub start: (f32, f32),
+    pub started: bool,
+}
+
 /// An in-flight Resizable handle drag (round 2 §1): the core resizes from
 /// the sizes at the START, so only the pointer's start is kept.
 #[derive(Debug, Clone)]
@@ -403,6 +414,9 @@ pub struct SurfaceView {
     sheet_drag: Option<SheetDrag>,
     resize_drag: Option<ResizeDrag>,
     tab_drag: Option<TabDrag>,
+    list_drag: Option<ListDragPress>,
+    /// EXP-1832: the core's List drag paint for this frame (empty = none).
+    list_paint: Vec<eui_core::surface::ListDragPaint>,
     /// FEED-200: the swipeable Tabs' trackpad gesture (`swipe.rs`), the
     /// blockers under the pointer for the wheel event being dispatched,
     /// momentum after a horizontal swipe, the phase-less end's watchdog.
@@ -663,6 +677,8 @@ impl SurfaceView {
             sheet_drag: None,
             resize_drag: None,
             tab_drag: None,
+            list_drag: None,
+            list_paint: Vec::new(),
             wheel_swipe: None,
             swipe_hits: Rc::new(RefCell::new(Vec::new())),
             wheel_momentum: None,
@@ -1779,7 +1795,7 @@ impl SurfaceView {
             .text_color(ink);
         // A drag in flight (slider, sheet, text selection) follows the pointer
         // anywhere in the window, over layers and outside the surface too.
-        if self.drag.is_some() || self.sheet_drag.is_some() || self.resize_drag.is_some() || self.md_dragging {
+        if self.drag.is_some() || self.sheet_drag.is_some() || self.resize_drag.is_some() || self.md_dragging || self.list_drag.as_ref().is_some_and(|d| d.started) {
             let this = self.this.clone();
             root = root.child(
                 gpui::canvas(
@@ -1827,10 +1843,15 @@ impl SurfaceView {
                 .size_0(),
             );
         }
+        // EXP-1832: the live List drag the core keeps (dim, drop, lift).
+        self.list_paint = if self.surface.list_dragging() { self.surface.list_drag_paint() } else { Vec::new() };
         if let Some(&main) = self.order.first() {
             if let Some(el) = self.paint_node(main, paint::Place::at((0.0, 0.0), (0.0, 0.0), None), window, cx) {
                 root = root.child(el);
             }
+        }
+        if let Some(el) = self.paint_list_drag(window, cx) {
+            root = root.child(deferred(el).with_priority(900));
         }
         // Closed layers fade out under the open ones (toasts under toasts).
         let mut ghosts = std::mem::take(&mut self.exiting);

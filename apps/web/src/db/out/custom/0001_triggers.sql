@@ -152,6 +152,8 @@ CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON session_reads FOR E
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON issue_drafts FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 -- #FEED-219: every composer's synced draft.
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON composer_drafts FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+-- #EXP-1832: the member's sidebar folders + order.
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON sidebar_layout FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON mcp_credentials FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON issue_number_counters FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 -- device_worktrees guards like the board_deleted_at mirrors: the share

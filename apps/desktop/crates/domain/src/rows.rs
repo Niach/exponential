@@ -368,6 +368,37 @@ pub struct Pin {
     pub updated_at: Option<String>,
 }
 
+/// `sidebar_layout` shape row (#EXP-1832, sidebar-folders.json): one node
+/// of the member's own sidebar (static per-user shape, `user_id = me`, like
+/// pins). `section` = board | agent | app, `kind` = folder | item; an item
+/// places `target_id` (inside `parent_id`, a folder), a folder carries
+/// `name`. Every non-PK field is `Option` like [`Pin`];
+/// [`crate::sidebar_folders::sidebar_entries`] reads one team's section.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct SidebarLayoutRow {
+    pub id: String,
+    #[serde(default)]
+    pub user_id: Option<String>,
+    #[serde(default)]
+    pub team_id: Option<String>,
+    #[serde(default)]
+    pub section: Option<String>,
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub target_id: Option<String>,
+    #[serde(default)]
+    pub parent_id: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default, deserialize_with = "tolerant_opt_f64")]
+    pub sort_order: Option<f64>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
 /// `composer_drafts` shape row (#FEED-219, composer-draft.json) — one
 /// composer's synced draft, from a STATIC per-user shape (`user_id = me`).
 /// `key` = `<kind>:<id>` ([`crate::composer_draft::parse_key`]); a row whose

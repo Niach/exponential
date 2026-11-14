@@ -363,7 +363,9 @@
       "slots": [
         "section"
       ],
-      "events": [],
+      "events": [
+        "move"
+      ],
       "basic": [
         "List"
       ],
@@ -411,6 +413,24 @@
           "responsive": false,
           "default": false,
           "description": "Pins the current header."
+        },
+        {
+          "name": "reorderable",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "Rows drag to reorder (vertical); fires `move` {id, before|after|into}."
+        },
+        {
+          "name": "maxDepth",
+          "type": "number",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": 1,
+          "description": "With `reorderable`: nesting levels; 2 = a row dropped on a row nests. Items: `depth`, `group`."
         },
         {
           "name": "style",

@@ -13,7 +13,6 @@ import {
   SidebarGroupAction,
   SidebarGroupContent,
   SidebarGroupLabel,
-  SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuTrailing,
@@ -21,6 +20,7 @@ import {
 import { CHATS_LIST_COPY, type AgentRow } from "@/lib/session-tree"
 import { cn } from "@/lib/utils"
 import { useTeamAgentRows } from "@/hooks/use-agent-row"
+import { SidebarFolderList } from "@/components/team/sidebar-folders"
 import { useDigestMessages, useSessionReads, useTeamSessions } from "@/hooks/use-session-tree"
 
 // EXP-1293: the rail's AGENTS section, ABOVE Boards and drawn like them —
@@ -97,12 +97,15 @@ function AgentBadge({ badge }: { badge: CountBadgeValue | undefined }) {
 }
 
 export function SidebarAgentsSection({
+  teamId,
   teamSlug,
   agents,
   isOwner,
   activeAgentId,
   badges,
 }: {
+  /** #EXP-1832: the team the member's folders and order belong to. */
+  teamId: string | undefined
   teamSlug: string
   agents: readonly AgentRow[]
   /** #FEED-232: `useAgentBadges`, by agent id. */
@@ -110,6 +113,10 @@ export function SidebarAgentsSection({
   isOwner: boolean
   activeAgentId: string | null
 }) {
+  // #EXP-1832: the default order is the list's (listAgents); the member's
+  // folders and drag order sit on top (sidebar-folders.json).
+  const ids = useMemo(() => agents.map((agent) => agent.agentId), [agents])
+  const byId = useMemo(() => new Map(agents.map((agent) => [agent.agentId, agent])), [agents])
   return (
     <SidebarGroup data-testid="sidebar-agents">
       <SidebarGroupLabel>{CHATS_LIST_COPY.agents}</SidebarGroupLabel>
@@ -125,29 +132,37 @@ export function SidebarAgentsSection({
         </SidebarGroupAction>
       )}
       <SidebarGroupContent>
-        <SidebarMenu>
-          {agents.map((agent) => (
-            <SidebarMenuItem key={agent.agentId}>
-              <SidebarMenuButton
-                asChild
-                density="compact"
-                isActive={activeAgentId === agent.agentId}
-              >
-                <Link
-                  to="/t/$teamSlug/agents/$agentId"
-                  params={{ teamSlug, agentId: agent.agentId }}
-                  data-testid="agents-row"
-                  // Chat 58cb32df: THE agent menu on right-click / long-press.
-                  {...menuProps(AGENT_ROW_MENU_KIND, agent.agentId)}
+        <SidebarFolderList
+          teamId={teamId}
+          section="agent"
+          ids={ids}
+          renderItem={(id, itemProps, guides) => {
+            const agent = byId.get(id)
+            if (!agent) return null
+            return (
+              <SidebarMenuItem key={agent.agentId} {...itemProps}>
+                {guides}
+                <SidebarMenuButton
+                  asChild
+                  density="compact"
+                  isActive={activeAgentId === agent.agentId}
                 >
-                  <AgentIcon agent={agent} />
-                  <span className="min-w-0 flex-1 truncate">{agent.name}</span>
-                </Link>
-              </SidebarMenuButton>
-              <AgentBadge badge={badges?.get(agent.agentId)} />
-            </SidebarMenuItem>
-          ))}
-        </SidebarMenu>
+                  <Link
+                    to="/t/$teamSlug/agents/$agentId"
+                    params={{ teamSlug, agentId: agent.agentId }}
+                    data-testid="agents-row"
+                    // Chat 58cb32df: THE agent menu on right-click / long-press.
+                    {...menuProps(AGENT_ROW_MENU_KIND, agent.agentId)}
+                  >
+                    <AgentIcon agent={agent} />
+                    <span className="min-w-0 flex-1 truncate">{agent.name}</span>
+                  </Link>
+                </SidebarMenuButton>
+                <AgentBadge badge={badges?.get(agent.agentId)} />
+              </SidebarMenuItem>
+            )
+          }}
+        />
       </SidebarGroupContent>
     </SidebarGroup>
   )
