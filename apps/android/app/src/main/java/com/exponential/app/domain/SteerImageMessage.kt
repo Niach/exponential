@@ -6,11 +6,11 @@ package com.exponential.app.domain
 // local file path before the agent sees it and reverse-rewrites the echoed
 // transcript back, so drift in this format breaks echo dedupe.
 
-const val MAX_STEER_IMAGES = 4
+const val MAX_STEER_IMAGES = ComposerAttachments.MAX_IMAGES
 
 /** Wave D ×4: non-image files ride the same message, capped separately
  *  (4 × [MAX_FILE_UPLOAD_BYTES]); images keep their own four. */
-const val MAX_STEER_FILES = 4
+const val MAX_STEER_FILES = ComposerAttachments.MAX_FILES
 
 /**
  * Wave D ×4: one non-image attachment on the wire — the upload's id and the
@@ -20,38 +20,13 @@ const val MAX_STEER_FILES = 4
 data class SteerFile(val id: String, val name: String)
 
 /** The ONE rejection copy ×4 for a pick the steer/start composers refuse. */
-const val STEER_ATTACHMENT_REJECTED = "Images up to 10 MB and files up to 50 MB can be attached"
+const val STEER_ATTACHMENT_REJECTED = ComposerAttachments.REJECTED_TOAST
 
 /** The file cap toast ×4. */
-const val STEER_FILES_CAP = "Up to 4 files per message"
+const val STEER_FILES_CAP = ComposerAttachments.FILE_CAP_TOAST
 
 /** The image cap copy (unchanged). */
-const val STEER_IMAGES_CAP = "Up to $MAX_STEER_IMAGES images per message"
-
-/**
- * Wave D ×4: why a pick cannot join the pending set, or null when it can.
- * An inline image counts against [MAX_STEER_IMAGES] × [MAX_IMAGE_UPLOAD_BYTES];
- * anything else is a file against [MAX_STEER_FILES] × [MAX_FILE_UPLOAD_BYTES].
- * Size refusals share ONE copy ([STEER_ATTACHMENT_REJECTED]).
- */
-fun steerAttachmentRefusal(
-    imageCount: Int,
-    fileCount: Int,
-    isImage: Boolean,
-    sizeBytes: Long,
-): String? = if (isImage) {
-    when {
-        sizeBytes > MAX_IMAGE_UPLOAD_BYTES -> STEER_ATTACHMENT_REJECTED
-        imageCount >= MAX_STEER_IMAGES -> STEER_IMAGES_CAP
-        else -> null
-    }
-} else {
-    when {
-        sizeBytes > MAX_FILE_UPLOAD_BYTES -> STEER_ATTACHMENT_REJECTED
-        fileCount >= MAX_STEER_FILES -> STEER_FILES_CAP
-        else -> null
-    }
-}
+const val STEER_IMAGES_CAP = ComposerAttachments.IMAGE_CAP_TOAST
 
 // EXP-698: a POSITIONAL reference to one of the message's images. The composer
 // drops `[Image #k]` at the caret when the k-th image is attached, so the agent
@@ -73,7 +48,7 @@ fun imageMarker(index: Int): String = imageMarker(index.toLong())
  * `Number()`, which never fails; 19 digits is past anything a composer can
  * produce, and beyond it every walker agrees the token is plain text.
  */
-private fun markerNumber(match: MatchResult): Long? = match.groupValues[1].toLongOrNull()
+internal fun imageMarkerNumber(match: MatchResult): Long? = match.groupValues[1].toLongOrNull()
 
 /**
  * JS `\s` spelled out, so the JVM (ASCII `\s`) and Android's ICU engine
@@ -90,9 +65,6 @@ private val EMBED_LINE = Regex("""^!\[image]\(/api/attachments/([^)$JS_SPACE]+)\
  * `!`), its text the filename with `]` and `\` backslash-escaped.
  */
 private val FILE_LINE = Regex("""^\[((?:[^\]\\]|\\.)*)]\(/api/attachments/([^)$JS_SPACE]+)\)$""")
-
-/** Runs of spaces/tabs a removed marker leaves behind. */
-private val SPACE_RUN = Regex("""[ \t]{2,}""")
 
 fun buildSteerImageMessage(text: String, attachmentIds: List<String>): String {
     val trimmed = text.trim()
@@ -181,7 +153,7 @@ fun parseSteerMessage(message: String): ParsedSteerMessage {
 fun steerImageMarkers(text: String): List<Long> {
     val found = mutableListOf<Long>()
     for (match in IMAGE_MARKER_REGEX.findAll(text)) {
-        val index = markerNumber(match) ?: continue
+        val index = imageMarkerNumber(match) ?: continue
         if (index !in found) found.add(index)
     }
     return found
@@ -205,7 +177,7 @@ fun steerMessageSegments(text: String): List<SteerMessageSegment> {
         // Unparseable digits are PROSE: leaving the cursor where it is folds
         // the literal token into the following text run, which is what the
         // other two walkers do with it too.
-        val index = markerNumber(match) ?: continue
+        val index = imageMarkerNumber(match) ?: continue
         if (match.range.first > cursor) {
             result.add(SteerMessageSegment.Text(text.substring(cursor, match.range.first)))
         }
@@ -216,48 +188,5 @@ fun steerMessageSegments(text: String): List<SteerMessageSegment> {
     return result
 }
 
-/**
- * Drops `[Image #index]` at [caret], space-separated from whatever it lands
- * against. Returns the new draft and the caret behind the insertion.
- */
-fun insertImageMarker(text: String, caret: Int, index: Int): Pair<String, Int> {
-    val at = caret.coerceIn(0, text.length)
-    val before = text.substring(0, at)
-    val after = text.substring(at)
-    val marker = imageMarker(index)
-    val lead = if (before.isNotEmpty() && !before.last().isWhitespace()) " " else ""
-    val trail = if (after.isNotEmpty() && !after.first().isWhitespace()) " " else ""
-    return "$before$lead$marker$trail$after" to (at + lead.length + marker.length + trail.length)
-}
-
-/**
- * Removing the [removedIndex]-th pending image renumbers the draft: its own
- * markers go, and every higher one slides down one. Only a line that LOST a
- * marker gets the gap it left tidied — untouched lines keep their spacing.
- */
-fun renumberImageMarkers(text: String, removedIndex: Int): String =
-    text.split("\n").joinToString("\n") { line ->
-        var dropped = false
-        val next = StringBuilder()
-        var cursor = 0
-        for (match in IMAGE_MARKER_REGEX.findAll(line)) {
-            next.append(line, cursor, match.range.first)
-            cursor = match.range.last + 1
-            val raw = markerNumber(match)
-            when {
-                // Not a number this platform can carry: prose, left verbatim
-                // — the same call the other two walkers make.
-                raw == null -> next.append(match.value)
-                raw == removedIndex.toLong() -> dropped = true
-                raw > removedIndex -> next.append(imageMarker(raw - 1))
-                else -> next.append(match.value)
-            }
-        }
-        next.append(line, cursor, line.length)
-        if (!dropped) {
-            next.toString()
-        } else {
-            val tidied = SPACE_RUN.replace(next, " ").trimEnd(' ', '\t')
-            if (line.startsWith(imageMarker(removedIndex))) tidied.trimStart(' ', '\t') else tidied
-        }
-    }
+// Inserting and renumbering markers: [ComposerAttachments.insert] /
+// [ComposerAttachments.renumber] (#EXP-1841, ONE implementation).

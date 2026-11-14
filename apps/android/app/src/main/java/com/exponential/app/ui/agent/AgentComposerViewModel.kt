@@ -36,7 +36,8 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssueGraph
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.LaunchDeviceRules
-import com.exponential.app.domain.steerAttachmentRefusal
+import com.exponential.app.domain.PendingStage
+import com.exponential.app.domain.stagePendingAttachments
 import com.exponential.app.domain.uploadedImageIds
 import com.exponential.app.domain.uploadedSteerFiles
 import com.exponential.app.domain.PendingAttachment
@@ -756,38 +757,19 @@ class AgentComposerViewModel @Inject constructor(
     }
 
     /**
-     * Queue a picked image or file (EXP-511 semantics, wave D: any type): an
-     * image drops its `[Image #k]` marker at the caret (the composer counts
-     * images only); a file is a tile with no marker. Images ≤ 10 MB × 4,
-     * files ≤ 50 MB × 4; a refusal reports back through [imageError].
+     * #EXP-1841 (composer-attachments.json): stage one pick (picker, share;
+     * several files at once) onto the pending list. Each TAKEN image drops its
+     * `[Image #N]` at [caret] (the field's real selection); a file is a tile
+     * with no marker. Images ≤ 10 MB × 4, files ≤ 50 MB × 4; the stage's
+     * toasts report back through [imageError]. Returns the rewritten draft
+     * for the field (the host writes it back).
      */
-    fun addImage(uri: Uri, bytes: ByteArray, filename: String, contentType: String) {
-        _imageError.value = null
-        val canonical = canonicalContentType(contentType)
-        val isImage = isInlineImage(canonical)
-        val current = _images.value
-        val refusal = steerAttachmentRefusal(
-            imageCount = current.count { it.isImage },
-            fileCount = current.count { !it.isImage },
-            isImage = isImage,
-            sizeBytes = bytes.size.toLong(),
-        )
-        if (refusal != null) {
-            _imageError.value = refusal
-            return
-        }
-        _images.value = current + PendingAttachment(
-            uri = uri,
-            bytes = bytes,
-            filename = filename,
-            contentType = canonical,
-            isImage = isImage,
-        )
-    }
-
-    /** A pick refused before it could be read (wave D: over the size cap). */
-    fun refuseAttachment(message: String) {
-        _imageError.value = message
+    fun addPicks(picks: List<ComposerPick>, text: String, caret: Int): PendingStage {
+        val batch = picks.toPickBatch()
+        val staged = stagePendingAttachments(_images.value, batch.attachments, batch.refusals, text, caret)
+        _images.value = staged.attachments
+        _imageError.value = staged.error
+        return staged
     }
 
     fun removeImage(index: Int) {

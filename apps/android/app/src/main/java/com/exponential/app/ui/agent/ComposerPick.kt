@@ -33,3 +33,27 @@ suspend fun readComposerPick(context: Context, uri: Uri): ComposerPick = withCon
         mime = MarkdownMediaUtils.guessMimeType(context, uri, fallback = "application/octet-stream"),
     )
 }
+
+/**
+ * #EXP-1841: one batch of picks (a picker result, a share) as the composer's
+ * pending entries, in pick order, and the messages of those refused before
+ * they were read ([stagePendingAttachments] stages both at once).
+ */
+data class ComposerPickBatch(
+    val attachments: List<com.exponential.app.domain.PendingAttachment>,
+    val refusals: List<String>,
+)
+
+fun List<ComposerPick>.toPickBatch(): ComposerPickBatch = ComposerPickBatch(
+    attachments = filterIsInstance<ComposerPick.Read>().map { pick ->
+        val contentType = com.exponential.app.domain.canonicalContentType(pick.mime)
+        com.exponential.app.domain.PendingAttachment(
+            uri = pick.uri,
+            bytes = pick.bytes,
+            filename = pick.filename,
+            contentType = contentType,
+            isImage = com.exponential.app.domain.isInlineImage(contentType),
+        )
+    },
+    refusals = filterIsInstance<ComposerPick.Refused>().map { it.message },
+)

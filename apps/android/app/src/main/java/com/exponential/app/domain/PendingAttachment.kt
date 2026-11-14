@@ -70,12 +70,54 @@ fun List<PendingAttachment>.uploadedImageIds(): List<String> =
 fun List<PendingAttachment>.uploadedSteerFiles(): List<SteerFile> =
     filter { !it.isImage }.mapNotNull { a -> a.uploadedId?.let { SteerFile(it, a.uploadedName ?: a.filename) } }
 
-/** Wave D: the 1-based `[Image #k]` number of the image at [index], or null
- *  when the entry there is a file (files carry no marker). */
-fun List<PendingAttachment>.imageNumberAt(index: Int): Int? = steerImageNumberAt(map { it.isImage }, index)
+/** #EXP-1841: the strip's kinds, in order (the fixture's `strip`). */
+fun List<PendingAttachment>.attachmentKinds(): List<ComposerAttachments.Kind> =
+    map { if (it.isImage) ComposerAttachments.Kind.Image else ComposerAttachments.Kind.File }
 
-/** [imageNumberAt] over the pending set's kinds (true = image), in pick order. */
-fun steerImageNumberAt(isImage: List<Boolean>, index: Int): Int? {
-    if (index !in isImage.indices || !isImage[index]) return null
-    return isImage.take(index + 1).count { it }
+/** #EXP-1841: a composer after a pick ([stagePendingAttachments]). */
+data class PendingStage(
+    val attachments: List<PendingAttachment>,
+    val text: String,
+    val caret: Int,
+    /** The error toast (the stage's toasts in order, one per line), or null. */
+    val error: String?,
+)
+
+/**
+ * #EXP-1841 (composer-attachments.json): THE attach of every composer. [picks]
+ * = the files read, in pick order; [refusals] = the picks refused before their
+ * bytes were read (the rejection copy counts as a `rejected` pick, any other
+ * message, like an unreadable file, is appended to the toast). Each TAKEN
+ * image drops its `[Image #N]` at [caret] ([ComposerAttachments.stage]).
+ */
+fun stagePendingAttachments(
+    current: List<PendingAttachment>,
+    picks: List<PendingAttachment>,
+    refusals: List<String>,
+    text: String,
+    caret: Int,
+): PendingStage {
+    val kinds = picks.map { ComposerAttachments.classify(it.isImage, it.bytes.size.toLong()) } +
+        refusals.filter { it == ComposerAttachments.REJECTED_TOAST }.map { ComposerAttachments.PickKind.Rejected }
+    val staged = ComposerAttachments.stage(current.attachmentKinds(), kinds, text, caret)
+    val taken = picks.filterIndexed { index, _ -> staged.taken[index] }
+    val toasts = (staged.toasts + refusals.filter { it != ComposerAttachments.REJECTED_TOAST }).distinct()
+    return PendingStage(
+        attachments = current + taken,
+        text = staged.text,
+        caret = staged.caret,
+        error = toasts.joinToString("\n").ifEmpty { null },
+    )
+}
+
+/** #EXP-1841: the strip's X ([ComposerAttachments.drop]): the list without
+ *  the entry at [index] and the draft without its image's markers. */
+fun dropPendingAttachment(
+    current: List<PendingAttachment>,
+    index: Int,
+    text: String,
+): Pair<List<PendingAttachment>, String> {
+    if (index !in current.indices) return current to text
+    val dropped = ComposerAttachments.drop(current.attachmentKinds(), index, text)
+    return current.filterIndexed { i, _ -> i != index } to dropped.text
 }

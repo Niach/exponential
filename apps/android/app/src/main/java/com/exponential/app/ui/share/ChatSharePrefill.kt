@@ -58,16 +58,18 @@ suspend fun deliverChatShare(
     share: DeepLinkBus.Target.ShareContent,
     currentDraft: String,
     onText: (String) -> Unit,
-    onPick: (ComposerPick) -> Unit,
+    onPick: (List<ComposerPick>) -> Unit,
 ) {
     val text = chatShareText(share)
     if (text.isNotEmpty()) {
         onText(listOf(currentDraft.trimEnd(), text).filter { it.isNotEmpty() }.joinToString("\n\n"))
     }
-    for (uri in share.imageUris) onPick(readComposerPick(context, uri))
+    // #EXP-1841: the share is ONE pick (images, then files), staged at once.
+    val picks = mutableListOf<ComposerPick>()
+    for (uri in share.imageUris) picks.add(readComposerPick(context, uri))
     for (file in share.files) {
         val bytes = withContext(Dispatchers.IO) { MarkdownMediaUtils.readBytes(context, file.uri) }
-        onPick(
+        picks.add(
             if (bytes == null) {
                 ComposerPick.Refused("That file could not be read")
             } else {
@@ -75,5 +77,6 @@ suspend fun deliverChatShare(
             },
         )
     }
-    if (share.oversizeFiles) onPick(ComposerPick.Refused(STEER_ATTACHMENT_REJECTED))
+    if (share.oversizeFiles) picks.add(ComposerPick.Refused(STEER_ATTACHMENT_REJECTED))
+    if (picks.isNotEmpty()) onPick(picks)
 }
