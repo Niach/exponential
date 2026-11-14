@@ -193,7 +193,9 @@ On 2026-11-12/13 GlitchTip's android project filled with empty 504s
   Console app-access account, sometimes a clock weeks ahead. Each burst
   followed an `android-v*` tag (Play upload) by 30–50 min.
 
-Since 2026-11-13 the Android app reports from a Test Lab device
-(`Settings.System` `firebase.test.lab = true`) as environment `prelaunch` and
-skips its HTTP-error events; filter GlitchTip by environment `prod` for real
-users.
+Since 2026-11-13 the Android app reports from a Test Lab device as
+environment `prelaunch` and skips its HTTP-error events; filter GlitchTip by
+environment `prod` for real users. A device counts as Test Lab when
+`Settings.System` `firebase.test.lab = true`, its Build.MODEL is
+`OnePlus8Pro`, or its screen is 288×448 px: the robots don't all set the
+setting (#ERR-22, 0.14.137+220 reported as `prod`).
