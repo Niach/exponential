@@ -45,7 +45,6 @@ import com.exponential.app.domain.SessionScreen
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.uploadedImageIds
 import com.exponential.app.domain.uploadedSteerFiles
-import com.exponential.app.ui.agent.toPickBatch
 import com.exponential.app.ui.components.ComposerSubmitButton
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.FailedAction
@@ -301,20 +300,28 @@ class AgentConversationViewModel @Inject constructor(
     private val _imageError = MutableStateFlow<String?>(null)
     val imageError: StateFlow<String?> = _imageError
 
-    /** #EXP-1841: THE attach (composer-attachments.json): one pick staged
-     *  at the field's caret, its toasts into [imageError]. */
-    fun addPicks(
-        picks: List<com.exponential.app.ui.agent.ComposerPick>,
-        text: String,
-        caret: Int,
-    ): com.exponential.app.domain.PendingStage {
-        val batch = picks.toPickBatch()
-        val staged = com.exponential.app.domain.stagePendingAttachments(
-            _images.value, batch.attachments, batch.refusals, text, caret,
+    fun addImage(uri: android.net.Uri, bytes: ByteArray, filename: String, contentType: String) {
+        _imageError.value = null
+        val canonical = com.exponential.app.domain.canonicalContentType(contentType)
+        val isImage = com.exponential.app.domain.isInlineImage(canonical)
+        val current = _images.value
+        val refusal = com.exponential.app.domain.steerAttachmentRefusal(
+            imageCount = current.count { it.isImage },
+            fileCount = current.count { !it.isImage },
+            isImage = isImage,
+            sizeBytes = bytes.size.toLong(),
         )
-        _images.value = staged.attachments
-        _imageError.value = staged.error
-        return staged
+        if (refusal != null) {
+            _imageError.value = refusal
+            return
+        }
+        _images.value = current + com.exponential.app.domain.PendingAttachment(
+            uri = uri, bytes = bytes, filename = filename, contentType = canonical, isImage = isImage,
+        )
+    }
+
+    fun refuseAttachment(message: String) {
+        _imageError.value = message
     }
 
     fun removeImage(index: Int) {
@@ -438,11 +445,10 @@ fun AgentConversationScreen(
         val toaster = com.exponential.app.ui.components.LocalToaster.current
         LaunchedEffect(message) { toaster.error(message) }
     }
-    // #EXP-1841: THE attach (the launch composer's): markers at the caret.
-    val attach = com.exponential.app.ui.agent.rememberComposerAttachPicker { picks ->
-        com.exponential.app.ui.agent.stageComposerPicks(picks, field, viewModel::addPicks) {
-            field = it
-            viewModel.setDraft(it.text)
+    val attach = com.exponential.app.ui.agent.rememberComposerAttachPicker { picked ->
+        when (picked) {
+            is com.exponential.app.ui.agent.ComposerPick.Read -> viewModel.addImage(picked.uri, picked.bytes, picked.filename, picked.mime)
+            is com.exponential.app.ui.agent.ComposerPick.Refused -> viewModel.refuseAttachment(picked.message)
         }
     }
 

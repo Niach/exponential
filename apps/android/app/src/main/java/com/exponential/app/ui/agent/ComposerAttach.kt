@@ -51,17 +51,16 @@ class ComposerAttachPicker(
 }
 
 @Composable
-internal fun rememberComposerAttachPicker(onPick: (List<ComposerPick>) -> Unit): ComposerAttachPicker {
+internal fun rememberComposerAttachPicker(onPick: (ComposerPick) -> Unit): ComposerAttachPicker {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val latestOnPick by rememberUpdatedState(onPick)
     // ContentResolver reads can stream from a cloud-backed provider:
-    // [readComposerPick] stays off the main thread. #EXP-1841: the whole pick
-    // reaches the host as ONE batch, in pick order, so its stage
-    // ([stagePendingAttachments]) numbers the images and owes its toasts once.
+    // [readComposerPick] stays off the main thread. One pick at a time through
+    // the VM, so its caps (4 images, 4 files) + toasts apply.
     fun read(uris: List<Uri>) {
         if (uris.isEmpty()) return
-        scope.launch { latestOnPick(uris.map { readComposerPick(context, it) }) }
+        scope.launch { for (uri in uris) latestOnPick(readComposerPick(context, uri)) }
     }
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { read(it) }
     val photoPicker = rememberLauncherForActivityResult(
@@ -138,46 +137,55 @@ private const val CAMERA_DIR = "composer-camera"
 private const val CAMERA_STALE_MS = 24L * 60 * 60 * 1000
 
 /**
- * #EXP-1841 (composer-attachments.json): THE attach of every composer host (a
- * new chat's, a session's, an agent chat's, the Assistant's, an app editor's).
- * [stage] puts the pick on the host's pending list against the field's REAL
- * selection and returns the draft with one `[Image #N]` per taken image; the
- * field takes it (caret behind the last marker) through [onRewrite], which
- * never arms the autocomplete. Staging here, at the host, rather than in the
- * folding card means a pick that lands while the card is folded (the picker
- * activity, a share) still drops its markers.
+ * #EXP-1841 (composer-attachments.json): THE `[Image #N]` placeholders of
+ * every composer (a new chat's, a session's, an agent chat's, the
+ * Assistant's, an app editor's). Each newly picked IMAGE drops its own marker
+ * at the caret (`insert`), numbered on from the images already pending, so
+ * the writer can say "crop [Image #2]"; a file tile carries none.
  */
-internal fun stageComposerPicks(
-    picks: List<ComposerPick>,
-    field: androidx.compose.ui.text.input.TextFieldValue,
-    stage: (picks: List<ComposerPick>, text: String, caret: Int) -> com.exponential.app.domain.PendingStage,
-    onRewrite: (androidx.compose.ui.text.input.TextFieldValue) -> Unit,
+@Composable
+internal fun ComposerImageMarkers(
+    pending: List<com.exponential.app.domain.PendingAttachment>,
+    value: androidx.compose.ui.text.input.TextFieldValue,
+    onValueRewrite: (androidx.compose.ui.text.input.TextFieldValue) -> Unit,
 ) {
-    if (picks.isEmpty()) return
-    val staged = stage(picks, field.text, field.selection.end)
-    if (staged.text != field.text) {
-        onRewrite(androidx.compose.ui.text.input.TextFieldValue(staged.text, androidx.compose.ui.text.TextRange(staged.caret)))
+    val imageCount = pending.count { it.isImage }
+    var markedImages by remember { androidx.compose.runtime.mutableIntStateOf(imageCount) }
+    androidx.compose.runtime.LaunchedEffect(imageCount) {
+        if (imageCount > markedImages) {
+            var next = value
+            for (k in (markedImages + 1)..imageCount) {
+                val placed = com.exponential.app.domain.ComposerAttachments.insert(next.text, next.selection.end, k)
+                next = androidx.compose.ui.text.input.TextFieldValue(placed.text, androidx.compose.ui.text.TextRange(placed.caret))
+            }
+            onValueRewrite(next)
+        }
+        markedImages = imageCount
     }
 }
 
 /**
- * #EXP-1841: the strip's X in every composer ([dropPendingAttachment]): an
- * image's markers leave the draft and every higher one slides down BEFORE the
- * list shrinks; a file's X leaves the text alone.
+ * #EXP-1841: the strip's X in every composer (composer-attachments.json
+ * `drop`): an image's markers leave the draft and every higher one slides
+ * down BEFORE the list shrinks; a file's X leaves the text alone.
  */
 internal fun removeComposerAttachment(
     pending: List<com.exponential.app.domain.PendingAttachment>,
     index: Int,
-    field: androidx.compose.ui.text.input.TextFieldValue,
-    onRewrite: (androidx.compose.ui.text.input.TextFieldValue) -> Unit,
+    value: androidx.compose.ui.text.input.TextFieldValue,
+    onValueRewrite: (androidx.compose.ui.text.input.TextFieldValue) -> Unit,
     onRemove: (Int) -> Unit,
 ) {
-    val (_, text) = com.exponential.app.domain.dropPendingAttachment(pending, index, field.text)
-    if (text != field.text) {
-        onRewrite(
+    val kinds = pending.map {
+        if (it.isImage) com.exponential.app.domain.ComposerAttachments.Kind.Image
+        else com.exponential.app.domain.ComposerAttachments.Kind.File
+    }
+    val text = com.exponential.app.domain.ComposerAttachments.drop(kinds, index, value.text).text
+    if (text != value.text) {
+        onValueRewrite(
             androidx.compose.ui.text.input.TextFieldValue(
                 text,
-                androidx.compose.ui.text.TextRange(field.selection.end.coerceAtMost(text.length)),
+                androidx.compose.ui.text.TextRange(value.selection.end.coerceAtMost(text.length)),
             ),
         )
     }

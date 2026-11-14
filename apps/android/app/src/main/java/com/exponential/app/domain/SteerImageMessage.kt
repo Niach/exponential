@@ -6,11 +6,11 @@ package com.exponential.app.domain
 // local file path before the agent sees it and reverse-rewrites the echoed
 // transcript back, so drift in this format breaks echo dedupe.
 
-const val MAX_STEER_IMAGES = ComposerAttachments.MAX_IMAGES
+const val MAX_STEER_IMAGES = 4
 
 /** Wave D ×4: non-image files ride the same message, capped separately
  *  (4 × [MAX_FILE_UPLOAD_BYTES]); images keep their own four. */
-const val MAX_STEER_FILES = ComposerAttachments.MAX_FILES
+const val MAX_STEER_FILES = 4
 
 /**
  * Wave D ×4: one non-image attachment on the wire — the upload's id and the
@@ -20,13 +20,38 @@ const val MAX_STEER_FILES = ComposerAttachments.MAX_FILES
 data class SteerFile(val id: String, val name: String)
 
 /** The ONE rejection copy ×4 for a pick the steer/start composers refuse. */
-const val STEER_ATTACHMENT_REJECTED = ComposerAttachments.REJECTED_TOAST
+const val STEER_ATTACHMENT_REJECTED = "Images up to 10 MB and files up to 50 MB can be attached"
 
 /** The file cap toast ×4. */
-const val STEER_FILES_CAP = ComposerAttachments.FILE_CAP_TOAST
+const val STEER_FILES_CAP = "Up to 4 files per message"
 
 /** The image cap copy (unchanged). */
-const val STEER_IMAGES_CAP = ComposerAttachments.IMAGE_CAP_TOAST
+const val STEER_IMAGES_CAP = "Up to $MAX_STEER_IMAGES images per message"
+
+/**
+ * Wave D ×4: why a pick cannot join the pending set, or null when it can.
+ * An inline image counts against [MAX_STEER_IMAGES] × [MAX_IMAGE_UPLOAD_BYTES];
+ * anything else is a file against [MAX_STEER_FILES] × [MAX_FILE_UPLOAD_BYTES].
+ * Size refusals share ONE copy ([STEER_ATTACHMENT_REJECTED]).
+ */
+fun steerAttachmentRefusal(
+    imageCount: Int,
+    fileCount: Int,
+    isImage: Boolean,
+    sizeBytes: Long,
+): String? = if (isImage) {
+    when {
+        sizeBytes > MAX_IMAGE_UPLOAD_BYTES -> STEER_ATTACHMENT_REJECTED
+        imageCount >= MAX_STEER_IMAGES -> STEER_IMAGES_CAP
+        else -> null
+    }
+} else {
+    when {
+        sizeBytes > MAX_FILE_UPLOAD_BYTES -> STEER_ATTACHMENT_REJECTED
+        fileCount >= MAX_STEER_FILES -> STEER_FILES_CAP
+        else -> null
+    }
+}
 
 // EXP-698: a POSITIONAL reference to one of the message's images. The composer
 // drops `[Image #k]` at the caret when the k-th image is attached, so the agent
@@ -188,5 +213,12 @@ fun steerMessageSegments(text: String): List<SteerMessageSegment> {
     return result
 }
 
-// Inserting and renumbering markers: [ComposerAttachments.insert] /
-// [ComposerAttachments.renumber] (#EXP-1841, ONE implementation).
+/** Drops `[Image #index]` at [caret]: [ComposerAttachments.insert]
+ *  (#EXP-1841, ONE implementation). Returns the draft and the caret behind. */
+fun insertImageMarker(text: String, caret: Int, index: Int): Pair<String, Int> =
+    ComposerAttachments.insert(text, caret, index).let { it.text to it.caret }
+
+/** Removing the [removedIndex]-th image renumbers the draft:
+ *  [ComposerAttachments.renumber] (#EXP-1841). */
+fun renumberImageMarkers(text: String, removedIndex: Int): String =
+    ComposerAttachments.renumber(text, removedIndex)
