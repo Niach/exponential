@@ -1,5 +1,6 @@
+import { useApps } from "@/hooks/use-apps"
 import { useEffect, useState } from "react"
-import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
+import { createFileRoute, Navigate, redirect, useNavigate } from "@tanstack/react-router"
 import {
   BoardGlyph,
   conceptIcon,
@@ -99,12 +100,20 @@ function AgentChannelPage() {
   const voiceCall = useVoiceCall(agentId)
   usePageTitle(agent?.name ? pageTitle(agent.name, CHATS_LIST_COPY.agents) : undefined)
 
+  const { apps: teamApps } = useApps(team?.id)
+  const ownApp = teamApps.find((app) => app.row?.agentId === agentId) ?? null
   const [graceOver, setGraceOver] = useState(false)
   useEffect(() => {
     setGraceOver(false)
     const timer = setTimeout(() => setGraceOver(true), SYNC_GRACE_MS)
     return () => clearTimeout(timer)
   }, [agentId])
+
+  // #EXP-1849: an app's agent has no page of its own: its chat with you is
+  // the app's (the editor).
+  if (ownApp) {
+    return <Navigate to="/t/$teamSlug/app-editor/$appSlug" params={{ teamSlug, appSlug: ownApp.slug }} replace />
+  }
 
   if (!team || !agent) {
     if (team && isReady && graceOver) {

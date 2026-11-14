@@ -260,9 +260,12 @@ export interface EditorDeviceChoice {
 export function editorDevice(
   root: { status: string; deviceId: string | null } | null,
   candidates: readonly { deviceId: string; isDefault?: boolean }[],
-  remembered: string | null
+  remembered: string | null,
+  /** #EXP-1849: the app agent's slot (a team-shared device), null = empty. */
+  slot: string | null = null
 ): EditorDeviceChoice {
   if (root && root.status !== `ended`) return { deviceId: root.deviceId, move: false }
+  if (slot) return { deviceId: slot, move: root !== null && slot !== root.deviceId }
   const known = (id: string | null | undefined): id is string => !!id && candidates.some((row) => row.deviceId === id)
   const deviceId = known(remembered)
     ? remembered
@@ -483,3 +486,6 @@ export function screenParamsFromQuery(query: Record<string, unknown>): Record<st
   }
   return out
 }
+
+/** #EXP-1849 (`agentSlot`): the app Settings' Agent group. */
+export const APPS_AGENT_SLOT = fixture.agentSlot

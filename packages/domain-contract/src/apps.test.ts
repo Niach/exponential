@@ -29,7 +29,7 @@ describe(`apps (VAPP-110)`, () => {
     expect(c.rows.map(([n]) => [n, versionRow(c.app, n as number)])).toEqual(c.rows)
   })
   test.each(fixture.editorDeviceCases)(`editorDevice (#FEED-204) $name`, (c) => {
-    expect(editorDevice(c.root, c.candidates, c.remembered)).toEqual(c.expected)
+    expect(editorDevice(c.root, c.candidates, c.remembered, (c as { slot?: string }).slot ?? null)).toEqual(c.expected)
   })
   test.each(fixture.editorHeaderCases)(`editorHeader (#EXP-1729) $name`, (c) => {
     expect(editorHeader(c.root, c.device)).toEqual(c.expected)

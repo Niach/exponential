@@ -13,6 +13,9 @@ import { appCollection, appRecordCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import { grantableTools } from "@/lib/app-grants"
 import { AppMcpSections } from "@/components/apps/app-mcp-sections"
+import { AgentSettingsPage, type SyncedAgent } from "@/components/team/agents-section"
+import { useAgentRow } from "@/hooks/use-agent-row"
+import { useTeamBySlug } from "@/hooks/use-team-data"
 
 // VAPP-110 → VAPP-177 (fixtures/apps.json THE SETTINGS TAB): the editor's
 // Settings tab (web ≥ md) and the phone menu's Settings sheet: the identity
@@ -43,6 +46,8 @@ export function AppSettingsTab({
   canGrant?: boolean
 }) {
   const readOnly = !canManage
+  const team = useTeamBySlug(teamSlug)
+  const { agent: slotAgent } = useAgentRow(app.row?.agentId ?? null)
   const [name, setName] = useState(app.name ?? ``)
   const [icon, setIcon] = useState<BoardIcon>((app.icon as BoardIcon | null) ?? DEFAULT_ICON)
   const [color, setColor] = useState(app.color ?? DEFAULT_COLOR)
@@ -164,6 +169,11 @@ export function AppSettingsTab({
           data-testid="app-settings-description"
         />
       </div>
+
+      {/* #EXP-1849 (apps.json `agentSlot`): the app agent's slot. */}
+      {team && slotAgent ? (
+        <AgentSettingsPage team={team} agent={slotAgent as SyncedAgent} isOwner={canManage} appSlot />
+      ) : null}
 
       <p className="px-1 text-sm text-muted-foreground" data-testid="app-settings-records">
         {recordsCountLabel(records?.length ?? 0, recordsMax)}

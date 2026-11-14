@@ -1,6 +1,7 @@
 import { useMemo } from "react"
 import {
   agentChatRows,
+  sidebarAgents,
   appChatRows,
   chatList,
   type AgentChatRow,
@@ -90,7 +91,8 @@ export function useChatList(
   const agentRows = useMemo(
     () =>
       agentChatRows({
-        agents,
+        // #EXP-1849: an app's agent chat IS the app row (chats.json).
+        agents: sidebarAgents(agents, apps.map((app) => ({ agentId: app.row?.agentId ?? null }))),
         sessions: tree,
         messages,
         reads,
@@ -99,7 +101,7 @@ export function useChatList(
         now: nowIso,
         utcOffsetMinutes: offset,
       }),
-    [agents, tree, messages, reads, me, view, nowIso, offset]
+    [agents, apps, tree, messages, reads, me, view, nowIso, offset]
   )
 
   const appRows = useMemo(
