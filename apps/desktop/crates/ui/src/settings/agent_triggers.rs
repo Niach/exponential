@@ -100,6 +100,7 @@ pub(crate) fn project(state: &AgentTriggers, agent_id: &str, editor: bool, cx: &
 pub(crate) fn project_list(triggers: &[Value], editor: bool, writing: bool) -> Value {
     let rows: Vec<Value> = listed_triggers(triggers)
         .into_iter()
+        .filter(|(_, trigger)| trigger_editor::is_readable(trigger))
         .filter_map(|(_, trigger)| {
             let id = trigger_editor::trigger_id(trigger)?.to_string();
             let sentence = trigger_summary(trigger);

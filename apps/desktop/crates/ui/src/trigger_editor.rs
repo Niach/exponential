@@ -88,7 +88,7 @@ pub(crate) fn trigger_enabled(trigger: &Value) -> bool {
 /// id and a when-part it understands (NEW-2: a schedule's `cron`, an
 /// event's `name`). Everything else is dropped by the read, so it never
 /// rides a write.
-fn is_readable(trigger: &Value) -> bool {
+pub(crate) fn is_readable(trigger: &Value) -> bool {
     let text = |key: &str| trigger.get(key).and_then(Value::as_str).is_some_and(|value| !value.trim().is_empty());
     trigger_id(trigger).is_some()
         && match trigger.get("kind").and_then(Value::as_str) {
@@ -96,6 +96,15 @@ fn is_readable(trigger: &Value) -> bool {
             Some("event") => text("name"),
             _ => false,
         }
+}
+
+/// #EXP-1848: a stored element of a KIND this build does not know (an app
+/// agent's `record` / `webhook` trigger) is kept as stored and rides every
+/// whole-array write back unchanged (it is never listed); a schedule or
+/// event this build cannot read (a pre-NEW-2 shape) is still dropped.
+fn is_kept(trigger: &Value) -> bool {
+    is_readable(trigger)
+        || (trigger_id(trigger).is_some() && !matches!(trigger.get("kind").and_then(Value::as_str), Some("schedule" | "event") | None))
 }
 
 /// The array an ADD sends: every readable existing trigger, then the new one.
@@ -212,7 +221,7 @@ pub(crate) fn agent_triggers(agent_id: &str, cx: &App) -> Vec<Value> {
     let Some(row) = store.collections().agents.read(cx).get(agent_id).cloned() else {
         return Vec::new();
     };
-    let synced: Vec<Value> = row.trigger_list().into_iter().filter(is_readable).collect();
+    let synced: Vec<Value> = row.trigger_list().into_iter().filter(is_kept).collect();
     let mut written = WRITTEN_TRIGGERS.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let pending = written.as_ref().and_then(|written| written.get(agent_id));
     match write_base(&synced, pending, std::time::Instant::now()) {
@@ -525,6 +534,11 @@ mod tests {
         assert!(!is_readable(&json!({"kind": "schedule", "cron": "0 9 * * *"})));
         assert!(!is_readable(&json!({"id": "t-4", "kind": "schedule", "interval": "daily", "minuteOfDay": 1})));
         assert!(!is_readable(&json!({"id": "t-5", "kind": "event", "event": "created"})));
+        // #EXP-1848: an app agent's record trigger is kept (never listed), a
+        // pre-NEW-2 schedule shape is not.
+        assert!(is_kept(&json!({"id": "t-6", "kind": "record", "record": "orders", "op": "insert"})));
+        assert!(!is_kept(&json!({"id": "t-4", "kind": "schedule", "interval": "daily", "minuteOfDay": 1})));
+        assert!(!is_kept(&json!({"kind": "record"})));
     }
 
     /// EXP-1294: every trigger write is the WHOLE `AgentTrigger[]` — the
