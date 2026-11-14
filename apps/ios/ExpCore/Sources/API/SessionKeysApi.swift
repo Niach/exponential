@@ -87,8 +87,32 @@ public struct TreePublicKey: Decodable, Equatable, Sendable {
     }
 }
 
+/// #FEED-250 (sealed-content.json `staleTree`): the server's word on the
+/// caller's conversation with an agent / app (`sessions.sendTarget`): the
+/// synced store is a cache. `rootId` nil = none yet (the send keys it
+/// inline); `epoch` / `publicKey` nil = a keyless root.
+public struct ServerSendTarget: Decodable, Equatable, Sendable {
+    public let rootId: String?
+    public let epoch: UInt32?
+    public let publicKey: String?
+
+    public init(rootId: String?, epoch: UInt32?, publicKey: String?) {
+        self.rootId = rootId
+        self.epoch = epoch
+        self.publicKey = publicKey
+    }
+
+    /// The root's current key, when the server names one.
+    public var key: TreeSealKey? {
+        guard let epoch, epoch > 0, let publicKey, !publicKey.isEmpty else { return nil }
+        return TreeSealKey(publicKey: publicKey, epoch: epoch)
+    }
+}
+
 /// The key calls a holder makes (a fake in the tests).
 public protocol SessionKeysRegistry: Sendable {
+    /// `sessions.sendTarget {agentId | appId}` (#FEED-250).
+    func sendTarget(accountId: String, agentId: String?, appId: String?) async throws -> ServerSendTarget
     func create(accountId: String, input: CreateTreeKeyInput) async throws
     func mine(accountId: String, installId: String, rootIds: [String]?) async throws -> [HeldTreeKey]
     func pending(accountId: String, installId: String) async throws -> [PendingTreeKey]
@@ -106,12 +130,20 @@ private struct WrapInput: Encodable {
     let wraps: [PendingTreeKeyWrap]
 }
 private struct PublicKeysInput: Encodable { let rootIds: [String] }
+private struct SendTargetInput: Encodable {
+    let agentId: String?
+    let appId: String?
+}
 
 public final class SessionKeysApi: SessionKeysRegistry {
     private let trpc: TrpcClient
 
     public init(trpc: TrpcClient) {
         self.trpc = trpc
+    }
+
+    public func sendTarget(accountId: String, agentId: String?, appId: String?) async throws -> ServerSendTarget {
+        try await trpc.query(accountId: accountId, path: "sessions.sendTarget", input: SendTargetInput(agentId: agentId, appId: appId))
     }
 
     public func create(accountId: String, input: CreateTreeKeyInput) async throws {

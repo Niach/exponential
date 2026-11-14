@@ -90,6 +90,9 @@ struct TrpcErrorBody {
     var presentableMessage: String {
         if isPlanLimit { return planLimitNeutralMessage }
         if isTeamDeleteSubscriptionGate { return teamDeleteSubscriptionMessage }
+        // #FEED-250: an older server's `The tree is at epoch N` never reaches
+        // a surface: the refusal's copy stands in (sealed-content.json `staleTree`).
+        if isStaleTreeRefusal(message) { return staleTreeRefusal }
         return message
     }
 }

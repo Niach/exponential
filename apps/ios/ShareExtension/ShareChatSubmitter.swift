@@ -108,21 +108,27 @@ final class ShareChatSubmitter {
             root = nil
         }
         let rowIds = rows
-        var prepared = await deps.sealing.prepare(
-            accountId: accountId,
-            input,
-            root: root,
-            mentions: nil,
-            deviceIds: { id in
-                guard let id, !id.isEmpty else { return [] }
-                return rowIds + [id]
-            }
-        )
-        prepared.input.clientMessageId = messageKey(for: text ?? "")
-        let result: SessionsSendResult = try await deps.trpc.mutation(
-            accountId: accountId, path: "sessions.send", input: prepared.input
-        )
-        await deps.sealing.completed(prepared, result: result)
+        let clientMessageId = messageKey(for: text ?? "")
+        // #FEED-250: a tree that moved on behind the mirror is re-resolved
+        // and re-sealed once (sealed-content.json `staleTree`).
+        try await StaleTreeResend.send { fresh in
+            var prepared = await deps.sealing.prepare(
+                accountId: accountId,
+                input,
+                root: root,
+                mentions: nil,
+                deviceIds: { id in
+                    guard let id, !id.isEmpty else { return [] }
+                    return rowIds + [id]
+                },
+                fresh: fresh
+            )
+            prepared.input.clientMessageId = clientMessageId
+            let result: SessionsSendResult = try await deps.trpc.mutation(
+                accountId: accountId, path: "sessions.send", input: prepared.input
+            )
+            await deps.sealing.completed(prepared, result: result)
+        }
     }
 
     /// The same message keeps its key across retries; an edited one is new.

@@ -209,17 +209,21 @@ public actor TreeKeyHolder {
     /// install holds it, else the server's (fetching our wrap), else a new
     /// one (`sessionKeys.create`, epoch 1). nil = no key can be had (no eNet,
     /// not registered): the caller sends plaintext.
+    /// `lookup` false = the caller already knows the root is keyless (#FEED-250,
+    /// sealed-content.json `staleTree`): create first, the server's key only
+    /// when the create is refused.
     public func sealKey(
         accountId: String,
         rootId: String,
         known: TreeSealKey?,
         teamId: String?,
         deviceIds: [String],
-        shared: Bool
+        shared: Bool,
+        lookup: Bool = true
     ) async -> TreeSealKey? {
         guard crypto.isAvailable, let install = await installId(accountId) else { return nil }
         if let known { return known }
-        if let remote = try? await keys.publicKeys(accountId: accountId, rootIds: [rootId]).first {
+        if lookup, let remote = try? await keys.publicKeys(accountId: accountId, rootIds: [rootId]).first {
             return TreeSealKey(publicKey: remote.publicKey, epoch: remote.epoch)
         }
         let key = crypto.generateTreeKey()
@@ -237,6 +241,23 @@ public actor TreeKeyHolder {
             }
             return nil
         }
+    }
+
+    /// #FEED-250: the server's conversation root with an agent / app (the
+    /// synced store is a cache); nil = it could not be asked.
+    public func sendTarget(accountId: String, agentId: String?, appId: String?) async -> ServerSendTarget? {
+        do {
+            return try await keys.sendTarget(accountId: accountId, agentId: agentId, appId: appId)
+        } catch {
+            logger.error("sessions.sendTarget failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// The server's current key of `rootId` (`sessionKeys.publicKeys`), if keyed.
+    public func serverKey(accountId: String, rootId: String) async -> TreeSealKey? {
+        guard let remote = try? await keys.publicKeys(accountId: accountId, rootIds: [rootId]).first else { return nil }
+        return TreeSealKey(publicKey: remote.publicKey, epoch: remote.epoch)
     }
 
     private func createKey(accountId: String, rootId: String, installId: String, key: GeneratedTreeKey, wraps: [TreeKeyWrap]) async throws {

@@ -143,46 +143,85 @@ public struct SendSealing: Sendable {
     }
 
     /// Seals the text of a send (and keys the root when it has no key).
-    /// `root` = the root it lands in, nil = one that does not exist yet;
-    /// `deviceIds` = the ids an install's `deviceId` may name for a steer
-    /// device id.
+    /// `root` = the root it lands in as the store knows it, nil = one the
+    /// store does not have; `deviceIds` = the ids an install's `deviceId` may
+    /// name for a steer device id.
+    /// #FEED-250 (sealed-content.json `staleTree`): the store is a cache. A
+    /// conversation with an agent / app it lacks is asked of the server
+    /// (`sessions.sendTarget`) before a key rides inline; `fresh` = the server
+    /// refused this send's key write once: the tree is resolved from the
+    /// server alone.
     func prepare(
         accountId: String,
         _ input: SessionsSendInput,
         root: SealRoot?,
         mentions: [String]?,
-        deviceIds: @Sendable (String?) -> [String]
+        deviceIds: @Sendable (String?) -> [String],
+        fresh: Bool = false
     ) async -> PreparedSend {
-        guard crypto.isAvailable else { return PreparedSend(input: SealedSendInput(input: input, mentionUserIds: mentions), newKey: nil) }
+        let plain = PreparedSend(input: SealedSendInput(input: input, mentionUserIds: mentions), newKey: nil)
+        guard crypto.isAvailable else { return plain }
+        var teamId: String?
+        var steerDevice: String?
+        var conversation: (agentId: String?, appId: String?)?
+        var sessionId: String?
         switch input {
         case .switchAccount, .moveDevice:
             return PreparedSend(input: SealedSendInput(input: input), newKey: nil)
-        default:
-            break
-        }
-        if let root {
-            let key = await holder.sealKey(
-                accountId: accountId,
-                rootId: root.id,
-                known: root.key,
-                teamId: root.teamId,
-                deviceIds: deviceIds(root.deviceId),
-                shared: root.shared
-            )
-            return PreparedSend(input: SealedSendInput(input: seal(input, to: key), mentionUserIds: mentions), newKey: nil)
-        }
-        // A root that does not exist yet: it starts with our key, inline.
-        var teamId: String?
-        var steerDevice: String?
-        switch input {
         case let .newChat(team, device, _, _, _, _, _, _):
             teamId = team
             steerDevice = device
-        case let .app(_, device, _, _, _, _, _):
+        case let .agent(agentId, _, _, _, _, _):
+            conversation = (agentId, nil)
+        case let .app(appId, device, _, _, _, _, _):
+            conversation = (nil, appId)
             steerDevice = device
-        default:
-            break
+        case let .message(id, _, _, _), let .child(id, _, _, _):
+            sessionId = id
         }
+        let sealed = { (key: TreeSealKey) in
+            PreparedSend(input: SealedSendInput(input: self.seal(input, to: key), mentionUserIds: mentions), newKey: nil)
+        }
+        let target: ServerSendTarget? = if let conversation, root == nil || fresh {
+            await holder.sendTarget(accountId: accountId, agentId: conversation.agentId, appId: conversation.appId)
+        } else {
+            nil
+        }
+        if let target, let rootId = target.rootId {
+            // The server's root: sealed to its key, a keyless one keyed first.
+            guard let key = await holder.sealKey(
+                accountId: accountId,
+                rootId: rootId,
+                known: target.key,
+                teamId: root?.teamId,
+                deviceIds: deviceIds(root?.deviceId ?? steerDevice),
+                shared: false,
+                lookup: false
+            ) else { return plain }
+            return sealed(key)
+        }
+        if let root, !(target != nil && fresh) {
+            let synced = root.key
+            let known = fresh ? (await holder.serverKey(accountId: accountId, rootId: root.id) ?? synced) : synced
+            // A store-keyless root is keyed first; a refused create asks the
+            // server's key before the plaintext goes.
+            guard let key = await holder.sealKey(
+                accountId: accountId,
+                rootId: root.id,
+                known: known,
+                teamId: root.teamId,
+                deviceIds: deviceIds(root.deviceId),
+                shared: root.shared,
+                lookup: false
+            ) else { return plain }
+            return sealed(key)
+        }
+        if fresh, conversation == nil, let sessionId {
+            // A session the store does not have: its key, when it is a keyed root.
+            guard let key = await holder.serverKey(accountId: accountId, rootId: sessionId) else { return plain }
+            return sealed(key)
+        }
+        // A root that does not exist yet: it starts with our key, inline.
         do {
             let (seal, key) = try await holder.newChatSeal(
                 accountId: accountId,
@@ -194,7 +233,7 @@ public struct SendSealing: Sendable {
             return PreparedSend(input: SealedSendInput(input: sealed, seal: seal, mentionUserIds: mentions), newKey: key)
         } catch {
             logger.error("No key for a new root (\(String(describing: error), privacy: .public)): sending plaintext")
-            return PreparedSend(input: SealedSendInput(input: input, mentionUserIds: mentions), newKey: nil)
+            return plain
         }
     }
 
@@ -213,6 +252,24 @@ public struct SendSealing: Sendable {
         } catch {
             logger.error("Sealing failed: \(String(describing: error), privacy: .public)")
             return input
+        }
+    }
+}
+
+/// #FEED-250 (sealed-content.json `staleTree`): a `sessions.send` whose key
+/// write the server refused (the tree moved on behind this install's store)
+/// is re-resolved from the server, re-sealed and re-sent ONCE by itself, the
+/// first refusal never surfaced; a second one throws (its description = the
+/// refusal, `TrpcErrorBody.presentableMessage`).
+public enum StaleTreeResend {
+    /// `attempt(fresh)` prepares and sends; `fresh` = resolve from the server.
+    public static func send<R>(_ attempt: (_ fresh: Bool) async throws -> R) async throws -> R {
+        do {
+            return try await attempt(false)
+        } catch {
+            guard isStaleTreeRefusal((error as? LocalizedError)?.errorDescription) else { throw error }
+            logger.info("The tree moved on behind this store: re-sealing once")
+            return try await attempt(true)
         }
     }
 }

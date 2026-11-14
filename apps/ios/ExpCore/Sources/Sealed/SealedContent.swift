@@ -111,6 +111,22 @@ public enum SealedEnvelope {
     public static func mayBeSealedCard(_ json: String) -> Bool { json.contains("\"sealed\"") }
 }
 
+// ── a tree that moved on (sealed-content.json `staleTree`) ─────────────────
+
+/// #FEED-250: the server's CONFLICT for a key write (inline `seal` or
+/// `sessionKeys.create`) into a tree that already moved on. A writer that
+/// gets it resolves the tree from the server and re-seals once by itself.
+public let staleTreeRefusal = "This chat's encryption key changed. Try again in a moment."
+
+private let olderStaleTreeRefusal = try! NSRegularExpression(pattern: #"^The tree is at epoch \d+$"#)
+
+/// The refusal, or what older servers said (`The tree is at epoch N`).
+public func isStaleTreeRefusal(_ message: String?) -> Bool {
+    guard let message, !message.isEmpty else { return false }
+    if message == staleTreeRefusal { return true }
+    return olderStaleTreeRefusal.firstMatch(in: message, range: NSRange(message.startIndex..., in: message)) != nil
+}
+
 public enum SealedCryptoError: Error, Equatable {
     case unavailable
 }
