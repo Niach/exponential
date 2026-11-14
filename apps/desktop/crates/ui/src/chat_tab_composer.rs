@@ -558,6 +558,11 @@ impl HostPlugin for FooterHost {
     }
 
     fn media_request(&self, src: &str) -> Option<eui_core::host::MediaRequest> {
+        // #EXP-1841: a staged image's own picture is a `data:` url (`strip`);
+        // the card host's policy refuses those, which left its glyph.
+        if src.starts_with("data:image/") {
+            return eui_core::host::media_request(src, &self.media_options());
+        }
         self.md.media_request(src)
     }
 
