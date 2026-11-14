@@ -74,6 +74,16 @@ pub struct AgentSettingsCopy {
     pub triggers: String,
     pub runs_on: String,
     pub check_in: String,
+    /// #EXP-1850: an app agent's record trigger (`When a {record} is {op}`)
+    /// and the op words.
+    pub record: String,
+    pub record_ops: BTreeMap<String, String>,
+    /// #EXP-1850: `When webhook {name} is called`.
+    pub webhook: String,
+    /// #EXP-1850: a `run` trigger's second line (`Runs {tool}`), or a
+    /// hand-off's (`Hands off to {agent}`).
+    pub runs: String,
+    pub hands_off: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -120,12 +130,18 @@ pub fn agent_mcp_servers_value(names: &[&str]) -> String {
 /// One Triggers row's text for an `AgentTrigger` jsonb (NEW-2): a schedule
 /// reads the schedule picker's [`schedule_summary`] (`Every day at 09:00`,
 /// ` ({tz})` when zoned), a builtin event its copy, any
-/// other event `On {name}`; a disabled trigger appends ` · Paused`.
+/// other event `On {name}`; #EXP-1850: a record trigger `copy.record`, a
+/// webhook `copy.webhook`; a disabled trigger appends ` · Paused`.
 pub fn trigger_summary(trigger: &Value) -> String {
     let copy = &AGENT_SETTINGS.copy;
     let text_of = |key: &str| trigger.get(key).and_then(Value::as_str).unwrap_or_default();
     let text = if text_of("kind") == "schedule" {
         schedule_summary(text_of("cron"), Some(text_of("tz")))
+    } else if text_of("kind") == "record" {
+        let op = copy.record_ops.get(text_of("op")).map(String::as_str).unwrap_or(text_of("op"));
+        copy.record.replacen("{record}", text_of("record"), 1).replacen("{op}", op, 1)
+    } else if text_of("kind") == "webhook" {
+        copy.webhook.replacen("{name}", text_of("name"), 1)
     } else {
         let name = text_of("name");
         copy.events
@@ -138,6 +154,34 @@ pub fn trigger_summary(trigger: &Value) -> String {
     } else {
         text
     }
+}
+
+/// #EXP-1850 (TS `runLabel`): an app binding in a few words:
+/// `records.<op> <kind>`, the action's name, or `<upstream>/<tool>`.
+pub fn run_label(run: &Value) -> String {
+    let text = |value: &Value, key: &str| value.get(key).and_then(Value::as_str).unwrap_or_default().to_string();
+    if let Some(records) = run.get("records").filter(|records| records.is_object()) {
+        return format!("records.{} {}", text(records, "op"), text(records, "kind"));
+    }
+    if let Some(action) = run.get("action").and_then(Value::as_str) {
+        return action.to_string();
+    }
+    if let Some(upstream) = run.get("upstream").and_then(Value::as_str) {
+        return format!("{upstream}/{}", text(run, "tool"));
+    }
+    String::new()
+}
+
+/// #EXP-1850 (TS `triggerDetail`, `detailCases`): a Triggers row's second
+/// line = what a `run` trigger runs (`copy.runs`), a hand-off's
+/// `copy.handsOff`; `None` for a wake.
+pub fn trigger_detail(trigger: &Value) -> Option<String> {
+    let run = trigger.get("run").filter(|run| run.is_object())?;
+    let copy = &AGENT_SETTINGS.copy;
+    if let Some(agent) = run.get("agent").and_then(Value::as_str) {
+        return Some(copy.hands_off.replacen("{agent}", agent, 1));
+    }
+    Some(copy.runs.replacen("{tool}", &run_label(run), 1))
 }
 
 /// The agent form as the page edits it.
@@ -823,6 +867,16 @@ mod tests {
                 "{}",
                 case["trigger"]
             );
+        }
+    }
+
+    #[test]
+    fn trigger_detail_matches_the_fixture() {
+        let fixture = fixture();
+        let cases = fixture["detailCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            assert_eq!(trigger_detail(&case["trigger"]).as_deref(), case["expected"].as_str(), "{}", case["trigger"]);
         }
     }
 

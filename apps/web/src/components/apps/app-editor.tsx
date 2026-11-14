@@ -74,6 +74,7 @@ import { AppExportDialog } from "@/components/apps/app-export-dialog"
 import { AppImportDialog } from "@/components/apps/app-import-dialog"
 import { APP_TEMPLATES_COPY, APP_TEMPLATES_TEST_IDS } from "@exp/domain-contract/app-templates"
 import { relativeTime } from "@/components/comment-rows/format"
+import { AppEventsTab } from "@/components/apps/app-events-tab"
 import { useAppVersions, useEditorSession, type AppListEntry } from "@/hooks/use-apps"
 import { useSessionTitles } from "@/hooks/use-session-tree"
 import { useTeamUsers } from "@/hooks/use-team-data"
@@ -783,6 +784,14 @@ export function AppEditor({
   let pane: ReactNode = null
   if (screen.active === `preview`) pane = preview
   else if (screen.active === `data`) pane = <div className={`h-full overflow-y-auto p-4 ${FAB_CLEARANCE_CLASS}`}>{dataBody}</div>
+  else if (screen.active === `events`)
+    pane = (
+      <div className={`h-full overflow-y-auto p-4 ${FAB_CLEARANCE_CLASS}`}>
+        <div className="w-full" style={isMobile ? undefined : { maxWidth: APPS_EDITOR_TABS.settingsMaxWidth }}>
+          <AppEventsTab app={{ id: app.id, headVersion: app.headVersion, agentId: app.row?.agentId ?? null }} teamSlug={teamSlug} canManage={canManage} onOpenChat={() => pickTab(`chat`)} />
+        </div>
+      </div>
+    )
   else if (screen.active === `versions`) pane = <div className={`h-full overflow-y-auto p-4 ${FAB_CLEARANCE_CLASS}`}>{versionsBody}</div>
 
   const item: ReactNode =
