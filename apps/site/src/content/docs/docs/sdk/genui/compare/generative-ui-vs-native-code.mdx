@@ -1,0 +1,29 @@
+---
+title: Generative UI vs hand-written SwiftUI and Compose
+description: When an agent-generated A2UI surface beats a hand-written native screen, when it does not, and what you trade.
+---
+
+A hand-written SwiftUI or Compose screen is code your team writes, reviews and ships in an app release. A generative UI surface is data an agent sends at runtime, and a renderer in your app paints it with the same native toolkit. They solve different problems, and most apps need both.
+
+## What do you gain with generative UI?
+
+- **Screens nobody designed in advance.** The agent composes a surface for the task at hand from the catalog's components.
+- **One surface on every platform.** The same A2UI messages paint natively in SwiftUI, Compose, gpui, React, Solid and web components. A [conformance suite](/docs/sdk/genui/reference/conformance/) checks that they agree.
+- **Changes without an app release.** Surfaces and [themes](/docs/sdk/genui/learn/theming/) are data loaded at runtime.
+- **A safe boundary.** The agent can only use catalog components; host functions, URLs and media go through a policy the host controls.
+
+## What do you give up?
+
+- **Range.** A surface can only use what the catalog offers. Anything outside it needs an [extension](/docs/sdk/genui/guides/extensions/), which is a painter per platform that you write by hand.
+- **Per-screen styling.** The look comes from the theme's tokens and recipes, not from code per screen, and the model can only use the styles the catalog whitelists.
+- **Determinism.** A model may compose the same request differently on each run. Validation guarantees the result is well-formed, not that it is the layout you would have chosen.
+- **Some speed.** There is a reducer, a layout pass and a painter between the message and the pixels. The [numbers page](/docs/sdk/genui/reference/numbers/) publishes the measured cost for every renderer, including the weak points.
+
+## Which should I use?
+
+Write by hand the screens that define your product and that you want to control to the pixel: the main navigation, the editor, the onboarding. Use generative UI where an agent answers: confirmations, forms for missing input, results and status cards inside a chat or a task. In the Exponential app, the cards an agent posts in a session are A2UI surfaces painted by genUI, and the screens around them are hand-written.
+
+## Next
+
+- [How do I render agent-generated UI natively?](/docs/sdk/genui/learn/native-rendering/)
+- [A2UI vs server-driven UI](/docs/sdk/genui/compare/a2ui-vs-server-driven-ui/)
