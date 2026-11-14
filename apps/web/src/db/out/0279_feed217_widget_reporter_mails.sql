@@ -1,0 +1,2 @@
+ALTER TABLE "widget_configs" ADD COLUMN "notify_reporter_on_submit" boolean DEFAULT true NOT NULL;--> statement-breakpoint
+ALTER TABLE "widget_configs" ADD COLUMN "notify_reporter_on_close" boolean DEFAULT true NOT NULL;

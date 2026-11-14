@@ -170,6 +170,7 @@ pub struct ProcessSandbox {
     root: PathBuf,
     passthrough: Vec<String>,
     bash: bool,
+    idle_steps: bool,
 }
 
 /// One init/fetch/worktree change per mirror at a time, across EVERY sandbox
@@ -190,7 +191,18 @@ impl ProcessSandbox {
             root: root.into(),
             passthrough: DEFAULT_PASSTHROUGH.iter().map(|s| s.to_string()).collect(),
             bash,
+            idle_steps: false,
         }
+    }
+
+    /// Steps run at SCHED_IDLE and nice 19 (Linux): the job yields the CPU
+    /// to everything else on the machine, while the runner itself (its beats,
+    /// log uploads) keeps a normal policy. Running the whole daemon at
+    /// SCHED_IDLE starved its beats under load and the server failed live
+    /// jobs as `runner_lost` (the mint dogfood, #EXP-1812).
+    pub fn with_idle_steps(mut self, on: bool) -> Self {
+        self.idle_steps = on;
+        self
     }
 
     /// Adds host env vars to the allowlist (the runner settings' extra names).
@@ -272,6 +284,22 @@ impl Sandbox for ProcessSandbox {
             c
         };
         command.current_dir(cwd);
+        #[cfg(target_os = "linux")]
+        if self.idle_steps {
+            use std::os::unix::process::CommandExt;
+            // SAFETY: async-signal-safe syscalls only (sched_setscheduler,
+            // setpriority) between fork and exec; no allocation.
+            unsafe {
+                command.pre_exec(|| {
+                    let param = libc::sched_param { sched_priority: 0 };
+                    if libc::sched_setscheduler(0, libc::SCHED_IDLE, &param) != 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    libc::setpriority(libc::PRIO_PROCESS, 0, 19);
+                    Ok(())
+                });
+            }
+        }
         command
     }
 
@@ -713,6 +741,26 @@ mod tests {
             let (conclusion, text) = handle.join().unwrap();
             assert_eq!(conclusion, CheckConclusion::Success, "{text}");
         }
+    }
+
+    /// Idle steps run at SCHED_IDLE (policy 5) and nice 19, the runner not.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn idle_steps_run_at_sched_idle() {
+        if !crate::git_available() {
+            return;
+        }
+        let (origin, sha) = origin();
+        let root = tempdir::Dir::new("root");
+        let mut spec = job(&sha, vec![step("policy", "echo policy=$(awk '{print $41}' /proc/self/stat) nice=$(awk '{print $19}' /proc/self/stat)")]);
+        spec.secrets = vec![];
+        let mut sink = MemorySink::default();
+        let sandbox = ProcessSandbox::new(&root.0).with_idle_steps(true);
+        let outcome = run_job(&sandbox, &GitRemote::anonymous(origin.0.to_string_lossy()), &MapSecrets::default(), &spec, &mut sink);
+        assert_eq!(outcome.conclusion, CheckConclusion::Success, "{}", sink.text);
+        assert!(sink.text.contains("policy=5 nice=19"), "{}", sink.text);
+        let own = std::fs::read_to_string("/proc/self/stat").unwrap();
+        assert_ne!(own.rsplit(')').next().unwrap().split_whitespace().nth(38), Some("5"), "the runner keeps its own policy");
     }
 
     #[test]

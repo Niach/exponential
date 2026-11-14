@@ -174,6 +174,26 @@ class McpSettingsViewModel @Inject constructor(
         }
     }
 
+    /** #FEED-242: owners pick the app's default level; optimistic, then the
+     *  table re-reads (members without their own row follow it). */
+    fun setDefaultLevel(appId: String, level: String) {
+        val (account, team) = ids() ?: return
+        val before = _access.value ?: return
+        _access.value = before.copy(
+            apps = before.apps.map { if (it.id == appId) it.copy(defaultAccess = level) else it },
+        )
+        viewModelScope.launch {
+            try {
+                api.setAppDefaultAccess(account, appId, level)
+                quiet { api.appAccess(account, team) }?.let { _access.value = it }
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _access.value = before
+                _failure.value = FailedAction("save", "the access", trpcErrorMessage(t, "")) { setDefaultLevel(appId, level) }
+            }
+        }
+    }
+
     fun disconnect(server: McpServerListRow) {
         val (account, team) = ids() ?: return
         _pending.value = server.id

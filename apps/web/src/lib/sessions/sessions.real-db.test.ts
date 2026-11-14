@@ -411,6 +411,46 @@ describe.skipIf(!ready.ok)(`sessions.send — a root works on its own picks`, ()
 })
 
 describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`, () => {
+  it(`NEW-18: lists children on request; a start on a held or done issue warns, never fails`, async () => {
+    const w = await world({ shared: true })
+    const issueId = await w.issue(`Held`)
+    const root = await sendSession({
+      userId: w.owner,
+      input: { teamId: w.teamId, deviceId: w.deviceId, text: `root`, issueIds: [issueId] },
+    })
+    expect(root.warning).toBeUndefined()
+    const child = await sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `sub`, issueIds: [issueId] } })
+    // Its own tree holding the issue is the normal case: no warning.
+    expect(child.warning).toBeUndefined()
+
+    // #FEED-112: children only on request; the teammate sees the shared tree.
+    expect((await listSessions(w.mate, { teamId: w.teamId, limit: 10, offset: 0 })).map((r) => r.id)).toEqual([root.sessionId])
+    const all = await listSessions(w.mate, { teamId: w.teamId, children: true, live: true, limit: 10, offset: 0 })
+    expect(all.find((r) => r.id === child.sessionId)).toMatchObject({ parentId: root.sessionId, rootId: root.sessionId, depth: 1 })
+    expect(all.find((r) => r.id === root.sessionId)).toMatchObject({ parentId: null, depth: 0 })
+
+    // #FEED-102: the teammate's second start on the same issue warns, names the holders.
+    const second = await sendSession({
+      userId: w.mate,
+      input: { teamId: w.teamId, deviceId: w.deviceId, text: `again`, issueIds: [issueId] },
+    })
+    expect(second.sessionId).toBeTruthy()
+    expect(second.warning).toContain(`already has a live session: ${root.sessionId}, ${child.sessionId}`)
+
+    // A private holder is anonymous; a done issue says so.
+    const own = `dev-${id8()}`
+    await db.insert(devices).values({ userId: w.owner, deviceId: own, label: `laptop`, kind: `desktop`, sharedTeamIds: [] })
+    const privateIssue = await w.issue(`Private`)
+    await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: own, text: `mine`, issueIds: [privateIssue] } })
+    const doneIssue = await w.issue(`Done`)
+    await db.update(issues).set({ status: `done` }).where(eq(issues.id, doneIssue))
+    const third = await sendSession({
+      userId: w.mate,
+      input: { teamId: w.teamId, deviceId: w.deviceId, text: `more`, issueIds: [privateIssue, doneIssue] },
+    })
+    expect(third.warning).toMatch(/Another member's private session works on #CR-\d+\. #CR-\d+ is already done/)
+  })
+
   it(`starts a child under the parent with a session card, inheriting visibility`, async () => {
     const w = await world({ shared: true })
     const root = await sendSession({
@@ -1699,8 +1739,10 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
     const mates = await sendSession({ userId: w.mate, input: { agentId: agent.id, text: `hey` } })
     expect(mates.sessionId).not.toBe(conversation.sessionId)
     expect(await row(mates.sessionId)).toMatchObject({ agentId: agent.id, userId: w.mate, deviceId: sharedDevice, shared: true })
+    // #NEW-18: every conversation with the agent the caller may see (the
+    // teammate's is on the shared device).
     const mine = await listSessions(w.owner, { teamId: w.teamId, agentId: agent.id, limit: 10, offset: 0 })
-    expect(mine.map((r) => r.id)).toEqual([conversation.sessionId])
+    expect(mine.map((r) => r.id).sort()).toEqual([conversation.sessionId, mates.sessionId].sort())
     expect(await listSessions(w.owner, { teamId: w.teamId, limit: 10, offset: 0 })).toEqual([])
 
     await agentsOf(w.owner).delete({ id: agent.id })

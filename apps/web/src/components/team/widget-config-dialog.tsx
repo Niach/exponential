@@ -225,6 +225,9 @@ export function WidgetConfigDialog({
   const [formNameRequired, setFormNameRequired] = useState(false)
   const [formCustomFields, setFormCustomFields] = useState<CustomFieldRow[]>([])
   const [formLabelIds, setFormLabelIds] = useState<string[]>([])
+  // FEED-217: the automatic reporter mails (columns, not form_config).
+  const [formMailOnSubmit, setFormMailOnSubmit] = useState(true)
+  const [formMailOnClose, setFormMailOnClose] = useState(true)
   const [saving, setSaving] = useState(false)
   // Invalid input only (a required field missing); a failed save is a toast.
   const [formError, setFormError] = useState<string | null>(null)
@@ -250,6 +253,8 @@ export function WidgetConfigDialog({
     setFormNameRequired(config.nameRequired)
     setFormCustomFields(config.customFields)
     setFormLabelIds(config.labelIds)
+    setFormMailOnSubmit(editTarget?.notifyReporterOnSubmit ?? true)
+    setFormMailOnClose(editTarget?.notifyReporterOnClose ?? true)
     setFormError(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editTarget])
@@ -368,6 +373,8 @@ export function WidgetConfigDialog({
             name: formName.trim(),
             boardId,
             allowedDomains: parseDomains(formDomains),
+            notifyReporterOnSubmit: formMailOnSubmit,
+            notifyReporterOnClose: formMailOnClose,
             formConfig: buildFormConfig(),
           },
           SKIP_ERROR_TOAST
@@ -379,6 +386,8 @@ export function WidgetConfigDialog({
             boardId,
             name: formName.trim(),
             allowedDomains: parseDomains(formDomains),
+            notifyReporterOnSubmit: formMailOnSubmit,
+            notifyReporterOnClose: formMailOnClose,
             formConfig: buildFormConfig(),
           },
           SKIP_ERROR_TOAST
@@ -495,6 +504,40 @@ export function WidgetConfigDialog({
                   One per line. `*.example.com` matches subdomains only. At
                   least one domain is required.
                 </p>
+              </div>
+              {/* FEED-217: the two AUTOMATIC reporter mails; a member's
+                  "Reply to reporter" always mails. Same bordered Switch rows
+                  as the Form tab's "Reporter contact". */}
+              <div className="space-y-2">
+                <Label>Reporter emails</Label>
+                <div className="space-y-3 rounded-md border px-3 py-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <Label
+                      htmlFor="widget-mail-on-submit"
+                      className="text-sm font-normal"
+                    >
+                      Confirmation on submit
+                    </Label>
+                    <Switch
+                      id="widget-mail-on-submit"
+                      checked={formMailOnSubmit}
+                      onCheckedChange={setFormMailOnSubmit}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <Label
+                      htmlFor="widget-mail-on-close"
+                      className="text-sm font-normal"
+                    >
+                      When the issue is closed
+                    </Label>
+                    <Switch
+                      id="widget-mail-on-close"
+                      checked={formMailOnClose}
+                      onCheckedChange={setFormMailOnClose}
+                    />
+                  </div>
+                </div>
               </div>
             </TabsContent>
 

@@ -80,7 +80,12 @@ function registeredToolNames(): string[] {
 export const PREVIEW_KINDS: Record<string, EntityRefKind[]> = {
   // VAPP-110: apps answer plain JSON (no entity chips yet).
   exponential_apps_catalog: [],
+  exponential_apps_render: [],
+  // #FEED-244: the picture is an attachment.
+  exponential_apps_screenshot: [`attachment`],
   exponential_apps_delete: [],
+  // #FEED-242
+  exponential_apps_access: [],
   // eApps V1 (#VAPP-210)
   exponential_apps_publish: [],
   // VAPP-122

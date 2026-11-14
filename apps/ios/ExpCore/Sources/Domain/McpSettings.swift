@@ -34,6 +34,8 @@ public enum McpSettings {
     public static let copied = "Copied"
     public static let revoke = "Revoke"
     public static let activity = "Activity"
+    /// #FEED-242: the Access row for members without their own row.
+    public static let everyoneElse = "Everyone else"
 
     public enum Scope: String, CaseIterable, Sendable {
         case mine, everyone

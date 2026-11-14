@@ -1,5 +1,5 @@
 // eApps R3 (docs/spec/apps.md §3.4, §9.2): what the app shapes may carry to a
-// member's device. `app_access = none` hides an app entirely (the apps,
+// member's device. Access `none` (the row, else the app's default) hides an app entirely (the apps,
 // app-versions and app-records shapes drop it); a kind whose policy says
 // `read: author` syncs to a non-owner only the rows they author, `read:
 // owners` none at all (record-policy.json), so a private kind never reaches
@@ -12,9 +12,10 @@ import { sql } from "drizzle-orm"
 import { RECORD_KIND_PATTERN } from "@exponential_app/eui/host"
 import { sqlStringLiteral } from "@/lib/auth/shape-where"
 import { TtlPromiseCache } from "@/lib/ttl-promise-cache"
+import { hiddenAppIdsQuery } from "@/lib/apps/app-access-level"
 
 export interface AppShapeRules {
-  /** Apps the member may not see at all (`app_access = none`). */
+  /** Apps the member may not see at all (effective level `none`). */
   hiddenAppIds: string[]
   /** Per app (of a team the member is NOT an owner of): kinds read by
    *  `owners` and by `author`. */
@@ -35,7 +36,8 @@ async function queryRules(userId: string, teamIds: readonly string[]): Promise<A
     teamIds.map((t) => sql`${t}`),
     sql`, `
   )}]::uuid[]`
-  const hidden = await db.execute<{ app_id: string }>(sql`SELECT app_id FROM app_access WHERE user_id = ${userId} AND level = 'none' AND team_id = ANY(${teams})`)
+  // #FEED-242: the effective level (row, else creator/owner write, else the app's default).
+  const hidden = await db.execute<{ app_id: string }>(hiddenAppIdsQuery(userId, teams))
   // eApps V1 (#VAPP-210): the published kinds plus a draft's new ones (`||`: the published definition wins).
   const kinds = await db.execute<{ app_id: string; kind: string; read: string }>(sql`
     SELECT a.id AS app_id, k.key AS kind, k.value->'policy'->>'read' AS read

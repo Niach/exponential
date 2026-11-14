@@ -1,0 +1,27 @@
+[package]
+name = "eui-shot"
+description = "#FEED-244: `exponential-shot`, one app screen painted HEADLESS to a PNG by the real eUI gpui painter (gpui's offscreen renderer: wgpu on Linux, Metal on macOS). The daemon and the desktop app run it as a subprocess for `exponential_apps {op: \"screenshot\"}`; its own binary because gpui's headless renderer only exists under `test-support`, which no shipping app build enables."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "exponential-shot"
+path = "src/bin/exponential-shot.rs"
+
+[dependencies]
+eui-core = { path = "../eui-core" }
+eui-gpui = { path = "../eui-gpui" }
+# The headless app context, its offscreen renderer and the platform's real
+# text system only exist under `test-support`: THIS binary links them, the
+# app and the CLI never do.
+gpui = { workspace = true, features = ["test-support"] }
+gpui_platform = { workspace = true, features = ["test-support"] }
+gpui-component.workspace = true
+image = { workspace = true, features = ["png"] }
+rust-embed = { workspace = true }
+serde_json.workspace = true

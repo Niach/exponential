@@ -1,0 +1,61 @@
+---
+title: What is A2UI?
+description: A2UI is an open protocol for agents that answer with an interface. Learn about surfaces, the catalog, its four messages, the data model and actions, and how genUI implements it.
+---
+
+import { Code } from "@astrojs/starlight/components"
+import componentsDoc from "@exponential_app/eui/docs/components.generated.json"
+
+export const MESSAGES = `{"version":"1.0","createSurface":{"surfaceId":"main","catalogId":"${componentsDoc.catalogId}"}}
+{"version":"1.0","updateComponents":{"surfaceId":"main","components":[
+  {"id":"root","component":"Card","title":"Deploy 0.18.84?","children":["note","go"]},
+  {"id":"note","component":"Text","text":{"@path":"/summary"}},
+  {"id":"go","component":"Button","label":"Deploy","on":{"press":{"event":{"name":"deploy","context":{"version":"0.18.84"}}}}}
+]}}
+{"version":"1.0","updateDataModel":{"surfaceId":"main","path":"/summary","value":"3 platforms, all checks green."}}`
+
+[A2UI](https://a2ui.org/) (Agent to UI) is an open protocol that lets an agent answer with an interface instead of text. The agent does not send code. It sends **data**: which components to show from a catalog that both sides agree on, the values they display, and the actions it wants back. The client decides how those components look and what they are allowed to do.
+
+## What problem does A2UI solve?
+
+Text is a poor answer when the user has to compare numbers, fill in missing fields or confirm a step. An agent could write HTML or React, but then the client runs untrusted code, and the result looks different from the rest of the app. It also does not work in a native iOS or Android app.
+
+A2UI separates the two concerns: **the model decides what to show, the app decides how it looks and what it may do.** The model can only use components from the catalog, so the client can validate each message, paint it with its own native widgets and theme, and refuse what its policy does not allow.
+
+## What is a surface?
+
+A surface is one rendered UI: a component tree, its data model and its theme. An agent can open several surfaces, update them while it works and delete them when they are done.
+
+## What is a catalog?
+
+The catalog lists the components a surface may use and the props each one takes. The model reads it as part of its prompt; the renderer implements it. genUI's core catalog has <a href="/docs/sdk/genui/reference/components/">{componentsDoc.components.length} components</a> with shadcn's names and variants, and every component and prop carries a sentence written for the model.
+
+## Which messages does A2UI use?
+
+Four, sent one per line as JSONL over SSE, a WebSocket or inside an MCP tool result:
+
+| Message | What it does |
+|---|---|
+| `createSurface` | Opens a surface and names its catalog. |
+| `updateComponents` | Adds or replaces components by id. |
+| `updateDataModel` | Writes a value at a JSON pointer in the surface's data model. |
+| `deleteSurface` | Closes the surface. |
+
+Components arrive as a **flat list** that refers to children by id, not as a nested tree. A model can therefore stream them in any order and patch a single component without resending the rest.
+
+<Code lang="jsonl" code={MESSAGES} />
+
+## How do data and actions work?
+
+Every surface has one JSON data model. A bindable prop points at a path in it and follows its value; inputs bind both ways. A `List` repeats a template per item. Interactive components fire events. An **event action** goes back to the agent with its context resolved against the data model. A **function call** runs on the client, either one of the built-ins or a function the host provides behind a policy gate.
+
+## How does genUI implement A2UI?
+
+genUI is the Exponential SDK's set of A2UI clients. It speaks A2UI v0.9, against the pinned v0.9.1 spec vendored byte for byte. One catalog, a TypeScript reference and a Rust core drive native renderers for React, Solid, web components, SwiftUI, Jetpack Compose and gpui. A2UI's basic catalog maps onto the core catalog, so a surface written for another A2UI client renders too. A [conformance suite](/docs/sdk/genui/reference/conformance/) checks that every renderer produces the same result.
+
+## Next
+
+- [How do I render agent-generated UI natively?](/docs/sdk/genui/learn/native-rendering/)
+- [How does an agent send UI through MCP?](/docs/sdk/genui/learn/a2ui-over-mcp/)
+- [A2UI vs server-driven UI](/docs/sdk/genui/compare/a2ui-vs-server-driven-ui/)
+- [Try it in the playground](/docs/sdk/genui/tools/playground/)

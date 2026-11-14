@@ -6,12 +6,12 @@
 members = ["crates/*"]
 # #EXP-1484 / #EXP-1620: the vendored, patched iroh and gpui-component (see
 # the [patch] sections below) are third-party crates, not ours.
-exclude = ["vendor/iroh", "vendor/gpui-component", "vendor/gpui-pre-wgpu", "vendor/gpui-pre-linux", "vendor/gpui-pre-windows"]
+exclude = ["vendor/iroh", "vendor/gpui-component", "vendor/gpui-pre-wgpu", "vendor/gpui-pre-linux", "vendor/gpui-pre-windows", "vendor/xim-ctext"]
 resolver = "2"
 
 [workspace.package]
 edition = "2021"
-version = "0.14.158"
+version = "0.14.159"
 # The whole repo is Apache-2.0 (EXP-352; verbatim text in the repo-root LICENSE).
 # Every crate inherits this via `license.workspace = true`, except the vendored
 # gpui-markdown-editor which pins its own explicit Apache-2.0.
@@ -168,6 +168,11 @@ gpui-pre-linux = { path = "vendor/gpui-pre-linux" }
 # frames while the App was borrowed) and no teardown of a window a native
 # close already destroyed (vendor/gpui-pre-windows/PATCHES.md).
 gpui-pre-windows = { path = "vendor/gpui-pre-windows" }
+# #ERR-18: xim-ctext 0.3.0 (zed-xim's COMPOUND_TEXT decoder) decoding Latin-1,
+# the X11 default, and every escape it does not know without an error: zed-xim
+# `expect`s the result, so an input method committing "ü" (0xFC) panicked the
+# IDE (vendor/xim-ctext/PATCHES.md).
+xim-ctext = { path = "vendor/xim-ctext" }
 
 
 [patch."https://github.com/Niach/exponential"]

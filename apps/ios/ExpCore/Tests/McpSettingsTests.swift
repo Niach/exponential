@@ -48,6 +48,7 @@ final class McpSettingsTests: XCTestCase {
         }
         XCTAssertEqual(McpSettings.revoke, f["revoke"] as? String)
         XCTAssertEqual(McpSettings.activity, f["activity"] as? String)
+        XCTAssertEqual(McpSettings.everyoneElse, f["everyoneElse"] as? String)
         XCTAssertEqual(McpSettings.never, f["never"] as? String)
         XCTAssertEqual(McpSettings.builtinApp, f["builtinApp"] as? String)
         XCTAssertEqual(McpSettings.firstParty, f["firstParty"] as? String)

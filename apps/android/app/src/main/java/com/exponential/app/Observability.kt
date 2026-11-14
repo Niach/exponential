@@ -3,6 +3,7 @@ package com.exponential.app
 import android.app.Application
 import android.content.Context
 import android.content.SharedPreferences
+import android.os.Build
 import android.provider.Settings
 import android.util.Log
 import io.ktor.client.HttpClient
@@ -118,9 +119,43 @@ object Observability {
         beforeSpan = { span, request, _ -> if (isTracedPath(request.url.encodedPath)) span else null },
     )
 
-    /** Google's documented marker for a Firebase Test Lab (Play pre-launch report) device. */
-    private fun isTestLabDevice(app: Application): Boolean =
-        runCatching { Settings.System.getString(app.contentResolver, "firebase.test.lab") == "true" }.getOrDefault(false)
+    /** What [isPrelaunchDevice] reads off the device. */
+    internal data class DeviceProbe(
+        /** Settings.System `firebase.test.lab`. */
+        val testLabSetting: String?,
+        /** Build.MODEL. */
+        val model: String,
+        val widthPixels: Int,
+        val heightPixels: Int,
+    )
+
+    /**
+     * Play's pre-launch report robots (Firebase Test Lab). Google's documented
+     * marker is Settings.System `firebase.test.lab`, but the #ERR-22 robot
+     * (2026-11-13, 0.14.137+220) did not set it and reported as prod. Its own
+     * telltales: Build.MODEL "OnePlus8Pro" (a retail OnePlus 8 Pro reports
+     * IN20xx; "OnePlus8Pro" is only its device codename) and a 288×448 px
+     * screen no phone ships with.
+     */
+    internal fun isPrelaunchDevice(probe: DeviceProbe): Boolean =
+        probe.testLabSetting == "true" ||
+            probe.model in PRELAUNCH_MODELS ||
+            (minOf(probe.widthPixels, probe.heightPixels) to maxOf(probe.widthPixels, probe.heightPixels)) == PRELAUNCH_SCREEN
+
+    private val PRELAUNCH_MODELS = setOf("OnePlus8Pro")
+    private val PRELAUNCH_SCREEN = 288 to 448
+
+    private fun isTestLabDevice(app: Application): Boolean = runCatching {
+        val metrics = app.resources.displayMetrics
+        isPrelaunchDevice(
+            DeviceProbe(
+                testLabSetting = runCatching { Settings.System.getString(app.contentResolver, "firebase.test.lab") }.getOrNull(),
+                model = Build.MODEL.orEmpty(),
+                widthPixels = metrics.widthPixels,
+                heightPixels = metrics.heightPixels,
+            ),
+        )
+    }.getOrDefault(false)
 
     /** A Test Lab device reports as [PRELAUNCH_ENVIRONMENT], whatever the server asks for. */
     internal fun environmentFor(configured: String?, testLab: Boolean): String = when {

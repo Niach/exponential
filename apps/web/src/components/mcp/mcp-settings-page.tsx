@@ -35,6 +35,7 @@ import { trpc } from "@/lib/trpc-client"
 
 const McpIcon = conceptIcon(`settings-mcp`)
 const ChevronIcon = conceptIcon(`ui-chevron-right`)
+const MembersIcon = conceptIcon(`settings-members`)
 const S = SETTINGS_MCP
 
 type Clients = Awaited<ReturnType<typeof trpc.mcpClients.list.query>>
@@ -75,7 +76,7 @@ export function McpSettingsPage({
           appTools={access?.apps ?? null}
         />
       </div>
-      <AccessSection data={access} setData={setAccess} teamSlug={teamSlug} />
+      <AccessSection data={access} setData={setAccess} teamId={teamId} teamSlug={teamSlug} />
       <ClientsSection teamId={teamId} isOwner={isOwner} />
     </div>
   )
@@ -167,10 +168,12 @@ function memberLabel(member: { name: string; email: string }): string {
 function AccessSection({
   data,
   setData,
+  teamId,
   teamSlug,
 }: {
   data: Access | null
   setData: (next: Access) => void
+  teamId: string
   teamSlug: string
 }) {
   if (!data || data.apps.length === 0) return null
@@ -180,6 +183,20 @@ function AccessSection({
     setData({ ...data, rows: data.rows.map((r) => (r.userId === userId ? { ...r, levels: { ...r.levels, [appId]: level } } : r)) })
     try {
       await trpc.appAccess.set.mutate({ appId, userId, level }, SKIP_ERROR_TOAST)
+    } catch (e) {
+      setData(before)
+      failedAction(`save`, `the access`, e)
+    }
+  }
+
+  // #FEED-242: the app's default ("Everyone else"); members without their
+  // own row follow it, so the table re-reads after the save.
+  const setDefault = async (appId: string, level: McpPolicyLevel) => {
+    const before = data
+    setData({ ...data, apps: data.apps.map((a) => (a.id === appId ? { ...a, defaultAccess: level } : a)) })
+    try {
+      await trpc.appAccess.setDefault.mutate({ appId, level }, SKIP_ERROR_TOAST)
+      setData(await trpc.appAccess.list.query({ teamId }))
     } catch (e) {
       setData(before)
       failedAction(`save`, `the access`, e)
@@ -216,6 +233,21 @@ function AccessSection({
                 )}
               </ListRow>
             ))}
+            {data.canEdit ? (
+              <ListRow className="gap-3 px-3 py-2">
+                <MembersIcon className="size-5 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1 truncate text-sm">{S.everyoneElse}</span>
+                <Picker<McpPolicyLevel>
+                  mode="single"
+                  triggerVariant="inline"
+                  mobileTitle={S.everyoneElse}
+                  value={app.defaultAccess}
+                  onChange={(level) => void setDefault(app.id, level)}
+                  items={S.levels.map((l) => ({ value: l.value as McpPolicyLevel, label: l.label }))}
+                  data-testid={`mcp-access-${app.slug}-default`}
+                />
+              </ListRow>
+            ) : null}
           </div>
         ))}
         <div className={SETTINGS_LIST_CLASS}>

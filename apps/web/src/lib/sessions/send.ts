@@ -32,6 +32,7 @@ import { generateTxId } from "@/lib/trpc"
 import { assertSkillsInTeam } from "@/lib/skills-guard"
 import { uniqueViolationConstraint } from "@/lib/trpc/db-errors"
 import { startDiskWarning } from "@/lib/device-disk"
+import { issueOverlapWarning } from "@/lib/sessions/issue-overlap"
 import { assertTeamMember, getMemberTeamIds, getPersonalTeamId, getTeamMember } from "@/lib/auth/membership"
 import { rules as eagentRules } from "@exp/eagent/copy"
 import { treeTeams } from "@/lib/sessions/tree-teams"
@@ -959,7 +960,11 @@ async function sendSessionInner(args: Parameters<typeof sendSession>[0]): Promis
   if (outcome.messageId) fireAndForgetSessionMessageNotify({ messageId: outcome.messageId })
   // EXP-1375: a start on a device low on disk says so.
   const disk = outcome.queued ? await startDiskWarning(outcome.queued) : null
-  const warning = [outcome.warning, disk].filter(Boolean).join(` `)
+  // #NEW-18: issues another live session works on, or done ones (never blocks).
+  const overlap = outcome.sessionId
+    ? await issueOverlapWarning({ userId: args.userId, sessionId: outcome.sessionId, issueIds: input.issueIds })
+    : null
+  const warning = [outcome.warning, disk, overlap].filter(Boolean).join(` `)
   return {
     sessionId: outcome.sessionId,
     messageId: outcome.messageId,

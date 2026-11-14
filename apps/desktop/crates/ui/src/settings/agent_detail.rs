@@ -742,7 +742,10 @@ impl AgentDetailPane {
             return;
         };
         let agent_id = agent.id.clone();
-        let value = payload.get("value").and_then(Value::as_str).unwrap_or_default().to_string();
+        // #FEED-247: a popup opening or closing fires `change` too, with no
+        // value: never a pick.
+        let picked = super::doc::picked_value(payload).is_some();
+        let value = super::doc::picked_value(payload).unwrap_or_default().to_string();
         let key = context.get("key").and_then(Value::as_str).unwrap_or_default().to_string();
         match name {
             "icon" if !value.is_empty() => update_agent(cx, "change", "the agent's icon", api::agents::UpdateInput { icon: Some(Some(value)), ..api::agents::UpdateInput::new(agent_id) }),
@@ -752,7 +755,7 @@ impl AgentDetailPane {
             "device" if !value.is_empty() && agent.device_id.as_deref() != Some(value.as_str()) => {
                 update_agent(cx, "change", "the agent's device", api::agents::UpdateInput { device_id: Some(value), account: Some(None), ..api::agents::UpdateInput::new(agent_id) })
             }
-            "account" => {
+            "account" if picked => {
                 let team_id = agent.team_id.clone().or_else(|| active_team_id(&self.nav, cx)).unwrap_or_default();
                 let devices = self.devices(&agent, &team_id, cx);
                 let options = agent.device_id.as_deref().and_then(|id| devices.iter().find(|device| device.device_id == id)).map(account_options).unwrap_or_default();
@@ -760,14 +763,14 @@ impl AgentDetailPane {
                     update_agent(cx, "change", "the agent's account", api::agents::UpdateInput { account: Some(option.wire_account()), ..api::agents::UpdateInput::new(agent_id) });
                 }
             }
-            "skills" => {
+            "skills" if picked => {
                 let ids: Vec<String> = value.split(',').filter(|id| !id.is_empty()).map(str::to_string).collect();
                 update_agent(cx, "change", "the agent's skills", api::agents::UpdateInput { skill_ids: Some(ids), ..api::agents::UpdateInput::new(agent_id) });
             }
             // #EXP-1793 (agent-settings.json `mcpRow`): THE composer's MCP
             // servers rows: a server the viewer has not connected opens
             // Settings > MCP servers to connect instead of toggling.
-            "mcpServers" => {
+            "mcpServers" if picked => {
                 let team_id = agent.team_id.clone().or_else(|| active_team_id(&self.nav, cx)).unwrap_or_default();
                 let entries = self.team_mcp(&team_id);
                 let ids: Vec<String> = value.split(',').filter(|id| !id.is_empty()).map(str::to_string).collect();

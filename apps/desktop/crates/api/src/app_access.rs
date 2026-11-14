@@ -338,6 +338,14 @@ pub struct AccessApp {
     /// Settings › MCP: the open Team apps row lists them (package order).
     #[serde(default)]
     pub tools: Vec<AccessAppTool>,
+    /// #FEED-242: the level of a member without their own row (`none` |
+    /// `read` | `write`; an older server sends none = `write`).
+    #[serde(default = "default_access_write")]
+    pub default_access: String,
+}
+
+fn default_access_write() -> String {
+    "write".to_string()
 }
 
 /// One tool an app exposes (`appAccess.list` apps' `tools`).
@@ -407,6 +415,25 @@ pub fn set(trpc: &TrpcClient, app_id: &str, user_id: &str, level: &str) -> Resul
         ok: bool,
     }
     let _: Ok = trpc.mutation("appAccess.set", &Input { app_id, user_id, level })?;
+    Ok(())
+}
+
+/// #FEED-242: `appAccess.setDefault` — mutation (owners; the server
+/// checks): the app's level for members without their own row.
+pub fn set_default(trpc: &TrpcClient, app_id: &str, level: &str) -> Result<(), ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        app_id: &'a str,
+        level: &'a str,
+    }
+    #[derive(Deserialize)]
+    struct Ok {
+        #[serde(default)]
+        #[allow(dead_code)]
+        ok: bool,
+    }
+    let _: Ok = trpc.mutation("appAccess.setDefault", &Input { app_id, level })?;
     Ok(())
 }
 

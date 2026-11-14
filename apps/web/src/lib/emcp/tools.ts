@@ -69,6 +69,7 @@ import {
 } from "drizzle-orm"
 import { alias } from "drizzle-orm/pg-core"
 import { db } from "@/db/connection"
+import { resolveTeamUserRef } from "@/lib/team-user-ref"
 import { answeredMessageFiles, forwardMessageFiles } from "@/lib/sessions/forward-attachments"
 import {
   agents,
@@ -199,7 +200,7 @@ import {
 } from "@/lib/sessions/plan"
 import { loadAgentForUser } from "@/lib/agents/conversation"
 import { loadAppForUser } from "@/lib/apps/editor-session"
-import { appCatalogText, componentCatalogText, linkableScreens } from "@/lib/apps/package"
+import { APP_CATALOG_SECTIONS, appCatalogText, componentCatalogText, linkableScreens } from "@/lib/apps/package"
 import coreCatalog from "@exponential_app/eui/catalog/core.catalog.json"
 import { emitEventInTx } from "@/lib/events"
 import {
@@ -257,6 +258,8 @@ import {
   type McpAccess,
 } from "./scope"
 import { messageSessionId } from "@/lib/sessions/messages"
+import { RENDER_FORM_FACTORS, renderAppScreen, resolveAppScreen } from "@/lib/apps/render"
+import { takeAppScreenshot } from "@/lib/apps/screenshot"
 
 // EXP-496: per-user bound on agent bug reports. In-process like the widget
 // buckets (rate-limit.ts documents why that is fine for this deploy).
@@ -2695,15 +2698,16 @@ export function registerExponentialTools(
     `exponential_sessions_list`,
     {
       annotations: READ_ONLY,
-      description: `List root sessions you can see, newest first (agentId = your conversations with that agent instead). teamId narrows to one team; live: true = not ended.`,
+      description: `List root sessions you can see (yours and teammates' shared ones), newest first (agentId = the conversations with that agent instead). teamId narrows to one team; live: true = not ended; children: true = their child sessions too (rows carry parentId, rootId, depth).`,
       inputSchema: strictInput({
         teamId: uuidString.optional(),
         agentId: uuidString.optional(),
         live: z.boolean().optional(),
+        children: z.boolean().optional(),
         ...pageInput,
       }),
     },
-    async ({ agentId, teamId: namedTeam, live, limit, offset }) => {
+    async ({ agentId, teamId: namedTeam, live, children, limit, offset }) => {
       try {
         // #EXP-1383: a confined caller (a team agent's session) lists its
         // own session's team unless it names one.
@@ -2717,6 +2721,7 @@ export function registerExponentialTools(
             ...(agentId ? { agentId } : {}),
             ...(teamId ? { teamId } : {}),
             ...(live !== undefined ? { live } : {}),
+            ...(children ? { children } : {}),
             limit: limit ?? 50,
             offset: offset ?? 0,
           })
@@ -3411,7 +3416,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_unlink`,
     {
-      description: `Unlink one issue (UUID or identifier) from a PR: it stays only a reference, the PR never moves it; its status stays as is. A later pr_open naming it in issueIds links it again. Name the PR by pullRequestId or repositoryId + prNumber; default = your session's newest open PR.`,
+      description: `Unlink one issue (UUID or identifier) from a PR: it stays only a reference, the PR never moves it; its status stays as is (already: true = it was unlinked before; errors when the PR never linked it). A later pr_open naming it in issueIds links it again. Name the PR by pullRequestId or repositoryId + prNumber; default = your session's newest open PR.`,
       inputSchema: strictInput({
         pullRequestId: prSelector.pullRequestId,
         repositoryId: prSelector.repositoryId,
@@ -4250,7 +4255,12 @@ export function registerExponentialTools(
         const mine = await caller(user, request)
           .appAccess.mine({ appId: app.id })
           .catch(() => ({ level: `write` as const }))
-        return ok({ ...app, url: await teamPageUrl(app.teamId, `apps/${app.slug}`), version: result.version, package: result.package, linkableScreens: linkableScreens(app.slug, result.package), viewer: { id: user.id, access: mine.level } })
+        // #FEED-242: owners also read who may use it (default + member rows).
+        const levels = await caller(user, request)
+          .appAccess.levels({ appId: app.id })
+          .catch(() => null)
+        const accessView = levels ? { access: { default: levels.default, members: levels.levels } } : {}
+        return ok({ ...app, url: await teamPageUrl(app.teamId, `apps/${app.slug}`), version: result.version, package: result.package, linkableScreens: linkableScreens(app.slug, result.package), viewer: { id: user.id, access: mine.level }, ...accessView })
       } catch (e) {
         return err(e)
       }
@@ -4348,6 +4358,38 @@ export function registerExponentialTools(
     }
   )
 
+  // #FEED-242: who may use an app (owners): the default for members
+  // without a row ("Everyone else") and per-member levels.
+  server.registerTool(
+    `exponential_apps_access`,
+    {
+      description: `Set who may use an app (team owners): default = the level of members without their own (none hides the app, read = no writes; the creator and owners stay write), members = {<user id, member id or email>: none|read|write}. Answers the app's default and every member not at write.`,
+      inputSchema: strictInput({
+        slug: appSlug,
+        teamId: uuidString.optional(),
+        default: z.enum([`none`, `read`, `write`]).optional(),
+        members: z.record(z.string().min(1).max(320), z.enum([`none`, `read`, `write`])).optional(),
+      }),
+    },
+    async ({ slug, teamId, default: level, members }) => {
+      try {
+        const team = await appsTeam(teamId)
+        const app = (await caller(user, request).apps.get({ slug, teamId: team })).app
+        // Owners only: levels refuses anyone else before anything is written.
+        await caller(user, request).appAccess.levels({ appId: app.id })
+        const userIds = await Promise.all(Object.keys(members ?? {}).map((ref) => resolveTeamUserRef(team, ref)))
+        if (level) await caller(user, request).appAccess.setDefault({ appId: app.id, level })
+        for (const [i, ref] of Object.keys(members ?? {}).entries()) {
+          await caller(user, request).appAccess.set({ appId: app.id, userId: userIds[i]!, level: members![ref]! })
+        }
+        const after = await caller(user, request).appAccess.levels({ appId: app.id })
+        return ok({ ok: true, slug, access: { default: after.default, members: after.levels } })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
   // VAPP-122: an app's records (its own data) for an agent: seed, inspect, fix.
   server.registerTool(
     `exponential_apps_records_list`,
@@ -4380,19 +4422,22 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_apps_records_upsert`,
     {
-      description: `Create one record of an app (data validated against the kind's schema in its package), or with id patch that record's data (only its author or a team owner). author = a member's user id to write for them (owners only; with id: reassigns). The app's bindings repaint live.`,
+      description: `Create one record of an app (data validated against the kind's schema in its package), or with id patch that record's data (only its author or a team owner). author = a member (user id, memberId or email) to write for them (owners only; with id: reassigns). The app's bindings repaint live.`,
       inputSchema: strictInput({
         slug: appSlug,
         teamId: uuidString.optional(),
         kind: z.string().trim().min(1).max(32),
         data: z.record(z.string(), z.unknown()),
         id: uuidString.optional(),
-        author: z.string().min(1).max(64).optional(),
+        author: z.string().min(1).max(254).optional(),
       }),
     },
     async ({ slug, teamId, kind, data, id, author }) => {
       try {
-        const result = await caller(user, request).apps.records.upsert({ slug, teamId: await appsTeam(teamId), kind, data, recordId: id, author })
+        const team = await appsTeam(teamId)
+        // #FEED-218: the MCP boundary accepts a member id or email too.
+        const authorId = author === undefined ? undefined : await resolveTeamUserRef(team, author)
+        const result = await caller(user, request).apps.records.upsert({ slug, teamId: team, kind, data, recordId: id, author: authorId })
         return ok({ ok: true, id: result.id, created: result.created })
       } catch (e) {
         return err(e)
@@ -4477,12 +4522,88 @@ export function registerExponentialTools(
     `exponential_apps_catalog`,
     {
       annotations: READ_ONLY,
-      description: `The package format, the bindings (exp: sources), the host functions, records and every genUI component an app may use. Read it once before writing a package. only = just these components' props (for an exponential_show surface).`,
-      inputSchema: strictInput({ only: z.array(z.string().min(1).max(40)).min(1).max(20).optional() }),
+      description: `The package format, the bindings (exp: sources), the host functions, records and every genUI component an app may use (about 60 KB in full). sections = just those parts: ${APP_CATALOG_SECTIONS.join(`, `)} (index = one line per component); start with sections: ["package", "screens", "sources", "index"]. only = just these components' props (for an exponential_show surface).`,
+      inputSchema: strictInput({
+        sections: z.array(z.enum(APP_CATALOG_SECTIONS)).min(1).max(APP_CATALOG_SECTIONS.length).optional(),
+        only: z.array(z.string().min(1).max(40)).min(1).max(20).optional(),
+      }),
     },
-    async ({ only }) => {
+    async ({ sections, only }) => {
       try {
-        return ok(only ? componentCatalogText(only) : appCatalogText())
+        // #FEED-218: sections and only combine (the parts, then the props).
+        const parts = [sections ? appCatalogText(sections) : ``, only ? componentCatalogText(only) : ``].filter(Boolean)
+        return ok(parts.length ? parts.join(`\n\n`) : appCatalogText())
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // #FEED-218: an agent with no screen checks what it built: the screen
+  // resolved on the server as a viewer sees it, as text (lib/apps/render.ts).
+  server.registerTool(
+    `exponential_apps_render`,
+    {
+      annotations: READ_ONLY,
+      description: `Render one app screen as a member sees it, as TEXT (no picture): every binding followed (records under the read policy, exp: sources), the tree bound to its data, one line per component (props a person reads, list sizes, a list's first items) plus issues (failed expressions, empty or unbound lists, unknown sources). Check every screen before publish. screen = its template id (default: the first), params = its params, version head (default) | published, formFactor phone | desktop (the navigation the host draws), asUser = another member (user id, memberId or email; owners only).`,
+      inputSchema: strictInput({
+        slug: appSlug,
+        teamId: uuidString.optional(),
+        screen: z.string().min(1).max(64).optional(),
+        params: z.record(z.string(), z.string().max(500)).optional(),
+        version: z.enum([`head`, `published`]).optional(),
+        formFactor: z.enum(RENDER_FORM_FACTORS).optional(),
+        asUser: z.string().min(1).max(254).optional(),
+      }),
+    },
+    async ({ slug, teamId, ...rest }) => {
+      try {
+        return ok(await renderAppScreen({ userId: user.id, teamId: await appsTeam(teamId), slug, ...rest }))
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // #FEED-244 (part D of #FEED-218): the same screen as a PICTURE, painted
+  // on the calling session's device (lib/apps/screenshot.ts); the server
+  // never paints. A write: the picture is a loose attachment in the team.
+  server.registerTool(
+    `exponential_apps_screenshot`,
+    {
+      description: `Screenshot one app screen as a member sees it: render's arguments, painted by the eUI painter on your session's device (desktop app or CLI daemon; waits up to 60s, the first call downloads the renderer) into a PNG attachment you see inline. Returns id + url: download the url and upload it to exponential_show pictures as a result. Check screens before publish.`,
+      inputSchema: strictInput({
+        slug: appSlug,
+        teamId: uuidString.optional(),
+        screen: z.string().min(1).max(64).optional(),
+        params: z.record(z.string(), z.string().max(500)).optional(),
+        version: z.enum([`head`, `published`]).optional(),
+        formFactor: z.enum(RENDER_FORM_FACTORS).optional(),
+        asUser: z.string().min(1).max(254).optional(),
+      }),
+    },
+    async ({ slug, teamId, formFactor, ...rest }) => {
+      try {
+        const team = await appsTeam(teamId)
+        const shot = await takeAppScreenshot({
+          userId: user.id,
+          access,
+          sessionId,
+          origin: process.env.BETTER_AUTH_URL ? appBaseUrl() : new URL(request.url).origin,
+          formFactor,
+          resolve: () => resolveAppScreen({ userId: user.id, teamId: team, slug, ...rest }),
+        })
+        const [row] = await db.select({ storageKey: attachments.storageKey }).from(attachments).where(eq(attachments.id, shot.id)).limit(1)
+        const object = row ? await getObject(row.storageKey) : null
+        if (!object?.Body) return ok(shot)
+        const bytes = await object.Body.transformToByteArray()
+        const inlined = await inlineImageForContext(bytes, shot.contentType)
+        return {
+          content: [
+            { type: `image` as const, data: Buffer.from(inlined?.data ?? bytes).toString(`base64`), mimeType: inlined?.mimeType ?? shot.contentType },
+            { type: `text` as const, text: JSON.stringify(shot, null, 2) },
+          ],
+        }
       } catch (e) {
         return err(e)
       }

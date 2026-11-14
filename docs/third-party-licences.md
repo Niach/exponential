@@ -376,6 +376,17 @@ excluded from the workspace, so the Rust collector still inventories it as the
 third-party `iroh@1.4.1` (same licence election and texts). Every client that
 links the P2P node (desktop, CLI, the browser's wasm) ships it.
 
+### Linux input methods: the patched xim-ctext (ERR-18, 2026-11-13)
+
+`apps/desktop/vendor/xim-ctext` is the `xim-ctext` 0.3.0 crate from crates.io
+(Riey, MIT; `LICENSE` from the same xim-rs repository), carried through
+`[patch.crates-io]` with its COMPOUND_TEXT decoder rewritten so it never
+fails (Latin-1 and the other ISO 2022 designations; an "ü" from an X input
+method panicked the IDE). `vendor/xim-ctext/PATCHES.md` lists the change,
+which is marked in the source. It is excluded from the workspace, so the Rust
+collector still inventories it as the third-party `xim-ctext@0.3.0`. The
+Linux desktop app ships it (gpui's X11 backend, through `zed-xim`).
+
 ### Diagnostics: the Sentry SDK in the desktop app and the CLI (LOGS-2, 2026-11-09)
 
 `apps/desktop/crates/observability` links the `sentry` 0.49 crates
