@@ -36,7 +36,7 @@ fn specimens() -> Vec<(&'static str, Specimen)> {
 
 /// #FEED-239: THE session screen menu of an agent (kind agent, a member).
 fn agent_menu(owner: bool) -> Vec<SessionScreenMenuEntry> {
-    session_screen_menu(SessionScreenMenuInput { kind: "agent", member: true, settings: owner, ..Default::default() })
+    session_screen_menu(SessionScreenMenuInput { kind: "agent", member: true, link_issue: true, settings: owner, ..Default::default() })
 }
 
 struct MenusDemo {
