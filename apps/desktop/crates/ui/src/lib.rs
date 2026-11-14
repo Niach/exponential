@@ -29,6 +29,8 @@ mod agent_login_outcome;
 mod action_run;
 mod actions;
 mod agent_screen;
+// #EXP-1837: THE Assistant FAB + widget (agent-settings.json `assistant.fab`).
+mod assistant_fab;
 // THE ask dock (waiting question/plan cards in the composer's slot), ask-dock.json ×4.
 mod dock;
 mod app_badge;
@@ -153,6 +155,8 @@ mod menu_window;
 mod overlay_anchor_tests;
 #[cfg(test)]
 mod pointer_menu_live_tests;
+#[cfg(test)]
+mod assistant_fab_live_tests;
 mod wysiwyg;
 mod native_dialog;
 mod navigation;

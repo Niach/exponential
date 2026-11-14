@@ -302,7 +302,7 @@ class StyleguideScreenshotsTest {
             "sg_needs-you", "sg_results-tab",
         )
 
-        /** #EXP-1384: the Board tab's root is up (its All issues chip). */
+        /** #EXP-1384: the Board tab's root is up (its All issues tab, #EXP-1836). */
         private val BOARD_ROOT_TAG = "${Chats.TestIds.BOARD_CHIP}-all"
 
         /** VAPP-122: the seeded Working hours app, with records (web `DEMO_APP_SLUG`). */
@@ -835,8 +835,9 @@ class StyleguideScreenshotsTest {
             }
         }
 
-        // --- My Issues: session 58cb32df — the board's My issues chip
-        // (chats.json `shell.boardChips`), the active team's assigned issues
+        // --- My Issues: session 58cb32df — the board's My issues tab
+        // (chats.json `shell.boardChips`, #EXP-1836 the session screen's
+        // segmented strip), the viewer's assigned issues on THIS board
         // grouped by status; back to All issues after.
         // Gated like the other self-contained steps: a scoped run that does
         // not want it never blocks the later shots on its seed.

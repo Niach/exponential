@@ -5087,12 +5087,12 @@
         },
         {
           "name": "variant",
-          "type": "default | secondary | outline | ghost | destructive | link",
+          "type": "default | secondary | outline | ghost | destructive | link | fab",
           "required": false,
           "bindable": false,
           "responsive": false,
           "default": "default",
-          "description": "`default` = primary, `destructive` = dangerous, `ghost`/`link` = quiet."
+          "description": "`default` = primary, `destructive` = dangerous, `ghost`/`link` = quiet, `fab` = a floating round icon-only button."
         },
         {
           "name": "size",

@@ -195,6 +195,17 @@ describe.skipIf(!ready.ok)(`app automations (real db)`, () => {
     expect(listed.find((r) => r.name.startsWith(`Schedule`))?.droppedRuns).toBe(0)
   })
 
+  it(`the cap's own refusals never fill the window (#VAPP-257)`, async () => {
+    const w = await world()
+    const row = (error: string | null, status: `ok` | `denied`) => ({ teamId: w.teamId, userId: w.owner, clientId: w.cid(`log_request`), appId: w.appId, tool: `records.upsert:log`, status, error, latencyMs: 0, argsHash: `x` })
+    await db.insert(mcpCalls).values([
+      ...Array.from({ length: 40 }, () => row(`rateLimited`, `denied`)),
+      row(null, `ok`),
+      row(`sponsorReadOnly`, `denied`),
+    ])
+    expect(await runsLastMinute(w.appId)).toBe(2)
+  })
+
   it(`a schedule runs once per due minute`, async () => {
     const w = await world()
     const now = new Date(`2026-11-03T08:00:30.000Z`)

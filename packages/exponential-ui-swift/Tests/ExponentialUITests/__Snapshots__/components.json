@@ -1768,6 +1768,34 @@
       }
     ]
   },
+  "Button\/variant=fab" : {
+    "height" : 52,
+    "nodes" : [
+      {
+        "bg" : "#252525",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          52,
+          52
+        ],
+        "id" : "button",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          6,
+          16,
+          40,
+          20
+        ],
+        "id" : "button_child"
+      }
+    ]
+  },
   "Button\/variant=ghost" : {
     "height" : 32,
     "nodes" : [

@@ -182,8 +182,9 @@ pub enum IssueQuery {
     None,
     /// One board's view (`use-board-view-data`).
     Board { board_id: String },
-    /// My Issues (`use-my-issues-data`): assignee == me in the team.
+    /// #EXP-1836: the board's My issues: assignee == me on THIS board.
     MyIssues {
+        board_id: String,
         team_id: String,
         user_id: String,
     },
@@ -203,8 +204,8 @@ impl IssueQuery {
                 block_counts: HashMap::new(),
             },
             IssueQuery::Board { board_id } => queries::board_board(cx, board_id),
-            IssueQuery::MyIssues { team_id, user_id } => {
-                queries::my_issues(cx, team_id, user_id)
+            IssueQuery::MyIssues { board_id, user_id, .. } => {
+                queries::my_issues(cx, board_id, user_id)
             }
         }
     }
