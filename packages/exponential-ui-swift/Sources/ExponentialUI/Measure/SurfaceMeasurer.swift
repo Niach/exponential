@@ -558,7 +558,7 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         let label = props.str("label")
         let loading = props.flag("loading")
         let hasIcon = Self.has(props, "icon") || loading
-        let iconOnly = ["icon", "icon-xs"].contains(props.str("size"))
+        let iconOnly = ["icon", "icon-xs"].contains(props.str("size")) || props.str("variant") == "fab" // #EXP-1837
         let icon: CGFloat = (hasIcon || iconOnly) ? (part(leaf.component, "icon", props).width ?? control("iconSm", 16)) : 0
         let labelW = (iconOnly || label.isEmpty) ? 0 : line(label, ts)
         let gap = (hasIcon && labelW > 0) ? leaf.control.gap : 0

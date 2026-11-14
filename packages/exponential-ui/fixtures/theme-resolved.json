@@ -1293,6 +1293,33 @@
             },
             {
               "when": {
+                "variant": "fab"
+              },
+              "style": {
+                "height": 52,
+                "width": 52,
+                "paddingHorizontal": "$spacing.none",
+                "borderRadius": "$radius.full",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.border",
+                "backgroundColor": "$color.popover",
+                "backdropBlur": "$blur.xl",
+                "color": "$color.mutedForeground",
+                "boxShadow": "$shadow.none"
+              }
+            },
+            {
+              "when": {
+                "variant": "fab",
+                "state": "pressed"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "opacity": 1
+              }
+            },
+            {
+              "when": {
                 "state": "focus"
               },
               "style": {
@@ -1323,6 +1350,15 @@
               "style": {
                 "width": 10.5,
                 "height": 10.5
+              }
+            },
+            {
+              "when": {
+                "variant": "fab"
+              },
+              "style": {
+                "width": "$control.iconMd",
+                "height": "$control.iconMd"
               }
             }
           ],
@@ -10047,6 +10083,33 @@
             },
             {
               "when": {
+                "variant": "fab"
+              },
+              "style": {
+                "height": 52,
+                "width": 52,
+                "paddingHorizontal": "$spacing.none",
+                "borderRadius": "$radius.full",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.border",
+                "backgroundColor": "$color.popover",
+                "backdropBlur": "$blur.xl",
+                "color": "$color.mutedForeground",
+                "boxShadow": "$shadow.none"
+              }
+            },
+            {
+              "when": {
+                "variant": "fab",
+                "state": "pressed"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "opacity": 1
+              }
+            },
+            {
+              "when": {
                 "state": "focus"
               },
               "style": {
@@ -10119,6 +10182,15 @@
               "style": {
                 "width": 10.5,
                 "height": 10.5
+              }
+            },
+            {
+              "when": {
+                "variant": "fab"
+              },
+              "style": {
+                "width": "$control.iconMd",
+                "height": "$control.iconMd"
               }
             },
             {
@@ -19839,6 +19911,33 @@
             },
             {
               "when": {
+                "variant": "fab"
+              },
+              "style": {
+                "height": 52,
+                "width": 52,
+                "paddingHorizontal": "$spacing.none",
+                "borderRadius": "$radius.full",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.border",
+                "backgroundColor": "$color.popover",
+                "backdropBlur": "$blur.xl",
+                "color": "$color.mutedForeground",
+                "boxShadow": "$shadow.none"
+              }
+            },
+            {
+              "when": {
+                "variant": "fab",
+                "state": "pressed"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "opacity": 1
+              }
+            },
+            {
+              "when": {
                 "state": "focus"
               },
               "style": {
@@ -19941,6 +20040,15 @@
               "style": {
                 "color": "$color.mutedForeground"
               }
+            },
+            {
+              "when": {
+                "variant": "fab"
+              },
+              "style": {
+                "paddingHorizontal": "$spacing.none",
+                "boxShadow": "$shadow.none"
+              }
             }
           ],
           "icon": [
@@ -19957,6 +20065,15 @@
               "style": {
                 "width": 10.5,
                 "height": 10.5
+              }
+            },
+            {
+              "when": {
+                "variant": "fab"
+              },
+              "style": {
+                "width": "$control.iconMd",
+                "height": "$control.iconMd"
               }
             }
           ],
@@ -29302,6 +29419,33 @@
             },
             {
               "when": {
+                "variant": "fab"
+              },
+              "style": {
+                "height": 52,
+                "width": 52,
+                "paddingHorizontal": "$spacing.none",
+                "borderRadius": "$radius.full",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.border",
+                "backgroundColor": "$color.popover",
+                "backdropBlur": "$blur.xl",
+                "color": "$color.mutedForeground",
+                "boxShadow": "$shadow.none"
+              }
+            },
+            {
+              "when": {
+                "variant": "fab",
+                "state": "pressed"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "opacity": 1
+              }
+            },
+            {
+              "when": {
                 "state": "focus"
               },
               "style": {
@@ -29374,6 +29518,15 @@
               "style": {
                 "width": 10.5,
                 "height": 10.5
+              }
+            },
+            {
+              "when": {
+                "variant": "fab"
+              },
+              "style": {
+                "width": "$control.iconMd",
+                "height": "$control.iconMd"
               }
             },
             {

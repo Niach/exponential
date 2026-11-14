@@ -401,6 +401,15 @@
       "default",
       "muted"
     ],
+    "buttonVariant": [
+      "default",
+      "secondary",
+      "outline",
+      "ghost",
+      "destructive",
+      "link",
+      "fab"
+    ],
     "textareaVariant": [
       "field",
       "row",
@@ -4571,9 +4580,9 @@
         },
         "variant": {
           "type": "enum",
-          "enum": "variant",
+          "enum": "buttonVariant",
           "default": "default",
-          "description": "`default` = primary, `destructive` = dangerous, `ghost`/`link` = quiet."
+          "description": "`default` = primary, `destructive` = dangerous, `ghost`/`link` = quiet, `fab` = a floating round icon-only button."
         },
         "size": {
           "type": "enum",
