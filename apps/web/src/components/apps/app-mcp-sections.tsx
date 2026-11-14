@@ -136,7 +136,7 @@ export function AppMcpSections({
     <>
       {settings && data.shares.length > 0 && (
         <div className="space-y-1" data-testid={APP_SHARE.testIds.shareLinks}>
-          <h2 className="px-1 text-sm font-medium">{APP_SHARE_COPY.title}</h2>
+          <GlassSectionHeader label={APP_SHARE_COPY.title} />
           <GlassGroup>
             {data.shares.map((s) => (
               <div key={s.name} className="flex items-center gap-3 px-4 py-3" data-testid={`${APP_SHARE.testIds.shareRow}-${s.name}`}>
@@ -169,7 +169,7 @@ export function AppMcpSections({
 
       {settings && data.upstreams.length > 0 && (
         <div className="space-y-1" data-testid={APPS_TEST_IDS.accounts}>
-          <h2 className="px-1 text-sm font-medium">{APPS_COPY.accounts.title}</h2>
+          <GlassSectionHeader label={APPS_COPY.accounts.title} />
           <GlassGroup>
             {data.upstreams.map((u) => {
               const row = accountRow(u)
@@ -206,7 +206,7 @@ export function AppMcpSections({
 
       {settings && data.tools.length > 0 && (
         <div className="space-y-1" data-testid={APPS_TEST_IDS.mcpTools}>
-          <h2 className="px-1 text-sm font-medium">{APPS_COPY.mcpTools.title}</h2>
+          <GlassSectionHeader label={APPS_COPY.mcpTools.title} />
           <GlassGroup>
             {data.tools.map((t) => (
               <div key={t.name} className="flex items-center gap-3 px-4 py-3" data-testid={`${APPS_TEST_IDS.mcpToolRow}-${t.name}`}>
