@@ -1620,6 +1620,21 @@ pub(crate) fn agent_unread_counts(team_id: &str, cx: &App) -> HashMap<String, us
         .collect()
 }
 
+/// #EXP-1837: one agent conversation's badge (`row_badge`), what its
+/// sidebar Agents row carries: its unread agent replies, attention while a
+/// live conversation needs you.
+pub(crate) fn conversation_badge(conversation: &SessionRow, cx: &App) -> domain::nav_badges::CountBadgeValue {
+    let needs_you = !conversation.is_ended() && conversation.needs_input;
+    let Some(store) = Store::try_global(cx) else {
+        return domain::nav_badges::row_badge(0, needs_you);
+    };
+    let keyed = digest_messages_of(&[conversation], cx);
+    let messages: Vec<&MessageRow> = keyed.iter().flat_map(|rows| rows.iter()).collect();
+    let session_reads = store.collections().session_reads.read(cx);
+    let reads: Vec<&SessionReadRow> = session_reads.iter().filter(|read| read.session_id == conversation.id).collect();
+    domain::nav_badges::row_badge(domain::chats::unread_count(&conversation.id, &messages, &reads), needs_you)
+}
+
 /// #FEED-232: the Chats row's count (`nav_badges::chats_badge`): the chats
 /// that need you or hold an unread reply; an archived chat only while it
 /// needs you.
