@@ -221,68 +221,17 @@ public enum SteerImageMessage {
         return result
     }
 
-    /// Drops `[Image #index]` at `caret`, space-separated from whatever it
-    /// lands against. Returns the new draft and the caret behind the insertion.
-    /// Offsets are UTF-16 code units, matching what `UITextView`/`NSString`
-    /// hand back (web counts UTF-16 too).
+    /// #EXP-1841: the marker edits live in `ComposerAttachments` (THE
+    /// composer strip, every composer); these forward so there is ONE
+    /// implementation.
     public static func insertImageMarker(
         text: String, caret: Int, index: Int
     ) -> (text: String, caret: Int) {
-        let ns = text as NSString
-        let at = max(0, min(caret, ns.length))
-        let before = ns.substring(to: at)
-        let after = ns.substring(from: at)
-        let marker = imageMarker(index)
-        let lead = !before.isEmpty && !endsWithWhitespace(before) ? " " : ""
-        let trail = !after.isEmpty && !startsWithWhitespace(after) ? " " : ""
-        return (
-            text: "\(before)\(lead)\(marker)\(trail)\(after)",
-            caret: at + (lead as NSString).length + (marker as NSString).length
-                + (trail as NSString).length
-        )
+        ComposerAttachments.insertImageMarker(text: text, caret: caret, index: index)
     }
 
-    /// Removing the `removedIndex`-th pending image renumbers the draft: its
-    /// own markers go, and every higher one slides down one. Only a line that
-    /// LOST a marker gets the gap it left tidied — untouched lines keep their
-    /// spacing.
     public static func renumberImageMarkers(_ text: String, removedIndex: Int) -> String {
-        text.components(separatedBy: "\n").map { line in
-            var dropped = false
-            var next = ""
-            var cursor = 0
-            let ns = line as NSString
-            markerRegex.enumerateMatches(in: line, range: NSRange(location: 0, length: ns.length)) {
-                match, _, _ in
-                guard let match else { return }
-                next += ns.substring(with: NSRange(
-                    location: cursor, length: match.range.location - cursor
-                ))
-                cursor = match.range.location + match.range.length
-                // A number that does not fit `Int` is prose (see `markers`),
-                // so it is copied through untouched rather than renumbered.
-                guard let raw = Int(ns.substring(with: match.range(at: 1))) else {
-                    next += ns.substring(with: match.range)
-                    return
-                }
-                if raw == removedIndex {
-                    dropped = true
-                } else if raw > removedIndex {
-                    next += imageMarker(raw - 1)
-                } else {
-                    next += ns.substring(with: match.range)
-                }
-            }
-            next += ns.substring(from: cursor)
-            guard dropped else { return next }
-            var tidied = collapseRuns(next)
-            tidied = trimmingTrailingSpacesAndTabs(tidied)
-            if line.hasPrefix(imageMarker(removedIndex)) {
-                tidied = trimmingLeadingSpacesAndTabs(tidied)
-            }
-            return tidied
-        }
-        .joined(separator: "\n")
+        ComposerAttachments.renumberImageMarkers(text, removedIndex: removedIndex)
     }
 
     // MARK: - String helpers (kept private so the contract stays one surface)
@@ -310,47 +259,6 @@ public enum SteerImageMessage {
     private static func trimmingTrailingWhitespace(_ text: String) -> String {
         var result = Substring(text)
         while let last = result.last, last.isWhitespace { result = result.dropLast() }
-        return String(result)
-    }
-
-    private static func endsWithWhitespace(_ text: String) -> Bool {
-        text.last.map { $0.isWhitespace } ?? false
-    }
-
-    private static func startsWithWhitespace(_ text: String) -> Bool {
-        text.first.map { $0.isWhitespace } ?? false
-    }
-
-    /// `/[ \t]{2,}/g → " "` — a run of two or more spaces/tabs becomes ONE
-    /// space; a lone space or tab is left exactly as it is.
-    private static func collapseRuns(_ text: String) -> String {
-        var result = ""
-        var run = ""
-        func flush() {
-            result += run.count >= 2 ? " " : run
-            run = ""
-        }
-        for character in text {
-            if character == " " || character == "\t" {
-                run.append(character)
-                continue
-            }
-            flush()
-            result.append(character)
-        }
-        flush()
-        return result
-    }
-
-    private static func trimmingTrailingSpacesAndTabs(_ text: String) -> String {
-        var result = Substring(text)
-        while let last = result.last, last == " " || last == "\t" { result = result.dropLast() }
-        return String(result)
-    }
-
-    private static func trimmingLeadingSpacesAndTabs(_ text: String) -> String {
-        var result = Substring(text)
-        while let first = result.first, first == " " || first == "\t" { result = result.dropFirst() }
         return String(result)
     }
 }
