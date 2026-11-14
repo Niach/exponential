@@ -16,6 +16,14 @@ pub(super) fn hex(color: Hsla) -> String {
     format!("#{:02x}{:02x}{:02x}{:02x}", byte(c.r), byte(c.g), byte(c.b), byte(c.a))
 }
 
+/// #FEED-247: the value a Select's `change` picked, `None` for the
+/// `change` its popup fires as it opens or closes (`{open: bool}`, no
+/// `value`). A handler that read that one as `""` cleared a multi pick
+/// (the agent page's Skills and MCP servers) on every open.
+pub(super) fn picked_value(payload: &Value) -> Option<&str> {
+    payload.get("value").and_then(Value::as_str)
+}
+
 pub(super) fn path(p: &str) -> Value {
     json!({"@path": p})
 }
@@ -554,4 +562,24 @@ fn focus_retry(view: gpui::Entity<eui_gpui::view::SurfaceView>, field: String, f
             log::warn!("[ui] no field `{field}` to focus");
         }
     });
+}
+
+#[cfg(test)]
+mod picked_value_tests {
+    use super::picked_value;
+    use serde_json::json;
+
+    #[test]
+    fn a_popup_open_or_close_is_no_pick() {
+        assert_eq!(picked_value(&json!({"open": true})), None);
+        assert_eq!(picked_value(&json!({"open": false})), None);
+        assert_eq!(picked_value(&serde_json::Value::Null), None);
+    }
+
+    #[test]
+    fn a_pick_reads_its_value_even_when_empty() {
+        assert_eq!(picked_value(&json!({"value": "s1,s2"})), Some("s1,s2"));
+        // The last skill toggled off: an explicit empty pick.
+        assert_eq!(picked_value(&json!({"value": ""})), Some(""));
+    }
 }
