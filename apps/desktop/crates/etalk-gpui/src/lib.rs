@@ -19,7 +19,7 @@ pub mod voice_overlay;
 pub mod voice_tray;
 
 pub use host::{
-    Brand, CallConnection, CallLink, CallLinkEvent, Notice, Outgoing, SendError, SendJob, Sent, SignedIn, Surface, TalkAgent,
+    AgentVoice, Brand, CallConnection, CallLink, CallLinkEvent, Notice, Outgoing, SendError, SendJob, Sent, SignedIn, Surface, TalkAgent,
     TalkDevice, TalkHost, TalkIcon, TalkMessage, VoiceWrite,
 };
 pub use speak_replies::{set_settings, SpeechState};
@@ -51,8 +51,10 @@ pub fn session_changed(cx: &mut App) {
     meeting::on_session(cx);
 }
 
-/// The host's agents changed (their names label the tray and the wake phrase).
+/// The host's agents changed (their names label the tray and the wake phrase;
+/// #EXP-1847 their own voices speak, a downloaded clip included).
 pub fn agents_changed(cx: &mut App) {
+    speak_replies::on_agents(cx);
     push_to_talk::on_agents(cx);
     voice_tray::on_agents(cx);
 }

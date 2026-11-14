@@ -6,7 +6,9 @@
 //! group: identity (icon picker, colour picker, name; the Assistant: its
 //! brand mark + name); Runs on (Device, Account, Model, Skills, MCP
 //! servers); Triggers (THE reusable list, [`super::agent_triggers`]: Check
-//! in, then the other triggers); Voice (the Assistant only); the
+//! in, then the other triggers); Voice (#EXP-1847: EVERY agent's own
+//! voice, `agent-settings.json` `voice`: Language, the clip, Transcript,
+//! Wake phrase; the Assistant's member rows follow it); the
 //! Instructions card (team agents only; server-only, `agents.get`, saved on
 //! blur); the owner-only "Delete agent" (team agents only). A team agent's
 //! editors are its team's owners, the Assistant's its member.
@@ -43,7 +45,7 @@ use crate::queries;
 use crate::sidebar::RailShared;
 use crate::trigger_editor;
 
-use super::agent_doc::{account_rows, agent_mark_icon, device_row, divided, field_error, identity, instructions_caption, instructions_field, select_row, value_row, Chrome};
+use super::agent_doc::{account_rows, agent_mark_icon, device_row, divided, field_error, identity, instructions_caption, instructions_field, select_row, value_row, voice_rows, Chrome};
 use super::agent_triggers::{self, AgentTriggers};
 use super::doc::{failed_state, path, Ink, SM};
 use super::SettingsSection;
@@ -335,6 +337,19 @@ pub struct AgentDetailPane {
     /// they were asked for.
     mcp: Option<(String, Vec<api::mcp_servers::McpServerListEntry>)>,
     mcp_requested: Option<String>,
+    /// #EXP-1847: the Voice rows' typed text (`None` = the resolved value),
+    /// the wake phrase's inline error, a clip upload / removal in flight and
+    /// the wake placeholder the mounted tree was built with.
+    transcript_draft: Option<String>,
+    wake_draft: Option<String>,
+    wake_invalid: Option<String>,
+    clip_busy: bool,
+    wake_placeholder: String,
+    /// #EXP-1847: the member's voice settings (`voice.get`, once per page),
+    /// every agent's voice fallback, as on web; `None` until they landed
+    /// (the settings this IDE last received stand in).
+    member_voice: Option<etalk::voice::VoiceSettings>,
+    member_voice_requested: bool,
     binding: Entity<Binding<Value>>,
     view: Entity<SurfaceView>,
     /// The bench's owner flag (headless has no signed-in member).
@@ -365,7 +380,7 @@ impl AgentDetailPane {
         let binding = cx.new(|_| {
             let mut binding = Binding::new(PATH, Value::Null, |state: &Value, _| state.clone());
             binding.set_toasts(Rc::new(super::doc::IdeToasts));
-            for name in ["icon", "color", "device", "account", "skills", "mcpServers", "model", "retry", "delete"].into_iter().chain(agent_triggers::ACTIONS) {
+            for name in ["icon", "color", "device", "account", "skills", "mcpServers", "model", "retry", "delete", "voiceLanguage", "voiceClip", "voiceClipRemove"].into_iter().chain(agent_triggers::ACTIONS) {
                 let pane = pane.clone();
                 binding.on_action(name, move |_, event, cx| {
                     let context = event.context.clone();
@@ -383,7 +398,8 @@ impl AgentDetailPane {
             binding
         });
         let plugin: Rc<dyn HostPlugin> = Rc::new(PanePlugin { pane: cx.weak_entity(), inner: super::doc::ide_plugin() });
-        let view = super::doc::mount_with("settings-agent", document(&Ink::of(cx), &Chrome::of(cx)), &binding, plugin, true, window, cx);
+        let wake_placeholder = domain::agent_settings::agent_wake_phrase_placeholder("");
+        let view = super::doc::mount_with("settings-agent", document(&Ink::of(cx), &Chrome::of(cx), &wake_placeholder), &binding, plugin, true, window, cx);
         Self {
             nav,
             shared,
@@ -398,6 +414,13 @@ impl AgentDetailPane {
             fixed_agent: None,
             mcp: None,
             mcp_requested: None,
+            transcript_draft: None,
+            wake_draft: None,
+            wake_invalid: None,
+            clip_busy: false,
+            wake_placeholder,
+            member_voice: None,
+            member_voice_requested: false,
             binding,
             view,
             #[cfg(test)]
@@ -502,6 +525,9 @@ impl AgentDetailPane {
         self.error = None;
         self.name_draft = None;
         self.instructions_draft = None;
+        self.transcript_draft = None;
+        self.wake_draft = None;
+        self.wake_invalid = None;
         self.fetch_instructions(window, cx);
     }
 
@@ -680,8 +706,213 @@ impl AgentDetailPane {
                     self.commit_instructions(cx);
                 }
             }
+            "voiceTranscript" | "voiceWakePhrase" => self.edited_voice(field, value, commit, cx),
             _ => {}
         }
+    }
+
+    /// #EXP-1847: `voice.get`, once per page (a failed read keeps the
+    /// settings this IDE last received; the next page asks again).
+    fn ensure_member_voice(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.member_voice_requested {
+            return;
+        }
+        let Some(trpc) = queries::trpc_client(cx) else {
+            return;
+        };
+        self.member_voice_requested = true;
+        cx.spawn(async move |this, cx| {
+            let result = cx.background_executor().spawn(async move { api::voice::voice_get(&trpc) }).await;
+            let _ = this.update(cx, |this, cx| match result {
+                Ok(settings) => {
+                    this.member_voice = Some(settings);
+                    cx.notify();
+                }
+                Err(err) => log::debug!("[ui] voice.get for the agent page: {err}"),
+            });
+        })
+        .detach();
+    }
+
+    /// The bench's member voice settings (headless has no server).
+    #[cfg(test)]
+    pub(crate) fn seed_member_voice_for_shots(&mut self, settings: etalk::voice::VoiceSettings, cx: &mut gpui::Context<Self>) {
+        self.member_voice_requested = true;
+        self.member_voice = Some(settings);
+        cx.notify();
+    }
+
+    /// #EXP-1847: the agent's resolved voice (`agentVoiceOf`) against the
+    /// member's voice settings (`voice.get`; until it landed, the settings
+    /// this IDE last received).
+    fn resolved_voice(&self, agent: &AgentDefRow, cx: &App) -> domain::agent_settings::ResolvedAgentVoice {
+        let member = self.member_voice.clone().unwrap_or_else(|| etalk_gpui::speak_replies::settings(cx));
+        let member = domain::agent_settings::MemberVoice {
+            language: member.language(),
+            voice_file: &member.voice_file,
+            voice_transcript: &member.voice_transcript,
+            wake_phrase: &member.wake_phrase,
+        };
+        domain::agent_settings::agent_voice_of(Some(&agent.role), agent.name.as_deref().unwrap_or_default(), &agent.voice, &member)
+    }
+
+    /// #EXP-1847: a Transcript / Wake phrase edit (THE input rule ×4 as it
+    /// is typed); a commit saves a change (`agents.update {voice}`, blank =
+    /// null), a too-short wake phrase stays inline and is never sent.
+    fn edited_voice(&mut self, field: &str, value: String, commit: bool, cx: &mut gpui::Context<Self>) {
+        let wake = field == "voiceWakePhrase";
+        let limits = &domain::agent_settings::AGENT_VOICE.limits;
+        let value = etalk::voice::voice_text_input(&value, if wake { limits.wake_phrase } else { limits.transcript });
+        if wake {
+            self.wake_invalid = None;
+            self.wake_draft = Some(value.clone());
+        } else {
+            self.transcript_draft = Some(value.clone());
+        }
+        cx.notify();
+        if !commit {
+            return;
+        }
+        let Some(agent) = self.loaded_agent.clone().and_then(|id| crate::session_data::agent_def(&id, cx)) else {
+            return;
+        };
+        let team_id = agent.team_id.clone().or_else(|| active_team_id(&self.nav, cx)).unwrap_or_default();
+        if !self.editor(&agent, &team_id, cx) {
+            return;
+        }
+        let trimmed = value.trim().to_string();
+        if wake {
+            if let Some(invalid) = etalk::voice::wake_phrase_error(&trimmed) {
+                self.wake_invalid = Some(invalid);
+                return;
+            }
+        }
+        let resolved = self.resolved_voice(&agent, cx);
+        let current = if wake { &resolved.wake_phrase } else { &resolved.transcript };
+        if trimmed == current.trim() {
+            return;
+        }
+        let next = (!trimmed.is_empty()).then_some(trimmed);
+        let patch = if wake {
+            api::agents::VoicePatch { wake_phrase: Some(next), ..Default::default() }
+        } else {
+            api::agents::VoicePatch { transcript: Some(next), ..Default::default() }
+        };
+        update_agent(cx, "save", "the agent's voice", api::agents::UpdateInput { voice: Some(patch), ..api::agents::UpdateInput::new(agent.id) });
+    }
+
+    /// #EXP-1847: the clip row's press: the host's file picker (one file),
+    /// then the upload.
+    fn pick_voice_clip(&mut self, agent_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.clip_busy {
+            return;
+        }
+        let receiver = crate::file_picker::prompt_for_paths(cx, gpui::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some(domain::agent_settings::AGENT_VOICE.copy.clip_upload.clone().into()),
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            // Receiver error = dialog dismissed/unsupported; None = cancelled.
+            let Ok(Ok(Some(paths))) = receiver.await else {
+                return;
+            };
+            let Some(path) = paths.into_iter().next() else {
+                return;
+            };
+            let _ = this.update_in(cx, |this, _, cx| this.upload_voice_clip(agent_id, path, cx));
+        })
+        .detach();
+    }
+
+    /// One multipart `file` (a WAV, `clipUpload`) to the agent's clip
+    /// route; the shape echoes the new clip. A refused file or a failed
+    /// upload toasts (`copy.errors`), the latter with a Retry.
+    fn upload_voice_clip(&mut self, agent_id: String, path: std::path::PathBuf, cx: &mut gpui::Context<Self>) {
+        if self.clip_busy {
+            return;
+        }
+        let Some(transport) = queries::http_attachment_transport(cx) else {
+            crate::action_error::failed_action("upload", "the voice clip", None, cx);
+            return;
+        };
+        self.clip_busy = true;
+        cx.notify();
+        let (send_agent, send_path) = (agent_id.clone(), path.clone());
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    let (filename, content_type, bytes) = crate::markdown::image_paste::read_any_file(&send_path)?;
+                    if let Some(refusal) = domain::agent_settings::agent_voice_clip_refusal(&filename, &content_type, bytes.len() as u64) {
+                        return Err(anyhow::anyhow!(refusal));
+                    }
+                    let accept = &domain::agent_settings::AGENT_VOICE.clip_upload.accept;
+                    let content_type = if accept.iter().any(|accepted| accepted.eq_ignore_ascii_case(&content_type)) { content_type } else { accept[0].clone() };
+                    transport.upload_agent_voice_clip(&send_agent, &filename, &content_type, &bytes).map(|_| ())
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.clip_busy = false;
+                if let Err(err) = result {
+                    log::warn!("[ui] voice clip upload failed: {err}");
+                    let message = err.to_string();
+                    let errors = &domain::agent_settings::AGENT_VOICE.copy.errors;
+                    if message == errors.clip_type || message == errors.clip_size {
+                        crate::action_error::failed_action("upload", "the voice clip", Some(message), cx);
+                    } else {
+                        let pane = cx.entity().downgrade();
+                        crate::action_error::failed_action_with_retry(
+                            "upload",
+                            "the voice clip",
+                            crate::action_error::description_of(&message),
+                            move |_, cx| {
+                                let _ = pane.update(cx, |this, cx| this.upload_voice_clip(agent_id.clone(), path.clone(), cx));
+                            },
+                            cx,
+                        );
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// The clip's Remove: `DELETE` on its route; the echo clears the row.
+    fn remove_voice_clip(&mut self, agent_id: String, cx: &mut gpui::Context<Self>) {
+        if self.clip_busy {
+            return;
+        }
+        let Some(transport) = queries::http_attachment_transport(cx) else {
+            crate::action_error::failed_action("remove", "the voice clip", None, cx);
+            return;
+        };
+        self.clip_busy = true;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let send_agent = agent_id.clone();
+            let result = cx.background_executor().spawn(async move { transport.delete_agent_voice_clip(&send_agent) }).await;
+            let _ = this.update(cx, |this, cx| {
+                this.clip_busy = false;
+                if let Err(err) = result {
+                    log::warn!("[ui] voice clip removal failed: {err}");
+                    let pane = cx.entity().downgrade();
+                    crate::action_error::failed_action_with_retry(
+                        "remove",
+                        "the voice clip",
+                        crate::action_error::description_of(&err.to_string()),
+                        move |_, cx| {
+                            let _ = pane.update(cx, |this, cx| this.remove_voice_clip(agent_id.clone(), cx));
+                        },
+                        cx,
+                    );
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// The Delete confirm: the fixture's `deleteConfirm`, a Danger answer
@@ -774,6 +1005,13 @@ impl AgentDetailPane {
             "model" if !value.is_empty() && agent.model.as_deref() != Some(value.as_str()) => {
                 update_agent(cx, "change", "the agent's model", api::agents::UpdateInput { model: Some(Some(value)), ..api::agents::UpdateInput::new(agent_id) })
             }
+            // #EXP-1847: the agent's own voice.
+            "voiceLanguage" if picked && !value.is_empty() && value != self.resolved_voice(&agent, cx).language => {
+                let patch = api::agents::VoicePatch { language: Some(Some(value)), ..Default::default() };
+                update_agent(cx, "save", "the agent's voice", api::agents::UpdateInput { voice: Some(patch), ..api::agents::UpdateInput::new(agent_id) })
+            }
+            "voiceClip" => self.pick_voice_clip(agent_id, window, cx),
+            "voiceClipRemove" if agent.voice.clip_id.is_some() => self.remove_voice_clip(agent_id, cx),
             "retry" => self.fetch_instructions(window, cx),
             "delete" => Self::open_delete_dialog(agent_id, window, cx),
             _ => {}
@@ -837,6 +1075,13 @@ impl AgentDetailPane {
             InstructionsLoad::Ready(text) => self.instructions_draft.clone().unwrap_or_else(|| text.clone()),
             _ => String::new(),
         };
+        // #EXP-1847: the agent's own voice, resolved against the member's.
+        let voice = self.resolved_voice(agent, cx);
+        let voice_copy = &domain::agent_settings::AGENT_VOICE.copy;
+        let transcript = self.transcript_draft.clone().unwrap_or_else(|| voice.transcript.clone());
+        let wake_phrase = self.wake_draft.clone().unwrap_or_else(|| voice.wake_phrase.clone());
+        let read_text = |text: &str, placeholder: String| if text.is_empty() { json!({"shown": placeholder, "empty": true}) } else { json!({"shown": text, "empty": false}) };
+        let agent_name = agent.name.clone().unwrap_or_default();
         json!({
             "assistant": assistant,
             "agentPage": !assistant,
@@ -844,7 +1089,15 @@ impl AgentDetailPane {
             "member": !owner,
             "icon": agent.icon.clone().unwrap_or_else(|| defaults.icon.clone()),
             "color": agent.color.clone().unwrap_or_else(|| defaults.color.clone()),
-            "fields": {"name": self.name_draft.clone().unwrap_or_else(|| agent.name.clone().unwrap_or_default()), "instructions": instructions_text},
+            "fields": {"name": self.name_draft.clone().unwrap_or_else(|| agent.name.clone().unwrap_or_default()), "instructions": instructions_text, "voiceTranscript": transcript, "voiceWakePhrase": wake_phrase},
+            "voiceLanguage": {"value": voice.language, "options": etalk::voice::VOICE.languages.iter().map(|language| json!({"label": etalk::voice::language_label(&language.value, None), "value": language.value})).collect::<Vec<_>>()},
+            "voice": {
+                "clip": {"label": voice.clip_label, "pick": owner && !self.clip_busy, "read": !owner || self.clip_busy, "removable": owner && !self.clip_busy && agent.voice.clip_id.is_some()},
+                "voiceTranscript": read_text(&transcript, voice_copy.transcript_placeholder.clone()),
+                "voiceWakePhrase": read_text(&wake_phrase, domain::agent_settings::agent_wake_phrase_placeholder(&agent_name)),
+                "wakeInvalid": self.wake_invalid.clone().unwrap_or_default(),
+                "hasWakeInvalid": self.wake_invalid.is_some(),
+            },
             "device": {"value": agent.device_id.clone().unwrap_or_default(), "options": device_options},
             "account": {"has": current.is_some(), "none": current.is_none(), "value": current.as_ref().map(|option| option.account_option_key()).unwrap_or_default(), "options": logins},
             "skills": {"value": picked.iter().map(|skill| skill.id.as_str()).collect::<Vec<_>>().join(","), "summary": domain::skills::agent_skills_value(&names), "empty": names.is_empty(), "some": !names.is_empty(),
@@ -890,16 +1143,30 @@ impl Render for AgentDetailPane {
         self.sync_selected_agent(&agent, window, cx);
         let team_id = agent.team_id.clone().or_else(|| active_team_id(&self.nav, cx)).unwrap_or_default();
         self.ensure_mcp_loaded(&team_id, cx);
+        self.ensure_member_voice(cx);
+        // #EXP-1847: the wake phrase's placeholder names the agent (a
+        // static prop): a renamed agent rebuilds the tree.
+        let placeholder = domain::agent_settings::agent_wake_phrase_placeholder(agent.name.as_deref().unwrap_or_default());
+        if placeholder != self.wake_placeholder {
+            let tree: eui_core::NestedNode = serde_json::from_value(document(&Ink::of(cx), &Chrome::of(cx), &placeholder)).expect("the agent document parses");
+            self.view.update(cx, |view, cx| {
+                view.set_nested(tree, cx);
+            });
+            self.wake_placeholder = placeholder;
+        }
         let projection = self.project(&agent, &team_id, cx);
         self.binding.update(cx, |binding, cx| binding.update_state(|state| *state = projection, cx));
         let page = div().w_full().min_w_0().child(self.view.clone());
         if !agent.is_assistant() {
             return page.into_any_element();
         }
-        // S-3: the Voice block (its own document) right under the page's
-        // Voice band; the form's error after it.
+        // S-3: the Assistant's member voice block (its own document: push to
+        // talk, wake word, meetings) right under the page's Voice group; the
+        // form's error after it.
         let voice = self.voice.get_or_insert_with(|| cx.new(|cx| super::voice_prefs::VoicePrefsPane::assistant(window, cx))).clone();
-        let mut column = v_flex().w_full().min_w_0().child(page).child(voice);
+        // The page's own gap (`gap_4`) above the member block.
+        let gap = gpui::px(Ink::of(cx).r(1.));
+        let mut column = v_flex().w_full().min_w_0().child(page).child(div().w_full().min_w_0().pt(gap).child(voice));
         if let Some(message) = self.error.clone() {
             column = column.child(div().pt_4().child(crate::action_error::field_error(message, cx).px_1()));
         }
@@ -1022,11 +1289,11 @@ fn banded(ink: &Ink, id: &str, label: &str, group: Value) -> Value {
 }
 
 /// The pane's tree (`gap_4`, #EXP-1846 `page`): identity; Runs on; the
-/// Triggers list; the Voice band (the Assistant's; its block follows the
-/// document); Instructions, the error and the owner's Delete (team agents).
-fn document(ink: &Ink, chrome: &Chrome) -> Value {
+/// Triggers list; Voice (#EXP-1847: every agent's rows; the Assistant's
+/// member block follows the document); Instructions, the error and the
+/// owner's Delete (team agents).
+fn document(ink: &Ink, chrome: &Chrome, wake_placeholder: &str) -> Value {
     let copy = &AGENT_SETTINGS.copy;
-    let assistant_copy = &domain::agent_settings::ASSISTANT.copy;
     // Identity: the team agent's icon + colour + name, or the Assistant's mark + name.
     let mut agent_identity = identity(ink);
     agent_identity["visible"] = path("/pane/agentPage");
@@ -1049,8 +1316,10 @@ fn document(ink: &Ink, chrome: &Chrome) -> Value {
     runs_on.extend(divided(ink, skills_read));
     runs_on.extend(divided(ink, mcp_pick));
     runs_on.extend(divided(ink, mcp_read));
-    let mut voice = ink.band("voice_band", &assistant_copy.voice, None);
-    voice["visible"] = path("/pane/assistant");
+    let voice_copy = &domain::agent_settings::AGENT_VOICE.copy;
+    let wake_invalid = field_error(ink, chrome, "voice_wake_invalid", path("/pane/voice/wakeInvalid"), path("/pane/voice/hasWakeInvalid"));
+    let voice = json!({"id": "voice", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%"},
+        "children": [ink.band("voice_band", &voice_copy.label, None), ink.group("voice_group", voice_rows(ink, chrome, wake_placeholder)), wake_invalid]});
     let error = field_error(ink, chrome, "error", path("/pane/error"), path("/pane/hasError"));
     let size = ink.r(SM);
     let delete = json!({"id": "delete", "component": "Box", "visible": path("/pane/canDelete"), "props": {"pressable": true}, "accessibility": {"label": field_label("delete")}, "on": {"press": {"event": {"name": "delete"}}},
@@ -1079,12 +1348,43 @@ mod tests {
     /// refuses (#EXP-1767's class).
     #[test]
     fn the_document_raises_no_unexpected_issue() {
-        let tree = document(&super::super::readiness::tests::test_ink(), &Chrome::test());
+        let tree = document(&super::super::readiness::tests::test_ink(), &Chrome::test(), "Hey Sloppy");
         let bound = super::super::doc::bound_values(&tree);
         let mut surface = eui_core::surface::Surface::new("settings-agent", Default::default());
         let outcome = surface.set_nested(serde_json::from_value(tree).expect("parses"));
         let issues = super::super::doc::unexpected_issues(&bound, &outcome.issues);
         assert!(issues.is_empty(), "{issues:?}");
+    }
+
+    /// Every id in a document tree.
+    fn ids(node: &Value, out: &mut Vec<String>) {
+        if let Some(id) = node.get("id").and_then(Value::as_str) {
+            out.push(id.to_string());
+        }
+        for child in node.get("children").and_then(Value::as_array).into_iter().flatten() {
+            ids(child, out);
+        }
+    }
+
+    /// #EXP-1847: every agent's page carries the Voice band with its four
+    /// rows in the fixture's order (no longer Assistant-only), the wake
+    /// phrase's placeholder naming the agent.
+    #[test]
+    fn every_agent_page_has_the_voice_rows() {
+        let tree = document(&super::super::readiness::tests::test_ink(), &Chrome::test(), "Hey Sloppy");
+        let mut found = Vec::new();
+        ids(&tree, &mut found);
+        let voice = tree["children"].as_array().unwrap().iter().find(|node| node["id"] == "voice").expect("the voice section");
+        assert!(voice.get("visible").is_none(), "shown for every agent");
+        let order: Vec<usize> = ["voice_band", "voice_language", "voice_clip", "voice_transcript", "voice_wake_phrase"]
+            .iter()
+            .map(|id| found.iter().position(|found| found == id).unwrap_or_else(|| panic!("{id}")))
+            .collect();
+        assert!(order.windows(2).all(|pair| pair[0] < pair[1]), "{order:?}");
+        assert!(found.iter().any(|id| id == "voice_clip_remove"));
+        let wake = serde_json::to_string(&tree).unwrap();
+        assert!(wake.contains("\"placeholder\":\"Hey Sloppy\""));
+        assert!(wake.contains(&domain::agent_settings::AGENT_VOICE.copy.transcript_placeholder));
     }
 
     fn option(agent: &str, id: &str, is_last_used: bool) -> coding::AccountOption {

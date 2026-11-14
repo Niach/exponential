@@ -1326,6 +1326,10 @@ pub struct AgentDefRow {
     /// #EXP-1793 (agent-settings.json `mcpRow`): the team MCP servers every
     /// run of this agent starts with (jsonb `string[]`, default `[]`).
     pub mcp_server_ids: Vec<String>,
+    /// #EXP-1847 (agent-settings.json `voice`): the agent's own voice
+    /// (jsonb `{language?, clipId?, clipName?, transcript?, wakePhrase?}`,
+    /// `{}` / null / garbage = the member's).
+    pub voice: crate::agent_settings::AgentVoice,
     pub owner_id: Option<String>,
     pub sort_order: Option<f64>,
     /// S-3: contract `agentRole` (`assistant` | `agent`); an old row without
@@ -1363,6 +1367,8 @@ struct AgentDefWire {
     skill_ids: Vec<String>,
     #[serde(default, deserialize_with = "tolerant_id_list")]
     mcp_server_ids: Vec<String>,
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    voice: Option<serde_json::Value>,
     #[serde(default)]
     owner_id: Option<String>,
     #[serde(default, deserialize_with = "tolerant_opt_f64")]
@@ -1401,6 +1407,7 @@ impl From<AgentDefWire> for AgentDefRow {
             model,
             skill_ids: wire.skill_ids,
             mcp_server_ids: wire.mcp_server_ids,
+            voice: crate::agent_settings::AgentVoice::from_value(wire.voice.as_ref()),
             owner_id: wire.owner_id,
             sort_order: wire.sort_order,
             role: wire.role,

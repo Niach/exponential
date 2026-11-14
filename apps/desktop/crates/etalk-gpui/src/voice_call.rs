@@ -446,9 +446,12 @@ impl VoiceCall {
         if crate::speak_replies::speaking(cx).is_some() {
             crate::speak_replies::stop(cx);
         }
+        // #EXP-1847: the call speaks with the agent's own voice (its language,
+        // its clip), prepared before the greeting.
+        let language = crate::speak_replies::voice_of(&agent_id, cx).language;
+        crate::speak_replies::use_voice_of(&agent_id, cx);
         let id = self.open(agent_id, host, cx);
         let remote = self.active.as_ref().is_some_and(|active| active.host.is_some());
-        let language = crate::speak_replies::settings(cx).language().to_string();
         self.step(CallEvent::Start { device: device.unwrap_or_default(), language: Some(language.clone()) }, cx);
         // S-3: a LOCAL call rings on this device while the worker warms up;
         // a remote one rings on the caller (the host's `rang` follows).

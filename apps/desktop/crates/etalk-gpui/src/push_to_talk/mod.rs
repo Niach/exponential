@@ -475,9 +475,12 @@ impl PushToTalk {
     fn sync_wake(&mut self, cx: &mut Context<Self>) {
         let wanted = match self.armed.as_ref() {
             Some(armed) if self.worker_ready && !self.muted => armed.wake_phrase.as_ref().and_then(|phrase| {
-                let settings = VoiceSettings { wake_phrase: phrase.clone(), ..Default::default() };
+                // #EXP-1847: the voice agent's own phrase (the Assistant's) wins.
+                let phrase = host::wake_phrase_of(Some(&armed.agent_id), phrase, cx);
+                let settings = VoiceSettings { wake_phrase: phrase, ..Default::default() };
                 let phrase = etalk::voice::wake_phrase(&settings, self.agent_label(cx).as_deref())?;
-                Some((phrase, armed.language.clone()))
+                // #EXP-1847: the wake turn is heard in the voice agent's language.
+                Some((phrase, host::language_of(&armed.agent_id, &armed.language, cx)))
             }),
             _ => None,
         };
@@ -563,7 +566,8 @@ impl PushToTalk {
         }
         self.counter += 1;
         let id = format!("ptt-{}", self.counter);
-        client.listen(id.clone(), armed.language);
+        // #EXP-1847: the turn is heard in the voice agent's own language.
+        client.listen(id.clone(), host::language_of(&armed.agent_id, &armed.language, cx));
         self.utterance = Some(id);
         self.level = 0.;
         self.bands.clear();

@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use etalk::meeting::{AudioApp, DesktopAudioCapability, MeetingStopReason};
-use etalk::voice::{UtteranceTarget, VoiceMessage};
+use etalk::voice::{UtteranceTarget, VoiceMessage, VoiceSettings};
 use gpui::{App, Global, Task};
 use gpui_component::Icon;
 
@@ -46,6 +46,31 @@ pub struct TalkAgent {
     /// Its icon and `#rrggbb` colour (the call's avatar).
     pub icon: Option<String>,
     pub color: Option<String>,
+}
+
+/// #EXP-1847 (agent-settings.json `voice`): the voice one agent speaks
+/// with on this device, resolved against the member's settings.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AgentVoice {
+    /// What the worker is prepared with: the language, a LOCAL clip path
+    /// (empty = the built-in voice) and its transcript.
+    pub voice: etalk::VoiceChoice,
+    /// The wake phrase (empty = `Hey {agent}`).
+    pub wake_phrase: String,
+}
+
+impl AgentVoice {
+    /// The member's own voice (a host without per-agent voices).
+    pub fn member(settings: &VoiceSettings) -> Self {
+        Self {
+            voice: etalk::VoiceChoice {
+                language: settings.language().to_string(),
+                file: settings.voice_file.clone(),
+                transcript: settings.voice_transcript.clone(),
+            },
+            wake_phrase: settings.wake_phrase.clone(),
+        }
+    }
 }
 
 /// One message row of the host's conversations, borrowed while talk reads it.
@@ -192,6 +217,15 @@ pub trait TalkHost: 'static {
     fn accounts(&self, cx: &App) -> SignedIn;
     /// An agent by id.
     fn agent(&self, agent_id: &str, cx: &App) -> Option<TalkAgent>;
+    /// #EXP-1847: the voice `agent_id` speaks with here, resolved against
+    /// the member's `settings` (None = the member's own: a host without
+    /// per-agent voices, or an unknown agent). A clip still on its way is
+    /// the built-in voice; the host calls [`crate::agents_changed`] once it
+    /// landed.
+    fn agent_voice(&self, agent_id: &str, settings: &VoiceSettings, cx: &App) -> Option<AgentVoice> {
+        let _ = (agent_id, settings, cx);
+        None
+    }
     /// The member's conversation with the agent (None = none yet).
     fn conversation(&self, agent_id: &str, cx: &App) -> Option<String>;
     /// Visit every message row the host holds; answers whether they have
@@ -262,6 +296,28 @@ pub(crate) fn account(cx: &App) -> Option<String> {
 
 pub(crate) fn agent(agent_id: &str, cx: &App) -> Option<TalkAgent> {
     host(cx)?.agent(agent_id, cx)
+}
+
+/// #EXP-1847: the voice `agent_id` speaks with here (the member's when the
+/// host has none for it, or no agent is named).
+pub(crate) fn agent_voice(agent_id: Option<&str>, settings: &VoiceSettings, cx: &App) -> AgentVoice {
+    agent_id
+        .and_then(|agent_id| host(cx)?.agent_voice(agent_id, settings, cx))
+        .unwrap_or_else(|| AgentVoice::member(settings))
+}
+
+/// #EXP-1847: the wake phrase `agent_id` listens for, from the member's
+/// stored phrase `stored` (the Assistant's own wins; empty = `Hey {agent}`).
+pub(crate) fn wake_phrase_of(agent_id: Option<&str>, stored: &str, cx: &App) -> String {
+    let member = VoiceSettings { wake_phrase: stored.to_string(), ..Default::default() };
+    agent_voice(agent_id, &member, cx).wake_phrase
+}
+
+/// #EXP-1847: the language `agent_id` is heard (and speaks) in, from the
+/// member's `member_language`: an English agent is never heard as German.
+pub(crate) fn language_of(agent_id: &str, member_language: &str, cx: &App) -> String {
+    let member = VoiceSettings { language: member_language.to_string(), ..Default::default() };
+    agent_voice(Some(agent_id), &member, cx).voice.language
 }
 
 pub(crate) fn conversation(agent_id: &str, cx: &App) -> Option<String> {
