@@ -4535,22 +4535,44 @@ impl SteerSessionView {
         }
     }
 
-    /// Add clipboard / picked images to the draft — the shared composer
-    /// strip's rules (type + 10 MB + at most `MAX_STEER_IMAGES`, an
-    /// `[Image #k]` marker at the caret per image; EXP-698/EXP-825).
-    fn stage_images(
+    /// Add clipboard / picked / dropped files to the draft — the shared
+    /// composer strip's rules (#EXP-1841 `domain::composer_attachments`,
+    /// the launch composer's exactly): an `[Image #k]` marker per image at
+    /// the DRAWN field's caret (the document's Composer; the hidden draft
+    /// state's caret is never moved), four images and four files.
+    pub(crate) fn stage_images(
         &mut self,
         images: Vec<composer_images::StagedFile>,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        self.notice = self.pending_images.stage(images, &self.input, window, cx);
+        let Some((text, caret)) = self.composer_doc.field_draft(cx) else {
+            self.notice = self.pending_images.stage(images, &self.input, window, cx);
+            cx.notify();
+            return;
+        };
+        let outcome = self.pending_images.stage_text(images, &text, caret);
+        self.notice = outcome.notice;
+        if let Some((at, inserted)) = outcome.inserted {
+            if self.composer_doc.insert_at(at, &inserted, outcome.text.clone(), window, cx) {
+                chat_tab_composer::mirror_draft(&self.input, outcome.text, window, cx);
+            }
+        }
         cx.notify();
     }
 
-    /// Drop a staged image and renumber the draft's markers behind it.
+    /// Drop a staged entry and renumber the draft's markers behind it, in
+    /// the drawn field even while it has the focus (#EXP-1841).
     fn remove_pending(&mut self, key: u64, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        self.pending_images.remove(key, &self.input, window, cx);
+        let Some((text, _)) = self.composer_doc.field_draft(cx) else {
+            self.pending_images.remove(key, &self.input, window, cx);
+            cx.notify();
+            return;
+        };
+        if let Some(next) = self.pending_images.drop_text(key, &text) {
+            self.composer_doc.assign_draft(next.clone(), cx);
+            chat_tab_composer::mirror_draft(&self.input, next, window, cx);
+        }
         cx.notify();
     }
 

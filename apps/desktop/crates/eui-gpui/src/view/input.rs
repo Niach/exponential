@@ -420,6 +420,31 @@ impl SurfaceView {
         true
     }
 
+    /// #EXP-1841: field `id`'s caret, a byte offset into its text (a host
+    /// that drops text at the caret: a composer's `[Image #N]`).
+    pub fn field_caret(&self, id: &str, cx: &App) -> Option<usize> {
+        match &self.fields.get(id)?.input {
+            FieldInput::Line(s) => Some(s.read(cx).cursor()),
+            FieldInput::Multi(s) => Some(s.read(cx).cursor()),
+        }
+    }
+
+    /// #EXP-1841: insert `text` into field `id` at byte offset `at` through
+    /// the platform text-input entry point (a typed edit: its change, undo
+    /// and caret behind the insertion); it never focuses the field.
+    pub fn insert_into_field(&mut self, id: &str, at: usize, text: &str, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        use gpui::EntityInputHandler as _;
+        let Some(f) = self.fields.get(id) else { return false };
+        let value = f.value(cx);
+        let Some(before) = value.get(..at) else { return false };
+        let at = before.encode_utf16().count();
+        match &f.input {
+            FieldInput::Line(s) => s.update(cx, |s, cx| s.replace_text_in_range(Some(at..at), text, window, cx)),
+            FieldInput::Multi(s) => s.update(cx, |s, cx| s.replace_text_in_range(Some(at..at), text, window, cx)),
+        }
+        true
+    }
+
     /// What field `id` does on gaining focus, for automation and tests (a test
     /// window has no native view for a really focused input).
     pub fn field_gained_focus(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
