@@ -1498,7 +1498,7 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
   }, {
     // #EXP-1837: the phones' floating action button (web's FabButton): a
     // 52 px glass circle, icon-only, its glyph at secondary emphasis.
-    label: `variant · fab, icon`,
+    label: `variant · fab`,
     node: { id: `fab`, component: `Button`, props: { label: `New issue`, icon: `ui-add`, variant: `fab` } },
   }, {
     // #EXP-1813: a Button is a flex item like any other: a stretch column (a
@@ -1719,7 +1719,11 @@ function prefixIds(node: NestedNode, prefix: string): NestedNode {
 function specimenCases(name: string, all: ComponentCase[]): { label: string; node: NestedNode }[] {
   // The extras are authored whole: their wrapper Box/Stack must keep its own
   // children, not the component's demo children (specimenContent).
-  const generated = generatedCases(name, all).map((c) => ({ ...c, node: specimenContent(c.node) }))
+  const generated = generatedCases(name, all)
+    // #EXP-1837: a fab is icon-only, so the icon-less enum case would only
+    // draw each renderer's empty-glyph fallback; the extra shows it with one.
+    .filter((c) => !(name === `Button` && c.node.props?.variant === `fab`))
+    .map((c) => ({ ...c, node: specimenContent(c.node) }))
   return [...generated, ...(SPECIMEN_EXTRA[name] ?? [])]
 }
 

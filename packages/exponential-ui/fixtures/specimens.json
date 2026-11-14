@@ -10416,7 +10416,7 @@
                 "id": "specimen_button_case_6_label",
                 "component": "Text",
                 "props": {
-                  "text": "variant · fab",
+                  "text": "size · sm",
                   "variant": "caption"
                 }
               },
@@ -10425,7 +10425,8 @@
                 "component": "Button",
                 "props": {
                   "label": "Submit",
-                  "variant": "fab"
+                  "variant": "default",
+                  "size": "sm"
                 }
               }
             ]
@@ -10443,17 +10444,18 @@
                 "id": "specimen_button_case_7_label",
                 "component": "Text",
                 "props": {
-                  "text": "size · sm",
+                  "text": "hold · true",
                   "variant": "caption"
                 }
               },
               {
-                "id": "c7_button",
+                "id": "c7_talk",
                 "component": "Button",
                 "props": {
-                  "label": "Submit",
-                  "variant": "default",
-                  "size": "sm"
+                  "label": "Hold to talk",
+                  "icon": "call-mute",
+                  "hold": true,
+                  "holdingLabel": "Holding…"
                 }
               }
             ]
@@ -10471,19 +10473,41 @@
                 "id": "specimen_button_case_8_label",
                 "component": "Text",
                 "props": {
-                  "text": "hold · true",
+                  "text": "size · icon-xs, tone · muted",
                   "variant": "caption"
                 }
               },
               {
-                "id": "c8_talk",
-                "component": "Button",
+                "id": "c8_icon_xs",
+                "component": "Stack",
                 "props": {
-                  "label": "Hold to talk",
-                  "icon": "call-mute",
-                  "hold": true,
-                  "holdingLabel": "Holding…"
-                }
+                  "direction": "horizontal",
+                  "gap": "sm",
+                  "align": "center"
+                },
+                "children": [
+                  {
+                    "id": "c8_tool",
+                    "component": "Button",
+                    "props": {
+                      "label": "Add",
+                      "icon": "ui-add",
+                      "variant": "ghost",
+                      "size": "icon-xs",
+                      "tone": "muted"
+                    }
+                  },
+                  {
+                    "id": "c8_dismiss",
+                    "component": "Button",
+                    "props": {
+                      "label": "Dismiss",
+                      "icon": "ui-close",
+                      "variant": "ghost",
+                      "size": "icon-xs"
+                    }
+                  }
+                ]
               }
             ]
           },
@@ -10500,41 +10524,18 @@
                 "id": "specimen_button_case_9_label",
                 "component": "Text",
                 "props": {
-                  "text": "size · icon-xs, tone · muted",
+                  "text": "variant · fab",
                   "variant": "caption"
                 }
               },
               {
-                "id": "c9_icon_xs",
-                "component": "Stack",
+                "id": "c9_fab",
+                "component": "Button",
                 "props": {
-                  "direction": "horizontal",
-                  "gap": "sm",
-                  "align": "center"
-                },
-                "children": [
-                  {
-                    "id": "c9_tool",
-                    "component": "Button",
-                    "props": {
-                      "label": "Add",
-                      "icon": "ui-add",
-                      "variant": "ghost",
-                      "size": "icon-xs",
-                      "tone": "muted"
-                    }
-                  },
-                  {
-                    "id": "c9_dismiss",
-                    "component": "Button",
-                    "props": {
-                      "label": "Dismiss",
-                      "icon": "ui-close",
-                      "variant": "ghost",
-                      "size": "icon-xs"
-                    }
-                  }
-                ]
+                  "label": "New issue",
+                  "icon": "ui-add",
+                  "variant": "fab"
+                }
               }
             ]
           },
@@ -10551,40 +10552,12 @@
                 "id": "specimen_button_case_10_label",
                 "component": "Text",
                 "props": {
-                  "text": "variant · fab, icon",
-                  "variant": "caption"
-                }
-              },
-              {
-                "id": "c10_fab",
-                "component": "Button",
-                "props": {
-                  "label": "New issue",
-                  "icon": "ui-add",
-                  "variant": "fab"
-                }
-              }
-            ]
-          },
-          {
-            "id": "specimen_button_case_11",
-            "component": "Stack",
-            "props": {
-              "direction": "vertical",
-              "gap": "xs",
-              "align": "start"
-            },
-            "children": [
-              {
-                "id": "specimen_button_case_11_label",
-                "component": "Text",
-                "props": {
                   "text": "in a stretch column",
                   "variant": "caption"
                 }
               },
               {
-                "id": "c11_stretch",
+                "id": "c10_stretch",
                 "component": "Stack",
                 "props": {
                   "direction": "vertical",
@@ -10595,7 +10568,7 @@
                 },
                 "children": [
                   {
-                    "id": "c11_add",
+                    "id": "c10_add",
                     "component": "Button",
                     "props": {
                       "label": "Add secret",
