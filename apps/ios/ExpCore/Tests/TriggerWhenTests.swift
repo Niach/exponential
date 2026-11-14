@@ -59,6 +59,8 @@ final class TriggerWhenTests: XCTestCase {
         XCTAssertNil(TriggerWhen.parse("not json"))
         XCTAssertNil(TriggerWhen.parse("[1,2,3]"))
         XCTAssertNil(TriggerWhen.parse(#"{"kind":"webhook"}"#))
+        XCTAssertNil(TriggerWhen.parse(#"{"kind":"record","record":"task"}"#))
+        XCTAssertNil(TriggerWhen.parse(#"{"kind":"someday","name":"x"}"#))
         XCTAssertNil(TriggerWhen.parse(#"{"kind":"schedule"}"#))
         XCTAssertNil(TriggerWhen.parse(#"{"kind":"schedule","cron":""}"#))
         XCTAssertNil(TriggerWhen.parse(#"{"kind":"schedule","cron":7}"#))
@@ -181,11 +183,11 @@ final class TriggerWhenTests: XCTestCase {
         XCTAssertEqual(existing.removing(id: "a").map(\.id), ["b"])
     }
 
-    // #EXP-1846: a kind this build can't read (#EXP-1848's `record`) is
-    // never a row, yet every whole-array write sends it back byte for byte;
-    // a readable trigger keeps its unknown extra keys.
+    // #EXP-1846: a kind this build can't read (one newer than #EXP-1850's
+    // four) is never a row, yet every whole-array write sends it back byte
+    // for byte; a readable trigger keeps its unknown extra keys.
     func testWritesKeepUnreadableTriggersAndExtraKeys() throws {
-        let record = #"{"enabled":true,"id":"x","kind":"record","op":"insert","record":"orders"}"#
+        let record = #"{"enabled":true,"id":"x","kind":"someday","when":"later"}"#
         let raw = #"[{"id":"ev","kind":"event","name":"issue.created","prompt":"Triage it"},"# + record + "]"
         let triggers = AgentTrigger.parseList(raw)
         XCTAssertEqual(triggers.map(\.id), ["ev"])
@@ -214,6 +216,37 @@ final class TriggerWhenTests: XCTestCase {
         // The written array reads back as the same rows and kept objects.
         XCTAssertEqual(AgentTrigger.unreadableList(toggled), unreadable)
         XCTAssertEqual(AgentTrigger.parseList(toggled).first?.extra, ["prompt": .string("Triage it")])
+    }
+
+    // #EXP-1850: record and webhook triggers are READ (rows, no editor) and
+    // their `run` / `prompt` ride along on every write.
+    func testReadsRecordAndWebhookTriggersAndKeepsTheirRun() throws {
+        let raw = #"""
+        [{"id":"r","enabled":true,"kind":"record","record":"request","op":"create","run":{"records":{"op":"upsert","kind":"log","data":{}}}},
+         {"id":"w","enabled":false,"kind":"webhook","name":"stripe","prompt":"Check the payment"}]
+        """#
+        let triggers = AgentTrigger.parseList(raw)
+        XCTAssertEqual(triggers.map(\.when), [
+            .record(RecordTrigger(record: "request", op: "create")),
+            .webhook(WebhookTrigger(name: "stripe")),
+        ])
+        XCTAssertEqual(AgentTrigger.unreadableList(raw), [])
+        XCTAssertEqual(triggers.map(\.hasEditor), [false, false])
+        XCTAssertEqual(triggers.map(\.summary), ["When a request is created", "When webhook stripe is called · Paused"])
+        XCTAssertEqual(triggers.map(\.detail), ["Runs records.upsert log", nil])
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let toggled = try XCTUnwrap(String(data: encoder.encode(triggers.settingEnabled(id: "w", true)), encoding: .utf8))
+        XCTAssertEqual(AgentTrigger.parseList(toggled).map(\.enabled), [true, true])
+        XCTAssertEqual(AgentTrigger.parseList(toggled).map(\.extra), triggers.map(\.extra))
+        XCTAssertTrue(toggled.contains(#""op":"create","record":"request""#))
+        // An edit of an event keeps its run.
+        let event = AgentTrigger.parseList(#"[{"id":"e","kind":"event","name":"pr.merged","run":{"action":"x"}}]"#)
+        let edited = try XCTUnwrap(String(
+            data: encoder.encode(event.replacing(id: "e", with: AgentTriggerInput(when: created))), encoding: .utf8
+        ))
+        XCTAssertEqual(edited, #"[{"enabled":true,"id":"e","kind":"event","name":"issue.created","run":{"action":"x"}}]"#)
     }
 
     func testSummaryReadsTheAgentSettingsSentence() {

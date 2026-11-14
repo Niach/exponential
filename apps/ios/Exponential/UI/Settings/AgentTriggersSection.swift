@@ -8,9 +8,12 @@ import SwiftUI
 // settings::agent_triggers, Android AgentTriggersSection): the `Triggers`
 // header with the editor's `+ Add` pill trailing, then the Check in row (THE
 // Picker over `assistantSchedules`, value `checkInOf`; no empty-state row),
-// then one row per `listedTriggers` (summary ·
-// switch · ⋯ Edit/Delete; the row opens the editor). Every write replaces
-// the WHOLE array (`agents.update {triggers}`), the Check in tag included.
+// then one row per `listedTriggers` (summary over the muted `triggerDetail`
+// · switch · ⋯ Edit/Delete; the row opens the editor). #EXP-1850: every kind
+// is listed; a record or webhook row has no editor (not tappable, ⋯ =
+// Delete only); an edit keeps the stored `prompt`/`run`. Every write
+// replaces the WHOLE array (`agents.update {triggers, triggerKinds}`), the
+// Check in tag included.
 // The agent page and the app's Events tab (#EXP-1829) mount the same rows.
 
 /// The triggers as the section draws them. The agent page hoists it into
@@ -22,8 +25,8 @@ final class AgentTriggerList {
     /// Stored order. A trigger added before the agent exists (or before the
     /// echo lands) carries a `local-` id and is sent WITHOUT one.
     var triggers: [AgentTrigger] = []
-    /// The stored objects this build can't read (#EXP-1848's `record`,
-    /// `webhook`): never rows, appended unchanged to every write.
+    /// The stored objects this build can't read (a kind newer than the four
+    /// of #EXP-1850): never rows, appended unchanged to every write.
     var unreadable: [AgentTriggerObject] = []
     /// One write at a time: each replaces the whole array.
     var busy = false
@@ -191,19 +194,30 @@ struct AgentTriggersSection: View {
     /// presenter is always the row on screen.
     private func triggerRow(_ trigger: AgentTrigger) -> some View {
         let sentence = AgentSettings.triggerSummary(trigger)
+        let detail = AgentSettings.triggerDetail(trigger)
         return HStack(spacing: 8) {
             Button { editorTarget = EditorTarget(id: trigger.id, trigger: trigger) } label: {
                 HStack(spacing: 0) {
-                    Text(sentence)
-                        .foregroundStyle(.white.opacity(trigger.enabled ? TextOpacity.primary : TextOpacity.tertiary))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(sentence)
+                            .foregroundStyle(.white.opacity(trigger.enabled ? TextOpacity.primary : TextOpacity.tertiary))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        if let detail {
+                            Text(detail)
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
+                    }
                     Spacer(minLength: 0)
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .disabled(!editable)
+            // #EXP-1850: a record or webhook row has no editor.
+            .disabled(!editable || !trigger.hasEditor)
 
             GlassToggleRow(nil, isOn: Binding(
                 get: { trigger.enabled },
@@ -215,8 +229,10 @@ struct AgentTriggersSection: View {
 
             if editable {
                 GlassMenu {
-                    GlassMenuItem("Edit", icon: AppIcons.uiEdit) {
-                        editorTarget = EditorTarget(id: trigger.id, trigger: trigger)
+                    if trigger.hasEditor {
+                        GlassMenuItem("Edit", icon: AppIcons.uiEdit) {
+                            editorTarget = EditorTarget(id: trigger.id, trigger: trigger)
+                        }
                     }
                     GlassMenuItem("Delete", icon: AppIcons.uiDelete, destructive: true) {
                         pendingDelete = trigger

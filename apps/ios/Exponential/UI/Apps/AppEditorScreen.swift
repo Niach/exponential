@@ -12,7 +12,7 @@ import SwiftUI
 /// conversation · New conversation (into the editor session) · App settings
 /// (an opened item) · Export (once the app has a version) · Delete app
 /// (destructive; the creator or an owner). Under the header THE tabs Chat ·
-/// Preview · Data · Versions:
+/// Preview · Data · Events · Versions:
 ///
 /// * Chat = the member's EDITOR SESSION with the app (a root with `app_id` +
 ///   `user_id` = me) as THE chat screen's channel (`ChatScreen` with an
@@ -33,6 +33,9 @@ import SwiftUI
 /// * Data (VAPP-178, app-records.json `dataTab`) = the app's records
 ///   (`AppDataTab`): the kind picker + Add record, one grouped list, the
 ///   form as a sheet.
+///
+/// * Events (#EXP-1850, apps.json `eventsTab`) = the app agent's triggers,
+///   the Webhooks group and Recent runs (`AppEventsTab`).
 ///
 /// * Versions = the versions list (`AppVersionsList`); App settings = the
 ///   `…`'s page (`AppSettingsPage`).
@@ -330,13 +333,20 @@ struct AppEditorScreen: View {
         )
     }
 
-    /// The app tab's body (Preview, Data, Versions); nil = not the editor's.
+    /// The app tab's body (Preview, Data, Events, Versions); nil = not the editor's.
     private func pane(_ app: AppListEntry, _ tab: SessionScreen.Tab) -> AnyView? {
         switch tab {
         case .preview:
             AnyView(preview(app))
         case .data:
             AnyView(AppDataTab(app: app))
+        case .events:
+            // #EXP-1850: the app agent's triggers, Webhooks, Recent runs.
+            AnyView(AppEventsTab(
+                app: app,
+                canManage: model.canManage(userId: deps.auth.userId),
+                onOpenChat: { tab = .chat }
+            ))
         case .versions:
             AnyView(AppVersionsList(
                 model: model,
@@ -749,17 +759,8 @@ struct AppSettingsPage: View {
     @State private var teamSlug: String?
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
-    /// #VAPP-220: the published package's automations (`appAccess.appTools`).
-    @State private var automations: [AppAutomationWire] = []
-    /// #VAPP-238: the published package's webhooks and `canToggle` (owner).
-    @State private var hooks: [AppHookWire] = []
+    /// #VAPP-241: `canToggle` (owner) of `appAccess.appTools`.
     @State private var canToggle = false
-    /// A minted / rotated secret, by hook name: shown ONCE, in this sheet's
-    /// memory only (never refetched; gone when the sheet closes).
-    @State private var hookSecrets: [String: String] = [:]
-    @State private var hookBusy: String?
-    @State private var rotateTarget: String?
-    @State private var showRotate = false
     /// VAPP-241: the published package's public links (`appAccess.appTools`).
     @State private var shares: [AppShareWire] = []
     @State private var shareBusy: String?
@@ -785,24 +786,11 @@ struct AppSettingsPage: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(Apps.TestIds.settings)
         .onAppear { seed() }
-        // #VAPP-220: refetched when the app or its published version changes.
-        .task(id: automationsKey) { await loadAutomations() }
+        // Refetched when the app or its published version changes.
+        .task(id: toolsKey) { await loadTools() }
         // #VAPP-243: back from the browser's Connect = re-read my accounts.
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { Task { await loadAutomations() } }
-        }
-        .background {
-            Color.clear
-                .frame(width: 0, height: 0)
-                .allowsHitTesting(false)
-                .glassAlert(isPresented: $showRotate) {
-                    GlassAlert(
-                        prompt: Prompts.RotateWebhookSecret.copy(hook: rotateTarget ?? ""),
-                        handlers: ["rotate": {
-                            if let name = rotateTarget { rotateHook(name, verb: "rotate") }
-                        }]
-                    )
-                }
+            if phase == .active { Task { await loadTools() } }
         }
         .onChange(of: model.app?.id) { _, _ in
             seeded = false
@@ -847,8 +835,6 @@ struct AppSettingsPage: View {
             shareLinksGroup
             accountsGroup
             mcpToolsGroup
-            automationsGroup
-            webhooksGroup
         }
     }
 
@@ -1079,7 +1065,7 @@ struct AppSettingsPage: View {
                     accountId: account, appId: app.id, upstream: upstream,
                     serverId: value == Apps.upstreamPickerNone ? nil : value
                 )
-                await loadAutomations()
+                await loadTools()
             } catch {
                 toaster.error(FeedbackStates.Errors.title(verb: "save", thing: "the server"), description: error.trpcUserMessage)
             }
@@ -1167,158 +1153,6 @@ struct AppSettingsPage: View {
         }
     }
 
-    /// #VAPP-220: `copy.automations` (shown when the published package
-    /// declares any): one read-only row per automation, its name over the
-    /// trigger (muted) and the status pill (`Apps.automationRow`).
-    @ViewBuilder
-    private var automationsGroup: some View {
-        if !automations.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(Apps.Copy.Automations.title)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 4)
-                VStack(spacing: 0) {
-                    ForEach(Array(automations.enumerated()), id: \.offset) { _, automation in
-                        automationRow(automation)
-                    }
-                }
-                .glassSection()
-            }
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier(Apps.TestIds.automations)
-        }
-    }
-
-    private func automationRow(_ automation: AppAutomationWire) -> some View {
-        let row = Apps.automationRow(automation.row)
-        // #VAPP-243: who it runs as, or why it is paused.
-        let sponsor = Apps.automationSponsor(paused: automation.paused, sponsorName: automation.sponsorName)
-        // #VAPP-255: then the runs the rate cap dropped.
-        let line = [row.trigger, sponsor, Apps.automationDropped(automation.droppedRuns)].compactMap { $0 }.joined(separator: " · ")
-        return HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(automation.name)
-                    .font(.expMono(.subheadline))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                // Why it is paused is the line's point: it wraps, never cut in the middle.
-                Text(line)
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .lineLimit(2)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            GlassPill(row.label)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier(Apps.TestIds.automationRow)
-    }
-
-    /// #VAPP-238: `copy.webhooks` (shown when the published package's
-    /// automations listen on a webhook): one row per hook, the Automations
-    /// row's layout (name mono over the URL, the status pill), then the URL
-    /// copy pill and, for an owner (`canToggle`), Create / Rotate secret. A
-    /// minted secret shows ONCE in a row right under its hook.
-    @ViewBuilder
-    private var webhooksGroup: some View {
-        if !hooks.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(Apps.Copy.Webhooks.title)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 4)
-                VStack(spacing: 0) {
-                    ForEach(Array(hooks.enumerated()), id: \.offset) { _, hook in
-                        webhookRow(hook)
-                        if let secret = hookSecrets[hook.name] {
-                            webhookSecretRow(secret)
-                        }
-                    }
-                }
-                .glassSection()
-            }
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier(Apps.TestIds.webhooks)
-        }
-    }
-
-    private func webhookRow(_ hook: AppHookWire) -> some View {
-        let row = Apps.webhookRow(hook.row, isOwner: canToggle)
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(hook.name)
-                        .font(.expMono(.subheadline))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                    Text(hook.url)
-                        .font(.expMono(.caption))
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                GlassPill(row.label)
-            }
-            HStack(spacing: 8) {
-                GlassPill(Apps.Copy.Webhooks.copyUrl, icon: AppIcons.uiCopy, mode: .action {
-                    UIPasteboard.general.string = hook.url
-                    toaster.success(Apps.Copy.Webhooks.copied)
-                })
-                .fixedSize()
-                if let action = row.action, let label = row.actionLabel {
-                    GlassPill(label, mode: .action {
-                        switch action {
-                        case .mint:
-                            rotateHook(hook.name, verb: "create")
-                        case .rotate:
-                            rotateTarget = hook.name
-                            showRotate = true
-                        }
-                    }, enabled: hookBusy == nil)
-                    .fixedSize()
-                    .accessibilityIdentifier("\(Apps.TestIds.webhookRow)-\(hook.name)-\(action.rawValue)")
-                }
-                Spacer(minLength: 0)
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("\(Apps.TestIds.webhookRow)-\(hook.name)")
-    }
-
-    /// The shown-once secret: `copy.webhooks.secret` over the secret (mono,
-    /// middle-truncated) and its copy pill.
-    private func webhookSecretRow(_ secret: String) -> some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(Apps.Copy.Webhooks.secret)
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .lineLimit(1)
-                Text(secret)
-                    .font(.expMono(.subheadline))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            GlassPill(Apps.Copy.Webhooks.copySecret, icon: AppIcons.uiCopy, mode: .action {
-                UIPasteboard.general.string = secret
-                toaster.success(Apps.Copy.Webhooks.copied)
-            })
-            .fixedSize()
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier(Apps.TestIds.webhookSecret)
-    }
-
     /// VAPP-241 (app-share.json): `copy.title` (shown when the published
     /// package declares shares): one row per share, the name over
     /// `shareRowSubtitle`; an owner (`canToggle`) gets the switch (on =
@@ -1392,19 +1226,18 @@ struct AppSettingsPage: View {
 
     // MARK: - Writes
 
-    private var automationsKey: String? {
+    private var toolsKey: String? {
         model.app.map { "\($0.id):\($0.publishedVersion)" }
     }
 
-    /// #VAPP-220: a failed read keeps the group hidden (nothing to act on).
-    /// #VAPP-238: the same read carries the webhooks and `canToggle`.
-    private func loadAutomations() async {
+    /// A failed read keeps the groups hidden (nothing to act on); the same
+    /// read carries `canToggle`. #EXP-1850: Automations are gone, Webhooks
+    /// moved to the Events tab (`AppEventsTab`).
+    private func loadTools() async {
         guard let app = model.app else {
             accounts = []
             servers = []
             mcpTools = []
-            automations = []
-            hooks = []
             shares = []
             canToggle = false
             return
@@ -1419,34 +1252,8 @@ struct AppSettingsPage: View {
         accounts = summary?.upstreams ?? []
         servers = summary?.servers ?? []
         mcpTools = summary?.tools ?? []
-        automations = summary?.automations ?? []
-        hooks = summary?.hooks ?? []
         shares = summary?.shares ?? []
         canToggle = summary?.canToggle ?? false
-    }
-
-    /// #VAPP-238 `appAccess.rotateHook`: mints (no secret yet) or rotates a
-    /// hook's secret; the answer's secret is kept here only and the row
-    /// turns `ready`. A failure = the failed-action toast.
-    private func rotateHook(_ name: String, verb: String) {
-        guard canToggle, hookBusy == nil, let app = model.app else { return }
-        hookBusy = name
-        let api = deps.appsApi
-        let account = accountId
-        Task {
-            defer { hookBusy = nil }
-            do {
-                let minted = try await api.rotateHook(accountId: account, appId: app.id, name: name)
-                hookSecrets[name] = minted.secret
-                hooks = hooks.map { hook in
-                    hook.name == name
-                        ? AppHookWire(name: hook.name, url: hook.url, hasSecret: true, rotatedAt: hook.rotatedAt)
-                        : hook
-                }
-            } catch {
-                toaster.error(FeedbackStates.Errors.title(verb: verb, thing: "the secret"), description: error.trpcUserMessage)
-            }
-        }
     }
 
     /// VAPP-241 `appAccess.setShareLink`, then the rows reread (the state,
