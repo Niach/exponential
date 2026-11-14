@@ -13,6 +13,9 @@ final class TreeKeyHolderTests: XCTestCase {
         let mineCalls = Locked<[[String]?]>([])
         let remote = Locked<[TreePublicKey]>([])
 
+        func sendTarget(accountId: String, agentId: String?, appId: String?) async throws -> ServerSendTarget {
+            ServerSendTarget(rootId: nil, epoch: nil, publicKey: nil)
+        }
         func create(accountId: String, input: CreateTreeKeyInput) async throws { created.mutate { $0.append(input) } }
         func mine(accountId: String, installId: String, rootIds: [String]?) async throws -> [HeldTreeKey] {
             mineCalls.mutate { $0.append(rootIds) }
