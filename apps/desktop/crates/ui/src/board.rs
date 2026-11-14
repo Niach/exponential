@@ -15,17 +15,21 @@
 //! never moves a row (the EXP-289 no-jump invariant) and the list keeps the
 //! whole panel.
 //!
-//! #FEED-191 (chats.json `shell.boardChips`): the board's pills over the list:
-//! All issues · My issues N (Drafts stays a rail entry on wide), My issues being
-//! the cross-board assignee list (`queries::my_issues`). A board switch lands on
-//! All issues again, like web's `?chip=`.
+//! #FEED-191 + #EXP-1836 (chats.json `shell.boardChips`): the board's tabs over
+//! the list, THE session screen's Segmented strip (left-aligned, a muted count
+//! after the label): All issues · My issues N (Drafts stays a rail entry on
+//! wide), My issues being the viewer's assigned issues on THIS board
+//! (`queries::my_issues`, `domain::chats::board_mine_issues`). A board switch
+//! lands on All issues again, like web's `?chip=`.
 //!
 //! State ownership (§4.1): this entity owns the scope [`IssueQuery`] and
 //! hands it to the list, which re-renders off the synced collections.
 
 use gpui::{
-    div, px, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled, Subscription, Window,
+    div, px, AppContext as _, Entity, InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
+    StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
+use gpui_component::ActiveTheme as _;
 use gpui_component::{h_flex, v_flex};
 use sync::Store;
 
@@ -33,9 +37,11 @@ use domain::chats::CHATS;
 
 use crate::issue_list::{IssueListView, IssueQuery};
 use crate::queries;
-use crate::surface::{glass_pill, PillMode, PillSize};
+/// The strip's height: the session screen's tab strip (`session_chat`
+/// `SCREEN_TABS_H`).
+const BOARD_TABS_H: f32 = 32.;
 
-/// The board's pills (`shell.boardChips`, less `drafts`).
+/// The board's tabs (`shell.boardChips`, less `drafts`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum BoardChip {
     #[default]
@@ -43,10 +49,12 @@ pub(crate) enum BoardChip {
     Mine,
 }
 
-/// The My issues pill's label: a count after a non-zero one.
-fn mine_label(count: usize) -> String {
-    let mine = &CHATS.copy.board_chips.mine;
-    if count > 0 { format!("{mine} {count}") } else { mine.clone() }
+/// A tab's count (web `boardChipCount`): My issues only, none at zero.
+fn chip_count(chip: BoardChip, mine: usize) -> Option<String> {
+    match chip {
+        BoardChip::Mine if mine > 0 => Some(mine.to_string()),
+        _ => None,
+    }
 }
 
 pub struct BoardView {
@@ -55,7 +63,7 @@ pub struct BoardView {
     board_id: Option<String>,
     chip: BoardChip,
     issue_list: Entity<IssueListView>,
-    /// The My issues pill's count, re-derived only when a collection it reads
+    /// The My issues tab's count, re-derived only when a collection it reads
     /// moved (gpui re-renders on every window refresh).
     mine: queries::Memo<(String, String, queries::BoardDataKey), queries::BoardData>,
     _subscriptions: Vec<Subscription>,
@@ -110,16 +118,16 @@ impl BoardView {
         cx.notify();
     }
 
-    /// The team + viewer My issues reads: the board's team.
-    fn mine_scope(&self, cx: &gpui::App) -> Option<(String, String)> {
-        let board_id = self.board_id.as_deref()?;
-        let team_id = Store::global(cx).collections().boards.read(cx).get(board_id)?.team_id.clone();
-        Some((team_id, queries::active_account(cx)?.user_id))
+    /// What My issues reads: (board, its team, the viewer).
+    fn mine_scope(&self, cx: &gpui::App) -> Option<(String, String, String)> {
+        let board_id = self.board_id.clone()?;
+        let team_id = Store::global(cx).collections().boards.read(cx).get(&board_id)?.team_id.clone();
+        Some((board_id, team_id, queries::active_account(cx)?.user_id))
     }
 
     fn sync_query(&mut self, cx: &mut gpui::Context<Self>) {
         let query = match (self.chip, self.mine_scope(cx), self.board_id.clone()) {
-            (BoardChip::Mine, Some((team_id, user_id)), _) => IssueQuery::MyIssues { team_id, user_id },
+            (BoardChip::Mine, Some((board_id, team_id, user_id)), _) => IssueQuery::MyIssues { board_id, team_id, user_id },
             (_, _, Some(board_id)) => IssueQuery::Board { board_id },
             _ => IssueQuery::None,
         };
@@ -138,29 +146,62 @@ impl BoardView {
     }
 
     fn mine_count(&mut self, cx: &gpui::App) -> usize {
-        let Some((team_id, user_id)) = self.mine_scope(cx) else {
+        let Some((board_id, _, user_id)) = self.mine_scope(cx) else {
             return 0;
         };
-        let key = (team_id.clone(), user_id.clone(), queries::board_data_key(cx));
-        let data = self.mine.get_or_insert_with(key, || queries::my_issues(cx, &team_id, &user_id));
+        let key = (board_id.clone(), user_id.clone(), queries::board_data_key(cx));
+        let data = self.mine.get_or_insert_with(key, || queries::my_issues(cx, &board_id, &user_id));
         data.groups.iter().map(|group| group.issues.len()).sum()
     }
 
-    fn pills(&mut self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let mine = mine_label(self.mine_count(cx));
-        let chips = [(BoardChip::All, CHATS.copy.board_chips.all.clone()), (BoardChip::Mine, mine)];
+    /// THE session screen's tab strip (`session_chat::screen_tabs`' recipe
+    /// over the same `controls::segmented` capsule): each tab sized to its
+    /// label, the count a muted number after it, left-aligned.
+    fn tabs(&mut self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let mine = self.mine_count(cx);
         let selected = self.chip;
-        h_flex().flex_shrink_0().w_full().px_4().pt_3().pb_2().gap_2().children(chips.into_iter().map(|(chip, label)| {
-            let id = SharedString::from(match chip {
-                BoardChip::All => "board-chip-all",
-                BoardChip::Mine => "board-chip-mine",
-            });
-            glass_pill(id, PillSize::Md, PillMode::Select { selected: chip == selected }, cx)
-                .h(px(36.))
-                .px_4()
-                .child(SharedString::from(label))
-                .on_click(cx.listener(move |this, _, _, cx| this.set_chip(chip, cx)))
-        }))
+        let muted = cx.theme().muted_foreground;
+        let chips = [(BoardChip::All, &CHATS.copy.board_chips.all), (BoardChip::Mine, &CHATS.copy.board_chips.mine)];
+        let segments: Vec<_> = chips
+            .into_iter()
+            .map(|(chip, label)| {
+                let id = match chip {
+                    BoardChip::All => "board-chip-all",
+                    BoardChip::Mine => "board-chip-mine",
+                };
+                let count = chip_count(chip, mine);
+                let name = eui_core::segmented::item_accessibility_label(label, count.as_deref());
+                crate::controls::segmented_item(chip == selected, cx)
+                    .flex_none()
+                    .px_3()
+                    .id(SharedString::from(id))
+                    .debug_selector(move || id.to_string())
+                    .role(gpui::Role::Tab)
+                    .aria_label(SharedString::from(name))
+                    .aria_selected(chip == selected)
+                    .child(SharedString::from(label.clone()))
+                    .children(count.map(|count| div().text_color(muted).child(SharedString::from(count))))
+                    .on_click(cx.listener(move |this, _, _, cx| this.set_chip(chip, cx)))
+            })
+            .collect();
+        h_flex()
+            .id("board-chips-scroll")
+            .flex_shrink_0()
+            .w_full()
+            .min_w_0()
+            .overflow_x_scroll()
+            .px_4()
+            .pt_3()
+            .pb_2()
+            .child(
+                crate::controls::segmented(cx)
+                    .id(SharedString::from(CHATS.test_ids.board_chip.clone()))
+                    .flex_shrink_0()
+                    .w_auto()
+                    .justify_start()
+                    .h(px(BOARD_TABS_H))
+                    .children(segments),
+            )
     }
 }
 
@@ -168,12 +209,12 @@ impl Render for BoardView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "BoardView").entered();
         let bulk_bar = self.issue_list.update(cx, |list, cx| list.bulk_bar(cx));
-        let pills = self.board_id.is_some().then(|| self.pills(cx));
+        let tabs = self.board_id.is_some().then(|| self.tabs(cx));
 
         v_flex()
             .size_full()
             .relative()
-            .children(pills)
+            .children(tabs)
             .child(div().flex_1().min_h_0().child(self.issue_list.clone()))
             .children(bulk_bar.map(crate::issue_list::bulk_bar_dock))
     }
@@ -183,10 +224,11 @@ impl Render for BoardView {
 mod tests {
     use super::*;
 
-    /// `My issues N`, a zero count = the bare word.
+    /// My issues carries its count (none at zero); All issues never.
     #[test]
-    fn the_mine_pill_counts() {
-        assert_eq!(mine_label(0), "My issues");
-        assert_eq!(mine_label(3), "My issues 3");
+    fn the_mine_tab_counts() {
+        assert_eq!(chip_count(BoardChip::Mine, 0), None);
+        assert_eq!(chip_count(BoardChip::Mine, 3).as_deref(), Some("3"));
+        assert_eq!(chip_count(BoardChip::All, 3), None);
     }
 }

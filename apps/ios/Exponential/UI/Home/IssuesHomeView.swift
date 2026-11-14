@@ -37,9 +37,10 @@ struct IssuesHomeView: View {
     // a full resync's wipe, "No team yet") plus the getting-started checklist
     // while the snapshot lands. Android parity: `activeAccountBoardsSynced`.
     @State private var boardsSynced = false
-    /// EXP-1373 (chats.json `shell.boardChips`): All issues · My issues ·
-    /// Drafts (only while there are drafts) under the header; My issues =
-    /// the viewer's assigned issues of the ACTIVE team across its boards,
+    /// EXP-1373 / #EXP-1836 (chats.json `shell.boardChips`): All issues ·
+    /// My issues · Drafts (only while there are drafts) under the header, as
+    /// THE session screen's segmented tab strip; My issues = the viewer's
+    /// assigned issues on the CURRENT board (`Chats.boardMineIssues`),
     /// grouped by status like the board.
     @State private var chip: Chats.Shell.BoardChip = .all
     /// #EXP-1830: a My issues widget landed before the board resolved; the
@@ -100,7 +101,7 @@ struct IssuesHomeView: View {
                     drafts = DraftsViewModel(accountId: accountId, db: deps.db, api: deps.issueDraftsApi)
                 }
             }
-            myIssues?.teamId = teamState.activeTeamId
+            myIssues?.boardId = currentBoard?.boardId
             drafts?.teamId = teamState.activeTeamId
             myIssues?.startObserving()
             drafts?.startObserving()
@@ -110,7 +111,6 @@ struct IssuesHomeView: View {
             drafts?.stopObserving()
         }
         .onChange(of: teamState.activeTeamId) { _, teamId in
-            myIssues?.teamId = teamId
             drafts?.teamId = teamId
         }
         // The GitHub install state is a server-only read (§refreshGithubStatus)
@@ -132,7 +132,8 @@ struct IssuesHomeView: View {
         // #EXP-1384: the page header; the board list's own stands down.
         .pageHeader(currentBoardName ?? Chats.Copy.Tabs.board)
         // A board picked in the board menu starts on All issues.
-        .onChange(of: currentBoard) { old, _ in
+        .onChange(of: currentBoard) { old, board in
+            myIssues?.boardId = board?.boardId
             defer { holdMine = false }
             if holdMine, old == nil { return }
             chip = .all
@@ -172,29 +173,47 @@ struct IssuesHomeView: View {
         chips.contains(chip) ? chip : .all
     }
 
-    private func chipLabel(_ chip: Chats.Shell.BoardChip) -> String {
-        switch chip {
-        case .all: chip.label
-        case .mine: myIssues.map { "\(chip.label) \($0.count)" } ?? chip.label
-        case .drafts: "\(chip.label) \(draftCount)"
+    /// The count after My issues and Drafts (none after All issues or at zero).
+    private func chipCount(_ chip: Chats.Shell.BoardChip) -> Int? {
+        let count: Int? = switch chip {
+        case .all: nil
+        case .mine: myIssues?.count
+        case .drafts: draftCount
         }
+        return count.flatMap { $0 > 0 ? $0 : nil }
     }
 
+    /// #EXP-1836: THE session screen's tab strip (`SessionScreenTabs`' own
+    /// `GlassSegmentedControl`, hugging, left-aligned, scrolling past the
+    /// width), each count after its label as a muted number.
     private var boardChips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(chips, id: \.self) { option in
-                    GlassPill(
-                        chipLabel(option),
-                        size: .md,
-                        mode: .select(isSelected: shownChip == option) { chip = option }
-                    )
-                    .accessibilityIdentifier("\(Chats.TestIds.boardChip)-\(option.rawValue)")
-                }
-            }
+            GlassSegmentedControl(
+                options: chips,
+                selection: shownChip,
+                label: \.label,
+                identifier: { "\(Chats.TestIds.boardChip)-\($0.rawValue)" },
+                accessory: { option in
+                    chipCount(option).map { count in
+                        AnyView(
+                            Text("\(count)")
+                                .font(.subheadline.weight(.medium).monospacedDigit())
+                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                                .lineLimit(1)
+                        )
+                    }
+                },
+                accessoryGap: 4,
+                spokenLabel: { option in chipCount(option).map { "\(option.label) \($0)" } },
+                hugging: true,
+                onSelect: { chip = $0 }
+            )
             .padding(.horizontal, 16)
-            .padding(.vertical, 6)
         }
+        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 6)
+        .padding(.bottom, 8)
     }
 
     // MARK: - Getting started (EXP-698 r5)

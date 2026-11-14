@@ -72,12 +72,14 @@ function BoardPage() {
   // #EXP-1383: the team's agents (agent assignees, the picker's agent rows).
   const agents = useAgentRows(team?.id)
 
-  // Chat 58cb32df: the board's chips (All issues · My issues N · Drafts N).
+  // Chat 58cb32df: the board's tabs (All issues · My issues N · Drafts N).
   // #FEED-191: md+ draws them too, without Drafts (its sidebar entry).
+  // #EXP-1836: My issues + its count = mine on THIS board.
   const { data: authSession } = useSession()
   const mine = useMyIssuesData({
     userId: authSession?.user?.id,
     teamSlug,
+    boardId: board?.id ?? ``,
   })
   const drafts = useDraftEntriesWithReady(isMobile ? team?.id : undefined)
   const draftCount = drafts.entries.length
@@ -159,7 +161,7 @@ function BoardPage() {
         {chips}
         <div ref={setMineBulkSlot} className="contents" />
         <div className="min-h-0 flex-1">
-          <MyIssuesView teamSlug={teamSlug} bulkActionSlot={mineBulkSlot} />
+          <MyIssuesView teamSlug={teamSlug} boardId={board.id} bulkActionSlot={mineBulkSlot} />
         </div>
       </div>
     )

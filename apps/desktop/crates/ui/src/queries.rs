@@ -67,16 +67,16 @@ pub fn board_board(cx: &App, board_id: &str) -> BoardData {
     board_data_from(cx, issues, team_id.as_deref())
 }
 
-/// `use-my-issues-data.ts`: the team's issues assigned to me, grouped like
-/// a board.
-pub fn my_issues(cx: &App, team_id: &str, user_id: &str) -> BoardData {
+/// #EXP-1836: the board's My issues (`shell.boardChips`): the viewer's
+/// assigned issues on THIS board (`domain::chats::board_mine_issues`),
+/// grouped like the board.
+pub fn my_issues(cx: &App, board_id: &str, user_id: &str) -> BoardData {
     let collections = Store::global(cx).collections();
-    let issues: Vec<_> = collections
-        .issues_in_team(team_id, cx)
-        .into_iter()
-        .filter(|issue| issue.assignee_id.as_deref() == Some(user_id))
-        .collect();
-    board_data_from(cx, issues, Some(team_id))
+    let issues = domain::chats::board_mine_issues(collections.issues_in_board(board_id, cx), board_id, Some(user_id), |issue| {
+        (issue.board_id.as_str(), issue.assignee_id.as_deref())
+    });
+    let team_id = collections.boards.read(cx).get(board_id).map(|board| board.team_id.clone());
+    board_data_from(cx, issues, team_id.as_deref())
 }
 
 fn board_data_from(cx: &App, issues: Vec<Issue>, team_id: Option<&str>) -> BoardData {

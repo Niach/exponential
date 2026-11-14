@@ -25,6 +25,13 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-14-board-my-issues-tabs`,
+    date: `2026-11-14`,
+    title: `My issues shows this board's issues`,
+    summary: `A board's My issues tab now lists only your issues on that board, and its count matches.`,
+    body: `- **My issues**: the tab counts and lists the issues assigned to you on the board you are looking at, not across every board of the team.\n- **Board tabs**: All issues, My issues and Drafts now use the same tab strip as a session.`,
+  },
+  {
     id: `2026-11-14-image-placeholders-in-every-chat`,
     date: `2026-11-14`,
     title: `[Image #1] in every chat`,
