@@ -88,7 +88,29 @@ data class UpdateAgentPatch(
     val skillIds: List<String>? = null,
     /** #EXP-1793: the agent's MCP servers; the WHOLE list is replaced. */
     val mcpServerIds: List<String>? = null,
+    /** #EXP-1847: the agent's own voice, a partial write ([AgentVoicePatch]). */
+    val voice: AgentVoicePatch? = null,
 )
+
+/**
+ * #EXP-1847 (agent-settings.json `voice`): `agents.update {voice}`'s keys. A
+ * null field = the key is absent (kept); an EMPTY string = the key cleared
+ * (sent as JSON null). The clip is written only through the clip route.
+ */
+data class AgentVoicePatch(
+    val language: String? = null,
+    val transcript: String? = null,
+    val wakePhrase: String? = null,
+) {
+    fun toJson(): JsonObject = buildJsonObject {
+        fun field(key: String, value: String?) {
+            if (value != null) put(key, if (value.isEmpty()) JsonNull else JsonPrimitive(value))
+        }
+        field("language", language)
+        field("transcript", transcript)
+        field("wakePhrase", wakePhrase)
+    }
+}
 
 internal fun updateAgentInput(agentId: String, patch: UpdateAgentPatch): JsonObject =
     buildJsonObject {
@@ -111,6 +133,7 @@ internal fun updateAgentInput(agentId: String, patch: UpdateAgentPatch): JsonObj
         patch.sortOrder?.let { put("sortOrder", it) }
         patch.skillIds?.let { ids -> put("skillIds", JsonArray(ids.map(::JsonPrimitive))) }
         patch.mcpServerIds?.let { ids -> put("mcpServerIds", JsonArray(ids.map(::JsonPrimitive))) }
+        patch.voice?.let { put("voice", it.toJson()) }
     }
 
 @Singleton

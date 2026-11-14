@@ -6,6 +6,7 @@ import com.exponential.app.domain.PreparedMedia
 import com.exponential.app.domain.TeamImage
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.timeout
+import io.ktor.client.request.delete
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -40,6 +41,22 @@ data class UploadedImage(
 
 @Serializable
 private data class TeamIconResult(val iconUrl: String)
+
+/** #EXP-1847: the voice clip route's answer (`clipUpload`). */
+@Serializable
+data class AgentVoiceClipResult(val clipId: String, val clipName: String)
+
+/**
+ * #EXP-1847: the presentable refusal of an upload route's `{error}` body
+ * (`errorToResponse`, e.g. agent-settings.json `voice.copy.errors`); null
+ * when the body carries none.
+ */
+internal fun uploadRouteErrorMessage(body: String): String? {
+    val obj = runCatching { Json.parseToJsonElement(body) }.getOrNull() as? kotlinx.serialization.json.JsonObject
+        ?: return null
+    return (obj["error"] as? kotlinx.serialization.json.JsonPrimitive)
+        ?.takeIf { it.isString }?.content?.takeIf { it.isNotBlank() }
+}
 
 /**
  * Build the multipart/form-data body for the single image part BY HAND.
@@ -231,6 +248,54 @@ class IssueImagesApi @Inject constructor(
         TeamIconResult.serializer(),
         postMultipart(accountId, TeamImage.uploadPath(teamId).trimStart('/'), bytes, filename, contentType),
     ).iconUrl
+
+    /**
+     * #EXP-1847 (agent-settings.json `voice.clipUpload`): the agent's voice
+     * clip, one part `file` (a WAV, at most `maxBytes`) to its editors'
+     * route; answers {clipId, clipName} and the agents shape delivers the
+     * row. A refusal throws the route's own message (`copy.errors`).
+     */
+    suspend fun uploadAgentVoiceClip(
+        accountId: String,
+        agentId: String,
+        bytes: ByteArray,
+        filename: String,
+        contentType: String,
+    ): AgentVoiceClipResult {
+        val text = try {
+            postMultipart(
+                accountId,
+                com.exponential.app.domain.AgentVoiceSection.clipUploadPath(agentId).trimStart('/'),
+                bytes,
+                filename,
+                contentType,
+            )
+        } catch (e: TrpcException) {
+            // postMultipart's message = `…: HTTP <code>: <body>`; the body is the JSON.
+            val body = e.message.orEmpty().let { m -> m.indexOf('{').takeIf { it >= 0 }?.let(m::substring) }.orEmpty()
+            throw uploadRouteErrorMessage(body)?.let { TrpcException(it, e.status) } ?: e
+        }
+        return json.decodeFromString(AgentVoiceClipResult.serializer(), text)
+    }
+
+    /** #EXP-1847: DELETE the agent's voice clip (built-in or the member's voice again). */
+    suspend fun deleteAgentVoiceClip(accountId: String, agentId: String) {
+        val account = auth.accounts.value.firstOrNull { it.id == accountId }
+        val baseUrl = account?.instanceUrl
+            ?: throw TrpcException("No instance URL for account $accountId")
+        val token = account.token
+        val path = com.exponential.app.domain.AgentVoiceSection.clipUploadPath(agentId)
+        val response = client.delete("${baseUrl.trimEnd('/')}$path") {
+            if (token != null) header("Authorization", "Bearer $token")
+        }
+        if (!response.status.isSuccess()) {
+            val text = response.bodyAsText()
+            throw TrpcException(
+                uploadRouteErrorMessage(text) ?: "Removing the clip failed: HTTP ${response.status.value}",
+                response.status,
+            )
+        }
+    }
 
     // EXP-1459: a sealed message embeds its attachments itself (SealedWrite).
     private fun rememberSessionUpload(uploaded: UploadedImage) =

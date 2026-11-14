@@ -1,5 +1,18 @@
 package com.exponential.app.ui.settings
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
+import com.exponential.app.data.api.AgentVoicePatch
+import com.exponential.app.domain.AgentVoiceSection
+import com.exponential.app.domain.MemberVoiceLike
+import com.exponential.app.domain.Voice
+import com.exponential.app.domain.agentVoiceOf
+import com.exponential.app.ui.components.TextFieldRow
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -90,7 +103,7 @@ import com.exponential.app.ui.theme.flatRow
 // page (#EXP-1846, ONE order for the Assistant and every team agent) = the
 // board form's ONE identity field (icon picker + colour swatch + name), Runs
 // on (Device, Account, Model, Skills, MCP servers), Triggers
-// ([AgentTriggersSection]), the Assistant's Voice, a team agent's
+// ([AgentTriggersSection]), every agent's Voice (#EXP-1847), a team agent's
 // Instructions and the owner-only Delete. A NEW agent is a form with a Create button
 // (`sessions.send({agent})`); an existing one autosaves like the board page:
 // name and instructions on blur, everything else at once.
@@ -362,7 +375,12 @@ fun AgentSettingsScreen(
     val failure by viewModel.failure.collectAsStateWithLifecycle()
     val teamSkills by viewModel.skills.collectAsStateWithLifecycle()
     val teamMcpServers by viewModel.mcpServers.collectAsStateWithLifecycle()
+    val clipBusy by viewModel.clipBusy.collectAsStateWithLifecycle()
     FailedActionToast(failure, onShown = viewModel::clearFailure)
+    // #EXP-1847 (`voice.clipUpload`): the system file picker over WAV.
+    val clipPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        uri?.let(viewModel::uploadVoiceClip)
+    }
 
     val isNew = viewModel.agentId == null
     // The form's own copy of the row, seeded ONCE (an Electric echo must
@@ -559,10 +577,21 @@ fun AgentSettingsScreen(
             onModelChange = {
                 if (isNew) draftModel = it else patch(UpdateAgentPatch(model = it))
             },
-            voice = if (assistant && editable) {
-                { AssistantVoiceBlock() }
-            } else {
-                null
+            // #EXP-1847 (agent-settings.json `voice`): EVERY agent's own Voice
+            // section (an existing agent: the clip uploads against its id);
+            // the Assistant's member rows follow it for its member.
+            voice = agent?.takeIf { !isNew }?.let { row ->
+                {
+                    AgentVoiceSectionBlock(
+                        agent = row,
+                        editable = editable,
+                        clipBusy = clipBusy,
+                        onSave = viewModel::saveVoice,
+                        onPickClip = { clipPicker.launch(AgentVoiceSection.ClipUpload.ACCEPT.toTypedArray()) },
+                        onRemoveClip = viewModel::removeVoiceClip,
+                        memberRows = assistant && editable,
+                    )
+                }
             },
             // #EXP-1661: the agent's default skills (an existing agent only:
             // `New agent` picks them after Create). Owners edit, members read.
@@ -654,7 +683,7 @@ fun AgentSettingsScreen(
  * The stateless agent page (#EXP-1846, agent-settings.json `page`): ONE
  * order for the Assistant and every team agent: identity, Runs on (Device,
  * Account, Model, Skills, MCP servers), Triggers ([triggersSection]), Voice
- * (the Assistant only), Instructions (team agents only), Delete (team
+ * ([voice], every existing agent's), Instructions (team agents only), Delete (team
  * agents, owners). [onCreate] non-null = the `New agent` form's submit;
  * [onDelete] non-null = the owner's Delete.
  */
@@ -690,7 +719,7 @@ internal fun AgentSettingsContent(
     onDelete: (() -> Unit)?,
     modifier: Modifier = Modifier,
     /** S-3 (agent-settings.json `assistant`): THE ASSISTANT = the brand mark
-     *  instead of the icon picker, the Voice block; no Instructions
+     *  instead of the icon picker, its member voice rows; no Instructions
      *  (#EXP-1439: the prompt is built in), no Delete. */
     assistant: Boolean = false,
     model: String? = null,
@@ -698,6 +727,7 @@ internal fun AgentSettingsContent(
     /** The login's CLI the unpinned Model row defaults for (null = claude). */
     modelCli: String? = null,
     onModelChange: (String) -> Unit = {},
+    /** #EXP-1847: the Voice section (its header + rows), after Triggers. */
     voice: (@Composable () -> Unit)? = null,
     /** #EXP-1661 (skills.json `agentRow`): the Skills row, after Model. */
     skillsRow: (@Composable () -> Unit)? = null,
@@ -830,10 +860,9 @@ internal fun AgentSettingsContent(
         // ── Triggers: Check in, then the listed triggers ─────────────────
         triggersSection()
 
-        // ── Voice (the Assistant only) ───────────────────────────────────
-        if (assistant && voice != null) {
+        // ── Voice (every agent, #EXP-1847) ───────────────────────────────
+        if (voice != null) {
             Spacer(Modifier.height(12.dp))
-            SectionHeader(AgentSettings.Assistant.VOICE, modifier = Modifier.padding(horizontal = 16.dp))
             voice()
         }
         Spacer(Modifier.height(12.dp))
@@ -901,31 +930,164 @@ private fun FieldErrors(messages: List<String>) {
 }
 
 /**
- * S-3 (agent-settings.json `assistant`): the Voice block on the Assistant
- * page = the voice.json Settings group MOVED as one block (its rows
- * unchanged, minus the Voice device and Agent pickers), on THE voice view
- * model of the active account.
+ * #EXP-1847 (agent-settings.json `voice`): an agent's own Voice section under
+ * header `copy.label`: Language (THE single-select picker row over the voice
+ * languages), Voice (the clip row: `clipLabel`, a press opens the file picker
+ * and uploads, Remove clip while it has one), Transcript and Wake phrase (THE
+ * input rows, saved on blur / Done, the wake phrase's error inline). Values
+ * resolve through [agentVoiceOf] against the member's `voice.get`. With
+ * [memberRows] the Assistant's member rows follow (push to talk, wake word,
+ * meetings), on the same voice view model.
  */
 @Composable
-private fun AssistantVoiceBlock(viewModel: VoiceSettingsViewModel = hiltViewModel()) {
-    val vocabulary by viewModel.vocabulary.collectAsStateWithLifecycle()
-    val settings = viewModel.settings ?: return
-    VoiceSettingsForm(
-        settings = settings,
-        vocabulary = vocabulary,
-        wakePhrase = viewModel.wakePhrase,
-        wakePhraseError = viewModel.wakePhraseError,
-        onChange = viewModel::save,
-        onMeeting = viewModel::setMeeting,
-        onWakePhraseChange = viewModel::onWakePhraseChange,
-        onWakePhraseDone = viewModel::saveWakePhrase,
-        voiceFile = viewModel.voiceFile,
-        onVoiceFileChange = viewModel::onVoiceFileChange,
-        onVoiceFileDone = viewModel::saveVoiceFile,
-        voiceTranscript = viewModel.voiceTranscript,
-        onVoiceTranscriptChange = viewModel::onVoiceTranscriptChange,
-        onVoiceTranscriptDone = viewModel::saveVoiceTranscript,
-        assistantBlock = true,
-    )
-    FailedActionToast(viewModel.failure, onShown = { viewModel.failure = null })
+private fun AgentVoiceSectionBlock(
+    agent: com.exponential.app.data.db.AgentDefinitionEntity,
+    editable: Boolean,
+    clipBusy: Boolean,
+    onSave: (AgentVoicePatch, String) -> Unit,
+    onPickClip: () -> Unit,
+    onRemoveClip: () -> Unit,
+    memberRows: Boolean,
+    voiceModel: VoiceSettingsViewModel = hiltViewModel(),
+) {
+    val vocabulary by voiceModel.vocabulary.collectAsStateWithLifecycle()
+    val settings = voiceModel.settings
+    val member = (settings ?: Voice.defaults).let {
+        MemberVoiceLike(it.language, it.voiceFile, it.voiceTranscript, it.wakePhrase)
+    }
+    val own = agent.agentVoice
+    val resolved = agentVoiceOf(agent.role, agent.name, own, member)
+    val focus = LocalFocusManager.current
+    // The rows show the RESOLVED values (web/iOS): re-seeded whenever the
+    // resolution changes (the member's voice.get landing, a save's echo).
+    var transcript by remember(agent.id, resolved.transcript) { mutableStateOf(resolved.transcript) }
+    var wakePhrase by remember(agent.id, resolved.wakePhrase) { mutableStateOf(resolved.wakePhrase) }
+    var wakePhraseError by remember(agent.id) { mutableStateOf<String?>(null) }
+
+    // A save equal to the resolved value sends nothing; a cleared row sends
+    // null (the agent falls back to the member's / none).
+    fun commitTranscript() {
+        val trimmed = transcript.trim()
+        if (!editable || trimmed == resolved.transcript) return
+        onSave(AgentVoicePatch(transcript = trimmed), "the transcript")
+    }
+
+    fun commitWakePhrase() {
+        val trimmed = wakePhrase.trim()
+        if (!editable) return
+        val error = Voice.wakePhraseError(trimmed)
+        if (error != null) {
+            wakePhraseError = error
+            return
+        }
+        if (trimmed == resolved.wakePhrase) return
+        onSave(AgentVoicePatch(wakePhrase = trimmed), "the wake phrase")
+    }
+
+    Column(Modifier.fillMaxWidth().testTag(AgentVoiceSection.TestIds.SECTION)) {
+        SectionHeader(AgentVoiceSection.Copy.LABEL, modifier = Modifier.padding(horizontal = 16.dp))
+        OptionGroup {
+            // Every language carries the voice device's GPU note (#NEW-74).
+            val languageDevice = settings?.voiceDeviceId?.let { vocabulary.deviceNames[it] ?: Voice.Copy.ELLIPSIS }
+            val languages = Voice.languages.map { it.value }
+            com.exponential.app.ui.components.picker.Picker(
+                items = languages.map {
+                    com.exponential.app.ui.components.picker.PickerItem(value = it, label = Voice.languageLabel(it, languageDevice))
+                },
+                mode = com.exponential.app.ui.components.picker.PickerMode.Single,
+                value = setOf(resolved.language),
+                onChange = { picked ->
+                    picked.firstOrNull()?.takeIf { it != resolved.language }?.let {
+                        onSave(AgentVoicePatch(language = it), "the language")
+                    }
+                },
+                title = AgentVoiceSection.Copy.LANGUAGE,
+                enabled = editable,
+            ) { open ->
+                PickerValueRow(
+                    label = AgentVoiceSection.Copy.LANGUAGE,
+                    value = Voice.languageLabel(resolved.language, languageDevice),
+                    onClick = open,
+                    enabled = editable,
+                    modifier = Modifier.testTag(AgentVoiceSection.TestIds.LANGUAGE),
+                )
+            }
+            GroupDivider()
+            // The clip row: `clipLabel` (`Built-in` with none, the row's usual
+            // value colour like any value, never muted), a press
+            // uploads a WAV; a set clip offers Remove clip (the team image
+            // row's trailing remove).
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                PickerValueRow(
+                    label = AgentVoiceSection.Copy.CLIP,
+                    value = resolved.clipLabel,
+                    onClick = onPickClip,
+                    enabled = editable && !clipBusy,
+                    modifier = Modifier.weight(1f).testTag(AgentVoiceSection.TestIds.CLIP),
+                )
+                if (editable && !own.clipId.isNullOrEmpty()) {
+                    com.exponential.app.ui.components.CircleIconButton(
+                        ExpIcons.uiDelete,
+                        contentDescription = AgentVoiceSection.Copy.CLIP_REMOVE,
+                        onClick = onRemoveClip,
+                        enabled = !clipBusy,
+                        glyphSize = 16.dp,
+                        borderless = true,
+                        size = 28.dp,
+                        modifier = Modifier.padding(end = 8.dp).testTag(AgentVoiceSection.TestIds.CLIP_REMOVE),
+                    )
+                }
+            }
+            GroupDivider()
+            TextFieldRow(
+                label = AgentVoiceSection.Copy.TRANSCRIPT,
+                value = transcript,
+                onValueChange = { transcript = Voice.textInput(it, AgentVoiceSection.Limits.TRANSCRIPT) },
+                placeholder = AgentVoiceSection.Copy.TRANSCRIPT_PLACEHOLDER,
+                enabled = editable,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }),
+                onFocusLost = ::commitTranscript,
+                modifier = Modifier.testTag(AgentVoiceSection.TestIds.TRANSCRIPT),
+            )
+            GroupDivider()
+            TextFieldRow(
+                label = AgentVoiceSection.Copy.WAKE_PHRASE,
+                value = wakePhrase,
+                onValueChange = {
+                    wakePhraseError = null
+                    wakePhrase = Voice.textInput(it, AgentVoiceSection.Limits.WAKE_PHRASE)
+                },
+                placeholder = AgentVoiceSection.wakePhrasePlaceholder(agent.name),
+                enabled = editable,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }),
+                onFocusLost = ::commitWakePhrase,
+                modifier = Modifier.testTag(AgentVoiceSection.TestIds.WAKE_PHRASE),
+            )
+        }
+        // #NEW-56: invalid input, inline under the field (never a toast).
+        FieldError(wakePhraseError, modifier = Modifier.padding(start = 20.dp, top = 6.dp))
+        if (memberRows && settings != null) {
+            // S-3: the voice.json member rows, below the agent's own rows.
+            VoiceSettingsForm(
+                settings = settings,
+                vocabulary = vocabulary,
+                wakePhrase = voiceModel.wakePhrase,
+                wakePhraseError = voiceModel.wakePhraseError,
+                onChange = voiceModel::save,
+                onMeeting = voiceModel::setMeeting,
+                onWakePhraseChange = voiceModel::onWakePhraseChange,
+                onWakePhraseDone = voiceModel::saveWakePhrase,
+                voiceFile = voiceModel.voiceFile,
+                onVoiceFileChange = voiceModel::onVoiceFileChange,
+                onVoiceFileDone = voiceModel::saveVoiceFile,
+                voiceTranscript = voiceModel.voiceTranscript,
+                onVoiceTranscriptChange = voiceModel::onVoiceTranscriptChange,
+                onVoiceTranscriptDone = voiceModel::saveVoiceTranscript,
+                assistantBlock = true,
+            )
+        }
+    }
+    FailedActionToast(voiceModel.failure, onShown = { voiceModel.failure = null })
 }
