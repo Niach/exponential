@@ -37,7 +37,7 @@ import { PullRequestStatusPill } from "@/components/session-merge-button"
 import { checksDotColor, checksLabel } from "@/components/repo/checks-dot"
 import { RepoCiSection, RepoRunsTab } from "@/components/repo/repo-ci"
 import { useSession } from "@/hooks/use-session"
-import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
+import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
 
 const UiBackIcon = conceptIcon(`ui-back`)
 const RepositoriesIcon = conceptIcon(`settings-repositories`)
@@ -117,7 +117,7 @@ export function RepoPage({
 
   return (
     <div className="h-full overflow-y-auto" data-testid="repo-page">
-      <div className={`mx-auto w-full max-w-3xl space-y-4 px-4 py-4 md:max-w-4xl ${TAB_BAR_CLEARANCE}`}>
+      <div className={`mx-auto w-full max-w-3xl space-y-4 px-4 py-4 md:max-w-4xl ${PAGE_END_CLEARANCE}`}>
         {/* THE AppBar: back + the repo's full name only (the provider lives in Settings). */}
         <div className="flex min-w-0 items-center gap-2">
           {back}

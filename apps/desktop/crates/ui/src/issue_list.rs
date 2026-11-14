@@ -1412,7 +1412,7 @@ pub(crate) fn selection_range(
 }
 
 impl Render for IssueListView {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "IssueListView").entered();
         let data = self.board_data(cx);
         // Solo teams drop the per-row assignee cell — resolved once per frame
@@ -1595,7 +1595,9 @@ impl Render for IssueListView {
                                     ),
                                 ),
                         )
-                        .children(cards),
+                        .children(cards)
+                        // #EXP-1860: clear of the Assistant FAB.
+                        .child(crate::assistant_fab::page_end(window, cx)),
                 ))
                 .into_any_element();
         }
@@ -1665,12 +1667,16 @@ impl Render for IssueListView {
             }
         }
 
+        // #EXP-1860: a trailing spacer row (`render_row` draws nothing past
+        // the rows) so the last row scrolls clear of the Assistant FAB.
+        let page_end = crate::assistant_fab::page_end_height(window, cx);
         let sizes: Rc<Vec<Size<Pixels>>> = Rc::new(
             rows.iter()
                 .map(|row| match row {
                     ListRow::Header { .. } => size(px(0.), px(HEADER_HEIGHT)),
                     ListRow::Issue { .. } => size(px(0.), px(ROW_HEIGHT)),
                 })
+                .chain((page_end > px(0.)).then(|| size(px(0.), page_end)))
                 .collect(),
         );
         self.rows = Rc::new(rows);

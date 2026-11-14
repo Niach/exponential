@@ -1,6 +1,6 @@
 import { createFileRoute, redirect } from "@tanstack/react-router"
 import { DraftsList } from "@/components/drafts-list"
-import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
+import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { useTeamBySlug } from "@/hooks/use-team-data"
 import { pageTitle } from "@/lib/page-title"
 
@@ -28,7 +28,7 @@ function DraftsPage() {
   return (
     <div className="h-full overflow-y-auto">
       <div
-        className={`mx-auto w-full max-w-3xl px-4 py-4 md:max-w-5xl ${TAB_BAR_CLEARANCE}`}
+        className={`mx-auto w-full max-w-3xl px-4 py-4 md:max-w-5xl ${PAGE_END_CLEARANCE}`}
       >
         <DraftsList teamId={team?.id} teamSlug={teamSlug} />
       </div>

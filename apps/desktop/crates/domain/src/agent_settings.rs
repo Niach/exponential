@@ -554,6 +554,10 @@ pub struct AssistantFabSpec {
     pub widget: AssistantWidgetSize,
     /// The FAB's distance from the content card's bottom-right corner.
     pub inset: f32,
+    /// #EXP-1860: the card's bottom-right square the FAB owns (inset + 52 +
+    /// inset): page scroll content ends this far clear of it, the Dock
+    /// band keeps its right edge this far in.
+    pub clearance: f32,
     /// How far the bottom-right toast stack rises while the FAB shows.
     pub toast_lift: f32,
 }
@@ -1049,6 +1053,8 @@ mod tests {
         assert_eq!(fab.copy.minimize, "Minimize");
         assert_eq!((fab.widget.width, fab.widget.height), (440., 560.));
         assert_eq!((fab.inset, fab.toast_lift), (16., 76.));
+        // #EXP-1860: the corner the FAB owns = inset + the 52px circle + inset.
+        assert_eq!(fab.clearance, fab.inset * 2. + 52.);
     }
 
     #[test]

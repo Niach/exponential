@@ -1331,7 +1331,7 @@ impl AppScreenView {
         Some((shell, nav))
     }
 
-    fn render_preview(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
+    fn render_preview(&self, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
         let can_write = self.can_write(cx);
         let (head, published) = self.app.as_ref().map_or((0, 0), |app| (app.head_version, app.published_version));
@@ -1379,7 +1379,7 @@ impl AppScreenView {
                         .on_click(cx.listener(|this, _, _, cx| this.clear_viewing(cx))),
                 )
         });
-        let frame = self.render_surface(true, cx);
+        let frame = self.render_surface(true, window, cx);
         v_flex()
             .size_full()
             .min_h_0()
@@ -1398,7 +1398,7 @@ impl AppScreenView {
     /// editor's frame (border, radius, the Phone width); VAPP-242 unframed =
     /// THE RUN VIEW, edge to edge, its empty state `copy.runEmpty` with the
     /// app glyph.
-    fn render_surface(&self, framed: bool, cx: &mut gpui::Context<Self>) -> AnyElement {
+    fn render_surface(&self, framed: bool, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
         let host = self.preview.as_ref().map(|preview| preview.ide.host.read(cx));
         // The catalog-update banner (the web's `HostBanner`); a local host
@@ -1537,7 +1537,12 @@ impl AppScreenView {
             crate::scroll_pane::v_scroll_pane(
                 "app-preview-scroll",
                 &self.preview_scroll,
-                div().w_full().p(px(APPS.preview.padding)).child(frame_body),
+                div()
+                    .w_full()
+                    .p(px(APPS.preview.padding))
+                    .child(frame_body)
+                    // #EXP-1860: the last row scrolls clear of the Assistant FAB.
+                    .child(crate::assistant_fab::page_end(window, cx)),
             )
             .into_any_element()
         };
@@ -1559,7 +1564,7 @@ impl AppScreenView {
     /// over a muted `who · relative time`; trailing: the head row's
     /// `Current` badge, every other row's Preview (ghost) + Restore
     /// (outline). None yet = the list-size EmptyState.
-    fn render_versions(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
+    fn render_versions(&self, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         let copy = &APPS.copy;
         let pointers = self.app.as_ref().map(AppEntry::versions).unwrap_or(domain::apps::AppVersions { head: 0, published: 0 });
         let can_write = self.can_write(cx);
@@ -1706,51 +1711,57 @@ impl AppScreenView {
                 .id(SharedString::from(APPS.test_ids.versions.clone()))
                 .w_full()
                 .p_4()
-                .child(body),
+                .child(body)
+                .child(crate::assistant_fab::page_end(window, cx)),
         )
         .into_any_element()
     }
 
     /// VAPP-177 / #EXP-1732: the `…`'s App settings: the settings column (≤
     /// `editorTabs.settingsMaxWidth`, left-aligned), scrollable.
-    fn render_settings(&self) -> AnyElement {
+    fn render_settings(&self, window: &Window, cx: &App) -> AnyElement {
         let Some(settings) = self.settings.clone() else {
             return div().into_any_element();
         };
         crate::scroll_pane::v_scroll_pane(
             "app-settings-scroll",
             &self.settings_scroll,
-            div().w_full().px_6().py_4().child(settings),
+            div().w_full().px_6().py_4().child(settings).child(crate::assistant_fab::page_end(window, cx)),
         )
         .into_any_element()
     }
 
     /// #EXP-1850: the Events tab: the column (≤ `editorTabs.settingsMaxWidth`,
     /// left-aligned), scrollable, like the settings.
-    fn render_events(&self) -> AnyElement {
+    fn render_events(&self, window: &Window, cx: &App) -> AnyElement {
         let Some(events) = self.events.clone() else {
             return div().into_any_element();
         };
-        crate::scroll_pane::v_scroll_pane("app-events-scroll", &self.events_scroll, div().w_full().px_6().py_4().child(events))
-            .into_any_element()
+        crate::scroll_pane::v_scroll_pane(
+            "app-events-scroll",
+            &self.events_scroll,
+            // #EXP-1860: Recent runs' last status clears the Assistant FAB.
+            div().w_full().px_6().py_4().child(events).child(crate::assistant_fab::page_end(window, cx)),
+        )
+        .into_any_element()
     }
 
     /// The tab pane beside the chat: the settings (THE `…`'s App settings),
     /// else the active tab's body (#FEED-239: no back row; THE collapse
     /// leads the pane).
-    fn render_tab(&mut self, screen: &SessionScreen, cx: &mut gpui::Context<Self>) -> AnyElement {
+    fn render_tab(&mut self, screen: &SessionScreen, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         if screen.open == Some(SessionScreenOpen::Settings) {
-            return self.render_settings();
+            return self.render_settings(window, cx);
         }
         match screen.active {
-            SessionScreenTab::Versions => self.render_versions(cx),
+            SessionScreenTab::Versions => self.render_versions(window, cx),
             SessionScreenTab::Data => self
                 .data
                 .clone()
                 .map(|data| v_flex().size_full().min_h_0().child(data).into_any_element())
                 .unwrap_or_else(|| div().into_any_element()),
-            SessionScreenTab::Preview => self.render_preview(cx),
-            SessionScreenTab::Events => self.render_events(),
+            SessionScreenTab::Preview => self.render_preview(window, cx),
+            SessionScreenTab::Events => self.render_events(window, cx),
             _ => div().flex_1().into_any_element(),
         }
     }
@@ -1785,7 +1796,7 @@ impl Render for AppScreenView {
         };
         // VAPP-242: THE RUN VIEW = the surface pane alone, full screen.
         if self.run {
-            return self.render_surface(false, cx);
+            return self.render_surface(false, window, cx);
         }
         // #EXP-1732 (session-screen.json LAYOUT): the beside rule; the chat
         // is built with the app (refresh): the tab pane alone until then.
@@ -1793,14 +1804,14 @@ impl Render for AppScreenView {
         let header = self.render_header(&app, &screen, cx);
         let body = match (self.chat.clone(), screen.layout) {
             (None, _) => {
-                let pane = self.render_tab(&screen, cx);
+                let pane = self.render_tab(&screen, window, cx);
                 v_flex().flex_1().min_h_0().w_full().child(pane).into_any_element()
             }
             (Some(chat), SessionScreenLayout::Chat) => {
                 v_flex().flex_1().min_h_0().w_full().child(self.render_chat(&chat)).into_any_element()
             }
             (Some(chat), _) => {
-                let pane = self.render_tab(&screen, cx);
+                let pane = self.render_tab(&screen, window, cx);
                 // #FEED-239: THE collapse = tab Chat, the settings closed.
                 let this = cx.entity().downgrade();
                 let on_collapse: crate::session_chat::OnPress = Rc::new(move |_window, cx| {

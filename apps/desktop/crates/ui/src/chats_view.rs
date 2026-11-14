@@ -328,7 +328,7 @@ fn chats_page_row(
 }
 
 impl Render for ChatsView {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "ChatsView").entered();
         use gpui::StatefulInteractiveElement as _;
         let ready = sync::Store::try_global(cx)
@@ -612,7 +612,7 @@ impl Render for ChatsView {
                 }
                 this.clear_selection(cx);
             }))
-            .child(page_scaffold_with("chats-screen-scroll", &self.scroll, column, CHATS_COLUMN_W))
+            .child(page_scaffold_with("chats-screen-scroll", &self.scroll, column, CHATS_COLUMN_W, window, cx))
             .children(bar.map(crate::issue_list::bulk_bar_dock))
     }
 }

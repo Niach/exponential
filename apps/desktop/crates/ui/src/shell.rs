@@ -1002,6 +1002,9 @@ impl Render for Shell {
             && !self.onboarding.read(cx).is_active(cx)
             && self.assistant_fab.read(cx).shows(cx);
         let toast_lift = if fab_shows { domain::agent_settings::ASSISTANT_FAB.toast_lift } else { 0. };
+        if !fab_shows {
+            crate::assistant_fab::clear_corner(window, cx);
+        }
         crate::toast::layer_for_window(window, cx).update(cx, |layer, cx| layer.set_lift(toast_lift, cx));
         let body: gpui::AnyElement = match session {
             // EXP-367: signed in but a first-run wizard step applies — the

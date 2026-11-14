@@ -2136,7 +2136,7 @@ impl ScreensPanel {
 
     /// Nothing open: point at the sidebar (or at board creation when the
     /// team has none, or team creation when the account has none).
-    fn render_empty(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+    fn render_empty(&self, window: &Window, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         // EXP-188 zero-team state (signup no longer auto-creates a personal
         // team, and the last team is deletable): offer create-or-join. Only
         // a READY-and-empty teams shape counts — empty-because-loading must
@@ -2272,7 +2272,9 @@ impl ScreensPanel {
                     .pb_4()
                     .gap_4()
                     .child(column)
-                    .children(cards),
+                    .children(cards)
+                    // #EXP-1860: the last card scrolls clear of the Assistant FAB.
+                    .child(crate::assistant_fab::page_end(window, cx)),
             ))
             .into_any_element()
     }
@@ -2751,13 +2753,13 @@ impl Render for ScreensPanel {
                     .p_6()
                     .child((entry.render)(window, cx))
                     .into_any_element(),
-                None => self.render_empty(cx),
+                None => self.render_empty(window, cx),
             },
             // EXP-851: nothing open at all (a fresh window, the last tab
             // closed, a team switch). There is no tool default left to fall
             // back on — the empty state points at the rail.
             None if !shapes_ready(cx) => self.render_syncing(cx),
-            None => self.render_empty(cx),
+            None => self.render_empty(window, cx),
         };
         pinned_panel_root(
             cx.theme().colors.list,

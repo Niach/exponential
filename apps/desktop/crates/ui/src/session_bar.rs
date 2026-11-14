@@ -741,7 +741,7 @@ impl SessionBar {
     pub(crate) fn render_terminal_screen(
         &mut self,
         tab: TabId,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
         let (view, exit_code) = match self.manager.read(cx).tab(tab) {
@@ -802,7 +802,17 @@ impl SessionBar {
             // min_h(0) so the flex child can shrink; the grid element itself
             // guards the 0-height case (§6.9). EXP-1557: inset like the
             // Files and Source control panes, never flush on the card edge.
-            .child(div().flex_1().min_h_0().p_3().child(view))
+            // #EXP-1860: the grid's last rows end clear of the Assistant
+            // FAB (a terminal has no scroll end to pad, so its bottom inset
+            // takes the corner while the FAB shows).
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .p_3()
+                    .pb(crate::assistant_fab::page_end_height(window, cx).max(px(12.)))
+                    .child(view),
+            )
             .when_some(exit_code, |this, code| this.child(exit_strip(code, cx)))
             .into_any_element()
     }

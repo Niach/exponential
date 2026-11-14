@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { inArray, useLiveQuery } from "@tanstack/react-db"
 import { useNavigate } from "@tanstack/react-router"
 import {
+  FAB_CLEARANCE_CLASS,
   CardHighlightContext,
   ChatLeadDisc,
   ChatWaitingChips,
@@ -552,7 +553,7 @@ export function ChatScreen({
     itemTitle = SESSION_SCREEN_COPY.settings
     item = (
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-testid="session-settings">
-        <div className="mx-auto w-full max-w-3xl px-4 pt-4 pb-10">{agent.settings}</div>
+        <div className={`mx-auto w-full max-w-3xl px-4 pt-4 pb-10 ${FAB_CLEARANCE_CLASS}`}>{agent.settings}</div>
       </div>
     )
   }

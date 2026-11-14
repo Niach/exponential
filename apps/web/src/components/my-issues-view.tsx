@@ -5,7 +5,7 @@ import { SkeletonRows } from "@exp/ui"
 import { BulkActionBar } from "@/components/bulk-action-bar"
 import { Empty } from "@/components/empty"
 import { IssueList } from "@/components/issue-list"
-import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
+import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { useMyIssuesData } from "@/hooks/use-my-issues-data"
 import { useSession } from "@/hooks/use-session"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
@@ -91,9 +91,9 @@ export function MyIssuesView({
 
       <div
         // EXP-698 r5: one clearance for both states — the bulk bar REPLACES
-        // the tab bar on phones, so TAB_BAR_CLEARANCE's `max()` of the two
+        // the tab bar on phones, so PAGE_END_CLEARANCE's `max()` of the two
         // measured heights already covers a live selection.
-        className={`flex-1 overflow-auto ${TAB_BAR_CLEARANCE}`}
+        className={`flex-1 overflow-auto ${PAGE_END_CLEARANCE}`}
       >
         {issuesReady && totalIssueCount === 0 ? (
           <Empty id="my-issues" />

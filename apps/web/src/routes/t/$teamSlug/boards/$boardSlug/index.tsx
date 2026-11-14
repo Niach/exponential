@@ -11,7 +11,7 @@ import { BoardNotFound } from "@/components/board-not-found"
 import { BulkActionBar } from "@/components/bulk-action-bar"
 import { GettingStartedSection } from "@/components/getting-started/getting-started-section"
 import { IssueList } from "@/components/issue-list"
-import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
+import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { MobilePageHeader } from "@/components/team/mobile-page-header"
 import { useBoardViewData } from "@/hooks/use-board-view-data"
 import { useOpenNewDraft } from "@/hooks/use-open-new-draft"
@@ -171,7 +171,7 @@ function BoardPage() {
     return (
       <div className="relative flex h-full flex-col">
         {chips}
-        <div className={`min-h-0 flex-1 overflow-auto ${TAB_BAR_CLEARANCE}`}>
+        <div className={`min-h-0 flex-1 overflow-auto ${PAGE_END_CLEARANCE}`}>
           <DraftsList
             teamId={team.id}
             teamSlug={teamSlug}
@@ -188,10 +188,10 @@ function BoardPage() {
       {chips}
       <div
         // EXP-698 r5: one clearance for both states — the bulk bar REPLACES
-        // the tab bar on phones, so TAB_BAR_CLEARANCE's `max()` of the two
+        // the tab bar on phones, so PAGE_END_CLEARANCE's `max()` of the two
         // measured heights already covers a live selection; md+ reserves the
         // floating bar's height while a selection lives.
-        className={`flex-1 overflow-auto ${TAB_BAR_CLEARANCE} ${
+        className={`flex-1 overflow-auto ${PAGE_END_CLEARANCE} ${
           selectedIssues.length > 0 ? `md:pb-20` : ``
         }`}
       >
