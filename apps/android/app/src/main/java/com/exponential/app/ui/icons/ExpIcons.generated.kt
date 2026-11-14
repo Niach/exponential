@@ -6037,6 +6037,38 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `panel-right-close`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "panel-right-close",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M5 3H19A2 2 0 0 1 21 5V19A2 2 0 0 1 19 21H5A2 2 0 0 1 3 19V5A2 2 0 0 1 5 3Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M15 3v18"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("m8 9 3 3-3 3"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `paperclip`: ImageVector by lazy {
         ImageVector.Builder(
             name = "paperclip",
@@ -9387,6 +9419,7 @@ public object ExpIcons {
         "palette" -> `palette`
         "panel-left-close" -> `panel-left-close`
         "panel-left-open" -> `panel-left-open`
+        "panel-right-close" -> `panel-right-close`
         "paperclip" -> `paperclip`
         "pause" -> `pause`
         "pen-tool" -> `pen-tool`
@@ -9760,6 +9793,7 @@ public object ExpIcons {
         "ui-offline" -> `wifi-off`
         "ui-organization" -> `building-2`
         "ui-owner" -> `crown`
+        "ui-pane-collapse" -> `panel-right-close`
         "ui-permission" -> `shield-question-mark`
         "ui-photos" -> `images`
         "ui-pin" -> `pin`
@@ -10355,6 +10389,8 @@ public object ExpIcons {
     public val uiOrganization: ImageVector get() = `building-2`
     /** Concept `ui-owner`. */
     public val uiOwner: ImageVector get() = `crown`
+    /** Concept `ui-pane-collapse`. */
+    public val uiPaneCollapse: ImageVector get() = `panel-right-close`
     /** Concept `ui-permission`. */
     public val uiPermission: ImageVector get() = `shield-question-mark`
     /** Concept `ui-photos`. */

@@ -8,6 +8,7 @@ import {
   appChatRows,
   agentInstructionsChanged,
   agentMenuEntries,
+  sidebarAgents,
   chatDeleteTitle,
   chatSelectionFailedTitle,
   chatList,
@@ -35,6 +36,7 @@ describe(`chats.json`, () => {
   for (const c of fixture.timeCases) test(`time: ${c.name}`, () => expect(chatTimeLabel(c.at, c.now, c.utcOffsetMinutes)).toBe(c.expected))
   for (const c of fixture.listCases) test(`list: ${c.name}`, () => expect(chatList(c.input as never)).toEqual(c.expected as never))
   for (const c of fixture.agentRowCases) test(`agent rows: ${c.name}`, () => expect(agentChatRows(c.input as never)).toEqual(c.expected as never))
+  for (const c of fixture.sidebarAgentCases) test(`sidebar agents: ${c.name}`, () => expect(sidebarAgents(c.input.agents, c.input.apps).map((agent) => agent.agentId)).toEqual(c.expected))
   for (const c of fixture.appRowCases) test(`app rows: ${c.name}`, () => expect(appChatRows(c.input as never)).toEqual(c.expected as never))
   for (const c of fixture.menuCases) test(`menu: ${c.name}`, () => expect(chatMenuEntries(c.input)).toEqual(c.expected as never))
   for (const c of fixture.agentMenuCases) test(`agent menu: ${c.name}`, () => expect(agentMenuEntries(c.input)).toEqual(c.expected as never))

@@ -654,6 +654,19 @@ class AgentSessionViewModel @AssistedInject constructor(
 
     val currentUserId: StateFlow<String?> = auth.userId
 
+    /** #FEED-239: the viewer's own synced user row (the own bubbles' avatar). */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val viewer: StateFlow<UserEntity?> = combine(browseTeamId, auth.userId) { team, me -> team to me }
+        .flatMapLatest { (teamId, me) ->
+            if (teamId == null || me == null) {
+                flowOf(null)
+            } else {
+                dbFlow.scopedQuery(emptyList<UserEntity>()) { it.userDao().observeByTeam(teamId) }
+                    .map { users -> users.firstOrNull { it.id == me } }
+            }
+        }
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     // ── The live connection's state, re-exposed unchanged (EXP-621) ─────────
 
     val phase: StateFlow<AgentPhase> = connection.phase

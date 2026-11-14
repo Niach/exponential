@@ -1104,6 +1104,17 @@ public enum Chats {
         return entries
     }
 
+    /// #FEED-239 (`sidebarAgentCases`): the tablet sidebar's Agents group
+    /// and Settings › Agents = the agents minus every app's agent (an app's
+    /// agent is listed under Apps only; the chat list keeps it).
+    public static func sidebarAgents<T>(_ agents: [T], agentId: (T) -> String, appAgentIds: [String?]) -> [T] {
+        let owned = Set(appAgentIds.compactMap { id -> String? in
+            guard let id, !id.isEmpty else { return nil }
+            return id
+        })
+        return agents.filter { !owned.contains(agentId($0)) }
+    }
+
     /// A press inside an inline preview (`replyCases`): an event named
     /// `reply` with a non-empty `context.text` posts that text as the
     /// person's message; anything else does nothing.

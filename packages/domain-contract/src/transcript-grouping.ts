@@ -120,7 +120,8 @@ export function transcriptLayout(input: TranscriptInput): TranscriptRowLayout[] 
       id: item.id,
       side,
       sender,
-      avatar: side === `other` && !sameGroup,
+      // #FEED-239: the viewer's own group wears THEIR avatar on the right.
+      avatar: side !== `full` && !sameGroup,
       name,
       gap: out.length === 0 ? 0 : sameGroup ? TRANSCRIPT_LAYOUT.gapInGroup : TRANSCRIPT_LAYOUT.gapBetween,
     })
@@ -198,4 +199,12 @@ export function markersShown(kinds: readonly FeedRowKind[]): boolean[] {
   })
   if (pending !== null) shown[pending] = false
   return shown
+}
+
+export const TRANSCRIPT_FOLD = fixture.fold
+
+/** #FEED-238 THE FOLD ×4 (`foldCases`): a message bubble longer than
+ *  `fold.chars` characters or `fold.lines` lines folds behind Show more. */
+export function messageFolds(text: string): boolean {
+  return text.length > fixture.fold.chars || text.split(`\n`).length > fixture.fold.lines
 }

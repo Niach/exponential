@@ -24,6 +24,15 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -58,8 +67,9 @@ private val BubbleMuted: Color @Composable get() = MaterialTheme.colorScheme.onS
 
 /**
  * THE message bubble: the glass card bubble (16dp radius, its `HH:mm`
- * bottom-right inside), at most `layout.maxWidth.phone` of its column
- * (`maxWidth.phoneIn` unless [own]). [own]
+ * bottom-right inside), at most `layout.maxWidth.phoneIn` of its column;
+ * #FEED-239: an [own] bubble `maxWidth.own` (the whole column left of the
+ * viewer's avatar). [own]
  * = the viewer's (right, the active glass fill under the strong hairline, no
  * name); else anyone else's (left, THE card surface) with the sender's name
  * line [author] (12sp medium, muted; the group's first bubble only) and, for
@@ -86,7 +96,7 @@ fun MessageBubble(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
-        val max = maxWidth * if (own) TranscriptGrouping.Layout.MAX_WIDTH_PHONE else TranscriptGrouping.Layout.MAX_WIDTH_PHONE_IN
+        val max = maxWidth * if (own) TranscriptGrouping.Layout.MAX_WIDTH_OWN else TranscriptGrouping.Layout.MAX_WIDTH_PHONE_IN
         val shape = RoundedCornerShape(TranscriptGrouping.Layout.RADIUS.dp)
         Column(
             modifier = Modifier
@@ -169,7 +179,52 @@ fun MessageStatusMark(state: MessageDelivery.State, modifier: Modifier = Modifie
     )
 }
 
-/** [MessageBubble] over markdown text (the conversation's rows). */
+/** #FEED-238: the transcript body's line height (MarkdownView's chat body). */
+private const val TRANSCRIPT_LINE_SP = 22f
+
+/** #FEED-238 THE FOLD's clip: `fold.lines` lines of the transcript body. */
+@Composable
+fun messageFoldHeight(): Dp = with(LocalDensity.current) { (TRANSCRIPT_LINE_SP * TranscriptGrouping.Fold.LINES).sp.toDp() }
+
+/**
+ * #FEED-238 THE FOLD ×4 (`messageFolds`): a message bubble's body whose
+ * [text] folds shows its first `fold.lines` lines, then THE transcript's
+ * Show more / Show less text button ([MessageFoldToggle]). Every message
+ * bubble: own, member, agent, a relay, a child's report.
+ */
+@Composable
+fun MessageFold(text: String, content: @Composable () -> Unit) {
+    val folds = remember(text) { TranscriptGrouping.messageFolds(text) }
+    var expanded by remember(text) { mutableStateOf(false) }
+    val clip = messageFoldHeight()
+    Column(if (folds && !expanded) Modifier.clipFoldTo(clip) else Modifier) { content() }
+    if (folds) MessageFoldToggle(expanded) { expanded = !expanded }
+}
+
+/** THE transcript's Show more / Show less text button (`copy.showMore`). */
+@Composable
+fun MessageFoldToggle(expanded: Boolean, onToggle: () -> Unit) {
+    Text(
+        if (expanded) TranscriptGrouping.Copy.SHOW_LESS else TranscriptGrouping.Copy.SHOW_MORE,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+        modifier = Modifier
+            .clickable(onClick = onToggle)
+            .padding(top = 2.dp)
+            .testTag("message-fold-toggle"),
+    )
+}
+
+/** The fold CLIPS the naturally laid-out body (never squeezes its measure). */
+fun Modifier.clipFoldTo(clampHeight: Dp): Modifier =
+    clipToBounds().layout { measurable, constraints ->
+        val placeable = measurable.measure(constraints.copy(minHeight = 0, maxHeight = Constraints.Infinity))
+        val height = minOf(placeable.height, clampHeight.roundToPx())
+        layout(placeable.width, height) { placeable.placeRelative(0, 0) }
+    }
+
+/** [MessageBubble] over markdown text (the conversation's rows), folded
+ *  (#FEED-238). */
 @Composable
 fun MessageBubble(
     text: String,
@@ -192,7 +247,7 @@ fun MessageBubble(
         onUnqueue = onUnqueue,
         status = status,
     ) {
-        MarkdownView(markdown = text, softBreaksAsNewlines = true)
+        MessageFold(text) { MarkdownView(markdown = text, softBreaksAsNewlines = true) }
     }
 }
 
@@ -210,7 +265,8 @@ fun TranscriptGrouping.RowLayout?.isRelay(): Boolean =
  * Its name line ([author], `<name> ›`; the group's first relay bubble only)
  * sits ABOVE the bubble, outside it, in the in-bubble name line's style;
  * ONLY that line is the press ([onOpen]: the session on the back stack).
- * The bubble itself is never a link and never folds.
+ * The bubble itself is never a link; #FEED-238: its body folds like every
+ * bubble's (the caller wraps it in [MessageFold]).
  */
 @Composable
 fun RelayBubble(
@@ -367,9 +423,11 @@ private fun SessionAvatar(modifier: Modifier = Modifier) {
 
 /**
  * One transcript row: the gap above it ([TranscriptGrouping.RowLayout.gap]),
- * then `own` / `full` across the column, `other` under its sender's avatar
+ * then `full` across the column, `other` under its sender's avatar
  * column (the avatar on the group's first row, top-aligned, `avatarGap` left
- * of the bubble column; the same space below it). A null [layout] = a full
+ * of the bubble column; the same space below it). #FEED-239: `own` mirrors
+ * it on the RIGHT: the bubble column, `avatarGap`, the viewer's own avatar
+ * column ([ownAvatar], default [ViewerAvatar]). A null [layout] = a full
  * row with no gap.
  */
 @Composable
@@ -377,9 +435,24 @@ fun TranscriptBubbleRow(
     layout: TranscriptGrouping.RowLayout?,
     modifier: Modifier = Modifier,
     avatar: @Composable () -> Unit = {},
+    ownAvatar: @Composable () -> Unit = { ViewerAvatar() },
     content: @Composable () -> Unit,
 ) {
     val top = (layout?.gap ?: 0).dp
+    if (layout?.side == TranscriptGrouping.Side.Own) {
+        Row(
+            modifier = modifier.fillMaxWidth().padding(top = top),
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.End,
+        ) {
+            Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) { content() }
+            Spacer(Modifier.width(TranscriptGrouping.Layout.AVATAR_GAP.dp))
+            Box(Modifier.width(TranscriptGrouping.Layout.AVATAR.dp)) {
+                if (layout.avatar) ownAvatar()
+            }
+        }
+        return
+    }
     if (layout == null || layout.side != TranscriptGrouping.Side.Other) {
         Box(modifier = modifier.fillMaxWidth().padding(top = top)) { content() }
         return
@@ -395,4 +468,25 @@ fun TranscriptBubbleRow(
         Spacer(Modifier.width(TranscriptGrouping.Layout.AVATAR_GAP.dp))
         Column(Modifier.weight(1f), horizontalAlignment = Alignment.Start) { content() }
     }
+}
+
+/** #FEED-239: the transcript's viewer (their synced row); null = none known
+ *  (no own avatar then). */
+val LocalViewer = androidx.compose.runtime.compositionLocalOf<UserEntity?> { null }
+
+/**
+ * #FEED-239: THE Avatar of the VIEWER at `layout.avatar` (their picture,
+ * else their initials in their hue; THE [UserAvatar] every member wears),
+ * right of their own bubbles. Draws nothing while the viewer is unknown.
+ */
+@Composable
+fun ViewerAvatar(modifier: Modifier = Modifier) {
+    val viewer = LocalViewer.current ?: return
+    UserAvatar(
+        user = viewer,
+        nameOrEmail = viewer.name?.takeIf { it.isNotBlank() } ?: viewer.email,
+        modifier = modifier.testTag("message-own-avatar"),
+        size = TranscriptGrouping.Layout.AVATAR.dp,
+        userId = viewer.id,
+    )
 }

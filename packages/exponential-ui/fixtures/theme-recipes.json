@@ -86660,7 +86660,7 @@
               "borderTopLeftRadius": 16,
               "paddingHorizontal": 14,
               "paddingVertical": 10,
-              "maxWidth": "62%"
+              "maxWidth": "100%"
             }
           },
           "dark": {
@@ -86673,7 +86673,7 @@
               "borderTopLeftRadius": 16,
               "paddingHorizontal": 14,
               "paddingVertical": 10,
-              "maxWidth": "62%"
+              "maxWidth": "100%"
             }
           }
         },
@@ -86706,7 +86706,7 @@
               "borderTopLeftRadius": 16,
               "paddingHorizontal": 14,
               "paddingVertical": 10,
-              "maxWidth": "62%"
+              "maxWidth": "100%"
             }
           },
           "dark": {
@@ -86719,7 +86719,7 @@
               "borderTopLeftRadius": 16,
               "paddingHorizontal": 14,
               "paddingVertical": 10,
-              "maxWidth": "62%"
+              "maxWidth": "100%"
             }
           }
         }

@@ -20,6 +20,7 @@ import {
   ChatScreen,
   validateChatSearch,
   type ChatScreenAgent,
+  type ChatScreenLinkMenu,
   type ChatSearch,
 } from "@/components/chat/chat-screen"
 import { AgentHeaderMenu } from "@/components/chat/chat-menu"
@@ -42,8 +43,9 @@ import { SessionIssuesTab, SessionResultsTab, SessionSessionsTab } from "@/compo
 // session screen (`components/chat/chat-screen.tsx`, the same one a chat
 // renders) over the CALLER's own conversation session with it (a root with
 // that `agentId`, `userId` = me): the agent's disc (the Assistant: THE
-// brand mark), its name over `status · device · trigger`, the call button,
-// THE gear (the agent settings body, `open=settings`) and THE agent menu;
+// brand mark), its name over `status · device · trigger`, the call button
+// and THE session screen menu (#FEED-239: its Agent settings opens the
+// settings body as the item, `open=settings`; no gear);
 // the tabs Chat · Issues · Sessions · Results. With NO conversation yet the
 // same frame draws an empty chat whose composer's first send is
 // `sessions.send({agentId})`.
@@ -157,7 +159,17 @@ function AgentChannelPage() {
         className={buttonClass}
       />
     ),
-    menu: (className: string) => <AgentHeaderMenu team={team} agentId={agent.id} title={name} className={className} />,
+    menu: (className: string, onSettings: () => void, link?: ChatScreenLinkMenu) => (
+      <AgentHeaderMenu
+        team={team}
+        agentId={agent.id}
+        title={name}
+        onSettings={onSettings}
+        linkIssue={link?.rows}
+        closeRef={link?.closeRef}
+        className={className}
+      />
+    ),
     overlay: (
       <VoiceCallOverlay
         {...voiceCall}
@@ -278,8 +290,7 @@ function AgentChannelPage() {
       title={name}
       subtitle={sessionScreenSubtitle({ status: null, device: null, trigger })}
       trailing={parts.trailing}
-      onGear={() => go({ tab: screen.active, open: `settings`, ...keepBack })}
-      menu={parts.menu}
+      menu={(className) => parts.menu(className, () => go({ tab: screen.active, open: `settings`, ...keepBack }))}
       onBack={nav.pop ?? (() => void navigate({ to: `/t/$teamSlug/chats`, params: { teamSlug } }))}
       onPop={nav.pop}
       onTab={(tab) => go({ tab, ...keepBack }, { replace: true })}

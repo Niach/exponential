@@ -909,10 +909,19 @@ private struct TeamAgentsPage: View {
                     : try SessionEntity.filter(sessionIds.contains(Column("id"))).fetchAll(db)
                 // #EXP-1714: the viewer's global Assistant lists in every team.
                 let agents = try SessionQueries.teamAgents(db: db, teamId: teamId, me: userId)
+                // #FEED-239 (`sidebarAgents`): an app's agent is listed
+                // under Apps only.
+                let appAgentIds = try AppEntity
+                    .filter(Column("team_id") == teamId)
+                    .filter(Column("deleted_at") == nil)
+                    .fetchAll(db)
+                    .map { $0.agentId }
                 return Data(
                     // S-3: the team agents only (role agent); the viewer's
                     // own Assistant is the `@assistant` row.
-                    agents: agents.filter { !$0.isAssistant },
+                    agents: Chats.sidebarAgents(
+                        agents.filter { !$0.isAssistant }, agentId: { $0.id }, appAgentIds: appAgentIds
+                    ),
                     assistantId: agents.first { $0.isAssistant && $0.ownerId == userId }?.id,
                     isOwner: try TeamPageQueries.isOwner(db, teamId: teamId, userId: userId),
                     events: events,

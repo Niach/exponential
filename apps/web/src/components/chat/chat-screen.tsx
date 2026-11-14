@@ -24,6 +24,7 @@ import {
   SkeletonRows,
   chatLeadPrState,
   useIsMobile,
+  type MenuEntry,
   type MenuSessionProps,
   PlanPage,
 } from "@exp/ui"
@@ -72,7 +73,7 @@ import { PLAN_PAGE_COPY, planTabTarget } from "@exp/domain-contract/plan-page"
 // #EXP-1732 (fixtures/session-screen.json): THE session screen for a chat
 // (a root session), a team agent's conversation and the Assistant's. The
 // frame (`session-screen-frame.tsx`) draws the header (the lead avatar,
-// the title over ONE subtitle line, the merge pill, THE gear, the `…`) and
+// the title over ONE subtitle line, the merge pill, THE `…`) and
 // THE SegmentedControl of `sessionScreen().tabs` (Chat · Issues · Sessions
 // · Results with their counts); this host builds the bodies:
 //
@@ -84,7 +85,8 @@ import { PLAN_PAGE_COPY, planTabTarget } from "@exp/domain-contract/plan-page"
 //   sessions   THE tree rows of every session under the root; a row opens
 //              that session IN PLACE (`open=session&session=`)
 //   results    results-tab.json's body
-//   settings   the gear (agents, the Assistant): the agent settings body
+//   settings   the `…`'s Agent settings (agents, the Assistant): the agent
+//              settings body as the opened item (#FEED-239: no gear)
 //
 // Wide (≥ 768px) = the beside rule (the chat pane : the tab pane); phones =
 // one pane. The chat route (`/t/$teamSlug/sessions/$sessionId`) and an
@@ -99,6 +101,12 @@ export { validateChatSearch, type ChatSearch } from "@/lib/session-screen-search
 
 const PrivateIcon = conceptIcon(`ui-private`)
 
+/** #EXP-1834: THE link menu's rows for the `…`'s `linkIssue` submenu. */
+export interface ChatScreenLinkMenu {
+  rows: MenuEntry[]
+  closeRef: { current: () => void }
+}
+
 /** #EXP-1732: an agent's (or the Assistant's) header parts and settings,
  *  the route's. */
 export interface ChatScreenAgent {
@@ -108,13 +116,14 @@ export interface ChatScreenAgent {
   avatar: ReactNode
   /** The agent's first enabled trigger's `triggerSummary`, else null. */
   trigger: string | null
-  /** Before the gear (the call button). */
+  /** Before the `…` (the call button). */
   trailing?: ReactNode
-  /** THE agent menu (the `…`). */
-  menu: (className: string) => ReactNode
+  /** THE session screen menu (the `…`); its settings entry opens the
+   *  settings item here (`onSettings`). */
+  menu: (className: string, onSettings: () => void, link?: ChatScreenLinkMenu) => ReactNode
   /** Over the body (the voice call card). */
   overlay?: ReactNode
-  /** The gear's body: the agent settings page body. */
+  /** The settings item's body: the agent settings page body. */
   settings: ReactNode
 }
 
@@ -459,7 +468,7 @@ export function ChatScreen({
   let pane: ReactNode = null
   if (screen.active === `issues`) {
     pane = (
-      <SessionIssuesTab issues={issueEntries} addMenu={menu.addMenu} activeId={openIssueId} onOpen={openIssue} />
+      <SessionIssuesTab issues={issueEntries} activeId={openIssueId} onOpen={openIssue} />
     )
   } else if (screen.active === `sessions`) {
     pane = <SessionSessionsTab rows={sessionRows} activeId={openSessionRow?.id ?? null} onOpen={openSession} />
@@ -548,13 +557,13 @@ export function ChatScreen({
     )
   }
 
-  // EXP-1307/1316: the header's `…` (Close PR, EXP-1338) while the chat has
-  // an open PR, THE chat menu (Stop · Stop and delete | Delete); an agent's
-  // = THE agent menu.
+  // #FEED-239: the header's `…` = THE session screen menu (a chat: Delete +
+  // the Guide PR's rows, EXP-1338; an agent: Compact · New conversation ·
+  // Agent settings, the settings opening here as the item).
   const chatActions = useChatActions(teamSlug)
   const headerMenu = (className: string) =>
     agent ? (
-      agent.menu(className)
+      agent.menu(className, () => openItem({ open: `settings` }), { rows: menu.linkRows, closeRef: menu.closeRef })
     ) : (
       <ChatScreenHeaderMenu
         root={root}
@@ -563,6 +572,8 @@ export function ChatScreen({
         canClosePr={permissions.isMember}
         isOwner={permissions.isOwner}
         actions={chatActions}
+        linkIssue={menu.linkRows}
+        closeRef={menu.closeRef}
         className={className}
       />
     )
@@ -644,7 +655,6 @@ export function ChatScreen({
                 {agent?.trailing}
               </>
             }
-            onGear={agent ? () => openItem({ open: `settings` }) : undefined}
             menu={headerMenu}
             onBack={nav.pop ?? (() => void navigate({ to: `/t/$teamSlug/chats`, params: { teamSlug } }))}
             onPop={nav.pop}

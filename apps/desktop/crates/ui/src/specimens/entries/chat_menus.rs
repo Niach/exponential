@@ -2,16 +2,17 @@
 //! menu and THE agent menu ×4 (`fixtures/chats.json` `menuCases` +
 //! `agentMenuCases`), the twin of web `chat-menus.tsx`. The demo IS the
 //! builders every way in calls ([`crate::chat_actions::chat_entry_items`]
-//! behind a chat row's right-click and the chat header's `…`,
-//! [`crate::chat_actions::agent_entry_items`] behind the rail's agent row
-//! and the agent chat's `…`) over the fixture's entries, drawn open in
-//! place, plus THE delete confirm ([`crate::chat_actions::delete_alert`]).
+//! behind a chat row's right-click, #FEED-239's
+//! [`crate::chat_actions::screen_menu_items`] behind the rail's agent row
+//! and every session screen's `…`) over the fixture's entries, drawn open
+//! in place, plus THE delete confirm ([`crate::chat_actions::delete_alert`]).
 
 use gpui::{div, px, App, Context, Div, Entity, IntoElement, ParentElement as _, Render, Styled as _, Window};
 use gpui_component::menu::PopupMenu;
 use gpui_component::ActiveTheme as _;
 
-use domain::chats::{agent_menu_entries, chat_menu_entries, AgentMenuEntry, ChatMenuEntry};
+use domain::chats::{chat_menu_entries, ChatMenuEntry};
+use domain::session_screen::{session_screen_menu, SessionScreenMenuEntry, SessionScreenMenuInput};
 
 pub(crate) const ID: &str = "chat-menus";
 pub(crate) const OWNER: &str = "EXP-1373";
@@ -19,7 +20,7 @@ pub(crate) const OWNER: &str = "EXP-1373";
 /// The specimens: (caption, the menu).
 enum Specimen {
     Chat(Vec<ChatMenuEntry>),
-    Agent(Vec<AgentMenuEntry>),
+    Agent(Vec<SessionScreenMenuEntry>),
 }
 
 fn specimens() -> Vec<(&'static str, Specimen)> {
@@ -28,9 +29,14 @@ fn specimens() -> Vec<(&'static str, Specimen)> {
     vec![
         ("A live chat", Specimen::Chat(chat_menu_entries("running", true, true))),
         ("An ended chat", Specimen::Chat(chat_menu_entries("ended", true, true))),
-        ("The agent menu (busy, owner)", Specimen::Agent(agent_menu_entries(true, true))),
-        ("The agent menu (idle, member)", Specimen::Agent(agent_menu_entries(false, false))),
+        ("The agent menu (busy, owner)", Specimen::Agent(agent_menu(true))),
+        ("The agent menu (idle, member)", Specimen::Agent(agent_menu(false))),
     ]
+}
+
+/// #FEED-239: THE session screen menu of an agent (kind agent, a member).
+fn agent_menu(owner: bool) -> Vec<SessionScreenMenuEntry> {
+    session_screen_menu(SessionScreenMenuInput { kind: "agent", member: true, link_issue: true, settings: owner, ..Default::default() })
 }
 
 struct MenusDemo {
@@ -46,7 +52,12 @@ impl MenusDemo {
                     let menu = menu.min_w(px(220.));
                     match &specimen {
                         Specimen::Chat(entries) => crate::chat_actions::chat_entry_items(menu, "sg-chat", entries, cx),
-                        Specimen::Agent(entries) => crate::chat_actions::agent_entry_items(menu, "sg-agent", entries),
+                        Specimen::Agent(entries) => crate::chat_actions::screen_menu_items(
+                            menu,
+                            "agent",
+                            entries,
+                            std::rc::Rc::new(|_, _, _| {}),
+                        ),
                     }
                 });
                 (caption, menu)
@@ -97,6 +108,7 @@ mod tests {
         let specimens = specimens();
         assert!(matches!(&specimens[0].1, Specimen::Chat(entries) if entries == &[ChatMenuEntry::Delete]));
         assert!(matches!(&specimens[1].1, Specimen::Chat(entries) if entries == &[ChatMenuEntry::Delete]));
-        assert!(matches!(&specimens[2].1, Specimen::Agent(entries) if entries.len() == 3));
+        // #EXP-1834: Link or file an issue, a rule, the pair, a rule, Agent settings.
+        assert!(matches!(&specimens[2].1, Specimen::Agent(entries) if entries.len() == 6));
     }
 }

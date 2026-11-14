@@ -7,11 +7,12 @@ import SwiftUI
 /// VAPP-110 / VAPP-177 / #EXP-1732 (session-screen.json kind `app`): THE
 /// EDITOR on a phone = THE session screen (`ChatScreen` with an editor
 /// slot). Header = the app's glyph + name + the version pill over the
-/// subtitle, then THE gear (the app's settings page, an opened item) and the
-/// trailing `…` (`app-editor-menu`, THE Menu in its sheet presentation):
-/// Publish · Export (once the app has a version) · Delete app (destructive;
-/// the creator or an owner). Under the header THE tabs Chat · Preview · Data
-/// · Versions · Sessions · Results:
+/// subtitle, then the trailing `…` (#FEED-239: no gear; THE session screen
+/// menu `SessionScreen.menu` in its sheet presentation): Publish · Compact
+/// conversation · New conversation (into the editor session) · App settings
+/// (an opened item) · Export (once the app has a version) · Delete app
+/// (destructive; the creator or an owner). Under the header THE tabs Chat ·
+/// Preview · Data · Versions:
 ///
 /// * Chat = the member's EDITOR SESSION with the app (a root with `app_id` +
 ///   `user_id` = me) as THE chat screen's channel (`ChatScreen` with an
@@ -33,8 +34,8 @@ import SwiftUI
 ///   (`AppDataTab`): the kind picker + Add record, one grouped list, the
 ///   form as a sheet.
 ///
-/// * Versions = the versions list (`AppVersionsList`); Settings = the
-///   gear's page (`AppSettingsPage`).
+/// * Versions = the versions list (`AppVersionsList`); App settings = the
+///   `…`'s page (`AppSettingsPage`).
 ///
 /// VAPP-176 a DRAFT (no version yet, New app's "Untitled app") opens on
 /// Chat; while its chat is empty the page-size empty state
@@ -44,9 +45,10 @@ import SwiftUI
 /// The editor keys the app by ID, so a draft's slug change (the agent
 /// naming it) changes nothing here.
 ///
-/// LIFETIME: entering starts nothing; leaving ENDS my live editor session
-/// (`sessions.end` on the root: the tree); the next send continues it.
-/// Leaving an EMPTY draft (no editor session) calls `apps.discardDraft`.
+/// LIFETIME: entering starts nothing; leaving ends nothing (#FEED-239, one
+/// rule with web: the editor session lives on like any chat; New
+/// conversation in the `…` starts fresh). Leaving an EMPTY draft (no
+/// editor session) calls `apps.discardDraft`.
 struct AppEditorScreen: View {
     let appId: String
     /// VAPP-218: an app screen link's screen: the editor opens on its
@@ -68,14 +70,15 @@ struct AppEditorScreen: View {
     @State private var restoring = false
     /// eApps V1: the version being published (nil = none).
     @State private var publishing: Int?
-    /// VAPP-177: the header's `…` (THE Menu's sheet).
+    /// VAPP-177: the header's `…` before the first message (THE Menu's
+    /// sheet; with a session the screen's own `…` shows it).
     @State private var menuOpen = false
-    /// The menu's (or a sheet's) pick, run once its sheet has dismissed.
-    @State private var pendingMenu: AppMenuSheet.Action?
+    /// The menu's pick, run once its sheet has dismissed.
+    @State private var pendingMenu: SessionScreen.MenuEntry?
     /// #VAPP-256: the rollback the prompt asks about.
     @State private var rollbackOpen = false
     @State private var rollbackTarget = 0
-    /// #EXP-1732: the gear's settings page on an editor with no session yet.
+    /// #EXP-1732: the `…`'s settings page on an editor with no session yet.
     @State private var settingsOpen = false
     /// VAPP-121: the Export sheet.
     @State private var exportOpen = false
@@ -108,11 +111,7 @@ struct AppEditorScreen: View {
                         tab: tab,
                         onSelect: { tab = $0 },
                         pane: tab == .chat ? nil : pane(app, tab),
-                        trailing: menuButton(app),
-                        onGear: {
-                            UIApplication.endEditing()
-                            settingsOpen = true
-                        }
+                        trailing: menuButton(app)
                     ) {
                         chatEmpty(app)
                     }
@@ -146,7 +145,6 @@ struct AppEditorScreen: View {
             model.loadAccess(accountId: accountId, appId: appId, trpc: deps.trpc)
         }
         .onDisappear {
-            endLiveSession()
             discardEmptyDraft()
             model.stop()
         }
@@ -174,13 +172,8 @@ struct AppEditorScreen: View {
             Color.clear
                 .sheet(isPresented: $menuOpen, onDismiss: runPendingMenu) {
                     if let app = model.app {
-                        AppMenuSheet(
-                            title: app.name,
-                            canPublish: model.canWrite && Apps.canPublish(app.versions),
-                            canExport: app.headVersion > 0,
-                            canManage: model.canManage(userId: deps.auth.userId)
-                        ) { action in
-                            pendingMenu = action
+                        ChatMenuSheet(title: app.name, entries: shellMenuEntries(app)) { entry in
+                            if case let .screen(picked, _) = entry { pendingMenu = picked }
                             menuOpen = false
                         }
                     }
@@ -248,8 +241,36 @@ struct AppEditorScreen: View {
             tab: $tab,
             pane: { tab in pane(app, tab) },
             settings: AnyView(settingsPage),
-            trailing: menuButton(app),
+            trailing: AnyView(AppOutboxPendingGlyph(appId: app.id)),
+            menu: ChatEditorMenu(
+                title: app.name,
+                publish: canPublishHead(app),
+                export: app.headVersion > 0,
+                delete: model.canManage(userId: deps.auth.userId),
+                onPick: { entry in
+                    pendingMenu = entry
+                    runPendingMenu()
+                }
+            ),
             device: model.deviceMenu, appMove: model.deviceAppMove, picks: picks
+        )
+    }
+
+    /// eApps V1: Publish while the head is ahead and I may write the app.
+    private func canPublishHead(_ app: AppListEntry) -> Bool {
+        model.canWrite && Apps.canPublish(app.versions)
+    }
+
+    /// #FEED-239: THE session screen menu before the first message (no
+    /// editor session to compact or renew yet).
+    private func shellMenuEntries(_ app: AppListEntry) -> [ChatMenuSheet.Entry] {
+        ChatMenuSheet.screenEntries(
+            SessionScreen.menu(
+                kind: .app, phone: true, member: false, linkIssue: false, settings: true,
+                publish: canPublishHead(app), export: app.headVersion > 0,
+                delete: model.canManage(userId: deps.auth.userId)
+            ),
+            kind: .app
         )
     }
 
@@ -266,14 +287,15 @@ struct AppEditorScreen: View {
         )
     }
 
-    /// VAPP-177: the header's trailing `…` (`app-editor-menu`, THE chat
-    /// header's ghost button), THE Menu in its sheet presentation (the Apps
-    /// row's `…` alike); VAPP-235's pending-writes glyph before it.
+    /// VAPP-177: the header's trailing `…` before the first message (THE
+    /// chat header's ghost button, `SessionScreen.TestIds.menu`), THE
+    /// session screen menu in its sheet presentation; VAPP-235's
+    /// pending-writes glyph before it.
     private func menuButton(_ app: AppListEntry) -> AnyView? {
         AnyView(
             HStack(spacing: 4) {
                 AppOutboxPendingGlyph(appId: app.id)
-                ChatHeaderGhostButton(icon: AppIcons.uiMore, label: "More", identifier: Apps.TestIds.menu) {
+                ChatHeaderGhostButton(icon: AppIcons.uiMore, label: "More", identifier: SessionScreen.TestIds.menu) {
                     UIApplication.endEditing()
                     menuOpen = true
                 }
@@ -281,13 +303,9 @@ struct AppEditorScreen: View {
         )
     }
 
-    /// #EXP-1732: the gear's opened item = the app's settings page; its
-    /// Export / Delete hand back once the page has popped.
+    /// #EXP-1732: the `…`'s App settings item = the app's settings page.
     private var settingsPage: some View {
-        AppSettingsPage(model: model) { action in
-            pendingMenu = action
-            runPendingMenu()
-        }
+        AppSettingsPage(model: model)
     }
 
     /// #EXP-1732 / #EXP-1729 (apps.json `editorHeader`): THE chat header's
@@ -334,21 +352,21 @@ struct AppEditorScreen: View {
         }
     }
 
-    /// A menu (or Settings sheet) pick, once its sheet is gone: one
-    /// presentation at a time.
+    /// A menu pick, once its sheet is gone: one presentation at a time.
+    /// With an editor session the screen runs Compact / New conversation and
+    /// App settings itself; before it, settings is this screen's page.
     private func runPendingMenu() {
-        guard let action = pendingMenu else { return }
+        guard let entry = pendingMenu else { return }
         pendingMenu = nil
-        switch action {
-        // The list's / the run view's menus only (the editor IS the editor).
-        case .edit: break
+        switch entry {
         case .publish:
-            if let app = model.app, model.canWrite, Apps.canPublish(app.versions) { publish(app, number: app.headVersion) }
-        // #EXP-1732: Versions is a tab, Settings the gear (the menu lists neither).
-        case .versions: tab = .versions
-        case .settings: break
+            if let app = model.app, canPublishHead(app) { publish(app, number: app.headVersion) }
+        case .settings:
+            UIApplication.endEditing()
+            settingsOpen = true
         case .export: exportOpen = model.app.map { $0.headVersion > 0 } ?? false
         case .delete: deleteOpen = model.canManage(userId: deps.auth.userId)
+        case .linkIssue, .compact, .newConversation, .separator: break
         }
     }
 
@@ -601,16 +619,6 @@ struct AppEditorScreen: View {
             _ = try? await api.discardDraft(accountId: account, id: id)
         }
     }
-
-    /// Leaving the editor ends my live editor session (its whole tree).
-    private func endLiveSession() {
-        guard let rootId = model.rootId, model.rootLive else { return }
-        let api = deps.sessionsApi
-        let account = accountId
-        Task.detached {
-            try? await api.end(accountId: account, sessionId: rootId)
-        }
-    }
 }
 
 // MARK: - Versions (VAPP-177)
@@ -709,23 +717,20 @@ struct AppVersionsList: View {
 
 // MARK: - Settings (VAPP-177)
 
-/// #EXP-1732: the gear's Settings page (an opened item) = the wide clients'
-/// Settings body, built
+/// #EXP-1732: the `…`'s App settings page (an opened item) = the wide
+/// clients' Settings body, built
 /// from the existing pieces: the board form's identity row (icon + colour +
 /// name, the name saved when editing ends), the description (saved when
 /// editing ends), the records line, the Tools group (a team OWNER flips the
-/// grants: `apps.update {id, headVersion: grantVersion, grantedTools}`), then Export (a
-/// version) and Delete app (the creator or an owner). Read-only for
-/// everyone else. Export / Delete hand back to the editor, which runs them
-/// once this page has popped.
+/// grants: `apps.update {id, headVersion: grantVersion, grantedTools}`).
+/// Read-only for everyone else. #FEED-239: Export and Delete app are NOT on
+/// it (they are `…` entries).
 struct AppSettingsPage: View {
     let model: AppEditorModel
-    let onAction: (AppMenuSheet.Action) -> Void
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(\.toaster) private var toaster
-    @Environment(\.dismiss) private var dismiss
     @State private var seeded = false
     @State private var name = ""
     @State private var icon = "puzzle"
@@ -844,7 +849,6 @@ struct AppSettingsPage: View {
             mcpToolsGroup
             automationsGroup
             webhooksGroup
-            actions(app)
         }
     }
 
@@ -1386,43 +1390,6 @@ struct AppSettingsPage: View {
         .accessibilityIdentifier("\(AppShare.TestIds.shareRow)-\(share.name)")
     }
 
-    /// Export (once the app has a version) and, at the end, Delete app (the
-    /// creator or an owner).
-    @ViewBuilder
-    private func actions(_ app: AppListEntry) -> some View {
-        if app.headVersion > 0 || canManage {
-            HStack(spacing: 8) {
-                if app.headVersion > 0 {
-                    GlassPill(Apps.Copy.Menu.export, icon: AppIcons.uiShare, mode: .action {
-                        UIApplication.endEditing()
-                        handOff(.export)
-                    })
-                    .accessibilityIdentifier("app-export")
-                }
-                if canManage {
-                    // EXP-1554: THE destructive button (web's filled red),
-                    // beside Export, left-aligned (web).
-                    DestructiveButton(Apps.Copy.Menu.delete) {
-                        UIApplication.endEditing()
-                        handOff(.delete)
-                    }
-                    .accessibilityIdentifier("app-delete")
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.top, 4)
-        }
-    }
-
-    /// #EXP-1732: the page pops first, then the editor runs the action
-    /// (its sheet / alert draws over the screen, not under this page).
-    private func handOff(_ action: AppMenuSheet.Action) {
-        dismiss()
-        DispatchQueue.main.asyncAfter(deadline: .now() + DesignTokens.Motion.Duration.standard + 0.2) {
-            onAction(action)
-        }
-    }
-
     // MARK: - Writes
 
     private var automationsKey: String? {
@@ -1563,8 +1530,8 @@ struct AppSettingsPage: View {
 }
 
 /// #EXP-1732: the editor before its first message: THE session screen's
-/// chrome (kind `app`: the header with the gear and the `…`, THE tabs) over
-/// the empty chat; Sessions and Results have nothing yet.
+/// chrome (kind `app`: the header with the `…`, THE tabs) over the empty
+/// chat.
 private struct AppEditorShell<Title: View, Chat: View>: View {
     let title: Title
     let tab: SessionScreen.Tab
@@ -1572,7 +1539,6 @@ private struct AppEditorShell<Title: View, Chat: View>: View {
     /// The app tab's body covering the chat (nil = the Chat tab).
     let pane: AnyView?
     let trailing: AnyView?
-    let onGear: () -> Void
     @ViewBuilder let chat: () -> Chat
 
     private var screen: SessionScreen.Screen {
@@ -1587,10 +1553,7 @@ private struct AppEditorShell<Title: View, Chat: View>: View {
                 .opacity(shown.active == .chat ? 1 : 0)
                 .allowsHitTesting(shown.active == .chat)
                 .accessibilityHidden(shown.active != .chat)
-            if shown.active == .results {
-                EmptyState(title: ResultsTab.Tab.Copy.empty, icon: AppIcons.chatResults, size: .list)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if shown.active != .chat, let pane {
+            if shown.active != .chat, let pane {
                 pane
             }
         }
@@ -1600,7 +1563,6 @@ private struct AppEditorShell<Title: View, Chat: View>: View {
                 title
                     .frame(maxWidth: .infinity, alignment: .leading)
             } trailing: {
-                SessionScreenGear(action: onGear)
                 if let trailing { trailing }
             }
             SessionScreenTabs(tabs: shown.tabs, selection: shown.active, onSelect: onSelect)

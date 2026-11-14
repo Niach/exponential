@@ -71,6 +71,9 @@ public enum MessageDelivery {
     /// Fixture `handoffMaxMs`: how long a consumed own row may wait for its
     /// transcript echo before its held bubble goes.
     public static let handoffMaxMs: Double = 60_000
+    /// Fixture `briefRequestHeading` (#FEED-239): a BRIEFED first prompt
+    /// starts with it.
+    public static let briefRequestHeading = "## Request\n\n"
 
     /// Fixture `testIds`.
     public enum TestIds {
@@ -262,12 +265,41 @@ public enum MessageDelivery {
             let echo = echoes.indices.first { index in
                 let candidate = echoes[index]
                 if taken.contains(index) { return false }
-                if candidate.text.trimmingCharacters(in: .whitespacesAndNewlines) != body { return false }
+                if !echoMatches(candidate.text, body: body) { return false }
                 guard let at = candidate.at else { return true }
                 return at >= from
             }
             if let echo { taken.insert(echo) } else { kept.append(row.id) }
         }
         return kept
+    }
+
+    /// #FEED-239: an echo is the row's when its trimmed text equals the
+    /// body, or it is the session's BRIEFED first prompt (`## Request` + the
+    /// body without its attachment lines + the brief's other sections).
+    static func echoMatches(_ text: String, body: String) -> Bool {
+        let echo = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if echo == body { return true }
+        guard echo.hasPrefix(briefRequestHeading) else { return false }
+        let prose = body
+            .components(separatedBy: "\n")
+            .filter { !isAttachmentLine($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return !prose.isEmpty && echo.dropFirst(briefRequestHeading.count).hasPrefix(prose)
+    }
+
+    /// `^!?\[[^\]]*\]\(/api/attachments/[^)]*\)$`, without a regex.
+    static func isAttachmentLine(_ line: String) -> Bool {
+        var rest = Substring(line)
+        if rest.hasPrefix("!") { rest = rest.dropFirst() }
+        guard rest.hasPrefix("[") else { return false }
+        rest = rest.dropFirst()
+        guard let close = rest.firstIndex(of: "]") else { return false }
+        rest = rest[rest.index(after: close)...]
+        let target = "(/api/attachments/"
+        guard rest.hasPrefix(target), rest.hasSuffix(")") else { return false }
+        rest = rest.dropFirst(target.count).dropLast()
+        return !rest.contains(")")
     }
 }

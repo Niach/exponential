@@ -39,6 +39,8 @@ import {
   eventCollection,
   userCollection,
 } from "@/lib/collections"
+import { useApps } from "@/hooks/use-apps"
+import { sidebarAgents } from "@exp/domain-contract/chats"
 import { useSessionTitles, useTeamSessions } from "@/hooks/use-session-tree"
 import { useTeamUsers } from "@/hooks/use-team-data"
 import { compactRelativeTime } from "@/lib/relative-time"
@@ -1117,11 +1119,12 @@ function AgentTriggerRow({
 
 /** The Agents band: "New agent" as its trailing pill (owners) over the
  *  team's agents as Settings rows (icon + colour + name, like boards), or
- *  the list-size empty state while there are none. */
+ *  the list-size empty state while there are none. #FEED-239
+ *  (`sidebarAgents`): an app's agent is listed under Apps only. */
 export function AgentsListBand({
   team,
   isOwner,
-  agents,
+  agents: allAgents,
   loading = false,
 }: {
   team: Team
@@ -1131,6 +1134,11 @@ export function AgentsListBand({
   loading?: boolean
 }) {
   const navigate = useNavigate()
+  const { apps } = useApps(team.id)
+  const agents = useMemo(
+    () => sidebarAgents(allAgents, apps.map((app) => ({ agentId: app.row?.agentId ?? null }))),
+    [allAgents, apps]
+  )
   return (
     <div>
       <GlassSectionHeader

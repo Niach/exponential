@@ -112,15 +112,15 @@ import java.time.format.DateTimeFormatter
  *
  * #EXP-1732 (session-screen.json): THE session screen, phones = NARROW. The
  * header band (back, the lead disc, the title over `status · device ·
- * trigger`, the Merge pill, THE gear for an agent / the Assistant, `…`) over
+ * trigger`, the Merge pill, THE `…` (#FEED-239: no gear)) over
  * THE segmented tabs Chat · Issues · Sessions · Results (a muted count each).
  * Layout `chat` = the conversation (the root's rows over THE Dock + THE
  * composer; plans and questions inline), `tab` = the tab's body replacing it
  * (Issues = THE issue rows led by `+`, Sessions = THE tree rows, Results =
  * the tree's results under its PR block), `item` = a pushed page over the
  * tab (an issue's [IssueScreen] embedded, a session's raw work + composer, a
- * plan's [PlanPageContent]) with its `‹` back. The gear pushes the agent's
- * settings page.
+ * plan's [PlanPageContent], an agent's settings) with its `‹` back. The
+ * `…`'s Agent settings opens the settings item IN the chat.
  */
 @Composable
 fun ChatScreen(
@@ -131,8 +131,6 @@ fun ChatScreen(
     /** The "+"'s New issue: the New issue page on [boardId], linked to this
      *  root on create. Null hides the row. */
     onNewIssue: ((boardId: String, rootSessionId: String) -> Unit)? = null,
-    /** The agent menu's Agent settings (owners). */
-    onOpenAgentSettings: ((agentId: String) -> Unit)? = null,
     viewModel: ChatViewModel = hiltViewModel(),
 ) {
     val view by viewModel.view.collectAsStateWithLifecycle()
@@ -188,6 +186,8 @@ fun ChatScreen(
     val closeItem: () -> Unit = {
         openKind = null
         openId = null
+        // A requested `settings` (`?tab=settings`) is an opened item too.
+        if (requestedTab == SessionScreen.Open.Settings.wire) requestedTab = null
     }
     var menuFor by remember { mutableStateOf<ChatTabMenuTarget?>(null) }
     var linkPickerOpen by remember { mutableStateOf(false) }
@@ -313,29 +313,6 @@ fun ChatScreen(
     val stateWord = chatStateWord(viewModel.rootId, tree)
     val headerSubtitle = SessionScreen.subtitle(stateWord, deviceLabel, trigger)
     val headerSubtitleColor = chatStateTone(stateWord)
-    val chatMenu: List<com.exponential.app.ui.components.ChatMenuItem> = if (agent != null) {
-        com.exponential.app.ui.components.agentMenuItems(
-            com.exponential.app.domain.Chats.agentMenuEntries(busy = rootRow?.busy == true, isOwner = isOwner)
-                // chats.json `agentMenu` locks Settings; it opens exactly what
-                // THE gear opens (#EXP-1732: the agent's settings page).
-                .filter { it != com.exponential.app.domain.Chats.AgentMenuEntry.Settings || onOpenAgentSettings != null },
-        ) { entry ->
-            when (entry) {
-                com.exponential.app.domain.Chats.AgentMenuEntry.Compact,
-                com.exponential.app.domain.Chats.AgentMenuEntry.NewConversation ->
-                    com.exponential.app.domain.Chats.agentMenuSend(entry)?.let { viewModel.send(it) }
-                com.exponential.app.domain.Chats.AgentMenuEntry.Settings ->
-                    rootRow?.agentId?.let { id -> onOpenAgentSettings?.invoke(id) }
-            }
-        }
-    } else if (rootRow != null) {
-        com.exponential.app.ui.components.chatMenuItems(
-            com.exponential.app.domain.Chats.chatMenuEntries(rootRow.status, canSteer, rootRow.userId == me || isOwner),
-            onDelete = { deleteConfirm = true },
-        )
-    } else {
-        emptyList()
-    }
     // #EXP-1611: the Guide PR's CI checks (the `…`'s Checks submenu, the
     // Merge pill's failing confirm); a 1s clock while one runs.
     val guideCheckRows by viewModel.guideChecks.collectAsStateWithLifecycle()
@@ -431,13 +408,35 @@ fun ChatScreen(
         open = openKind,
         counts = SessionScreen.Counts(issues = items.issues.size, sessions = items.sessions.size, results = resultsCount),
     )
-    // A requested `settings` (the gear's item) is the agent's settings PAGE
-    // on a phone: push it once and forget the request.
-    LaunchedEffect(screen.open) {
-        if (screen.open == SessionScreen.Open.Settings) {
-            closeItem()
-            if (requestedTab == SessionScreen.Open.Settings.wire) requestedTab = null
-            rootRow?.agentId?.takeIf { it.isNotEmpty() }?.let { id -> onOpenAgentSettings?.invoke(id) }
+    // #FEED-239: THE `…` (`sessionScreenMenu`): a chat = Delete (who may
+    // delete it); an agent / the Assistant = Compact + New conversation (a
+    // member; SENT like typed lines), then its settings (an agent: team
+    // owners; the Assistant: its owner), opened IN the chat.
+    val agentSettingsId = rootRow?.agentId?.takeIf { it.isNotEmpty() && agent != null }
+    val mayOpenSettings = agentSettingsId != null &&
+        (if (agent?.assistant == true) agentDefinition?.ownerId == me else isOwner)
+    val chatMenu = sessionScreenMenuGroups(
+        kind,
+        SessionScreen.menu(
+            kind = kind,
+            phone = true,
+            member = isMember,
+            settings = mayOpenSettings,
+            publish = false,
+            export = false,
+            delete = agent == null && rootRow != null &&
+                com.exponential.app.domain.Chats.chatMenuEntries(rootRow.status, canSteer, rootRow.userId == me || isOwner).isNotEmpty(),
+            // #EXP-1834: Link or file an issue (a member), on every tab.
+            linkIssue = isMember && rootRow != null,
+        ),
+    ) { entry ->
+        when (entry) {
+            SessionScreen.MenuEntry.Compact, SessionScreen.MenuEntry.NewConversation -> entry.send?.let { viewModel.send(it) }
+            SessionScreen.MenuEntry.Settings -> agentSettingsId?.let { openItem(SessionScreen.Open.Settings, it) }
+            SessionScreen.MenuEntry.Delete -> deleteConfirm = true
+            // #EXP-1834: THE link menu (Link an issue, New issue) as the next sheet.
+            SessionScreen.MenuEntry.LinkIssue -> menuFor = ChatTabMenuTarget(null)
+            else -> Unit
         }
     }
 
@@ -604,6 +603,8 @@ fun ChatScreen(
             LocalMentions provides mentionResolver,
             LocalAppLinks provides appLinkHandler,
             com.exponential.app.ui.components.LocalAgentMarks provides agentMarks,
+            // #FEED-239: the own bubbles wear the viewer's avatar on the right.
+            LocalViewer provides teamUsers.firstOrNull { it.id == me },
         ) {
             ChatContent(
                 view = view,
@@ -625,7 +626,6 @@ fun ChatScreen(
                 onDecidePlan = onDecidePlan,
                 issueTitle = { id -> issueTitles[id] },
                 onBack = onBack,
-                onAddIssue = { menuFor = ChatTabMenuTarget(null) },
                 // Only a LINKED issue (a root row) unlinks; a nested one has no link.
                 onIssueMenu = { issue -> if (issue.depth == 0) menuFor = ChatTabMenuTarget(issue) },
                 issuePage = { issueId, padding ->
@@ -653,8 +653,8 @@ fun ChatScreen(
                 headerLead = headerLead,
                 headerSubtitle = headerSubtitle,
                 headerSubtitleColor = headerSubtitleColor,
-                menu = chatMenu,
-                menuGroups = listOf(guideMenuItems),
+                menu = chatMenu.firstOrNull().orEmpty(),
+                menuGroups = chatMenu.drop(1) + listOf(guideMenuItems),
                 // NEW-69: an agent's conversation carries the telephone.
                 headerCall = agent?.let { a -> { com.exponential.app.ui.call.AgentCallButton(agentId = rootRow?.agentId, agentName = a.name, agentIcon = if (a.assistant) null else a.icon, agentColor = a.color) } },
                 // S-3: the Merge rides the header, left of `…` (phones too).
@@ -663,11 +663,9 @@ fun ChatScreen(
                 } else {
                     null
                 },
-                // #EXP-1732: THE gear pushes the agent's (the Assistant's) settings page.
-                gear = if (screen.gear && onOpenAgentSettings != null) {
-                    { rootRow?.agentId?.takeIf { it.isNotEmpty() }?.let { id -> onOpenAgentSettings?.invoke(id) } }
-                } else {
-                    null
+                // #FEED-239: the `…`'s Agent settings = the settings item IN the chat.
+                settingsPage = agentSettingsId?.let { id ->
+                    { onClose -> AgentSettingsItem(agentId = id, onClose = onClose, onDeleted = onBack) }
                 },
                 initialCard = viewModel.initialCard,
                 // #EXP-1732: every kind has Results (an agent's tree too).
@@ -821,7 +819,7 @@ internal fun clockTime(wire: String): String? {
  * #EXP-1732 THE session screen's whole layout, stateless (phones = NARROW,
  * session-screen.json `sessionScreen`'s `layout`). `chat` / `tab`: the header
  * band = THE chat header ([ChatHeader] in its edge chrome: `‹`, the lead
- * disc, the title over the subtitle, the Merge pill, THE gear, `…`) with
+ * disc, the title over the subtitle, the Merge pill, `…`) with
  * [SessionScreenTabs] under it, the body scrolling UNDER the band: Chat = the
  * ROOT's own session view ([sessionPage] of [rootId]: its raw work with the
  * traces, its cards, THE Dock and THE composer), always; Issues / Sessions =
@@ -859,7 +857,6 @@ fun ChatContent(
     issuePage: @Composable (issueId: String, padding: PaddingValues) -> Unit,
     modifier: Modifier = Modifier,
     /** The Issues tab's `+` (THE Menu: Link an issue, New issue); null hides it. */
-    onAddIssue: (() -> Unit)? = null,
     /** An issue row's long-press (its menu: Unlink). */
     onIssueMenu: ((SessionScreenIssue) -> Unit)? = null,
     /** EXP-1343: a session's own view = its raw work + its composer (the
@@ -879,8 +876,9 @@ fun ChatContent(
     headerCall: (@Composable () -> Unit)? = null,
     /** S-3: the header's action slot left of `…` (the chat's Merge). */
     headerAction: (@Composable () -> Unit)? = null,
-    /** #EXP-1732: THE gear (null = none: a chat). */
-    gear: (() -> Unit)? = null,
+    /** #FEED-239: the kind's settings item (`open: settings`), its own
+     *  pushed page; null = none (a chat). */
+    settingsPage: (@Composable (onClose: () -> Unit) -> Unit)? = null,
     /** S-3: an inter-session link pushes that session (null = inert). */
     onOpenXref: ((sessionId: String) -> Unit)? = null,
     /** results-tab.json: the Results tab's body (null = an empty tab). */
@@ -958,6 +956,12 @@ fun ChatContent(
         }
     }
 
+    if (screen.layout == SessionScreen.Layout.Item && screen.open == SessionScreen.Open.Settings) {
+        // #FEED-239: the settings item = THE settings page pushed (its own
+        // `‹` header); never the Settings screen.
+        if (settingsPage != null) settingsPage(onCloseItem) else LaunchedEffect(Unit) { onCloseItem() }
+        return
+    }
     if (screen.layout == SessionScreen.Layout.Item) {
         // THE pushed page: `‹` + the item's name; system Back pops it.
         BackHandler(onBack = onCloseItem)
@@ -1028,7 +1032,6 @@ fun ChatContent(
                 menuGroups = menuGroups,
                 call = headerCall,
                 action = headerAction,
-                gear = gear,
                 waiting = if (waitingChips.isNotEmpty()) {
                     { SessionWaitingButton(count = waitingChips.size, onClick = { waitingSheet = true }) }
                 } else {
@@ -1068,7 +1071,6 @@ fun ChatContent(
                     issueStatus = issueStatus,
                     issueTitle = issueTitle,
                     onOpen = { id -> onOpen(SessionScreen.Open.Issue, id) },
-                    onAdd = onAddIssue,
                     contentPadding = listPadding,
                     onMenu = onIssueMenu,
                 )

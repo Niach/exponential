@@ -698,14 +698,21 @@ struct AgentSessionView: View {
                     ScrollView {
                         VStack(spacing: 0) {
                             if !inputs.isEmpty {
-                                VStack(alignment: .trailing, spacing: 8) {
-                                    ForEach(inputs) { input in
-                                        UserMessageBubble(
-                                            text: input.text,
-                                            context: markdownContext,
-                                            caption: input.at.map { GlassTimeRow.formatted($0) },
-                                            status: .read
-                                        )
+                                VStack(alignment: .trailing, spacing: 0) {
+                                    ForEach(Array(inputs.enumerated()), id: \.element.id) { index, input in
+                                        // #FEED-239: one own group under the viewer's avatar.
+                                        TranscriptRow(
+                                            side: .own,
+                                            gap: index == 0 ? 0 : TranscriptGrouping.Layout.gapInGroup,
+                                            avatar: index == 0 ? ownAvatar : nil
+                                        ) {
+                                            UserMessageBubble(
+                                                text: input.text,
+                                                context: markdownContext,
+                                                caption: input.at.map { GlassTimeRow.formatted($0) },
+                                                status: .read
+                                            )
+                                        }
                                     }
                                 }
                                 .frame(maxWidth: .infinity, alignment: .trailing)
@@ -897,7 +904,7 @@ struct AgentSessionView: View {
                                 // #EXP-1736: the tab is a transcript too:
                                 // its prose = THE message bubble under the
                                 // subagent's avatar, the turns to it own.
-                                let lane = Self.laneGrouping(laneRows, run: focused)
+                                let lane = Self.laneGrouping(laneRows, run: focused, ownAvatar: ownAvatar)
                                 ForEach(
                                     Array(laneRows.enumerated()), id: \.element.id
                                 ) { index, row in
@@ -1310,7 +1317,8 @@ struct AgentSessionView: View {
                 } else if let input = TranscriptGrouping.crossSessionInput(text) {
                     // #EXP-1736: a parent's or child's message reaching this
                     // session = THAT session's bubble; #EXP-1772: a relay,
-                    // its name ` ›` above it the only press, never folded.
+                    // its name ` ›` above it the only press; #FEED-238: it
+                    // folds like every bubble.
                     senderBubble(input.body, layout: layout, streaming: false, time: time)
                 } else if layout?.side == .other {
                     // ONE origin rule: the feed's first prompt = the
@@ -1365,7 +1373,10 @@ struct AgentSessionView: View {
             time: time,
             onPress: link.map { sessionId -> () -> Void in { openSender(sessionId) } }
         ) {
-            AgentMarkdownText(text: text, context: markdownContext, streaming: streaming, hugsWidth: true)
+            // #FEED-238: every bubble folds, a relay's too.
+            MessageFold(text: text) {
+                AgentMarkdownText(text: text, context: markdownContext, streaming: streaming, hugsWidth: true)
+            }
         }
     }
 
@@ -1465,6 +1476,9 @@ struct AgentSessionView: View {
             out.layouts[entryId] = layout
             if layout.avatar, let sender = layout.sender {
                 out.avatars[entryId] = transcriptRows?.senderAvatar(sender) ?? Self.fallbackAvatar(sender)
+            } else if layout.avatar, layout.side == .own {
+                // #FEED-239: the viewer's own group wears THEIR avatar.
+                out.avatars[entryId] = ownAvatar
             }
             if item.kind == .message, previous?.kind == .message, layout.side != .full {
                 out.bubbleGaps[entryId] = layout.gap
@@ -1476,7 +1490,9 @@ struct AgentSessionView: View {
     /// #EXP-1736: a subagent's own tab through the same grouping: the
     /// subagent is the chat's own sender (its prose = its bubbles, its
     /// calls = its trace), the turns addressed to it the viewer's own.
-    static func laneGrouping(_ rows: [AgentFeedRow], run: AgentSubagentRun) -> FeedGrouping {
+    static func laneGrouping(
+        _ rows: [AgentFeedRow], run: AgentSubagentRun, ownAvatar: SenderAvatarModel? = nil
+    ) -> FeedGrouping {
         let viewer = "viewer"
         let items: [TranscriptGrouping.Item] = rows.map { row in
             let id = "row:\(row.id)"
@@ -1515,12 +1531,20 @@ struct AgentSessionView: View {
             defer { previous = item }
             guard let rowId = Int(item.id.dropFirst(4)) else { continue }
             out.layouts[rowId] = layout
-            if layout.avatar { out.avatars[rowId] = .session }
+            // #FEED-239: the turns to it wear the viewer's own avatar.
+            if layout.avatar { out.avatars[rowId] = layout.side == .own ? ownAvatar : .session }
             if item.kind == .message, previous?.kind == .message, layout.side != .full {
                 out.bubbleGaps[rowId] = layout.gap
             }
         }
         return out
+    }
+
+    /// #FEED-239 (transcript-grouping.json): the viewer's OWN avatar right
+    /// of their own group (their picture, else their initials in their hue).
+    private var ownAvatar: SenderAvatarModel? {
+        guard let viewerId = deps.auth.userId else { return nil }
+        return .member(user: transcriptRows?.user(id: viewerId), id: viewerId)
     }
 
     /// A sender's avatar before the tree snapshot loaded.
@@ -1886,7 +1910,8 @@ struct AgentSessionView: View {
             TranscriptRow(
                 side: .own,
                 gap: index == 0 ? TranscriptGrouping.Layout.gapBetween : TranscriptGrouping.Layout.gapInGroup,
-                avatar: nil
+                // #FEED-239: the group's first bubble wears the viewer's avatar.
+                avatar: index == 0 ? ownAvatar : nil
             ) {
                 UserMessageBubble(
                     text: bubble.text,
@@ -2877,9 +2902,48 @@ struct NarrationBubble: View {
     }
 }
 
+/// #FEED-238 THE FOLD ×4 (transcript-grouping.json `fold`): a message
+/// bubble's text past `TranscriptGrouping.messageFolds` shows its first
+/// `fold.lines` lines (a block render has no `lineLimit`, so a clipped
+/// height cap, QuestionCard's approach), then THE transcript's Show more /
+/// Show less text button under it. Every bubble: own, a member's, the
+/// chat's agent, a relay, a child's report.
+struct MessageFold<Content: View>: View {
+    /// The text `messageFolds` measures (a steer's PROSE, never its embeds).
+    let text: String
+    @ViewBuilder let content: () -> Content
+
+    @State private var expanded = false
+
+    /// `fold.lines` lines of the body text.
+    static var foldHeight: CGFloat {
+        UIFont.preferredFont(forTextStyle: .body).lineHeight * CGFloat(TranscriptGrouping.Fold.lines)
+    }
+
+    var body: some View {
+        if TranscriptGrouping.messageFolds(text) {
+            VStack(alignment: .leading, spacing: 4) {
+                content()
+                    .frame(maxHeight: expanded ? nil : Self.foldHeight, alignment: .top)
+                    .clipped()
+                Button(expanded ? TranscriptGrouping.Copy.showLess : TranscriptGrouping.Copy.showMore) {
+                    expanded.toggle()
+                }
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("message-fold-toggle")
+            }
+        } else {
+            content()
+        }
+    }
+}
+
 /// A human turn (EXP-78): the initial prompt or a steered message — the
 /// viewer's own side of THE message bubble (#EXP-1736 `MessageBubble`
-/// `.own`: right, at most 78% of the column), long text folded.
+/// `.own`: right; #FEED-239 the whole column left of the viewer's avatar),
+/// long text folded (#FEED-238 `MessageFold`).
 struct UserMessageBubble: View {
     let text: String
     let context: AgentMarkdownContext
@@ -2894,20 +2958,6 @@ struct UserMessageBubble: View {
     var actions: [MessageDelivery.Action] = []
     var onAction: (MessageDelivery.Action) -> Void = { _ in }
 
-    @State private var expanded = false
-
-    /// Fold threshold — the initial prompt can be 16 KiB.
-    private static let clampLines = 6
-    private static let clampChars = 600
-    /// Folded height. A block render has no `lineLimit`, so the fold is a
-    /// clipped height cap instead — same approach as QuestionCard's prompt.
-    private static let clampHeight: CGFloat = 160
-
-    private func isClampable(_ body: String) -> Bool {
-        body.count > Self.clampChars
-            || body.filter { $0 == "\n" }.count >= Self.clampLines
-    }
-
     /// EXP-698: a steered message with images (EXP-511) splits into its PROSE
     /// — whose `[Image #N]` markers become chips — and the embeds themselves,
     /// which stay below it. A message without embeds is the wire message and
@@ -2920,14 +2970,13 @@ struct UserMessageBubble: View {
         let parsed = parsed
         // Wave D: trailing file lines split off exactly like the embeds.
         let hasImages = !parsed.attachmentIds.isEmpty || !parsed.files.isEmpty
-        // Clamp the PROSE, never the wire message: four embed lines are four
+        // Fold the PROSE, never the wire message: four embed lines are four
         // more "lines" of nothing, and they used to push a two-line steer into
         // the fold — which then hid the images the fold was measuring.
-        let clampable = isClampable(hasImages ? parsed.text : text)
         let hasCaption = (caption?.isEmpty == false) || status != nil
         return MessageBubble(side: .own, hasFooter: hasCaption) {
             VStack(alignment: .leading, spacing: 4) {
-                Group {
+                MessageFold(text: hasImages ? parsed.text : text) {
                     if !hasImages {
                         AgentMarkdownText(
                             text: text,
@@ -2948,16 +2997,6 @@ struct UserMessageBubble: View {
                             )
                         }
                     }
-                }
-                .frame(maxHeight: clampable && !expanded ? Self.clampHeight : nil, alignment: .top)
-                .clipped()
-                if clampable {
-                    Button(expanded ? "Show less" : "Show more") {
-                        expanded.toggle()
-                    }
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .buttonStyle(.plain)
                 }
                 // OUTSIDE the fold: the images are the point of the message,
                 // and a long prose clamp must never be what hides them.
@@ -4538,7 +4577,9 @@ struct SubagentItemRow: View {
             } else {
                 // #EXP-1736: the subagent's own tab = THE message bubble.
                 MessageBubble(side: .other, author: author, time: nil) {
-                    AgentMarkdownText(text: text, context: context, streaming: false, hugsWidth: true)
+                    MessageFold(text: text) {
+                        AgentMarkdownText(text: text, context: context, streaming: false, hugsWidth: true)
+                    }
                 }
             }
         case let .apiError(_, message, errorType, _):

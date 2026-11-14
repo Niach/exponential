@@ -48,6 +48,7 @@ import com.exponential.app.domain.SessionScreen
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.TreeGuides
 import com.exponential.app.ui.components.AgentRunMark
+import com.exponential.app.ui.components.ChatMenuItem
 import com.exponential.app.ui.components.DEFAULT_AGENT
 import com.exponential.app.ui.components.GlassSegmentedControl
 import com.exponential.app.ui.components.SessionRow
@@ -60,8 +61,9 @@ import com.exponential.app.ui.theme.TextEmphasis
 // #EXP-1732 (session-screen.json): THE session screen's phone pieces, shared
 // by every kind (a chat, an agent's or the Assistant's conversation, an app's
 // editor): the header band's tabs (THE segmented control, labels + a muted
-// count, scrolling sideways on overflow), THE gear, and the Issues / Sessions
-// tab bodies (THE issue rows, THE tree rows).
+// count, scrolling sideways on overflow), THE `…` (#FEED-239: no gear), the
+// settings item, and the Issues / Sessions tab bodies (THE issue rows, THE
+// tree rows).
 
 /** #EXP-1732: one issue of the tree (a linked one, or one nested under it). */
 data class SessionScreenIssue(val issueId: String, val identifier: String, val depth: Int)
@@ -170,6 +172,8 @@ fun SessionScreenTabs(
                     entry?.count?.let { "${entry.label}, $it" }
                 },
                 hug = true,
+                // #EXP-1834: an empty counted tab is disabled, never opened.
+                disabled = { tab -> tabs.firstOrNull { it.tab == tab }?.disabled == true },
             )
         }
     }
@@ -193,16 +197,56 @@ private fun SessionTabCount(count: Int) {
     )
 }
 
-/** #EXP-1732: THE gear (agents, the Assistant and apps): the header's ghost
- *  icon button, concept `nav-settings`, named `Settings`. */
+/**
+ * #FEED-239: THE `…` of every kind ([SessionScreen.menu]) as the header
+ * menu's groups (split at each `separator`): labels `copy.menu` by kind,
+ * icons `menuIcons`, Delete destructive. [onPick] runs the entry (Compact /
+ * New conversation SEND [SessionScreen.MenuEntry.send]).
+ */
+fun sessionScreenMenuGroups(
+    kind: SessionScreen.Kind,
+    entries: List<SessionScreen.MenuEntry>,
+    onPick: (SessionScreen.MenuEntry) -> Unit,
+): List<List<ChatMenuItem>> {
+    val groups = mutableListOf(mutableListOf<ChatMenuItem>())
+    for (entry in entries) {
+        if (entry == SessionScreen.MenuEntry.Separator) {
+            groups += mutableListOf<ChatMenuItem>()
+            continue
+        }
+        groups.last() += ChatMenuItem(
+            label = SessionScreen.menuLabel(kind, entry),
+            icon = entry.icon?.let(ExpIcons::byConcept) ?: ExpIcons.uiMore,
+            onClick = { onPick(entry) },
+            destructive = entry == SessionScreen.MenuEntry.Delete,
+            testTag = "${SessionScreen.TestIds.MENU}-${entry.wire}",
+        )
+    }
+    return groups.filter { it.isNotEmpty() }
+}
+
+/** [sessionScreenMenuGroups] flattened for one list (a row's sheet): a
+ *  hairline above each group's first row. */
+fun sessionScreenMenuItems(
+    kind: SessionScreen.Kind,
+    entries: List<SessionScreen.MenuEntry>,
+    onPick: (SessionScreen.MenuEntry) -> Unit,
+): List<ChatMenuItem> = sessionScreenMenuGroups(kind, entries, onPick).flatMapIndexed { index, group ->
+    group.mapIndexed { i, item -> if (index > 0 && i == 0) item.copy(dividerBefore = true) else item }
+}
+
+/**
+ * #FEED-239: an agent's (the Assistant's) SETTINGS opened as the screen's
+ * item (`open: settings`; the `…`'s settings entry): THE agent settings page
+ * as the pushed page (its own `‹` header), never a navigation to Settings.
+ * [onClose] = its back (system Back too); [onDeleted] = the agent is gone.
+ */
 @Composable
-fun SessionGearButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
-    ChatHeaderButton(
-        ExpIcons.navSettings,
-        SessionScreen.Copy.SETTINGS,
-        onClick = onClick,
-        modifier = modifier.testTag(SessionScreen.TestIds.GEAR),
-    )
+fun AgentSettingsItem(agentId: String, onClose: () -> Unit, onDeleted: () -> Unit) {
+    androidx.activity.compose.BackHandler(onBack = onClose)
+    com.exponential.app.ui.apps.ArgsStore("agentId", agentId) {
+        com.exponential.app.ui.settings.AgentSettingsScreen(onBack = onClose, onCreated = {}, onDeleted = onDeleted)
+    }
 }
 
 /**
@@ -299,8 +343,8 @@ fun SessionWaitingSheet(
 }
 
 /**
- * #EXP-1732 the Issues tab: led by the `+` (THE Menu: Link an issue, New
- * issue), then THE issue rows (status glyph, mono identifier, title; nested
+ * #EXP-1732 the Issues tab (#EXP-1834: no `+`; linking is the `…`'s entry):
+ * THE issue rows (status glyph, mono identifier, title; nested
  * ones indented under their parent on the tree guides). A tap opens that
  * issue in place ([onOpen]); a long-press its menu ([onMenu], Unlink).
  */
@@ -311,7 +355,6 @@ fun SessionIssuesBody(
     issueStatus: (String) -> ResolvedIssueStatus?,
     issueTitle: (String) -> String?,
     onOpen: (issueId: String) -> Unit,
-    onAdd: (() -> Unit)?,
     contentPadding: PaddingValues,
     modifier: Modifier = Modifier,
     onMenu: ((SessionScreenIssue) -> Unit)? = null,
@@ -321,21 +364,6 @@ fun SessionIssuesBody(
         modifier = modifier.fillMaxSize().testTag(SessionScreen.TestIds.ISSUES),
         contentPadding = contentPadding,
     ) {
-        if (onAdd != null) {
-            item(key = "add") {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    ChatHeaderButton(
-                        ExpIcons.uiAdd,
-                        SessionScreen.Copy.LINK_ISSUE,
-                        onClick = onAdd,
-                        modifier = Modifier.testTag("${SessionScreen.TestIds.ISSUES}-add"),
-                    )
-                }
-            }
-        }
         itemsIndexed(issues, key = { _, issue -> issue.issueId }) { index, issue ->
             TreeGuidesRow(depth = issue.depth, guide = guides.getOrNull(index)) {
                 Row(

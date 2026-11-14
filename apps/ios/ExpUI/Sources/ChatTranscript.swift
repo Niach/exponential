@@ -42,8 +42,9 @@ public enum ChatBubbleMetrics {
     public static let arrivalRise: CGFloat = 6
 }
 
-/// #EXP-1736: which side a bubble sits on: the viewer's own RIGHT, anyone
-/// else's LEFT under its sender's avatar.
+/// #EXP-1736: which side a bubble sits on: the viewer's own RIGHT (#FEED-239
+/// beside the viewer's own avatar), anyone else's LEFT under its sender's
+/// avatar.
 public enum MessageBubbleSide: Equatable, Sendable {
     case own
     case other
@@ -51,9 +52,10 @@ public enum MessageBubbleSide: Equatable, Sendable {
 
 /// #EXP-1736 (transcript-grouping.json): THE message bubble ×4, every chat
 /// a group chat (web packages/ui `MessageBubble`). The glass card bubble
-/// (16pt radius) at most `layout.maxWidth.phone` of its column, hugging its
-/// text: `own` = the viewer's (right, the active glass fill inside the
-/// strong hairline, neither avatar nor name); `other` = anyone else's
+/// (16pt radius) hugging its text: `own` = the viewer's (right, the active
+/// glass fill inside the strong hairline, no name; #FEED-239: no left inset,
+/// at most `layout.maxWidth.own` of its column, the viewer's avatar is
+/// `TranscriptRow`'s); `other` = anyone else's
 /// (left, THE card surface), its sender's NAME on the group's first bubble
 /// (`author`, 12pt medium secondary). #EXP-1772: set `onPress` = a RELAY
 /// (another session's message, a child's report): its name (ending in ` ›`)
@@ -117,7 +119,7 @@ public struct MessageBubble<Content: View, Footer: View>: View {
         .padding(.vertical, 10)
         .background(own ? GlassTokens.fillActive : GlassTokens.opaqueCardFill, in: shape)
         .overlay(shape.stroke(own ? GlassTokens.strokeStrong : GlassTokens.strokeCard, lineWidth: GlassTokens.hairline))
-        BubbleWidthCap(fraction: own ? TranscriptGrouping.Layout.maxWidthPhone : TranscriptGrouping.Layout.maxWidthPhoneIn, trailing: own) {
+        BubbleWidthCap(fraction: own ? TranscriptGrouping.Layout.maxWidthOwn : TranscriptGrouping.Layout.maxWidthPhoneIn, trailing: own) {
             if let onPress, !own {
                 VStack(alignment: .leading, spacing: 4) {
                     if let name {
@@ -212,10 +214,12 @@ public struct SenderAvatar: View {
 }
 
 /// #EXP-1736: ONE transcript row's frame (web `TranscriptRow`): the gap
-/// above it (`layout.gap`), then `own` / `full` across the column, `other`
-/// in the bubble column under its sender's avatar column (`avatar` set =
-/// the group's first row, top-aligned; later rows keep the same width
-/// free). Nil layout = a full row with no gap.
+/// above it (`layout.gap`), then `full` across the column, `other` in the
+/// bubble column under its sender's avatar column (`avatar` set = the
+/// group's first row, top-aligned; later rows keep the same width free),
+/// #FEED-239 `own` the mirror: the bubble column LEFT of the viewer's own
+/// avatar column (`layout.avatarGap` between). Nil layout = a full row with
+/// no gap.
 public struct TranscriptRow<Content: View>: View {
     let side: TranscriptGrouping.Side
     let gap: CGFloat
@@ -235,33 +239,50 @@ public struct TranscriptRow<Content: View>: View {
     }
 
     /// The row as `transcriptLayout` placed it; `avatar` resolves the
-    /// sender's avatar (asked only on a row that shows one).
+    /// sender's avatar (asked only on a row that shows one); `ownAvatar` =
+    /// the viewer's own (#FEED-239, an own group's first row).
     public init(
         layout: TranscriptGrouping.RowLayout?,
         avatar: (TranscriptGrouping.Sender) -> SenderAvatarModel,
+        ownAvatar: SenderAvatarModel? = nil,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.side = layout?.side ?? .full
         self.gap = layout?.gap ?? 0
         if let layout, layout.avatar, let sender = layout.sender {
             self.avatar = avatar(sender)
+        } else if let layout, layout.avatar, layout.side == .own {
+            self.avatar = ownAvatar
         } else {
             self.avatar = nil
         }
         self.content = content
     }
 
+    @ViewBuilder
+    private var avatarColumn: some View {
+        if let avatar {
+            SenderAvatar(avatar)
+        } else {
+            Color.clear.frame(width: TranscriptGrouping.Layout.avatar, height: 0)
+        }
+    }
+
     public var body: some View {
         Group {
             if side == .other {
                 HStack(alignment: .top, spacing: TranscriptGrouping.Layout.avatarGap) {
-                    if let avatar {
-                        SenderAvatar(avatar)
-                    } else {
-                        Color.clear.frame(width: TranscriptGrouping.Layout.avatar, height: 0)
-                    }
+                    avatarColumn
                     content()
                         .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else if side == .own {
+                // #FEED-239: the mirror of `other`: the viewer's avatar on
+                // the RIGHT, top-aligned with the group's first row.
+                HStack(alignment: .top, spacing: TranscriptGrouping.Layout.avatarGap) {
+                    content()
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    avatarColumn
                 }
             } else {
                 content()

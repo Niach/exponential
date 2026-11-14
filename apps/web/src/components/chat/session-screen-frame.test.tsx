@@ -1,8 +1,9 @@
 // #EXP-1732 (session-screen.json): THE session screen's frame: the header
-// tabs (THE SegmentedControl, the muted counts), THE gear, and the layout
-// `sessionScreen()` decides (wide: the beside rule; phones: one pane).
+// tabs (THE SegmentedControl, the muted counts; #FEED-239: no gear), the
+// layout `sessionScreen()` decides (wide: the beside rule led by THE
+// collapse button; phones: one pane).
 import type { ReactNode } from "react"
-import { fireEvent, render, screen } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { sessionScreen } from "@exp/domain-contract/session-screen"
 
@@ -38,7 +39,7 @@ const counts = { issues: 2, sessions: 3, results: 0 }
 
 function renderFrame(
   input: { kind: string; requested?: string | null; open?: string | null },
-  props: { onTab?: (tab: string) => void; onGear?: () => void; onCloseItem?: () => void } = {}
+  props: { onTab?: (tab: string) => void; onCloseItem?: () => void } = {}
 ) {
   const value = sessionScreen({
     kind: input.kind,
@@ -54,7 +55,6 @@ function renderFrame(
       avatar={<span data-testid="avatar" />}
       title="Fix the login"
       subtitle="idle · Alex's MacBook"
-      onGear={props.onGear}
       onTab={props.onTab ?? (() => {})}
       chat={<div data-testid="chat-body" />}
       pane={<div data-testid="tab-body" />}
@@ -81,25 +81,29 @@ describe(`the header`, () => {
     expect(screen.getByTestId(`chat-header-subtitle`).textContent).toBe(`idle · Alex's MacBook`)
   })
 
-  it(`an app gets its six tabs; the gear only where the kind has one`, () => {
-    const onGear = vi.fn()
-    renderFrame({ kind: `app` }, { onGear })
-    const labels = [...screen.getByTestId(`session-tabs`).querySelectorAll(`[data-tab]`)]
-    expect(labels.map((node) => node.getAttribute(`data-tab`))).toEqual([
-      `chat`,
-      `preview`,
-      `data`,
-      `versions`,
-      `sessions`,
-      `results`,
-    ])
-    fireEvent.click(screen.getByTestId(`session-gear`))
-    expect(onGear).toHaveBeenCalled()
+  it(`an app: Chat · Preview · Data · Versions on phones; wide drops Chat (the chat is the left pane)`, () => {
+    renderFrame({ kind: `app` })
+    const wide = [...screen.getByTestId(`session-tabs`).querySelectorAll(`[data-tab]`)]
+    expect(wide.map((node) => node.getAttribute(`data-tab`))).toEqual([`preview`, `data`, `versions`])
+    cleanup()
+    mocks.isMobile.current = true
+    renderFrame({ kind: `app` })
+    const phone = [...screen.getByTestId(`session-tabs`).querySelectorAll(`[data-tab]`)]
+    expect(phone.map((node) => node.getAttribute(`data-tab`))).toEqual([`chat`, `preview`, `data`, `versions`])
   })
 
-  it(`a chat has no gear`, () => {
-    renderFrame({ kind: `session` }, { onGear: () => {} })
-    expect(screen.queryByTestId(`session-gear`)).toBeNull()
+  it(`a wide app collapsed to its chat selects no segment`, () => {
+    renderFrame({ kind: `app`, requested: `chat` })
+    expect(screen.getByTestId(`chat-page`).getAttribute(`data-layout`)).toBe(`chat`)
+    expect(screen.getByTestId(`session-tabs`).querySelector(`[aria-selected="true"]`)).toBeNull()
+  })
+
+  it(`no gear on any kind`, () => {
+    for (const kind of [`session`, `agent`, `assistant`, `app`]) {
+      renderFrame({ kind })
+      expect(screen.queryByTestId(`session-gear`)).toBeNull()
+      cleanup()
+    }
   })
 
   it(`a pick reports the tab`, () => {
@@ -134,14 +138,33 @@ describe(`the beside rule (wide)`, () => {
     expect(screen.getByTestId(`chat-page`).getAttribute(`data-layout`)).toBe(`beside`)
   })
 
-  it(`an opened item covers the pane with its back`, () => {
-    const onCloseItem = vi.fn()
-    renderFrame({ kind: `agent`, requested: `chat`, open: `settings` }, { onCloseItem })
+  it(`an opened item covers the pane, led by THE collapse button (no Back)`, () => {
+    const onTab = vi.fn()
+    renderFrame({ kind: `agent`, requested: `chat`, open: `settings` }, { onTab })
     const pane = screen.getByTestId(`session-pane`)
     expect(pane.querySelector(`[data-testid="item-body"]`)).toBeTruthy()
     expect(pane.querySelector(`[data-testid="tab-body"]`)).toBeNull()
-    fireEvent.click(screen.getByTestId(`session-item-back`))
-    expect(onCloseItem).toHaveBeenCalled()
+    expect(screen.queryByTestId(`session-item-back`)).toBeNull()
+    const collapse = screen.getByTestId(`session-collapse`)
+    expect(collapse.getAttribute(`aria-label`)).toBe(`Collapse`)
+    fireEvent.click(collapse)
+    expect(onTab).toHaveBeenCalledWith(`chat`)
+  })
+
+  it(`a tab's pane leads with THE collapse button; Chat alone has none`, () => {
+    renderFrame({ kind: `session`, requested: `issues` })
+    expect(screen.getByTestId(`session-pane`).querySelector(`[data-testid="session-collapse"]`)).toBeTruthy()
+    cleanup()
+    renderFrame({ kind: `session`, requested: `chat` })
+    expect(screen.queryByTestId(`session-collapse`)).toBeNull()
+  })
+
+  it(`pressing the ACTIVE tab closes the opened item`, () => {
+    const onTab = vi.fn()
+    renderFrame({ kind: `session`, requested: `sessions`, open: `session` }, { onTab })
+    const active = screen.getByTestId(`session-tabs`).querySelector(`[data-tab="sessions"]`)!.closest(`button`)!
+    fireEvent.click(active)
+    expect(onTab).toHaveBeenCalledWith(`sessions`)
   })
 })
 

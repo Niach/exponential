@@ -2,7 +2,8 @@
 //! twin, iOS ExpCore `SessionScreen.swift`, Android `domain/SessionScreen.kt`):
 //! ONE screen for a chat, a team agent's conversation, the Assistant's and an
 //! app's editor session: the header tabs per kind (with their muted counts),
-//! THE gear, the opened item and the wide-screen `beside` rule. Byte-locked
+//! THE `…` menu (#FEED-239: no gear), the opened item, the wide-screen
+//! `beside` rule and its collapse. Byte-locked
 //! by `fixtures/session-screen.json` (its `$comment` is the spec); pure.
 
 use std::collections::HashMap;
@@ -125,6 +126,8 @@ pub struct SessionScreenTabEntry {
     pub id: SessionScreenTab,
     pub label: String,
     pub count: Option<u64>,
+    /// #EXP-1834: an empty counted tab: muted, never opened.
+    pub disabled: bool,
 }
 
 /// The counted tabs' numbers.
@@ -151,9 +154,12 @@ impl SessionScreenCounts {
 pub struct SessionScreen {
     pub tabs: Vec<SessionScreenTabEntry>,
     pub active: SessionScreenTab,
-    pub gear: bool,
+    /// The kind has a settings item (the `…`'s settings entry opens it).
+    pub settings: bool,
     pub open: Option<SessionScreenOpen>,
     pub layout: SessionScreenLayout,
+    /// #FEED-239: wide, the right pane leads with THE collapse button.
+    pub collapse: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -162,9 +168,45 @@ pub struct SessionScreenCopy {
     pub tabs: HashMap<String, String>,
     pub settings: String,
     pub back: String,
+    pub collapse: String,
     pub separator: String,
     pub link_issue: String,
     pub status: SessionScreenStatusCopy,
+    pub menu: SessionScreenMenuCopy,
+}
+
+/// `copy.menu`: THE `…`'s labels (settings and delete by kind).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionScreenMenuCopy {
+    pub link_issue: String,
+    pub publish: String,
+    pub compact: String,
+    pub new_conversation: String,
+    pub settings: HashMap<String, String>,
+    pub export: String,
+    pub delete: HashMap<String, String>,
+}
+
+/// `menuIcons`: each entry's icon concept.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionScreenMenuIcons {
+    pub link_issue: String,
+    pub publish: String,
+    pub compact: String,
+    pub new_conversation: String,
+    pub settings: String,
+    pub export: String,
+    pub delete: String,
+}
+
+/// `menuSends`: what Compact / New conversation SEND.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionScreenMenuSends {
+    pub compact: String,
+    pub new_conversation: String,
 }
 
 /// `copy.status`: THE tree's lowercase words.
@@ -181,18 +223,20 @@ pub struct SessionScreenStatusCopy {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct SessionScreenTestIds {
     pub tabs: String,
-    pub gear: String,
     pub beside: String,
     pub pane: String,
     pub issues: String,
     pub sessions: String,
+    pub collapse: String,
+    pub menu: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionScreenKindSpec {
     pub tabs: Vec<String>,
-    pub gear: bool,
+    pub settings: bool,
+    pub wide_chat_tab: bool,
     pub wide_default: String,
 }
 
@@ -217,6 +261,8 @@ pub struct SessionScreenSpec {
     pub counted: Vec<String>,
     pub legacy_tabs: HashMap<String, String>,
     pub beside: SessionScreenBeside,
+    pub menu_icons: SessionScreenMenuIcons,
+    pub menu_sends: SessionScreenMenuSends,
 }
 
 pub static SESSION_SCREEN: LazyLock<SessionScreenSpec> =
@@ -258,9 +304,9 @@ pub fn session_screen_tabs(kind: &str) -> Vec<SessionScreenTab> {
     kind_spec(kind).tabs.iter().filter_map(|id| SessionScreenTab::parse(id)).collect()
 }
 
-/// Whether the kind's header carries THE gear.
-pub fn session_screen_gear(kind: &str) -> bool {
-    kind_spec(kind).gear
+/// Whether the kind has a settings item (`open: settings`).
+pub fn session_screen_has_settings(kind: &str) -> bool {
+    kind_spec(kind).settings
 }
 
 /// THE algorithm (`sessionScreen`).
@@ -273,13 +319,22 @@ pub fn session_screen(
 ) -> SessionScreen {
     let spec = kind_spec(kind);
     let counted = &SESSION_SCREEN.counted;
+    // #EXP-1834: a counted tab with nothing in it is disabled, never opened.
+    let empty = |id: &str| counted.iter().any(|c| c == id) && counts.of(id) == 0;
     let tabs: Vec<SessionScreenTabEntry> = spec
         .tabs
         .iter()
+        // #FEED-239: an app's chat is the pinned left pane on wide.
+        .filter(|id| !(wide && !spec.wide_chat_tab && id.as_str() == "chat"))
         .filter_map(|id| {
             let tab = SessionScreenTab::parse(id)?;
             let value = if counted.iter().any(|c| c == id) { counts.of(id) } else { 0 };
-            Some(SessionScreenTabEntry { id: tab, label: tab.label(), count: (value > 0).then_some(value) })
+            Some(SessionScreenTabEntry {
+                id: tab,
+                label: tab.label(),
+                count: (value > 0).then_some(value),
+                disabled: empty(id),
+            })
         })
         .collect();
     let req = requested.map(|requested| {
@@ -289,7 +344,7 @@ pub fn session_screen(
     if open.is_none() && req == Some("settings") {
         open = Some(SessionScreenOpen::Settings);
     }
-    if open == Some(SessionScreenOpen::Settings) && !spec.gear {
+    if open == Some(SessionScreenOpen::Settings) && !spec.settings {
         open = None;
     }
     // ACTIVE FOLLOWS THE OPENED ITEM: a session = Sessions, an issue = Issues.
@@ -300,7 +355,7 @@ pub fn session_screen(
     };
     let active_id = match (follows, req) {
         (Some(follows), _) if spec.tabs.iter().any(|tab| tab == follows) => follows,
-        (_, Some(req)) if spec.tabs.iter().any(|tab| tab == req) => req,
+        (_, Some(req)) if spec.tabs.iter().any(|tab| tab == req) && !empty(req) => req,
         _ if wide => spec.wide_default.as_str(),
         _ => "chat",
     };
@@ -318,7 +373,116 @@ pub fn session_screen(
     } else {
         SessionScreenLayout::Tab
     };
-    SessionScreen { tabs, active, gear: spec.gear, open, layout }
+    SessionScreen {
+        tabs,
+        active,
+        settings: spec.settings,
+        open,
+        layout,
+        collapse: layout == SessionScreenLayout::Beside,
+    }
+}
+
+/// One entry of THE `…` (`sessionScreenMenu`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SessionScreenMenuEntry {
+    LinkIssue,
+    Publish,
+    Compact,
+    NewConversation,
+    Settings,
+    Export,
+    Delete,
+    Separator,
+}
+
+/// `sessionScreenMenu`'s input.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SessionScreenMenuInput<'a> {
+    pub kind: &'a str,
+    /// Phones: an app's Publish moves into the menu.
+    pub phone: bool,
+    /// The viewer may steer the conversation (Compact / New conversation).
+    pub member: bool,
+    /// #EXP-1834: the viewer may link issues (a member; never an app).
+    pub link_issue: bool,
+    /// The viewer may open the kind's settings.
+    pub settings: bool,
+    /// An app the viewer may publish.
+    pub publish: bool,
+    /// An app with a version.
+    pub export: bool,
+    /// A chat the viewer may delete / an app the viewer manages.
+    pub delete: bool,
+}
+
+/// #FEED-239: THE `…` of every kind (`menuCases`): groups in order, a
+/// `Separator` between non-empty ones: link an issue (not an app) · publish (an app on a phone) ·
+/// compact + new conversation (not a chat) · settings · export + delete.
+pub fn session_screen_menu(input: SessionScreenMenuInput<'_>) -> Vec<SessionScreenMenuEntry> {
+    use SessionScreenMenuEntry as E;
+    let spec = kind_spec(input.kind);
+    let app = input.kind == "app";
+    let conversation = input.kind != "session" && SESSION_SCREEN.kinds.contains_key(input.kind);
+    let mut tail = Vec::new();
+    if app && input.export {
+        tail.push(E::Export);
+    }
+    if input.delete {
+        tail.push(E::Delete);
+    }
+    let links = matches!(input.kind, "session" | "agent" | "assistant");
+    let groups: [Vec<E>; 5] = [
+        if links && input.link_issue { vec![E::LinkIssue] } else { vec![] },
+        if app && input.phone && input.publish { vec![E::Publish] } else { vec![] },
+        if conversation && input.member { vec![E::Compact, E::NewConversation] } else { vec![] },
+        if spec.settings && input.settings { vec![E::Settings] } else { vec![] },
+        tail,
+    ];
+    let mut out = Vec::new();
+    for group in groups {
+        if group.is_empty() {
+            continue;
+        }
+        if !out.is_empty() {
+            out.push(E::Separator);
+        }
+        out.extend(group);
+    }
+    out
+}
+
+/// A menu entry's label for the kind (settings and delete read by kind).
+pub fn session_screen_menu_label(kind: &str, entry: SessionScreenMenuEntry) -> String {
+    use SessionScreenMenuEntry as E;
+    let copy = &SESSION_SCREEN.copy.menu;
+    match entry {
+        E::LinkIssue => copy.link_issue.clone(),
+        E::Publish => copy.publish.clone(),
+        E::Compact => copy.compact.clone(),
+        E::NewConversation => copy.new_conversation.clone(),
+        E::Settings => copy.settings.get(kind).or_else(|| copy.settings.get("agent")).cloned().unwrap_or_default(),
+        E::Export => copy.export.clone(),
+        E::Delete => copy.delete.get(kind).or_else(|| copy.delete.get("session")).cloned().unwrap_or_default(),
+        E::Separator => String::new(),
+    }
+}
+
+/// A menu entry's icon concept (`menuIcons`; the separator has none).
+pub fn session_screen_menu_icon(entry: SessionScreenMenuEntry) -> &'static str {
+    use SessionScreenMenuEntry as E;
+    let icons = &SESSION_SCREEN.menu_icons;
+    match entry {
+        E::LinkIssue => icons.link_issue.as_str(),
+        E::Publish => icons.publish.as_str(),
+        E::Compact => icons.compact.as_str(),
+        E::NewConversation => icons.new_conversation.as_str(),
+        E::Settings => icons.settings.as_str(),
+        E::Export => icons.export.as_str(),
+        E::Delete => icons.delete.as_str(),
+        E::Separator => "",
+    }
 }
 
 /// One session of the tree for `session_screen_status`.
@@ -378,10 +542,16 @@ mod tests {
 
     #[test]
     fn the_spec_parses() {
-        assert_eq!(SESSION_SCREEN.test_ids.gear, "session-gear");
+        assert_eq!(SESSION_SCREEN.test_ids.collapse, "session-collapse");
+        assert_eq!(SESSION_SCREEN.test_ids.menu, "session-menu");
         assert_eq!(SESSION_SCREEN.copy.settings, "Settings");
-        assert!(session_screen_gear("agent"));
-        assert!(!session_screen_gear("session"));
+        assert_eq!(SESSION_SCREEN.menu_sends.compact, "/compact");
+        assert_eq!(SESSION_SCREEN.menu_sends.new_conversation, "/new");
+        assert!(session_screen_has_settings("agent"));
+        assert!(!session_screen_has_settings("session"));
+        assert_eq!(session_screen_menu_label("app", SessionScreenMenuEntry::Settings), "App settings");
+        assert_eq!(session_screen_menu_label("session", SessionScreenMenuEntry::Delete), "Delete");
+        assert_eq!(session_screen_menu_icon(SessionScreenMenuEntry::Settings), "nav-settings");
         assert_eq!(session_screen_tabs("bogus"), session_screen_tabs("session"));
     }
 
@@ -399,6 +569,27 @@ mod tests {
                 input["open"].as_str(),
                 counts,
             );
+            assert_eq!(serde_json::to_value(&actual).unwrap(), case["expected"], "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn menu_cases_match_the_fixture() {
+        let cases = fixture()["menuCases"].as_array().unwrap().clone();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let input = &case["input"];
+            let flag = |key: &str| input[key].as_bool().unwrap();
+            let actual = session_screen_menu(SessionScreenMenuInput {
+                kind: input["kind"].as_str().unwrap(),
+                phone: flag("phone"),
+                member: flag("member"),
+                link_issue: flag("linkIssue"),
+                settings: flag("settings"),
+                publish: flag("publish"),
+                export: flag("export"),
+                delete: flag("delete"),
+            });
             assert_eq!(serde_json::to_value(&actual).unwrap(), case["expected"], "{}", case["name"]);
         }
     }

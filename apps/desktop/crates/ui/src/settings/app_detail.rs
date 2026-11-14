@@ -3,9 +3,9 @@
 //! ([`crate::app_screen::AppScreenView`]) on its Settings tab: the board
 //! form's identity row (icon + colour + name: icon and colour save at once,
 //! the name on blur / Enter), the description card (saved on blur), the
-//! records line, the Tools group, then Export (VAPP-121, once there is a
-//! version) and "Delete app" (the creator or an owner; it leaves for the
-//! Apps list), at most `editorTabs.settingsMaxWidth` px wide. Everyone else
+//! records line, the Tools group, at most `editorTabs.settingsMaxWidth` px
+//! wide (#FEED-239: Export and Delete app are the editor's `…` entries,
+//! never on this page). Everyone else
 //! reads the tab. VAPP-120: under the records line, the Tools group: one row per
 //! typed action the head package declares, its title, the function name
 //! muted and a switch = the app's grant (`apps.granted_tools`). VAPP-176:
@@ -14,9 +14,8 @@
 //! #EXP-1629: the tab is a document on the native binding (projection at
 //! `/pane`): the identity row (genUI IconPicker, ColorPicker and a `bare`
 //! Input), the description (a `row` Textarea), the records line, Record
-//! access, Tools, then `app_mcp`'s groups and the Export / Delete buttons.
-//! The share rows' ⋯ are genUI Menus; the Export dialog and every confirm
-//! stay native.
+//! access, Tools, then `app_mcp`'s groups. The share rows' ⋯ are genUI
+//! Menus; every confirm stays native.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -34,7 +33,6 @@ use domain::rows::AppRow;
 use super::doc::{hex, not, path, IdeToasts, Ink, SM, XS};
 use super::SettingsSection;
 use crate::apps_view::AppEntry;
-use crate::navigation::{navigate, Screen};
 use crate::sidebar::select_settings_section;
 
 /// The web form's defaults (an app saved without an icon or a colour).
@@ -848,27 +846,6 @@ impl AppDetailPane {
                 }
             }
             "rename" => self.commit_rename(cx),
-            "export" => {
-                let Some(row) = self.loaded_row(cx) else { return };
-                // dialog stays native: the Export dialog is its own window.
-                crate::app_export_dialog::open(window, cx, row.id, false);
-            }
-            "delete" => {
-                let Some(row) = self.loaded_row(cx) else { return };
-                if !self.can_manage(&row, cx) {
-                    return;
-                }
-                // dialog stays native: a destructive confirm is the OS alert (prompts fixture).
-                crate::apps_view::confirm_delete(
-                    row.id,
-                    row.name,
-                    // VAPP-242: the delete leaves for the team's home (no
-                    // Apps list page).
-                    |window, cx| navigate(window, cx, Screen::Home),
-                    window,
-                    cx,
-                );
-            }
             _ => {}
         }
     }
@@ -932,9 +909,6 @@ impl AppDetailPane {
             "automations": super::app_mcp::automations_rows(data),
             // #VAPP-238: the webhooks those automations listen on.
             "hooks": super::app_mcp::hooks_rows(data, &self.hook_secrets, self.hook_busy.as_deref()),
-            // VAPP-121: any member exports an app that has a version.
-            "export": AppEntry::from_row(row).head_version > 0,
-            "delete": manage,
         });
         projection
     }
@@ -963,7 +937,7 @@ impl Render for AppDetailPane {
 const PATH: &str = "/pane";
 
 /// The document's actions (all the pane's).
-const ACTIONS: &[&str] = &["tool", "mcpTool", "share", "menu", "addServer", "upstream", "connect", "hook", "copy", "icon", "color", "rename", "export", "delete"];
+const ACTIONS: &[&str] = &["tool", "mcpTool", "share", "menu", "addServer", "upstream", "connect", "hook", "copy", "icon", "color", "rename"];
 
 /// The pane the host's text edits go to.
 #[derive(Default)]
@@ -1012,9 +986,6 @@ pub(super) struct Tints {
     pub(super) outline_fill_dim: String,
     pub(super) outline_stroke_dim: String,
     outline_fg_dim: String,
-    danger: String,
-    danger_fg: String,
-    danger_hover: String,
     /// The ghost ⋯'s hover wash.
     pub(super) list_hover: String,
 }
@@ -1033,19 +1004,15 @@ impl Tints {
             outline_fill_dim: premultiplied_hex(theme.input_background().opacity(0.5)),
             outline_stroke_dim: hex(theme.input.opacity(0.5)),
             outline_fg_dim: hex(theme.muted_foreground.opacity(0.5)),
-            danger: hex(theme.button_danger),
-            danger_fg: hex(theme.button_danger_foreground),
-            danger_hover: hex(theme.button_danger_hover),
             list_hover: hex(theme.list_hover),
         }
     }
 }
 
-/// How a [`button`] paints: gpui-component's outline or danger `Button`.
+/// How a [`button`] paints: gpui-component's outline `Button`.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Paint {
     Outline,
-    Danger,
 }
 
 /// A trailing row Switch (`web_switch`): the genUI Switch's box keeps its
@@ -1076,7 +1043,6 @@ pub(super) fn button(ink: &Ink, tints: &Tints, id: &str, paint: Paint, icon: Opt
         let (fill, stroke, fg, hover) = match (paint, dim) {
             (Paint::Outline, false) => (&tints.outline_fill, Some(&tints.outline_stroke), &tints.outline_fg, &tints.outline_hover),
             (Paint::Outline, true) => (&tints.outline_fill_dim, Some(&tints.outline_stroke_dim), &tints.outline_fg_dim, &tints.outline_hover),
-            (Paint::Danger, _) => (&tints.danger, None, &tints.danger_fg, &tints.danger_hover),
         };
         let mut children: Vec<Value> = icon.map(|icon| json!({"id": format!("{id}_icon"), "component": "Icon", "props": {"name": icon}, "style": {"width": glyph, "height": glyph, "color": fg, "flexShrink": 0}})).into_iter().collect();
         let mut text = json!({"id": format!("{id}_text"), "component": "Text", "props": {"text": label.clone(), "lines": 1}, "style": {"fontSize": size, "lineHeight": size * 1.25, "color": fg, "flexShrink": 0}});
@@ -1203,9 +1169,6 @@ fn tools(ink: &Ink) -> Value {
 fn document(ink: &Ink, tints: &Tints) -> Value {
     let mut records = ink.text("records", path("/pane/records"), SM, &ink.muted);
     records["style"]["paddingHorizontal"] = json!(ink.r(0.25));
-    let export = visible(button(ink, tints, "export", Paint::Outline, Some("ui-share"), json!(APPS.copy.menu.export), json!(false), json!({"name": "export"})), path("/pane/export"));
-    let delete = visible(button(ink, tints, "delete", Paint::Danger, Some("ui-delete"), json!(APPS.copy.menu.delete), json!(false), json!({"name": "delete"})), path("/pane/delete"));
-    let actions = json!({"id": "actions", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "flexWrap": "wrap", "alignItems": "center", "gap": ink.r(0.5), "paddingTop": ink.r(0.5)}, "children": [export, delete]});
     let mut children = identity(ink);
     children.extend([
         records,
@@ -1216,7 +1179,6 @@ fn document(ink: &Ink, tints: &Tints) -> Value {
         super::app_mcp::tools_group(ink, tints),
         super::app_mcp::automations_group(ink, tints),
         super::app_mcp::webhooks_group(ink, tints),
-        actions,
     ]);
     json!({"id": APPS.test_ids.settings, "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "maxWidth": APPS.editor_tabs.settings_max_width, "gap": ink.r(1.)}, "children": children})
 }
@@ -1265,9 +1227,6 @@ mod tests {
             outline_fill_dim: "#ffffff04".into(),
             outline_stroke_dim: "#ffffff0d".into(),
             outline_fg_dim: "#a1a1aa80".into(),
-            danger: "#dc2626ff".into(),
-            danger_fg: "#ffffffff".into(),
-            danger_hover: "#b91c1cff".into(),
             list_hover: "#ffffff0f".into(),
         };
         let tree = document(&ink, &tints);

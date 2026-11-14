@@ -344,6 +344,7 @@ import com.exponential.app.ui.components.DockSheetScope
 import com.exponential.app.ui.chat.PlanAskCard
 import com.exponential.app.domain.TranscriptGrouping
 import com.exponential.app.ui.chat.MessageBubble
+import com.exponential.app.ui.chat.MessageFold
 import com.exponential.app.ui.chat.SenderAvatar
 import com.exponential.app.ui.chat.TranscriptBubbleRow
 import com.exponential.app.ui.chat.authorLine
@@ -472,9 +473,12 @@ internal fun RunFace(
     // `exponential_sessions_show` row to draw its picture; live, so the tile
     // appears the moment the upload syncs.
     val results = viewModel.session.collectAsStateWithLifecycle().value?.guide
+    val viewer = viewModel.viewer.collectAsStateWithLifecycle().value
     CompositionLocalProvider(
         LocalOpenResults provides onOpenResults,
         LocalSessionResults provides results,
+        // #FEED-239: the own bubbles wear the viewer's avatar on the right.
+        com.exponential.app.ui.chat.LocalViewer provides viewer,
     ) {
         RunFaceContent(viewModel, padding, onOpenIssue, trailingBarSlot, mergeBarSlot, onOpenOrigin, deviceMenu, dock, accountMenu, modelMenu)
     }
@@ -2203,11 +2207,14 @@ private fun ActivityFeed(
                                     author = layout.authorLine(),
                                     testTag = "session-agent-narration",
                                 ) {
-                                    MarkdownView(
-                                        item.text,
-                                        softBreaksAsNewlines = true,
-                                        streaming = working && index == rows.lastIndex,
-                                    )
+                                    // #FEED-238: THE FOLD, every bubble.
+                                    MessageFold(item.text) {
+                                        MarkdownView(
+                                            item.text,
+                                            softBreaksAsNewlines = true,
+                                            streaming = working && index == rows.lastIndex,
+                                        )
+                                    }
                                 }
                             } else {
                                 Unit
@@ -2262,7 +2269,8 @@ private fun ActivityFeed(
                                         // #EXP-1736: a parent's / child's message
                                         // = that session's bubble (its body);
                                         // #EXP-1772: a relay, its name above,
-                                        // only the name opens it, never folded.
+                                        // only the name opens it; #FEED-238:
+                                        // it folds like every bubble.
                                         val link = layout?.sender?.link
                                         val open = senders?.onOpen
                                         val relay = (input as? TranscriptGrouping.FeedInput.Relay)
@@ -2271,7 +2279,7 @@ private fun ActivityFeed(
                                             author = layout.authorLine(),
                                             time = time,
                                             onOpen = if (link != null && open != null) ({ open(link) }) else null,
-                                        ) { UserMessageBody(relay?.body ?: item.text, fold = false) }
+                                        ) { UserMessageBody(relay?.body ?: item.text) }
                                     }
                                     // #FEED-237: the live echo of the person's
                                     // turn = processed into the session (two checks).
@@ -2836,7 +2844,8 @@ private fun NarrationBubble(
         modifier = if (nested) Modifier.padding(vertical = 5.dp) else Modifier,
         testTag = "session-agent-narration",
     ) {
-        MarkdownView(text, softBreaksAsNewlines = true)
+        // #FEED-238: THE FOLD, every bubble.
+        MessageFold(text) { MarkdownView(text, softBreaksAsNewlines = true) }
     }
 }
 
@@ -3346,16 +3355,8 @@ private fun clampable(text: String): Boolean =
     text.length > CLAMP_CHARS || text.count { it == '\n' } >= CLAMP_LINES
 
 @Composable
-private fun ShowMoreToggle(expanded: Boolean, onToggle: () -> Unit) {
-    Text(
-        if (expanded) "Show less" else "Show more",
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        modifier = Modifier
-            .clickable(onClick = onToggle)
-            .padding(top = 2.dp),
-    )
-}
+private fun ShowMoreToggle(expanded: Boolean, onToggle: () -> Unit) =
+    com.exponential.app.ui.chat.MessageFoldToggle(expanded, onToggle)
 
 /** Markdown body folded behind Show more (EXP-440): maxLines can't clamp a block
  *  Column, so the fold is a height clamp + clip at [FOLD_HEIGHT]; the fold
@@ -3423,17 +3424,19 @@ private fun UserMessageBubble(text: String, nested: Boolean = false) {
 /** A human turn's body inside its bubble: the prose (folded when long, its
  *  `[Image #N]` markers as pills), the images, the file tiles. */
 @Composable
-private fun UserMessageBody(text: String, fold: Boolean = true) {
+private fun UserMessageBody(text: String) {
     var expanded by remember(text) { mutableStateOf(false) }
     val parsed = remember(text) { parseSteerMessage(text) }
     val hasImages = parsed.attachmentIds.isNotEmpty()
     // Wave D: file lines peel off too — rendered as file tiles below.
     val hasFiles = parsed.files.isNotEmpty()
     val prose = if (hasImages || hasFiles) parsed.text else text
-    // #EXP-1772: a relay is never folded.
-    val folds = remember(prose, fold) { fold && clampable(prose) }
+    // #FEED-238 THE FOLD (`messageFolds`, relays too): the first
+    // `fold.lines` lines.
+    val folds = remember(prose) { TranscriptGrouping.messageFolds(prose) }
+    val foldHeight = com.exponential.app.ui.chat.messageFoldHeight()
     Column(
-        modifier = if (folds && !expanded) Modifier.foldedTo(FOLD_HEIGHT) else Modifier,
+        modifier = if (folds && !expanded) Modifier.foldedTo(foldHeight) else Modifier,
     ) {
         when {
             // Markers are only meaningful against embeds that exist —

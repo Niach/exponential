@@ -51,7 +51,8 @@ class NeedsYouResultsUiTest {
     @Test
     fun `an older stories or guide link lands on Results`() {
         // #EXP-1732: THE session screen's `legacyTabs` (session-screen.json).
-        fun active(tab: String?) = SessionScreen.screen(SessionScreen.Kind.Session, false, tab, null, SessionScreen.Counts()).active
+        // #EXP-1834: an empty Results tab is disabled, so the tree has results.
+        fun active(tab: String?) = SessionScreen.screen(SessionScreen.Kind.Session, false, tab, null, SessionScreen.Counts(results = 1)).active
         assertEquals(SessionScreen.Tab.Results, active("stories"))
         assertEquals(SessionScreen.Tab.Results, active("guide"))
         assertEquals(SessionScreen.Tab.Results, active("results"))

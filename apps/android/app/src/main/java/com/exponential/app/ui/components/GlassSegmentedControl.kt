@@ -74,6 +74,9 @@ fun <T> GlassSegmentedControl(
     // label (+ count) instead of equal widths; the caller scrolls the strip
     // sideways when it overflows. false = unchanged (equal, full width).
     hug: Boolean = false,
+    // #EXP-1834: a per-segment DISABLED flag (the SDK Segment's own: not
+    // selectable, its disabled label colour). null = none disabled.
+    disabled: ((T) -> Boolean)? = null,
 ) {
     // SLOP-18 / VAPP-89: the strip is the SDK's `SegmentedControl`; this
     // composable maps the glass chrome and the per-segment slots onto it.
@@ -89,6 +92,7 @@ fun <T> GlassSegmentedControl(
         Segment(
             value = option,
             label = label(option),
+            disabled = disabled?.invoke(option) ?: false,
             leading = if (icon != null || lead != null) {
                 { _: Color ->
                     if (icon != null) {

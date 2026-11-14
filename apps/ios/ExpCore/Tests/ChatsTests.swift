@@ -287,6 +287,17 @@ final class ChatsTests: XCTestCase {
         }
     }
 
+    func testSidebarAgentCases() throws {
+        for testCase in try cases("sidebarAgentCases") {
+            let name = string(testCase["name"]) ?? ""
+            let input = try XCTUnwrap(testCase["input"] as? [String: Any], name)
+            let agents = try XCTUnwrap(input["agents"] as? [[String: Any]], name).map { string($0["agentId"]) ?? "" }
+            let apps = try XCTUnwrap(input["apps"] as? [[String: Any]], name).map { string($0["agentId"]) }
+            let got = Chats.sidebarAgents(agents, agentId: { $0 }, appAgentIds: apps)
+            XCTAssertEqual(got, testCase["expected"] as? [String], name)
+        }
+    }
+
     func testAgentMenuCases() throws {
         for testCase in try cases("agentMenuCases") {
             let input = try XCTUnwrap(testCase["input"] as? [String: Any])

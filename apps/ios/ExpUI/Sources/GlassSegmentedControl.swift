@@ -93,6 +93,9 @@ public struct GlassSegmentedControl<Option: Hashable>: View {
     /// past its container: wrap it in a horizontal scroll); false = the
     /// equal-width full strip, as before.
     let hugging: Bool
+    /// #EXP-1834: a disabled option (muted, not pressable; the SDK
+    /// `Segment.disabled`).
+    let disabled: (Option) -> Bool
     let onSelect: (Option) -> Void
 
     public init(
@@ -109,6 +112,7 @@ public struct GlassSegmentedControl<Option: Hashable>: View {
         spokenLabel: @escaping (Option) -> String? = { _ in nil },
         style: Style = .capsule,
         hugging: Bool = false,
+        disabled: @escaping (Option) -> Bool = { _ in false },
         onSelect: @escaping (Option) -> Void
     ) {
         self.init(
@@ -126,6 +130,7 @@ public struct GlassSegmentedControl<Option: Hashable>: View {
             spokenLabel: spokenLabel,
             style: style,
             hugging: hugging,
+            disabled: disabled,
             onSelect: onSelect
         )
     }
@@ -147,6 +152,7 @@ public struct GlassSegmentedControl<Option: Hashable>: View {
         spokenLabel: @escaping (Option) -> String? = { _ in nil },
         style: Style = .capsule,
         hugging: Bool = false,
+        disabled: @escaping (Option) -> Bool = { _ in false },
         onSelect: @escaping (Option) -> Void
     ) {
         self.options = options
@@ -163,6 +169,7 @@ public struct GlassSegmentedControl<Option: Hashable>: View {
         self.spokenLabel = spokenLabel
         self.style = style
         self.hugging = hugging
+        self.disabled = disabled
         self.onSelect = onSelect
     }
 
@@ -203,10 +210,18 @@ public struct GlassSegmentedControl<Option: Hashable>: View {
     }
 
     private func segment(_ option: Option) -> Segment<Option> {
-        Segment(
+        let off = disabled(option)
+        return Segment(
             option,
             label: label(option),
-            content: AnyView(segmentContent(option, active: option == selection)),
+            disabled: off,
+            // #EXP-1834: a disabled segment reads muted (its content draws
+            // its own colours, so the SDK's disabled label colour alone
+            // would not reach it).
+            content: AnyView(
+                segmentContent(option, active: option == selection)
+                    .opacity(off ? TextOpacity.tertiary : 1)
+            ),
             accessibilityLabel: spokenLabel(option) ?? label(option),
             identifier: identifier(option)
         )

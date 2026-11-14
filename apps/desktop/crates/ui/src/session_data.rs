@@ -1351,6 +1351,22 @@ pub(crate) fn agents_in_team(team_id: &str, cx: &App) -> Vec<AgentRow> {
     list_agents(&agents, &rows, Some(team_id), &team_ids, me.as_deref())
 }
 
+/// #FEED-239 (chats.json `sidebarAgents`): the IDE rail's Agents group
+/// and Settings › Agents = [`agents_in_team`] minus every live app's agent
+/// (an app's agent is listed under Apps only; the Chats list keeps it).
+pub(crate) fn sidebar_agents_in_team(team_id: &str, cx: &App) -> Vec<AgentRow> {
+    let agents = agents_in_team(team_id, cx);
+    let apps = crate::apps_view::app_entries(team_id, cx);
+    domain::chats::sidebar_agents(
+        &agents,
+        |agent| agent.agent_id.as_str(),
+        apps.iter().map(|app| app.row.as_ref().and_then(|row| row.agent_id.as_deref())),
+    )
+    .into_iter()
+    .cloned()
+    .collect()
+}
+
 /// The store state one [`chat_lists`] answer derives from.
 #[derive(Clone, PartialEq, Eq)]
 struct ListsKey {

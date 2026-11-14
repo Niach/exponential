@@ -5,7 +5,7 @@ import { APPS_COPY, APPS_TEST_IDS, APP_DESCRIPTION_MAX, grantVersion, policyCapt
 import { recordPolicy } from "@exponential_app/eui/host"
 import { recordsCountLabel } from "@exp/domain-contract/app-records"
 import { APP_ACTIONS_COPY, actionGrantable, actionTitle, declaredActions, flatAction } from "@exp/domain-contract/app-actions"
-import { Button, conceptIcon, GlassGroup, Switch, Textarea } from "@exp/ui"
+import { GlassGroup, Switch, Textarea } from "@exp/ui"
 import { BoardIdentityRow } from "@/components/board-form-fields"
 import type { AppListEntry } from "@/hooks/use-apps"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
@@ -18,12 +18,10 @@ import { AppMcpSections } from "@/components/apps/app-mcp-sections"
 // Settings tab (web ≥ md) and the phone menu's Settings sheet: the identity
 // row (icon + colour + name, the name a deferred write on blur/Enter), the
 // description card (saved on blur), the records line, the Tools group (the
-// grant switches, an owner only), then Export (head > 0) and Delete app (the
-// creator or an owner). The editor owns the export sheet and the delete
-// prompt (the phone menu opens the same ones). Everyone else reads it.
+// grant switches, an owner only). #FEED-239: Export and Delete app are NOT
+// here: they are THE session screen menu's entries (the editor's `…`).
+// Everyone but the creator or an owner reads it.
 
-const UiDeleteIcon = conceptIcon(`ui-delete`)
-const UiShareIcon = conceptIcon(`ui-share`)
 const DEFAULT_COLOR = `#6366f1`
 const DEFAULT_ICON: BoardIcon = `puzzle`
 
@@ -33,8 +31,6 @@ export function AppSettingsTab({
   app,
   canManage,
   canGrant = false,
-  onExport,
-  onDelete,
 }: {
   teamId: string
   teamSlug: string
@@ -45,10 +41,6 @@ export function AppSettingsTab({
   /** VAPP-120 (the ruling): only a team OWNER sets the app's grants; the
    *  creator gets no grant power from creating it. */
   canGrant?: boolean
-  /** Opens the editor's export sheet. */
-  onExport: () => void
-  /** Opens the editor's delete prompt. */
-  onDelete: () => void
 }) {
   const readOnly = !canManage
   const [name, setName] = useState(app.name ?? ``)
@@ -224,23 +216,6 @@ export function AppSettingsTab({
         </div>
 
         <AppMcpSections appId={app.id} teamSlug={teamSlug} headVersion={app.headVersion} />
-
-        {(app.headVersion > 0 || canManage) && (
-        <div className="flex flex-wrap items-center gap-2 pt-2">
-          {app.headVersion > 0 && (
-            <Button variant="outline" size="sm" onClick={onExport} data-testid="app-export">
-              <UiShareIcon />
-              {APPS_COPY.menu.export}
-            </Button>
-          )}
-          {canManage && (
-            <Button variant="destructive" size="xs" onClick={onDelete} data-testid="app-delete">
-              <UiDeleteIcon />
-              {APPS_COPY.menu.delete}
-            </Button>
-          )}
-        </div>
-        )}
     </div>
   )
 }

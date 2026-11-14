@@ -165,10 +165,6 @@ thread_local! {
     pub(crate) static TRANSCRIPT_MENU_TEXT: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
 }
 
-/// How long a body may run before it folds behind "Show more" (web
-/// `clampable`: >600 chars or >6 lines).
-const CLAMP_CHARS: usize = 600;
-const CLAMP_LINES: usize = 6;
 
 /// Free-text answers are capped like the web input.
 const FREE_TEXT_MAX: usize = 4000;
@@ -4907,9 +4903,16 @@ fn lower_first(text: &str) -> String {
     }
 }
 
-/// A body long enough to fold behind "Show more" (web `clampable`).
+/// A body long enough to fold behind "Show more": #FEED-238 THE FOLD ×4
+/// (transcript-grouping.json `messageFolds`: over `fold.chars` characters
+/// or `fold.lines` lines).
 pub(crate) fn clampable(text: &str) -> bool {
-    text.len() > CLAMP_CHARS || text.lines().count() > CLAMP_LINES
+    domain::transcript_grouping::message_folds(text)
+}
+
+/// #FEED-238: a folded body shows its first `fold.lines` lines.
+fn fold_height() -> Pixels {
+    px(domain::transcript_grouping::fold().lines as f32 * theme::tokens::transcript::BODY_LINE_HEIGHT)
 }
 
 /// The composer's hint. EXP-724: the `/` menu is invisible until it is
@@ -5741,6 +5744,8 @@ impl SteerSessionView {
             // the transcript (`read`), then the own tail (the unconsumed rows,
             // the outbox) with their marks, so a fresh send shows at once.
             self.refresh_own_tail(true, cx);
+            // #FEED-239: the tail continues the inputs' own group.
+            let lead = inputs.is_none();
             let own: Vec<AnyElement> = self
                 .own_tail
                 .clone()
@@ -5748,7 +5753,7 @@ impl SteerSessionView {
                 .enumerate()
                 .map(|(index, bubble)| {
                     let row_id = ORPHAN_ROW_BASE.saturating_sub(512).saturating_add(index as FeedItemId);
-                    self.render_own_bubble(row_id, bubble, window, cx)
+                    self.render_own_bubble(row_id, bubble, lead && index == 0, window, cx)
                 })
                 .collect();
             let inputs = match (inputs, own.is_empty()) {
@@ -5814,8 +5819,9 @@ impl SteerSessionView {
             // A synthetic item id just below the synthetic rows' (the feed
             // is empty while these show).
             let item = ORPHAN_ROW_BASE - count + index as FeedItemId;
-            let width = self.user_bubble_width(&text, 0., window);
-            column = column.child(crate::session_chat::message_bubble(
+            let sizes = crate::session_chat::transcript_sizes();
+            let width = self.user_bubble_width(&text, sizes.avatar + sizes.avatar_gap, true, window);
+            let bubble = crate::session_chat::message_bubble(
                 crate::session_chat::MessageBubble {
                     id: SharedString::from(format!("steer-sent-input-{id}")),
                     body: self.render_user_message(item, &text, cx),
@@ -5831,7 +5837,9 @@ impl SteerSessionView {
                     width: Some(width),
                 },
                 cx,
-            ));
+            );
+            // #FEED-239: one own group, the viewer's avatar on its first.
+            column = column.child(crate::session_chat::own_row(index == 0, bubble, cx));
         }
         Some(column.into_any_element())
     }
@@ -5993,16 +6001,19 @@ impl SteerSessionView {
     }
 
     /// #FEED-237: one own bubble (the viewer's, right) with its delivery
-    /// mark beside its `HH:mm` and its menu (`bubbleActions`).
+    /// mark beside its `HH:mm` and its menu (`bubbleActions`); #FEED-239:
+    /// left of the viewer's avatar (`avatar` = the own group's first row).
     fn render_own_bubble(
         &self,
         row_id: FeedItemId,
         bubble: &crate::session_outbox::OwnBubble,
+        avatar: bool,
         window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
         use domain::message_delivery::{bubble_actions, BubbleAction};
-        let width = self.user_bubble_width(&bubble.text, 0., window);
+        let sizes = crate::session_chat::transcript_sizes();
+        let width = self.user_bubble_width(&bubble.text, sizes.avatar + sizes.avatar_gap, true, window);
         let session_id = self.session_id.clone();
         let target = bubble.clone();
         let actions = if self.may_message { bubble_actions(bubble.state, bubble.stored) } else { Vec::new() };
@@ -6016,7 +6027,7 @@ impl SteerSessionView {
             }),
         });
         let at = domain::instant::parse_instant(&bubble.created_at);
-        crate::session_chat::message_bubble(
+        let element = crate::session_chat::message_bubble(
             crate::session_chat::MessageBubble {
                 id: SharedString::from(format!("steer-own-bubble-{}", bubble.key)),
                 body: self.render_user_message(row_id, &bubble.text, cx),
@@ -6029,7 +6040,25 @@ impl SteerSessionView {
                 width: Some(width),
             },
             cx,
-        )
+        );
+        crate::session_chat::own_row(avatar, element, cx)
+    }
+
+    /// #FEED-239: whether own-tail bubble `index` starts the own group (the
+    /// viewer's avatar): the first one, unless the transcript's last row
+    /// right above it is the viewer's own.
+    fn own_tail_avatar(&self, index: usize) -> bool {
+        if index > 0 {
+            return false;
+        }
+        let between = !self.orphan_workflows.is_empty() || !self.conv_tail().is_empty();
+        let last_own = self
+            .rows
+            .len()
+            .checked_sub(1)
+            .and_then(|ix| self.row_layout(ix))
+            .is_some_and(|layout| layout.side == domain::transcript_grouping::TranscriptSide::Own);
+        between || !last_own
     }
 
     /// One transcript row by list index: the cached spec resolved against
@@ -6066,7 +6095,8 @@ impl SteerSessionView {
             let own = at.and_then(|t| t.checked_sub(conv_tail.len()));
             if let Some(bubble) = own.and_then(|o| self.own_tail.get(o).cloned()) {
                 let row_id = synthetic_row_id(past).unwrap_or(ORPHAN_ROW_BASE);
-                return self.render_own_bubble(row_id, &bubble, window, cx);
+                let avatar = own.is_some_and(|o| self.own_tail_avatar(o));
+                return self.render_own_bubble(row_id, &bubble, avatar, window, cx);
             }
             return self.render_working_row(cx);
         };
@@ -6133,20 +6163,24 @@ impl SteerSessionView {
     /// written: genUI holds its unfinished tail back).
     /// #EXP-1736: THE bubble under the session's (or its agent's) avatar,
     /// its name over a group's first bubble.
-    fn render_narration(&self, id: FeedItemId, text: String, streaming: bool, cx: &App) -> AnyElement {
+    fn render_narration(&self, id: FeedItemId, text: String, streaming: bool, cx: &mut gpui::Context<Self>) -> AnyElement {
         // #EXP-1772: a blank agent turn draws nothing (no empty bubble).
         if text.trim().is_empty() {
             return div().into_any_element();
         }
+        // #FEED-238 THE FOLD: the agent's bubble folds too (never while it
+        // streams).
+        let folds = !streaming && clampable(&text);
         let view = self.with_issue_chips(
             self.prose(SharedString::from(format!("steer-narration-{id}")), text).streaming(streaming),
             cx,
         );
         let layout = self.item_layout(id);
+        let body = self.fold_element(id, body_text(div()).min_w_0().child(view).into_any_element(), folds, cx);
         crate::session_chat::message_bubble(
             crate::session_chat::MessageBubble {
                 id: SharedString::from(format!("steer-bubble-{id}")),
-                body: body_text(div()).min_w_0().child(view).into_any_element(),
+                body,
                 time: String::new(),
                 own: false,
                 name: layout.filter(|layout| layout.name).and_then(|layout| layout.sender.as_ref()).map(|sender| sender.display_name()),
@@ -6242,7 +6276,8 @@ impl SteerSessionView {
             // (right); a session's input (`Message from …` / `Report from
             // …`) = that session's bubble (left, its body alone).
             // #EXP-1772: a RELAY (a cross-session sender) wears its name
-            // above the bubble as the press, and is never folded.
+            // above the bubble as the press; #FEED-238: it folds like every
+            // bubble.
             FeedKind::UserMessage { text, at, .. } => {
                 let layout = self.item_layout(item.id);
                 let own = layout.map_or(true, |layout| layout.side == domain::transcript_grouping::TranscriptSide::Own);
@@ -6256,14 +6291,15 @@ impl SteerSessionView {
                 // content-sized bubble measured at min-content and wrapped
                 // every word; a left bubble's column is narrowed by the
                 // avatar.
+                // #FEED-239: the own avatar narrows the own column too.
                 let sizes = crate::session_chat::transcript_sizes();
-                let inset = if own { 0. } else { sizes.avatar + sizes.avatar_gap };
-                let width = self.user_bubble_width(body, inset, window);
+                let inset = sizes.avatar + sizes.avatar_gap;
+                let width = self.user_bubble_width(body, inset, own, window);
                 crate::session_chat::message_bubble(
                     crate::session_chat::MessageBubble {
                         id: SharedString::from(format!("steer-bubble-{}", item.id)),
                         body: if relay {
-                            self.render_body_folding(item.id, body, false, cx)
+                            self.render_body_folding(item.id, body, true, cx)
                         } else {
                             self.render_user_message(item.id, body, cx)
                         },
@@ -6464,11 +6500,12 @@ impl SteerSessionView {
     /// here would make the marker path diverge from every other body.)
     /// EXP-818: a user bubble's width — its longest source line shaped at
     /// the body size plus the bubble's padding, capped at
-    /// `layout.maxWidth.wide` (transcript-grouping.json) of the transcript column. A bubble
+    /// `layout.maxWidth.wide` (transcript-grouping.json; #FEED-239 an own
+    /// bubble `maxWidth.own`) of the transcript column. A bubble
     /// sized to its content wrapped every word once the EXP-787 column gave
     /// it a min-content measure; a definite width is the recorded-px
     /// pattern every wrapped text in this crate ends up on.
-    fn user_bubble_width(&self, text: &str, inset: f32, window: &Window) -> Pixels {
+    fn user_bubble_width(&self, text: &str, inset: f32, own: bool, window: &Window) -> Pixels {
         let parsed = steer::image_message::parse_steer_message(text);
         let font = window.text_style().font();
         let mut longest = px(0.);
@@ -6509,7 +6546,9 @@ impl SteerSessionView {
             crate::work_header::CHAT_COLUMN_W
         } - 2. * crate::work_header::WORK_GUTTER
             - inset;
-        let cap = px((column * crate::session_chat::transcript_sizes().max_width.wide).max(USER_BUBBLE_MIN_W));
+        let sizes = crate::session_chat::transcript_sizes();
+        let share = if own { sizes.max_width.own } else { sizes.max_width.wide };
+        let cap = px((column * share).max(USER_BUBBLE_MIN_W));
         // px_3 both sides + the 1px stroke each side.
         let padded = longest + px(2. * 12. + 2.);
         if padded > cap {
@@ -7169,7 +7208,13 @@ impl SteerSessionView {
             .images(self.images.clone()),
             cx,
         );
-        if !fold || !clampable(text) {
+        self.fold_element(id, view.into_any_element(), fold && clampable(text), cx)
+    }
+
+    /// #FEED-238 THE FOLD: `view` folded to its first `fold.lines` lines
+    /// behind THE "Show more" / "Show less" text button when `folds`.
+    fn fold_element(&self, id: FeedItemId, view: AnyElement, folds: bool, cx: &mut gpui::Context<Self>) -> AnyElement {
+        if !folds {
             return div().w_full().min_w_0().child(view).into_any_element();
         }
         let expanded = self.expanded_bodies.contains(&id);
@@ -7180,7 +7225,7 @@ impl SteerSessionView {
                 div()
                     .w_full()
                     .min_w_0()
-                    .when(!expanded, |this| this.max_h(px(160.)).overflow_hidden())
+                    .when(!expanded, |this| this.max_h(fold_height()).overflow_hidden())
                     .child(view),
             )
             .child(
@@ -7188,7 +7233,11 @@ impl SteerSessionView {
                 // of this view's own.
                 text_button(
                     ("steer-body-toggle", id as usize),
-                    if expanded { "Show less" } else { "Show more" },
+                    if expanded {
+                        domain::transcript_grouping::copy().show_less.as_str()
+                    } else {
+                        domain::transcript_grouping::copy().show_more.as_str()
+                    },
                     TextButtonVariant::Text,
                     cx,
                 )
@@ -10705,9 +10754,11 @@ mod tests {
     #[test]
     fn long_bodies_fold_behind_show_more() {
         assert!(!clampable("short"));
-        assert!(clampable(&"x".repeat(CLAMP_CHARS + 1)));
-        assert!(clampable(&"line\n".repeat(CLAMP_LINES + 1)));
-        assert!(!clampable(&"line\n".repeat(CLAMP_LINES - 1)));
+        let fold = domain::transcript_grouping::fold();
+        assert!(clampable(&"x".repeat(fold.chars + 1)));
+        assert!(!clampable(&"x".repeat(fold.chars)));
+        assert!(clampable(&"line\n".repeat(fold.lines + 1)));
+        assert!(!clampable(&"line\n".repeat(fold.lines - 1)));
     }
 
 

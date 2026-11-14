@@ -306,8 +306,13 @@ struct TabletSidebar: View {
 
     private var agentRows: [AnyView] {
         // #EXP-1714: the viewer's global Assistant lists in every team.
-        AgentSettings.agentsInTeam(
-            lists.agents, teamId: teamState.activeTeamId, teamIds: teamState.teams.map(\.id)
+        // #FEED-239 (`sidebarAgents`): an app's agent is listed under Apps only.
+        Chats.sidebarAgents(
+            AgentSettings.agentsInTeam(
+                lists.agents, teamId: teamState.activeTeamId, teamIds: teamState.teams.map(\.id)
+            ),
+            agentId: { $0.agentId },
+            appAgentIds: apps.apps.map(\.agentId)
         ).map { agent in
             AnyView(row(.agentChannel(agent.agentId), title: agent.name, badge: lists.agentBadge(agent)) {
                 if agent.assistant {

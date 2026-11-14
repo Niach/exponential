@@ -4,15 +4,20 @@ import SwiftUI
 
 /// Session 58cb32df (chats.json MENUS, ×4): a chat's menu on a phone — THE
 /// Menu in its SHEET look titled with the chat's title (a row's or a
-/// bubble's long press, the chat header's `…`). The rows are
-/// `chatMenuEntries` (S-3: Delete) or `agentMenuEntries` (Compact
-/// conversation · New conversation · Agent settings). A pick hands the entry back; the host runs it once the
-/// sheet has dismissed (a confirm or a push from under a dismissing sheet is
-/// dropped).
+/// bubble's long press, the session screen header's `…`). #FEED-239: the
+/// header's and an agent row's rows are THE session screen menu
+/// (`SessionScreen.menu`, `screen` entries: Publish · Compact conversation ·
+/// New conversation · Settings · Export · Delete, a divider between groups),
+/// the chat PR's entries after them. A pick hands the entry back; the host
+/// runs it once the sheet has dismissed (a confirm or a push from under a
+/// dismissing sheet is dropped).
 struct ChatMenuSheet: View {
     enum Entry: Hashable {
         case chat(Chats.ChatMenuEntry)
         case agent(Chats.AgentMenuEntry)
+        /// #FEED-239: THE session screen menu's entry for `kind`
+        /// (`SessionScreen.menu`; never the separator).
+        case screen(SessionScreen.MenuEntry, kind: String)
         /// #EXP-1611: the Guide PR's Checks submenu (pr-checks.json CHECKS
         /// LIST), a page pushed in this sheet.
         case checks
@@ -27,7 +32,7 @@ struct ChatMenuSheet: View {
         /// The chat PR's entries (`mergeMenuEntries`), apart from the chat's.
         var isPullRequest: Bool {
             switch self {
-            case .chat, .agent: false
+            case .chat, .agent, .screen: false
             case .checks, .mergeNow, .hold, .resume, .closePr: true
             }
         }
@@ -126,9 +131,29 @@ struct ChatMenuSheet: View {
     static func separates(_ previous: Entry, _ next: Entry) -> Bool {
         switch (previous, next) {
         case (.agent(.newConversation), .agent): true
+        // #FEED-239: `SessionScreen.menu`'s separators sit between its groups.
+        case let (.screen(a, _), .screen(b, _)): screenGroup(a) != screenGroup(b)
         // #EXP-1611/#EXP-1710: the chat PR's entries (Checks, Merge now,
         // Hold | Resume, Close PR) sit apart from the chat's own.
         default: previous.isPullRequest != next.isPullRequest
+        }
+    }
+
+    /// THE session screen menu as sheet entries: its separators become the
+    /// dividers `separates` draws between groups.
+    static func screenEntries(_ entries: [SessionScreen.MenuEntry], kind: SessionScreen.Kind) -> [Entry] {
+        entries.filter { $0 != .separator }.map { .screen($0, kind: kind.rawValue) }
+    }
+
+    /// `SessionScreen.menu`'s groups: link an issue · publish · compact +
+    /// new conversation · settings · export + delete.
+    private static func screenGroup(_ entry: SessionScreen.MenuEntry) -> Int {
+        switch entry {
+        case .linkIssue: -1
+        case .publish: 0
+        case .compact, .newConversation: 1
+        case .settings: 2
+        case .export, .delete, .separator: 3
         }
     }
 
@@ -136,6 +161,7 @@ struct ChatMenuSheet: View {
         switch entry {
         case let .chat(e): e.label
         case let .agent(e): e.label
+        case let .screen(e, kind): SessionScreen.menuLabel(kind: kind, entry: e)
         case .checks: PrChecks.Copy.checks
         case .mergeNow: MergeTrain.Copy.Menu.mergeNow
         case .hold: MergeTrain.Copy.Menu.hold
@@ -148,6 +174,7 @@ struct ChatMenuSheet: View {
         switch entry {
         case let .chat(e): AppIcons.conceptOrName(e.icon) ?? e.icon
         case let .agent(e): AppIcons.conceptOrName(e.icon) ?? e.icon
+        case let .screen(e, _): e.iconConcept.flatMap { AppIcons.conceptOrName($0) } ?? AppIcons.uiMore
         case .checks: AppIcons.ciPassed
         case .mergeNow: AppIcons.prMerged
         case .hold: AppIcons.prHold
@@ -159,6 +186,7 @@ struct ChatMenuSheet: View {
     static func destructive(_ entry: Entry) -> Bool {
         switch entry {
         case let .chat(e): e.destructive
+        case let .screen(e, _): e.destructive
         case .agent, .checks, .mergeNow, .hold, .resume: false
         case .closePr: true
         }
@@ -168,6 +196,7 @@ struct ChatMenuSheet: View {
         switch entry {
         case let .chat(e): e.rawValue
         case let .agent(e): e.rawValue
+        case let .screen(e, _): e.rawValue
         case .checks: "checks"
         case .mergeNow: "merge-now"
         case .hold: "hold"
@@ -184,6 +213,10 @@ struct ChatMenuSheet: View {
         case .mergeNow: MergeTrain.TestIds.mergeNow
         case .hold: MergeTrain.TestIds.hold
         case .resume: MergeTrain.TestIds.resume
+        // An app's entries keep the app menu's ids.
+        case .screen(.publish, _): Apps.TestIds.publish
+        case .screen(.export, _): AppExport.TestIds.menuItem
+        case let .screen(e, kind) where kind == SessionScreen.Kind.app.rawValue: "app-menu-\(e.rawValue)"
         default: "chat-menu-\(testId(entry))"
         }
     }

@@ -17822,7 +17822,8 @@
               "style": {
                 "backgroundColor": "$color.accent",
                 "color": "$color.accentForeground",
-                "borderColor": "$color.borderStrong"
+                "borderColor": "$color.borderStrong",
+                "maxWidth": "100%"
               }
             }
           ],
@@ -37076,7 +37077,8 @@
               "style": {
                 "backgroundColor": "$color.accent",
                 "color": "$color.accentForeground",
-                "borderColor": "$color.borderStrong"
+                "borderColor": "$color.borderStrong",
+                "maxWidth": "100%"
               }
             }
           ],

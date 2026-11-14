@@ -75,7 +75,7 @@ fun ChatHeaderButton(
  * only, left of `…`) · the `…` menu (the chat's own entries,
  * `chatMenuEntries` / `agentMenuEntries`, then any [menuGroups] after a
  * divider). #EXP-1688: one leading row, nothing centred, ghost buttons
- * (`shell.chatHeader`). #EXP-1732: THE gear ([gear]) sits left of `…`, and THE
+ * (`shell.chatHeader`). #FEED-239: no gear (settings = a `…` entry); THE
  * session screen's tabs ([SessionScreenTabs]) ride under it ([tabs]) on the
  * same band.
  */
@@ -96,9 +96,6 @@ fun ChatHeader(
     /** S-3: the action slot left of `…` (the chat's Merge pill; it may
      *  draw nothing). */
     action: (@Composable () -> Unit)? = null,
-    /** #EXP-1732 (session-screen.json `gear`): THE gear, left of `…`
-     *  (agents, the Assistant, apps); null = none (a chat). */
-    gear: (() -> Unit)? = null,
     /** #EXP-1732: a kind's OWN `…` (an app's menu sheet: Publish, Export,
      *  Delete) drawn instead of [menu]'s dropdown; null = [menu]. */
     more: (@Composable () -> Unit)? = null,
@@ -106,8 +103,7 @@ fun ChatHeader(
      *  pill, web/iOS/desktop alike); the title truncates first. */
     titleTrailing: (@Composable () -> Unit)? = null,
     /** #EXP-1785 (waiting-cards.json `button`): the tree's waiting button,
-     *  at the START of the trailing slot (before the Merge pill, the gear
-     *  and `…`); null = nothing waits. */
+     *  at the START of the trailing slot (before the Merge pill and `…`); null = nothing waits. */
     waiting: (@Composable () -> Unit)? = null,
 ) {
     HeaderEdgeChrome {
@@ -170,10 +166,6 @@ fun ChatHeader(
                 if (call != null) {
                     Spacer(Modifier.width(gap))
                     call()
-                }
-                if (gear != null) {
-                    Spacer(Modifier.width(gap))
-                    SessionGearButton(onClick = gear)
                 }
                 val groups = listOf(menu).plus(menuGroups).filter { it.isNotEmpty() }
                 if (more != null) {

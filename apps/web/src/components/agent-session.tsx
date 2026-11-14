@@ -99,10 +99,13 @@ import {
   SenderAvatar,
   TranscriptRow,
   transcriptSenderName,
+  MessageFold,
+  UserAvatar,
   type WorkCardLaneTarget,
   type MenuEntry,
 } from "@exp/ui"
 import {
+  TRANSCRIPT_LAYOUT,
   feedInput,
   transcriptLayout,
   type TranscriptItem,
@@ -465,6 +468,15 @@ export function AgentSessionView({
   const unqueue = useUnqueueMessage()
   const { data: auth } = useSession()
   const viewerId = auth?.user?.id ?? null
+  // #FEED-239: the viewer's own avatar right of their own bubbles.
+  const viewerUser = auth?.user ?? null
+  const viewerAvatar = useMemo(
+    () =>
+      viewerUser
+        ? { id: viewerUser.id, name: viewerUser.name ?? null, email: viewerUser.email ?? null, image: viewerUser.image ?? null }
+        : null,
+    [viewerUser?.id, viewerUser?.name, viewerUser?.email, viewerUser?.image]
+  )
   // steer-enet.json SENT INPUTS: the session's consumed person inputs (the
   // newest few, oldest first), drawn above a no-feed placeholder.
   const sentInputIds = useMemo(() => noFeedSentIds(sessionMessages), [sessionMessages])
@@ -835,6 +847,9 @@ export function AgentSessionView({
         avatar={
           sender ? (
             <SenderAvatar sender={sender} agent={sender.kind === `agent` ? xrefAgent(sender.id) : null} />
+          ) : layout?.side === `own` && viewerAvatar ? (
+            // #FEED-239: the viewer's own group wears THEIR avatar, right.
+            <UserAvatar user={viewerAvatar} size={32} />
           ) : null
         }
         className={bubbles ? undefined : gap}
@@ -960,7 +975,8 @@ export function AgentSessionView({
         if (input?.kind === `marker`) return wrap(<TranscriptMarker label={input.label} />)
         // #EXP-1736: another session's input = that session's bubble.
         // (ONE origin rule: the first prompt may be the origin's.)
-        // #EXP-1772: a relay's name sits above it, the one link; never folded.
+        // #EXP-1772: a relay's name sits above it, the one link; #FEED-238:
+        // it folds like every bubble.
         const link = layout?.side === `other` ? (sender?.link ?? null) : null
         return wrap(
           <UserMessageBubble
@@ -972,7 +988,6 @@ export function AgentSessionView({
                 ? { name: sender.name, onPress: openSessionRef.current ? () => openSessionRef.current?.(link) : undefined }
                 : null
             }
-            fold={!link}
             time={item.at ? userMessageTime(item.at) : null}
             // #FEED-237: the transcript's echo = processed into the session.
             status={layout?.side === `other` ? null : `read`}
@@ -1026,6 +1041,7 @@ export function AgentSessionView({
   const rowGlobals = [
     live, sessionEnded, workflows, stableWorkflowDuplicates, workflowAgents, questionIds, canAnswer,
     answerStates, pendingCard?.id ?? null, agentCommands, xrefAgent, sendMessage, answerQuestion, onOpenSession !== undefined,
+    viewerAvatar,
   ]
   const nextRowCache = new Map<string, { deps: readonly unknown[]; node: ReactNode }>()
   const memoTranscriptRow = (row: (typeof rows)[number], index: number, list: readonly (typeof rows)[number][]): ReactNode => {
@@ -1092,15 +1108,19 @@ export function AgentSessionView({
   // #EXP-1732: the settled suggested-tasks cards (an open one is THE
   // Dock's) and the viewer's queued messages (a person's FIRST message
   // included) show under any empty-feed placeholder too, same column.
+  const extraRows = [...suggestionRows, ...handoffRows, ...queuedRows]
+  const lastExtra = extraRows[extraRows.length - 1]
+  const extrasEndOwn = lastExtra?.type === `message` && lastExtra.author === `user` && lastExtra.authorId === viewerId
   const chatExtras =
     suggestionRows.length + handoffRows.length + queuedRows.length + outbox.length > 0 ? (
       <div className={TRANSCRIPT_GAP_CLASS.gapBlock} data-testid="session-chat-extras">
         <ChatConversation
-          rows={[...suggestionRows, ...handoffRows, ...queuedRows]}
+          rows={extraRows}
           renderText={renderChatText}
           attachmentSrc={attachmentUrl}
           chat={{ sessionId: session.id, title: sessionCardModel?.name ?? session.title ?? ``, agentId: session.agentId ?? null }}
           viewerId={viewerId}
+          viewer={viewerAvatar}
           messageTime={messageTime}
           onUnqueue={(rowId) => void unqueue(rowId)}
           deliveryOf={deliveryOf}
@@ -1110,8 +1130,20 @@ export function AgentSessionView({
           renderIssueRef={renderIssueRef}
           pending={cardsPending}
         />
-        {outbox.map((entry) => (
-          <OutboxBubble key={entry.clientId} sessionId={session.id} entry={entry} />
+        {outbox.map((entry, index) => (
+          // #FEED-239: an outbox entry is an own row (the own avatar on the
+          // group's first one).
+          <TranscriptRow
+            key={entry.clientId}
+            layout={{
+              side: `own`,
+              avatar: index === 0 && !extrasEndOwn,
+              gap: index === 0 && !extrasEndOwn ? 0 : TRANSCRIPT_LAYOUT.gapInGroup,
+            }}
+            avatar={viewerAvatar ? <UserAvatar user={viewerAvatar} size={32} /> : null}
+          >
+            <OutboxBubble sessionId={session.id} entry={entry} />
+          </TranscriptRow>
         ))}
       </div>
     ) : null
@@ -1272,6 +1304,7 @@ export function AgentSessionView({
                   attachmentSrc={attachmentUrl}
                   chat={{ sessionId: session.id, title: sessionCardModel?.name ?? session.title ?? ``, agentId: session.agentId ?? null }}
                   viewerId={viewerId}
+                  viewer={viewerAvatar}
                   messageTime={messageTime}
                   onOpenSession={onOpenSession}
                   renderIssueRef={renderIssueRef}
@@ -2028,7 +2061,8 @@ export const NarrationBubble = memo(function NarrationBubble({
   return (
     // #EXP-1736: THE message bubble on every client (was a bare paragraph
     // here, a bubble on iOS).
-    <MessageBubble side="in" author={author}>
+    // #FEED-238: THE FOLD, every message bubble.
+    <MessageBubble side="in" author={author} foldText={text}>
       <div className={cn(`min-w-0 text-foreground/90`, TRANSCRIPT_BODY_TEXT)}>
         <FeedText text={text} ariaLabel="Agent message" hardBreaks streaming={streaming} />
       </div>
@@ -2143,15 +2177,12 @@ const UserMessageBubble = memo(function UserMessageBubble({
   author = null,
   onPress,
   relay = null,
-  fold = true,
   time = null,
   status = null,
   menu,
 }: {
   /** #EXP-1772: a relay's session name above the bubble (its one link). */
   relay?: { name: string; onPress?: () => void } | null
-  /** #EXP-1772: false = never folded (a relay shows its whole text). */
-  fold?: boolean
   text: string
   /** #EXP-1736: `in` = another session's input (its bubble, its name). */
   side?: `in` | `out`
@@ -2169,12 +2200,6 @@ const UserMessageBubble = memo(function UserMessageBubble({
   // Wave D: file lines are peeled off like the embeds and drawn as the
   // comment chat's file chips, never as broken images or raw links.
   const hasAttachments = hasImages || files.length > 0
-  // Clamp the PROSE, never the wire message: four embed lines are four more
-  // "lines" of nothing, and they used to push a two-line steer into the fold
-  // — which then hid the images the fold was measuring.
-  const clamp = useClampToggle(hasAttachments ? body : text)
-  const { expanded, setExpanded } = clamp
-  const clampable = fold && clamp.clampable
   const [preview, setPreview] = useState<number | null>(null)
   const openMarker = (index: number) => {
     if (index >= 1 && index <= attachmentIds.length) setPreview(index - 1)
@@ -2185,11 +2210,11 @@ const UserMessageBubble = memo(function UserMessageBubble({
           viewer's own turn). */}
       <MessageBubble side={side} author={author} onPress={onPress} relay={relay} time={time} status={status} menu={menu}>
       <div className={TRANSCRIPT_BODY_TEXT}>
-        {/* A height clamp, not `line-clamp`: line clamping needs a plain text
-            flow, and a markdown body is a stack of blocks. */}
-        <div
-          className={cn(clampable && !expanded && `max-h-40 overflow-hidden`)}
-        >
+        {/* #FEED-238 THE FOLD: every bubble, a relay too. Clamp the PROSE,
+            never the wire message: four embed lines are four more "lines"
+            of nothing, and they used to push a two-line steer into the fold
+            — which then hid the images the fold was measuring. */}
+        <MessageFold text={hasAttachments ? body : text}>
           {!hasAttachments ? (
             <FeedText text={text} ariaLabel="Your message" hardBreaks />
           ) : (
@@ -2204,13 +2229,7 @@ const UserMessageBubble = memo(function UserMessageBubble({
               <FeedText text={body} ariaLabel="Your message" hardBreaks />
             ))
           )}
-        </div>
-        {clampable && (
-          <ShowMoreButton
-            expanded={expanded}
-            onToggle={() => setExpanded((v) => !v)}
-          />
-        )}
+        </MessageFold>
         {/* OUTSIDE the fold: the images are the point of the message, and a
             long prose clamp must never be what hides them. */}
         {hasImages && (

@@ -48,6 +48,7 @@ class MessageDeliveryTest {
         assertEquals(fixture.getValue("markSize").jsonPrimitive.long.toInt(), MessageDelivery.MARK_SIZE)
         assertEquals(fixture.getValue("matchWindowMs").jsonPrimitive.long, MessageDelivery.MATCH_WINDOW_MS)
         assertEquals(fixture.getValue("handoffMaxMs").jsonPrimitive.long, MessageDelivery.HANDOFF_MAX_MS)
+        assertEquals(fixture.getValue("briefRequestHeading").jsonPrimitive.content, MessageDelivery.BRIEF_REQUEST_HEADING)
         val ids = fixture.getValue("testIds").jsonObject
         assertEquals(ids.str("status"), MessageDelivery.TestIds.STATUS)
         assertEquals(ids.str("menu"), MessageDelivery.TestIds.MENU)
