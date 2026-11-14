@@ -170,7 +170,20 @@ class DirectShareShortcuts @Inject constructor(
         } else {
             emptyList()
         }
-        return recent + entries.mapIndexed { rank, entry -> Row(entry, recent.size + rank, byId[entry.id]) }
+        // #EXP-1830: an agent chat entry whose agent already has a sharing
+        // shortcut IS that shortcut (its launcher intent opens the agent's
+        // chat), at the chat entry's rank: one row per agent, never twice
+        // in the long-press menu.
+        val sharing = entries.associateBy { it.id }
+        val ordered = recent.map { row ->
+            val twin = AppShortcuts.parseAppShortcut(row.entry.id)
+                .let { it as? AppShortcuts.Target.Agent }
+                ?.let { sharing["${ShareTargets.AGENT_PREFIX}${it.id}"] }
+            if (twin != null) Row(twin, 0, byId[twin.id]) else row
+        }
+        val placed = ordered.mapTo(HashSet()) { it.entry.id }
+        return (ordered + entries.filter { it.id !in placed }.map { Row(it, 0, byId[it.id]) })
+            .mapIndexed { rank, row -> row.copy(rank = rank) }
     }
 
     private fun chat(it: SessionEntity) = ShareTargets.Chat(

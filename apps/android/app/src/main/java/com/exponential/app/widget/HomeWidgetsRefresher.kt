@@ -259,7 +259,7 @@ class HomeWidgetsRefresher @Inject constructor(
                     me, HomeWidgetPrefs.teams(context, id), data.statuses.values.map { it.status }, data.issues, max,
                 )
                 Content(
-                    ExpIcons.byName(HomeWidgets.ICON_MY_ISSUES),
+                    ExpIcons.byConcept(HomeWidgets.ICON_MY_ISSUES),
                     DesignTokens.Palette.Foreground,
                     HomeWidgets.MY_ISSUES,
                     list.count,
@@ -271,7 +271,7 @@ class HomeWidgetsRefresher @Inject constructor(
             HomeWidgetKind.NeedsYou -> {
                 val list = HomeWidgets.needsYouWidget(data.needsYou, data.sealedRoots, max)
                 Content(
-                    ExpIcons.byName(HomeWidgets.ICON_NEEDS_YOU),
+                    ExpIcons.byConcept(HomeWidgets.ICON_NEEDS_YOU),
                     DesignTokens.Semantic.Yellow,
                     HomeWidgets.NEEDS_YOU,
                     list.count,
@@ -343,7 +343,7 @@ class HomeWidgetsRefresher @Inject constructor(
         root.setViewVisibility(R.id.home_widget_rows, View.VISIBLE)
         content.rows.forEachIndexed { index, row ->
             val rowViews = RemoteViews(context.packageName, R.layout.home_widget_row)
-            ExpIcons.byName(row.glyph)?.let {
+            (ExpIcons.byName(row.glyph) ?: ExpIcons.byConcept(row.glyph))?.let {
                 rowViews.setImageViewBitmap(R.id.home_widget_row_glyph, WidgetGlyphs.bitmap(it, row.tint, glyphPx))
             }
             rowViews.setTextViewText(R.id.home_widget_row_title, row.title)
