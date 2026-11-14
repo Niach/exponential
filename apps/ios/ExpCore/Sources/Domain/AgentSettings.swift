@@ -479,13 +479,20 @@ public enum AgentSettings {
             id: current?.id,
             enabled: true,
             when: .schedule(ScheduleTrigger(cron: cron, tz: zone)),
-            preset: id.rawValue
+            preset: id.rawValue,
+            extra: current?.extra ?? [:]
         )
         return [next] + rest
     }
 
-    public static func withCheckIn(_ triggers: [AgentTrigger], _ id: AssistantScheduleId, tz: String? = nil) -> [AgentTriggerInput] {
-        withCheckIn(triggers.map(AgentTriggerInput.init), id, tz: tz)
+    /// The same from stored triggers; `unreadable` ones ride along at the end.
+    public static func withCheckIn(
+        _ triggers: [AgentTrigger],
+        _ id: AssistantScheduleId,
+        tz: String? = nil,
+        keeping unreadable: [AgentTriggerObject] = []
+    ) -> [AgentTriggerInput] {
+        withCheckIn(triggers.inputs(keeping: unreadable), id, tz: tz)
     }
 
     /// The rows under Check in (`listedCases`): every trigger without `preset`.

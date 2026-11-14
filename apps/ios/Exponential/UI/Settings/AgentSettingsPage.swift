@@ -82,7 +82,7 @@ final class AgentSettingsDraft {
         lockedCli = agent.cli
         account = AccountOptions.wireAccount(agent.account)
         model = agent.model
-        triggerList.triggers = AgentTrigger.parseList(agent.triggers)
+        triggerList.load(agent.triggers)
         let instructionsBase = baseline.instructions
         snapshotBaseline()
         baseline.instructions = instructionsBase
@@ -321,7 +321,7 @@ struct AgentSettingsPage: View {
         // is in flight (the echo of the last one included).
         .onChange(of: agent?.triggers) { _, raw in
             guard seeded, !draft.triggerList.busy, let raw else { return }
-            draft.triggerList.triggers = AgentTrigger.parseList(raw)
+            draft.triggerList.load(raw)
         }
         // EXP-1215: the app's own alert card, on a zero-size node of its own.
         .background {
