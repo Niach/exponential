@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-14-phones-chat-shell-release`,
+    date: `2026-11-14`,
+    title: `One chat menu and sidebar folders on your phone`,
+    summary: `Android 0.14.139 and iOS 0.14.129 bring the one \`…\` chat menu, your sidebar folders, My issues tabs on a board and [Image #1] placeholders in every chat composer.`,
+    body: `- **One \`…\` menu**: every chat, agent and app shares one menu; the settings gear is gone and your own messages carry your picture on the right.
+- **Sidebar folders**: the folders you make on the desktop app or the web show on your phone.
+- **My issues**: a board's All issues, My issues and Drafts are tabs, and My issues lists only yours on that board.
+- **Image placeholders**: attaching an image in a chat puts \`[Image #1]\` at the cursor.`,
+  },
+  {
     id: `2026-11-14-assistant-floating-button`,
     date: `2026-11-14`,
     title: `Your Assistant floats over every page`,
