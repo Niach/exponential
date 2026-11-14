@@ -43,7 +43,6 @@ import com.exponential.app.domain.AccountOptions
 import com.exponential.app.domain.AgentSettings
 import com.exponential.app.domain.AgentTrigger
 import com.exponential.app.domain.SessionTree
-import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.DestructiveButton
 import com.exponential.app.ui.components.ColorPicker
 import com.exponential.app.ui.components.EmptyState
@@ -54,10 +53,6 @@ import com.exponential.app.ui.components.GlassAlert
 import com.exponential.app.ui.components.GlassAlertAction
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSubmitButton
-import com.exponential.app.ui.components.GlassSwitch
-import com.exponential.app.ui.components.GlassSwitchSize
-import com.exponential.app.ui.components.GlassDropdownMenu
-import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.IconPicker
@@ -92,9 +87,11 @@ import com.exponential.app.ui.theme.flatRow
 // managed EXACTLY like boards. The list = icon-in-colour + name rows under the
 // "Agents" band, whose header carries the `New agent` pill (owner-only,
 // NEW-40: the Prompts band's pattern ×4). An agent's
-// page = the board form's ONE identity field (icon picker + colour swatch +
-// name) over Device, Account, Triggers, Instructions and the owner-only
-// Delete. A NEW agent is a form with a Create button
+// page (#EXP-1846, ONE order for the Assistant and every team agent) = the
+// board form's ONE identity field (icon picker + colour swatch + name), Runs
+// on (Device, Account, Model, Skills, MCP servers), Triggers
+// ([AgentTriggersSection]), the Assistant's Voice, a team agent's
+// Instructions and the owner-only Delete. A NEW agent is a form with a Create button
 // (`sessions.send({agent})`); an existing one autosaves like the board page:
 // name and instructions on blur, everything else at once.
 
@@ -378,8 +375,9 @@ fun AgentSettingsScreen(
     var instructions by remember { mutableStateOf("") }
     var instructionsSeeded by remember { mutableStateOf(false) }
     var seeded by remember { mutableStateOf(false) }
-    // A new agent's triggers live here until Create sends it.
+    // A new agent's triggers (and Model pick) live here until Create sends it.
     var draftTriggers by remember { mutableStateOf<List<AgentTrigger>>(emptyList()) }
+    var draftModel by remember { mutableStateOf<String?>(null) }
     var showErrors by remember { mutableStateOf(false) }
 
     LaunchedEffect(agent) {
@@ -416,6 +414,8 @@ fun AgentSettingsScreen(
         )?.let { "${it.agent}:${it.id}" }
     }
     val triggers = if (isNew) draftTriggers else syncedTriggers
+    // The Model row's CLI: the picked login's (a new agent), else the synced row's.
+    val modelCli = accountKey?.let(AccountOptions::parseKey)?.agent?.takeIf { isNew } ?: syncedCli
     val errors = viewModel.validate(name, deviceId, instructions)
     // S-3: the viewer's Assistant = its own page (owner = the member).
     val me by viewModel.me.collectAsStateWithLifecycle()
@@ -432,8 +432,6 @@ fun AgentSettingsScreen(
         deviceList.filter { it.deviceId in ids }.map { it.toPickerDevice(startGate = false) }
     }
 
-    // The Triggers sheet: null = closed; -1 = a new trigger, else its index.
-    var triggerSheet by remember { mutableStateOf<Int?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
 
     fun patch(update: UpdateAgentPatch) {
@@ -497,23 +495,24 @@ fun AgentSettingsScreen(
                     )
                 }
             },
-            triggers = triggers,
-            onToggleTrigger = { index, enabled ->
-                if (isNew) {
-                    draftTriggers = draftTriggers.mapIndexed { i, t -> if (i == index) t.copy(enabled = enabled) else t }
-                } else {
-                    triggers.getOrNull(index)?.id?.let { viewModel.setTriggerEnabled(it, enabled) }
-                }
+            // #EXP-1846: THE trigger list (Check in + the listed triggers),
+            // every agent's, the Assistant's too.
+            triggersSection = {
+                AgentTriggersSection(
+                    agentId = viewModel.agentId,
+                    editable = editable,
+                    triggers = triggers,
+                    busy = busy,
+                    onWrite = { onDone, build ->
+                        if (isNew) {
+                            draftTriggers = build(draftTriggers)
+                            onDone()
+                        } else {
+                            viewModel.writeTriggers(onDone, build)
+                        }
+                    },
+                )
             },
-            onEditTrigger = { triggerSheet = it },
-            onDeleteTrigger = { index ->
-                if (isNew) {
-                    draftTriggers = draftTriggers.filterIndexed { i, _ -> i != index }
-                } else {
-                    triggers.getOrNull(index)?.id?.let(viewModel::deleteTrigger)
-                }
-            },
-            onAddTrigger = { triggerSheet = -1 },
             instructions = instructions,
             instructionsLoading = !isNew && loadedInstructions == null,
             onInstructionsChange = { instructions = it },
@@ -540,6 +539,7 @@ fun AgentSettingsScreen(
                             deviceId = picked,
                             account = parsed?.id?.takeIf { it.isNotEmpty() },
                             cli = parsed?.agent,
+                            model = draftModel,
                             instructions = instructions,
                             triggers = draftTriggers,
                             onCreated = onCreated,
@@ -552,15 +552,13 @@ fun AgentSettingsScreen(
             // S-3: nobody deletes an Assistant.
             onDelete = if (!isNew && isOwner && !assistant) ({ confirmDelete = true }) else null,
             assistant = assistant,
-            checkIn = AgentSettings.Assistant.scheduleOfStored(syncedTriggers),
-            onCheckIn = { id ->
-                val tz = java.util.TimeZone.getDefault().id
-                patch(UpdateAgentPatch(triggers = AgentSettings.Assistant.scheduleTriggers(id, tz).map { it.toWireJson() }))
+            // #EXP-1846: the Model row is every agent's (`assistantModelValue`).
+            model = if (isNew) draftModel else agent?.runnerDefaults?.model,
+            modelOptions = com.exponential.app.ui.components.modelOptionsFor(modelCli ?: "claude"),
+            modelCli = modelCli,
+            onModelChange = {
+                if (isNew) draftModel = it else patch(UpdateAgentPatch(model = it))
             },
-            model = agent?.runnerDefaults?.model,
-            modelOptions = com.exponential.app.ui.components.modelOptionsFor(syncedCli ?: "claude"),
-            modelCli = syncedCli,
-            onModelChange = { patch(UpdateAgentPatch(model = it)) },
             voice = if (assistant && editable) {
                 { AssistantVoiceBlock() }
             } else {
@@ -632,36 +630,6 @@ fun AgentSettingsScreen(
         )
     }
 
-    triggerSheet?.let { index ->
-        val editing = triggers.getOrNull(index)
-        TriggerFormSheet(
-            busy = busy,
-            editing = editing,
-            onSubmit = { trigger ->
-                if (isNew) {
-                    draftTriggers = if (editing == null) draftTriggers + trigger
-                    else draftTriggers.mapIndexed { i, t -> if (i == index) trigger else t }
-                    triggerSheet = null
-                } else {
-                    viewModel.saveTrigger(trigger) { triggerSheet = null }
-                }
-            },
-            onDelete = if (editing != null && editable) {
-                {
-                    if (isNew) {
-                        draftTriggers = draftTriggers.filterIndexed { i, _ -> i != index }
-                    } else {
-                        editing.id?.let(viewModel::deleteTrigger)
-                    }
-                    triggerSheet = null
-                }
-            } else {
-                null
-            },
-            onDismiss = { triggerSheet = null },
-        )
-    }
-
     if (confirmDelete) {
         GlassAlert(
             title = AgentSettings.Copy.DELETE_CONFIRM,
@@ -683,8 +651,12 @@ fun AgentSettingsScreen(
 }
 
 /**
- * The stateless agent page, [AgentSettings.FIELDS] top to bottom. [onCreate] non-null = the
- * `New agent` form's submit; [onDelete] non-null = the owner's Delete.
+ * The stateless agent page (#EXP-1846, agent-settings.json `page`): ONE
+ * order for the Assistant and every team agent: identity, Runs on (Device,
+ * Account, Model, Skills, MCP servers), Triggers ([triggersSection]), Voice
+ * (the Assistant only), Instructions (team agents only), Delete (team
+ * agents, owners). [onCreate] non-null = the `New agent` form's submit;
+ * [onDelete] non-null = the owner's Delete.
  */
 @Composable
 internal fun AgentSettingsContent(
@@ -705,12 +677,9 @@ internal fun AgentSettingsContent(
      *  pick, as an option key); null = no login reported. */
     accountValueKey: String?,
     onAccountChange: (String) -> Unit,
-    triggers: List<AgentTrigger>,
-    onToggleTrigger: (index: Int, enabled: Boolean) -> Unit,
-    onEditTrigger: (index: Int) -> Unit,
-    /** The trigger row's ⋯ menu Delete (web `TriggerRow`). */
-    onDeleteTrigger: (index: Int) -> Unit,
-    onAddTrigger: () -> Unit,
+    /** #EXP-1846: THE trigger list ([AgentTriggersSection]): its header with
+     *  `+ Add`, the Check in row, the listed triggers. */
+    triggersSection: @Composable () -> Unit,
     instructions: String,
     instructionsLoading: Boolean,
     onInstructionsChange: (String) -> Unit,
@@ -720,59 +689,34 @@ internal fun AgentSettingsContent(
     onCreate: (() -> Unit)?,
     onDelete: (() -> Unit)?,
     modifier: Modifier = Modifier,
-    /** S-3 (agent-settings.json `assistant`): THE ASSISTANT page = the brand
-     *  mark instead of the icon picker, Runs on (Device, Account, Model),
-     *  Check in (the Picker over the schedules) instead of Triggers, the
-     *  moved Voice block; no Instructions (#EXP-1439: the prompt is built
-     *  in), no Delete. */
+    /** S-3 (agent-settings.json `assistant`): THE ASSISTANT = the brand mark
+     *  instead of the icon picker, the Voice block; no Instructions
+     *  (#EXP-1439: the prompt is built in), no Delete. */
     assistant: Boolean = false,
-    checkIn: String? = null,
-    onCheckIn: (String) -> Unit = {},
     model: String? = null,
     modelOptions: List<String> = emptyList(),
     /** The login's CLI the unpinned Model row defaults for (null = claude). */
     modelCli: String? = null,
     onModelChange: (String) -> Unit = {},
     voice: (@Composable () -> Unit)? = null,
-    /** #EXP-1661 (skills.json `agentRow`): the Skills row, right under
-     *  Device (the Assistant: the last row of Runs on). */
+    /** #EXP-1661 (skills.json `agentRow`): the Skills row, after Model. */
     skillsRow: (@Composable () -> Unit)? = null,
     /** #EXP-1793 (agent-settings.json `mcpRow`): the MCP servers row, right
-     *  under Skills (the Assistant: after Skills, the last row of Runs on). */
+     *  under Skills, the last row of Runs on. */
     mcpRow: (@Composable () -> Unit)? = null,
 ) {
     fun errorOf(field: String) = errors.firstOrNull { it.field == field }?.message
     fun label(field: String) = AgentSettings.FIELDS.first { it.key == field }.label
-    val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
     val device = devices.firstOrNull { it.id == deviceId }
     val account = accountValueKey?.let { key -> accounts.firstOrNull { it.key == key } }
 
-    val devicePicker: @Composable () -> Unit = {
-            DevicePicker(
-                devices = devices,
-                value = deviceId,
-                onChange = onDeviceChange,
-                title = label(AgentSettings.FIELD_DEVICE),
-                trigger = { open ->
-                    PickerValueRow(
-                        label = label(AgentSettings.FIELD_DEVICE),
-                        // EXP-1554: the value is the machine alone (×4); the
-                        // owner suffix only tells picker rows apart.
-                        value = device?.name?.substringBefore(" — ") ?: "Select",
-                        onClick = open,
-                        enabled = editable,
-                        modifier = Modifier.testTag("agent-settings-device"),
-                    )
-                },
-            )
-    }
     Column(
         modifier = modifier
             .testTag(AgentSettings.TEST_ID_PAGE)
             .verticalScroll(rememberScrollState())
             .padding(vertical = 8.dp),
     ) {
-        // ── identity + Device ────────────────────────────────────────────
+        // ── identity ─────────────────────────────────────────────────────
         OptionGroup {
             // The board form's ONE identity field: icon picker, colour
             // swatch and the name, all one row.
@@ -811,31 +755,31 @@ internal fun AgentSettingsContent(
                         .commitOnBlur { if (!isNew) onNameCommit() },
                 )
             }
-            if (!assistant) {
-                GroupDivider()
-                devicePicker()
-                if (skillsRow != null) {
-                    GroupDivider()
-                    skillsRow()
-                }
-                if (mcpRow != null) {
-                    GroupDivider()
-                    mcpRow()
-                }
-            }
         }
-        FieldErrors(listOfNotNull(errorOf(AgentSettings.FIELD_IDENTITY), errorOf(AgentSettings.FIELD_DEVICE)))
+        FieldErrors(listOfNotNull(errorOf(AgentSettings.FIELD_IDENTITY)))
         Spacer(Modifier.height(12.dp))
 
-        // ── Account + Triggers (the Assistant: Runs on) ──────────────────
-        if (assistant) {
-            SectionHeader(AgentSettings.Assistant.RUNS_ON, modifier = Modifier.padding(horizontal = 16.dp))
-        }
+        // ── Runs on: Device, Account, Model, Skills, MCP servers ─────────
+        SectionHeader(AgentSettings.Copy.RUNS_ON, modifier = Modifier.padding(horizontal = 16.dp))
         OptionGroup {
-            if (assistant) {
-                devicePicker()
-                GroupDivider()
-            }
+            DevicePicker(
+                devices = devices,
+                value = deviceId,
+                onChange = onDeviceChange,
+                title = label(AgentSettings.FIELD_DEVICE),
+                trigger = { open ->
+                    PickerValueRow(
+                        label = label(AgentSettings.FIELD_DEVICE),
+                        // EXP-1554: the value is the machine alone (×4); the
+                        // owner suffix only tells picker rows apart.
+                        value = device?.name?.substringBefore(" — ") ?: "Select",
+                        onClick = open,
+                        enabled = editable,
+                        modifier = Modifier.testTag("agent-settings-device"),
+                    )
+                },
+            )
+            GroupDivider()
             AccountPicker(
                 options = accounts,
                 value = account?.key,
@@ -853,73 +797,44 @@ internal fun AgentSettingsContent(
                     )
                 },
             )
-            if (assistant) {
+            GroupDivider()
+            // agent-settings.json `modelValueCases`: unpinned = the default
+            // for the login's CLI, any agent's.
+            val shownModel = AgentSettings.Assistant.modelValue(model, modelCli)
+            com.exponential.app.ui.components.picker.ModelPicker(
+                options = modelOptions.map { com.exponential.app.ui.components.picker.ModelPickerOption(it, com.exponential.app.ui.components.modelLabel(it)) },
+                value = shownModel,
+                onChange = onModelChange,
+                trigger = { open ->
+                    PickerValueRow(
+                        label = "Model",
+                        value = com.exponential.app.ui.components.modelLabel(shownModel),
+                        onClick = open,
+                        enabled = editable && modelOptions.isNotEmpty(),
+                        modifier = Modifier.testTag("agent-settings-model"),
+                    )
+                },
+            )
+            if (skillsRow != null) {
                 GroupDivider()
-                // agent-settings.json `modelValueCases`: unpinned = the
-                // dispatcher root's default for the login's CLI.
-                val shownModel = AgentSettings.Assistant.modelValue(model, modelCli)
-                com.exponential.app.ui.components.picker.ModelPicker(
-                    options = modelOptions.map { com.exponential.app.ui.components.picker.ModelPickerOption(it, com.exponential.app.ui.components.modelLabel(it)) },
-                    value = shownModel,
-                    onChange = onModelChange,
-                    trigger = { open ->
-                        PickerValueRow(
-                            label = "Model",
-                            value = com.exponential.app.ui.components.modelLabel(shownModel),
-                            onClick = open,
-                            enabled = editable && modelOptions.isNotEmpty(),
-                            modifier = Modifier.testTag("agent-settings-model"),
-                        )
-                    },
-                )
-                if (skillsRow != null) {
-                    GroupDivider()
-                    skillsRow()
-                }
-                if (mcpRow != null) {
-                    GroupDivider()
-                    mcpRow()
-                }
-            } else {
-                // Account and Triggers share ONE group (web `agents-section`).
+                skillsRow()
+            }
+            if (mcpRow != null) {
                 GroupDivider()
-                TriggerRows(
-                    triggers = triggers,
-                    editable = editable,
-                    onToggleTrigger = onToggleTrigger,
-                    onEditTrigger = onEditTrigger,
-                    onDeleteTrigger = onDeleteTrigger,
-                    onAddTrigger = onAddTrigger,
-                )
+                mcpRow()
             }
         }
-        if (assistant) {
+        FieldErrors(listOfNotNull(errorOf(AgentSettings.FIELD_DEVICE)))
+        Spacer(Modifier.height(12.dp))
+
+        // ── Triggers: Check in, then the listed triggers ─────────────────
+        triggersSection()
+
+        // ── Voice (the Assistant only) ───────────────────────────────────
+        if (assistant && voice != null) {
             Spacer(Modifier.height(12.dp))
-            SectionHeader(AgentSettings.Assistant.CHECK_IN, modifier = Modifier.padding(horizontal = 16.dp))
-            OptionGroup {
-                com.exponential.app.ui.components.picker.Picker(
-                    items = AgentSettings.Assistant.SCHEDULES.map { com.exponential.app.ui.components.picker.PickerItem(it.id, it.label) },
-                    mode = com.exponential.app.ui.components.picker.PickerMode.Single,
-                    value = setOfNotNull(checkIn),
-                    onChange = { picked -> picked.firstOrNull()?.let(onCheckIn) },
-                    title = AgentSettings.Assistant.CHECK_IN,
-                    trigger = { open ->
-                        PickerValueRow(
-                            label = AgentSettings.Assistant.CHECK_IN,
-                            value = AgentSettings.Assistant.SCHEDULES.firstOrNull { it.id == checkIn }?.label
-                                ?: AgentSettings.Assistant.SCHEDULES.first().label,
-                            onClick = open,
-                            enabled = editable,
-                            modifier = Modifier.testTag("assistant-check-in"),
-                        )
-                    },
-                )
-            }
-            if (voice != null) {
-                Spacer(Modifier.height(12.dp))
-                SectionHeader(AgentSettings.Assistant.VOICE, modifier = Modifier.padding(horizontal = 16.dp))
-                voice()
-            }
+            SectionHeader(AgentSettings.Assistant.VOICE, modifier = Modifier.padding(horizontal = 16.dp))
+            voice()
         }
         Spacer(Modifier.height(12.dp))
 
@@ -1013,108 +928,4 @@ private fun AssistantVoiceBlock(viewModel: VoiceSettingsViewModel = hiltViewMode
         assistantBlock = true,
     )
     FailedActionToast(viewModel.failure, onShown = { viewModel.failure = null })
-}
-
-/**
- * The Triggers rows inside the Account group (web `agents-section.tsx`
- * `TriggerRow`): the header row (label, `No schedule`, the owner's `+ Add`),
- * then one row per trigger = its sentence (muted while off), the switch and
- * the ⋯ menu (Edit, Delete); a row tap edits.
- */
-@Composable
-private fun TriggerRows(
-    triggers: List<AgentTrigger>,
-    editable: Boolean,
-    onToggleTrigger: (index: Int, enabled: Boolean) -> Unit,
-    onEditTrigger: (index: Int) -> Unit,
-    onDeleteTrigger: (index: Int) -> Unit,
-    onAddTrigger: () -> Unit,
-) {
-    val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
-    ) {
-        Text(
-            AgentSettings.FIELDS.first { it.key == AgentSettings.FIELD_TRIGGERS }.label,
-            style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier.weight(1f),
-        )
-        if (triggers.isEmpty()) {
-            Text(
-                AgentSettings.Copy.NO_SCHEDULE,
-                style = MaterialTheme.typography.bodyMedium,
-                color = muted,
-                modifier = Modifier.padding(end = 8.dp),
-            )
-        }
-        if (editable) {
-            GlassPill(
-                AgentSettings.Copy.ADD_TRIGGER,
-                icon = ExpIcons.uiAdd,
-                size = PillSize.Sm,
-                onClick = onAddTrigger,
-                modifier = Modifier.testTag("agent-settings-add-trigger"),
-            )
-        }
-    }
-    triggers.forEachIndexed { index, trigger ->
-        GroupDivider()
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("agent-settings-trigger")
-                .clickable(enabled = editable) { onEditTrigger(index) }
-                .padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
-        ) {
-            Text(
-                AgentSettings.triggerSummary(trigger),
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (trigger.enabled) MaterialTheme.colorScheme.onSurface else muted,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            GlassSwitch(
-                checked = trigger.enabled,
-                onCheckedChange = if (editable) ({ onToggleTrigger(index, it) }) else null,
-                enabled = editable,
-                size = GlassSwitchSize.Compact,
-            )
-            if (editable) {
-                var menu by remember { mutableStateOf(false) }
-                Box {
-                    CircleIconButton(
-                        ExpIcons.uiMore,
-                        contentDescription = "Trigger menu for ${AgentSettings.triggerSummary(trigger)}",
-                        onClick = { menu = true },
-                        glyphSize = 16.dp,
-                        borderless = true,
-                        size = 32.dp,
-                    )
-                    GlassDropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                        GlassMenuItem(
-                            leadingIcon = { Icon(ExpIcons.uiEdit, contentDescription = null) },
-                            text = { Text("Edit") },
-                            onClick = {
-                                menu = false
-                                onEditTrigger(index)
-                            },
-                        )
-                        GlassMenuItem(
-                            leadingIcon = { Icon(ExpIcons.uiDelete, contentDescription = null) },
-                            text = { Text("Delete") },
-                            destructive = true,
-                            onClick = {
-                                menu = false
-                                onDeleteTrigger(index)
-                            },
-                        )
-                    }
-                }
-            }
-        }
-    }
 }

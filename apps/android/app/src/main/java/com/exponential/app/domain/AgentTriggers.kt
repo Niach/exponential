@@ -79,21 +79,28 @@ data class AgentTrigger(
     val id: String?,
     val enabled: Boolean = true,
     val whenPart: TriggerWhen,
+    /** #EXP-1846 (agent-settings.json `checkIn`): the Check in preset this
+     *  schedule is (an `assistant.schedules` id other than `off`); null = a
+     *  listed trigger. Kept as stored on every whole-array write. */
+    val preset: String? = null,
 ) {
     /** This trigger as an `agents.create/update({triggers})` array element. */
-    fun toWireJson(): JsonObject = agentTriggerWireJson(id, enabled, whenPart)
+    fun toWireJson(): JsonObject = agentTriggerWireJson(id, enabled, whenPart, preset)
 }
 
 /**
  * One element of the `triggers` array (`agentTriggerSchema`, strict): `id`
  * (absent = new), `enabled`, then the when-part's keys
- * ([TriggerWhen.toWireJson]). No other key travels.
+ * ([TriggerWhen.toWireJson]), then a schedule's `preset` (#EXP-1846). No
+ * other key travels.
  */
-fun agentTriggerWireJson(id: String?, enabled: Boolean, whenPart: TriggerWhen): JsonObject =
+fun agentTriggerWireJson(id: String?, enabled: Boolean, whenPart: TriggerWhen, preset: String? = null): JsonObject =
     buildJsonObject {
         id?.let { put("id", it) }
         put("enabled", enabled)
         whenPart.toWireJson().forEach { (key, value) -> put(key, value) }
+        // #EXP-1846: only a schedule carries the Check in tag.
+        if (whenPart is TriggerWhen.Schedule) preset?.takeIf { it.isNotEmpty() }?.let { put("preset", it) }
     }
 
 private val triggersJson = Json { ignoreUnknownKeys = true }
@@ -108,7 +115,9 @@ fun parseAgentTrigger(value: JsonElement?): AgentTrigger? {
     val id = (obj["id"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.isNotEmpty() }
     val enabled = (obj["enabled"] as? JsonPrimitive)
         ?.takeIf { !it.isString }?.content != "false"
-    return AgentTrigger(id = id, enabled = enabled, whenPart = whenPart)
+    val preset = (obj["preset"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.isNotEmpty() }
+        ?.takeIf { whenPart is TriggerWhen.Schedule }
+    return AgentTrigger(id = id, enabled = enabled, whenPart = whenPart, preset = preset)
 }
 
 /** Tolerant read of an agent's `triggers` (the synced column's raw JSON
