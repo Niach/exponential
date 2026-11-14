@@ -1259,6 +1259,35 @@ fn run_device_command(
         }
         return CommandDisposition::Spawned;
     }
+    // #FEED-244: one app screen painted headless and uploaded, on its OWN
+    // thread (the first one fetches the renderer), completing itself; the
+    // claim set keeps a redelivered id from painting twice.
+    if command.kind == updater::app_shot::COMMAND_KIND {
+        if !claim_login(&snapshot.inflight_logins, &command.id) {
+            return CommandDisposition::AlreadyRunning;
+        }
+        let trpc = Arc::clone(&snapshot.trpc);
+        let claimed = Arc::clone(&snapshot.inflight_logins);
+        let (command_id, payload) = (command.id.clone(), command.payload.clone());
+        let spawned = std::thread::Builder::new().name("exp-app-shot".to_string()).spawn(move || {
+            let (ok, message) = match updater::app_shot::run_command(&payload) {
+                Ok(result) => (true, result),
+                Err(err) => (false, format!("{err:#}")),
+            };
+            complete_with(&trpc, &command_id, ok, &message);
+            if let Ok(mut guard) = claimed.lock() {
+                guard.remove(&command_id);
+            }
+        });
+        if spawned.is_err() {
+            if let Ok(mut guard) = snapshot.inflight_logins.lock() {
+                guard.remove(&command.id);
+            }
+            complete(snapshot, &command.id, false, "This machine could not start the screenshot.");
+            return CommandDisposition::Completed;
+        }
+        return CommandDisposition::Spawned;
+    }
     let (ok, message) = match command.kind.as_str() {
         // EXP-792: force one agent's usage re-read past the shared TTL
         // (never past the 429 floor — a hot refusal names when).
