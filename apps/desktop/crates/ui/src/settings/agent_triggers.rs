@@ -106,7 +106,13 @@ pub(crate) fn project_list(triggers: &[Value], editor: bool, writing: bool) -> V
         .filter(|(_, trigger)| trigger_editor::is_readable(trigger))
         .filter_map(|(_, trigger)| {
             let id = trigger_editor::trigger_id(trigger)?.to_string();
-            let sentence = trigger_summary(trigger);
+            // A paused row reads muted, never with the ` · Paused` suffix
+            // (×4, agent-settings.json `page` › `triggers`).
+            let mut shown = trigger.clone();
+            if let Some(object) = shown.as_object_mut() {
+                object.insert("enabled".into(), Value::Bool(true));
+            }
+            let sentence = trigger_summary(&shown);
             let detail = trigger_detail(trigger);
             let editable = trigger_editor::is_editable(trigger);
             let delete = json!({"label": "Delete", "value": "delete", "icon": "ui-delete", "destructive": true});
@@ -150,21 +156,29 @@ pub(super) fn section(ink: &Ink, chrome: &Chrome) -> Value {
     // #EXP-1850: a `run` trigger's muted second line under it. An editable
     // row opens the editor; a record or webhook row is read where it sits.
     let lines = |prefix: &str| {
-        let mut summary = ink.text(&format!("{prefix}_summary"), path("summary"), SM, &ink.foreground);
-        summary["props"]["lines"] = json!(1);
-        summary["style"]["minWidth"] = json!(0);
-        summary["style"]["maxWidth"] = json!(240);
-        // The ghost Button's run sits on its own line box, under the compact
-        // switch's 16 px: a member's row (no ⋯) is the switch's height.
-        summary["style"]["lineHeight"] = json!(16);
-        // gpui snaps the Button's run half a pixel up inside its 32 px row.
-        summary["style"]["position"] = json!("relative");
-        summary["style"]["top"] = json!(-0.5);
+        let sentence = |id: &str, color: &str| {
+            let mut summary = ink.text(id, path("summary"), SM, color);
+            summary["props"]["lines"] = json!(1);
+            summary["style"]["minWidth"] = json!(0);
+            summary["style"]["maxWidth"] = json!(240);
+            // The ghost Button's run sits on its own line box, under the compact
+            // switch's 16 px: a member's row (no ⋯) is the switch's height.
+            summary["style"]["lineHeight"] = json!(16);
+            // gpui snaps the Button's run half a pixel up inside its 32 px row.
+            summary["style"]["position"] = json!("relative");
+            summary["style"]["top"] = json!(-0.5);
+            summary
+        };
+        // A paused trigger's sentence is muted (the same row ×4).
+        let mut summary = sentence(&format!("{prefix}_summary"), &ink.foreground);
+        summary["visible"] = path("enabled");
+        let mut paused = sentence(&format!("{prefix}_summary_paused"), &ink.muted);
+        paused["visible"] = not(path("enabled"));
         let mut detail = ink.text(&format!("{prefix}_detail"), path("detail"), XS, &ink.muted);
         detail["visible"] = path("hasDetail");
         detail["props"]["lines"] = json!(1);
         detail["style"]["minWidth"] = json!(0);
-        vec![summary, detail]
+        vec![summary, paused, detail]
     };
     let still_style = json!({"display": "flex", "flexDirection": "column", "justifyContent": "center", "flexGrow": 1, "flexShrink": 1, "minWidth": 0});
     let mut open_style = still_style.clone();

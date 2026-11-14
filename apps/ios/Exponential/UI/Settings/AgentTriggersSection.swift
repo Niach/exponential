@@ -193,7 +193,11 @@ struct AgentTriggersSection: View {
     /// tap swallowed). Each row presents its own editor and confirm, so the
     /// presenter is always the row on screen.
     private func triggerRow(_ trigger: AgentTrigger) -> some View {
-        let sentence = AgentSettings.triggerSummary(trigger)
+        // A paused row reads muted, never with the ` · Paused` suffix (×4,
+        // agent-settings.json `page` › `triggers`).
+        let sentence = AgentSettings.triggerSummary(
+            AgentTrigger(id: trigger.id, enabled: true, when: trigger.when, preset: trigger.preset, extra: trigger.extra)
+        )
         let detail = AgentSettings.triggerDetail(trigger)
         return HStack(spacing: 8) {
             Button { editorTarget = EditorTarget(id: trigger.id, trigger: trigger) } label: {
