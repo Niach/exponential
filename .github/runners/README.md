@@ -28,8 +28,70 @@ the labels `self-hosted` + its OS + the device's runner labels. So giving the
 Mint the device label `exp-linux` and the MacBook `exp-mac` keeps
 `pick-runner.yml` working unchanged. Registration tokens come from the GitHub
 App, which needs **Administration: write** on the repository for that. The
-Docker runners below stay until that has run the dogfood; then this file shrinks
-to that paragraph.
+Docker runners below stay: the dogfood (next section) says heavy legs need a
+dedicated runner device first.
+
+A device that serves Actions needs what the Actions jobs assume: the same
+toolchain and passwordless `sudo` (`apt-get install` steps). The one real
+registration on the Mint (2026-11-13, `mint-ci-exponential`, labels
+`self-hosted,linux,exp-linux`) took a `desktop` job of #2798 while mint-1/2
+were down and failed it on `sudo`. Switching the repo off deregistered it as
+designed.
+
+## eCode CI dogfood on the Mint (#EXP-1812, 2026-11-13)
+
+Our own CI (`.exponential/ci.json`, the `ecode …` checks, informational: never
+required) ran on the Mint's CLI daemon (`mint-ci`, 1 slot, label `exp-linux`)
+beside Actions' `gate`, on every PR of Niach/exponential.
+
+**Full gate on a shared desktop: not viable.** The four `web unit` shards took
+17–30 min each (2 min unthrottled, ~4 min on Actions) at load average 66 on 32
+cores, with the runner at SCHED_IDLE, and died on vitest worker timeouts. A
+backlog of 9 runs built up. So `ci.json` keeps the cheap legs only (its
+`$comment` says why), and a new PR head cancels its older pending runs
+(#EXP-1824).
+
+**Cheap legs, 2026-11-13 16:31 → 2026-11-14 01:16 UTC: 28 runs on 18 PRs**
+(#2758, #2811–#2827). Legs: typecheck, contract-ts, merge-train,
+release-scripts, rewrite-gaps; each compared with the Actions job it ports
+(`web / typecheck` and the same names; Actions skips some by paths).
+
+| Outcome | Runs | |
+| --- | --- | --- |
+| Every covered leg agrees with Actions | 20 | including one true red: contract-ts on #2815 at `c5baa617`, red on both |
+| Superseded (a newer head on the same PR) | 4 | runs on #2815, #2816, #2818, #2826; Actions cancelled two of those heads too |
+| `runner_lost` on typecheck (runner bug, see below) | 4 | #2817, #2758, #2820, #2825; Actions' `web / typecheck` green on the three that have a `gate` run |
+| A leg disagreeing with Actions | 0 | |
+
+`gate` itself was red on 5 heads where ours was green, all from legs outside
+the subset: `web unit` (`bcd10ca7`, `e25f2843`, `c02949fd`), `desktop`
+(`c02949fd`) and a cancelled Actions run (`e1c54ba8`).
+
+Timing (queue → last job): ours median 53 s, p90 189 s; Actions' `test` run
+median 398 s, p90 1592 s (mint-2 was offline at times while a game ran).
+26 of 28 runs used CLI 0.14.158 (the mirror lock and the runner token in the
+environment, #EXP-1824); the first two (#2811, #2812) predate it. The
+daemon's idle memory went from ~990 MB to ~73 MB in 0.14.158 (#EXP-1821).
+
+**What the dogfood fixed:**
+
+- Parallel jobs raced `git init` on a fresh mirror: one lock per mirror per process.
+- The Actions runner token was visible in `ps`: it rides `ACTIONS_RUNNER_INPUT_TOKEN`.
+- A GitHub repo's CI is opt-in (`ci_config.enabled`), and nothing is planned without a runner device (#EXP-1820): rows nobody could take showed as pending checks.
+- `runner_lost` under load: the whole daemon ran SCHED_IDLE, so at load 60+ its beats starved and the server failed live jobs after 2 min. Now the runner runs each step at SCHED_IDLE + nice 19 and keeps its own policy.
+  - The unit must stop idling the daemon: no `CPUSchedulingPolicy=idle`, and `CPUWeight=1` instead of `idle`. A cgroup at `idle` starves every thread in it.
+- The desktop repo page's Started column was empty: rows from the sync store spell timestamps the Postgres way (#EXP-1826).
+
+**Recommendation:** run heavy legs (web unit, desktop, android) on a dedicated
+runner device, not on someone's desktop. A desktop runner is fine for the
+cheap legs, at idle priority for the steps only.
+
+**Next step:** our CI is OFF for Niach/exponential again (`ci_config.enabled:
+false`; mint-ci's runner stays on). Re-enable it after the CLI release that
+carries the idle steps AND the unit change above
+(`~/.config/systemd/user/exponential-ci-daemon.service`: drop
+`CPUSchedulingPolicy=idle`, `CPUWeight=1`; then `systemctl --user
+daemon-reload && systemctl --user restart exponential-ci-daemon`).
 
 ## Secret
 
@@ -64,7 +126,7 @@ so the desktop always wins:
 | --- | --- | --- | --- |
 | CI runners | `expci.slice` (root level) | `CPUWeight=idle`, `IOWeight=10`, 12 + 12 cores max | `MemoryHigh=16G`, `MemoryMax=20G`; 12 GB per container, no swap; `oom_score_adj` 1000 |
 | Agent runs + their builds, lane builds, emulators | `user@1000.service/expbg.slice/run-*.scope` (`run-scope-background.conf` moves every `systemd-run --user --scope` there) | `CPUWeight=idle` + nice 10; lanes nice 19, `ionice -c 3` | the slice: `MemoryHigh=16G`, `MemoryMax=20G` |
-| mint-ci daemon (eCode CI) + its jobs | `user@1000.service/expbg.slice/exponential-ci-daemon.service` | idle, nice 19 | `MemoryMax=10G` inside the slice; `OOMScoreAdjust=1000` |
+| mint-ci daemon (eCode CI) + its jobs | `user@1000.service/expbg.slice/exponential-ci-daemon.service` | daemon nice 19 at `CPUWeight=1` (never `idle`: its beats starve into `runner_lost`); its job steps SCHED_IDLE + nice 19 (the runner sets them) | `MemoryMax=10G` inside the slice; `OOMScoreAdjust=1000` |
 | Cinnamon session (desktop app, browser, the Steam client) | `session-<id>.scope` | `CPUWeight=1000` (`session-interactive.conf`) | uncapped |
 | Steam games (Dota 2 = `app-steam-app570-*`) | `user@1000.service/app.slice/app-steam-app*.scope` (Steam makes them; not movable) | `CPUWeight=1000` against app.slice (`app-steam-game.conf`); idle background never wins a core | uncapped |
 | Everything else in user@ (flatpaks, pipewire) | `user@1000.service` | default 100; pipewire's RT threads ignore weights | uncapped |

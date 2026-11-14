@@ -1,0 +1,1 @@
+ALTER TABLE "apps" ADD COLUMN "default_access" varchar(8) DEFAULT 'write' NOT NULL;

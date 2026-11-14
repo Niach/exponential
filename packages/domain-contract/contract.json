@@ -1665,6 +1665,17 @@
         "result": "none"
       },
       {
+        "name": "apps_access",
+        "title": "Set app access",
+        "blurb": "Sets who may use an app: the default for everyone else and per-member levels (owners).",
+        "progressive": "Setting app access",
+        "done": "Set app access",
+        "progressiveMany": "Setting access on {n} apps",
+        "doneMany": "Set access on {n} apps",
+        "subjectKey": "slug",
+        "result": "none"
+      },
+      {
         "name": "apps_catalog",
         "title": "Read app catalog",
         "blurb": "Reads the genUI catalog an app package may use.",
@@ -2204,6 +2215,7 @@
       { "name": "apps_upsert", "refs": "" },
       { "name": "apps_publish", "refs": "" },
       { "name": "apps_delete", "refs": "" },
+      { "name": "apps_access", "refs": "" },
       { "name": "apps_catalog", "refs": "" },
       { "name": "apps_render", "refs": "" },
       { "name": "apps_screenshot", "refs": "attachment@" },

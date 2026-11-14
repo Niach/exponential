@@ -69,6 +69,7 @@ import {
 } from "drizzle-orm"
 import { alias } from "drizzle-orm/pg-core"
 import { db } from "@/db/connection"
+import { resolveTeamUserRef } from "@/lib/team-user-ref"
 import { answeredMessageFiles, forwardMessageFiles } from "@/lib/sessions/forward-attachments"
 import {
   agents,
@@ -257,7 +258,6 @@ import {
   type McpAccess,
 } from "./scope"
 import { messageSessionId } from "@/lib/sessions/messages"
-import { resolveTeamUserRef } from "@/lib/team-user-ref"
 import { RENDER_FORM_FACTORS, renderAppScreen, resolveAppScreen } from "@/lib/apps/render"
 import { takeAppScreenshot } from "@/lib/apps/screenshot"
 
@@ -3416,7 +3416,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_unlink`,
     {
-      description: `Unlink one issue (UUID or identifier) from a PR: it stays only a reference, the PR never moves it; its status stays as is. A later pr_open naming it in issueIds links it again. Name the PR by pullRequestId or repositoryId + prNumber; default = your session's newest open PR.`,
+      description: `Unlink one issue (UUID or identifier) from a PR: it stays only a reference, the PR never moves it; its status stays as is (already: true = it was unlinked before; errors when the PR never linked it). A later pr_open naming it in issueIds links it again. Name the PR by pullRequestId or repositoryId + prNumber; default = your session's newest open PR.`,
       inputSchema: strictInput({
         pullRequestId: prSelector.pullRequestId,
         repositoryId: prSelector.repositoryId,
@@ -4255,7 +4255,12 @@ export function registerExponentialTools(
         const mine = await caller(user, request)
           .appAccess.mine({ appId: app.id })
           .catch(() => ({ level: `write` as const }))
-        return ok({ ...app, url: await teamPageUrl(app.teamId, `apps/${app.slug}`), version: result.version, package: result.package, linkableScreens: linkableScreens(app.slug, result.package), viewer: { id: user.id, access: mine.level } })
+        // #FEED-242: owners also read who may use it (default + member rows).
+        const levels = await caller(user, request)
+          .appAccess.levels({ appId: app.id })
+          .catch(() => null)
+        const accessView = levels ? { access: { default: levels.default, members: levels.levels } } : {}
+        return ok({ ...app, url: await teamPageUrl(app.teamId, `apps/${app.slug}`), version: result.version, package: result.package, linkableScreens: linkableScreens(app.slug, result.package), viewer: { id: user.id, access: mine.level }, ...accessView })
       } catch (e) {
         return err(e)
       }
@@ -4347,6 +4352,38 @@ export function registerExponentialTools(
       try {
         await caller(user, request).apps.delete({ slug, teamId: await appsTeam(teamId) })
         return ok({ ok: true, slug, deleted: true })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // #FEED-242: who may use an app (owners): the default for members
+  // without a row ("Everyone else") and per-member levels.
+  server.registerTool(
+    `exponential_apps_access`,
+    {
+      description: `Set who may use an app (team owners): default = the level of members without their own (none hides the app, read = no writes; the creator and owners stay write), members = {<user id, member id or email>: none|read|write}. Answers the app's default and every member not at write.`,
+      inputSchema: strictInput({
+        slug: appSlug,
+        teamId: uuidString.optional(),
+        default: z.enum([`none`, `read`, `write`]).optional(),
+        members: z.record(z.string().min(1).max(320), z.enum([`none`, `read`, `write`])).optional(),
+      }),
+    },
+    async ({ slug, teamId, default: level, members }) => {
+      try {
+        const team = await appsTeam(teamId)
+        const app = (await caller(user, request).apps.get({ slug, teamId: team })).app
+        // Owners only: levels refuses anyone else before anything is written.
+        await caller(user, request).appAccess.levels({ appId: app.id })
+        const userIds = await Promise.all(Object.keys(members ?? {}).map((ref) => resolveTeamUserRef(team, ref)))
+        if (level) await caller(user, request).appAccess.setDefault({ appId: app.id, level })
+        for (const [i, ref] of Object.keys(members ?? {}).entries()) {
+          await caller(user, request).appAccess.set({ appId: app.id, userId: userIds[i]!, level: members![ref]! })
+        }
+        const after = await caller(user, request).appAccess.levels({ appId: app.id })
+        return ok({ ok: true, slug, access: { default: after.default, members: after.levels } })
       } catch (e) {
         return err(e)
       }

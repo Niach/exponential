@@ -59,21 +59,22 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
 const PREVIOUS_284: ChangelogEntry = ChangelogEntry {
-    id: "2026-11-14-widget-reporter-emails",
+    id: "2026-11-14-app-default-access",
     date: "2026-11-14",
-    title: "Choose which emails widget reporters get",
-    summary: "Each widget can now turn off the confirmation and the resolved email its reporters get.",
-    body: r##"- **Reporter emails**: a widget's General tab has two switches, one for the confirmation on submit and one for the email when the issue is closed; Reply to reporter still always sends."##,
+    title: "Choose who can use each app",
+    summary: "Owners can now set an app's access for everyone else, so an app can be limited to the members you pick.",
+    body: r##"- **Everyone else**: in Settings › MCP › Access each app has an Everyone else row. Set it to None and only the members you give access, the app's creator and owners see the app; Read only lets them look without changing anything.
+- **Agents can set it too**: owners' agents set the default and per-member access with the apps tool."##,
 };
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
 const PREVIOUS_283: ChangelogEntry = ChangelogEntry {
-    id: "2026-11-13-apps-touched-issues",
-    date: "2026-11-13",
-    title: "Apps can list the issues you touched",
-    summary: "App bindings to exp:issues can now list the issues a member worked on in a time window, newest touch first.",
-    body: r##"- **Touched issues**: `exp:issues?touched=me&since=…&until=…` lists the issues you changed, commented on or ran a session for in that window, with when and how you touched each one; a bare date covers that whole day in the team time zone."##,
+    id: "2026-11-14-widget-reporter-emails",
+    date: "2026-11-14",
+    title: "Choose which emails widget reporters get",
+    summary: "Each widget can now turn off the confirmation and the resolved email its reporters get.",
+    body: r##"- **Reporter emails**: a widget's General tab has two switches, one for the confirmation on submit and one for the email when the issue is closed; Reply to reporter still always sends."##,
 };
 
 /// An earlier head entry, kept so the mirror's history reads in place.

@@ -84,6 +84,8 @@ export const PREVIEW_KINDS: Record<string, EntityRefKind[]> = {
   // #FEED-244: the picture is an attachment.
   exponential_apps_screenshot: [`attachment`],
   exponential_apps_delete: [],
+  // #FEED-242
+  exponential_apps_access: [],
   // eApps V1 (#VAPP-210)
   exponential_apps_publish: [],
   // VAPP-122

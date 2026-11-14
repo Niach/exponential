@@ -50,7 +50,8 @@ import {
 } from "@exp/emcp/exposes"
 import { UPSTREAM_DEVICE, UPSTREAM_ERRORS } from "@exp/emcp/upstream"
 import { db } from "@/db/connection"
-import { appAccess, apps, mcpGrants, teamMembers, teams } from "@/db/schema"
+import { apps, mcpGrants, teamMembers, teams } from "@/db/schema"
+import { teamAppLevels } from "@/lib/apps/app-access-level"
 import type { EmcpCaller, ServeOptions, ToolProvider } from "@/lib/emcp/gate"
 import { resolveMcpToolGates } from "@/lib/emcp/gates"
 import { jsonResponse } from "@/lib/emcp/helpers"
@@ -158,14 +159,11 @@ function actionListable(app: BrokerApp, action: string): boolean {
   return actionGrantable(action) && app.grantedTools.some((granted) => canonicalAction(granted) === canonicalAction(action))
 }
 
-/** The member's policy rows in a team (Settings › MCP Access, #VAPP-183):
- * app id → level; an app without a row is Full (`memberPolicy`). */
+/** The member's policy per app of a team (Settings › MCP Access, #VAPP-183):
+ * app id → level (#FEED-242: the row, else creator/owner Full, else the
+ * app's default; `memberPolicy`). */
 export async function memberPolicies(userId: string, teamId: string): Promise<Map<string, Level>> {
-  const rows = await db
-    .select({ appId: appAccess.appId, level: appAccess.level })
-    .from(appAccess)
-    .where(and(eq(appAccess.teamId, teamId), eq(appAccess.userId, userId)))
-  return new Map(rows.map((r) => [r.appId, r.level as Level]))
+  return teamAppLevels(db, userId, teamId)
 }
 
 /** The tools a grant shows, in listing order (apps by slug), filtered by

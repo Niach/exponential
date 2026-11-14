@@ -207,7 +207,8 @@ fn run(ctx: &Arc<Ctx>, command_id: &str, job_id: &str) -> (bool, String) {
             return (true, "No repository credentials.".to_string());
         }
     };
-    let sandbox = ProcessSandbox::new(ctx.data_dir.join("ci"));
+    // The job yields the CPU; the runner keeps beating (see with_idle_steps).
+    let sandbox = ProcessSandbox::new(ctx.data_dir.join("ci")).with_idle_steps(true);
     let outcome = ecode::run_job(&sandbox, &remote, &secrets, &job, &mut sink);
     sink.flush();
     let steps = serde_json::to_value(&outcome.steps).unwrap_or(serde_json::Value::Null);
