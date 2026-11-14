@@ -183,7 +183,14 @@ fn clip_row(ink: &Ink, chrome: &Chrome) -> Value {
         let column = json!({"id": format!("{id}_text"), "component": "Box", "style": {"display": "flex", "flexDirection": "column", "flexShrink": 0}, "children": [ink.text(&format!("{id}_label"), json!(copy.clip), SM, &ink.foreground)]});
         // The row's usual value colour, Built-in included (the spec tweak, as on iOS).
         let plain = faded(ink.text(&format!("{id}_value"), path("/pane/voice/clip/label"), SM, &ink.value), VALUE_ALPHA);
-        let control = json!({"id": format!("{id}_control"), "component": "Box", "style": {"display": "flex", "flexDirection": "row", "justifyContent": "flex-end", "flexGrow": 1, "minWidth": 0}, "children": [plain]});
+        // An editor's row opens the file pick: the picker rows' chevron (web,
+        // iOS and Android draw it too), then the Remove glyph beside it.
+        let mut value = vec![plain];
+        if pressable {
+            let glyph = ink.r(1.);
+            value.push(json!({"id": format!("{id}_chevron"), "component": "Icon", "props": {"name": "ui-chevron-right"}, "style": {"width": glyph, "height": glyph, "color": ink.value, "opacity": VALUE_ALPHA, "flexShrink": 0}}));
+        }
+        let control = json!({"id": format!("{id}_control"), "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "flex-end", "gap": ink.r(0.25), "flexGrow": 1, "minWidth": 0}, "children": value});
         let mut node = json!({"id": id, "component": "Box", "visible": path(if pressable { "/pane/voice/clip/pick" } else { "/pane/voice/clip/read" }),
             "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": ink.r(0.75), "flexGrow": 1, "minWidth": 0, "paddingVertical": ink.r(0.75)},
             "children": [column, control]});
