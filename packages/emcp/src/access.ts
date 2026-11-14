@@ -52,10 +52,21 @@ export function grantErrors(grant: Grant): string[] {
   return errors
 }
 
-/** The member's policy for an app (the Settings › MCP Access table); no
- *  row = `write`. */
-export function memberPolicy(row: Level | null | undefined): Level {
-  return row ?? `write`
+/** #FEED-242: what decides a member's level without a row: the app's
+ *  default (`apps.default_access`) and whether the member is exempt from
+ *  it (the app's creator or a team owner). */
+export interface PolicyContext {
+  default?: Level | null
+  exempt?: boolean
+}
+
+/** The member's policy for an app (the Settings › MCP Access table): the
+ *  row, else `write` for an exempt member, else the app's default (no
+ *  context = `write`). */
+export function memberPolicy(row: Level | null | undefined, context: PolicyContext = {}): Level {
+  if (row) return row
+  if (context.exempt) return `write`
+  return context.default ?? `write`
 }
 
 export interface AccessInput {

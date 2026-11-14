@@ -57,6 +57,7 @@ export type { CalendarDay, DateBucket } from "./dates"
 export { expandMacros, isResponsiveValue, responsiveAt, propsAt, BREAKPOINTS } from "./macros"
 // Round 1: bind-time evaluation, built-in strings, locale, the CodeBlock tokenizer.
 export { resolveDynamic, isVisible, runAction, withOwnWrites, submitClosesOverlay, bindTree, readPointer, writePointer, writeTokens, POINTER_ISSUES, absolutePath, readPath, hasItem, isDataSchema, resolveProp, resolveNodeProps, hasRowSlots, rowScope, bindRowSlot, sectionScope, bindSectionHeader, BIND_FUNCTIONS, BIND_FUNCTION_NAMES, EFFECT_FUNCTIONS, USER_ACTIVATION_FUNCTIONS, RENDERER_ONLY_FUNCTIONS, VALIDATOR_FUNCTIONS, FunctionFailure, catalogFunctionNames, checkResult, evaluateCall, evaluateCheck, fieldChecks, isHostFunctionName, resolveWithFailure, shownResult } from "./dynamic"
+export { describeSurface, type DescribeOptions, type SurfaceDescription } from "./describe"
 export { allowedCallers, checkArgs, declaredFunction, INDEX_FUNCTION, requiresUserActivation } from "./functions"
 export type { AllowedCallers } from "./functions"
 export { A2UI_VERSION_09, ENVELOPE_KEYS, SURFACE_COMPONENT, checkCall, checkDynamicValue, checkEntry, checkEnvelope, checkMetadata, entryRefusal } from "./entry"

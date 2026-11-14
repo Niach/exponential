@@ -33,7 +33,9 @@ exec "$here/lane.sh" ios "$owner" -- sh -c '
   engine="$repo/apps/desktop/crates/eengine-ffi/out/ExponentialEngineFFI.xcframework"
   eui="$repo/packages/exponential-ui-swift/Binaries/ExponentialUIFFI.xcframework"
   # RUNNER_REBUILD_FFI=1 rebuilds them anyway (after an Engine or genUI change).
-  has() { for d in $1/$slice; do [ -d "$d" ] && return 0; done; return 1; }
+  # #PERF-11: the Exponential app's link stubs (exponential-mobile-ffi/build-ios.sh,
+  # marked LINK_STUB) carry no code: the runner rebuilds the real ones.
+  has() { [ -e "$1/LINK_STUB" ] && return 1; for d in $1/$slice; do [ -d "$d" ] && return 0; done; return 1; }
   if [ "${RUNNER_REBUILD_FFI:-}" = 1 ] || ! has "$engine"; then EENGINE_APPLE_TARGETS="$targets" bash "$repo/apps/desktop/crates/eengine-ffi/build-ios.sh"; fi
   if [ "${RUNNER_REBUILD_FFI:-}" = 1 ] || ! has "$eui"; then EXPONENTIAL_UI_APPLE_TARGETS="$targets" bash "$repo/apps/desktop/crates/exponential-ui-ffi/build-ios.sh"; fi
   bash "$repo/apps/runner/ios/make-project.sh" "$@"

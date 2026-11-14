@@ -29,13 +29,93 @@ export const CHANGELOG: ChangelogEntry[] = [
     date: `2026-11-14`,
     title: `One menu for every chat`,
     summary: `Chats, agents and apps share one \`…\` menu with settings opening beside the chat, a collapse button instead of Back, your own picture on your messages, and long messages fold.`,
-    body: `- **One \`…\` menu**: a chat, an agent, the Assistant and an app now share the same menu: Compact conversation, New conversation, the agent or app settings, then Export and Delete. The settings gear in the header is gone.
+    body: `- **One \`…\` menu**: a chat, an agent, the Assistant and an app now share the same menu: Link or file an issue (chats and agents), Compact conversation, New conversation, the agent or app settings, then Export and Delete. The settings gear in the header and the + over the Issues tab are gone.
+- **Empty tabs**: Issues, Sessions and Results stay greyed out until there is something in them.
 - **Settings beside the chat**: Agent settings and App settings open next to the conversation on wide screens and as their own page on phones, never on the Settings screen. Right-clicking an agent in the sidebar offers the same menu.
 - **Collapse**: on wide screens the pane next to the chat starts with a collapse button that brings the chat back to full width; pressing a tab, even the one already selected, closes whatever was open over it.
 - **Apps**: the editor's tabs are Preview, Data and Versions, with the chat always on the left; Export and Delete app moved from the app's settings into the \`…\` menu, and leaving the editor no longer stops its session.
 - **Sidebar**: an app's agent is listed under Apps only, in the sidebar and in Settings › Agents.
 - **Your messages**: your own messages carry your picture on the right and may use the full width of the conversation.
 - **Long messages**: every message longer than six lines, including reports from other sessions, folds behind Show more, and long links or codes wrap instead of stretching the bubble.`,
+  },
+  {
+    id: `2026-11-14-phones-widgets-release`,
+    date: `2026-11-14`,
+    title: `Widgets and agent shortcuts on your phone`,
+    summary: `Android 0.14.138 and iOS 0.14.128 bring the home screen widgets, agent chat shortcuts that open their chat from a cold start, and Everyone else access for apps.`,
+    body: `- **Home screen widgets**: Board, My issues and Needs you; a tap opens the issue or chat.
+- **Agent chat shortcuts**: long-press the app icon for your Assistant; a pinned shortcut opens that chat whether the app was closed or open.
+- **App access**: owners set an app's Everyone else access in Settings › MCP › Access on phones too.`,
+  },
+  {
+    id: `2026-11-14-phone-widgets-agent-shortcuts`,
+    date: `2026-11-14`,
+    title: `Home screen widgets and agent chat shortcuts`,
+    summary: `Phones get Board, My issues and Needs you widgets, and a shortcut to an agent's chat now opens that chat.`,
+    body: `- **Agent chat shortcuts**: long-press the app icon for your Assistant next to New issue and New chat; a shortcut you pinned to the home screen now opens that chat instead of wherever the app was, and Back returns to the Agent tab.
+- **Home screen widgets**: add a board's open issues, your issues in the teams you pick, or the plans and questions waiting on you; a tap opens the issue or chat.
+- **Siri and Shortcuts**: on iOS, ask to open an agent's chat in Exponential.`,
+  },
+  {
+    id: `2026-11-14-app-agents-render`,
+    date: `2026-11-14`,
+    title: `App agents can check their screens`,
+    summary: `An agent building an app can render or screenshot each screen as a member sees it, read the catalog in parts, and name members by user id, member id or email.`,
+    body: `- **Render before publish**: an app's agent reads any screen as text, bound to real data as you or another member would see it, with the problems it finds (empty lists, failed expressions).
+- **Screenshots**: on a Linux or Apple silicon device, the agent can also take a picture of a screen to check it and show you.
+- **Smaller catalog reads**: agents fetch only the parts of the app catalog they need.
+- **Members by any id**: writing a record for a member takes their user id, member id or email.`,
+  },
+  {
+    id: `2026-11-14-desktop-sessions-start-at-once`,
+    date: `2026-11-14`,
+    title: `Queued sessions start at once on the desktop`,
+    summary: `Desktop and CLI 0.14.159: a newly queued session starts right away even after a long sync backlog, typing ü through an X input method no longer crashes the app, a session nobody picked up now tells its parent, and CI runs no longer lose their runner.`,
+    body: `- **Sessions start at once**: the desktop app folds a long backlog of sync changes in one step, so a session you queue starts right away instead of after the backlog.
+- **No crash on ü**: typing an umlaut through an X input method on Linux no longer crashes the desktop app, and crash reports still arrive when the reporting tunnel refuses a connection.
+- **Not picked up**: when a device never starts a session's first turn, the session reads Not picked up and its parent hears about it.
+- **Recently touched issues**: app lists can show the issues you (or a teammate) touched within a time range.
+- **CI runs keep their runner**: the CLI runs CI job steps at idle priority while the daemon keeps normal priority, so long builds no longer end as runner lost, and the desktop Runs table shows when each run started.`,
+  },
+  {
+    id: `2026-11-14-app-default-access`,
+    date: `2026-11-14`,
+    title: `Choose who can use each app`,
+    summary: `Owners can now set an app's access for everyone else, so an app can be limited to the members you pick.`,
+    body: `- **Everyone else**: in Settings › MCP › Access each app has an Everyone else row. Set it to None and only the members you give access, the app's creator and owners see the app; Read only lets them look without changing anything.
+- **Agents can set it too**: owners' agents set the default and per-member access with the apps tool.`,
+  },
+  {
+    id: `2026-11-14-widget-reporter-emails`,
+    date: `2026-11-14`,
+    title: `Choose which emails widget reporters get`,
+    summary: `Each widget can now turn off the confirmation and the resolved email its reporters get.`,
+    body: `- **Reporter emails**: a widget's General tab has two switches, one for the confirmation on submit and one for the email when the issue is closed; Reply to reporter still always sends.`,
+  },
+  {
+    id: `2026-11-13-apps-touched-issues`,
+    date: `2026-11-13`,
+    title: `Apps can list the issues you touched`,
+    summary: `App bindings to exp:issues can now list the issues a member worked on in a time window, newest touch first.`,
+    body: `- **Touched issues**: \`exp:issues?touched=me&since=…&until=…\` lists the issues you changed, commented on or ran a session for in that window, with when and how you touched each one; a bare date covers that whole day in the team time zone.`,
+  },
+  {
+    id: `2026-11-13-phones-one-native-library`,
+    date: `2026-11-13`,
+    title: `Smaller phone apps`,
+    summary: `Android 0.14.137 and iOS 0.14.127 ship one native library instead of three, so both apps download and install smaller.`,
+    body: `- **Smaller phone apps**: the Android and iOS apps now carry a single native library, about 3.5 MB less on Android and 2.9 MB less on iOS.`,
+  },
+  {
+    id: `2026-11-13-desktop-notifications-ticks`,
+    date: `2026-11-13`,
+    title: `Desktop notifications, delivery ticks and a lighter daemon`,
+    summary: `Desktop and CLI 0.14.158: notifications in the desktop app follow the new rules, sent messages show delivery ticks, the window drags by its tab band again, and the CLI daemon uses far less memory.`,
+    body: `- **Desktop notifications**: while the app has focus you get a short in-app notice instead of a system notification; reading something clears its notification, and each source can be switched off.
+- **Delivery ticks**: a message you send is your own bubble right away, with ticks for received by the device and processed by the agent; a failed send offers Retry, and an unprocessed one can be cancelled.
+- **The window drags again**: the desktop app's top tab band moves the window again, and its +N menu opens below the band.
+- **CI runner fixes**: a new push supersedes a repository's pending runs, and the runner keeps its token out of the process list.
+- **A lighter daemon**: the CLI daemon idles at a fraction of its old memory, and \`exponential devices\` lists your devices as clean rows.`,
   },
   {
     id: `2026-11-13-android-8-notifications-fix`,

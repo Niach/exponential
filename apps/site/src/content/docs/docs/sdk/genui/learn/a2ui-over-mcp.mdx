@@ -1,0 +1,23 @@
+---
+title: How does an agent send UI through MCP?
+description: An MCP tool returns A2UI messages as a resource, the client paints them with genUI, and the user's actions come back to the agent as tool calls.
+---
+
+An MCP tool result can carry an interface. The agent's answer is a resource with the mime type `application/json+a2ui` that holds A2UI messages as JSONL. A genUI client unpacks it into a surface and paints it natively. When the user acts on the surface, the action goes back to the server as a `tools/call` of `a2ui_event`.
+
+## How does the model learn the components?
+
+From the catalog prompt. `catalogPrompt()` from `@exponential_app/eui` writes one sentence for every component, prop and enum, plus the style whitelist and the token names. The prompt is sectioned: a server can send the rules and the component index first, and send a single component's block (`componentPrompt(name)`) when the model asks for it. [Connect an agent](/docs/sdk/genui/guides/agents/) lists the size of each variant.
+
+## What if the model sends something invalid?
+
+Treat the model's JSON as untrusted. `reduceSurface(components, { catalogId })` always returns two things: the tree and a list of issues, such as an unknown component, a bad prop or a missing child. Send the issues back as a tool error and the model retries. For structured outputs, `coreSchema()` provides the whole catalog as JSON Schema. On the client, a component the renderer does not know shows up as a visible placeholder and a reported issue, not a crash.
+
+## What does the client need?
+
+A host with `McpTransport`. It unpacks the A2UI resources into surfaces and sends actions back as tool calls. Every renderer in the [render guides](/docs/sdk/genui/guides/) can show what the agent draws, on web, iOS, Android and desktop.
+
+## Next
+
+- [Connect an agent](/docs/sdk/genui/guides/agents/): the MCP server from the guides, compiled in CI
+- [What is A2UI?](/docs/sdk/genui/learn/what-is-a2ui/)

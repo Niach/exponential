@@ -489,6 +489,8 @@ export const BUS_COPY = {
     return `Hit a usage limit${window}${resets}. It stays blocked until its login rotates or the limit resets; nothing to do unless it should move or end.`
   },
   session_unclaimed: `Not picked up by its device for ${minutes.unclaimedMinutes} minutes (still queued). The device may be offline; a person sees it under Needs you.`,
+  // #FEED-235: a claimed session whose ONLINE device ran no turn on its input.
+  session_undelivered: `Not picked up by its device for ${minutes.undeliveredMinutes} minutes (no turn started on its input). The device may need a restart; a person sees it under Needs you.`,
   // EXP-1374 (FEED-141): how long, and a check, never "stop it": a silent
   // gate or spec run is the normal case and killing one costs real work.
   session_stuck: (silent: number) =>

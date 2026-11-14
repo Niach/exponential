@@ -1,6 +1,7 @@
 package com.exponential.app
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -30,6 +31,7 @@ import com.exponential.app.data.share.ShareIntentParser
 import com.exponential.app.data.share.ShareIntentPlan
 import com.exponential.app.domain.AppShortcuts
 import com.exponential.app.domain.WebLinks
+import com.exponential.app.domain.WidgetLinks
 import com.exponential.app.domain.AppLink
 import com.exponential.app.domain.classifyAppLink
 import com.exponential.app.navigation.AppNavHost
@@ -135,7 +137,8 @@ class MainActivity : ComponentActivity() {
             return
         }
         // #EXP-1638 (app-shortcuts.json): an app icon long-press shortcut,
-        // static (res/xml/shortcuts.xml) or a recent chat (DirectShareShortcuts).
+        // static (res/xml/shortcuts.xml) or a chat entry (DirectShareShortcuts);
+        // #EXP-1830: a sharing shortcut's LAUNCHER intent (a pinned one) too.
         // #EXP-1640 (app-intents.json): an App Action (res/xml/shortcuts.xml
         // capabilities); the runner answers with a toast, then opens the result.
         when (intent.action) {
@@ -185,6 +188,12 @@ class MainActivity : ComponentActivity() {
             return
         }
         if (data.scheme != "exponential") return
+        // #EXP-1830: a home widget's header or row (an explicit intent, so no
+        // manifest filter): THE back stack rule, unlike a push's link.
+        if (intent.getBooleanExtra(EXTRA_FROM_WIDGET, false)) {
+            handleWidgetLink(data)
+            return
+        }
         // A push-built link carries its recipient (REV2-81); switch to that
         // account before publishing so the id resolves against the right
         // local database. Absent on every other producer of these links.
@@ -283,6 +292,18 @@ class MainActivity : ComponentActivity() {
         if (authRepository.token.value == null) return
         val target = AppShortcuts.parseAppShortcut(id) ?: return
         deepLinkBus.openAppShortcut(target)
+    }
+
+    // #EXP-1830: the widgets follow the ACTIVE account, like the app
+    // shortcuts. Signed out, `home` or a link this build does not know: the
+    // app on its normal start screen.
+    private fun handleWidgetLink(data: android.net.Uri) {
+        if (authRepository.token.value == null) return
+        val target = WidgetLinks.parse(data.host, data.pathSegments.orEmpty()) { name ->
+            runCatching { data.getQueryParameter(name) }.getOrNull()
+        } ?: return
+        if (target == WidgetLinks.Target.Home) return
+        deepLinkBus.openWidget(target)
     }
 
     /**
@@ -412,5 +433,16 @@ class MainActivity : ComponentActivity() {
     companion object {
         /** #EXP-1638: the app shortcut id a long-press shortcut's intent carries. */
         const val EXTRA_APP_SHORTCUT = "com.exponential.app.extra.APP_SHORTCUT"
+
+        /** #EXP-1830: set by a home widget's launch; its link obeys THE back stack rule. */
+        const val EXTRA_FROM_WIDGET = "com.exponential.app.extra.FROM_WIDGET"
+
+        /** #EXP-1830: the explicit intent a home widget opens [url] (`WidgetLinks`) with. */
+        fun widgetIntent(context: Context, url: String): Intent =
+            Intent(context, MainActivity::class.java)
+                .setAction(Intent.ACTION_VIEW)
+                .setData(android.net.Uri.parse(url))
+                .putExtra(EXTRA_FROM_WIDGET, true)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
 }

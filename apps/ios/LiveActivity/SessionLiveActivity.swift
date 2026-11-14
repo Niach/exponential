@@ -13,6 +13,10 @@ import WidgetKit
 struct SessionLiveActivityBundle: WidgetBundle {
     var body: some Widget {
         SessionLiveActivity()
+        // #EXP-1830 (home-widgets.json): the home screen widgets.
+        BoardHomeWidget()
+        MyIssuesHomeWidget()
+        NeedsYouHomeWidget()
     }
 }
 

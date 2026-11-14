@@ -292,9 +292,10 @@
     "reuseMaxChildren": 8
   },
   "sessionWatchdog": {
-    "$comment": "NEW-1: the server watchdog (every minute). A queued session nobody claimed for unclaimedMinutes = blocked:unclaimed + Needs you; a live session with pending input older than nudgeMinutes = the device is nudged again; EXP-1374: a busy session with NO SIGN OF LIFE for stuckMinutes = blocked:stuck (the bus says 'no sign of life for N minutes, check whether it is still needed', never 'stop it'). Sign of life = the latest of a device report, a message, the heartbeat's per-session activity (a tool call, terminal output), an MCP call by the session, a push to its branch; a session with background tasks (`background`) or that its online host lists in liveSessionIds is alive (FEED-145). A host device silent past device.onlineWindowSeconds = its live sessions idle + blocked:device_offline (resume = it was busy) until its next heartbeat: a listed one is busy again, an unlisted mid-turn one keeps the flag until its device continues it (pickup `Continue`); a listed-dead busy one = blocked:restarted, resume. An interruption its device has not continued resumeMinutes after the device is back = Needs you; #EXP-1675: one whose device is still away offlineMinutes after the flag = Needs you too, said once. A rate_limit wall whose resetsAt passed = cleared (FEED-129). FEED-153: the device reclaims an unstarted claim / retries a fast-failing first turn; the server never redelivers.",
+    "$comment": "NEW-1: the server watchdog (every minute). A queued session nobody claimed for unclaimedMinutes = blocked:unclaimed + Needs you; a live session with pending input older than nudgeMinutes = the device is nudged again; EXP-1374: a busy session with NO SIGN OF LIFE for stuckMinutes = blocked:stuck (the bus says 'no sign of life for N minutes, check whether it is still needed', never 'stop it'). Sign of life = the latest of a device report, a message, the heartbeat's per-session activity (a tool call, terminal output), an MCP call by the session, a push to its branch; a session with background tasks (`background`) or that its online host lists in liveSessionIds is alive (FEED-145). A host device silent past device.onlineWindowSeconds = its live sessions idle + blocked:device_offline (resume = it was busy) until its next heartbeat: a listed one is busy again, an unlisted mid-turn one keeps the flag until its device continues it (pickup `Continue`); a listed-dead busy one = blocked:restarted, resume. An interruption its device has not continued resumeMinutes after the device is back = Needs you; #EXP-1675: one whose device is still away offlineMinutes after the flag = Needs you too, said once. A rate_limit wall whose resetsAt passed = cleared (FEED-129). FEED-153: the device reclaims an unstarted claim / retries a fast-failing first turn; the server never redelivers. #FEED-235: input no turn ran for undeliveredMinutes (pending on a session not busy, or a first Request the claim delivered with no turn closed since) = blocked:unclaimed ('Not picked up') + Needs you, said once; a consume, a busy report or a claim clears it.",
     "unclaimedMinutes": 5,
     "nudgeMinutes": 2,
+    "undeliveredMinutes": 10,
     "resumeMinutes": 5,
     "offlineMinutes": 30,
     "stuckMinutes": 30
@@ -1664,6 +1665,17 @@
         "result": "none"
       },
       {
+        "name": "apps_access",
+        "title": "Set app access",
+        "blurb": "Sets who may use an app: the default for everyone else and per-member levels (owners).",
+        "progressive": "Setting app access",
+        "done": "Set app access",
+        "progressiveMany": "Setting access on {n} apps",
+        "doneMany": "Set access on {n} apps",
+        "subjectKey": "slug",
+        "result": "none"
+      },
+      {
         "name": "apps_catalog",
         "title": "Read app catalog",
         "blurb": "Reads the genUI catalog an app package may use.",
@@ -1672,6 +1684,28 @@
         "progressiveMany": "Reading app catalog {n} times",
         "doneMany": "Read app catalog {n} times",
         "subjectKey": "",
+        "result": "none"
+      },
+      {
+        "name": "apps_render",
+        "title": "Render app screen",
+        "blurb": "Renders one app screen as a viewer sees it, as a text outline with its problems.",
+        "progressive": "Rendering app screen",
+        "done": "Rendered app screen",
+        "progressiveMany": "Rendering {n} app screens",
+        "doneMany": "Rendered {n} app screens",
+        "subjectKey": "slug",
+        "result": "none"
+      },
+      {
+        "name": "apps_screenshot",
+        "title": "Screenshot app screen",
+        "blurb": "Paints one app screen on the session's device and returns the picture as an attachment.",
+        "progressive": "Taking app screenshot",
+        "done": "Took app screenshot",
+        "progressiveMany": "Taking {n} app screenshots",
+        "doneMany": "Took {n} app screenshots",
+        "subjectKey": "slug",
         "result": "none"
       },
       {
@@ -2181,7 +2215,10 @@
       { "name": "apps_upsert", "refs": "" },
       { "name": "apps_publish", "refs": "" },
       { "name": "apps_delete", "refs": "" },
+      { "name": "apps_access", "refs": "" },
       { "name": "apps_catalog", "refs": "" },
+      { "name": "apps_render", "refs": "" },
+      { "name": "apps_screenshot", "refs": "attachment@" },
       { "name": "apps_records_list", "refs": "" },
       { "name": "apps_records_upsert", "refs": "" },
       { "name": "apps_records_delete", "refs": "" },

@@ -45,6 +45,8 @@ vi.mock(`@/lib/collections`, () => {
     sessionCollection: collection(() => []),
     commentCollection: collection(() => []),
     attachmentCollection: collection(() => []),
+    issueEventCollection: collection(() => []),
+    sessionIssueCollection: collection(() => []),
   }
 })
 vi.mock(`@/lib/trpc-client`, () => ({

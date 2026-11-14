@@ -109,21 +109,30 @@ let enetPushSettings: SettingsDictionary = hasEnetPush
 let expPushDependencies: [TargetDependency] = [.target(name: "ExpPush")] + enetPushBinding
 
 // VAPP-40 / EXP-1457: the FULL eNet node (iroh) in ExpCore, so every install
-// runs a node and registers it with the install registry. Same pattern: the
-// generated binding (COMMITTED, bindings/swift, module `ExponentialNetFFI`)
-// compiles into ExpCore and the gitignored `out/ExponentialNetFFI.xcframework`
-// (`bash apps/desktop/crates/exponential-net-ffi/build-ios.sh`) links into it
-// only when built (`ENET_NODE`); without it eNet stays off. Its C module and
-// library are named apart from the push build's, so ExpCore (a dynamic
-// framework: the node's library lives in it) and the extension never collide.
-let hasEnetNode = FileManager.default.fileExists(atPath: "\(enetFfiDir)/out/ExponentialNetFFI.xcframework")
+// runs a node and registers it with the install registry. The generated
+// binding (COMMITTED, bindings/swift, module `ExponentialNetFFI`) compiles
+// into ExpCore, and only when its library is built (`ENET_NODE`); without it
+// eNet stays off. Its C module and library are named apart from the push
+// build's, so ExpCore and the extension never collide.
+// #PERF-11: that library is the app's ONE Rust library: genUI's, the Engine's
+// and eNet's facades in `ExponentialMobileFFI.xcframework` (gitignored; `bash
+// apps/desktop/crates/exponential-mobile-ffi/build-ios.sh`), linked into
+// ExpCore (a dynamic framework) alone: one Rust std, one copy of what the three
+// share. The same script writes header-only link stubs where the SDK packages
+// `ExponentialUI` / `ExponentialEngine` look for their own xcframework, so
+// their bindings resolve against ExpCore instead of linking a second copy.
+let mobileFfiPath = "../desktop/crates/exponential-mobile-ffi/out/ExponentialMobileFFI.xcframework"
+let hasEnetNode = FileManager.default.fileExists(atPath: URL(fileURLWithPath: #filePath)
+    .deletingLastPathComponent()
+    .appendingPathComponent(mobileFfiPath)
+    .standardizedFileURL.path)
 let enetNodeSources: [SourceFileGlob] = hasEnetNode
     ? ["../desktop/crates/exponential-net-ffi/bindings/swift/ExponentialNetFFI.swift"]
     : []
 // iroh's netwatch reads the network paths (Network, SystemConfiguration).
 let enetNodeBinding: [TargetDependency] = hasEnetNode
     ? [
-        .xcframework(path: "../desktop/crates/exponential-net-ffi/out/ExponentialNetFFI.xcframework"),
+        .xcframework(path: "../desktop/crates/exponential-mobile-ffi/out/ExponentialMobileFFI.xcframework"),
         .sdk(name: "Network", type: .framework),
         .sdk(name: "SystemConfiguration", type: .framework),
     ]
@@ -255,8 +264,8 @@ let shareExtensionConditions = "$(inherited) SHARE_EXTENSION" + (hasEnetPush ? "
 
 // Single source of truth for app + extension version; keep these in lockstep so
 // the extension's CFBundleVersion never drifts from the parent app.
-let appMarketingVersion = "0.14.126"
-let appBuildVersion = "329"
+let appMarketingVersion = "0.14.128"
+let appBuildVersion = "331"
 // Staging always runs one build AHEAD of prod (EXP-405): the staging apps have
 // their own store namespaces, so an equal number silently uploads and then
 // masquerades as prod's build in ASC. Derived, so one bump covers all targets.
@@ -299,6 +308,9 @@ let notificationServiceInfoPlist: [String: Plist.Value] = [
 // #EXP-1639 (live-activity.json): the Live Activity widget extension (prod +
 // staging): ExpPush + the curated token files only, no GRDB, no ExpCore. It
 // opens the sealed content-state with the push key in the shared keychain.
+// #EXP-1830 (home-widgets.json): it also hosts the home screen widgets,
+// which read the app's snapshot through ExpCore's Foundation-only
+// `HomeWidgets.swift` + `SharedAppGroup.swift` and draw the registry glyphs.
 let liveActivityInfoPlist: [String: Plist.Value] = [
     "CFBundleShortVersionString": .string(appMarketingVersion),
     "CFBundleVersion": .string(appBuildVersion),
@@ -308,6 +320,9 @@ let liveActivityInfoPlist: [String: Plist.Value] = [
 ]
 let liveActivitySources: SourceFilesList = [
     "LiveActivity/**",
+    "ExpCore/Sources/Domain/HomeWidgets.swift",
+    "ExpCore/Sources/Shared/SharedAppGroup.swift",
+    "ExpUI/Sources/ColorHex.swift",
     "ExpUI/Sources/DesignTokens.generated.swift",
     "ExpUI/Sources/GlassTokens.swift",
     // DesignTokens' motion curves.
@@ -315,6 +330,8 @@ let liveActivitySources: SourceFilesList = [
 ]
 let liveActivityResources: ResourceFileElements = [
     "LiveActivity/Assets.xcassets",
+    // #EXP-1830: the registry glyphs (status, board and nav icons).
+    "Exponential/Assets.xcassets",
     "LiveActivity/PrivacyInfo.xcprivacy",
 ]
 let liveActivityConditions = "$(inherited) LIVE_ACTIVITY_EXTENSION" + (hasEnetPush ? " ENET_PUSH" : "")
@@ -327,8 +344,8 @@ let sharedInfoPlist: [String: Plist.Value] = [
     "NSUserActivityTypes": .array([.string("INSendMessageIntent")]),
     // #EXP-1638 (app-shortcuts.json): the app icon's long-press menu, the
     // three statics in order (type = fixture id, title = fixture copy, icon =
-    // the concept's lucide imageset); the recent chat is set at runtime
-    // (`AppShortcutsPublisher`).
+    // the concept's lucide imageset); #EXP-1830: the chat entries (the
+    // Assistant, pins, recent chats) are set at runtime (`AppShortcutItems`).
     "UIApplicationShortcutItems": .array([
         .dictionary([
             "UIApplicationShortcutItemType": .string("new-issue"),

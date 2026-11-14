@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- #EXP-1830: one widget row: glyph 16 tinted, title sm, trailing xs muted. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/home_widget_row"
+    android:layout_width="match_parent"
+    android:layout_height="@dimen/home_widget_row_height"
+    android:gravity="center_vertical"
+    android:orientation="horizontal">
+
+    <ImageView
+        android:id="@+id/home_widget_row_glyph"
+        android:layout_width="@dimen/home_widget_glyph"
+        android:layout_height="@dimen/home_widget_glyph"
+        android:importantForAccessibility="no" />
+
+    <TextView
+        android:id="@+id/home_widget_row_title"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:layout_weight="1"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:textColor="@color/home_widget_foreground"
+        android:textSize="@dimen/home_widget_text_sm" />
+
+    <TextView
+        android:id="@+id/home_widget_row_trailing"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:fontFeatureSettings="tnum"
+        android:maxLines="1"
+        android:textColor="@color/home_widget_muted_foreground"
+        android:textSize="@dimen/home_widget_text_xs" />
+</LinearLayout>

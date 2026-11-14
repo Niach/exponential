@@ -139,14 +139,14 @@ jobs:
         if: inputs.compile_only && runner.environment == 'self-hosted'
         working-directory: ${{ github.workspace }}
         run: |
-          key="$(git rev-parse HEAD:apps/desktop/crates/exponential-ui-ffi HEAD:apps/desktop/crates/exponential-net-ffi HEAD:apps/desktop/crates/eengine HEAD:apps/desktop/crates/eengine-ffi | git hash-object --stdin)"
+          key="$(git rev-parse HEAD:apps/desktop/crates/exponential-ui-ffi HEAD:apps/desktop/crates/exponential-net-ffi HEAD:apps/desktop/crates/eengine HEAD:apps/desktop/crates/eengine-ffi HEAD:apps/desktop/crates/exponential-mobile-ffi | git hash-object --stdin)"
           store="$HOME/.cache/exp-ios-xcframeworks/$key"
           echo "store=$store" >> "$GITHUB_OUTPUT"
           if [ ! -d "$store" ]; then echo "hit=false" >> "$GITHUB_OUTPUT"; exit 0; fi
           touch "$store"
-          mkdir -p packages/exponential-ui-swift/Binaries apps/desktop/crates/exponential-net-ffi/out/push apps/desktop/crates/eengine-ffi/out
+          mkdir -p packages/exponential-ui-swift/Binaries apps/desktop/crates/exponential-net-ffi/out/push apps/desktop/crates/eengine-ffi/out apps/desktop/crates/exponential-mobile-ffi/out
           cp -R "$store/ExponentialUIFFI.xcframework" packages/exponential-ui-swift/Binaries/
-          cp -R "$store/ExponentialNetFFI.xcframework" apps/desktop/crates/exponential-net-ffi/out/
+          cp -R "$store/ExponentialMobileFFI.xcframework" apps/desktop/crates/exponential-mobile-ffi/out/
           cp -R "$store/ExponentialNetPush.xcframework" apps/desktop/crates/exponential-net-ffi/out/push/
           cp -R "$store/ExponentialEngineFFI.xcframework" apps/desktop/crates/eengine-ffi/out/
           echo "hit=true" >> "$GITHUB_OUTPUT"
@@ -160,23 +160,18 @@ jobs:
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
         if: steps.xcf.outputs.hit != 'true'
-      - name: Build the Exponential UI xcframework
-        if: steps.xcf.outputs.hit != 'true'
-        working-directory: ${{ github.workspace }}
-        # EXP-1364: the device compile + the arm64 simulator suites, nothing else.
-        env:
-          EXPONENTIAL_UI_APPLE_TARGETS: ${{ inputs.compile_only && 'aarch64-apple-ios' || 'aarch64-apple-ios aarch64-apple-ios-sim' }}
-        run: bash apps/desktop/crates/exponential-ui-ffi/build-ios.sh
-      # #VAPP-272: the Engine holds the apps' record outbox (Project.swift
-      # links it only when built).
-      - name: Build the Engine xcframework
+      # #PERF-11: the app's ONE Rust library: genUI's core, the Engine (#VAPP-272:
+      # the apps' record outbox) and the FULL eNet node (VAPP-40 / EXP-1457:
+      # without it EnetInstallNodesTests, two real nodes over loopback, compile
+      # out) in ExponentialMobileFFI.xcframework, linked into ExpCore alone; the
+      # script also writes the header-only link stubs the ExponentialUI and
+      # ExponentialEngine packages build against (Project.swift).
+      - name: Build the app's Rust library
         if: steps.xcf.outputs.hit != 'true'
         working-directory: ${{ github.workspace }}
         env:
-          EENGINE_APPLE_TARGETS: ${{ inputs.compile_only && 'aarch64-apple-ios' || 'aarch64-apple-ios aarch64-apple-ios-sim' }}
-          # No bundled sqlite: the app's is the system's (GRDB).
-          EENGINE_FFI_FEATURES: ""
-        run: bash apps/desktop/crates/eengine-ffi/build-ios.sh
+          MOBILE_APPLE_TARGETS: ${{ inputs.compile_only && 'aarch64-apple-ios' || 'aarch64-apple-ios aarch64-apple-ios-sim' }}
+        run: bash apps/desktop/crates/exponential-mobile-ffi/build-ios.sh
       # EXP-1435: the push-only eNet facade the Notification Service Extension
       # opens sealed pushes with (Project.swift links it only when it exists,
       # like eUI); without it ExpPushTests skip the push-seal fixture. The
@@ -193,16 +188,13 @@ jobs:
           git diff --exit-code -- apps/desktop/crates/exponential-net-ffi/bindings/push/swift \
             || { echo "::error::bindings/push/swift drifted from the Rust facade: regenerate and commit"; exit 1; }
 
-      # VAPP-40 / EXP-1457: the FULL eNet node ExpCore links (Project.swift
-      # links it only when it exists); without it EnetInstallNodesTests (two
-      # real nodes over loopback) compile out. Same drift gate on bindings/swift.
-      - name: Build the full eNet xcframework
+      # VAPP-40 / EXP-1457: the full node's COMMITTED bindings (ExpCore
+      # compiles bindings/swift) regenerate from a host build: drift is a red job.
+      - name: Check the eNet bindings
         if: steps.xcf.outputs.hit != 'true'
         working-directory: ${{ github.workspace }}
-        env:
-          ENET_APPLE_TARGETS: ${{ inputs.compile_only && 'aarch64-apple-ios' || 'aarch64-apple-ios aarch64-apple-ios-sim' }}
         run: |
-          bash apps/desktop/crates/exponential-net-ffi/build-ios.sh
+          bash apps/desktop/crates/exponential-net-ffi/generate-bindings.sh
           git diff --exit-code -- apps/desktop/crates/exponential-net-ffi/bindings/swift \
             || { echo "::error::bindings/swift drifted from the Rust facade: regenerate and commit"; exit 1; }
 
@@ -216,7 +208,7 @@ jobs:
           mkdir -p "$root"
           tmp="$(mktemp -d "$root/.tmp.XXXXXX")"
           cp -R packages/exponential-ui-swift/Binaries/ExponentialUIFFI.xcframework \
-            apps/desktop/crates/exponential-net-ffi/out/ExponentialNetFFI.xcframework \
+            apps/desktop/crates/exponential-mobile-ffi/out/ExponentialMobileFFI.xcframework \
             apps/desktop/crates/exponential-net-ffi/out/push/ExponentialNetPush.xcframework \
             apps/desktop/crates/eengine-ffi/out/ExponentialEngineFFI.xcframework "$tmp/"
           # The other Mac instance may have saved this key meanwhile: then drop ours.

@@ -30,6 +30,11 @@ private const val KEY_PERUSER_DB_CLEANUP = "peruser_db_cleanup_v1"
 
 @HiltAndroidApp
 class ExponentialApp : Application(), SingletonImageLoader.Factory {
+    init {
+        // #PERF-11: before any binding loads (MobileNativeLibrary).
+        MobileNativeLibrary.install()
+    }
+
     @Inject lateinit var syncManager: SyncManager
     @Inject lateinit var composerDrafts: com.exponential.app.data.composer.ComposerDrafts
     @Inject lateinit var appRecordOutbox: com.exponential.app.ui.apps.AppRecordOutbox
@@ -45,6 +50,8 @@ class ExponentialApp : Application(), SingletonImageLoader.Factory {
     @Inject lateinit var accountDeduplicator: AccountDeduplicator
     @Inject lateinit var steerConnectionStore: SteerConnectionStore
     @Inject lateinit var directShareShortcuts: com.exponential.app.data.share.DirectShareShortcuts
+    // #EXP-1830: the home screen widgets' data + drawing.
+    @Inject lateinit var homeWidgetsRefresher: com.exponential.app.widget.HomeWidgetsRefresher
     @Inject lateinit var systemSearchIndexer: com.exponential.app.data.search.SystemSearchIndexer
 
     override fun onCreate() {
@@ -79,6 +86,7 @@ class ExponentialApp : Application(), SingletonImageLoader.Factory {
         }
         // EXP-1635: the system share sheet's rows follow the synced agents + chats.
         directShareShortcuts.start()
+        homeWidgetsRefresher.start()
         // #EXP-1642: issues and chats in the phone's own search (AppSearch).
         systemSearchIndexer.start()
         // VAPP-235: replay the offline outbox at launch and whenever sync comes back.

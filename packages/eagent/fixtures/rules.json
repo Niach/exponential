@@ -12,9 +12,10 @@
     "maxChildren": 8
   },
   "watchdog": {
-    "$comment": "The server watchdog (every minute). backgroundStuckMinutes: a run busy only with background tasks is alive that long without a sign of life, then measured like any busy one. onlineWindowSeconds: a device not seen this long is offline. offlineMinutes (#EXP-1675): a run cut mid-turn whose device stays away this long is on a person, said once.",
+    "$comment": "The server watchdog (every minute). backgroundStuckMinutes: a run busy only with background tasks is alive that long without a sign of life, then measured like any busy one. onlineWindowSeconds: a device not seen this long is offline. offlineMinutes (#EXP-1675): a run cut mid-turn whose device stays away this long is on a person, said once. undeliveredMinutes (#FEED-235): input its device never ran a turn for (pending past the nudges, or a claimed first Request with no turn closed) this long is on a person, said once.",
     "unclaimedMinutes": 5,
     "nudgeMinutes": 2,
+    "undeliveredMinutes": 10,
     "resumeMinutes": 5,
     "offlineMinutes": 30,
     "stuckMinutes": 30,
@@ -46,6 +47,7 @@
       "resets": "resets {resetsAt})"
     },
     "unclaimed": "Not picked up by its device for {minutes} minutes (still queued). The device may be offline; a person sees it under Needs you.",
+    "undelivered": "Not picked up by its device for {minutes} minutes (no turn started on its input). The device may need a restart; a person sees it under Needs you.",
     "stuck": "No sign of life for {minutes} minutes while busy (no message, tool call, push or background task). Check whether it is still needed.",
     "unresumed": "Interrupted {minutes}+ minutes ago and not continued by its device. A person sees it under Needs you; a message continues it.",
     "offline": "Interrupted: its device has been offline for {minutes}+ minutes. A person sees it under Needs you; it continues when the device is back.",

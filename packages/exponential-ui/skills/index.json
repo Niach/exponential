@@ -5,7 +5,7 @@
     {
       "name": "exponential-apps",
       "description": "Build or change an Exponential app (Apps): the package format (formatVersion 5), record kinds and their policies, named queries, CEL expressions and functions, optional values, actions with require, package tests, exposes, draft vs published, with three complete sample apps as worked examples. Use when writing or editing an app package (exponential_apps_write upsert) or its records.",
-      "bytes": 6009,
+      "bytes": 6621,
       "files": [
         "examples/crm.app.json",
         "examples/leave-planner.app.json",

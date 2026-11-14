@@ -43,7 +43,7 @@ fn app(id: &str, name: &str, icon: Option<&str>, color: Option<&str>, tools: u32
     let listed = (0..tools)
         .map(|ix| AccessAppTool { name: format!("{id}_tool_{ix}"), title: format!("{name} tool {}", ix + 1), blurb: "Does one thing for the app.".into() })
         .collect();
-    AccessApp { id: id.into(), slug: id.into(), name: name.into(), icon: icon.map(str::to_string), color: color.map(str::to_string), tool_count: tools, tools: listed }
+    AccessApp { id: id.into(), slug: id.into(), name: name.into(), icon: icon.map(str::to_string), color: color.map(str::to_string), tool_count: tools, tools: listed, default_access: "write".into() }
 }
 
 fn member(id: &str, name: &str, email: &str, levels: &[(&str, &str)]) -> AccessRow {

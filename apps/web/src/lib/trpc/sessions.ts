@@ -874,7 +874,8 @@ export const sessionsRouter = router({
       const { next: nextBlocked, newly: newlyBlocked } = reportBlocked(
         session.blocked,
         blocked,
-        handled ?? false
+        handled ?? false,
+        input.busy
       )
       const model =
         input.model !== undefined &&
@@ -1262,6 +1263,11 @@ export const sessionsRouter = router({
           session,
           consumed.map((row) => row.id)
         )
+        // #FEED-235 (eagent watchdog.json): its device took input in = no
+        // longer undelivered (a started session's `unclaimed` flag).
+        if (session.blocked?.kind === `unclaimed` && session.startedAt && session.status !== `queued`) {
+          await clearBlockedInTx(tx, [session.id], `unclaimed`)
+        }
         return { txid }
       })
     }),

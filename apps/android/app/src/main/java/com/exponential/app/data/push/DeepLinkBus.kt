@@ -50,7 +50,14 @@ class DeepLinkBus @Inject constructor() {
         // #EXP-1638 (app-shortcuts.json): an app icon long-press shortcut;
         // a recent chat opens like a session push tap, a chat that is gone
         // leaves the app on its start screen.
+        // #EXP-1830: an agent chat (`agent:<id>`) opens THE agent's
+        // conversation. Every app shortcut lands with THE back stack rule
+        // (the Agent tab root under it).
         data class AppShortcut(val target: com.exponential.app.domain.AppShortcuts.Target) : Target
+
+        // #EXP-1830: a home widget's header or row (WidgetLinks, an explicit
+        // intent with MainActivity.EXTRA_FROM_WIDGET), THE back stack rule.
+        data class Widget(val target: com.exponential.app.domain.WidgetLinks.Target) : Target
 
         // A web source, or a claimed https link off the instance: a Custom Tab,
         // which never re-triggers App Links.
@@ -114,6 +121,23 @@ class DeepLinkBus @Inject constructor() {
 
     fun openAppShortcut(target: com.exponential.app.domain.AppShortcuts.Target) {
         _target.value = Target.AppShortcut(target)
+    }
+
+    fun openWidget(target: com.exponential.app.domain.WidgetLinks.Target) {
+        _target.value = Target.Widget(target)
+    }
+
+    // #EXP-1830: a My issues widget's header lands on the Board tab's My
+    // issues chip; the board root reads and clears it (iOS pendingMyIssues).
+    private val _pendingMyIssues = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val pendingMyIssues: kotlinx.coroutines.flow.StateFlow<Boolean> = _pendingMyIssues
+
+    fun requestMyIssues() {
+        _pendingMyIssues.value = true
+    }
+
+    fun consumeMyIssues() {
+        _pendingMyIssues.value = false
     }
 
     fun openWebUrl(uri: android.net.Uri) {

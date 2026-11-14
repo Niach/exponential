@@ -119,7 +119,7 @@ jobs:
           echo "ios=$(grep -qE "$ios" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # #EXP-1680: the app and what it links. Not test.yml: an unrelated gate
           # edit must not take a Mac for this.
-          ios_app='^(apps/ios/|packages/exponential-ui-swift/|apps/desktop/crates/(exponential-ui-ffi|exponential-net-ffi|eengine|eengine-ffi)/|\.github/workflows/test-ios\.yml$|\.github/scripts/select-xcode\.sh$)'
+          ios_app='^(apps/ios/|packages/exponential-ui-swift/|apps/desktop/crates/(exponential-ui-ffi|exponential-net-ffi|eengine|eengine-ffi|exponential-mobile-ffi)/|\.github/workflows/test-ios\.yml$|\.github/scripts/select-xcode\.sh$)'
           echo "ios_app=$(grep -qE "$ios_app" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # #VAPP-268: the iOS runner, the Engine's Swift facade + capabilities, what it paints with.
           ios_runner='^(apps/runner/ios/|apps/desktop/crates/(eengine|eengine-ffi|eengine-bundle|exponential-ui-ffi)/|packages/eengine/|packages/exponential-ui-swift/|scripts/lanes/runner-ios\.sh$|scripts/runner-kits/ios\.sh$|\.github/workflows/ios-runner\.yml$)'
@@ -128,7 +128,7 @@ jobs:
           # generator that writes Kotlin into it, the fixtures and vectors its
           # unit tests read, the eNet / eUI facades (committed Kotlin bindings +
           # the host library the tests load through JNA).
-          android='^(apps/android/|packages/(domain-contract|ecode|ecore|etalk|exponential-ui-compose|icons|design-tokens|emoji)/|packages/exponential-ui/fixtures/|packages/ui/exponential-ui/extension\.json$|apps/desktop/crates/(exponential-net-ffi|enet-core|exponential-ui-ffi|eengine|eengine-ffi)/|apps/desktop/Cargo\.lock$|\.github/workflows/test\.yml$)'
+          android='^(apps/android/|packages/(domain-contract|ecode|ecore|etalk|exponential-ui-compose|icons|design-tokens|emoji)/|packages/exponential-ui/fixtures/|packages/ui/exponential-ui/extension\.json$|apps/desktop/crates/(exponential-net-ffi|enet-core|exponential-ui-ffi|eengine|eengine-ffi|exponential-mobile-ffi)/|apps/desktop/Cargo\.lock$|\.github/workflows/test\.yml$)'
           echo "android=$(grep -qE "$android" <<<"$rfiles" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # #VAPP-267: the Android runner, the modules it builds from (eUI
           # Compose, the Engine AAR + its facade and core) and the fixtures its
@@ -314,7 +314,9 @@ jobs:
       # store, its parity replay and the api Transport seam; the CLI's own
       # tests (exp-cli: unit + `tests/data_dir.rs`, EXP_DATA_DIR isolation);
       # #EXP-1616: git-remote-exp (real git against a stand-in server: push,
-      # clone, the forge jobs, and backup → wipe → restore).
+      # clone, the forge jobs, and backup → wipe → restore). #FEED-244: the
+      # app-screen renderer (a real headless render) and the updater (its
+      # device half).
       # #EXP-76: ONE invocation, ONE feature set, so every crate builds once;
       # eagent, coding and ui stay lib-only. None of these crates has a doc test.
       - name: eCore, Engine, coding and UI tests
@@ -326,7 +328,7 @@ jobs:
         run: >-
           cargo nextest run --locked --no-fail-fast
           -p ecore -p ecode-core -p ecode -p eengine -p eengine-ffi -p eengine-desktop -p eengine-runner -p eengine-bundle
-          -p eagent -p coding -p ui -p engine -p elocal -p api -p exp-http -p exp-cli -p git-remote-exp
+          -p eagent -p coding -p ui -p engine -p elocal -p api -p exp-http -p exp-cli -p git-remote-exp -p eui-shot -p updater
           --features eengine/sqlite,eengine/hub,eengine-ffi/hub,eagent/local-model,ecode/github,ecode/exponential,ecode/workflows
           -E 'kind(lib) | not (package(eagent) | package(coding) | package(ui))'
       # #ERR-4: the vendored gpui-pre-linux's own patch tests, never upstream's

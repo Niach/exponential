@@ -81,6 +81,7 @@ import com.exponential.app.domain.ToastAction
 import com.exponential.app.data.push.PushDeepLinks
 import com.exponential.app.domain.InboxRoute
 import com.exponential.app.domain.AppShortcuts
+import com.exponential.app.domain.WidgetLinks
 import com.exponential.app.data.push.WebLinkResolver
 import com.exponential.app.domain.AGENT_ROUTE
 import com.exponential.app.domain.AGENT_ROUTE_ARGS
@@ -230,7 +231,7 @@ fun AppNavHost() {
     // chat root = the chat, else the session view. Same snapshot hazard
     // as the issue route — the screens read their id from SavedStateHandle
     // once. #EXP-1638: a recent-chat app shortcut rides the same open.
-    suspend fun openSession(id: String, card: PushDeepLinks.Card? = null) {
+    suspend fun openSession(id: String, card: PushDeepLinks.Card? = null, onAgentRoot: Boolean = false) {
         // #EXP-1662: a session with a waiting plan of its own = its
         // chat's plan tab, on that plan. waiting-cards.json DEEP LINKS: a
         // push's card (its `messageId`), else the session's waiting
@@ -246,7 +247,8 @@ fun AppNavHost() {
         val teamSwitch = viewModel.planTeamSwitch(null, webLinkResolver.teamOfSession(id))
         guarded {
             teamSwitch?.let(viewModel::applyTeamSwitch)
-            navController.navigateDeepLink(route)
+            // #EXP-1830: a shortcut or widget lands by THE back stack rule.
+            if (onAgentRoot) navController.launchOnAgentRoot(route, tabSwitch) else navController.navigateDeepLink(route)
         }
     }
 
@@ -284,23 +286,75 @@ fun AppNavHost() {
             is DeepLinkBus.Target.Session -> openSession(target.id, target.card)
             // #EXP-1638 (app-shortcuts.json): the app icon's long-press menu,
             // onto the pages the app already has.
+            // #EXP-1830 THE BACK STACK RULE: every entry lands on the Agent
+            // tab root, its target pushed over it.
             is DeepLinkBus.Target.AppShortcut -> when (val shortcut = target.target) {
                 // A chat that is gone (or another account's): the start screen.
                 is AppShortcuts.Target.Chat ->
-                    if (webLinkResolver.sessionTarget(shortcut.id) != null) openSession(shortcut.id)
+                    if (webLinkResolver.sessionTarget(shortcut.id) != null) {
+                        openSession(shortcut.id, onAgentRoot = true)
+                    } else {
+                        guarded { navController.selectTab(MainTabs.AGENT, tabSwitch, restore = false) }
+                    }
+                // #EXP-1830: THE agent's conversation (the caller's DM;
+                // none yet = the empty DM, whose composer creates it).
+                is AppShortcuts.Target.Agent -> guarded {
+                    navController.launchOnAgentRoot(Routes.agentDm(shortcut.id), tabSwitch)
+                }
                 // THE New issue page, on the current board (its picker
                 // switches); a cold start waits a beat for the board to load.
                 AppShortcuts.Target.NewIssue -> {
                     val boardId = viewModel.currentBoardId.value
                         ?: withTimeoutOrNull(BOARD_WAIT_MS) { viewModel.currentBoardId.filterNotNull().first() }
-                    if (boardId != null) guarded { navController.openIssueDraft(boardId) }
+                    if (boardId != null) {
+                        guarded {
+                            navController.selectTab(MainTabs.AGENT, tabSwitch, restore = false)
+                            navController.openIssueDraft(boardId)
+                        }
+                    }
                 }
                 // THE composer: the Agent tab root, its default agent row.
                 AppShortcuts.Target.NewChat -> guarded {
                     navController.selectTab(MainTabs.AGENT, tabSwitch, restore = false)
                 }
                 AppShortcuts.Target.Search -> guarded {
-                    navController.navigate("search") { launchSingleTop = true }
+                    navController.launchOnAgentRoot("search", tabSwitch)
+                }
+            }
+            // #EXP-1830 (home-widgets.json TAPS): a home widget's header or
+            // row, by THE back stack rule.
+            is DeepLinkBus.Target.Widget -> when (val widget = target.target) {
+                WidgetLinks.Target.Home -> Unit
+                WidgetLinks.Target.MyIssues -> guarded {
+                    deepLinkBus.requestMyIssues()
+                    navController.selectTab(MainTabs.ISSUES, tabSwitch, restore = false)
+                }
+                WidgetLinks.Target.NeedsYou -> guarded {
+                    navController.launchOnAgentRoot(Routes.CHATS_NEEDS_YOU, tabSwitch)
+                }
+                is WidgetLinks.Target.Board -> {
+                    val teamSwitch = viewModel.planTeamSwitch(null, webLinkResolver.teamOfBoard(widget.id))
+                    guarded {
+                        teamSwitch?.let(viewModel::applyTeamSwitch)
+                        navController.launchOnAgentRoot("board/${widget.id}", tabSwitch)
+                    }
+                }
+                is WidgetLinks.Target.Issue -> {
+                    val teamSwitch = viewModel.planTeamSwitch(null, webLinkResolver.teamOfIssue(widget.id))
+                    guarded {
+                        teamSwitch?.let(viewModel::applyTeamSwitch)
+                        navController.launchIssueOnAgentRoot(widget.id, tabSwitch)
+                    }
+                }
+                is WidgetLinks.Target.NeedsYouRow -> {
+                    val teamSwitch = viewModel.planTeamSwitch(null, webLinkResolver.teamOfSession(widget.rootId))
+                    guarded {
+                        teamSwitch?.let(viewModel::applyTeamSwitch)
+                        navController.launchOnAgentRoot(
+                            Routes.needsYou(widget.rootId, widget.messageId, widget.opens),
+                            tabSwitch,
+                        )
+                    }
                 }
             }
             // #EXP-1534: an agent_signed_out push tap or inbox row = the
@@ -760,6 +814,7 @@ private fun AuthenticatedNav(
             )
         }
         composable("home") {
+            val myIssuesBus = applicationDeepLinkBus()
             // The Issues tab root: the current board's list with the inline
             // switcher; picking another board swaps it in place (no push).
             val selectedTeamId by teamSelection.selectedId.collectAsStateWithLifecycle()
@@ -784,6 +839,9 @@ private fun AuthenticatedNav(
                 },
                 // Session 58cb32df: the board's Drafts chip reopens a draft.
                 onOpenDraft = { boardId, draftId -> navController.openIssueDraft(boardId, draftId = draftId) },
+                // #EXP-1830: the My issues widget's header.
+                pendingMyIssues = myIssuesBus.pendingMyIssues.collectAsStateWithLifecycle().value,
+                onMyIssuesShown = myIssuesBus::consumeMyIssues,
             )
         }
         composable("search") {

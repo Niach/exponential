@@ -73,7 +73,17 @@ pub fn grant_errors(grant: &Grant) -> Vec<&'static str> {
 
 /// The member's policy for an app; no row = `write`.
 pub fn member_policy(row: Option<Level>) -> Level {
-    row.unwrap_or(Level::Write)
+    member_policy_with(row, None, false)
+}
+
+/// #FEED-242: the row, else `write` for an exempt member (the app's
+/// creator or a team owner), else the app's default (`None` = `write`).
+pub fn member_policy_with(row: Option<Level>, default: Option<Level>, exempt: bool) -> Level {
+    match row {
+        Some(level) => level,
+        None if exempt => Level::Write,
+        None => default.unwrap_or(Level::Write),
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]

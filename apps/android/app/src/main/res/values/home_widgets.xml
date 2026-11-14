@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- #EXP-1830 (home-widgets.json LOOK): design tokens (DesignTokens.Palette /
+     Semantic) as widget resources; RemoteViews read resources, not Compose. -->
+<resources>
+    <color name="home_widget_card">#FF171717</color>
+    <color name="home_widget_foreground">#FFFAFAFA</color>
+    <color name="home_widget_muted_foreground">#FFA1A1A1</color>
+    <dimen name="home_widget_radius">16dp</dimen>
+    <dimen name="home_widget_padding">14dp</dimen>
+    <dimen name="home_widget_header_gap">8dp</dimen>
+    <dimen name="home_widget_row_height">28dp</dimen>
+    <dimen name="home_widget_glyph">16dp</dimen>
+    <dimen name="home_widget_text_sm">14sp</dimen>
+    <dimen name="home_widget_text_xs">12sp</dimen>
+    <string name="home_widget_board_label">Board</string>
+    <string name="home_widget_my_issues_label">My issues</string>
+    <string name="home_widget_needs_you_label">Needs you</string>
+    <string name="home_widget_board_description">A board\'s open issues.</string>
+    <string name="home_widget_my_issues_description">Your open issues.</string>
+    <string name="home_widget_needs_you_description">Plans and questions waiting on you.</string>
+    <string name="home_widget_pick_board">Board</string>
+    <string name="home_widget_pick_teams">Teams</string>
+    <string name="home_widget_done">Done</string>
+</resources>

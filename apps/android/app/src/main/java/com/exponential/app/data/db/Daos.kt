@@ -285,10 +285,15 @@ interface CommentDao {
 
 // EXP-778: the caller's personal pins. The per-account DB only ever holds
 // the signed-in user's rows (the shape is `user_id = me`), so no user filter.
-// Sync-only since EXP-976: the phone has no sidebar, so nothing reads pins
-// (EXP-858 dropped the toggles, EXP-976 the switcher's Pinned list).
+// Sync-only since EXP-976 (the phone has no sidebar); #EXP-1830 reads the
+// session pins for the long-press chat entries.
 @Dao
 interface PinDao {
+    // #EXP-1830: the viewer's session pins of a team, in sidebar order (the
+    // long-press chat entries).
+    @Query("SELECT * FROM pins WHERE kind = 'session' AND team_id = :teamId AND session_id IS NOT NULL ORDER BY sort_order ASC, created_at ASC")
+    fun observeSessionPins(teamId: String): Flow<List<PinEntity>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: PinEntity)
 
@@ -371,6 +376,20 @@ abstract class SessionDao {
         ORDER BY updated_at DESC LIMIT :limit""",
     )
     abstract fun observeRecentChats(teamId: String, limit: Int): Flow<List<SessionEntity>>
+
+    // #EXP-1830 (app-shortcuts.json): the long-press chat entries' candidates:
+    // a team's newest roots that are a plain chat or the viewer's OWN agent
+    // conversation (never an app's editor, never archived), plus the pinned
+    // roots ([pinned]) whatever their age. Encrypted plain chats are filtered
+    // by the model (an agent conversation's entry reads the agent's name).
+    @Query(
+        """SELECT * FROM sessions WHERE parent_id IS NULL AND app_id IS NULL
+        AND (agent_id IS NULL OR user_id = :me)
+        AND id NOT IN (SELECT session_id FROM session_reads WHERE archived_at IS NOT NULL)
+        AND (team_id = :teamId OR id IN (:pinned))
+        ORDER BY updated_at DESC LIMIT :limit""",
+    )
+    abstract fun observeShortcutChats(teamId: String, me: String, pinned: List<String>, limit: Int): Flow<List<SessionEntity>>
 
     // #EXP-1642 (system-search.json): every team's newest plain chats, the same
     // filter (never an agent's conversation, an app's editor or an encrypted chat).
@@ -462,6 +481,10 @@ interface SessionIssueDao {
 
     @Query("SELECT * FROM session_issues WHERE issue_id = :issueId ORDER BY created_at, id")
     fun observeByIssue(issueId: String): Flow<List<SessionIssueEntity>>
+
+    // FEED-243: a team's links (the app host's `exp:issues?touched=`).
+    @Query("SELECT * FROM session_issues WHERE team_id = :teamId ORDER BY session_id, issue_id, id")
+    fun observeByTeam(teamId: String): Flow<List<SessionIssueEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: SessionIssueEntity)
@@ -1066,6 +1089,10 @@ interface IssueSubscriberDao {
 interface IssueEventDao {
     @Query("SELECT * FROM issue_events WHERE issue_id = :issueId ORDER BY created_at ASC")
     fun observeByIssue(issueId: String): Flow<List<IssueEventEntity>>
+
+    // FEED-243: a team's timeline (the app host's `exp:issues?touched=`).
+    @Query("SELECT * FROM issue_events WHERE team_id = :teamId ORDER BY created_at ASC, id")
+    fun observeByTeam(teamId: String): Flow<List<IssueEventEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: IssueEventEntity)
