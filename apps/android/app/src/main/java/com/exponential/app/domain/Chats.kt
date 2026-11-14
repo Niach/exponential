@@ -1152,8 +1152,8 @@ object Chats {
 
     /** #FEED-239 (`sidebarAgentCases`): the sidebar's Agents group and
      *  Settings › Agents = [agents] minus every app's agent ([appAgentIds],
-     *  `apps.agent_id`; an app's agent is listed under Apps only, the chat
-     *  list keeps it). */
+     *  `apps.agent_id`; an app's agent is listed under Apps only). #EXP-1849:
+     *  the chat list's [agentChatRows] take it too (the app row IS that chat). */
     fun <T> sidebarAgents(agents: List<T>, appAgentIds: List<String?>, agentId: (T) -> String): List<T> {
         val owned = appAgentIds.filterNot { it.isNullOrEmpty() }.toSet()
         return agents.filter { agentId(it) !in owned }

@@ -195,6 +195,12 @@ internal fun AppSettingsBody(
                     .commitOnBlur(saveDescription),
             )
         }
+        // #EXP-1849 (apps.json `agentSlot`): the app agent's slot, after the
+        // identity (the creator and team owners edit, members read).
+        app.agentId?.takeIf { it.isNotEmpty() }?.let { agentId ->
+            Spacer(Modifier.height(16.dp))
+            com.exponential.app.ui.settings.AppAgentSlotGroup(agentId = agentId, editable = canManage)
+        }
         // VAPP-122: the count; no plan quota on phones (null = the plain count).
         Text(
             AppRecords.recordsCountLabel(records, null),
