@@ -349,6 +349,31 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `arrow-up-left`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "arrow-up-left",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M7 17V7h10"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M17 17 7 7"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `arrow-up-right`: ImageVector by lazy {
         ImageVector.Builder(
             name = "arrow-up-right",
@@ -9219,6 +9244,7 @@ public object ExpIcons {
         "arrow-left" -> `arrow-left`
         "arrow-left-right" -> `arrow-left-right`
         "arrow-right" -> `arrow-right`
+        "arrow-up-left" -> `arrow-up-left`
         "arrow-up-right" -> `arrow-up-right`
         "at-sign" -> `at-sign`
         "atom" -> `atom`
@@ -9751,9 +9777,11 @@ public object ExpIcons {
         "ui-mail" -> `mail`
         "ui-mark-read" -> `mail-open`
         "ui-mark-unread" -> `mail`
+        "ui-maximize" -> `arrow-up-left`
         "ui-mcp" -> `plug`
         "ui-member" -> `shield-check`
         "ui-menu" -> `menu`
+        "ui-minimize" -> `minus`
         "ui-minus" -> `minus`
         "ui-more" -> `ellipsis`
         "ui-more-vertical" -> `ellipsis-vertical`
@@ -10337,12 +10365,16 @@ public object ExpIcons {
     public val uiMarkRead: ImageVector get() = `mail-open`
     /** Concept `ui-mark-unread`. */
     public val uiMarkUnread: ImageVector get() = `mail`
+    /** Concept `ui-maximize`. */
+    public val uiMaximize: ImageVector get() = `arrow-up-left`
     /** Concept `ui-mcp`. */
     public val uiMcp: ImageVector get() = `plug`
     /** Concept `ui-member`. */
     public val uiMember: ImageVector get() = `shield-check`
     /** Concept `ui-menu`. */
     public val uiMenu: ImageVector get() = `menu`
+    /** Concept `ui-minimize`. */
+    public val uiMinimize: ImageVector get() = `minus`
     /** Concept `ui-minus`. */
     public val uiMinus: ImageVector get() = `minus`
     /** Concept `ui-more`. */

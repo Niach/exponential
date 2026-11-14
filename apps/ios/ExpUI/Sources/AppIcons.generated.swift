@@ -157,6 +157,7 @@ public enum AppIcons {
         "arrow-left",
         "arrow-left-right",
         "arrow-right",
+        "arrow-up-left",
         "arrow-up-right",
         "at-sign",
         "atom",
@@ -694,9 +695,11 @@ public enum AppIcons {
         "ui-mail": "mail",
         "ui-mark-read": "mail-open",
         "ui-mark-unread": "mail",
+        "ui-maximize": "arrow-up-left",
         "ui-mcp": "plug",
         "ui-member": "shield-check",
         "ui-menu": "menu",
+        "ui-minimize": "minus",
         "ui-minus": "minus",
         "ui-more": "ellipsis",
         "ui-more-vertical": "ellipsis-vertical",
@@ -1314,12 +1317,16 @@ public enum AppIcons {
     public static let uiMarkRead: String = "mail-open"
     /// Concept `ui-mark-unread`.
     public static let uiMarkUnread: String = "mail"
+    /// Concept `ui-maximize`.
+    public static let uiMaximize: String = "arrow-up-left"
     /// Concept `ui-mcp`.
     public static let uiMcp: String = "plug"
     /// Concept `ui-member`.
     public static let uiMember: String = "shield-check"
     /// Concept `ui-menu`.
     public static let uiMenu: String = "menu"
+    /// Concept `ui-minimize`.
+    public static let uiMinimize: String = "minus"
     /// Concept `ui-minus`.
     public static let uiMinus: String = "minus"
     /// Concept `ui-more`.
