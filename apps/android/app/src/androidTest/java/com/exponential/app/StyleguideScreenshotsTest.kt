@@ -1291,12 +1291,12 @@ class StyleguideScreenshotsTest {
                 flow.waitFor(hasTestTag(Apps.TestIds.SETTINGS), NAV_TIMEOUT)
                 flow.waitFor(hasText("Public links"), SYNC_TIMEOUT)
                 flow.waitFor(hasText("Accounts"), SYNC_TIMEOUT)
-                flow.waitFor(hasText("Webhooks"), SYNC_TIMEOUT)
                 Espresso.closeSoftKeyboard()
                 flow.settle()
                 flow.screenshot("sg_app-settings-links")
-                // #FEED-239: Delete app left the page; the webhooks end it.
-                composeRule.onNode(hasTestTag(Apps.TestIds.WEBHOOKS)).performScrollTo()
+                // #FEED-239: Delete app left the page; #EXP-1850: Automations
+                // left it and Webhooks moved to the Events tab: MCP tools end it.
+                composeRule.onNode(hasTestTag(Apps.TestIds.MCP_TOOLS)).performScrollTo()
                 flow.settle()
                 flow.screenshot("sg_app-settings-automations")
                 Espresso.pressBack()

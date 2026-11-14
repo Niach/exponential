@@ -158,12 +158,13 @@ import dev.chrisbanes.haze.rememberHazeState
 // write the app, Compact + New conversation (sent into the editor session),
 // App settings (a pushed item), Export once there is a version, Delete app
 // for the creator or an owner; no gear) over THE segmented tabs Chat ·
-// Preview · Data · Versions, and ONE pane. Chat = the member's EDITOR
+// Preview · Data · Events · Versions, and ONE pane. Chat = the member's EDITOR
 // SESSION (THE transcript + THE composer; none yet = the empty chat whose
 // first send opens it); Preview = `Apps.shownVersion`'s package's first
 // template through the app host (eApps V1, #VAPP-210: the head while my
 // editor session is live or nothing is published, else the published one);
-// Data = the app's records (VAPP-178, `AppDataTab`); Versions = the version
+// Data = the app's records (VAPP-178, `AppDataTab`); Events = the app
+// agent's triggers, Webhooks and Recent runs (#EXP-1850, `AppEventsTab`); Versions = the version
 // list (a row's Preview lands on the Preview tab with the viewing banner:
 // Publish, Restore = a new head, Current). Leaving the editor ENDS the live editor session; the next send
 // continues it. VAPP-176: a DRAFT (no version yet) opens on Chat with the
@@ -466,6 +467,18 @@ fun AppEditorScreen(
                         app = entry,
                         records = records,
                         viewModel = viewModel,
+                        modifier = Modifier.padding(padding),
+                    )
+                    // #EXP-1850: the app agent's triggers, Webhooks, Recent runs.
+                    SessionScreen.Tab.Events -> AppEventsTab(
+                        app = entry,
+                        viewModel = viewModel,
+                        canManage = canManage,
+                        onOpenChat = {
+                            requestedTab = SessionScreen.Tab.Chat.wire
+                            openKind = null
+                            openId = null
+                        },
                         modifier = Modifier.padding(padding),
                     )
                     SessionScreen.Tab.Versions -> AppVersionsList(

@@ -493,6 +493,7 @@ class AppsTest {
             "importUpstreams" to Apps.TestIds.IMPORT_UPSTREAMS, "importUpstream" to Apps.TestIds.IMPORT_UPSTREAM,
             "mcpTools" to Apps.TestIds.MCP_TOOLS, "mcpToolRow" to Apps.TestIds.MCP_TOOL_ROW,
             "policies" to Apps.TestIds.POLICIES, "policyRow" to Apps.TestIds.POLICY_ROW,
+            "eventsTab" to Apps.TestIds.EVENTS_TAB, "recentRuns" to Apps.TestIds.RECENT_RUNS, "runRow" to Apps.TestIds.RUN_ROW,
         )
         assertEquals(ids.keys, expectedIds.keys)
         for ((key, value) in expectedIds) assertEquals(ids[key]!!.jsonPrimitive.content, value)
