@@ -1391,5 +1391,75 @@
         "text": "Ship it — grüße ✓!"
       }
     ]
+  },
+  "staleTree": {
+    "$comment": "STALE TREE (#FEED-248, Danny's 'Couldn't send the message. The tree is at epoch 1' from a web tab whose synced sessions missed his conversation with an agent): the writer's synced store is a CACHE of the tree, never its authority. A send to an agent or an app (`agentId` / `appId`, no session id) whose conversation root the store does not have ASKS the server first (`sessions.sendTarget {agentId|appId}` -> {rootId, epoch, publicKey}) and only carries an inline `seal` (epoch 1) when the server names no root; a root the server names keyed is sealed to the server's key; a keyless one is keyed with `sessionKeys.create` first. A keyless root in the store whose `create` is refused asks `sessionKeys.publicKeys` before it falls back to plaintext. The server refuses a key write for a tree that moved on (an inline `seal` or a `create` whose epoch is not the next one) with CONFLICT and exactly `refusal`; a writer that gets it RESOLVES the tree again from the server (sendTarget / publicKeys, never the store), re-seals and re-sends ONCE by itself (no toast); a second refusal surfaces `refusal` as the failed send's description, never a raw epoch. Each case: `send` (`agent` = {agentId}, `session` = {sessionId} of a root), `local` (what the store has: `missing` | `keyless` | `keyed`), `server` (the tree on the server: `none` | `keyless` | `keyed`), `asks` (the server calls the writer makes before its first send, in order), `wire` (`inline` = seal epoch 1 rides along, `sealed` = text sealed to the server's current key, `create` = sessionKeys.create then sealed). `retryCases`: `refusals` = how many sends the server refuses with `refusal`; `sends` = how many sends leave; `outcome` = `sent` | `failed` (with `refusal` as the description).",
+    "refusal": "This chat's encryption key changed. Try again in a moment.",
+    "cases": [
+      {
+        "name": "first message to an agent, no conversation anywhere: the key rides inline",
+        "send": "agent",
+        "local": "missing",
+        "server": "none",
+        "asks": [
+          "sendTarget"
+        ],
+        "wire": "inline"
+      },
+      {
+        "name": "the store missed an existing keyed conversation: sealed to the server's key, no inline seal",
+        "send": "agent",
+        "local": "missing",
+        "server": "keyed",
+        "asks": [
+          "sendTarget"
+        ],
+        "wire": "sealed"
+      },
+      {
+        "name": "the store missed an existing keyless conversation: it is keyed first",
+        "send": "agent",
+        "local": "missing",
+        "server": "keyless",
+        "asks": [
+          "sendTarget",
+          "create"
+        ],
+        "wire": "create"
+      },
+      {
+        "name": "the store has the keyed conversation: no lookup",
+        "send": "agent",
+        "local": "keyed",
+        "server": "keyed",
+        "asks": [],
+        "wire": "sealed"
+      },
+      {
+        "name": "the store thinks a root is keyless but it was keyed elsewhere: create is refused, publicKeys answers",
+        "send": "session",
+        "local": "keyless",
+        "server": "keyed",
+        "asks": [
+          "create",
+          "publicKeys"
+        ],
+        "wire": "sealed"
+      }
+    ],
+    "retryCases": [
+      {
+        "name": "one refusal: re-resolved, re-sealed and sent by itself",
+        "refusals": 1,
+        "sends": 2,
+        "outcome": "sent"
+      },
+      {
+        "name": "refused twice: the failed send says refusal, never an epoch",
+        "refusals": 2,
+        "sends": 2,
+        "outcome": "failed"
+      }
+    ]
   }
 }

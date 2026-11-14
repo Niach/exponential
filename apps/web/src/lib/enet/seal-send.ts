@@ -17,7 +17,13 @@
 // sealed: plaintext stays legal.
 
 import type { SessionsSendInput } from "@exp/db-schema/domain"
-import { sealBody, sealCard, withAttachmentEmbeds, type AttachmentUpload } from "@exp/domain-contract/sealed-content"
+import {
+  isStaleTreeRefusal,
+  sealBody,
+  sealCard,
+  withAttachmentEmbeds,
+  type AttachmentUpload,
+} from "@exp/domain-contract/sealed-content"
 import { extractIssueRefs } from "@/lib/issue-refs"
 import { extractMentionEmails } from "@/lib/mention-refs"
 import { answeredCard, type CardAnswerInput } from "@/lib/sessions/card-answer"
@@ -56,7 +62,15 @@ export type SealDeps = {
   userIdsByEmail: (emails: string[]) => string[]
   /** Issue ids of `#IDENT` refs in the team (unknown ones dropped). */
   issueIdsByIdentifier: (teamId: string | undefined, identifiers: string[]) => string[]
+  /** #FEED-248: the server's word on the caller's conversation with an
+   *  agent / app (`sessions.sendTarget`): the synced store is a cache. */
+  sendTarget: (input: { agentId?: string; appId?: string }) => Promise<ServerTarget>
+  /** The server's current key of a root (`sessionKeys.publicKeys`), if keyed. */
+  publicKey: (rootId: string) => Promise<TreePublicKey | undefined>
 }
+
+export type TreePublicKey = { epoch: number; publicKey: string }
+export type ServerTarget = { rootId: string | null; epoch: number | null; publicKey: string | null }
 
 export type SealedSendInput = SessionsSendInput & {
   seal?: { installId: string; publicKey: string; epoch: 1; wraps: Array<{ installId: string; wrapped: string }> }
@@ -145,7 +159,14 @@ export function refIssueIds(
   return ids.length > 0 ? ids : undefined
 }
 
-export async function sealSendInput(input: SessionsSendInput, deps: SealDeps): Promise<SealedSend> {
+/** #FEED-248 (sealed-content.json `staleTree`): `fresh` = the store was
+ *  wrong once (the server refused the key write): resolve the tree from
+ *  the server alone. */
+export async function sealSendInput(
+  input: SessionsSendInput,
+  deps: SealDeps,
+  options: { fresh?: boolean } = {}
+): Promise<SealedSend> {
   const holder = deps.holder
   const hasText = typeof input.text === `string` && input.text.length > 0
   if (!holder || (!hasText && !input.name)) return { input, after: noop }
@@ -154,22 +175,52 @@ export async function sealSendInput(input: SessionsSendInput, deps: SealDeps): P
   const refs = refIssueIds(input.text, root?.teamId ?? input.teamId, deps)
   const clearMeta = { ...(mentions ? { mentionUserIds: mentions } : {}), ...(refs ? { refIssueIds: refs } : {}) }
 
+  const plain = { input: { ...input, ...clearMeta }, after: noop }
+  const fresh = options.fresh === true
+  // #FEED-248: the conversation with an agent / app the store does not
+  // have (a missed sync, another device started it) may well exist: ask.
+  const conversation = !input.sessionId && !input.parentId && !!(input.agentId || input.appId)
+  const target =
+    conversation && (!root || fresh)
+      ? await deps.sendTarget({ agentId: input.agentId, appId: input.appId }).catch(() => undefined)
+      : undefined
+  /** A keyless root this install keys first; refused = the server's key, else plaintext. */
+  const keyFirst = async (rootId: string, readers: Parameters<typeof readersFor>[0]) => {
+    try {
+      return await holder.createTree(rootId, await readersFor(readers, deps))
+    } catch {
+      // Keyed meanwhile (#FEED-248), or an older keyless root this install
+      // may not key (not a reader): plaintext stays legal there.
+      return deps.publicKey(rootId).catch(() => undefined)
+    }
+  }
+
   let key: { epoch: number; publicKey: string }
   let after = noop
   let seal: SealedSendInput[`seal`]
-  if (root) {
-    const known = root.sealPublicKey && root.sealEpoch ? { epoch: root.sealEpoch, publicKey: root.sealPublicKey } : undefined
-    const held = known ?? holder.current(root.id)
-    if (held) key = held
-    else {
-      try {
-        key = await holder.createTree(root.id, await readersFor(root, deps))
-      } catch {
-        // An older keyless root this install may not key (not a reader):
-        // plaintext stays legal there.
-        return { input: { ...input, ...clearMeta }, after: noop }
-      }
-    }
+  if (target?.rootId) {
+    const known = target.epoch && target.publicKey ? { epoch: target.epoch, publicKey: target.publicKey } : undefined
+    const held =
+      known ??
+      (await keyFirst(target.rootId, {
+        teamId: root?.teamId ?? input.teamId ?? ``,
+        userId: deps.me,
+        shared: false,
+        deviceId: root?.deviceId ?? null,
+      }))
+    if (!held) return plain
+    key = held
+  } else if (root && !(target && fresh)) {
+    const synced = root.sealPublicKey && root.sealEpoch ? { epoch: root.sealEpoch, publicKey: root.sealPublicKey } : undefined
+    const known = fresh ? ((await deps.publicKey(root.id).catch(() => undefined)) ?? synced) : synced
+    const held = known ?? holder.current(root.id) ?? (await keyFirst(root.id, root))
+    if (!held) return plain
+    key = held
+  } else if (fresh && (input.sessionId || input.parentId) && !conversation) {
+    // A session the store does not have: its key, when it is a keyed root.
+    const held = await deps.publicKey((input.sessionId ?? input.parentId)!).catch(() => undefined)
+    if (!held) return plain
+    key = held
   } else {
     // A root this send creates: its first key rides inline.
     const created = holder.newTreeKey(
@@ -191,6 +242,28 @@ export async function sealSendInput(input: SessionsSendInput, deps: SealDeps): P
     ...(seal ? { seal } : {}),
   }
   return { input: sealed, after }
+}
+
+/** #FEED-248: `sessions.send` through `sealSendInput`; a refused key write
+ *  (the tree moved on behind this writer's store) re-resolves the tree from
+ *  the server, re-seals and re-sends ONCE by itself. */
+export async function sendSealed<R extends { sessionId: string }>(
+  input: SessionsSendInput,
+  deps: SealDeps,
+  send: (input: SealedSendInput) => Promise<R>
+): Promise<R> {
+  const attempt = async (fresh: boolean) => {
+    const sealed = await sealSendInput(input, deps, { fresh })
+    const result = await send(sealed.input)
+    await sealed.after(result).catch(() => {})
+    return result
+  }
+  try {
+    return await attempt(false)
+  } catch (error) {
+    if (!isStaleTreeRefusal(error instanceof Error ? error.message : undefined)) throw error
+    return attempt(true)
+  }
 }
 
 /** `sessions.answer`'s input: a SEALED card's answer re-sealed inside the

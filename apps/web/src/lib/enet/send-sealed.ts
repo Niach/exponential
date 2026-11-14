@@ -15,7 +15,7 @@ import {
 import type { CardAnswerInput } from "@/lib/sessions/card-answer"
 import { trpc } from "@/lib/trpc-client"
 import { currentKeyHolder } from "./current-key-holder"
-import { sealAnswerInput, sealSendInput, type SealDeps, type SealSessionRow } from "./seal-send"
+import { sealAnswerInput, sendSealed, type SealDeps, type SealSessionRow } from "./seal-send"
 import { openCardCached } from "./sealed-open"
 
 type TrpcOptions = Parameters<typeof trpc.sessions.send.mutate>[1]
@@ -46,15 +46,23 @@ function sealDeps(): SealDeps {
         .filter((row) => (!teamId || row.teamId === teamId) && wanted.has(row.identifier.toUpperCase()))
         .map((row) => row.id)
     },
+    sendTarget: (target) => trpc.sessions.sendTarget.query(target, quiet),
+    publicKey: async (rootId) => (await trpc.sessionKeys.publicKeys.query({ rootIds: [rootId] }, quiet))[0],
   }
 }
 
-/** `sessions.send`, sealed when this browser holds keys. */
+/** `sessions.send`, sealed when this browser holds keys; a tree that moved
+ *  on behind this tab is re-resolved and re-sealed once (#FEED-248). */
 export async function sendSessionMessage(input: SessionsSendInput, options?: TrpcOptions) {
-  const sealed = await sealSendInput(input, sealDeps())
-  const result = await trpc.sessions.send.mutate(sealed.input as SessionsSendInput, options)
-  await sealed.after(result).catch(() => {})
-  return result
+  const deps = sealDeps()
+  let attempts = 0
+  return sendSealed(input, deps, (sealed) =>
+    // A stale tree on the first try is retried, not toasted.
+    trpc.sessions.send.mutate(
+      sealed as SessionsSendInput,
+      attempts++ === 0 ? { ...options, context: { ...options?.context, resealOnStaleTree: true } } : options
+    )
+  )
 }
 
 /** `sessions.answer`; a sealed card's answer is re-sealed inside it. */
