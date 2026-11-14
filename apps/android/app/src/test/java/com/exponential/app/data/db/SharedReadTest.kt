@@ -8,7 +8,10 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
@@ -84,4 +87,24 @@ class SharedReadTest {
             assertEquals("closed", e.message)
         }
     }
+
+    @Test
+    fun aWriteBurstIsReadOnceAtOnceThenOncePerIntervalWithTheNewestRows() = runBlocking {
+        // The invalidation tracker: one emission per synced write.
+        val writes = MutableSharedFlow<Int>(extraBufferCapacity = 64)
+        val table = AtomicInteger(0)
+        val reads = AtomicInteger()
+        val read = writes.onSubscriptionStart(0).throttledRead(minIntervalMs = 300) { reads.incrementAndGet(); table.get() }
+        val seen = async(Dispatchers.Default) { read.take(2).toList() }
+        withTimeout(5_000) { while (reads.get() < 1 || writes.subscriptionCount.value < 1) delay(5) }
+        // Fifty writes inside one interval: ONE more read, of the last state.
+        repeat(50) { table.set(it + 1); writes.emit(it + 1) }
+        val values = withTimeout(5_000) { seen.await() }
+        assertEquals("the initial read + one read for the whole burst", 2, reads.get())
+        assertEquals(listOf(0, 50), values)
+    }
+
+    /** The tracker's initial-state emission, then [this]. */
+    private fun MutableSharedFlow<Int>.onSubscriptionStart(initial: Int) =
+        kotlinx.coroutines.flow.flow { emit(initial); this@onSubscriptionStart.collect { emit(it) } }
 }

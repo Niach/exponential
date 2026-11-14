@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.RoomDatabase
 import com.exponential.app.data.sealed.SealedContent
 import com.exponential.app.data.sealed.SealedKeys
 import com.exponential.app.domain.SessionTree
@@ -61,7 +62,7 @@ interface BoardDao {
 }
 
 @Dao
-abstract class IssueDao {
+abstract class IssueDao(private val db: RoomDatabase) {
     // EXP-1459: `#IDENT` refs of a sealed text → issue ids (`refIssueIds`), case-insensitive.
     @Query("SELECT * FROM issues WHERE upper(identifier) IN (:identifiers)")
     abstract suspend fun byIdentifiers(identifiers: List<String>): List<IssueEntity>
@@ -71,10 +72,11 @@ abstract class IssueDao {
 
     // All issues (used by the inbox to resolve titles + the "needs review" list).
     @Query("SELECT * FROM issues")
-    abstract fun rawObserveAll(): Flow<List<IssueEntity>>
+    abstract suspend fun all(): List<IssueEntity>
 
-    // #ERR-23: ONE live copy per database, however many readers (sharedRead).
-    private val sharedAll by lazy { rawObserveAll().sharedRead() }
+    // #ERR-23: ONE live copy per database, however many readers, re-read at
+    // most once a second however fast the sync writes (SharedReads.kt).
+    private val sharedAll by lazy { db.wholeTableRead("issues") { all() } }
     fun observeAll(): Flow<List<IssueEntity>> = sharedAll
 
     // A chat's linked issues (a session card's title), by id.
@@ -378,7 +380,7 @@ interface ComposerDraftDao {
 // chats (`kind = thread`) and team agents (`kind = agent`); every session
 // of one tree shares `root_id`.
 @Dao
-abstract class SessionDao {
+abstract class SessionDao(private val db: RoomDatabase) {
     @Query("SELECT * FROM sessions WHERE id = :id LIMIT 1")
     abstract fun rawObserveById(id: String): Flow<SessionEntity?>
     fun observeById(id: String): Flow<SessionEntity?> = rawObserveById(id).openedSession()
@@ -430,12 +432,15 @@ abstract class SessionDao {
     abstract fun observeSearchableChats(limit: Int): Flow<List<SessionEntity>>
 
     @Query("SELECT * FROM sessions ORDER BY created_at, id")
-    abstract fun rawObserveAll(): Flow<List<SessionEntity>>
+    abstract suspend fun all(): List<SessionEntity>
 
-    // #ERR-23: ONE live, opened copy per database, however many readers
-    // (sharedRead): the Chats list, the widgets, an agent's chat, the apps
-    // host each held their own whole table and re-read it on every write.
-    private val sharedAll by lazy { rawObserveAll().openedSessions().sharedRead() }
+    // #ERR-23: ONE live, opened copy per database, however many readers, re-read
+    // at most once a second however fast the sync writes (SharedReads.kt): the
+    // Chats list, the widgets, an agent's chat, the apps host each held their
+    // own whole table and re-read it on every synced write.
+    private val sharedAll by lazy {
+        db.invalidationTracker.createFlow("sessions").throttledRead { all() }.openedSessions().sharedRead()
+    }
     fun observeAll(): Flow<List<SessionEntity>> = sharedAll
 
     @Query("SELECT * FROM sessions WHERE team_id = :teamId ORDER BY created_at, id")
@@ -915,12 +920,13 @@ interface SkillDao {
 
 // EXP-1291: pull requests (all PR + branch state).
 @Dao
-abstract class PullRequestDao {
+abstract class PullRequestDao(private val db: RoomDatabase) {
     @Query("SELECT * FROM pull_requests ORDER BY created_at, id")
-    abstract fun rawObserveAll(): Flow<List<PullRequestEntity>>
+    abstract suspend fun all(): List<PullRequestEntity>
 
-    // #ERR-23: ONE live copy per database, however many readers (sharedRead).
-    private val sharedAll by lazy { rawObserveAll().sharedRead() }
+    // #ERR-23: ONE live copy per database, however many readers, re-read at
+    // most once a second however fast the sync writes (SharedReads.kt).
+    private val sharedAll by lazy { db.wholeTableRead("pull_requests") { all() } }
     fun observeAll(): Flow<List<PullRequestEntity>> = sharedAll
 
     @Query("SELECT * FROM pull_requests WHERE id = :id LIMIT 1")

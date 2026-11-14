@@ -49,6 +49,12 @@ abstract class HomeWidgetProvider(private val kind: HomeWidgetKind) : AppWidgetP
 
     override fun onDeleted(context: Context, ids: IntArray) {
         ids.forEach { HomeWidgetPrefs.clear(context, it) }
+        homeWidgetsRefresher(context).refreshPlaced()
+    }
+
+    // #ERR-23: the last widget of this kind left: the reads stop when none is placed.
+    override fun onDisabled(context: Context) {
+        homeWidgetsRefresher(context).refreshPlaced()
     }
 }
 
