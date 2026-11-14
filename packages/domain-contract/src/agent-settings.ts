@@ -194,6 +194,22 @@ export function isAssistant(agent: { role?: string | null }): boolean {
   return agent.role === `assistant`
 }
 
+// #EXP-1837 (`assistant.fab`): THE Assistant FAB + widget on the IDE and
+// wide web (phones keep the Assistant in Chats).
+export const ASSISTANT_FAB = fixture.assistant.fab
+export const ASSISTANT_FAB_COPY = fixture.assistant.fab.copy
+export const ASSISTANT_WIDGET_SIZE = fixture.assistant.fab.widget
+
+/** `showCases`: the FAB shows on wide surfaces while the viewer has an
+ *  Assistant, except on its own chat page. */
+export function assistantFabVisible(input: {
+  wide: boolean
+  assistantId: string | null | undefined
+  activeAgentId: string | null | undefined
+}): boolean {
+  return input.wide && Boolean(input.assistantId) && input.activeAgentId !== input.assistantId
+}
+
 /** The agents a member sees, in order: their Assistant first, then the team
  *  agents by sortOrder, then name. */
 export function orderedAgents<T extends AgentRoleLike & { name: string; sortOrder: number }>(
