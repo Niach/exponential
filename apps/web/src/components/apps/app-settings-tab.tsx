@@ -5,7 +5,7 @@ import { APPS_COPY, APPS_TEST_IDS, APP_DESCRIPTION_MAX, grantVersion, policyCapt
 import { recordPolicy } from "@exponential_app/eui/host"
 import { recordsCountLabel } from "@exp/domain-contract/app-records"
 import { APP_ACTIONS_COPY, actionGrantable, actionTitle, declaredActions, flatAction } from "@exp/domain-contract/app-actions"
-import { GlassGroup, Switch, Textarea } from "@exp/ui"
+import { GlassGroup, GlassSectionHeader, Switch, Textarea } from "@exp/ui"
 import { BoardIdentityRow } from "@/components/board-form-fields"
 import type { AppListEntry } from "@/hooks/use-apps"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
@@ -181,7 +181,7 @@ export function AppSettingsTab({
 
       {policies.length > 0 && (
         <div className="space-y-1" data-testid={APPS_TEST_IDS.policies}>
-          <h2 className="px-1 text-sm font-medium">{APPS_COPY.policies.title}</h2>
+          <GlassSectionHeader label={APPS_COPY.policies.title} />
           <GlassGroup>
             {policies.map((p) => (
               <div key={p.kind} className="px-4 py-3" data-testid={`${APPS_TEST_IDS.policyRow}-${p.kind}`}>
@@ -194,10 +194,8 @@ export function AppSettingsTab({
       )}
 
       <div className="space-y-1" data-testid="app-settings-tools">
-          <div className="px-1">
-            <h2 className="text-sm font-medium">{APP_ACTIONS_COPY.title}</h2>
-            <p className="text-sm text-muted-foreground">{APP_ACTIONS_COPY.hint}</p>
-          </div>
+          <GlassSectionHeader label={APP_ACTIONS_COPY.title} />
+          <p className="px-1 text-sm text-muted-foreground">{APP_ACTIONS_COPY.hint}</p>
           <GlassGroup>
             {declared.length === 0 ? (
               <p className="px-4 py-3 text-sm text-muted-foreground">{APP_ACTIONS_COPY.none}</p>
