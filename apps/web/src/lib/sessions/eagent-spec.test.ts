@@ -68,6 +68,7 @@ describe(`eagent spec: the server's copy`, () => {
   it(`bus lines`, () => {
     expect(rules.copy.claimed).toBe(BUS_COPY.session_claimed)
     expect(spec.unclaimedText()).toBe(BUS_COPY.session_unclaimed)
+    expect(spec.undeliveredText()).toBe(BUS_COPY.session_undelivered)
     expect(spec.unresumedText()).toBe(BUS_COPY.session_unresumed)
     expect(spec.offlineText()).toBe(BUS_COPY.session_offline)
     expect(spec.stuckText(42)).toBe(BUS_COPY.session_stuck(42))

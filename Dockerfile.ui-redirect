@@ -1,0 +1,11 @@
+# ui.exponential.at: a tiny image for apps/site/scripts/ui-redirect.ts (the
+# Coolify app `exponential-ui-site`, dockerfile build pack). It needs only the
+# script and src/redirects.ts, never the monorepo or its node_modules.
+FROM oven/bun:1-alpine
+WORKDIR /app
+COPY apps/site/src/redirects.ts src/redirects.ts
+COPY apps/site/scripts/ui-redirect.ts scripts/ui-redirect.ts
+ENV PORT=3000
+EXPOSE 3000
+USER bun
+CMD ["bun", "scripts/ui-redirect.ts"]

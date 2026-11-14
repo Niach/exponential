@@ -38,6 +38,7 @@ export default defineConfig({
         }),
       ],
       sidebar: SIDEBAR,
+      routeMiddleware: `./src/route-data.ts`,
     }),
     react(),
     euiStyles(),

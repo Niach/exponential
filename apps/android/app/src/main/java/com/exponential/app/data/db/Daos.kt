@@ -463,6 +463,10 @@ interface SessionIssueDao {
     @Query("SELECT * FROM session_issues WHERE issue_id = :issueId ORDER BY created_at, id")
     fun observeByIssue(issueId: String): Flow<List<SessionIssueEntity>>
 
+    // FEED-243: a team's links (the app host's `exp:issues?touched=`).
+    @Query("SELECT * FROM session_issues WHERE team_id = :teamId ORDER BY session_id, issue_id, id")
+    fun observeByTeam(teamId: String): Flow<List<SessionIssueEntity>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: SessionIssueEntity)
 
@@ -1066,6 +1070,10 @@ interface IssueSubscriberDao {
 interface IssueEventDao {
     @Query("SELECT * FROM issue_events WHERE issue_id = :issueId ORDER BY created_at ASC")
     fun observeByIssue(issueId: String): Flow<List<IssueEventEntity>>
+
+    // FEED-243: a team's timeline (the app host's `exp:issues?touched=`).
+    @Query("SELECT * FROM issue_events WHERE team_id = :teamId ORDER BY created_at ASC, id")
+    fun observeByTeam(teamId: String): Flow<List<IssueEventEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: IssueEventEntity)

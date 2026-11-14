@@ -1,5 +1,5 @@
 {
-  "id": "c80eccb0-84d2-4444-bb87-c9500d3ecd74",
+  "id": "d97f945c-eda3-4206-ac47-7270157ed7f9",
   "prevId": "38ce2416-2f65-4013-a880-8c84c7539e47",
   "version": "7",
   "dialect": "postgresql",
@@ -1773,13 +1773,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'[]'::jsonb"
-        },
-        "default_access": {
-          "name": "default_access",
-          "type": "varchar(8)",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'write'"
         },
         "agent_id": {
           "name": "agent_id",
@@ -14417,6 +14410,20 @@
         },
         "enabled": {
           "name": "enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "notify_reporter_on_submit": {
+          "name": "notify_reporter_on_submit",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "notify_reporter_on_close": {
+          "name": "notify_reporter_on_close",
           "type": "boolean",
           "primaryKey": false,
           "notNull": true,

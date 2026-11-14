@@ -16,7 +16,8 @@ and its assemble call).
 retention: GlitchTip keeps debug files GLITCHTIP_FILE_RETENTION_DAYS (30). At
 ~one desktop release a day that outgrows the disk, so per family (project,
 file name without cargo's -<hash> suffix, arch, format) only the newest KEEP
-uploads stay (GLITCHTIP_DIF_KEEP, default 5 = the last five releases), and
+uploads stay (GLITCHTIP_DIF_KEEP, default 5; prod sets 3 inline in the
+scheduled task's command, the worker has no such env var), and
 nothing younger than GLITCHTIP_DIF_MIN_AGE_DAYS (2) goes. The dropped files'
 blobs are deleted by the chunks pass that follows.
 """

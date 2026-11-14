@@ -4227,6 +4227,15 @@ export const widgetConfigs = pgTable(
       .notNull()
       .default(sql`'[]'::jsonb`),
     enabled: boolean().notNull().default(true),
+    // FEED-217: the two AUTOMATIC reporter mails, per widget (on = today's
+    // behaviour). Submit = the "we got your report" confirmation, close = the
+    // resolution notice. A member's explicit "Reply to reporter" always mails.
+    notifyReporterOnSubmit: boolean(`notify_reporter_on_submit`)
+      .notNull()
+      .default(true),
+    notifyReporterOnClose: boolean(`notify_reporter_on_close`)
+      .notNull()
+      .default(true),
     // Appearance/behavior overrides served to the widget loader. Validated
     // by formConfigSchema (apps/web lib/trpc/widgets.ts) on write and
     // re-sanitized field-by-field on read (lib/widget/service.ts):
