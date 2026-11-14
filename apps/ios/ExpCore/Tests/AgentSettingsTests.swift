@@ -636,4 +636,83 @@ final class AgentSettingsTests: XCTestCase {
             )
         }
     }
+
+    // MARK: - #EXP-1847 every agent's Voice (`voice`)
+
+    func testVoiceCopyAndLimitsMatchTheFixture() throws {
+        let voice = try XCTUnwrap(try fixture()["voice"] as? [String: Any])
+        XCTAssertEqual(voice["rows"] as? [String], AgentSettings.VoiceRows.rows)
+        let copy = try XCTUnwrap(voice["copy"] as? [String: Any])
+        typealias C = AgentSettings.VoiceRows.Copy
+        XCTAssertEqual(copy["label"] as? String, C.label)
+        XCTAssertEqual(copy["language"] as? String, C.language)
+        XCTAssertEqual(copy["clip"] as? String, C.clip)
+        XCTAssertEqual(copy["clipBuiltIn"] as? String, C.clipBuiltIn)
+        XCTAssertEqual(copy["clipUpload"] as? String, C.clipUpload)
+        XCTAssertEqual(copy["clipRemove"] as? String, C.clipRemove)
+        XCTAssertEqual(copy["transcript"] as? String, C.transcript)
+        XCTAssertEqual(copy["transcriptPlaceholder"] as? String, C.transcriptPlaceholder)
+        XCTAssertEqual(copy["wakePhrase"] as? String, C.wakePhrase)
+        XCTAssertEqual(copy["wakePhrasePlaceholder"] as? String, C.wakePhrasePlaceholder)
+        let errors = try XCTUnwrap(copy["errors"] as? [String: String])
+        XCTAssertEqual(errors["clipType"], C.Errors.clipType)
+        XCTAssertEqual(errors["clipSize"], C.Errors.clipSize)
+        let upload = try XCTUnwrap(voice["clipUpload"] as? [String: Any])
+        XCTAssertEqual(upload["route"] as? String, AgentSettings.VoiceRows.ClipUpload.route)
+        XCTAssertEqual(upload["accept"] as? [String], AgentSettings.VoiceRows.ClipUpload.accept)
+        XCTAssertEqual(upload["maxBytes"] as? Int, AgentSettings.VoiceRows.ClipUpload.maxBytes)
+        let limits = try XCTUnwrap(voice["limits"] as? [String: Int])
+        XCTAssertEqual(limits["transcript"], AgentSettings.VoiceRows.Limits.transcript)
+        XCTAssertEqual(limits["wakePhrase"], AgentSettings.VoiceRows.Limits.wakePhrase)
+        XCTAssertEqual(limits["wakePhraseMinLetters"], AgentSettings.VoiceRows.Limits.wakePhraseMinLetters)
+        XCTAssertEqual(AgentSettings.VoiceRows.clipPath(agentId: "a-1"), "/api/agents/a-1/voice-clip")
+    }
+
+    func testAgentVoiceOfReplaysEveryCase() throws {
+        let voice = try XCTUnwrap(try fixture()["voice"] as? [String: Any])
+        let cases = try XCTUnwrap(voice["voiceOfCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for entry in cases {
+            let name = entry["name"] as? String ?? ""
+            let agent = try XCTUnwrap(entry["agent"] as? [String: Any], name)
+            let member = try XCTUnwrap(entry["member"] as? [String: String], name)
+            let expected = try XCTUnwrap(entry["expected"] as? [String: Any], name)
+            let raw = try JSONSerialization.data(withJSONObject: agent["voice"] ?? [:])
+            let resolved = AgentSettings.agentVoiceOf(
+                role: agent["role"] as? String,
+                voice: AgentVoice.parse(String(data: raw, encoding: .utf8)),
+                member: Voice.Settings(
+                    wakePhrase: member["wakePhrase"] ?? "",
+                    language: member["language"] ?? "en",
+                    voiceFile: member["voiceFile"] ?? "",
+                    voiceTranscript: member["voiceTranscript"] ?? ""
+                )
+            )
+            let clip: AgentSettings.ResolvedClip? = (expected["clip"] as? [String: String]).flatMap { clip in
+                if let id = clip["attachmentId"] { return .attachment(id: id) }
+                return clip["path"].map { .path($0) }
+            }
+            XCTAssertEqual(
+                resolved,
+                AgentSettings.ResolvedVoice(
+                    language: expected["language"] as? String ?? "",
+                    clip: clip,
+                    clipLabel: expected["clipLabel"] as? String ?? "",
+                    transcript: expected["transcript"] as? String ?? "",
+                    wakePhrase: expected["wakePhrase"] as? String ?? ""
+                ),
+                name
+            )
+        }
+    }
+
+    func testAgentVoiceParsesTheJsonbAndRoundTrips() throws {
+        XCTAssertEqual(AgentVoice.parse(nil), AgentVoice())
+        XCTAssertEqual(AgentVoice.parse("garbage"), AgentVoice())
+        XCTAssertEqual(AgentVoice.parse(#"{"language":5,"clipId":"c"}"#), AgentVoice(clipId: "c"))
+        let voice = AgentVoice(language: "de", clipId: "c-1", clipName: "a.wav", transcript: "Hi", wakePhrase: "Hey Sloppy")
+        let text = try XCTUnwrap(String(data: try JSONEncoder().encode(voice), encoding: .utf8))
+        XCTAssertEqual(AgentVoice.parse(text), voice)
+        XCTAssertEqual(String(data: try JSONEncoder().encode(AgentVoice()), encoding: .utf8), "{}")
+    }
 }

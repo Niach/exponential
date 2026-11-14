@@ -87,6 +87,8 @@ public struct AgentPatch: Sendable, Equatable {
     public var skillIds: [String]?
     /// #EXP-1793: the WHOLE MCP server list (an empty one = none) or nothing.
     public var mcpServerIds: [String]?
+    /// #EXP-1847: the agent's own voice keys (`.some(nil)` clears one).
+    public var voice: AgentVoicePatch?
 
     public init(
         name: String? = nil,
@@ -100,8 +102,10 @@ public struct AgentPatch: Sendable, Equatable {
         model: String?? = nil,
         sortOrder: Double? = nil,
         skillIds: [String]? = nil,
-        mcpServerIds: [String]? = nil
+        mcpServerIds: [String]? = nil,
+        voice: AgentVoicePatch? = nil
     ) {
+        self.voice = voice
         self.name = name
         self.icon = icon
         self.color = color
@@ -120,7 +124,7 @@ public struct AgentPatch: Sendable, Equatable {
     public var isEmpty: Bool {
         name == nil && icon == nil && color == nil && instructions == nil && triggers == nil
             && deviceId == nil && cli == nil && account == nil && model == nil && sortOrder == nil
-            && skillIds == nil && mcpServerIds == nil
+            && skillIds == nil && mcpServerIds == nil && (voice?.isEmpty ?? true)
     }
 }
 
@@ -130,7 +134,7 @@ struct UpdateAgentInput: Encodable {
     let patch: AgentPatch
 
     enum CodingKeys: String, CodingKey {
-        case id, name, icon, color, instructions, triggers, deviceId, cli, account, model, sortOrder, skillIds, mcpServerIds
+        case id, name, icon, color, instructions, triggers, deviceId, cli, account, model, sortOrder, skillIds, mcpServerIds, voice
     }
 
     func encode(to encoder: Encoder) throws {
@@ -155,6 +159,7 @@ struct UpdateAgentInput: Encodable {
         try c.encodeIfPresent(patch.sortOrder, forKey: .sortOrder)
         try c.encodeIfPresent(patch.skillIds, forKey: .skillIds)
         try c.encodeIfPresent(patch.mcpServerIds, forKey: .mcpServerIds)
+        if let voice = patch.voice, !voice.isEmpty { try c.encode(voice, forKey: .voice) }
     }
 }
 

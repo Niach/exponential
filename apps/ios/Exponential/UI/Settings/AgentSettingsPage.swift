@@ -8,7 +8,8 @@ import SwiftUI
 // (the board form's icon picker + colour swatch + name; the Assistant: its
 // brand mark + name), Runs on (Device, Account, Model, Skills, MCP servers),
 // Triggers (`AgentTriggersSection`: Check in, then the trigger list + Add),
-// Voice (the Assistant only), Instructions (team agents only; markdown,
+// Voice (#EXP-1847: every agent, `AgentVoiceSection`; the Assistant adds its
+// member rows), Instructions (team agents only; markdown,
 // server-only: `agents.get`) and Delete (team agents, owners, confirmed).
 // A team agent's members read; the Assistant is its member's.
 //
@@ -251,6 +252,8 @@ struct AgentSettingsPage: View {
     @State private var observation: Task<Void, Never>?
     @State private var showDelete = false
     @State private var deleting = false
+    /// #EXP-1847: the member's voice settings the Voice rows fall back to.
+    @State private var memberVoice: Voice.Settings?
 
     /// The machines an agent can live on: online with a runnable agent (the
     /// composer's pool), plus the one it is bound to whatever its state;
@@ -294,7 +297,9 @@ struct AgentSettingsPage: View {
                 teamId: teamId,
                 agentId: agentId,
                 skillIds: agent?.skillIds ?? [],
-                mcpServerIds: agent?.mcpServerIds ?? []
+                mcpServerIds: agent?.mcpServerIds ?? [],
+                agentVoice: agent?.voice ?? AgentVoice(),
+                memberVoice: memberVoice
             )
         }
         // EXP-1554: only a NEW agent has a submit; an existing one saves
@@ -359,7 +364,14 @@ struct AgentSettingsPage: View {
             return
         }
         observe(agentId: agentId)
+        async let member: Void = loadMemberVoice()
         await loadInstructions(retried: false)
+        await member
+    }
+
+    /// Quiet: unloaded reads the defaults (`agentVoiceOf`'s member).
+    private func loadMemberVoice() async {
+        memberVoice = try? await deps.voiceApi.get(accountId: accountId)
     }
 
     private func observe(agentId: String) {
@@ -506,6 +518,10 @@ struct AgentSettingsForm: View {
     var skillIds: [String] = []
     /// #EXP-1793: the MCP servers row (with the Skills row's ids).
     var mcpServerIds: [String] = []
+    /// #EXP-1847: the synced `agents.voice` and the member's voice settings
+    /// (the Voice rows' fallback; the Assistant's comes from `voice`).
+    var agentVoice = AgentVoice()
+    var memberVoice: Voice.Settings? = nil
     /// The team's MCP servers (`mcpServers.list`).
     @State private var mcpServers: [McpServerRow] = []
 
@@ -552,10 +568,21 @@ struct AgentSettingsForm: View {
                 AgentTriggersSection(agentId: agentId, editable: canEdit, teamId: teamId, list: draft.triggerList)
             }
 
-            // voice: the Assistant only, THE block without its Voice device +
-            // Agent pickers.
+            // voice (#EXP-1847): every existing agent's own rows; the
+            // Assistant's member rows (push to talk, wake word, meetings)
+            // follow, THE block without its pickers and agent rows.
+            if let agentId {
+                AgentVoiceSection(
+                    agentId: agentId,
+                    agentName: draft.name,
+                    role: assistant ? DomainContract.agentRoleAssistant : DomainContract.agentRoleAgent,
+                    voice: agentVoice,
+                    member: assistant ? voice?.settings : memberVoice,
+                    canEdit: canEdit
+                )
+            }
             if assistant, let voice {
-                VoiceSettingsBlock(model: voice, pickers: false, header: AgentSettings.AssistantCopy.voice)
+                VoiceSettingsBlock(model: voice, pickers: false, agentRows: false)
             }
 
             // instructions: team agents only (the Assistant's is built in).
