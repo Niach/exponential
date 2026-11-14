@@ -55,7 +55,7 @@ export const ASSISTANT_FAB_TEST_IDS = {
   minimize: `assistant-widget-minimize`,
 } as const
 
-export function AssistantFab({ team, teamSlug }: { team: Team | undefined; teamSlug: string }) {
+export function AssistantFab({ team, teamSlug }: { team: Team | null | undefined; teamSlug: string }) {
   const isMobile = useIsMobile()
   const { data: session } = useSession()
   const me = session?.user?.id ?? null
