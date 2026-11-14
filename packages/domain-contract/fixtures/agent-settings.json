@@ -364,7 +364,7 @@
     ]
   },
   "voice": {
-    "$comment": "#EXP-1847 phase a (owner 2026-11-14, plan approved: fall back to the member's voice device; the clip is UPLOADED as the agent's file; phases a→b→c→d). EVERY agent's page gets the `voice` section (agent-settings.json `page`, no longer Assistant-only): rows in order `rows` under header `copy.label`, the same Picker/input rows ×4. DATA: `agents.voice` (SYNCED jsonb, `{}` = the member's): `language` (etalk voice.json `languages`), `clipId` + `clipName` (an `attachments` row uploaded through POST `clipUpload.route` (multipart part `file`, `clipUpload.accept`, at most `clipUpload.maxBytes`; answers {clipId, clipName}; DELETE clears it), never swept while an agent names it), `transcript` (at most `limits.transcript`), `wakePhrase` (at most `limits.wakePhrase`; a non-empty phrase needs `limits.wakePhraseMinLetters` letters, voice.json `wakePhraseError`). Written with `agents.update {voice: {language?, transcript?, wakePhrase?}}` (a key set to null clears it); the clip only through the route. Editors as `page`: a team agent's owners, the Assistant's member. ROWS: `language` = THE single-select Picker row over voice.json `languages`, value = `agentVoiceOf(...).language`; `clip` = the row's value `agentVoiceOf(...).clipLabel` (`copy.clipBuiltIn` when none, in the row's usual value colour), a press opens the platform's file picker (accept `clipUpload.accept`) and uploads; a set clip offers `copy.clipRemove` (the row's ⋯ / trailing action); failures toast (`copy.errors`); `transcript` and `wakePhrase` = THE input rows (placeholder `copy.transcriptPlaceholder` / `copy.wakePhrasePlaceholder` with {agent} = the agent's name), saved on blur/enter, the wake phrase's error inline. THE ASSISTANT: these four rows REPLACE voice.json's Language / Voice file / Transcript / Wake phrase rows on its page; its member rows (push to talk, wake word on/off, meetings) stay below them, unchanged. RESOLUTION `agentVoiceOf({role, name, voice}, member)` (`voiceOfCases`; member = the member's voice.get settings): language = voice.language else member.language; clip = {attachmentId: clipId} when set, else for an Assistant a member `voiceFile` path {path}, else null (the built-in voice); clipLabel = clipName, else the path's last segment, else copy.clipBuiltIn; transcript = voice.transcript with a clip, the member's voiceTranscript with the path, else ''; wakePhrase = voice.wakePhrase when not blank, else an Assistant's member wakePhrase, else '' (the detector and the placeholder read `Hey {name}`). SPEAKING (phase a): the member's voice device speaks every reply and call of an agent with that agent's resolved voice (language, clip fetched once from /api/attachments/{clipId} into its cache, transcript); the Assistant's wake phrase is its resolved one. Calls still ring the member's voice device (phase b moves them to the agent's device, falling back to the voice device when that one cannot speak).",
+    "$comment": "#EXP-1847 phase a (owner 2026-11-14, plan approved: fall back to the member's voice device; the clip is UPLOADED as the agent's file; phases a→b→c→d). EVERY agent's page gets the `voice` section (agent-settings.json `page`, no longer Assistant-only): rows in order `rows` under header `copy.label`, the same Picker/input rows ×4. DATA: `agents.voice` (SYNCED jsonb, `{}` = the member's): `language` (etalk voice.json `languages`), `clipId` + `clipName` (an `attachments` row uploaded through POST `clipUpload.route` (multipart part `file`, `clipUpload.accept`, at most `clipUpload.maxBytes`; answers {clipId, clipName}; DELETE clears it), never swept while an agent names it), `transcript` (at most `limits.transcript`), `wakePhrase` (at most `limits.wakePhrase`; a non-empty phrase needs `limits.wakePhraseMinLetters` letters, voice.json `wakePhraseError`). Written with `agents.update {voice: {language?, transcript?, wakePhrase?}}` (a key set to null clears it); the clip only through the route. Editors as `page`: a team agent's owners, the Assistant's member. ROWS: `language` = THE single-select Picker row over voice.json `languages`, value = `agentVoiceOf(...).language`; `clip` = the row's value `agentVoiceOf(...).clipLabel` (`copy.clipBuiltIn` when none, in the row's usual value colour), a press opens the platform's file picker (accept `clipUpload.accept`) and uploads; a set clip offers `copy.clipRemove` (the row's ⋯ / trailing action); failures toast (`copy.errors`); `transcript` and `wakePhrase` = THE input rows (placeholder `copy.transcriptPlaceholder` / `copy.wakePhrasePlaceholder` with {agent} = the agent's name), saved on blur/enter, the wake phrase's error inline. THE ASSISTANT: these four rows REPLACE voice.json's Language / Voice file / Transcript / Wake phrase rows on its page; its member rows (push to talk, wake word on/off, meetings) stay below them, unchanged. RESOLUTION `agentVoiceOf({role, name, voice}, member)` (`voiceOfCases`; member = the member's voice.get settings): language = voice.language else member.language; clip = {attachmentId: clipId} when set, else for an Assistant a member `voiceFile` path {path}, else null (the built-in voice); clipLabel = clipName, else the path's last segment, else copy.clipBuiltIn; transcript = voice.transcript when set (with or without a clip, so a typed transcript reads back before its clip is uploaded), else the member's voiceTranscript with the path, else ''; wakePhrase = voice.wakePhrase when not blank, else an Assistant's member wakePhrase, else '' (the detector and the placeholder read `Hey {name}`). SPEAKING (phase a): the member's voice device speaks every reply and call of an agent with that agent's resolved voice (language, clip fetched once from /api/attachments/{clipId} into its cache, transcript); the Assistant's wake phrase is its resolved one. Calls still ring the member's voice device (phase b moves them to the agent's device, falling back to the voice device when that one cannot speak).",
     "rows": [
       "language",
       "clip",
@@ -402,6 +402,29 @@
       "wakePhraseMinLetters": 6
     },
     "voiceOfCases": [
+      {
+        "name": "a typed transcript reads back before its clip is uploaded",
+        "agent": {
+          "role": "agent",
+          "name": "Sloppy",
+          "voice": {
+            "transcript": "Hi, Sloppy here."
+          }
+        },
+        "member": {
+          "language": "en",
+          "voiceFile": "",
+          "voiceTranscript": "",
+          "wakePhrase": ""
+        },
+        "expected": {
+          "language": "en",
+          "clip": null,
+          "clipLabel": "Built-in",
+          "transcript": "Hi, Sloppy here.",
+          "wakePhrase": ""
+        }
+      },
       {
         "name": "a team agent without its own voice speaks the member language, built-in voice",
         "agent": {

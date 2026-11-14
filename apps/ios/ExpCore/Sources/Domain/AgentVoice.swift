@@ -161,12 +161,12 @@ extension AgentSettings {
                 language: language,
                 clip: .path(member.voiceFile),
                 clipLabel: last.isEmpty ? member.voiceFile : last,
-                transcript: member.voiceTranscript,
+                transcript: voice.transcript ?? member.voiceTranscript,
                 wakePhrase: wakePhrase
             )
         }
         return ResolvedVoice(
-            language: language, clip: nil, clipLabel: VoiceRows.Copy.clipBuiltIn, transcript: "", wakePhrase: wakePhrase
+            language: language, clip: nil, clipLabel: VoiceRows.Copy.clipBuiltIn, transcript: voice.transcript ?? "", wakePhrase: wakePhrase
         )
     }
 }

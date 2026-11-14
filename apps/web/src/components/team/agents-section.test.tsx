@@ -5,10 +5,12 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { SyncedAgent } from "@/components/team/agents-section"
 import type { Team } from "@/db/schema"
+import { VOICE_DEFAULTS } from "@exp/etalk/voice"
 
 const create = vi.hoisted(() => vi.fn())
 const update = vi.hoisted(() => vi.fn())
 const mcpList = vi.hoisted(() => vi.fn())
+const voiceGet = vi.hoisted(() => vi.fn())
 
 vi.mock(`@/lib/trpc-client`, () => ({
   trpc: {
@@ -19,7 +21,7 @@ vi.mock(`@/lib/trpc-client`, () => ({
       delete: { mutate: vi.fn() },
     },
     mcpServers: { list: { query: mcpList } },
-    voice: { get: { query: vi.fn(() => new Promise(() => {})) } },
+    voice: { get: { query: voiceGet }, update: { mutate: vi.fn() } },
   },
 }))
 vi.mock(`@/lib/collections`, () => ({
@@ -53,6 +55,8 @@ beforeEach(() => {
   update.mockReset()
   mcpList.mockReset()
   mcpList.mockResolvedValue([])
+  voiceGet.mockReset()
+  voiceGet.mockImplementation(() => new Promise(() => {}))
 })
 
 describe(`AgentSettingsPage (create)`, () => {
@@ -225,5 +229,120 @@ describe(`AgentSettingsPage Triggers (#EXP-1846)`, () => {
         expect.anything()
       )
     )
+  })
+})
+
+// #EXP-1847 (agent-settings.json `voice`): every agent's Voice section:
+// Language, Voice (clip), Transcript, Wake phrase over `agentVoiceOf`, the
+// member's voice settings as the fallback.
+describe(`AgentSettingsPage Voice (#EXP-1847)`, () => {
+  const MEMBER = {
+    ...VOICE_DEFAULTS,
+    language: `de`,
+    voiceFile: `/home/me/voices/me.wav`,
+    voiceTranscript: `Hallo, das bin ich.`,
+    wakePhrase: `Hey Jarvis`,
+    voiceDeviceId: `dev-1`,
+    agentId: `ag-1`,
+    desktopAudio: `off`,
+    desktopAudioApps: [],
+    meetingStartedAt: null,
+    meetingAutoStopHours: 4,
+  }
+  const agent = (role = `agent`, voice: Record<string, string> = {}) =>
+    ({
+      id: `ag-1`,
+      teamId: team.id,
+      name: `Sloppy`,
+      role,
+      icon: null,
+      color: null,
+      defaults: {},
+      triggers: [],
+      skillIds: [],
+      mcpServerIds: [],
+      voice,
+    }) as unknown as SyncedAgent
+  const row = (label: string) => screen.getByText(label).closest(`button`)!
+  const input = (id: string) => screen.getByTestId(id) as HTMLInputElement
+
+  beforeEach(() => {
+    voiceGet.mockResolvedValue(MEMBER)
+  })
+
+  it(`a team agent shows the four rows with the member's fallback`, async () => {
+    render(<AgentSettingsPage team={team} agent={agent()} isOwner />)
+    const section = await screen.findByTestId(`agent-voice`)
+    await within(section).findByText(`Language`)
+    expect(row(`Language`).textContent).toContain(`Deutsch`)
+    expect(screen.getByTestId(`agent-voice-clip`).textContent).toContain(`Built-in`)
+    expect(screen.queryByTestId(`agent-voice-clip-remove`)).toBeNull()
+    expect(input(`agent-voice-transcript`).value).toBe(``)
+    expect(input(`agent-voice-wake-phrase`).value).toBe(``)
+    expect(input(`agent-voice-wake-phrase`).placeholder).toBe(`Hey Sloppy`)
+  })
+
+  it(`a set clip reads its name and offers Remove clip`, async () => {
+    render(
+      <AgentSettingsPage
+        team={team}
+        agent={agent(`agent`, { clipId: `c-1`, clipName: `sloppy.wav`, transcript: `Hi, Sloppy here.` })}
+        isOwner
+      />
+    )
+    expect((await screen.findByTestId(`agent-voice-clip`)).textContent).toContain(`sloppy.wav`)
+    expect(screen.getByTestId(`agent-voice-clip-remove`)).toBeTruthy()
+    expect(input(`agent-voice-transcript`).value).toBe(`Hi, Sloppy here.`)
+  })
+
+  it(`a language pick sends agents.update {voice: {language}}`, async () => {
+    update.mockResolvedValue({ txid: 1 })
+    render(<AgentSettingsPage team={team} agent={agent()} isOwner />)
+    await screen.findByTestId(`agent-voice-clip`)
+    fireEvent.click(row(`Language`))
+    fireEvent.click(await screen.findByText(`English`))
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith({ id: `ag-1`, voice: { language: `en` } }, expect.anything())
+    )
+  })
+
+  it(`a too-short wake phrase shows the inline error and saves nothing`, async () => {
+    update.mockResolvedValue({ txid: 1 })
+    render(<AgentSettingsPage team={team} agent={agent()} isOwner />)
+    await screen.findByTestId(`agent-voice-wake-phrase`)
+    const field = input(`agent-voice-wake-phrase`)
+    fireEvent.change(field, { target: { value: `Hey` } })
+    fireEvent.blur(field)
+    expect((await screen.findByText(`The wake phrase needs at least 6 letters`)).textContent).toBeTruthy()
+    expect(update).not.toHaveBeenCalled()
+    fireEvent.change(field, { target: { value: `Hey Sloppy` } })
+    fireEvent.keyDown(field, { key: `Enter` })
+    fireEvent.blur(field)
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith({ id: `ag-1`, voice: { wakePhrase: `Hey Sloppy` } }, expect.anything())
+    )
+  })
+
+  it(`a member reads the rows disabled`, async () => {
+    render(<AgentSettingsPage team={team} agent={agent()} isOwner={false} />)
+    expect((await screen.findByTestId(`agent-voice-clip`)).hasAttribute(`disabled`)).toBe(true)
+    expect(row(`Language`).disabled).toBe(true)
+    expect(input(`agent-voice-wake-phrase`).readOnly).toBe(true)
+  })
+
+  it(`the Assistant's member block keeps its member rows, not Language / Voice file / Transcript / Wake phrase`, async () => {
+    render(<AgentSettingsPage team={team} agent={agent(`assistant`)} isOwner={false} />)
+    await screen.findByTestId(`agent-voice-clip`)
+    expect(screen.getAllByText(`Language`)).toHaveLength(1)
+    // The agent rows fall back to the member's file and phrase.
+    expect(screen.getByTestId(`agent-voice-clip`).textContent).toContain(`me.wav`)
+    expect(input(`agent-voice-wake-phrase`).value).toBe(`Hey Jarvis`)
+    expect(input(`agent-voice-transcript`).value).toBe(`Hallo, das bin ich.`)
+    expect(screen.queryByTestId(`settings-voice-file`)).toBeNull()
+    expect(screen.queryByTestId(`settings-voice-transcript`)).toBeNull()
+    expect(screen.queryByTestId(`settings-voice-wake-phrase`)).toBeNull()
+    // Its member rows stay: push to talk, wake word, meetings.
+    expect(screen.getByTestId(`settings-voice-shortcut`)).toBeTruthy()
+    expect(screen.getByText(`Wake word`)).toBeTruthy()
   })
 })

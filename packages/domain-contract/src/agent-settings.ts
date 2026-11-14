@@ -426,9 +426,9 @@ export function agentVoiceOf(
       language,
       clip: { path: member.voiceFile },
       clipLabel: segments[segments.length - 1] || member.voiceFile,
-      transcript: member.voiceTranscript,
+      transcript: voice.transcript ?? member.voiceTranscript,
       wakePhrase,
     }
   }
-  return { language, clip: null, clipLabel: AGENT_VOICE_COPY.clipBuiltIn, transcript: ``, wakePhrase }
+  return { language, clip: null, clipLabel: AGENT_VOICE_COPY.clipBuiltIn, transcript: voice.transcript ?? ``, wakePhrase }
 }
