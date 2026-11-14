@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-14-desktop-sessions-start-at-once`,
+    date: `2026-11-14`,
+    title: `Queued sessions start at once on the desktop`,
+    summary: `Desktop and CLI 0.14.159: a newly queued session starts right away even after a long sync backlog, typing ü through an X input method no longer crashes the app, a session nobody picked up now tells its parent, and CI runs no longer lose their runner.`,
+    body: `- **Sessions start at once**: the desktop app folds a long backlog of sync changes in one step, so a session you queue starts right away instead of after the backlog.
+- **No crash on ü**: typing an umlaut through an X input method on Linux no longer crashes the desktop app, and crash reports still arrive when the reporting tunnel refuses a connection.
+- **Not picked up**: when a device never starts a session's first turn, the session reads Not picked up and its parent hears about it.
+- **Recently touched issues**: app lists can show the issues you (or a teammate) touched within a time range.
+- **CI runs keep their runner**: the CLI runs CI job steps at idle priority while the daemon keeps normal priority, so long builds no longer end as runner lost, and the desktop Runs table shows when each run started.`,
+  },
+  {
     id: `2026-11-14-app-default-access`,
     date: `2026-11-14`,
     title: `Choose who can use each app`,
