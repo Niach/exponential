@@ -97,6 +97,8 @@ pub mod session_device;
 pub mod session_keys;
 pub mod sessions;
 pub mod settings_lock;
+/// #EXP-1832: the sidebar folders + order (`sidebarLayout.save` / `.rename`).
+pub mod sidebar_layout;
 pub mod skills;
 pub mod statuses;
 pub mod steer;

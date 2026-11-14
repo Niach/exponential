@@ -12,7 +12,15 @@ import SwiftUI
 /// EXP-1021: it IS the shared `BoardPicker` now (board glyph in the board's
 /// colour, plain rows, one sheet), host-DRIVEN because both entry points are
 /// a menu item rather than a chip the picker could wrap.
+///
+/// #EXP-1832 (sidebar-folders.json): the rows fold into the member's board
+/// folders, read-only (no drag, no editing), in the sidebar's order: boards
+/// by sortOrder, the placed ones first.
 struct MoveBoardPicker: View {
+    @Environment(AppDependencies.self) private var deps
+    @Environment(\.accountId) private var accountId
+    @State private var layout = SidebarLayoutModel()
+
     let boards: [BoardEntity]
     let selectedId: String
     let open: Binding<Bool>
@@ -22,9 +30,16 @@ struct MoveBoardPicker: View {
     var title: String = "Move to board"
     let onSelect: (BoardEntity) -> Void
 
+    private var teamId: String? { boards.first?.teamId }
+
+    /// The sidebar's default order: sortOrder, then name.
+    private var ordered: [BoardEntity] {
+        boards.sorted { ($0.sortOrder ?? 0, $0.name) < ($1.sortOrder ?? 0, $1.name) }
+    }
+
     var body: some View {
         BoardPicker(
-            boards: boards.map(BoardPickerBoard.init),
+            boards: ordered.map(BoardPickerBoard.init),
             value: selectedId,
             onChange: { picked in
                 guard let board = boards.first(where: { $0.id == picked }) else { return }
@@ -36,8 +51,15 @@ struct MoveBoardPicker: View {
             open: open,
             hideTrigger: true,
             onDismiss: onDismiss,
+            folders: teamId.map { BoardPickerFolders(teamId: $0, entries: layout.entries) },
             trigger: { EmptyView() }
         )
+        .onAppear { bindLayout() }
+        .onChange(of: teamId) { _, _ in bindLayout() }
+    }
+
+    private func bindLayout() {
+        layout.bind(accountId: accountId, teamId: teamId, section: "board", db: deps.db)
     }
 }
 

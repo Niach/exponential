@@ -16758,6 +16758,56 @@
       }
     ]
   },
+  "List\/reorderable=false" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "List",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "list"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "list_child"
+      }
+    ]
+  },
+  "List\/reorderable=true" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "List",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "list"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "list_child"
+      }
+    ]
+  },
   "List\/stickyHeaders=false" : {
     "height" : 20,
     "nodes" : [

@@ -1721,6 +1721,39 @@ impl Surface {
         })
     }
 
+    /// EXP-1832: one drag input on a `reorderable` List. `input_json` =
+    /// `{"phase": "start"|"move"|"end", x, y}` (the pointer in the layout's
+    /// UNSCROLLED frame space) or `{"phase": "cancel"}`. The host decides when a drag
+    /// STARTS (a pointer past `tabDragThreshold`, a touch after
+    /// `tabLongPressMs`) and sends `start` on the pressed node (any node
+    /// inside a row; see [`Self::list_reorder_row`]); `end` fires the List's
+    /// `move {id, before | after | into}` when the drop has a slot; Esc =
+    /// `cancel`. Repaint from [`Self::list_drag_paint`] after every call.
+    pub fn list_drag(&self, index: u32, input_json: String) -> Result<Vec<FfiEvent>, UiError> {
+        self.guarded("list_drag", || {
+            let input = parse::<eui_core::surface::ListDragInput>(&input_json)?;
+            Ok(events(self.core().list_drag(index, &input)))
+        })
+    }
+
+    /// EXP-1832: the row slot of the reorderable List row node `index` sits
+    /// in (None = no reorderable row: no drag starts there).
+    pub fn list_reorder_row(&self, index: u32) -> Option<u32> {
+        self.shield("list_reorder_row", || None, || self.core().list_reorder_row(index).map(|(_, row)| row))
+    }
+
+    /// EXP-1832: whether a List drag is live (swallow the release's press,
+    /// take Esc).
+    pub fn list_dragging(&self) -> bool {
+        self.shield("list_dragging", || false, || self.core().list_dragging())
+    }
+
+    /// EXP-1832: what to paint for the live List drag (empty = none): see
+    /// [`FfiListDragPaint`] and [`list_drag_style`].
+    pub fn list_drag_paint(&self) -> Vec<FfiListDragPaint> {
+        self.shield("list_drag_paint", || Vec::new(), || self.core().list_drag_paint().into_iter().map(list_drag_paint).collect())
+    }
+
     /// VAPP-162: whether a `hold` Button is held now.
     pub fn is_held(&self, id: String) -> bool {
         self.shield("is_held", || false, || self.core().is_held(&id))
@@ -3566,4 +3599,79 @@ mod zone_tests {
         assert_eq!(wall_minus_utc_minutes("2026-11-12 07:15", at), Some(345));
         assert_eq!(wall_minus_utc_minutes("١٢ نوفمبر", at), None);
     }
+}
+
+/// EXP-1832: one live List drag to paint (frames in the layout's space,
+/// each `index` = the slot it belongs to). Paint the `row` at `dim`
+/// opacity, the row again at `lift` (popover colour, radius `$radius.md`,
+/// the overlay shadow, `lift_opacity`), and for a drop: `line` (2px primary,
+/// radius 1) + `ring` (a circle: primary stroke `line` wide, background
+/// fill) for before / after, `into` (inset primary ring + the primary at
+/// `into_fill`, radius `$radius.md`) for into. No drop = nothing drawn.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct FfiListDragPaint {
+    pub list: String,
+    pub list_index: u32,
+    pub key: String,
+    pub row: u32,
+    pub lift: FfiFrame,
+    /// The drop's row key and position (`before` | `after` | `into`).
+    pub drop_key: Option<String>,
+    pub drop_position: Option<String>,
+    pub drop_row: Option<u32>,
+    pub line: Option<FfiFrame>,
+    pub ring: Option<FfiFrame>,
+    pub into: Option<FfiFrame>,
+}
+
+/// EXP-1832: the drag paint's fixed numbers (fixtures/list-reorder.json).
+#[derive(Debug, Clone, Copy, uniffi::Record)]
+pub struct FfiListDragStyle {
+    pub dim: f32,
+    pub line: f32,
+    pub ring: f32,
+    pub lift_offset: f32,
+    pub lift_opacity: f32,
+    pub into_fill: f32,
+}
+
+fn list_drag_paint(p: eui_core::surface::ListDragPaint) -> FfiListDragPaint {
+    let rect = |f: eui_core::surface::Frame, index: u32| FfiFrame { index, x: f.x, y: f.y, w: f.w, h: f.h };
+    let at = p.drop_row.unwrap_or(p.row);
+    FfiListDragPaint {
+        list: p.list,
+        list_index: p.list_index,
+        key: p.key,
+        row: p.row,
+        lift: rect(p.lift, p.row),
+        drop_key: p.drop.as_ref().map(|d| d.key.clone()),
+        drop_position: p.drop.as_ref().map(|d| d.position.as_str().to_string()),
+        drop_row: p.drop_row,
+        line: p.line.map(|f| rect(f, at)),
+        ring: p.ring.map(|f| rect(f, at)),
+        into: p.into.map(|f| rect(f, at)),
+    }
+}
+
+/// EXP-1832: the List drag paint's numbers.
+#[uniffi::export]
+pub fn list_drag_style() -> FfiListDragStyle {
+    use eui_core::list_reorder::*;
+    FfiListDragStyle { dim: LIST_DRAG_DIM, line: LIST_DROP_LINE, ring: LIST_DROP_RING, lift_offset: LIST_LIFT_OFFSET, lift_opacity: LIST_LIFT_OPACITY, into_fill: LIST_INTO_FILL }
+}
+
+/// EXP-1832 (fixtures/list-reorder.json): the pure drop rule, for a
+/// painter's own tests: `request_json` = `{rows, drag, at, maxDepth}`;
+/// answers the drop (`{key, position}`) or `null`.
+#[uniffi::export]
+pub fn list_drop_slot_json(request_json: String) -> Result<String, UiError> {
+    guarded("list_drop_slot_json", || {
+        let r: Value = parse(&request_json)?;
+        let rows: Vec<eui_core::list_reorder::ListReorderRow> = serde_json::from_value(r.get("rows").cloned().unwrap_or(Value::Null)).map_err(invalid)?;
+        let drag = r.get("drag").and_then(Value::as_str).unwrap_or("");
+        let at = r.get("at").and_then(Value::as_f64).unwrap_or(0.0) as f32;
+        let max_depth = r.get("maxDepth").and_then(Value::as_f64).unwrap_or(1.0);
+        let drop = eui_core::list_reorder::list_drop_slot(&rows, drag, at, max_depth);
+        serde_json::to_string(&drop).map_err(invalid)
+    })
 }

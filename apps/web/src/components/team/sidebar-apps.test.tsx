@@ -30,6 +30,18 @@ vi.mock(`@tanstack/react-router`, () => ({
   ),
 }))
 vi.mock(`@/components/apps/apps-new-menu`, () => ({ AppsNewMenu: () => null }))
+// #EXP-1832: no synced layout = the default order, every row at the top.
+vi.mock(`@/hooks/use-sidebar-folders`, () => ({
+  useSidebarFolders: (_teamId: string, _section: string, ids: readonly string[]) => ({
+    rows: ids.map((id) => ({ kind: `item`, id, depth: 0, group: false, name: null, open: false, count: 0 })),
+    editingId: null,
+    setEditingId: () => {},
+    move: () => {},
+    toggle: () => {},
+    rename: () => {},
+    ungroup: () => {},
+  }),
+}))
 
 import { SidebarAppsSection } from "@/components/team/sidebar-apps"
 

@@ -57,12 +57,13 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
 const PREVIOUS_289: ChangelogEntry = ChangelogEntry {
-    id: "2026-11-14-desktop-agent-picks-stick",
+    id: "2026-11-14-sidebar-folders",
     date: "2026-11-14",
-    title: "Agent Skills and MCP server picks stick on the desktop",
-    summary: "Desktop and CLI 0.14.160: the Skills, MCP servers and account you pick for an agent stay picked, and your desktop or CLI device can take the screenshots an app's agent asks for.",
-    body: r##"- **Picks stick**: in an agent's settings on the desktop app, opening or closing the Skills, MCP servers or account list no longer clears what you picked, and model and effort picks behave the same way.
-- **App screenshots on your device**: on Linux and Apple silicon, the desktop app and the CLI paint the app screens an agent asks to see, so it can check a screen and show it to you."##,
+    title: "Sidebar folders",
+    summary: "Drag boards, agents and apps to reorder them. Drop one onto another to make a folder; your layout follows you to your phone.",
+    body: r##"- **Reorder**: on the desktop app and wide web, drag a board, agent or app; a line shows where it lands.
+- **Folders**: drop a row onto another and both move into a new folder, named in place (Enter saves, Esc keeps "New folder"); drop onto a folder to move in. Right-click a folder to rename or ungroup it. Folders open and close, and each device remembers which ones you folded.
+- **Phones**: the board pickers and the Apps list show your folders."##,
 };
 
 /// An earlier head entry, kept so the mirror's history reads in place.

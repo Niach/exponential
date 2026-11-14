@@ -3567,6 +3567,36 @@ public protocol SurfaceProtocol: AnyObject, Sendable {
      */
     func layoutFixed(sizesJson: String?, wrap: Bool) throws  -> FfiLayout
     
+    /**
+     * EXP-1832: one drag input on a `reorderable` List. `input_json` =
+     * `{"phase": "start"|"move"|"end", x, y}` (the pointer in the layout's
+     * UNSCROLLED frame space) or `{"phase": "cancel"}`. The host decides when a drag
+     * STARTS (a pointer past `tabDragThreshold`, a touch after
+     * `tabLongPressMs`) and sends `start` on the pressed node (any node
+     * inside a row; see [`Self::list_reorder_row`]); `end` fires the List's
+     * `move {id, before | after | into}` when the drop has a slot; Esc =
+     * `cancel`. Repaint from [`Self::list_drag_paint`] after every call.
+     */
+    func listDrag(index: UInt32, inputJson: String) throws  -> [FfiEvent]
+    
+    /**
+     * EXP-1832: what to paint for the live List drag (empty = none): see
+     * [`FfiListDragPaint`] and [`list_drag_style`].
+     */
+    func listDragPaint()  -> [FfiListDragPaint]
+    
+    /**
+     * EXP-1832: whether a List drag is live (swallow the release's press,
+     * take Esc).
+     */
+    func listDragging()  -> Bool
+    
+    /**
+     * EXP-1832: the row slot of the reorderable List row node `index` sits
+     * in (None = no reorderable row: no drag starts there).
+     */
+    func listReorderRow(index: UInt32)  -> UInt32?
+    
     func markDirty(index: UInt32)  -> Bool
     
     /**
@@ -4140,6 +4170,67 @@ open func layoutFixed(sizesJson: String?, wrap: Bool)throws  -> FfiLayout  {
             self.uniffiCloneHandle(),
         FfiConverterOptionString.lower(sizesJson),
         FfiConverterBool.lower(wrap),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * EXP-1832: one drag input on a `reorderable` List. `input_json` =
+     * `{"phase": "start"|"move"|"end", x, y}` (the pointer in the layout's
+     * UNSCROLLED frame space) or `{"phase": "cancel"}`. The host decides when a drag
+     * STARTS (a pointer past `tabDragThreshold`, a touch after
+     * `tabLongPressMs`) and sends `start` on the pressed node (any node
+     * inside a row; see [`Self::list_reorder_row`]); `end` fires the List's
+     * `move {id, before | after | into}` when the drop has a slot; Esc =
+     * `cancel`. Repaint from [`Self::list_drag_paint`] after every call.
+     */
+open func listDrag(index: UInt32, inputJson: String)throws  -> [FfiEvent]  {
+    return try  FfiConverterSequenceTypeFfiEvent.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_method_surface_list_drag(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt32.lower(index),
+        FfiConverterString.lower(inputJson),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * EXP-1832: what to paint for the live List drag (empty = none): see
+     * [`FfiListDragPaint`] and [`list_drag_style`].
+     */
+open func listDragPaint() -> [FfiListDragPaint]  {
+    return try!  FfiConverterSequenceTypeFfiListDragPaint.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_method_surface_list_drag_paint(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * EXP-1832: whether a List drag is live (swallow the release's press,
+     * take Esc).
+     */
+open func listDragging() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_method_surface_list_dragging(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * EXP-1832: the row slot of the reorderable List row node `index` sits
+     * in (None = no reorderable row: no drag starts there).
+     */
+open func listReorderRow(index: UInt32) -> UInt32?  {
+    return try!  FfiConverterOptionUInt32.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_method_surface_list_reorder_row(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt32.lower(index),uniffiCallStatus
     )
 })
 }
@@ -6205,6 +6296,184 @@ public func FfiConverterTypeFfiList_lift(_ buf: RustBuffer) throws -> FfiList {
 #endif
 public func FfiConverterTypeFfiList_lower(_ value: FfiList) -> RustBuffer {
     return FfiConverterTypeFfiList.lower(value)
+}
+
+
+/**
+ * EXP-1832: one live List drag to paint (frames in the layout's space,
+ * each `index` = the slot it belongs to). Paint the `row` at `dim`
+ * opacity, the row again at `lift` (popover colour, radius `$radius.md`,
+ * the overlay shadow, `lift_opacity`), and for a drop: `line` (2px primary,
+ * radius 1) + `ring` (a circle: primary stroke `line` wide, background
+ * fill) for before / after, `into` (inset primary ring + the primary at
+ * `into_fill`, radius `$radius.md`) for into. No drop = nothing drawn.
+ */
+public struct FfiListDragPaint: Equatable, Hashable {
+    public var list: String
+    public var listIndex: UInt32
+    public var key: String
+    public var row: UInt32
+    public var lift: FfiFrame
+    /**
+     * The drop's row key and position (`before` | `after` | `into`).
+     */
+    public var dropKey: String?
+    public var dropPosition: String?
+    public var dropRow: UInt32?
+    public var line: FfiFrame?
+    public var ring: FfiFrame?
+    public var into: FfiFrame?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(list: String, listIndex: UInt32, key: String, row: UInt32, lift: FfiFrame, 
+        /**
+         * The drop's row key and position (`before` | `after` | `into`).
+         */dropKey: String?, dropPosition: String?, dropRow: UInt32?, line: FfiFrame?, ring: FfiFrame?, into: FfiFrame?) {
+        self.list = list
+        self.listIndex = listIndex
+        self.key = key
+        self.row = row
+        self.lift = lift
+        self.dropKey = dropKey
+        self.dropPosition = dropPosition
+        self.dropRow = dropRow
+        self.line = line
+        self.ring = ring
+        self.into = into
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiListDragPaint: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiListDragPaint: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiListDragPaint {
+        return
+            try FfiListDragPaint(
+                list: FfiConverterString.read(from: &buf), 
+                listIndex: FfiConverterUInt32.read(from: &buf), 
+                key: FfiConverterString.read(from: &buf), 
+                row: FfiConverterUInt32.read(from: &buf), 
+                lift: FfiConverterTypeFfiFrame.read(from: &buf), 
+                dropKey: FfiConverterOptionString.read(from: &buf), 
+                dropPosition: FfiConverterOptionString.read(from: &buf), 
+                dropRow: FfiConverterOptionUInt32.read(from: &buf), 
+                line: FfiConverterOptionTypeFfiFrame.read(from: &buf), 
+                ring: FfiConverterOptionTypeFfiFrame.read(from: &buf), 
+                into: FfiConverterOptionTypeFfiFrame.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiListDragPaint, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.list, into: &buf)
+        FfiConverterUInt32.write(value.listIndex, into: &buf)
+        FfiConverterString.write(value.key, into: &buf)
+        FfiConverterUInt32.write(value.row, into: &buf)
+        FfiConverterTypeFfiFrame.write(value.lift, into: &buf)
+        FfiConverterOptionString.write(value.dropKey, into: &buf)
+        FfiConverterOptionString.write(value.dropPosition, into: &buf)
+        FfiConverterOptionUInt32.write(value.dropRow, into: &buf)
+        FfiConverterOptionTypeFfiFrame.write(value.line, into: &buf)
+        FfiConverterOptionTypeFfiFrame.write(value.ring, into: &buf)
+        FfiConverterOptionTypeFfiFrame.write(value.into, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiListDragPaint_lift(_ buf: RustBuffer) throws -> FfiListDragPaint {
+    return try FfiConverterTypeFfiListDragPaint.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiListDragPaint_lower(_ value: FfiListDragPaint) -> RustBuffer {
+    return FfiConverterTypeFfiListDragPaint.lower(value)
+}
+
+
+/**
+ * EXP-1832: the drag paint's fixed numbers (fixtures/list-reorder.json).
+ */
+public struct FfiListDragStyle: Equatable, Hashable {
+    public var dim: Float
+    public var line: Float
+    public var ring: Float
+    public var liftOffset: Float
+    public var liftOpacity: Float
+    public var intoFill: Float
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(dim: Float, line: Float, ring: Float, liftOffset: Float, liftOpacity: Float, intoFill: Float) {
+        self.dim = dim
+        self.line = line
+        self.ring = ring
+        self.liftOffset = liftOffset
+        self.liftOpacity = liftOpacity
+        self.intoFill = intoFill
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiListDragStyle: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiListDragStyle: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiListDragStyle {
+        return
+            try FfiListDragStyle(
+                dim: FfiConverterFloat.read(from: &buf), 
+                line: FfiConverterFloat.read(from: &buf), 
+                ring: FfiConverterFloat.read(from: &buf), 
+                liftOffset: FfiConverterFloat.read(from: &buf), 
+                liftOpacity: FfiConverterFloat.read(from: &buf), 
+                intoFill: FfiConverterFloat.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiListDragStyle, into buf: inout [UInt8]) {
+        FfiConverterFloat.write(value.dim, into: &buf)
+        FfiConverterFloat.write(value.line, into: &buf)
+        FfiConverterFloat.write(value.ring, into: &buf)
+        FfiConverterFloat.write(value.liftOffset, into: &buf)
+        FfiConverterFloat.write(value.liftOpacity, into: &buf)
+        FfiConverterFloat.write(value.intoFill, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiListDragStyle_lift(_ buf: RustBuffer) throws -> FfiListDragStyle {
+    return try FfiConverterTypeFfiListDragStyle.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiListDragStyle_lower(_ value: FfiListDragStyle) -> RustBuffer {
+    return FfiConverterTypeFfiListDragStyle.lower(value)
 }
 
 
@@ -8340,6 +8609,31 @@ fileprivate struct FfiConverterSequenceTypeFfiList: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeFfiListDragPaint: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiListDragPaint]
+
+    public static func write(_ value: [FfiListDragPaint], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiListDragPaint.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiListDragPaint] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiListDragPaint]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiListDragPaint.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeFfiNode: FfiConverterRustBuffer {
     typealias SwiftType = [FfiNode]
 
@@ -9011,6 +9305,29 @@ public func jsonEqual(a: String, b: String) -> Bool  {
     uniffi_exponential_ui_ffi_fn_func_json_equal(
         FfiConverterString.lower(a),
         FfiConverterString.lower(b),uniffiCallStatus
+    )
+})
+}
+/**
+ * EXP-1832: the List drag paint's numbers.
+ */
+public func listDragStyle() -> FfiListDragStyle  {
+    return try!  FfiConverterTypeFfiListDragStyle_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_func_list_drag_style(uniffiCallStatus
+    )
+})
+}
+/**
+ * EXP-1832 (fixtures/list-reorder.json): the pure drop rule, for a
+ * painter's own tests: `request_json` = `{rows, drag, at, maxDepth}`;
+ * answers the drop (`{key, position}`) or `null`.
+ */
+public func listDropSlotJson(requestJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_func_list_drop_slot_json(
+        FfiConverterString.lower(requestJson),uniffiCallStatus
     )
 })
 }
@@ -10046,6 +10363,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_json_equal() != 18840) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_func_list_drag_style() != 24699) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_list_drop_slot_json() != 57316) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_func_list_json() != 48366) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -10425,6 +10748,18 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_layout_fixed() != 15728) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_list_drag() != 56563) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_list_drag_paint() != 22629) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_list_dragging() != 49372) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_list_reorder_row() != 17511) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_mark_dirty() != 15768) {

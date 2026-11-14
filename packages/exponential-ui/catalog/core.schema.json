@@ -724,6 +724,16 @@
           "description": "Pins the current header.",
           "default": false
         },
+        "reorderable": {
+          "type": "boolean",
+          "description": "Rows drag to reorder (vertical); fires `move` {id, before|after|into}.",
+          "default": false
+        },
+        "maxDepth": {
+          "type": "number",
+          "description": "With `reorderable`: nesting levels; 2 = a row dropped on a row nests. Items: `depth`, `group`.",
+          "default": 1
+        },
         "style": {
           "$ref": "#/$defs/Style",
           "description": "Extra Box styles for the list frame."
@@ -733,6 +743,9 @@
         },
         "slots": {
           "$ref": "#/$defs/Slots_List"
+        },
+        "on": {
+          "$ref": "#/$defs/On_List"
         },
         "visible": {
           "$ref": "common_types.json#/$defs/DynamicBoolean"
@@ -751,7 +764,10 @@
             "slots": [
               "section"
             ],
-            "slotScope": "row"
+            "slotScope": "row",
+            "events": [
+              "move"
+            ]
           }
         }
       }
@@ -27753,6 +27769,15 @@
       "properties": {
         "section": {
           "$ref": "common_types.json#/$defs/ComponentId"
+        }
+      },
+      "additionalProperties": false
+    },
+    "On_List": {
+      "type": "object",
+      "properties": {
+        "move": {
+          "$ref": "#/$defs/EuiAction"
         }
       },
       "additionalProperties": false
