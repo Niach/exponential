@@ -4,8 +4,8 @@
 // `WINDOW_THRESHOLD` (50, the catalog's) items it windows on its axis.
 
 import { For, Show, createEffect, createMemo, onCleanup, untrack, useContext, type Accessor, type JSX } from "solid-js"
-import { foldKey, listSections, sectionRows, WINDOW_THRESHOLD as CATALOG_WINDOW_THRESHOLD, type ListSection, type UiNode } from "@exponential_app/eui"
-import { getPointer, isKeyRecorderField, isPickerPick, keyRecorderKeyPayload, keyRecorderMousePayload, LITERAL_ROWS_ROOT, setPointer, treeKeyTarget } from "@exponential_app/eui/web"
+import { foldKey, listSections, sectionRows, TREE_GUIDE_COLUMN, WINDOW_THRESHOLD as CATALOG_WINDOW_THRESHOLD, type ListSection, type UiNode } from "@exponential_app/eui"
+import { getPointer, isKeyRecorderField, isPickerPick, keyRecorderKeyPayload, keyRecorderMousePayload, listReorderRows, listReorderStart, LITERAL_ROWS_ROOT, REORDER_DEPTH_ATTR, REORDER_GROUP_ATTR, REORDER_INDENT_ATTR, REORDER_KEY_ATTR, setPointer, startListDrag, treeKeyTarget } from "@exponential_app/eui/web"
 import { InstanceContext, ScopeContext, SurfaceContext, deriveContext, useInstance, useSurfaceContext } from "../context"
 import { ClosePickerContext } from "../form"
 import { WindowedList, type WindowedListHandle } from "../list"
@@ -184,9 +184,30 @@ export function ListNative(props: NativeProps): JSX.Element {
   // Round 3: a Section body with `tree` asks for role `tree`.
   const listRole = () => ((props.rootProps as Record<string, unknown>).role === `tree` ? `tree` : `list`)
   const itemRole = () => (listRole() === `tree` ? `treeitem` : `listitem`)
+  // EXP-1832 (fixtures/list-reorder.json, React's): a vertical
+  // `reorderable` List's items carry the web controller's DOM contract.
+  const reorderable = () => bool(props.props.reorderable) && !horizontal()
+  const reorderAttrs = (item: number): Record<string, unknown> => {
+    const cc = childCount()
+    if (item < cc) return { [REORDER_KEY_ATTR]: props.node.children[item].id, [REORDER_DEPTH_ATTR]: 0, [REORDER_INDENT_ATTR]: 0 }
+    const it = tpl()!.items[item - cc]
+    const data = getPointer(ctx.data, it.path) as Record<string, unknown> | undefined
+    const depth = Math.max(0, Math.floor(num(data?.depth, 0)))
+    return { [REORDER_KEY_ATTR]: it.key, [REORDER_DEPTH_ATTR]: depth, [REORDER_GROUP_ATTR]: data?.group === true ? `true` : undefined, [REORDER_INDENT_ATTR]: depth * TREE_GUIDE_COLUMN }
+  }
   const itemAttrs = (r: number): Record<string, unknown> => {
     const row = rows()[r]
-    return `item` in row ? { role: itemRole(), "aria-setsize": itemCount(), "aria-posinset": row.item + 1 } : { role: itemRole() }
+    return `item` in row ? { role: itemRole(), "aria-setsize": itemCount(), "aria-posinset": row.item + 1, ...(reorderable() ? reorderAttrs(row.item) : {}) } : { role: itemRole() }
+  }
+  // A press on one of this list's own rows (never inside a field) may
+  // become the drag; the drop fires `move` {id, before | after | into}.
+  const onPointerDown = (e: PointerEvent & { currentTarget: HTMLDivElement }) => {
+    if (!untrack(reorderable)) return
+    const root = e.currentTarget
+    const start = listReorderStart(root, e.target)
+    if (!start) return
+    const maxDepth = Math.max(1, Math.floor(num(untrack(() => props.props.maxDepth), 1)))
+    startListDrag(e, start.key, { rows: () => listReorderRows(root), maxDepth }, { move: (context) => void props.emit(`move`, context) })
   }
   const divider = (r: number) => {
     const before = dividerBefore(r)
@@ -200,7 +221,7 @@ export function ListNative(props: NativeProps): JSX.Element {
     <Show
       when={windowed()}
       fallback={
-        <div ref={rootEl} {...props.rootProps} style={style()} role={listRole()}>
+        <div ref={rootEl} {...props.rootProps} style={style()} role={listRole()} onPointerDown={onPointerDown}>
           <For each={flatKeys()}>
             {(key) => {
               const r = createMemo<number>((prev) => flatIndex().get(key) ?? prev!)
@@ -220,7 +241,7 @@ export function ListNative(props: NativeProps): JSX.Element {
         </div>
       }
     >
-      <div ref={rootEl} {...props.rootProps} style={style()} role={listRole()}>
+      <div ref={rootEl} {...props.rootProps} style={style()} role={listRole()} onPointerDown={onPointerDown}>
         <WindowedList
           ref={(h) => (windowHandle = h)}
           count={rows().length}

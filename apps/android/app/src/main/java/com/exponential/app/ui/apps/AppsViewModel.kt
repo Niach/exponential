@@ -149,6 +149,9 @@ class AppsViewModel @Inject constructor(
 
     val me: StateFlow<String?> = auth.userId
 
+    /** #EXP-1832: the selected team (the member's app folders are per team). */
+    val teamId: StateFlow<String?> = selection.selectedId
+
     val isOwner: StateFlow<Boolean> = dbFlow.isOwnerOf(selection.selectedId, auth.userId)
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
