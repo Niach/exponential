@@ -118,12 +118,19 @@ export function startListDrag(e: PointerEvent, key: string, source: ListDragSour
       boxShadow: `0 8px 24px rgb(0 0 0 / 0.35)`,
       background: `var(--xui-color-popover, var(--popover, #27272a))`,
     } satisfies Partial<CSSStyleDeclaration>)
-    document.body.appendChild(ghost)
+    // Inside the row's genUI surface: its scoped theme (the `--xui-*`
+    // colours, the font, the recipe classes) paints the copy and the drop;
+    // under <body> neither would resolve. A host list outside a surface
+    // (the app's sidebar) passes a resolvable `color`.
+    const layer = dragged.closest(`.xui-surface`) ?? document.body
+    layer.appendChild(ghost)
     const indicator = document.createElement(`div`)
     indicator.setAttribute(`aria-hidden`, `true`)
     indicator.setAttribute(`data-reorder-indicator`, ``)
     Object.assign(indicator.style, { position: `fixed`, pointerEvents: `none`, zIndex: `2147482999`, display: `none` })
-    document.body.appendChild(indicator)
+    layer.appendChild(indicator)
+    // A press-and-drag would select the rows' text.
+    window.getSelection()?.removeAllRanges()
     dragged.style.opacity = String(LIST_DRAG_DIM)
     drag = { els, rows: els.map(rowOf), dragged, ghost, indicator, offsetY: startY - rect.top, drop: null }
     on.state?.({ key, drop: null })
@@ -202,6 +209,7 @@ export function startListDrag(e: PointerEvent, key: string, source: ListDragSour
     window.removeEventListener(`pointerup`, up)
     window.removeEventListener(`pointercancel`, up)
     window.removeEventListener(`keydown`, keydown, true)
+    document.removeEventListener(`selectstart`, swallow, true)
     const d = drag
     drag = null
     if (!d) return
@@ -224,6 +232,7 @@ export function startListDrag(e: PointerEvent, key: string, source: ListDragSour
   window.addEventListener(`pointerup`, up)
   window.addEventListener(`pointercancel`, up)
   window.addEventListener(`keydown`, keydown, true)
+  document.addEventListener(`selectstart`, swallow, true)
 }
 
 function swallow(e: Event) {

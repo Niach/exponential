@@ -74,6 +74,8 @@ describe(`fixtures/list-reorder.json dropSlot (React)`, () => {
       pointer(el(c.drag)!.querySelector(`[data-xui-c="Text"]`) ?? el(c.drag)!, `pointerdown`, 10, y)
       pointer(window, `pointermove`, 40, c.at)
       expect(el(c.drag)!.style.opacity).toBe(`0.4`)
+      // The lifted copy and the drop paint inside the surface: its scoped theme resolves their colours.
+      if (c.move) expect(document.querySelector(`[data-reorder-indicator]`)?.closest(`.xui-surface`)).not.toBeNull()
       pointer(window, `pointerup`, 40, c.at)
       expect(el(c.drag)!.style.opacity).toBe(``)
       expect(document.querySelector(`[data-reorder-indicator]`)).toBeNull()
