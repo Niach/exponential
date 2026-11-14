@@ -271,4 +271,25 @@ object TranscriptGrouping {
      *  `fold.chars` characters or `fold.lines` lines folds behind Show more. */
     fun messageFolds(text: String): Boolean =
         text.length > Fold.CHARS || text.split("\n").size > Fold.LINES
+
+    /** #EXP-1864 `notices`: an Exponential tool row drawn as THE inline marker
+     *  (its own line, never a trace beside the avatar), by contract row. */
+    val NOTICES: Map<String, String> = linkedMapOf(
+        "session_self_quiet" to "Ended turn quietly",
+    )
+
+    /** #EXP-1864 (`noticeCases`): the marker label a tool call draws instead
+     *  of its trace line, else null. The name must END in the contract prefix
+     *  + the row, whatever namespace sits before it ([ExpToolDisplay.row]'s match). */
+    fun traceNotice(toolName: String?): String? {
+        val name = toolName?.trim().orEmpty()
+        for ((row, label) in NOTICES) {
+            if (name.length > row.length && name.endsWith(row) &&
+                name.dropLast(row.length).endsWith(DomainContract.expToolPrefix)
+            ) {
+                return label
+            }
+        }
+        return null
+    }
 }
