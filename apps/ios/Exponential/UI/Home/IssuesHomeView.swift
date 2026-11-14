@@ -130,6 +130,12 @@ struct IssuesHomeView: View {
         .pageHeader(currentBoardName ?? Chats.Copy.Tabs.board)
         // A board picked in the board menu starts on All issues.
         .onChange(of: currentBoard) { _, _ in chip = .all }
+        // #EXP-1830: a My issues widget's header lands on the chip.
+        .onChange(of: deps.deepLinkBus.pendingMyIssues, initial: true) { _, pending in
+            guard pending else { return }
+            deps.deepLinkBus.pendingMyIssues = false
+            chip = .mine
+        }
         .sheet(item: $createTarget) { target in
             CreateBoardSheet(
                 accountId: target.accountId,
