@@ -235,6 +235,9 @@ fun IssueListScreen(
     selectedTeamId: String? = null,
     /** Session 58cb32df: a Drafts chip row reopens the New issue page. */
     onOpenDraft: (boardId: String, draftId: String) -> Unit = { _, _ -> },
+    /** #EXP-1830: a My issues widget asked for the My issues chip (Root mount). */
+    pendingMyIssues: Boolean = false,
+    onMyIssuesShown: () -> Unit = {},
     viewModel: IssueListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -351,6 +354,13 @@ fun IssueListScreen(
     val drafts = draftsViewModel?.drafts?.collectAsStateWithLifecycle()?.value.orEmpty()
     // The Drafts chip leaves with the last draft: its pick falls back.
     if (boardChip == BOARD_CHIP_DRAFTS && drafts.isEmpty()) boardChip = BOARD_CHIP_ALL
+    // #EXP-1830: the My issues widget's header lands on the My issues chip.
+    LaunchedEffect(pendingMyIssues) {
+        if (pendingMyIssues && mode == IssueListMode.Root) {
+            boardChip = BOARD_CHIP_MINE
+            onMyIssuesShown()
+        }
+    }
 
     Scaffold(containerColor = Color.Transparent) { padding ->
         Box(modifier = Modifier.padding(padding).fillMaxSize()) {

@@ -375,7 +375,12 @@ pub fn refresh_device_advertisement(cx: &mut App) {
 /// shared with the CLI daemon. They used to be hand-synced copies, and a
 /// one-sided edit silently made one host un-targetable for the new feature.
 fn device_caps(advertisement: &coding::AgentAdvertisement) -> Vec<String> {
-    coding::device_caps(advertisement)
+    let mut caps = coding::device_caps(advertisement);
+    // #FEED-244: it paints app screens (`app_screenshot`), like the daemon.
+    if updater::app_shot::capable() {
+        caps.push(updater::app_shot::CAP.to_string());
+    }
+    caps
 }
 
 /// Best-effort `devices.register` on the background executor (EXP-403) — the

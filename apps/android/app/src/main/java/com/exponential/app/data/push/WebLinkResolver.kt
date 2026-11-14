@@ -248,6 +248,11 @@ class WebLinkResolver @Inject constructor(
         db.boardDao().observeAll().first().firstOrNull { it.id == issue.boardId }?.teamId
     }
 
+    /** #EXP-1830: the team of the synced board [id] (a board widget's header). */
+    suspend fun teamOfBoard(id: String, accountId: String? = null): String? = activeDb(accountId) { db ->
+        db.boardDao().getActiveById(id)?.teamId
+    }
+
     suspend fun teamOfSession(id: String, accountId: String? = null): String? = activeDb(accountId) { db ->
         db.sessionDao().getById(id)?.teamId?.takeIf { it.isNotEmpty() }
     }

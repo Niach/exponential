@@ -11,6 +11,8 @@ import GRDB
 // text into the member's conversation with an agent through THE composer's
 // send path (`SessionsApi.send`: sealed on the phone when the tree has a
 // key) and opens that conversation. Signed out = `copy.signedOut`.
+// #EXP-1830: `OpenAgentChatIntent` opens an agent's conversation; every
+// opening lands by app-shortcuts.json's back stack rule.
 
 /// The app's dependencies for intents (set once at launch): an intent runs
 /// in the app process, launched in the background when needed.
@@ -205,7 +207,12 @@ struct OpenIssueIntent: AppIntent {
     func perform() async throws -> some IntentResult {
         guard let deps = AppIntentsHost.deps,
               deps.auth.accounts.contains(where: { $0.id == accountId && $0.token != nil }) else { return .result() }
-        deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId)
+        // #EXP-1830 OPENING: the back stack rule, under the account that holds it.
+        if accountId == deps.auth.activeAccountId {
+            deps.deepLinkBus.navigateToLaunch(.issue(issueId))
+        } else {
+            deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId)
+        }
         return .result()
     }
 }
@@ -237,11 +244,42 @@ struct AskAgentIntent: AppIntent {
         guard let agentId, let picked = agents.first(where: { $0.id == agentId }) else {
             return .result(dialog: dialog(AppIntentsModel.Copy.noAgent(name: agent?.name ?? "")))
         }
-        let result = try await context.deps.sessionsApi.send(
+        _ = try await context.deps.sessionsApi.send(
             accountId: context.accountId, .agent(agentId: agentId, text: message)
         )
-        context.deps.deepLinkBus.navigateToSession(result.sessionId, userId: context.userId)
+        // #EXP-1830 OPENING: THE agent's conversation over the Agent tab.
+        context.deps.deepLinkBus.navigateToLaunch(.shortcut(.agent(agentId)))
         return .result(dialog: dialog(AppIntentsModel.Copy.sent(agent: picked.name)))
+    }
+}
+
+/// #EXP-1830 (app-shortcuts.json OPENING): opens THE agent's conversation
+/// (the caller's DM; none yet = the empty DM) by the back stack rule, the
+/// same landing as the long-press menu's `agent:` entry. No agent picked =
+/// the member's Assistant (`orderedAgents`' first).
+struct OpenAgentChatIntent: AppIntent {
+    static let title: LocalizedStringResource = "Open agent chat"
+    static let openAppWhenRun = true
+
+    @Parameter(title: "Agent")
+    var agent: IntentAgent?
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        guard let context = AppIntentsHost.context() else {
+            throw IntentMessage(AppIntentsModel.Copy.signedOut)
+        }
+        let agents = await IntentAgent.ordered(context)
+        let agentId: String? = if let agent {
+            agents.contains { $0.id == agent.id } ? agent.id : nil
+        } else {
+            AppIntentsModel.matchAgent(agents: agents, me: context.userId, spoken: "")
+        }
+        guard let agentId else {
+            throw IntentMessage(AppIntentsModel.Copy.noAgent(name: agent?.name ?? ""))
+        }
+        context.deps.deepLinkBus.navigateToLaunch(.shortcut(.agent(agentId)))
+        return .result()
     }
 }
 
@@ -267,6 +305,15 @@ struct ExponentialShortcuts: AppShortcutsProvider {
             ],
             shortTitle: "Ask agent",
             systemImageName: "bubble.left"
+        )
+        AppShortcut(
+            intent: OpenAgentChatIntent(),
+            phrases: [
+                "Open \(\.$agent) in \(.applicationName)",
+                "Open \(.applicationName) agent chat",
+            ],
+            shortTitle: "Open agent chat",
+            systemImageName: "bubble.left.and.bubble.right"
         )
     }
 }

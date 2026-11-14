@@ -1,5 +1,5 @@
 {
-  "$comment": "#EXP-1638 (owner 2026-11-06): LONG-PRESS THE APP ICON ×2 (iOS `UIApplicationShortcutItem`s, Android launcher shortcuts; web and desktop have no app icon menu). Model = pure `appShortcuts` + `parseAppShortcut` (src/app-shortcuts.ts; iOS ExpCore `AppShortcuts.swift`, Android `domain/AppShortcuts.kt`), every mirror replays the `*Cases`. THE LIST: the three `statics` in order (`new-issue` = THE New issue page with its board picker, `new-chat` = THE composer on the Agent tab with the composer's own default agent row, `search` = THE Search page), then the most recent chats, newest first, with the share-targets.json direct-share filter (no chat that is an agent's own conversation, NO ENCRYPTED chat: a tree key or a sealed title never reaches the OS), so the list never exceeds `maxEntries` (the iOS Home Screen shows 4). A chat entry's title is the chat's display title, its icon `icons.chat`, its id `recentChatPrefix` + session id, and it opens that session (inbox-route.json session target). iOS sets the static ones in Info.plist (`UIApplicationShortcutItems`) and the recent ones as `shortcutItems` whenever the chats store changes; Android declares the static ones in `res/xml/shortcuts.xml` and publishes the recent ones as dynamic shortcuts (rank 0 first), next to the direct-share shortcuts it already publishes (share-targets.json; those keep their own ids, ranked after). Signed out, or an entry whose chat is gone: the app opens on its normal start screen. Multi-account: the shortcuts follow the ACTIVE account; switching accounts republishes them. Copy and icons are the app's own; no new component.",
+  "$comment": "#EXP-1638 (owner 2026-11-06): LONG-PRESS THE APP ICON ×2 (iOS `UIApplicationShortcutItem`s, Android launcher shortcuts; web and desktop have no app icon menu). Model = pure `appShortcuts` + `parseAppShortcut` (src/app-shortcuts.ts; iOS ExpCore `AppShortcuts.swift`, Android `domain/AppShortcuts.kt`), every mirror replays the `*Cases`. THE LIST: the three `statics` in order (`new-issue` = THE New issue page with its board picker, `new-chat` = THE composer on the Agent tab with the composer's own default agent row, `search` = THE Search page), then the most recent chats, newest first, with the share-targets.json direct-share filter (no chat that is an agent's own conversation, NO ENCRYPTED chat: a tree key or a sealed title never reaches the OS), so the list never exceeds `maxEntries` (the iOS Home Screen shows 4). A chat entry's title is the chat's display title, its icon `icons.chat`, its id `recentChatPrefix` + session id, and it opens that session (inbox-route.json session target). iOS sets the static ones in Info.plist (`UIApplicationShortcutItems`) and the recent ones as `shortcutItems` whenever the chats store changes; Android declares the static ones in `res/xml/shortcuts.xml` and publishes the recent ones as dynamic shortcuts (rank 0 first), next to the direct-share shortcuts it already publishes (share-targets.json; those keep their own ids, ranked after). Signed out, or an entry whose chat is gone: the app opens on its normal start screen. Multi-account: the shortcuts follow the ACTIVE account; switching accounts republishes them.  #EXP-1830 (owner 2026-11-14: a pinned Assistant shortcut resumed the app wherever it was; 'keep New issue + New chat + Search'): AGENT CHATS. After the statics come the CHAT ENTRIES, in this order, deduplicated by id, the whole list still capped at `maxEntries`: (1) the viewer's ASSISTANT (agent-settings.json `assistant`), id `agentPrefix` + its agent id, title = its name, icon `icons.assistant` (THE brand mark, never a stored icon), color null; (2) the viewer's PINS of kind session (sidebar Pinned order), (3) the recent chats newest first. A chat that is the viewer's own AGENT CONVERSATION (its `agentId` names an agent in `agents`) is the agent entry (`agentPrefix` + agentId, the agent's name, its icon (`icons.agent` when null) and color; its title is the agent's name, so it may be encrypted); a plain chat is a `recentChatPrefix` entry and never an encrypted one; an agent conversation whose agent is not in `agents` (another member's, deleted) is no entry. An `agent:` entry opens THE agent's conversation (the caller's DM, Android `agent-dm/{agentId}`, iOS the agent channel; none yet = the empty DM). ANDROID: every chat entry is a plain dynamic shortcut ranked 0.. in list order (the launcher shows the manifest statics first); the share-targets.json sharing shortcuts keep their ids and ranks after them, and their LAUNCHER intent now names their chat too (`share-agent:X` launches `agent:X`, `share-chat:Y` launches `recent-chat:Y`), so one dragged onto the home screen (a pinned shortcut) opens THAT chat; a shortcut already pinned is updated in place once (the publisher re-pushes every row on first run of this version). OPENING (#EXP-1830 BACK STACK, ×2, a long-press entry, a pinned shortcut, a home widget row, an App Intent alike; cold start and warm alike): the app drops whatever it was showing back to THE start screen (the Agent tab root; a held New issue draft keeps its guard), then pushes the target, so Back returns to the Agent tab and then leaves the app; the target already on top is not pushed twice. Android: `singleTask` + `onNewIntent` deliver it, a redelivered (recreated) intent is never re-run. iOS: the scene's `shortcutItem` on connect and `windowScene(_:performActionFor:)` warm. Copy and icons are the app's own; no new component.",
   "copy": {
     "newIssue": "New issue",
     "newChat": "New chat",
@@ -9,60 +9,394 @@
     "newIssue": "nav-create-issue",
     "newChat": "action-chat",
     "search": "nav-search",
-    "chat": "action-chat"
+    "chat": "action-chat",
+    "assistant": "assistant",
+    "agent": "bot"
   },
-  "statics": ["new-issue", "new-chat", "search"],
+  "statics": [
+    "new-issue",
+    "new-chat",
+    "search"
+  ],
   "recentChatPrefix": "recent-chat:",
   "maxEntries": 4,
   "listCases": [
     {
-      "name": "statics, then the newest plain chat, capped at maxEntries",
+      "name": "statics, then the Assistant, capped at maxEntries",
       "input": {
+        "assistant": {
+          "id": "as",
+          "name": "Assistant"
+        },
+        "agents": [
+          {
+            "id": "as",
+            "name": "Assistant",
+            "icon": null,
+            "color": null
+          },
+          {
+            "id": "a",
+            "name": "Sloppy",
+            "icon": "bot",
+            "color": "#22c55e"
+          }
+        ],
+        "pins": [],
         "chats": [
-          { "id": "s1", "title": "Older", "updatedAt": "2026-11-01T10:00:00.000Z", "agentId": null },
-          { "id": "s2", "title": "Fix login crash", "updatedAt": "2026-11-03T10:00:00.000Z", "agentId": null },
-          { "id": "s3", "title": "Agent conversation", "updatedAt": "2026-11-05T10:00:00.000Z", "agentId": "a" },
-          { "id": "s4", "title": "Encrypted", "updatedAt": "2026-11-05T12:00:00.000Z", "agentId": null, "sealed": true }
+          {
+            "id": "s2",
+            "title": "Fix login crash",
+            "updatedAt": "2026-11-03T10:00:00.000Z",
+            "agentId": null
+          }
         ]
       },
       "expected": [
-        { "id": "new-issue", "title": "New issue", "icon": "nav-create-issue" },
-        { "id": "new-chat", "title": "New chat", "icon": "action-chat" },
-        { "id": "search", "title": "Search", "icon": "nav-search" },
-        { "id": "recent-chat:s2", "title": "Fix login crash", "icon": "action-chat" }
+        {
+          "id": "new-issue",
+          "title": "New issue",
+          "icon": "nav-create-issue",
+          "color": null
+        },
+        {
+          "id": "new-chat",
+          "title": "New chat",
+          "icon": "action-chat",
+          "color": null
+        },
+        {
+          "id": "search",
+          "title": "Search",
+          "icon": "nav-search",
+          "color": null
+        },
+        {
+          "id": "agent:as",
+          "title": "Assistant",
+          "icon": "assistant",
+          "color": null
+        }
+      ]
+    },
+    {
+      "name": "no Assistant yet: pins first, then the newest chat",
+      "input": {
+        "assistant": null,
+        "agents": [
+          {
+            "id": "a",
+            "name": "Sloppy",
+            "icon": "bot",
+            "color": "#22c55e"
+          }
+        ],
+        "pins": [
+          "s1"
+        ],
+        "chats": [
+          {
+            "id": "s1",
+            "title": "Older",
+            "updatedAt": "2026-11-01T10:00:00.000Z",
+            "agentId": null
+          },
+          {
+            "id": "s3",
+            "title": "Sloppy",
+            "updatedAt": "2026-11-05T10:00:00.000Z",
+            "agentId": "a"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "id": "new-issue",
+          "title": "New issue",
+          "icon": "nav-create-issue",
+          "color": null
+        },
+        {
+          "id": "new-chat",
+          "title": "New chat",
+          "icon": "action-chat",
+          "color": null
+        },
+        {
+          "id": "search",
+          "title": "Search",
+          "icon": "nav-search",
+          "color": null
+        },
+        {
+          "id": "recent-chat:s1",
+          "title": "Older",
+          "icon": "action-chat",
+          "color": null
+        }
+      ]
+    },
+    {
+      "name": "an agent conversation is the agent entry, encrypted or not; an unknown agent and an encrypted plain chat are none",
+      "input": {
+        "assistant": null,
+        "agents": [
+          {
+            "id": "a",
+            "name": "Ship",
+            "icon": null,
+            "color": "#a855f7"
+          }
+        ],
+        "pins": [],
+        "chats": [
+          {
+            "id": "s5",
+            "title": "Gone agent",
+            "updatedAt": "2026-11-06T10:00:00.000Z",
+            "agentId": "zz"
+          },
+          {
+            "id": "s4",
+            "title": "Encrypted",
+            "updatedAt": "2026-11-05T12:00:00.000Z",
+            "agentId": null,
+            "sealed": true
+          },
+          {
+            "id": "s3",
+            "title": "x",
+            "updatedAt": "2026-11-05T10:00:00.000Z",
+            "agentId": "a",
+            "sealed": true
+          }
+        ]
+      },
+      "expected": [
+        {
+          "id": "new-issue",
+          "title": "New issue",
+          "icon": "nav-create-issue",
+          "color": null
+        },
+        {
+          "id": "new-chat",
+          "title": "New chat",
+          "icon": "action-chat",
+          "color": null
+        },
+        {
+          "id": "search",
+          "title": "Search",
+          "icon": "nav-search",
+          "color": null
+        },
+        {
+          "id": "agent:a",
+          "title": "Ship",
+          "icon": "bot",
+          "color": "#a855f7"
+        }
       ]
     },
     {
       "name": "no chats: the statics alone",
-      "input": { "chats": [] },
-      "expected": [
-        { "id": "new-issue", "title": "New issue", "icon": "nav-create-issue" },
-        { "id": "new-chat", "title": "New chat", "icon": "action-chat" },
-        { "id": "search", "title": "Search", "icon": "nav-search" }
-      ]
-    },
-    {
-      "name": "only encrypted and agent chats: no recent entry",
       "input": {
-        "chats": [
-          { "id": "s3", "title": "Agent conversation", "updatedAt": "2026-11-05T10:00:00.000Z", "agentId": "a" },
-          { "id": "s4", "title": "Encrypted", "updatedAt": "2026-11-05T12:00:00.000Z", "agentId": null, "sealed": true }
-        ]
+        "assistant": null,
+        "agents": [],
+        "pins": [],
+        "chats": []
       },
       "expected": [
-        { "id": "new-issue", "title": "New issue", "icon": "nav-create-issue" },
-        { "id": "new-chat", "title": "New chat", "icon": "action-chat" },
-        { "id": "search", "title": "Search", "icon": "nav-search" }
+        {
+          "id": "new-issue",
+          "title": "New issue",
+          "icon": "nav-create-issue",
+          "color": null
+        },
+        {
+          "id": "new-chat",
+          "title": "New chat",
+          "icon": "action-chat",
+          "color": null
+        },
+        {
+          "id": "search",
+          "title": "Search",
+          "icon": "nav-search",
+          "color": null
+        }
       ]
     }
   ],
   "parseCases": [
-    { "name": "new issue", "input": "new-issue", "expected": { "kind": "new-issue" } },
-    { "name": "new chat", "input": "new-chat", "expected": { "kind": "new-chat" } },
-    { "name": "search", "input": "search", "expected": { "kind": "search" } },
-    { "name": "a recent chat", "input": "recent-chat:s2", "expected": { "kind": "chat", "id": "s2" } },
-    { "name": "a recent chat without an id", "input": "recent-chat:", "expected": null },
-    { "name": "a direct-share id is not an app shortcut", "input": "share-chat:s2", "expected": null },
-    { "name": "unknown", "input": "inbox", "expected": null }
+    {
+      "name": "new issue",
+      "input": "new-issue",
+      "expected": {
+        "kind": "new-issue"
+      }
+    },
+    {
+      "name": "new chat",
+      "input": "new-chat",
+      "expected": {
+        "kind": "new-chat"
+      }
+    },
+    {
+      "name": "search",
+      "input": "search",
+      "expected": {
+        "kind": "search"
+      }
+    },
+    {
+      "name": "a recent chat",
+      "input": "recent-chat:s2",
+      "expected": {
+        "kind": "chat",
+        "id": "s2"
+      }
+    },
+    {
+      "name": "an agent chat",
+      "input": "agent:a1",
+      "expected": {
+        "kind": "agent",
+        "id": "a1"
+      }
+    },
+    {
+      "name": "an agent chat without an id",
+      "input": "agent:",
+      "expected": null
+    },
+    {
+      "name": "a recent chat without an id",
+      "input": "recent-chat:",
+      "expected": null
+    },
+    {
+      "name": "a direct-share id is not an app shortcut",
+      "input": "share-chat:s2",
+      "expected": null
+    },
+    {
+      "name": "unknown",
+      "input": "inbox",
+      "expected": null
+    }
+  ],
+  "agentPrefix": "agent:",
+  "chatEntryCases": [
+    {
+      "name": "Assistant, pins in pin order, then recent newest first, deduplicated",
+      "input": {
+        "assistant": {
+          "id": "as",
+          "name": "Assistant"
+        },
+        "agents": [
+          {
+            "id": "as",
+            "name": "Assistant",
+            "icon": null,
+            "color": null
+          },
+          {
+            "id": "a",
+            "name": "Sloppy",
+            "icon": "bot",
+            "color": "#22c55e"
+          }
+        ],
+        "pins": [
+          "s1",
+          "s3"
+        ],
+        "chats": [
+          {
+            "id": "s1",
+            "title": "Older",
+            "updatedAt": "2026-11-01T10:00:00.000Z",
+            "agentId": null
+          },
+          {
+            "id": "s2",
+            "title": "Fix login crash",
+            "updatedAt": "2026-11-03T10:00:00.000Z",
+            "agentId": null
+          },
+          {
+            "id": "s3",
+            "title": "Sloppy",
+            "updatedAt": "2026-11-05T10:00:00.000Z",
+            "agentId": "a"
+          },
+          {
+            "id": "s6",
+            "title": "Assistant",
+            "updatedAt": "2026-11-07T10:00:00.000Z",
+            "agentId": "as"
+          },
+          {
+            "id": "s9",
+            "title": "Pinned elsewhere",
+            "updatedAt": "2026-11-02T10:00:00.000Z",
+            "agentId": null,
+            "sealed": true
+          }
+        ]
+      },
+      "expected": [
+        {
+          "id": "agent:as",
+          "title": "Assistant",
+          "icon": "assistant",
+          "color": null
+        },
+        {
+          "id": "recent-chat:s1",
+          "title": "Older",
+          "icon": "action-chat",
+          "color": null
+        },
+        {
+          "id": "agent:a",
+          "title": "Sloppy",
+          "icon": "bot",
+          "color": "#22c55e"
+        },
+        {
+          "id": "recent-chat:s2",
+          "title": "Fix login crash",
+          "icon": "action-chat",
+          "color": null
+        }
+      ]
+    }
+  ],
+  "launcherCases": [
+    {
+      "name": "a sharing agent shortcut launches its agent chat",
+      "input": "share-agent:a1",
+      "expected": "agent:a1"
+    },
+    {
+      "name": "a sharing chat shortcut launches its chat",
+      "input": "share-chat:s2",
+      "expected": "recent-chat:s2"
+    },
+    {
+      "name": "an app shortcut id stays",
+      "input": "agent:a1",
+      "expected": "agent:a1"
+    },
+    {
+      "name": "anything else: none",
+      "input": "share-agent:",
+      "expected": null
+    }
   ]
 }

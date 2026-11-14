@@ -43,6 +43,9 @@ struct IssuesHomeView: View {
     /// assigned issues on the CURRENT board (`Chats.boardMineIssues`),
     /// grouped by status like the board.
     @State private var chip: Chats.Shell.BoardChip = .all
+    /// #EXP-1830: a My issues widget landed before the board resolved; the
+    /// board's first resolution keeps the chip (only a pick resets it).
+    @State private var holdMine = false
     @State private var myIssues: MyIssuesViewModel?
     @State private var drafts: DraftsViewModel?
 
@@ -129,9 +132,18 @@ struct IssuesHomeView: View {
         // #EXP-1384: the page header; the board list's own stands down.
         .pageHeader(currentBoardName ?? Chats.Copy.Tabs.board)
         // A board picked in the board menu starts on All issues.
-        .onChange(of: currentBoard) { _, board in
-            chip = .all
+        .onChange(of: currentBoard) { old, board in
             myIssues?.boardId = board?.boardId
+            defer { holdMine = false }
+            if holdMine, old == nil { return }
+            chip = .all
+        }
+        // #EXP-1830: a My issues widget's header lands on the chip.
+        .onChange(of: deps.deepLinkBus.pendingMyIssues, initial: true) { _, pending in
+            guard pending else { return }
+            deps.deepLinkBus.pendingMyIssues = false
+            chip = .mine
+            holdMine = currentBoard == nil
         }
         .sheet(item: $createTarget) { target in
             CreateBoardSheet(

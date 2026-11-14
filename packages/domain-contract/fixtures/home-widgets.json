@@ -1,0 +1,854 @@
+{
+  "$comment": "#EXP-1830 (owner 2026-11-14: 'better we show a) issue list => a board card, b) my issues (filter by teams at widget creation), c) list of needs you'): HOME SCREEN WIDGETS ×2 (Android Glance app widgets, iOS WidgetKit; web and desktop have none), THE SAME LOOK on both. Model = pure `boardWidget` + `myIssuesWidget` + `needsYouWidget` (src/home-widgets.ts; iOS ExpCore `HomeWidgets.swift`, Android `domain/HomeWidgets.kt`), every mirror replays the `*Cases` comparing the WHOLE object. THREE KINDS (`kinds`, ids are the platform widget kinds): `board` = one board's open issues, the board PICKED when the widget is added (Android: the configure screen lists the active account's boards in sidebar order; iOS: the edit sheet, an AppIntent board parameter); `my-issues` = the viewer's open issues (`assigneeId` = me) in the TEAMS picked when the widget is added (several; none picked = every team); `needs-you` = THE Needs you rows (needs-you.json `needsYou` fold over the active account's synced sessions + digests, every team). OPEN = a status whose category is in `openCategories`. ORDER: `board` = the board's own reading order: category in `categoryOrder` (started first), then the status's sortOrder, then the issue's sortOrder, then identifier; `my-issues` = priority in contract `issuePriority.displayOrder` (urgent first, none last), then updatedAt desc, then identifier. `count` = every matching row (the header's count), `rows` = the first `max` (the platform passes its size's capacity: `capacity` small/medium/large). LOOK (`look`, tokens only, no new component): the platform's widget container filled with the `card` token; HEADER row = the kind's glyph (concept `icons`; `board` = the board's own icon in its color) + the title (type sm, semibold; `board` = the board name, `my-issues` = `copy.myIssues`, `needs-you` = `copy.needsYou`) + the count trailing in muted-foreground (hidden at 0); then ONE-LINE ROWS `rowHeight` high with no dividers: an issue row = THE status icon (category glyph in the status color, as on every issue row) + the title (sm, foreground, truncated) + the identifier trailing (xs, muted-foreground); a needs-you row = its waiting-cards.json glyph (plan `coding-plan`, question `ui-help`, PR `pr-open`) in the needs-you tone + the title + the age trailing (xs muted). No row = ONE muted line centred (`copy.emptyIssues` / `copy.emptyNeedsYou`). Signed out = `copy.signedOut` centred, a tap opens the app. PRIVACY: a needs-you row of an ENCRYPTED chat (its root carries a tree key or a sealed title) reads `copy.sealedRow`, never its card text (the widget snapshot is OS-owned storage, share-targets.json). TAPS (app-shortcuts.json OPENING = the back stack rule): the header = the list in the app (`board` = THE board page, `my-issues` = the Board tab's My issues, `needs-you` = THE Needs you page); an issue row = THE issue page; a needs-you row = its chat by `opens` (needs-you.json). DATA: Android reads the account database in-process (Room) and refreshes on its change (debounced like DirectShareShortcuts); iOS reads a snapshot the app writes into the app group on every change and after sign-in/out, then `WidgetCenter.reloadAllTimelines()`; multi-account: the ACTIVE account.",
+  "kinds": [
+    "board",
+    "my-issues",
+    "needs-you"
+  ],
+  "copy": {
+    "myIssues": "My issues",
+    "needsYou": "Needs you",
+    "emptyIssues": "No open issues",
+    "emptyNeedsYou": "Nothing needs you",
+    "signedOut": "Sign in to Exponential",
+    "sealedRow": "Encrypted chat",
+    "pickBoard": "Board",
+    "pickTeams": "Teams",
+    "boardGallery": "Board",
+    "boardGalleryDescription": "A board's open issues.",
+    "myIssuesGalleryDescription": "Your open issues.",
+    "needsYouGalleryDescription": "Plans and questions waiting on you."
+  },
+  "icons": {
+    "myIssues": "nav-my-issues",
+    "needsYou": "nav-needs-you",
+    "plan": "coding-plan",
+    "question": "ui-help",
+    "pr": "pr-open"
+  },
+  "openCategories": [
+    "started",
+    "unstarted",
+    "backlog"
+  ],
+  "categoryOrder": [
+    "started",
+    "unstarted",
+    "backlog"
+  ],
+  "capacity": {
+    "small": 3,
+    "medium": 3,
+    "large": 8
+  },
+  "look": {
+    "padding": 14,
+    "headerGap": 8,
+    "rowHeight": 28,
+    "glyph": 16
+  },
+  "boardCases": [
+    {
+      "name": "open issues of the board, started first, then status and issue order",
+      "input": {
+        "boardId": "b1",
+        "statuses": [
+          {
+            "id": "st-ip",
+            "category": "started",
+            "color": "#EAB308",
+            "sortOrder": 1
+          },
+          {
+            "id": "st-ir",
+            "category": "started",
+            "color": "#22C55E",
+            "sortOrder": 2
+          },
+          {
+            "id": "st-todo",
+            "category": "unstarted",
+            "color": "#E4E4E7",
+            "sortOrder": 1
+          },
+          {
+            "id": "st-bl",
+            "category": "backlog",
+            "color": "#A1A1AA",
+            "sortOrder": 1
+          },
+          {
+            "id": "st-done",
+            "category": "completed",
+            "color": "#3B82F6",
+            "sortOrder": 1
+          },
+          {
+            "id": "st-can",
+            "category": "cancelled",
+            "color": "#A1A1AA",
+            "sortOrder": 1
+          }
+        ],
+        "issues": [
+          {
+            "id": "i1",
+            "identifier": "EXP-1",
+            "title": "Backlog thing",
+            "statusId": "st-bl",
+            "boardId": "b1",
+            "teamId": "t1",
+            "priority": "none",
+            "sortOrder": 1,
+            "assigneeId": null,
+            "updatedAt": "2026-11-10T10:00:00.000Z"
+          },
+          {
+            "id": "i2",
+            "identifier": "EXP-2",
+            "title": "Review me",
+            "statusId": "st-ir",
+            "boardId": "b1",
+            "teamId": "t1",
+            "priority": "low",
+            "sortOrder": 5,
+            "assigneeId": "me",
+            "updatedAt": "2026-11-12T10:00:00.000Z"
+          },
+          {
+            "id": "i3",
+            "identifier": "EXP-3",
+            "title": "Build it",
+            "statusId": "st-ip",
+            "boardId": "b1",
+            "teamId": "t1",
+            "priority": "urgent",
+            "sortOrder": 9,
+            "assigneeId": "me",
+            "updatedAt": "2026-11-10T10:00:00.000Z"
+          },
+          {
+            "id": "i4",
+            "identifier": "EXP-4",
+            "title": "Shipped",
+            "statusId": "st-done",
+            "boardId": "b1",
+            "teamId": "t1",
+            "priority": "none",
+            "sortOrder": 1,
+            "assigneeId": "me",
+            "updatedAt": "2026-11-10T10:00:00.000Z"
+          },
+          {
+            "id": "i5",
+            "identifier": "EXP-5",
+            "title": "Todo first",
+            "statusId": "st-todo",
+            "boardId": "b2",
+            "teamId": "t2",
+            "priority": "high",
+            "sortOrder": 2,
+            "assigneeId": "me",
+            "updatedAt": "2026-11-10T10:00:00.000Z"
+          },
+          {
+            "id": "i6",
+            "identifier": "EXP-6",
+            "title": "Build more",
+            "statusId": "st-ip",
+            "boardId": "b1",
+            "teamId": "t1",
+            "priority": "none",
+            "sortOrder": 3,
+            "assigneeId": null,
+            "updatedAt": "2026-11-10T10:00:00.000Z"
+          },
+          {
+            "id": "i7",
+            "identifier": "EXP-7",
+            "title": "Dropped",
+            "statusId": "st-can",
+            "boardId": "b1",
+            "teamId": "t1",
+            "priority": "none",
+            "sortOrder": 1,
+            "assigneeId": "me",
+            "updatedAt": "2026-11-10T10:00:00.000Z"
+          }
+        ],
+        "max": 3
+      },
+      "expected": {
+        "count": 4,
+        "rows": [
+          {
+            "id": "i6",
+            "identifier": "EXP-6",
+            "title": "Build more",
+            "statusCategory": "started",
+            "statusColor": "#EAB308"
+          },
+          {
+            "id": "i3",
+            "identifier": "EXP-3",
+            "title": "Build it",
+            "statusCategory": "started",
+            "statusColor": "#EAB308"
+          },
+          {
+            "id": "i2",
+            "identifier": "EXP-2",
+            "title": "Review me",
+            "statusCategory": "started",
+            "statusColor": "#22C55E"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a board with nothing open",
+      "input": {
+        "boardId": "b9",
+        "statuses": [
+          {
+            "id": "st-ip",
+            "category": "started",
+            "color": "#EAB308",
+            "sortOrder": 1
+          },
+          {
+            "id": "st-ir",
+            "category": "started",
+            "color": "#22C55E",
+            "sortOrder": 2
+          },
+          {
+            "id": "st-todo",
+            "category": "unstarted",
+            "color": "#E4E4E7",
+            "sortOrder": 1
+          },
+          {
+            "id": "st-bl",
+            "category": "backlog",
+            "color": "#A1A1AA",
+            "sortOrder": 1
+          },
+          {
+            "id": "st-done",
+            "category": "completed",
+            "color": "#3B82F6",
+            "sortOrder": 1
+          },
+          {
+            "id": "st-can",
+            "category": "cancelled",
+            "color": "#A1A1AA",
+            "sortOrder": 1
+          }
+        ],
+        "issues": [
+          {
+            "id": "i1",
+            "identifier": "EXP-1",
+            "title": "Backlog thing",
+            "statusId": "st-bl",
+            "boardId": "b1",
+            "teamId": "t1",
+            "priority": "none",
+            "sortOrder": 1,
+            "assigneeId": null,
+            "updatedAt": "2026-11-10T10:00:00.000Z"
+          },
+          {
+            "id": "i2",
+            "identifier": "EXP-2",
+            "title": "Review me",
+            "statusId": "st-ir",
+            "boardId": "b1",
+            "teamId": "t1",
+            "priority": "low",
+            "sortOrder": 5,
+            "assigneeId": "me",
+            "updatedAt": "2026-11-12T10:00:00.000Z"
+          },
+          {
+            "id": "i3",
+            "identifier": "EXP-3",
+            "title": "Build it",
+            "statusId": "st-ip",
+            "boardId": "b1",
+            "teamId": "t1",
+            "priority": "urgent",
+            "sortOrder": 9,
+            "assigneeId": "me",
+            "updatedAt": "2026-11-10T10:00:00.000Z"
+          },
+          {
+            "id": "i4",
+            "identifier": "EXP-4",
+            "title": "Shipped",
+            "statusId": "st-done",
+            "boardId": "b1",
+            "teamId": "t1",
+            "priority": "none",
+            "sortOrder": 1,
+            "assigneeId": "me",
+            "updatedAt": "2026-11-10T10:00:00.000Z"
+          },
+          {
+            "id": "i5",
+            "identifier": "EXP-5",
+            "title": "Todo first",
+            "statusId": "st-todo",
+            "boardId": "b2",
+            "teamId": "t2",
+            "priority": "high",
+            "sortOrder": 2,
+            "assigneeId": "me",
+            "updatedAt": "2026-11-10T10:00:00.000Z"
+          },
+          {
+            "id": "i6",
+            "identifier": "EXP-6",
+            "title": "Build more",
+            "statusId": "st-ip",
+            "boardId": "b1",
+            "teamId": "t1",
+            "priority": "none",
+            "sortOrder": 3,
+            "assigneeId": null,
+            "updatedAt": "2026-11-10T10:00:00.000Z"
+          },
+          {
+            "id": "i7",
+            "identifier": "EXP-7",
+            "title": "Dropped",
+            "statusId": "st-can",
+            "boardId": "b1",
+            "teamId": "t1",
+            "priority": "none",
+            "sortOrder": 1,
+            "assigneeId": "me",
+            "updatedAt": "2026-11-10T10:00:00.000Z"
+          }
+        ],
+        "max": 3
+      },
+      "expected": {
+        "count": 0,
+        "rows": []
+      }
+    }
+  ],
+  "myIssuesCases": [
+    {
+      "name": "every team: priority first, done and cancelled out",
+      "input": {
+        "me": "me",
+        "teamIds": [],
+        "statuses": [
+          {
+            "id": "st-ip",
+            "category": "started",
+            "color": "#EAB308",
+            "sortOrder": 1
+          },
+          {
+            "id": "st-ir",
+            "category": "started",
+            "color": "#22C55E",
+            "sortOrder": 2
+          },
+          {
+            "id": "st-todo",
+            "category": "unstarted",
+            "color": "#E4E4E7",
+            "sortOrder": 1
+          },
+          {
+            "id": "st-bl",
+            "category": "backlog",
+            "color": "#A1A1AA",
+            "sortOrder": 1
+          },
+          {
+            "id": "st-done",
+            "category": "completed",
+            "color": "#3B82F6",
+            "sortOrder": 1
+          },
+          {
+            "id": "st-can",
+            "category": "cancelled",
+            "color": "#A1A1AA",
+            "sortOrder": 1
+          }
+        ],
+        "issues": [
+          {
+            "id": "i1",
+            "identifier": "EXP-1",
+            "title": "Backlog thing",
+            "statusId": "st-bl",
+            "boardId": "b1",
+            "teamId": "t1",
+            "priority": "none",
+            "sortOrder": 1,
+            "assigneeId": null,
+            "updatedAt": "2026-11-10T10:00:00.000Z"
+          },
+          {
+            "id": "i2",
+            "identifier": "EXP-2",
+            "title": "Review me",
+            "statusId": "st-ir",
+            "boardId": "b1",
+            "teamId": "t1",
+            "priority": "low",
+            "sortOrder": 5,
+            "assigneeId": "me",
+            "updatedAt": "2026-11-12T10:00:00.000Z"
+          },
+          {
+            "id": "i3",
+            "identifier": "EXP-3",
+            "title": "Build it",
+            "statusId": "st-ip",
+            "boardId": "b1",
+            "teamId": "t1",
+            "priority": "urgent",
+            "sortOrder": 9,
+            "assigneeId": "me",
+            "updatedAt": "2026-11-10T10:00:00.000Z"
+          },
+          {
+            "id": "i4",
+            "identifier": "EXP-4",
+            "title": "Shipped",
+            "statusId": "st-done",
+            "boardId": "b1",
+            "teamId": "t1",
+            "priority": "none",
+            "sortOrder": 1,
+            "assigneeId": "me",
+            "updatedAt": "2026-11-10T10:00:00.000Z"
+          },
+          {
+            "id": "i5",
+            "identifier": "EXP-5",
+            "title": "Todo first",
+            "statusId": "st-todo",
+            "boardId": "b2",
+            "teamId": "t2",
+            "priority": "high",
+            "sortOrder": 2,
+            "assigneeId": "me",
+            "updatedAt": "2026-11-10T10:00:00.000Z"
+          },
+          {
+            "id": "i6",
+            "identifier": "EXP-6",
+            "title": "Build more",
+            "statusId": "st-ip",
+            "boardId": "b1",
+            "teamId": "t1",
+            "priority": "none",
+            "sortOrder": 3,
+            "assigneeId": null,
+            "updatedAt": "2026-11-10T10:00:00.000Z"
+          },
+          {
+            "id": "i7",
+            "identifier": "EXP-7",
+            "title": "Dropped",
+            "statusId": "st-can",
+            "boardId": "b1",
+            "teamId": "t1",
+            "priority": "none",
+            "sortOrder": 1,
+            "assigneeId": "me",
+            "updatedAt": "2026-11-10T10:00:00.000Z"
+          }
+        ],
+        "max": 8
+      },
+      "expected": {
+        "count": 3,
+        "rows": [
+          {
+            "id": "i3",
+            "identifier": "EXP-3",
+            "title": "Build it",
+            "statusCategory": "started",
+            "statusColor": "#EAB308"
+          },
+          {
+            "id": "i5",
+            "identifier": "EXP-5",
+            "title": "Todo first",
+            "statusCategory": "unstarted",
+            "statusColor": "#E4E4E7"
+          },
+          {
+            "id": "i2",
+            "identifier": "EXP-2",
+            "title": "Review me",
+            "statusCategory": "started",
+            "statusColor": "#22C55E"
+          }
+        ]
+      }
+    },
+    {
+      "name": "picked teams only",
+      "input": {
+        "me": "me",
+        "teamIds": [
+          "t2"
+        ],
+        "statuses": [
+          {
+            "id": "st-ip",
+            "category": "started",
+            "color": "#EAB308",
+            "sortOrder": 1
+          },
+          {
+            "id": "st-ir",
+            "category": "started",
+            "color": "#22C55E",
+            "sortOrder": 2
+          },
+          {
+            "id": "st-todo",
+            "category": "unstarted",
+            "color": "#E4E4E7",
+            "sortOrder": 1
+          },
+          {
+            "id": "st-bl",
+            "category": "backlog",
+            "color": "#A1A1AA",
+            "sortOrder": 1
+          },
+          {
+            "id": "st-done",
+            "category": "completed",
+            "color": "#3B82F6",
+            "sortOrder": 1
+          },
+          {
+            "id": "st-can",
+            "category": "cancelled",
+            "color": "#A1A1AA",
+            "sortOrder": 1
+          }
+        ],
+        "issues": [
+          {
+            "id": "i1",
+            "identifier": "EXP-1",
+            "title": "Backlog thing",
+            "statusId": "st-bl",
+            "boardId": "b1",
+            "teamId": "t1",
+            "priority": "none",
+            "sortOrder": 1,
+            "assigneeId": null,
+            "updatedAt": "2026-11-10T10:00:00.000Z"
+          },
+          {
+            "id": "i2",
+            "identifier": "EXP-2",
+            "title": "Review me",
+            "statusId": "st-ir",
+            "boardId": "b1",
+            "teamId": "t1",
+            "priority": "low",
+            "sortOrder": 5,
+            "assigneeId": "me",
+            "updatedAt": "2026-11-12T10:00:00.000Z"
+          },
+          {
+            "id": "i3",
+            "identifier": "EXP-3",
+            "title": "Build it",
+            "statusId": "st-ip",
+            "boardId": "b1",
+            "teamId": "t1",
+            "priority": "urgent",
+            "sortOrder": 9,
+            "assigneeId": "me",
+            "updatedAt": "2026-11-10T10:00:00.000Z"
+          },
+          {
+            "id": "i4",
+            "identifier": "EXP-4",
+            "title": "Shipped",
+            "statusId": "st-done",
+            "boardId": "b1",
+            "teamId": "t1",
+            "priority": "none",
+            "sortOrder": 1,
+            "assigneeId": "me",
+            "updatedAt": "2026-11-10T10:00:00.000Z"
+          },
+          {
+            "id": "i5",
+            "identifier": "EXP-5",
+            "title": "Todo first",
+            "statusId": "st-todo",
+            "boardId": "b2",
+            "teamId": "t2",
+            "priority": "high",
+            "sortOrder": 2,
+            "assigneeId": "me",
+            "updatedAt": "2026-11-10T10:00:00.000Z"
+          },
+          {
+            "id": "i6",
+            "identifier": "EXP-6",
+            "title": "Build more",
+            "statusId": "st-ip",
+            "boardId": "b1",
+            "teamId": "t1",
+            "priority": "none",
+            "sortOrder": 3,
+            "assigneeId": null,
+            "updatedAt": "2026-11-10T10:00:00.000Z"
+          },
+          {
+            "id": "i7",
+            "identifier": "EXP-7",
+            "title": "Dropped",
+            "statusId": "st-can",
+            "boardId": "b1",
+            "teamId": "t1",
+            "priority": "none",
+            "sortOrder": 1,
+            "assigneeId": "me",
+            "updatedAt": "2026-11-10T10:00:00.000Z"
+          }
+        ],
+        "max": 8
+      },
+      "expected": {
+        "count": 1,
+        "rows": [
+          {
+            "id": "i5",
+            "identifier": "EXP-5",
+            "title": "Todo first",
+            "statusCategory": "unstarted",
+            "statusColor": "#E4E4E7"
+          }
+        ]
+      }
+    },
+    {
+      "name": "an issue whose status is not synced is not open",
+      "input": {
+        "me": "me",
+        "teamIds": [],
+        "statuses": [],
+        "issues": [
+          {
+            "id": "i1",
+            "identifier": "EXP-1",
+            "title": "Backlog thing",
+            "statusId": "st-bl",
+            "boardId": "b1",
+            "teamId": "t1",
+            "priority": "none",
+            "sortOrder": 1,
+            "assigneeId": null,
+            "updatedAt": "2026-11-10T10:00:00.000Z"
+          },
+          {
+            "id": "i2",
+            "identifier": "EXP-2",
+            "title": "Review me",
+            "statusId": "st-ir",
+            "boardId": "b1",
+            "teamId": "t1",
+            "priority": "low",
+            "sortOrder": 5,
+            "assigneeId": "me",
+            "updatedAt": "2026-11-12T10:00:00.000Z"
+          },
+          {
+            "id": "i3",
+            "identifier": "EXP-3",
+            "title": "Build it",
+            "statusId": "st-ip",
+            "boardId": "b1",
+            "teamId": "t1",
+            "priority": "urgent",
+            "sortOrder": 9,
+            "assigneeId": "me",
+            "updatedAt": "2026-11-10T10:00:00.000Z"
+          },
+          {
+            "id": "i4",
+            "identifier": "EXP-4",
+            "title": "Shipped",
+            "statusId": "st-done",
+            "boardId": "b1",
+            "teamId": "t1",
+            "priority": "none",
+            "sortOrder": 1,
+            "assigneeId": "me",
+            "updatedAt": "2026-11-10T10:00:00.000Z"
+          },
+          {
+            "id": "i5",
+            "identifier": "EXP-5",
+            "title": "Todo first",
+            "statusId": "st-todo",
+            "boardId": "b2",
+            "teamId": "t2",
+            "priority": "high",
+            "sortOrder": 2,
+            "assigneeId": "me",
+            "updatedAt": "2026-11-10T10:00:00.000Z"
+          },
+          {
+            "id": "i6",
+            "identifier": "EXP-6",
+            "title": "Build more",
+            "statusId": "st-ip",
+            "boardId": "b1",
+            "teamId": "t1",
+            "priority": "none",
+            "sortOrder": 3,
+            "assigneeId": null,
+            "updatedAt": "2026-11-10T10:00:00.000Z"
+          },
+          {
+            "id": "i7",
+            "identifier": "EXP-7",
+            "title": "Dropped",
+            "statusId": "st-can",
+            "boardId": "b1",
+            "teamId": "t1",
+            "priority": "none",
+            "sortOrder": 1,
+            "assigneeId": "me",
+            "updatedAt": "2026-11-10T10:00:00.000Z"
+          }
+        ],
+        "max": 8
+      },
+      "expected": {
+        "count": 0,
+        "rows": []
+      }
+    }
+  ],
+  "needsYouCases": [
+    {
+      "name": "rows in fold order; an encrypted chat's row reads sealedRow",
+      "input": {
+        "max": 3,
+        "sealedRootIds": [
+          "r2"
+        ],
+        "rows": [
+          {
+            "messageId": "m1",
+            "sessionId": "r1",
+            "rootId": "r1",
+            "kind": "plan",
+            "opens": "plan",
+            "title": "Ship the widgets",
+            "chat": "Widgets",
+            "meta": "",
+            "age": "2m",
+            "createdAt": "2026-11-14T10:00:00.000Z"
+          },
+          {
+            "messageId": "m2",
+            "sessionId": "r2",
+            "rootId": "r2",
+            "kind": "question",
+            "opens": "card",
+            "title": "Which board?",
+            "chat": "Secret",
+            "meta": "",
+            "age": "5m",
+            "createdAt": "2026-11-14T09:57:00.000Z"
+          },
+          {
+            "messageId": "p3",
+            "sessionId": "r3",
+            "rootId": "r3",
+            "kind": "pr",
+            "opens": "results",
+            "title": "Fix login",
+            "chat": "Login",
+            "meta": "#12",
+            "age": "1h",
+            "createdAt": "2026-11-14T09:00:00.000Z"
+          },
+          {
+            "messageId": "m4",
+            "sessionId": "r4",
+            "rootId": "r4",
+            "kind": "question",
+            "opens": "card",
+            "title": "Later",
+            "chat": "x",
+            "meta": "",
+            "age": "2h",
+            "createdAt": "2026-11-14T08:00:00.000Z"
+          }
+        ]
+      },
+      "expected": {
+        "count": 4,
+        "rows": [
+          {
+            "messageId": "m1",
+            "sessionId": "r1",
+            "rootId": "r1",
+            "opens": "plan",
+            "icon": "coding-plan",
+            "title": "Ship the widgets",
+            "age": "2m"
+          },
+          {
+            "messageId": "m2",
+            "sessionId": "r2",
+            "rootId": "r2",
+            "opens": "card",
+            "icon": "ui-help",
+            "title": "Encrypted chat",
+            "age": "5m"
+          },
+          {
+            "messageId": "p3",
+            "sessionId": "r3",
+            "rootId": "r3",
+            "opens": "results",
+            "icon": "pr-open",
+            "title": "Fix login",
+            "age": "1h"
+          }
+        ]
+      }
+    },
+    {
+      "name": "nothing waits",
+      "input": {
+        "max": 3,
+        "sealedRootIds": [],
+        "rows": []
+      },
+      "expected": {
+        "count": 0,
+        "rows": []
+      }
+    }
+  ]
+}

@@ -64,6 +64,8 @@ pub(crate) struct McpCopy {
     pub retry: &'static str,
     pub revoke: &'static str,
     pub activity: &'static str,
+    /// #FEED-242: an owner's last row per app, the app's default level.
+    pub everyone_else: &'static str,
     pub never: &'static str,
     pub builtin_app: &'static str,
     pub first_party: &'static str,
@@ -96,6 +98,7 @@ pub(crate) const SETTINGS_MCP: McpCopy = McpCopy {
     retry: "Retry",
     revoke: "Revoke",
     activity: "Activity",
+    everyone_else: "Everyone else",
     never: "never used",
     builtin_app: "Exponential",
     first_party: "API key",
@@ -617,7 +620,12 @@ impl McpPane {
                 }
             }
             "level" => {
-                if !value.is_empty() {
+                if value.is_empty() {
+                    return;
+                }
+                if context.get("everyone").and_then(Value::as_bool).unwrap_or(false) {
+                    self.set_default(key("app"), value, cx);
+                } else {
                     self.set_level(key("app"), key("user"), value, cx);
                 }
             }
@@ -715,6 +723,47 @@ impl McpPane {
         .detach();
     }
 
+    /// #FEED-242: an owner's pick on an app's Everyone else row:
+    /// optimistic, rolled back on failure, then the table re-reads (members
+    /// without their own row follow the default).
+    fn set_default(&mut self, app_id: String, level: String, cx: &mut gpui::Context<Self>) {
+        let Some(data) = self.access.clone() else {
+            return;
+        };
+        if !data.can_edit {
+            return;
+        }
+        let Some(trpc) = queries::trpc_client(cx) else {
+            return;
+        };
+        let mut next = data.clone();
+        for app in next.apps.iter_mut().filter(|app| app.id == app_id) {
+            app.default_access = level.clone();
+        }
+        self.access = Some(next);
+        cx.notify();
+        let generation = self.access_generation;
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { api::app_access::set_default(&trpc, &app_id, &level) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                match result {
+                    Ok(()) => this.load_access(cx),
+                    Err(error) => {
+                        if this.access_generation == generation {
+                            this.access = Some(data);
+                        }
+                        crate::action_error::failed_action_err("save", "the access", &error, cx);
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     // -- projections ----------------------------------------------------------
 
     /// The Clients section's state.
@@ -757,7 +806,15 @@ impl McpPane {
                 rows.push(json!({"key": format!("{}:{}", app.id, row.user_id), "header": false, "member": true, "gap": false,
                     "app": app.id, "user": row.user_id, "name": name, "initials": crate::user_avatar::initials(&name),
                     "avatarFill": hex(fill), "avatarInk": hex(ink), "hasPicture": picture.is_some(), "noPicture": picture.is_none(), "picture": picture.unwrap_or_default(),
-                    "level": level, "levelLabel": level_label(&level), "editable": data.can_edit, "reader": !data.can_edit}));
+                    "level": level, "levelLabel": level_label(&level), "editable": data.can_edit, "reader": !data.can_edit, "everyone": false}));
+            }
+            // #FEED-242: an owner's last row, the app's default level.
+            if data.can_edit {
+                let level = app.default_access.clone();
+                rows.push(json!({"key": format!("{}:*everyone", app.id), "header": false, "member": true, "gap": false,
+                    "app": app.id, "user": "", "name": SETTINGS_MCP.everyone_else, "initials": "",
+                    "avatarFill": "#00000000", "avatarInk": "#00000000", "hasPicture": false, "noPicture": false, "picture": "",
+                    "level": level, "levelLabel": level_label(&level), "editable": true, "reader": false, "everyone": true}));
             }
         }
         json!({"shown": true, "rows": rows})
@@ -1134,6 +1191,9 @@ fn body_document(ink: &Ink, chrome: &Chrome) -> Value {
     let disc = json!({"id": "member_disc", "component": "Box", "visible": path("noPicture"),
         "style": {"display": "flex", "alignItems": "center", "justifyContent": "center", "width": avatar_size, "height": avatar_size, "flexShrink": 0, "borderRadius": 9999, "overflow": "hidden", "backgroundColor": path("avatarFill")},
         "children": [initials]});
+    // #FEED-242: the Everyone else row's concept glyph in the avatar's place.
+    let mut everyone = glyph("member_everyone", json!("settings-members"), avatar_size, &ink.muted);
+    everyone["visible"] = path("everyone");
     let picture = json!({"id": "member_picture", "component": "Avatar", "visible": path("hasPicture"), "props": {"name": path("name"), "src": path("picture"), "size": "sm"}, "style": {"width": avatar_size, "height": avatar_size, "flexShrink": 0}});
     let mut member_name = line(ink, "member_name", path("name"), SM, &ink.foreground);
     member_name["style"]["flexGrow"] = json!(1);
@@ -1142,11 +1202,11 @@ fn body_document(ink: &Ink, chrome: &Chrome) -> Value {
     let levels: Vec<Value> = LEVELS.iter().map(|(value, label)| json!({"label": label, "value": value})).collect();
     let menu = json!({"id": "level", "component": "Select", "visible": path("editable"),
         "props": {"label": path("name"), "name": "level", "triggerVariant": "inline", "align": "end", "popupWidth": LEVEL_POPUP_WIDTH, "value": path("level"), "options": levels},
-        "on": {"change": {"event": {"name": "level", "context": {"app": path("app"), "user": path("user")}}}}});
+        "on": {"change": {"event": {"name": "level", "context": {"app": path("app"), "user": path("user"), "everyone": path("everyone")}}}}});
     let mut reader = ink.text("level_text", path("levelLabel"), SM, &ink.muted);
     reader["visible"] = path("reader");
     reader["style"]["flexShrink"] = json!(0);
-    let member = json!({"id": "member_row", "component": "Box", "visible": path("member"), "style": row_style(ink), "children": [disc, picture, member_name, menu, reader]});
+    let member = json!({"id": "member_row", "component": "Box", "visible": path("member"), "style": row_style(ink), "children": [disc, everyone, picture, member_name, menu, reader]});
     let access_row = json!({"id": "access_item", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0}, "children": [gap, header, member]});
     let mut activity_label = ink.text("activity_label", json!(SETTINGS_MCP.activity), SM, &ink.foreground);
     activity_label["style"]["flexGrow"] = json!(1);
@@ -1441,6 +1501,7 @@ mod tests {
         assert_eq!(f["retry"], s.retry);
         assert_eq!(f["revoke"], s.revoke);
         assert_eq!(f["activity"], s.activity);
+        assert_eq!(f["everyoneElse"], s.everyone_else);
         assert_eq!(f["never"], s.never);
         assert_eq!(f["builtinApp"], s.builtin_app);
         assert_eq!(f["firstParty"], s.first_party);

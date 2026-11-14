@@ -703,26 +703,37 @@ export async function updatePullRequest(args: {
  *  the PR never moves the issue again and clients see it unlinked (the
  *  shape hides it), but the link's history survives for audits. The issue's
  *  status stays a human decision; only rows inside the PR's team. A later
- *  `pr open` naming it in `issueIds` makes it closing again. */
+ *  `pr open` naming it in `issueIds` makes it closing again. #FEED-236: an
+ *  issue that already was a reference answers `unlinked: true, already:
+ *  true` (the call's goal holds), one the PR never linked is NOT_FOUND, and
+ *  a live PR's body re-renders without it. */
 export async function unlinkPullRequestIssue(args: {
   userId: string
   pullRequestId: string
   issueId: string
-}): Promise<{ unlinked: boolean }> {
+}): Promise<{ unlinked: true; already?: true }> {
   const pr = await resolvePullRequest({ userId: args.userId, pullRequestId: args.pullRequestId })
-  const unlinked = await db
+  const ofThisPr = and(
+    eq(pullRequestIssues.pullRequestId, pr.id),
+    eq(pullRequestIssues.issueId, args.issueId),
+    eq(pullRequestIssues.teamId, pr.teamId)
+  )
+  const flipped = await db
     .update(pullRequestIssues)
     .set({ closes: false, updatedAt: new Date() })
-    .where(
-      and(
-        eq(pullRequestIssues.pullRequestId, pr.id),
-        eq(pullRequestIssues.issueId, args.issueId),
-        eq(pullRequestIssues.teamId, pr.teamId),
-        eq(pullRequestIssues.closes, true)
-      )
-    )
+    .where(and(ofThisPr, eq(pullRequestIssues.closes, true)))
     .returning({ issueId: pullRequestIssues.issueId })
-  return { unlinked: unlinked.length > 0 }
+  if (flipped.length === 0) {
+    const [reference] = await db
+      .select({ issueId: pullRequestIssues.issueId })
+      .from(pullRequestIssues)
+      .where(ofThisPr)
+      .limit(1)
+    if (!reference) fail(`NOT_FOUND`, `That issue is not linked to pull request #${pr.number}: nothing to unlink`)
+    return { unlinked: true, already: true }
+  }
+  if (pr.rootSessionId && isLivePrState(pr.state)) void syncPullRequestBodies(pr.rootSessionId)
+  return { unlinked: true }
 }
 
 export async function closePullRequest(args: { userId: string; pullRequestId: string }): Promise<void> {

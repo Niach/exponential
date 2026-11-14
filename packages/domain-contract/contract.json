@@ -1665,6 +1665,17 @@
         "result": "none"
       },
       {
+        "name": "apps_access",
+        "title": "Set app access",
+        "blurb": "Sets who may use an app: the default for everyone else and per-member levels (owners).",
+        "progressive": "Setting app access",
+        "done": "Set app access",
+        "progressiveMany": "Setting access on {n} apps",
+        "doneMany": "Set access on {n} apps",
+        "subjectKey": "slug",
+        "result": "none"
+      },
+      {
         "name": "apps_catalog",
         "title": "Read app catalog",
         "blurb": "Reads the genUI catalog an app package may use.",
@@ -1673,6 +1684,28 @@
         "progressiveMany": "Reading app catalog {n} times",
         "doneMany": "Read app catalog {n} times",
         "subjectKey": "",
+        "result": "none"
+      },
+      {
+        "name": "apps_render",
+        "title": "Render app screen",
+        "blurb": "Renders one app screen as a viewer sees it, as a text outline with its problems.",
+        "progressive": "Rendering app screen",
+        "done": "Rendered app screen",
+        "progressiveMany": "Rendering {n} app screens",
+        "doneMany": "Rendered {n} app screens",
+        "subjectKey": "slug",
+        "result": "none"
+      },
+      {
+        "name": "apps_screenshot",
+        "title": "Screenshot app screen",
+        "blurb": "Paints one app screen on the session's device and returns the picture as an attachment.",
+        "progressive": "Taking app screenshot",
+        "done": "Took app screenshot",
+        "progressiveMany": "Taking {n} app screenshots",
+        "doneMany": "Took {n} app screenshots",
+        "subjectKey": "slug",
         "result": "none"
       },
       {
@@ -2182,7 +2215,10 @@
       { "name": "apps_upsert", "refs": "" },
       { "name": "apps_publish", "refs": "" },
       { "name": "apps_delete", "refs": "" },
+      { "name": "apps_access", "refs": "" },
       { "name": "apps_catalog", "refs": "" },
+      { "name": "apps_render", "refs": "" },
+      { "name": "apps_screenshot", "refs": "attachment@" },
       { "name": "apps_records_list", "refs": "" },
       { "name": "apps_records_upsert", "refs": "" },
       { "name": "apps_records_delete", "refs": "" },

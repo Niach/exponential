@@ -1,0 +1,3 @@
+- Home screen widgets: Board, My issues and Needs you
+- Long-press the app icon for your Assistant; a pinned agent shortcut opens its chat
+- Owners set an app's Everyone else access in Settings › MCP › Access
