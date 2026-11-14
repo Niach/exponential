@@ -1620,7 +1620,7 @@ class StyleguideScreenshotsTest {
                 flow.waitFor(assistantRow, SYNC_TIMEOUT)
                 tapClearOfBar(assistantRow)
                 flow.waitFor(hasTestTag(AgentSettings.TEST_ID_PAGE), NAV_TIMEOUT)
-                flow.waitFor(hasTestTag("assistant-check-in"), SYNC_TIMEOUT)
+                flow.waitFor(hasTestTag("agent-check-in"), SYNC_TIMEOUT)
                 flow.settle(longer = true)
                 flow.screenshot("sg_settings-assistant")
                 if (ScreenshotFlow.anyRequested("sg_settings-assistant-meeting")) {

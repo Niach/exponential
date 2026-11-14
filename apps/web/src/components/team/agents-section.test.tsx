@@ -19,6 +19,7 @@ vi.mock(`@/lib/trpc-client`, () => ({
       delete: { mutate: vi.fn() },
     },
     mcpServers: { list: { query: mcpList } },
+    voice: { get: { query: vi.fn(() => new Promise(() => {})) } },
   },
 }))
 vi.mock(`@/lib/collections`, () => ({
@@ -59,7 +60,8 @@ describe(`AgentSettingsPage (create)`, () => {
     render(<AgentSettingsPage team={team} agent={null} isOwner />)
     expect(screen.getByTestId(`agent-settings-page`)).toBeTruthy()
     fireEvent.click(screen.getByTestId(`agent-create`))
-    await waitFor(() => expect(screen.getByRole(`alert`).textContent).toBe(`Name the agent`))
+    // The name error under identity, the device error under Runs on.
+    await waitFor(() => expect(screen.getAllByRole(`alert`)[0]!.textContent).toBe(`Name the agent`))
     expect(create).not.toHaveBeenCalled()
   })
 
@@ -124,6 +126,90 @@ describe(`AgentSettingsPage MCP servers row (#EXP-1793)`, () => {
     fireEvent.click(await within(await screen.findByTestId(`agent-mcp-servers`)).findByText(`Linear`))
     await waitFor(() =>
       expect(update).toHaveBeenCalledWith({ id: `ag-1`, mcpServerIds: [`m1`, `m2`] }, expect.anything())
+    )
+  })
+})
+
+// #EXP-1846 (agent-settings.json `page`, `checkIn`): one page for every
+// agent: Runs on carries the Model row, Triggers opens with the Check in
+// (the preset trigger, written whole with `withCheckIn`) over the other rows.
+describe(`AgentSettingsPage Triggers (#EXP-1846)`, () => {
+  const agent = (triggers: unknown[], role = `agent`) =>
+    ({
+      id: `ag-1`,
+      teamId: team.id,
+      name: `Triage`,
+      role,
+      icon: null,
+      color: null,
+      defaults: {},
+      triggers,
+      skillIds: [],
+      mcpServerIds: [],
+    }) as unknown as SyncedAgent
+  const EVENT = { id: `t-ev`, kind: `event`, name: `pr.merged`, enabled: true }
+  const CHECK_IN = {
+    id: `t-ci`,
+    kind: `schedule`,
+    cron: `0 * * * *`,
+    preset: `1h`,
+    enabled: true,
+    tz: `Europe/Berlin`,
+  }
+
+  // A row Picker's test id rides its open rows: the row = its label's button.
+  const row = (label: string) => screen.getByText(label).closest(`button`)!
+
+  it(`a team agent shows the Model row, the Check in, and only the unpreset rows`, () => {
+    render(<AgentSettingsPage team={team} agent={agent([CHECK_IN, EVENT])} isOwner />)
+    expect(row(`Model`)).toBeTruthy()
+    expect(row(`Check in`).textContent).toContain(`Every hour`)
+    expect(screen.getByTestId(`agent-trigger-t-ev`)).toBeTruthy()
+    expect(screen.queryByTestId(`agent-trigger-t-ci`)).toBeNull()
+    expect(screen.getByTestId(`agent-add-trigger`)).toBeTruthy()
+  })
+
+  it(`a member reads a disabled Check in, no Add`, () => {
+    render(<AgentSettingsPage team={team} agent={agent([EVENT])} isOwner={false} />)
+    expect(row(`Check in`).disabled).toBe(true)
+    expect(screen.queryByTestId(`agent-add-trigger`)).toBeNull()
+    expect(screen.queryByTestId(`agent-delete`)).toBeNull()
+  })
+
+  it(`the Assistant gets Add too, and no Instructions`, () => {
+    render(<AgentSettingsPage team={team} agent={agent([], `assistant`)} isOwner={false} />)
+    expect(screen.getByTestId(`agent-add-trigger`)).toBeTruthy()
+    expect(screen.queryByTestId(`agent-instructions`)).toBeNull()
+  })
+
+  it(`a Check in pick writes the whole array, the preset trigger first, keeping its id and zone`, async () => {
+    update.mockResolvedValue({ txid: 1 })
+    render(<AgentSettingsPage team={team} agent={agent([EVENT, CHECK_IN])} isOwner />)
+    fireEvent.click(row(`Check in`))
+    fireEvent.click(await screen.findByText(`Every 15 minutes`))
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith(
+        {
+          id: `ag-1`,
+          triggers: [
+            { id: `t-ci`, kind: `schedule`, cron: `*/15 * * * *`, preset: `15m`, enabled: true, tz: `Europe/Berlin` },
+            EVENT,
+          ],
+        },
+        expect.anything()
+      )
+    )
+  })
+
+  it(`toggling a listed trigger keeps the Check in's preset`, async () => {
+    update.mockResolvedValue({ txid: 1 })
+    render(<AgentSettingsPage team={team} agent={agent([CHECK_IN, EVENT])} isOwner />)
+    fireEvent.click(within(screen.getByTestId(`agent-trigger-t-ev`)).getByRole(`switch`))
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith(
+        { id: `ag-1`, triggers: [CHECK_IN, { ...EVENT, enabled: false }] },
+        expect.anything()
+      )
     )
   })
 })

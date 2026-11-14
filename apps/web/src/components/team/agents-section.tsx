@@ -4,7 +4,6 @@ import { useNavigate } from "@tanstack/react-router"
 import type {
   AgentTrigger,
   BoardIcon,
-  TriggerWhen,
 } from "@exp/db-schema/domain"
 import {
   AccountPicker,
@@ -20,7 +19,6 @@ import {
   GlassGroup,
   GlassSectionHeader,
   ListRow,
-  Menu,
   ModelPicker,
   Picker,
   PickerTrigger,
@@ -28,7 +26,6 @@ import {
   Prompt,
   SETTINGS_LIST_CLASS,
   SkeletonRows,
-  Switch,
   Textarea,
   type DevicePickerDevice,
 } from "@exp/ui"
@@ -47,7 +44,6 @@ import { compactRelativeTime } from "@/lib/relative-time"
 import { displayUserName } from "@/lib/user-display"
 import { trpc } from "@/lib/trpc-client"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
-import { deleteTriggerPrompt, promptActions } from "@/lib/prompts"
 import { healthBadgeLabel } from "@/lib/agent-usage"
 import {
   accountOptionKey,
@@ -62,7 +58,6 @@ import {
 import {
   AGENT_SETTINGS_COPY,
   agentAccountValue,
-  triggerSummary,
   validateAgentForm,
   type AgentFormError,
   type AgentRow,
@@ -70,7 +65,7 @@ import {
 import { useSession } from "@/hooks/use-session"
 import { useNow } from "@/hooks/use-now"
 import { BoardIdentityRow } from "@/components/board-form-fields"
-import { TriggerDialog } from "@/components/trigger-dialog"
+import { AgentTriggers, readTriggers } from "@/components/agents/agent-triggers"
 import {
   accountPinOf,
   seedAccountPin,
@@ -81,16 +76,12 @@ import { accountOptionsOf } from "@/components/launch-dialog/use-launch-options"
 import agentSettingsFixture from "@exp/domain-contract/fixtures/agent-settings.json"
 import {
   ASSISTANT_COPY,
-  ASSISTANT_SCHEDULES,
   LEAD,
   LEAD_COPY,
   LEAD_NONE,
   leadOptions,
   assistantModelValue,
-  assistantScheduleOf,
-  assistantScheduleTriggers,
   runsOnDeviceIds,
-  type AssistantScheduleId,
 } from "@exp/domain-contract/agent-settings"
 import { modelChoices } from "@/components/launch-dialog/launch-options-pane"
 import { VoiceSettingsSection, type VoiceSettings } from "@/components/account/voice-settings-card"
@@ -122,8 +113,6 @@ const COPY = AGENT_SETTINGS_COPY
 /** The fixture's test ids: the settings nav's agent list + an agent page. */
 export const AGENT_SETTINGS_TEST_IDS = agentSettingsFixture.testIds
 const UiAddIcon = conceptIcon(`ui-add`)
-const UiMoreIcon = conceptIcon(`ui-more`)
-const UiEditIcon = conceptIcon(`ui-edit`)
 const UiDeleteIcon = conceptIcon(`ui-delete`)
 const SettingsAgentsIcon = conceptIcon(`settings-agents`)
 const TriggerEventIcon = conceptIcon(`trigger-event`)
@@ -161,7 +150,6 @@ function seedCliAccountPin(
   const fallback = lastUsedAccountOption(options)
   return fallback ? accountPinOf(fallback) : { agent: cli, account: `` }
 }
-const DELETE_TRIGGER = deleteTriggerPrompt()
 
 /**
  * The machines an agent may be bound to: the caller's own devices plus the
@@ -227,29 +215,6 @@ function errorFor(errors: readonly AgentFormError[], field: string) {
   return errors.find((error) => error.field === field)?.message ?? null
 }
 
-/** A trigger as stored: the when-part plus its id and switch. */
-function withTriggerMeta(
-  when: TriggerWhen,
-  id: string,
-  enabled: boolean
-): AgentTrigger {
-  return { ...when, id, enabled }
-}
-
-/** Tolerant read: the synced `triggers` jsonb may hold a shape a newer
- *  client wrote; only the two known kinds render. */
-function readTriggers(value: unknown): AgentTrigger[] {
-  if (!Array.isArray(value)) return []
-  return value.filter(
-    (trigger): trigger is AgentTrigger =>
-      typeof trigger === `object` &&
-      trigger !== null &&
-      typeof (trigger as { id?: unknown }).id === `string` &&
-      ((trigger as { kind?: unknown }).kind === `schedule` ||
-        (trigger as { kind?: unknown }).kind === `event`)
-  )
-}
-
 export function AgentSettingsPage({
   team,
   agent,
@@ -262,13 +227,12 @@ export function AgentSettingsPage({
 }) {
   const navigate = useNavigate()
   const creating = agent === null
-  // S-3 (agent-settings.json `assistant`): the member's Assistant renders
-  // `assistant.sections`: identity (name only, the brand mark), Runs on
-  // (device, account, model), Check in (THE Picker over the presets), Voice
-  // (the voice settings block); no Instructions (#EXP-1439: its prompt is
-  // built in), no Delete. Only its owner
-  // reaches it (the server answers NOT_FOUND to anyone else), so it is never
-  // read-only.
+  // #EXP-1846 (agent-settings.json `page`): ONE page for the Assistant and
+  // every team agent: identity, Runs on (device, account, model, skills, MCP
+  // servers), Triggers (`AgentTriggers`: Check in + the list), then Voice
+  // (the Assistant only), Instructions + Delete (team agents only; #EXP-1439:
+  // the Assistant's prompt is built in). Only its owner reaches an Assistant
+  // (the server answers NOT_FOUND to anyone else), so it is never read-only.
   const assistant = agent?.role === `assistant`
   const readOnly = assistant ? false : !isOwner
   const devices = useAgentDevices(team.id)
@@ -300,11 +264,6 @@ export function AgentSettingsPage({
   const [creatingBusy, setCreatingBusy] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [triggerDialog, setTriggerDialog] = useState<{
-    open: boolean
-    editing: AgentTrigger | null
-  }>({ open: false, editing: null })
-  const [deleteTrigger, setDeleteTrigger] = useState<AgentTrigger | null>(null)
 
   // Seed when the AGENT changes (never on a resync of the same one: that
   // would stomp what is being typed).
@@ -445,26 +404,13 @@ export function AgentSettingsPage({
     }
   }
 
-  // ── Model (the Assistant's Runs on) ──
+  // ── Model (every agent's Runs on, #EXP-1846) ──
   const modelCli = pin.agent || lockedCli || `claude`
   const modelOptions = useMemo(() => modelChoices(modelCli), [modelCli])
   const pickModel = (next: string) => {
     const previous = model
     setModel(next)
-    quietly(update({ model: next }, () => setModel(previous)))
-  }
-
-  // ── Check in (the Assistant's ONE schedule preset) ──
-  const schedule = assistantScheduleOf(triggers)
-  const scheduleItems = ASSISTANT_SCHEDULES.map((preset) => ({ value: preset.id, label: preset.label }))
-  const pickSchedule = (id: AssistantScheduleId) => {
-    // A preset keeps the stored time zone (`scheduleCases`).
-    const tz = triggers.find((trigger) => trigger.kind === `schedule` && `tz` in trigger)
-    const zone = tz && `tz` in tz ? (tz.tz as string | undefined) : undefined
-    const next = assistantScheduleTriggers(id, zone).map(
-      (trigger) => ({ ...trigger, id: crypto.randomUUID() }) as AgentTrigger
-    )
-    quietly(writeTriggers(next))
+    if (!creating) quietly(update({ model: next }, () => setModel(previous)))
   }
 
   // ── identity writes ──
@@ -522,25 +468,12 @@ export function AgentSettingsPage({
     if (!creating) quietly(update({ color: next }, () => setColor(previous)))
   }
 
-  // ── Triggers ──
-  // The editor returns a when-part; the page owns the array. An existing
-  // agent writes the whole array, the create page keeps it local.
+  // ── Triggers (`AgentTriggers` edits, the page owns the array) ──
+  // An existing agent writes the whole array, the create page keeps it local.
   const writeTriggers = async (next: AgentTrigger[]) => {
     const previous = triggers
     setTriggers(next)
     if (!creating) await update({ triggers: next }, () => setTriggers(previous))
-  }
-
-  const saveTrigger = async (when: TriggerWhen) => {
-    const editing = triggerDialog.editing
-    const next = editing
-      ? triggers.map((existing) =>
-          existing.id === editing.id
-            ? withTriggerMeta(when, existing.id, existing.enabled)
-            : existing
-        )
-      : [...triggers, withTriggerMeta(when, crypto.randomUUID(), true)]
-    await writeTriggers(next)
   }
 
   // ── Instructions (server-only: `agents.get`) ──
@@ -621,6 +554,8 @@ export function AgentSettingsPage({
           ...(mcpServerIds.length > 0 ? { mcpServerIds } : {}),
           ...(pin.agent ? { cli: pin.agent } : {}),
           ...(pin.account ? { account: pin.account } : {}),
+          // A pinned model the login's CLI still offers.
+          ...(model && modelOptions.some((option) => option.value === model) ? { model } : {}),
         },
         SKIP_ERROR_TOAST
       )
@@ -792,98 +727,35 @@ export function AgentSettingsPage({
             autoFocus={creating}
             lead={assistant ? <AssistantMark className="size-9" /> : undefined}
           />
-          {!assistant && deviceRow}
-          {!assistant && skillsRow}
-          {!assistant && mcpRow}
         </GlassGroup>
-        <FieldError className="px-1">{identityError ?? (assistant ? null : deviceError)}</FieldError>
+        <FieldError className="px-1">{identityError}</FieldError>
       </div>
 
-      {assistant && (
-        <div className="space-y-2">
-          <GlassSectionHeader label={ASSISTANT_COPY.runsOn} />
-          <GlassGroup>
-            {deviceRow}
-            {accountRow}
-            <ModelPicker
-              triggerVariant="row"
-              width="md"
-              // agent-settings.json `modelValueCases`: unpinned = the
-              // dispatcher root's default for the login's CLI.
-              value={assistantModelValue({ model, cli: modelCli })}
-              onChange={pickModel}
-              models={modelOptions}
-              data-testid="assistant-model"
-            />
-            {skillsRow}
-            {mcpRow}
-          </GlassGroup>
-          <FieldError className="px-1">{deviceError}</FieldError>
-        </div>
-      )}
+      <div className="space-y-2">
+        <GlassSectionHeader label={COPY.runsOn} />
+        <GlassGroup>
+          {deviceRow}
+          {accountRow}
+          <ModelPicker
+            triggerVariant="row"
+            width="md"
+            // agent-settings.json `modelValueCases`: unpinned = the
+            // device default for the login's CLI.
+            value={assistantModelValue({ model, cli: modelCli })}
+            onChange={pickModel}
+            models={modelOptions}
+            disabled={readOnly}
+            data-testid="agent-model"
+          />
+          {skillsRow}
+          {mcpRow}
+        </GlassGroup>
+        <FieldError className="px-1">{deviceError}</FieldError>
+      </div>
 
-      {assistant && (
-        <div>
-          <GlassSectionHeader label={ASSISTANT_COPY.checkIn} />
-          <GlassGroup>
-            <Picker
-              mode="single"
-              triggerVariant="row"
-              width="md"
-              mobileTitle={ASSISTANT_COPY.checkIn}
-              triggerLabel={ASSISTANT_COPY.checkIn}
-              value={schedule}
-              items={scheduleItems}
-              onChange={pickSchedule}
-              data-testid="assistant-check-in"
-            />
-          </GlassGroup>
-        </div>
-      )}
+      <AgentTriggers triggers={triggers} readOnly={readOnly} onWrite={writeTriggers} />
 
       {assistant && agentId && <AssistantVoiceSection assistantId={agentId} />}
-
-      {!assistant && (
-        <GlassGroup>
-          {accountRow}
-          <div className="flex items-center gap-3 px-4 py-3 text-sm">
-            <span className="shrink-0 text-foreground">Triggers</span>
-            <span className="ml-auto flex min-w-0 items-center gap-2">
-              {triggers.length === 0 && (
-                <span className="truncate text-foreground/50">{COPY.noSchedule}</span>
-              )}
-              {!readOnly && (
-                <Pill
-                  mode="action"
-                  onClick={() => setTriggerDialog({ open: true, editing: null })}
-                  data-testid="agent-add-trigger"
-                >
-                  <UiAddIcon className="size-3" />
-                  {COPY.addTrigger}
-                </Pill>
-              )}
-            </span>
-          </div>
-          {triggers.map((trigger) => (
-            <AgentTriggerRow
-              key={trigger.id}
-              trigger={trigger}
-              readOnly={readOnly}
-              onToggle={(enabled) =>
-                quietly(
-                  writeTriggers(
-                    triggers.map((existing) =>
-                      existing.id === trigger.id ? { ...existing, enabled } : existing
-                    )
-                  )
-                )
-              }
-              onEdit={() => setTriggerDialog({ open: true, editing: trigger })}
-              onDelete={() => setDeleteTrigger(trigger)}
-            />
-          ))}
-        </GlassGroup>
-      )}
 
       {!assistant && (
         <div className="space-y-1">
@@ -950,44 +822,6 @@ export function AgentSettingsPage({
             </div>
           )}
 
-      {!readOnly && (
-        <TriggerDialog
-          open={triggerDialog.open}
-          onOpenChange={(open) =>
-            setTriggerDialog((current) =>
-              open ? { ...current, open } : { open: false, editing: null }
-            )
-          }
-          trigger={triggerDialog.editing}
-          onSave={saveTrigger}
-        />
-      )}
-
-      <Prompt
-        open={deleteTrigger !== null}
-        onOpenChange={(next) => {
-          if (!next) setDeleteTrigger(null)
-        }}
-        title={DELETE_TRIGGER.title}
-        body={DELETE_TRIGGER.body}
-        actions={promptActions(DELETE_TRIGGER, {
-          delete: {
-            onSelect: async () => {
-              const target = deleteTrigger
-              if (!target) return
-              try {
-                await writeTriggers(
-                  triggers.filter((existing) => existing.id !== target.id)
-                )
-                setDeleteTrigger(null)
-              } catch {
-                // Toast already shown; the confirm stays open for a retry.
-              }
-            },
-          },
-        })}
-      />
-
       <Prompt
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
@@ -1045,75 +879,6 @@ function AssistantVoiceSection({ assistantId }: { assistantId: string }) {
         <SkeletonRows dot={false} className="py-1" />
       )}
     </div>
-  )
-}
-
-/** One Triggers row: the trigger's sentence, its switch, and (owners) a ⋯
- *  with Edit / Delete; the row itself opens the editor. */
-function AgentTriggerRow({
-  trigger,
-  readOnly,
-  onToggle,
-  onEdit,
-  onDelete,
-}: {
-  trigger: AgentTrigger
-  readOnly: boolean
-  onToggle: (enabled: boolean) => void
-  onEdit: () => void
-  onDelete: () => void
-}) {
-  const sentence = triggerSummary({ ...trigger, enabled: true })
-  return (
-    <ListRow
-      interactive={!readOnly}
-      onClick={readOnly ? undefined : onEdit}
-      aria-label={readOnly ? undefined : sentence}
-      className="px-4"
-      data-testid={`agent-trigger-${trigger.id}`}
-    >
-      <span
-        className={`min-w-0 flex-1 truncate text-sm ${trigger.enabled ? `` : `text-muted-foreground`}`}
-      >
-        {sentence}
-      </span>
-      <div
-        className="flex shrink-0 items-center gap-1"
-        // The switch and the menu are their own targets.
-        onClick={(e) => e.stopPropagation()}
-      >
-        <Switch
-          size="compact"
-          checked={trigger.enabled}
-          disabled={readOnly}
-          onCheckedChange={onToggle}
-          aria-label={`Enabled: ${sentence}`}
-        />
-        {!readOnly && (
-          <Menu
-            align="end"
-            aria-label={`${sentence} actions`}
-            title={sentence}
-            entries={[
-              { kind: `item`, id: `edit`, label: `Edit`, icon: UiEditIcon, onSelect: onEdit },
-              {
-                kind: `item`,
-                id: `delete`,
-                label: `Delete`,
-                icon: UiDeleteIcon,
-                destructive: true,
-                onSelect: onDelete,
-              },
-            ]}
-            trigger={
-              <Button variant="ghost" size="icon-sm" aria-label={`Trigger menu for ${sentence}`}>
-                <UiMoreIcon />
-              </Button>
-            }
-          />
-        )}
-      </div>
-    </ListRow>
   )
 }
 

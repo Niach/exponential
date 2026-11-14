@@ -1839,7 +1839,7 @@
       "id": "settings-assistant",
       "group": "settings",
       "title": "Settings · Assistant",
-      "blurb": "S-3: the member's own Assistant (agent-settings.json `assistant`), first in the settings nav's Agents group with the Exponential brand mark: its name beside the mark, Runs on (device, account, model), Check in (one schedule preset), the Voice block moved here from Personal (minus Voice device and Agent). No instructions (#EXP-1439: its prompt is built in), no Delete. Replaces Settings · Voice.",
+      "blurb": "S-3: the member's own Assistant (agent-settings.json `assistant`), first in the settings nav's Agents group with the Exponential brand mark: its name beside the mark, Runs on (device, account, model, skills, MCP servers), Triggers (Check in preset first, then any triggers; #EXP-1846: the same page as a team agent's), the Voice block moved here from Personal (minus Voice device and Agent). No instructions (#EXP-1439: its prompt is built in), no Delete. Replaces Settings · Voice.",
       "order": 28,
       "web": {
         "route": "/t/$teamSlug/settings/assistant",
@@ -2217,7 +2217,7 @@
       "id": "settings-team-agent",
       "group": "settings",
       "title": "Settings · Agent",
-      "blurb": "One team agent up close (EXP-1293), laid out like a board's settings page: icon, colour and name in one row, then Device, Skills (#EXP-1659: the agent's default skills), Account and Triggers (a schedule read by the schedule picker's sentence and an event), the instructions card and Delete agent. The settings nav lists the team's agents under Boards with New agent.",
+      "blurb": "One team agent up close (EXP-1293), laid out like a board's settings page: icon, colour and name in one row; #EXP-1846: the SAME page as the Assistant's: Runs on (Device, Account, Model, Skills, MCP servers), Triggers (Check in preset first, then a schedule read by the schedule picker's sentence and an event), the instructions card and Delete agent. The settings nav lists the team's agents under Boards with New agent.",
       "order": 23,
       "web": {
         "route": "/t/$teamSlug/settings/agents/$agentId",
