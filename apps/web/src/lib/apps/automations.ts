@@ -116,12 +116,21 @@ export async function auditAutomation(app: AutomationApp, automation: Automation
   ])
 }
 
-/** Runs of the app's automations in the last minute (the rate cap). */
-async function runsLastMinute(appId: string): Promise<number> {
+/** Runs of the app's automations in the last minute (the rate cap).
+ *  #VAPP-257: only runs that RAN count; the cap's own `rateLimited`
+ *  refusal rows never keep the window full. */
+export async function runsLastMinute(appId: string): Promise<number> {
   const [row] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(mcpCalls)
-    .where(and(eq(mcpCalls.appId, appId), like(mcpCalls.clientId, `automation:%`), gt(mcpCalls.createdAt, new Date(Date.now() - 60_000))))
+    .where(
+      and(
+        eq(mcpCalls.appId, appId),
+        like(mcpCalls.clientId, `automation:%`),
+        gt(mcpCalls.createdAt, new Date(Date.now() - 60_000)),
+        sql`${mcpCalls.error} IS DISTINCT FROM 'rateLimited'`
+      )
+    )
   return row?.n ?? 0
 }
 

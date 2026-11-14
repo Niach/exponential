@@ -33,7 +33,7 @@ if (!ready.ok) console.info(`[automations.real-db] skipped: ${ready.reason}`)
 
 const { upsertRecord } = await import(`@/lib/apps/records-service`)
 const { emitEventInTx } = await import(`@/lib/events`)
-const { automationRows, fireScheduledAutomations } = await import(`@/lib/apps/automations`)
+const { automationRows, fireScheduledAutomations, runsLastMinute } = await import(`@/lib/apps/automations`)
 
 const id8 = () => crypto.randomUUID().slice(0, 8)
 const made = { teams: [] as string[], users: [] as string[] }
@@ -151,6 +151,17 @@ describe.skipIf(!ready.ok)(`app automations (real db)`, () => {
     const listed = await automationRows({ id: w.appId, teamId: w.teamId, package: PACKAGE as never, publishedBy: w.owner })
     expect(listed.find((r) => r.name === `log_request`)?.droppedRuns).toBe(2)
     expect(listed.find((r) => r.name === `morning`)?.droppedRuns).toBe(0)
+  })
+
+  it(`the cap's own refusals never fill the window (#VAPP-257)`, async () => {
+    const w = await world()
+    const row = (error: string | null, status: `ok` | `denied`) => ({ teamId: w.teamId, userId: w.owner, clientId: `automation:log_request`, appId: w.appId, tool: `records.upsert:log`, status, error, latencyMs: 0, argsHash: `x` })
+    await db.insert(mcpCalls).values([
+      ...Array.from({ length: 40 }, () => row(`rateLimited`, `denied`)),
+      row(null, `ok`),
+      row(`sponsorReadOnly`, `denied`),
+    ])
+    expect(await runsLastMinute(w.appId)).toBe(2)
   })
 
   it(`a schedule runs once per due minute`, async () => {
