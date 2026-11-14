@@ -827,3 +827,14 @@ export function sidebarAgents<T extends { agentId: string }>(
   const owned = new Set(apps.map((app) => app.agentId).filter((id): id is string => Boolean(id)))
   return agents.filter((agent) => !owned.has(agent.agentId))
 }
+
+/** #EXP-1837 (`railAgentCases`): the IDE rail's and wide web's sidebar
+ *  Agents group = `sidebarAgents` minus the viewer's Assistant (it is THE
+ *  FAB there, agent-settings.json `assistant.fab`). Settings › Agents and
+ *  the iOS tablet sidebar keep `sidebarAgents`. */
+export function railAgents<T extends { agentId: string; assistant?: boolean }>(
+  agents: readonly T[],
+  apps: readonly { agentId: string | null | undefined }[]
+): T[] {
+  return sidebarAgents(agents, apps).filter((agent) => !agent.assistant)
+}

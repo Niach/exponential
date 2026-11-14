@@ -1354,6 +1354,23 @@ pub(crate) fn agents_in_team(team_id: &str, cx: &App) -> Vec<AgentRow> {
 /// #FEED-239 (chats.json `sidebarAgents`): the IDE rail's Agents group
 /// and Settings › Agents = [`agents_in_team`] minus every live app's agent
 /// (an app's agent is listed under Apps only; the Chats list keeps it).
+/// #EXP-1837 (chats.json `railAgentCases`): the IDE rail's Agents group =
+/// [`sidebar_agents_in_team`] minus the viewer's Assistant, which is THE FAB
+/// (`crate::assistant_fab`). Settings › Agents keeps the Assistant.
+pub(crate) fn rail_agents_in_team(team_id: &str, cx: &App) -> Vec<AgentRow> {
+    let agents = agents_in_team(team_id, cx);
+    let apps = crate::apps_view::app_entries(team_id, cx);
+    domain::chats::rail_agents(
+        &agents,
+        |agent| agent.agent_id.as_str(),
+        |agent| agent.assistant,
+        apps.iter().map(|app| app.row.as_ref().and_then(|row| row.agent_id.as_deref())),
+    )
+    .into_iter()
+    .cloned()
+    .collect()
+}
+
 pub(crate) fn sidebar_agents_in_team(team_id: &str, cx: &App) -> Vec<AgentRow> {
     let agents = agents_in_team(team_id, cx);
     let apps = crate::apps_view::app_entries(team_id, cx);

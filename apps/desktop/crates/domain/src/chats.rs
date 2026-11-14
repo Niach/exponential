@@ -1520,6 +1520,19 @@ pub fn sidebar_agents<'a, T>(
     agents.iter().filter(|agent| !owned.contains(agent_id(agent))).collect()
 }
 
+/// #EXP-1837 (`railAgentCases`, TS `railAgents`): the IDE rail's Agents
+/// group = [`sidebar_agents`] minus the viewer's Assistant (it is THE FAB
+/// there, agent-settings.json `assistant.fab`); Settings › Agents keeps
+/// [`sidebar_agents`].
+pub fn rail_agents<'a, T>(
+    agents: &'a [T],
+    agent_id: impl Fn(&T) -> &str,
+    is_assistant: impl Fn(&T) -> bool,
+    app_agents: impl IntoIterator<Item = Option<&'a str>>,
+) -> Vec<&'a T> {
+    sidebar_agents(agents, agent_id, app_agents).into_iter().filter(|agent| !is_assistant(agent)).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2061,6 +2074,29 @@ mod tests {
         }
         assert_eq!(CHATS.copy.sections.apps, "Apps");
         assert_eq!(CHATS.test_ids.app_row, "chat-app-row");
+    }
+
+    /// #EXP-1837: `railAgentCases` (TS `railAgents`), the ids in order.
+    #[test]
+    fn rail_agent_cases_match_the_fixture() {
+        let fixture = fixture();
+        let cases = fixture["railAgentCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let agents = case["input"]["agents"].as_array().unwrap().clone();
+            let apps = case["input"]["apps"].as_array().unwrap();
+            let got: Vec<&str> = rail_agents(
+                &agents,
+                |agent| agent["agentId"].as_str().unwrap(),
+                |agent| agent["assistant"].as_bool().unwrap_or(false),
+                apps.iter().map(|app| app["agentId"].as_str()),
+            )
+            .into_iter()
+            .map(|agent| agent["agentId"].as_str().unwrap())
+            .collect();
+            let expected: Vec<&str> = case["expected"].as_array().unwrap().iter().map(|id| id.as_str().unwrap()).collect();
+            assert_eq!(got, expected, "{}", case["name"]);
+        }
     }
 
     /// #FEED-239: `sidebarAgentCases` (TS `sidebarAgents`), the ids in order.
