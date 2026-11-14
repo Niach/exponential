@@ -5,7 +5,7 @@ use crate::settings::agent_detail::AgentDetailPane;
 use serde_json::json;
 use sync::protocol::RowKey;
 
-const TEAM: &str = "team-shots";
+pub(super) const TEAM: &str = "team-shots";
 
 fn now_iso() -> String {
     chrono::Utc::now().to_rfc3339()
@@ -49,7 +49,7 @@ fn triggers() -> serde_json::Value {
 
 /// Seeds the store: `agent`, three machines (mint online and signed in,
 /// a server, an offline laptop) and two skills.
-fn seed(agent: domain::rows::AgentDefRow, cx: &mut gpui::App) {
+pub(super) fn seed(agent: domain::rows::AgentDefRow, cx: &mut gpui::App) {
     let collections = sync::Store::global(cx).collections().clone();
     collections.agents.update(cx, |c, _| c.seed(RowKey::Single(agent.id.clone()), agent));
     for d in [device("mint", "mint", "monitor", "desktop", true, true), device("build", "build-server", "server", "server", true, false), device("macbook", "macbook", "laptop", "desktop", false, false)] {

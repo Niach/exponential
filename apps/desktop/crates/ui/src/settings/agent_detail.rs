@@ -966,7 +966,7 @@ impl Render for AgentDetailPane {
         self.binding.update(cx, |binding, cx| binding.update_state(|state| *state = projection, cx));
         let page = div().w_full().min_w_0().child(self.view.clone());
         if self.slot.is_some() {
-            return page.id(SharedString::from(APPS.agent_slot.test_id.clone())).into_any_element();
+            return gpui::InteractiveElement::id(page, SharedString::from(APPS.agent_slot.test_id.clone())).into_any_element();
         }
         if !agent.is_assistant() {
             return page.into_any_element();
