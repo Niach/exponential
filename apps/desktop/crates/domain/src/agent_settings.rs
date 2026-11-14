@@ -423,6 +423,13 @@ pub fn visible_agent(role: Option<&str>, owner_id: Option<&str>, me: Option<&str
     !is_assistant_role(role) || (owner_id.is_some() && owner_id == me)
 }
 
+/// #EXP-1837 TS `assistantFabVisible` (`assistant.fab.showCases`): the
+/// Assistant FAB shows on wide surfaces (the IDE) while the viewer has an
+/// Assistant, except on its own chat page.
+pub fn assistant_fab_visible(wide: bool, assistant_id: Option<&str>, active_agent_id: Option<&str>) -> bool {
+    wide && assistant_id.is_some() && active_agent_id != assistant_id
+}
+
 /// TS `orderedAgents` over synced rows: the viewer's Assistant first, then
 /// the team agents by sortOrder, then name; others' Assistants dropped.
 pub fn ordered_agents<'a>(
@@ -833,6 +840,21 @@ mod tests {
         for case in cases {
             let agent = &case["agent"];
             let actual = visible_agent(agent["role"].as_str(), agent["ownerId"].as_str(), case["me"].as_str());
+            assert_eq!(actual, case["expected"].as_bool().unwrap(), "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn assistant_fab_show_cases_match_the_fixture() {
+        let fixture = fixture();
+        let cases = fixture["assistant"]["fab"]["showCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let actual = assistant_fab_visible(
+                case["wide"].as_bool().unwrap(),
+                case["assistantId"].as_str(),
+                case["activeAgentId"].as_str(),
+            );
             assert_eq!(actual, case["expected"].as_bool().unwrap(), "{}", case["name"]);
         }
     }

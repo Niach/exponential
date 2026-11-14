@@ -277,7 +277,7 @@ fn gather(nav: &Entity<Navigation>, cx: &mut App) -> (IdeSidebarInput, HashMap<S
 
 /// The fixture's output as the document binds it: counts as glyph names, the
 /// row under the pointer marked, the active rows' device glyphs.
-fn shaped(input: &IdeSidebarInput, glyphs: &HashMap<String, Glyph>, hover: Option<&str>, assistant: Option<(&str, &str)>) -> Value {
+fn shaped(input: &IdeSidebarInput, glyphs: &HashMap<String, Glyph>, hover: Option<&str>) -> Value {
     let mut value = serde_json::to_value(ide_sidebar(input)).expect("the sidebar serializes");
     let mark = |rows: &mut Value| {
         for row in rows.as_array_mut().into_iter().flatten() {
@@ -290,8 +290,6 @@ fn shaped(input: &IdeSidebarInput, glyphs: &HashMap<String, Glyph>, hover: Optio
     mark(&mut value["agents"]["rows"]);
     mark(&mut value["apps"]["rows"]);
     mark(&mut value["boards"]["rows"]);
-    // #EXP-1741: the corner is the person's Assistant (its chat on a press).
-    value["assistant"] = assistant.map(|(id, name)| json!({"id": id, "name": name})).unwrap_or(Value::Null);
     value["computer"] = json!("ide:computer");
     value["boards"]["emptyText"] = json!(crate::empty_state_copy::BOARD_SWITCHER);
     for row in value["active"].as_array_mut().into_iter().flatten() {
@@ -353,8 +351,6 @@ pub(crate) struct SidebarRegion {
     hover: Rc<RefCell<Option<String>>>,
     pub(crate) input: IdeSidebarInput,
     shown: Option<Value>,
-    /// The person's Assistant as the active team lists it: `(id, name)`.
-    assistant: Option<(String, String)>,
     /// #EXP-1741: the Computer button's state (the corner paints it).
     computer: Rc<RefCell<Option<crate::sidebar::ComputerState>>>,
     /// The Computer button changed since the document last repainted.
@@ -391,7 +387,6 @@ impl SidebarRegion {
                 hover,
                 input: IdeSidebarInput::default(),
                 shown: None,
-                assistant: None,
                 computer,
                 computer_changed: true,
                 editing,
@@ -418,7 +413,6 @@ impl SidebarRegion {
         // the document only when a glyph or the Computer button changed.
         let glyphs_changed = *self.glyphs.borrow() != glyphs;
         *self.glyphs.borrow_mut() = glyphs;
-        self.assistant = active_team_id(nav, cx).and_then(|team| crate::session_data::my_assistant(&team, cx)).map(|a| (a.id, a.name.unwrap_or_else(|| "Assistant".into())));
         self.input = input;
         self.push(cx);
         if glyphs_changed || std::mem::take(&mut self.computer_changed) {
@@ -437,7 +431,6 @@ impl SidebarRegion {
     #[cfg(test)]
     pub(crate) fn show(&mut self, input: IdeSidebarInput, hover: Option<&str>, cx: &mut gpui::Context<Self>) {
         self.frozen = true;
-        self.assistant = Some(("a0".into(), "Assistant".into()));
         // A trunk that needs a person: the warning rides the Computer button.
         *self.computer.borrow_mut() = Some(crate::sidebar::ComputerState {
             files: true,
@@ -464,9 +457,8 @@ impl SidebarRegion {
     }
 
     fn push(&mut self, cx: &mut gpui::Context<Self>) {
-        let assistant = self.assistant.as_ref().map(|(id, name)| (id.as_str(), name.as_str()));
         self.input.editing_folder = self.editing.borrow().clone();
-        let value = shaped(&self.input, &self.glyphs.borrow(), self.hover.borrow().as_deref(), assistant);
+        let value = shaped(&self.input, &self.glyphs.borrow(), self.hover.borrow().as_deref());
         if self.focus_pending {
             self.focus_editing(&value, cx);
         }
@@ -631,7 +623,6 @@ fn open_row(kind: &str, id: String, window: &mut Window, cx: &mut App) {
             crate::sidebar::select_settings_section(window, cx, SettingsSection::Repository(id));
             navigate(window, cx, Screen::Settings);
         }
-        "assistant" => navigate(window, cx, Screen::Agent { agent_id: id }),
         "settings" => navigate(window, cx, Screen::Settings),
         _ => {}
     }
@@ -1337,10 +1328,10 @@ mod tests {
             boards: vec![IdeBoardInput { id: "b1".into(), name: "Web".into(), icon: "ide:board:b1".into() }],
             ..Default::default()
         };
-        let value = shaped(&input, &HashMap::new(), Some("b1"), None);
+        let value = shaped(&input, &HashMap::new(), Some("b1"));
         assert_eq!(value["nav"][0]["dotIcon"], "ide:count:attention:2");
         let counted = IdeSidebarInput { needs_you: 5, drafts: 120, ..input.clone() };
-        let counted = shaped(&counted, &HashMap::new(), None, None);
+        let counted = shaped(&counted, &HashMap::new(), None);
         assert_eq!(counted["nav"][0]["dotIcon"], "ide:count:attention:5");
         assert_eq!(counted["nav"][3]["dotIcon"], "ide:count:muted:99+");
         assert_eq!(value["boards"]["rows"][0]["hover"], true);
@@ -1389,7 +1380,7 @@ mod tests {
             repos: vec![IdeRepoInput { id: "r1".into(), name: "engine".into(), prs: vec![IdePrInput { id: "p1".into(), identifier: "#1".into(), title: "Sync".into(), subtitle: "sync → main".into(), depth: 0, session: None }] }],
             ..Default::default()
         };
-        let value = shaped(&input, &HashMap::new(), None, None);
+        let value = shaped(&input, &HashMap::new(), None);
         let tree = serde_json::to_value(with_pr_tree(&doc, &value["prs"]).expect("the tree")).unwrap();
         fn find<'a>(node: &'a Value, id: &str) -> Option<&'a Value> {
             if node["id"] == id {
