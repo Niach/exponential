@@ -16,10 +16,12 @@ import SwiftUI
 ///   pill) · the title over ONE subtitle line (`SessionScreen.subtitle`:
 ///   status · device · an agent's first enabled trigger), then the trailing
 ///   slot: the chat PR's merge status pill (#EXP-1710), an agent's
-///   telephone, THE gear (agents, the Assistant, apps) and the `…`.
+///   telephone and THE `…` (#FEED-239: no gear; `SessionScreen.menu`:
+///   Publish · Compact · New conversation · Settings · Export · Delete by
+///   kind, the chat PR's entries after them).
 /// * Under it on the same band THE segmented control (`SessionScreenTabs`):
 ///   Chat · Issues · Sessions · Results (an app: Chat · Preview · Data ·
-///   Versions · Sessions · Results), each count muted after its label.
+///   Versions), each count muted after its label.
 /// * Chat = the ROOT's own session view (`AgentSessionView`, embedded):
 ///   its raw-work feed (#EXP-1736's transcript with the agent's traces), its
 ///   cards inline, THE Dock and THE composer posting to the root — the same
@@ -44,7 +46,7 @@ struct ChatScreen: View {
     let initialPage: ChatPage
     /// VAPP-110 / #EXP-1732: an app EDITOR's session — its title leads the
     /// header, its tab binding drives the tabs, its bodies fill Preview,
-    /// Data and Versions and its settings page is the gear's item.
+    /// Data and Versions and its settings page is the `…`'s settings item.
     var editor: ChatEditorSlot?
 
     @Environment(AppDependencies.self) private var deps
@@ -136,6 +138,11 @@ struct ChatScreen: View {
             _pendingPage = State(initialValue: initialPage)
         case .conversation:
             _ownTab = State(initialValue: .chat)
+        case .settings:
+            // #FEED-239: an agent row's `…` › settings: held until the
+            // chat has loaded (`land(on:)`).
+            _ownTab = State(initialValue: .chat)
+            _pendingPage = State(initialValue: initialPage)
         }
     }
 
@@ -162,7 +169,8 @@ struct ChatScreen: View {
     }
 
     /// THE screen value: the tabs with their counts, the active tab, the
-    /// gear and the layout (phones are never wide).
+    /// settings flag and the layout (iOS is never wide: an iPad's detail
+    /// column keeps the phone's pushed items, so `collapse` stays false).
     private func screen(_ rows: ChatRows, _ view: SessionChatView) -> SessionScreen.Screen {
         let tree = items(view)
         return SessionScreen.screen(
@@ -243,7 +251,7 @@ struct ChatScreen: View {
                 // every tab — #EXP-1688: THE chat header over THE tabs,
                 // content scrolling under its scrim + edge fade.
                 .workHeaderBand {
-                    chatHeader(rows: rows, view: view, gear: shown.gear)
+                    chatHeader(rows: rows, view: view)
                     SessionScreenTabs(tabs: shown.tabs, selection: shown.active) { next in
                         selectTab(next)
                     }
@@ -374,7 +382,11 @@ struct ChatScreen: View {
         }
         // The navigator popped back to THIS page for a filed issue: land on
         // the tab it names.
-        .onChange(of: chatLoaded, initial: true) { _, _ in focusPendingCard() }
+        .onChange(of: chatLoaded, initial: true) { _, _ in
+            focusPendingCard()
+            // #FEED-239: a held settings request (an agent row's `…`).
+            if pendingPage == .settings { land(on: .settings) }
+        }
         // #FEED-191: `kept` = the open plan whenever there is one, so a plan
         // decided during this visit stays reachable until the person leaves.
         .onChange(of: shownPlanId, initial: true) { _, id in
@@ -396,10 +408,10 @@ struct ChatScreen: View {
 
     /// #EXP-1688 / #EXP-1732: back · the lead disc · title over the
     /// subtitle · the trailing actions in web's order: the chat PR's Merge
-    /// pill, (NEW-69, voice-call.json) an agent chat's telephone, THE gear,
-    /// then ONE `…` (EXP-1307/1316: Close PR in THE Menu's sheet; an app's =
-    /// the editor's Export · Delete).
-    private func chatHeader(rows: ChatRows, view: SessionChatView, gear: Bool) -> some View {
+    /// pill, (NEW-69, voice-call.json) an agent chat's telephone, then ONE
+    /// `…` (#FEED-239: THE session screen menu, no gear; EXP-1307/1316: the
+    /// chat PR's entries in THE Menu's sheet).
+    private func chatHeader(rows: ChatRows, view: SessionChatView) -> some View {
         ChatHeader {
             if let editor {
                 // #EXP-1729: the editor's title block carries its own
@@ -441,14 +453,12 @@ struct ChatScreen: View {
                 )
                 .buttonStyle(.plain)
             }
-            if gear {
-                SessionScreenGear { openItem(.settings) }
-            }
             if let trailing = editor?.trailing {
                 trailing
-            } else if !chatMenuEntries.isEmpty {
+            }
+            if !chatMenuEntries.isEmpty {
                 ChatHeaderGhostButton(
-                    icon: AppIcons.uiMore, label: "More", identifier: SessionTree.ChatCopy.guideMenuTestId
+                    icon: AppIcons.uiMore, label: "More", identifier: SessionScreen.TestIds.menu
                 ) {
                     openChatMenu()
                 }
@@ -622,7 +632,6 @@ struct ChatScreen: View {
                 issues: items(view).issues,
                 issue: { rows.issue(id: $0) },
                 issueStatus: { rows.issueStatus(id: $0) },
-                onAdd: canEdit ? { openMenu(issueId: nil) } : nil,
                 onOpen: { issueId in openItem(.issue(issueId)) },
                 onMenu: canEdit ? { issueId in openMenu(issueId: issueId) } : nil
             )
@@ -646,7 +655,7 @@ struct ChatScreen: View {
 
     /// An opened item's page (layout `item`, pushed over the tab): an issue
     /// EMBEDDED (EXP-1316), a session's raw work + composer, a plan page, or
-    /// the gear's settings (an agent's / the Assistant's page, an app's).
+    /// the `…`'s settings (an agent's / the Assistant's page, an app's).
     @ViewBuilder
     private func openedPage(_ item: ChatOpenedItem) -> some View {
         switch item {
@@ -869,18 +878,42 @@ struct ChatScreen: View {
 
     private var chatMenuTitle: String? {
         guard let rows, let view = model?.view else { return nil }
+        if let title = editor?.menu?.title { return title }
         return rows.isAgent && !rows.agentName.isEmpty ? rows.agentName : view.title
     }
 
-    /// The header `…`: an agent chat's `agentMenuEntries`; a chat's
-    /// `chatMenuEntries`, then the Guide's Close PR (EXP-1307).
+    /// #FEED-239: who may open the kind's settings: an agent's = team
+    /// owners, the Assistant's = its owner, an app's = every member (read
+    /// only unless they manage it); a chat has none.
+    private func mayOpenSettings(_ rows: ChatRows, kind: SessionScreen.Kind) -> Bool {
+        switch kind {
+        case .session: false
+        case .agent: isOwner
+        case .assistant: AgentSettings.isMyAssistant(rows.agent, me: deps.auth.userId)
+        case .app: true
+        }
+    }
+
+    /// #FEED-239 THE header `…` = THE session screen menu
+    /// (`SessionScreen.menu`, phones: an app's Publish leads), then a
+    /// chat's PR entries (EXP-1307, #EXP-1710).
     private var chatMenuEntries: [ChatMenuSheet.Entry] {
         guard let rows else { return [] }
-        if rows.isAgent {
-            guard rows.root.appId == nil else { return [] }
-            return Chats.agentMenuEntries(busy: rows.root.busy, isOwner: isOwner).map { .agent($0) }
-        }
-        let own = Chats.chatMenuEntries(rootStatus: rows.root.status, canSteer: canSteer, canDelete: canDelete).map { ChatMenuSheet.Entry.chat($0) }
+        let screenKind = kind(rows)
+        let app = editor?.menu
+        let entries = SessionScreen.menu(
+            kind: screenKind,
+            phone: true,
+            member: canSteer,
+            // #EXP-1834: Link or file an issue (a member; never an app).
+            linkIssue: canEdit,
+            settings: mayOpenSettings(rows, kind: screenKind),
+            publish: app?.publish ?? false,
+            export: app?.export ?? false,
+            delete: screenKind == .app ? (app?.delete ?? false) : (screenKind == .session && canSteer && canDelete)
+        )
+        let own = ChatMenuSheet.screenEntries(entries, kind: screenKind)
+        guard screenKind == .session else { return own }
         return own + prMenuEntries.map { entry -> ChatMenuSheet.Entry in
             switch entry {
             case .checks: .checks
@@ -910,6 +943,25 @@ struct ChatScreen: View {
                 if let text = Chats.agentMenuSends[entry] { reply(text, sessionId: rows.root.id) }
             case .settings:
                 openItem(.settings)
+            }
+        case let .screen(entry, _):
+            switch entry {
+            case .linkIssue:
+                // #EXP-1834: THE link menu (Link an issue · New issue) as
+                // the next sheet.
+                openMenu(issueId: nil)
+            case .compact, .newConversation:
+                // `menuSends`: the same path as a typed line, into the root
+                // (an app's: its editor session).
+                if let text = entry.sends { reply(text, sessionId: rows.root.id) }
+            case .settings:
+                openItem(.settings)
+            case .publish, .export:
+                editor?.menu?.onPick(entry)
+            case .delete:
+                if let menu = editor?.menu { menu.onPick(entry) } else { deleteTarget = rows.root.id }
+            case .separator:
+                break
             }
         case .checks:
             // The sheet pushes its own Checks page.
@@ -1145,6 +1197,14 @@ struct ChatScreen: View {
         case let .plan(messageId):
             setTab(.chat)
             hold(request, item: .plan(messageId))
+        case .settings:
+            // #FEED-239: settings open over the Chat once the chat is there.
+            guard model?.view != nil else {
+                pendingPage = request
+                return
+            }
+            pendingPage = nil
+            openItem(.settings)
         }
     }
 
@@ -1813,12 +1873,15 @@ struct ChatComposer: View {
 /// `assistant`). The route names the agent DEFINITION (`agents` row); the
 /// conversation is the root with that `agent_id` whose `user_id` is me.
 /// Before the first message there is no root yet: THE screen's chrome (the
-/// agent's header with the telephone and the gear, THE tabs) over an empty
+/// agent's header with the telephone and THE `…`, THE tabs) over an empty
 /// Chat whose composer's first send is `sessions.send({agentId, text,
 /// attachmentIds})`; the screen switches to the conversation the moment its
 /// row syncs.
 struct AgentChatRoute: View {
     let agentId: String
+    /// #FEED-239: open the agent's settings over the chat (an agent row's
+    /// `…` › settings).
+    var settings = false
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -1827,10 +1890,10 @@ struct AgentChatRoute: View {
     var body: some View {
         Group {
             if let conversationId = model.conversationId {
-                ChatScreen(rootId: conversationId)
+                ChatScreen(rootId: conversationId, initialPage: settings ? .settings : .conversation)
                     .id(conversationId)
             } else if let agent = model.agent {
-                AgentChatEmpty(agent: agent)
+                AgentChatEmpty(agent: agent, settings: settings)
             } else if model.missing {
                 ZStack {
                     AppBackground()
@@ -1915,23 +1978,46 @@ final class AgentChannelModel {
 
 /// The conversation before its first message: THE session screen's chrome
 /// (the agent's disc — #EXP-1448: the Assistant's = the brand mark — over
-/// the subtitle; NEW-69 the telephone, THE gear; no `…` before the first
-/// message), THE tabs (nothing counted yet), an empty Chat and THE chat
-/// composer (`Message <name>`) whose first send opens the conversation.
+/// the subtitle; NEW-69 the telephone; #FEED-239 THE `…` with the settings
+/// entry only: nothing to compact before the first message), THE tabs
+/// (nothing counted yet), an empty Chat and THE chat composer
+/// (`Message <name>`) whose first send opens the conversation.
 private struct AgentChatEmpty: View {
     let agent: AgentDefinitionEntity
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @State private var tab: SessionScreen.Tab = .chat
-    @State private var settingsOpen = false
+    @State private var settingsOpen: Bool
     @State private var isOwner = false
+    /// THE `…`'s sheet and its pick (run once the sheet has dismissed).
+    @State private var menuOpen = false
+    @State private var pendingPick: ChatMenuSheet.Entry?
+
+    init(agent: AgentDefinitionEntity, settings: Bool = false) {
+        self.agent = agent
+        _settingsOpen = State(initialValue: settings)
+    }
+
+    private var kind: SessionScreen.Kind {
+        SessionScreen.kind(agentId: agent.id, appId: nil, assistant: agent.isAssistant)
+    }
+
+    /// #FEED-239: THE session screen menu: settings for an agent's team
+    /// owners and the Assistant's owner (no conversation to steer yet).
+    private var menuEntries: [ChatMenuSheet.Entry] {
+        let settings = agent.isAssistant ? AgentSettings.isMyAssistant(agent, me: deps.auth.userId) : isOwner
+        return ChatMenuSheet.screenEntries(
+            SessionScreen.menu(
+                kind: kind, phone: true, member: false, linkIssue: false, settings: settings,
+                publish: false, export: false, delete: false
+            ),
+            kind: kind
+        )
+    }
 
     private var screen: SessionScreen.Screen {
-        SessionScreen.screen(
-            kind: SessionScreen.kind(agentId: agent.id, appId: nil, assistant: agent.isAssistant),
-            requested: tab, open: nil, counts: SessionScreen.Counts()
-        )
+        SessionScreen.screen(kind: kind, requested: tab, open: nil, counts: SessionScreen.Counts())
     }
 
     private var subtitle: String {
@@ -1982,10 +2068,10 @@ private struct AgentChatEmpty: View {
                     agentIcon: agent.isAssistant ? nil : BoardTypeDisplay.iconName(for: agent.icon), agentColor: agent.color
                 )
                 .buttonStyle(.plain)
-                if shown.gear {
-                    SessionScreenGear {
+                if !menuEntries.isEmpty {
+                    ChatHeaderGhostButton(icon: AppIcons.uiMore, label: "More", identifier: SessionScreen.TestIds.menu) {
                         UIApplication.endEditing()
-                        settingsOpen = true
+                        menuOpen = true
                     }
                 }
             }
@@ -2000,9 +2086,25 @@ private struct AgentChatEmpty: View {
                 .environment(\.detailColumnRoot, false)
                 .bareBackButton()
         }
+        // Its own node (EXP-240).
+        .background {
+            Color.clear
+                .sheet(isPresented: $menuOpen, onDismiss: runPendingPick) {
+                    ChatMenuSheet(title: agent.name, entries: menuEntries) { entry in
+                        pendingPick = entry
+                        menuOpen = false
+                    }
+                }
+        }
         .task(id: agent.teamId) { await resolveOwner() }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("agent-channel-page")
+    }
+
+    private func runPendingPick() {
+        guard let pick = pendingPick else { return }
+        pendingPick = nil
+        if case .screen(.settings, _) = pick { settingsOpen = true }
     }
 
     private func resolveOwner() async {

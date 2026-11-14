@@ -10,7 +10,9 @@ import SwiftUI
 /// section and the ACTIVE team's
 /// chats grouped (`Chats.chatSections` over `Chats.chatList`: Needs you ·
 /// Working · Unread · Chats, no bands, no nesting, each newest activity first).
-/// A row opens the chat; an agent row's hold its agent menu. #EXP-1388 SELECTION + ARCHIVE: a row's long press ENTERS the
+/// A row opens the chat; an agent row's hold THE session screen menu
+/// (#FEED-239, kind agent / assistant; its settings open that agent's chat
+/// with its settings over it). #EXP-1388 SELECTION + ARCHIVE: a row's long press ENTERS the
 /// multi-selection with that row (the row's touch menu is gone); while
 /// selecting nothing shifts, a selected row is a full-width tint with the
 /// check badge on its disc, a tap
@@ -36,7 +38,6 @@ struct ChatsView: View {
     @State private var menu: ChatMenuTarget?
     @State private var pendingPick: (target: ChatMenuTarget, entry: ChatMenuSheet.Entry)?
     @State private var deleteTarget: String?
-    @State private var agentSettings: AgentSettingsTarget?
     /// The clock the time labels read (a minute tick keeps "Yesterday" true).
     @State private var now = Date()
     /// #EXP-1388: the multi-selection (selection order kept for the bar).
@@ -98,11 +99,6 @@ struct ChatsView: View {
             }
         }
         .chatDeleteConfirm(target: $deleteTarget) { rootId in actions.delete(rootId: rootId) }
-        .navigationDestination(item: $agentSettings) { target in
-            AgentSettingsPage(teamId: target.teamId, agentId: target.agentId, isOwner: true)
-                .environment(\.accountId, accountId)
-                .bareBackButton()
-        }
         .task(id: teamState.activeTeamId) { await resolveOwner() }
         // S-3: the viewer's Assistant exists once the list mounts (once per
         // team per app run).
@@ -427,10 +423,19 @@ struct ChatsView: View {
         isOwner || isStarter(rootId)
     }
 
+    /// #FEED-239: an agent row's menu = THE session screen menu (kind agent
+    /// / assistant, never a phone's Publish): Compact · New conversation for
+    /// the member, the settings for an agent's owners / the Assistant's.
     private func openAgentMenu(_ agentId: String) {
         guard let agent = lists.agents.first(where: { $0.agentId == agentId }) else { return }
-        let entries = Chats.agentMenuEntries(busy: agent.busy, isOwner: isOwner)
-        menu = ChatMenuTarget(id: agentId, title: agent.name, entries: entries.map { .agent($0) }, agent: true)
+        let kind: SessionScreen.Kind = agent.assistant ? .assistant : .agent
+        let entries = SessionScreen.menu(
+            kind: kind, phone: false, member: true, linkIssue: false, settings: agent.assistant || isOwner,
+            publish: false, export: false, delete: false
+        )
+        menu = ChatMenuTarget(
+            id: agentId, title: agent.name, entries: ChatMenuSheet.screenEntries(entries, kind: kind), agent: true
+        )
     }
 
     private func runPendingPick() {
@@ -445,9 +450,23 @@ struct ChatsView: View {
             case .compact, .newConversation:
                 actions.sendToAgent(agentId: agentId, entry: entry)
             case .settings:
-                if let teamId = teamState.activeTeamId {
-                    agentSettings = AgentSettingsTarget(teamId: teamId, agentId: agentId)
+                pushRoute(.agentChannel(accountId: accountId, agentId: agentId, settings: true))
+            }
+        case let .screen(entry, _):
+            let agentId = pick.target.id
+            switch entry {
+            case .compact, .newConversation:
+                if let send = Chats.AgentMenuEntry(rawValue: entry.rawValue) {
+                    actions.sendToAgent(agentId: agentId, entry: send)
                 }
+            case .settings:
+                // #FEED-239: never the Settings screen: the agent's chat
+                // with its settings opened over it.
+                pushRoute(.agentChannel(accountId: accountId, agentId: agentId, settings: true))
+            case .delete:
+                deleteTarget = pick.target.id
+            case .linkIssue, .publish, .export, .separator:
+                break
             }
         case .checks, .mergeNow, .hold, .resume, .closePr:
             break
@@ -476,12 +495,6 @@ struct ChatMenuTarget: Identifiable {
     let title: String
     let entries: [ChatMenuSheet.Entry]
     var agent = false
-}
-
-private struct AgentSettingsTarget: Hashable, Identifiable {
-    let teamId: String
-    let agentId: String
-    var id: String { agentId }
 }
 
 /// A chat row's lead in its 52pt disc (`lead`): needs you = the chat glyph

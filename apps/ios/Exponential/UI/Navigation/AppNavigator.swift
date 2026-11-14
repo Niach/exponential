@@ -19,8 +19,9 @@ enum AppRoute: Hashable {
     case skill(accountId: String, teamId: String, id: String)
     /// NEW-2/NEW-3: a team agent's page = the CALLER's DM with it (the
     /// definition's id; the conversation is resolved — or, none yet, opened
-    /// by the first message — on the page).
-    case agentChannel(accountId: String, agentId: String)
+    /// by the first message — on the page). #FEED-239: `settings` = the
+    /// agent's settings opened over it (an agent row's `…` › settings).
+    case agentChannel(accountId: String, agentId: String, settings: Bool = false)
     /// VAPP-110: the team's Apps (fixtures/apps.json) — #EXP-1384: the
     /// Apps TAB's root (a link to it switches the tab).
     case apps(accountId: String)
@@ -1401,8 +1402,8 @@ extension MainNavigator {
         case let .skill(accountId, _, id):
             SkillSettingsPage(skillId: id)
                 .environment(\.accountId, accountId)
-        case let .agentChannel(accountId, agentId):
-            AgentChatRoute(agentId: agentId)
+        case let .agentChannel(accountId, agentId, settings):
+            AgentChatRoute(agentId: agentId, settings: settings)
                 .id(agentId)
                 .environment(\.accountId, accountId)
         case let .apps(accountId):

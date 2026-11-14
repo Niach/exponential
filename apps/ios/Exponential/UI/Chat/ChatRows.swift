@@ -22,6 +22,9 @@ enum ChatPage: Hashable {
     /// The Sessions tab with that session opened in place (its raw work +
     /// composer).
     case session(String)
+    /// #FEED-239: the kind's settings opened over the Chat (an agent row's
+    /// `…` › settings).
+    case settings
 }
 
 /// #EXP-1732: what an app EDITOR puts into THE session screen hosting its
@@ -29,22 +32,38 @@ enum ChatPage: Hashable {
 /// title (glyph + name + version pill over #EXP-1729's `status · device`),
 /// the active tab (the editor drives
 /// it: a screen link, a Versions row's Preview), the Preview / Data /
-/// Versions bodies, the gear's settings page and the header's `…` (Export,
-/// Delete).
+/// Versions bodies, the `…`'s settings page and (#FEED-239) the app's part
+/// of THE session screen menu (Publish, Export, Delete app).
 struct ChatEditorSlot {
     /// The title block over the TREE's status word (`ChatHeaderTitle.status`).
     let title: (String) -> AnyView
     let tab: Binding<SessionScreen.Tab>
     /// The app tab's body (preview, data, versions); nil = not the editor's.
     let pane: (SessionScreen.Tab) -> AnyView?
-    /// The gear's opened item: the app's settings page.
+    /// The `…`'s settings item: the app's settings page.
     let settings: AnyView
+    /// Before the `…` (an app's pending-writes glyph).
     var trailing: AnyView? = nil
+    /// #FEED-239: the app's entries of THE session screen menu.
+    var menu: ChatEditorMenu? = nil
     /// #FEED-204: the composer's Device row and an ended root's move.
     var device: SessionComposerFooter.DeviceMenu? = nil
     var appMove: ChatComposerDraft.AppMove? = nil
     /// #EXP-1729: the composer's Account and Model rows.
     var picks: ChatEditorPicks? = nil
+}
+
+/// #FEED-239: an app's part of THE session screen menu the screen's `…`
+/// shows (`SessionScreen.menu`): the sheet's title, which of Publish /
+/// Export / Delete app the viewer gets, and the editor running them (after
+/// the sheet has dismissed). Compact / New conversation and App settings
+/// are the screen's own.
+struct ChatEditorMenu {
+    let title: String
+    let publish: Bool
+    let export: Bool
+    let delete: Bool
+    let onPick: (SessionScreen.MenuEntry) -> Void
 }
 
 /// #EXP-1729 (composer-menu.json `account`/`model`, an app editor's

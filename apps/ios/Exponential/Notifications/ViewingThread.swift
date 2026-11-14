@@ -58,7 +58,7 @@ final class ViewingThread {
                 try SessionEntity.fetchOne(db, key: sessionId).map { $0.rootId.isEmpty ? $0.id : $0.rootId }
             }
             return "session:\(rootId ?? sessionId)"
-        case let .agentChannel(accountId, agentId):
+        case let .agentChannel(accountId, agentId, _):
             guard let userId = deps.auth.accounts.first(where: { $0.id == accountId })?.userId else { return nil }
             let rootId = try? await deps.db.pool(forAccountId: accountId).read { db in
                 try SessionQueries.conversation(db: db, agentId: agentId, userId: userId)?.id

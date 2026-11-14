@@ -454,9 +454,9 @@ private struct SessionTabsSpecimens: View {
             tabs(Self.screen(.session, .chat))
             caption("An agent: the same tabs, Sessions active")
             tabs(Self.screen(.agent, .sessions))
-            caption("An app: six tabs scroll sideways")
+            caption("An app: Chat · Preview · Data · Versions")
             tabs(Self.screen(.app, .preview))
-            caption("Issues: the + leads, a sub-issue indented")
+            caption("Issues: a sub-issue indented")
             ChatIssuesTab(
                 issues: Self.items.issues,
                 issueStatus: { id in
@@ -464,7 +464,6 @@ private struct SessionTabsSpecimens: View {
                     let key: IssueStatus = (ids.firstIndex(of: id) ?? 0) % 2 == 0 ? .inProgress : .backlog
                     return IssueStatusResolver.builtinFallbackTeam.first { $0.builtinKey == key }
                 },
-                onAdd: {},
                 onOpen: { _ in }
             )
             .frame(height: 200)

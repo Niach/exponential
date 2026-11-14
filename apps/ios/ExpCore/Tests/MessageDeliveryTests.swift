@@ -33,6 +33,7 @@ final class MessageDeliveryTests: XCTestCase {
         XCTAssertEqual(fixture["markSize"] as? Double, MessageDelivery.markSize)
         XCTAssertEqual(fixture["matchWindowMs"] as? Double, MessageDelivery.matchWindowMs)
         XCTAssertEqual(fixture["handoffMaxMs"] as? Double, MessageDelivery.handoffMaxMs)
+        XCTAssertEqual(fixture["briefRequestHeading"] as? String, MessageDelivery.briefRequestHeading)
         XCTAssertEqual(fixture["testIds"] as? [String: String], [
             "status": MessageDelivery.TestIds.status,
             "menu": MessageDelivery.TestIds.menu,

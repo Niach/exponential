@@ -131,7 +131,8 @@ struct ChatTreeItems: Equatable {
 /// #EXP-1732: THE header tabs under the chat header, on every kind: THE
 /// segmented control (`GlassSegmentedControl`), its options the screen's
 /// `tabs` in order, each the label followed by its count as a muted number
-/// (none at 0). Labels only, never icons; each segment sized to its label;
+/// (none at 0; #EXP-1834: an empty counted tab is a disabled segment,
+/// muted and not pressable). Labels only, never icons; each segment sized to its label;
 /// past the phone's width it scrolls sideways (never wraps, never icon-only).
 struct SessionScreenTabs: View {
     let tabs: [SessionScreen.TabEntry]
@@ -178,22 +179,9 @@ struct SessionScreenTabs: View {
                 entry(id).flatMap { tab in tab.count.map { "\(tab.label) \($0)" } }
             },
             hugging: true,
+            // #EXP-1834: an empty counted tab = THE disabled option.
+            disabled: { entry($0)?.disabled ?? false },
             onSelect: onSelect
-        )
-    }
-}
-
-/// #EXP-1732: THE gear — the chat header's existing ghost icon button
-/// (concept `nav-settings`, label `Settings`), on an agent's, the
-/// Assistant's and an app's screen only; it opens the kind's settings as an
-/// opened item.
-struct SessionScreenGear: View {
-    let action: () -> Void
-
-    var body: some View {
-        ChatHeaderGhostButton(
-            icon: AppIcons.navSettings, label: SessionScreen.Copy.settings, identifier: SessionScreen.TestIds.gear,
-            action: action
         )
     }
 }
@@ -226,17 +214,15 @@ struct ChatSessionMark: View {
 }
 
 /// #EXP-1732 the Issues tab's body: THE issue rows of the tree (status
-/// glyph, `IDENT Title`; a sub-issue indented under its parent), led by
-/// the `+` icon button (THE Menu: Link an issue · New issue). A row opens
-/// that issue in place; a long press offers Unlink.
+/// glyph, `IDENT Title`; a sub-issue indented under its parent).
+/// #EXP-1834: no `+` any more (Link or file an issue is the `…`'s entry).
+/// A row opens that issue in place; a long press offers Unlink.
 struct ChatIssuesTab: View {
     let issues: [ChatTreeItems.Issue]
     /// The synced issue behind a row (its title).
     var issue: (String) -> IssueEntity? = { _ in nil }
     /// S-3: a row's status through the team's statuses; nil = no glyph.
     var issueStatus: (String) -> ResolvedIssueStatus? = { _ in nil }
-    /// The `+` (nil = hidden: a reader who cannot add to the chat).
-    var onAdd: (() -> Void)?
     let onOpen: (String) -> Void
     /// A row's long press (nil = none).
     var onMenu: ((String) -> Void)?
@@ -244,15 +230,6 @@ struct ChatIssuesTab: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                if let onAdd {
-                    HStack {
-                        Spacer(minLength: 0)
-                        ChatHeaderGhostButton(
-                            icon: AppIcons.uiAdd, label: SessionScreen.Copy.linkIssue, identifier: "session-issues-add",
-                            action: onAdd
-                        )
-                    }
-                }
                 ForEach(issues) { row in
                     issueRow(row)
                         .padding(.leading, CGFloat(row.depth) * 14)
