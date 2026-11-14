@@ -24,6 +24,8 @@ mod pass;
 mod reconcile;
 mod restyle;
 mod tabs;
+mod list_drag;
+pub use list_drag::{ListDragInput, ListDragPaint};
 
 pub use pass::{LayoutStep, LeafData};
 
