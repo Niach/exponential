@@ -356,6 +356,9 @@ pub struct LocalState {
     pub tab_order: HashMap<String, Vec<usize>>,
     /// VAPP-279: reorder drags in progress per Tabs id.
     pub tab_drags: HashMap<String, TabDrag>,
+    /// EXP-1832: a reorderable List's drag in progress, by List id
+    /// (`Surface::list_drag`).
+    pub list_drags: HashMap<String, crate::list_reorder::ListDragState>,
     /// FEED-200: a swipeable Tabs' live swipe: the DRAWN offset (screen px,
     /// `swipe::swipe_offset`) while a finger is down; absent = at rest.
     pub tab_swipe: HashMap<String, f32>,

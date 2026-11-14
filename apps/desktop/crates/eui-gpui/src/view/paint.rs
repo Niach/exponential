@@ -254,7 +254,10 @@ impl SurfaceView {
         // over its own fill (dimmed twice). A container that paints nothing
         // itself hands its opacity down instead: its descendants fade by the
         // TOTAL, and a Button flattens with it (`group_dim`).
-        let total = place.dim * style.opacity.unwrap_or(1.0);
+        // EXP-1832: the dragged row of a List drag dims (its lifted copy,
+        // painted as a ghost, does not).
+        let lifted = if !self.ghosting.get() && self.list_paint.iter().any(|p| p.row == index) { eui_core::list_reorder::LIST_DRAG_DIM } else { 1.0 };
+        let total = place.dim * style.opacity.unwrap_or(1.0) * lifted;
         let hand_down = !leaf && total < 1.0 && style.bg.is_none() && style.gradient.is_none() && style.shadows.is_empty() && !style.has_border() && anim.is_none() && n.component != "Extension" && n.component != "VoiceWave" && !self.scrolls.contains_key(&index);
         style.opacity = (!hand_down && total < 1.0).then_some(total);
         let child_dim = if hand_down { total } else { 1.0 };
@@ -828,6 +831,12 @@ impl SurfaceView {
         }
         // VAPP-279: a strip tab's press may become a reorder drag.
         let strip_tab = n.pressable && self.is_strip_tab(index);
+        // EXP-1832: a press inside a reorderable List's row may become its
+        // drag (a field keeps its own pointer).
+        let reorder = !is_text_field(n) && (n.pressable || self.is_list_reorder_row(index)) && self.surface.list_reorder_row(index).is_some();
+        if reorder && !n.pressable {
+            el = el.on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &gpui::MouseDownEvent, _, _| this.list_drag_down(index, ev.position)));
+        }
         if n.pressable && !is_text_field(n) {
             let (down, up, out) = (id.clone(), id.clone(), id);
             el = el
@@ -850,6 +859,9 @@ impl SurfaceView {
                         }
                         if strip_tab {
                             this.tab_drag_down(&down, f32::from(ev.position.x));
+                        }
+                        if reorder {
+                            this.list_drag_down(index, ev.position);
                         }
                         this.press_down(&down, window, cx)
                     }),
@@ -2159,4 +2171,61 @@ fn mark_token(tone: &str) -> &'static str {
 /// in the MIXED state (`indeterminate: true`).
 pub(crate) fn is_mixed(n: &PlacedNode) -> bool {
     (n.component == "Checkbox" || n.owner_component.as_deref() == Some("Checkbox")) && n.props.get("indeterminate").and_then(Value::as_bool) == Some(true)
+}
+
+impl SurfaceView {
+    /// EXP-1832 (fixtures/list-reorder.json): the live List drag over the
+    /// surface: the drop line (2px primary from the row's indent, a ring at
+    /// its start) or the into highlight (a primary ring + a faint primary
+    /// fill), and the lifted copy of the dragged row following the pointer
+    /// (the row painted again on the popover colour, lifted by a shadow).
+    pub(crate) fn paint_list_drag(&self, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
+        use eui_core::list_reorder::{LIST_INTO_FILL, LIST_LIFT_OPACITY};
+        // The ring and the into outline are `LIST_DROP_LINE` (2) wide: `border_2`.
+        if self.list_paint.is_empty() {
+            return None;
+        }
+        let theme = self.surface.theme().cloned();
+        let mode = self.surface.mode();
+        let color = |name: &str| theme_color(theme.as_deref(), mode, name);
+        let primary = color("primary").unwrap_or(gpui::blue());
+        let background = color("background").unwrap_or(gpui::black());
+        let popover = color("popover").or_else(|| color("card")).unwrap_or(background);
+        let radius = theme.as_deref().and_then(|t| t.tokens.radius.get("md").copied()).unwrap_or(6.0) as f32;
+        let mut layer = div().id("exponential-ui-list-drag").absolute().top_0().left_0().size_full();
+        for p in &self.list_paint {
+            let (sx, sy) = self.scroll_above(p.list_index);
+            let at = |f: eui_core::surface::Frame| (f.x - sx, f.y - sy, f.w, f.h);
+            if let Some((x, y, w, h)) = p.into.map(at) {
+                layer = layer.child(div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h)).rounded(px(radius)).bg(primary.opacity(LIST_INTO_FILL)).border_2().border_color(primary));
+            }
+            if let Some((x, y, w, h)) = p.line.map(at) {
+                layer = layer.child(div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h)).rounded(px(1.0)).bg(primary));
+            }
+            if let Some((x, y, w, h)) = p.ring.map(at) {
+                layer = layer.child(div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h)).rounded_full().bg(background).border_2().border_color(primary));
+            }
+            let (x, y, w, h) = at(p.lift);
+            let row = self.frames.get(p.row as usize).copied().unwrap_or_default();
+            self.ghosting.set(true);
+            let copy = self.paint_node(p.row, Place::at((row.x, row.y), (x, y), None), window, cx);
+            self.ghosting.set(false);
+            let shadow = gpui::BoxShadow { color: gpui::black().opacity(0.35), offset: gpui::point(px(0.0), px(8.0)), blur_radius: px(24.0), spread_radius: px(0.0), inset: false };
+            layer = layer.child(
+                div()
+                    .id("exponential-ui-list-lift")
+                    .absolute()
+                    .left(px(x))
+                    .top(px(y))
+                    .w(px(w))
+                    .h(px(h))
+                    .rounded(px(radius))
+                    .bg(popover)
+                    .shadow(vec![shadow])
+                    .opacity(LIST_LIFT_OPACITY)
+                    .children(copy),
+            );
+        }
+        Some(layer.into_any_element())
+    }
 }

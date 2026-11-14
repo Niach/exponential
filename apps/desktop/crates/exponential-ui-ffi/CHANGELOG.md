@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- List `reorderable` (#EXP-1832): `Surface.list_drag(index, input_json)` (`{"phase": "start"|"move"|"end", x, y}` in the UNSCROLLED frame space, or `{"phase": "cancel"}`; the host starts it after a long press on touch, past `tabDragThreshold` for a pointer; `end` fires `move {id, before|after|into}`), `Surface.list_reorder_row(index)` (the row slot a press sits in, None = no drag there), `Surface.list_dragging()`, `Surface.list_drag_paint()` -> `[FfiListDragPaint]` (`row` to dim, `lift` frame, `drop_key` / `drop_position` / `drop_row`, `line` + `ring` or `into`), `list_drag_style()` -> `FfiListDragStyle` (dim, line, ring, lift_offset, lift_opacity, into_fill), `list_drop_slot_json(request_json)` (the pure rule). Bindings regenerated.
 - `FfiTextStyle.font_variant_numeric` (`tabular-nums` = shape with `tnum`; `None` = the font's own figures). Bindings regenerated.
 - #EXP-1629: `set_popup_bounds(x, y, width, height)`: the host's window around the surface, in surface coordinates, that anchored popups fit into (width or height <= 0 = unset, the surface).
 
