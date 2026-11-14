@@ -11,6 +11,7 @@ import {
   boardIconSchema,
   hexColorSchema,
   type AgentTrigger,
+  type AgentVoice,
   type agentTriggersSchema as AgentTriggersSchema,
 } from "@exp/db-schema/domain"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
@@ -42,7 +43,8 @@ import {
   resolveSessionDevice,
   resolveSessionDeviceInTx,
 } from "@/lib/sessions/send"
-import { AGENT_MCP_ROW, ASSISTANT_COPY, COORDINATOR_COPY, LEAD_COPY } from "@exp/domain-contract/agent-settings"
+import { AGENT_MCP_ROW, AGENT_VOICE, ASSISTANT_COPY, COORDINATOR_COPY, LEAD_COPY } from "@exp/domain-contract/agent-settings"
+import { VOICE_LANGUAGES, wakePhraseError } from "@exp/etalk/voice"
 import { checkedAgentTriggers, ensureAssistant, syncVoiceMirror } from "@/lib/agents/assistant"
 
 // NEW-2: team AGENTS = definition rows (Settings → Agents; owner writes,
@@ -54,6 +56,34 @@ const uuid = z.string().uuid()
 const agentSkillIdsSchema = z.array(uuid).max(SKILLS_PER_SESSION_MAX)
 // #EXP-1793 (agent-settings.json `mcpRow.max`): the send's own cap.
 export const agentMcpServerIdsSchema = z.array(uuid).max(AGENT_MCP_ROW.max)
+
+// #EXP-1847: `agents.update {voice}`. The wake phrase follows voice.json's
+// letter rule; the clip is written only by /api/agents/{id}/voice-clip.
+export const agentVoicePatchSchema = z
+  .strictObject({
+    language: z.enum(VOICE_LANGUAGES.map((language) => language.value) as [`en`, `de`]).nullable().optional(),
+    transcript: z.string().max(AGENT_VOICE.limits.transcript).nullable().optional(),
+    wakePhrase: z
+      .string()
+      .max(AGENT_VOICE.limits.wakePhrase)
+      .nullable()
+      .optional()
+      .superRefine((value, ctx) => {
+        const problem = value ? wakePhraseError(value) : null
+        if (problem) ctx.addIssue({ code: `custom`, message: problem })
+      }),
+  })
+
+/** The stored voice after a patch: a null key is removed, an absent one kept. */
+export function mergeAgentVoice(current: AgentVoice, patch: z.infer<typeof agentVoicePatchSchema>): AgentVoice {
+  const next: Record<string, unknown> = { ...current }
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue
+    if (value === null || value === ``) delete next[key]
+    else next[key] = value
+  }
+  return next as AgentVoice
+}
 
 /** Agent triggers as stored: every trigger carries an id (minted here). */
 export function withTriggerIds(triggers: z.infer<typeof AgentTriggersSchema>): AgentTrigger[] {
@@ -79,7 +109,7 @@ export function assertTriggersFit(triggers: readonly AgentTrigger[], app: { head
   throw new TRPCError({ code: `BAD_REQUEST`, message: words.join(`; `) })
 }
 
-async function loadOwnedAgent(userId: string, id: string): Promise<Agent> {
+export async function loadOwnedAgent(userId: string, id: string): Promise<Agent> {
   const agent = await loadAgentForUser(userId, id)
   // S-3: an Assistant is its member's alone (agent-settings.json
   // `assistant`); a team agent is the team owners'.
@@ -364,11 +394,15 @@ export const agentsRouter = router({
         skillIds: agentSkillIdsSchema.optional(),
         // #EXP-1793: the team MCP servers every run of the agent starts with.
         mcpServerIds: agentMcpServerIdsSchema.optional(),
+        // #EXP-1847 (agent-settings.json `voice`): the agent's own voice; a
+        // key set to null clears it (the clip has its own route).
+        voice: agentVoicePatchSchema.optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id
       const agent = await loadOwnedAgent(userId, input.id)
+      const voice = input.voice === undefined ? undefined : mergeAgentVoice(agent.voice ?? {}, input.voice)
       // #EXP-1835: the Check in rule (an old Assistant write is tagged).
       // #EXP-1829: a kept trigger keeps its prompt/run/preset unless the
       // write names them; kinds the writer does not show are kept; app kinds
@@ -445,6 +479,7 @@ export const agentsRouter = router({
             ...(model !== undefined ? { model } : {}),
             ...(skillIds !== undefined ? { skillIds } : {}),
             ...(mcpServerIds !== undefined ? { mcpServerIds } : {}),
+            ...(voice !== undefined ? { voice } : {}),
             ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
             ...(moved ? { deviceId: input.deviceId } : {}),
             updatedAt: now,

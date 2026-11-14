@@ -73,7 +73,7 @@
     "checkIn": "Check in"
   },
   "page": {
-    "$comment": "#EXP-1846 (owner 2026-11-14, #EXP-1835 plan option B): ONE AGENT PAGE ×4 for the Assistant AND every team agent, SUPERSEDING `fields` order and `assistant.sections`. `sections` top to bottom, each a header (`copy[label]`) over one grouped card: `identity` (the board form's icon picker + colour swatch + name; the Assistant: its brand mark + name, never icon/colour), `runs-on` (rows in order: device, account, model, skills, mcp-servers: the MODEL row is every agent's now, value = `assistantModelValue({model, cli})` for any agent; mcp-servers keeps `mcpRow`'s visibility; the Assistant's device picker keeps NEW-99's desktops-only list, a team agent lists every team device), `triggers` (header `copy.triggers` with the `+ Add` pill on its trailing edge for editors; first row = `check-in`: THE single-select Picker in its row trigger over `assistant.schedules` (Off · Every 15 minutes · Every 30 minutes · Every hour · Every day), value `checkInOf(triggers)`; a pick writes `withCheckIn(triggers, id, tz)` whole; then one row per `listedTriggers(triggers)` (triggerSummary · Switch · ⋯ Edit/Delete, the row opens the editor); no empty-state row (Check in `Off` says it); `+ Add` opens THE trigger editor (schedule or event), for the Assistant too), `voice` (the Assistant only, as before: voice.json's Settings group; per-agent voice = #EXP-1847), `instructions` (team agents only; the Assistant's prompt is built in), `delete` (team agents only, owners). EDITORS: a team agent's rows are its team's OWNERS' (members read every row, no `+ Add`, no ⋯, no Delete); the Assistant's are its member's. THE TRIGGER LIST is ONE reusable piece per platform taking an agent id (web AgentTriggers, desktop settings::agent_triggers, iOS AgentTriggersSection, Android AgentTriggersSection) so the app screen's Events tab (#EXP-1829) mounts the same rows.",
+    "$comment": "#EXP-1846 (owner 2026-11-14, #EXP-1835 plan option B): ONE AGENT PAGE ×4 for the Assistant AND every team agent, SUPERSEDING `fields` order and `assistant.sections`. `sections` top to bottom, each a header (`copy[label]`) over one grouped card: `identity` (the board form's icon picker + colour swatch + name; the Assistant: its brand mark + name, never icon/colour), `runs-on` (rows in order: device, account, model, skills, mcp-servers: the MODEL row is every agent's now, value = `assistantModelValue({model, cli})` for any agent; mcp-servers keeps `mcpRow`'s visibility; the Assistant's device picker keeps NEW-99's desktops-only list, a team agent lists every team device), `triggers` (header `copy.triggers` with the `+ Add` pill on its trailing edge for editors; first row = `check-in`: THE single-select Picker in its row trigger over `assistant.schedules` (Off · Every 15 minutes · Every 30 minutes · Every hour · Every day), value `checkInOf(triggers)`; a pick writes `withCheckIn(triggers, id, tz)` whole; then one row per `listedTriggers(triggers)` (triggerSummary · Switch · ⋯ Edit/Delete, the row opens the editor); no empty-state row (Check in `Off` says it); `+ Add` opens THE trigger editor (schedule or event), for the Assistant too), `voice` (#EXP-1847: every agent, `voice` below; the Assistant adds its member rows), `instructions` (team agents only; the Assistant's prompt is built in), `delete` (team agents only, owners). EDITORS: a team agent's rows are its team's OWNERS' (members read every row, no `+ Add`, no ⋯, no Delete); the Assistant's are its member's. THE TRIGGER LIST is ONE reusable piece per platform taking an agent id (web AgentTriggers, desktop settings::agent_triggers, iOS AgentTriggersSection, Android AgentTriggersSection) so the app screen's Events tab (#EXP-1829) mounts the same rows.",
     "sections": [
       {
         "id": "identity"
@@ -100,7 +100,12 @@
       {
         "id": "voice",
         "label": "voice",
-        "assistantOnly": true
+        "rows": [
+          "language",
+          "clip",
+          "transcript",
+          "wake-phrase"
+        ]
       },
       {
         "id": "instructions",
@@ -355,6 +360,170 @@
           }
         ],
         "expected": null
+      }
+    ]
+  },
+  "voice": {
+    "$comment": "#EXP-1847 phase a (owner 2026-11-14, plan approved: fall back to the member's voice device; the clip is UPLOADED as the agent's file; phases a→b→c→d). EVERY agent's page gets the `voice` section (agent-settings.json `page`, no longer Assistant-only): rows in order `rows` under header `copy.label`, the same Picker/input rows ×4. DATA: `agents.voice` (SYNCED jsonb, `{}` = the member's): `language` (etalk voice.json `languages`), `clipId` + `clipName` (an `attachments` row uploaded through POST `clipUpload.route` (multipart part `file`, `clipUpload.accept`, at most `clipUpload.maxBytes`; answers {clipId, clipName}; DELETE clears it), never swept while an agent names it), `transcript` (at most `limits.transcript`), `wakePhrase` (at most `limits.wakePhrase`; a non-empty phrase needs `limits.wakePhraseMinLetters` letters, voice.json `wakePhraseError`). Written with `agents.update {voice: {language?, transcript?, wakePhrase?}}` (a key set to null clears it); the clip only through the route. Editors as `page`: a team agent's owners, the Assistant's member. ROWS: `language` = THE single-select Picker row over voice.json `languages`, value = `agentVoiceOf(...).language`; `clip` = the row's value `agentVoiceOf(...).clipLabel` (muted `copy.clipBuiltIn` when none), a press opens the platform's file picker (accept `clipUpload.accept`) and uploads; a set clip offers `copy.clipRemove` (the row's ⋯ / trailing action); failures toast (`copy.errors`); `transcript` and `wakePhrase` = THE input rows (placeholder `copy.transcriptPlaceholder` / `copy.wakePhrasePlaceholder` with {agent} = the agent's name), saved on blur/enter, the wake phrase's error inline. THE ASSISTANT: these four rows REPLACE voice.json's Language / Voice file / Transcript / Wake phrase rows on its page; its member rows (push to talk, wake word on/off, meetings) stay below them, unchanged. RESOLUTION `agentVoiceOf({role, name, voice}, member)` (`voiceOfCases`; member = the member's voice.get settings): language = voice.language else member.language; clip = {attachmentId: clipId} when set, else for an Assistant a member `voiceFile` path {path}, else null (the built-in voice); clipLabel = clipName, else the path's last segment, else copy.clipBuiltIn; transcript = voice.transcript with a clip, the member's voiceTranscript with the path, else ''; wakePhrase = voice.wakePhrase when not blank, else an Assistant's member wakePhrase, else '' (the detector and the placeholder read `Hey {name}`). SPEAKING (phase a): the member's voice device speaks every reply and call of an agent with that agent's resolved voice (language, clip fetched once from /api/attachments/{clipId} into its cache, transcript); the Assistant's wake phrase is its resolved one. Calls still ring the member's voice device (phase b moves them to the agent's device, falling back to the voice device when that one cannot speak).",
+    "rows": [
+      "language",
+      "clip",
+      "transcript",
+      "wake-phrase"
+    ],
+    "copy": {
+      "label": "Voice",
+      "language": "Language",
+      "clip": "Voice",
+      "clipBuiltIn": "Built-in",
+      "clipUpload": "Upload a voice clip",
+      "clipRemove": "Remove clip",
+      "transcript": "Transcript",
+      "transcriptPlaceholder": "What the clip says",
+      "wakePhrase": "Wake phrase",
+      "wakePhrasePlaceholder": "Hey {agent}",
+      "errors": {
+        "clipType": "Voice clips must be WAV files",
+        "clipSize": "Voice clips must be 5 MB or smaller"
+      }
+    },
+    "clipUpload": {
+      "route": "/api/agents/{agentId}/voice-clip",
+      "accept": [
+        "audio/wav",
+        "audio/x-wav",
+        "audio/wave"
+      ],
+      "maxBytes": 5242880
+    },
+    "limits": {
+      "transcript": 500,
+      "wakePhrase": 64,
+      "wakePhraseMinLetters": 6
+    },
+    "voiceOfCases": [
+      {
+        "name": "a team agent without its own voice speaks the member language, built-in voice",
+        "agent": {
+          "role": "agent",
+          "name": "Sloppy",
+          "voice": {}
+        },
+        "member": {
+          "language": "de",
+          "voiceFile": "/home/me/voices/me.wav",
+          "voiceTranscript": "Hallo, das bin ich.",
+          "wakePhrase": "Hey Jarvis"
+        },
+        "expected": {
+          "language": "de",
+          "clip": null,
+          "clipLabel": "Built-in",
+          "transcript": "",
+          "wakePhrase": ""
+        }
+      },
+      {
+        "name": "a team agent with its own clip and language",
+        "agent": {
+          "role": "agent",
+          "name": "Sloppy",
+          "voice": {
+            "language": "en",
+            "clipId": "c-1",
+            "clipName": "sloppy.wav",
+            "transcript": "Hi, Sloppy here.",
+            "wakePhrase": "Hey Sloppy"
+          }
+        },
+        "member": {
+          "language": "de",
+          "voiceFile": "/home/me/voices/me.wav",
+          "voiceTranscript": "Hallo, das bin ich.",
+          "wakePhrase": "Hey Jarvis"
+        },
+        "expected": {
+          "language": "en",
+          "clip": {
+            "attachmentId": "c-1"
+          },
+          "clipLabel": "sloppy.wav",
+          "transcript": "Hi, Sloppy here.",
+          "wakePhrase": "Hey Sloppy"
+        }
+      },
+      {
+        "name": "the Assistant without its own voice keeps the member's file and phrase",
+        "agent": {
+          "role": "assistant",
+          "name": "Bro",
+          "voice": {}
+        },
+        "member": {
+          "language": "de",
+          "voiceFile": "/home/me/voices/me.wav",
+          "voiceTranscript": "Hallo, das bin ich.",
+          "wakePhrase": "Hey Jarvis"
+        },
+        "expected": {
+          "language": "de",
+          "clip": {
+            "path": "/home/me/voices/me.wav"
+          },
+          "clipLabel": "me.wav",
+          "transcript": "Hallo, das bin ich.",
+          "wakePhrase": "Hey Jarvis"
+        }
+      },
+      {
+        "name": "the Assistant's own clip and phrase win",
+        "agent": {
+          "role": "assistant",
+          "name": "Bro",
+          "voice": {
+            "clipId": "c-2",
+            "clipName": "bro.wav",
+            "wakePhrase": "Hey Bro"
+          }
+        },
+        "member": {
+          "language": "de",
+          "voiceFile": "/home/me/voices/me.wav",
+          "voiceTranscript": "Hallo, das bin ich.",
+          "wakePhrase": "Hey Jarvis"
+        },
+        "expected": {
+          "language": "de",
+          "clip": {
+            "attachmentId": "c-2"
+          },
+          "clipLabel": "bro.wav",
+          "transcript": "",
+          "wakePhrase": "Hey Bro"
+        }
+      },
+      {
+        "name": "a blank phrase falls back",
+        "agent": {
+          "role": "assistant",
+          "name": "Bro",
+          "voice": {
+            "wakePhrase": "  "
+          }
+        },
+        "member": {
+          "language": "en",
+          "voiceFile": "",
+          "voiceTranscript": "",
+          "wakePhrase": ""
+        },
+        "expected": {
+          "language": "en",
+          "clip": null,
+          "clipLabel": "Built-in",
+          "transcript": "",
+          "wakePhrase": ""
+        }
       }
     ]
   },

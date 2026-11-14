@@ -8,7 +8,8 @@
 // against the team's storage budget with no delete UI.
 //
 // This sweep deletes owner-less rows once they age past the grace window
-// AND no `sessions.guide` and no `teams.icon_url` (#EXP-1645) names them, then
+// AND no `sessions.guide`, no `teams.icon_url` (#EXP-1645) and no agent's
+// `voice.clipId` (#EXP-1847) names them, then
 // reclaims their blobs. Mirrors
 // board-trash.ts: storage keys come from DELETE ... RETURNING in the
 // deleting transaction (the atomic multi-instance claim), the S3 objects go
@@ -61,6 +62,10 @@ function orphanCondition(cutoff: Date) {
     AND NOT EXISTS (
       SELECT 1 FROM teams t
       WHERE t.id = a.team_id AND t.icon_url = '/api/attachments/' || a.id::text
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM agents ag
+      WHERE ag.team_id = a.team_id AND ag.voice->>'clipId' = a.id::text
     )
     AND NOT EXISTS (
       SELECT 1 FROM sessions s

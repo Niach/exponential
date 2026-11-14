@@ -372,3 +372,63 @@ export function checkInProblem(triggers: readonly AgentTriggerLike[]): string | 
   }
   return null
 }
+
+// #EXP-1847 (`voice`): every agent's own voice, resolved against the
+// member's voice settings (`voiceOfCases`).
+export const AGENT_VOICE = fixture.voice
+export const AGENT_VOICE_COPY = fixture.voice.copy
+
+export interface AgentVoiceLike {
+  language?: string | null
+  clipId?: string | null
+  clipName?: string | null
+  transcript?: string | null
+  wakePhrase?: string | null
+}
+
+export interface MemberVoiceLike {
+  language: string
+  voiceFile: string
+  voiceTranscript: string
+  wakePhrase: string
+}
+
+export interface ResolvedAgentVoice {
+  language: string
+  clip: { attachmentId: string } | { path: string } | null
+  clipLabel: string
+  transcript: string
+  wakePhrase: string
+}
+
+/** The voice an agent speaks with (`voiceOfCases`). */
+export function agentVoiceOf(
+  agent: { role?: string | null; name: string; voice?: AgentVoiceLike | null },
+  member: MemberVoiceLike
+): ResolvedAgentVoice {
+  const voice = agent.voice ?? {}
+  const assistant = agent.role === `assistant`
+  const language = voice.language || member.language
+  const ownPhrase = voice.wakePhrase?.trim() ? voice.wakePhrase : null
+  const wakePhrase = ownPhrase ?? (assistant ? member.wakePhrase : ``)
+  if (voice.clipId) {
+    return {
+      language,
+      clip: { attachmentId: voice.clipId },
+      clipLabel: voice.clipName || AGENT_VOICE_COPY.clipBuiltIn,
+      transcript: voice.transcript ?? ``,
+      wakePhrase,
+    }
+  }
+  if (assistant && member.voiceFile) {
+    const segments = member.voiceFile.split(/[\\/]/)
+    return {
+      language,
+      clip: { path: member.voiceFile },
+      clipLabel: segments[segments.length - 1] || member.voiceFile,
+      transcript: member.voiceTranscript,
+      wakePhrase,
+    }
+  }
+  return { language, clip: null, clipLabel: AGENT_VOICE_COPY.clipBuiltIn, transcript: ``, wakePhrase }
+}
