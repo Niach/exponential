@@ -104,6 +104,9 @@ pub(crate) struct Field {
     focused: bool,
     /// VAPP-208: where the press that focuses this field went down.
     focusing_press: Option<Point<Pixels>>,
+    /// #EXP-1841: where the next programmatic write puts the caret (a byte
+    /// offset into the written text) instead of the end.
+    caret_on_write: Option<usize>,
     _subscription: Subscription,
 }
 
@@ -146,12 +149,20 @@ impl Field {
             // A single-line state puts the caret at the end on `set_value`;
             // a multi-line one resets it to the start (moving it focuses, so
             // only a focused one moves).
-            let end = gpui_component::input::Position::new(value.matches('\n').count() as u32, value.rsplit('\n').next().unwrap_or("").chars().count() as u32);
+            let end = position_at(&value, value.len());
+            let caret = self.caret_on_write.take().map(|at| position_at(&value, at));
             self.set_value(value, window, cx);
-            if let (FieldInput::Multi(s), true) = (&self.input, focused) {
-                s.update(cx, |s, cx| s.set_cursor_position(end, window, cx));
+            if let FieldInput::Multi(s) = &self.input {
+                // A caret the host asked for moves even unfocused (the X of
+                // a thumbnail keeps the writer's place, #EXP-1841).
+                match (caret, focused) {
+                    (Some(caret), _) => s.update(cx, |s, cx| s.set_cursor_position(caret, window, cx)),
+                    (None, true) => s.update(cx, |s, cx| s.set_cursor_position(end, window, cx)),
+                    (None, false) => {}
+                }
             }
         }
+        self.caret_on_write = None;
     }
 
     fn select_all(&self, window: &mut Window, cx: &mut App) {
@@ -164,6 +175,18 @@ impl Field {
     pub fn idle(&self, cx: &App) -> bool {
         self.pending.is_none() && self.flushed == self.revision && self.value(cx) == self.synced
     }
+}
+
+/// Byte offset `at` of `text` as a line/column position (clamped to a char
+/// boundary).
+fn position_at(text: &str, at: usize) -> gpui_component::input::Position {
+    let mut at = at.min(text.len());
+    while at > 0 && !text.is_char_boundary(at) {
+        at -= 1;
+    }
+    let before = &text[..at];
+    let column = before.rsplit('\n').next().unwrap_or("").chars().count() as u32;
+    gpui_component::input::Position::new(before.matches('\n').count() as u32, column)
 }
 
 /// The author's placeholder (none = none: the web shows no built-in one).
@@ -249,7 +272,7 @@ impl SurfaceView {
                 (FieldInput::Multi(state), sub)
             };
             let grows = kind.grows(&n);
-            self.fields.insert(id, Field { input, kind, revision: 0, flushed: 0, pending: None, synced: external.clone(), external, seen_epoch: epoch, placeholder, grows, focused: false, focusing_press: None, _subscription: sub });
+            self.fields.insert(id, Field { input, kind, revision: 0, flushed: 0, pending: None, synced: external.clone(), external, seen_epoch: epoch, placeholder, grows, focused: false, focusing_press: None, caret_on_write: None, _subscription: sub });
         }
         self.fields.retain(|id, _| keep.contains(id));
         for id in regrow {
@@ -443,6 +466,16 @@ impl SurfaceView {
             FieldInput::Multi(s) => s.update(cx, |s, cx| s.replace_text_in_range(Some(at..at), text, window, cx)),
         }
         true
+    }
+
+    /// #EXP-1841: the next programmatic write into field `id` (an
+    /// `assign_data` on its binding) parks the caret at byte `at` of the
+    /// written text instead of the end: a host rewrite that keeps the
+    /// writer's place (a thumbnail's X renumbering the draft).
+    pub fn caret_on_write(&mut self, id: &str, at: usize) {
+        if let Some(f) = self.fields.get_mut(id) {
+            f.caret_on_write = Some(at);
+        }
     }
 
     /// What field `id` does on gaining focus, for automation and tests (a test

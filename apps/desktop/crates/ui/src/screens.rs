@@ -880,6 +880,16 @@ pub(crate) fn take_dev_composer_text() -> Option<String> {
     (!TAKEN.swap(true, Ordering::SeqCst)).then_some(text)
 }
 
+/// #EXP-1841 — `EXP_DEV_COMPOSER_IMAGE=<path>` stages that file in a
+/// session chat's composer once, after `EXP_DEV_COMPOSER_TEXT` (a pick's
+/// path: the thumbnail and its `[Image #1]` at the caret).
+pub(crate) fn take_dev_composer_image() -> Option<std::path::PathBuf> {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static TAKEN: AtomicBool = AtomicBool::new(false);
+    let path = std::env::var("EXP_DEV_COMPOSER_IMAGE").ok().filter(|path| !path.is_empty())?;
+    (!TAKEN.swap(true, Ordering::SeqCst)).then(|| std::path::PathBuf::from(path))
+}
+
 /// EXP-1649 — `EXP_DEV_COMPOSER_ISSUES=<issue-uuid>[,…]` seeds Home's
 /// composer INLINE with these issues once (the first page composer with a
 /// team and synced shapes): web's `/agent?issues=` deep link, the
