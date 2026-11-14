@@ -7,7 +7,7 @@ use std::{borrow::Cow, path::PathBuf, sync::Arc};
 use gpui::{px, size, AppContext as _, AssetSource, Entity, HeadlessAppContext, SharedString, Window};
 use serde_json::json;
 
-use uicore_model::ide::{IdeActiveInput, IdeAgentInput, IdeAppInput, IdeBoardInput, IdeCount, IdePinInput, IdePrInput, IdeRepoInput, IdeSidebarInput, IdeTone};
+use uicore_model::ide::{IdeActiveInput, IdeAgentInput, IdeAppInput, IdeBoardInput, IdeCount, IdeLayout, IdeLayoutEntry, IdePinInput, IdePrInput, IdeRepoInput, IdeSidebarInput, IdeTone};
 
 use crate::navigation::nav_for_window;
 use crate::sidebar::RailView;
@@ -413,7 +413,19 @@ fn sample() -> IdeSidebarInput {
         boards: vec![board("b1", "Mobile App"), board("b2", "Website"), board("b3", "Infrastructure")],
         active: vec![IdeActiveInput { id: "r1".into(), title: "Fix the login redirect".into(), icon: "nav-chats".into(), session_ids: vec!["r1".into()], unread: true }],
         repos: vec![IdeRepoInput { id: "repo1".into(), name: "engine".into(), prs: vec![pr("p2", 2, "Faster sync", "sync → main", 0), pr("p3", 3, "Sync tests", "sync-tests → sync", 1)] }],
+        // #EXP-1832: an open folder of boards and a folded one of agents.
+        layout: IdeLayout {
+            board: vec![entry("f1", "folder", None, None, Some("Web"), 2.), entry("e2", "item", Some("b2"), Some("f1"), None, 1.), entry("e3", "item", Some("b3"), Some("f1"), None, 2.), entry("e1", "item", Some("b1"), None, None, 1.)],
+            agent: vec![entry("f2", "folder", None, None, Some("Bots"), 2.), entry("e4", "item", Some("a2"), Some("f2"), None, 1.), entry("e5", "item", Some("a3"), Some("f2"), None, 2.), entry("e6", "item", Some("a1"), None, None, 1.)],
+            app: Vec::new(),
+        },
+        closed: vec!["f2".into()],
+        editing_folder: None,
     }
+}
+
+fn entry(id: &str, kind: &str, target: Option<&str>, parent: Option<&str>, name: Option<&str>, sort_order: f64) -> IdeLayoutEntry {
+    IdeLayoutEntry { id: id.into(), kind: kind.into(), target_id: target.map(Into::into), parent_id: parent.map(Into::into), name: name.map(Into::into), sort_order }
 }
 
 #[test]
