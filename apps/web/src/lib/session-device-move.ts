@@ -39,6 +39,7 @@ export const REASON_NO_LOGIN = `This device has no signed-in login for this agen
  *  Settings → Agents). */
 export function deviceMoveVisible(session: {
   agentId?: string | null
+  appId?: string | null
 }): boolean {
   return deviceMoveHiddenReason(session) === null
 }
@@ -46,8 +47,11 @@ export function deviceMoveVisible(session: {
 /** Why the pin is hidden (the server's refusal for the same request). */
 export function deviceMoveHiddenReason(session: {
   agentId?: string | null
+  appId?: string | null
 }): string | null {
-  if (isPersistent(session)) return REASON_AGENT
+  // #EXP-1849: an app's root (the member's chat with the app's agent) moves
+  // like the editor always did: each member's own device.
+  if (isPersistent(session) && !session.appId) return REASON_AGENT
   return null
 }
 
