@@ -468,9 +468,11 @@ describe.skipIf(!ready.ok)(`EXP-1334 status automation`, () => {
     expect(await w.status(epic.id)).toMatchObject({ status: `done` })
     // A person reopens it (a status_changed that is no automation).
     await db.update(issues).set({ status: `in_progress`, statusId: null }).where(eq(issues.id, epic.id))
+    const [epicRow] = await db.select({ boardId: issues.boardId }).from(issues).where(eq(issues.id, epic.id))
     await db.insert(issueEvents).values({
       issueId: epic.id,
       teamId: w.teamId,
+      boardId: epicRow!.boardId,
       actorUserId: w.owner,
       type: `status_changed`,
       payload: { fromName: `Done`, toName: `In Progress` },
