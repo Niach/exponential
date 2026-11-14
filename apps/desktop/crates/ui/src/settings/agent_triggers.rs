@@ -11,12 +11,15 @@
 //! registers [`ACTIONS`] and routes them to [`handle`] with its
 //! [`ListTarget`].
 //! Every write is the WHOLE array, each trigger kept as stored (its `preset`
-//! included).
+//! included). #EXP-1850: every kind is listed (a `run` trigger reads what it
+//! runs on a muted second line, `trigger_detail`); a record or webhook row
+//! has no editor (⋯ = Delete only); every write names all kinds
+//! (`triggerKinds`).
 
 use gpui::{App, Context, Window};
 use serde_json::{json, Value};
 
-use domain::agent_settings::{check_in_of, listed_triggers, trigger_summary, with_check_in, AGENT_SETTINGS, ASSISTANT};
+use domain::agent_settings::{check_in_of, listed_triggers, trigger_detail, trigger_summary, with_check_in, AGENT_SETTINGS, ASSISTANT};
 use domain::rows::AgentDefRow;
 
 use crate::native_dialog::{self, AlertSpec};
@@ -25,7 +28,7 @@ use crate::trigger_dialog::{self, DraftTriggers};
 use crate::trigger_editor;
 
 use super::agent_doc::{select_row, Chrome};
-use super::doc::{path, Ink, SM};
+use super::doc::{not, path, Ink, SM, XS};
 
 /// The data-model path the projection is written at.
 pub(crate) const BASE: &str = "/pane/triggerList";
@@ -104,15 +107,19 @@ pub(crate) fn project_list(triggers: &[Value], editor: bool, writing: bool) -> V
         .filter_map(|(_, trigger)| {
             let id = trigger_editor::trigger_id(trigger)?.to_string();
             let sentence = trigger_summary(trigger);
+            let detail = trigger_detail(trigger);
+            let editable = trigger_editor::is_editable(trigger);
+            let delete = json!({"label": "Delete", "value": "delete", "icon": "ui-delete", "destructive": true});
+            let items = if editable { vec![json!({"label": "Edit", "value": "edit", "icon": "ui-edit"}), delete] } else { vec![delete] };
             Some(json!({
                 "key": id,
                 "summary": sentence,
+                "hasDetail": detail.is_some(),
+                "detail": detail.unwrap_or_default(),
+                "editable": editable && editor,
                 "enabled": trigger_editor::trigger_enabled(trigger),
                 "menuLabel": format!("Trigger menu for {sentence}"),
-                "items": [
-                    {"label": "Edit", "value": "edit", "icon": "ui-edit"},
-                    {"label": "Delete", "value": "delete", "icon": "ui-delete", "destructive": true},
-                ],
+                "items": items,
             }))
         })
         .collect();
@@ -139,19 +146,32 @@ pub(super) fn section(ink: &Ink, chrome: &Chrome) -> Value {
     let band = ink.band("triggers_band", &copy.triggers, Some(add));
     let mut check_in = select_row("check_in_select", &copy.check_in, "triggerList/checkIn", "checkIn", json!({}));
     check_in["props"]["disabled"] = at("readOnly");
-    // One trigger row: `picker_value_label` (one line, at most 240 px).
-    let mut summary = ink.text("trigger_summary", path("summary"), SM, &ink.foreground);
-    summary["props"]["lines"] = json!(1);
-    summary["style"]["minWidth"] = json!(0);
-    summary["style"]["maxWidth"] = json!(240);
-    // The ghost Button's run sits on its own line box, under the compact
-    // switch's 16 px: a member's row (no ⋯) is the switch's height.
-    summary["style"]["lineHeight"] = json!(16);
-    // gpui snaps the Button's run half a pixel up inside its 32 px row.
-    summary["style"]["position"] = json!("relative");
-    summary["style"]["top"] = json!(-0.5);
-    let summary = json!({"id": "trigger_open", "component": "Box", "props": {"pressable": true}, "on": {"press": {"event": {"name": "triggerOpen", "context": {"key": path("key")}}}},
-        "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "flexGrow": 1, "flexShrink": 1, "minWidth": 0, "cursor": "pointer"}, "children": [summary]});
+    // One trigger row: `picker_value_label` (one line, at most 240 px);
+    // #EXP-1850: a `run` trigger's muted second line under it. An editable
+    // row opens the editor; a record or webhook row is read where it sits.
+    let lines = |prefix: &str| {
+        let mut summary = ink.text(&format!("{prefix}_summary"), path("summary"), SM, &ink.foreground);
+        summary["props"]["lines"] = json!(1);
+        summary["style"]["minWidth"] = json!(0);
+        summary["style"]["maxWidth"] = json!(240);
+        // The ghost Button's run sits on its own line box, under the compact
+        // switch's 16 px: a member's row (no ⋯) is the switch's height.
+        summary["style"]["lineHeight"] = json!(16);
+        // gpui snaps the Button's run half a pixel up inside its 32 px row.
+        summary["style"]["position"] = json!("relative");
+        summary["style"]["top"] = json!(-0.5);
+        let mut detail = ink.text(&format!("{prefix}_detail"), path("detail"), XS, &ink.muted);
+        detail["visible"] = path("hasDetail");
+        detail["props"]["lines"] = json!(1);
+        detail["style"]["minWidth"] = json!(0);
+        vec![summary, detail]
+    };
+    let still_style = json!({"display": "flex", "flexDirection": "column", "justifyContent": "center", "flexGrow": 1, "flexShrink": 1, "minWidth": 0});
+    let mut open_style = still_style.clone();
+    open_style["cursor"] = json!("pointer");
+    let summary = json!({"id": "trigger_open", "component": "Box", "visible": path("editable"), "props": {"pressable": true}, "on": {"press": {"event": {"name": "triggerOpen", "context": {"key": path("key")}}}},
+        "style": open_style, "children": lines("trigger")});
+    let still = json!({"id": "trigger_still", "component": "Box", "visible": not(path("editable")), "style": still_style, "children": lines("trigger_read")});
     let switch = json!({"id": "trigger_switch", "component": "Switch", "props": {"label": "", "name": "enabled", "size": "compact", "checked": path("enabled"), "disabled": at("busy")},
         "on": {"change": {"event": {"name": "triggerToggle", "context": {"key": path("key")}}}}});
     // a11y: named by the caller ("Trigger menu for {sentence}").
@@ -159,7 +179,7 @@ pub(super) fn section(ink: &Ink, chrome: &Chrome) -> Value {
     more.as_object_mut().expect("the trigger").remove("on");
     let menu = json!({"id": "trigger_menu", "component": "Menu", "visible": at("editor"), "props": {"items": path("items"), "align": "start"}, "on": {"select": {"event": {"name": "triggerMenu", "context": {"key": path("key")}}}}, "children": [more]});
     let trailing = json!({"id": "trigger_trailing", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "flexShrink": 0, "gap": ink.r(0.25)}, "children": [switch, menu]});
-    let row = ink.shell("trigger", false, json!(true), vec![summary, trailing]);
+    let row = ink.shell("trigger", false, json!(true), vec![summary, still, trailing]);
     let row = json!({"id": "trigger_wrap", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%"}, "children": [ink.divider("trigger_divider", json!(true)), row]});
     let list = json!({"id": "triggers", "component": "Box", "visible": at("hasTriggers"), "style": {"display": "flex", "flexDirection": "column", "width": "100%"},
         "template": {"component": "trigger_wrap", "path": format!("{BASE}/triggers"), "key": "key"}, "children": [row]});
@@ -273,7 +293,7 @@ fn write<V: 'static>(
     };
     state(host).writing = true;
     cx.notify();
-    let input = api::agents::UpdateInput { triggers: Some(triggers.clone()), ..api::agents::UpdateInput::new(agent_id.clone()) };
+    let input = api::agents::UpdateInput::triggers(agent_id.clone(), triggers.clone());
     cx.spawn(async move |this, cx| {
         let result = cx.background_executor().spawn(async move { api::agents::update(&trpc, &input) }).await;
         let _ = this.update(cx, |host, cx| {
