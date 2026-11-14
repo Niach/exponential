@@ -26,6 +26,10 @@ struct AppEventsTab: View {
     @State private var triggersRaw: String?
     /// nil while the first read is in flight.
     @State private var runs: [Apps.EventsTab.Run]?
+    /// The published package's webhooks and `canToggle` (owner), read here:
+    /// an empty section never runs a task of its own.
+    @State private var hooks: [AppHookWire] = []
+    @State private var canToggle = false
 
     /// Web's refetch period while the tab is open.
     private static let refresh: Duration = .seconds(15)
@@ -35,7 +39,7 @@ struct AppEventsTab: View {
             if let agentId = app.agentId {
                 AgentTriggersSection(agentId: agentId, editable: canManage)
             }
-            AppWebhooksSection(app: app)
+            AppWebhooksSection(app: app, hooks: $hooks, canToggle: canToggle)
             recentRuns
         }
         .scrollContentBackground(.hidden)
@@ -44,6 +48,8 @@ struct AppEventsTab: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(Apps.TestIds.eventsTab)
         .task(id: "\(accountId)/\(app.agentId ?? "")") { await observeAgent() }
+        // Refetched when the app or its published version changes.
+        .task(id: "\(accountId)/\(app.id):\(app.publishedVersion)") { await loadHooks() }
         // Refetched while open, and whenever the agent's triggers change.
         .task(id: "\(accountId)/\(app.id)/\(triggersRaw ?? "")") {
             while !Task.isCancelled {
@@ -107,7 +113,8 @@ struct AppEventsTab: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(!woke)
+        // Only a wake opens the chat; the others are not dimmed.
+        .allowsHitTesting(woke)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier(Apps.TestIds.runRow)
     }
@@ -127,6 +134,14 @@ struct AppEventsTab: View {
         } catch {}
     }
 
+    /// A failed read keeps the Webhooks group hidden (nothing to act on).
+    private func loadHooks() async {
+        let summary = try? await deps.appsApi.tools(accountId: accountId, appId: app.id)
+        guard !Task.isCancelled else { return }
+        hooks = summary?.hooks ?? []
+        canToggle = summary?.canToggle ?? false
+    }
+
     /// A failed read keeps what is shown (the first one shows `noRuns`).
     private func loadRuns() async {
         let api = deps.appsApi
@@ -144,52 +159,49 @@ struct AppEventsTab: View {
 /// per hook of the published package, the name (mono) over the URL and the
 /// status pill, then the URL copy pill and, for an owner (`canToggle`),
 /// Create / Rotate secret. A minted secret shows ONCE in a row right under
-/// its hook (this view's memory only, never refetched).
+/// its hook (this view's memory only, never refetched). The parent reads
+/// the hooks (`appAccess.appTools`).
 struct AppWebhooksSection: View {
     let app: AppListEntry
+    @Binding var hooks: [AppHookWire]
+    let canToggle: Bool
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(\.toaster) private var toaster
-    @State private var hooks: [AppHookWire] = []
-    @State private var canToggle = false
     @State private var hookSecrets: [String: String] = [:]
     @State private var hookBusy: String?
     @State private var rotateTarget: String?
     @State private var showRotate = false
 
     var body: some View {
-        Group {
-            if !hooks.isEmpty {
-                Section {
-                    ForEach(Array(hooks.enumerated()), id: \.offset) { _, hook in
-                        webhookRow(hook)
-                        if let secret = hookSecrets[hook.name] {
-                            webhookSecretRow(secret)
-                        }
+        if !hooks.isEmpty {
+            Section {
+                ForEach(Array(hooks.enumerated()), id: \.offset) { _, hook in
+                    webhookRow(hook)
+                    if let secret = hookSecrets[hook.name] {
+                        webhookSecretRow(secret)
                     }
-                } header: {
-                    GlassSectionHeader(Apps.Copy.Webhooks.title)
                 }
-                .listRowBackground(glassFormRowFill)
-                .accessibilityElement(children: .contain)
-                .accessibilityIdentifier(Apps.TestIds.webhooks)
+            } header: {
+                GlassSectionHeader(Apps.Copy.Webhooks.title)
+                    .background {
+                        Color.clear
+                            .frame(width: 0, height: 0)
+                            .allowsHitTesting(false)
+                            .glassAlert(isPresented: $showRotate) {
+                                GlassAlert(
+                                    prompt: Prompts.RotateWebhookSecret.copy(hook: rotateTarget ?? ""),
+                                    handlers: ["rotate": {
+                                        if let name = rotateTarget { rotateHook(name, verb: "rotate") }
+                                    }]
+                                )
+                            }
+                    }
             }
-        }
-        // Refetched when the app or its published version changes.
-        .task(id: "\(accountId)/\(app.id):\(app.publishedVersion)") { await load() }
-        .background {
-            Color.clear
-                .frame(width: 0, height: 0)
-                .allowsHitTesting(false)
-                .glassAlert(isPresented: $showRotate) {
-                    GlassAlert(
-                        prompt: Prompts.RotateWebhookSecret.copy(hook: rotateTarget ?? ""),
-                        handlers: ["rotate": {
-                            if let name = rotateTarget { rotateHook(name, verb: "rotate") }
-                        }]
-                    )
-                }
+            .listRowBackground(glassFormRowFill)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier(Apps.TestIds.webhooks)
         }
     }
 
@@ -262,14 +274,6 @@ struct AppWebhooksSection: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(Apps.TestIds.webhookSecret)
-    }
-
-    /// A failed read keeps the group hidden (nothing to act on).
-    private func load() async {
-        let summary = try? await deps.appsApi.tools(accountId: accountId, appId: app.id)
-        guard !Task.isCancelled else { return }
-        hooks = summary?.hooks ?? []
-        canToggle = summary?.canToggle ?? false
     }
 
     /// `appAccess.rotateHook`: mints (no secret yet) or rotates a hook's

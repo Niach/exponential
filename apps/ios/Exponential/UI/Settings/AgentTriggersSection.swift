@@ -216,8 +216,10 @@ struct AgentTriggersSection: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            // #EXP-1850: a record or webhook row has no editor.
-            .disabled(!editable || !trigger.hasEditor)
+            .disabled(!editable)
+            // #EXP-1850: a record or webhook row has no editor (not dimmed:
+            // it is not paused, only not tappable).
+            .allowsHitTesting(trigger.hasEditor)
 
             GlassToggleRow(nil, isOn: Binding(
                 get: { trigger.enabled },

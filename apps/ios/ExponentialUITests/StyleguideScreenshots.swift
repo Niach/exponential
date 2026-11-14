@@ -1446,6 +1446,7 @@ final class StyleguideScreenshots: XCTestCase {
                     eventsTab.tap()
                     expect(anyElement(app, identified: "app-events"), within: Wait.sync, "Ops desk's Events tab never drew")
                     expect(anyElement(app, identified: "app-event-run"), within: Wait.network, "Ops desk's Events tab drew no runs")
+                    expect(anyElement(app, identified: "app-settings-webhooks"), within: Wait.network, "Ops desk's Events tab drew no Webhooks")
                     snapshot("sg_app-events", settle: 2)
                 }
                 // #FEED-239: App settings = THE `…`'s entry (an opened item).
