@@ -7,6 +7,8 @@ import { agents, conversations, messages, sessions, type Agent, type Event, type
 import { conversationInTx } from "@/lib/agents/conversation"
 import { latestCronMatch, parseCron } from "@/lib/agents/cron"
 import { askHidden } from "@/lib/sessions/bus"
+import { fillPrompt } from "@/lib/agents/app-triggers"
+import { causingSessionId, inAutomation } from "@/lib/apps/automation-scope"
 import { insertMessage } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
@@ -27,7 +29,10 @@ import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
 // about a private session (`EventPrivateDetail`) posts its full payload
 // only into a conversation whose readers may see that session (the
 // #EXP-1399 `askHidden` rule); every other firing quotes the row's own
-// ids-only payload.
+// ids-only payload. #EXP-1829 (ONE trigger system): an app's agent also
+// holds record and webhook triggers (fired by `lib/apps/automations.ts`), and
+// a trigger carrying `run` runs one app binding instead of posting a card;
+// a `prompt` leads the card's text.
 
 const HOUR = 60 * 60 * 1000
 const MIN = 60 * 1000
@@ -175,6 +180,7 @@ async function treesChanged(tx: Tx, agent: Agent, since: Date): Promise<boolean>
 export async function fireScheduledTriggers(now: Date = new Date()): Promise<number> {
   const catchUpSince = new Date(now.getTime() - contract.agentTrigger.catchUpHours * HOUR)
   const hosts: Array<{ ownerId: string; deviceId: string } | null> = []
+  const runs: Array<{ agentId: string; triggerId: string; at: Date }> = []
   const fired = await db.transaction(async (tx) => {
     const rows = await tx
       .select()
@@ -193,7 +199,7 @@ export async function fireScheduledTriggers(now: Date = new Date()): Promise<num
         if (!fields) continue
         const entry = { ...(state[trigger.id] ?? {}) }
         const firedAt = entry.firedAt ? new Date(entry.firedAt) : null
-        if (firedAt && !Number.isNaN(firedAt.getTime()) && (!lastFired || firedAt > lastFired)) lastFired = firedAt
+        if (!trigger.run && firedAt && !Number.isNaN(firedAt.getTime()) && (!lastFired || firedAt > lastFired)) lastFired = firedAt
         const checkedAt = entry.checkedAt ? new Date(entry.checkedAt) : null
         entry.checkedAt = now.toISOString()
         state[trigger.id] = entry
@@ -204,13 +210,25 @@ export async function fireScheduledTriggers(now: Date = new Date()): Promise<num
         const after = checkedAt > catchUpSince ? checkedAt : catchUpSince
         const at = latestCronMatch(fields, after, now, trigger.tz ?? null)
         if (!at) continue
+        // #EXP-1829: a `run` trigger runs its app binding (no card, no fold,
+        // never skipped as quiet), after the tick's transaction.
+        if (trigger.run) {
+          runs.push({ agentId: agent.id, triggerId: trigger.id, at })
+          entry.firedAt = at.toISOString()
+          continue
+        }
         due.push({ trigger, cron: trigger.cron, tz: trigger.tz ?? null, at, caughtUp: now.getTime() - at.getTime() > 2 * MIN })
       }
       // #EXP-1439: an Assistant watches ALL its member's chats in the team.
       const moved = (since: Date) =>
         agent.role === `assistant` ? memberChatsChanged(tx, agent, since) : treesChanged(tx, agent, since)
       if (due.length > 0 && (!lastFired || (await moved(lastFired)))) {
-        const body = due.map((d) => TRIGGER_COPY.schedule(d.cron, d.tz, d.caughtUp)).join(`\n`)
+        const body = due
+          .map((d) => {
+            const line = TRIGGER_COPY.schedule(d.cron, d.tz, d.caughtUp)
+            return d.trigger.prompt ? `${fillPrompt(d.trigger.prompt, { firedAt: d.at.toISOString() })}\n\n${line}` : line
+          })
+          .join(`\n`)
         try {
           const tick = await foldableTick(tx, agent)
           if (tick) {
@@ -245,7 +263,14 @@ export async function fireScheduledTriggers(now: Date = new Date()): Promise<num
     return count
   })
   for (const host of hosts) nudge(host)
-  return fired
+  if (runs.length > 0) {
+    // Loaded lazily: the executor pulls in the broker and the MCP server.
+    const { runScheduledTrigger } = await import(`@/lib/apps/automations`)
+    for (const run of runs) {
+      await runScheduledTrigger(run.agentId, run.triggerId, run.at).catch((err) => console.error(`[agent-triggers] scheduled run failed:`, err))
+    }
+  }
+  return fired + runs.length
 }
 
 /** An `events` row landed: every enabled event trigger on its name in the
@@ -282,12 +307,27 @@ export async function fireEventTriggersInTx(
     )
   let count = 0
   const hosts: Array<{ ownerId: string; deviceId: string } | null> = []
+  const runAgents: string[] = []
   for (const agent of rows) {
+    const listening = enabledTriggers(agent).filter((trigger) => trigger.kind === `event` && trigger.name === event.name)
+    // #EXP-1829: an app agent's `run` event triggers run after the commit.
+    if (listening.some((trigger) => trigger.run)) runAgents.push(agent.id)
     if (agent.id === emitterAgentId) continue
-    for (const trigger of enabledTriggers(agent)) {
-      if (trigger.kind !== `event` || trigger.name !== event.name) continue
+    for (const trigger of listening) {
+      if (trigger.run) continue
       try {
-        hosts.push(await postFiring(tx, agent, trigger, body, event))
+        hosts.push(
+          await postFiring(
+            tx,
+            agent,
+            trigger,
+            (conversation) => {
+              const line = body(conversation)
+              return trigger.prompt ? `${fillPrompt(trigger.prompt, { event: { ...(event.payload ?? {}), name: event.name }, firedAt: event.createdAt.toISOString() })}\n\n${line}` : line
+            },
+            event
+          )
+        )
         count += 1
       } catch (error) {
         console.warn(`[agent-triggers] event trigger ${trigger.id} of agent ${agent.id} not fired:`, error)
@@ -295,5 +335,12 @@ export async function fireEventTriggersInTx(
     }
   }
   for (const host of hosts) nudge(host)
+  // The loop guard: what an automation run emits runs nothing.
+  if (runAgents.length > 0 && !inAutomation()) {
+    const causing = causingSessionId()
+    void import(`@/lib/apps/automations`)
+      .then((m) => m.fireEventAutomations(event, runAgents, causing))
+      .catch((err) => console.error(`[automations] event trigger failed:`, err))
+  }
   return count
 }

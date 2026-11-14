@@ -66,7 +66,6 @@ export interface WatchdogRun {
   /** eApps R8: records the publish sweeps moved. */
   recordsMigrated: number
   /** #VAPP-220: app automation schedules run this tick. */
-  automations: number
   hookNoncesPruned: number
   /** #VAPP-239: device-routed upstream calls past their life. */
   deviceCallsPruned: number
@@ -766,12 +765,6 @@ export async function runWatchdog(now: Date = new Date()): Promise<WatchdogRun> 
     // eApps R8 (#VAPP-233): resume every running publish sweep.
     recordsMigrated: await import(`@/lib/apps/record-sweep`).then((m) => m.runRecordSweeps()).catch((err) => {
       console.error(`[watchdog] record sweep failed`, err)
-      return 0
-    }),
-    // #VAPP-220: the apps' schedule automations (caught up like the agents').
-    // Loaded lazily: the executor pulls in the broker and the MCP server.
-    automations: await import(`@/lib/apps/automations`).then((m) => m.fireScheduledAutomations(now)).catch((err) => {
-      console.error(`[watchdog] automations failed`, err)
       return 0
     }),
     // #VAPP-237: webhook nonces past the replay window.

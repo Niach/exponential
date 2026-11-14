@@ -1,3 +1,4 @@
+import { appTriggerIssues, automationAsTrigger, mergeTriggerWrite, triggerAutomationName } from "@/lib/agents/app-triggers"
 import { describe, expect, it } from "vitest"
 import { APP_CATALOG_SECTIONS, APP_SOURCE_NAMES, appCatalogText, appPackageIssues, linkableScreens, upstreamIssues, validateAppPackage } from "@/lib/apps/package"
 import emcp from "@exp/emcp/fixtures/exposes.json" with { type: "json" }
@@ -150,30 +151,52 @@ describe(`validateAppPackage: exposes`, () => {
   })
 })
 
-describe(`validateAppPackage: automations (#VAPP-220)`, () => {
+describe(`automations are the app agent's triggers (#EXP-1829)`, () => {
   const records = { request: { schema: { type: `object`, properties: { title: { type: `string` } } } } }
-  const one = (over: Record<string, unknown> = {}) => [{ name: `notify`, on: { record: { kind: `request`, op: `create` } }, run: { records: { op: `upsert`, kind: `request`, data: { title: `\${record.title}` } } }, ...over }]
+  const id = `11111111-2222-4333-8444-555555555555`
+  const runOn = (over: Record<string, unknown> = {}) => ({ id, enabled: true, kind: `record`, record: `request`, op: `create`, run: { records: { op: `upsert`, kind: `request`, data: { title: `\${record.title}` } } }, ...over }) as never
 
-  it(`accepts a valid automation`, () => {
-    expect((validateAppPackage(pkg({ records, automations: one() })) as { automations?: unknown[] }).automations).toHaveLength(1)
+  it(`refuses a package carrying automations, pointing at the agent`, () => {
+    expect(() => validateAppPackage(pkg({ records, automations: [] }))).toThrow(/agent's triggers/)
   })
 
-  it(`refuses each automations.json code with words`, () => {
-    expect(() => validateAppPackage(pkg({ records, automations: one({ on: { schedule: { cron: `* * * * *` } } }) }))).toThrow(/at most every 15 minutes/)
-    expect(() => validateAppPackage(pkg({ records, automations: one({ run: { action: `exponential.apps.records_upsert`, args: {} } }) }))).toThrow(/never reaches an app/)
-    expect(() => validateAppPackage(pkg({ records, automations: one({ run: { action: `exponential.issues.delete`, args: {} } }) }))).toThrow(/destructive/)
-    expect(() => validateAppPackage(pkg({ records, automations: one({ run: { records: { op: `upsert`, kind: `request`, data: { t: `\${event.x}` } } } }) }))).toThrow(/templates/)
+  it(`checks a run trigger like an automation`, () => {
+    expect(appTriggerIssues([runOn()], pkg({ records }))).toEqual([])
+    expect(appTriggerIssues([runOn({ kind: `schedule`, cron: `* * * * *`, record: undefined, op: undefined })], pkg({ records })).map((i) => i.code)).toContain(`scheduleTooOften`)
+    expect(appTriggerIssues([runOn({ run: { action: `exponential_apps_records_upsert`, args: {} } })], pkg({ records })).map((i) => i.code)).toContain(`chain`)
+    expect(appTriggerIssues([runOn({ run: { action: `exponential.issues.delete`, args: {} } })], pkg({ records })).map((i) => i.code)).toContain(`destructive`)
+    expect(appTriggerIssues([runOn({ record: `nope` })], pkg({ records })).map((i) => i.code)).toContain(`kind`)
   })
 
-  it(`a schedule's cron parses as the watchdog reads it (names included)`, () => {
-    expect(() => validateAppPackage(pkg({ records, automations: one({ on: { schedule: { cron: `0 8 * * FOO` } }, run: { records: { op: `upsert`, kind: `request`, data: { title: `x` } } } }) }))).toThrow(/schedule is/)
-    expect(() => validateAppPackage(pkg({ records, automations: one({ on: { schedule: { cron: `0 8 * * MON-FRI` } }, run: { records: { op: `upsert`, kind: `request`, data: { title: `x` } } } }) }))).not.toThrow()
+  it(`app kinds and runs need an app's agent`, () => {
+    expect(appTriggerIssues([runOn()], null)).toEqual([{ index: 0, code: `appOnly` }])
+    expect(appTriggerIssues([{ id, enabled: true, kind: `event`, name: `pr.merged`, prompt: `Look at \${event.title}` } as never], null)).toEqual([])
+    expect(appTriggerIssues([{ id, enabled: true, kind: `schedule`, cron: `0 8 * * *`, prompt: `\${record.title}` } as never], null)).toEqual([{ index: 0, code: `template` }])
   })
 
-  it(`documents automations in the catalog`, () => {
+  it(`a kept trigger keeps its prompt and run unless the write names them`, () => {
+    const stored = [{ ...(runOn() as object), prompt: `p` }] as never
+    const [kept] = mergeTriggerWrite(stored, [{ id, enabled: false, kind: `record`, record: `request`, op: `create` }])
+    expect(kept).toMatchObject({ id, enabled: false, prompt: `p`, run: { records: { op: `upsert` } } })
+    const [cleared] = mergeTriggerWrite(stored, [{ id, enabled: true, kind: `record`, record: `request`, op: `create`, prompt: null, run: null }])
+    expect(cleared).not.toHaveProperty(`prompt`)
+    expect(cleared).not.toHaveProperty(`run`)
+    const [fresh] = mergeTriggerWrite(stored, [{ enabled: true, kind: `event`, name: `pr.merged` }])
+    expect(fresh!.id).toMatch(/^[0-9a-f-]{36}$/)
+  })
+
+  it(`an old automation becomes a trigger`, () => {
+    const run = { records: { op: `upsert`, kind: `request`, data: { title: `x` } } }
+    expect(automationAsTrigger({ name: `a`, on: { schedule: { cron: `0 8 * * *` } }, run } as never, { teamZone: `Europe/Vienna`, ownSlug: `requests`, id })).toEqual({ id, enabled: true, kind: `schedule`, cron: `0 8 * * *`, tz: `Europe/Vienna`, run })
+    expect(automationAsTrigger({ name: `a`, on: { webhook: { name: `stripe` } }, run: { agent: `requests`, prompt: `Handle it` } } as never, { teamZone: null, ownSlug: `requests`, id })).toEqual({ id, enabled: true, kind: `webhook`, name: `stripe`, prompt: `Handle it` })
+    expect(automationAsTrigger({ name: `a`, on: { event: `pr.merged` }, run: { agent: `triage`, prompt: `p` } } as never, { teamZone: null, ownSlug: `requests`, id })).toEqual({ id, enabled: true, kind: `event`, name: `pr.merged`, run: { agent: `triage`, prompt: `p` } })
+    expect(triggerAutomationName(id)).toBe(`t_11111111222243338444555555555555`)
+  })
+
+  it(`documents triggers in the catalog`, () => {
     const text = appCatalogText()
-    expect(text).toContain(`# Automations`)
-    for (const word of [`\${record.`, `\${event.`, `\${firedAt}`, `sponsor`]) expect(text).toContain(word)
+    expect(text).toContain(`# Triggers`)
+    for (const word of [`\${record.`, `\${event.`, `\${firedAt}`, `exponential_agents_write`, `"webhook"`]) expect(text).toContain(word)
   })
 })
 

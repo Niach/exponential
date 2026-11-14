@@ -4,31 +4,34 @@
 
 ### 7.1 Triggers
 
-✅ A1 (#VAPP-220): `automations`, one trigger → one binding, run by the server as a sponsor.
+✅ #EXP-1829 (ONE trigger system, replacing A1's package `automations`): an app's automations are **its agent's triggers** (`agents.triggers`, the same list as every agent's, Settings › Agents and the app's Events tab ×4). They are not part of the package any more: `apps upsert` refuses `automations`, and an old app file's `automations` become the new agent's triggers on import. The agent is created with the app (`apps.agent_id`); its root session is the app's editor.
 
 ```jsonc
-"automations": [
-  { "name": "monday_rotation", "on": { "schedule": { "cron": "0 8 * * MON" } },
+// exponential_agents_write {op: "update", id: <the app's agentId>, triggers: [...]}
+[
+  { "kind": "schedule", "cron": "0 8 * * MON", "tz": "Europe/Vienna",
     "run": { "records": { "op": "upsert", "kind": "rotation", "data": { "startedAt": "${firedAt}" } } } },
-  { "name": "notify_approver", "on": { "record": { "kind": "request", "op": "create" } },
+  { "kind": "record", "record": "request", "op": "create",
     "run": { "action": "exponential.comments.create", "args": { "issueId": "${record.issue}", "body": "New request: ${record.title}" } } },
-  { "name": "log_merges", "on": { "event": "pr.merged" }, "sponsor": "lead@acme.test",
-    "run": { "records": { "op": "upsert", "kind": "merge", "data": { "title": "${event.title}" } } } }
+  { "kind": "event", "name": "pr.merged", "prompt": "Log the merge of ${event.title} if it touches billing." }
 ]
 ```
 
-The contract is `packages/emcp/fixtures/automations.json` (TS `@exp/emcp/automations`, Rust `emcp::contract::automations`); the server rules and the executor are `apps/web/src/lib/apps/{package,automations}.ts`.
+The contract is `packages/emcp/fixtures/automations.json` (TS `@exp/emcp/automations`, Rust `emcp::contract::automations`) for a run and `packages/db-schema` `agentTriggerSchema` for the list; the server is `apps/web/src/lib/agents/{triggers,app-triggers}.ts` and the executor `apps/web/src/lib/apps/automations.ts`.
 
-- **`on`** (exactly one):
-  - `schedule: {cron, tz?}`: a 5-field cron (the agents' trigger cron: names, ranges, steps), read in `tz` or the team time zone; the minutes of a day it fires on are ≥ 15 min apart. The watchdog tick runs the latest due minute since its last check, caught up once after downtime (24 h), never twice.
-  - `record: {kind, op}`: a committed create/update/delete of a declared kind (members' writes, package actions, tools).
-  - `event: "<name>"`: the team stream (`issue.created`, `pr.merged`, `session.ended`… or any `events_emit` name), the same events agents' triggers use ✅. It runs once the event is committed.
-  - `webhook: {name}` (A3, §7.2): a signed `POST` to the app's hook URL; the body is `${event.body.<path>}`. `where` filters are not in A1.
-- **`run`:** an `exposes` run (`records`, `action`, `upstream`, `agent`) with the same validator: no destructive runs, an action must be granted by an owner, an upstream must be declared. `agent` (A2) hands off to a team agent (§7.3). Templates: `${record.<field>}` (record triggers: its data + `id`; on delete, the data it had), `${event.<field>}` (event triggers: the payload + `name`), `${firedAt}`. No action through `exponential.apps.*`.
-- **Executor:** the **server broker** (`runBrokerTool`, the same records service, grants and vault as a tool call), on the **published** version only (V1). Every run, and every refusal, is one `mcp_calls` row with `client_id = automation:<name>`, `tool` = `records.<op>:<kind>`, the action, or `<server>/<tool>` (Settings › MCP › Activity).
-- **Run-as** (C23): an automation acts as its **sponsor**: the member who published the running version (`apps.published_by`), or a member it names by email (`sponsor`), honoured only when an owner published. The sponsor must still be a member with write access to the app. Upstream runs use the sponsor's credential; writes read "via <app>" (§9.3). Otherwise the automation pauses (`sponsorGone`, `sponsorReadOnly`, `sponsorNotAllowed`), the app's owners get one notification per pause, and a publish by a member with access resumes it. There is no bot identity (decided 2026-11-01).
-- **Caps:** at most 16 automations per app; at most 30 runs a minute per app (over it: audited `rateLimited`, not run). **No chaining:** a run executes in an automation scope, so its records write and the events its action emits fire no automation, its own included.
-- **Settings:** the app's settings page lists each automation with its trigger, its last run and its last failure (from its audit rows), the runs the cap dropped in the last 24 h (#VAPP-255: `N runs dropped in 24 h`; the drop stays, a run is never retried) and a pause, ×4.
+- **When** (a trigger's `kind`):
+  - `schedule {cron, tz?}`: a 5-field cron (names, ranges, steps), read in `tz` (UTC when absent). The watchdog tick runs the latest due minute since its last check, caught up once after downtime (24 h), never twice. A schedule that runs a binding fires at most every 15 minutes.
+  - `event {name}`: the team stream (`issue.created`, `pr.merged`, `session.ended`… or any `events_emit` name). A run starts once the event is committed.
+  - `record {record, op}` (an app's agent only): a committed create/update/delete of a declared kind (members' writes, package actions, tools). A write the app's own agent made never wakes it.
+  - `webhook {name}` (an app's agent only, §7.2): a signed `POST` to the app's hook URL; the body is `${event.body.<path>}`.
+- **What it does:**
+  - By default it **wakes the agent**: a `trigger_fired` card into its owner's conversation (the app's root), `prompt` (optional, any agent) as the card's text with its templates filled, record and webhook data in a fenced block marked as data.
+  - With **`run`** (an app's agent only) it runs ONE binding on the server instead, no session: an `exposes` run (`records`, `action`, `upstream`, `agent`) with the same validator (no destructive runs, an action must be granted by an owner, an upstream must be declared, never `exponential.apps.*`). `agent` hands off to ANOTHER team agent (§7.3).
+  - Templates in `prompt` and `run`: `${record.<field>}` (record triggers: its data + `id`; on delete, the data it had), `${event.<field>}` (event and webhook triggers: the payload + `name`), `${firedAt}`.
+- **Executor:** the **server broker** (`runBrokerTool`, the same records service, grants and vault as a tool call), on the **published** version only (V1). A run whose binding the published version cannot run never fires. Every firing of an app's trigger (a run, a wake), and every refusal, is one `mcp_calls` row with `client_id = automation:t_<trigger id>`, `tool` = `records.<op>:<kind>`, the action, `<server>/<tool>` or `agent:<slug>` for a wake (Settings › MCP › Activity, the Events tab's recent runs).
+- **Run-as** (C23, #EXP-1829): a run acts as **the agent's owner** (the app's creator), like every trigger. The owner must still be a member with write access to the app. Upstream runs use the owner's credential; writes read "via <app>" (§9.3). Otherwise the trigger pauses (`sponsorGone`, `sponsorReadOnly`), the team's owners get one notification per pause, and it resumes by itself once the owner can run it again. There is no bot identity (decided 2026-11-01).
+- **Caps:** at most 16 triggers per agent; at most 30 firings a minute per app, counting only those that ran (#VAPP-257; over it: audited `rateLimited`, not run). **No chaining:** a run executes in an automation scope, so its records write and the events its action emits fire no run, its own included.
+- **Writes:** `agents.update {triggers}` replaces the list; a kept trigger (same id) that leaves out `prompt` or `run` keeps them (`null` clears), so an older client's edit never erases them. The team's owners and the app's creator edit an app's agent.
 
 ### 7.2 Webhooks (✅ A3 server, #VAPP-237)
 
@@ -39,7 +42,7 @@ The contract is `packages/emcp/fixtures/automations.json` (TS `@exp/emcp/automat
   "run": { "records": { "op": "upsert", "kind": "payment", "data": { "customer": "${event.body.data.customer}" } } } }
 ```
 
-- **URL:** `POST /api/apps/hooks/<appId>/<name>`. The hook name is unique among the app's webhooks; the published package's automations on it run (A1's executor: the sponsor, the caps, the audit).
+- **URL:** `POST /api/apps/hooks/<appId>/<name>`. The hook name is unique among the app's webhooks; the app agent's webhook triggers on it fire (#EXP-1829: a wake, or a run through the executor: the owner, the caps, the audit).
 - **Secret:** one per hook, `whsec_` + 32 random bytes (base64url), minted by a team owner on the app's Settings (tRPC `appAccess.rotateHook`), answered ONCE, stored only vault-sealed (`ev1`, slot `app_hooks.secret_ciphertext`, re-sealed by the vault sweep), never synced. Minting again rotates it: the old secret stops at once. A hook without a secret answers 404.
 - **Verification:** header `exponential-signature: t=<unix seconds>,v1=<hex HMAC-SHA256(secret, "<t>." + raw body)>` (Stripe's scheme; several `v1` may ride along). In order: body > 64 KB = 413, no header = 401, malformed = 401, `|now − t|` > 300 s = 401 (`stale`), no matching `v1` = 401, the signature already seen (the nonce cache: every accepted signature for 2 × the window, table `app_hook_nonces`, pruned by the watchdog) = 409 (`replayed`), not JSON = 400. The body is parsed only after the signature verifies. A verified delivery answers 202 with each run's status.
 - **Payload:** the run's event = `{hook, body}`: `${event.body.<path>}` in the run (and in an agent hand-off's data block, never its instructions, §12.1).

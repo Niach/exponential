@@ -101,6 +101,8 @@ export async function runBootstrapPass(): Promise<void> {
   await stripUngrantableGrants()
   // #VAPP-213: every team holds the built-in skills shipped with this build.
   await reconcileBuiltinSkills()
+  // #EXP-1829: package automations move onto their app agents' triggers.
+  await import(`@/lib/apps/automations-migrate`).then((m) => m.migrateAppAutomations())
 }
 
 const RETRY_BASE_DELAY_MS = 5 * 1000

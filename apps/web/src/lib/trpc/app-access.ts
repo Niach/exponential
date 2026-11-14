@@ -215,7 +215,7 @@ export const appAccessRouter = router({
       // and last failure (their mcp_calls rows) and a live pause reason.
       automations: await automationRows(app),
       // #VAPP-237: the published package's webhooks (URL, minted or not).
-      hooks: await hookRows({ id: input.appId, package: app.package }),
+      hooks: await hookRows({ id: input.appId }),
       // VAPP-241: the public links, owners only (the rows carry the guest URLs).
       shares: (await shareRows({ id: input.appId, package: app.package })).map((row) => (me.role === `owner` ? row : { ...row, url: null })),
     }

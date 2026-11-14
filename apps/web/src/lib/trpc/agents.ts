@@ -13,8 +13,11 @@ import {
 } from "@exp/db-schema/domain"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { assertSkillsInTeam } from "@/lib/skills-guard"
+import { db } from "@/db/connection"
+import { appTriggerIssues, mergeTriggerWrite, TRIGGER_ISSUE_MESSAGES } from "@/lib/agents/app-triggers"
 import {
   agents,
+  apps,
   attachments,
   conversations,
   devices,
@@ -52,9 +55,26 @@ export const agentMcpServerIdsSchema = z.array(uuid).max(AGENT_MCP_ROW.max)
 
 /** Agent triggers as stored: every trigger carries an id (minted here). */
 export function withTriggerIds(triggers: z.infer<typeof AgentTriggersSchema>): AgentTrigger[] {
-  return triggers.map(
-    (trigger) => ({ ...trigger, id: trigger.id ?? crypto.randomUUID() }) as AgentTrigger
-  )
+  return mergeTriggerWrite([], triggers)
+}
+
+/** #EXP-1829: the live app an agent belongs to (its HEAD package), if any. */
+async function appOfAgent(agentId: string): Promise<{ id: string; createdBy: string | null; head: unknown } | null> {
+  const [row] = await db
+    .select({ id: apps.id, createdBy: apps.createdBy, package: apps.package, draftPackage: apps.draftPackage })
+    .from(apps)
+    .where(and(eq(apps.agentId, agentId), isNull(apps.deletedAt)))
+    .limit(1)
+  return row ? { id: row.id, createdBy: row.createdBy, head: row.draftPackage ?? row.package ?? {} } : null
+}
+
+/** #EXP-1829: a trigger list the agent may hold (app kinds and `run` on an
+ *  app's agent, checked against the app's head package). */
+export function assertTriggersFit(triggers: readonly AgentTrigger[], app: { head: unknown } | null): void {
+  const issues = appTriggerIssues(triggers, app ? app.head : null)
+  if (issues.length === 0) return
+  const words = issues.slice(0, 5).map((issue) => `triggers[${issue.index}]: ${TRIGGER_ISSUE_MESSAGES[issue.code] ?? `invalid (${issue.code})`}`)
+  throw new TRPCError({ code: `BAD_REQUEST`, message: words.join(`; `) })
 }
 
 async function loadOwnedAgent(userId: string, id: string): Promise<Agent> {
@@ -65,6 +85,10 @@ async function loadOwnedAgent(userId: string, id: string): Promise<Agent> {
     if (agent.ownerId !== userId) throw new TRPCError({ code: `NOT_FOUND`, message: `Agent not found` })
     return agent
   }
+  // #EXP-1829: an app's agent is also its app's creator's to manage (the
+  // app's triggers live on it).
+  const app = await appOfAgent(agent.id)
+  if (app?.createdBy && app.createdBy === userId) return agent
   await assertTeamOwner(userId, agent.teamId)
   return agent
 }
@@ -296,7 +320,11 @@ export const agentsRouter = router({
             instructions: input.instructions,
             // #EXP-1383 (chats.json `agentHint`): the text's birth.
             instructionsUpdatedAt: new Date(),
-            triggers: withTriggerIds(input.triggers),
+            triggers: (() => {
+              const triggers = withTriggerIds(input.triggers)
+              assertTriggersFit(triggers, null)
+              return triggers
+            })(),
             deviceId: input.deviceId,
             cli: input.cli ?? null,
             account: input.account ?? null,
@@ -336,6 +364,10 @@ export const agentsRouter = router({
       const userId = ctx.session.user.id
       const agent = await loadOwnedAgent(userId, input.id)
       if (agent.role === `assistant` && input.triggers !== undefined) assertAssistantTriggers(input.triggers)
+      // #EXP-1829: a kept trigger keeps its prompt/run unless the write
+      // names them; app kinds and runs only on an app's agent.
+      const triggers = input.triggers === undefined ? undefined : mergeTriggerWrite(agent.triggers, input.triggers)
+      if (triggers) assertTriggersFit(triggers, await appOfAgent(agent.id))
       // #EXP-1439: the Assistant's prompt is built in. An old client resends
       // the stored text unchanged on every save; only an EDIT is refused.
       if (agent.role === `assistant` && input.instructions !== undefined && input.instructions !== agent.instructions) {
@@ -394,7 +426,7 @@ export const agentsRouter = router({
             ...(input.instructions !== undefined && input.instructions !== agent.instructions
               ? { instructions: input.instructions, instructionsUpdatedAt: now }
               : {}),
-            ...(input.triggers !== undefined ? { triggers: withTriggerIds(input.triggers) } : {}),
+            ...(triggers !== undefined ? { triggers } : {}),
             ...(input.cli !== undefined ? { cli: input.cli } : {}),
             ...accountWrite,
             ...(model !== undefined ? { model } : {}),

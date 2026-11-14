@@ -56,7 +56,8 @@ export function draftFromTrigger(trigger: TriggerWhen | null): TriggerDraft {
   if (trigger.kind === `schedule`) {
     return { ...draft, kind: `schedule`, schedule: scheduleDraftFromCron(trigger.cron, trigger.tz) }
   }
-  return { ...draft, kind: `event`, name: trigger.name ?? `` }
+  // #EXP-1829: the dialog edits schedules and events; an app kind opens as an event draft.
+  return { ...draft, kind: `event`, name: trigger.kind === `event` ? trigger.name : `` }
 }
 
 export interface TriggerDraftError {

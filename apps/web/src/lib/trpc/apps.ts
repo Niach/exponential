@@ -2,7 +2,10 @@ import { z } from "zod"
 import { createAppAgentInTx } from "@/lib/apps/app-agent"
 import { TRPCError } from "@trpc/server"
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm"
-import { boardIconSchema } from "@exp/db-schema/domain"
+import { MAX_AGENT_TRIGGERS, boardIconSchema, type AgentTrigger } from "@exp/db-schema/domain"
+import { validateAutomations, type Automation } from "@exp/emcp/automations"
+import { agentSlug } from "@exp/emcp/exposes"
+import { automationAsTrigger, packageContext } from "@/lib/agents/app-triggers"
 import {
   APPS_COPY,
   APP_DESCRIPTION_MAX,
@@ -14,7 +17,7 @@ import {
   slugify,
 } from "@exp/domain-contract/apps"
 import { router, authedProcedure, generateTxId, type Context } from "@/lib/trpc"
-import { appVersions, apps, mcpServers, sessions, type App, type AppPackageJson } from "@/db/schema"
+import { agents, appVersions, apps, mcpServers, sessions, teams, type App, type AppPackageJson } from "@/db/schema"
 import { assertTeamMember, getTeamMember } from "@/lib/auth/membership"
 import { resolveTeamAccess } from "@/lib/auth/access"
 import { appPackageIssues, packageBytes, recordKindSchema, upstreamIssues, validateAppPackage } from "@/lib/apps/package"
@@ -284,17 +287,26 @@ export const appUpdateInputSchema = z.object({
 export async function checkAppImport(
   text: string,
   importer?: { userId: string; role: string | null; members: readonly string[] }
-): Promise<ParsedAppImport> {
+): Promise<ParsedAppImport & { automations: Automation[] }> {
   const { issues: structural, file, bare } = parseAppImportShape(text)
-  if (!file) return { issues: structural, file: null }
+  if (!file) return { issues: structural, file: null, automations: [] }
   // VAPP-161: a signed file (the package format's `author` + `signature`)
   // must verify; an unsigned one imports as before.
   if (!bare) {
     const verified = await verifyPackageFile(JSON.parse(text))
-    if (verified.status === `invalid`) return { issues: verified.issues, file: null }
+    if (verified.status === `invalid`) return { issues: verified.issues, file: null, automations: [] }
   }
   const at = (path: string) => (bare ? path : `/package${path === `/` ? `` : path}`)
+  // #EXP-1829: a file's `automations` (the old format) become the new app
+  // agent's triggers; the package keeps none.
+  const automations = (file.package as { automations?: unknown }).automations
+  delete (file.package as { automations?: unknown }).automations
   const issues: ImportIssue[] = appPackageIssues(file.package).map((issue) => ({ path: at(issue.path), message: issue.message }))
+  if (automations !== undefined) {
+    for (const error of validateAutomations(automations, packageContext(file.package))) {
+      issues.push({ path: at(error.index === null ? `/automations` : `/automations/${error.index}`), message: `invalid automation (${error.code})` })
+    }
+  }
   if (issues.length === 0) {
     file.records.forEach((record, i) => {
       const schema = recordKindSchema(file.package, record.kind)
@@ -308,7 +320,7 @@ export async function checkAppImport(
       if (importer) record.author = importAuthor(importer.userId, importer.role, record.author, importer.members)
     })
   }
-  return issues.length > 0 ? { issues, file: null } : { issues: [], file }
+  return issues.length > 0 ? { issues, file: null, automations: [] } : { issues: [], file, automations: Array.isArray(automations) ? (automations as Automation[]) : [] }
 }
 
 /** VAPP-180: a written package's `upstreams` are MCP servers of the app's
@@ -324,6 +336,17 @@ async function assertTeamUpstreams(db: Pick<Tx, `select`>, teamId: string, pkg: 
 
 const IMPORT_SLUG_ATTEMPTS = 5
 
+/** #EXP-1829: an imported file's automations as the new agent's triggers. */
+async function importAutomationsInTx(tx: Tx, app: App, automations: Automation[]): Promise<void> {
+  if (!app.agentId) return
+  const [team] = await tx.select({ timeZone: teams.timeZone }).from(teams).where(eq(teams.id, app.teamId)).limit(1)
+  const triggers = automations
+    .map((automation) => automationAsTrigger(automation, { teamZone: team?.timeZone ?? null, ownSlug: agentSlug(app.name) }))
+    .filter((t): t is AgentTrigger => t !== null)
+    .slice(0, MAX_AGENT_TRIGGERS)
+  await tx.update(agents).set({ triggers }).where(eq(agents.id, app.agentId))
+}
+
 /** VAPP-121: a new app out of an app file (or a bare package): the
  *  identity from the file, the package as v1 noted `note` (published at
  *  once), the records as the importer's within the team's quota. No grants:
@@ -332,7 +355,7 @@ const IMPORT_SLUG_ATTEMPTS = 5
 async function importAppText(ctx: Context & { session: NonNullable<Context[`session`]> }, teamId: string, text: string, note: string, upstreamMappings: readonly { upstream: string; serverId: string }[] = []) {
   const userId = ctx.session.user.id
   const member = await assertTeamMember(userId, teamId)
-  const { issues, file } = await checkAppImport(text, { userId, role: member.role, members: await teamMemberIds(ctx.db, teamId) })
+  const { issues, file, automations } = await checkAppImport(text, { userId, role: member.role, members: await teamMemberIds(ctx.db, teamId) })
   if (!file) {
     const listed = issues.slice(0, 10).map((issue) => `${issue.path}: ${issue.message}`)
     throw new TRPCError({ code: `BAD_REQUEST`, message: `the app file is invalid: ${listed.join(`; `)}` })
@@ -362,6 +385,7 @@ async function importAppText(ctx: Context & { session: NonNullable<Context[`sess
       .returning()
     // #EXP-1730: an app comes with its agent.
     app!.agentId = await createAppAgentInTx(tx, app!, userId)
+    if (automations.length > 0) await importAutomationsInTx(tx, app!, automations)
     const { number } = await writeVersionInTx(tx, app!, file.package, { note, sessionId: null, createdBy: userId, byOwner: false })
     // eApps V1: an imported app file is a finished app: v1 is published at once.
     await publishVersionInTx(tx, app!, { number, byOwner: false, userId })

@@ -761,10 +761,23 @@ export const startPromptSchema = z
 //             IANA `tz` (default UTC);
 //   event:    the NAME of an `events` row (free text; the server builtins
 //             are `builtinEventNames`).
+// #EXP-1829 (ONE trigger system): an APP's agent also takes
+//   record:   a write of the app's own records (`record` = its kind, `op`);
+//   webhook:  a signed delivery to `/api/apps/hooks/<appId>/<name>`;
+// (`agentAppTriggerKindValues`, only on an agent an app owns). What a firing
+// DOES: by default it WAKES the agent (the `trigger_fired` card; `prompt`,
+// when set, is the card's text with the trigger's `${record.…}`,
+// `${event.…}`, `${firedAt}` filled); with `run` (an app's agent only: an
+// @exp/emcp `exposes` run) it runs that ONE binding on the server instead,
+// no session, as the agent's owner (@exp/emcp automations.json). An update
+// that leaves `prompt`/`run` out of a kept trigger (same id) keeps the
+// stored value; `null` clears it (an older client never erases them).
 // Writes are STRICT (agentTriggerSchema); readers stay tolerant (an unknown
 // trigger never fires).
 
-export const agentTriggerKindValues = [`schedule`, `event`] as const
+export const agentTriggerKindValues = [`schedule`, `event`, `record`, `webhook`] as const
+/** #EXP-1829: the kinds only an app's agent may hold. */
+export const agentAppTriggerKindValues = [`record`, `webhook`] as const
 export type AgentTriggerKind = (typeof agentTriggerKindValues)[number]
 
 /** The server-emitted event names (contract `events.builtinNames`). */
@@ -841,41 +854,94 @@ export interface EventTriggerWhen {
   name: string
 }
 
-export type TriggerWhen = ScheduleTriggerWhen | EventTriggerWhen
+/** #EXP-1829: a write of the app's own records (an app's agent only). */
+export interface RecordTriggerWhen {
+  kind: `record`
+  /** The record kind the app's manifest declares. */
+  record: string
+  op: `create` | `update` | `delete`
+}
 
-export const MAX_AGENT_TRIGGERS = 10
+/** #EXP-1829: a signed delivery to the app's hook `name` (an app's agent only). */
+export interface WebhookTriggerWhen {
+  kind: `webhook`
+  name: string
+}
 
-export type AgentTrigger = { id: string; enabled: boolean } & TriggerWhen
+export type TriggerWhen = ScheduleTriggerWhen | EventTriggerWhen | RecordTriggerWhen | WebhookTriggerWhen
+
+export const MAX_AGENT_TRIGGERS = 16
+export const AGENT_TRIGGER_PROMPT_MAX = 4000
+
+/** #EXP-1829: what a firing does beside its when-part: `prompt` = the wake
+ *  card's text; `run` = one app binding instead of a wake. */
+export interface AgentTriggerDo {
+  prompt?: string
+  run?: Record<string, unknown>
+}
+
+export type AgentTrigger = { id: string; enabled: boolean } & AgentTriggerDo & TriggerWhen
+
+const triggerDoShape = {
+  id: z.string().uuid().optional(),
+  enabled: z.boolean().default(true),
+  // #EXP-1829: absent on a kept trigger = keep the stored value, null = clear.
+  prompt: z.string().trim().min(1).max(AGENT_TRIGGER_PROMPT_MAX).nullable().optional(),
+  run: z.record(z.string(), z.unknown()).nullable().optional(),
+}
+const hookNameSchema = z.string().regex(/^[a-z][a-z0-9_]*$/, `lowercase letters, digits, _`).max(40)
 
 export const agentTriggerSchema = z.discriminatedUnion(`kind`, [
   z.strictObject({
-    id: z.string().uuid().optional(),
-    enabled: z.boolean().default(true),
+    ...triggerDoShape,
     kind: z.literal(`schedule`),
     cron: cronSchema,
     tz: timeZoneSchema.optional(),
   }),
   z.strictObject({
-    id: z.string().uuid().optional(),
-    enabled: z.boolean().default(true),
+    ...triggerDoShape,
     kind: z.literal(`event`),
     name: eventNameSchema,
+  }),
+  z.strictObject({
+    ...triggerDoShape,
+    kind: z.literal(`record`),
+    record: z.string().min(1).max(64),
+    op: z.enum([`create`, `update`, `delete`]),
+  }),
+  z.strictObject({
+    ...triggerDoShape,
+    kind: z.literal(`webhook`),
+    name: hookNameSchema,
   }),
 ])
 export const agentTriggersSchema = z.array(agentTriggerSchema).max(MAX_AGENT_TRIGGERS)
 
-/** The when-part of a stored trigger (no id, no enabled). */
+/** The when-part of a stored trigger (no id, no enabled, no prompt/run). */
 export function triggerWhenPart(trigger: AgentTrigger): TriggerWhen {
   if (trigger.kind === `schedule`) {
     return { kind: `schedule`, cron: trigger.cron, ...(trigger.tz ? { tz: trigger.tz } : {}) }
   }
+  if (trigger.kind === `record`) return { kind: `record`, record: trigger.record, op: trigger.op }
+  if (trigger.kind === `webhook`) return { kind: `webhook`, name: trigger.name }
   return { kind: `event`, name: trigger.name }
 }
 
 /** NEW-2: the server's per-trigger bookkeeping on `agents.trigger_state`
  *  (SERVER-ONLY): `checkedAt` = the last tick that evaluated the schedule,
- *  `firedAt` = its last firing. */
-export type AgentTriggerState = Record<string, { checkedAt?: string; firedAt?: string }>
+ *  `firedAt` = its last firing, `paused` (#EXP-1829) = why a run trigger
+ *  does not run. */
+export type AgentTriggerState = Record<
+  string,
+  {
+    checkedAt?: string
+    firedAt?: string
+    /** #EXP-1829: a `run` trigger whose owner cannot run it (automations.json
+     *  `sponsorStates`), since `pausedAt`; the app's owners are told once. */
+    paused?: string | null
+    pausedAt?: string | null
+  }
+>
 
 /** #EXP-1730 (one-tree model): an agent's runner defaults, the picks every
  *  run of it starts with. Phase A keeps them in step with the legacy

@@ -4676,7 +4676,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_agents_create`,
     {
-      description: `Create a team agent (owners only). deviceId = a device you may start on (exponential_devices list). instructions = its markdown prompt. skillIds / mcpServerIds = skills / team MCP servers every run starts with. triggers = [{kind: "schedule", cron: 5-field, tz?: IANA} | {kind: "event", name}], enabled: false switches one off; none = it only waits for messages. cli, account, model = what it runs on (default: the device's). Returns the agent.`,
+      description: `Create a team agent (owners only). deviceId = a device you may start on (exponential_devices list). instructions = its markdown prompt. skillIds / mcpServerIds = skills / team MCP servers every run starts with. triggers = [{kind: "schedule", cron: 5-field, tz?: IANA} | {kind: "event", name}] (+ prompt?: the wake's text), enabled: false switches one off; none = it only waits for messages. An app's agent also takes record/webhook kinds and run (apps catalog, section automations). cli, account, model = what it runs on (default: the device's). Returns the agent.`,
       inputSchema: strictInput({
         teamId: uuidString,
         name: agentFacetsSchema.shape.name,
@@ -4703,7 +4703,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_agents_update`,
     {
-      description: `Update an agent by UUID (owners only; your own Assistant is yours, its prompt fixed). Pass only what changes. triggers REPLACES the whole list: keep each kept trigger's id from get, or its firing history resets; enabled: false switches one off. A new deviceId moves its conversations there. Returns the agent.`,
+      description: `Update an agent by UUID (owners only; your own Assistant is yours, its prompt fixed). Pass only what changes. triggers REPLACES the whole list: keep each kept trigger's id from get, or its firing history resets (a kept one keeps prompt/run unless named); enabled: false switches one off. An app's automations are its agent's triggers (apps catalog, section automations). A new deviceId moves its conversations there. Returns the agent.`,
       inputSchema: strictInput({
         id: uuidString,
         name: agentFacetsSchema.shape.name.optional(),

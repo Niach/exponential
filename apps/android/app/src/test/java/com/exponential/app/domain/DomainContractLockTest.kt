@@ -206,14 +206,14 @@ class DomainContractLockTest {
      */
     @Test
     fun agentTriggerAndEventContractMatchesTheClient() {
-        assertEquals(listOf("schedule", "event"), DomainContract.agentTriggerKindValues)
+        assertEquals(listOf("schedule", "event", "record", "webhook"), DomainContract.agentTriggerKindValues)
         assertEquals(
             listOf("issue.created", "issue.status_changed", "issue.assigned", "issue.deleted", "issue.restored", "issue.purged", "pr.opened", "pr.merged", "session.ended"),
             DomainContract.eventBuiltinNames,
         )
         assertEquals(DomainContract.eventBuiltinNames.toSet(), AgentSettings.Copy.EVENTS.keys)
         assertEquals(listOf("session", "user", "server"), DomainContract.eventEmitterValues)
-        assertEquals(10, DomainContract.agentTriggerMaxPerAgent)
+        assertEquals(16, DomainContract.agentTriggerMaxPerAgent)
         assertEquals(64, DomainContract.agentTriggerCronMax)
         assertEquals(64, DomainContract.agentTriggerTzMax)
         assertEquals(24, DomainContract.agentTriggerCatchUpHours)
