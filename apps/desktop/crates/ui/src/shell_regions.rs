@@ -450,6 +450,18 @@ impl SidebarRegion {
         self.push(cx);
     }
 
+    /// #EXP-1832: the document's view (the pictures drag its rows) and a
+    /// folder's name in place.
+    #[cfg(test)]
+    pub(crate) fn surface(&self) -> Entity<SurfaceView> {
+        self.view.clone()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn show_editing(&mut self, id: Option<&str>, cx: &mut gpui::Context<Self>) {
+        self.edit_folder(id.map(str::to_string), cx);
+    }
+
     fn push(&mut self, cx: &mut gpui::Context<Self>) {
         let assistant = self.assistant.as_ref().map(|(id, name)| (id.as_str(), name.as_str()));
         self.input.editing_folder = self.editing.borrow().clone();
@@ -498,7 +510,8 @@ impl SidebarRegion {
         let section = ["boards", "agents", "apps"].into_iter().zip(["board", "agent", "app"]).find(|(rows, _)| value[*rows]["rows"].as_array().into_iter().flatten().any(|row| row["id"] == id.as_str() && row["editing"] == true));
         let Some((_, section)) = section else { return };
         self.focus_pending = false;
-        let field = format!("ide_{section}_folder_name.{id}");
+        // The Input's text field is its `field` part.
+        let field = format!("ide_{section}_folder_name.{id}.field");
         let (view, handle) = (self.view.clone(), self.window);
         // Outside this update (the rail may be mid-render): the field exists
         // once the next frame has drawn the row.
@@ -553,9 +566,18 @@ impl SidebarRegion {
 }
 
 impl Render for SidebarRegion {
-    fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "SidebarRegion").entered();
-        uicore_gpui::inline::region(&self.view)
+        // #EXP-1832: Esc in a folder's name Input keeps the name it had.
+        div()
+            .size_full()
+            .on_key_down(cx.listener(|region, event: &gpui::KeyDownEvent, _, cx| {
+                if event.keystroke.key == "escape" && region.editing.borrow().is_some() {
+                    region.edit_folder(None, cx);
+                    cx.stop_propagation();
+                }
+            }))
+            .child(uicore_gpui::inline::region(&self.view))
     }
 }
 
@@ -757,10 +779,15 @@ impl HostPlugin for RegionHost {
                             rename_folder(id, sidebar_folder_name(value.as_deref().unwrap_or_default()), cx);
                             let _ = region.update(cx, |region, cx| region.edit_folder(None, cx));
                         }
-                        "cancel" => {
-                            if editing.borrow().as_deref() == Some(id.as_str()) {
-                                let _ = region.update(cx, |region, cx| region.edit_folder(None, cx));
+                        // Leaving the Input saves what it holds (web's blur).
+                        "leave" => {
+                            if editing.borrow().as_deref() != Some(id.as_str()) {
+                                return;
                             }
+                            let field = format!("ide_{}_folder_name.{id}.field", section.as_str());
+                            let Some(value) = region.read_with(cx, |region, cx| region.view.read(cx).field_text(&field, cx)).ok().flatten() else { return };
+                            rename_folder(id, sidebar_folder_name(&value), cx);
+                            let _ = region.update(cx, |region, cx| region.edit_folder(None, cx));
                         }
                         "ungroup" => {
                             let Some(items) = region.read_with(cx, |region, _| section_items(&region.input, section)).ok() else { return };

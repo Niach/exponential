@@ -517,3 +517,131 @@ fn shell_tab_placement() {
     std::mem::forget(cx);
     std::mem::forget(root);
 }
+
+/// #EXP-1832: the sidebar folders of the seeded demo (seed-screenshots.ts:
+/// board folder Product, app folder Ops tools), pictured at rest, folded,
+/// mid-drag (the line = reorder, the highlighted row = drop into) and with a
+/// fresh folder's name in place. The drags go through the real List drag core.
+#[test]
+#[ignore]
+fn shell_sidebar_folders() {
+    use gpui::{KeyDownEvent, Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PlatformInput};
+    let Some(dir) = std::env::var_os("EXP_SHELL_SHOTS") else { return };
+    let dir = PathBuf::from(dir);
+    let mut cx = headless();
+    cx.update(seeded);
+    let handle = open(&mut cx, size(px(SIDEBAR.0), px(SIDEBAR.1)));
+    let window: gpui::AnyWindowHandle = handle.into();
+    let region = cx.update(|cx| handle.entity(cx).expect("the rail").read(cx).region());
+    let surface = cx.update(|cx| region.read(cx).surface());
+    cx.update(|cx| surface.update(cx, |v, _| v.record_bounds(true)));
+    let settle = |cx: &mut HeadlessAppContext| {
+        for _ in 0..3 {
+            draw(window, cx);
+            cx.run_until_parked();
+        }
+    };
+    let shoot = |cx: &mut HeadlessAppContext, name: &str| {
+        let shot = cx.capture_screenshot(window).expect("the frame");
+        shot.save(dir.join(name)).expect("the PNG");
+    };
+    let show = |cx: &mut HeadlessAppContext, input: IdeSidebarInput| {
+        cx.update(|cx| region.update(cx, |region, cx| region.show(input, None, cx)));
+        settle(cx);
+    };
+    let bounds = |cx: &mut HeadlessAppContext, id: &str| cx.update(|cx| surface.read(cx).painted_bounds(id)).unwrap_or_else(|| panic!("{id} painted"));
+    let input = |cx: &mut HeadlessAppContext, event: PlatformInput| {
+        cx.update_window(window, |_, window, cx| {
+            window.dispatch_event(event, cx);
+        })
+        .expect("the window");
+        settle(cx);
+    };
+    let press = |cx: &mut HeadlessAppContext, at: gpui::Point<gpui::Pixels>| input(cx, PlatformInput::MouseDown(MouseDownEvent { button: MouseButton::Left, position: at, modifiers: Modifiers::default(), click_count: 1, first_mouse: false }));
+    let move_to = |cx: &mut HeadlessAppContext, at: gpui::Point<gpui::Pixels>| input(cx, PlatformInput::MouseMove(MouseMoveEvent { position: at, pressed_button: Some(MouseButton::Left), modifiers: Modifiers::default() }));
+
+    show(&mut cx, demo(Vec::new(), None));
+    shoot(&mut cx, "folders-rest.png");
+    show(&mut cx, demo(vec!["fa".into()], None));
+    shoot(&mut cx, "folders-folded.png");
+
+    // CRM lifted to Release checklist's top edge: a line, before it.
+    show(&mut cx, demo(Vec::new(), None));
+    let (from, to) = (bounds(&mut cx, "ide_app_row.x4"), bounds(&mut cx, "ide_app_row.x3"));
+    // Held by its bottom edge: the lifted copy rides above the pointer.
+    let grab = gpui::point(from.center().x, from.origin.y + from.size.height - px(2.));
+    press(&mut cx, grab);
+    move_to(&mut cx, gpui::point(grab.x, grab.y - px(6.)));
+    move_to(&mut cx, gpui::point(to.center().x, to.origin.y + px(3.)));
+    shoot(&mut cx, "folders-drag-line.png");
+    cx.update(|cx| surface.update(cx, |v, cx| v.list_drag_cancel(cx)));
+    settle(&mut cx);
+
+    // Leave planner held over Ops desk's middle: the row lights, drop INTO.
+    let (from, to) = (bounds(&mut cx, "ide_app_row.x5"), bounds(&mut cx, "ide_app_row.x6"));
+    let grab = gpui::point(from.center().x, from.origin.y + from.size.height - px(2.));
+    press(&mut cx, grab);
+    move_to(&mut cx, gpui::point(grab.x, grab.y + px(6.)));
+    move_to(&mut cx, gpui::point(to.center().x, to.origin.y + to.size.height * 0.3));
+    shoot(&mut cx, "folders-drag-into.png");
+    cx.update(|cx| surface.update(cx, |v, cx| v.list_drag_cancel(cx)));
+    settle(&mut cx);
+
+    // A folder's right-click menu: Rename puts its name in place, Esc keeps it.
+    let folder = bounds(&mut cx, "ide_app_folder_row.fa");
+    input(&mut cx, PlatformInput::MouseDown(MouseDownEvent { button: MouseButton::Right, position: folder.center(), modifiers: Modifiers::default(), click_count: 1, first_mouse: false }));
+    input(&mut cx, PlatformInput::MouseUp(MouseUpEvent { button: MouseButton::Right, position: folder.center(), modifiers: Modifiers::default(), click_count: 1 }));
+    assert!(cx.update(|cx| surface.read(cx).layers().iter().any(|l| l.owner == "ide_app_folder_menu.fa")), "the folder menu opened");
+    let rename = bounds(&mut cx, "ide_app_folder_menu.fa.item.0").center();
+    press(&mut cx, rename);
+    input(&mut cx, PlatformInput::MouseUp(MouseUpEvent { button: MouseButton::Left, position: rename, modifiers: Modifiers::default(), click_count: 1 }));
+    let name = "ide_app_folder_name.fa.field";
+    assert_eq!(cx.update(|cx| surface.read(cx).field_text(name, cx)).as_deref(), Some("Ops tools"), "Rename edits the name in place");
+    cx.update_window(window, |_, window, cx| {
+        assert!(surface.update(cx, |v, cx| v.focus_field(name, window, cx)));
+    })
+    .expect("the window");
+    settle(&mut cx);
+    input(&mut cx, PlatformInput::KeyDown(KeyDownEvent { keystroke: gpui::Keystroke::parse("escape").unwrap(), is_held: false, prefer_character_input: false }));
+    assert_eq!(cx.update(|cx| surface.read(cx).field_text(name, cx)), None, "Esc ends the edit");
+
+    // That drop: both rows in a new folder, its name an Input in place.
+    let mut after = demo(Vec::new(), None);
+    after.layout.app.extend([entry("fn", "folder", None, None, None, 3.), entry("e9", "item", Some("x6"), Some("fn"), None, 1.), entry("e10", "item", Some("x5"), Some("fn"), None, 2.)]);
+    show(&mut cx, after);
+    cx.update(|cx| region.update(cx, |region, cx| region.show_editing(Some("fn"), cx)));
+    settle(&mut cx);
+    // The region focuses it on the next frame, which a headless window never
+    // requests: focus the same field by hand.
+    cx.update_window(window, |_, window, cx| {
+        assert!(surface.update(cx, |v, cx| v.focus_field("ide_app_folder_name.fn.field", window, cx)), "the name Input");
+    })
+    .expect("the window");
+    settle(&mut cx);
+    assert_eq!(cx.update(|cx| surface.read(cx).field_text("ide_app_folder_name.fn.field", cx)).as_deref(), Some("New folder"));
+    shoot(&mut cx, "folders-rename.png");
+    std::mem::forget(cx);
+}
+
+/// The seeded demo's rows (seed-screenshots.ts), Mobile App open.
+fn demo(closed: Vec<String>, editing: Option<&str>) -> IdeSidebarInput {
+    let agent = |id: &str, name: &str| IdeAgentInput { id: id.into(), name: name.into(), icon: "settings-agents".into(), needs_you: false, unread: 0 };
+    let board = |id: &str, name: &str| IdeBoardInput { id: id.into(), name: name.into(), icon: format!("ide:board:{id}") };
+    let app = |id: &str, name: &str| IdeAppInput { id: id.into(), slug: id.into(), name: name.into(), icon: "ui-file".into() };
+    IdeSidebarInput {
+        screen: "board:b1".into(),
+        chats: IdeCount { count: 0, tone: IdeTone::Muted },
+        owner: true,
+        agents: vec![agent("a1", "Triage"), agent("a2", "Release"), agent("a3", "Designer")],
+        apps: vec![app("x1", "Working hours"), app("x2", "Team dashboard"), app("x3", "Release checklist"), app("x4", "CRM"), app("x5", "Leave planner"), app("x6", "Ops desk")],
+        boards: vec![board("b1", "Mobile App"), board("b2", "Launch Marketing"), board("b3", "Product Feedback")],
+        layout: IdeLayout {
+            board: vec![entry("e1", "item", Some("b1"), None, None, 1.), entry("fb", "folder", None, None, Some("Product"), 2.), entry("e2", "item", Some("b2"), Some("fb"), None, 1.), entry("e3", "item", Some("b3"), Some("fb"), None, 2.)],
+            agent: Vec::new(),
+            app: vec![entry("fa", "folder", None, None, Some("Ops tools"), 1.), entry("e4", "item", Some("x2"), Some("fa"), None, 1.), entry("e5", "item", Some("x1"), Some("fa"), None, 2.)],
+        },
+        closed,
+        editing_folder: editing.map(Into::into),
+        ..Default::default()
+    }
+}

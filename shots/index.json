@@ -1067,8 +1067,8 @@
         "file": "shots/board/desktop.webp",
         "width": 1800,
         "height": 1125,
-        "bytes": 74488,
-        "sha256": "e0c3d9e44d53d5e3e712ca9a997bdfe440f215c105af2a046e164609016d725b"
+        "bytes": 75822,
+        "sha256": "b304c1d350dd8675604171ed713134a0bf68c9123c132af22ba00619fab56ebb"
       },
       "ios": {
         "file": "shots/board/ios.webp",
