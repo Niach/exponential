@@ -8,6 +8,7 @@ import {
   coordinatorOf,
   coordinatorOptions,
   leadOptions,
+  assistantFabVisible,
   assistantModelValue,
   agentAccountValue,
   ASSISTANT_SCHEDULES,
@@ -77,6 +78,11 @@ describe(`agent-settings.json assistant`, () => {
   for (const c of fixture.assistant.visibleCases) {
     it(`visibleCases: ${c.name}`, () => {
       expect(visibleAgent(c.agent as AgentRoleLike, c.me)).toBe(c.expected)
+    })
+  }
+  for (const c of fixture.assistant.fab.showCases) {
+    it(`fab showCases: ${c.name}`, () => {
+      expect(assistantFabVisible(c)).toBe(c.expected)
     })
   }
   for (const c of fixture.assistant.teamAgentsCases) {

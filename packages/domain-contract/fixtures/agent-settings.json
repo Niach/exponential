@@ -791,6 +791,57 @@
         "pr_opened",
         "session_claimed"
       ]
+    },
+    "fab": {
+      "$comment": "#EXP-1837 (owner 2026-11-14, part of #EXP-1833): THE ASSISTANT FAB on the IDE (desktop) and wide web; phones are unchanged (their Assistant stays the first row in Chats). There the viewer's Assistant leaves the sidebar: no row in the Agents group (chats.json `sidebarAgentCases`) and no bottom-left corner entry (#EXP-1741). Instead a FAB sits bottom-right of the content card (`inset` px in): THE 52px glass circle (genUI Button variant `fab`, the phones' tab-bar FAB), glyph = the Assistant mark (the Exponential brand mark), badge = THE CountBadge `rowBadge` of the viewer's conversation with their Assistant (nav-badges.json: yellow while it needs you, grey for unread), what its sidebar row carried. A press opens a `widget.width`×`widget.height` popover anchored to the FAB (side top, align end) holding the REAL Assistant chat (its root's transcript + THE composer, the Chat tab's body, at its compact width; no tabs). The widget header: ⇱ maximize (icon `ui-maximize`, ghost icon button, `copy.maximize`) leading, then the mark + the Assistant's name, and — minimize (icon `ui-minimize`, ghost icon button, `copy.minimize`) trailing. Maximize navigates to the Assistant's chat page (web /t/$teamSlug/agents/$agentId, desktop Screen::Agent) and closes the widget; minimize closes it and the FAB stays; Esc and an outside click close it too. The FAB (and the widget) is HIDDEN on the Assistant's own chat page and while the viewer has no Assistant yet. Toasts lift above the FAB: the bottom-right toast stack's bottom offset grows by `toastLift` while the FAB shows. `showCases` replay `assistantFabVisible({wide, assistantId, activeAgentId})` (web and desktop).",
+      "copy": {
+        "label": "Assistant",
+        "maximize": "Open full chat",
+        "minimize": "Minimize"
+      },
+      "widget": {
+        "width": 440,
+        "height": 560
+      },
+      "inset": 16,
+      "toastLift": 76,
+      "showCases": [
+        {
+          "name": "wide, elsewhere",
+          "wide": true,
+          "assistantId": "a-me",
+          "activeAgentId": null,
+          "expected": true
+        },
+        {
+          "name": "wide, on another agent's page",
+          "wide": true,
+          "assistantId": "a-me",
+          "activeAgentId": "a-triage",
+          "expected": true
+        },
+        {
+          "name": "wide, on the Assistant's own page",
+          "wide": true,
+          "assistantId": "a-me",
+          "activeAgentId": "a-me",
+          "expected": false
+        },
+        {
+          "name": "wide, no Assistant yet",
+          "wide": true,
+          "assistantId": null,
+          "activeAgentId": null,
+          "expected": false
+        },
+        {
+          "name": "phones keep it in Chats",
+          "wide": false,
+          "assistantId": "a-me",
+          "activeAgentId": null,
+          "expected": false
+        }
+      ]
     }
   },
   "coordinator": {
