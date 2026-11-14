@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-14-phones-widgets-release`,
+    date: `2026-11-14`,
+    title: `Widgets and agent shortcuts on your phone`,
+    summary: `Android 0.14.138 and iOS 0.14.128 bring the home screen widgets, agent chat shortcuts that open their chat from a cold start, and Everyone else access for apps.`,
+    body: `- **Home screen widgets**: Board, My issues and Needs you; a tap opens the issue or chat.
+- **Agent chat shortcuts**: long-press the app icon for your Assistant; a pinned shortcut opens that chat whether the app was closed or open.
+- **App access**: owners set an app's Everyone else access in Settings › MCP › Access on phones too.`,
+  },
+  {
     id: `2026-11-14-phone-widgets-agent-shortcuts`,
     date: `2026-11-14`,
     title: `Home screen widgets and agent chat shortcuts`,
