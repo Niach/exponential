@@ -35,6 +35,18 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Webhooks** moved from the app's settings to the Events tab; the Automations group in settings is gone.`,
   },
   {
+    id: `2026-11-14-desktop-chat-shell-folders`,
+    date: `2026-11-14`,
+    title: `Folders, one chat menu and a floating Assistant on the desktop`,
+    summary: `Desktop and CLI 0.14.161 and eDE 0.2.25: sidebar folders you can drag, one chat shell with a single … menu, the floating Assistant, one settings page for every agent, and [Image #N] in chat composers.`,
+    body: `- **Sidebar folders**: group boards, agents and apps into folders and drag them into the order you want; the order follows you to every device.
+- **One chat shell**: every chat has one … menu, no gear, and your own messages show your avatar on the right.
+- **Floating Assistant**: a round button in the bottom-right corner opens your Assistant's chat over the page.
+- **One agent settings page**: your Assistant and your team agents share one settings page, with a Model, a Check in and triggers for every agent; an app's automations are now its agent's triggers.
+- **Images in the composer**: an image you attach shows up as [Image #1] right where you are typing.
+- **My issues tabs**: a board's My issues lists only your issues on that board.`,
+  },
+  {
     id: `2026-11-14-android-memory-stopgap`,
     date: `2026-11-14`,
     title: `Android stays open in long sessions`,
