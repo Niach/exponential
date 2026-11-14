@@ -2573,8 +2573,8 @@
         "file": "shots/exponential-ui-button/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 20942,
-        "sha256": "d1829e79c55c5f0a47ff89a09cbc21d8e64f27f86d6d8c1f1a5f350fd739e67b"
+        "bytes": 26004,
+        "sha256": "ec6fb2fcda38b61a1a6854a0b2cbdae7681b16d7a129f84f145cca0a5fae7c25"
       },
       "web": {
         "file": "shots/exponential-ui-button/web.webp",
