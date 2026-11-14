@@ -56,9 +56,14 @@ final class DeepLinkBus: @unchecked Sendable {
     // NEVER hand it back to UIApplication.open: the app is entitled for the
     // link and would re-open itself in a loop.
     var pendingExternalUrl: URL?
-    // #EXP-1638 (app-shortcuts.json): a long-press menu pick on the app
-    // icon, under the ACTIVE account (the menu follows it).
-    var pendingShortcut: AppShortcuts.Target?
+    // #EXP-1638 / #EXP-1830 (app-shortcuts.json OPENING): a long-press menu
+    // pick on the app icon, a home widget tap or an App Intent, under the
+    // ACTIVE account (the menu and the widgets follow it). The navigator
+    // drops back to the Agent tab root, then pushes it.
+    var pendingLaunch: LaunchTarget?
+    // #EXP-1830: the Board tab opens on its My issues chip (a My issues
+    // widget's header); cleared by `IssuesHomeView`.
+    var pendingMyIssues = false
     // #EXP-1638: the Agent tab's composer takes focus once it is up (the
     // `new-chat` shortcut); cleared by `AgentPageView`.
     var pendingComposerFocus = false
@@ -133,13 +138,13 @@ final class DeepLinkBus: @unchecked Sendable {
         return id
     }
 
-    func navigateToShortcut(_ target: AppShortcuts.Target) {
-        pendingShortcut = target
+    func navigateToLaunch(_ target: LaunchTarget) {
+        pendingLaunch = target
     }
 
-    func consumeShortcut() -> AppShortcuts.Target? {
-        let target = pendingShortcut
-        pendingShortcut = nil
+    func consumeLaunch() -> LaunchTarget? {
+        let target = pendingLaunch
+        pendingLaunch = nil
         return target
     }
 
@@ -171,5 +176,49 @@ final class DeepLinkBus: @unchecked Sendable {
         pendingInboxUserId = nil
         pendingInboxTeamId = nil
         return result
+    }
+}
+
+/// #EXP-1830 (app-shortcuts.json OPENING, home-widgets.json TAPS): what a
+/// launcher surface opens: an app shortcut, a widget's header or row, an
+/// App Intent. Every one lands with THE back stack rule (the Agent tab root
+/// under it), cold or warm.
+enum LaunchTarget: Equatable {
+    case shortcut(AppShortcuts.Target)
+    /// THE start screen (a signed-out widget).
+    case home
+    case issue(String)
+    case board(String)
+    /// The Board tab's My issues.
+    case myIssues
+    /// THE Needs you page.
+    case needsYou
+    /// A needs-you row: its root opened by `opens` (needs-you.json) on
+    /// `messageId`.
+    case needsYouRow(rootId: String, messageId: String, opens: NeedsYou.Opens)
+
+    /// The widgets' `exponential://` links (`HomeWidgets.Links`); nil =
+    /// not a launcher link.
+    init?(url: URL) {
+        guard url.scheme == HomeWidgets.Links.scheme, let host = url.host else { return nil }
+        let first: String? = url.pathComponents.dropFirst().first
+        let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        func item(_ name: String) -> String? { query.first { $0.name == name }?.value }
+        switch host {
+        case "home": self = .home
+        case "my-issues": self = .myIssues
+        case "needs-you": self = .needsYou
+        case "board":
+            guard let first, !first.isEmpty else { return nil }
+            self = .board(first)
+        case "issue":
+            guard let first, !first.isEmpty else { return nil }
+            self = .issue(first)
+        case "session":
+            guard let first, !first.isEmpty, let opens = item("opens").flatMap(NeedsYou.Opens.init(rawValue:)),
+                  let messageId = item("message") else { return nil }
+            self = .needsYouRow(rootId: first, messageId: messageId, opens: opens)
+        default: return nil
+        }
     }
 }
