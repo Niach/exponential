@@ -65,7 +65,7 @@ import { cn } from "./cn"
 import { ListRow } from "./glass-rows"
 import { Menu, type MenuEntry, type MenuIcon, type MenuTargetProps } from "./menu"
 import { SessionRow, SessionRowDevice } from "./session-row"
-import type { UserAvatarAgent, UserAvatarUser } from "./user-avatar"
+import { UserAvatar, type UserAvatarAgent, type UserAvatarUser } from "./user-avatar"
 import { treeGuides } from "./tree-guides"
 import { conceptIcon } from "./icons.generated"
 import {
@@ -305,6 +305,9 @@ export interface ChatConversationProps {
   arrived?: (rowId: string) => boolean
   /** The viewer: their OWN queued rows carry the Remove from queue X. */
   viewerId?: string | null
+  /** #FEED-239: the viewer's own avatar (their image, else their initials
+   *  in their hue) right of their own bubbles; absent = `member(viewerId)`. */
+  viewer?: UserAvatarUser | null
   /** EXP-1317: revoke a queued row (#FEED-237: the bubble menu's Cancel
    *  sending; absent = no menu). */
   onUnqueue?: (rowId: string) => void
@@ -428,6 +431,7 @@ export function ChatConversation(props: ChatConversationProps) {
     pending,
     docked,
     viewerId,
+    viewer,
     onUnqueue,
     deliveryOf,
     suggestions,
@@ -489,12 +493,19 @@ export function ChatConversation(props: ChatConversationProps) {
     if (body === null) return null
     const layout = layouts.get(row.id)
     const sender = layout?.sender ?? null
+    // #FEED-239: the viewer's own group wears THEIR avatar on the right.
+    const own =
+      layout?.side === `own` && viewerId
+        ? (latest.current.viewer ?? latest.current.member?.(viewerId) ?? null)
+        : null
     const avatar = sender ? (
       <SenderAvatar
         sender={sender}
         user={sender.kind === `member` ? (latest.current.member?.(sender.id) ?? null) : null}
         agent={sender.kind === `agent` ? (latest.current.xrefAgent?.(sender.id) ?? null) : null}
       />
+    ) : own ? (
+      <UserAvatar user={own} size={32} />
     ) : null
     return (
       <TranscriptRow key={row.id} layout={layout} avatar={avatar}>
@@ -798,6 +809,7 @@ export function ChatConversation(props: ChatConversationProps) {
             !onOpenXref,
             row.type === `message` || row.type === `report` ? xrefAgent : null,
             member ?? null,
+            viewer ?? null,
             !onSurfaceReply,
             renderText,
             attachmentSrc,

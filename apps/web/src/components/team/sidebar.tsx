@@ -63,6 +63,7 @@ import { SettingsSidebar } from "@/components/team/settings-sidebar"
 import { SidebarPinned } from "@/components/team/sidebar-pinned"
 import { SidebarRunningSection, type SidebarChats } from "@/components/team/sidebar-running"
 import { SidebarAgentsSection, useAgentBadges } from "@/components/team/sidebar-agents"
+import { sidebarAgents } from "@exp/domain-contract/chats"
 import { mainPanelEdge } from "@/components/team/app-shell"
 import { NavCountBadge, UserAvatar, UserMenuItems } from "@/components/team/sidebar-shared"
 import { useOpenNewDraft } from "@/hooks/use-open-new-draft"
@@ -203,6 +204,12 @@ export function TeamSidebar({
     select: (s) => /^\/t\/[^/]+\/(?:apps|app-editor)\/([^/]+)/.exec(s.location.pathname)?.[1] ?? null,
   })
   const { apps } = useApps(team?.id)
+  // #FEED-239 (chats.json `sidebarAgentCases`): an app's agent is listed
+  // under Apps only.
+  const sidebarAgentRows = useMemo(
+    () => sidebarAgents(agents, apps.map((app) => ({ agentId: app.row?.agentId ?? null }))),
+    [agents, apps]
+  )
   const occupant = useSidebarOccupant()
   const inSettings = occupant.kind === `settings`
 
@@ -463,7 +470,7 @@ export function TeamSidebar({
                         like them. */}
                     <SidebarAgentsSection
                       teamSlug={teamSlug}
-                      agents={agents}
+                      agents={sidebarAgentRows}
                       isOwner={isOwner}
                       activeAgentId={activeAgentId}
                       badges={agentBadges}

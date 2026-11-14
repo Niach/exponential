@@ -2847,7 +2847,7 @@
           "description": "URL a press opens; implies `pressable`."
         }
       },
-      "description": "Chat bubble, in (left, after an avatar) or out (right).",
+      "description": "Chat bubble, in (left, after an avatar) or out (right, before one).",
       "example": {
         "text": "Is the printer fixed?",
         "side": "out",

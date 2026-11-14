@@ -1,6 +1,6 @@
-import { useCallback, useMemo, useState, type ReactNode } from "react"
+import { useCallback, useMemo, useRef, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
-import { conceptIcon, Menu, ChatTabsAddButton, type MenuEntry } from "@exp/ui"
+import { conceptIcon, type MenuEntry } from "@exp/ui"
 import { SESSION_SCREEN_COPY } from "@exp/domain-contract/session-screen"
 import { IssuePickerBody } from "@/components/issue-picker-host"
 import { useIssueRefs, type ResolvedIssueRef } from "@/components/issue-ref-provider"
@@ -11,11 +11,14 @@ import { trpc } from "@/lib/trpc-client"
 import { usePullRequestClose, usePullRequestTrainRows } from "@/components/session-merge-button"
 import { usePullRequestGuideEntries } from "@/hooks/use-pull-request-checks"
 import type { PullRequestRow, SessionRow } from "@/lib/session-tree"
-import { ChatHeaderMenu, useChatMenuEntries, type useChatActions } from "@/components/chat/chat-menu"
+import { SessionScreenMenuButton, useChatScreenMenuRows, type useChatActions } from "@/components/chat/chat-menu"
 
 // EXP-1284 / EXP-1293 / EXP-1334 / #EXP-1732: the issues' ONE menu (THE
 // Menu), behind the Issues tab's "+" and every issue row's context menu
 // — the desktop IDE's `chat_menu` rows ×4:
+//
+// #EXP-1834: no `+` over the Issues tab any more: the link rows are the
+// session screen `…`'s `linkIssue` submenu (`linkRows`), on every tab.
 //
 //   Link an issue ›    THE search list (the linked issues checked) →
 //                      `sessions.linkIssues` (the root; the server posts the
@@ -105,11 +108,12 @@ export function useChatTabMenu({
   canEdit: boolean
 }): {
   entries: (issue?: ChatTabMenuIssue, close?: () => void) => MenuEntry[]
-  /** The "+" with its menu (absent = read-only). */
-  addMenu: ReactNode
+  /** #EXP-1834: THE `…`'s `linkIssue` submenu rows (empty = read-only);
+   *  a pick closes the `…` through `closeRef`. */
+  linkRows: MenuEntry[]
+  closeRef: { current: () => void }
 } {
   const navigate = useNavigate()
-  const [addOpen, setAddOpen] = useState(false)
 
   const link = useCallback(
     async (issueId: string) => {
@@ -187,25 +191,14 @@ export function useChatTabMenu({
     return rows
   }
 
-  const addMenu = canEdit ? (
-    <Menu
-      open={addOpen}
-      onOpenChange={setAddOpen}
-      align="start"
-      aria-label={CHAT_TAB_MENU_COPY.add}
-      title={CHAT_TAB_MENU_COPY.add}
-      data-testid="chat-add-menu"
-      contentClassName="w-60"
-      entries={entries(undefined, () => setAddOpen(false))}
-      trigger={<ChatTabsAddButton />}
-    />
-  ) : null
+  const closeRef = useRef<() => void>(() => {})
+  const linkRows = entries(undefined, () => closeRef.current())
 
-  return { entries, addMenu }
+  return { entries, linkRows, closeRef }
 }
 
-/** Chat 58cb32df (chats.json MENUS): the chat header's `…` = the chat's
- *  own menu (Delete, the rows' right-click menu)
+/** #FEED-239 (session-screen.json): the chat header's `…` = THE session
+ *  screen menu of a chat (`sessionScreenMenu`: Delete)
  *  plus the Guide PR's rows (#EXP-1710 `mergeMenuEntries`): its Checks
  *  submenu (any viewer), Merge now (owners), Hold | Resume auto-merge and
  *  Close (members, a live PR). The delete
@@ -217,10 +210,15 @@ export function ChatScreenHeaderMenu({
   canClosePr,
   isOwner = false,
   actions,
+  linkIssue,
+  closeRef,
   className,
 }: {
   root: SessionRow
   title: string
+  /** #EXP-1834: THE link menu's rows (`useChatTabMenu().linkRows`). */
+  linkIssue?: readonly MenuEntry[]
+  closeRef?: { current: () => void }
   /** The Guide's PR (null = none). */
   pr: PullRequestRow | null
   canClosePr: boolean
@@ -229,7 +227,7 @@ export function ChatScreenHeaderMenu({
   actions: Pick<ReturnType<typeof useChatActions>, `requestDelete`>
   className?: string
 }) {
-  const chat = useChatMenuEntries(root, actions)
+  const chat = useChatScreenMenuRows(root, actions, linkIssue)
   const close = usePullRequestClose(pr ?? NO_PR, canClosePr && pr !== null)
   // #EXP-1710 (merge-train.json `menu`): the PR's Checks submenu (any
   // viewer), Merge now (owners), Hold | Resume auto-merge, Close.
@@ -245,7 +243,7 @@ export function ChatScreenHeaderMenu({
       : [...chat, ...prEntries]
   return (
     <>
-      <ChatHeaderMenu entries={entries} title={title} className={className} />
+      <SessionScreenMenuButton entries={entries} title={title} className={className} closeRef={closeRef} />
       {close.dialog}
       {train.dialog}
     </>

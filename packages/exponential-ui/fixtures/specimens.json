@@ -15907,12 +15907,54 @@
                 "id": "specimen_message_bubble_case_2_label",
                 "component": "Text",
                 "props": {
+                  "text": "side · out · avatar",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c2_bubble",
+                "component": "MessageBubble",
+                "props": {
+                  "text": "Ship it once the gate is green; the tag can wait for the morning.",
+                  "side": "out",
+                  "time": "18:05",
+                  "status": "read"
+                },
+                "style": {
+                  "width": 360
+                },
+                "slots": {
+                  "avatar": {
+                    "id": "c2_avatar",
+                    "component": "Avatar",
+                    "props": {
+                      "name": "Mia Berger",
+                      "seed": "user-mia"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_message_bubble_case_3",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_message_bubble_case_3_label",
+                "component": "Text",
+                "props": {
                   "text": "a conversation",
                   "variant": "caption"
                 }
               },
               {
-                "id": "c2_chat",
+                "id": "c3_chat",
                 "component": "Stack",
                 "props": {
                   "gap": "sm"
@@ -15922,7 +15964,7 @@
                 },
                 "children": [
                   {
-                    "id": "c2_m1",
+                    "id": "c3_m1",
                     "component": "MessageBubble",
                     "props": {
                       "text": "Is the printer fixed?",
@@ -15932,7 +15974,7 @@
                     }
                   },
                   {
-                    "id": "c2_m2",
+                    "id": "c3_m2",
                     "component": "MessageBubble",
                     "props": {
                       "text": "Yes, driver's updated. Try again.",
@@ -15940,7 +15982,7 @@
                     }
                   },
                   {
-                    "id": "c2_m3",
+                    "id": "c3_m3",
                     "component": "MessageBubble",
                     "props": {
                       "text": "Send me the photo from the Wiesn I put on the desktop.",
@@ -15950,7 +15992,7 @@
                     }
                   },
                   {
-                    "id": "c2_m4",
+                    "id": "c3_m4",
                     "component": "MessageBubble",
                     "props": {
                       "text": "On its way…",

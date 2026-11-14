@@ -157,10 +157,10 @@ async function recipeOpenAppPreviewTab(page: Page): Promise<void> {
 /** VAPP-121: the app editor's Export, Include records switched on.
  *  #EXP-1732: Export lives in the header's `…` menu on every width. */
 async function recipeOpenAppExport(page: Page): Promise<void> {
-  const menu = page.getByTestId(`app-editor-menu`)
+  const menu = page.getByTestId(`session-menu`)
   await menu.waitFor({ state: `visible`, timeout: 30_000 })
   await menu.click()
-  const item = page.getByTestId(`app-editor-menu-export`)
+  const item = page.getByTestId(`session-menu-export`)
   await item.waitFor({ state: `visible`, timeout: 15_000 })
   await item.click()
   const dialog = page.getByTestId(`app-export-dialog`)

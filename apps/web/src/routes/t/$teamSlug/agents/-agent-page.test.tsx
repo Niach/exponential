@@ -143,7 +143,12 @@ vi.mock(`@/components/session-composer`, () => ({
   ),
 }))
 vi.mock(`@/components/chat/chat-markdown`, () => ({ renderChatText: (text: string) => text }))
-vi.mock(`@/components/chat/chat-menu`, () => ({ AgentHeaderMenu: () => null }))
+// #FEED-239: THE session screen menu's Agent settings entry (no gear).
+vi.mock(`@/components/chat/chat-menu`, () => ({
+  AgentHeaderMenu: ({ onSettings }: { onSettings: () => void }) => (
+    <button type="button" data-testid="session-menu-settings" onClick={onSettings} />
+  ),
+}))
 vi.mock(`@/components/team/mobile-detail-header`, () => ({
   MobileDetailHeader: () => <div data-testid="mobile-header" />,
   HEADER_BUTTON_CLASS: ``,
@@ -195,7 +200,7 @@ describe(`the agent chat = THE session screen`, () => {
 })
 
 describe(`the agent chat with no conversation yet`, () => {
-  it(`md+: the frame's tabs + the gear, the opening composer inside the Dock, no floating capsule`, () => {
+  it(`md+: the frame's tabs + the menu (no gear), the opening composer inside the Dock, no floating capsule`, () => {
     render(<Page />)
     const tabs = screen.getByTestId(`session-tabs`)
     expect([...tabs.querySelectorAll(`[data-tab]`)].map((node) => node.getAttribute(`data-tab`))).toEqual([
@@ -204,7 +209,8 @@ describe(`the agent chat with no conversation yet`, () => {
       `sessions`,
       `results`,
     ])
-    expect(screen.getByTestId(`session-gear`).getAttribute(`aria-label`)).toBe(`Settings`)
+    expect(screen.queryByTestId(`session-gear`)).toBeNull()
+    expect(screen.getByTestId(`session-menu-settings`)).toBeTruthy()
     // The Chat tab alone = the chat full width (no beside split).
     expect(screen.queryByTestId(`session-beside`)).toBeNull()
     const dock = screen.getByTestId(`dock`)
@@ -222,9 +228,9 @@ describe(`the agent chat with no conversation yet`, () => {
     expect(screen.getByTestId(`session-pane`).querySelector(`[data-testid="sessions-tab"]`)).toBeTruthy()
   })
 
-  it(`the gear opens the agent settings body as an opened item`, () => {
+  it(`the menu's Agent settings opens the agent settings body as an opened item`, () => {
     render(<Page />)
-    fireEvent.click(screen.getByTestId(`session-gear`))
+    fireEvent.click(screen.getByTestId(`session-menu-settings`))
     expect(mocks.navigate).toHaveBeenCalledWith(
       expect.objectContaining({ search: expect.objectContaining({ open: `settings` }) })
     )
@@ -232,7 +238,9 @@ describe(`the agent chat with no conversation yet`, () => {
     render(<Page />)
     const pane = screen.getByTestId(`session-pane`)
     expect(pane.querySelector(`[data-testid="agent-settings-body"]`)?.getAttribute(`data-agent`)).toBe(`agent-1`)
-    expect(screen.getByTestId(`session-item-back`)).toBeTruthy()
+    // #FEED-239: wide = THE collapse button leads the pane, no Back.
+    expect(screen.queryByTestId(`session-item-back`)).toBeNull()
+    expect(screen.getByTestId(`session-collapse`)).toBeTruthy()
   })
 
   it(`phone: the opening composer floats in THE capsule`, () => {

@@ -2,7 +2,6 @@ import { MessageBubble } from "./user-message-bubble"
 import { useState, type ComponentProps, type ReactNode } from "react"
 import chats from "@exp/domain-contract/fixtures/chats.json"
 import {
-  agentMenuEntries,
   chatSelectionActions,
   chatMenuEntries,
   type AgentChatRow,
@@ -29,7 +28,8 @@ import { PromptLayout } from "./prompt"
 import { ChatConversation } from "./session-chat-view"
 import { SurfaceCard } from "./surface-card"
 import { TeamAvatar } from "./team-avatar"
-import { agentMenuRows, chatMenuRows } from "./chats-list"
+import { chatMenuRows, sessionScreenMenuRows } from "./chats-list"
+import { sessionScreenMenu } from "@exp/domain-contract/session-screen"
 import { TooltipProvider } from "./tooltip"
 import { useIsMobile } from "./use-mobile"
 
@@ -208,8 +208,10 @@ export function ChatSelectionSpecimen() {
 
 const LIVE = chatMenuRows(chatMenuEntries({ rootStatus: `running`, canSteer: true, canDelete: true }), noop)
 const ENDED = chatMenuRows(chatMenuEntries({ rootStatus: `ended`, canSteer: true, canDelete: true }), noop)
-const AGENT_BUSY_OWNER = agentMenuRows(agentMenuEntries({ busy: true, isOwner: true }), noop)
-const AGENT_IDLE = agentMenuRows(agentMenuEntries({ busy: false, isOwner: false }), noop)
+// #FEED-239: THE session screen menu (`sessionScreenMenu`) of an agent.
+const AGENT_MENU_INPUT = { kind: `agent`, phone: false, member: true, linkIssue: true, publish: false, export: false, delete: false }
+const AGENT_BUSY_OWNER = sessionScreenMenuRows(`agent`, sessionScreenMenu({ ...AGENT_MENU_INPUT, settings: true }), noop)
+const AGENT_IDLE = sessionScreenMenuRows(`agent`, sessionScreenMenu({ ...AGENT_MENU_INPUT, settings: false }), noop)
 
 const caption = (text: string) => <div className="mb-2 text-xs text-muted-foreground">{text}</div>
 
@@ -264,11 +266,11 @@ export function ChatMenusSpecimen() {
         {menu(ENDED, `#APP-16 Fix flaky scroll restore`)}
       </div>
       <div className="max-md:w-full">
-        {caption(`The agent menu (busy, owner)`)}
+        {caption(`The agent menu (owner)`)}
         {menu(AGENT_BUSY_OWNER, `Triage`)}
       </div>
       <div className="max-md:w-full">
-        {caption(`The agent menu (idle, member)`)}
+        {caption(`The agent menu (member)`)}
         {menu(AGENT_IDLE, `Triage`)}
       </div>
       <DeleteConfirm />

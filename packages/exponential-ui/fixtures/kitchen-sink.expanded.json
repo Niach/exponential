@@ -5913,7 +5913,7 @@
                       "display": "flex",
                       "flexDirection": "column",
                       "gap": "$spacing.xxs",
-                      "maxWidth": "80%",
+                      "maxWidth": "100%",
                       "minWidth": 0,
                       "paddingHorizontal": "$spacing.md",
                       "paddingVertical": "$spacing.sm",

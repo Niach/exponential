@@ -14,7 +14,6 @@ import {
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarMenu,
-  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuTrailing,
@@ -28,11 +27,13 @@ import { useDigestMessages, useSessionReads, useTeamSessions } from "@/hooks/use
 // one row per team agent (`listAgents`, fixture-locked: sortOrder, then
 // name): its icon in its color + its name, and (#FEED-232) THE count badge
 // `rowBadge` of the viewer's conversation with it (unread agent messages,
-// yellow while it needs you; busy alone = no badge). A row opens the agent's channel; owners get
-// the gear to its settings, and the "+" files a new agent.
+// yellow while it needs you; busy alone = no badge). A row opens the agent's channel; its
+// right-click / long-press is THE session screen menu (#FEED-239: no gear;
+// Agent settings opens that chat with its settings), and the "+" files a
+// new agent. #FEED-239: the host passes `sidebarAgents(agents, apps)`: an
+// app's agent is listed under Apps only.
 
 const UiAddIcon = conceptIcon(`ui-add`)
-const NavSettingsIcon = conceptIcon(`nav-settings`)
 
 /** An agent's glyph: the curated icon set boards and actions share; S-3:
  *  the viewer's Assistant = the Exponential brand mark in the foreground
@@ -82,19 +83,10 @@ export function useAgentBadges(
 }
 
 /** The trailing count badge, in the row's trailing column (EXP-1477). */
-function AgentBadge({
-  badge,
-  yieldsOnHover = false,
-}: {
-  badge: CountBadgeValue | undefined
-  /** The owner's hover gear takes the same column. */
-  yieldsOnHover?: boolean
-}) {
+function AgentBadge({ badge }: { badge: CountBadgeValue | undefined }) {
   if (!badge || badge.count <= 0) return null
   return (
-    <SidebarMenuTrailing
-      className={cn(`pointer-events-none`, yieldsOnHover && `group-hover/menu-item:opacity-0`)}
-    >
+    <SidebarMenuTrailing className="pointer-events-none">
       <Badge
         count={badge.count}
         tone={badge.tone}
@@ -152,18 +144,7 @@ export function SidebarAgentsSection({
                   <span className="min-w-0 flex-1 truncate">{agent.name}</span>
                 </Link>
               </SidebarMenuButton>
-              <AgentBadge badge={badges?.get(agent.agentId)} yieldsOnHover={isOwner} />
-              {isOwner && (
-                <SidebarMenuAction asChild showOnHover title="Agent settings">
-                  <Link
-                    to="/t/$teamSlug/settings/agents/$agentId"
-                    params={{ teamSlug, agentId: agent.agentId }}
-                    aria-label={`Settings for ${agent.name}`}
-                  >
-                    <NavSettingsIcon />
-                  </Link>
-                </SidebarMenuAction>
-              )}
+              <AgentBadge badge={badges?.get(agent.agentId)} />
             </SidebarMenuItem>
           ))}
         </SidebarMenu>

@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from "react"
+import { useMemo } from "react"
 import { SESSION_SCREEN_TEST_IDS } from "@exp/domain-contract/session-screen"
 import {
   ChatSessionTree,
@@ -49,19 +49,16 @@ export interface SessionIssueEntry {
  *  issues, nested ones indented under their parent; a row opens it in place. */
 export function SessionIssuesTab({
   issues,
-  addMenu,
   activeId,
   onOpen,
 }: {
   issues: readonly SessionIssueEntry[]
-  addMenu?: ReactNode
   activeId: string | null
   onOpen: (issueId: string) => void
 }) {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-testid={SESSION_SCREEN_TEST_IDS.issues}>
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-1 px-3 pt-3 pb-8 md:px-4">
-        {addMenu && <div className="flex items-center px-1">{addMenu}</div>}
         {issues.length === 0 ? (
           <EmptyState icon={IssuesIcon} title="No issues" size="list" />
         ) : (

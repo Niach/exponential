@@ -7930,7 +7930,7 @@
       "group": "list",
       "lite": true,
       "specimenId": "exponential-ui-message-bubble",
-      "description": "Chat bubble, in (left, after an avatar) or out (right).",
+      "description": "Chat bubble, in (left, after an avatar) or out (right, before one).",
       "children": "none",
       "slots": [
         "attachment",

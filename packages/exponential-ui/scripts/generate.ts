@@ -968,6 +968,8 @@ const SPECIMEN_OVERRIDES: Record<string, { label: string; node: NestedNode }[]> 
   MessageBubble: [
     { label: `example`, node: { id: `bubble`, component: `MessageBubble`, props: { text: `Is the printer fixed?`, side: `out`, time: `18:00`, status: `read` }, style: { width: 360 } } },
     { label: `side · in · author + attachment`, node: { id: `bubble`, component: `MessageBubble`, props: { text: `There you go.`, author: `spezl`, time: `20:21` }, style: { width: 360 }, slots: { attachment: { id: `file`, component: `Chip`, props: { label: `IMG_2041.jpg`, icon: `ui-file`, shape: `rect` } } } } },
+    // #FEED-239: the viewer's own bubble wears its avatar on the RIGHT and takes the width left of it.
+    { label: `side · out · avatar`, node: { id: `bubble`, component: `MessageBubble`, props: { text: `Ship it once the gate is green; the tag can wait for the morning.`, side: `out`, time: `18:05`, status: `read` }, style: { width: 360 }, slots: { avatar: { id: `avatar`, component: `Avatar`, props: { name: `Mia Berger`, seed: `user-mia` } } } } },
   ],
   // #FEED-237: the four delivery marks (packages/domain-contract/fixtures/message-delivery.json `marks`).
   MessageStatus: [`sending`, `sent`, `read`, `failed`].map((status) => ({ label: `status · ${status}`, node: { id: `status`, component: `MessageStatus`, props: { status } } })),
@@ -1971,8 +1973,8 @@ function railTreeCases(): ComponentCase[] {
   }]
 }
 
-/** #EXP-1736: the sender's avatar left of an incoming bubble (an `out` one
- *  drops the slot), with the press that opens the sender. */
+/** #EXP-1736: the sender's avatar left of an incoming bubble (#FEED-239: an
+ *  `out` one wears it on the right), with the press that opens the sender. */
 function messageBubbleCases(): ComponentCase[] {
   const avatar: NestedNode = { id: `bubble_avatar`, component: `Avatar`, props: { name: `Release agent`, seed: `agent-release` } }
   const props = { text: `Merged; the tag is pushed.`, author: `Release agent`, time: `18:04`, href: `https://ui.exponential.at` }
