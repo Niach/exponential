@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-14-one-agent-settings-page",
+    date: "2026-11-14",
+    title: "One settings page for every agent",
+    summary: "Your Assistant and your team agents now share one settings page: every agent gets a Model, a Check in and its own triggers.",
+    body: r##"- **Same page for every agent**: Runs on (device, account, model, skills, MCP servers), then Triggers, in the same order for your Assistant and your team agents.
+- **Check in for every agent**: the first Triggers row picks how often an agent checks in (every 15 or 30 minutes, every hour, every day, or off).
+- **More triggers for your Assistant**: add schedules and events to your Assistant too, not just its check in.
+- **Model for team agents**: pick the model a team agent runs on, like your Assistant's."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_294: ChangelogEntry = ChangelogEntry {
     id: "2026-11-14-phones-chat-shell-release",
     date: "2026-11-14",
     title: "One chat menu and sidebar folders on your phone",
