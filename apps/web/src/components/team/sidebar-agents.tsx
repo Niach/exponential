@@ -13,7 +13,6 @@ import {
   SidebarGroupAction,
   SidebarGroupContent,
   SidebarGroupLabel,
-  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuTrailing,
@@ -159,21 +158,7 @@ export function SidebarAgentsSection({
                     <span className="min-w-0 flex-1 truncate">{agent.name}</span>
                   </Link>
                 </SidebarMenuButton>
-                <AgentBadge badge={badges?.get(agent.agentId)} yieldsOnHover={isOwner} />
-                {isOwner && (
-                  <SidebarMenuAction asChild showOnHover title="Agent settings">
-                    {/* #FEED-239: an agent's settings open IN its chat (the
-                        side item), never the Settings screen. */}
-                    <Link
-                      to="/t/$teamSlug/agents/$agentId"
-                      params={{ teamSlug, agentId: agent.agentId }}
-                      search={{ open: `settings` }}
-                      aria-label={`Settings for ${agent.name}`}
-                    >
-                      <NavSettingsIcon />
-                    </Link>
-                  </SidebarMenuAction>
-                )}
+                <AgentBadge badge={badges?.get(agent.agentId)} />
               </SidebarMenuItem>
             )
           }}
