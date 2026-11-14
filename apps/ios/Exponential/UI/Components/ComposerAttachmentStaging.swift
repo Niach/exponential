@@ -88,13 +88,17 @@ extension ComposerAttachmentHost {
     }
 
     /// The thumbnail's X: an image's markers leave the draft and the higher
-    /// ones slide down; a file's leaves the text alone.
+    /// ones slide down; a file's leaves the text alone. The caret stays where
+    /// it was, moved left by what left before it.
     func removeAttachment(id: UUID) {
         if let position = pendingImages.firstIndex(where: { $0.id == id }) {
             let text = draftEditor.plainText
-            let dropped = ComposerAttachments.drop(strip: attachmentStrip, at: position, text: text)
+            let caret = draftEditor.plainTextCaret ?? (text as NSString).length
+            let dropped = ComposerAttachments.drop(
+                strip: attachmentStrip, at: position, text: text, caret: caret
+            )
             pendingImages.remove(at: position)
-            if dropped.text != text { draftEditor.setPlainText(dropped.text) }
+            if dropped.text != text { draftEditor.setPlainText(dropped.text, caret: dropped.caret) }
         } else {
             pendingFiles.removeAll { $0.id == id }
         }
