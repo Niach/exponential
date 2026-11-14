@@ -39,7 +39,7 @@ import XCTest
 ///   sg_app-run (VAPP-242) ·
 ///   sg_app-record-table · sg_app-record-form · sg_app-calendar · sg_app-timeline · sg_app-connect ·
 ///   sg_app-publish · sg_app-versions-sweep · sg_app-version-preview ·
-///   sg_app-settings-links · sg_app-settings-automations ·
+///   sg_app-settings-links · sg_app-settings-automations · sg_app-events (#EXP-1850) ·
 ///   sg_app-csv-import · sg_app-record-history · sg_app-record-undo ·
 ///   sg_team-avatar · sg_device-attention ·
 ///   sg_os-live-activity · sg_os-live-activity-island · sg_os-notification-actions
@@ -1375,7 +1375,7 @@ final class StyleguideScreenshots: XCTestCase {
     /// The rich demo apps' shots (`demo-sample-apps.ts`, walkRichApps).
     private static let richAppShots = [
         "sg_app-record-table", "sg_app-record-form", "sg_app-calendar", "sg_app-timeline", "sg_app-connect",
-        "sg_app-settings-links", "sg_app-settings-automations",
+        "sg_app-settings-links", "sg_app-settings-automations", "sg_app-events",
         "sg_app-publish", "sg_app-versions-sweep", "sg_app-version-preview",
         "sg_app-csv-import", "sg_app-record-history", "sg_app-record-undo",
     ]
@@ -1427,17 +1427,27 @@ final class StyleguideScreenshots: XCTestCase {
             settle(1)
         }
 
-        if wanted(["sg_app-connect", "sg_app-settings-links", "sg_app-settings-automations"]) {
+        if wanted(["sg_app-connect", "sg_app-settings-links", "sg_app-settings-automations", "sg_app-events"]) {
             openAppRun(app, slug: "ops-desk")
             expect(anyElement(app, identified: "exponential-ui-upstream-connect"), within: Wait.network, "Ops desk raised no Connect banner")
             snapshot("sg_app-connect", settle: 2)
-            if wanted(["sg_app-settings-links", "sg_app-settings-automations"]) {
+            if wanted(["sg_app-settings-links", "sg_app-settings-automations", "sg_app-events"]) {
                 let runMenu = anyElement(app, identified: "app-run-menu")
                 expect(runMenu, within: Wait.nav, "Ops desk's run view has no … menu")
                 runMenu.tap()
                 let editItem = anyElement(app, identified: "app-menu-edit")
                 expect(editItem, within: Wait.nav, "Ops desk's menu has no Edit app")
                 editItem.tap()
+                // #EXP-1850: the Events tab = the agent's triggers (webhook,
+                // schedule, record), Webhooks and Recent runs.
+                if ScreenshotShots.isWanted("sg_app-events") {
+                    let eventsTab = anyElement(app, identified: "session-tabs-events")
+                    expect(eventsTab, within: Wait.sync, "Ops desk's editor has no Events segment")
+                    eventsTab.tap()
+                    expect(anyElement(app, identified: "app-events"), within: Wait.sync, "Ops desk's Events tab never drew")
+                    expect(anyElement(app, identified: "app-event-run"), within: Wait.network, "Ops desk's Events tab drew no runs")
+                    snapshot("sg_app-events", settle: 2)
+                }
                 // #FEED-239: App settings = THE `…`'s entry (an opened item).
                 let menu = anyElement(app, identified: "session-menu")
                 expect(menu, within: Wait.sync, "Ops desk's editor has no … menu")
@@ -1453,7 +1463,8 @@ final class StyleguideScreenshots: XCTestCase {
                     // Inside the page's scroller, down to its last groups.
                     let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9))
                     from.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)))
-                    expect(anyElement(app, identified: "app-settings-webhooks"), within: Wait.nav, "Ops desk's Settings drew no Webhooks")
+                    // #EXP-1850: Automations are gone, Webhooks moved to Events.
+                    expect(anyElement(app, identified: "app-settings-mcp-tools"), within: Wait.nav, "Ops desk's Settings drew no MCP tools")
                     snapshot("sg_app-settings-automations", settle: 2)
                 }
                 goBack(app)

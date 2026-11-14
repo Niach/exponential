@@ -345,7 +345,7 @@ struct AppEditorScreen: View {
             AnyView(AppEventsTab(
                 app: app,
                 canManage: model.canManage(userId: deps.auth.userId),
-                onOpenChat: { tab = .chat }
+                onOpenChat: { self.tab = .chat }
             ))
         case .versions:
             AnyView(AppVersionsList(
