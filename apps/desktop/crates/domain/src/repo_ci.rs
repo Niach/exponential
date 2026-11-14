@@ -62,6 +62,10 @@ pub struct RepoRunRow {
     /// Phones: `ref · sha7 · trigger`.
     pub subtitle: String,
     pub duration: Option<String>,
+    /// RFC 3339 in UTC with milliseconds (what web's `toISOString` gives),
+    /// whatever spelling the row carried: the shapes deliver Postgres'
+    /// `2026-11-13 12:27:06.876+00`, which a genUI `relativeTime` cell cannot
+    /// read (#EXP-1826: desktop's Started column was empty).
     pub started_at: Option<String>,
 }
 
@@ -78,6 +82,12 @@ pub fn status_glyph(status: CiRunStatus) -> (CheckGlyph, CheckTone) {
 
 fn ms_of(value: Option<&str>) -> Option<i64> {
     value.filter(|v| !v.is_empty()).and_then(crate::instant::parse_instant)
+}
+
+fn iso_of(value: Option<&str>) -> Option<String> {
+    ms_of(value)
+        .and_then(chrono::DateTime::from_timestamp_millis)
+        .map(|at| at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
 }
 
 fn trigger_label(trigger: &str) -> String {
@@ -113,7 +123,7 @@ pub fn run_rows(runs: &[CiRunRow], jobs: &[CiJobRow], now_ms: i64) -> Vec<RepoRu
                 r#ref,
                 trigger,
                 duration,
-                started_at: run.started_at.clone(),
+                started_at: iso_of(run.started_at.as_deref()),
             }
         })
         .collect()
@@ -249,6 +259,20 @@ mod tests {
             "duration": row.duration,
             "startedAt": row.started_at,
         })
+    }
+
+    /// #EXP-1826: the synced Postgres spelling comes out as RFC 3339, so the
+    /// Runs table's `relativeTime` Started cell can read it.
+    #[test]
+    fn a_synced_postgres_timestamp_starts_as_rfc3339() {
+        let run: CiRunRow = serde_json::from_value(serde_json::json!({
+            "id": "r1", "number": 1, "name": "ci", "sha": "abcdef0123", "state": "pending", "trigger": "pull_request",
+            "started_at": "2026-11-13 12:27:06.876+00"
+        }))
+        .unwrap();
+        let rows = run_rows(&[run], &[], 1_794_576_000_000);
+        assert_eq!(rows[0].started_at.as_deref(), Some("2026-11-13T12:27:06.876Z"));
+        assert!(rows[0].duration.is_some());
     }
 
     #[test]
