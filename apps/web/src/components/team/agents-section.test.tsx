@@ -212,4 +212,18 @@ describe(`AgentSettingsPage Triggers (#EXP-1846)`, () => {
       )
     )
   })
+
+  it(`a kind this client can't read (an app agent's record trigger) is never listed and survives every write`, async () => {
+    update.mockResolvedValue({ txid: 1 })
+    const RECORD = { id: `t-rec`, kind: `record`, record: `orders`, op: `insert`, run: `notify`, enabled: true }
+    render(<AgentSettingsPage team={team} agent={agent([RECORD, EVENT])} isOwner />)
+    expect(screen.queryByTestId(`agent-trigger-t-rec`)).toBeNull()
+    fireEvent.click(within(screen.getByTestId(`agent-trigger-t-ev`)).getByRole(`switch`))
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith(
+        { id: `ag-1`, triggers: [RECORD, { ...EVENT, enabled: false }] },
+        expect.anything()
+      )
+    )
+  })
 })

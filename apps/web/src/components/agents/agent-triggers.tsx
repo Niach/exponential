@@ -46,14 +46,19 @@ const CHECK_IN_ITEMS = ASSISTANT_SCHEDULES.map((preset) => ({ value: preset.id, 
  *  client wrote; only the two known kinds render. */
 export function readTriggers(value: unknown): AgentTrigger[] {
   if (!Array.isArray(value)) return []
+  // Every stored object with an id is KEPT, whatever its kind (an app
+  // agent's record/webhook triggers, #EXP-1848): every write is the whole
+  // array, so dropping one here would delete it. Rows list the kinds this
+  // client reads (`isListedKind`).
   return value.filter(
     (trigger): trigger is AgentTrigger =>
-      typeof trigger === `object` &&
-      trigger !== null &&
-      typeof (trigger as { id?: unknown }).id === `string` &&
-      ((trigger as { kind?: unknown }).kind === `schedule` ||
-        (trigger as { kind?: unknown }).kind === `event`)
+      typeof trigger === `object` && trigger !== null && typeof (trigger as { id?: unknown }).id === `string`
   )
+}
+
+/** The kinds a trigger row reads; any other kind is kept, never listed. */
+function isListedKind(trigger: { kind?: unknown }): boolean {
+  return trigger.kind === `schedule` || trigger.kind === `event`
 }
 
 /** A trigger as stored: the when-part plus its id and switch. */
@@ -138,7 +143,7 @@ export function AgentTriggers({ triggers, readOnly, onWrite }: AgentTriggersProp
           disabled={readOnly}
           data-testid="agent-check-in"
         />
-        {listedTriggers(triggers).map((trigger) => (
+        {listedTriggers(triggers).filter(isListedKind).map((trigger) => (
           <AgentTriggerRow
             key={trigger.id}
             trigger={trigger}
