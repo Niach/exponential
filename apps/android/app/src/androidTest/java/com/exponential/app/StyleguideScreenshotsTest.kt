@@ -179,6 +179,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_app-record-table · sg_app-record-form · sg_app-calendar · sg_app-timeline · sg_app-connect ·
  *   sg_app-publish · sg_app-versions-sweep · sg_app-version-preview · sg_app-record-history ·
  *   sg_app-record-undo · sg_app-csv-import · sg_app-settings-links · sg_app-settings-automations ·
+ *   sg_app-events (#EXP-1850) ·
  *   sg_device-attention · sg_os-live-activity · sg_os-live-activity-island · sg_os-notification-actions ·
  *   sg_apps · sg_app-run (VAPP-242) · sg_app · sg_chat-list · sg_phone-tab-bar · sg_chat-transcript ·
  *   sg_chat-menus · sg_chat-selection · sg_sealed-locked · sg_schedule-picker · sg_mention-pill · sg_app-consent ·
@@ -315,7 +316,7 @@ class StyleguideScreenshotsTest {
         /** The walk's rich-apps step takes these. */
         private val APP_RICH_SHOTS = arrayOf(
             "sg_app-record-table", "sg_app-record-form", "sg_app-calendar", "sg_app-timeline", "sg_app-connect",
-            "sg_app-settings-links", "sg_app-settings-automations", "sg_app-publish", "sg_app-versions-sweep",
+            "sg_app-settings-links", "sg_app-settings-automations", "sg_app-events", "sg_app-publish", "sg_app-versions-sweep",
             "sg_app-version-preview", "sg_app-csv-import", "sg_app-record-history", "sg_app-record-undo",
         )
 
@@ -1284,6 +1285,14 @@ class StyleguideScreenshotsTest {
                 flow.settle()
                 flow.screenshot("sg_app-connect")
                 openEditorFromRun()
+                // #EXP-1850: the Events tab = the agent's triggers (webhook,
+                // schedule, record), Webhooks and Recent runs.
+                composeRule.onNode(hasTestTag(SessionScreen.TestIds.tab(SessionScreen.Tab.Events))).performClick()
+                flow.waitFor(hasTestTag(Apps.TestIds.EVENTS_TAB), SYNC_TIMEOUT)
+                flow.waitFor(hasTestTag(Apps.TestIds.RUN_ROW), SYNC_TIMEOUT)
+                flow.waitFor(hasTestTag(Apps.TestIds.WEBHOOKS), SYNC_TIMEOUT)
+                flow.settle()
+                flow.screenshot("sg_app-events")
                 // #FEED-239: no gear: `…` › App settings.
                 composeRule.onNode(hasTestTag(Apps.TestIds.MENU)).performClick()
                 flow.waitFor(hasTestTag("${SessionScreen.TestIds.MENU}-settings"), NAV_TIMEOUT)
@@ -1291,6 +1300,8 @@ class StyleguideScreenshotsTest {
                 flow.waitFor(hasTestTag(Apps.TestIds.SETTINGS), NAV_TIMEOUT)
                 flow.waitFor(hasText("Public links"), SYNC_TIMEOUT)
                 flow.waitFor(hasText("Accounts"), SYNC_TIMEOUT)
+                // #EXP-1850: Webhooks left Settings; MCP tools end it now.
+                flow.waitFor(hasTestTag(Apps.TestIds.MCP_TOOLS), SYNC_TIMEOUT)
                 Espresso.closeSoftKeyboard()
                 flow.settle()
                 flow.screenshot("sg_app-settings-links")
