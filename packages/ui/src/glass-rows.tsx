@@ -330,6 +330,20 @@ function GlassRow({
 // with the fill and the radius dropped, for a host that already IS a surface
 // (the composer's `⋯` popover, a bottom sheet): the rows keep their dividers
 // and the host's card is the only edge, never a card inside a card.
+//
+// EXP-1851: `divide-y` is a border on each CHILD, and a `display: contents`
+// child (a row `Picker`, an inline `Combobox`) draws no box, so it drew no
+// hairline. Such a child hands its line to its last rendered box: the row
+// trigger, or the open inline body under it (one level of nested `contents`
+// for the inline combobox). Bottom border only, so the inline body keeps its
+// own top rule.
+const GLASS_GROUP_CONTENTS_DIVIDERS = [
+  `[&>.contents:not(:last-child)>:last-child]:border-b`,
+  `[&>.contents:not(:last-child)>:last-child]:border-b-glass-stroke`,
+  `[&>.contents:not(:last-child)>.contents:last-child>:last-child]:border-b`,
+  `[&>.contents:not(:last-child)>.contents:last-child>:last-child]:border-b-glass-stroke`,
+].join(` `)
+
 function GlassGroup({
   className,
   scroll = false,
@@ -349,6 +363,7 @@ function GlassGroup({
       data-bare={bare ? `true` : undefined}
       className={cn(
         `flex flex-col divide-y divide-glass-stroke`,
+        GLASS_GROUP_CONTENTS_DIVIDERS,
         !bare && `rounded-lg bg-glass-row`,
         scroll ? `overflow-x-hidden overflow-y-auto` : `overflow-hidden`,
         className
