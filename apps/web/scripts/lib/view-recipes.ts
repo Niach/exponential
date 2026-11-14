@@ -260,7 +260,7 @@ async function recipeScrollToRepoCi(page: Page): Promise<void> {
   // The scroller that actually scrolls: the repo page's own box on wide
   // screens, the DOCUMENT on phones (the page grows there). As far as it
   // goes: on a short phone page that is the end, Add secret clear of the
-  // tab bar (TAB_BAR_CLEARANCE).
+  // tab bar (PAGE_END_CLEARANCE).
   await section.evaluate((node) => {
     let scroller: HTMLElement = (document.scrollingElement as HTMLElement | null) ?? document.documentElement
     for (let el = node.parentElement; el; el = el.parentElement) {

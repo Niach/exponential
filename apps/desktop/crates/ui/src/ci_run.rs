@@ -578,7 +578,7 @@ impl CiRunView {
 }
 
 impl Render for CiRunView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "CiRunView").entered();
         let tree = match self.page(cx) {
             Some(tree) => tree,
@@ -596,6 +596,8 @@ impl Render for CiRunView {
             .overflow_y_scroll()
             .p_6()
             .child(div().w_full().max_w(gpui::px(1100.)).child(self.view.clone()))
+            // #EXP-1860: the last row scrolls clear of the Assistant FAB.
+            .child(crate::assistant_fab::page_end(window, cx))
     }
 }
 

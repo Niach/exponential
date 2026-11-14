@@ -688,7 +688,7 @@ impl NeedsYouView {
 }
 
 impl Render for NeedsYouView {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "NeedsYouView").entered();
         let ready = Store::try_global(cx).is_some_and(|store| store.collections().sessions.read(cx).is_ready());
         let column: AnyElement = if ready {
@@ -700,7 +700,7 @@ impl Render for NeedsYouView {
         };
         v_flex()
             .size_full()
-            .child(crate::scroll_pane::page_scaffold_with("needs-you-scroll", &self.scroll, v_flex().min_w_0().child(column), COLUMN_W))
+            .child(crate::scroll_pane::page_scaffold_with("needs-you-scroll", &self.scroll, v_flex().min_w_0().child(column), COLUMN_W, window, cx))
     }
 }
 

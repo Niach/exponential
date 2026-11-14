@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
 import {
+  FAB_CLEARANCE_CLASS,
   AgentAvatar,
   Button,
   GlassSectionHeader,
@@ -86,7 +87,7 @@ export function ShareTargetsPage({
     <div className="h-full overflow-y-auto">
       <div
         data-testid={testIds.page}
-        className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-4 pb-6 pt-[max(1.5rem,env(safe-area-inset-top))]"
+        className={`mx-auto flex w-full max-w-2xl flex-col gap-4 px-4 pb-6 pt-[max(1.5rem,env(safe-area-inset-top))] ${FAB_CLEARANCE_CLASS}`}
       >
         <h1 className="text-lg font-semibold">{copy.title}</h1>
         {myTeams.length > 1 && team && (

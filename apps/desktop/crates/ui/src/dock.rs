@@ -285,6 +285,8 @@ pub(crate) fn band(state: &Entity<DockState>, band: Band, window: &mut Window, c
         let state = state.read(cx);
         (state.band_height.clone(), state.column.clone())
     };
+    // #EXP-1860: beside the Assistant FAB, never under it.
+    let right = crate::assistant_fab::lane(column.get(), px(crate::work_header::WORK_GUTTER), window, cx);
     let probe = canvas(
         move |bounds, window, _| {
             let height = f32::from(bounds.size.height);
@@ -318,6 +320,7 @@ pub(crate) fn band(state: &Entity<DockState>, band: Band, window: &mut Window, c
                         .min_w_0()
                         .max_w(px(crate::work_header::CHAT_COLUMN_W))
                         .px(px(crate::work_header::WORK_GUTTER))
+                        .pr(right)
                         .gap(px(DOCK.stack.gap))
                         .children(pile)
                         .children(composer)
