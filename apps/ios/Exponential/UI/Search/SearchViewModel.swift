@@ -105,17 +105,21 @@ final class SearchViewModel {
         // their prepared entry.
         let previous = IndexBox()
         // #NEW-21: each row carries its creator (the member's name + email,
-        // the agent's name) so `by:<name>` filters and bare words match it.
+        // the agent's name) so `by:<name>` filters and bare words match it;
+        // #NEW-132: and its team status's name, so `status:<word>` matches a
+        // custom status as well as the anchor.
         let observation = ValueObservation.tracking { db in
             let issues = try IssueEntity
                 .filter(sql: "board_id IN (SELECT id FROM boards WHERE team_id = ?)", arguments: [teamId])
                 .fetchAll(db)
             let users = try UserEntity.fetchAll(db)
             let agents = try AgentDefinitionEntity.filter(Column("team_id") == teamId).fetchAll(db)
+            let statuses = try IssueStatusEntity.filter(Column("team_id") == teamId).fetchAll(db)
             return SearchSnapshot(
                 issues: issues,
                 members: Dictionary(users.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }),
-                agentNames: Dictionary(agents.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a })
+                agentNames: Dictionary(agents.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a }),
+                statusNames: Dictionary(statuses.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a })
             )
         }
         .removeDuplicates()
@@ -125,7 +129,8 @@ final class SearchViewModel {
                 return issue.searchRow(
                     creatorName: member?.name,
                     creatorEmail: member?.email,
-                    creatorAgentName: issue.creatorAgentId.flatMap { snapshot.agentNames[$0] }
+                    creatorAgentName: issue.creatorAgentId.flatMap { snapshot.agentNames[$0] },
+                    statusName: issue.statusId.flatMap { snapshot.statusNames[$0] }
                 )
             }
             previous.index = index
@@ -272,11 +277,13 @@ final class SearchViewModel {
 }
 
 /// #NEW-21: one observed snapshot: the team's issues and the synced members
-/// and agents their creator ids resolve against.
+/// and agents their creator ids resolve against (#NEW-132: and the team
+/// status names their status ids resolve against).
 private struct SearchSnapshot: Equatable, Sendable {
     let issues: [IssueEntity]
     let members: [String: UserEntity]
     let agentNames: [String: String]
+    let statusNames: [String: String]
 }
 
 /// The previous snapshot's index, carried between `map` calls (GRDB runs

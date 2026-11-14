@@ -29,6 +29,24 @@ import Foundation
 /// with no creator never matches one. A query of `by:` tokens alone lists
 /// the matching rows in the empty-query order below.
 ///
+/// #NEW-132: four more FILTER tokens (never scored; every filter must hold;
+/// an empty or unparseable value is ignored like an empty `by:`). They are
+/// the structured syntax natural language translates into (#NEW-131):
+///
+///   is:open | is:closed   the row is undone / finished (`isOpen`)
+///   status:<word>         a word of the status ANCHOR (`in_review` = in,
+///                         review) or of the team status NAME (`statusName`)
+///                         starts with <word>; a row with neither never matches
+///   created:<range>       the row's createdAt / updatedAt lies in <range>;
+///   updated:<range>       a row without that timestamp never matches
+///
+/// A <range> is `<n>d|w|m|y` (the last n×1/7/30/365 days before `now`,
+/// n = 1…9999), a UTC day `YYYY-MM-DD` or month `YYYY-MM`, a comparison
+/// against one (`>D` after it ends, `>=D` from its start, `<D` before its
+/// start, `<=D` until its end), or `D..D` (the first's start to the second's
+/// end). Impossible dates (`2026-13`, `2026-02-30`) are ignored. A query of
+/// filters alone lists the matching rows in the empty-query order.
+///
 /// EXP-922: the ordering is THREE keys above the score, in this order:
 ///
 ///   1. an EXACT identifier hit (some token scored 100) — typing `EXP-42`
@@ -75,6 +93,12 @@ public enum IssueSearch {
     /// #NEW-21: the token prefix that turns a word into a creator filter.
     public static let creatorPrefix = "by:"
 
+    /// #NEW-132: the filter-token prefixes.
+    public static let statePrefix = "is:"
+    public static let statusPrefix = "status:"
+    public static let createdPrefix = "created:"
+    public static let updatedPrefix = "updated:"
+
     /// The searchable projection of an issue — what the engine reads, whatever
     /// the caller's row type is (a GRDB entity, a picker option, a server hit).
     /// Timestamps stay WIRE STRINGS: the engine parses them itself, once per
@@ -96,6 +120,9 @@ public enum IssueSearch {
         /// #NEW-21: the agent whose session filed it
         /// (`issues.creator_agent_id`).
         public let creatorAgentName: String?
+        /// #NEW-132: the team status row's NAME (`issues.status_id`), for
+        /// `status:`.
+        public let statusName: String?
 
         public init(
             id: String,
@@ -107,7 +134,8 @@ public enum IssueSearch {
             status: String? = nil,
             creatorName: String? = nil,
             creatorEmail: String? = nil,
-            creatorAgentName: String? = nil
+            creatorAgentName: String? = nil,
+            statusName: String? = nil
         ) {
             self.id = id
             self.identifier = identifier
@@ -119,6 +147,7 @@ public enum IssueSearch {
             self.creatorName = creatorName
             self.creatorEmail = creatorEmail
             self.creatorAgentName = creatorAgentName
+            self.statusName = statusName
         }
     }
 
@@ -144,21 +173,169 @@ public enum IssueSearch {
             .filter { !$0.isEmpty }
     }
 
-    /// #NEW-21: the query split into its scored words and its `by:` creator
-    /// needles (prefix and one leading `@` dropped, empties ignored).
-    public static func parseQuery(_ query: String) -> (words: [String], creators: [String]) {
-        var words: [String] = []
-        var creators: [String] = []
-        for token in tokens(query) {
-            guard token.hasPrefix(creatorPrefix) else {
-                words.append(token)
-                continue
-            }
-            var needle = String(token.dropFirst(creatorPrefix.count))
-            if needle.hasPrefix("@") { needle = String(needle.dropFirst()) }
-            if !needle.isEmpty { creators.append(needle) }
+    /// #NEW-132: a half-open time window `[from, to)` in seconds since the
+    /// epoch (±infinity = unbounded). Web `IssueSearchRange` (epoch ms).
+    public struct DateRange: Sendable, Equatable {
+        public let from: Double
+        public let to: Double
+
+        public init(from: Double, to: Double) {
+            self.from = from
+            self.to = to
         }
-        return (words, creators)
+    }
+
+    /// #NEW-21 + #NEW-132: a query split into its scored words and its
+    /// filters.
+    public struct Query: Sendable, Equatable {
+        public var words: [String] = []
+        /// `by:` needles (prefix and one leading `@` dropped).
+        public var creators: [String] = []
+        /// `is:` values: true = open, false = closed.
+        public var states: [Bool] = []
+        /// `status:` needles.
+        public var statuses: [String] = []
+        public var created: [DateRange] = []
+        public var updated: [DateRange] = []
+
+        public init() {}
+
+        /// Whether the query filters at all (a filter-only query lists the
+        /// matching rows in the empty-query order).
+        public var hasFilters: Bool {
+            !creators.isEmpty || !states.isEmpty || !statuses.isEmpty
+                || !created.isEmpty || !updated.isEmpty
+        }
+    }
+
+    /// #NEW-21 + #NEW-132: the query split into its scored words and its
+    /// filter tokens. Every prefixed token leaves the words, valid or not.
+    public static func parseQuery(_ query: String, now: Date = Date()) -> Query {
+        let nowSeconds = now.timeIntervalSince1970
+        var parsed = Query()
+        for token in tokens(query) {
+            if token.hasPrefix(creatorPrefix) {
+                var needle = String(token.dropFirst(creatorPrefix.count))
+                if needle.hasPrefix("@") { needle = String(needle.dropFirst()) }
+                if !needle.isEmpty { parsed.creators.append(needle) }
+            } else if token.hasPrefix(statePrefix) {
+                let value = String(token.dropFirst(statePrefix.count))
+                if value == "open" {
+                    parsed.states.append(true)
+                } else if value == "closed" {
+                    parsed.states.append(false)
+                }
+            } else if token.hasPrefix(statusPrefix) {
+                let needle = String(token.dropFirst(statusPrefix.count))
+                if !needle.isEmpty { parsed.statuses.append(needle) }
+            } else if token.hasPrefix(createdPrefix) {
+                if let range = parseRange(String(token.dropFirst(createdPrefix.count)), seconds: nowSeconds) {
+                    parsed.created.append(range)
+                }
+            } else if token.hasPrefix(updatedPrefix) {
+                if let range = parseRange(String(token.dropFirst(updatedPrefix.count)), seconds: nowSeconds) {
+                    parsed.updated.append(range)
+                }
+            } else {
+                parsed.words.append(token)
+            }
+        }
+        return parsed
+    }
+
+    private static let daySeconds: Double = 86_400
+
+    /// #NEW-132: a `created:`/`updated:` value as its window, or nil.
+    public static func parseRange(_ value: String, now: Date) -> DateRange? {
+        parseRange(value, seconds: now.timeIntervalSince1970)
+    }
+
+    private static func parseRange(_ value: String, seconds now: Double) -> DateRange? {
+        let bytes = Array(value.utf8)
+        // `<n>d|w|m|y`, n = 1…4 ASCII digits.
+        if (2...5).contains(bytes.count), let unit = bytes.last,
+           let count = asciiNumber(bytes[0..<(bytes.count - 1)]) {
+            let days: Int
+            switch unit {
+            case UInt8(ascii: "d"): days = 1
+            case UInt8(ascii: "w"): days = 7
+            case UInt8(ascii: "m"): days = 30
+            case UInt8(ascii: "y"): days = 365
+            default: return parseAbsoluteRange(value)
+            }
+            guard count >= 1 else { return nil }
+            return DateRange(from: now - Double(count * days) * daySeconds, to: .infinity)
+        }
+        return parseAbsoluteRange(value)
+    }
+
+    /// The comparison, `D..D` and plain-date forms of a range value.
+    private static func parseAbsoluteRange(_ value: String) -> DateRange? {
+        let comparators: [(String, (DateRange) -> DateRange)] = [
+            (">=", { DateRange(from: $0.from, to: .infinity) }),
+            ("<=", { DateRange(from: -.infinity, to: $0.to) }),
+            (">", { DateRange(from: $0.to, to: .infinity) }),
+            ("<", { DateRange(from: -.infinity, to: $0.from) }),
+        ]
+        for (op, window) in comparators where value.hasPrefix(op) {
+            return parseDate(String(value.dropFirst(op.count))).map(window)
+        }
+        if let dots = value.range(of: "..") {
+            guard let start = parseDate(String(value[..<dots.lowerBound])),
+                  let end = parseDate(String(value[dots.upperBound...]))
+            else { return nil }
+            return DateRange(from: start.from, to: end.to)
+        }
+        return parseDate(value)
+    }
+
+    /// A UTC day `YYYY-MM-DD` or month `YYYY-MM` as its window, or nil.
+    private static func parseDate(_ text: String) -> DateRange? {
+        let bytes = Array(text.utf8)
+        guard bytes.count == 7 || bytes.count == 10, bytes[4] == UInt8(ascii: "-") else { return nil }
+        if bytes.count == 10, bytes[7] != UInt8(ascii: "-") { return nil }
+        guard let year = asciiNumber(bytes[0..<4]), let month = asciiNumber(bytes[5..<7]) else { return nil }
+        guard (1...12).contains(month) else { return nil }
+        if bytes.count == 7 {
+            let from = Double(daysFromCivil(year: year, month: month, day: 1)) * daySeconds
+            return DateRange(from: from, to: from + Double(daysIn(month: month, year: year)) * daySeconds)
+        }
+        guard let day = asciiNumber(bytes[8..<10]), day >= 1, day <= daysIn(month: month, year: year) else {
+            return nil
+        }
+        let from = Double(daysFromCivil(year: year, month: month, day: day)) * daySeconds
+        return DateRange(from: from, to: from + daySeconds)
+    }
+
+    /// The value of a non-empty run of ASCII digits, or nil.
+    private static func asciiNumber(_ digits: ArraySlice<UInt8>) -> Int? {
+        guard !digits.isEmpty else { return nil }
+        var out = 0
+        for c in digits {
+            guard c >= 48, c <= 57 else { return nil }
+            out = out * 10 + Int(c - 48)
+        }
+        return out
+    }
+
+    /// Days since 1970-01-01 of a proleptic Gregorian UTC date (Howard
+    /// Hinnant's days_from_civil), the same integer arithmetic ×4.
+    private static func daysFromCivil(year: Int, month: Int, day: Int) -> Int {
+        let y = month <= 2 ? year - 1 : year
+        let era = (y >= 0 ? y : y - 399) / 400
+        let yoe = y - era * 400
+        let mp = (month + 9) % 12
+        let doy = (153 * mp + 2) / 5 + day - 1
+        let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
+        return era * 146_097 + doe - 719_468
+    }
+
+    private static func daysIn(month: Int, year: Int) -> Int {
+        switch month {
+        case 2: return (year % 4 == 0 && year % 100 != 0) || year % 400 == 0 ? 29 : 28
+        case 4, 6, 9, 11: return 30
+        default: return 31
+        }
     }
 
     /// The numeric tail as a number for ordering (`EXP-87` → 87), -1 when none.
@@ -186,6 +363,7 @@ public enum IssueSearch {
         query: String,
         limit: Int = defaultLimit,
         exclude: Set<String> = [],
+        now: Date = Date(),
         projection: (T) -> Row
     ) -> [T] {
         var entries: [Entry<T>] = []
@@ -195,17 +373,18 @@ public enum IssueSearch {
             if exclude.contains(row.id) { continue }
             entries.append(Entry(value: value, index: index, row: row, eager: false))
         }
-        return rank(entries: entries, query: query, limit: limit)
+        return rank(entries: entries, query: query, limit: limit, now: now)
     }
 
     /// The ranking over decorated entries — `rank` and `Index.rank` both end
     /// here, so the two can never order differently.
-    fileprivate static func rank<T>(entries: [Entry<T>], query: String, limit: Int) -> [T] {
-        let (queryTokens, creators) = parseQuery(query)
+    fileprivate static func rank<T>(entries: [Entry<T>], query: String, limit: Int, now: Date) -> [T] {
+        let parsed = parseQuery(query, now: now)
+        let queryTokens = parsed.words
         guard limit > 0 else { return [] }
-        let entries = creators.isEmpty
-            ? entries
-            : entries.filter { matchesCreators($0.prepared, creators) }
+        let entries = parsed.hasFilters
+            ? entries.filter { matchesFilters($0, parsed) }
+            : entries
         if queryTokens.isEmpty {
             let sorted = entries.sorted { a, b in
                 if a.open != b.open { return a.open }
@@ -235,15 +414,17 @@ public enum IssueSearch {
         _ rows: [Row],
         query: String,
         limit: Int = defaultLimit,
-        exclude: Set<String> = []
+        exclude: Set<String> = [],
+        now: Date = Date()
     ) -> [Row] {
-        rank(rows, query: query, limit: limit, exclude: exclude, projection: { $0 })
+        rank(rows, query: query, limit: limit, exclude: exclude, now: now, projection: { $0 })
     }
 
     // MARK: - Prepared pool
 
     /// #EXP-1382: a pool PREPARED once per snapshot of the rows — lowercased
-    /// fields, word splits and the two parsed timestamps — so a keystroke
+    /// fields, word splits (#NEW-132: the status words too) and the two
+    /// parsed timestamps — so a keystroke
     /// only scores and sorts, never re-parses. Immutable once built, so a
     /// rank may run off the main actor (a debounced task). `reusing` keeps
     /// the previous snapshot's entry for every row whose projection did not
@@ -279,9 +460,14 @@ public enum IssueSearch {
         }
 
         /// `IssueSearch.rank` over the prepared pool — the same order.
-        public func rank(query: String, limit: Int = IssueSearch.defaultLimit, exclude: Set<String> = []) -> [T] {
+        public func rank(
+            query: String,
+            limit: Int = IssueSearch.defaultLimit,
+            exclude: Set<String> = [],
+            now: Date = Date()
+        ) -> [T] {
             let pool = exclude.isEmpty ? entries : entries.filter { !exclude.contains($0.row.id) }
-            return IssueSearch.rank(entries: pool, query: query, limit: limit)
+            return IssueSearch.rank(entries: pool, query: query, limit: limit, now: now)
         }
     }
 
@@ -394,6 +580,8 @@ public enum IssueSearch {
         /// #NEW-21: the member's and the agent's name words, and the email.
         let creatorWords: [String]
         let creatorEmail: String
+        /// #NEW-132: the status anchor's and the status name's words.
+        let statusWords: [String]
 
         init(row: Row, eager: Bool = false) {
             self.identifier = row.identifier.lowercased()
@@ -405,6 +593,8 @@ public enum IssueSearch {
             self.creatorWords = IssueSearch.words((row.creatorName ?? "").lowercased())
                 + IssueSearch.words((row.creatorAgentName ?? "").lowercased())
             self.creatorEmail = (row.creatorEmail ?? "").lowercased()
+            self.statusWords = IssueSearch.words((row.status ?? "").lowercased())
+                + IssueSearch.words((row.statusName ?? "").lowercased())
             if eager {
                 // Assigned once here, the lazy storage is never written again:
                 // concurrent ranks only read it.
@@ -465,6 +655,20 @@ public enum IssueSearch {
         }
     }
 
+    private static func inRanges(_ instant: Double, _ ranges: [DateRange]) -> Bool {
+        ranges.allSatisfy { instant.isFinite && instant >= $0.from && instant < $0.to }
+    }
+
+    /// #NEW-21 + #NEW-132: whether an entry passes every filter token.
+    private static func matchesFilters<T>(_ entry: Entry<T>, _ parsed: Query) -> Bool {
+        guard matchesCreators(entry.prepared, parsed.creators) else { return false }
+        guard parsed.states.allSatisfy({ $0 == entry.open }) else { return false }
+        guard parsed.statuses.allSatisfy({ needle in
+            entry.prepared.statusWords.contains(where: { $0.hasPrefix(needle) })
+        }) else { return false }
+        return inRanges(entry.created, parsed.created) && inRanges(entry.updated, parsed.updated)
+    }
+
     /// A matched row's two ranking facts: the summed score, and whether any
     /// token hit the identifier EXACTLY (the pin that keeps a typed `EXP-42`
     /// on top).
@@ -521,11 +725,13 @@ extension IssueEntity {
 
     /// #NEW-21: the projection with its creator resolved (the member's name +
     /// email by `creatorId`, the agent's name by `creatorAgentId`), so `by:`
-    /// and bare creator-name words match it.
+    /// and bare creator-name words match it. #NEW-132: `statusName` = the
+    /// team status row's name (by `statusId`), for `status:`.
     public func searchRow(
         creatorName: String?,
         creatorEmail: String?,
-        creatorAgentName: String?
+        creatorAgentName: String?,
+        statusName: String? = nil
     ) -> IssueSearch.Row {
         IssueSearch.Row(
             id: id,
@@ -537,7 +743,8 @@ extension IssueEntity {
             status: status,
             creatorName: creatorName,
             creatorEmail: creatorEmail,
-            creatorAgentName: creatorAgentName
+            creatorAgentName: creatorAgentName,
+            statusName: statusName
         )
     }
 }

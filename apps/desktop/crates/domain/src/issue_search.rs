@@ -29,6 +29,24 @@
 //! with no creator never matches one. A query of `by:` tokens alone lists
 //! the matching rows in the empty-query order below.
 //!
+//! #NEW-132: four more FILTER tokens (never scored; every filter must hold;
+//! an empty or unparseable value is ignored like an empty `by:`). They are
+//! the structured syntax natural language translates into (#NEW-131):
+//!
+//!   is:open | is:closed   the row is undone / finished ([`is_open`])
+//!   status:<word>         a word of the status ANCHOR (`in_review` = in,
+//!                         review) or of the team status NAME (`status_name`)
+//!                         starts with <word>; a row with neither never matches
+//!   created:<range>       the row's created_at / updated_at lies in <range>;
+//!   updated:<range>       a row without that timestamp never matches
+//!
+//! A <range> is `<n>d|w|m|y` (the last n×1/7/30/365 days before `now`,
+//! n = 1…9999), a UTC day `YYYY-MM-DD` or month `YYYY-MM`, a comparison
+//! against one (`>D` after it ends, `>=D` from its start, `<D` before its
+//! start, `<=D` until its end), or `D..D` (the first's start to the second's
+//! end). Impossible dates (`2026-13`, `2026-02-30`) are ignored. A query of
+//! filters alone lists the matching rows in the empty-query order.
+//!
 //! EXP-922: the ordering is THREE keys above the score, in this order:
 //!
 //!   1. an EXACT identifier hit (some token scored 100) — typing `EXP-42`
@@ -61,6 +79,13 @@ const SCORE_CREATOR_WORD_PREFIX: i32 = 10;
 /// #NEW-21: the token prefix that turns a word into a creator filter (web
 /// `ISSUE_SEARCH_CREATOR_PREFIX`).
 pub const CREATOR_PREFIX: &str = "by:";
+
+/// #NEW-132: the filter-token prefixes (web `ISSUE_SEARCH_STATE_PREFIX`,
+/// `_STATUS_PREFIX`, `_CREATED_PREFIX`, `_UPDATED_PREFIX`).
+pub const STATE_PREFIX: &str = "is:";
+pub const STATUS_PREFIX: &str = "status:";
+pub const CREATED_PREFIX: &str = "created:";
+pub const UPDATED_PREFIX: &str = "updated:";
 
 /// The `limit` every consumer gets without asking (web
 /// `ISSUE_SEARCH_DEFAULT_LIMIT`) — and, since EXP-922, the one every SEARCH
@@ -104,6 +129,8 @@ pub struct SearchRow<'a> {
     pub creator_email: Option<&'a str>,
     /// #NEW-21: the agent whose session filed it (`issues.creator_agent_id`).
     pub creator_agent_name: Option<&'a str>,
+    /// #NEW-132: the team status row's NAME (`issues.status_id`), for `status:`.
+    pub status_name: Option<&'a str>,
 }
 
 impl<'a> SearchRow<'a> {
@@ -121,6 +148,7 @@ impl<'a> SearchRow<'a> {
             creator_name: None,
             creator_email: None,
             creator_agent_name: None,
+            status_name: None,
         }
     }
 
@@ -138,6 +166,12 @@ impl<'a> SearchRow<'a> {
     /// EXP-922: the builtin status anchor, so undone rows rank above done ones.
     pub fn with_status(mut self, status: Option<&'a str>) -> Self {
         self.status = status;
+        self
+    }
+
+    /// #NEW-132: the team status row's name, for `status:` filters.
+    pub fn with_status_name(mut self, status_name: Option<&'a str>) -> Self {
+        self.status_name = status_name;
         self
     }
 
@@ -172,6 +206,7 @@ impl<'a> From<&'a crate::rows::Issue> for SearchRow<'a> {
             creator_name: None,
             creator_email: None,
             creator_agent_name: None,
+            status_name: None,
         }
     }
 }
@@ -194,28 +229,168 @@ pub fn tokens(query: &str) -> Vec<String> {
         .collect()
 }
 
-/// #NEW-21: the query split into its scored words and its `by:` creator
-/// needles (prefix and one leading `@` dropped, empties ignored). Web
-/// `parseIssueSearchQuery`.
-pub struct ParsedQuery {
-    pub words: Vec<String>,
-    pub creators: Vec<String>,
+/// #NEW-132: a half-open time window `[from, to)` in epoch ms
+/// (`i64::MIN`/`i64::MAX` = unbounded). Web `IssueSearchRange`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SearchRange {
+    pub from: i64,
+    pub to: i64,
 }
 
-pub fn parse_query(query: &str) -> ParsedQuery {
-    let mut parsed = ParsedQuery {
-        words: Vec::new(),
-        creators: Vec::new(),
-    };
-    for token in tokens(query) {
-        match token.strip_prefix(CREATOR_PREFIX) {
-            None => parsed.words.push(token),
-            Some(needle) => {
-                let needle = needle.strip_prefix('@').unwrap_or(needle);
-                if !needle.is_empty() {
-                    parsed.creators.push(needle.to_string());
+/// #NEW-21 + #NEW-132: a query split into its scored words and its filters.
+/// Web `IssueSearchQuery`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ParsedQuery {
+    pub words: Vec<String>,
+    /// `by:` needles (prefix and one leading `@` dropped).
+    pub creators: Vec<String>,
+    /// `is:` values: true = open, false = closed.
+    pub states: Vec<bool>,
+    /// `status:` needles.
+    pub statuses: Vec<String>,
+    pub created: Vec<SearchRange>,
+    pub updated: Vec<SearchRange>,
+}
+
+impl ParsedQuery {
+    /// Whether the query filters at all (a filter-only query lists the
+    /// matching rows in the empty-query order). Web `issueSearchHasFilters`.
+    pub fn has_filters(&self) -> bool {
+        !self.creators.is_empty()
+            || !self.states.is_empty()
+            || !self.statuses.is_empty()
+            || !self.created.is_empty()
+            || !self.updated.is_empty()
+    }
+}
+
+const DAY_MS: i64 = 86_400_000;
+
+/// The system clock in epoch ms (the default `now`).
+pub fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+fn days_in_month(year: i64, month: i64) -> i64 {
+    if month == 2 {
+        return if (year % 4 == 0 && year % 100 != 0) || year % 400 == 0 { 29 } else { 28 };
+    }
+    if [4, 6, 9, 11].contains(&month) { 30 } else { 31 }
+}
+
+fn ascii_number(text: &str) -> Option<i64> {
+    (!text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()))
+        .then(|| text.parse().ok())
+        .flatten()
+}
+
+/// A UTC day `YYYY-MM-DD` or month `YYYY-MM` as its window, or `None`.
+fn parse_search_date(text: &str) -> Option<SearchRange> {
+    let bytes = text.as_bytes();
+    if !text.is_ascii() || !(bytes.len() == 7 || bytes.len() == 10) || bytes[4] != b'-' {
+        return None;
+    }
+    let year = ascii_number(&text[0..4])?;
+    let month = ascii_number(&text[5..7])?;
+    if !(1..=12).contains(&month) {
+        return None;
+    }
+    if bytes.len() == 7 {
+        let from = days_from_civil(year, month, 1) * DAY_MS;
+        return Some(SearchRange { from, to: from + days_in_month(year, month) * DAY_MS });
+    }
+    if bytes[7] != b'-' {
+        return None;
+    }
+    let day = ascii_number(&text[8..10])?;
+    if day < 1 || day > days_in_month(year, month) {
+        return None;
+    }
+    let from = days_from_civil(year, month, day) * DAY_MS;
+    Some(SearchRange { from, to: from + DAY_MS })
+}
+
+/// #NEW-132: a `created:`/`updated:` value as its window, or `None`. Web
+/// `parseIssueSearchRange`.
+pub fn parse_range(value: &str, now: i64) -> Option<SearchRange> {
+    if let Some(unit) = value.chars().last() {
+        let days = match unit {
+            'd' => Some(1),
+            'w' => Some(7),
+            'm' => Some(30),
+            'y' => Some(365),
+            _ => None,
+        };
+        let digits = &value[..value.len() - unit.len_utf8()];
+        if let Some(days) = days {
+            if (1..=4).contains(&digits.len()) {
+                if let Some(count) = ascii_number(digits) {
+                    if count < 1 {
+                        return None;
+                    }
+                    return Some(SearchRange { from: now - count * days * DAY_MS, to: i64::MAX });
                 }
             }
+        }
+    }
+    let comparators: [(&str, fn(SearchRange) -> SearchRange); 4] = [
+        (">=", |d| SearchRange { from: d.from, to: i64::MAX }),
+        ("<=", |d| SearchRange { from: i64::MIN, to: d.to }),
+        (">", |d| SearchRange { from: d.to, to: i64::MAX }),
+        ("<", |d| SearchRange { from: i64::MIN, to: d.from }),
+    ];
+    for (op, window) in comparators {
+        if let Some(rest) = value.strip_prefix(op) {
+            return parse_search_date(rest).map(window);
+        }
+    }
+    if let Some(dots) = value.find("..") {
+        let start = parse_search_date(&value[..dots])?;
+        let end = parse_search_date(&value[dots + 2..])?;
+        return Some(SearchRange { from: start.from, to: end.to });
+    }
+    parse_search_date(value)
+}
+
+/// #NEW-21 + #NEW-132: the query split into its scored words and its filter
+/// tokens, relative ranges counted back from the system clock. Every
+/// prefixed token leaves the words, valid or not. Web `parseIssueSearchQuery`.
+pub fn parse_query(query: &str) -> ParsedQuery {
+    parse_query_at(query, now_ms())
+}
+
+/// [`parse_query`] with an explicit `now` (epoch ms).
+pub fn parse_query_at(query: &str, now: i64) -> ParsedQuery {
+    let mut parsed = ParsedQuery::default();
+    for token in tokens(query) {
+        if let Some(needle) = token.strip_prefix(CREATOR_PREFIX) {
+            let needle = needle.strip_prefix('@').unwrap_or(needle);
+            if !needle.is_empty() {
+                parsed.creators.push(needle.to_string());
+            }
+        } else if let Some(value) = token.strip_prefix(STATE_PREFIX) {
+            match value {
+                "open" => parsed.states.push(true),
+                "closed" => parsed.states.push(false),
+                _ => {}
+            }
+        } else if let Some(needle) = token.strip_prefix(STATUS_PREFIX) {
+            if !needle.is_empty() {
+                parsed.statuses.push(needle.to_string());
+            }
+        } else if let Some(value) = token.strip_prefix(CREATED_PREFIX) {
+            if let Some(range) = parse_range(value, now) {
+                parsed.created.push(range);
+            }
+        } else if let Some(value) = token.strip_prefix(UPDATED_PREFIX) {
+            if let Some(range) = parse_range(value, now) {
+                parsed.updated.push(range);
+            }
+        } else {
+            parsed.words.push(token);
         }
     }
     parsed
@@ -262,6 +437,11 @@ struct Prepared<'a> {
     /// #NEW-21: the member's and the agent's name words, and the email.
     creator_words: Vec<String>,
     creator_email: String,
+    /// #NEW-132: the status anchor's and the status name's words.
+    status_words: Vec<String>,
+    /// #NEW-132: the parsed timestamps (`None` = missing or unparseable).
+    created_ms: Option<i64>,
+    updated_ms: Option<i64>,
 }
 
 impl Prepared<'_> {
@@ -291,6 +471,13 @@ fn prepare<'a>(row: &SearchRow<'a>) -> Prepared<'a> {
             .map(str::to_string)
             .collect(),
         creator_email: row.creator_email.unwrap_or("").to_lowercase(),
+        status_words: words(&row.status.unwrap_or("").to_lowercase())
+            .into_iter()
+            .chain(words(&row.status_name.unwrap_or("").to_lowercase()))
+            .map(str::to_string)
+            .collect(),
+        created_ms: row.created_at.and_then(parse_instant),
+        updated_ms: row.updated_at.and_then(parse_instant),
     }
 }
 
@@ -339,6 +526,30 @@ fn matches_creators(row: &Prepared<'_>, creators: &[String]) -> bool {
     })
 }
 
+fn in_ranges(ms: Option<i64>, ranges: &[SearchRange]) -> bool {
+    ranges
+        .iter()
+        .all(|range| ms.is_some_and(|ms| ms >= range.from && ms < range.to))
+}
+
+/// #NEW-21 + #NEW-132: whether a row passes every filter token.
+fn matches_filters(row: &SearchRow<'_>, parsed: &ParsedQuery) -> bool {
+    let prepared = prepare(row);
+    if !matches_creators(&prepared, &parsed.creators) {
+        return false;
+    }
+    let open = is_open(row.status);
+    if !parsed.states.iter().all(|&state| state == open) {
+        return false;
+    }
+    if !parsed.statuses.iter().all(|needle| {
+        prepared.status_words.iter().any(|word| word.starts_with(needle.as_str()))
+    }) {
+        return false;
+    }
+    in_ranges(prepared.created_ms, &parsed.created) && in_ranges(prepared.updated_ms, &parsed.updated)
+}
+
 /// A matched row's two ranking facts: the summed score, and whether any token
 /// hit the identifier EXACTLY (the pin that keeps a typed `EXP-42` on top).
 struct Scored {
@@ -367,20 +578,31 @@ pub fn score(row: &SearchRow<'_>, query_tokens: &[String]) -> Option<i32> {
 /// Rank the locally synced `rows` for `query` and return their INDICES into
 /// `rows` — the scored, ordered, capped list described at the top of this
 /// file. Stable for equal keys. `exclude` holds ids that never appear;
-/// `limit` caps the result (`usize::MAX` = uncapped).
+/// `limit` caps the result (`usize::MAX` = uncapped). Relative
+/// `created:`/`updated:` ranges count back from the system clock.
 pub fn rank(
     rows: &[SearchRow<'_>],
     query: &str,
     limit: usize,
     exclude: &HashSet<String>,
 ) -> Vec<usize> {
-    let ParsedQuery {
-        words: query_tokens,
-        creators,
-    } = parse_query(query);
+    rank_at(rows, query, limit, exclude, now_ms())
+}
+
+/// [`rank`] with an explicit `now` (epoch ms; web `IssueSearchOptions.now`),
+/// the clock relative `created:`/`updated:` ranges count back from.
+pub fn rank_at(
+    rows: &[SearchRow<'_>],
+    query: &str,
+    limit: usize,
+    exclude: &HashSet<String>,
+    now: i64,
+) -> Vec<usize> {
+    let parsed = parse_query_at(query, now);
+    let filtered = parsed.has_filters();
+    let query_tokens = &parsed.words;
     let pool = rows.iter().enumerate().filter(|(_, row)| {
-        !exclude.contains(row.id)
-            && (creators.is_empty() || matches_creators(&prepare(row), &creators))
+        !exclude.contains(row.id) && (!filtered || matches_filters(row, &parsed))
     });
     if query_tokens.is_empty() {
         let mut ordered: Vec<(usize, &SearchRow<'_>)> = pool.collect();
@@ -389,7 +611,7 @@ pub fn rank(
         return ordered.into_iter().map(|(ix, _)| ix).collect();
     }
     let mut scored: Vec<(usize, &SearchRow<'_>, Scored)> = pool
-        .filter_map(|(ix, row)| score_row(&prepare(row), &query_tokens).map(|s| (ix, row, s)))
+        .filter_map(|(ix, row)| score_row(&prepare(row), query_tokens).map(|s| (ix, row, s)))
         .collect();
     scored.sort_by(|(_, a, a_score), (_, b, b_score)| {
         b_score
@@ -589,6 +811,8 @@ mod tests {
         creator_email: Option<String>,
         #[serde(default)]
         creator_agent_name: Option<String>,
+        #[serde(default)]
+        status_name: Option<String>,
     }
 
     #[derive(Deserialize)]
@@ -613,6 +837,9 @@ mod tests {
         server_hits: Option<Vec<FixtureHit>>,
         #[serde(default)]
         allow_unsynced: bool,
+        /// #NEW-132: the clock relative ranges count back from (ISO text).
+        #[serde(default)]
+        now: Option<String>,
         expected: Vec<String>,
     }
 
@@ -628,6 +855,7 @@ mod tests {
             creator_name: row.creator_name.as_deref(),
             creator_email: row.creator_email.as_deref(),
             creator_agent_name: row.creator_agent_name.as_deref(),
+            status_name: row.status_name.as_deref(),
         }
     }
 
@@ -644,7 +872,12 @@ mod tests {
                 case.exclude.clone().unwrap_or_default().into_iter().collect();
             let limit = case.limit.unwrap_or(DEFAULT_LIMIT);
             let views: Vec<SearchRow<'_>> = case.rows.iter().map(view).collect();
-            let local: Vec<FixtureRow> = rank(&views, &case.query, limit, &exclude)
+            let now = case
+                .now
+                .as_deref()
+                .map(|now| parse_instant(now).expect("the case's now parses"))
+                .unwrap_or_else(now_ms);
+            let local: Vec<FixtureRow> = rank_at(&views, &case.query, limit, &exclude, now)
                 .into_iter()
                 .map(|ix| case.rows[ix].clone())
                 .collect();
@@ -673,6 +906,7 @@ mod tests {
                                     creator_name: None,
                                     creator_email: None,
                                     creator_agent_name: None,
+                                    status_name: None,
                                 })
                             })
                     },
@@ -721,12 +955,23 @@ mod tests {
             iso
         );
         assert_eq!(
+            parse_instant("2026-11-04T00:30:00+01:00").expect("offset"),
+            parse_instant("2026-11-03T23:30:00Z").expect("utc")
+        );
+        assert_eq!(
             parse_instant("2026-01-01T00:00:00.250Z").expect("fraction"),
             iso + 250
         );
         // A date alone is midnight UTC; garbage is unparseable.
         assert_eq!(parse_instant("2026-01-01").expect("date"), iso);
         assert!(parse_instant("not a date").is_none());
+    }
+
+    #[test]
+    fn non_ascii_range_values_are_ignored_not_panics() {
+        assert!(parse_range("202é-1", 0).is_none());
+        assert!(parse_range("2026-1é", 0).is_none());
+        assert!(parse_range("é", 0).is_none());
     }
 
     #[test]

@@ -130,6 +130,55 @@ describe(`issueSearchMatchIds creator`, () => {
   })
 })
 
+// #NEW-132: is:, status:, created: and updated: ride the same predicate.
+describe(`issueSearchMatchIds filters`, () => {
+  const scope = { teamId: `11111111-1111-4111-8111-111111111111` }
+
+  it(`narrows every branch to is:open and keeps filters out of the FTS text`, () => {
+    const { sql, params } = render(`editor is:open`, scope)
+    expect((sql.match(/not i\.status in \(/g) ?? []).length).toBe(3)
+    expect(params).toContain(`editor`)
+    expect(issueSearchFtsQuery(`editor is:open status:review created:7d updated:2026-11`)).toBe(`editor`)
+  })
+
+  it(`is:closed is the closed anchors`, () => {
+    const { sql, params } = render(`is:closed`, scope)
+    expect(sql).toContain(`and i.status in ($`)
+    expect(sql).not.toContain(`not i.status`)
+    expect(params).toEqual(expect.arrayContaining([...ISSUE_SEARCH_CLOSED_STATUSES]))
+  })
+
+  it(`status: is a word prefix of the anchor or the team status name`, () => {
+    const { sql, params } = render(`status:Rev`, scope)
+    expect(sql).not.toContain(`union`)
+    expect(sql).toContain(`regexp_replace(lower(i.status::text), '[^[:alnum:]]+', ' ', 'g')`)
+    expect(sql).toContain(`from issue_statuses s where s.id = i.status_id`)
+    expect(params).toContain(`% rev%`)
+  })
+
+  it(`created: and updated: become timestamptz bounds of the client window`, () => {
+    const { sql, params } = render(`created:2026-11-03 updated:>=2026-10`, scope)
+    expect(sql).toContain(`i.created_at >= $`)
+    expect(sql).toContain(`i.created_at < $`)
+    expect(sql).toContain(`i.updated_at >= $`)
+    expect(sql).not.toContain(`i.updated_at < $`)
+    expect(params).toEqual(
+      expect.arrayContaining([
+        `2026-11-03T00:00:00.000Z`,
+        `2026-11-04T00:00:00.000Z`,
+        `2026-10-01T00:00:00.000Z`,
+      ])
+    )
+  })
+
+  it(`a filter-only query breaks ties newest created, an invalid filter is ignored`, () => {
+    const recency = (query: string) =>
+      new PgDialect().sqlToQuery(issueSearchRecencySql(query)).sql
+    expect(recency(`is:open`)).toBe(`i.created_at desc`)
+    expect(render(`is:maybe created:2026-13 status:`, scope).sql).toContain(`where false`)
+  })
+})
+
 // EXP-892: a row matched only by the identifier ILIKE branch has ts_rank 0,
 // so `issues.search` orders on this AHEAD of the rank or `limit` cuts the
 // exact issue the person typed.

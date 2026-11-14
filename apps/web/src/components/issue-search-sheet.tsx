@@ -14,6 +14,7 @@ import {
 } from "@/lib/issue-search"
 import { useTeamBoards, useTeamUsers } from "@/hooks/use-team-data"
 import { useAgentRows } from "@/hooks/use-agent-row"
+import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import type { Board } from "@/db/schema"
 
 const UiBackIcon = conceptIcon(`ui-back`)
@@ -88,9 +89,11 @@ export function IssueSearchSheet({
   )
 
   // #NEW-21: each row carries its creator's name + email and its agent's
-  // name, so `by:lukas` and a bare `lukas` reach who filed it.
+  // name, so `by:lukas` and a bare `lukas` reach who filed it. #NEW-132:
+  // and its team status NAME, so `status:review` reaches a custom status.
   const { userMap } = useTeamUsers(teamId)
   const agents = useAgentRows(teamId)
+  const { resolve: resolveStatus } = useTeamStatusesContext()
   const rows = useMemo(() => {
     const agentNames = new Map(agents.map((agent) => [agent.id, agent.name]))
     return ((issues ?? NO_ROWS) as SearchResult[]).map((issue) => {
@@ -102,9 +105,10 @@ export function IssueSearchSheet({
         creatorAgentName: issue.creatorAgentId
           ? (agentNames.get(issue.creatorAgentId) ?? null)
           : null,
+        statusName: resolveStatus(issue).name,
       }
     })
-  }, [issues, userMap, agents])
+  }, [issues, userMap, agents, resolveStatus])
   const localById = useMemo(
     () => new Map<string, SearchResult>(rows.map((i) => [i.id, i])),
     [rows]
