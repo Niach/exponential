@@ -366,6 +366,9 @@ pub(crate) struct ToastLayer {
     places: HashMap<u64, Place>,
     ticking: bool,
     _ticker: Option<Task<()>>,
+    /// #EXP-1837 (agent-settings.json `assistant.fab.toastLift`): how far
+    /// the stack rises over the viewport offset while the Assistant FAB shows.
+    lift: f32,
 }
 
 impl ToastLayer {
@@ -379,6 +382,15 @@ impl ToastLayer {
             places: HashMap::new(),
             ticking: false,
             _ticker: None,
+            lift: 0.,
+        }
+    }
+
+    /// #EXP-1837: the stack's extra bottom offset (0 = at rest).
+    pub(crate) fn set_lift(&mut self, lift: f32, cx: &mut Context<Self>) {
+        if self.lift != lift {
+            self.lift = lift;
+            cx.notify();
         }
     }
 
@@ -598,7 +610,7 @@ impl Render for ToastLayer {
             .id("exp-toast-stack")
             .absolute()
             .right(px(constants::VIEWPORT_OFFSET))
-            .bottom(px(constants::VIEWPORT_OFFSET))
+            .bottom(px(constants::VIEWPORT_OFFSET + self.lift))
             .w(px(constants::WIDTH))
             .h(px(box_height))
             .occlude()

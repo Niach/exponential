@@ -212,6 +212,8 @@ pub struct Shell {
     tab_bar: Entity<crate::shell_regions::TabBarRegion>,
     /// #EXP-1725: the left column's fixed header, the shared document's.
     header: Entity<crate::shell_regions::HeaderRegion>,
+    /// #EXP-1837: THE Assistant FAB bottom-right of the content card.
+    assistant_fab: Entity<crate::assistant_fab::AssistantFab>,
     /// The JetBrains-style tool-window rail — rendered LEFT of the dock area
     /// (so the session bar spans everything right of it).
     rail: Entity<RailView>,
@@ -498,6 +500,10 @@ impl Shell {
             let nav = navigation::nav_for_window(window, cx);
             crate::shell_regions::HeaderRegion::new(nav, window, cx)
         };
+        let assistant_fab = {
+            let nav = navigation::nav_for_window(window, cx);
+            cx.new(|cx| crate::assistant_fab::AssistantFab::new(nav, cx))
+        };
         // EXP-769: the session bar (and with it this window's terminal
         // manager). After the nav registry entry above — a tab opening
         // navigates through it — and before the first frame, so the coding
@@ -528,6 +534,7 @@ impl Shell {
             session_bar,
             tab_bar,
             header,
+            assistant_fab,
             rail,
             settings_nav,
             left_anim,
@@ -989,6 +996,13 @@ impl Render for Shell {
         // titlebar strip (Cursor look); titlebar + update banner + dock stack
         // in the column to its right. The login/update surfaces keep the
         // titlebar-first layout (no rail there).
+        // #EXP-1837: the Assistant FAB rides the Synced shell's card; the
+        // bottom-right toasts rise above it while it shows.
+        let fab_shows = matches!(session, SessionPhase::Synced { .. })
+            && !self.onboarding.read(cx).is_active(cx)
+            && self.assistant_fab.read(cx).shows(cx);
+        let toast_lift = if fab_shows { domain::agent_settings::ASSISTANT_FAB.toast_lift } else { 0. };
+        crate::toast::layer_for_window(window, cx).update(cx, |layer, cx| layer.set_lift(toast_lift, cx));
         let body: gpui::AnyElement = match session {
             // EXP-367: signed in but a first-run wizard step applies — the
             // wizard takes the whole window (login-surface layout, NO rail:
@@ -1151,7 +1165,10 @@ impl Render for Shell {
                                             .clone()
                                             .cached(StyleRefinement::default().size_full()),
                                     ),
-                                )),
+                                ))
+                                // #EXP-1837: THE Assistant FAB, bottom-right
+                                // of the card, over the dock area.
+                                .child(self.assistant_fab.clone()),
                         )
                         .when(!tabs_top, |col| {
                             // #EXP-1726: inside eDE the tab bar is the content
