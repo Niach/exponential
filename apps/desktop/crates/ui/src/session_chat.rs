@@ -3297,10 +3297,18 @@ pub(crate) struct SessionChatScreenView {
     plan_state: crate::plan_page::PlanPageState,
     plan_painted: Option<String>,
     _missing_tick: Task<()>,
+    /// #EXP-1837: the Assistant widget's chat: the Chat tab's body alone
+    /// (no header, no tabs, no beside pane).
+    widget: bool,
     _subscriptions: Vec<Subscription>,
 }
 
 impl SessionChatScreenView {
+    /// #EXP-1837: render only the Chat tab's body (the Assistant widget).
+    pub(crate) fn set_widget(&mut self, widget: bool) {
+        self.widget = widget;
+    }
+
     pub(crate) fn new(root_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let id = root_id.clone();
         let root_view = cx.new(|cx| crate::session_screen::SessionScreenView::new(id, window, cx));
@@ -3387,6 +3395,7 @@ impl SessionChatScreenView {
             plan_state: Default::default(),
             plan_painted: None,
             _missing_tick: missing_tick,
+            widget: false,
             _subscriptions: subscriptions,
         };
         this.refresh(cx);
@@ -4392,10 +4401,11 @@ impl Render for SessionChatScreenView {
             }
         }
         let screen = self.screen_of(&model, cx);
-        let header = {
+        // #EXP-1837: the widget draws its own header.
+        let header = (!self.widget).then(|| {
             let _span = tracing::trace_span!("chat.header").entered();
             self.render_header(&model, &screen, window, cx)
-        };
+        });
         // #EXP-1732 THE Chat tab (every layout, every kind): the ROOT's own
         // session view: its raw work, its cards inline, THE Dock and THE
         // composer posting to the root. #EXP-1736: its origin = the sender
@@ -4431,6 +4441,7 @@ impl Render for SessionChatScreenView {
         };
         // #EXP-1732 (session-screen.json LAYOUT): wide = the beside rule.
         let body = match screen.layout {
+            _ if self.widget => chat,
             SessionScreenLayout::Chat => chat,
             SessionScreenLayout::Beside | SessionScreenLayout::Tab | SessionScreenLayout::Item => {
                 let pane = self.render_pane(&model, &screen, window, cx);
@@ -4442,7 +4453,7 @@ impl Render for SessionChatScreenView {
             .size_full()
             .min_h_0()
             .overflow_hidden()
-            .child(header)
+            .children(header)
             .child(body)
     }
 }
