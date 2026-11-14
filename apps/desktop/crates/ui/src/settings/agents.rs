@@ -352,14 +352,16 @@ impl AgentsPane {
 
     /// A document action: a tab, a picked model/effort, the Ultracode switch.
     fn action(&mut self, name: &str, field: &str, payload: &Value, cx: &mut gpui::Context<Self>) {
-        let value = payload.get("value").and_then(Value::as_str).unwrap_or_default().to_string();
+        // #FEED-247: a popup opening or closing fires `change` with no value.
+        let picked = super::doc::picked_value(payload).is_some();
+        let value = super::doc::picked_value(payload).unwrap_or_default().to_string();
         match name {
             "tab" => {
                 self.agent_tab = if field == "codex" { CodingAgent::Codex } else { CodingAgent::Claude };
                 cx.notify();
             }
             // EXP-694 autosave: confirming a choice IS the save.
-            "pick" => {
+            "pick" if picked => {
                 let slot = match field {
                     "claudeModel" => &mut self.controls.claude_model,
                     "claudeEffort" => &mut self.controls.claude_effort,
