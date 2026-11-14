@@ -2559,29 +2559,29 @@
         "file": "shots/exponential-ui-button/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 20220,
-        "sha256": "fb99fcc0944b70e9ccccd6bed5a88009129860f4bc4b04c497bf68f9f21913d3"
+        "bytes": 23864,
+        "sha256": "ac54fc6535d795073b8f8e0794282015eb89f556d1b815d12b906d69b7e87928"
       },
       "desktop": {
         "file": "shots/exponential-ui-button/desktop.webp",
         "width": 1800,
-        "height": 1126,
-        "bytes": 33436,
-        "sha256": "acbe372e493bc0955f90bd85e35d3b4d13b421c84a4f4875c2ceb212d8c7adff"
+        "height": 1125,
+        "bytes": 41188,
+        "sha256": "8cf77388ebdc0bc866397a7444325b609a44c1b3404ca862ff99cc735324c612"
       },
       "ios": {
         "file": "shots/exponential-ui-button/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 20942,
-        "sha256": "d1829e79c55c5f0a47ff89a09cbc21d8e64f27f86d6d8c1f1a5f350fd739e67b"
+        "bytes": 24388,
+        "sha256": "ba918d4d9eed0a2b155866d0ec58de39f5dacd892b5ddbf47693f19cdf815a32"
       },
       "web": {
         "file": "shots/exponential-ui-button/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 14244,
-        "sha256": "ab857ce0409fd4a4f58328d7bae4ea3d7a74a15d59c4ccb3255d3c1eae10f844"
+        "bytes": 16470,
+        "sha256": "a42258189b9ec123ea2440dc31c05bdeb94cf8ce82e932b486d1588ed8218d84"
       }
     },
     "exponential-ui-call-surface": {

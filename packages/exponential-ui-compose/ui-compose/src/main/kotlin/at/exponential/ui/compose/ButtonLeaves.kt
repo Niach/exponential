@@ -71,7 +71,7 @@ internal fun ButtonLeaf(cx: LeafContext) {
     val pendingLabel = cx.props.shownText("pendingLabel")
     val label = if (loading && pendingLabel.isNotEmpty()) pendingLabel else cx.props.shownText("label")
     val icon = cx.props.str("icon")
-    val iconOnly = cx.props.str("size").let { it == "icon" || it == "icon-xs" }
+    val iconOnly = cx.props.str("size").let { it == "icon" || it == "icon-xs" } || cx.props.str("variant") == "fab" // #EXP-1837
     // A CodeBlock's copy glyph is 12 inside its 24 box (the web's `.xui-CodeBlock-copy>svg`).
     val iconSize = if (cx.node.ownerComponent == "CodeBlock" && cx.node.part == "copy") CODE_COPY_ICON else cx.part(cx.node.component, "icon").width ?: cx.control("iconSm", 16f)
     InnerBox(cx, Alignment.Center) {

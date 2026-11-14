@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-14-assistant-floating-button",
+    date: "2026-11-14",
+    title: "Your Assistant floats over every page",
+    summary: "On the desktop app and the wide web, your Assistant moved out of the sidebar into a round button in the bottom-right corner that opens its chat right there.",
+    body: r##"- **Always at hand**: the round button with the Exponential mark sits in the bottom-right corner of every page and shows the same count badge as before, yellow when it needs you.
+- **Chat without leaving**: press it to chat with your Assistant in a small window over the page; the arrow opens the full chat and the minus tucks it away again.
+- **Phones unchanged**: on iOS and Android your Assistant stays the first row in Chats."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_292: ChangelogEntry = ChangelogEntry {
     id: "2026-11-14-board-my-issues-tabs",
     date: "2026-11-14",
     title: "My issues shows this board's issues",

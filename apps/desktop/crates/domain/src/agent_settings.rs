@@ -423,6 +423,43 @@ pub fn visible_agent(role: Option<&str>, owner_id: Option<&str>, me: Option<&str
     !is_assistant_role(role) || (owner_id.is_some() && owner_id == me)
 }
 
+/// #EXP-1837 (`assistant.fab`): THE Assistant FAB's copy and numbers.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantFabSpec {
+    pub copy: AssistantFabCopy,
+    pub widget: AssistantWidgetSize,
+    /// The FAB's distance from the content card's bottom-right corner.
+    pub inset: f32,
+    /// How far the bottom-right toast stack rises while the FAB shows.
+    pub toast_lift: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct AssistantFabCopy {
+    pub label: String,
+    pub maximize: String,
+    pub minimize: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+pub struct AssistantWidgetSize {
+    pub width: f32,
+    pub height: f32,
+}
+
+pub static ASSISTANT_FAB: LazyLock<AssistantFabSpec> = LazyLock::new(|| {
+    let fixture: Value = serde_json::from_str(AGENT_SETTINGS_JSON).expect("agent-settings.json parses");
+    serde_json::from_value(fixture["assistant"]["fab"].clone()).expect("assistant.fab parses")
+});
+
+/// #EXP-1837 TS `assistantFabVisible` (`assistant.fab.showCases`): the
+/// Assistant FAB shows on wide surfaces (the IDE) while the viewer has an
+/// Assistant, except on its own chat page.
+pub fn assistant_fab_visible(wide: bool, assistant_id: Option<&str>, active_agent_id: Option<&str>) -> bool {
+    wide && assistant_id.is_some() && active_agent_id != assistant_id
+}
+
 /// TS `orderedAgents` over synced rows: the viewer's Assistant first, then
 /// the team agents by sortOrder, then name; others' Assistants dropped.
 pub fn ordered_agents<'a>(
@@ -833,6 +870,30 @@ mod tests {
         for case in cases {
             let agent = &case["agent"];
             let actual = visible_agent(agent["role"].as_str(), agent["ownerId"].as_str(), case["me"].as_str());
+            assert_eq!(actual, case["expected"].as_bool().unwrap(), "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn assistant_fab_spec_reads_the_fixture() {
+        let fab = &*ASSISTANT_FAB;
+        assert_eq!(fab.copy.maximize, "Open full chat");
+        assert_eq!(fab.copy.minimize, "Minimize");
+        assert_eq!((fab.widget.width, fab.widget.height), (440., 560.));
+        assert_eq!((fab.inset, fab.toast_lift), (16., 76.));
+    }
+
+    #[test]
+    fn assistant_fab_show_cases_match_the_fixture() {
+        let fixture = fixture();
+        let cases = fixture["assistant"]["fab"]["showCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let actual = assistant_fab_visible(
+                case["wide"].as_bool().unwrap(),
+                case["assistantId"].as_str(),
+                case["activeAgentId"].as_str(),
+            );
             assert_eq!(actual, case["expected"].as_bool().unwrap(), "{}", case["name"]);
         }
     }
