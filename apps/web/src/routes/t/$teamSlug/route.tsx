@@ -18,6 +18,7 @@ import { MobileTabBar } from "@/components/team/mobile-tab-bar"
 import { AgentLoginDialogHost } from "@/components/agent-login-dialog"
 import { LaunchDialogHost } from "@/components/launch-dialog/launch-dialog"
 import { SidebarWidthSync, TeamSidebar } from "@/components/team/sidebar"
+import { AssistantFab } from "@/components/team/assistant-fab"
 import {
   MAIN_COLUMN_CLASS,
   MAIN_OUTLET_CLASS,
@@ -258,7 +259,7 @@ function TeamLayout() {
                   )}
                 </div>
               )}
-              <main className={mainPanelClass({ tabs: showWorkTabs })}>
+              <main className={`${mainPanelClass({ tabs: showWorkTabs })} md:relative`}>
                 {/* EXP-533: above the mobile topbar (which is `md:hidden` and
                     hides itself on detail routes), so the "showing cached
                     data" notice is the first thing in the content column on
@@ -268,6 +269,9 @@ function TeamLayout() {
                 <div className={MAIN_OUTLET_CLASS}>
                   <Outlet />
                 </div>
+                {/* #EXP-1837: the Assistant FAB, bottom-right of the card
+                    (wide only; hidden on the Assistant's own page). */}
+                <AssistantFab team={team} teamSlug={teamSlug} />
               </main>
               {/* EXP-818: no dock band under the card — EXP-870 put every
                   live session in a work tab above it instead. */}
