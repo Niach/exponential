@@ -31,6 +31,7 @@ pub struct Reuse {
 pub struct Watchdog {
     pub unclaimed_minutes: i64,
     pub nudge_minutes: i64,
+    pub undelivered_minutes: i64,
     pub resume_minutes: i64,
     pub offline_minutes: i64,
     pub stuck_minutes: i64,
@@ -127,6 +128,10 @@ pub fn blocked_text(window: Option<&str>, resets_at: Option<&str>) -> String {
 
 pub fn unclaimed_text() -> String {
     fill(text(&["unclaimed"]), &[("minutes", &rules().watchdog.unclaimed_minutes.to_string())])
+}
+
+pub fn undelivered_text() -> String {
+    fill(text(&["undelivered"]), &[("minutes", &rules().watchdog.undelivered_minutes.to_string())])
 }
 
 pub fn stuck_text(minutes: i64) -> String {

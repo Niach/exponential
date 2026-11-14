@@ -25,14 +25,21 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
-    id: `2026-11-13-app-agents-render`,
-    date: `2026-11-13`,
+    id: `2026-11-14-app-agents-render`,
+    date: `2026-11-14`,
     title: `App agents can check their screens`,
     summary: `An agent building an app can render or screenshot each screen as a member sees it, read the catalog in parts, and name members by user id, member id or email.`,
     body: `- **Render before publish**: an app's agent reads any screen as text, bound to real data as you or another member would see it, with the problems it finds (empty lists, failed expressions).
 - **Screenshots**: on a Linux or Apple silicon device, the agent can also take a picture of a screen to check it and show you.
 - **Smaller catalog reads**: agents fetch only the parts of the app catalog they need.
 - **Members by any id**: writing a record for a member takes their user id, member id or email.`,
+  },
+  {
+    id: `2026-11-14-widget-reporter-emails`,
+    date: `2026-11-14`,
+    title: `Choose which emails widget reporters get`,
+    summary: `Each widget can now turn off the confirmation and the resolved email its reporters get.`,
+    body: `- **Reporter emails**: a widget's General tab has two switches, one for the confirmation on submit and one for the email when the issue is closed; Reply to reporter still always sends.`,
   },
   {
     id: `2026-11-13-apps-touched-issues`,

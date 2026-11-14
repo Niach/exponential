@@ -1,0 +1,47 @@
+---
+title: How do I render agent-generated UI natively on iOS, Android and desktop?
+description: genUI paints A2UI with each platform's own UI toolkit (SwiftUI, Jetpack Compose, gpui, React, Solid) from one Rust core and one TypeScript reference.
+---
+
+Use a genUI renderer for your platform. Each one paints A2UI surfaces with the platform's own UI toolkit, so the result is a SwiftUI view on iOS, a Compose layout on Android and gpui elements on the desktop. None of them is a web view.
+
+## Which renderer do I need?
+
+| Platform | Toolkit | Install | Guide |
+|---|---|---|---|
+| iOS 17, macOS 14 | SwiftUI | Swift package `ExponentialUI` | [SwiftUI](/docs/sdk/genui/guides/swiftui/) |
+| Android (minSdk 26) | Jetpack Compose | `at.exponential:eui-compose` (Maven Central) | [Compose](/docs/sdk/genui/guides/compose/) |
+| Desktop (Rust) | gpui | `eui-gpui` (git dependency) | [gpui](/docs/sdk/genui/guides/gpui/) |
+| Web | React 19 | `@exponential_app/eui-react` | [React](/docs/sdk/genui/guides/react/) |
+| Web | SolidJS | `@exponential_app/eui-solid` | [Solid](/docs/sdk/genui/guides/solid/) |
+| Web, no framework | Web Components | `@exponential_app/eui-element` | [Web component](/docs/sdk/genui/guides/element/) |
+
+## How can six renderers look the same?
+
+The renderers share one pipeline and differ only in the last step:
+
+```text
+A2UI messages ─▶ reducer ─▶ UiNode tree ─▶ layout (taffy) ─▶ frames + resolved visuals ─▶ painter
+```
+
+The Rust core `eui-core` reduces the messages, resolves the theme and lays out every native surface. SwiftUI and Compose reach it through a UniFFI facade that ships inside the Swift and Kotlin artifacts, so your app builds no Rust; gpui links it directly. The platform measures text and paints each node at its frame. The web renderers run on the TypeScript reference, which replays the same fixtures as the Rust core byte for byte and follows the same layout in CSS within a pixel. The [conformance suite](/docs/sdk/genui/reference/conformance/) checks every renderer case by case.
+
+## What does the host app provide?
+
+The app that embeds a surface is the host. It lends the surface:
+
+- a **transport** (JSONL, SSE, WebSocket, MCP or messages you push yourself),
+- **functions** the surface may call and **data bindings** by source URI,
+- a **policy** for functions, URLs and media (deny wins, then allow, then ask, then the default),
+- icons, fonts and the theme.
+
+On every platform the host has the same shape: one `ExponentialHost` with a transport, a theme and a mode, and a `HostSurface` per surface id. See [Write a host plugin](/docs/sdk/genui/guides/host-plugins/).
+
+## Can I add my own components?
+
+Yes. An [extension](/docs/sdk/genui/guides/extensions/) adds an extension catalog plus a painter per platform. A macro, which expands into core components, needs no painter at all.
+
+## Next
+
+- [How do I theme an A2UI surface at runtime?](/docs/sdk/genui/learn/theming/)
+- [Generative UI vs hand-written SwiftUI and Compose](/docs/sdk/genui/compare/generative-ui-vs-native-code/)

@@ -2,19 +2,18 @@ name: check-desktop-windows
 
 # FEED-189: the gate's desktop `cargo check` runs on Linux, so `cfg(windows)`
 # code merges uncompiled, and the release's Windows leg is continue-on-error.
-# This compiles the app for Windows on the PRs that touch its update and
-# relaunch path or the vendored gpui-pre-windows (#ERR-2/#ERR-3), whose own
-# tests it runs too. Informational: not part of `gate`.
+# This compiles the app for Windows on every PR that touches the desktop
+# workspace (#EXP-1805: was only the update and relaunch path; a warm run
+# takes ~4-8 min on a free hosted runner) and runs the vendored
+# gpui-pre-windows' own tests (#ERR-2/#ERR-3). Informational: not part of
+# `gate`. The macOS twin is check-desktop-macos.yml.
 
 on:
   pull_request:
     paths:
       - ".github/workflows/check-desktop-windows.yml"
-      - "apps/desktop/crates/app/src/windows_integration.rs"
-      - "apps/desktop/crates/app/src/main.rs"
-      - "apps/desktop/crates/coding/src/process.rs"
-      - "apps/desktop/crates/updater/**"
-      - "apps/desktop/vendor/gpui-pre-windows/**"
+      - ".github/actions/cargo-fetch/**"
+      - "apps/desktop/**"
 
 permissions:
   contents: read

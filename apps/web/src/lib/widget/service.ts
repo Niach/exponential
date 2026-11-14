@@ -822,8 +822,10 @@ export async function createWidgetSubmission(args: {
     // row stores no URL — the token is never persisted, only recomputed per
     // email. Past the per-address mail bucket (NEW-19, rate-limit.ts) the
     // report still lands; only the mail is skipped.
+    // FEED-217: a widget with the submit mail off files silently (null = the
+    // panel promises no email, like a report without an address).
     let emailDelivered: boolean | null = null
-    if (fields.data.email) {
+    if (fields.data.email && config.notifyReporterOnSubmit) {
       if (takeWidgetConfirmationMailToken(fields.data.email)) {
         emailDelivered = await sendReporterConfirmation({
           to: fields.data.email,

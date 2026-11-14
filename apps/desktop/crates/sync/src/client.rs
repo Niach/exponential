@@ -289,6 +289,62 @@ pub enum ShapeDelta {
     PipelineRestarted { account_id: String },
 }
 
+/// #FEED-245: fold a backlog of deltas into one batch per (account, shape).
+///
+/// The foreground drain applies deltas one at a time, each with a hop to the
+/// background executor and back. Under a congested main thread (a dozen live
+/// agent sessions) every shape's idle `up-to-date` beat alone outran it: the
+/// queue grew to minutes, the collections (and the pickup that plans from
+/// them) lagged with it, and a new `queued` session waited ~8 minutes for
+/// its device while direct (eNet) messages still arrived at once. An
+/// `Applied` delta only NOTIFIES (its rows are re-read from SQLite), so a run
+/// of them merges losslessly: the union of keys (first seen first), any full
+/// replace, any `up-to-date`. Every other delta stays where it was and splits
+/// the runs, so a 401 or a restart is still seen in order.
+pub fn coalesce_deltas(deltas: impl IntoIterator<Item = ShapeDelta>) -> Vec<ShapeDelta> {
+    let mut out: Vec<ShapeDelta> = Vec::new();
+    // Index into `out` of each (account, shape) batch of the current run.
+    let mut run: std::collections::HashMap<(String, &'static str), usize> = std::collections::HashMap::new();
+    let mut seen: std::collections::HashMap<usize, std::collections::HashSet<RowKey>> = std::collections::HashMap::new();
+    for delta in deltas {
+        let ShapeDelta::Applied { account_id, shape, keys, full_replace, up_to_date } = delta else {
+            run.clear();
+            seen.clear();
+            out.push(delta);
+            continue;
+        };
+        match run.get(&(account_id.clone(), shape)) {
+            Some(&at) => {
+                let known = seen.entry(at).or_default();
+                if let ShapeDelta::Applied {
+                    keys: merged,
+                    full_replace: merged_full,
+                    up_to_date: merged_up,
+                    ..
+                } = &mut out[at]
+                {
+                    for key in keys {
+                        if known.insert(key.clone()) {
+                            merged.push(key);
+                        }
+                    }
+                    *merged_full |= full_replace;
+                    *merged_up |= up_to_date;
+                }
+            }
+            None => {
+                let at = out.len();
+                let mut known = std::collections::HashSet::with_capacity(keys.len());
+                let keys: Vec<RowKey> = keys.into_iter().filter(|key| known.insert(key.clone())).collect();
+                seen.insert(at, known);
+                run.insert((account_id.clone(), shape), at);
+                out.push(ShapeDelta::Applied { account_id, shape, keys, full_replace, up_to_date });
+            }
+        }
+    }
+    out
+}
+
 // ---------------------------------------------------------------------------
 // Poll errors / outcome
 // ---------------------------------------------------------------------------
@@ -809,6 +865,83 @@ pub(crate) fn sleep_with_stop(stop: &Arc<AtomicBool>, total: Duration) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn applied(account: &str, shape: &'static str, keys: &[&str], full_replace: bool, up_to_date: bool) -> ShapeDelta {
+        ShapeDelta::Applied {
+            account_id: account.into(),
+            shape,
+            keys: keys.iter().map(|key| RowKey::Single((*key).into())).collect(),
+            full_replace,
+            up_to_date,
+        }
+    }
+
+    fn summary(deltas: &[ShapeDelta]) -> Vec<String> {
+        deltas
+            .iter()
+            .map(|delta| match delta {
+                ShapeDelta::Applied { account_id, shape, keys, full_replace, up_to_date } => {
+                    let keys: Vec<String> = keys
+                        .iter()
+                        .map(|key| match key {
+                            RowKey::Single(id) => id.clone(),
+                            RowKey::Pair(a, b) => format!("{a}/{b}"),
+                        })
+                        .collect();
+                    format!("{account_id}:{shape}[{}]{}{}", keys.join(","), if *full_replace { " full" } else { "" }, if *up_to_date { " live" } else { "" })
+                }
+                ShapeDelta::Unauthorized { account_id } => format!("401 {account_id}"),
+                ShapeDelta::PollFailed { account_id, shape, .. } => format!("failed {account_id}:{shape}"),
+                ShapeDelta::PipelineRestarted { account_id } => format!("restarted {account_id}"),
+            })
+            .collect()
+    }
+
+    /// #FEED-245: a new `queued` session queued behind minutes of idle
+    /// beats is ONE batch of its shape, not the tail of a backlog.
+    #[test]
+    fn a_backlog_folds_into_one_batch_per_shape() {
+        let mut backlog = Vec::new();
+        for _ in 0..200 {
+            for shape in ["messages", "events", "sessions", "issues"] {
+                backlog.push(applied("a", shape, &[], false, true));
+            }
+        }
+        backlog.push(applied("a", "sessions", &["new-root"], false, false));
+        backlog.push(applied("a", "messages", &["m1", "m2"], false, false));
+        backlog.push(applied("a", "sessions", &["new-root", "child"], false, true));
+        let folded = coalesce_deltas(backlog);
+        assert_eq!(
+            summary(&folded),
+            ["a:messages[m1,m2] live", "a:events[] live", "a:sessions[new-root,child] live", "a:issues[] live"]
+        );
+    }
+
+    #[test]
+    fn a_full_replace_wins_and_accounts_stay_apart() {
+        let folded = coalesce_deltas([
+            applied("a", "sessions", &["s1"], false, false),
+            applied("b", "sessions", &["s9"], false, false),
+            applied("a", "sessions", &[], true, false),
+        ]);
+        assert_eq!(summary(&folded), ["a:sessions[s1] full", "b:sessions[s9]"]);
+    }
+
+    #[test]
+    fn other_deltas_keep_their_place_and_split_the_runs() {
+        let folded = coalesce_deltas([
+            applied("a", "sessions", &["s1"], false, false),
+            ShapeDelta::PollFailed { account_id: "a".into(), shape: "sessions", error: "timeout".into() },
+            applied("a", "sessions", &["s2"], false, true),
+            applied("a", "sessions", &["s3"], false, false),
+            ShapeDelta::Unauthorized { account_id: "a".into() },
+            applied("a", "sessions", &["s4"], false, false),
+        ]);
+        assert_eq!(
+            summary(&folded),
+            ["a:sessions[s1]", "failed a:sessions", "a:sessions[s2,s3] live", "401 a", "a:sessions[s4]"]
+        );
+    }
 
     #[test]
     fn sleep_with_stop_returns_early_on_stop() {

@@ -197,6 +197,8 @@ const config = {
   boardId: `proj-1`,
   publicKey: `expw_test`,
   enabled: true,
+  notifyReporterOnSubmit: true,
+  notifyReporterOnClose: true,
   allowedDomains: [`example.com`],
   formConfig: null,
   boardSlug: `board`,
@@ -533,6 +535,24 @@ describe(`createWidgetSubmission reporter text + confirmation (SLOP-4)`, () => {
       reporterEmail: `reporter@example.com`,
       reporterName: `Ada`,
     })
+  })
+
+  it(`FEED-217: a widget with the submit mail off files without a confirmation`, async () => {
+    const form = messageForm(`Button broken`)
+    form.set(`email`, `reporter@example.com`)
+
+    const result = await createWidgetSubmission({
+      config: { ...config, notifyReporterOnSubmit: false },
+      formData: form,
+      userAgent: null,
+    })
+
+    expect(result.emailDelivered).toBe(null)
+    expect(h.sendReporterConfirmationEmail).not.toHaveBeenCalled()
+    expect(h.dbInserts.some((i) => i.table === emailDeliveries)).toBe(false)
+    // The reporter is still recorded: Reply to reporter keeps working.
+    const submission = h.inserts.find((i) => i.table === widgetSubmissions)
+    expect(submission?.values.reporterEmail).toBe(`reporter@example.com`)
   })
 
   it(`reports emailDelivered false when the transport refuses the send`, async () => {

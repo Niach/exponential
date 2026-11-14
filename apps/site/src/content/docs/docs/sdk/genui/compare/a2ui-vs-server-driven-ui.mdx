@@ -1,0 +1,40 @@
+---
+title: A2UI vs server-driven UI
+description: Both send a screen as data to a client that paints it natively. The difference is who writes the screen, how the contract is shared, and how updates arrive.
+---
+
+Server-driven UI (SDUI) and A2UI share an idea: the server sends a description of the screen as data, and the client paints it with components it already ships. A2UI is a form of server-driven UI. What changes is **who writes the screen** and what the contract is optimised for.
+
+## What do they have in common?
+
+- The client ships the components; the server only picks and configures them.
+- Nothing is executed on the client except what the client already contains, so a screen can change without an app release.
+- The client stays in charge of the look, accessibility and what an action may do.
+
+## Where do they differ?
+
+| | Classic server-driven UI | A2UI |
+|---|---|---|
+| Who writes the screen | Backend code or a CMS, written by your team ahead of time | A model at runtime, in answer to a request |
+| Schema | Usually a company's own format, shared by its backend and apps | An open protocol ([a2ui.org](https://a2ui.org/)) with a catalog both sides agree on |
+| Who reads the schema | Developers | The model, through a prompt written from the catalog (`catalogPrompt()` in genUI) |
+| Shape on the wire | Usually a full screen per response | A flat list of components by id, streamed and patched one component at a time |
+| Invalid input | A backend bug, caught by tests | Expected: the renderer returns issues, and the model retries |
+| Actions | Routed to your backend endpoints | Sent back to the agent as events, with their context resolved from the surface's data model |
+
+## When is classic server-driven UI the better choice?
+
+When every screen is known in advance. If your team designs the screens and the server only fills in content or reorders sections, a fixed schema owned by your backend is simpler and fully deterministic. A model adds nothing there.
+
+## When is A2UI the better choice?
+
+When the screen depends on a conversation or a task that nobody designed in advance: a confirmation with the numbers the agent just computed, a form for the fields that are still missing, or a summary of the result of the work. The model chooses the components, and the catalog and the renderer keep the output inside what the app supports.
+
+## Can I use both?
+
+Yes. An A2UI renderer is also a server-driven UI client. With genUI your backend can write A2UI messages itself, for example with the [TypeScript surface builder](/docs/sdk/genui/guides/define/), and send them through the same transport as the agent. The app then needs a single renderer.
+
+## Next
+
+- [What is A2UI?](/docs/sdk/genui/learn/what-is-a2ui/)
+- [How does an agent send UI through MCP?](/docs/sdk/genui/learn/a2ui-over-mcp/)

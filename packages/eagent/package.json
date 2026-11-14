@@ -17,6 +17,7 @@
     ".": "./src/index.ts",
     "./reduce": "./src/reduce.ts",
     "./copy": "./src/copy.ts",
+    "./overlap": "./src/overlap.ts",
     "./model": "./src/model.ts",
     "./fixtures/*": "./fixtures/*"
   },

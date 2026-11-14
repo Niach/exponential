@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const h = vi.hoisted(() => ({
   selectQueue: [] as unknown[][],
   sent: [] as Array<{ to: string; issueTitle: string }>,
+  claims: 0,
 }))
 
 vi.mock(`@/db/connection`, () => {
@@ -15,6 +16,7 @@ vi.mock(`@/db/connection`, () => {
     const b = {
       from: () => b,
       innerJoin: () => b,
+      leftJoin: () => b,
       where: () => b,
       orderBy: () => b,
       limit: async () => result,
@@ -27,7 +29,10 @@ vi.mock(`@/db/connection`, () => {
     db: {
       select: vi.fn(() => builder(h.selectQueue.shift() ?? [])),
       update: vi.fn(() => ({
-        set: () => ({ where: () => ({ returning: async () => [{ id: `sub-1` }] }) }),
+        set: () => {
+          h.claims += 1
+          return { where: () => ({ returning: async () => [{ id: `sub-1` }] }) }
+        },
       })),
       insert: vi.fn(() => ({ values: async () => undefined })),
     },
@@ -50,6 +55,7 @@ import { fireAndForgetReporterResolution } from "@/lib/integrations/notification
 beforeEach(() => {
   h.selectQueue = []
   h.sent = []
+  h.claims = 0
 })
 
 describe(`fireAndForgetReporterResolution (FEED-159)`, () => {
@@ -64,5 +70,29 @@ describe(`fireAndForgetReporterResolution (FEED-159)`, () => {
     const byTo = Object.fromEntries(h.sent.map((sent) => [sent.to, sent.issueTitle]))
     expect(byTo[`reporter@example.com`]).toBe(`Crash for @Support and @reporter@example.com`)
     expect(byTo[`other@example.com`]).toBe(`Crash for @Support and @Support`)
+  })
+
+  it(`FEED-217: a widget with the close mail off sends nothing and claims nothing`, async () => {
+    h.selectQueue = [
+      [{ id: `sub-1`, resolvedNotifiedAt: null, notifyReporterOnClose: false }],
+      [{ email: `reporter@example.com` }],
+      [{ id: `i-1`, identifier: `EXP-1`, title: `Crash` }],
+    ]
+    fireAndForgetReporterResolution({ issueId: `i-1`, toStatus: `done` })
+    // The off path returns after the first select: the queue keeps the rest.
+    await vi.waitFor(() => expect(h.selectQueue).toHaveLength(2))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(h.sent).toHaveLength(0)
+    expect(h.claims).toBe(0)
+  })
+
+  it(`FEED-217: a deleted widget (null setting) still mails`, async () => {
+    h.selectQueue = [
+      [{ id: `sub-1`, resolvedNotifiedAt: null, notifyReporterOnClose: null }],
+      [{ email: `reporter@example.com` }],
+      [{ id: `i-1`, identifier: `EXP-1`, title: `Crash` }],
+    ]
+    fireAndForgetReporterResolution({ issueId: `i-1`, toStatus: `done` })
+    await vi.waitFor(() => expect(h.sent).toHaveLength(1))
   })
 })
