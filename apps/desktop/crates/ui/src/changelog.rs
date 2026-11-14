@@ -46,6 +46,16 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-14-android-memory-stopgap",
+    date: "2026-11-14",
+    title: "Android stays open in long sessions",
+    summary: "Android 0.14.140 gives the app more memory, so it no longer crashes over and over on some phones while a large chat or session list is open.",
+    body: r##"- **Fewer crashes**: on phones where Exponential kept closing itself after a while in a big chat, the app now has more room and stays open. A proper fix for the memory use follows."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_296: ChangelogEntry = ChangelogEntry {
     id: "2026-11-14-app-triggers",
     date: "2026-11-14",
     title: "App automations are the app agent's triggers",

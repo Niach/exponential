@@ -1,12 +1,14 @@
 import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import {
+  GlassGroup,
   GlassSectionHeader,
   ListRow,
   ROW_PARTS,
   SECTION_PARTS,
   SETTINGS_LIST_CLASS,
 } from "./glass-rows"
+import { Picker } from "./picker/picker"
 
 // EXP-1320: an entity list = a band over FLAT gapless rows, NO dividers ×4.
 describe(`SETTINGS_LIST_CLASS`, () => {
@@ -185,5 +187,49 @@ describe(`the catalog part vocabulary`, () => {
     expect(a!.className).toBe(b!.className)
     expect(c!.getAttribute(`data-density`)).toBe(`compact`)
     expect(c!.className).toContain(`h-7`)
+  })
+})
+
+// EXP-1851: a row Picker is a `display: contents` wrapper, which draws no
+// border, so the group's `divide-y` lost the hairline under it on web.
+// The group hands that line to the wrapper's last rendered box instead.
+describe(`GlassGroup hairlines under contents rows`, () => {
+  const items = [{ value: `a`, label: `A` }]
+  const group = () => {
+    const { container } = render(
+      <GlassGroup>
+        <Picker mode="single" triggerVariant="row" triggerLabel="Device" mobileTitle="Device" value={null} items={items} onChange={() => {}} />
+        <Picker mode="single" presentation="inline" triggerVariant="row" triggerLabel="Model" mobileTitle="Model" value={null} items={items} onChange={() => {}} />
+        <ListRow>Last</ListRow>
+      </GlassGroup>
+    )
+    return container.querySelector(`[data-slot=glass-group]`)!
+  }
+
+  it(`draws the line on the picker's row trigger, one level or two deep`, () => {
+    const el = group()
+    const cls = el.className
+    expect(cls).toContain(`divide-y`)
+    expect(cls).toContain(`[&>.contents:not(:last-child)>:last-child]:border-b`)
+    expect(cls).toContain(`[&>.contents:not(:last-child)>.contents:last-child>:last-child]:border-b`)
+    const triggers = el.querySelectorAll(`[data-slot=glass-picker-row]`)
+    expect(triggers).toHaveLength(2)
+    // Each selector reaches exactly the two triggers, never the last row.
+    const reached = [
+      ...el.querySelectorAll(`:scope>.contents:not(:last-child)>:last-child`),
+      ...el.querySelectorAll(`:scope>.contents:not(:last-child)>.contents:last-child>:last-child`),
+    ].filter((node) => !node.classList.contains(`contents`))
+    expect(reached).toEqual(Array.from(triggers))
+  })
+
+  it(`draws no line under a picker that is the last row`, () => {
+    const { container } = render(
+      <GlassGroup>
+        <ListRow>First</ListRow>
+        <Picker mode="single" triggerVariant="row" triggerLabel="Device" mobileTitle="Device" value={null} items={items} onChange={() => {}} />
+      </GlassGroup>
+    )
+    const el = container.querySelector(`[data-slot=glass-group]`)!
+    expect(el.querySelectorAll(`:scope>.contents:not(:last-child)>:last-child`)).toHaveLength(0)
   })
 })
