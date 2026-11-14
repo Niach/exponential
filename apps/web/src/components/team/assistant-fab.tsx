@@ -15,8 +15,8 @@ import {
   ExponentialLogo,
   FabButton,
   Popover,
-  PopoverAnchor,
   PopoverContent,
+  PopoverTrigger,
   SkeletonRows,
   useIsMobile,
   useToastLift,
@@ -91,19 +91,17 @@ function AssistantFabButton({
   }
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverAnchor asChild>
-        <div
-          className="pointer-events-none absolute z-20"
-          style={{ right: ASSISTANT_FAB.inset, bottom: ASSISTANT_FAB.inset }}
-        >
+      <div
+        className="pointer-events-none absolute z-20"
+        style={{ right: ASSISTANT_FAB.inset, bottom: ASSISTANT_FAB.inset }}
+      >
+        <PopoverTrigger asChild>
           <FabButton
             aria-label={assistant.name || ASSISTANT_FAB_COPY.label}
-            aria-expanded={open}
             title={assistant.name || ASSISTANT_FAB_COPY.label}
             data-testid={ASSISTANT_FAB_TEST_IDS.fab}
             emphasis="primary"
             className="relative"
-            onClick={() => setOpen((value) => !value)}
           >
             <ExponentialLogo variant="light" className="size-5 text-foreground" />
             {badge && badge.count > 0 && (
@@ -115,8 +113,8 @@ function AssistantFabButton({
               />
             )}
           </FabButton>
-        </div>
-      </PopoverAnchor>
+        </PopoverTrigger>
+      </div>
       <PopoverContent
         side="top"
         align="end"
