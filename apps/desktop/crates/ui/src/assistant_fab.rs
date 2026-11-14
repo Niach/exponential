@@ -12,7 +12,6 @@
 //! (`assistant_fab_visible`). While it shows, the toast stack rises by
 //! `toastLift` (the Shell sets it).
 
-use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, App, AppContext as _, Entity, InteractiveElement as _, IntoElement, ParentElement as _, Render,
     RenderOnce, SharedString, StatefulInteractiveElement as _, Styled as _, Subscription, Window,
