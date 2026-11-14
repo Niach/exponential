@@ -427,12 +427,6 @@ struct AppNavigator: View {
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("chat-cards-screen")
         }
-        // #EXP-1832: the read-only folders (capture only).
-        .fullScreenCover(isPresented: .constant(
-            UITestingStyleguide.requested.map(SidebarFoldersSpecimen.kinds.contains) == true
-        )) {
-            SidebarFoldersSpecimen(kind: UITestingStyleguide.requested ?? "sidebar-folders-picker")
-        }
         // #EXP-1641: the expanded notification's actions (capture only, a mock).
         .fullScreenCover(isPresented: .constant(
             UITestingStyleguide.requested.map(NotificationActionsSpecimen.kinds.contains) == true
