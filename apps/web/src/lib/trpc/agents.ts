@@ -3,8 +3,10 @@ import { TRPCError } from "@trpc/server"
 import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm"
 import {
   AGENT_INSTRUCTIONS_MAX_BYTES,
+  MAX_AGENT_TRIGGERS,
   SKILLS_PER_SESSION_MAX,
   agentFacetsSchema,
+  agentTriggerKindValues,
   agentTriggersSchema,
   boardIconSchema,
   hexColorSchema,
@@ -14,7 +16,7 @@ import {
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { assertSkillsInTeam } from "@/lib/skills-guard"
 import { db } from "@/db/connection"
-import { appTriggerIssues, mergeTriggerWrite, TRIGGER_ISSUE_MESSAGES } from "@/lib/agents/app-triggers"
+import { appTriggerIssues, keepUnknownKinds, mergeTriggerWrite, TRIGGER_ISSUE_MESSAGES } from "@/lib/agents/app-triggers"
 import {
   agents,
   apps,
@@ -349,6 +351,10 @@ export const agentsRouter = router({
         // instructions on every update that leaves them out).
         instructions: z.string().max(AGENT_INSTRUCTIONS_MAX_BYTES).optional(),
         triggers: agentTriggersSchema.optional(),
+        // #EXP-1829: the trigger kinds this writer shows (absent = an older
+        // client: schedule + event); stored triggers of other kinds that
+        // `triggers` leaves out are kept.
+        triggerKinds: z.array(z.enum(agentTriggerKindValues)).optional(),
         deviceId: z.string().min(1).max(128).optional(),
         cli: z.string().min(1).max(16).optional(),
         account: z.string().min(1).max(64).nullable().optional(),
@@ -366,7 +372,13 @@ export const agentsRouter = router({
       if (agent.role === `assistant` && input.triggers !== undefined) assertAssistantTriggers(input.triggers)
       // #EXP-1829: a kept trigger keeps its prompt/run unless the write
       // names them; app kinds and runs only on an app's agent.
-      const triggers = input.triggers === undefined ? undefined : mergeTriggerWrite(agent.triggers, input.triggers)
+      const triggers =
+        input.triggers === undefined
+          ? undefined
+          : keepUnknownKinds(agent.triggers, mergeTriggerWrite(agent.triggers, input.triggers), input.triggerKinds)
+      if (triggers && triggers.length > MAX_AGENT_TRIGGERS) {
+        throw new TRPCError({ code: `BAD_REQUEST`, message: `an agent holds at most ${MAX_AGENT_TRIGGERS} triggers` })
+      }
       if (triggers) assertTriggersFit(triggers, await appOfAgent(agent.id))
       // #EXP-1439: the Assistant's prompt is built in. An old client resends
       // the stored text unchanged on every save; only an EDIT is refused.

@@ -39,6 +39,7 @@ const { automationRows, runsLastMinute } = await import(`@/lib/apps/automations`
 const { fireScheduledTriggers } = await import(`@/lib/agents/triggers`)
 const { migrateAppAutomations } = await import(`@/lib/apps/automations-migrate`)
 const { triggerAutomationName } = await import(`@/lib/agents/app-triggers`)
+const { agentsRouter } = await import(`@/lib/trpc/agents`)
 
 const id8 = () => crypto.randomUUID().slice(0, 8)
 const made = { teams: [] as string[], users: [] as string[] }
@@ -171,6 +172,36 @@ describe.skipIf(!ready.ok)(`app automations (real db)`, () => {
     expect(row?.state[w.ids.log_request!]?.paused).toBe(`sponsorReadOnly`)
     const listed = await automationRows({ id: w.appId })
     expect(listed.find((r) => r.name === `When a request is created`)).toMatchObject({ paused: `sponsorReadOnly`, lastStatus: `denied`, lastError: `sponsorReadOnly` })
+  })
+
+  it(`an older client's save never deletes record or webhook triggers (#EXP-1829)`, async () => {
+    const w = await world()
+    const hook = { id: crypto.randomUUID(), enabled: true, kind: `webhook`, name: `stripe` }
+    await db.update(agents).set({ triggers: [...w.agent.triggers, hook] as never }).where(eq(agents.id, w.agentId))
+    const asOwner = agentsRouter.createCaller({ session: { user: { id: w.owner } }, db, request: new Request(`http://x.test`) } as never)
+    // A released client knows schedule + event only: it toggles the schedule
+    // and sends back the list it can read (no record, no webhook, no run).
+    const morning = w.agent.triggers[3]!
+    const onDeploy = w.agent.triggers[2]!
+    await asOwner.update({
+      id: w.agentId,
+      triggers: [
+        { id: onDeploy.id, enabled: true, kind: `event`, name: `deploy.done` },
+        { id: morning.id, enabled: false, kind: `schedule`, cron: `0 8 * * *`, tz: `UTC` },
+      ],
+    })
+    const [after] = await db.select({ triggers: agents.triggers }).from(agents).where(eq(agents.id, w.agentId))
+    const byId = new Map(after!.triggers.map((t) => [t.id, t]))
+    expect(after!.triggers).toHaveLength(5)
+    expect(byId.get(morning.id)).toMatchObject({ enabled: false, run: { records: { kind: `log` } } })
+    expect(byId.get(onDeploy.id)).toMatchObject({ enabled: true, run: { records: { kind: `log` } } })
+    expect(byId.get(w.ids.log_request!)).toMatchObject({ kind: `record`, record: `request`, run: { records: { kind: `log` } } })
+    expect(byId.get(w.ids.log_log!)).toMatchObject({ kind: `record`, record: `log` })
+    expect(byId.get(hook.id)).toMatchObject({ kind: `webhook`, name: `stripe` })
+    // A writer that names every kind replaces the whole list (deletes them).
+    await asOwner.update({ id: w.agentId, triggers: [{ id: hook.id, enabled: true, kind: `webhook`, name: `stripe` }], triggerKinds: [`schedule`, `event`, `record`, `webhook`] })
+    const [whole] = await db.select({ triggers: agents.triggers }).from(agents).where(eq(agents.id, w.agentId))
+    expect(whole!.triggers.map((t) => t.id)).toEqual([hook.id])
   })
 
   it(`a wake trigger posts the card into the owner's conversation, audited`, async () => {

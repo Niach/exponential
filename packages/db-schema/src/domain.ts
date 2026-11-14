@@ -771,7 +771,9 @@ export const startPromptSchema = z
 // @exp/emcp `exposes` run) it runs that ONE binding on the server instead,
 // no session, as the agent's owner (@exp/emcp automations.json). An update
 // that leaves `prompt`/`run` out of a kept trigger (same id) keeps the
-// stored value; `null` clears it (an older client never erases them).
+// stored value; `null` clears it, and a stored trigger of a kind the writer
+// does not show (`agents.update` `triggerKinds`, absent = schedule + event)
+// is kept when the list leaves it out (an older client never erases them).
 // Writes are STRICT (agentTriggerSchema); readers stay tolerant (an unknown
 // trigger never fires).
 

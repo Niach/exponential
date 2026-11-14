@@ -213,3 +213,21 @@ export function automationAsTrigger(
   const prompt = own && typeof run.prompt === `string` && run.prompt.trim() ? run.prompt.trim() : undefined
   return { ...base, ...when, ...(own ? (prompt ? { prompt } : {}) : { run }) } as unknown as AgentTrigger
 }
+
+/** The kinds a writer that names none knows: every client before #EXP-1829. */
+export const LEGACY_TRIGGER_KINDS: readonly string[] = [`schedule`, `event`]
+
+/** #EXP-1829: a writer replaces only the trigger KINDS it knows
+ *  (`writerKinds`; an older client, which names none, knows schedule and
+ *  event). A stored trigger of any other kind that the write leaves out is
+ *  KEPT, after the written ones, so a released phone or desktop that cannot
+ *  show record or webhook triggers never deletes them by saving the list. */
+export function keepUnknownKinds(
+  stored: readonly AgentTrigger[] | null | undefined,
+  written: readonly AgentTrigger[],
+  writerKinds: readonly string[] = LEGACY_TRIGGER_KINDS
+): AgentTrigger[] {
+  const ids = new Set(written.map((t) => t.id))
+  const kept = (stored ?? []).filter((t) => t && typeof t.id === `string` && !writerKinds.includes(t.kind) && !ids.has(t.id))
+  return [...written, ...kept]
+}

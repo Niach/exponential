@@ -46,6 +46,7 @@ import {
   AGENT_INSTRUCTIONS_MAX_BYTES,
   agentFacetsSchema,
   agentTriggersSchema,
+  agentTriggerKindValues,
   SKILL_BODY_MAX,
   SKILLS_PER_SESSION_MAX,
   SKILL_DESCRIPTION_MAX,
@@ -4714,7 +4715,8 @@ export function registerExponentialTools(
     async (input) => {
       try {
         if (!access.full) assertTeamFullyGranted(access, (await loadAgentForUser(user.id, input.id)).teamId)
-        const result = await caller(user, request).agents.update(input)
+        // #EXP-1829: an MCP writer sees every kind (agents get), so its list is whole.
+        const result = await caller(user, request).agents.update({ ...input, ...(input.triggers ? { triggerKinds: [...agentTriggerKindValues] } : {}) })
         return ok(result.agent)
       } catch (e) {
         return err(ownerOnly(e, `agents`))

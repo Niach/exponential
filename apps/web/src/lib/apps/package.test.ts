@@ -1,4 +1,4 @@
-import { appTriggerIssues, automationAsTrigger, mergeTriggerWrite, triggerAutomationName } from "@/lib/agents/app-triggers"
+import { appTriggerIssues, automationAsTrigger, keepUnknownKinds, mergeTriggerWrite, triggerAutomationName } from "@/lib/agents/app-triggers"
 import { describe, expect, it } from "vitest"
 import { APP_CATALOG_SECTIONS, APP_SOURCE_NAMES, appCatalogText, appPackageIssues, linkableScreens, upstreamIssues, validateAppPackage } from "@/lib/apps/package"
 import emcp from "@exp/emcp/fixtures/exposes.json" with { type: "json" }
@@ -183,6 +183,13 @@ describe(`automations are the app agent's triggers (#EXP-1829)`, () => {
     expect(cleared).not.toHaveProperty(`run`)
     const [fresh] = mergeTriggerWrite(stored, [{ enabled: true, kind: `event`, name: `pr.merged` }])
     expect(fresh!.id).toMatch(/^[0-9a-f-]{36}$/)
+  })
+
+  it(`a writer replaces only the kinds it shows`, () => {
+    const hook = { id: `22222222-2222-4333-8444-555555555555`, enabled: true, kind: `webhook`, name: `stripe` } as never
+    const sched = { id, enabled: true, kind: `schedule`, cron: `0 8 * * *` } as never
+    expect(keepUnknownKinds([sched, hook], []).map((t) => t.id)).toEqual([`22222222-2222-4333-8444-555555555555`])
+    expect(keepUnknownKinds([sched, hook], [], [`schedule`, `event`, `record`, `webhook`])).toEqual([])
   })
 
   it(`an old automation becomes a trigger`, () => {
