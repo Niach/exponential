@@ -220,12 +220,11 @@ describe(`the agent chat with no conversation yet`, () => {
     expect(screen.queryByTestId(`floating-composer`)).toBeNull()
   })
 
-  it(`md+: another tab = the beside rule (the chat pane + the tab pane)`, () => {
+  it(`#EXP-1834: an empty tab is disabled, a requested one falls back to the chat`, () => {
     mocks.search.current = { tab: `sessions` }
     render(<Page />)
-    const beside = screen.getByTestId(`session-beside`)
-    expect(beside.querySelector(`[data-testid="dock"]`)).toBeTruthy()
-    expect(screen.getByTestId(`session-pane`).querySelector(`[data-testid="sessions-tab"]`)).toBeTruthy()
+    expect(screen.queryByTestId(`session-beside`)).toBeNull()
+    expect(screen.queryByTestId(`session-pane`)).toBeNull()
   })
 
   it(`the menu's Agent settings opens the agent settings body as an opened item`, () => {

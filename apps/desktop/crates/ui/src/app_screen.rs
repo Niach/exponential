@@ -1104,6 +1104,8 @@ impl AppScreenView {
             kind: SessionScreenKind::App.as_str(),
             phone: false,
             member: team_member && root.is_some(),
+            // #EXP-1834: an app never links issues.
+            link_issue: false,
             settings: team_member,
             publish,
             export: app.head_version > 0,

@@ -1697,7 +1697,10 @@ mod tests {
         let boxed = json!({"borderRadius": 16, "borderTopLeftRadius": 16, "paddingHorizontal": 14, "paddingVertical": 10, "maxWidth": "62%", "borderWidth": 1});
         has(&bubble("in"), boxed.clone());
         has(&bubble("in"), json!({"backgroundColor": exp.modes.dark.color["popover"], "borderColor": "#ffffff1a"}));
-        has(&bubble("out"), boxed);
+        // #FEED-239: the viewer's own bubble has no leading inset.
+        let mut own = boxed;
+        own["maxWidth"] = json!("100%");
+        has(&bubble("out"), own);
         has(&bubble("out"), json!({"backgroundColor": "#ffffff1c", "borderColor": "#ffffff1f"}));
         assert_eq!(resolve_recipe(&exp, &q("MessageBubble", "time", json!({}), &[]), Mode::Dark)["fontSize"], json!(10));
         assert!(resolve_recipe(&builtin_theme("neutral").unwrap(), &q("MessageBubble", "bubble", json!({"side": "in"}), &[]), Mode::Dark).get("maxWidth").is_none());
