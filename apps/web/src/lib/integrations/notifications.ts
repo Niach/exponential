@@ -29,6 +29,7 @@ import {
   boards,
   notifications,
   users,
+  widgetConfigs,
   widgetSubmissions,
   teamMembers,
   teams,
@@ -1567,11 +1568,19 @@ export function fireAndForgetReporterResolution(args: {
         .select({
           id: widgetSubmissions.id,
           resolvedNotifiedAt: widgetSubmissions.resolvedNotifiedAt,
+          notifyReporterOnClose: widgetConfigs.notifyReporterOnClose,
         })
         .from(widgetSubmissions)
+        .leftJoin(
+          widgetConfigs,
+          eq(widgetConfigs.id, widgetSubmissions.widgetConfigId)
+        )
         .where(eq(widgetSubmissions.issueId, issueId))
         .limit(1)
       if (!submission) return
+      // FEED-217: the widget's close mail is off → skip WITHOUT claiming the
+      // flag (a deleted widget = null keeps today's behaviour).
+      if (submission.notifyReporterOnClose === false) return
       if (
         !shouldSendReporterResolution({
           toStatus,

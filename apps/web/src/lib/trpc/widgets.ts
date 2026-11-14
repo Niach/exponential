@@ -175,6 +175,8 @@ export const widgetsRouter = router({
           boardName: boards.name,
           allowedDomains: widgetConfigs.allowedDomains,
           enabled: widgetConfigs.enabled,
+          notifyReporterOnSubmit: widgetConfigs.notifyReporterOnSubmit,
+          notifyReporterOnClose: widgetConfigs.notifyReporterOnClose,
           formConfig: widgetConfigs.formConfig,
           createdAt: widgetConfigs.createdAt,
           submissionCount: count(widgetSubmissions.id),
@@ -199,6 +201,9 @@ export const widgetsRouter = router({
         boardId: z.string().uuid(),
         name: widgetNameSchema,
         allowedDomains: allowedDomainsSchema,
+        // FEED-217: the automatic reporter mails (absent = on).
+        notifyReporterOnSubmit: z.boolean().optional(),
+        notifyReporterOnClose: z.boolean().optional(),
         formConfig: formConfigSchema,
       })
     )
@@ -225,6 +230,8 @@ export const widgetsRouter = router({
           name: input.name,
           publicKey: generateWidgetKey(),
           allowedDomains: input.allowedDomains,
+          notifyReporterOnSubmit: input.notifyReporterOnSubmit ?? true,
+          notifyReporterOnClose: input.notifyReporterOnClose ?? true,
           formConfig: input.formConfig ?? null,
           createdByUserId: ctx.session.user.id,
         })
@@ -241,6 +248,8 @@ export const widgetsRouter = router({
         boardId: z.string().uuid().optional(),
         allowedDomains: allowedDomainsSchema.optional(),
         enabled: z.boolean().optional(),
+        notifyReporterOnSubmit: z.boolean().optional(),
+        notifyReporterOnClose: z.boolean().optional(),
         formConfig: formConfigSchema,
       })
     )
@@ -272,6 +281,12 @@ export const widgetsRouter = router({
             ? { allowedDomains: input.allowedDomains }
             : {}),
           ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
+          ...(input.notifyReporterOnSubmit !== undefined
+            ? { notifyReporterOnSubmit: input.notifyReporterOnSubmit }
+            : {}),
+          ...(input.notifyReporterOnClose !== undefined
+            ? { notifyReporterOnClose: input.notifyReporterOnClose }
+            : {}),
           ...(input.formConfig !== undefined
             ? { formConfig: input.formConfig ?? null }
             : {}),
