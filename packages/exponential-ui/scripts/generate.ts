@@ -1494,6 +1494,11 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
       { id: `dismiss`, component: `Button`, props: { label: `Dismiss`, icon: `ui-close`, variant: `ghost`, size: `icon-xs` } },
     ] },
   }, {
+    // #EXP-1837: the phones' floating action button (web's FabButton): a
+    // 52 px glass circle, icon-only, its glyph at secondary emphasis.
+    label: `variant · fab, icon`,
+    node: { id: `fab`, component: `Button`, props: { label: `New issue`, icon: `ui-add`, variant: `fab` } },
+  }, {
     // #EXP-1813: a Button is a flex item like any other: a stretch column (a
     // Section's rows, a vertical Stack) stretches it; a row, `align: start`
     // or a trigger slot keeps its own width (every other case here).

@@ -10910,9 +10910,10 @@
             "outline",
             "ghost",
             "destructive",
-            "link"
+            "link",
+            "fab"
           ],
-          "description": "`default` = primary, `destructive` = dangerous, `ghost`/`link` = quiet.",
+          "description": "`default` = primary, `destructive` = dangerous, `ghost`/`link` = quiet, `fab` = a floating round icon-only button.",
           "default": "default"
         },
         "size": {

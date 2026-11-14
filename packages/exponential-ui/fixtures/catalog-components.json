@@ -9426,6 +9426,26 @@
       }
     },
     {
+      "name": "Button/variant=fab",
+      "node": {
+        "id": "button",
+        "component": "Button",
+        "props": {
+          "label": "Submit",
+          "variant": "fab"
+        },
+        "children": [
+          {
+            "id": "button_child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "Button/size=sm",
       "node": {
         "id": "button",

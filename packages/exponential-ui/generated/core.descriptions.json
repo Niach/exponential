@@ -1811,7 +1811,7 @@
           "description": "URL a press opens; `press` still fires."
         },
         "variant": {
-          "description": "`default` = primary, `destructive` = dangerous, `ghost`/`link` = quiet."
+          "description": "`default` = primary, `destructive` = dangerous, `ghost`/`link` = quiet, `fab` = a floating round icon-only button."
         },
         "size": {
           "description": "Control height class; `icon` is a square icon-only button, `icon-xs` a small round one."

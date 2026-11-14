@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Button `variant: "fab"` (#EXP-1837): icon-only in the leaf and the measurer; + the `Button/variant=fab` snapshot.
 - ChipInput hides its placeholder once it holds a chip (#EXP-1813): the inline `input` field reads only the part's `placeholder` (the core blanks it while `values` is non-empty), no longer the owner's, as React, Solid, SwiftUI and gpui do (`ChipInputPlaceholderTest`).
 - Markdown tables fit their columns (#FEED-224): `MarkdownTableFit` (`fixtures/table-fit.json`, `MarkdownTableFitTest`) replaces the equal shares; `MarkdownBlockBox.cols` carries each column's content width; a short table hugs its content, one wider than the box scrolls horizontally.
 - Markdown link labels balance brackets (#FEED-214): `linkAt` ends a label at the `[`'s balancing `]` (one stack pass per string, `Scan.closeBracket`) instead of the first `](`, as web, SwiftUI and gpui do, so `[![x](1.png)](u)` is a link `x` → `u`; `MarkdownRenderTest` replays the restored `image_in_link_is_alt` case.

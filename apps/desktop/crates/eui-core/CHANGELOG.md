@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Button `variant: "fab"` (#EXP-1837): the generated catalog/themes carry `buttonVariant`; `catalog_fixtures` counts 764 cases.
 - `MessageStatus` (#FEED-237): the new delivery-mark macro and `messageStatus` `failed` come through the generated catalog; the count tests follow.
 - `table_fit::fit_table_columns` (#FEED-224): the Markdown table column fit, `tests/table_fit.rs` replays `fixtures/table-fit.json`.
 - `CountBadge` (#FEED-232): `count_badge::label` (the label rule, `segmented::badge_text` now calls it); the layout tree puts the label in the node's `text`, hides a `""` badge (no box), and defaults it to one centred unshrinkable line in tabular figures.

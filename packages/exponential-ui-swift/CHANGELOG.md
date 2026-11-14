@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Button `variant: "fab"` (#EXP-1837): icon-only in the leaf and the measurer; + the `Button/variant=fab` snapshot.
 - Markdown tables fit their columns (#FEED-224): `MarkdownTableFit` (`fixtures/table-fit.json`, `MarkdownTableFitTests`) replaces the equal shares; `MarkdownBlockBox.cols` carries each column's content width; a short table hugs its content, one wider than the box scrolls horizontally.
 - `CountBadge` (#FEED-232): `CountBadgeLeaf` (the core's label, centred, the leaf's tabular type) + the measurer's one-line label; the recipe fills and rounds the box; 0 or below = hidden by the core.
 - Text `truncate: "middle"` keeps 4 characters or none (#EXP-1789): a cut keeping fewer than `middleMinKept` (4, the fixture's `minKept`) characters, start + end together, shows the `…` alone, so a nearly-gone run never reads as stray glyphs. `TextTruncateTests` replays `text-truncate.json`.

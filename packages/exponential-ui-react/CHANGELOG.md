@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Button `variant: "fab"` (#EXP-1837): icon-only like `size: "icon"` (no label part, the label is the `aria-label`); + the `Button/variant=fab` snapshot.
 - Markdown tables fit their columns (#FEED-224): a `.xui-Markdown-tableScroll` around the table, each cell's text in a `.xui-Markdown-cellText` sized by `watchMarkdownTable` (`fixtures/table-fit.json`).
 - `CountBadge` (#FEED-232): `CountBadgeNative`, one span with `countBadgeLabel`, nothing at 0 or below; `count-badge.test.tsx`.
 - `accessibility.selected` / `.expanded` (#EXP-1629): aria-selected (+ aria-current without a selection role), aria-expanded; `a11y-states.test.tsx` replays the fixture.
