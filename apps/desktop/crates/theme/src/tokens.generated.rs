@@ -68,6 +68,7 @@ pub mod glass {
     pub const STROKE_CARD: Srgb8 = Srgb8 { r: 255, g: 255, b: 255, a: 26 };
     pub const STROKE_STRONG: Srgb8 = Srgb8 { r: 255, g: 255, b: 255, a: 31 };
     pub const STROKE_ACTIVE: Srgb8 = Srgb8 { r: 255, g: 255, b: 255, a: 41 };
+    pub const FILL_OWN: Srgb8 = Srgb8 { r: 19, g: 32, b: 52, a: 255 };
 }
 
 // The unified-diff palette (EXP-895) — one look on all four clients: ADD/DEL_FG

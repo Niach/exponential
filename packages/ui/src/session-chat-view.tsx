@@ -296,7 +296,8 @@ export interface ChatConversationProps {
    *  factor (EXP-1676). */
   layout?: `transcript` | `bubbles`
   /** A row's `HH:mm` (the bubbles' time). */
-  messageTime?: (row: Extract<SessionChatRow, { type: `message` }>) => string | null
+  /** #EXP-1864: a child's report wears its time too. */
+  messageTime?: (row: Extract<SessionChatRow, { type: `message` | `report` }>) => string | null
   /** A surface card's `reply` press: send the text as the person's message
    *  (absent = the presses do nothing). */
   onSurfaceReply?: (text: string) => void
@@ -589,6 +590,7 @@ export function ChatConversation(props: ChatConversationProps) {
             renderText={renderText}
             author={null}
             relay={layout?.name && layout.sender ? { name: layout.sender.name, onPress: open ? () => openXref(row.sessionId) : undefined } : null}
+            time={messageTime?.(row) ?? null}
             className={enter}
           />
         )
@@ -798,7 +800,7 @@ export function ChatConversation(props: ChatConversationProps) {
             row.type === `session` && expanded.has(row.id) ? pending : null,
             WaitingCard ?? null,
             layoutKey(layouts.get(row.id)),
-            row.type === `message` ? (messageTime?.(row) ?? null) : null,
+            row.type === `message` || row.type === `report` ? (messageTime?.(row) ?? null) : null,
             viewerId ?? null,
             !onUnqueue,
             row.type === `message` ? (deliveryOf?.(row) ?? null) : null,
