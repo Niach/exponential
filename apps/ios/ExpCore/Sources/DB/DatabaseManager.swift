@@ -3360,7 +3360,36 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v108 (#EXP-1832, sidebar-folders.json): the synced `sidebar_layout`
+        // table (a brand-new table, no cursor yet): the member's folders and
+        // the order of their boards, agents and apps.
+        migrator.registerMigration("v108_sidebar_layout") { db in
+            try createSidebarLayoutTable(db)
+        }
+
         return migrator
+    }
+
+    /// #EXP-1832: the `sidebar_layout` table, mirroring the shape allowlist
+    /// (`/api/shapes/sidebar-layout`).
+    static func createSidebarLayoutTable(_ db: Database) throws {
+        try db.create(table: "sidebar_layout", ifNotExists: true) { t in
+            t.primaryKey("id", .text)
+            t.column("user_id", .text).notNull()
+            t.column("team_id", .text).notNull()
+            t.column("section", .text).notNull().defaults(to: "")
+            t.column("kind", .text).notNull().defaults(to: "")
+            t.column("target_id", .text)
+            t.column("parent_id", .text)
+            t.column("name", .text)
+            t.column("sort_order", .double).notNull().defaults(to: 0)
+            t.column("created_at", .text).notNull()
+            t.column("updated_at", .text).notNull()
+        }
+        try db.create(
+            index: "sidebar_layout_team_section_idx", on: "sidebar_layout", columns: ["team_id", "section"],
+            ifNotExists: true
+        )
     }
 
     /// #FEED-237: the local `outbox` table (never synced).
@@ -3753,6 +3782,8 @@ public final class DatabaseManager: @unchecked Sendable {
             try db.execute(sql: "DELETE FROM issue_drafts")
             // #FEED-219: the composers' drafts.
             try db.execute(sql: "DELETE FROM composer_drafts")
+            // #EXP-1832: the sidebar layout places boards, agents and apps.
+            try db.execute(sql: "DELETE FROM sidebar_layout")
             // EXP-1291: the session tree's children before the sessions they
             // hang off, all before the issues they reference.
             try db.execute(sql: "DELETE FROM session_reads")
