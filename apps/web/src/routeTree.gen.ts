@@ -67,6 +67,7 @@ import { Route as ApiShapesCiJobsRouteImport } from './routes/api/shapes/ci-jobs
 import { Route as ApiShapesCiRunsRouteImport } from './routes/api/shapes/ci-runs'
 import { Route as ApiShapesCommentsRouteImport } from './routes/api/shapes/comments'
 import { Route as ApiShapesComposerDraftsRouteImport } from './routes/api/shapes/composer-drafts'
+import { Route as ApiShapesSidebarLayoutRouteImport } from './routes/api/shapes/sidebar-layout'
 import { Route as ApiShapesConversationsRouteImport } from './routes/api/shapes/conversations'
 import { Route as ApiShapesDeviceWorktreesRouteImport } from './routes/api/shapes/device-worktrees'
 import { Route as ApiShapesDevicesRouteImport } from './routes/api/shapes/devices'
@@ -469,6 +470,11 @@ const ApiShapesCommentsRoute = ApiShapesCommentsRouteImport.update({
 const ApiShapesComposerDraftsRoute = ApiShapesComposerDraftsRouteImport.update({
   id: '/api/shapes/composer-drafts',
   path: '/api/shapes/composer-drafts',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesSidebarLayoutRoute = ApiShapesSidebarLayoutRouteImport.update({
+  id: '/api/shapes/sidebar-layout',
+  path: '/api/shapes/sidebar-layout',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiShapesConversationsRoute = ApiShapesConversationsRouteImport.update({
@@ -1087,6 +1093,7 @@ export interface FileRoutesByFullPath {
   '/api/shapes/ci-runs': typeof ApiShapesCiRunsRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/composer-drafts': typeof ApiShapesComposerDraftsRoute
+  '/api/shapes/sidebar-layout': typeof ApiShapesSidebarLayoutRoute
   '/api/shapes/conversations': typeof ApiShapesConversationsRoute
   '/api/shapes/device-worktrees': typeof ApiShapesDeviceWorktreesRoute
   '/api/shapes/devices': typeof ApiShapesDevicesRoute
@@ -1246,6 +1253,7 @@ export interface FileRoutesByTo {
   '/api/shapes/ci-runs': typeof ApiShapesCiRunsRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/composer-drafts': typeof ApiShapesComposerDraftsRoute
+  '/api/shapes/sidebar-layout': typeof ApiShapesSidebarLayoutRoute
   '/api/shapes/conversations': typeof ApiShapesConversationsRoute
   '/api/shapes/device-worktrees': typeof ApiShapesDeviceWorktreesRoute
   '/api/shapes/devices': typeof ApiShapesDevicesRoute
@@ -1410,6 +1418,7 @@ export interface FileRoutesById {
   '/api/shapes/ci-runs': typeof ApiShapesCiRunsRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/composer-drafts': typeof ApiShapesComposerDraftsRoute
+  '/api/shapes/sidebar-layout': typeof ApiShapesSidebarLayoutRoute
   '/api/shapes/conversations': typeof ApiShapesConversationsRoute
   '/api/shapes/device-worktrees': typeof ApiShapesDeviceWorktreesRoute
   '/api/shapes/devices': typeof ApiShapesDevicesRoute
@@ -1574,6 +1583,7 @@ export interface FileRouteTypes {
     | '/api/shapes/ci-runs'
     | '/api/shapes/comments'
     | '/api/shapes/composer-drafts'
+    | '/api/shapes/sidebar-layout'
     | '/api/shapes/conversations'
     | '/api/shapes/device-worktrees'
     | '/api/shapes/devices'
@@ -1733,6 +1743,7 @@ export interface FileRouteTypes {
     | '/api/shapes/ci-runs'
     | '/api/shapes/comments'
     | '/api/shapes/composer-drafts'
+    | '/api/shapes/sidebar-layout'
     | '/api/shapes/conversations'
     | '/api/shapes/device-worktrees'
     | '/api/shapes/devices'
@@ -1896,6 +1907,7 @@ export interface FileRouteTypes {
     | '/api/shapes/ci-runs'
     | '/api/shapes/comments'
     | '/api/shapes/composer-drafts'
+    | '/api/shapes/sidebar-layout'
     | '/api/shapes/conversations'
     | '/api/shapes/device-worktrees'
     | '/api/shapes/devices'
@@ -2049,6 +2061,7 @@ export interface RootRouteChildren {
   ApiShapesCiRunsRoute: typeof ApiShapesCiRunsRoute
   ApiShapesCommentsRoute: typeof ApiShapesCommentsRoute
   ApiShapesComposerDraftsRoute: typeof ApiShapesComposerDraftsRoute
+  ApiShapesSidebarLayoutRoute: typeof ApiShapesSidebarLayoutRoute
   ApiShapesConversationsRoute: typeof ApiShapesConversationsRoute
   ApiShapesDeviceWorktreesRoute: typeof ApiShapesDeviceWorktreesRoute
   ApiShapesDevicesRoute: typeof ApiShapesDevicesRoute
@@ -2506,6 +2519,13 @@ declare module '@tanstack/react-router' {
       path: '/api/shapes/composer-drafts'
       fullPath: '/api/shapes/composer-drafts'
       preLoaderRoute: typeof ApiShapesComposerDraftsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/sidebar-layout': {
+      id: '/api/shapes/sidebar-layout'
+      path: '/api/shapes/sidebar-layout'
+      fullPath: '/api/shapes/sidebar-layout'
+      preLoaderRoute: typeof ApiShapesSidebarLayoutRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/shapes/conversations': {
@@ -3472,6 +3492,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiShapesCiRunsRoute: ApiShapesCiRunsRoute,
   ApiShapesCommentsRoute: ApiShapesCommentsRoute,
   ApiShapesComposerDraftsRoute: ApiShapesComposerDraftsRoute,
+  ApiShapesSidebarLayoutRoute: ApiShapesSidebarLayoutRoute,
   ApiShapesConversationsRoute: ApiShapesConversationsRoute,
   ApiShapesDeviceWorktreesRoute: ApiShapesDeviceWorktreesRoute,
   ApiShapesDevicesRoute: ApiShapesDevicesRoute,

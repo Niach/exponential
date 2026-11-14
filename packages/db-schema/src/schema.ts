@@ -3534,6 +3534,49 @@ export const composerDrafts = pgTable(
   ]
 )
 
+// #EXP-1832: the member's own SIDEBAR LAYOUT (sidebar-folders.json): folders
+// and the placement of every board, agent and app they dragged in the Boards,
+// Agents and Apps groups. Per USER like `pins` (the shape is the static
+// `user_id = me`), team-scoped for the cascade and for grouping. One row per
+// node: a FOLDER (`name`, top level only: two layers max) or an ITEM placing
+// `target_id` (a board / agent / app id; no FK, the section names the table:
+// a row whose target is gone simply never resolves) at the top level or in a
+// folder (`parent_id`). A target with no row keeps the default order, so
+// nothing moves until the member drags. `sort_order` = position in its
+// container (fractional room). `section` and `kind` are TEXT + CHECK, not pg
+// enums: the clients only ever read them as strings.
+export const sidebarLayout = pgTable(
+  `sidebar_layout`,
+  {
+    id: uuidPk(),
+    userId: text(`user_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    section: varchar({ length: 16 }).notNull(),
+    kind: varchar({ length: 16 }).notNull(),
+    targetId: uuid(`target_id`),
+    parentId: uuid(`parent_id`),
+    name: varchar({ length: 80 }),
+    sortOrder: doublePrecision(`sort_order`).notNull().default(0),
+    ...timestamps,
+  },
+  (table) => [
+    check(`sidebar_layout_section_check`, sql`section IN ('board', 'agent', 'app')`),
+    check(
+      `sidebar_layout_kind_check`,
+      sql`(kind = 'folder' AND target_id IS NULL AND parent_id IS NULL) OR (kind = 'item' AND target_id IS NOT NULL)`
+    ),
+    uniqueIndex(`uniq_sidebar_layout_user_target`)
+      .on(table.userId, table.section, table.targetId)
+      .where(sql`target_id IS NOT NULL`),
+    index(`idx_sidebar_layout_user`).on(table.userId),
+    index(`idx_sidebar_layout_team`).on(table.teamId),
+  ]
+)
+
 // Activity log (D9): status/assignee/label/PR/plan/error events, rendered as a
 // Linear-style timeline on every client. `payload` carries event-specific data
 // (e.g. { from, to } for a status change).
@@ -4763,6 +4806,8 @@ export const selectIssueDraftSchema = createSelectSchema(issueDrafts, {
 
 export const selectComposerDraftSchema = createSelectSchema(composerDrafts)
 
+export const selectSidebarLayoutSchema = createSelectSchema(sidebarLayout)
+
 export const selectIssueSubscriberSchema = createSelectSchema(
   issueSubscribers,
   {
@@ -4982,6 +5027,7 @@ export type Pin = InferSelectModel<typeof pins>
 export type SessionRead = InferSelectModel<typeof sessionReads>
 export type IssueDraft = InferSelectModel<typeof issueDrafts>
 export type ComposerDraft = InferSelectModel<typeof composerDrafts>
+export type SidebarLayoutRow = InferSelectModel<typeof sidebarLayout>
 export type IssueSubscriber = InferSelectModel<typeof issueSubscribers>
 export type IssueEvent = InferSelectModel<typeof issueEvents>
 export type Session = InferSelectModel<typeof sessions>
