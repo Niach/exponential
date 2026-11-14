@@ -61,17 +61,25 @@ interface BoardDao {
 }
 
 @Dao
-interface IssueDao {
+abstract class IssueDao {
     // EXP-1459: `#IDENT` refs of a sealed text → issue ids (`refIssueIds`), case-insensitive.
     @Query("SELECT * FROM issues WHERE upper(identifier) IN (:identifiers)")
-    suspend fun byIdentifiers(identifiers: List<String>): List<IssueEntity>
+    abstract suspend fun byIdentifiers(identifiers: List<String>): List<IssueEntity>
 
     @Query("SELECT * FROM issues WHERE board_id = :boardId ORDER BY sort_order, created_at")
-    fun observeByBoard(boardId: String): Flow<List<IssueEntity>>
+    abstract fun observeByBoard(boardId: String): Flow<List<IssueEntity>>
 
     // All issues (used by the inbox to resolve titles + the "needs review" list).
     @Query("SELECT * FROM issues")
-    fun observeAll(): Flow<List<IssueEntity>>
+    abstract fun rawObserveAll(): Flow<List<IssueEntity>>
+
+    // #ERR-23: ONE live copy per database, however many readers (sharedRead).
+    private val sharedAll by lazy { rawObserveAll().sharedRead() }
+    fun observeAll(): Flow<List<IssueEntity>> = sharedAll
+
+    // A chat's linked issues (a session card's title), by id.
+    @Query("SELECT * FROM issues WHERE id IN (:ids)")
+    abstract fun observeByIds(ids: List<String>): Flow<List<IssueEntity>>
 
     // #EXP-1382: the ACTIVE team's issues (the global search's local pool),
     // over its live boards only.
@@ -79,31 +87,31 @@ interface IssueDao {
         "SELECT issues.* FROM issues INNER JOIN boards ON boards.id = issues.board_id " +
             "WHERE boards.team_id = :teamId AND boards.deleted_at IS NULL",
     )
-    fun observeByTeam(teamId: String): Flow<List<IssueEntity>>
+    abstract fun observeByTeam(teamId: String): Flow<List<IssueEntity>>
 
     // Cross-board "My Issues" view (masterplan §5a): everything assigned to me.
     @Query("SELECT * FROM issues WHERE assignee_id = :userId ORDER BY sort_order, created_at")
-    fun observeByAssignee(userId: String): Flow<List<IssueEntity>>
+    abstract fun observeByAssignee(userId: String): Flow<List<IssueEntity>>
 
     // VAPP-119: a team's issues (through their boards), the app host's `exp:issues`.
     @Query("SELECT i.* FROM issues i JOIN boards b ON b.id = i.board_id WHERE b.team_id = :teamId")
-    fun observeByTeamForApps(teamId: String): Flow<List<IssueEntity>>
+    abstract fun observeByTeamForApps(teamId: String): Flow<List<IssueEntity>>
 
     @Query("SELECT * FROM issues WHERE id IN (:ids)")
-    suspend fun byIds(ids: List<String>): List<IssueEntity>
+    abstract suspend fun byIds(ids: List<String>): List<IssueEntity>
 
     @Query("SELECT * FROM issues WHERE id = :id LIMIT 1")
-    fun observeById(id: String): Flow<IssueEntity?>
+    abstract fun observeById(id: String): Flow<IssueEntity?>
 
     // EXP-1231: the issue created from a draft (`issues.draft_id`), the open
     // draft page's proof it was created elsewhere.
     @Query("SELECT * FROM issues WHERE draft_id = :draftId LIMIT 1")
-    fun observeByDraftId(draftId: String): Flow<IssueEntity?>
+    abstract fun observeByDraftId(draftId: String): Flow<IssueEntity?>
 
     // Existence probe for the push-tap fallback's fill-a-hole guard (EXP-264);
     // suspend so it can run inside the same withTransaction as the insert.
     @Query("SELECT EXISTS(SELECT 1 FROM issues WHERE id = :id)")
-    suspend fun exists(id: String): Boolean
+    abstract suspend fun exists(id: String): Boolean
 
     // App-link resolution (EXP-92): team SLUG + identifier → issue id.
     // Deliberately no board-slug predicate (identifiers are
@@ -114,16 +122,16 @@ interface IssueDao {
             "JOIN teams w ON w.id = p.team_id " +
             "WHERE upper(i.identifier) = upper(:identifier) AND w.slug = :teamSlug LIMIT 1"
     )
-    suspend fun findIdByTeamRef(teamSlug: String, identifier: String): String?
+    abstract suspend fun findIdByTeamRef(teamSlug: String, identifier: String): String?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsert(item: IssueEntity)
+    abstract suspend fun upsert(item: IssueEntity)
 
     @Query("DELETE FROM issues WHERE id = :id")
-    suspend fun deleteById(id: String)
+    abstract suspend fun deleteById(id: String)
 
     @Query("DELETE FROM issues")
-    suspend fun clear()
+    abstract suspend fun clear()
 }
 
 @Dao
@@ -423,7 +431,12 @@ abstract class SessionDao {
 
     @Query("SELECT * FROM sessions ORDER BY created_at, id")
     abstract fun rawObserveAll(): Flow<List<SessionEntity>>
-    fun observeAll(): Flow<List<SessionEntity>> = rawObserveAll().openedSessions()
+
+    // #ERR-23: ONE live, opened copy per database, however many readers
+    // (sharedRead): the Chats list, the widgets, an agent's chat, the apps
+    // host each held their own whole table and re-read it on every write.
+    private val sharedAll by lazy { rawObserveAll().openedSessions().sharedRead() }
+    fun observeAll(): Flow<List<SessionEntity>> = sharedAll
 
     @Query("SELECT * FROM sessions WHERE team_id = :teamId ORDER BY created_at, id")
     abstract fun rawObserveByTeam(teamId: String): Flow<List<SessionEntity>>
@@ -902,19 +915,23 @@ interface SkillDao {
 
 // EXP-1291: pull requests (all PR + branch state).
 @Dao
-interface PullRequestDao {
+abstract class PullRequestDao {
     @Query("SELECT * FROM pull_requests ORDER BY created_at, id")
-    fun observeAll(): Flow<List<PullRequestEntity>>
+    abstract fun rawObserveAll(): Flow<List<PullRequestEntity>>
+
+    // #ERR-23: ONE live copy per database, however many readers (sharedRead).
+    private val sharedAll by lazy { rawObserveAll().sharedRead() }
+    fun observeAll(): Flow<List<PullRequestEntity>> = sharedAll
 
     @Query("SELECT * FROM pull_requests WHERE id = :id LIMIT 1")
-    fun observeById(id: String): Flow<PullRequestEntity?>
+    abstract fun observeById(id: String): Flow<PullRequestEntity?>
 
     @Query("SELECT * FROM pull_requests WHERE team_id = :teamId ORDER BY created_at, id")
-    fun observeByTeam(teamId: String): Flow<List<PullRequestEntity>>
+    abstract fun observeByTeam(teamId: String): Flow<List<PullRequestEntity>>
 
     // A chat's PRs (`root_session_id`), opening order.
     @Query("SELECT * FROM pull_requests WHERE root_session_id = :rootId ORDER BY created_at, id")
-    fun observeByRoot(rootId: String): Flow<List<PullRequestEntity>>
+    abstract fun observeByRoot(rootId: String): Flow<List<PullRequestEntity>>
 
     // An ISSUE's PRs (pull_requests ⋈ pull_request_issues), newest first —
     // what replaced the dropped issues.pr_* / branch columns.
@@ -923,16 +940,16 @@ interface PullRequestDao {
             "ON pri.pull_request_id = pr.id WHERE pri.issue_id = :issueId " +
             "ORDER BY pr.created_at DESC, pr.id",
     )
-    fun observeByIssue(issueId: String): Flow<List<PullRequestEntity>>
+    abstract fun observeByIssue(issueId: String): Flow<List<PullRequestEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsert(item: PullRequestEntity)
+    abstract suspend fun upsert(item: PullRequestEntity)
 
     @Query("DELETE FROM pull_requests WHERE id = :id")
-    suspend fun deleteById(id: String)
+    abstract suspend fun deleteById(id: String)
 
     @Query("DELETE FROM pull_requests")
-    suspend fun clear()
+    abstract suspend fun clear()
 }
 
 // #EXP-1611: the CI checks of every PR (one row per check name at its head).
