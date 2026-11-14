@@ -761,10 +761,20 @@ impl AgentScreenView {
         let candidates: Vec<(&str, bool)> =
             offered.iter().map(|device| (device.device_id.as_str(), device.is_default)).collect();
         let remembered = crate::ui_prefs::editor_device(app_id);
+        // #EXP-1849 (apps.json `agentSlot`): the app agent's slot, a
+        // team-shared device, runs a new or ended root.
+        let slot = self
+            .app
+            .as_ref()
+            .and_then(|app| app.agent_id.as_deref())
+            .and_then(|agent_id| crate::session_data::agent_def(agent_id, cx))
+            .and_then(|agent| agent.device_id)
+            .filter(|device_id| !device_id.is_empty());
         let choice = domain::apps::editor_device(
             root.map(|root| (root.status.as_deref().unwrap_or_default(), current)),
             &candidates,
             remembered.as_deref(),
+            slot.as_deref(),
         );
         let mut rows: Vec<(String, String)> =
             offered.iter().map(|device| (device.device_id.clone(), device.label.clone())).collect();

@@ -355,7 +355,7 @@ pub struct AppScreenView {
     restoring: bool,
     /// eApps V1 (#VAPP-210): the version a Publish is running for.
     publishing: Option<i64>,
-    /// The live editor root this screen saw last (ended on leave).
+    /// The editor root this screen saw last (a draft with one is kept on leave).
     live_root: Option<String>,
     preview_scroll: ScrollHandle,
     versions_scroll: ScrollHandle,
@@ -446,9 +446,10 @@ impl AppScreenView {
                 this.request_screen(screen, params, cx);
             }
         }));
-        // Leaving ends the live editor session: the screens panel drops this
-        // view on a navigation off it, the window drops it on close.
-        cx.on_release(|this, cx| this.end_live_session(cx)).detach();
+        // Leaving discards an empty draft (#EXP-1849: and ends nothing): the
+        // screens panel drops this view on a navigation off it, the window
+        // drops it on close.
+        cx.on_release(|this, cx| this.discard_empty_draft(cx)).detach();
         let (tab, settings_open) = requested_tab(None);
         let mut this = Self {
             requested,
@@ -844,9 +845,10 @@ impl AppScreenView {
         self.preview = Some(Preview { key, template, surface_id, ide, _observe: observe });
     }
 
-    /// `sessions.end` on the member's live editor root (the tree);
-    /// VAPP-176: an EMPTY draft (no editor session) is discarded instead.
-    fn end_live_session(&mut self, cx: &mut App) {
+    /// VAPP-176: leaving an EMPTY draft (no editor session) discards it.
+    /// #EXP-1849 (apps.json `agentSlot`): the editor root IS the member's
+    /// chat with the app's agent, persistent: leaving ends nothing.
+    fn discard_empty_draft(&mut self, cx: &mut App) {
         // VAPP-242: leaving a run view ends nothing (and discards nothing).
         if self.run {
             return;
@@ -859,18 +861,11 @@ impl AppScreenView {
                 }
             }
         }
-        let Some(root_id) = self.live_root.take() else { return };
-        let live = crate::session_data::session(&root_id, cx)
-            .is_some_and(|row| row.status.as_deref() != Some(domain::contract::SESSION_STATUS_ENDED));
-        if !live {
-            return;
-        }
-        crate::settings::spawn_trpc(cx, "sessions.end", move |trpc| api::sessions::end(trpc, &root_id));
     }
 
     /// The screens panel calls this when a navigation leaves the editor.
     pub(crate) fn leave(&mut self, cx: &mut gpui::Context<Self>) {
-        self.end_live_session(cx);
+        self.discard_empty_draft(cx);
     }
 
     /// Preview version `number` (the preview's default clears it); its
