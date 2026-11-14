@@ -6,7 +6,7 @@ import XCTest
 // desktop `domain::chats`) against fixtures/chats.json: every case group
 // (previewCases, timeCases, listCases, menuCases,
 // agentMenuCases, replyCases, dividerCases, plainCases, windowCases, digestCases,
-// selectionCases, rangeCases, dotCases, sectionCases) plus the copy, test
+// selectionCases, rangeCases, dotCases, sectionCases, boardMineCases) plus the copy, test
 // ids, shell and surface-card constants. Whole expected objects are compared
 // as JSON values.
 final class ChatsTests: XCTestCase {
@@ -443,6 +443,23 @@ final class ChatsTests: XCTestCase {
                 ),
                 try XCTUnwrap(testCase["expected"] as? String)
             )
+        }
+    }
+
+    /// #EXP-1836 `boardMineCases`: the board's My issues (this board, the
+    /// viewer's, input order kept; no viewer = none).
+    func testBoardMineCases() throws {
+        for testCase in try cases("boardMineCases") {
+            let name = string(testCase["name"]) ?? ""
+            let issues = try XCTUnwrap(testCase["issues"] as? [[String: Any]], name)
+            let got = Chats.boardMineIssues(
+                issues,
+                boardId: try XCTUnwrap(string(testCase["boardId"]), name),
+                me: string(testCase["me"]),
+                boardIdOf: { string($0["boardId"]) ?? "" },
+                assigneeIdOf: { string($0["assigneeId"]) }
+            )
+            XCTAssertEqual(got.compactMap { string($0["id"]) }, try XCTUnwrap(testCase["expected"] as? [String], name), name)
         }
     }
 

@@ -2,9 +2,9 @@ import ExpUI
 import ExpCore
 import SwiftUI
 
-/// Cross-board "assigned to me" list (masterplan §5a): all issues in the
-/// active account with `assigneeId == me`, grouped by status, rows pushing
-/// the issue detail. Same glass row and band language as `IssueListView`
+/// The board's "My issues" list (#EXP-1836): the viewer's assigned issues on
+/// the current board (`MyIssuesViewModel.boardId`), grouped by status, rows
+/// pushing the issue detail. Same glass row and band language as `IssueListView`
 /// (polish round: the phone issue row minus the assignee — it is always me —
 /// and no board name; the identifier's prefix already names the board). No
 /// background or navigation chrome of its own — it renders embedded as the My
@@ -13,11 +13,10 @@ struct MyIssuesListContent: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(\.pushRoute) private var pushRoute
-    @State private var ownModel: MyIssuesViewModel?
-    /// EXP-1373: a host that already observes (the board's chips count the
-    /// rows) hands its model in; nil = this list owns one.
-    var model: MyIssuesViewModel? = nil
-    private var viewModel: MyIssuesViewModel? { model ?? ownModel }
+    /// EXP-1373 / #EXP-1836: the Board page owns the model (its tab counts
+    /// the rows, and it binds the board in view).
+    let model: MyIssuesViewModel
+    private var viewModel: MyIssuesViewModel? { model }
     // Same identifier column treatment as IssueListView (EXP-24): min width
     // so status icons/titles align across rows despite varying identifier
     // lengths — extra important here where rows span boards with different
@@ -62,16 +61,9 @@ struct MyIssuesListContent: View {
             }
         }
         .onAppear {
-            if model == nil, ownModel == nil {
-                ownModel = MyIssuesViewModel(accountId: accountId, db: deps.db, auth: deps.auth)
-            }
-            // Re-arm on every appear: pushing an issue detail stops the
-            // observation (onDisappear), popping back must resume it.
-            viewModel?.startObserving()
-        }
-        .onDisappear {
-            // A host's model keeps observing for its chip count.
-            ownModel?.stopObserving()
+            // Re-arm on every appear: a stopped observation (the host's
+            // onDisappear while an issue detail is pushed) must resume.
+            model.startObserving()
         }
     }
 
