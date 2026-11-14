@@ -23,6 +23,8 @@ export interface SessionScreenTabEntry {
   label: string
   /** A muted number after the label; null = none (0 included). */
   count: number | null
+  /** #EXP-1834: an empty counted tab: muted, never opened. */
+  disabled: boolean
 }
 
 export interface SessionScreenCounts {
@@ -96,10 +98,11 @@ export function sessionScreen(input: SessionScreenInput): SessionScreen {
   const spec = KINDS[input.kind] ?? KINDS.session
   const labels = fixture.copy.tabs as Record<string, string>
   const counts = input.counts as unknown as Record<string, number>
+  const empty = (id: string) => COUNTED.includes(id) && !((counts[id] ?? 0) > 0)
   const shown = input.wide && !spec.wideChatTab ? spec.tabs.filter((id) => id !== `chat`) : spec.tabs
   const tabs = shown.map((id) => {
     const value = COUNTED.includes(id) ? (counts[id] ?? 0) : 0
-    return { id: id as SessionScreenTab, label: labels[id] ?? id, count: value > 0 ? value : null }
+    return { id: id as SessionScreenTab, label: labels[id] ?? id, count: value > 0 ? value : null, disabled: empty(id) }
   })
   const requested = input.requested ?? null
   const req = requested !== null ? (LEGACY[requested] ?? requested) : null
@@ -110,7 +113,7 @@ export function sessionScreen(input: SessionScreenInput): SessionScreen {
   const active = (
     follows !== null && spec.tabs.includes(follows)
       ? follows
-      : req !== null && spec.tabs.includes(req)
+      : req !== null && spec.tabs.includes(req) && !empty(req)
         ? req
         : input.wide
           ? spec.wideDefault
@@ -160,7 +163,7 @@ export function sessionScreenTone(status: string, offline = false): `attention` 
   return `muted`
 }
 
-export type SessionScreenMenuEntry = `publish` | `compact` | `newConversation` | `settings` | `export` | `delete` | `separator`
+export type SessionScreenMenuEntry = `linkIssue` | `publish` | `compact` | `newConversation` | `settings` | `export` | `delete` | `separator`
 
 export interface SessionScreenMenuInput {
   kind: string
@@ -168,6 +171,8 @@ export interface SessionScreenMenuInput {
   phone: boolean
   /** The viewer may steer the conversation (Compact / New conversation). */
   member: boolean
+  /** #EXP-1834: the viewer may link issues (a member; never an app). */
+  linkIssue: boolean
   /** The viewer may open the kind's settings. */
   settings: boolean
   /** An app the viewer may publish. */
@@ -179,13 +184,15 @@ export interface SessionScreenMenuInput {
 }
 
 /** #FEED-239: THE `…` of every kind (`menuCases`): groups in order, a
- *  `separator` between non-empty ones: publish (an app on a phone) ·
+ *  `separator` between non-empty ones: link an issue (not an app) · publish (an app on a phone) ·
  *  compact + new conversation (not a chat) · settings · export + delete. */
 export function sessionScreenMenu(input: SessionScreenMenuInput): SessionScreenMenuEntry[] {
   const spec = KINDS[input.kind] ?? KINDS.session
   const app = input.kind === `app`
   const conversation = input.kind !== `session` && input.kind in KINDS
+  const links = input.kind === `session` || input.kind === `agent` || input.kind === `assistant`
   const groups: SessionScreenMenuEntry[][] = [
+    links && input.linkIssue ? [`linkIssue`] : [],
     app && input.phone && input.publish ? [`publish`] : [],
     conversation && input.member ? [`compact`, `newConversation`] : [],
     spec.settings && input.settings ? [`settings`] : [],
