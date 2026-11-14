@@ -226,6 +226,8 @@ let shareExtensionSources: SourceFilesList = [
     "ExpCore/Sources/Domain/HomeGreeting.swift",
     "ExpCore/Sources/Domain/FeedbackStates.swift",
     "ExpCore/Sources/SteerImageMessage.swift",
+    // #EXP-1841: SteerImageMessage's marker edits forward to THE strip logic.
+    "ExpCore/Sources/Domain/ComposerAttachments.swift",
     "ExpCore/Sources/API/SessionsSendInput.swift",
     "ExpCore/Sources/API/SessionKeysApi.swift",
     "ExpCore/Sources/API/InstallsApi.swift",
@@ -264,8 +266,8 @@ let shareExtensionConditions = "$(inherited) SHARE_EXTENSION" + (hasEnetPush ? "
 
 // Single source of truth for app + extension version; keep these in lockstep so
 // the extension's CFBundleVersion never drifts from the parent app.
-let appMarketingVersion = "0.14.128"
-let appBuildVersion = "331"
+let appMarketingVersion = "0.14.129"
+let appBuildVersion = "332"
 // Staging always runs one build AHEAD of prod (EXP-405): the staging apps have
 // their own store namespaces, so an equal number silently uploads and then
 // masquerades as prod's build in ASC. Derived, so one bump covers all targets.

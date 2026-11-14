@@ -396,6 +396,25 @@ public final class IssueEditorModel {
         return mutable.string
     }
 
+    /// #EXP-1841: the last known caret as a UTF-16 offset into `plainText`
+    /// (the display-only chip attachments before it subtracted), for the
+    /// single-field composers that drop an `[Image #N]` marker at the caret.
+    /// Nil when no caret is known or the editor holds more than one block.
+    public var plainTextCaret: Int? {
+        guard blocks.count == 1, let sel = selection,
+              case let .text(id, content) = blocks[0], id == sel.blockId else { return nil }
+        let end = max(0, min(sel.range.location, content.length))
+        var chips = 0
+        content.enumerateAttribute(
+            .attachment,
+            in: NSRange(location: 0, length: end),
+            options: []
+        ) { value, range, _ in
+            if value != nil { chips += range.length }
+        }
+        return end - chips
+    }
+
     public var isEditing: Bool { focusedBlockId != nil }
     public var isDirty: Bool { currentMarkdown() != lastSavedMarkdown }
     /// Any `draft://` placeholder still in the document — an image OR a media
@@ -437,6 +456,14 @@ public final class IssueEditorModel {
     /// its own draft back would re-apply the content on every keystroke and
     /// yank the caret to the end of the line.
     public func setPlainText(_ text: String) {
+        setPlainText(text, caret: nil)
+    }
+
+    /// #EXP-1841: `setPlainText` with the caret parked at `caret` (a UTF-16
+    /// offset into the UNDECORATED `text`, clamped; nil = the end): an
+    /// `[Image #N]` marker dropped at the caret leaves it right behind it.
+    /// The chip pass maps the offset into the decorated text.
+    public func setPlainText(_ text: String, caret plainCaret: Int?) {
         let id = blocks.compactMap { block -> UUID? in
             guard case let .text(id, _) = block else { return nil }
             return id
@@ -445,7 +472,8 @@ public final class IssueEditorModel {
            Self.undecoratedString(content) == text, blocks.count == 1 {
             return
         }
-        var caret = NSRange(location: (text as NSString).length, length: 0)
+        let length = (text as NSString).length
+        var caret = NSRange(location: max(0, min(plainCaret ?? length, length)), length: 0)
         let decorated = chipDecoration(
             for: NSAttributedString(string: text, attributes: MarkdownStyle.baseAttributes),
             selection: caret

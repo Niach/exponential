@@ -3,10 +3,11 @@ import ExpCore
 import Foundation
 import GRDB
 
-/// "My issues" — the fixed cross-board view (masterplan §5a): every issue in
-/// the active account assigned to the signed-in user, grouped by status.
-/// Mirrors `IssueListViewModel`'s GRDB observations minus the board
-/// predicate; no filter bar / saved views by design (fixed built-in view).
+/// "My issues" — the board's My issues tab (#EXP-1836, chats.json
+/// `boardMineCases`): the signed-in user's assigned issues on the CURRENT
+/// board (`Chats.boardMineIssues`), grouped by status like the board.
+/// Mirrors `IssueListViewModel`'s GRDB observations; no filter bar / saved
+/// views by design (fixed built-in view).
 @MainActor @Observable
 final class MyIssuesViewModel {
     var issues: [IssueEntity] = []
@@ -28,12 +29,12 @@ final class MyIssuesViewModel {
     var issueLabels: [IssueLabelEntity] = []
     /// Folded group ids (session-only, like the board list).
     var collapsedStatuses: Set<String> = []
-    /// EXP-1373: the phone's ONE active team (the board's My issues chip):
-    /// only its boards' issues; nil = every team.
-    var teamId: String? {
-        didSet { if teamId != oldValue { rebuildRows() } }
+    /// #EXP-1836: the board in view (the Board page's current board): only
+    /// its issues; nil (no board) = none.
+    var boardId: String? {
+        didSet { if boardId != oldValue { rebuildRows() } }
     }
-    /// The rows the list shows (the chip's count).
+    /// The rows the list shows (the tab's count).
     var count: Int { renderGroups.reduce(0) { $0 + $1.rows.count } }
 
     private let accountId: String
@@ -234,7 +235,12 @@ final class MyIssuesViewModel {
             boards.map { ($0.id, $0.teamId) }, uniquingKeysWith: { a, _ in a }
         )
         let groups = CrossTeamStatusGroups.groups(
-            issues: teamId.map { id in issues.filter { teamOfBoard[$0.boardId] == id } } ?? issues,
+            issues: boardId.map { id in
+                Chats.boardMineIssues(
+                    issues, boardId: id, me: auth.userId,
+                    boardIdOf: \.boardId, assigneeIdOf: \.assigneeId
+                )
+            } ?? [],
             teamIdOf: { teamOfBoard[$0.boardId] },
             statusRows: statusRows
         )

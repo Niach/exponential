@@ -8,6 +8,7 @@
  *   DEMO_CHAT_ID                  the cold-start chat (`chat-screen`)
  *   DEMO_AGENT_CONVERSATION_ID    the Triage conversation (`agent-channel`)
  *   DEMO_APP_EDITOR_SESSION_ID    the Working hours editor session (`app`)
+ *   DEMO_ASSISTANT_CONVERSATION_ID  the Assistant's (#EXP-1837: the FAB's widget)
  *
  * Every viewer (web, desktop, iOS, Android) reads a session's raw work over
  * eNet from the device running it, so these feed `bun run shots` on every
@@ -22,6 +23,7 @@ import {
   DEMO_AGENT_REQUEST,
   DEMO_APP_CHAT_TIMES,
   DEMO_APP_EDITOR_SESSION_ID,
+  DEMO_ASSISTANT_CONVERSATION_ID,
   DEMO_CHAT_ID,
 } from "../screenshot-demo"
 
@@ -203,11 +205,36 @@ function appEditor(): StoredEntry[] {
   ]
 }
 
+/** #EXP-1837: the demo user's Assistant conversation (the FAB's widget, the
+ *  Assistant's chat page): the release check that ends on its seeded
+ *  question (`DEMO_ASSISTANT_QUESTION`, minutesAgo(4)). Stamped off `now` like
+ *  the cold-start chat. */
+function assistantConversation(now: number): StoredEntry[] {
+  const ago = (minutes: number) => now - minutes * MINUTE
+  return [
+    {
+      kind: `user_message`,
+      text: `Is the Android release ready to go out today?`,
+      at: ago(9),
+    },
+    { kind: `tool`, name: `mcp__exponential__exponential_issues_get`, detail: `APP-5`, at: ago(8) },
+    { kind: `tool`, name: `mcp__exponential__exponential_issues_get`, detail: `FB-3`, at: ago(7) },
+    {
+      kind: `narration`,
+      text: `APP-5 is in review: the board snapshot cache brings cold start to 740 ms, under the 800 ms target. FB-3, the editor's highlighting bundle, is still open.`,
+      at: ago(5),
+    },
+    // The call that posted the seeded question: the card draws after it.
+    { kind: `tool`, name: `mcp__exponential__exponential_show`, detail: `ask`, at: ago(4) },
+  ]
+}
+
 /** Every recorded journal, by session id (the stub's `stored` entries). */
 export function demoStoredJournals(now: number): Record<string, StoredEntry[]> {
   return {
     [DEMO_CHAT_ID]: coldStartChat(now),
     [DEMO_AGENT_CONVERSATION_ID]: triageConversation(),
     [DEMO_APP_EDITOR_SESSION_ID]: appEditor(),
+    [DEMO_ASSISTANT_CONVERSATION_ID]: assistantConversation(now),
   }
 }

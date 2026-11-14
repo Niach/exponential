@@ -1,3 +1,6 @@
+- One … menu in every chat, no settings gear, your own picture on your messages
+- Your sidebar folders show in the board pickers and the Apps list
+- My issues tabs on a board; [Image #1] placeholders when you attach an image
 - Home screen widgets: Board, My issues and Needs you
 - Ask Siri or Shortcuts to open an agent's chat; agent chat links open from a cold start
 - Owners set an app's Everyone else access in Settings › MCP › Access

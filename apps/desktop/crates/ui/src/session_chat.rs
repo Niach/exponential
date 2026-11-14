@@ -3337,10 +3337,18 @@ pub(crate) struct SessionChatScreenView {
     plan_state: crate::plan_page::PlanPageState,
     plan_painted: Option<String>,
     _missing_tick: Task<()>,
+    /// #EXP-1837: the Assistant widget's chat: the Chat tab's body alone
+    /// (no header, no tabs, no beside pane).
+    widget: bool,
     _subscriptions: Vec<Subscription>,
 }
 
 impl SessionChatScreenView {
+    /// #EXP-1837: render only the Chat tab's body (the Assistant widget).
+    pub(crate) fn set_widget(&mut self, widget: bool) {
+        self.widget = widget;
+    }
+
     pub(crate) fn new(root_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let id = root_id.clone();
         let root_view = cx.new(|cx| crate::session_screen::SessionScreenView::new(id, window, cx));
@@ -3427,6 +3435,7 @@ impl SessionChatScreenView {
             plan_state: Default::default(),
             plan_painted: None,
             _missing_tick: missing_tick,
+            widget: false,
             _subscriptions: subscriptions,
         };
         this.refresh(cx);
@@ -4408,10 +4417,11 @@ impl Render for SessionChatScreenView {
             }
         }
         let screen = self.screen_of(&model, cx);
-        let header = {
+        // #EXP-1837: the widget draws its own header.
+        let header = (!self.widget).then(|| {
             let _span = tracing::trace_span!("chat.header").entered();
             self.render_header(&model, &screen, window, cx)
-        };
+        });
         // #EXP-1732 THE Chat tab (every layout, every kind): the ROOT's own
         // session view: its raw work, its cards inline, THE Dock and THE
         // composer posting to the root. #EXP-1736: its origin = the sender
@@ -4447,6 +4457,7 @@ impl Render for SessionChatScreenView {
         };
         // #EXP-1732 (session-screen.json LAYOUT): wide = the beside rule.
         let body = match screen.layout {
+            _ if self.widget => chat,
             SessionScreenLayout::Chat => chat,
             SessionScreenLayout::Beside | SessionScreenLayout::Tab | SessionScreenLayout::Item => {
                 let pane = self.render_pane(&model, &screen, window, cx);
@@ -4463,7 +4474,7 @@ impl Render for SessionChatScreenView {
             .size_full()
             .min_h_0()
             .overflow_hidden()
-            .child(header)
+            .children(header)
             .child(body)
     }
 }
@@ -5603,7 +5614,16 @@ mod tests {
             steer::ViewerEvent::Activity(2, steer::ActivityEvent::tool("mcp__exponential__exponential_issues_list", Some("search: android · 3 issues".into()))),
             steer::ViewerEvent::Activity(3, steer::ActivityEvent::narration("Done, 3 issues labelled android. The board now carries the android label on every report that names a phone, and the hourly check runs from the next full hour on, so a new report never waits longer than an hour.")),
         ];
-        for (name, events) in [("chat-tab-long", long), ("chat-tab-short", short)] {
+        // #EXP-1841: a chat composer with an attached image: the launch
+        // composer's `[Image #1]` at the caret.
+        let picture = {
+            let mut png = Vec::new();
+            let pixels = image::RgbaImage::from_fn(96, 64, |x, y| image::Rgba([40 + (x * 2) as u8, 90 + y as u8, 200, 255]));
+            image::DynamicImage::ImageRgba8(pixels).write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).expect("a PNG");
+            png
+        };
+        let image_events = short.clone();
+        for (name, events, attach) in [("chat-tab-long", long, false), ("chat-tab-short", short, false), ("chat-composer-image", image_events, true)] {
             let window = cx
                 .open_window(gpui::size(gpui::px(1100.), gpui::px(760.)), |window, cx| cx.new(|cx| SessionChatScreenView::new("r1".to_string(), window, cx)))
                 .expect("a headless window");
@@ -5613,7 +5633,20 @@ mod tests {
                 inner.update(cx, |inner, cx| inner.apply_events_for_test(events, cx));
             })
             .expect("events");
-            for _ in 0..6 {
+            for round in 0..6 {
+                if attach && round == 2 {
+                    let picture = picture.clone();
+                    cx.update_window(window.into(), |_, window, cx| {
+                        let inner = view.read(cx).root_view.read(cx).inner().clone();
+                        let document = inner.read(cx).composer_document().expect("the composer document");
+                        document.update(cx, |document, cx| {
+                            document.type_into("chat_composer", "please check", window, cx);
+                            document.flush_field("chat_composer", None, window, cx);
+                        });
+                        inner.update(cx, |inner, cx| inner.stage_images(vec![("screenshot.png".into(), "image/png".into(), picture)], window, cx));
+                    })
+                    .expect("an image attached");
+                }
                 cx.update_window(window.into(), |_, window, cx| {
                     window.refresh();
                     window.draw(cx).clear(cx);
@@ -5774,6 +5807,45 @@ mod tests {
         settle(cx);
         assert!(dispatched().contains(&ComposerEvent::Attach { pasted: true }));
         assert_eq!(cx.update(|_, cx| inner.read(cx).composer_files()), 1, "the paste staged it");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #EXP-1841: the chat composer stages like the launch composer: each
+    /// pasted image drops `[Image #N]` at the drawn field's caret, and a
+    /// thumbnail's X removes its marker and renumbers the rest, the caret
+    /// staying where it was (composer-attachments.json `drop.caret`).
+    #[gpui::test]
+    fn the_chat_tabs_composer_drops_and_renumbers_image_markers(cx: &mut gpui::TestAppContext) {
+        let (inner, document, cx) = chat_tab_composer(cx);
+        type_draft(&document, "now", cx);
+        // The writer's caret goes back in front of "now".
+        cx.update(|window, cx| document.update(cx, |document, cx| document.insert_into_field("chat_composer", 0, "see ", window, cx)));
+        settle(cx);
+        let dir = std::env::temp_dir().join(format!("ui-chat-tab-markers-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let png = dir.join("shot.png");
+        std::fs::write(&png, b"\x89PNG\r\n\x1a\n0000").unwrap();
+        for _ in 0..2 {
+            let pasted = eui_gpui::view::PastedImage { name: "image.png".into(), mime: "image/png".into(), path: png.clone(), size: 12 };
+            cx.update(|_, cx| document.update(cx, |document, cx| document.composer_paste("chat_composer", vec![pasted], cx)));
+            settle(cx);
+        }
+        let field = |cx: &mut gpui::VisualTestContext| cx.update(|_, cx| document.read(cx).field_text("chat_composer", cx));
+        let caret = |cx: &mut gpui::VisualTestContext| cx.update(|_, cx| document.read(cx).field_caret("chat_composer", cx));
+        assert_eq!(field(cx).as_deref(), Some("see [Image #1] [Image #2] now"), "the markers are in the drawn field, at the caret");
+        assert_eq!(caret(cx), Some(26), "the caret behind the last marker");
+        assert_eq!(cx.update(|_, cx| inner.read(cx).composer_draft(cx)), "see [Image #1] [Image #2] now");
+        assert_eq!(cx.update(|_, cx| inner.read(cx).composer_files()), 2);
+        let remove = cx.update(|_, cx| {
+            let document = document.read(cx);
+            document.placed_nodes().iter().find(|node| node.id.starts_with("chat_file") && node.id.contains("remove") && !node.hidden && !node.removed).map(|node| node.id.clone())
+        });
+        let index = cx.update(|_, cx| document.read(cx).index_of(&remove.expect("the first image's X"))).unwrap();
+        cx.update(|window, cx| document.update(cx, |document, cx| document.press(index, window, cx)));
+        settle(cx);
+        assert_eq!(field(cx).as_deref(), Some("see [Image #1] now"), "its marker left and the rest renumbered");
+        assert_eq!(caret(cx), Some(15), "the caret stays in front of \"now\", moved left by the removed marker");
+        assert_eq!(cx.update(|_, cx| inner.read(cx).composer_draft(cx)), "see [Image #1] now");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -446,6 +446,8 @@
     "ui-scan": "scan-line",
     "ui-read": "check-check",
     "ui-hold": "hand",
+    "ui-maximize": "arrow-up-left",
+    "ui-minimize": "minus",
     "voice-level": "audio-lines"
   },
   "imported": {

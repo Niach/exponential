@@ -63,7 +63,7 @@ import { SettingsSidebar } from "@/components/team/settings-sidebar"
 import { SidebarPinned } from "@/components/team/sidebar-pinned"
 import { SidebarRunningSection, type SidebarChats } from "@/components/team/sidebar-running"
 import { SidebarAgentsSection, useAgentBadges } from "@/components/team/sidebar-agents"
-import { sidebarAgents } from "@exp/domain-contract/chats"
+import { railAgents } from "@exp/domain-contract/chats"
 import { SidebarFolderList } from "@/components/team/sidebar-folders"
 import { mainPanelEdge } from "@/components/team/app-shell"
 import { NavCountBadge, UserAvatar, UserMenuItems } from "@/components/team/sidebar-shared"
@@ -209,9 +209,10 @@ export function TeamSidebar({
   })
   const { apps } = useApps(team?.id)
   // #FEED-239 (chats.json `sidebarAgentCases`): an app's agent is listed
-  // under Apps only.
+  // under Apps only; #EXP-1837 (`railAgentCases`): the viewer's Assistant is
+  // THE FAB (`assistant-fab.tsx`), not a row.
   const sidebarAgentRows = useMemo(
-    () => sidebarAgents(agents, apps.map((app) => ({ agentId: app.row?.agentId ?? null }))),
+    () => railAgents(agents, apps.map((app) => ({ agentId: app.row?.agentId ?? null }))),
     [agents, apps]
   )
   const occupant = useSidebarOccupant()

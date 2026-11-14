@@ -43,9 +43,6 @@ import com.exponential.app.ui.components.FieldError
 import com.exponential.app.ui.components.rememberDelayedFlag
 import kotlinx.coroutines.delay
 import com.exponential.app.domain.PendingAttachment
-import com.exponential.app.domain.imageNumberAt
-import com.exponential.app.domain.insertImageMarker
-import com.exponential.app.domain.renumberImageMarkers
 import com.exponential.app.ui.components.ComposerSubmitButton
 import com.exponential.app.ui.components.ComposerToolButton
 import com.exponential.app.ui.components.GlassComposer
@@ -114,19 +111,8 @@ internal fun AgentComposer(
     // token. Removing one renumbers the draft (below), so the markers always
     // name images the composer still has (the steer composer's rule).
     // Wave D: only IMAGES are numbered — a file tile carries no marker.
-    val imageCount = pendingImages.count { it.isImage }
-    var markedImages by remember { mutableIntStateOf(imageCount) }
-    LaunchedEffect(imageCount) {
-        if (imageCount > markedImages) {
-            var next = value
-            for (k in (markedImages + 1)..imageCount) {
-                val (text, caret) = insertImageMarker(next.text, next.selection.end, k)
-                next = TextFieldValue(text, TextRange(caret))
-            }
-            onValueRewrite(next)
-        }
-        markedImages = imageCount
-    }
+    // #EXP-1841: THE placeholders of every composer (composer-attachments.json).
+    com.exponential.app.ui.agent.ComposerImageMarkers(pendingImages, value, onValueRewrite)
     GlassComposer(
         modifier = modifier.testTag("agent-composer"),
         // EXP-1038: the subject chips are NOT in the card any more — they head
@@ -142,19 +128,7 @@ internal fun AgentComposer(
                 items = pendingImages,
                 enabled = !sending,
                 onRemove = { index ->
-                    // Renumber BEFORE the list shrinks: `[Image #k]` goes, and
-                    // every higher marker comes down one. A file has no marker.
-                    val number = pendingImages.imageNumberAt(index)
-                    val renumbered = if (number != null) renumberImageMarkers(value.text, number) else value.text
-                    if (renumbered != value.text) {
-                        onValueRewrite(
-                            TextFieldValue(
-                                renumbered,
-                                TextRange(value.selection.end.coerceAtMost(renumbered.length)),
-                            ),
-                        )
-                    }
-                    onRemoveImage(index)
+                    com.exponential.app.ui.agent.removeComposerAttachment(pendingImages, index, value, onValueRewrite, onRemoveImage)
                 },
             )
             // A refused pick (caps): invalid input, under the field (FEED-79).

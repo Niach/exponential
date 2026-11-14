@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from "react"
+import { useEffect, useSyncExternalStore, type CSSProperties, type ReactNode } from "react"
 import { Toaster as Sonner, type ToasterProps } from "sonner"
 import toastStack from "@exp/domain-contract/fixtures/toast-stack.json"
 
@@ -137,9 +137,44 @@ export const TOASTER_TOUCH_PROPS = {
   },
 } satisfies ToasterProps
 
+// #EXP-1837 (agent-settings.json `assistant.fab.toastLift`): while a
+// bottom-right floating button shows (the Assistant FAB), the pointer stack
+// rises above it. The highest live lift wins.
+const lifts = new Map<symbol, number>()
+const liftListeners = new Set<() => void>()
+function toastLift(): number {
+  return Math.max(0, ...lifts.values())
+}
+function subscribeLift(listener: () => void): () => void {
+  liftListeners.add(listener)
+  return () => liftListeners.delete(listener)
+}
+
+/** Lift the pointer toast stack by `px` while mounted (0 / null = none). */
+export function useToastLift(px: number | null | undefined): void {
+  useEffect(() => {
+    if (!px) return
+    const key = Symbol(`toast-lift`)
+    lifts.set(key, px)
+    liftListeners.forEach((listener) => listener())
+    return () => {
+      lifts.delete(key)
+      liftListeners.forEach((listener) => listener())
+    }
+  }, [px])
+}
+
 export function Toaster(): ReactNode {
   const touch = useMediaQuery(TOAST_TOUCH_QUERY)
-  return <Sonner {...(touch ? TOASTER_TOUCH_PROPS : TOASTER_PROPS)} />
+  const lift = useSyncExternalStore(subscribeLift, toastLift, () => 0)
+  if (touch) return <Sonner {...TOASTER_TOUCH_PROPS} />
+  const offset = TOAST_CONSTANTS.viewportOffset
+  return (
+    <Sonner
+      {...TOASTER_PROPS}
+      offset={lift ? { top: offset, right: offset, bottom: offset + lift, left: offset } : offset}
+    />
+  )
 }
 
 // ── The specimen ────────────────────────────────────────────────────────

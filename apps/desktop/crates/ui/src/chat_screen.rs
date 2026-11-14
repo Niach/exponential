@@ -2771,6 +2771,10 @@ impl ChatScreenView {
                     crate::composer::glass_composer(composer)
                         .capture_action(cx.listener(Self::on_paste)),
                 )
+                // #EXP-1841: a drop stages like a pick or a paste.
+                .on_drop(cx.listener(|this, paths: &gpui::ExternalPaths, window, cx| {
+                    this.stage_images(composer_images::dropped_files(paths), window, cx)
+                }))
                 .children(slash),
             )
             .children(options)

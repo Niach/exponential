@@ -3160,88 +3160,10 @@
                 },
                 "children": [
                   {
-                    "id": "ide_assistant",
-                    "component": "Box",
-                    "props": {
-                      "pressable": true
-                    },
-                    "style": {
-                      "display": "flex",
-                      "flexDirection": "row",
-                      "alignItems": "center",
-                      "gap": "$spacing.sm",
-                      "height": 40,
-                      "paddingLeft": "$spacing.sm",
-                      "paddingRight": "$spacing.sm",
-                      "borderRadius": "$radius.md",
-                      "flexGrow": 1,
-                      "minWidth": 0
-                    },
-                    "visible": {
-                      "@call": "cond",
-                      "args": {
-                        "if": {
-                          "@path": "/shell/ide/assistant"
-                        },
-                        "then": true,
-                        "else": false
-                      }
-                    },
-                    "on": {
-                      "press": {
-                        "event": {
-                          "name": "ide_open",
-                          "context": {
-                            "kind": "assistant",
-                            "id": {
-                              "@path": "/shell/ide/assistant/id"
-                            }
-                          }
-                        }
-                      }
-                    },
-                    "children": [
-                      {
-                        "id": "ide_assistant_mark",
-                        "component": "Icon",
-                        "props": {
-                          "name": "brand-exponential",
-                          "size": "sm"
-                        }
-                      },
-                      {
-                        "id": "ide_assistant_name",
-                        "component": "Text",
-                        "props": {
-                          "text": {
-                            "@path": "/shell/ide/assistant/name"
-                          },
-                          "variant": "label",
-                          "lines": 1
-                        }
-                      }
-                    ]
-                  },
-                  {
                     "id": "corner_spacer",
                     "component": "Box",
                     "style": {
                       "flexGrow": 1
-                    },
-                    "visible": {
-                      "@call": "not",
-                      "args": {
-                        "value": {
-                          "@call": "cond",
-                          "args": {
-                            "if": {
-                              "@path": "/shell/ide/assistant"
-                            },
-                            "then": true,
-                            "else": false
-                          }
-                        }
-                      }
                     }
                   },
                   {

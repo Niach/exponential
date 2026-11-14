@@ -162,6 +162,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "arrow-left" => ExpIcon::ArrowLeft,
         "arrow-left-right" => ExpIcon::ArrowLeftRight,
         "arrow-right" => ExpIcon::ArrowRight,
+        "arrow-up-left" => ExpIcon::ArrowUpLeft,
         "arrow-up-right" => ExpIcon::ArrowUpRight,
         "at-sign" => ExpIcon::AtSign,
         "atom" => ExpIcon::Atom,
@@ -957,12 +958,16 @@ pub const UI_MAIL: ExpIcon = ExpIcon::Mail;
 pub const UI_MARK_READ: ExpIcon = ExpIcon::MailOpen;
 /// Registry concept `ui-mark-unread` -> Lucide `mail`.
 pub const UI_MARK_UNREAD: ExpIcon = ExpIcon::Mail;
+/// Registry concept `ui-maximize` -> Lucide `arrow-up-left`.
+pub const UI_MAXIMIZE: ExpIcon = ExpIcon::ArrowUpLeft;
 /// Registry concept `ui-mcp` -> Lucide `plug`.
 pub const UI_MCP: ExpIcon = ExpIcon::Plug;
 /// Registry concept `ui-member` -> Lucide `shield-check`.
 pub const UI_MEMBER: ExpIcon = ExpIcon::ShieldCheck;
 /// Registry concept `ui-menu` -> Lucide `menu`.
 pub const UI_MENU: ExpIcon = ExpIcon::Menu;
+/// Registry concept `ui-minimize` -> Lucide `minus`.
+pub const UI_MINIMIZE: ExpIcon = ExpIcon::Minus;
 /// Registry concept `ui-minus` -> Lucide `minus`.
 pub const UI_MINUS: ExpIcon = ExpIcon::Minus;
 /// Registry concept `ui-more` -> Lucide `ellipsis`.
@@ -1344,9 +1349,11 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "ui-mail" => UI_MAIL,
         "ui-mark-read" => UI_MARK_READ,
         "ui-mark-unread" => UI_MARK_UNREAD,
+        "ui-maximize" => UI_MAXIMIZE,
         "ui-mcp" => UI_MCP,
         "ui-member" => UI_MEMBER,
         "ui-menu" => UI_MENU,
+        "ui-minimize" => UI_MINIMIZE,
         "ui-minus" => UI_MINUS,
         "ui-more" => UI_MORE,
         "ui-more-vertical" => UI_MORE_VERTICAL,

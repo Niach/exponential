@@ -7,8 +7,6 @@ import { eq, useLiveQuery } from "@tanstack/react-db"
 import { SESSIONS_SEND_TEXT_MAX } from "@exp/db-schema/domain"
 import { composerTextAfterSend } from "@exp/domain-contract/composer-send"
 import {
-  AttachmentFileTile,
-  AttachmentThumb,
   Composer,
   ComposerFrame,
   ComposerReplies,
@@ -28,6 +26,10 @@ import {
   MentionTextarea,
   type MentionTextareaHandle,
 } from "@/components/mention-textarea"
+import {
+  ComposerAttachmentTiles,
+  useComposerAttachments,
+} from "@/components/composer-attachments"
 import { ContextWindowBlock } from "@/components/context-window-block"
 import {
   ComposerInlineTools,
@@ -291,12 +293,6 @@ export interface EditorHeldRunner {
   send: { cli?: string; account?: string; model?: string }
 }
 
-interface PendingFile {
-  key: string
-  file: File
-  previewUrl: string | null
-}
-
 /** EXP-1211: the session's quick replies on their own (a host that draws
  *  them outside the composer card, e.g. over the phones' capsule). */
 export function SessionComposerReplies({ sessionId }: { sessionId: string }) {
@@ -392,12 +388,14 @@ export function SessionComposer({
         ? { kind: `agent`, id: agentId }
         : null
   const { text, textRef, setText } = useComposerDraft(draftTarget, teamId)
-  const [files, setFiles] = useState<PendingFile[]>([])
   const [sending, setSending] = useState(false)
   /** A context-discarding command (`/clear`) waiting on its confirmation. */
   const [confirming, setConfirming] = useState<SteerCommand | null>(null)
   const [usageOpen, setUsageOpen] = useState(false)
   const fieldRef = useRef<MentionTextareaHandle>(null)
+  // #EXP-1841: THE launch composer's strip and `[Image #N]` placeholders.
+  const pending = useComposerAttachments({ textRef, setText, fieldRef })
+  const files = pending.attachments
   const toolsRef = useRef<ComposerInlineToolsHandle>(null)
 
   const { store, row, config, usage, contextLayout, fallback } = useComposerSession(sessionId)
@@ -509,24 +507,7 @@ export function SessionComposer({
   }, [agent, model])
   const percent = contextPercent(usage)
 
-  const addFiles = (picked: File[]) => {
-    if (picked.length === 0) return
-    setFiles((current) => [
-      ...current,
-      ...picked.map((file, index) => ({
-        key: `${Date.now()}-${index}-${file.name}`,
-        file,
-        previewUrl: file.type.startsWith(`image/`) ? URL.createObjectURL(file) : null,
-      })),
-    ])
-  }
-
-  const removeFile = (key: string) =>
-    setFiles((current) => {
-      const gone = current.find((entry) => entry.key === key)
-      if (gone?.previewUrl) URL.revokeObjectURL(gone.previewUrl)
-      return current.filter((entry) => entry.key !== key)
-    })
+  const addFiles = pending.add
 
   const empty = text.trim().length === 0 && files.length === 0
 
@@ -580,12 +561,10 @@ export function SessionComposer({
           // FILES: the entry keeps them (IndexedDB) and uploads them itself.
           files: sentFiles.map((entry) => entry.file),
         })
-        for (const entry of sentFiles) if (entry.previewUrl) URL.revokeObjectURL(entry.previewUrl)
         if (sentMcpPick) mcpPick?.sent(sentMcpPick)
         setText(``, { now: true })
         heldRef.current = null
-        const gone = new Set(sentFiles.map((entry) => entry.key))
-        setFiles((current) => current.filter((entry) => !gone.has(entry.key)))
+        pending.clearSent(sentFiles)
         return
       }
       const attachmentIds: string[] = []
@@ -603,12 +582,10 @@ export function SessionComposer({
         ...(sentMcpPick ? { mcpServerIds: sentMcpPick } : {}),
       })
       if (sentMcpPick) mcpPick?.sent(sentMcpPick)
-      for (const entry of sentFiles) if (entry.previewUrl) URL.revokeObjectURL(entry.previewUrl)
       clearSent()
       // Sent: nothing of a Stop's text is left here to take back.
       heldRef.current = null
-      const gone = new Set(sentFiles.map((entry) => entry.key))
-      setFiles((current) => current.filter((entry) => !gone.has(entry.key)))
+      pending.clearSent(sentFiles)
       // A message to a live session writes only a `messages` row: free the
       // composer now, then wait (bounded) for that row to sync.
       setSending(false)
@@ -684,22 +661,7 @@ export function SessionComposer({
           files.length > 0 || teamsPickChips(teamsPick) ? (
             <div className="flex flex-wrap items-center gap-2 px-3 pt-3">
               {teamsPick && <TeamPickChips {...teamsPick} disabled={sending} />}
-              {files.map((entry) =>
-                entry.previewUrl ? (
-                  <AttachmentThumb
-                    key={entry.key}
-                    src={entry.previewUrl}
-                    alt={entry.file.name}
-                    onRemove={() => removeFile(entry.key)}
-                  />
-                ) : (
-                  <AttachmentFileTile
-                    key={entry.key}
-                    name={entry.file.name}
-                    onRemove={() => removeFile(entry.key)}
-                  />
-                )
-              )}
+              <ComposerAttachmentTiles attachments={files} onRemove={pending.remove} />
             </div>
           ) : undefined
         }

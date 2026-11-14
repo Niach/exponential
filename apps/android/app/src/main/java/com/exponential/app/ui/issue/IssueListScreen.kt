@@ -151,9 +151,11 @@ private const val BOARD_CHIP_ALL = "all"
 private const val BOARD_CHIP_MINE = "mine"
 private const val BOARD_CHIP_DRAFTS = "drafts"
 
-/** The board chips (chats.json `shell.boardChips`): All issues · My issues N
- *  · Drafts N (only while there are drafts), select Pills, a count after My
- *  issues and Drafts. */
+/** The board tabs (chats.json `shell.boardChips`, #EXP-1836): All issues ·
+ *  My issues N · Drafts N (only while there are drafts) as THE session
+ *  screen's segmented strip ([GlassSegmentedControl], hugging segments,
+ *  scrolling sideways), left-aligned, each count after its label in muted
+ *  text (none at zero). */
 @Composable
 private fun BoardChips(
     selected: String,
@@ -161,26 +163,46 @@ private fun BoardChips(
     draftsCount: Int,
     onSelect: (String) -> Unit,
 ) {
-    Row(
+    val chips = com.exponential.app.domain.Chats.Shell.BOARD_CHIPS
+        .filter { it != BOARD_CHIP_DRAFTS || draftsCount > 0 }
+    fun label(chip: String) = when (chip) {
+        BOARD_CHIP_MINE -> com.exponential.app.domain.Chats.Copy.BOARD_CHIP_MINE
+        BOARD_CHIP_DRAFTS -> com.exponential.app.domain.Chats.Copy.BOARD_CHIP_DRAFTS
+        else -> com.exponential.app.domain.Chats.Copy.BOARD_CHIP_ALL
+    }
+    fun count(chip: String): Int? = when (chip) {
+        BOARD_CHIP_MINE -> mineCount
+        BOARD_CHIP_DRAFTS -> draftsCount
+        else -> null
+    }?.takeIf { it > 0 }
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
             .padding(horizontal = 16.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        com.exponential.app.domain.Chats.Shell.BOARD_CHIPS.forEach { chip ->
-            if (chip == BOARD_CHIP_DRAFTS && draftsCount == 0) return@forEach
-            val label = when (chip) {
-                BOARD_CHIP_MINE -> com.exponential.app.domain.Chats.Copy.BOARD_CHIP_MINE + (if (mineCount > 0) " $mineCount" else "")
-                BOARD_CHIP_DRAFTS -> com.exponential.app.domain.Chats.Copy.BOARD_CHIP_DRAFTS + " $draftsCount"
-                else -> com.exponential.app.domain.Chats.Copy.BOARD_CHIP_ALL
-            }
-            GlassPill(
-                label,
-                onClick = { onSelect(chip) },
-                mode = PillMode.Select,
-                selected = chip == selected,
-                modifier = Modifier.testTag("${com.exponential.app.domain.Chats.TestIds.BOARD_CHIP}-$chip"),
+        Box(Modifier.horizontalScroll(rememberScrollState())) {
+            com.exponential.app.ui.components.GlassSegmentedControl(
+                options = chips,
+                selected = selected,
+                label = ::label,
+                onSelect = onSelect,
+                testTag = { chip -> "${com.exponential.app.domain.Chats.TestIds.BOARD_CHIP}-$chip" },
+                trailing = { chip ->
+                    count(chip)?.let { n ->
+                        {
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                "$n",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                                maxLines = 1,
+                                softWrap = false,
+                            )
+                        }
+                    }
+                },
+                description = { chip -> count(chip)?.let { "${label(chip)}, $it" } },
+                hug = true,
             )
         }
     }
@@ -325,6 +347,8 @@ fun IssueListScreen(
         if (mode == IssueListMode.Root) hiltViewModel() else null
     val draftsViewModel: com.exponential.app.ui.drafts.DraftsViewModel? =
         if (mode == IssueListMode.Root) hiltViewModel() else null
+    // #EXP-1836: My issues = mine on THIS board (`Chats.boardMineIssues`).
+    LaunchedEffect(myIssuesViewModel, boardId) { myIssuesViewModel?.setBoard(boardId) }
     val myIssuesCount = myIssuesViewModel?.state?.collectAsStateWithLifecycle()?.value
         ?.groups?.sumOf { it.issues.size } ?: 0
     val drafts = draftsViewModel?.drafts?.collectAsStateWithLifecycle()?.value.orEmpty()
@@ -352,8 +376,9 @@ fun IssueListScreen(
 
             // Session 58cb32df (chats.json `shell.boardChips`): All issues ·
             // My issues N · Drafts N (Drafts only while there are drafts) as
-            // select Pills; My issues = the viewer's assigned issues of the
-            // active team grouped by status, Drafts = the team's drafts.
+            // the session screen's segmented strip (#EXP-1836); My issues =
+            // the viewer's assigned issues on THIS board grouped by status,
+            // Drafts = the team's drafts.
             val chipsShown = mode == IssueListMode.Root && !boardId.isNullOrBlank()
             if (chipsShown) {
                 BoardChips(

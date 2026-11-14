@@ -30,8 +30,9 @@ import { useDigestMessages, useSessionReads, useTeamSessions } from "@/hooks/use
 // yellow while it needs you; busy alone = no badge). A row opens the agent's channel; its
 // right-click / long-press is THE session screen menu (#FEED-239: no gear;
 // Agent settings opens that chat with its settings), and the "+" files a
-// new agent. #FEED-239: the host passes `sidebarAgents(agents, apps)`: an
-// app's agent is listed under Apps only.
+// new agent. #FEED-239 / #EXP-1837: the host passes `railAgents(agents,
+// apps)`: an app's agent is listed under Apps only, and the viewer's
+// Assistant is THE FAB (`assistant-fab.tsx`), never a row here.
 
 const UiAddIcon = conceptIcon(`ui-add`)
 

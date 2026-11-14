@@ -301,12 +301,23 @@ pub struct AgentScreenView {
     /// server-only) for the first composer's "+", and the team asked for.
     mcp: Option<(String, Vec<FirstMcpServer>)>,
     mcp_requested: Option<String>,
+    /// #EXP-1837: the Assistant widget's chat: the Chat tab's body alone
+    /// (no header, no tabs).
+    widget: bool,
     _subscriptions: Vec<Subscription>,
 }
 
 impl AgentScreenView {
     pub fn new(agent_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         Self::for_subject(ChannelSubject::Agent(agent_id), window, cx)
+    }
+
+    /// #EXP-1837: the Assistant widget's chat (no header, no tabs; the
+    /// widget draws its own header).
+    pub(crate) fn for_widget(agent_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        let mut this = Self::for_subject(ChannelSubject::Agent(agent_id), window, cx);
+        this.widget = true;
+        this
     }
 
     /// VAPP-110: an app editor's chat (no header; the editor draws it).
@@ -406,6 +417,7 @@ impl AgentScreenView {
             settings_scroll: gpui::ScrollHandle::new(),
             mcp: None,
             mcp_requested: None,
+            widget: false,
             _subscriptions: subscriptions,
         };
         this.refresh(window, cx);
@@ -1045,6 +1057,20 @@ impl AgentScreenView {
         cx.notify();
     }
 
+    fn on_first_paste(
+        &mut self,
+        _: &gpui_component::input::Paste,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let files = composer_images::clipboard_images(cx);
+        if files.is_empty() {
+            return;
+        }
+        cx.stop_propagation();
+        self.stage_first_files(files, window, cx);
+    }
+
     fn remove_first_file(&mut self, key: u64, window: &mut Window, cx: &mut gpui::Context<Self>) {
         self.first.images.remove(key, &self.first.input, window, cx);
         cx.notify();
@@ -1090,6 +1116,17 @@ impl AgentScreenView {
                 .tool(self.render_first_plus(cx)),
             cx,
         );
+        // #EXP-1841: a paste or a drop stages like the "+" pick (Home's
+        // launch composer's handlers).
+        let composer = div()
+            .w_full()
+            .min_w_0()
+            .child(composer)
+            .capture_action(cx.listener(Self::on_first_paste))
+            .on_drop(cx.listener(|this, paths: &gpui::ExternalPaths, window, cx| {
+                this.stage_first_files(composer_images::dropped_files(paths), window, cx)
+            }))
+            .into_any_element();
         match notice {
             Some(notice) => v_flex()
                 .w_full()
@@ -1416,7 +1453,12 @@ impl Render for AgentScreenView {
             if let Some(root_id) = self.conversation.as_ref().map(|row| row.id.clone()) {
                 if self.chat.as_ref().map(|(id, _)| id.as_str()) != Some(root_id.as_str()) {
                     let id = root_id.clone();
-                    let view = cx.new(|cx| crate::session_chat::SessionChatScreenView::new(id, window, cx));
+                    let widget = self.widget;
+                    let view = cx.new(|cx| {
+                        let mut view = crate::session_chat::SessionChatScreenView::new(id, window, cx);
+                        view.set_widget(widget);
+                        view
+                    });
                     self.chat = Some((root_id, view));
                 }
                 if let Some((_, chat)) = self.chat.as_ref() {
@@ -1529,8 +1571,9 @@ impl Render for AgentScreenView {
             // S-3: the call panel covers the body while the call runs.
             .child(self.call_panel.clone())
             .into_any_element();
-        // VAPP-110: an editor's chat is the app editor's chat pane, headerless.
-        if editor {
+        // VAPP-110: an editor's chat is the app editor's chat pane, headerless
+        // (#EXP-1837: so is the Assistant widget's).
+        if editor || self.widget {
             return v_flex().track_focus(&self.focus_handle).size_full().min_h_0().overflow_hidden().child(chat);
         }
         // #EXP-1732: THE session screen's chrome over the empty chat.

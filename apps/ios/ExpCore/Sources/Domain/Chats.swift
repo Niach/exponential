@@ -970,6 +970,19 @@ public enum Chats {
         return Array(order[min(from, to)...max(from, to)])
     }
 
+    /// #EXP-1836 (`boardMineCases`): the board's My issues = the viewer's
+    /// assigned issues on THIS board, input order kept; no viewer = none.
+    public static func boardMineIssues<T>(
+        _ issues: [T],
+        boardId: String,
+        me: String?,
+        boardIdOf: (T) -> String,
+        assigneeIdOf: (T) -> String?
+    ) -> [T] {
+        guard let me, !me.isEmpty else { return [] }
+        return issues.filter { boardIdOf($0) == boardId && assigneeIdOf($0) == me }
+    }
+
     /// #EXP-1388: the (multi-)delete confirm's title.
     public static func chatDeleteTitle(_ count: Int) -> String {
         count == 1 ? Copy.ConfirmDelete.title

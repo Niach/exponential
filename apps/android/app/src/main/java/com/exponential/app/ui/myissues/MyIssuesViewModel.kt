@@ -24,6 +24,7 @@ import com.exponential.app.ui.issue.nestListRows
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -35,9 +36,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 
-// "My Issues" (masterplan §5a): a fixed, built-in cross-board view of
-// everything assigned to the signed-in user on the active account, grouped by
-// status like the board board. No new column, no new shape, no filter
+// "My Issues" (masterplan §5a; #EXP-1836 board-scoped): the board's view of
+// everything assigned to the signed-in user on THAT board, grouped by status
+// like the board. No new column, no new shape, no filter
 // machinery — pure client work over the already-synced issues shape.
 
 // P14: groups are the issues' RESOLVED team status rows (statusId, then the
@@ -76,6 +77,13 @@ internal fun <T> groupByResolvedStatus(
         )
         .map { group -> group.first().second to group.map { it.first } }
 
+private data class MineScope(
+    val db: com.exponential.app.data.db.ExponentialDatabase?,
+    val userId: String?,
+    val team: String?,
+    val boardId: String?,
+)
+
 data class MyIssuesState(
     val groups: List<MyIssuesGroup> = emptyList(),
     val boardsById: Map<String, BoardEntity> = emptyMap(),
@@ -92,9 +100,17 @@ class MyIssuesViewModel @Inject constructor(
 ) : ViewModel() {
 
     /** Session 58cb32df (chats.json): ONE active team drives every phone
-     *  screen — My issues = the viewer's assigned issues of the ACTIVE team
-     *  across its boards (null = every team, before one resolves). */
+     *  screen (null = every team, before one resolves). */
     private val activeTeam = selection.selectedId
+
+    /** #EXP-1836 (chats.json `boardMineCases`): the board's My issues = the
+     *  viewer's assigned issues on THIS board (`Chats.boardMineIssues`); the
+     *  Board page sets it to the board it shows (null = none yet = empty). */
+    private val board = MutableStateFlow<String?>(null)
+
+    fun setBoard(boardId: String?) {
+        board.value = boardId?.takeIf { it.isNotBlank() }
+    }
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
@@ -119,9 +135,9 @@ class MyIssuesViewModel @Inject constructor(
             .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val state: StateFlow<MyIssuesState> =
-        combine(dbFlow, auth.userId, activeTeam) { db, userId, team -> Triple(db, userId, team) }
-            .flatMapLatest { (db, userId, team) ->
-                if (db == null || userId == null) {
+        combine(dbFlow, auth.userId, activeTeam, board) { db, userId, team, boardId -> MineScope(db, userId, team, boardId) }
+            .flatMapLatest { (db, userId, team, boardId) ->
+                if (db == null || userId == null || boardId == null) {
                     flowOf(MyIssuesState(loaded = true))
                 } else {
                     combine(
@@ -132,7 +148,12 @@ class MyIssuesViewModel @Inject constructor(
                         combine(relations, allIssues) { rows, synced -> rows to synced },
                     ) { issues, boards, labelJoins, statuses, graph ->
                         buildState(
-                            issues, boards.filter { team == null || it.teamId == team }, labelJoins.first, labelJoins.second,
+                            com.exponential.app.domain.Chats.boardMineIssues(
+                                issues, boardId, userId,
+                                boardOf = { it.boardId },
+                                assigneeOf = { it.assigneeId },
+                            ),
+                            boards.filter { team == null || it.teamId == team }, labelJoins.first, labelJoins.second,
                             statuses, graph.first, graph.second,
                         )
                     }

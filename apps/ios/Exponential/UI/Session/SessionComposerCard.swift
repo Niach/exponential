@@ -19,11 +19,8 @@ import UniformTypeIdentifiers
 /// The draft one composer edits: the session view's model (it outlives the
 /// screen, EXP-621) or a chat's own (`ChatComposerDraft`).
 @MainActor
-protocol SessionComposerDraft: AnyObject {
-    var draftEditor: IssueEditorModel { get }
-    var pendingImages: [PendingSteerImage] { get set }
-    var pendingFiles: [PendingSteerFile] { get set }
-    /// A pick refused for its size or type — inline under the field (FEED-79).
+protocol SessionComposerDraft: ComposerAttachmentHost {
+    /// A failed upload — inline under the field (FEED-79).
     var steerImageError: String? { get set }
     /// A send (uploads included) is out: the composer dims.
     var steerSending: Bool { get set }
@@ -51,11 +48,6 @@ extension SessionComposerDraft {
     }
 
     var hasPendingAttachments: Bool { !pendingImages.isEmpty || !pendingFiles.isEmpty }
-
-    var attachFull: Bool {
-        pendingImages.count >= SteerImageMessage.maxImages
-            && pendingFiles.count >= SteerImageMessage.maxFiles
-    }
 
     var hasContent: Bool { !trimmedDraft.isEmpty || hasPendingAttachments }
 
@@ -151,99 +143,6 @@ extension SessionComposerDraft {
         pendingImages = pendingImages.map { imageStamps[$0.id] ?? $0 }
         pendingFiles = pendingFiles.map { fileStamps[$0.id] ?? $0 }
     }
-
-    /// Wave D: Files-app picks, ANY type — an inline image queues as an image
-    /// (marker and all), the rest as file tiles capped at four.
-    func ingestFiles(_ urls: [URL]) async {
-        steerImageError = nil
-        for url in urls {
-            let outcome = await AttachmentPicks.readPickedSteerFile(at: url)
-            guard let picked = outcome.attachment else {
-                steerImageError = outcome.failure
-                continue
-            }
-            if AttachmentFiles.isInlineImage(contentType: picked.contentType) {
-                guard pendingImages.count < SteerImageMessage.maxImages else { continue }
-                queuePendingImage(picked)
-            } else {
-                guard pendingFiles.count < SteerImageMessage.maxFiles else {
-                    steerImageError = SteerImageMessage.filesFullMessage
-                    continue
-                }
-                pendingFiles.append(PendingSteerFile(
-                    data: picked.data, filename: picked.filename, contentType: picked.contentType
-                ))
-            }
-        }
-    }
-
-    /// Photo picks → pending images: anything the server's inline-image
-    /// pipeline does not accept (HEIC) transcodes to JPEG through the ONE
-    /// normalizer every composer shares (EXP-554), capped at four.
-    func ingestPhotos(_ items: [PhotosPickerItem]) async {
-        steerImageError = nil
-        for item in items {
-            guard pendingImages.count < SteerImageMessage.maxImages else { break }
-            guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
-            let type = item.supportedContentTypes.first
-            let outcome = AttachmentPicks.normalizedPhoto(
-                data: data,
-                contentTypeHint: type?.preferredMIMEType,
-                filenameExtensionHint: type?.preferredFilenameExtension
-            )
-            guard let normalized = outcome.attachment else {
-                steerImageError = outcome.failure
-                continue
-            }
-            queuePendingImage(normalized)
-        }
-    }
-
-    /// EXP-802: a PASTED image joins the strip like a picked one.
-    func ingestPastedImage(_ image: UIImage) {
-        guard pendingImages.count < SteerImageMessage.maxImages else { return }
-        guard let data = image.jpegData(compressionQuality: 0.85) else { return }
-        steerImageError = nil
-        let outcome = AttachmentPicks.normalizedPhoto(
-            data: data, contentTypeHint: "image/jpeg", filenameExtensionHint: "jpg"
-        )
-        guard let normalized = outcome.attachment else {
-            steerImageError = outcome.failure
-            return
-        }
-        queuePendingImage(normalized)
-    }
-
-    /// Queue one normalized image and drop its positional `[Image #k]`
-    /// marker at the END of the draft (EXP-698), so a sentence can name the
-    /// picture it means. Not at the caret: that is an offset into the
-    /// DECORATED text, where a resolved `#EXP-1` chip carries a title the
-    /// sent text does not.
-    func queuePendingImage(_ normalized: PendingCommentAttachment) {
-        pendingImages.append(PendingSteerImage(
-            data: normalized.data,
-            filename: normalized.filename,
-            contentType: normalized.contentType,
-            uploadedId: nil
-        ))
-        let inserted = SteerImageMessage.insertImageMarker(
-            text: draftText,
-            caret: (draftText as NSString).length,
-            index: pendingImages.count
-        )
-        draftText = inserted.text
-    }
-
-    /// Drop one pick; an image's removal renumbers the draft's markers, so
-    /// `[Image #N]` keeps naming the N-th image that will actually be sent.
-    func removePending(id: UUID) {
-        if let position = pendingImages.firstIndex(where: { $0.id == id }) {
-            pendingImages.remove(at: position)
-            draftText = SteerImageMessage.renumberImageMarkers(draftText, removedIndex: position + 1)
-        } else {
-            pendingFiles.removeAll { $0.id == id }
-        }
-    }
 }
 
 /// The box's attach UI, owned by the HOST so an open picker or menu (each
@@ -326,7 +225,7 @@ struct SessionComposerCard<Draft: SessionComposerDraft>: View {
                 PendingAttachmentStrip(
                     items: PendingStripItem.steer(images: draft.pendingImages, files: draft.pendingFiles)
                 ) { id in
-                    draft.removePending(id: id)
+                    draft.removeAttachment(id: id)
                 }
                 .padding(.horizontal, 8)
                 .padding(.bottom, 4)

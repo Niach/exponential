@@ -11,7 +11,7 @@
 //! spec, [`plain_line`], and the lists' per-conversation digest
 //! ([`digest_messages`], `digestCases`), and #EXP-1388's selection + archive
 //! ([`chat_selection_actions`], [`chat_selection_range`], [`chats_unread`],
-//! [`chat_delete_title`]), and #FEED-191's list sections ([`chat_sections`]).
+//! [`chat_delete_title`]), and #FEED-191's list sections ([`chat_sections`]), and #EXP-1836's board My issues ([`board_mine_issues`]).
 //! Byte-locked by `fixtures/chats.json`; pure.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -209,6 +209,8 @@ pub struct ChatsTestIds {
     pub selection_bar: String,
     /// #EXP-1733: an app row of the list.
     pub app_row: String,
+    /// #EXP-1836: the board's tab strip (`shell.boardChips`).
+    pub board_chip: String,
 }
 
 /// `transcript` (#EXP-1380 WINDOW + FOLLOW): a chat paints its newest
@@ -1368,6 +1370,28 @@ pub fn chat_selection_count(count: usize) -> String {
     CHATS.copy.selection.count.replace("{n}", &count.to_string())
 }
 
+/// #EXP-1836 (`shell.boardChips`, `boardMineCases`, the twin of TS
+/// `boardMineIssues`): the board's My issues = the issues whose board is
+/// `board_id` and whose assignee is the viewer `me`, input order kept; no
+/// viewer = none. `fields` reads an issue's (board id, assignee id).
+pub fn board_mine_issues<T>(
+    issues: impl IntoIterator<Item = T>,
+    board_id: &str,
+    me: Option<&str>,
+    fields: impl Fn(&T) -> (&str, Option<&str>),
+) -> Vec<T> {
+    let Some(me) = me.filter(|me| !me.is_empty()) else {
+        return Vec::new();
+    };
+    issues
+        .into_iter()
+        .filter(|issue| {
+            let (issue_board, assignee) = fields(issue);
+            issue_board == board_id && assignee == Some(me)
+        })
+        .collect()
+}
+
 /// WINDOW (#EXP-1380, review of #1218; `windowCases`, the twin of TS
 /// `transcriptWindowStart`): the index of a chat's first painted row of
 /// `row_count`. The newest `transcript.window` rows, or from `pinned_start`
@@ -1518,6 +1542,19 @@ pub fn sidebar_agents<'a, T>(
     let owned: std::collections::HashSet<&str> =
         app_agents.into_iter().flatten().filter(|id| !id.is_empty()).collect();
     agents.iter().filter(|agent| !owned.contains(agent_id(agent))).collect()
+}
+
+/// #EXP-1837 (`railAgentCases`, TS `railAgents`): the IDE rail's Agents
+/// group = [`sidebar_agents`] minus the viewer's Assistant (it is THE FAB
+/// there, agent-settings.json `assistant.fab`); Settings › Agents keeps
+/// [`sidebar_agents`].
+pub fn rail_agents<'a, T>(
+    agents: &'a [T],
+    agent_id: impl Fn(&T) -> &str,
+    is_assistant: impl Fn(&T) -> bool,
+    app_agents: impl IntoIterator<Item = Option<&'a str>>,
+) -> Vec<&'a T> {
+    sidebar_agents(agents, agent_id, app_agents).into_iter().filter(|agent| !is_assistant(agent)).collect()
 }
 
 #[cfg(test)]
@@ -2061,6 +2098,49 @@ mod tests {
         }
         assert_eq!(CHATS.copy.sections.apps, "Apps");
         assert_eq!(CHATS.test_ids.app_row, "chat-app-row");
+        assert_eq!(CHATS.test_ids.board_chip, "board-chip");
+    }
+
+    /// #EXP-1836: `boardMineCases`, ids in input order.
+    #[test]
+    fn board_mine_cases_match_the_fixture() {
+        let fixture = fixture();
+        let cases = fixture["boardMineCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let issues = case["issues"].as_array().unwrap();
+            let got: Vec<&str> = board_mine_issues(issues, case["boardId"].as_str().unwrap(), case["me"].as_str(), |issue| {
+                (issue["boardId"].as_str().unwrap(), issue["assigneeId"].as_str())
+            })
+            .into_iter()
+            .map(|issue| issue["id"].as_str().unwrap())
+            .collect();
+            let expected: Vec<&str> = case["expected"].as_array().unwrap().iter().map(|id| id.as_str().unwrap()).collect();
+            assert_eq!(got, expected, "{}", case["name"]);
+        }
+    }
+
+    /// #EXP-1837: `railAgentCases` (TS `railAgents`), the ids in order.
+    #[test]
+    fn rail_agent_cases_match_the_fixture() {
+        let fixture = fixture();
+        let cases = fixture["railAgentCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let agents = case["input"]["agents"].as_array().unwrap().clone();
+            let apps = case["input"]["apps"].as_array().unwrap();
+            let got: Vec<&str> = rail_agents(
+                &agents,
+                |agent| agent["agentId"].as_str().unwrap(),
+                |agent| agent["assistant"].as_bool().unwrap_or(false),
+                apps.iter().map(|app| app["agentId"].as_str()),
+            )
+            .into_iter()
+            .map(|agent| agent["agentId"].as_str().unwrap())
+            .collect();
+            let expected: Vec<&str> = case["expected"].as_array().unwrap().iter().map(|id| id.as_str().unwrap()).collect();
+            assert_eq!(got, expected, "{}", case["name"]);
+        }
     }
 
     /// #FEED-239: `sidebarAgentCases` (TS `sidebarAgents`), the ids in order.

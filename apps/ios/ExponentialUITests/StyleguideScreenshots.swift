@@ -460,9 +460,9 @@ final class StyleguideScreenshots: XCTestCase {
         snapshot("sg_search", settle: 2)
         goBack(app)
 
-        // ── sg_my-issues: the board's "My issues" chip (EXP-1373) ────────────
+        // ── sg_my-issues: the board's "My issues" tab (EXP-1373/#EXP-1836) ──
         showBoard(app)
-        let myIssuesChip = app.buttons["board-chip-mine"]
+        let myIssuesChip = anyElement(app, identified: "board-chip-mine")
         expect(myIssuesChip, within: Wait.nav, "My issues chip missing")
         myIssuesChip.tap()
         expect(
@@ -474,7 +474,7 @@ final class StyleguideScreenshots: XCTestCase {
         // ── sg_drafts: the board's Drafts chip (EXP-1558; web-mobile's
         // `?chip=drafts`): the demo user's seeded drafts. A detour.
         if ScreenshotShots.isWanted("sg_drafts") {
-            let draftsChip = app.buttons["board-chip-drafts"]
+            let draftsChip = anyElement(app, identified: "board-chip-drafts")
             expect(draftsChip, within: Wait.nav, "The board has no Drafts chip — reseed with `bun run seed:screenshots` (the demo user's drafts)")
             draftsChip.tap()
             // EXP-1647: a draft row is ONE combined button (title + age).
@@ -485,7 +485,7 @@ final class StyleguideScreenshots: XCTestCase {
             )
             snapshot("sg_drafts", settle: 2)
         }
-        app.buttons["board-chip-all"].tap()
+        anyElement(app, identified: "board-chip-all").tap()
 
         // ── sg_agents: the machines / command centre ─────────────────────────
         // Since EXP-642 this lane needs the relay stub (`screenshots:desktop`):

@@ -33,12 +33,10 @@ import {
 import type { CodingLaunchPrefs } from "@/lib/coding-launch-prefs"
 import { byCreatedAtDesc } from "@/lib/ordering"
 import {
-  ATTACHMENT_REJECTED_TOAST,
   dropPendingImage,
-  FILE_CAP_TOAST,
-  IMAGE_CAP_TOAST,
   markPendingImageUploaded,
   stagePendingImages,
+  stageToasts,
   type PendingAttachment,
 } from "@/lib/pending-images"
 import {
@@ -263,7 +261,8 @@ export interface LaunchComposerModel {
   /** Stages files and drops their markers at `caret`; returns the caret
    * behind the last marker. */
   addFiles: (files: File[], caret: number) => number
-  removeImage: (url: string) => void
+  /** The strip's X; returns the caret after (composer-attachments.json). */
+  removeImage: (url: string, caret?: number) => number
 
   /** The team's connected repositories (null until fetched). */
   repos: ChatRepoOption[] | null
@@ -548,9 +547,7 @@ export function useLaunchComposer({
       setImages(staged.images)
       setText(staged.text)
     }
-    if (staged.rejected > 0) toast.error(ATTACHMENT_REJECTED_TOAST)
-    if (staged.overflow > 0) toast.error(IMAGE_CAP_TOAST)
-    if (staged.fileOverflow > 0) toast.error(FILE_CAP_TOAST)
+    for (const message of stageToasts(staged)) toast.error(message)
     return staged.caret
   }
 
@@ -560,11 +557,12 @@ export function useLaunchComposer({
   )
 
   const removeImage = useCallback(
-    (url: string) => {
-      const dropped = dropPendingImage(imagesRef.current, url, text)
+    (url: string, caret: number = text.length) => {
+      const dropped = dropPendingImage(imagesRef.current, url, text, caret)
       if (dropped.images !== imagesRef.current) URL.revokeObjectURL(url)
       setImages(dropped.images)
       setText(dropped.text)
+      return dropped.caret
     },
     [text]
   )

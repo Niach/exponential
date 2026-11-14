@@ -11,18 +11,19 @@ import { useSession } from "@/hooks/use-session"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { useAgentRows } from "@/hooks/use-agent-row"
 
-// Cross-board "My Issues": every issue assigned to the signed-in user across
-// all boards in the team, grouped by status like the board
-// (masterplan §5a — a fixed built-in view, no saved-filter machinery). Rows
-// span boards, so the identifier column (always `{PREFIX}-{number}`) carries
-// the board context; clicking a row opens the full-page detail route.
+// "My Issues": every issue assigned to the signed-in user on ONE board
+// (#EXP-1836, chats.json `boardMineCases`), grouped by status like the board
+// (masterplan §5a — a fixed built-in view, no saved-filter machinery);
+// clicking a row opens the full-page detail route.
 //
-// Lives as the "My Issues" tab of the Inbox page (EXP-186).
+// Lives as the board's My issues tab (chats.json `shell.boardChips`).
 export function MyIssuesView({
   teamSlug,
+  boardId,
   bulkActionSlot,
 }: {
   teamSlug: string
+  boardId: string
   /** The tab row's right-hand cell, where the bulk-action bar renders. */
   bulkActionSlot: HTMLElement | null
 }) {
@@ -41,7 +42,7 @@ export function MyIssuesView({
     visibleGroups,
     issueGraph,
     team,
-  } = useMyIssuesData({ userId, teamSlug })
+  } = useMyIssuesData({ userId, teamSlug, boardId })
 
   const permissions = useTeamPermissions(team)
   // #EXP-1383: the team's agents (agent assignees, the picker's agent rows).

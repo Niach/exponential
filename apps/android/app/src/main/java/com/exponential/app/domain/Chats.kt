@@ -920,6 +920,19 @@ object Chats {
         return order.subList(minOf(from, to), maxOf(from, to) + 1).toList()
     }
 
+    /** #EXP-1836 (`boardMineCases`): the board's My issues = the viewer's
+     *  assigned issues on THIS board, input order kept; no viewer = none. */
+    fun <T> boardMineIssues(
+        issues: List<T>,
+        boardId: String,
+        me: String?,
+        boardOf: (T) -> String,
+        assigneeOf: (T) -> String?,
+    ): List<T> {
+        if (me.isNullOrEmpty()) return emptyList()
+        return issues.filter { boardOf(it) == boardId && assigneeOf(it) == me }
+    }
+
     /** #EXP-1388: the multi-delete confirm's title. */
     fun chatDeleteTitle(count: Int): String =
         if (count == 1) Copy.CONFIRM_DELETE_TITLE else Copy.SELECTION_CONFIRM_DELETE_MANY.replace("{n}", count.toString())

@@ -882,7 +882,7 @@
       "id": "my-issues",
       "group": "my-work",
       "title": "My issues",
-      "blurb": "Everything assigned to me across every board in the team: the board's My issues chip.",
+      "blurb": "Everything assigned to me on this board: the board's My issues tab.",
       "order": 2,
       "web": {
         "route": "/t/$teamSlug/boards/$boardSlug?chip=mine",
@@ -908,9 +908,9 @@
         }
       },
       "notes": {
-        "desktop": "#FEED-191: the board's All issues · My issues pills: `EXP_DEV_TOOL=my-issues` opens the active board on My issues.",
-        "web-mobile": "Inherits web: the phone board's My issues chip (All issues · My issues N · Drafts N), the list grouped by status like the board.",
-        "web": "#FEED-191: the board's chips (All issues · My issues N; Drafts stays a sidebar entry on wide); an old `/inbox?tab=my-issues` link forwards to it."
+        "desktop": "#EXP-1836: the board's All issues · My issues segmented tabs: `EXP_DEV_TOOL=my-issues` opens the active board on My issues.",
+        "web-mobile": "Inherits web: the phone board's My issues tab (All issues · My issues N · Drafts N, segmented), the list grouped by status like the board.",
+        "web": "#EXP-1836: the board's segmented tabs (All issues · My issues N; Drafts stays a sidebar entry on wide); an old `/inbox?tab=my-issues` link forwards to it."
       }
     },
     {

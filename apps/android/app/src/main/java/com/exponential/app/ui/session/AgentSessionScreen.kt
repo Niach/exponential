@@ -248,7 +248,6 @@ import com.exponential.app.domain.COMPACTING_LABEL
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.HistoryState
 import com.exponential.app.domain.rateLimitBannerShows
-import com.exponential.app.domain.insertImageMarker
 import com.exponential.app.domain.SteerMessageSegment
 import com.exponential.app.domain.imageMarker
 import com.exponential.app.domain.parseSteerMessage
@@ -279,9 +278,7 @@ import com.exponential.app.ui.components.picker.PickerItem
 import com.exponential.app.ui.components.picker.PickerMode
 import com.exponential.app.ui.agent.readComposerPick
 import com.exponential.app.domain.steerMessageSegments
-import com.exponential.app.domain.renumberImageMarkers
 import com.exponential.app.domain.PendingAttachment
-import com.exponential.app.domain.imageNumberAt
 import com.exponential.app.domain.QuestionOption
 import com.exponential.app.domain.SessionAccountOption
 import com.exponential.app.domain.SessionAccountSwitch
@@ -6090,19 +6087,8 @@ private fun ExpandedSteerComposer(
     // "crop [Image #2]" without typing the token. Removing one renumbers the
     // draft (below), so the markers always name images the composer still has.
     // Wave D: only IMAGES are numbered — a file tile carries no marker.
-    val imageCount = pendingImages.count { it.isImage }
-    var markedImages by remember { mutableIntStateOf(imageCount) }
-    LaunchedEffect(imageCount) {
-        if (imageCount > markedImages) {
-            var next = value
-            for (k in (markedImages + 1)..imageCount) {
-                val (text, caret) = insertImageMarker(next.text, next.selection.end, k)
-                next = TextFieldValue(text, TextRange(caret))
-            }
-            onValueRewrite(next)
-        }
-        markedImages = imageCount
-    }
+    // #EXP-1841: THE placeholders of every composer (composer-attachments.json).
+    com.exponential.app.ui.agent.ComposerImageMarkers(pendingImages, value, onValueRewrite)
     // Opening the card is what a tap on the folded capsule means: the field
     // takes focus (and the keyboard) at once.
     val focusRequester = remember { FocusRequester() }
@@ -6134,19 +6120,7 @@ private fun ExpandedSteerComposer(
                 items = pendingImages,
                 enabled = !sending,
                 onRemove = { index ->
-                    // Renumber BEFORE the list shrinks: `[Image #k]` goes, and
-                    // every higher marker comes down one. A file has no marker.
-                    val number = pendingImages.imageNumberAt(index)
-                    val renumbered = if (number != null) renumberImageMarkers(value.text, number) else value.text
-                    if (renumbered != value.text) {
-                        onValueRewrite(
-                            TextFieldValue(
-                                renumbered,
-                                TextRange(value.selection.end.coerceAtMost(renumbered.length)),
-                            ),
-                        )
-                    }
-                    onRemoveImage(index)
+                    com.exponential.app.ui.agent.removeComposerAttachment(pendingImages, index, value, onValueRewrite, onRemoveImage)
                 },
             )
         },

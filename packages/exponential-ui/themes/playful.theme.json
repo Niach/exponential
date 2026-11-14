@@ -127,7 +127,8 @@
         { "when": { "size": "sm" }, "style": { "paddingHorizontal": "$spacing.lg" } },
         { "when": { "size": "icon-xs" }, "style": { "paddingHorizontal": "$spacing.none" } },
         { "when": { "tone": "muted" }, "style": { "color": "$color.mutedForeground" } },
-        { "when": { "tone": "muted", "state": "hover" }, "style": { "color": "$color.mutedForeground" } }
+        { "when": { "tone": "muted", "state": "hover" }, "style": { "color": "$color.mutedForeground" } },
+        { "when": { "variant": "fab" }, "style": { "paddingHorizontal": "$spacing.none", "boxShadow": "$shadow.none" } }
       ]
     },
     "Badge": {

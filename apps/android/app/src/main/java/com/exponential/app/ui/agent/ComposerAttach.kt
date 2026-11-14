@@ -135,3 +135,60 @@ internal const val ATTACH_MENU_TEST_ID = "composer-attach-menu"
 internal const val ATTACH_ROW_TEST_ID = "composer-attach"
 private const val CAMERA_DIR = "composer-camera"
 private const val CAMERA_STALE_MS = 24L * 60 * 60 * 1000
+
+/**
+ * #EXP-1841 (composer-attachments.json): THE `[Image #N]` placeholders of
+ * every composer (a new chat's, a session's, an agent chat's, the
+ * Assistant's, an app editor's). Each newly picked IMAGE drops its own marker
+ * at the caret (`insert`), numbered on from the images already pending, so
+ * the writer can say "crop [Image #2]"; a file tile carries none.
+ */
+@Composable
+internal fun ComposerImageMarkers(
+    pending: List<com.exponential.app.domain.PendingAttachment>,
+    value: androidx.compose.ui.text.input.TextFieldValue,
+    onValueRewrite: (androidx.compose.ui.text.input.TextFieldValue) -> Unit,
+) {
+    val imageCount = pending.count { it.isImage }
+    var markedImages by remember { androidx.compose.runtime.mutableIntStateOf(imageCount) }
+    androidx.compose.runtime.LaunchedEffect(imageCount) {
+        if (imageCount > markedImages) {
+            var next = value
+            for (k in (markedImages + 1)..imageCount) {
+                val placed = com.exponential.app.domain.ComposerAttachments.insert(next.text, next.selection.end, k)
+                next = androidx.compose.ui.text.input.TextFieldValue(placed.text, androidx.compose.ui.text.TextRange(placed.caret))
+            }
+            onValueRewrite(next)
+        }
+        markedImages = imageCount
+    }
+}
+
+/**
+ * #EXP-1841: the strip's X in every composer (composer-attachments.json
+ * `drop`): an image's markers leave the draft and every higher one slides
+ * down BEFORE the list shrinks; a file's X leaves the text alone.
+ */
+internal fun removeComposerAttachment(
+    pending: List<com.exponential.app.domain.PendingAttachment>,
+    index: Int,
+    value: androidx.compose.ui.text.input.TextFieldValue,
+    onValueRewrite: (androidx.compose.ui.text.input.TextFieldValue) -> Unit,
+    onRemove: (Int) -> Unit,
+) {
+    val kinds = pending.map {
+        if (it.isImage) com.exponential.app.domain.ComposerAttachments.Kind.Image
+        else com.exponential.app.domain.ComposerAttachments.Kind.File
+    }
+    // composer-attachments.json `drop`: the caret stays where it was.
+    val dropped = com.exponential.app.domain.ComposerAttachments.drop(kinds, index, value.text, value.selection.end)
+    if (dropped.text != value.text) {
+        onValueRewrite(
+            androidx.compose.ui.text.input.TextFieldValue(
+                dropped.text,
+                androidx.compose.ui.text.TextRange(dropped.caret),
+            ),
+        )
+    }
+    onRemove(index)
+}

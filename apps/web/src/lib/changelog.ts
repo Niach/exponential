@@ -25,6 +25,41 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-14-phones-chat-shell-release`,
+    date: `2026-11-14`,
+    title: `One chat menu and sidebar folders on your phone`,
+    summary: `Android 0.14.139 and iOS 0.14.129 bring the one \`…\` chat menu, your sidebar folders, My issues tabs on a board and [Image #1] placeholders in every chat composer.`,
+    body: `- **One \`…\` menu**: every chat, agent and app shares one menu; the settings gear is gone and your own messages carry your picture on the right.
+- **Sidebar folders**: the folders you make on the desktop app or the web show on your phone.
+- **My issues**: a board's All issues, My issues and Drafts are tabs, and My issues lists only yours on that board.
+- **Image placeholders**: attaching an image in a chat puts \`[Image #1]\` at the cursor.`,
+  },
+  {
+    id: `2026-11-14-assistant-floating-button`,
+    date: `2026-11-14`,
+    title: `Your Assistant floats over every page`,
+    summary: `On the desktop app and the wide web, your Assistant moved out of the sidebar into a round button in the bottom-right corner that opens its chat right there.`,
+    body: `- **Always at hand**: the round button with the Exponential mark sits in the bottom-right corner of every page and shows the same count badge as before, yellow when it needs you.
+- **Chat without leaving**: press it to chat with your Assistant in a small window over the page; the arrow opens the full chat and the minus tucks it away again.
+- **Phones unchanged**: on iOS and Android your Assistant stays the first row in Chats.`,
+  },
+  {
+    id: `2026-11-14-board-my-issues-tabs`,
+    date: `2026-11-14`,
+    title: `My issues shows this board's issues`,
+    summary: `A board's My issues tab now lists only your issues on that board, and its count matches.`,
+    body: `- **My issues**: the tab counts and lists the issues assigned to you on the board you are looking at, not across every board of the team.\n- **Board tabs**: All issues, My issues and Drafts now use the same tab strip as a session.`,
+  },
+  {
+    id: `2026-11-14-image-placeholders-in-every-chat`,
+    date: `2026-11-14`,
+    title: `[Image #1] in every chat`,
+    summary: `An image you attach in an open chat now drops its [Image #1] placeholder at the cursor, just like a new message does.`,
+    body: `- **Placeholders everywhere**: attaching an image in a chat, an agent chat, the Assistant or an app editor puts \`[Image #1]\`, \`[Image #2]\` and so on at the cursor, so you can say which image you mean.
+- **Removing an image**: its placeholder goes too and the others renumber.
+- **Same limits**: four images and four files per message, with the same messages when a pick does not fit.`,
+  },
+  {
     id: `2026-11-14-one-chat-shell`,
     date: `2026-11-14`,
     title: `One menu for every chat`,

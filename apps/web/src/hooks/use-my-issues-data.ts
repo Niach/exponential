@@ -15,28 +15,32 @@ import {
   buildVisibleIssueGroups,
   nestIssueGroups,
 } from "@/lib/board-view"
+import { boardMineIssues } from "@exp/domain-contract/chats"
 import { useTeamIssueGraph } from "@/hooks/use-team-issue-graph"
 import { useTeamStatuses } from "@/hooks/use-team-statuses"
 import type { Issue, IssueLabel, Board } from "@/db/schema"
 
-// Cross-board "My Issues" board data: every issue assigned to the current
-// user across all boards in the team, reusing the board-view grouping
-// machinery (mirrors use-board-view-data, minus the single board scope).
-// Pure client work over the already-synced issues shape.
+// "My Issues" board data: every issue assigned to the current user, reusing
+// the board-view grouping machinery (mirrors use-board-view-data). #EXP-1836
+// (chats.json `boardMineCases`): with `boardId` = mine on THAT board only
+// (`boardMineIssues`, the board's My issues tab and its count); without it,
+// across the team's boards. Pure client work over the synced issues shape.
 export function useMyIssuesData({
   userId,
   teamSlug,
+  boardId,
 }: {
   userId: string | undefined
   teamSlug: string
+  boardId?: string
 }) {
   // Const binding so TS narrowing survives into the live-query closure.
   const assignee = userId
   const team = useTeamBySlug(teamSlug)
   const { boards, boardsReady } = useTeamBoardsWithReady(team?.id)
   const boardIds = useMemo(
-    () => boards.map((board) => board.id),
-    [boards]
+    () => boards.map((board) => board.id).filter((id) => boardId === undefined || id === boardId),
+    [boards, boardId]
   )
   const boardMap = useMemo(
     () => new Map<string, Board>(boards.map((p) => [p.id, p])),
@@ -82,7 +86,10 @@ export function useMyIssuesData({
     team?.id
   )
 
-  const issueList = (issues ?? []) as Issue[]
+  const issueList = useMemo(() => {
+    const list = (issues ?? []) as Issue[]
+    return boardId !== undefined ? boardMineIssues(list, boardId, assignee) : list
+  }, [issues, boardId, assignee])
   const issueLabelList = (issueLabels ?? []) as IssueLabel[]
 
   const issueGraph = useTeamIssueGraph(team?.id)

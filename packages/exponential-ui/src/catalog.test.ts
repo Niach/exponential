@@ -134,7 +134,9 @@ describe(`components`, () => {
     expect([...coreCatalog.enums.variant]).toEqual([`default`, `secondary`, `outline`, `ghost`, `destructive`, `link`])
     expect([...coreCatalog.enums.size]).toEqual([`sm`, `default`, `lg`, `icon`, `icon-xs`]) // #EXP-1629: + shadcn's `icon-xs`
     expect(coreCatalog.components.Button.props.tone.enum).toBe(`buttonTone`)
-    expect(coreCatalog.components.Button.props.variant.enum).toBe(`variant`)
+    // #EXP-1837: Button's own `buttonVariant` = shadcn's `variant` + `fab` (Badge keeps `variant`, no fab Badge).
+    expect([...coreCatalog.enums.buttonVariant]).toEqual([...coreCatalog.enums.variant, `fab`])
+    expect(coreCatalog.components.Button.props.variant.enum).toBe(`buttonVariant`)
     expect(coreCatalog.components.Button.props.size.enum).toBe(`size`)
     expect(coreCatalog.components.Badge.props.variant.enum).toBe(`variant`)
   })
