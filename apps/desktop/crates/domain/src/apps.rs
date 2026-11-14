@@ -360,6 +360,10 @@ pub struct AppsTestIds {
     pub webhooks: String,
     pub webhook_row: String,
     pub webhook_secret: String,
+    /// #EXP-1850: the Events tab, its Recent runs group and one run row.
+    pub events_tab: String,
+    pub recent_runs: String,
+    pub run_row: String,
     /// #VAPP-243: the Record access group and one row.
     pub policies: String,
     pub policy_row: String,

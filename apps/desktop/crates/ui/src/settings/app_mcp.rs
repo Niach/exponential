@@ -12,6 +12,9 @@
 //! #EXP-1629: the groups are parts of the Settings tab's document
 //! (`app_detail`): each a builder of its rows' template and a projection of
 //! its rows; the share rows' ⋯ are genUI Menus ([`share_menu_items`]).
+//! #EXP-1850: the Automations group is gone (an app's automations are its
+//! agent's triggers); the Webhooks group moved to the Events tab
+//! ([`super::app_events`]).
 
 use std::collections::HashMap;
 
@@ -21,7 +24,7 @@ use serde_json::{json, Value};
 
 use api::app_access::{AppServer, AppToolsOut, AppUpstream};
 
-use super::app_detail::{button, row_shell, switch, text_line, titled, titled_item, two_lines, visible, Paint, Tints};
+use super::app_detail::{button, row_shell, switch, text_line, titled, two_lines, visible, Paint, Tints};
 use super::doc::{path, Ink, SM, XS};
 use crate::controls::{PointerMenuButtonExt as _, WebControl as _};
 use crate::icons::registry;
@@ -233,39 +236,6 @@ pub(super) fn tools_rows(data: &AppToolsOut, busy: Option<&str>) -> Value {
     json!({"show": !rows.is_empty(), "rows": rows})
 }
 
-/// #VAPP-220: the Automations rows (`app-settings-automations`): the name
-/// over the trigger (who it runs as or why it paused, the dropped runs),
-/// the status Pill.
-pub(super) fn automations_rows(data: &AppToolsOut) -> Value {
-    let rows: Vec<Value> = data
-        .automations
-        .iter()
-        .enumerate()
-        .map(|(ix, automation)| {
-            // A trigger kind this build does not know: no trigger line, the
-            // status from the paused/last-run fields alone.
-            let on = automation.trigger();
-            let unknown = domain::apps::AutomationOn::Event(String::new());
-            let view = domain::apps::automation_row(on.as_ref().unwrap_or(&unknown), automation.paused.as_deref(), automation.last_status.as_deref());
-            let (trigger, label) = (if on.is_some() { view.trigger } else { String::new() }, view.label);
-            // #VAPP-243: who it runs as, or why it is paused.
-            let trigger = match domain::apps::automation_sponsor(automation.paused.as_deref(), automation.sponsor_name.as_deref()) {
-                Some(sponsor) if trigger.is_empty() => sponsor,
-                Some(sponsor) => format!("{trigger} · {sponsor}"),
-                None => trigger,
-            };
-            // #VAPP-255: the runs the rate cap dropped.
-            let trigger = match domain::apps::automation_dropped(automation.dropped_runs) {
-                Some(dropped) if trigger.is_empty() => dropped,
-                Some(dropped) => format!("{trigger} · {dropped}"),
-                None => trigger,
-            };
-            json!({"key": automation.name, "divided": ix > 0, "name": automation.name, "hasTrigger": !trigger.is_empty(), "trigger": trigger, "label": label})
-        })
-        .collect();
-    json!({"show": !rows.is_empty(), "rows": rows})
-}
-
 /// #VAPP-238: the Webhooks rows (`app-settings-webhooks`): the name over
 /// its URL and the status Pill, under them Copy URL and an owner's Create /
 /// Rotate secret; a secret this pane minted shows ONCE in a row right under
@@ -390,20 +360,8 @@ pub(super) fn tools_group(ink: &Ink, tints: &Tints) -> Value {
     titled(ink, "app-settings-mcp-tools", APP_MCP_COPY.tools, "/pane/mcpTools", row, tints)
 }
 
-/// #VAPP-220: the Automations group: nothing to switch.
-pub(super) fn automations_group(ink: &Ink, tints: &Tints) -> Value {
-    let apps = &*domain::apps::APPS;
-    let mut trigger = ink.text("automation_trigger", path("trigger"), XS, &ink.muted);
-    trigger["props"]["lines"] = json!(2);
-    trigger["visible"] = path("hasTrigger");
-    let row = row_shell(ink, "automation", vec![
-        two_lines(ink, "automation", text_line(ink, "automation_name", path("name"), SM, &ink.foreground, false), trigger, None),
-        ink.pill("automation_status", path("label"), false, None),
-    ]);
-    titled(ink, &apps.test_ids.automations, &apps.copy.automations.title, "/pane/automations", row, tints)
-}
-
-/// #VAPP-238: the Webhooks group.
+/// #VAPP-238: the Webhooks group; #EXP-1850: on the Events tab
+/// ([`super::app_events`]) under THE section band (Triggers', Recent runs').
 pub(super) fn webhooks_group(ink: &Ink, tints: &Tints) -> Value {
     let apps = &*domain::apps::APPS;
     let copy = &apps.copy.webhooks;
@@ -426,7 +384,10 @@ pub(super) fn webhooks_group(ink: &Ink, tints: &Tints) -> Value {
     let secret = ink.shell("secret_row", false, path("hasSecret"), vec![two_lines(ink, "secret", label, value, None), copy_secret]);
     let item = json!({"id": "hook_item", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0},
         "children": [ink.divider("hook_divider", path("divided")), hook, ink.divider("secret_divider", path("hasSecret")), secret]});
-    titled_item(ink, &apps.test_ids.webhooks, &copy.title, "/pane/hooks", item, tints)
+    let list = json!({"id": "hooks_rows", "component": "List", "props": {"gap": "none"},
+        "template": {"component": "hook_item", "path": "/pane/hooks/rows", "key": "key"}, "children": [item]});
+    json!({"id": apps.test_ids.webhooks, "component": "Box", "visible": path("/pane/hooks/show"), "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0},
+        "children": [ink.band("hooks_band", &copy.title, None), ink.group("hooks_group", vec![list])]})
 }
 
 #[cfg(test)]

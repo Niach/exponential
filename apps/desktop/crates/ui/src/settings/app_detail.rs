@@ -14,7 +14,8 @@
 //! #EXP-1629: the tab is a document on the native binding (projection at
 //! `/pane`): the identity row (genUI IconPicker, ColorPicker and a `bare`
 //! Input), the description (a `row` Textarea), the records line, Record
-//! access, Tools, then `app_mcp`'s groups. The share rows' ⋯ are genUI
+//! access, Tools, then `app_mcp`'s groups (#EXP-1850: no Automations; the
+//! Webhooks group is on the Events tab). The share rows' ⋯ are genUI
 //! Menus; every confirm stays native.
 
 use std::cell::RefCell;
@@ -137,11 +138,6 @@ pub struct AppDetailPane {
     /// #VAPP-254: the upstream whose server is being written (every Select
     /// waits).
     upstream_busy: Option<String>,
-    /// #VAPP-238: the hook whose secret is being minted or rotated, and the
-    /// secrets this pane minted (hook name → secret): SHOWN ONCE, held in
-    /// memory only, never refetched, gone with the pane or another app.
-    hook_busy: Option<String>,
-    hook_secrets: std::collections::HashMap<String, String>,
     /// VAPP-241: the public link being written (every switch waits).
     share_busy: Option<String>,
     /// The bench's state (headless has no app row, team or server).
@@ -164,9 +160,7 @@ pub(crate) struct AppShot {
     pub tool_busy: Option<String>,
     pub mcp_busy: Option<String>,
     pub upstream_busy: Option<String>,
-    pub hook_busy: Option<String>,
     pub share_busy: Option<String>,
-    pub hook_secrets: Vec<(String, String)>,
 }
 
 impl AppDetailPane {
@@ -220,8 +214,6 @@ impl AppDetailPane {
             mcp_busy: None,
             connect_generation: 0,
             upstream_busy: None,
-            hook_busy: None,
-            hook_secrets: std::collections::HashMap::new(),
             share_busy: None,
             #[cfg(test)]
             shot: None,
@@ -242,9 +234,7 @@ impl AppDetailPane {
         self.tool_busy = shot.tool_busy.clone();
         self.mcp_busy = shot.mcp_busy.clone();
         self.upstream_busy = shot.upstream_busy.clone();
-        self.hook_busy = shot.hook_busy.clone();
         self.share_busy = shot.share_busy.clone();
-        self.hook_secrets = shot.hook_secrets.iter().cloned().collect();
         self.shot = Some(shot);
         cx.notify();
     }
@@ -453,7 +443,6 @@ impl AppDetailPane {
         }
         if self.mcp_for.as_ref().map(|(id, _)| id) != Some(&key.0) {
             self.mcp = None;
-            self.hook_secrets.clear();
         }
         self.mcp_for = Some(key.clone());
         self.fetch_mcp(key, cx);
@@ -508,66 +497,6 @@ impl AppDetailPane {
                 if let Err(err) = result {
                     this.mcp = Some(data);
                     crate::action_error::failed_action_err("save", "the tool", &err, cx);
-                }
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    /// #VAPP-238: a webhook row's owner pill: Create secret mints at once,
-    /// Rotate secret asks first (prompts.json `rotate-webhook-secret`).
-    pub(crate) fn hook_action(&mut self, name: String, action: domain::apps::WebhookAction, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        match action {
-            domain::apps::WebhookAction::Mint => self.rotate_hook(name, "create", cx),
-            domain::apps::WebhookAction::Rotate => {
-                let view = cx.entity().downgrade();
-                let prompt = domain::prompts::rotate_webhook_secret(&name);
-                let spec = crate::native_dialog::AlertSpec::from_prompt("Rotate secret", &prompt).on_ok(move |_, cx| {
-                    let name = name.clone();
-                    let _ = view.update(cx, |this, cx| this.rotate_hook(name, "rotate", cx));
-                    true
-                });
-                // dialog stays native: the Rotate secret confirm is the OS alert (prompts.json `rotate-webhook-secret`).
-                crate::native_dialog::open_alert(window, cx, spec);
-            }
-        }
-    }
-
-    /// #VAPP-238: `appAccess.rotateHook` (owners): the answer's secret is
-    /// kept for the shown-once row and the hook reads Ready; a failure =
-    /// the failed-action toast.
-    fn rotate_hook(&mut self, name: String, verb: &'static str, cx: &mut gpui::Context<Self>) {
-        let Some((app_id, _)) = self.mcp_for.clone() else { return };
-        if self.hook_busy.is_some() {
-            return;
-        }
-        let Some(trpc) = crate::queries::trpc_client(cx) else {
-            crate::action_error::failed_action(verb, "the secret", None, cx);
-            return;
-        };
-        self.hook_busy = Some(name.clone());
-        cx.notify();
-        cx.spawn(async move |this, cx| {
-            let for_app = app_id.clone();
-            let result = cx
-                .background_executor()
-                .spawn(async move { api::app_access::rotate_hook(&trpc, &app_id, &name) })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                this.hook_busy = None;
-                match result {
-                    // Another app on show by now: drop the answer.
-                    Ok(_) if this.mcp_for.as_ref().map(|(id, _)| id) != Some(&for_app) => {}
-                    Ok(out) => {
-                        if let Some(data) = this.mcp.as_mut() {
-                            for hook in data.hooks.iter_mut().filter(|h| h.name == out.name) {
-                                hook.has_secret = true;
-                            }
-                        }
-                        this.hook_secrets.insert(out.name, out.secret);
-                    }
-                    Err(err) => crate::action_error::failed_action_err(verb, "the secret", &err, cx),
                 }
                 cx.notify();
             });
@@ -818,20 +747,6 @@ impl AppDetailPane {
                     self.connect_upstream(&upstream, window, cx);
                 }
             }
-            "hook" => {
-                let action = match context.get("action").and_then(Value::as_str) {
-                    Some(a) if a == domain::apps::WebhookAction::Rotate.as_str() => domain::apps::WebhookAction::Rotate,
-                    Some(a) if a == domain::apps::WebhookAction::Mint.as_str() => domain::apps::WebhookAction::Mint,
-                    _ => return,
-                };
-                self.hook_action(key, action, window, cx);
-            }
-            // The copy pills: the clipboard, then the success toast.
-            "copy" => {
-                let text = context.get("text").and_then(Value::as_str).unwrap_or_default().to_string();
-                cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
-                crate::toast::show(crate::toast::Toast::success(APPS.copy.webhooks.copied.clone()), window, cx);
-            }
             // The identity row: icon and colour save at once (an empty pick
             // keeps the saved one).
             "icon" | "color" => {
@@ -905,10 +820,6 @@ impl AppDetailPane {
             "shares": super::app_mcp::shares_rows(data, self.share_busy.as_deref()),
             "accounts": super::app_mcp::accounts_rows(data, busy, self.upstream_busy.as_deref()),
             "mcpTools": super::app_mcp::tools_rows(data, busy),
-            // #VAPP-220: the published package's automations, read-only.
-            "automations": super::app_mcp::automations_rows(data),
-            // #VAPP-238: the webhooks those automations listen on.
-            "hooks": super::app_mcp::hooks_rows(data, &self.hook_secrets, self.hook_busy.as_deref()),
         });
         projection
     }
@@ -937,7 +848,7 @@ impl Render for AppDetailPane {
 const PATH: &str = "/pane";
 
 /// The document's actions (all the pane's).
-const ACTIONS: &[&str] = &["tool", "mcpTool", "share", "menu", "addServer", "upstream", "connect", "hook", "copy", "icon", "color", "rename"];
+const ACTIONS: &[&str] = &["tool", "mcpTool", "share", "menu", "addServer", "upstream", "connect", "icon", "color", "rename"];
 
 /// The pane the host's text edits go to.
 #[derive(Default)]
@@ -991,7 +902,7 @@ pub(super) struct Tints {
 }
 
 impl Tints {
-    fn of(cx: &App) -> Self {
+    pub(super) fn of(cx: &App) -> Self {
         use super::api_keys::premultiplied_hex;
         use gpui_component::Colorize as _;
         let theme = cx.theme();
@@ -1006,6 +917,15 @@ impl Tints {
             outline_fg_dim: hex(theme.muted_foreground.opacity(0.5)),
             list_hover: hex(theme.list_hover),
         }
+    }
+}
+
+#[cfg(test)]
+impl Tints {
+    /// Plain colours for the document checks.
+    pub(super) fn test() -> Self {
+        let c = || "#808080".to_string();
+        Self { radius: 6., outline_fill: c(), outline_stroke: c(), outline_fg: c(), outline_hover: c(), outline_fill_dim: c(), outline_stroke_dim: c(), outline_fg_dim: c(), list_hover: c() }
     }
 }
 
@@ -1116,10 +1036,6 @@ pub(super) fn titled(ink: &Ink, id: &str, title: &str, data: &str, item: Value, 
         "children": [heading(ink, &format!("{id}_title"), title), ink.group(&format!("{id}_group"), vec![list])]})
 }
 
-/// [`titled`] over an item that is not a plain row.
-pub(super) fn titled_item(ink: &Ink, id: &str, title: &str, data: &str, item: Value, tints: &Tints) -> Value {
-    titled(ink, id, title, data, item, tints)
-}
 
 /// The identity row (`gap_2`): the icon and colour pickers (saved at once)
 /// and the name (saved on blur / Enter); then the description card.
@@ -1177,8 +1093,6 @@ fn document(ink: &Ink, tints: &Tints) -> Value {
         super::app_mcp::shares_group(ink, tints),
         super::app_mcp::accounts_group(ink, tints),
         super::app_mcp::tools_group(ink, tints),
-        super::app_mcp::automations_group(ink, tints),
-        super::app_mcp::webhooks_group(ink, tints),
     ]);
     json!({"id": APPS.test_ids.settings, "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "maxWidth": APPS.editor_tabs.settings_max_width, "gap": ink.r(1.)}, "children": children})
 }
