@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  carrierOutranksPerson,
   mergedHeadDeletable,
   parseIssueIdentifierFromBranch,
   planPrAutomationTransition,
@@ -262,6 +263,22 @@ describe(`the started automation + the issue tree`, () => {
     // A resolution never blocks.
     expect(subIssueReached(`merged`, at(`cancelled`), null)).toBe(true)
     expect(subIssueReached(`merged`, at(`duplicate`), null)).toBe(true)
+  })
+
+  it(`#FEED-236: a person's status move outranks an older PR's event on a parent`, () => {
+    const t = (iso: string) => new Date(iso)
+    const pr2776 = { linkedAt: t(`2026-11-13T04:11:52Z`), mergedAt: t(`2026-11-13T05:53:23Z`) }
+    // Nobody moved it by hand: the PR carries it.
+    expect(carrierOutranksPerson(`merged`, pr2776, null)).toBe(true)
+    // Danny reopened it after #2776 landed: #2776's merge is spent.
+    expect(carrierOutranksPerson(`merged`, pr2776, t(`2026-11-13T05:53:44Z`))).toBe(false)
+    expect(carrierOutranksPerson(`opened`, pr2776, t(`2026-11-13T05:53:44Z`))).toBe(false)
+    // A PR linking it after the reopen carries it again.
+    const later = { linkedAt: t(`2026-11-13T06:00:00Z`), mergedAt: t(`2026-11-13T07:00:00Z`) }
+    expect(carrierOutranksPerson(`opened`, later, t(`2026-11-13T05:53:44Z`))).toBe(true)
+    expect(carrierOutranksPerson(`merged`, later, t(`2026-11-13T05:53:44Z`))).toBe(true)
+    // An unmerged carrier never carries a merge.
+    expect(carrierOutranksPerson(`merged`, { linkedAt: later.linkedAt, mergedAt: null }, t(`2026-11-13T05:53:44Z`))).toBe(false)
   })
 })
 
