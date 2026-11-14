@@ -70,6 +70,11 @@ struct UiPrefs {
     /// #EXP-1727: the app reopens on the current Local desktop.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     local_desktop: bool,
+    /// #EXP-1832: the sidebar folders folded on this device, keyed by
+    /// `domain::sidebar_folders::sidebar_folder_open_key` (team + folder).
+    /// Only folded ones are stored: no flag = open (sidebar-folders.json).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    sidebar_folders: BTreeMap<String, bool>,
 }
 
 /// EXP-1156: a hand-edited or future file must not cost the REST of the
@@ -237,6 +242,27 @@ pub(crate) fn set_device_account(device_id: &str, login_key: Option<&str>) {
         prefs
             .device_accounts
             .insert(device_id.to_string(), login_key.map(str::to_string));
+    }
+    schedule_write();
+}
+
+/// #EXP-1832: whether the sidebar folder under `key` is open here (no flag =
+/// open).
+pub(crate) fn sidebar_folder_open(key: &str) -> bool {
+    prefs().lock().ok().and_then(|prefs| prefs.sidebar_folders.get(key).copied()).unwrap_or(true)
+}
+
+/// #EXP-1832: remember the folder's fold (debounced like the widths); open
+/// forgets the flag.
+pub(crate) fn set_sidebar_folder_open(key: &str, open: bool) {
+    {
+        let Ok(mut prefs) = prefs().lock() else {
+            return;
+        };
+        let changed = if open { prefs.sidebar_folders.remove(key).is_some() } else { prefs.sidebar_folders.insert(key.to_string(), false) != Some(false) };
+        if !changed {
+            return;
+        }
     }
     schedule_write();
 }

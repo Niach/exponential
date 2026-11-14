@@ -456,6 +456,9 @@ impl SurfaceView {
     /// cancel), else hide a tooltip, else dismiss a focused toast. Returns
     /// whether something handled it.
     pub fn escape(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if self.list_drag_cancel(cx) {
+            return true;
+        }
         if let Some(top) = self.layers.iter().rev().find(|l| l.class == LayerClass::Overlay && l.kind != "Tooltip" && !self.passive_layer(l)).cloned() {
             if top.dismissible {
                 self.just_dismissed = None;
@@ -1501,6 +1504,57 @@ impl SurfaceView {
         self.tab_drag = Some(super::TabDrag { tab: tab_id.to_string(), start: x, started: false });
     }
 
+    /// EXP-1832: is `index` a row of a `reorderable` List (its direct
+    /// child, never the List's own parts)?
+    pub(crate) fn is_list_reorder_row(&self, index: u32) -> bool {
+        self.surface.list_reorder_row(index).is_some_and(|(_, row)| row == index)
+    }
+
+    /// EXP-1832: a press inside a reorderable List's row: it becomes the
+    /// row's drag once the pointer travels `tabDragThreshold`.
+    pub(crate) fn list_drag_down(&mut self, index: u32, position: Point<Pixels>) {
+        let Some((list, _)) = self.surface.list_reorder_row(index) else { return };
+        let Some(node) = self.cache.node(index).map(|n| n.id.clone()) else { return };
+        let start = (f32::from(position.x - self.origin.x), f32::from(position.y - self.origin.y));
+        self.list_drag = Some(super::ListDragPress { node, list, start, started: false });
+    }
+
+    /// The scroll offsets between the surface and the List `list` (itself
+    /// included): the core's frames are unscrolled.
+    pub(crate) fn scroll_above(&self, list: u32) -> (f32, f32) {
+        let (mut x, mut y) = (0.0, 0.0);
+        let mut at = Some(list);
+        let mut guard = 0;
+        while let Some(i) = at {
+            if let Some(s) = self.scrolls.get(&i) {
+                x += s.offset_x;
+                y += s.offset_y;
+            }
+            at = self.surface.layout_node(i).and_then(|n| n.parent);
+            guard += 1;
+            if guard > 4096 {
+                break;
+            }
+        }
+        (x, y)
+    }
+
+    fn list_drag_input(&mut self, index: u32, input: eui_core::surface::ListDragInput, cx: &mut Context<Self>) {
+        let events = self.surface.list_drag(index, &input);
+        self.dispatch(events, None, cx);
+        cx.notify();
+    }
+
+    /// EXP-1832: Esc while a List drag is live drops it (nothing fires);
+    /// true when one was live.
+    pub fn list_drag_cancel(&mut self, cx: &mut Context<Self>) -> bool {
+        let live = self.list_drag.take().is_some_and(|d| d.started) || self.surface.list_dragging();
+        if live {
+            self.list_drag_input(0, eui_core::surface::ListDragInput::Cancel, cx);
+        }
+        live
+    }
+
     pub(crate) fn on_pointer_move(&mut self, ev: &MouseMoveEvent, _window: &mut Window, cx: &mut Context<Self>) {
         if ev.pressed_button != Some(gpui::MouseButton::Left) {
             return;
@@ -1534,6 +1588,25 @@ impl SurfaceView {
             self.fire(i, "drag", Some(json!({"phase": "move", "delta": delta})), cx);
             return;
         }
+        if let Some(d) = self.list_drag.clone() {
+            let p = (f32::from(ev.position.x - self.origin.x), f32::from(ev.position.y - self.origin.y));
+            let Some(i) = self.cache.index_of(&d.node) else { return };
+            let (sx, sy) = self.scroll_above(d.list);
+            if !d.started {
+                if (p.0 - d.start.0).hypot(p.1 - d.start.1) < eui_core::layout::TAB_DRAG_THRESHOLD {
+                    return;
+                }
+                // The press is spent: the release drops, never presses.
+                if let Some(pressed) = self.pressed.clone() {
+                    self.press_cancel(&pressed, cx);
+                }
+                self.pressed = None;
+                self.list_drag = Some(super::ListDragPress { started: true, ..d.clone() });
+                self.list_drag_input(i, eui_core::surface::ListDragInput::Start { x: d.start.0 + sx, y: d.start.1 + sy }, cx);
+            }
+            self.list_drag_input(i, eui_core::surface::ListDragInput::Move { x: p.0 + sx, y: p.1 + sy }, cx);
+            return;
+        }
         if let Some(d) = self.sheet_drag.as_mut() {
             let (x, y) = (f32::from(ev.position.x) - d.start.0, f32::from(ev.position.y) - d.start.1);
             // Only toward the edge the sheet hangs from.
@@ -1563,6 +1636,15 @@ impl SurfaceView {
             }
             cx.notify();
             return;
+        }
+        if let Some(d) = self.list_drag.take() {
+            if d.started {
+                let p = (f32::from(ev.position.x - self.origin.x), f32::from(ev.position.y - self.origin.y));
+                let (sx, sy) = self.scroll_above(d.list);
+                let i = self.cache.index_of(&d.node).unwrap_or(0);
+                self.list_drag_input(i, eui_core::surface::ListDragInput::End { x: p.0 + sx, y: p.1 + sy }, cx);
+                return;
+            }
         }
         if let Some(d) = self.tab_drag.take() {
             if d.started {

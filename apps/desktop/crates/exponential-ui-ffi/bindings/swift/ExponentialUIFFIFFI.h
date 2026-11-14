@@ -827,6 +827,26 @@ RustBuffer uniffi_exponential_ui_ffi_fn_method_surface_layout(uint64_t ptr, uint
 RustBuffer uniffi_exponential_ui_ffi_fn_method_surface_layout_fixed(uint64_t ptr, RustBuffer sizes_json, int8_t wrap, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_LIST_DRAG
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_LIST_DRAG
+RustBuffer uniffi_exponential_ui_ffi_fn_method_surface_list_drag(uint64_t ptr, uint32_t index, RustBuffer input_json, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_LIST_DRAG_PAINT
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_LIST_DRAG_PAINT
+RustBuffer uniffi_exponential_ui_ffi_fn_method_surface_list_drag_paint(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_LIST_DRAGGING
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_LIST_DRAGGING
+int8_t uniffi_exponential_ui_ffi_fn_method_surface_list_dragging(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_LIST_REORDER_ROW
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_LIST_REORDER_ROW
+RustBuffer uniffi_exponential_ui_ffi_fn_method_surface_list_reorder_row(uint64_t ptr, uint32_t index, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_MARK_DIRTY
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_MARK_DIRTY
 int8_t uniffi_exponential_ui_ffi_fn_method_surface_mark_dirty(uint64_t ptr, uint32_t index, RustCallStatus *_Nonnull out_status
@@ -1502,6 +1522,17 @@ RustBuffer uniffi_exponential_ui_ffi_fn_func_json_diff(RustBuffer a, RustBuffer 
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_JSON_EQUAL
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_JSON_EQUAL
 int8_t uniffi_exponential_ui_ffi_fn_func_json_equal(RustBuffer a, RustBuffer b, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_LIST_DRAG_STYLE
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_LIST_DRAG_STYLE
+RustBuffer uniffi_exponential_ui_ffi_fn_func_list_drag_style(RustCallStatus *_Nonnull out_status
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_LIST_DROP_SLOT_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_LIST_DROP_SLOT_JSON
+RustBuffer uniffi_exponential_ui_ffi_fn_func_list_drop_slot_json(RustBuffer request_json, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_LIST_JSON
@@ -2325,6 +2356,18 @@ uint16_t uniffi_exponential_ui_ffi_checksum_func_json_equal(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_LIST_DRAG_STYLE
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_LIST_DRAG_STYLE
+uint16_t uniffi_exponential_ui_ffi_checksum_func_list_drag_style(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_LIST_DROP_SLOT_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_LIST_DROP_SLOT_JSON
+uint16_t uniffi_exponential_ui_ffi_checksum_func_list_drop_slot_json(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_LIST_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_LIST_JSON
 uint16_t uniffi_exponential_ui_ffi_checksum_func_list_json(void
@@ -3084,6 +3127,30 @@ uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_layout(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_LAYOUT_FIXED
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_LAYOUT_FIXED
 uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_layout_fixed(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_LIST_DRAG
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_LIST_DRAG
+uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_list_drag(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_LIST_DRAG_PAINT
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_LIST_DRAG_PAINT
+uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_list_drag_paint(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_LIST_DRAGGING
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_LIST_DRAGGING
+uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_list_dragging(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_LIST_REORDER_ROW
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_LIST_REORDER_ROW
+uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_list_reorder_row(void
     
 );
 #endif

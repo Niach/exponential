@@ -232,7 +232,7 @@ private fun dashEffect(style: String?, width: Float): PathEffect? = when (style)
  * (`x`, `y`) and blurred with a Gaussian of sigma `blur / 2` (CSS), drawn
  * through a platform paint with a [BlurMaskFilter].
  */
-private fun DrawScope.drawShadowLayer(layer: ShadowLayer, box: RoundRect) {
+internal fun DrawScope.drawShadowLayer(layer: ShadowLayer, box: RoundRect) {
     val spread = layer.spread * density
     val left = layer.x * density - spread
     val top = layer.y * density - spread

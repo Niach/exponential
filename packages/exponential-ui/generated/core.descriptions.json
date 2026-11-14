@@ -130,6 +130,12 @@
         "stickyHeaders": {
           "description": "Pins the current header."
         },
+        "reorderable": {
+          "description": "Rows drag to reorder (vertical); fires `move` {id, before|after|into}."
+        },
+        "maxDepth": {
+          "description": "With `reorderable`: nesting levels; 2 = a row dropped on a row nests. Items: `depth`, `group`."
+        },
         "style": {
           "description": "Extra Box styles for the list frame."
         }

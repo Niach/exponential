@@ -3,7 +3,7 @@
 //! A Local desktop is one team that lives on this machine: no Exponential
 //! account, no server, no sync. Its store is the IDE's synced-shape SQLite
 //! ([`sync::store::ShapeStore`]: one TEXT-column table per shape, the same
-//! 34 tables every client holds) made AUTHORITATIVE: the [`LocalExecutor`]
+//! tables every desktop client holds, `sync::shapes::SHAPES`) made AUTHORITATIVE: the [`LocalExecutor`]
 //! answers the tRPC procedures the clients call over it, behind
 //! [`api::Transport`], so the typed wrappers in `api` (and every screen above
 //! them) never know whether they talk to an instance or to this file. The

@@ -231,7 +231,7 @@ export interface ComponentProps {
   Card: { title?: string; description?: string; padded?: boolean; style?: Style; pressable?: boolean }
   Window: { title?: string; style?: Style }
   Separator: { orientation?: OrientationValue }
-  List: { direction?: ListDirectionValue; gap?: GapValue; divided?: boolean; sectionBy?: string; stickyHeaders?: boolean; style?: Style }
+  List: { direction?: ListDirectionValue; gap?: GapValue; divided?: boolean; sectionBy?: string; stickyHeaders?: boolean; reorderable?: boolean; maxDepth?: number; style?: Style }
   Resizable: { direction?: OrientationValue | Responsive<OrientationValue>; sizes?: number[] | Dynamic; panels?: Shapes["panel"][]; handle?: boolean; style?: Style }
   ScrollArea: { direction?: ScrollDirectionValue; maxHeight?: number; style?: Style }
   Sidebar: { side?: "left" | "right"; width?: number; collapseBelow?: CollapseBelowValue; collapsed?: boolean | Dynamic; rail?: boolean }

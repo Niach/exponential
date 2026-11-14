@@ -1492,10 +1492,21 @@
           "type": "boolean",
           "default": false
         },
+        "reorderable": {
+          "type": "boolean",
+          "default": false
+        },
+        "maxDepth": {
+          "type": "number",
+          "default": 1
+        },
         "style": {
           "type": "style"
         }
-      }
+      },
+      "events": [
+        "move"
+      ]
     },
     "Resizable": {
       "kind": "native",

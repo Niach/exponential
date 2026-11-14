@@ -88,6 +88,7 @@
     "./local-parity": "./src/local-parity.ts",
     "./team-zone": "./src/team-zone.ts",
     "./via-app": "./src/via-app.ts",
-    "./app-share": "./src/app-share.ts"
+    "./app-share": "./src/app-share.ts",
+    "./sidebar-folders": "./src/sidebar-folders.ts"
   }
 }

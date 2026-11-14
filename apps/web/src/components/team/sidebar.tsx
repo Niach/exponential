@@ -64,6 +64,7 @@ import { SidebarPinned } from "@/components/team/sidebar-pinned"
 import { SidebarRunningSection, type SidebarChats } from "@/components/team/sidebar-running"
 import { SidebarAgentsSection, useAgentBadges } from "@/components/team/sidebar-agents"
 import { sidebarAgents } from "@exp/domain-contract/chats"
+import { SidebarFolderList } from "@/components/team/sidebar-folders"
 import { mainPanelEdge } from "@/components/team/app-shell"
 import { NavCountBadge, UserAvatar, UserMenuItems } from "@/components/team/sidebar-shared"
 import { useOpenNewDraft } from "@/hooks/use-open-new-draft"
@@ -181,6 +182,9 @@ export function TeamSidebar({
   const chatsCount = chatsBadge(chatsList.groups, sessionReads)
   const { agents } = useAgents(team?.id, session?.user?.id)
   const agentBadges = useAgentBadges(team?.id, agents, session?.user?.id)
+  // #EXP-1832: the boards in today's order = the folders' default order.
+  const boardIds = useMemo(() => (boards ?? []).map((board) => board.id), [boards])
+  const boardsById = useMemo(() => new Map((boards ?? []).map((board) => [board.id, board])), [boards])
   // The guarded /t/$teamSlug layout is the only render site, so a session is
   // guaranteed — the reactive useSession store may still be pending on cold
   // load, and we render the authed chrome throughout rather than flash a
@@ -469,6 +473,7 @@ export function TeamSidebar({
                     {/* EXP-1293: the team's agents, above Boards and drawn
                         like them. */}
                     <SidebarAgentsSection
+                      teamId={team?.id}
                       teamSlug={teamSlug}
                       agents={sidebarAgentRows}
                       isOwner={isOwner}
@@ -497,51 +502,58 @@ export function TeamSidebar({
                         <UiAddIcon className="h-4 w-4" />
                       </SidebarGroupAction>
                       <SidebarGroupContent>
-                        <SidebarMenu>
-                          {!boards || boards.length === 0 ? (
+                        {/* #EXP-1832: the member's folders + drag order
+                            over the boards' sortOrder (sidebar-folders.json). */}
+                        <SidebarFolderList
+                          teamId={team?.id}
+                          section="board"
+                          ids={boardIds}
+                          empty={
                             <SidebarMenuItem>
                               <Empty id="board-switcher" />
                             </SidebarMenuItem>
-                          ) : (
-                            boards.map((board) => {
-                              const TypeIcon = getBoardIcon(board)
-                              return (
-                                <SidebarMenuItem key={board.id}>
-                                  <SidebarMenuButton asChild density="compact">
+                          }
+                          renderItem={(id, itemProps, guides) => {
+                            const board = boardsById.get(id)
+                            if (!board) return null
+                            const TypeIcon = getBoardIcon(board)
+                            return (
+                              <SidebarMenuItem key={board.id} {...itemProps}>
+                                {guides}
+                                <SidebarMenuButton asChild density="compact">
+                                  <Link
+                                    to="/t/$teamSlug/boards/$boardSlug"
+                                    params={{
+                                      teamSlug,
+                                      boardSlug: board.slug,
+                                    }}
+                                  >
+                                    <TypeIcon
+                                      className="h-4 w-4 shrink-0"
+                                      style={{ color: board.color }}
+                                    />
+                                    <span>{board.name}</span>
+                                  </Link>
+                                </SidebarMenuButton>
+                                {isOwner && (
+                                  <SidebarMenuAction
+                                    asChild
+                                    showOnHover
+                                    title="Board settings"
+                                  >
                                     <Link
-                                      to="/t/$teamSlug/boards/$boardSlug"
-                                      params={{
-                                        teamSlug,
-                                        boardSlug: board.slug,
-                                      }}
+                                      to="/t/$teamSlug/settings/boards/$boardId"
+                                      params={{ teamSlug, boardId: board.id }}
+                                      aria-label={`Settings for ${board.name}`}
                                     >
-                                      <TypeIcon
-                                        className="h-4 w-4 shrink-0"
-                                        style={{ color: board.color }}
-                                      />
-                                      <span>{board.name}</span>
+                                      <NavSettingsIcon />
                                     </Link>
-                                  </SidebarMenuButton>
-                                  {isOwner && (
-                                    <SidebarMenuAction
-                                      asChild
-                                      showOnHover
-                                      title="Board settings"
-                                    >
-                                      <Link
-                                        to="/t/$teamSlug/settings/boards/$boardId"
-                                        params={{ teamSlug, boardId: board.id }}
-                                        aria-label={`Settings for ${board.name}`}
-                                      >
-                                        <NavSettingsIcon />
-                                      </Link>
-                                    </SidebarMenuAction>
-                                  )}
-                                </SidebarMenuItem>
-                              )
-                            })
-                          )}
-                        </SidebarMenu>
+                                  </SidebarMenuAction>
+                                )}
+                              </SidebarMenuItem>
+                            )
+                          }}
+                        />
                       </SidebarGroupContent>
                     </SidebarGroup>
                     {/* EXP-923 / EXP-1293 / EXP-1318: the ACTIVE group — the

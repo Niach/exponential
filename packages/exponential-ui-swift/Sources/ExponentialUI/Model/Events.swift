@@ -120,6 +120,8 @@ extension SurfaceModel {
     public func press(_ index: Int) {
         // #VAPP-288: the focused field's outstanding edit goes out first.
         flushFocusedField()
+        // EXP-1832: a List drag's release is no press.
+        if swallowsListPress { return }
         guard !isDisabled(index), let n = node(index) else { return }
         if let target = n.triggerFor {
             if justDismissed == target {
@@ -745,6 +747,44 @@ extension SurfaceModel {
     /// direction): the core previews the order and fires `reorder`.
     public func tabDrag(_ index: Int, phase: String, delta: CGFloat) {
         fire(index, "drag", payload: .object(["phase": .string(phase), "delta": .number(Double(delta))]))
+    }
+
+    /// EXP-1832: a row of a `reorderable` List (a direct child that is no
+    /// part of the List): it drags into place after a long press.
+    public func isReorderRow(_ index: Int) -> Bool {
+        guard let n = node(index), let p = n.parent, let list = node(p) else { return false }
+        guard list.component == "List", list.part == nil, list.props["reorderable"]?.bool == true else { return false }
+        return !(n.part != nil && n.owner == list.id)
+    }
+
+    /// EXP-1832: one drag input on a reorderable List row (`phase` = start |
+    /// move | end | cancel; `point` = the pointer in the UNSCROLLED frame
+    /// space, nil on cancel). The core keeps the drop, fires `move {id,
+    /// before | after | into}` on an end with a slot, and answers what to
+    /// paint (`listDragPaints`).
+    public func listDrag(_ index: Int, phase: String, at point: CGPoint?) {
+        var input: [String: JSONValue] = ["phase": .string(phase)]
+        if let point {
+            input["x"] = .number(Double(point.x))
+            input["y"] = .number(Double(point.y))
+        }
+        let events = (try? surface.listDrag(index: UInt32(index), inputJson: JSONValue.object(input).json)) ?? []
+        if phase == "end" || phase == "cancel" { listDragEndedAt = Date() }
+        listDragPaints = surface.listDragPaint()
+        dispatch(events)
+    }
+
+    /// EXP-1832: a List drag is live, or just ended (its release must not
+    /// also press the row).
+    var swallowsListPress: Bool {
+        if surface.listDragging() { return true }
+        guard let ended = listDragEndedAt else { return false }
+        return Date().timeIntervalSince(ended) < 0.35
+    }
+
+    /// EXP-1832: the dragged row (painted at `listDragStyle().dim`).
+    public func isListDragRow(_ index: Int) -> Bool {
+        listDragPaints.contains { Int($0.row) == index }
     }
 
     /// FEED-200: the `content` part of a `swipeable` Tabs (its panels page

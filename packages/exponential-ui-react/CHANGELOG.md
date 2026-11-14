@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- List `reorderable` (#EXP-1832): items carry the drag contract (`data-reorder-key|depth|group|indent`, indent = the TreeGuides column per depth), a press on an own row runs `startListDrag`, a drop emits `move`; `list-reorder.test.tsx` replays `fixtures/list-reorder.json` through the DOM.
 - Markdown tables fit their columns (#FEED-224): a `.xui-Markdown-tableScroll` around the table, each cell's text in a `.xui-Markdown-cellText` sized by `watchMarkdownTable` (`fixtures/table-fit.json`).
 - `CountBadge` (#FEED-232): `CountBadgeNative`, one span with `countBadgeLabel`, nothing at 0 or below; `count-badge.test.tsx`.
 - `accessibility.selected` / `.expanded` (#EXP-1629): aria-selected (+ aria-current without a selection role), aria-expanded; `a11y-states.test.tsx` replays the fixture.

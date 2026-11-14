@@ -169,6 +169,12 @@ public final class SurfaceModel {
     @ObservationIgnored var selectCursorless: Set<String> = []
     @ObservationIgnored var openLayerKeys: [String] = []
     @ObservationIgnored var justDismissed: String?
+    /// EXP-1832: what the live reorderable List drag paints
+    /// (`list_drag_paint`, refreshed after every `listDrag`).
+    public internal(set) var listDragPaints: [FfiListDragPaint] = []
+    /// EXP-1832: when the last List drag ended (the release's press is
+    /// swallowed).
+    @ObservationIgnored var listDragEndedAt: Date?
     @ObservationIgnored var hoverDelay: Task<Void, Never>?
     @ObservationIgnored var hoverCloseTimers: [String: Task<Void, Never>] = [:]
     /// #EXP-1629: a test's clock for the core's `hoverTimer` (a Menu item

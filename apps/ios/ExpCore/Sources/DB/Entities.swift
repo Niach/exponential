@@ -1601,6 +1601,92 @@ extension ComposerDraftEntity: Codable {
     }
 }
 
+// MARK: - SidebarLayout (#EXP-1832)
+
+// The member's own sidebar layout (38th shape, static `user_id = me` like
+// pins): folders + the order of their boards, agents and apps, one row per
+// node (`fixtures/sidebar-folders.json`). Phones only READ it: the board
+// pickers and the Apps list fold folders (`SidebarFolders.tree`).
+public struct SidebarLayoutEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
+    public static let databaseTableName = "sidebar_layout"
+
+    public let id: String
+    public let userId: String
+    public let teamId: String
+    /// `board` | `agent` | `app`.
+    public let section: String
+    /// `folder` | `item`.
+    public let kind: String
+    public let targetId: String?
+    public let parentId: String?
+    public let name: String?
+    public let sortOrder: Double
+    public let createdAt: String
+    public let updatedAt: String
+
+    public init(
+        id: String,
+        userId: String,
+        teamId: String,
+        section: String,
+        kind: String,
+        targetId: String? = nil,
+        parentId: String? = nil,
+        name: String? = nil,
+        sortOrder: Double,
+        createdAt: String = "",
+        updatedAt: String = ""
+    ) {
+        self.id = id
+        self.userId = userId
+        self.teamId = teamId
+        self.section = section
+        self.kind = kind
+        self.targetId = targetId
+        self.parentId = parentId
+        self.name = name
+        self.sortOrder = sortOrder
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    /// The row as a `SidebarFolders` entry; nil = an unknown kind (ignored).
+    public var entry: SidebarFolders.Entry? {
+        SidebarFolders.Kind(rawValue: kind).map {
+            SidebarFolders.Entry(id: id, kind: $0, targetId: targetId, parentId: parentId, name: name, sortOrder: sortOrder)
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, section, kind, name
+        case userId = "user_id"
+        case teamId = "team_id"
+        case targetId = "target_id"
+        case parentId = "parent_id"
+        case sortOrder = "sort_order"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+// Custom decode: `sort_order` comes off the Electric wire as Postgres text.
+extension SidebarLayoutEntity: Codable {
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        userId = try c.decode(String.self, forKey: .userId)
+        teamId = try c.decode(String.self, forKey: .teamId)
+        section = try c.decodeIfPresent(String.self, forKey: .section) ?? ""
+        kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? ""
+        targetId = try c.decodeIfPresent(String.self, forKey: .targetId)
+        parentId = try c.decodeIfPresent(String.self, forKey: .parentId)
+        name = try c.decodeIfPresent(String.self, forKey: .name)
+        sortOrder = try c.decodeWireDouble(forKey: .sortOrder) ?? 0
+        createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt) ?? ""
+        updatedAt = try c.decodeIfPresent(String.self, forKey: .updatedAt) ?? ""
+    }
+}
+
 // MARK: - Pin
 
 // MARK: - Apps (VAPP-110)

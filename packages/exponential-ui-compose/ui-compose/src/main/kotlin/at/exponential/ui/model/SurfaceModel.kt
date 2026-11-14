@@ -242,6 +242,13 @@ class SurfaceModel(
         private set
 
     /** Scroll containers by node index (unscrolled frames; translate descendants by the offset). */
+    /** EXP-1832: what the live reorderable List drag paints (`listDragPaint`, refreshed after every [listDrag]). */
+    var listDragPaints: List<at.exponential.ui.ffi.FfiListDragPaint> by mutableStateOf(emptyList())
+        internal set
+
+    /** EXP-1832: when the last List drag ended (ms; its release's press is swallowed). */
+    internal var listDragEndedAt: Long = 0L
+
     var scrolls: Map<Int, ScrollInfo> by mutableStateOf(emptyMap())
         private set
 

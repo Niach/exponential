@@ -278,7 +278,7 @@ impl Surface {
     /// renamed to `id`: an instance node (inside a template row or a Table
     /// slot cell, at any depth) resolves through the source the build
     /// recorded on it.
-    fn source_node(&self, id: &str) -> Option<UiNode> {
+    pub(super) fn source_node(&self, id: &str) -> Option<UiNode> {
         let source = self.node_by_id(id).and_then(|n| n.source.as_ref());
         let (source_id, tree) = match source {
             Some(s) => (s.id.as_str(), match &s.template {
@@ -897,7 +897,7 @@ impl Surface {
         self.local.holds.get(id).is_some_and(crate::hold::HoldTracker::active)
     }
 
-    fn is_inert(&self, n: &LNode) -> bool {
+    pub(super) fn is_inert(&self, n: &LNode) -> bool {
         // #EXP-1765: a `loading` Select stays live (its popup shows the
         // skeleton rows while the options load); `loading` freezes the rest.
         let select = n.component == "Select" || n.owner_component.as_deref() == Some("Select");
