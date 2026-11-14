@@ -81,15 +81,15 @@ describe(`the header`, () => {
     expect(screen.getByTestId(`chat-header-subtitle`).textContent).toBe(`idle · Alex's MacBook`)
   })
 
-  it(`an app: Chat · Preview · Data · Versions on phones; wide drops Chat (the chat is the left pane)`, () => {
+  it(`an app: Chat · Preview · Data · Events · Versions on phones; wide drops Chat (the chat is the left pane)`, () => {
     renderFrame({ kind: `app` })
     const wide = [...screen.getByTestId(`session-tabs`).querySelectorAll(`[data-tab]`)]
-    expect(wide.map((node) => node.getAttribute(`data-tab`))).toEqual([`preview`, `data`, `versions`])
+    expect(wide.map((node) => node.getAttribute(`data-tab`))).toEqual([`preview`, `data`, `events`, `versions`])
     cleanup()
     mocks.isMobile.current = true
     renderFrame({ kind: `app` })
     const phone = [...screen.getByTestId(`session-tabs`).querySelectorAll(`[data-tab]`)]
-    expect(phone.map((node) => node.getAttribute(`data-tab`))).toEqual([`chat`, `preview`, `data`, `versions`])
+    expect(phone.map((node) => node.getAttribute(`data-tab`))).toEqual([`chat`, `preview`, `data`, `events`, `versions`])
   })
 
   it(`a wide app collapsed to its chat selects no segment`, () => {
