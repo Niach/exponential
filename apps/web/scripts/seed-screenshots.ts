@@ -77,6 +77,7 @@ import {
   sessionIssues,
   sessionReads,
   sessions,
+  sidebarLayout,
   teamInvites,
   users,
   userVoiceSettings,
@@ -972,6 +973,14 @@ async function seedSessionTree(ctx: {
       createdAt: daysAgo(1),
       updatedAt: daysAgo(1),
     },
+  ])
+  // #EXP-1832: the demo member's "Ops tools" folder in the Apps group (the
+  // IDE and web sidebars, the phones' Apps list).
+  const opsFolderId = `1a5f0d3e-0000-4000-8000-000000001833`
+  await db.insert(sidebarLayout).values([
+    { id: opsFolderId, userId: demoId, teamId, section: `app`, kind: `folder`, name: `Ops tools`, sortOrder: 1 },
+    { userId: demoId, teamId, section: `app`, kind: `item`, targetId: DEMO_APP_DASHBOARD_ID, parentId: opsFolderId, sortOrder: 1 },
+    { userId: demoId, teamId, section: `app`, kind: `item`, targetId: DEMO_APP_ID, parentId: opsFolderId, sortOrder: 2 },
   ])
   await db.insert(sessions).values([
     root(DEMO_APP_EDITOR_SESSION_ID, {
@@ -2108,7 +2117,7 @@ async function main() {
   // picks the first board by sortOrder). EXP-1284: Product Feedback holds the
   // demo chats' NEW issues (see the chats block below) — it is the one
   // live board no view photographs, so they cost no board shot.
-  const [, feedbackBoard] = await db.insert(boards).values([
+  const [marketingBoard, feedbackBoard] = await db.insert(boards).values([
     {
       teamId: ws.id,
       name: `Launch Marketing`,
@@ -2128,6 +2137,17 @@ async function main() {
       sortOrder: 20,
     },
   ]).returning()
+
+  // #EXP-1832 (sidebar-folders.json): the demo member keeps the two other
+  // boards in a "Product" folder under Mobile App, so every board list
+  // (the sidebar, the IDE, the phones' board pickers) shows a folder.
+  const productFolderId = `1a5f0d3e-0000-4000-8000-000000001832`
+  await db.insert(sidebarLayout).values([
+    { userId: demoId, teamId: ws.id, section: `board`, kind: `item`, targetId: board.id, sortOrder: 1 },
+    { id: productFolderId, userId: demoId, teamId: ws.id, section: `board`, kind: `folder`, name: `Product`, sortOrder: 2 },
+    { userId: demoId, teamId: ws.id, section: `board`, kind: `item`, targetId: marketingBoard.id, parentId: productFolderId, sortOrder: 1 },
+    { userId: demoId, teamId: ws.id, section: `board`, kind: `item`, targetId: feedbackBoard.id, parentId: productFolderId, sortOrder: 2 },
+  ])
 
   // One archived + one trashed board for the `settings-boards` view: both of
   // its cards ("Archived boards", "Pending deletion") hide when empty, so

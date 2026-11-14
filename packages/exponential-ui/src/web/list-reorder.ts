@@ -8,7 +8,7 @@
 // its start) and a primary ring + faint fill marks into. Esc cancels.
 
 import { TAB_DRAG_THRESHOLD, TAB_LONG_PRESS_MS } from "../layout"
-import { listDropSlot, listMoveContext, type ListDrop, type ListReorderRow } from "../list-reorder"
+import { listDropSlot, listMoveContext, type ListDrop, type ListMoveContext, type ListReorderRow } from "../list-reorder"
 
 /** The DOM contract of a reorderable row: the element carries
  *  `data-reorder-key` (+ `data-reorder-depth`, `data-reorder-group`,
@@ -35,7 +35,7 @@ export interface ListDragSource {
 export interface ListDragHandlers {
   /** The drop: the `move` context {id, before | after | into}. Not called
    *  for a cancel or a release with no slot. */
-  move: (context: Record<string, string>) => void
+  move: (context: ListMoveContext) => void
   /** Optional: the live drag state, for a renderer that paints itself. */
   state?: (state: { key: string; drop: ListDrop | null } | null) => void
 }
