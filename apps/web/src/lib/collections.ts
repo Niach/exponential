@@ -38,6 +38,7 @@ import {
   selectLabelSchema,
   selectNotificationSchema,
   selectPinSchema,
+  selectSidebarLayoutSchema,
   selectBoardSchema,
   selectUserSchema,
   selectTeamInviteSchema,
@@ -318,6 +319,18 @@ export const pinCollection = createCollection(
     id: `pins`,
     shapeOptions: shapeOptions(`/api/shapes/pins`),
     schema: selectPinSchema,
+    getKey: (item) => item.id,
+  })
+)
+
+// #EXP-1832: the caller's sidebar layout (folders + the order of their
+// boards, agents and apps; sidebar-folders.json). Static per user; the
+// sidebar narrows to the active team and section.
+export const sidebarLayoutCollection = createCollection(
+  electricCollectionOptions({
+    id: `sidebar-layout`,
+    shapeOptions: shapeOptions(`/api/shapes/sidebar-layout`),
+    schema: selectSidebarLayoutSchema,
     getKey: (item) => item.id,
   })
 )

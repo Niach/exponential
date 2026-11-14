@@ -239,6 +239,8 @@ impl LocalExecutor {
             "issueDrafts.listAttachments" => Ok(json!([])),
             "composerDrafts.upsert" => self.composer_drafts_upsert(input),
             "composerDrafts.delete" => self.composer_drafts_delete(input),
+            "sidebarLayout.save" => self.sidebar_layout_save(input),
+            "sidebarLayout.rename" => self.sidebar_layout_rename(input),
             "comments.create" => self.comments_create(input),
             "comments.update" => self.comments_update(input),
             "comments.delete" => self.comments_delete(input),
@@ -633,6 +635,115 @@ impl LocalExecutor {
     fn composer_draft(&self, key: &str) -> Result<Option<Row>, Refusal> {
         let user = self.identity().user_id;
         Ok(self.rows_where("composer_drafts", "key", key)?.into_iter().find(|row| text(row, "user_id") == Some(user.as_str())))
+    }
+
+    // -- sidebar layout (#EXP-1832) ----------------------------------------------
+
+    /// The identity's `sidebar_layout` rows.
+    fn sidebar_rows(&self) -> Result<Vec<Row>, Refusal> {
+        let user = self.identity().user_id;
+        self.rows_where("sidebar_layout", "user_id", &user)
+    }
+
+    /// #EXP-1832: one move's rows (local-parity.json `sidebarLayout`, the
+    /// server's `sidebarLayout.save`): the identity's own rows only, a folder
+    /// at the top level under its id, an item upserted by (user, section,
+    /// target) with its parent a folder of the section, only the section's
+    /// folders deleted (their items fall to the top level).
+    fn sidebar_layout_save(&self, input: Row) -> Out {
+        if need(&input, "teamId")? != self.team_id {
+            return Err(not_found("Team"));
+        }
+        let section = need(&input, "section")?;
+        if domain::sidebar_folders::SidebarSection::parse(section).is_none() {
+            return Err(bad("Unknown section"));
+        }
+        let upserts: Vec<Row> = input.get("upserts").and_then(Value::as_array).map(|a| a.iter().map(|w| obj(w.clone())).collect()).unwrap_or_default();
+        let deletes = ids_of(&input, "deletes");
+        let mine = self.sidebar_rows()?;
+        let of_section = |row: &Row| text(row, "team_id") == Some(self.team_id.as_str()) && text(row, "section") == Some(section);
+        let is_folder = |row: &Row| text(row, "kind") == Some("folder");
+        let mut folder_ids: std::collections::HashSet<String> =
+            mine.iter().filter(|row| is_folder(row) && of_section(row)).filter_map(|row| text(row, "id")).filter(|id| !deletes.iter().any(|d| d == id)).map(str::to_string).collect();
+        for write in &upserts {
+            match text(write, "kind") {
+                Some("folder") => {
+                    let id = text(write, "id").filter(|id| !id.is_empty());
+                    let (Some(id), None, None) = (id, text(write, "targetId"), text(write, "parentId")) else {
+                        return Err(bad("A folder has an id and no target or parent; an item has a target"));
+                    };
+                    match mine.iter().find(|row| text(row, "id") == Some(id)) {
+                        Some(row) if !(is_folder(row) && of_section(row)) => return Err(bad("Not a folder of this section")),
+                        Some(_) => {}
+                        None if self.row("sidebar_layout", id)?.is_some() => return Err(bad("Folder id taken")),
+                        None => {}
+                    }
+                    folder_ids.insert(id.to_string());
+                }
+                Some("item") if text(write, "targetId").is_some_and(|t| !t.is_empty()) => {}
+                _ => return Err(bad("A folder has an id and no target or parent; an item has a target")),
+            }
+            if !write.get("sortOrder").is_some_and(Value::is_number) {
+                return Err(bad("sortOrder is required"));
+            }
+        }
+        for write in &upserts {
+            if text(write, "kind") == Some("item") {
+                if let Some(parent) = text(write, "parentId") {
+                    if !folder_ids.contains(parent) {
+                        return Err(bad("An item's parent must be a folder of this section"));
+                    }
+                }
+            }
+        }
+        for id in &deletes {
+            if let Some(row) = mine.iter().find(|row| text(row, "id") == Some(id.as_str())) {
+                if !(is_folder(row) && of_section(row)) {
+                    return Err(bad("Only this section's folders are deleted"));
+                }
+            }
+        }
+
+        let user = self.identity().user_id;
+        let now = time::now();
+        let mut rows = Vec::with_capacity(upserts.len());
+        for write in &upserts {
+            let sort_order = write["sortOrder"].clone();
+            if text(write, "kind") == Some("folder") {
+                let id = text(write, "id").unwrap_or_default();
+                let name = domain::sidebar_folders::sidebar_folder_name(text(write, "name").unwrap_or(""));
+                let existing = mine.iter().find(|row| text(row, "id") == Some(id));
+                let created = existing.and_then(|row| row.get("created_at").cloned()).unwrap_or_else(|| json!(now));
+                rows.push(obj(json!({"id": id, "user_id": user, "team_id": self.team_id, "section": section, "kind": "folder", "target_id": null, "parent_id": null, "name": name, "sort_order": sort_order, "created_at": created, "updated_at": now})));
+            } else {
+                let target = text(write, "targetId").unwrap_or_default();
+                let existing = mine.iter().find(|row| text(row, "section") == Some(section) && text(row, "target_id") == Some(target));
+                let id = existing.and_then(|row| text(row, "id")).map(str::to_string).unwrap_or_else(new_id);
+                let created = existing.and_then(|row| row.get("created_at").cloned()).unwrap_or_else(|| json!(now));
+                let name = existing.and_then(|row| row.get("name").cloned()).unwrap_or(Value::Null);
+                rows.push(obj(json!({"id": id, "user_id": user, "team_id": self.team_id, "section": section, "kind": "item", "target_id": target, "parent_id": text(write, "parentId"), "name": name, "sort_order": sort_order, "created_at": created, "updated_at": now})));
+            }
+        }
+        if !rows.is_empty() {
+            self.write_many("sidebar_layout", rows)?;
+        }
+        let gone: Vec<String> = deletes.into_iter().filter(|id| mine.iter().any(|row| text(row, "id") == Some(id.as_str()) && is_folder(row))).collect();
+        if !gone.is_empty() {
+            self.delete_many("sidebar_layout", &gone)?;
+        }
+        Ok(json!({"txId": self.txid()}))
+    }
+
+    /// #EXP-1832: rename one of the identity's folders (empty = the default).
+    fn sidebar_layout_rename(&self, input: Row) -> Out {
+        let id = need(&input, "id")?;
+        let name = domain::sidebar_folders::sidebar_folder_name(text(&input, "name").ok_or_else(|| bad("name is required"))?);
+        let mine = self.sidebar_rows()?;
+        if !mine.iter().any(|row| text(row, "id") == Some(id) && text(row, "kind") == Some("folder")) {
+            return Err(not_found("Folder"));
+        }
+        self.patch_row("sidebar_layout", id, "Folder", obj(json!({"name": name})))?;
+        Ok(json!({"txId": self.txid(), "name": name}))
     }
 
     fn issues_update(&self, input: Row) -> Out {

@@ -25,6 +25,13 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-14-sidebar-folders`,
+    date: `2026-11-14`,
+    title: `Sidebar folders`,
+    summary: `Drag boards, agents and apps to reorder them. Drop one onto another to make a folder; your layout follows you to your phone.`,
+    body: `- **Reorder**: on the desktop app and wide web, drag a board, agent or app; a line shows where it lands.\n- **Folders**: drop a row onto another and both move into a new folder, named in place (Enter saves, Esc keeps "New folder"); drop onto a folder to move in. Right-click a folder to rename or ungroup it. Folders open and close, and each device remembers which ones you folded.\n- **Phones**: the board pickers and the Apps list show your folders.`,
+  },
+  {
     id: `2026-11-14-desktop-agent-picks-stick`,
     date: `2026-11-14`,
     title: `Agent Skills and MCP server picks stick on the desktop`,

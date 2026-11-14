@@ -304,6 +304,26 @@ interface PinDao {
     suspend fun clear()
 }
 
+// #EXP-1832: the caller's sidebar layout (the shape is `user_id = me`), read
+// per team + section by the phone's read-only folders.
+@Dao
+interface SidebarLayoutDao {
+    @Query("SELECT * FROM sidebar_layout WHERE team_id = :teamId AND section = :section")
+    fun observe(teamId: String, section: String): Flow<List<SidebarLayoutEntity>>
+
+    @Query("SELECT * FROM sidebar_layout WHERE section = :section")
+    fun observeSection(section: String): Flow<List<SidebarLayoutEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: SidebarLayoutEntity)
+
+    @Query("DELETE FROM sidebar_layout WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM sidebar_layout")
+    suspend fun clear()
+}
+
 // EXP-878: the caller's unsent issue drafts. Like pins, the per-account DB
 // only ever holds the signed-in user's rows (the shape is `user_id = me`), so
 // there is no user filter — and the list is account-wide (every team), because

@@ -715,6 +715,45 @@ final class SyncApplyTests: XCTestCase {
         XCTAssertEqual(reordered?.sortOrder, 3)
     }
 
+    // #EXP-1832: a sidebar_layout row off the wire — a folder (no target)
+    // and an item inside it; `sort_order` arrives as Postgres text.
+    func testSidebarLayoutInsertDecodesAndPersists() async throws {
+        let folderJson = """
+            {"id":"f1","user_id":"u1","team_id":"ws1","section":"board","kind":"folder",
+             "target_id":null,"parent_id":null,"name":"Monitoring","sort_order":"3",
+             "created_at":"2026-11-14T09:00:00Z","updated_at":"2026-11-14T09:00:00Z"}
+            """
+        let itemJson = """
+            {"id":"e1","user_id":"u1","team_id":"ws1","section":"board","kind":"item",
+             "target_id":"b1","parent_id":"f1","name":null,"sort_order":"1",
+             "created_at":"2026-11-14T09:00:00Z","updated_at":"2026-11-14T09:00:00Z"}
+            """
+        let folder = try JSONDecoder().decode(SidebarLayoutEntity.self, from: Data(folderJson.utf8))
+        let item = try JSONDecoder().decode(SidebarLayoutEntity.self, from: Data(itemJson.utf8))
+        XCTAssertEqual(folder.sortOrder, 3)
+        XCTAssertNil(folder.targetId)
+        try await applyBatch(
+            messages: [
+                .insert(key: #""public"."sidebar_layout"/"f1""#, value: folder),
+                .insert(key: #""public"."sidebar_layout"/"e1""#, value: item),
+            ],
+            name: "sidebar-layout", table: "sidebar_layout", pool: pool
+        )
+        let stored = try await pool.read { try SidebarLayoutEntity.fetchAll($0).sorted { $0.id < $1.id } }
+        XCTAssertEqual(stored, [item, folder])
+        let tree = SidebarFolders.tree(items: ["b0", "b1"], entries: stored.compactMap(\.entry))
+        XCTAssertEqual(tree, [.folder(id: "f1", name: "Monitoring", children: ["b1"]), .item(id: "b0")])
+        // A partial (a rename) keeps the rest of the row.
+        let partial = ShapeMessage<SidebarLayoutEntity>.partialUpdate(
+            key: #""public"."sidebar_layout"/"f1""#,
+            columns: columns(["id": "f1", "name": "Ops"])
+        )
+        try await applyBatch(messages: [partial], name: "sidebar-layout", table: "sidebar_layout", pool: pool)
+        let renamed = try await pool.read { try SidebarLayoutEntity.fetchOne($0, key: "f1") }
+        XCTAssertEqual(renamed?.name, "Ops")
+        XCTAssertEqual(renamed?.sortOrder, 3)
+    }
+
     // EXP-878: an issue_drafts row off the wire — `label_ids` is a Postgres
     // uuid[] text literal (`{a,b}`), the nullable picks arrive as JSON null,
     // and the stored [String] reads back through GRDB's JSON encoding.

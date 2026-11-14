@@ -2072,3 +2072,73 @@ fn an_authored_field_color_is_the_typed_text_ink_like_the_fixture(cx: &mut TestA
         assert_eq!(format!("{ink:?}"), format!("{want:?}"), "{name}: the typed text's ink");
     }
 }
+
+/// EXP-1832 (fixtures/list-reorder.json): a reorderable List's row drags
+/// past `tabDragThreshold` (the press is spent): over a row's middle half
+/// the core paints INTO it (the dragged row dims, a lifted copy follows),
+/// the release fires `move {id, into}`; a drag near a row's edge drops
+/// before/after; Esc cancels (nothing fires); a click without movement
+/// presses.
+#[gpui::test]
+fn a_reorderable_list_row_drags_into_and_beside_and_esc_cancels(cx: &mut TestAppContext) {
+    let items: Vec<Value> = ["a", "b", "c", "d"].iter().map(|k| json!({"id": k, "title": k.to_uppercase()})).collect();
+    let tree = json!({"id": "root", "component": "Box", "style": {"width": 300}, "children": [
+        {"id": "l", "component": "List", "props": {"reorderable": true, "maxDepth": 2}, "template": {"component": "row", "path": "/items", "key": "id"}, "on": {"move": {"event": {"name": "move", "context": {"section": "board"}}}}},
+        {"id": "row", "component": "Row", "props": {"title": {"@path": "title"}}, "on": {"press": {"event": {"name": "open"}}}}
+    ]});
+    let (view, log, cx) = surface(cx, tree, false);
+    view.update(cx, |v, cx| {
+        v.set_data("/items", Some(json!(items)), cx).unwrap();
+        v.record_bounds(true);
+    });
+    draw(cx);
+    draw(cx);
+    let bounds = |cx: &mut VisualTestContext, id: &str| view.read_with(cx, |v, _| v.painted_bounds(id)).unwrap_or_else(|| panic!("{id} painted"));
+    let (a, c) = (bounds(cx, "row.a"), bounds(cx, "row.c"));
+    let start = a.center();
+    cx.simulate_mouse_down(start, MouseButton::Left, Modifiers::default());
+    cx.simulate_mouse_move(gpui::point(start.x + px(1.0), start.y + px(2.0)), Some(MouseButton::Left), Modifiers::default());
+    draw(cx);
+    assert!(!view.read_with(cx, |v, _| v.surface().list_dragging()), "under the threshold: no drag yet");
+    cx.simulate_mouse_move(c.center(), Some(MouseButton::Left), Modifiers::default());
+    draw(cx);
+    let paint = view.read_with(cx, |v, _| v.surface().list_drag_paint());
+    assert_eq!(paint.len(), 1);
+    assert_eq!(paint[0].key, "a");
+    let drop = paint[0].drop.as_ref().expect("a drop");
+    assert_eq!((drop.key.as_str(), drop.position.as_str()), ("c", "into"), "the middle half = into");
+    assert!(paint[0].into.is_some() && paint[0].line.is_none());
+    cx.simulate_mouse_up(c.center(), MouseButton::Left, Modifiers::default());
+    draw(cx);
+    let moved = |log: &Recorder| log.0.borrow().actions.iter().filter(|e| e.name == "move").map(|e| e.context.clone()).collect::<Vec<Value>>();
+    assert_eq!(moved(&log), vec![json!({"section": "board", "id": "a", "into": "c"})], "one move on the release");
+    assert!(!log.0.borrow().actions.iter().any(|e| e.name == "open"), "the drag spent the press");
+    assert!(!view.read_with(cx, |v, _| v.surface().list_dragging()));
+    // Near c's top edge: before c (a line, no into).
+    let b = bounds(cx, "row.b");
+    cx.simulate_mouse_down(b.center(), MouseButton::Left, Modifiers::default());
+    let edge = gpui::point(c.center().x, c.origin.y + px(2.0));
+    cx.simulate_mouse_move(edge, Some(MouseButton::Left), Modifiers::default());
+    draw(cx);
+    let paint = view.read_with(cx, |v, _| v.surface().list_drag_paint());
+    assert!(paint[0].line.is_some() && paint[0].ring.is_some() && paint[0].into.is_none());
+    cx.simulate_mouse_up(edge, MouseButton::Left, Modifiers::default());
+    draw(cx);
+    assert_eq!(moved(&log).last(), Some(&json!({"section": "board", "id": "b", "before": "c"})));
+    // Esc mid-drag cancels: nothing fires.
+    let count = moved(&log).len();
+    cx.simulate_mouse_down(b.center(), MouseButton::Left, Modifiers::default());
+    cx.simulate_mouse_move(c.center(), Some(MouseButton::Left), Modifiers::default());
+    draw(cx);
+    assert!(view.read_with(cx, |v, _| v.surface().list_dragging()));
+    view.update(cx, |v, cx| assert!(v.list_drag_cancel(cx), "Esc drops the drag"));
+    cx.simulate_mouse_up(c.center(), MouseButton::Left, Modifiers::default());
+    draw(cx);
+    assert_eq!(moved(&log).len(), count, "a cancelled drag fires nothing");
+    // A click without movement presses.
+    let d = bounds(cx, "row.d").center();
+    cx.simulate_mouse_down(d, MouseButton::Left, Modifiers::default());
+    cx.simulate_mouse_up(d, MouseButton::Left, Modifiers::default());
+    draw(cx);
+    assert!(log.0.borrow().actions.iter().any(|e| e.name == "open"), "a click presses");
+}

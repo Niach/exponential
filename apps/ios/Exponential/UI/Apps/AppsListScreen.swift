@@ -11,6 +11,9 @@ import SwiftUI
 /// once, no dialog; Import… opens the import step as its own sheet. Empty
 /// (no app of the team's; Exponential ships no built-in apps): the
 /// list-size empty state under the band.
+/// #EXP-1832 (sidebar-folders.json): the rows fold into the member's app
+/// folders, read-only (no drag, no editing): a folder row (folder glyph,
+/// name, count, chevron) folds on a tap, its apps indent one glyph.
 struct AppsListScreen: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -18,6 +21,9 @@ struct AppsListScreen: View {
     @Environment(\.toaster) private var toaster
     @Environment(TeamState.self) private var teamState
     @State private var model = AppsListModel()
+    @State private var layout = SidebarLayoutModel()
+    /// #EXP-1832: folds flipped here (also written to UserDefaults).
+    @State private var flipped: [String: Bool] = [:]
     @State private var creatingDraft = false
     @State private var importing = false
     /// VAPP-242: THE NEW MENU (the band pill's sheet) and its pick.
@@ -57,8 +63,12 @@ struct AppsListScreen: View {
                 }, enabled: !creatingDraft && teamId != nil)
                 .accessibilityIdentifier(Apps.TestIds.newApp)
             }
-            ForEach(model.apps) { app in
-                row(app)
+            ForEach(folderRows) { entry in
+                if entry.group {
+                    AppsFolderRow(folder: entry) { toggle(entry.id) }
+                } else if let app = appsById[entry.id] {
+                    row(app, depth: entry.depth)
+                }
             }
             if model.loaded, model.apps.isEmpty {
                 EmptyState(title: Apps.Copy.empty, icon: AppIcons.navApps, size: .list)
@@ -126,47 +136,46 @@ struct AppsListScreen: View {
 
     private func bind() {
         model.bind(accountId: accountId, teamId: teamId, userId: deps.auth.userId, db: deps.db)
+        layout.bind(accountId: accountId, teamId: teamId, section: "app", db: deps.db)
     }
 
-    private func row(_ app: AppListEntry) -> some View {
-        HStack(spacing: 10) {
-            // VAPP-242: a tap RUNS the app (THE RUN VIEW), never the editor.
-            Button {
-                pushRoute(.appRun(accountId: accountId, appId: app.id))
-            } label: {
-                HStack(spacing: 10) {
-                    AgentRowIcon(icon: app.glyph, color: app.color ?? AppGlyph.neutralColor)
-                    Text(app.name)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                    Spacer(minLength: 8)
-                    AppVersionPill(app: app)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
+    private var appsById: [String: AppListEntry] {
+        Dictionary(model.apps.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    /// The apps by name (the default order), folded by my folders.
+    private var folderRows: [SidebarFolders.Row] {
+        SidebarFolders.rows(
+            SidebarFolders.tree(items: model.apps.map(\.id), entries: layout.entries),
+            isOpen: isOpen
+        )
+    }
+
+    private func isOpen(_ folderId: String) -> Bool {
+        guard let teamId else { return true }
+        return flipped[folderId] ?? SidebarFolders.isOpen(teamId: teamId, folderId: folderId)
+    }
+
+    private func toggle(_ folderId: String) {
+        guard let teamId else { return }
+        let open = !isOpen(folderId)
+        flipped[folderId] = open
+        SidebarFolders.setOpen(open, teamId: teamId, folderId: folderId)
+    }
+
+    private func row(_ app: AppListEntry, depth: Int = 0) -> some View {
+        AppsListRow(
+            app: app,
+            depth: depth,
             // VAPP-121: any member exports an app that has a published version.
-            if app.publishedVersion > 0 || model.canManage(app, userId: deps.auth.userId) {
-                Button {
-                    UIApplication.endEditing()
-                    menuTarget = app
-                } label: {
-                    AppIcon(AppIcons.uiMore, size: AppIcon.Size.small, weight: .medium)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .frame(width: 24, height: 24)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Menu for \(app.name)")
-                .accessibilityIdentifier("\(Apps.TestIds.row)-menu-\(app.slug)")
+            showsMenu: app.publishedVersion > 0 || model.canManage(app, userId: deps.auth.userId),
+            // VAPP-242: a tap RUNS the app (THE RUN VIEW), never the editor.
+            onRun: { pushRoute(.appRun(accountId: accountId, appId: app.id)) },
+            onMenu: {
+                UIApplication.endEditing()
+                menuTarget = app
             }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .flatRow()
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("\(Apps.TestIds.row)-\(app.slug)")
+        )
     }
 
     private func runPendingMenu() {
@@ -221,6 +230,81 @@ struct AppsListScreen: View {
                 )
             }
         }
+    }
+}
+
+/// One app row: glyph, name, the version pill, the `…` menu; a folder's app
+/// (#EXP-1832, `depth` 1) indents one glyph + the row's gap.
+struct AppsListRow: View {
+    let app: AppListEntry
+    var depth: Int = 0
+    let showsMenu: Bool
+    let onRun: () -> Void
+    let onMenu: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button(action: onRun) {
+                HStack(spacing: 10) {
+                    AgentRowIcon(icon: app.glyph, color: app.color ?? AppGlyph.neutralColor)
+                    Text(app.name)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                    AppVersionPill(app: app)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if showsMenu {
+                Button(action: onMenu) {
+                    AppIcon(AppIcons.uiMore, size: AppIcon.Size.small, weight: .medium)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Menu for \(app.name)")
+                .accessibilityIdentifier("\(Apps.TestIds.row)-menu-\(app.slug)")
+            }
+        }
+        .padding(.leading, CGFloat(depth) * (AppIcon.Size.small + 10))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .flatRow()
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("\(Apps.TestIds.row)-\(app.slug)")
+    }
+}
+
+/// #EXP-1832 (sidebar-folders.json): a folder row, read-only on phones:
+/// folder glyph, name, its app count and the fold chevron; never navigable,
+/// a tap folds it.
+struct AppsFolderRow: View {
+    let folder: SidebarFolders.Row
+    let onToggle: () -> Void
+
+    var body: some View {
+        Button(action: onToggle) {
+            HStack(spacing: 10) {
+                AppIcon(AppIcons.uiFolder, size: AppIcon.Size.small)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                Text(folder.name ?? SidebarFolders.defaultFolderName)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                FolderRowTrailing(count: folder.count, open: folder.open)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .flatRow()
+        .accessibilityIdentifier("\(Apps.TestIds.row)-folder-\(folder.id)")
+        .accessibilityValue(folder.open ? "Expanded" : "Collapsed")
     }
 }
 

@@ -1,5 +1,6 @@
 import SwiftUI
 import ExponentialUIPrimitives
+import ExponentialUICore
 
 /// Everything a leaf painter reads.
 @MainActor
@@ -156,6 +157,8 @@ private struct NodeBody: View {
         .modifier(BoxHoverFiring(id: node.id, model: model, on: interactive && node.component == "Box" && node.part == nil))
         .modifier(ResizeHandleModifier(node: node, model: model, enabled: interactive && !model.isDisabled(index)))
         .modifier(TabStripDragModifier(node: node, model: model, enabled: interactive && !model.isDisabled(index)))
+        .modifier(ListReorderDragModifier(node: node, model: model, enabled: interactive && !model.isDisabled(index)))
+        .modifier(ListDragOverlayModifier(node: node, model: model))
         .modifier(TabSwipeModifier(node: node, model: model, enabled: interactive))
         .modifier(CursorModifier(cursor: interactive ? style.cursor : nil))
         .modifier(AccessibilityModifier(node: node, model: model, style: style))
@@ -418,6 +421,161 @@ struct TabStripDragModifier: ViewModifier {
         } else {
             content
         }
+    }
+}
+
+/// EXP-1832 (fixtures/list-reorder.json): a `reorderable` List's row drags
+/// after a long press (`tabLongPressMs`, the touch rule every renderer
+/// shares): `start` with the press point, a `move` per change, `end` on the
+/// release (the core fires `move {id, before | after | into}`), `cancel`
+/// when the system takes the touch back. Points are the row's local
+/// location plus its UNSCROLLED frame origin (the row itself never moves:
+/// the lifted copy is paint). The dragged row paints at the style's `dim`.
+struct ListReorderDragModifier: ViewModifier {
+    let node: NodeInfo
+    let model: SurfaceModel
+    let enabled: Bool
+    @Environment(\.xuiListLift) private var lifted
+    @GestureState private var tracking = false
+    @State private var dragging = false
+
+    func body(content: Content) -> some View {
+        if model.isReorderRow(node.index) {
+            let index = node.index
+            let dimmed = !lifted && model.isListDragRow(index)
+            let painted = content.opacity(dimmed ? CGFloat(listDragStyle().dim) : 1)
+            if enabled, !lifted {
+                painted.simultaneousGesture(
+                    LongPressGesture(minimumDuration: tabLongPressSeconds)
+                        .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .local))
+                        .updating($tracking) { _, state, _ in state = true }
+                        .onChanged { value in
+                            guard case .second(true, let drag?) = value else { return }
+                            let origin = model.frame(index).origin
+                            if !dragging {
+                                dragging = true
+                                model.listDrag(index, phase: "start", at: CGPoint(x: origin.x + drag.startLocation.x, y: origin.y + drag.startLocation.y))
+                            }
+                            model.listDrag(index, phase: "move", at: CGPoint(x: origin.x + drag.location.x, y: origin.y + drag.location.y))
+                        }
+                        .onEnded { value in
+                            guard dragging else { return }
+                            dragging = false
+                            let origin = model.frame(index).origin
+                            if case .second(true, let drag?) = value {
+                                model.listDrag(index, phase: "end", at: CGPoint(x: origin.x + drag.location.x, y: origin.y + drag.location.y))
+                            } else {
+                                model.listDrag(index, phase: "cancel", at: nil)
+                            }
+                        }
+                )
+                .onChange(of: tracking) { _, now in
+                    // A reset without `onEnded` = the system took the touch.
+                    guard !now else { return }
+                    Task { @MainActor in
+                        if dragging {
+                            dragging = false
+                            model.listDrag(index, phase: "cancel", at: nil)
+                        }
+                    }
+                }
+            } else {
+                painted
+            }
+        } else {
+            content
+        }
+    }
+}
+
+/// EXP-1832: the live drag's paint over its List (frames from the core,
+/// UNSCROLLED surface space, mapped into the List's box): the drop line
+/// (primary, radius 1) with its ring (a circle on the background colour,
+/// a primary stroke `line` wide) for before / after, the into highlight
+/// (the primary at `intoFill`, an inset primary stroke, `$radius.md`), and
+/// the lifted copy of the row (the popover colour, `$radius.md`, shadow
+/// 0 8 24 black 35%, at `liftOpacity`). Paint only: no hit testing.
+struct ListDragOverlayModifier: ViewModifier {
+    let node: NodeInfo
+    let model: SurfaceModel
+
+    func body(content: Content) -> some View {
+        if node.component == "List", node.part == nil, let paint = model.listDragPaints.first(where: { Int($0.listIndex) == node.index }) {
+            content.overlay(alignment: .topLeading) {
+                ListDragPaintView(paint: paint, list: node.index, model: model)
+            }
+        } else {
+            content
+        }
+    }
+}
+
+private struct ListDragPaintView: View {
+    let paint: FfiListDragPaint
+    let list: Int
+    let model: SurfaceModel
+
+    var body: some View {
+        let style = listDragStyle()
+        let primary = model.color("primary") ?? .accentColor
+        let radius = CGFloat(model.theme?.radius("md") ?? 6)
+        let line = CGFloat(style.line)
+        ZStack(alignment: .topLeading) {
+            if let into = paint.into {
+                let r = rect(into)
+                RoundedRectangle(cornerRadius: radius)
+                    .fill(primary.opacity(Double(style.intoFill)))
+                    .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(primary, lineWidth: line))
+                    .frame(width: r.width, height: r.height)
+                    .offset(x: r.minX, y: r.minY)
+            }
+            if let bar = paint.line {
+                let r = rect(bar)
+                RoundedRectangle(cornerRadius: 1)
+                    .fill(primary)
+                    .frame(width: r.width, height: r.height)
+                    .offset(x: r.minX, y: r.minY)
+            }
+            if let ring = paint.ring {
+                let r = rect(ring)
+                Circle()
+                    .fill(model.color("background") ?? .clear)
+                    .overlay(Circle().strokeBorder(primary, lineWidth: line))
+                    .frame(width: r.width, height: r.height)
+                    .offset(x: r.minX, y: r.minY)
+            }
+            let lift = rect(paint.lift)
+            NodeView(index: Int(paint.row))
+                .frame(width: lift.width, height: lift.height, alignment: .topLeading)
+                .background(model.color("popover") ?? .clear, in: RoundedRectangle(cornerRadius: radius))
+                .clipShape(RoundedRectangle(cornerRadius: radius))
+                .shadow(color: .black.opacity(0.35), radius: 12, x: 0, y: 8)
+                .opacity(Double(style.liftOpacity))
+                .offset(x: lift.minX, y: lift.minY)
+                .environment(\.xuiListLift, true)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    /// A core frame in the List's own box (its origin, minus its scroll).
+    private func rect(_ f: FfiFrame) -> CGRect {
+        let origin = model.frame(list).origin
+        let scrolled = model.scroll(list)?.offset ?? .zero
+        return CGRect(x: CGFloat(f.x) - origin.x - scrolled.x, y: CGFloat(f.y) - origin.y - scrolled.y, width: CGFloat(f.w), height: CGFloat(f.h))
+    }
+}
+
+private struct ListLiftKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// EXP-1832: inside a List drag's lifted copy (never dimmed, never dragged).
+    var xuiListLift: Bool {
+        get { self[ListLiftKey.self] }
+        set { self[ListLiftKey.self] = newValue }
     }
 }
 

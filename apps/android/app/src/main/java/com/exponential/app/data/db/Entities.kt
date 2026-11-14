@@ -594,6 +594,36 @@ data class PinEntity(
     val isKept: Boolean get() = kind in com.exponential.app.domain.DomainContract.pinKindValues
 }
 
+// #EXP-1832 (fixtures/sidebar-folders.json): one node of the caller's own
+// sidebar layout (the 34th Electric shape on phones): a FOLDER (a name) or an
+// ITEM entry placing one board / agent / app (`target_id`), optionally inside
+// a folder (`parent_id`). Static per user (`user_id = me`) like pins; the
+// phone only SHOWS it (read-only folders in the board pickers and the Apps
+// list). Every field but the PK defaults (the attachments.uploader_id lesson).
+@Entity(
+    tableName = "sidebar_layout",
+    indices = [Index(value = ["team_id", "section"])],
+)
+@Serializable
+data class SidebarLayoutEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "user_id") @SerialName("user_id") @JsonNames("userId") val userId: String = "",
+    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String = "",
+    // board | agent | app
+    val section: String = "",
+    // folder | item
+    val kind: String = "",
+    @ColumnInfo(name = "target_id") @SerialName("target_id") @JsonNames("targetId") val targetId: String? = null,
+    @ColumnInfo(name = "parent_id") @SerialName("parent_id") @JsonNames("parentId") val parentId: String? = null,
+    val name: String? = null,
+    @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double = 0.0,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
+) {
+    fun toEntry(): com.exponential.app.domain.SidebarFolders.Entry =
+        com.exponential.app.domain.SidebarFolders.Entry(id, kind, targetId, parentId, name, sortOrder)
+}
+
 // One unsent issue draft (EXP-878, the 22nd Electric shape): the create
 // screen's form, saved when the screen closes with content in it. The shape is
 // static per user (`user_id = me`), NOT team- or trash-scoped — exactly like

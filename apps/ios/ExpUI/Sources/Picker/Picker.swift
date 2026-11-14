@@ -54,6 +54,15 @@ public struct PickerItem<Value: Hashable>: Identifiable, Sendable where Value: S
     /// #EXP-1795: a brand mark slug (`AppIcons.brandSlugs`) the row leads
     /// with in its own fills; wins over `icon`.
     public let brand: String?
+    /// #EXP-1832 (sidebar-folders.json): the row's nesting level, 0 | 1; a
+    /// folder's item indents by one mark.
+    public let depth: Int
+    /// #EXP-1832: a FOLDER row: never picked, a tap folds it
+    /// (`onToggleGroup`); it draws its item count and the fold chevron.
+    public let group: PickerGroup?
+    /// #EXP-1832: the folder row this row sits in: hidden while it is
+    /// closed, shown flat while a search runs.
+    public let parent: Value?
 
     public init(
         value: Value,
@@ -65,8 +74,14 @@ public struct PickerItem<Value: Hashable>: Identifiable, Sendable where Value: S
         keywords: [String] = [],
         checked: PickerChecked? = nil,
         identifier: String? = nil,
-        brand: String? = nil
+        brand: String? = nil,
+        depth: Int = 0,
+        group: PickerGroup? = nil,
+        parent: Value? = nil
     ) {
+        self.depth = depth
+        self.group = group
+        self.parent = parent
         self.value = value
         self.label = label
         self.icon = icon
@@ -104,6 +119,62 @@ public struct PickerItem<Value: Hashable>: Identifiable, Sendable where Value: S
         if let icon { return .glyph(icon, color) }
         if let color { return .dot(color) }
         return .plain
+    }
+}
+
+/// #EXP-1832: a folder row's state (sidebar-folders.json `rows`): its item
+/// count and whether it is open.
+public struct PickerGroup: Hashable, Sendable {
+    public let count: Int
+    public let open: Bool
+
+    public init(count: Int, open: Bool) {
+        self.count = count
+        self.open = open
+    }
+}
+
+/// #EXP-1832: which rows a folded list shows. No query: every top-level row
+/// and the items of an OPEN folder. A query: the matching items, flat (no
+/// folder rows), so a folded board is still found. Pure, for the tests.
+public enum PickerFolders {
+    public static func visible<Value>(_ items: [PickerItem<Value>], query: String) -> [PickerItem<Value>] {
+        guard items.contains(where: { $0.group != nil || $0.parent != nil }) else { return items }
+        if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return items.filter { $0.group == nil }.map { item in
+                PickerItem(
+                    value: item.value, label: item.label, icon: item.icon, color: item.color,
+                    description: item.description, disabled: item.disabled, keywords: item.keywords,
+                    checked: item.checked, identifier: item.identifier, brand: item.brand
+                )
+            }
+        }
+        let open = Set(items.filter { $0.group?.open == true }.map(\.value))
+        return items.filter { item in item.parent.map { open.contains($0) } ?? true }
+    }
+}
+
+/// #EXP-1832: a folder row's trailing pair — its item count and the fold
+/// chevron (down = open) — in the row's muted ink, shared by the picker and
+/// the Apps list so a folder reads the same everywhere.
+public struct FolderRowTrailing: View {
+    let count: Int
+    let open: Bool
+
+    public init(count: Int, open: Bool) {
+        self.count = count
+        self.open = open
+    }
+
+    public var body: some View {
+        HStack(spacing: 8) {
+            Text("\(count)")
+                .font(.subheadline)
+                .monospacedDigit()
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            AppIcon(open ? AppIcons.uiChevronDown : AppIcons.uiChevronRight, size: AppIcon.Size.small)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+        }
     }
 }
 
@@ -385,6 +456,9 @@ public struct GlassPicker<Value: Hashable & Sendable, Trigger: View>: View {
     /// N-6: the sheet, or the rows inline under the trigger; `nil` = the
     /// host decides (`\.pickerPresentation`).
     public let presentation: PickerPresentation?
+    /// #EXP-1832: a tap on a folder row (`PickerItem.group`); the caller
+    /// flips and keeps its open state.
+    public let onToggleGroup: ((Value) -> Void)?
     @Environment(\.pickerPresentation) private var hostPresentation
     /// N-14: the enclosing row host's slot, nil outside one.
     @Environment(\.inlinePickerSlot) private var rowSlot
@@ -418,8 +492,10 @@ public struct GlassPicker<Value: Hashable & Sendable, Trigger: View>: View {
         renderItem: ((PickerItem<Value>) -> AnyView?)? = nil,
         sheetIdentifier: String? = nil,
         presentation: PickerPresentation? = nil,
+        onToggleGroup: ((Value) -> Void)? = nil,
         @ViewBuilder trigger: @escaping () -> Trigger
     ) {
+        self.onToggleGroup = onToggleGroup
         self.items = items
         self.mode = mode
         self.value = value
@@ -500,6 +576,7 @@ public struct GlassPicker<Value: Hashable & Sendable, Trigger: View>: View {
             footerReplacesEmpty: footerReplacesEmpty,
             renderMark: renderMark,
             renderItem: renderItem,
+            onToggleGroup: onToggleGroup,
             inline: true,
             fold: {
                 presented.wrappedValue = false
@@ -518,6 +595,7 @@ public struct GlassPicker<Value: Hashable & Sendable, Trigger: View>: View {
             hasher.combine(item.value)
             hasher.combine(item.label)
             hasher.combine(item.description)
+            hasher.combine(item.group)
         }
         return hasher.finalize()
     }
@@ -595,7 +673,8 @@ public struct GlassPicker<Value: Hashable & Sendable, Trigger: View>: View {
                 footer: footer,
                 footerReplacesEmpty: footerReplacesEmpty,
                 renderMark: renderMark,
-                renderItem: renderItem
+                renderItem: renderItem,
+                onToggleGroup: onToggleGroup
             )
             // Sheets present outside the host's environment, and the app is
             // dark-forced everywhere else (EXP-687).
@@ -730,6 +809,7 @@ private struct GlassPickerSheetBody<Value: Hashable & Sendable>: View {
     let footerReplacesEmpty: Bool
     let renderMark: ((PickerItem<Value>) -> AnyView?)?
     let renderItem: ((PickerItem<Value>) -> AnyView?)?
+    var onToggleGroup: ((Value) -> Void)? = nil
     /// N-6: drawn in a host's flow (no sheet chrome) — `fold` is what a
     /// single pick calls instead of dismissing a sheet.
     var inline: Bool = false
@@ -803,7 +883,10 @@ private struct GlassPickerSheetBody<Value: Hashable & Sendable>: View {
     /// A caller-ranked list is rendered VERBATIM: it already is the answer to
     /// the query, in its own order.
     private var visible: [PickerItem<Value>] {
-        query == nil ? PickerSearch.filter(items, query: localQuery) : items
+        PickerFolders.visible(
+            query == nil ? PickerSearch.filter(items, query: localQuery) : items,
+            query: queryBinding.wrappedValue
+        )
     }
 
     /// A single pick's close: the inline fold, else the sheet's dismiss.
@@ -841,6 +924,11 @@ private struct GlassPickerSheetBody<Value: Hashable & Sendable>: View {
                         mark: renderMark?(item),
                         content: renderItem?(item)
                     ) {
+                        // #EXP-1832: a folder row folds; it is never a pick.
+                        if item.group != nil {
+                            onToggleGroup?(item.value)
+                            return
+                        }
                         onChange(PickerSelection.picking(item.value, in: value, mode: mode))
                         if PickerSelection.closesOnPick(mode) { close() }
                     }
@@ -894,7 +982,11 @@ public struct GlassPickerSheetRow<Value: Hashable & Sendable>: View {
                 leading
                 rowBody
                 Spacer(minLength: 0)
-                trailingCheck
+                if let group = item.group {
+                    FolderRowTrailing(count: group.count, open: group.open)
+                } else {
+                    trailingCheck
+                }
             }
             .padding(.horizontal, GlassPickerTokens.rowHPadding)
             .frame(minHeight: GlassPickerTokens.rowMinHeight)
@@ -954,8 +1046,13 @@ public struct GlassPickerSheetRow<Value: Hashable & Sendable>: View {
         }
     }
 
-    @ViewBuilder
+    /// #EXP-1832: a folder's item indents by one mark + the row's gap.
     private var leading: some View {
+        leadingMark.padding(.leading, CGFloat(item.depth) * (GlassPickerTokens.markWidth + 10))
+    }
+
+    @ViewBuilder
+    private var leadingMark: some View {
         if let mark {
             mark.frame(width: GlassPickerTokens.markWidth)
         } else {

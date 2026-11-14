@@ -876,6 +876,10 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_func_json_equal(
     ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_list_drag_style(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_list_drop_slot_json(
+    ): Int
     external fun uniffi_exponential_ui_ffi_checksum_func_list_json(
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_func_load_theme_json(
@@ -1129,6 +1133,14 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_layout(
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_layout_fixed(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_list_drag(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_list_drag_paint(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_list_dragging(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_list_reorder_row(
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_mark_dirty(
     ): Int
@@ -1529,6 +1541,14 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_method_surface_layout_fixed(`ptr`: Long,`sizesJson`: RustBuffer.ByValue,`wrap`: Byte,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_list_drag(`ptr`: Long,`index`: Int,`inputJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_list_drag_paint(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_list_dragging(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_list_reorder_row(`ptr`: Long,`index`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_method_surface_mark_dirty(`ptr`: Long,`index`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): Byte
     external fun uniffi_exponential_ui_ffi_fn_method_surface_mode(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -1797,6 +1817,10 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_func_json_equal(`a`: RustBuffer.ByValue,`b`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Byte
+    external fun uniffi_exponential_ui_ffi_fn_func_list_drag_style(uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_list_drop_slot_json(`requestJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_func_list_json(`requestJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_func_load_theme_json(`themeJson`: RustBuffer.ByValue,`parentsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -6903,6 +6927,36 @@ public interface SurfaceInterface {
      */
     fun `layoutFixed`(`sizesJson`: kotlin.String?, `wrap`: kotlin.Boolean): FfiLayout
     
+    /**
+     * EXP-1832: one drag input on a `reorderable` List. `input_json` =
+     * `{"phase": "start"|"move"|"end", x, y}` (the pointer in the layout's
+     * UNSCROLLED frame space) or `{"phase": "cancel"}`. The host decides when a drag
+     * STARTS (a pointer past `tabDragThreshold`, a touch after
+     * `tabLongPressMs`) and sends `start` on the pressed node (any node
+     * inside a row; see [`Self::list_reorder_row`]); `end` fires the List's
+     * `move {id, before | after | into}` when the drop has a slot; Esc =
+     * `cancel`. Repaint from [`Self::list_drag_paint`] after every call.
+     */
+    fun `listDrag`(`index`: kotlin.UInt, `inputJson`: kotlin.String): List<FfiEvent>
+    
+    /**
+     * EXP-1832: what to paint for the live List drag (empty = none): see
+     * [`FfiListDragPaint`] and [`list_drag_style`].
+     */
+    fun `listDragPaint`(): List<FfiListDragPaint>
+    
+    /**
+     * EXP-1832: whether a List drag is live (swallow the release's press,
+     * take Esc).
+     */
+    fun `listDragging`(): kotlin.Boolean
+    
+    /**
+     * EXP-1832: the row slot of the reorderable List row node `index` sits
+     * in (None = no reorderable row: no drag starts there).
+     */
+    fun `listReorderRow`(`index`: kotlin.UInt): kotlin.UInt?
+    
     fun `markDirty`(`index`: kotlin.UInt): kotlin.Boolean
     
     /**
@@ -7587,6 +7641,84 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
         
         FfiConverterOptionalString.lower(`sizesJson`),
         FfiConverterBoolean.lower(`wrap`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * EXP-1832: one drag input on a `reorderable` List. `input_json` =
+     * `{"phase": "start"|"move"|"end", x, y}` (the pointer in the layout's
+     * UNSCROLLED frame space) or `{"phase": "cancel"}`. The host decides when a drag
+     * STARTS (a pointer past `tabDragThreshold`, a touch after
+     * `tabLongPressMs`) and sends `start` on the pressed node (any node
+     * inside a row; see [`Self::list_reorder_row`]); `end` fires the List's
+     * `move {id, before | after | into}` when the drop has a slot; Esc =
+     * `cancel`. Repaint from [`Self::list_drag_paint`] after every call.
+     */
+    @Throws(UiException::class)override fun `listDrag`(`index`: kotlin.UInt, `inputJson`: kotlin.String): List<FfiEvent> {
+            return FfiConverterSequenceTypeFfiEvent.lift(
+    callWithHandle {
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_list_drag(
+        it,
+        
+        FfiConverterUInt.lower(`index`),
+        FfiConverterString.lower(`inputJson`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * EXP-1832: what to paint for the live List drag (empty = none): see
+     * [`FfiListDragPaint`] and [`list_drag_style`].
+     */override fun `listDragPaint`(): List<FfiListDragPaint> {
+            return FfiConverterSequenceTypeFfiListDragPaint.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_list_drag_paint(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * EXP-1832: whether a List drag is live (swallow the release's press,
+     * take Esc).
+     */override fun `listDragging`(): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_list_dragging(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * EXP-1832: the row slot of the reorderable List row node `index` sits
+     * in (None = no reorderable row: no drag starts there).
+     */override fun `listReorderRow`(`index`: kotlin.UInt): kotlin.UInt? {
+            return FfiConverterOptionalUInt.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_list_reorder_row(
+        it,
+        
+        FfiConverterUInt.lower(`index`),_status)
 }
     }
     )
@@ -9918,6 +10050,162 @@ public object FfiConverterTypeFfiList: FfiConverterRustBuffer<FfiList> {
 
 
 
+/**
+ * EXP-1832: one live List drag to paint (frames in the layout's space,
+ * each `index` = the slot it belongs to). Paint the `row` at `dim`
+ * opacity, the row again at `lift` (popover colour, radius `$radius.md`,
+ * the overlay shadow, `lift_opacity`), and for a drop: `line` (2px primary,
+ * radius 1) + `ring` (a circle: primary stroke `line` wide, background
+ * fill) for before / after, `into` (inset primary ring + the primary at
+ * `into_fill`, radius `$radius.md`) for into. No drop = nothing drawn.
+ */
+data class FfiListDragPaint (
+    var `list`: kotlin.String
+    , 
+    var `listIndex`: kotlin.UInt
+    , 
+    var `key`: kotlin.String
+    , 
+    var `row`: kotlin.UInt
+    , 
+    var `lift`: FfiFrame
+    , 
+    /**
+     * The drop's row key and position (`before` | `after` | `into`).
+     */
+    var `dropKey`: kotlin.String?
+    , 
+    var `dropPosition`: kotlin.String?
+    , 
+    var `dropRow`: kotlin.UInt?
+    , 
+    var `line`: FfiFrame?
+    , 
+    var `ring`: FfiFrame?
+    , 
+    var `into`: FfiFrame?
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiListDragPaint: FfiConverterRustBuffer<FfiListDragPaint> {
+    override fun read(buf: ByteBuffer): FfiListDragPaint {
+        return FfiListDragPaint(
+            FfiConverterString.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterTypeFfiFrame.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalUInt.read(buf),
+            FfiConverterOptionalTypeFfiFrame.read(buf),
+            FfiConverterOptionalTypeFfiFrame.read(buf),
+            FfiConverterOptionalTypeFfiFrame.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiListDragPaint) = (
+            FfiConverterString.allocationSize(value.`list`) +
+            FfiConverterUInt.allocationSize(value.`listIndex`) +
+            FfiConverterString.allocationSize(value.`key`) +
+            FfiConverterUInt.allocationSize(value.`row`) +
+            FfiConverterTypeFfiFrame.allocationSize(value.`lift`) +
+            FfiConverterOptionalString.allocationSize(value.`dropKey`) +
+            FfiConverterOptionalString.allocationSize(value.`dropPosition`) +
+            FfiConverterOptionalUInt.allocationSize(value.`dropRow`) +
+            FfiConverterOptionalTypeFfiFrame.allocationSize(value.`line`) +
+            FfiConverterOptionalTypeFfiFrame.allocationSize(value.`ring`) +
+            FfiConverterOptionalTypeFfiFrame.allocationSize(value.`into`)
+    )
+
+    override fun write(value: FfiListDragPaint, buf: ByteBuffer) {
+            FfiConverterString.write(value.`list`, buf)
+            FfiConverterUInt.write(value.`listIndex`, buf)
+            FfiConverterString.write(value.`key`, buf)
+            FfiConverterUInt.write(value.`row`, buf)
+            FfiConverterTypeFfiFrame.write(value.`lift`, buf)
+            FfiConverterOptionalString.write(value.`dropKey`, buf)
+            FfiConverterOptionalString.write(value.`dropPosition`, buf)
+            FfiConverterOptionalUInt.write(value.`dropRow`, buf)
+            FfiConverterOptionalTypeFfiFrame.write(value.`line`, buf)
+            FfiConverterOptionalTypeFfiFrame.write(value.`ring`, buf)
+            FfiConverterOptionalTypeFfiFrame.write(value.`into`, buf)
+    }
+}
+
+
+
+/**
+ * EXP-1832: the drag paint's fixed numbers (fixtures/list-reorder.json).
+ */
+data class FfiListDragStyle (
+    var `dim`: kotlin.Float
+    , 
+    var `line`: kotlin.Float
+    , 
+    var `ring`: kotlin.Float
+    , 
+    var `liftOffset`: kotlin.Float
+    , 
+    var `liftOpacity`: kotlin.Float
+    , 
+    var `intoFill`: kotlin.Float
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiListDragStyle: FfiConverterRustBuffer<FfiListDragStyle> {
+    override fun read(buf: ByteBuffer): FfiListDragStyle {
+        return FfiListDragStyle(
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiListDragStyle) = (
+            FfiConverterFloat.allocationSize(value.`dim`) +
+            FfiConverterFloat.allocationSize(value.`line`) +
+            FfiConverterFloat.allocationSize(value.`ring`) +
+            FfiConverterFloat.allocationSize(value.`liftOffset`) +
+            FfiConverterFloat.allocationSize(value.`liftOpacity`) +
+            FfiConverterFloat.allocationSize(value.`intoFill`)
+    )
+
+    override fun write(value: FfiListDragStyle, buf: ByteBuffer) {
+            FfiConverterFloat.write(value.`dim`, buf)
+            FfiConverterFloat.write(value.`line`, buf)
+            FfiConverterFloat.write(value.`ring`, buf)
+            FfiConverterFloat.write(value.`liftOffset`, buf)
+            FfiConverterFloat.write(value.`liftOpacity`, buf)
+            FfiConverterFloat.write(value.`intoFill`, buf)
+    }
+}
+
+
+
 data class FfiNode (
     var `index`: kotlin.UInt
     , 
@@ -12037,6 +12325,34 @@ public object FfiConverterSequenceTypeFfiList: FfiConverterRustBuffer<List<FfiLi
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeFfiListDragPaint: FfiConverterRustBuffer<List<FfiListDragPaint>> {
+    override fun read(buf: ByteBuffer): List<FfiListDragPaint> {
+        val len = buf.getInt()
+        return List<FfiListDragPaint>(len) {
+            FfiConverterTypeFfiListDragPaint.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<FfiListDragPaint>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeFfiListDragPaint.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<FfiListDragPaint>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeFfiListDragPaint.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeFfiNode: FfiConverterRustBuffer<List<FfiNode>> {
     override fun read(buf: ByteBuffer): List<FfiNode> {
         val len = buf.getInt()
@@ -12862,6 +13178,36 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
         
         FfiConverterString.lower(`a`),
         FfiConverterString.lower(`b`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * EXP-1832: the List drag paint's numbers.
+         */ fun `listDragStyle`(): FfiListDragStyle {
+            return FfiConverterTypeFfiListDragStyle.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_list_drag_style(
+    
+        _status)
+}
+    )
+    }
+    
+
+        /**
+         * EXP-1832 (fixtures/list-reorder.json): the pure drop rule, for a
+         * painter's own tests: `request_json` = `{rows, drag, at, maxDepth}`;
+         * answers the drop (`{key, position}`) or `null`.
+         */
+    @Throws(UiException::class) fun `listDropSlotJson`(`requestJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_list_drop_slot_json(
+    
+        
+        FfiConverterString.lower(`requestJson`),_status)
 }
     )
     }
