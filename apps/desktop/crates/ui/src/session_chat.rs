@@ -4595,11 +4595,11 @@ mod tests {
         view.read_with(cx, |view, _| assert_eq!(view.opened, None));
         assert!(cx.debug_bounds(beside).is_none());
 
-        // Results (an agent's chat has one now) opens beside the chat.
+        // #EXP-1834: an EMPTY Results tab is disabled: asked for, it never
+        // opens beside the chat (the chat stays full width).
         cx.update(|window, cx| view.update(cx, |view, cx| view.set_tab(SessionScreenTab::Results, window, cx)));
         draw(cx);
-        view.read_with(cx, |view, _| assert_eq!(view.tab, SessionScreenTab::Results));
-        assert!(cx.debug_bounds(beside).is_some());
+        assert!(cx.debug_bounds(beside).is_none());
     }
 
     /// One agent chat ("r1") holding one agent message `body`.
@@ -4736,20 +4736,23 @@ mod tests {
         let document = chat_document(&view, cx);
         let markdowns = painted_markdowns(&document, cx);
         let y_of = |text: &str| markdowns.iter().find(|(_, painted, _)| painted == text).map(|(y, _, _)| *y);
-        let prompt = y_of("Ship the fix").expect("the prompt is the document's bubble");
+        // #FEED-239: the viewer's own prompt is the IDE's row (its avatar on
+        // the right), a host row; the agent's narration the document's bubble.
+        assert!(y_of("Ship the fix").is_none(), "the own prompt is a host row: {markdowns:?}");
         let reply = y_of("All green.").expect("the narration is the document's bubble");
-        assert!(prompt < reply, "the feed's order: {markdowns:?}");
-        // The tool row: a host row the view painted, between the two.
         let painted = cx.update(|_, cx| view.read(cx).root_view.read(cx).inner().read(cx).chat_transcript().painted());
-        let tool = painted
+        let mut hosts: Vec<(String, gpui::Bounds<gpui::Pixels>)> = painted
             .iter()
             .filter(|id| id.starts_with("chat_row_host.r"))
             .filter_map(|id| {
                 let bounds = cx.update(|_, cx| document.read(cx).painted_bounds(id))?;
-                let y = f32::from(bounds.origin.y);
-                (y > prompt && y < reply).then(|| (id.clone(), bounds))
+                (f32::from(bounds.origin.y) < reply).then(|| (id.clone(), bounds))
             })
-            .next();
+            .collect();
+        hosts.sort_by(|a, b| f32::from(a.1.origin.y).total_cmp(&f32::from(b.1.origin.y)));
+        assert!(hosts.len() >= 2, "the prompt and the tool row are host rows above the reply: {hosts:?}");
+        // The tool row: the host row after the prompt's, before the reply.
+        let tool = hosts.get(1).cloned();
         let (id, bounds) = tool.expect("the tool row is painted by the host between the bubbles");
         assert!(f32::from(bounds.size.height) > 0., "the host row has its height");
         let measured = cx.update(|_, cx| view.read(cx).root_view.read(cx).inner().read(cx).chat_transcript().host_height(&id));
