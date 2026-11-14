@@ -103,8 +103,8 @@ class ComposerAttachmentsTest {
             val expected = case.getValue("expected").jsonObject
             assertEquals(
                 case.str("name"),
-                ComposerAttachments.Dropped(expected.kinds("strip"), expected.str("text")),
-                ComposerAttachments.drop(input.kinds("strip"), input.num("at"), input.str("text")),
+                ComposerAttachments.Dropped(expected.kinds("strip"), expected.str("text"), expected.num("caret")),
+                ComposerAttachments.drop(input.kinds("strip"), input.num("at"), input.str("text"), input.num("caret")),
             )
         }
     }

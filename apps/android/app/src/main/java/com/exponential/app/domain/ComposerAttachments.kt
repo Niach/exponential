@@ -46,40 +46,96 @@ object ComposerAttachments {
         return Placed("$before$lead$marker$trail$after", at + lead.length + marker.length + trail.length)
     }
 
-    /** Runs of spaces/tabs a removed marker leaves behind. */
-    private val SPACE_RUN = Regex("""[ \t]{2,}""")
-
     /**
      * Removing the [removedIndex]-th image renumbers the draft: its own
      * markers go, and every higher one slides down one. Only a line that LOST
      * a marker gets the gap it left tidied; untouched lines keep their spacing.
      */
-    fun renumber(text: String, removedIndex: Int): String =
-        text.split("\n").joinToString("\n") { line ->
+    fun renumber(text: String, removedIndex: Int): String = renumberWithCaret(text, removedIndex, 0).text
+
+    /** Collapses each run of 2+ spaces/tabs to one space, mapping [at]: a
+     *  caret inside a run (past its first character) lands behind the space. */
+    private fun collapseRuns(line: String, at: Int): Placed {
+        val out = StringBuilder()
+        var mapped = if (at >= line.length) -1 else at
+        var i = 0
+        while (i < line.length) {
+            val ch = line[i]
+            if (ch == ' ' || ch == '\t') {
+                var j = i
+                while (j < line.length && (line[j] == ' ' || line[j] == '\t')) j++
+                if (j - i >= 2) {
+                    if (at == i) mapped = out.length
+                    else if (at > i && at <= j) mapped = out.length + 1
+                    out.append(' ')
+                    i = j
+                    continue
+                }
+            }
+            if (at == i) mapped = out.length
+            out.append(ch)
+            i++
+        }
+        return Placed(out.toString(), if (mapped == -1) out.length else mapped)
+    }
+
+    /**
+     * [renumber] with the caret carried along (the X keeps it where it was):
+     * it moves left by what the removal took out before it, so a caret right
+     * behind the removed placeholder lands where it began. A caret INSIDE a
+     * marker counts as at that marker's start. Mirrors `renumberWithCaret`.
+     */
+    fun renumberWithCaret(text: String, removedIndex: Int, caret: Int): Placed {
+        var at = caret.coerceIn(0, text.length)
+        for (match in IMAGE_MARKER_REGEX.findAll(text)) {
+            val start = match.range.first
+            if (at > start && at < match.range.last + 1) at = start
+        }
+        val out = mutableListOf<String>()
+        var lineStart = 0
+        var mappedCaret = 0
+        var outOffset = 0
+        for (line in text.split("\n")) {
+            val local = if (at >= lineStart && at <= lineStart + line.length) at - lineStart else -1
             var dropped = false
             val next = StringBuilder()
             var cursor = 0
+            var mapped = -1
             for (match in IMAGE_MARKER_REGEX.findAll(line)) {
-                next.append(line, cursor, match.range.first)
-                cursor = match.range.last + 1
+                val start = match.range.first
+                if (local in cursor..start && mapped == -1) mapped = next.length + (local - cursor)
+                next.append(line, cursor, start)
                 val raw = imageMarkerNumber(match)
                 when {
-                    // Not a number this platform can carry: prose, verbatim
-                    // (the same call every marker walker makes).
+                    // Not a number this platform can carry: prose, verbatim.
                     raw == null -> next.append(match.value)
                     raw == removedIndex.toLong() -> dropped = true
                     raw > removedIndex -> next.append(imageMarker(raw - 1))
                     else -> next.append(match.value)
                 }
+                cursor = match.range.last + 1
+                if (local == cursor && mapped == -1) mapped = next.length
             }
+            if (local >= cursor && mapped == -1) mapped = next.length + (local - cursor)
             next.append(line, cursor, line.length)
-            if (!dropped) {
-                next.toString()
-            } else {
-                val tidied = SPACE_RUN.replace(next, " ").trimEnd(' ', '\t')
-                if (line.startsWith(imageMarker(removedIndex))) tidied.trimStart(' ', '\t') else tidied
+            var result = next.toString()
+            if (dropped) {
+                val collapsed = collapseRuns(result, mapped)
+                result = collapsed.text.trimEnd(' ', '\t')
+                mapped = minOf(collapsed.caret, result.length)
+                if (line.startsWith(imageMarker(removedIndex))) {
+                    val trimmed = result.trimStart(' ', '\t')
+                    mapped = maxOf(0, mapped - (result.length - trimmed.length))
+                    result = trimmed
+                }
             }
+            if (local != -1 && mapped != -1) mappedCaret = outOffset + mapped
+            out.add(result)
+            outOffset += result.length + 1
+            lineStart += line.length + 1
         }
+        return Placed(out.joinToString("\n"), mappedCaret)
+    }
 
     data class Staged(
         /** The strip after the add. */
@@ -142,16 +198,21 @@ object ComposerAttachments {
         return Staged(next, taken, placed.text, placed.caret, rejected, overflow, fileOverflow)
     }
 
-    data class Dropped(val strip: List<Kind>, val text: String)
+    /** The strip after the X, the draft, and the caret (where it was,
+     *  moved left by what left before it). */
+    data class Dropped(val strip: List<Kind>, val text: String, val caret: Int)
 
     /** The strip's X: an image's markers leave the draft and every higher one
-     *  slides down; a file has none. Out of range = no-op. */
-    fun drop(strip: List<Kind>, at: Int, text: String): Dropped {
-        val kind = strip.getOrNull(at) ?: return Dropped(strip, text)
+     *  slides down; a file has none. Out of range = no-op. The caret stays
+     *  where it was ([renumberWithCaret]). */
+    fun drop(strip: List<Kind>, at: Int, text: String, caret: Int): Dropped {
+        val kept = caret.coerceIn(0, text.length)
+        val kind = strip.getOrNull(at) ?: return Dropped(strip, text, kept)
         val next = strip.filterIndexed { index, _ -> index != at }
-        if (kind != Kind.Image) return Dropped(next, text)
+        if (kind != Kind.Image) return Dropped(next, text, kept)
         val number = imageCount(strip.take(at)) + 1
-        return Dropped(next, renumber(text, number))
+        val placed = renumberWithCaret(text, number, kept)
+        return Dropped(next, placed.text, placed.caret)
     }
 
     /** The toasts a stage owes, in order. */

@@ -180,12 +180,13 @@ internal fun removeComposerAttachment(
         if (it.isImage) com.exponential.app.domain.ComposerAttachments.Kind.Image
         else com.exponential.app.domain.ComposerAttachments.Kind.File
     }
-    val text = com.exponential.app.domain.ComposerAttachments.drop(kinds, index, value.text).text
-    if (text != value.text) {
+    // composer-attachments.json `drop`: the caret stays where it was.
+    val dropped = com.exponential.app.domain.ComposerAttachments.drop(kinds, index, value.text, value.selection.end)
+    if (dropped.text != value.text) {
         onValueRewrite(
             androidx.compose.ui.text.input.TextFieldValue(
-                text,
-                androidx.compose.ui.text.TextRange(value.selection.end.coerceAtMost(text.length)),
+                dropped.text,
+                androidx.compose.ui.text.TextRange(dropped.caret),
             ),
         )
     }
