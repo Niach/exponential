@@ -58,6 +58,32 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
+const PREVIOUS_295: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-14-one-agent-settings-page",
+    date: "2026-11-14",
+    title: "One settings page for every agent",
+    summary: "Your Assistant and your team agents now share one settings page: every agent gets a Model, a Check in and its own triggers.",
+    body: r##"- **Same page for every agent**: Runs on (device, account, model, skills, MCP servers), then Triggers, in the same order for your Assistant and your team agents.
+- **Check in for every agent**: the first Triggers row picks how often an agent checks in (every 15 or 30 minutes, every hour, every day, or off).
+- **More triggers for your Assistant**: add schedules and events to your Assistant too, not just its check in.
+- **Model for team agents**: pick the model a team agent runs on, like your Assistant's."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_294: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-14-phones-chat-shell-release",
+    date: "2026-11-14",
+    title: "One chat menu and sidebar folders on your phone",
+    summary: "Android 0.14.139 and iOS 0.14.129 bring the one `…` chat menu, your sidebar folders, My issues tabs on a board and [Image #1] placeholders in every chat composer.",
+    body: r##"- **One `…` menu**: every chat, agent and app shares one menu; the settings gear is gone and your own messages carry your picture on the right.
+- **Sidebar folders**: the folders you make on the desktop app or the web show on your phone.
+- **My issues**: a board's All issues, My issues and Drafts are tabs, and My issues lists only yours on that board.
+- **Image placeholders**: attaching an image in a chat puts `[Image #1]` at the cursor."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
 const PREVIOUS_293: ChangelogEntry = ChangelogEntry {
     id: "2026-11-14-assistant-floating-button",
     date: "2026-11-14",

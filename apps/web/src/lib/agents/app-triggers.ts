@@ -135,8 +135,8 @@ export const TRIGGER_ISSUE_MESSAGES: Record<string, string> = {
   prompt: `an agent run needs a prompt`,
 }
 
-/** #EXP-1829 (domain.ts): a kept trigger (same id) that leaves `prompt` or
- *  `run` out keeps the stored value (an older client re-sends only the
+/** #EXP-1829 (domain.ts): a kept trigger (same id) that leaves `prompt`,
+ *  `run` or `preset` (#EXP-1835) out keeps the stored value (an older client re-sends only the
  *  when-part); `null` clears it. Ids are minted for new triggers. */
 export function mergeTriggerWrite(
   stored: readonly AgentTrigger[] | null | undefined,
@@ -147,8 +147,11 @@ export function mergeTriggerWrite(
     const id = raw.id ?? crypto.randomUUID()
     const before = raw.id ? byId.get(raw.id) : undefined
     const out: Record<string, unknown> = { ...raw, id }
-    for (const key of [`prompt`, `run`] as const) {
-      if (out[key] === undefined && before?.[key] !== undefined && before[key] !== null) out[key] = before[key]
+    const prior = before as Record<string, unknown> | undefined
+    for (const key of [`prompt`, `run`, `preset`] as const) {
+      // A Check in tag stays only on the same cron (a new cron is a custom schedule).
+      const keep = key !== `preset` || prior?.cron === out.cron
+      if (keep && out[key] === undefined && prior?.[key] !== undefined && prior[key] !== null) out[key] = prior[key]
       if (out[key] === null || out[key] === undefined) delete out[key]
     }
     return out as unknown as AgentTrigger

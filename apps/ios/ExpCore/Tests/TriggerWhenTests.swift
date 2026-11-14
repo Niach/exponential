@@ -181,6 +181,41 @@ final class TriggerWhenTests: XCTestCase {
         XCTAssertEqual(existing.removing(id: "a").map(\.id), ["b"])
     }
 
+    // #EXP-1846: a kind this build can't read (#EXP-1848's `record`) is
+    // never a row, yet every whole-array write sends it back byte for byte;
+    // a readable trigger keeps its unknown extra keys.
+    func testWritesKeepUnreadableTriggersAndExtraKeys() throws {
+        let record = #"{"enabled":true,"id":"x","kind":"record","op":"insert","record":"orders"}"#
+        let raw = #"[{"id":"ev","kind":"event","name":"issue.created","prompt":"Triage it"},"# + record + "]"
+        let triggers = AgentTrigger.parseList(raw)
+        XCTAssertEqual(triggers.map(\.id), ["ev"])
+        XCTAssertEqual(triggers.first?.extra, ["prompt": .string("Triage it")])
+        let unreadable = AgentTrigger.unreadableList(raw)
+        XCTAssertEqual(unreadable.count, 1)
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        func encoded(_ inputs: [AgentTriggerInput]) throws -> String {
+            try XCTUnwrap(String(data: encoder.encode(inputs), encoding: .utf8))
+        }
+
+        let toggled = try encoded(triggers.settingEnabled(id: "ev", false, keeping: unreadable))
+        XCTAssertEqual(
+            toggled,
+            #"[{"enabled":false,"id":"ev","kind":"event","name":"issue.created","prompt":"Triage it"},"# + record + "]"
+        )
+        XCTAssertTrue(try encoded(triggers.removing(id: "ev", keeping: unreadable)) == "[" + record + "]")
+        XCTAssertTrue(try encoded(triggers.adding(AgentTriggerInput(when: daily), keeping: unreadable)).hasSuffix(record + "]"))
+        let edited = try encoded(triggers.replacing(id: "ev", with: AgentTriggerInput(when: daily), keeping: unreadable))
+        XCTAssertTrue(edited.contains(#""prompt":"Triage it""#))
+        XCTAssertTrue(edited.hasSuffix(record + "]"))
+        let checkIn = try encoded(AgentSettings.withCheckIn(triggers, .hourly, keeping: unreadable))
+        XCTAssertTrue(checkIn.hasSuffix(record + "]"))
+        // The written array reads back as the same rows and kept objects.
+        XCTAssertEqual(AgentTrigger.unreadableList(toggled), unreadable)
+        XCTAssertEqual(AgentTrigger.parseList(toggled).first?.extra, ["prompt": .string("Triage it")])
+    }
+
     func testSummaryReadsTheAgentSettingsSentence() {
         XCTAssertEqual(AgentTrigger(id: "a", when: daily).summary, "Every day at 09:00")
         XCTAssertEqual(AgentTrigger(id: "b", enabled: false, when: created).summary, "When an issue is created · Paused")

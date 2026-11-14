@@ -340,6 +340,8 @@ class AgentSettingsViewModel @Inject constructor(
         onCreated: (String) -> Unit,
         /** The picked login's agent (an account key's `<agent>:` half). */
         cli: String? = null,
+        /** #EXP-1846: the Model row's pick (null = the CLI's default). */
+        model: String? = null,
     ) {
         val team = teamId.value ?: return
         write("create", "the agent") { accountId ->
@@ -355,6 +357,7 @@ class AgentSettingsViewModel @Inject constructor(
                     deviceId = deviceId,
                     cli = cli,
                     account = account,
+                    model = model,
                 ),
             )
             onCreated(created.id)
@@ -393,7 +396,10 @@ class AgentSettingsViewModel @Inject constructor(
 
     fun deleteTrigger(triggerId: String) = writeTriggers { existing -> existing.filter { it.id != triggerId } }
 
-    private fun writeTriggers(onDone: () -> Unit = {}, build: (List<AgentTrigger>) -> List<AgentTrigger>) {
+    /** #EXP-1846: ONE whole-array trigger write ([AgentTriggersSection]):
+     *  [build] maps the current triggers (each kept as stored, its `preset`
+     *  included) to the next array; unreadable ones ride along unchanged. */
+    fun writeTriggers(onDone: () -> Unit = {}, build: (List<AgentTrigger>) -> List<AgentTrigger>) {
         val id = agentId ?: return
         write("update", "the triggers") { accountId ->
             val next = build(triggers.value)

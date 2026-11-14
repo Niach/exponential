@@ -43,7 +43,7 @@ import {
   resolveSessionDeviceInTx,
 } from "@/lib/sessions/send"
 import { AGENT_MCP_ROW, ASSISTANT_COPY, COORDINATOR_COPY, LEAD_COPY } from "@exp/domain-contract/agent-settings"
-import { assertAssistantTriggers, ensureAssistant, syncVoiceMirror } from "@/lib/agents/assistant"
+import { checkedAgentTriggers, ensureAssistant, syncVoiceMirror } from "@/lib/agents/assistant"
 
 // NEW-2: team AGENTS = definition rows (Settings → Agents; owner writes,
 // members read the synced `agents` shape). An agent runs as conversation
@@ -323,7 +323,7 @@ export const agentsRouter = router({
             // #EXP-1383 (chats.json `agentHint`): the text's birth.
             instructionsUpdatedAt: new Date(),
             triggers: (() => {
-              const triggers = withTriggerIds(input.triggers)
+              const triggers = withTriggerIds(checkedAgentTriggers(`agent`, input.triggers))
               assertTriggersFit(triggers, null)
               return triggers
             })(),
@@ -369,13 +369,14 @@ export const agentsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id
       const agent = await loadOwnedAgent(userId, input.id)
-      if (agent.role === `assistant` && input.triggers !== undefined) assertAssistantTriggers(input.triggers)
-      // #EXP-1829: a kept trigger keeps its prompt/run unless the write
-      // names them; app kinds and runs only on an app's agent.
+      // #EXP-1835: the Check in rule (an old Assistant write is tagged).
+      // #EXP-1829: a kept trigger keeps its prompt/run/preset unless the
+      // write names them; kinds the writer does not show are kept; app kinds
+      // and runs only on an app's agent.
       const triggers =
         input.triggers === undefined
           ? undefined
-          : keepUnknownKinds(agent.triggers, mergeTriggerWrite(agent.triggers, input.triggers), input.triggerKinds)
+          : keepUnknownKinds(agent.triggers, mergeTriggerWrite(agent.triggers, checkedAgentTriggers(agent.role, input.triggers)), input.triggerKinds)
       if (triggers && triggers.length > MAX_AGENT_TRIGGERS) {
         throw new TRPCError({ code: `BAD_REQUEST`, message: `an agent holds at most ${MAX_AGENT_TRIGGERS} triggers` })
       }

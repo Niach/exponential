@@ -185,6 +185,12 @@ describe(`automations are the app agent's triggers (#EXP-1829)`, () => {
     expect(fresh!.id).toMatch(/^[0-9a-f-]{36}$/)
   })
 
+  it(`a Check in tag stays only on the same cron (#EXP-1835)`, () => {
+    const stored = [{ id, enabled: true, kind: `schedule`, cron: `0 * * * *`, preset: `1h` }] as never
+    expect(mergeTriggerWrite(stored, [{ id, enabled: false, kind: `schedule`, cron: `0 * * * *` }])[0]).toMatchObject({ preset: `1h`, enabled: false })
+    expect(mergeTriggerWrite(stored, [{ id, enabled: true, kind: `schedule`, cron: `5 * * * *` }])[0]).not.toHaveProperty(`preset`)
+  })
+
   it(`a writer replaces only the kinds it shows`, () => {
     const hook = { id: `22222222-2222-4333-8444-555555555555`, enabled: true, kind: `webhook`, name: `stripe` } as never
     const sched = { id, enabled: true, kind: `schedule`, cron: `0 8 * * *` } as never

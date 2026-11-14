@@ -352,6 +352,77 @@ class AgentSettingsTest {
         }
     }
 
+    // #EXP-1846: the Check in (`checkIn.*Cases`, TS `agent-settings.test.ts`).
+    private val checkIn: JsonObject get() = fixture.getValue("checkIn").jsonObject
+
+    private fun JsonObject.triggers(key: String): List<AgentTrigger> =
+        getValue(key).jsonArray.map { element ->
+            val parsed = parseAgentTrigger(element)
+            assertTrue(element.toString(), parsed != null)
+            parsed!!
+        }
+
+    @Test
+    fun `checkIn checkInCases`() {
+        val cases = checkIn.getValue("checkInCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            assertEquals(case.str("name"), case.str("expected"), AgentSettings.checkInOf(case.triggers("triggers")))
+        }
+    }
+
+    @Test
+    fun `checkIn withCheckInCases`() {
+        val cases = checkIn.getValue("withCheckInCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val actual = AgentSettings.withCheckIn(case.triggers("triggers"), case.str("preset")!!, case.str("tz"))
+            assertEquals(case.str("name"), case.getValue("expected"), JsonArray(actual.map { it.toWireJson() }))
+        }
+    }
+
+    @Test
+    fun `checkIn listedCases`() {
+        val cases = checkIn.getValue("listedCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            assertEquals(
+                case.str("name"),
+                case.getValue("expected").jsonArray.map { it.jsonPrimitive.content },
+                AgentSettings.listedTriggers(case.triggers("triggers")).map { it.id },
+            )
+        }
+    }
+
+    @Test
+    fun `the page sections and copy are the fixture's`() {
+        val page = fixture.getValue("page").jsonObject
+        val sections = page.getValue("sections").jsonArray.map { it.jsonObject }
+        assertEquals(sections.map { it.str("id") }, AgentSettings.PAGE_SECTIONS)
+        assertEquals(
+            sections.first { it.str("id") == AgentSettings.SECTION_RUNS_ON }.getValue("rows").jsonArray.map { it.jsonPrimitive.content },
+            AgentSettings.RUNS_ON_ROWS,
+        )
+        val copy = fixture.getValue("copy").jsonObject
+        assertEquals(copy.str("triggers"), AgentSettings.Copy.TRIGGERS)
+        assertEquals(copy.str("runsOn"), AgentSettings.Copy.RUNS_ON)
+        assertEquals(copy.str("checkIn"), AgentSettings.Copy.CHECK_IN)
+    }
+
+    @Test
+    fun `a check in rides the wire with its preset and every write keeps it`() {
+        val checkIn = AgentTrigger(id = "t-ci", enabled = true, whenPart = TriggerWhen.Schedule("0 * * * *"), preset = "1h")
+        assertEquals(
+            """{"id":"t-ci","enabled":true,"kind":"schedule","cron":"0 * * * *","preset":"1h"}""",
+            checkIn.toWireJson().toString(),
+        )
+        assertEquals(checkIn, parseAgentTrigger(checkIn.toWireJson()))
+        // A toggle (copy) keeps the tag.
+        assertEquals("1h", parseAgentTrigger(checkIn.copy(enabled = false).toWireJson())?.preset)
+        // The Assistant's preset write is tagged too.
+        assertEquals("1h", AgentSettings.Assistant.scheduleTriggers("1h").single().preset)
+    }
+
     @Test
     fun `assistant every preset round-trips`() {
         for (schedule in AgentSettings.Assistant.SCHEDULES) {

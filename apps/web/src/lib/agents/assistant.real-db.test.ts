@@ -10,7 +10,7 @@ import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { and, eq, sql } from "drizzle-orm"
-import { ASSISTANT_COPY } from "@exp/domain-contract/agent-settings"
+import { ASSISTANT, ASSISTANT_COPY } from "@exp/domain-contract/agent-settings"
 import { db } from "@/db/connection"
 import { agents, boards, devices, issues, sessions, teamMembers, teams, userVoiceSettings } from "@/db/schema"
 import { inRollback, probeRealDb, type RealDbTx } from "@/test/real-db"
@@ -155,29 +155,40 @@ describe.skipIf(!ready.ok)(`agents.update / delete on an Assistant (S-3)`, () =>
     expect(agent.name).toBe(`Jarvis`)
   })
 
-  it(`takes exactly one schedule preset, nothing else`, async () => {
+  it(`#EXP-1846: holds a Check in plus any trigger; an old client's preset write is tagged`, async () => {
     const w = await world()
     await w.device(w.mate, `desktop`, 1)
     const assistant = (await ensureAssistant(w.mate, w.teamId))!
+    // Created with the default Check in, tagged.
+    expect(assistant.triggers).toEqual([expect.objectContaining({ preset: ASSISTANT.defaultSchedule })])
     const asMate = agentsRouter.createCaller(person(w.mate) as never)
-    for (const triggers of [
-      [{ kind: `schedule` as const, cron: `*/10 * * * *`, enabled: true }],
-      [{ kind: `event` as const, name: `issue.created`, enabled: true }],
-      [
-        { kind: `schedule` as const, cron: `*/15 * * * *`, enabled: true },
-        { kind: `schedule` as const, cron: `0 * * * *`, enabled: true },
+    const mixed = await asMate.update({
+      id: assistant.id,
+      triggers: [
+        { kind: `schedule`, cron: `*/15 * * * *`, preset: `15m`, enabled: true },
+        { kind: `event`, name: `issue.created`, enabled: true },
+        { kind: `schedule`, cron: `*/10 * * * *`, enabled: true },
       ],
+    } as never)
+    expect(mixed.agent.triggers).toHaveLength(3)
+    // Two Check ins, or one off its preset's cron, are refused.
+    for (const triggers of [
+      [
+        { kind: `schedule` as const, cron: `*/15 * * * *`, preset: `15m` as const, enabled: true },
+        { kind: `schedule` as const, cron: `0 * * * *`, preset: `1h` as const, enabled: true },
+      ],
+      [{ kind: `schedule` as const, cron: `*/10 * * * *`, preset: `1h` as const, enabled: true }],
     ]) {
       await expect(asMate.update({ id: assistant.id, triggers } as never), JSON.stringify(triggers)).rejects.toMatchObject({
         code: `BAD_REQUEST`,
-        message: ASSISTANT_COPY.scheduleRefused,
       })
     }
+    // An old client's Check in: one untagged preset schedule, tagged on save.
     const daily = await asMate.update({
       id: assistant.id,
       triggers: [{ kind: `schedule`, cron: `0 9 * * *`, tz: `Europe/Vienna`, enabled: true }],
     } as never)
-    expect(daily.agent.triggers).toEqual([expect.objectContaining({ cron: `0 9 * * *`, tz: `Europe/Vienna` })])
+    expect(daily.agent.triggers).toEqual([expect.objectContaining({ cron: `0 9 * * *`, tz: `Europe/Vienna`, preset: `daily` })])
     expect((await asMate.update({ id: assistant.id, triggers: [] })).agent.triggers).toEqual([])
   })
 

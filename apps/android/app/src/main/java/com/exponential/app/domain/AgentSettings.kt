@@ -94,7 +94,64 @@ object AgentSettings {
         const val ERROR_INSTRUCTIONS_TOO_LONG = "Instructions are too long"
         /** EXP-1306: the Account row with no login reported (muted). */
         const val ACCOUNT_LAST_USED = "Last used"
+        /** #EXP-1846 (`page`): the agent page's section headers. */
+        const val TRIGGERS = "Triggers"
+        const val RUNS_ON = "Runs on"
+        const val CHECK_IN = "Check in"
     }
+
+    /** #EXP-1846 (agent-settings.json `page.sections`): ONE agent page ×4
+     *  for the Assistant and every team agent, top to bottom. */
+    const val SECTION_IDENTITY = "identity"
+    const val SECTION_RUNS_ON = "runs-on"
+    const val SECTION_TRIGGERS = "triggers"
+    const val SECTION_VOICE = "voice"
+    const val SECTION_INSTRUCTIONS = "instructions"
+    const val SECTION_DELETE = "delete"
+    val PAGE_SECTIONS = listOf(
+        SECTION_IDENTITY, SECTION_RUNS_ON, SECTION_TRIGGERS, SECTION_VOICE, SECTION_INSTRUCTIONS, SECTION_DELETE,
+    )
+    /** The Runs on rows, in order. */
+    val RUNS_ON_ROWS = listOf("device", "account", "model", "skills", McpRow.ID)
+
+    // #EXP-1846 (agent-settings.json `checkIn`): THE Check in = the ONE
+    // schedule trigger carrying `preset`, any agent's; the mirror of TS
+    // `checkInOf`, `withCheckIn`, `listedTriggers` (replayed by
+    // `AgentSettingsTest`).
+
+    private fun presetCron(id: String?): String? = Assistant.SCHEDULES.firstOrNull { it.id == id }?.cron
+
+    private fun isCheckIn(trigger: AgentTrigger): Boolean =
+        trigger.whenPart is TriggerWhen.Schedule && !trigger.preset.isNullOrEmpty()
+
+    /** The Check in row's value (`checkInCases`): the preset trigger's id,
+     *  `off` when there is none or it is paused. */
+    fun checkInOf(triggers: List<AgentTrigger>): String {
+        val trigger = triggers.firstOrNull(::isCheckIn) ?: return "off"
+        if (!trigger.enabled || presetCron(trigger.preset) == null) return "off"
+        return trigger.preset!!
+    }
+
+    /** The triggers after a Check in pick (`withCheckInCases`): the preset
+     *  trigger replaced IN FRONT (keeping its id and stored zone; a new one
+     *  takes [tz]) or removed for `off`; the others unchanged, in order. */
+    fun withCheckIn(triggers: List<AgentTrigger>, id: String, tz: String?): List<AgentTrigger> {
+        val current = triggers.firstOrNull(::isCheckIn)
+        val rest = if (current == null) triggers else triggers.filter { it !== current }
+        val cron = presetCron(id) ?: return rest
+        val zone = if (current != null) (current.whenPart as TriggerWhen.Schedule).tz else tz
+        val next = AgentTrigger(
+            id = current?.id,
+            enabled = true,
+            whenPart = TriggerWhen.Schedule(cron, zone?.takeIf { it.isNotEmpty() }),
+            preset = id,
+        )
+        return listOf(next) + rest
+    }
+
+    /** The rows under Check in (`listedCases`): every trigger without `preset`. */
+    fun listedTriggers(triggers: List<AgentTrigger>): List<AgentTrigger> =
+        triggers.filter { it.preset.isNullOrEmpty() }
 
     const val TEST_ID_LIST = "agents-settings-list"
     const val TEST_ID_PAGE = "agent-settings-page"
@@ -408,10 +465,13 @@ object AgentSettings {
             },
         )
 
-        /** The triggers a preset saves as (`off` = none). */
+        /** The triggers a preset saves as (`off` = none), tagged as the
+         *  Check in (#EXP-1846). */
         fun scheduleTriggers(id: String, tz: String? = null): List<AgentTrigger> {
             val cron = SCHEDULES.firstOrNull { it.id == id }?.cron ?: return emptyList()
-            return listOf(AgentTrigger(id = null, enabled = true, whenPart = TriggerWhen.Schedule(cron, tz?.takeIf { it.isNotEmpty() })))
+            return listOf(
+                AgentTrigger(id = null, enabled = true, whenPart = TriggerWhen.Schedule(cron, tz?.takeIf { it.isNotEmpty() }), preset = id),
+            )
         }
 
         fun isAssistant(role: String?): Boolean = role == ROLE

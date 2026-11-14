@@ -848,7 +848,14 @@ export interface ScheduleTriggerWhen {
   cron: string
   /** IANA zone the cron reads in; absent = UTC. */
   tz?: string
+  /** #EXP-1846: this schedule is the agent's Check in (agent-settings.json
+   *  `checkIn`; the cron is that preset's). */
+  preset?: AgentCheckInPreset
 }
+
+/** agent-settings.json `assistant.schedules` ids minus `off`. */
+export const AGENT_CHECK_IN_PRESETS = [`15m`, `30m`, `1h`, `daily`] as const
+export type AgentCheckInPreset = (typeof AGENT_CHECK_IN_PRESETS)[number]
 
 export interface EventTriggerWhen {
   kind: `event`
@@ -899,6 +906,7 @@ export const agentTriggerSchema = z.discriminatedUnion(`kind`, [
     kind: z.literal(`schedule`),
     cron: cronSchema,
     tz: timeZoneSchema.optional(),
+    preset: z.enum(AGENT_CHECK_IN_PRESETS).optional(),
   }),
   z.strictObject({
     ...triggerDoShape,
@@ -922,7 +930,12 @@ export const agentTriggersSchema = z.array(agentTriggerSchema).max(MAX_AGENT_TRI
 /** The when-part of a stored trigger (no id, no enabled, no prompt/run). */
 export function triggerWhenPart(trigger: AgentTrigger): TriggerWhen {
   if (trigger.kind === `schedule`) {
-    return { kind: `schedule`, cron: trigger.cron, ...(trigger.tz ? { tz: trigger.tz } : {}) }
+    return {
+      kind: `schedule`,
+      cron: trigger.cron,
+      ...(trigger.tz ? { tz: trigger.tz } : {}),
+      ...(trigger.preset ? { preset: trigger.preset } : {}),
+    }
   }
   if (trigger.kind === `record`) return { kind: `record`, record: trigger.record, op: trigger.op }
   if (trigger.kind === `webhook`) return { kind: `webhook`, name: trigger.name }
