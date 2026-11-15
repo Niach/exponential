@@ -52,8 +52,9 @@ public enum MessageBubbleSide: Equatable, Sendable {
 
 /// #EXP-1736 (transcript-grouping.json): THE message bubble ×4, every chat
 /// a group chat (web packages/ui `MessageBubble`). The glass card bubble
-/// (16pt radius, THE opaque card under its hairline on both sides, #EXP-1864)
-/// hugging its text: `own` = the viewer's (right, no name; #FEED-239: no left inset,
+/// (16pt radius, #EXP-1864: THE opaque card, the own one `glass.fillOwn`,
+/// both under the card hairline) hugging its text: `own` = the viewer's
+/// (right, no name; #FEED-239: no left inset,
 /// at most `layout.maxWidth.own` of its column, the viewer's avatar is
 /// `TranscriptRow`'s); `other` = anyone else's
 /// (left), its sender's NAME on the group's first bubble
@@ -117,8 +118,9 @@ public struct MessageBubble<Content: View, Footer: View>: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        // #EXP-1864 ONE BUBBLE COLOUR: own and in = THE opaque card + its hairline.
-        .background(GlassTokens.opaqueCardFill, in: shape)
+        // #EXP-1864: in = THE opaque card, own = `glass.fillOwn`; both
+        // under the card hairline.
+        .background(own ? GlassTokens.fillOwn : GlassTokens.opaqueCardFill, in: shape)
         .overlay(shape.stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline))
         BubbleWidthCap(fraction: own ? TranscriptGrouping.Layout.maxWidthOwn : TranscriptGrouping.Layout.maxWidthPhoneIn, trailing: own) {
             if let onPress, !own {

@@ -2463,7 +2463,7 @@ pub fn group_feed_row_specs_into(
         // single visible row it always was, ≥2 consecutive calls to the SAME
         // contract row are ONE captioned run (`exp_tool_group`, ×4).
         if let Some(row) = item.exp_tool_row(workflow_ids) {
-            let end = crate::exp_tool_group::exp_tool_run_end(i, items.len(), |ix| {
+            let end = crate::exp_tool_group::exp_tool_run_end(i, items.len(), item.tool_name(), |ix| {
                 items[ix].subagent_id().is_none()
                     && items[ix].exp_tool_row(workflow_ids) == Some(row)
             });
