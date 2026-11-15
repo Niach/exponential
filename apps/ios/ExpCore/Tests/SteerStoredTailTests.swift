@@ -60,6 +60,19 @@ final class SteerStoredTailTests: XCTestCase {
         XCTAssertEqual(SteerStoredTail.open(plain, keyed: false, keys: [:], crypto: FakeCrypto()), frames(3))
     }
 
+    /// #EXP-1853: a Swift Dictionary seeds its order per instance (its
+    /// storage address), so the same frames must still encode to one text
+    /// however many dictionaries are alive around them.
+    func testTheEncodingIsCanonical() {
+        var alive: [[String: Any]] = []
+        let texts = Set((0..<500).map { i -> String in
+            alive.append(["v": i, "frames": frames(i % 3)])
+            return SteerStoredTail.encode(frames(2))
+        })
+        XCTAssertEqual(texts, [#"{"frames":["{\"t\":\"activity\",\"seq\":0,\"event\":{\"kind\":\"narration\",\"text\":\"row 0\"}}","{\"t\":\"activity\",\"seq\":1,\"event\":{\"kind\":\"narration\",\"text\":\"row 1\"}}"],"v":1}"#])
+        XCTAssertEqual(alive.count, 500)
+    }
+
     func testTheStoreWritesReadsAndForgetsAnAccount() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("tails-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: dir) }
