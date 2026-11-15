@@ -108,6 +108,12 @@ gpui_wgpu = { workspace = true }
 name = "text_clusters_macos"
 harness = false
 
+# VAPP-166: a variable font's weights on gpui's CoreText text system (the
+# Mac platform on the main thread, as above).
+[[test]]
+name = "variable_font_macos"
+harness = false
+
 [[example]]
 name = "conformance_dump"
 path = "examples/conformance_dump.rs"
