@@ -1,4 +1,4 @@
-# Vendored gpui-pre-wgpu (Exponential patch, #EDE-65)
+# Vendored gpui-pre-wgpu (Exponential patches, #EDE-65, #VAPP-166)
 
 Source: the `gpui-pre-wgpu` crate 0.3.11 as published on crates.io, a
 snapshot of the `gpui_wgpu` crate (`crates/gpui_wgpu`) of
@@ -14,7 +14,7 @@ re-apply the change below, or drop the patch once upstream carries it.
 ## Changes (Apache-2.0 section 4(b))
 
 All in `src/cosmic_text_system.rs` (the Linux/FreeBSD text system), each
-marked `Exponential patch (#EDE-65)`:
+marked `Exponential patch (#EDE-65)` or `(#VAPP-166)`:
 
 - Shaping prefers the colour emoji face for a grapheme cluster with emoji
   presentation (an `Emoji_Presentation` base or U+FE0F, never U+FE0E):
@@ -25,6 +25,19 @@ marked `Exponential patch (#EDE-65)`:
   when the run has no fallback chain. Upstream, cosmic-text's per-character
   fallback took any monochrome face covering the codepoint first (Noto Sans
   Symbols2's 👍 🏳 👁, DejaVu Sans's ✔ ❤).
+
+- #VAPP-166, marked `Exponential patch (#VAPP-166)`: a variable face lays
+  out and paints at the weight asked for. `font_id` turns the best match
+  into its instance at the CSS weight (clamped to the `wght` axis; the
+  axis default stays the loaded face): `variable_instance` loads it through
+  cosmic-text's `get_font(id, weight)` (the shaper at that location) under
+  its own `FontId`, with the normalized `wght` coordinates the metrics,
+  advances and the swash rasteriser use; `font_match_properties` and
+  `font_weight_and_style` report the instance's weight, and a fallback face
+  resolved during layout is taken at the weight the run shaped with.
+  Upstream, every request got the face's default instance (Google Fonts'
+  `Nunito[wght]` painted everything at wght 200).
+  `apps/desktop/crates/eui-gpui/tests/variable_fonts.rs` covers it.
 
 The earlier fix to `load_family` (it removed a known colour emoji face
 lacking an `m` glyph from the font database) is upstream since zed #65269:

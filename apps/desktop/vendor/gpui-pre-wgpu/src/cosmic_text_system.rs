@@ -62,6 +62,9 @@ struct CosmicTextSystemState {
     /// Exponential patch (#EDE-65): the colour emoji face clusters with emoji
     /// presentation shape in, looked up once (`None` until then).
     emoji_face: Option<Option<(FontId, SharedString)>>,
+    /// Exponential patch (#VAPP-166): a variable face's instance at a weight
+    /// (base `FontId`, CSS weight → the instance's `FontId`).
+    variable_instances: HashMap<(FontId, u16), FontId>,
 }
 
 struct LoadedFont {
@@ -71,6 +74,11 @@ struct LoadedFont {
     /// resolved at load time so `layout_line` shares one chain across faces.
     /// `Arc` keeps clone cheap on the per-run hot path.
     user_fallback_chain: Arc<[(FontId, SharedString)]>,
+    /// Exponential patch (#VAPP-166): a variable face's instance weight
+    /// (`None` = the face as loaded, its default instance) and its
+    /// normalized `wght` coordinates for metrics and rasterisation.
+    weight: Option<Weight>,
+    coords: Arc<[i16]>,
 }
 
 struct FontMatchProperties {
@@ -115,7 +123,8 @@ impl CosmicTextSystem {
             cosmic_text::Style::Italic => gpui::FontStyle::Italic,
             cosmic_text::Style::Oblique => gpui::FontStyle::Oblique,
         };
-        Ok((gpui::FontWeight(face.weight.0 as f32), style))
+        let weight = font.weight.unwrap_or(face.weight);
+        Ok((gpui::FontWeight(weight.0 as f32), style))
     }
 
     /// Builds reports for unresolved source indices after an outer text system
@@ -145,6 +154,7 @@ impl CosmicTextSystem {
             system_font_fallback: system_font_fallback.to_string(),
             missing_glyph_sink: None,
             emoji_face: None,
+            variable_instances: HashMap::default(),
         }))
     }
 
@@ -165,6 +175,7 @@ impl CosmicTextSystem {
             system_font_fallback: system_font_fallback.to_string(),
             missing_glyph_sink: None,
             emoji_face: None,
+            variable_instances: HashMap::default(),
         }))
     }
 }
@@ -209,8 +220,11 @@ impl PlatformTextSystem for CosmicTextSystem {
         };
 
         let ix = find_best_match(font, candidates, &state)?;
+        let base = candidates[ix];
 
-        Ok(candidates[ix])
+        // Exponential patch (#VAPP-166): a variable face answers every weight
+        // on its `wght` axis with that instance, not its default one.
+        Ok(state.variable_instance(base, font.weight.0))
     }
 
     fn prewarm_fonts(&self, font_ids: &[FontId]) {
@@ -218,13 +232,9 @@ impl PlatformTextSystem for CosmicTextSystem {
     }
 
     fn font_metrics(&self, font_id: FontId) -> FontMetrics {
-        let metrics = self
-            .0
-            .read()
-            .loaded_font(font_id)
-            .font
-            .as_swash()
-            .metrics(&[]);
+        let lock = self.0.read();
+        let loaded = lock.loaded_font(font_id);
+        let metrics = loaded.font.as_swash().metrics(&loaded.coords);
 
         FontMetrics {
             units_per_em: metrics.units_per_em as u32,
@@ -244,7 +254,8 @@ impl PlatformTextSystem for CosmicTextSystem {
 
     fn typographic_bounds(&self, font_id: FontId, glyph_id: GlyphId) -> Result<Bounds<f32>> {
         let lock = self.0.read();
-        let glyph_metrics = lock.loaded_font(font_id).font.as_swash().glyph_metrics(&[]);
+        let loaded = lock.loaded_font(font_id);
+        let glyph_metrics = loaded.font.as_swash().glyph_metrics(&loaded.coords);
         let glyph_id = glyph_id.0 as u16;
         Ok(Bounds {
             origin: point(0.0, 0.0),
@@ -308,7 +319,7 @@ impl CosmicTextSystemState {
             primary_family_name: first_family.0.clone().into(),
             stretch: face.stretch,
             style: face.style,
-            weight: face.weight,
+            weight: loaded_font.weight.unwrap_or(face.weight),
             features: loaded_font.features.clone(),
             fallback_chain: Arc::clone(&loaded_font.user_fallback_chain),
         })
@@ -448,6 +459,8 @@ impl CosmicTextSystemState {
                 features: cosmic_features.clone(),
                 is_known_emoji_font: check_is_known_emoji_font(&postscript_name),
                 user_fallback_chain: Arc::clone(&user_fallback_chain),
+                weight: None,
+                coords: Arc::from(Vec::new()),
             });
             self.loaded_font_ids_by_key.insert(key, font_id);
         }
@@ -456,7 +469,8 @@ impl CosmicTextSystemState {
     }
 
     fn advance(&self, font_id: FontId, glyph_id: GlyphId) -> Result<Size<f32>> {
-        let glyph_metrics = self.loaded_font(font_id).font.as_swash().glyph_metrics(&[]);
+        let loaded = self.loaded_font(font_id);
+        let glyph_metrics = loaded.font.as_swash().glyph_metrics(&loaded.coords);
         Ok(Size {
             width: glyph_metrics.advance_width(glyph_id.0 as u16),
             height: glyph_metrics.advance_height(glyph_id.0 as u16),
@@ -537,6 +551,8 @@ impl CosmicTextSystemState {
             .builder(font_ref)
             .size(pixel_size * params.scale_factor)
             .hint(true)
+            // Exponential patch (#VAPP-166): a variable instance's outlines.
+            .normalized_coords(loaded_font.coords.iter())
             .build();
 
         let sources: &[Source] = if params.is_emoji {
@@ -563,6 +579,57 @@ impl CosmicTextSystemState {
         renderer
             .render(&mut scaler, glyph_id)
             .with_context(|| format!("unable to render glyph via swash for {params:?}"))
+    }
+
+    /// Exponential patch (#VAPP-166): `base` at CSS `weight`. A face with a
+    /// `wght` axis gets the instance at the weight clamped to the axis (its
+    /// own `FontId`, cached), the way a browser drives a variable font;
+    /// any other face, or the axis default, stays `base`.
+    fn variable_instance(&mut self, base: FontId, weight: f32) -> FontId {
+        let loaded = &self.loaded_fonts[base.0];
+        if loaded.weight.is_some() {
+            return base;
+        }
+        let font_ref = loaded.font.as_swash();
+        let Some(axis) = font_ref
+            .variations()
+            .find_by_tag(swash::tag_from_bytes(b"wght"))
+        else {
+            return base;
+        };
+        let w = weight.clamp(axis.min_value(), axis.max_value()).round();
+        if (w - axis.default_value()).abs() < 0.5 {
+            return base;
+        }
+        let key = (base, w as u16);
+        if let Some(&id) = self.variable_instances.get(&key) {
+            return id;
+        }
+        let coords: Arc<[i16]> = font_ref
+            .variations()
+            .normalized_coords([(swash::tag_from_bytes(b"wght"), w)])
+            .collect::<Vec<_>>()
+            .into();
+        let (db_id, features, emoji, chain) = (
+            loaded.font.id(),
+            loaded.features.clone(),
+            loaded.is_known_emoji_font,
+            Arc::clone(&loaded.user_fallback_chain),
+        );
+        let Some(font) = self.font_system.get_font(db_id, Weight(w as u16)) else {
+            return base;
+        };
+        let id = FontId(self.loaded_fonts.len());
+        self.loaded_fonts.push(LoadedFont {
+            font,
+            features,
+            is_known_emoji_font: emoji,
+            user_fallback_chain: chain,
+            weight: Some(Weight(w as u16)),
+            coords,
+        });
+        self.variable_instances.insert(key, id);
+        id
     }
 
     /// Exponential patch (#EDE-65): the first known colour emoji face in the
@@ -597,7 +664,7 @@ impl CosmicTextSystemState {
         if let Some(ix) = self
             .loaded_fonts
             .iter()
-            .position(|loaded_font| loaded_font.font.id() == id)
+            .position(|loaded_font| loaded_font.font.id() == id && loaded_font.weight.is_none())
         {
             Ok(FontId(ix))
         } else {
@@ -617,6 +684,8 @@ impl CosmicTextSystemState {
                 features: CosmicFontFeatures::new(),
                 is_known_emoji_font: check_is_known_emoji_font(&face.post_script_name),
                 user_fallback_chain: Arc::from(Vec::new()),
+                weight: None,
+                coords: Arc::from(Vec::new()),
             });
 
             Ok(font_id)
@@ -843,7 +912,8 @@ impl CosmicTextSystemState {
             if loaded_font.font.id() != glyph.font_id {
                 match self.font_id_for_cosmic_id(glyph.font_id) {
                     std::result::Result::Ok(resolved_id) => {
-                        font_id = resolved_id;
+                        // Exponential patch (#VAPP-166): at the weight shaped with.
+                        font_id = self.variable_instance(resolved_id, glyph.font_weight.0 as f32);
                         loaded_font = self.loaded_font(font_id);
                     }
                     Err(error) => {
