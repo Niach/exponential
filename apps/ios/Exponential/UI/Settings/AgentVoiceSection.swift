@@ -242,11 +242,11 @@ struct AgentVoiceSection: View {
                 placeholder(input),
                 text: text(input),
                 bordered: false,
-                accessibilityIdentifier: input == .transcript ? "agent-voice-transcript" : "agent-voice-wake-phrase"
+                accessibilityIdentifier: input == .transcript ? "agent-voice-transcript" : "agent-voice-wake-phrase",
+                // The value colour of every trailing field (web `text-foreground/70`).
+                foreground: .white.opacity(canEdit ? TextOpacity.secondary : TextOpacity.quaternary)
             )
             .multilineTextAlignment(.trailing)
-            // The value colour of every trailing field (web `text-foreground/70`).
-            .foregroundStyle(.white.opacity(canEdit ? TextOpacity.secondary : TextOpacity.quaternary))
             .autocorrectionDisabled()
             .submitLabel(.done)
             .focused($focused, equals: input)
