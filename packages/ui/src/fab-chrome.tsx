@@ -31,8 +31,8 @@ export const FAB_CIRCLE_CLASS = `pointer-events-auto flex size-[52px] shrink-0 i
 
 // #EXP-1860 — the Assistant FAB's corner, reserved once (styles.css
 // `main:has(> [data-assistant-fab])`): a page's scroll content wears
-// `FAB_CLEARANCE_CLASS` (an 84px spacer after its last row while the FAB
-// shows), THE Dock band `FAB_LANE_CLASS` (its right edge 84px in). Without a
+// `FAB_CLEARANCE_CLASS` (a 92px spacer after its last row while the FAB
+// shows), THE Dock band `FAB_LANE_CLASS` (its right edge 92px in). Without a
 // FAB both are no-ops.
 export const FAB_CLEARANCE_CLASS = `fab-clearance`
 export const FAB_LANE_CLASS = `fab-lane`
