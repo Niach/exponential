@@ -360,6 +360,10 @@ pub struct AppsTestIds {
     pub webhooks: String,
     pub webhook_row: String,
     pub webhook_secret: String,
+    /// #EXP-1850: the Events tab, its Recent runs group and one run row.
+    pub events_tab: String,
+    pub recent_runs: String,
+    pub run_row: String,
     /// #VAPP-243: the Record access group and one row.
     pub policies: String,
     pub policy_row: String,
@@ -1282,6 +1286,105 @@ pub fn with_uploaded_url(list: Option<&serde_json::Value>, file_name: &str, url:
     hit.then_some(next)
 }
 
+/// #EXP-1850 (apps.json `eventsTab`): the Events tab's copy, limits and
+/// badges.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EventsTabCopy {
+    pub recent_runs: String,
+    pub no_runs: String,
+    pub removed_trigger: String,
+    /// The badge words by [`EventBadge::as_str`].
+    pub badges: std::collections::BTreeMap<String, String>,
+    /// A run's detail by its error code.
+    pub errors: std::collections::BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EventsTabSpec {
+    pub limit: u32,
+    pub days: u32,
+    pub paused_errors: Vec<String>,
+    pub copy: EventsTabCopy,
+}
+
+/// `apps.json` `eventsTab`.
+pub static APPS_EVENTS_TAB: LazyLock<EventsTabSpec> = LazyLock::new(|| {
+    let fixture: serde_json::Value = serde_json::from_str(APPS_JSON).expect("apps.json parses");
+    serde_json::from_value(fixture["eventsTab"].clone()).expect("apps.json eventsTab parses")
+});
+
+/// A Recent runs row's small status Pill (`copy.badges`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EventBadge {
+    Ran,
+    Woke,
+    Failed,
+    Dropped,
+    Paused,
+    Refused,
+}
+
+impl EventBadge {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EventBadge::Ran => "ran",
+            EventBadge::Woke => "woke",
+            EventBadge::Failed => "failed",
+            EventBadge::Dropped => "dropped",
+            EventBadge::Paused => "paused",
+            EventBadge::Refused => "refused",
+        }
+    }
+
+    /// The Pill's word.
+    pub fn label(self) -> String {
+        APPS_EVENTS_TAB.copy.badges.get(self.as_str()).cloned().unwrap_or_else(|| self.as_str().to_string())
+    }
+}
+
+/// One Recent runs row (TS `eventRunRow`'s value).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EventRunRow {
+    pub title: String,
+    pub badge: EventBadge,
+    pub detail: Option<String>,
+}
+
+/// #EXP-1850 (TS `eventRunRow`, `runCases`): an audit row of the app's
+/// triggers (`apps.events` `runs`: `trigger_id`, `status`, `error`, `tool`)
+/// against the agent's `triggers`: the title = the trigger's summary
+/// without its paused suffix (`copy.removedTrigger` when gone); the badge;
+/// the detail = the error's words (else its code), `None` without one.
+pub fn event_run_row(
+    trigger_id: Option<&str>,
+    status: &str,
+    error: Option<&str>,
+    tool: &str,
+    triggers: &[serde_json::Value],
+) -> EventRunRow {
+    let tab = &*APPS_EVENTS_TAB;
+    let trigger = trigger_id.and_then(|id| triggers.iter().find(|t| t.get("id").and_then(serde_json::Value::as_str) == Some(id)));
+    let title = match trigger {
+        Some(trigger) => {
+            let mut on = trigger.clone();
+            on["enabled"] = serde_json::Value::Bool(true);
+            crate::agent_settings::trigger_summary(&on)
+        }
+        None => tab.copy.removed_trigger.clone(),
+    };
+    let badge = match error {
+        Some("rateLimited") => EventBadge::Dropped,
+        Some(code) if tab.paused_errors.iter().any(|e| e == code) => EventBadge::Paused,
+        Some(_) if status == "denied" => EventBadge::Refused,
+        _ if status == "ok" => if tool.starts_with("agent:") { EventBadge::Woke } else { EventBadge::Ran },
+        _ => EventBadge::Failed,
+    };
+    let detail = error.map(|code| tab.copy.errors.get(code).cloned().unwrap_or_else(|| code.to_string()));
+    EventRunRow { title, badge, detail }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1290,6 +1393,25 @@ mod tests {
     fn cases(key: &str) -> Vec<Value> {
         let fixture: Value = serde_json::from_str(APPS_JSON).unwrap();
         fixture[key].as_array().unwrap().clone()
+    }
+
+    #[test]
+    fn event_run_rows_match_the_fixture() {
+        let fixture: Value = serde_json::from_str(APPS_JSON).unwrap();
+        let cases = fixture["eventsTab"]["runCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let run = &case["run"];
+            let triggers = case["triggers"].as_array().unwrap();
+            let row = event_run_row(run["triggerId"].as_str(), run["status"].as_str().unwrap(), run["error"].as_str(), run["tool"].as_str().unwrap(), triggers);
+            let expected = &case["expected"];
+            let name = case["name"].as_str().unwrap();
+            assert_eq!(row.title, expected["title"].as_str().unwrap(), "{name}");
+            assert_eq!(row.badge.as_str(), expected["badge"].as_str().unwrap(), "{name}");
+            assert_eq!(row.detail.as_deref(), expected["detail"].as_str(), "{name}");
+        }
+        assert_eq!(EventBadge::Woke.label(), "Woke agent");
+        assert_eq!(APPS_EVENTS_TAB.limit, 50);
     }
 
     #[test]

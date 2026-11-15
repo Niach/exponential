@@ -4211,7 +4211,7 @@ impl SessionChatScreenView {
         crate::scroll_pane::v_scroll_pane(
             "session-settings-scroll",
             &self.settings_scroll,
-            div().w_full().px_6().py_4().child(pane),
+            div().w_full().px_6().py_4().child(pane).child(crate::assistant_fab::page_end(window, cx)),
         )
         .into_any_element()
     }

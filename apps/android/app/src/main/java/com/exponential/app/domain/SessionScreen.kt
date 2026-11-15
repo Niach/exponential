@@ -23,6 +23,7 @@ object SessionScreen {
             "results" to "Results",
             "preview" to "Preview",
             "data" to "Data",
+            "events" to "Events",
             "versions" to "Versions",
         )
         const val SETTINGS = "Settings"
@@ -100,6 +101,8 @@ object SessionScreen {
         Results("results"),
         Preview("preview"),
         Data("data"),
+        // #EXP-1850: an app's agent triggers + recent runs.
+        Events("events"),
         Versions("versions"),
         ;
 
@@ -134,7 +137,7 @@ object SessionScreen {
         // #FEED-239: an app has no Sessions or Results tab; on wide its chat
         // is the pinned left pane, so the strip has no Chat segment.
         Kind.App to KindSpec(
-            listOf(Tab.Chat, Tab.Preview, Tab.Data, Tab.Versions),
+            listOf(Tab.Chat, Tab.Preview, Tab.Data, Tab.Events, Tab.Versions),
             settings = true,
             wideChatTab = false,
             wideDefault = Tab.Preview,

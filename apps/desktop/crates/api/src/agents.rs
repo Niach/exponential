@@ -158,6 +158,10 @@ pub struct UpdateInput {
     pub instructions: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub triggers: Option<Vec<serde_json::Value>>,
+    /// #EXP-1850: the trigger kinds `triggers` stands for (the server keeps
+    /// stored triggers of every other kind).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trigger_kinds: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub device_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -179,6 +183,16 @@ pub struct UpdateInput {
 impl UpdateInput {
     pub fn new(id: impl Into<String>) -> Self {
         Self { id: id.into(), ..Self::default() }
+    }
+
+    /// #EXP-1850 (agent-settings.json): a whole-array triggers write naming
+    /// every kind this client lists.
+    pub fn triggers(id: impl Into<String>, triggers: Vec<serde_json::Value>) -> Self {
+        Self {
+            triggers: Some(triggers),
+            trigger_kinds: Some(domain::contract::AGENT_TRIGGER_KIND_VALUES.iter().map(|kind| kind.to_string()).collect()),
+            ..Self::new(id)
+        }
     }
 }
 
@@ -315,6 +329,13 @@ mod tests {
         let text = request(&captured);
         assert!(text.starts_with("POST /api/trpc/agents.update HTTP/1.1"), "{text}");
         assert!(text.ends_with(r#"{"id":"ag-1","name":"Docs","account":null,"model":"opus"}"#), "{text}");
+
+        // #EXP-1850: a triggers write names every kind.
+        let (base, captured) =
+            one_shot_server(200, r#"{"result":{"data":{"agent":{"id":"ag-1","teamId":"t-1","name":"Docs"},"txid":2}}}"#);
+        update(&client(&base), &UpdateInput::triggers("ag-1", vec![])).unwrap();
+        let text = request(&captured);
+        assert!(text.ends_with(r#"{"id":"ag-1","triggers":[],"triggerKinds":["schedule","event","record","webhook"]}"#), "{text}");
 
         let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txid":3}}}"#);
         assert_eq!(delete(&client(&base), "ag-1").unwrap().tx_id, Some(3));

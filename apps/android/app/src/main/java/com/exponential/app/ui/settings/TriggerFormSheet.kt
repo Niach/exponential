@@ -76,12 +76,10 @@ fun TriggerFormSheet(
             loading = busy,
             onClick = submit@{
                 val picked = whenPart ?: return@submit
+                // #EXP-1850: an edit keeps every other stored key (prompt, run).
                 onSubmit(
-                    AgentTrigger(
-                        id = editing?.id,
-                        enabled = editing?.enabled ?: true,
-                        whenPart = picked,
-                    ),
+                    editing?.copy(whenPart = picked, preset = null)
+                        ?: AgentTrigger(id = null, enabled = true, whenPart = picked),
                 )
             },
         ),
@@ -117,5 +115,5 @@ fun TriggerFormSheet(
 /** The glyph of a trigger kind (the agent Triggers rows). */
 internal fun triggerGlyph(whenPart: TriggerWhen): ImageVector = when (whenPart) {
     is TriggerWhen.Schedule -> ExpIcons.triggerSchedule
-    is TriggerWhen.Event -> ExpIcons.triggerEvent
+    is TriggerWhen.Event, is TriggerWhen.Record, is TriggerWhen.Webhook -> ExpIcons.triggerEvent
 }

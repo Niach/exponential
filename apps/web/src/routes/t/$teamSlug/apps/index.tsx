@@ -4,7 +4,7 @@ import { APPS_COPY } from "@exp/domain-contract/apps"
 import { CHATS_COPY } from "@exp/domain-contract/chats"
 import { SkeletonRows, useIsMobile } from "@exp/ui"
 import { AppsList } from "@/components/apps/apps-list"
-import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
+import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { MobilePageHeader } from "@/components/team/mobile-page-header"
 import { useApps } from "@/hooks/use-apps"
 import { useSession } from "@/hooks/use-session"
@@ -58,7 +58,7 @@ function AppsPage() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className={`mx-auto w-full max-w-3xl px-4 py-4 md:max-w-5xl ${TAB_BAR_CLEARANCE}`}>
+      <div className={`mx-auto w-full max-w-3xl px-4 py-4 md:max-w-5xl ${PAGE_END_CLEARANCE}`}>
         {header}
         <AppsList
           teamId={team.id}

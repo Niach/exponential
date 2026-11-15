@@ -1,7 +1,7 @@
 import { createFileRoute, redirect, useNavigate, useRouter } from "@tanstack/react-router"
 import { NEEDS_YOU_COPY } from "@exp/domain-contract/needs-you"
 import { CHATS_COPY } from "@exp/domain-contract/chats"
-import { Button, conceptIcon, NeedsYouList, SkeletonRows, useIsMobile } from "@exp/ui"
+import { FAB_CLEARANCE_CLASS, Button, conceptIcon, NeedsYouList, SkeletonRows, useIsMobile } from "@exp/ui"
 import { MobilePageHeader } from "@/components/team/mobile-page-header"
 import { NeedsYouStuckActions, useNeedsYouPress } from "@/components/needs-you-stuck-actions"
 import { useNeedsYou, useOpenNeedsYou } from "@/hooks/use-needs-you"
@@ -49,7 +49,7 @@ function NeedsYouPage() {
       <div
         className={`mx-auto flex w-full max-w-3xl flex-col gap-3 px-4 ${
           isMobile ? `pt-[max(1rem,env(safe-area-inset-top))] pb-6` : `py-4`
-        }`}
+        } ${FAB_CLEARANCE_CLASS}`}
       >
         {isMobile && (
           <MobilePageHeader

@@ -4,7 +4,7 @@ import { ciDefaultJob } from "@exp/domain-contract/ci-run"
 import { conceptIcon, EmptyState, SkeletonRows } from "@exp/ui"
 import { LINK_NO_ACCESS } from "@/lib/app-link"
 import { CiRunView, useRunClock } from "@/components/ci/ci-run-page"
-import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
+import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { useCiLog, useCiRun } from "@/hooks/use-ci-run"
 import { failedAction } from "@/lib/action-error"
 import { pageTitle } from "@/lib/page-title"
@@ -64,7 +64,7 @@ function CiRunRoute() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className={`mx-auto w-full max-w-3xl px-4 py-4 md:max-w-6xl md:py-6 ${TAB_BAR_CLEARANCE}`}>
+      <div className={`mx-auto w-full max-w-3xl px-4 py-4 md:max-w-6xl md:py-6 ${PAGE_END_CLEARANCE}`}>
         {model ? (
           <CiRunView
             model={model}

@@ -51,6 +51,8 @@ class AgentSettingsTest {
                 cron = trigger.str("cron"),
                 tz = trigger.str("tz"),
                 name = trigger.str("name"),
+                record = trigger.str("record"),
+                op = trigger.str("op"),
             )
             assertEquals(case.str("expected"), AgentSettings.triggerSummary(like))
             // The same text off the PARSED stored trigger (the Triggers rows).
@@ -572,5 +574,59 @@ class AgentSettingsTest {
                 options.map { it?.str("userId") ?: AgentSettings.Lead.NONE },
             )
         }
+    }
+
+    // #EXP-1850 (`detailCases`): a `run` trigger's second line, off the case
+    // and off the PARSED stored trigger.
+    @Test
+    fun `every detail case matches the fixture`() {
+        val cases = fixture.getValue("detailCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val trigger = case.getValue("trigger").jsonObject
+            val parsed = parseAgentTrigger(trigger)
+            assertTrue(trigger.toString(), parsed != null)
+            assertEquals(trigger.toString(), case.str("expected"), AgentSettings.triggerDetail(parsed!!))
+        }
+        val copy = fixture.getValue("copy").jsonObject
+        assertEquals(copy.str("record"), AgentSettings.Copy.RECORD)
+        assertEquals(copy.str("webhook"), AgentSettings.Copy.WEBHOOK)
+        assertEquals(copy.str("runs"), AgentSettings.Copy.RUNS)
+        assertEquals(copy.str("handsOff"), AgentSettings.Copy.HANDS_OFF)
+        assertEquals(
+            copy.getValue("recordOps").jsonObject.mapValues { it.value.jsonPrimitive.content },
+            AgentSettings.Copy.RECORD_OPS,
+        )
+    }
+
+    // #EXP-1850: a readable trigger keeps prompt and run (and any key this
+    // build has no field for) on every write; an edit keeps them too.
+    @Test
+    fun `record and webhook triggers read and every key rides the write`() {
+        val raw = """[{"id":"a","enabled":true,"kind":"record","record":"request","op":"create","run":{"records":{"op":"upsert","kind":"log"}}},""" +
+            """{"id":"b","enabled":false,"kind":"webhook","name":"stripe","prompt":"Look"},""" +
+            """{"id":"c","enabled":true,"kind":"event","name":"pr.merged","prompt":"Review it","run":{"action":"x"}},""" +
+            """{"id":"d","kind":"future","x":1}]"""
+        val parsed = parseAgentTriggers(raw)
+        assertEquals(listOf("a", "b", "c"), parsed.map { it.id })
+        assertEquals(TriggerWhen.Record("request", "create"), parsed[0].whenPart)
+        assertEquals(TriggerWhen.Webhook("stripe"), parsed[1].whenPart)
+        assertEquals(
+            """{"id":"a","enabled":true,"kind":"record","record":"request","op":"create","run":{"records":{"op":"upsert","kind":"log"}}}""",
+            parsed[0].toWireJson().toString(),
+        )
+        assertEquals(
+            """{"id":"b","enabled":false,"kind":"webhook","name":"stripe","prompt":"Look"}""",
+            parsed[1].toWireJson().toString(),
+        )
+        // An edit (a new when-part over the stored trigger) keeps prompt and run.
+        val edited = parsed[2].copy(whenPart = TriggerWhen.Event("pr.opened"))
+        assertEquals(
+            """{"id":"c","enabled":true,"kind":"event","name":"pr.opened","prompt":"Review it","run":{"action":"x"}}""",
+            edited.toWireJson().toString(),
+        )
+        // Only the unknown kind is unreadable.
+        assertEquals(listOf("d"), unreadableAgentTriggers(raw).map { it["id"]!!.jsonPrimitive.content })
+        assertEquals(listOf("schedule", "event", "record", "webhook"), TriggerWhen.KINDS)
     }
 }

@@ -7,7 +7,7 @@ import {
 } from "@tanstack/react-router"
 import { Separator, useIsMobile } from "@exp/ui"
 import { SETTINGS_NAV_TEST_IDS } from "@exp/domain-contract/settings-nav"
-import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
+import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import { NEW_PROMPT_LABEL } from "@/components/team/prompts-section"
 import { NEW_SKILL_LABEL } from "@/components/team/skills-section"
@@ -48,7 +48,7 @@ function SettingsLayout() {
 // so the page is the title over the section.
 function WideSettingsLayout() {
   return (
-    <div className={`mx-auto w-full max-w-4xl space-y-6 p-4 sm:p-6 ${TAB_BAR_CLEARANCE}`}>
+    <div className={`mx-auto w-full max-w-4xl space-y-6 p-4 sm:p-6 ${PAGE_END_CLEARANCE}`}>
       <h1 className="text-2xl font-bold">Settings</h1>
       <Separator />
       <div className="min-w-0 flex-1">
@@ -84,7 +84,7 @@ function PhoneSettingsLayout() {
   }
 
   return (
-    <div className={`flex w-full flex-col ${TAB_BAR_CLEARANCE}`} data-testid={SETTINGS_NAV_TEST_IDS.page}>
+    <div className={`flex w-full flex-col ${PAGE_END_CLEARANCE}`} data-testid={SETTINGS_NAV_TEST_IDS.page}>
       <MobileDetailHeader
         title={
           isListSub && section && sub ? (

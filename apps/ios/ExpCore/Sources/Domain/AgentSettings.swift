@@ -74,6 +74,17 @@ public enum AgentSettings {
         public static let triggers = "Triggers"
         public static let runsOn = "Runs on"
         public static let checkIn = "Check in"
+        /// #EXP-1850: a record / webhook trigger's sentence, a `run`
+        /// trigger's second line.
+        public static let record = "When a {record} is {op}"
+        public static let recordOps: [String: String] = [
+            "create": "created",
+            "update": "updated",
+            "delete": "deleted",
+        ]
+        public static let webhook = "When webhook {name} is called"
+        public static let runs = "Runs {tool}"
+        public static let handsOff = "Hands off to {agent}"
     }
 
     /// #EXP-1846 (fixture `page`): ONE agent page for the Assistant and every
@@ -150,12 +161,47 @@ public enum AgentSettings {
         case let .event(event):
             text = Copy.events[event.name]
                 ?? Copy.event.replacingOccurrences(of: "{name}", with: event.name)
+        case let .record(record):
+            // #EXP-1850: an app agent's record trigger.
+            text = Copy.record
+                .replacingOccurrences(of: "{record}", with: record.record)
+                .replacingOccurrences(of: "{op}", with: Copy.recordOps[record.op] ?? record.op)
+        case let .webhook(webhook):
+            text = Copy.webhook.replacingOccurrences(of: "{name}", with: webhook.name)
         }
         return enabled ? text : "\(text) · \(Copy.paused)"
     }
 
     public static func triggerSummary(_ trigger: AgentTrigger) -> String {
         triggerSummary(trigger.when, enabled: trigger.enabled)
+    }
+
+    /// #EXP-1850 (`detailCases`): an app binding in a few words:
+    /// `records.<op> <kind>`, the action name, `<upstream>/<tool>`.
+    public static func runLabel(_ run: [String: JSONWireValue]) -> String {
+        if case let .object(records)? = run["records"] {
+            return "records.\(records["op"]?.stringValue ?? "") \(records["kind"]?.stringValue ?? "")"
+        }
+        if case let .string(action)? = run["action"] { return action }
+        if case let .string(upstream)? = run["upstream"] {
+            return "\(upstream)/\(run["tool"]?.stringValue ?? "")"
+        }
+        return ""
+    }
+
+    /// #EXP-1850 (`detailCases`): a Triggers row's second line = what a
+    /// `run` trigger runs (`copy.runs`), `copy.handsOff` for an `{agent}`
+    /// run; nil for a wake.
+    public static func triggerDetail(run: JSONWireValue?) -> String? {
+        guard case let .object(run)? = run else { return nil }
+        if case let .string(agent)? = run["agent"] {
+            return Copy.handsOff.replacingOccurrences(of: "{agent}", with: agent)
+        }
+        return Copy.runs.replacingOccurrences(of: "{tool}", with: runLabel(run))
+    }
+
+    public static func triggerDetail(_ trigger: AgentTrigger) -> String? {
+        triggerDetail(run: trigger.extra["run"])
     }
 
     /// The agent page's validated fields.
@@ -717,5 +763,13 @@ public struct IssueAssignee: Equatable, Hashable, Sendable {
         } else {
             self.init(assigneeId: value, assigneeAgentId: nil)
         }
+    }
+}
+
+private extension JSONWireValue {
+    /// A string value, else nil.
+    var stringValue: String? {
+        if case let .string(value) = self { return value }
+        return nil
     }
 }

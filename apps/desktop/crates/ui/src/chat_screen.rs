@@ -2833,7 +2833,9 @@ impl ChatScreenView {
                     .justify_center()
                     // EXP-1314: the dawn stands ON the card (its fade ends
                     // at the card's top edge), so no gap between the two.
-                    .child(v_flex().w_full().items_center().child(dawn(cx)).child(column)),
+                    .child(v_flex().w_full().items_center().child(dawn(cx)).child(column))
+                    // #EXP-1860: clear of the Assistant FAB (web `PAGE_END_CLEARANCE`).
+                    .child(crate::assistant_fab::page_end(window, cx)),
             ))
             .into_any_element()
     }

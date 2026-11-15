@@ -842,6 +842,27 @@ html {
   );
 }
 
+/* #EXP-1860 (agent-settings.json `assistant.fab.clearance`): the Assistant
+   FAB (`[data-assistant-fab]`, a direct child of the team layout's <main>)
+   owns the card's bottom-right 84px square, reserved HERE, once, while it
+   shows: a page's scroll content (`.fab-clearance`, part of
+   PAGE_END_CLEARANCE) ends with an 84px spacer so its last row always
+   scrolls clear of the circle, and THE Dock band (`.fab-lane`) keeps its
+   right edge 84px in so the composer's send button sits beside the FAB,
+   never under it. No FAB (phones, the Assistant's own page), no rule. */
+main:has(> [data-assistant-fab]) {
+  --fab-clearance: 84px;
+}
+main:has(> [data-assistant-fab]) .fab-clearance::after {
+  content: "";
+  display: block;
+  flex-shrink: 0;
+  height: var(--fab-clearance);
+}
+main:has(> [data-assistant-fab]) .fab-lane {
+  padding-right: var(--fab-clearance);
+}
+
 /* EXP-885 — THE issue chip box. ONE style for every surface that names an
    issue as a chip: the markdown editor's `#IDENTIFIER` decoration
    (`.issue-ref-pill`, which the app's own stylesheet extends), the steering

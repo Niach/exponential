@@ -91,7 +91,11 @@ function AssistantFabButton({
   }
   return (
     <Popover open={open} onOpenChange={setOpen}>
+      {/* #EXP-1860: `data-assistant-fab` reserves the corner (@exp/ui
+          styles.css): page scroll content ends clear of it, THE Dock keeps
+          its composer beside it. */}
       <div
+        data-assistant-fab=""
         className="pointer-events-none absolute z-20"
         style={{ right: ASSISTANT_FAB.inset, bottom: ASSISTANT_FAB.inset }}
       >

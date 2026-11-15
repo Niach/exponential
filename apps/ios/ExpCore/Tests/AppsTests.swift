@@ -133,6 +133,7 @@ final class AppsTests: XCTestCase {
             "accountRow": Apps.TestIds.accountRow,
             "mcpTools": Apps.TestIds.mcpTools, "mcpToolRow": Apps.TestIds.mcpToolRow,
             "policies": Apps.TestIds.policies, "policyRow": Apps.TestIds.policyRow,
+            "eventsTab": Apps.TestIds.eventsTab, "recentRuns": Apps.TestIds.recentRuns, "runRow": Apps.TestIds.runRow,
         ])
         // VAPP-177: the floating layout and its chat card are gone.
         XCTAssertNil(fixture["layout"])
@@ -668,5 +669,48 @@ final class AppsTests: XCTestCase {
         XCTAssertEqual(value.rows[1].tone, "idle")
         XCTAssertEqual(value.rows[1].discTone, "muted")
         XCTAssertEqual(value.rows[2].status, "Offline")
+    }
+
+    // #EXP-1850 (`eventsTab`): the constants, the copy and every `runCases` row.
+    func testEventsTabMatchesTheFixture() throws {
+        let tab = try XCTUnwrap(try fixture()["eventsTab"] as? [String: Any])
+        XCTAssertEqual(tab["limit"] as? Int, Apps.EventsTab.limit)
+        XCTAssertEqual(tab["days"] as? Int, Apps.EventsTab.days)
+        XCTAssertEqual(tab["pausedErrors"] as? [String], Apps.EventsTab.pausedErrors)
+        let copy = try XCTUnwrap(tab["copy"] as? [String: Any])
+        XCTAssertEqual(copy["recentRuns"] as? String, Apps.EventsTab.Copy.recentRuns)
+        XCTAssertEqual(copy["noRuns"] as? String, Apps.EventsTab.Copy.noRuns)
+        XCTAssertEqual(copy["removedTrigger"] as? String, Apps.EventsTab.Copy.removedTrigger)
+        XCTAssertEqual(copy["errors"] as? [String: String], Apps.EventsTab.Copy.errors)
+        let badges = try XCTUnwrap(copy["badges"] as? [String: String])
+        XCTAssertEqual(Set(badges.keys), Set(Apps.EventsTab.Badge.allCases.map(\.rawValue)))
+        for badge in Apps.EventsTab.Badge.allCases {
+            XCTAssertEqual(badges[badge.rawValue], badge.label)
+        }
+    }
+
+    func testEventRunRowReplaysEveryCase() throws {
+        let tab = try XCTUnwrap(try fixture()["eventsTab"] as? [String: Any])
+        let cases = try XCTUnwrap(tab["runCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            let name = c["name"] as? String ?? ""
+            let run = try XCTUnwrap(c["run"] as? [String: Any])
+            let triggers = try XCTUnwrap(c["triggers"] as? [Any])
+            let raw = try XCTUnwrap(String(data: JSONSerialization.data(withJSONObject: triggers), encoding: .utf8))
+            let row = Apps.eventRunRow(
+                Apps.EventsTab.Run(
+                    triggerId: run["triggerId"] as? String,
+                    status: try XCTUnwrap(run["status"] as? String),
+                    error: run["error"] as? String,
+                    tool: try XCTUnwrap(run["tool"] as? String)
+                ),
+                triggers: AgentTrigger.parseList(raw)
+            )
+            let expected = try XCTUnwrap(c["expected"] as? [String: Any])
+            XCTAssertEqual(row.title, expected["title"] as? String, name)
+            XCTAssertEqual(row.badge.rawValue, expected["badge"] as? String, name)
+            XCTAssertEqual(row.detail, expected["detail"] as? String, name)
+        }
     }
 }

@@ -79,6 +79,8 @@ fn open_existing(window: &mut Window, cx: &mut App, target: Target, trigger_id: 
         .current(cx)
         .into_iter()
         .find(|trigger| trigger_editor::trigger_id(trigger) == Some(trigger_id.as_str()))
+        // #EXP-1850: a record or webhook trigger has no editor.
+        .filter(trigger_editor::is_editable)
     else {
         return;
     };
@@ -210,12 +212,16 @@ impl TriggerDialogView {
             (Write::Delete(id), _) => trigger_editor::triggers_without(&current, id),
             (Write::Save, Some(id)) => {
                 // The on/off flag is the row switch's — an edit never flips it.
-                let enabled = current
+                let stored = current
                     .iter()
                     .find(|trigger| trigger_editor::trigger_id(trigger) == Some(id.as_str()))
-                    .or(self.existing.as_ref())
-                    .is_none_or(trigger_editor::trigger_enabled);
-                let element = trigger_editor::agent_trigger_element(&when, Some(&id), enabled);
+                    .or(self.existing.as_ref());
+                let enabled = stored.is_none_or(trigger_editor::trigger_enabled);
+                // #EXP-1850: every other stored key (prompt, run) rides along.
+                let element = match stored {
+                    Some(stored) => trigger_editor::edited_trigger_element(stored, &when, &id, enabled),
+                    None => trigger_editor::agent_trigger_element(&when, Some(&id), enabled),
+                };
                 trigger_editor::triggers_with_replaced(&current, &id, element)
             }
             // A new trigger is born ON — it only exists to fire. A draft's
@@ -243,10 +249,7 @@ impl TriggerDialogView {
         self.submitting = true;
         cx.notify();
 
-        let input = api::agents::UpdateInput {
-            triggers: Some(triggers.clone()),
-            ..api::agents::UpdateInput::new(agent_id.clone())
-        };
+        let input = api::agents::UpdateInput::triggers(agent_id.clone(), triggers.clone());
         cx.spawn_in(window, async move |this, window| {
             let result = window
                 .background_executor()
