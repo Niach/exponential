@@ -1297,8 +1297,23 @@
         "minimize": "Minimize"
       },
       "widget": {
-        "width": 440,
-        "height": 560
+        "$comment": "#EXP-1876 THE WIDGET (supersedes the fixed size in the `$comment` above): its size follows the CONTENT CARD it floats in, re-clamped whenever the card resizes. Default per axis = round(card \u00d7 `ratio`) clamped to [`min` \u2026 `max`]; a size the person dragged (`stored`) is clamped to [`min` \u2026 card \u2212 `margin`] instead (it may grow past `max`); both then never exceed card \u2212 `margin` (the room wins over the floor on a tiny card). `sizeCases` replay `assistantWidgetSize({card, stored})` (web and desktop). RESIZABLE: drag the widget's top edge (height), left edge (width) or top-left corner (both); it stays anchored to the FAB (bottom-right); no visible grip, only the resize cursor over a `handle` px band (like the sidebar and card edges). The dragged size is remembered PER DEVICE (web localStorage keyed by the member, desktop ui-prefs.json keyed by the member), always read back through the clamp; a double-click on the widget header resets it (forgets it) to the responsive default. THE GROUND: the widget's frame + header paint the CONTENT CARD's own ground (the page gradient under the card's panel fill: web `bg-glass-card-ground`, desktop `assistant_fab::card_ground`), never the menu surface (that is the fill of the `in` bubble and the composer card, which melted into it), with the card hairline (`strokeCard`), the popover shadow and a `radius` px corner. The body stays the shared chat (web `InPlaceSession`, desktop `AgentScreenView::for_widget`).",
+        "min": { "width": 480, "height": 560 },
+        "ratio": { "width": 0.44, "height": 0.72 },
+        "max": { "width": 760, "height": 860 },
+        "margin": { "width": 32, "height": 100 },
+        "handle": 6,
+        "radius": 16,
+        "sizeCases": [
+          {"name": "1280x800 window (card 1015x740): the floor", "card": {"width": 1015, "height": 740}, "stored": null, "expected": {"width": 480, "height": 560}},
+          {"name": "1920x1080 window (card 1675x1030): 44% x 72%", "card": {"width": 1675, "height": 1030}, "stored": null, "expected": {"width": 737, "height": 742}},
+          {"name": "2560x1440 window (card 2290x1380): the cap", "card": {"width": 2290, "height": 1380}, "stored": null, "expected": {"width": 760, "height": 860}},
+          {"name": "a card too short for the floor: the room wins", "card": {"width": 600, "height": 500}, "stored": null, "expected": {"width": 480, "height": 400}},
+          {"name": "a dragged size is kept", "card": {"width": 1675, "height": 1030}, "stored": {"width": 900, "height": 700}, "expected": {"width": 900, "height": 700}},
+          {"name": "a dragged size grows up to the card's room, past the default cap", "card": {"width": 1675, "height": 1030}, "stored": {"width": 2000, "height": 2000}, "expected": {"width": 1643, "height": 930}},
+          {"name": "a dragged size never drops under the floor", "card": {"width": 1675, "height": 1030}, "stored": {"width": 300, "height": 300}, "expected": {"width": 480, "height": 560}},
+          {"name": "a shrunk window re-clamps a dragged size", "card": {"width": 600, "height": 500}, "stored": {"width": 900, "height": 700}, "expected": {"width": 568, "height": 400}}
+        ]
       },
       "inset": 16,
       "clearance": 84,
