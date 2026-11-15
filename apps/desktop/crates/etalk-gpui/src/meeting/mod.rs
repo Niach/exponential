@@ -818,6 +818,9 @@ impl MeetingHost {
         let Some(client) = self.client.as_ref() else { return };
         let settings = crate::speak_replies::settings(cx);
         let agent = crate::voice_tray::agent_label(&settings, cx);
+        // #EXP-1847: the voice agent's own phrase (the Assistant's) wins.
+        let own = crate::host::wake_phrase_of(settings.agent_id.as_deref(), &settings.wake_phrase, cx);
+        let settings = etalk::voice::VoiceSettings { wake_phrase: own, ..settings };
         let phrase = etalk::voice::wake_phrase(&settings, agent.as_deref()).unwrap_or_default();
         let wanted = &running.wanted;
         client.meeting(

@@ -302,6 +302,18 @@ final class SessionsApiWireTests: XCTestCase {
         let noMcp = try json(UpdateAgentInput(id: "ag-1", patch: AgentPatch(mcpServerIds: [])))
         XCTAssertEqual((noMcp["mcpServerIds"] as? [Any])?.count, 0)
         XCTAssertFalse(AgentPatch(mcpServerIds: []).isEmpty)
+
+        // #EXP-1847: the voice keys, an explicit null clearing one; an empty
+        // voice patch is no patch.
+        let voice = try json(UpdateAgentInput(
+            id: "ag-1", patch: AgentPatch(voice: AgentVoicePatch(language: "de", wakePhrase: .some(nil)))
+        ))
+        XCTAssertEqual(voice.keys.sorted(), ["id", "voice"])
+        let keys = try XCTUnwrap(voice["voice"] as? [String: Any])
+        XCTAssertEqual(keys.keys.sorted(), ["language", "wakePhrase"])
+        XCTAssertEqual(keys["language"] as? String, "de")
+        XCTAssertTrue(keys["wakePhrase"] is NSNull)
+        XCTAssertTrue(AgentPatch(voice: AgentVoicePatch()).isEmpty)
     }
 
     func testPullRequestMergeOmitsAnUnsetStack() throws {

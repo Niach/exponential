@@ -116,6 +116,12 @@ pub fn voice_here(settings: &etalk::voice::VoiceSettings, own_device_id: &str) -
     DeviceVoice { agent_id: settings.agent_id, listen, voice }
 }
 
+/// #EXP-1847: the voice to prepare the worker with when `wanted` replaces
+/// `held` (None = it already holds it: no re-prepare).
+fn next_voice(held: &etalk::VoiceChoice, wanted: etalk::VoiceChoice) -> Option<etalk::VoiceChoice> {
+    (held != &wanted).then_some(wanted)
+}
+
 /// NEW-78: THIS device listens: it is the member's voice device and Push to
 /// talk or (#NEW-56) the wake word is on (after voice.json `clearOnNone`).
 /// Only then does its doctor carry the `microphone` row.
@@ -291,6 +297,9 @@ pub struct SpeakReplies {
     /// S-3: a push-to-talk / wake turn went out and waits for its reply
     /// (voice.json `voiceTurn`): that conversation's next reply is spoken.
     voice_turn: Option<VoiceTurn>,
+    /// #EXP-1847: the agent whose own voice the worker was last prepared
+    /// with (None = the voice agent of the settings).
+    voice_agent: Option<String>,
 }
 
 /// S-3: a voice turn waiting for its reply.
@@ -445,6 +454,7 @@ pub(crate) fn install(cx: &mut App) {
             cleanup,
             settings_known: false,
             voice_turn: None,
+            voice_agent: None,
         }
     });
     cx.set_global(SpeakRepliesGlobal(entity.clone()));
@@ -554,6 +564,32 @@ pub fn download_detail(cx: &App) -> Option<String> {
     match download(cx) {
         Download::Running { received, total } => Some(etalk::voice::download_progress(received, total)),
         _ => None,
+    }
+}
+
+/// #EXP-1847: the voice `agent_id` speaks with here (its own language, clip
+/// and transcript, resolved by the host against the member's settings).
+pub fn voice_of(agent_id: &str, cx: &App) -> etalk::VoiceChoice {
+    let settings = settings(cx);
+    host::agent_voice(Some(agent_id), &settings, cx).voice
+}
+
+/// #EXP-1847: the worker speaks with `agent_id`'s own voice from now on (a
+/// call with it): re-prepared only when that voice differs from the last.
+pub fn use_voice_of(agent_id: &str, cx: &mut App) {
+    if let Some(entity) = global(cx) {
+        entity.update(cx, |this, cx| this.ensure_voice(Some(agent_id), cx));
+    }
+}
+
+/// #EXP-1847: the host's agents changed (an agent's own voice, a clip that
+/// finished downloading): the voice being spoken follows.
+pub(crate) fn on_agents(cx: &mut App) {
+    if let Some(entity) = global(cx) {
+        entity.update(cx, |this, cx| {
+            let agent = this.voice_agent.clone();
+            this.ensure_voice(agent.as_deref(), cx);
+        });
     }
 }
 
@@ -683,7 +719,35 @@ impl SpeakReplies {
     /// update, where a read panics.
     fn own_voice(&self, cx: &App) -> DeviceVoice {
         let device_id = host::device_id(cx).unwrap_or_default();
-        voice_here(&self.settings, &device_id)
+        let mut voice = voice_here(&self.settings, &device_id);
+        // #EXP-1847: the voice agent speaks with its own voice.
+        if voice.active() {
+            voice.voice = host::agent_voice(voice.agent_id.as_deref(), &self.settings, cx).voice;
+        }
+        voice
+    }
+
+    /// #EXP-1847: the voice `agent_id` (None = the settings' voice agent)
+    /// speaks with here.
+    fn voice_for(&self, agent_id: Option<&str>, cx: &App) -> etalk::VoiceChoice {
+        let agent_id = agent_id.or(self.settings.agent_id.as_deref());
+        host::agent_voice(agent_id, &self.settings, cx).voice
+    }
+
+    /// #EXP-1847: prepare the worker with `agent_id`'s voice when it differs
+    /// from the one it holds (nothing while the worker is not speaking).
+    fn ensure_voice(&mut self, agent_id: Option<&str>, cx: &mut Context<Self>) {
+        if !self.prepared.speaks() || self.download == Download::Unavailable {
+            return;
+        }
+        let wanted = self.voice_for(agent_id, cx);
+        self.voice_agent = agent_id.map(str::to_string);
+        if let Some(voice) = next_voice(&self.prepared.voice, wanted) {
+            self.prepared.voice = voice.clone();
+            if let Some(client) = self.client.as_ref() {
+                client.prepare(voice);
+            }
+        }
     }
 
     fn on_session(&mut self, cx: &mut Context<Self>) {
@@ -727,6 +791,7 @@ impl SpeakReplies {
         let voice_changed = self.prepared.voice != wanted.voice;
         let agent_changed = self.prepared.agent_id != wanted.agent_id;
         self.prepared = wanted.clone();
+        self.voice_agent = None;
         // A new setting is a fresh start, a given-up voice included.
         self.crashes = 0;
         if self.download == Download::Unavailable {
@@ -796,12 +861,15 @@ impl SpeakReplies {
         }
         let turn = self.voice_turn.as_ref().is_some_and(|turn| turn.session_id == conversation);
         let voice_turn = call_agent.is_some() || turn;
+        // #EXP-1847: the speaking agent's own voice (its language too).
+        let agent_id = agent_id.to_string();
+        let language = self.voice_for(Some(&agent_id), cx).language;
         let voices: Vec<&str> = self.voices.iter().map(String::as_str).collect();
         let context = VoiceContext {
             agent_session_id: Some(conversation.as_str()),
             is_voice_device: true,
             voice_turn,
-            language: self.settings.language(),
+            language: &language,
             voices: &voices,
             armed_at: self.gate.armed_at(),
             // #NEW-57: nothing is read aloud mid-meeting.
@@ -815,10 +883,12 @@ impl SpeakReplies {
         else {
             return;
         };
-        let spoken = etalk::voice::spoken_text(row.body.as_deref().unwrap_or(""), VOICE.max_chars, self.settings.language());
+        let spoken = etalk::voice::spoken_text(row.body.as_deref().unwrap_or(""), VOICE.max_chars, &language);
         if spoken.is_empty() {
             return;
         }
+        let row = row.clone();
+        self.ensure_voice(Some(&agent_id), cx);
         let Some(client) = self.client.as_ref() else { return };
         client.speak(row.id.clone(), spoken.clone());
         // The turn got its reply.
@@ -987,6 +1057,20 @@ mod tests {
         // word does not listen.
         let no_agent = etalk::voice::VoiceSettings { agent_id: None, ..wake };
         assert!(!listens_here(&no_agent, "mac"));
+    }
+
+    /// #EXP-1847: a speaking agent whose resolved voice differs re-prepares
+    /// the worker; the same voice does not.
+    #[test]
+    fn only_a_different_agent_voice_re_prepares() {
+        let member = etalk::VoiceChoice { language: "de".into(), file: "/home/me/me.wav".into(), transcript: "Hallo.".into() };
+        assert_eq!(next_voice(&member, member.clone()), None);
+        let sloppy = etalk::VoiceChoice { language: "en".into(), file: "/data/voice-clips/c-1.wav".into(), transcript: "Hi.".into() };
+        assert_eq!(next_voice(&member, sloppy.clone()), Some(sloppy));
+        // The host's default (no per-agent voices) is the member's own.
+        let settings = etalk::voice::VoiceSettings { language: "de".into(), voice_file: "/home/me/me.wav".into(), voice_transcript: "Hallo.".into(), wake_phrase: "Hey Jarvis".into(), ..Default::default() };
+        let own = crate::host::AgentVoice::member(&settings);
+        assert_eq!((own.voice, own.wake_phrase.as_str()), (member, "Hey Jarvis"));
     }
 
     fn message(id: &str, created: &str) -> Row {

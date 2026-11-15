@@ -150,6 +150,7 @@ export function VoiceSettingsCard({
   agents,
   consentOpen: initialConsentOpen = false,
   assistantId,
+  memberRowsOnly = false,
 }: {
   settings: VoiceSettings
   devices: readonly VoiceDeviceRow[]
@@ -161,6 +162,10 @@ export function VoiceSettingsCard({
    *  Agent row (the agent is this Assistant); a change made here moves the
    *  voice onto it when another of the member's Assistants held it. */
   assistantId?: string
+  /** #EXP-1847 (agent-settings.json `voice`): the block under the agent's
+   *  own Voice rows: no Language, Voice file, Transcript or Wake phrase
+   *  (the agent page's rows replace them), only the member rows. */
+  memberRowsOnly?: boolean
 }) {
   const [settings, setSettings] = useState<VoiceSettings>(initial)
   // #NEW-57: THE consent dialog; turning Meeting mode on only opens it.
@@ -319,6 +324,7 @@ export function VoiceSettingsCard({
 
   return (
     <div className="space-y-3" data-testid={VOICE_TEST_IDS.page}>
+      {!memberRowsOnly && (
       <GlassGroup>
         {assistantId === undefined && (
           <>
@@ -384,6 +390,7 @@ export function VoiceSettingsCard({
           </>
         )}
       </GlassGroup>
+      )}
       {settings.voiceDeviceId !== null && (
         <>
           <GlassSectionHeader label={trayHeader(deviceName)} />
@@ -405,6 +412,7 @@ export function VoiceSettingsCard({
               onCheckedChange={(wakeWord) => apply({ wakeWord })}
               disabled={!switchesLive}
             />
+            {!memberRowsOnly && (
             <GlassInputRow
               id={VOICE_TEST_IDS.wakePhrase}
               data-testid={VOICE_TEST_IDS.wakePhrase}
@@ -416,10 +424,13 @@ export function VoiceSettingsCard({
               onChange={(event) => editText(`wakePhrase`, event.target.value)}
               onBlur={() => saveText(`wakePhrase`, text.wakePhrase, true)}
             />
+            )}
           </GlassGroup>
-          <FieldError id={`${VOICE_TEST_IDS.wakePhrase}-error`} className="px-1">
-            {wakePhraseInvalid}
-          </FieldError>
+          {!memberRowsOnly && (
+            <FieldError id={`${VOICE_TEST_IDS.wakePhrase}-error`} className="px-1">
+              {wakePhraseInvalid}
+            </FieldError>
+          )}
           {/* #NEW-57: the meeting rows, their own group under the tray group. */}
           <GlassGroup>
             <GlassToggleRow
@@ -505,10 +516,13 @@ export function VoiceSettingsCard({
 export function VoiceSettingsSection({
   settings,
   assistantId,
+  memberRowsOnly,
 }: {
   settings: VoiceSettings
   /** S-3: the Assistant page's Voice section (VoiceSettingsCard). */
   assistantId?: string
+  /** #EXP-1847: only the member rows (VoiceSettingsCard). */
+  memberRowsOnly?: boolean
 }) {
   const { data: session } = useSession()
   const userId = session?.user?.id
@@ -542,5 +556,5 @@ export function VoiceSettingsSection({
     }))
   }, [agentRows, teamRows])
 
-  return <VoiceSettingsCard settings={settings} devices={devices} agents={agents} assistantId={assistantId} />
+  return <VoiceSettingsCard settings={settings} devices={devices} agents={agents} assistantId={assistantId} memberRowsOnly={memberRowsOnly} />
 }

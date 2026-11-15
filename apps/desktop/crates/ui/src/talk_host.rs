@@ -6,12 +6,15 @@
 //! call host (`steer::call_host`), the device doctor, the toasts and the
 //! shell window.
 
-use std::path::PathBuf;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use etalk::meeting::{AudioApp, DesktopAudioCapability};
 use etalk::voice::{UtteranceTarget, VoiceMessage, VoiceSettings};
 use etalk_gpui::{
-    Brand, CallConnection, CallLink, CallLinkEvent, Notice, Outgoing, SendError, SendJob, Sent, SignedIn, Surface, TalkAgent, TalkDevice,
+    AgentVoice, Brand, CallConnection, CallLink, CallLinkEvent, Notice, Outgoing, SendError, SendJob, Sent, SignedIn, Surface, TalkAgent, TalkDevice,
     TalkHost, TalkIcon, TalkMessage, VoiceWrite,
 };
 use gpui::{App, Task};
@@ -27,6 +30,100 @@ const TRAY_ICON_SVG: &[u8] = include_bytes!("../../../assets/icons/logo-white.sv
 
 struct ExponentialHost {
     data_dir: PathBuf,
+    /// #EXP-1847: the agents' voice clips, fetched once into the data dir.
+    clips: Rc<ClipCache>,
+}
+
+/// #EXP-1847 (agent-settings.json `voice`): an agent's uploaded clip is
+/// fetched ONCE from `/api/attachments/{clipId}` into
+/// `{data_dir}/voice-clips/{clipId}.wav` and spoken from there. A clip
+/// still on its way, or one that failed (logged once, not retried until a
+/// restart), is the built-in voice.
+struct ClipCache {
+    dir: PathBuf,
+    state: RefCell<HashMap<String, ClipState>>,
+    /// A landed clip's id (the voice re-resolves on the main thread).
+    landed: flume::Sender<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ClipState {
+    Fetching,
+    Failed,
+}
+
+/// `clip_id` as a file name (an attachment id is a uuid; anything else is
+/// never a path).
+fn clip_file(dir: &Path, clip_id: &str) -> Option<PathBuf> {
+    let safe = !clip_id.is_empty() && clip_id.len() <= 64 && clip_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
+    safe.then(|| dir.join(format!("{clip_id}.wav")))
+}
+
+impl ClipCache {
+    /// The clip's cached file, or None while it is not here (the first ask
+    /// starts its fetch).
+    fn path(&self, clip_id: &str, cx: &App) -> Option<PathBuf> {
+        let file = clip_file(&self.dir, clip_id)?;
+        if file.is_file() {
+            return Some(file);
+        }
+        if self.state.borrow().contains_key(clip_id) {
+            return None;
+        }
+        let Some(transport) = crate::queries::http_attachment_transport(cx) else { return None };
+        self.state.borrow_mut().insert(clip_id.to_string(), ClipState::Fetching);
+        let (id, dir, landed) = (clip_id.to_string(), self.dir.clone(), self.landed.clone());
+        let _ = std::thread::Builder::new().name("voice-clip".into()).spawn(move || {
+            use crate::markdown::AttachmentTransport as _;
+            let result = transport.fetch(&format!("/api/attachments/{id}")).and_then(|bytes| {
+                std::fs::create_dir_all(&dir)?;
+                let temp = dir.join(format!("{id}.wav.part"));
+                std::fs::write(&temp, &bytes)?;
+                std::fs::rename(&temp, &file)?;
+                Ok(())
+            });
+            match result {
+                Ok(()) => {
+                    let _ = landed.send(id);
+                }
+                Err(err) => {
+                    log::warn!("[ui] voice clip {id} could not be fetched; the built-in voice speaks: {err}");
+                    let _ = landed.send(format!("!{id}"));
+                }
+            }
+        });
+        None
+    }
+
+    /// A fetch ended (`!id` = it failed).
+    fn ended(&self, message: &str) {
+        match message.strip_prefix('!') {
+            Some(id) => {
+                self.state.borrow_mut().insert(id.to_string(), ClipState::Failed);
+            }
+            None => {
+                self.state.borrow_mut().remove(message);
+            }
+        }
+    }
+}
+
+/// #EXP-1847: what the worker is prepared with for a resolved agent voice:
+/// its language; a clip = its local file (an attachment once `cached` has
+/// it, the built-in voice until then) with its transcript; else the
+/// built-in voice.
+pub(crate) fn voice_inputs(resolved: &domain::agent_settings::ResolvedAgentVoice, cached: impl Fn(&str) -> Option<PathBuf>) -> AgentVoice {
+    use domain::agent_settings::AgentVoiceClip;
+    let file = match &resolved.clip {
+        Some(AgentVoiceClip::Attachment(id)) => cached(id).map(|path| path.to_string_lossy().into_owned()),
+        Some(AgentVoiceClip::Path(path)) => Some(path.clone()),
+        None => None,
+    };
+    let (file, transcript) = match file {
+        Some(file) => (file, resolved.transcript.clone()),
+        None => (String::new(), String::new()),
+    };
+    AgentVoice { voice: etalk::VoiceChoice { language: resolved.language.clone(), file, transcript }, wake_phrase: resolved.wake_phrase.clone() }
 }
 
 /// Install eTalk with Exponential as its host: ONCE, after `Store::open`, the
@@ -37,7 +134,17 @@ pub fn install(cx: &mut App) {
     let Some(data_dir) = cx.try_global::<crate::session::AuthContext>().map(|auth| auth.data_dir.clone()) else { return };
     let collections = store.collections();
     let (messages, agents, state) = (collections.messages.clone(), collections.agents.clone(), store.state());
-    etalk_gpui::init(cx, Box::new(ExponentialHost { data_dir }));
+    let (landed, clips_rx) = flume::unbounded::<String>();
+    let clips = Rc::new(ClipCache { dir: data_dir.join("voice-clips"), state: RefCell::default(), landed });
+    etalk_gpui::init(cx, Box::new(ExponentialHost { data_dir, clips: clips.clone() }));
+    // #EXP-1847: a clip that landed (or failed) re-resolves the voices.
+    cx.spawn(async move |cx| {
+        while let Ok(message) = clips_rx.recv_async().await {
+            clips.ended(&message);
+            let _ = cx.update(etalk_gpui::agents_changed);
+        }
+    })
+    .detach();
     cx.observe(&messages, |_, cx| etalk_gpui::messages_changed(cx)).detach();
     // A sign-out or another account ends the voice (and the worker).
     cx.observe(&state, |_, cx| etalk_gpui::session_changed(cx)).detach();
@@ -214,6 +321,20 @@ impl TalkHost for ExponentialHost {
         })
     }
 
+    /// #EXP-1847: the agent's own voice (agent-settings.json `voice`
+    /// `agentVoiceOf`) against the member's settings.
+    fn agent_voice(&self, agent_id: &str, settings: &VoiceSettings, cx: &App) -> Option<AgentVoice> {
+        let agent = crate::session_data::agent_def(agent_id, cx)?;
+        let member = domain::agent_settings::MemberVoice {
+            language: settings.language(),
+            voice_file: &settings.voice_file,
+            voice_transcript: &settings.voice_transcript,
+            wake_phrase: &settings.wake_phrase,
+        };
+        let resolved = domain::agent_settings::agent_voice_of(Some(&agent.role), agent.name.as_deref().unwrap_or_default(), &agent.voice, &member);
+        Some(voice_inputs(&resolved, |clip_id| self.clips.path(clip_id, cx)))
+    }
+
     fn conversation(&self, agent_id: &str, cx: &App) -> Option<String> {
         crate::session_data::my_conversation(agent_id, cx).map(|row| row.id)
     }
@@ -354,6 +475,30 @@ impl TalkHost for ExponentialHost {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #EXP-1847: a resolved voice → the worker's prepare inputs: the clip's
+    /// cached file with its transcript, the built-in voice while it is not
+    /// here, a member path as is.
+    #[test]
+    fn a_resolved_voice_prepares_its_clip_once_it_is_here() {
+        use domain::agent_settings::{agent_voice_of, AgentVoice as Stored, MemberVoice};
+        let member = MemberVoice { language: "de", voice_file: "/home/me/me.wav", voice_transcript: "Hallo.", wake_phrase: "Hey Jarvis" };
+        let own = Stored { language: Some("en".into()), clip_id: Some("c-1".into()), clip_name: Some("sloppy.wav".into()), transcript: Some("Hi.".into()), wake_phrase: Some("Hey Sloppy".into()) };
+        let resolved = agent_voice_of(Some("agent"), "Sloppy", &own, &member);
+        let here = voice_inputs(&resolved, |id| (id == "c-1").then(|| PathBuf::from("/data/voice-clips/c-1.wav")));
+        assert_eq!(here.voice, etalk::VoiceChoice { language: "en".into(), file: "/data/voice-clips/c-1.wav".into(), transcript: "Hi.".into() });
+        assert_eq!(here.wake_phrase, "Hey Sloppy");
+        let fetching = voice_inputs(&resolved, |_| None);
+        assert_eq!(fetching.voice, etalk::VoiceChoice { language: "en".into(), file: String::new(), transcript: String::new() });
+        let assistant = agent_voice_of(Some("assistant"), "Bro", &Stored::default(), &member);
+        let path = voice_inputs(&assistant, |_| None);
+        assert_eq!(path.voice, etalk::VoiceChoice { language: "de".into(), file: "/home/me/me.wav".into(), transcript: "Hallo.".into() });
+        assert_eq!(path.wake_phrase, "Hey Jarvis");
+        let team = agent_voice_of(Some("agent"), "Sloppy", &Stored::default(), &member);
+        assert_eq!(voice_inputs(&team, |_| None).voice, etalk::VoiceChoice { language: "de".into(), ..Default::default() });
+        assert_eq!(clip_file(Path::new("/d"), "c-1"), Some(PathBuf::from("/d/c-1.wav")));
+        assert_eq!(clip_file(Path::new("/d"), "../x"), None);
+    }
 
     /// meeting.json FLUSH: a refusal (4xx) drops the batch, never requeued;
     /// a transport error or 5xx retries.

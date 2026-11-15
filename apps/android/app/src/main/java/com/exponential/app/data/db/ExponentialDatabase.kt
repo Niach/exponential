@@ -109,7 +109,9 @@ import androidx.room.TypeConverters
     // v128 (#EXP-1832, sidebar-folders.json): the `sidebar_layout` table (the
     //      member's folders, read-only on phones), explicit
     //      [MIGRATION_127_128]; the new shape starts fresh.
-    version = 128,
+    // v129 (#EXP-1847): agents.voice (the agent's own voice), explicit
+    //      [MIGRATION_128_129]; only the agents shape refetches.
+    version = 129,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

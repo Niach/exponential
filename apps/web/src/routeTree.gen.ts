@@ -113,6 +113,7 @@ import { Route as TTeamSlugTeamRouteImport } from './routes/t/$teamSlug/team'
 import { Route as Char91DotwellKnownChar93OauthAuthorizationServerApiAuthRouteImport } from './routes/[.well-known]/oauth-authorization-server_/api/auth'
 import { Route as AuthenticatedAdminTeamsTeamIdRouteImport } from './routes/_authenticated/admin/teams_.$teamId'
 import { Route as AuthenticatedAdminUsersUserIdRouteImport } from './routes/_authenticated/admin/users_.$userId'
+import { Route as ApiAgentsAgentIdVoiceClipRouteImport } from './routes/api/agents/$agentId/voice-clip'
 import { Route as ApiAppsAppIdFilesRouteImport } from './routes/api/apps/$appId/files'
 import { Route as ApiCliInstallTokenRedeemRouteImport } from './routes/api/cli/install-token/redeem'
 import { Route as ApiDownloadDesktopOsRouteImport } from './routes/api/download/desktop/$os'
@@ -709,6 +710,12 @@ const AuthenticatedAdminUsersUserIdRoute =
     path: '/users/$userId',
     getParentRoute: () => AuthenticatedAdminRouteRoute,
   } as any)
+const ApiAgentsAgentIdVoiceClipRoute =
+  ApiAgentsAgentIdVoiceClipRouteImport.update({
+    id: '/api/agents/$agentId/voice-clip',
+    path: '/api/agents/$agentId/voice-clip',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiAppsAppIdFilesRoute = ApiAppsAppIdFilesRouteImport.update({
   id: '/api/apps/$appId/files',
   path: '/api/apps/$appId/files',
@@ -1140,6 +1147,7 @@ export interface FileRoutesByFullPath {
   '/.well-known/oauth-authorization-server/api/auth': typeof Char91DotwellKnownChar93OauthAuthorizationServerApiAuthRoute
   '/admin/teams/$teamId': typeof AuthenticatedAdminTeamsTeamIdRoute
   '/admin/users/$userId': typeof AuthenticatedAdminUsersUserIdRoute
+  '/api/agents/$agentId/voice-clip': typeof ApiAgentsAgentIdVoiceClipRoute
   '/api/apps/$appId/files': typeof ApiAppsAppIdFilesRoute
   '/api/cli/install-token/redeem': typeof ApiCliInstallTokenRedeemRoute
   '/api/download/desktop/$os': typeof ApiDownloadDesktopOsRoute
@@ -1300,6 +1308,7 @@ export interface FileRoutesByTo {
   '/.well-known/oauth-authorization-server/api/auth': typeof Char91DotwellKnownChar93OauthAuthorizationServerApiAuthRoute
   '/admin/teams/$teamId': typeof AuthenticatedAdminTeamsTeamIdRoute
   '/admin/users/$userId': typeof AuthenticatedAdminUsersUserIdRoute
+  '/api/agents/$agentId/voice-clip': typeof ApiAgentsAgentIdVoiceClipRoute
   '/api/apps/$appId/files': typeof ApiAppsAppIdFilesRoute
   '/api/cli/install-token/redeem': typeof ApiCliInstallTokenRedeemRoute
   '/api/download/desktop/$os': typeof ApiDownloadDesktopOsRoute
@@ -1465,6 +1474,7 @@ export interface FileRoutesById {
   '/.well-known/oauth-authorization-server_/api/auth': typeof Char91DotwellKnownChar93OauthAuthorizationServerApiAuthRoute
   '/_authenticated/admin/teams_/$teamId': typeof AuthenticatedAdminTeamsTeamIdRoute
   '/_authenticated/admin/users_/$userId': typeof AuthenticatedAdminUsersUserIdRoute
+  '/api/agents/$agentId/voice-clip': typeof ApiAgentsAgentIdVoiceClipRoute
   '/api/apps/$appId/files': typeof ApiAppsAppIdFilesRoute
   '/api/cli/install-token/redeem': typeof ApiCliInstallTokenRedeemRoute
   '/api/download/desktop/$os': typeof ApiDownloadDesktopOsRoute
@@ -1630,6 +1640,7 @@ export interface FileRouteTypes {
     | '/.well-known/oauth-authorization-server/api/auth'
     | '/admin/teams/$teamId'
     | '/admin/users/$userId'
+    | '/api/agents/$agentId/voice-clip'
     | '/api/apps/$appId/files'
     | '/api/cli/install-token/redeem'
     | '/api/download/desktop/$os'
@@ -1790,6 +1801,7 @@ export interface FileRouteTypes {
     | '/.well-known/oauth-authorization-server/api/auth'
     | '/admin/teams/$teamId'
     | '/admin/users/$userId'
+    | '/api/agents/$agentId/voice-clip'
     | '/api/apps/$appId/files'
     | '/api/cli/install-token/redeem'
     | '/api/download/desktop/$os'
@@ -1954,6 +1966,7 @@ export interface FileRouteTypes {
     | '/.well-known/oauth-authorization-server_/api/auth'
     | '/_authenticated/admin/teams_/$teamId'
     | '/_authenticated/admin/users_/$userId'
+    | '/api/agents/$agentId/voice-clip'
     | '/api/apps/$appId/files'
     | '/api/cli/install-token/redeem'
     | '/api/download/desktop/$os'
@@ -2100,6 +2113,7 @@ export interface RootRouteChildren {
   ApiWidgetSubmitRoute: typeof ApiWidgetSubmitRoute
   ApiMonitoringIndexRoute: typeof ApiMonitoringIndexRoute
   Char91DotwellKnownChar93OauthAuthorizationServerApiAuthRoute: typeof Char91DotwellKnownChar93OauthAuthorizationServerApiAuthRoute
+  ApiAgentsAgentIdVoiceClipRoute: typeof ApiAgentsAgentIdVoiceClipRoute
   ApiAppsAppIdFilesRoute: typeof ApiAppsAppIdFilesRoute
   ApiCliInstallTokenRedeemRoute: typeof ApiCliInstallTokenRedeemRoute
   ApiDownloadDesktopOsRoute: typeof ApiDownloadDesktopOsRoute
@@ -2843,6 +2857,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminUsersUserIdRouteImport
       parentRoute: typeof AuthenticatedAdminRouteRoute
     }
+    '/api/agents/$agentId/voice-clip': {
+      id: '/api/agents/$agentId/voice-clip'
+      path: '/api/agents/$agentId/voice-clip'
+      fullPath: '/api/agents/$agentId/voice-clip'
+      preLoaderRoute: typeof ApiAgentsAgentIdVoiceClipRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/apps/$appId/files': {
       id: '/api/apps/$appId/files'
       path: '/api/apps/$appId/files'
@@ -3532,6 +3553,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiMonitoringIndexRoute: ApiMonitoringIndexRoute,
   Char91DotwellKnownChar93OauthAuthorizationServerApiAuthRoute:
     Char91DotwellKnownChar93OauthAuthorizationServerApiAuthRoute,
+  ApiAgentsAgentIdVoiceClipRoute: ApiAgentsAgentIdVoiceClipRoute,
   ApiAppsAppIdFilesRoute: ApiAppsAppIdFilesRoute,
   ApiCliInstallTokenRedeemRoute: ApiCliInstallTokenRedeemRoute,
   ApiDownloadDesktopOsRoute: ApiDownloadDesktopOsRoute,

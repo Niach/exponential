@@ -942,6 +942,20 @@ export function triggerWhenPart(trigger: AgentTrigger): TriggerWhen {
   return { kind: `event`, name: trigger.name }
 }
 
+/** #EXP-1847 (agent-settings.json `voice`): an agent's own voice. Every key
+ *  optional: absent = the member's voice settings (`agentVoiceOf`). */
+export interface AgentVoice {
+  /** etalk voice.json `languages` value. */
+  language?: `en` | `de`
+  /** The reference clip's `attachments` row and its file name. */
+  clipId?: string
+  clipName?: string
+  /** What the clip says. */
+  transcript?: string
+  /** Empty = `Hey {agent}`. */
+  wakePhrase?: string
+}
+
 /** NEW-2: the server's per-trigger bookkeeping on `agents.trigger_state`
  *  (SERVER-ONLY): `checkedAt` = the last tick that evaluated the schedule,
  *  `firedAt` = its last firing, `paused` (#EXP-1829) = why a run trigger

@@ -15,6 +15,7 @@ import {
   ASSISTANT_SCHEDULES,
   assigneeOptions,
   assistantScheduleOf,
+  agentVoiceOf,
   checkInOf,
   checkInProblem,
   legacyCheckIn,
@@ -145,6 +146,14 @@ describe(`agent-settings.json checkIn (#EXP-1846)`, () => {
     expect(checkInProblem([{ kind: `schedule`, cron: `0 * * * *`, preset: `1h` }, { kind: `schedule`, cron: `0 9 * * *`, preset: `daily` }])).not.toBeNull()
     expect(checkInProblem([{ kind: `schedule`, cron: `*/10 * * * *`, preset: `1h` }])).not.toBeNull()
   })
+})
+
+describe(`agent-settings.json voice (#EXP-1847)`, () => {
+  for (const c of fixture.voice.voiceOfCases) {
+    it(`voiceOfCases: ${c.name}`, () => {
+      expect(agentVoiceOf(c.agent, c.member)).toEqual(c.expected as never)
+    })
+  }
 })
 
 describe(`coordinator (#EXP-1717)`, () => {

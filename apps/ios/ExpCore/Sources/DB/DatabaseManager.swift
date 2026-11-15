@@ -3367,6 +3367,24 @@ public final class DatabaseManager: @unchecked Sendable {
             try createSidebarLayoutTable(db)
         }
 
+        // v109 (#EXP-1847): `agents.voice` (jsonb text, "{}" = the member's
+        // voice), mcp_server_ids' twin: the agents cursor resets only when
+        // the column was added, so synced definitions re-arrive carrying it.
+        migrator.registerMigration("v109_agent_voice") { db in
+            guard try db.tableExists("agents") else { return }
+            guard try db.columns(in: "agents").contains(where: { $0.name == "voice" }) == false else { return }
+            try db.alter(table: "agents") { t in
+                t.add(column: "voice", .text).notNull().defaults(to: "{}")
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'agents'
+                    """)
+            }
+        }
+
         return migrator
     }
 

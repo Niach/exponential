@@ -576,6 +576,100 @@ class AgentSettingsTest {
         }
     }
 
+    // #EXP-1847: every agent's own voice (`voice.*`, TS `agent-settings.test.ts`).
+    private val voice: JsonObject get() = fixture.getValue("voice").jsonObject
+
+    @Test
+    fun `voice rows, copy, clip upload and limits are the fixture's`() {
+        assertEquals(voice.getValue("rows").jsonArray.map { it.jsonPrimitive.content }, AgentVoiceSection.ROWS)
+        val page = fixture.getValue("page").jsonObject.getValue("sections").jsonArray.map { it.jsonObject }
+        assertEquals(
+            page.first { it.str("id") == AgentSettings.SECTION_VOICE }.getValue("rows").jsonArray.map { it.jsonPrimitive.content },
+            AgentVoiceSection.ROWS,
+        )
+        val copy = voice.getValue("copy").jsonObject
+        assertEquals(copy.str("label"), AgentVoiceSection.Copy.LABEL)
+        assertEquals(copy.str("language"), AgentVoiceSection.Copy.LANGUAGE)
+        assertEquals(copy.str("clip"), AgentVoiceSection.Copy.CLIP)
+        assertEquals(copy.str("clipBuiltIn"), AgentVoiceSection.Copy.CLIP_BUILT_IN)
+        assertEquals(copy.str("clipUpload"), AgentVoiceSection.Copy.CLIP_UPLOAD)
+        assertEquals(copy.str("clipRemove"), AgentVoiceSection.Copy.CLIP_REMOVE)
+        assertEquals(copy.str("transcript"), AgentVoiceSection.Copy.TRANSCRIPT)
+        assertEquals(copy.str("transcriptPlaceholder"), AgentVoiceSection.Copy.TRANSCRIPT_PLACEHOLDER)
+        assertEquals(copy.str("wakePhrase"), AgentVoiceSection.Copy.WAKE_PHRASE)
+        assertEquals(copy.str("wakePhrasePlaceholder"), AgentVoiceSection.Copy.WAKE_PHRASE_PLACEHOLDER)
+        val errors = copy.getValue("errors").jsonObject
+        assertEquals(errors.str("clipType"), AgentVoiceSection.Copy.ERROR_CLIP_TYPE)
+        assertEquals(errors.str("clipSize"), AgentVoiceSection.Copy.ERROR_CLIP_SIZE)
+        val upload = voice.getValue("clipUpload").jsonObject
+        assertEquals(upload.str("route"), AgentVoiceSection.ClipUpload.ROUTE)
+        assertEquals(upload.getValue("accept").jsonArray.map { it.jsonPrimitive.content }, AgentVoiceSection.ClipUpload.ACCEPT)
+        assertEquals(upload.str("maxBytes")!!.toLong(), AgentVoiceSection.ClipUpload.MAX_BYTES)
+        val limits = voice.getValue("limits").jsonObject
+        assertEquals(limits.str("transcript")!!.toInt(), AgentVoiceSection.Limits.TRANSCRIPT)
+        assertEquals(limits.str("wakePhrase")!!.toInt(), AgentVoiceSection.Limits.WAKE_PHRASE)
+        assertEquals(limits.str("wakePhraseMinLetters")!!.toInt(), AgentVoiceSection.Limits.WAKE_PHRASE_MIN_LETTERS)
+        // The wake phrase error rule is voice.json's (Voice.wakePhraseError).
+        assertEquals(AgentVoiceSection.Limits.WAKE_PHRASE, Voice.Limits.WAKE_PHRASE)
+        assertEquals(AgentVoiceSection.Limits.WAKE_PHRASE_MIN_LETTERS, Voice.Limits.WAKE_PHRASE_MIN_LETTERS)
+        assertEquals("/api/agents/a1/voice-clip", AgentVoiceSection.clipUploadPath("a1"))
+        assertEquals("Hey Sloppy", AgentVoiceSection.wakePhrasePlaceholder("Sloppy"))
+    }
+
+    @Test
+    fun `voice voiceOfCases`() {
+        val cases = voice.getValue("voiceOfCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val agent = case.getValue("agent").jsonObject
+            val member = case.getValue("member").jsonObject
+            val resolved = agentVoiceOf(
+                role = agent.str("role"),
+                name = agent.str("name")!!,
+                voice = AgentVoiceLike.of(agent.getValue("voice").jsonObject),
+                member = MemberVoiceLike(
+                    language = member.str("language")!!,
+                    voiceFile = member.str("voiceFile")!!,
+                    voiceTranscript = member.str("voiceTranscript")!!,
+                    wakePhrase = member.str("wakePhrase")!!,
+                ),
+            )
+            val encoded = buildJsonObject {
+                put("language", resolved.language)
+                put(
+                    "clip",
+                    when (val clip = resolved.clip) {
+                        null -> JsonNull
+                        is AgentVoiceClip.Attachment -> buildJsonObject { put("attachmentId", clip.attachmentId) }
+                        is AgentVoiceClip.Path -> buildJsonObject { put("path", clip.path) }
+                    },
+                )
+                put("clipLabel", resolved.clipLabel)
+                put("transcript", resolved.transcript)
+                put("wakePhrase", resolved.wakePhrase)
+            }
+            assertEquals(case.str("name"), case.getValue("expected"), encoded)
+        }
+    }
+
+    @Test
+    fun `a picked clip is refused when too large or not a WAV`() {
+        assertEquals(null, AgentVoiceSection.clipRefusal("audio/wav", "me.wav", 1_000))
+        assertEquals(null, AgentVoiceSection.clipRefusal("audio/x-wav", "me", 1_000))
+        assertEquals(null, AgentVoiceSection.clipRefusal(null, "me.wav", null))
+        assertEquals(null, AgentVoiceSection.clipRefusal("application/octet-stream", "clip", 10))
+        assertEquals(null, AgentVoiceSection.clipRefusal("audio/vnd.wave", "Clip.WAV", 10))
+        assertEquals(AgentVoiceSection.Copy.ERROR_CLIP_TYPE, AgentVoiceSection.clipRefusal("audio/mpeg", "me.mp3", 10))
+        assertEquals(
+            AgentVoiceSection.Copy.ERROR_CLIP_SIZE,
+            AgentVoiceSection.clipRefusal("audio/wav", "me.wav", AgentVoiceSection.ClipUpload.MAX_BYTES + 1),
+        )
+        assertEquals(null, AgentVoiceSection.clipRefusal("audio/wav", "me.wav", AgentVoiceSection.ClipUpload.MAX_BYTES))
+        assertEquals("audio/x-wav", AgentVoiceSection.clipContentType("audio/x-wav"))
+        assertEquals("audio/wav", AgentVoiceSection.clipContentType("application/octet-stream"))
+        assertEquals("audio/wav", AgentVoiceSection.clipContentType(null))
+    }
+
     // #EXP-1850 (`detailCases`): a `run` trigger's second line, off the case
     // and off the PARSED stored trigger.
     @Test

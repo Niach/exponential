@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-15-voice-per-agent",
+    date: "2026-11-15",
+    title: "Every agent gets its own voice",
+    summary: "Each agent's settings page has a Voice group: its language, a voice clip, the clip's transcript and its wake phrase. Your voice device speaks each agent's replies in that voice.",
+    body: r##"- **Voice per agent**: every agent's settings page, team agents and the Assistant, has a Voice group with the language, a voice clip (a WAV upload you can remove again), what the clip says and the wake phrase.
+- **Spoken in its voice**: your voice device reads each agent's replies and calls in that agent's own voice. Rows you leave empty use your own voice settings."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_302: ChangelogEntry = ChangelogEntry {
     id: "2026-11-15-desktop-events-tab-key-reseal",
     date: "2026-11-15",
     title: "The Events tab, one chat per app and sturdier agent chats on the desktop",

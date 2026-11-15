@@ -965,7 +965,15 @@ final class StyleguideScreenshots: XCTestCase {
             // The editor mounts only once `sessions.getAgent` answered
             // (a failure draws a retry instead), so it IS the content gate.
             let instructions = anyElement(app, identified: "agent-instructions")
+            // #EXP-1847: the Voice section pushed the card below the fold and
+            // the List builds a row only once scrolled near: scroll down to
+            // it, gate, then back to the page's top for the shot.
+            for _ in 0..<6 where !instructions.exists {
+                app.swipeUp()
+                _ = instructions.waitForExistence(timeout: 1)
+            }
             expect(instructions, within: Wait.network, "\(Self.agentName)'s instructions never loaded (sessions.getAgent)")
+            for _ in 0..<6 { app.swipeDown() }
             snapshot("sg_settings-team-agent", settle: 2)
             goBack(app)
             expect(agentRow, within: Wait.nav, "Did not return to the Agents page")

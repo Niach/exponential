@@ -17,6 +17,7 @@ import {
   FEEDBACK_WORDS,
   FieldError,
   GlassGroup,
+  GlassInputRow,
   GlassSectionHeader,
   ListRow,
   ModelPicker,
@@ -76,6 +77,9 @@ import {
 import { accountOptionsOf } from "@/components/launch-dialog/use-launch-options"
 import agentSettingsFixture from "@exp/domain-contract/fixtures/agent-settings.json"
 import {
+  AGENT_VOICE,
+  AGENT_VOICE_COPY,
+  agentVoiceOf,
   ASSISTANT_COPY,
   LEAD,
   LEAD_COPY,
@@ -87,6 +91,7 @@ import {
 import { modelChoices } from "@/components/launch-dialog/launch-options-pane"
 import { VoiceSettingsSection, type VoiceSettings } from "@/components/account/voice-settings-card"
 import { AssistantMark } from "@/components/team/assistant-mark"
+import { languageLabel, VOICE_LANGUAGES, voiceTextInput, wakePhraseError } from "@exp/etalk/voice"
 import { skillPickerItems } from "@/components/launch-dialog/skill-picker"
 import { useSkills } from "@/hooks/use-skills"
 import { agentSkillsValue, SKILLS } from "@exp/domain-contract/skills"
@@ -240,12 +245,15 @@ export function AgentSettingsPage({
   // #EXP-1846 (agent-settings.json `page`): ONE page for the Assistant and
   // every team agent: identity, Runs on (device, account, model, skills, MCP
   // servers), Triggers (`AgentTriggers`: Check in + the list), then Voice
-  // (the Assistant only), Instructions + Delete (team agents only; #EXP-1439:
+  // (#EXP-1847: every agent), Instructions + Delete (team agents only; #EXP-1439:
   // the Assistant's prompt is built in). Only its owner reaches an Assistant
   // (the server answers NOT_FOUND to anyone else), so it is never read-only.
   const assistant = agent?.role === `assistant`
   const readOnly = assistant ? false : !isOwner
   const devices = useAgentDevices(team.id)
+  // #EXP-1847: the member's voice settings, every agent's voice fallback
+  // (`agentVoiceOf`), read once per page.
+  const memberVoice = useMemberVoice(!creating)
 
   // ── identity ──
   // Name is the one deferred write (blur/Enter), like the board page; the
@@ -806,7 +814,13 @@ export function AgentSettingsPage({
 
       <AgentTriggers triggers={triggers} readOnly={readOnly} onWrite={writeTriggers} />
 
-      {assistant && agentId && <AssistantVoiceSection assistantId={agentId} />}
+      {agent && (
+        <AgentVoiceSection agent={agent} member={memberVoice} readOnly={readOnly}>
+          {assistant && memberVoice.settings && (
+            <VoiceSettingsSection settings={memberVoice.settings} assistantId={agent.id} memberRowsOnly />
+          )}
+        </AgentVoiceSection>
+      )}
 
       {!assistant && (
         <div className="space-y-1">
@@ -894,11 +908,9 @@ export function AgentSettingsPage({
   )
 }
 
-/** S-3: the Assistant page's Voice section, the voice settings block MOVED
- *  here (agent-settings.json `assistant.sections`), minus its Voice device
- *  and Agent rows. Loads the member's voice settings on open; a failed load
- *  offers Retry (feedback-states.json). */
-function AssistantVoiceSection({ assistantId }: { assistantId: string }) {
+/** #EXP-1847: the member's voice settings (`voice.get`), the fallback of
+ *  every agent's voice. A failed load offers Retry (feedback-states.json). */
+function useMemberVoice(enabled: boolean) {
   const [settings, setSettings] = useState<VoiceSettings | null>(null)
   const [failed, setFailed] = useState(false)
   const load = useCallback((retried = false) => {
@@ -911,17 +923,64 @@ function AssistantVoiceSection({ assistantId }: { assistantId: string }) {
         if (retried) failedAction(`load`, `the voice settings`, err, { retry: () => load(true) })
       })
   }, [])
-  useEffect(() => load(), [load])
+  useEffect(() => {
+    if (enabled) load()
+  }, [enabled, load])
+  return { settings, failed, retry: () => load(true) }
+}
+
+type MemberVoice = ReturnType<typeof useMemberVoice>
+
+const AGENT_VOICE_TEST_IDS = {
+  section: `agent-voice`,
+  language: `agent-voice-language`,
+  clip: `agent-voice-clip`,
+  clipRemove: `agent-voice-clip-remove`,
+  transcript: `agent-voice-transcript`,
+  wakePhrase: `agent-voice-wake-phrase`,
+} as const
+
+const agentVoiceClipPath = (agentId: string) =>
+  AGENT_VOICE.clipUpload.route.replace(`{agentId}`, encodeURIComponent(agentId))
+
+/** The route's `{error}` (the fixture's copy), else a plain failure. */
+async function clipRequest(agentId: string, init: RequestInit) {
+  const response = await fetch(agentVoiceClipPath(agentId), { ...init, credentials: `same-origin` })
+  if (!response.ok) {
+    const result = (await response.json().catch(() => null)) as { error?: string } | null
+    throw new Error(result?.error ?? `Upload failed`)
+  }
+}
+
+/** #EXP-1847 (agent-settings.json `voice`): every agent's Voice section,
+ *  right after Triggers: Language, Voice (the uploaded clip; Built-in in the row's usual value colour), Transcript,
+ *  Wake phrase over `agentVoiceOf(agent, member)`. The Assistant's member
+ *  rows (push to talk, wake word, meetings) follow as `children`. */
+function AgentVoiceSection({
+  agent,
+  member,
+  readOnly,
+  children,
+}: {
+  agent: SyncedAgent
+  member: MemberVoice
+  readOnly: boolean
+  children?: React.ReactNode
+}) {
+  const settings = member.settings
   return (
-    <div data-testid="assistant-voice">
-      <GlassSectionHeader label={ASSISTANT_COPY.voice} />
+    <div className="space-y-2" data-testid={AGENT_VOICE_TEST_IDS.section}>
+      <GlassSectionHeader label={AGENT_VOICE_COPY.label} />
       {settings ? (
-        <VoiceSettingsSection settings={settings} assistantId={assistantId} />
-      ) : failed ? (
+        <>
+          <AgentVoiceRows agent={agent} member={settings} readOnly={readOnly} />
+          {children}
+        </>
+      ) : member.failed ? (
         <GlassGroup>
           <div className="flex items-center gap-3 px-4 py-3 text-sm text-muted-foreground">
             <span className="min-w-0 flex-1">Voice settings unavailable</span>
-            <Button type="button" variant="outline" size="sm" onClick={() => load(true)}>
+            <Button type="button" variant="outline" size="sm" onClick={member.retry}>
               {FEEDBACK_ERRORS.retry}
             </Button>
           </div>
@@ -930,6 +989,208 @@ function AssistantVoiceSection({ assistantId }: { assistantId: string }) {
         <SkeletonRows dot={false} className="py-1" />
       )}
     </div>
+  )
+}
+
+type VoiceTextField = `transcript` | `wakePhrase`
+
+function AgentVoiceRows({
+  agent,
+  member,
+  readOnly,
+}: {
+  agent: SyncedAgent
+  member: VoiceSettings
+  readOnly: boolean
+}) {
+  const voice = agent.voice ?? {}
+  // A just-picked language / uploaded clip shows until the synced row agrees.
+  const [pickedLanguage, setPickedLanguage] = useState<string | null>(null)
+  const [clip, setClip] = useState<{ clipId: string; clipName: string } | null | undefined>(undefined)
+  const [clipBusy, setClipBusy] = useState(false)
+  useEffect(() => setPickedLanguage(null), [voice.language])
+  useEffect(() => setClip(undefined), [voice.clipId, voice.clipName])
+
+  const shown = {
+    ...voice,
+    ...(pickedLanguage ? { language: pickedLanguage as typeof voice.language } : {}),
+    ...(clip === undefined ? {} : clip === null ? { clipId: undefined, clipName: undefined } : clip),
+  }
+  const resolved = agentVoiceOf({ role: agent.role, name: agent.name, voice: shown }, member)
+
+  // The text rows: typed locally, saved on blur / Enter.
+  const [text, setText] = useState<Record<VoiceTextField, string>>({
+    transcript: resolved.transcript,
+    wakePhrase: resolved.wakePhrase,
+  })
+  const [wakePhraseInvalid, setWakePhraseInvalid] = useState<string | null>(null)
+  useEffect(() => setText((current) => ({ ...current, transcript: resolved.transcript })), [resolved.transcript])
+  useEffect(() => setText((current) => ({ ...current, wakePhrase: resolved.wakePhrase })), [resolved.wakePhrase])
+
+  type VoicePatch = NonNullable<Parameters<typeof trpc.agents.update.mutate>[0][`voice`]>
+  const update = (patch: VoicePatch, revert: () => void) =>
+    trpc.agents.update.mutate({ id: agent.id, voice: patch }, SKIP_ERROR_TOAST).catch((err: unknown) => {
+      revert()
+      failedAction(`save`, `the agent's voice`, err)
+    })
+
+  const pickLanguage = (language: string | null) => {
+    if (language === null || language === resolved.language) return
+    setPickedLanguage(language)
+    void update({ language: language as VoicePatch[`language`] }, () => setPickedLanguage(null))
+  }
+
+  const limits: Record<VoiceTextField, number> = {
+    transcript: AGENT_VOICE.limits.transcript,
+    wakePhrase: AGENT_VOICE.limits.wakePhrase,
+  }
+  const editText = (field: VoiceTextField, raw: string) => {
+    setText((current) => ({ ...current, [field]: voiceTextInput(raw, limits[field]) }))
+    if (field === `wakePhrase`) setWakePhraseInvalid(null)
+  }
+  const saveText = (field: VoiceTextField) => {
+    const trimmed = text[field].trim()
+    if (field === `wakePhrase`) {
+      const invalid = wakePhraseError(trimmed)
+      if (invalid) {
+        setWakePhraseInvalid(invalid)
+        return
+      }
+    }
+    if (trimmed === resolved[field].trim()) return
+    const previous = resolved[field]
+    void update({ [field]: trimmed === `` ? null : trimmed }, () =>
+      setText((current) => ({ ...current, [field]: previous }))
+    )
+  }
+  const enterSaves = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === `Enter`) event.currentTarget.blur()
+  }
+
+  // The clip: a press opens the file picker; uploads go through the route.
+  const fileInput = useRef<HTMLInputElement | null>(null)
+  const uploadClip = async (file: File) => {
+    setClipBusy(true)
+    try {
+      const body = new FormData()
+      body.append(`file`, file)
+      const response = await fetch(agentVoiceClipPath(agent.id), {
+        method: `POST`,
+        body,
+        credentials: `same-origin`,
+      })
+      const result = (await response.json().catch(() => null)) as
+        | { clipId?: string; clipName?: string; error?: string }
+        | null
+      if (!response.ok || !result?.clipId) throw new Error(result?.error ?? `Upload failed`)
+      setClip({ clipId: result.clipId, clipName: result.clipName ?? file.name })
+    } catch (err) {
+      failedAction(`upload`, `the voice clip`, err, { retry: () => void uploadClip(file) })
+    } finally {
+      setClipBusy(false)
+    }
+  }
+  const removeClip = async () => {
+    setClipBusy(true)
+    try {
+      await clipRequest(agent.id, { method: `DELETE` })
+      setClip(null)
+    } catch (err) {
+      failedAction(`remove`, `the voice clip`, err, { retry: () => void removeClip() })
+    } finally {
+      setClipBusy(false)
+    }
+  }
+  const ownClip = Boolean(shown.clipId)
+
+  const languageItems = VOICE_LANGUAGES.map((language) => ({
+    value: language.value,
+    label: languageLabel(language.value, null),
+  }))
+
+  return (
+    <>
+      <GlassGroup>
+        <Picker
+          mode="single"
+          triggerVariant="row"
+          triggerLabel={AGENT_VOICE_COPY.language}
+          width="md"
+          mobileTitle={AGENT_VOICE_COPY.language}
+          data-testid={AGENT_VOICE_TEST_IDS.language}
+          value={resolved.language}
+          items={languageItems}
+          onChange={pickLanguage}
+          disabled={readOnly}
+        />
+        <div className="flex items-center">
+          <input
+            ref={fileInput}
+            type="file"
+            hidden
+            accept={[`.wav`, ...AGENT_VOICE.clipUpload.accept].join(`,`)}
+            data-testid={`${AGENT_VOICE_TEST_IDS.clip}-input`}
+            onChange={(event) => {
+              const file = event.target.files?.[0]
+              event.target.value = ``
+              if (file) void uploadClip(file)
+            }}
+          />
+          <PickerTrigger
+            variant="row"
+            label={AGENT_VOICE_COPY.clip}
+            value={resolved.clipLabel}
+            title={AGENT_VOICE_COPY.clipUpload}
+            className="min-w-0 flex-1"
+            disabled={readOnly || clipBusy}
+            data-testid={AGENT_VOICE_TEST_IDS.clip}
+            onClick={() => fileInput.current?.click()}
+          />
+          {ownClip && !readOnly && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="mr-3 size-7 shrink-0 text-muted-foreground"
+              disabled={clipBusy}
+              aria-label={AGENT_VOICE_COPY.clipRemove}
+              title={AGENT_VOICE_COPY.clipRemove}
+              data-testid={AGENT_VOICE_TEST_IDS.clipRemove}
+              onClick={() => void removeClip()}
+            >
+              <UiDeleteIcon className="size-4" />
+            </Button>
+          )}
+        </div>
+        <GlassInputRow
+          id={AGENT_VOICE_TEST_IDS.transcript}
+          data-testid={AGENT_VOICE_TEST_IDS.transcript}
+          label={AGENT_VOICE_COPY.transcript}
+          placeholder={AGENT_VOICE_COPY.transcriptPlaceholder}
+          value={text.transcript}
+          readOnly={readOnly}
+          onChange={(event) => editText(`transcript`, event.target.value)}
+          onBlur={() => !readOnly && saveText(`transcript`)}
+          onKeyDown={enterSaves}
+        />
+        <GlassInputRow
+          id={AGENT_VOICE_TEST_IDS.wakePhrase}
+          data-testid={AGENT_VOICE_TEST_IDS.wakePhrase}
+          label={AGENT_VOICE_COPY.wakePhrase}
+          placeholder={AGENT_VOICE_COPY.wakePhrasePlaceholder.replace(`{agent}`, agent.name)}
+          aria-invalid={wakePhraseInvalid !== null || undefined}
+          aria-describedby={wakePhraseInvalid === null ? undefined : `${AGENT_VOICE_TEST_IDS.wakePhrase}-error`}
+          value={text.wakePhrase}
+          readOnly={readOnly}
+          onChange={(event) => editText(`wakePhrase`, event.target.value)}
+          onBlur={() => !readOnly && saveText(`wakePhrase`)}
+          onKeyDown={enterSaves}
+        />
+      </GlassGroup>
+      <FieldError id={`${AGENT_VOICE_TEST_IDS.wakePhrase}-error`} className="px-1">
+        {wakePhraseInvalid}
+      </FieldError>
+    </>
   )
 }
 

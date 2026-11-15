@@ -780,6 +780,197 @@ pub fn lead_options<T>(members: impl IntoIterator<Item = T>, member: impl Fn(&T)
     sorted
 }
 
+// ---------------------------------------------------------------------------
+// #EXP-1847: EVERY agent's own voice (`voice` in the fixture; TS
+// `agentVoiceOf`). Replays `voiceOfCases`. The agent's `voice` jsonb
+// (`{language?, clipId?, clipName?, transcript?, wakePhrase?}`, `{}` = the
+// member's) resolved against the member's voice settings.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentVoiceErrors {
+    pub clip_type: String,
+    pub clip_size: String,
+}
+
+/// The Voice section's copy (`voice.copy`).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentVoiceCopy {
+    pub label: String,
+    pub language: String,
+    pub clip: String,
+    pub clip_built_in: String,
+    pub clip_upload: String,
+    pub clip_remove: String,
+    pub transcript: String,
+    pub transcript_placeholder: String,
+    pub wake_phrase: String,
+    /// `Hey {agent}`.
+    pub wake_phrase_placeholder: String,
+    pub errors: AgentVoiceErrors,
+}
+
+/// `voice.clipUpload`: the clip's route (`{agentId}`), the accepted types
+/// and the byte cap.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentVoiceClipUpload {
+    pub route: String,
+    pub accept: Vec<String>,
+    pub max_bytes: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentVoiceLimits {
+    pub transcript: usize,
+    pub wake_phrase: usize,
+    pub wake_phrase_min_letters: usize,
+}
+
+/// `fixtures/agent-settings.json` `voice` minus its cases.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentVoiceSpec {
+    /// `language`, `clip`, `transcript`, `wake-phrase`.
+    pub rows: Vec<String>,
+    pub copy: AgentVoiceCopy,
+    pub clip_upload: AgentVoiceClipUpload,
+    pub limits: AgentVoiceLimits,
+}
+
+/// `voice` off the fixture.
+pub static AGENT_VOICE: LazyLock<AgentVoiceSpec> = LazyLock::new(|| {
+    let fixture: Value = serde_json::from_str(AGENT_SETTINGS_JSON).expect("agent-settings.json parses");
+    serde_json::from_value(fixture["voice"].clone()).expect("agent-settings.json voice parses")
+});
+
+/// An agent's stored voice (`agents.voice`, SYNCED jsonb). Every key is
+/// optional; a key that is absent, null, blank-less empty or not a string
+/// reads `None` (tolerant: a garbage cell is the member's voice).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentVoice {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub clip_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub clip_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transcript: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wake_phrase: Option<String>,
+}
+
+impl AgentVoice {
+    /// The jsonb cell (already JSON-decoded), tolerantly.
+    pub fn from_value(value: Option<&Value>) -> Self {
+        let key = |name: &str| -> Option<String> {
+            value
+                .and_then(|value| value.get(name))
+                .and_then(Value::as_str)
+                .filter(|text| !text.is_empty())
+                .map(str::to_string)
+        };
+        Self {
+            language: key("language"),
+            clip_id: key("clipId"),
+            clip_name: key("clipName"),
+            transcript: key("transcript"),
+            wake_phrase: key("wakePhrase"),
+        }
+    }
+}
+
+/// The member's voice settings `agent_voice_of` falls back to (voice.get).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MemberVoice<'a> {
+    pub language: &'a str,
+    pub voice_file: &'a str,
+    pub voice_transcript: &'a str,
+    pub wake_phrase: &'a str,
+}
+
+/// The clip an agent speaks with (None = the built-in voice).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AgentVoiceClip {
+    /// The agent's uploaded clip (`/api/attachments/{id}`).
+    Attachment(String),
+    /// The member's local `voiceFile` (the Assistant only).
+    Path(String),
+}
+
+/// TS `ResolvedAgentVoice`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedAgentVoice {
+    pub language: String,
+    pub clip: Option<AgentVoiceClip>,
+    /// The clip row's value (`copy.clipBuiltIn` when none).
+    pub clip_label: String,
+    pub transcript: String,
+    /// Empty = the detector and the placeholder read `Hey {name}`.
+    pub wake_phrase: String,
+}
+
+/// TS `agentVoiceOf` (`voiceOfCases`): the voice agent `role`/`voice`
+/// speaks with, against the member's settings. `_name` names the agent for
+/// the placeholder (`Hey {name}`), which reads it, not this.
+pub fn agent_voice_of(role: Option<&str>, _name: &str, voice: &AgentVoice, member: &MemberVoice<'_>) -> ResolvedAgentVoice {
+    let assistant = is_assistant_role(role);
+    let language = voice.language.clone().filter(|language| !language.is_empty()).unwrap_or_else(|| member.language.to_string());
+    let own_phrase = voice.wake_phrase.clone().filter(|phrase| !phrase.trim().is_empty());
+    let wake_phrase = own_phrase.unwrap_or_else(|| if assistant { member.wake_phrase.to_string() } else { String::new() });
+    if let Some(clip_id) = voice.clip_id.clone().filter(|id| !id.is_empty()) {
+        return ResolvedAgentVoice {
+            language,
+            clip: Some(AgentVoiceClip::Attachment(clip_id)),
+            clip_label: voice.clip_name.clone().filter(|name| !name.is_empty()).unwrap_or_else(|| AGENT_VOICE.copy.clip_built_in.clone()),
+            transcript: voice.transcript.clone().unwrap_or_default(),
+            wake_phrase,
+        };
+    }
+    if assistant && !member.voice_file.is_empty() {
+        let last = member.voice_file.rsplit(['/', '\\']).next().filter(|segment| !segment.is_empty()).unwrap_or(member.voice_file);
+        return ResolvedAgentVoice {
+            language,
+            clip: Some(AgentVoiceClip::Path(member.voice_file.to_string())),
+            clip_label: last.to_string(),
+            transcript: voice.transcript.clone().unwrap_or_else(|| member.voice_transcript.to_string()),
+            wake_phrase,
+        };
+    }
+    // The agent's own transcript reads back even before its clip is uploaded.
+    ResolvedAgentVoice { language, clip: None, clip_label: AGENT_VOICE.copy.clip_built_in.clone(), transcript: voice.transcript.clone().unwrap_or_default(), wake_phrase }
+}
+
+/// The clip route of `agent_id` (`clipUpload.route`).
+pub fn agent_voice_clip_route(agent_id: &str) -> String {
+    AGENT_VOICE.clip_upload.route.replace("{agentId}", agent_id)
+}
+
+/// The Transcript / Wake phrase placeholders (`{agent}` = the name).
+pub fn agent_wake_phrase_placeholder(name: &str) -> String {
+    AGENT_VOICE.copy.wake_phrase_placeholder.replace("{agent}", name)
+}
+
+/// Why a picked clip is refused before the upload (`copy.errors`): not a
+/// WAV (`accept`, or a `.wav` name when the type is unknown), or over
+/// `maxBytes`. `None` = it goes.
+pub fn agent_voice_clip_refusal(filename: &str, content_type: &str, len: u64) -> Option<String> {
+    let typed = AGENT_VOICE.clip_upload.accept.iter().any(|accept| accept.eq_ignore_ascii_case(content_type));
+    let named = filename.to_ascii_lowercase().ends_with(".wav");
+    if !typed && !named {
+        return Some(AGENT_VOICE.copy.errors.clip_type.clone());
+    }
+    if len > AGENT_VOICE.clip_upload.max_bytes {
+        return Some(AGENT_VOICE.copy.errors.clip_size.clone());
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1183,6 +1374,65 @@ mod tests {
             let expected: Vec<&str> = case["expected"].as_array().unwrap().iter().map(|id| id.as_str().unwrap()).collect();
             assert_eq!(ids, expected, "{}", case["name"]);
         }
+    }
+
+    #[test]
+    fn voice_of_cases_match_the_fixture() {
+        let fixture = fixture();
+        let block = &fixture["voice"];
+        assert_eq!(AGENT_VOICE.rows, vec!["language", "clip", "transcript", "wake-phrase"]);
+        assert_eq!(AGENT_VOICE.copy.label, block["copy"]["label"].as_str().unwrap());
+        assert_eq!(AGENT_VOICE.limits.wake_phrase, 64);
+        assert_eq!(AGENT_VOICE.clip_upload.max_bytes, 5 * 1024 * 1024);
+        let cases = block["voiceOfCases"].as_array().unwrap();
+        assert!(cases.len() >= 6, "the typed-transcript case included");
+        for case in cases {
+            let agent = &case["agent"];
+            let member = &case["member"];
+            let text = |key: &str| member[key].as_str().unwrap();
+            let member = MemberVoice { language: text("language"), voice_file: text("voiceFile"), voice_transcript: text("voiceTranscript"), wake_phrase: text("wakePhrase") };
+            let voice = AgentVoice::from_value(Some(&agent["voice"]));
+            let got = agent_voice_of(agent["role"].as_str(), agent["name"].as_str().unwrap(), &voice, &member);
+            let expected = &case["expected"];
+            let clip = match &got.clip {
+                None => Value::Null,
+                Some(AgentVoiceClip::Attachment(id)) => serde_json::json!({"attachmentId": id}),
+                Some(AgentVoiceClip::Path(path)) => serde_json::json!({"path": path}),
+            };
+            assert_eq!(got.language, expected["language"].as_str().unwrap(), "{}", case["name"]);
+            assert_eq!(clip, expected["clip"], "{}", case["name"]);
+            assert_eq!(got.clip_label, expected["clipLabel"].as_str().unwrap(), "{}", case["name"]);
+            assert_eq!(got.transcript, expected["transcript"].as_str().unwrap(), "{}", case["name"]);
+            assert_eq!(got.wake_phrase, expected["wakePhrase"].as_str().unwrap(), "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn the_voice_helpers_read_the_fixture() {
+        assert_eq!(agent_voice_clip_route("a-1"), "/api/agents/a-1/voice-clip");
+        assert_eq!(agent_wake_phrase_placeholder("Sloppy"), "Hey Sloppy");
+        assert_eq!(agent_voice_clip_refusal("me.wav", "audio/wav", 10), None);
+        assert_eq!(agent_voice_clip_refusal("me.WAV", "application/octet-stream", 10), None);
+        assert_eq!(agent_voice_clip_refusal("me.mp3", "audio/mpeg", 10).as_deref(), Some("Voice clips must be WAV files"));
+        assert_eq!(agent_voice_clip_refusal("me.wav", "audio/wav", 6 * 1024 * 1024).as_deref(), Some("Voice clips must be 5 MB or smaller"));
+    }
+
+    /// #EXP-1847: the synced `voice` cell decodes tolerantly (the store's
+    /// TEXT cell, null, garbage).
+    #[test]
+    fn an_agent_row_reads_its_voice_tolerantly() {
+        let row: crate::rows::AgentDefRow = serde_json::from_value(serde_json::json!({ "id": "a", "voice": "{\"language\":\"de\",\"clipId\":\"c-1\",\"clipName\":\"sloppy.wav\"}" })).unwrap();
+        assert_eq!(row.voice.language.as_deref(), Some("de"));
+        assert_eq!(row.voice.clip_id.as_deref(), Some("c-1"));
+        let row: crate::rows::AgentDefRow = serde_json::from_value(serde_json::json!({ "id": "a", "voice": {"wakePhrase": "Hey Sloppy", "language": 3} })).unwrap();
+        assert_eq!(row.voice.wake_phrase.as_deref(), Some("Hey Sloppy"));
+        assert_eq!(row.voice.language, None);
+        for garbage in [serde_json::json!(null), serde_json::json!("nope"), serde_json::json!([1])] {
+            let row: crate::rows::AgentDefRow = serde_json::from_value(serde_json::json!({ "id": "a", "voice": garbage })).unwrap();
+            assert_eq!(row.voice, AgentVoice::default());
+        }
+        let row: crate::rows::AgentDefRow = serde_json::from_value(serde_json::json!({ "id": "a" })).unwrap();
+        assert_eq!(row.voice, AgentVoice::default());
     }
 
     #[test]

@@ -25,6 +25,7 @@ import { z } from "zod"
 import {
   type CodingSessionBlocked,
   type AgentTrigger,
+  type AgentVoice,
   type AgentTriggerState,
   type AgentDefaults,
   type EventEmitter,
@@ -2447,6 +2448,15 @@ export const agents = pgTable(
       .$type<string[]>()
       .notNull()
       .default(sql`'[]'::jsonb`),
+    // #EXP-1847 (agent-settings.json `voice`): this agent's own voice:
+    // language, the reference clip (an `attachments` row uploaded through
+    // /api/agents/{id}/voice-clip, never swept while named here), what the
+    // clip says, and its wake phrase. `{}` = the member's voice settings.
+    // SYNCED.
+    voice: jsonb()
+      .$type<AgentVoice>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
     ownerId: text(`owner_id`)
       .notNull()
       .references(() => users.id, { onDelete: `cascade` }),
@@ -4851,6 +4861,7 @@ export const selectAgentSchema = createSelectSchema(agents, {
   triggers: z.custom<AgentTrigger[]>((value) => Array.isArray(value)),
   triggerState: z.custom<AgentTriggerState>((value) => value !== null && typeof value === `object`),
   skillIds: z.custom<string[]>((value) => Array.isArray(value)),
+  voice: z.custom<AgentVoice>((value) => value !== null && typeof value === `object`),
 })
 export const selectSyncedAgentSchema = selectAgentSchema.omit({
   instructions: true,

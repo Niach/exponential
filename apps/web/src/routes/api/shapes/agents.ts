@@ -23,6 +23,8 @@ export const AGENT_COLUMNS = [
   `skill_ids`,
   // #EXP-1793: the team MCP servers every run of the agent starts with.
   `mcp_server_ids`,
+  // #EXP-1847: the agent's own voice (language, clip, transcript, wake phrase).
+  `voice`,
   `owner_id`,
   `sort_order`,
   // S-3: assistant | agent. An Assistant LISTS for its owner only (the

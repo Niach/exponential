@@ -120,7 +120,8 @@ public enum AgentSettings {
         PageSection(id: "identity"),
         PageSection(id: "runs-on", label: "runsOn", rows: ["device", "account", "model", "skills", "mcp-servers"]),
         PageSection(id: "triggers", label: "triggers", rows: ["check-in", "trigger-list"]),
-        PageSection(id: "voice", label: "voice", assistantOnly: true),
+        // #EXP-1847: every agent's (`voice`); the Assistant adds its member rows.
+        PageSection(id: "voice", label: "voice", rows: ["language", "clip", "transcript", "wake-phrase"]),
         PageSection(id: "instructions", teamAgentOnly: true),
         PageSection(id: "delete", teamAgentOnly: true, ownerOnly: true),
     ]

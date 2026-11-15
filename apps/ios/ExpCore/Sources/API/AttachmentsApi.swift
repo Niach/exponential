@@ -317,6 +317,23 @@ public final class AttachmentsApi: Sendable {
         return body
     }
 
+    /// A bearer DELETE on an upload route (`AttachmentsApi+AgentVoice.swift`
+    /// clears a voice clip through it). Internal (not private).
+    func deleteRoute(accountId: String, path: String) async throws {
+        guard let baseUrl = instanceUrl(for: accountId) else {
+            throw AttachmentsError.noInstanceUrl
+        }
+        guard let url = URL(string: "\(baseUrl)\(path)") else {
+            throw AttachmentsError.invalidUrl
+        }
+        let request = httpClient.request(url, accountId: accountId, method: "DELETE", body: nil, contentType: nil)
+        let (responseData, response) = try await httpClient.perform(request, accountId: accountId)
+        guard (200...299).contains(response.statusCode) else {
+            let text = String(data: responseData, encoding: .utf8) ?? ""
+            throw AttachmentsError.httpError(response.statusCode, text)
+        }
+    }
+
     // MARK: - Delete
 
     /// Member-level delete (apps/web/src/lib/trpc/attachments.ts). The server
