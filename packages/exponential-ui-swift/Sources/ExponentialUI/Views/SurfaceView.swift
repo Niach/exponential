@@ -16,11 +16,17 @@ import ExponentialUIPrimitives
 /// safe area (layer insets), an iPad pointer (hover); routes the hardware
 /// keyboard into `SurfaceModel.handleKey` (macOS, iPad keyboards); and
 /// presents the file picker a FileUpload asks for.
+///
+/// #EXP-1781: `forcedStates` = the host's FORCED interaction states (a
+/// catalogue specimen's `states`, `SurfaceModel.setForcedStates`): paint
+/// only, applied on appear and whenever the map changes.
 public struct ExponentialSurface: View {
     let model: SurfaceModel
+    let forcedStates: [String: [String]]
 
-    public init(model: SurfaceModel) {
+    public init(model: SurfaceModel, forcedStates: [String: [String]] = [:]) {
         self.model = model
+        self.forcedStates = forcedStates
     }
 
     public var body: some View {
@@ -28,6 +34,9 @@ public struct ExponentialSurface: View {
             .environment(model)
             .environment(\.layoutDirection, .leftToRight)
             .primitiveTokens(model.primitiveTokens)
+            .onChange(of: forcedStates, initial: true) { _, forced in
+                if forced != model.forcedStates { model.setForcedStates(forced) }
+            }
     }
 }
 

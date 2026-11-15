@@ -9,12 +9,12 @@ import UIKit
 /// them blank, `drawHierarchy` only what is on screen).
 @MainActor
 enum FullSurfaceDump {
-    static func write(model: SurfaceModel, to path: String) async {
+    static func write(model: SurfaceModel, forcedStates: [String: [String]] = [:], to path: String) async {
         guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else { return }
         let width = scene.screen.bounds.width
         let height = max(model.surfaceSize.height, 10)
         let background = model.color("background") ?? .black
-        let host = UIHostingController(rootView: ExponentialSurface(model: model).frame(width: width, height: height, alignment: .topLeading).background(background))
+        let host = UIHostingController(rootView: ExponentialSurface(model: model, forcedStates: forcedStates).frame(width: width, height: height, alignment: .topLeading).background(background))
         let window = UIWindow(windowScene: scene)
         window.frame = CGRect(x: 0, y: 0, width: width, height: height)
         window.rootViewController = host
@@ -34,6 +34,6 @@ enum FullSurfaceDump {
 }
 #else
 enum FullSurfaceDump {
-    static func write(model: SurfaceModel, to path: String) async {}
+    static func write(model: SurfaceModel, forcedStates: [String: [String]] = [:], to path: String) async {}
 }
 #endif

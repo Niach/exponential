@@ -359,7 +359,7 @@ struct SegmentedLeaf: View {
                 let selected = values.contains(value.displayText)
                 let disabled = disabledAll || it["disabled"]?.bool == true
                 let ring = roving == k
-                let states = (selected ? ["selected"] : []) + (disabled ? ["disabled"] : []) + (ring ? ["focus-visible"] : [])
+                let states = Self.itemStates(cx.model, id: cx.node.id, k, selected: selected, disabled: disabled, ring: ring)
                 let st = cx.part("Segmented", "item", states: states)
                 let badge = bar ? Self.badge(it["count"]) : nil
                 let name = it["label"]?.displayText ?? value.displayText
@@ -413,6 +413,15 @@ struct SegmentedLeaf: View {
         } else {
             row
         }
+    }
+
+    /// Item `k`'s part states (gpui `paint_segmented`); #EXP-1781: a
+    /// forced state of the item (`<id>.item.<k>`, or the node's key
+    /// covering it) joins them.
+    static func itemStates(_ model: SurfaceModel, id: String, _ k: Int, selected: Bool, disabled: Bool, ring: Bool) -> [String] {
+        var states = (selected ? ["selected"] : []) + (disabled ? ["disabled"] : []) + (ring ? ["focus-visible"] : [])
+        for s in model.forcedStates(of: "\(id).item.\(k)") where !states.contains(s) { states.append(s) }
+        return states
     }
 
     /// The badge text of an option's `count` (the core's rule).
