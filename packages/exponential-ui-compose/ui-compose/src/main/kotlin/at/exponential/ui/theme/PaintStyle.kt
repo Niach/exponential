@@ -89,6 +89,11 @@ data class PaintStyle(
     val sticky: Boolean = false,
     /** #EXP-1629: a recipe's `backgroundClip: padding-box` (the fill paints inside the border). */
     val clipToPadding: Boolean = false,
+    /**
+     * #EXP-1876: a speech-bubble tail, `start | end | down` (null = none),
+     * painted with the box as ONE outline outside the frame (paint-only).
+     */
+    val tail: String? = null,
 ) {
     /** From the facade's resolved visual. */
     constructor(v: FfiVisual) : this(
@@ -133,6 +138,7 @@ data class PaintStyle(
         animation = parseAnimation(v.animationJson),
         sticky = v.sticky,
         clipToPadding = v.backgroundClip == "padding-box",
+        tail = v.tail?.takeIf { it == "start" || it == "end" || it == "down" },
     )
 
     /** The widths `[top, right, bottom, left]` the border paints with. */

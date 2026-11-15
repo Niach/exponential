@@ -340,7 +340,9 @@ private fun NodeBody(index: Int, node: NodeInfo, model: SurfaceModel, modifier: 
     }
 
     val clips = style.overflowHidden || style.overflowScroll || (style.rounded && !node.isLeaf)
-    val clip = if (clips) Modifier.clip(BoxShape(style, size)) else Modifier
+    // #EXP-1876: a tail squares its top corner (the clip follows); the core mirrored an RTL surface.
+    val rtl = model.direction == "rtl"
+    val clip = if (clips) Modifier.clip(BoxShape(style.withTailCorner(rtl), size)) else Modifier
     val pinned = model.sticky.containsKey(index)
     val animated = anim?.let { a ->
         Modifier.graphicsLayer {
@@ -379,7 +381,7 @@ private fun NodeBody(index: Int, node: NodeInfo, model: SurfaceModel, modifier: 
             .then(tabStripDrag(node, model, !invisible))
             .then(listReorderDrag(node, model, !invisible && !disabled))
             .then(tabPagerSwipe(node, model, !invisible))
-            .paintedBox(style, size)
+            .paintedBox(style, size, rtl = rtl)
             .then(clip)
             .then(band),
     ) {
