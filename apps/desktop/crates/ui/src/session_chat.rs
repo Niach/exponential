@@ -3011,7 +3011,7 @@ pub(crate) fn tree_rows(
 }
 
 /// A tab body's scrolling column (the Issues / Sessions lists).
-pub(crate) fn tab_list(id: &str, lead: Option<AnyElement>, rows: Vec<AnyElement>) -> AnyElement {
+pub(crate) fn tab_list(id: &str, lead: Option<AnyElement>, rows: Vec<AnyElement>, window: &Window, cx: &App) -> AnyElement {
     div()
         .id(SharedString::from(id.to_string()))
         .debug_selector({
@@ -3030,7 +3030,9 @@ pub(crate) fn tab_list(id: &str, lead: Option<AnyElement>, rows: Vec<AnyElement>
                 .pb_10()
                 .gap_0p5()
                 .children(lead)
-                .children(rows),
+                .children(rows)
+                // #EXP-1872: the last row scrolls clear of the Assistant FAB.
+                .child(crate::assistant_fab::page_end(window, cx)),
         )
         .into_any_element()
 }
@@ -4092,7 +4094,13 @@ impl SessionChatScreenView {
             .w_full()
             .overflow_y_scroll()
             .child(crate::issue_detail::centered_column(
-                v_flex().px(px(crate::work_header::WORK_GUTTER)).pt_6().pb_10().child(body),
+                v_flex()
+                    .px(px(crate::work_header::WORK_GUTTER))
+                    .pt_6()
+                    .pb_10()
+                    .child(body)
+                    // #EXP-1872: the last result scrolls clear of the Assistant FAB.
+                    .child(crate::assistant_fab::page_end(window, cx)),
             ))
             .into_any_element()
     }
@@ -4218,7 +4226,7 @@ impl SessionChatScreenView {
 
     /// The Issues tab: the `+` (members), then THE issue rows of the tree; a
     /// row opens that issue in place.
-    fn render_issues(&self, model: &ChatModel, cx: &mut gpui::Context<Self>) -> AnyElement {
+    fn render_issues(&self, model: &ChatModel, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         let items = screen_issue_items(model, cx);
         let open = match &self.opened {
             Some(ChatOpened::Issue(id)) => Some(id.clone()),
@@ -4236,12 +4244,12 @@ impl SessionChatScreenView {
         let menu = member.then(|| (self.menu_target(None), linked));
         // #EXP-1834: no `+` here: linking is the `…`'s entry.
         let rows = tree_rows(&SESSION_SCREEN.test_ids.issues, &items, open.as_deref(), on_pick, menu, cx);
-        tab_list(&SESSION_SCREEN.test_ids.issues, None, rows)
+        tab_list(&SESSION_SCREEN.test_ids.issues, None, rows, window, cx)
     }
 
     /// The Sessions tab: THE tree rows of every session under the root; a
     /// row opens that session in place.
-    fn render_sessions(&self, model: &ChatModel, cx: &mut gpui::Context<Self>) -> AnyElement {
+    fn render_sessions(&self, model: &ChatModel, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         let items = session_tree_items(&self.root_id, &model.tree, cx);
         let this = cx.entity().downgrade();
         let on_pick: OnTreePick = Rc::new(move |item, window, cx| {
@@ -4251,7 +4259,7 @@ impl SessionChatScreenView {
             }
         });
         let rows = tree_rows(&SESSION_SCREEN.test_ids.sessions, &items, self.focus_id(), on_pick, None, cx);
-        tab_list(&SESSION_SCREEN.test_ids.sessions, None, rows)
+        tab_list(&SESSION_SCREEN.test_ids.sessions, None, rows, window, cx)
     }
 
     /// The tab pane: an opened item (the session in place, an issue, a
@@ -4282,8 +4290,8 @@ impl SessionChatScreenView {
             },
             Some(ChatOpened::Settings) => self.render_settings(model, window, cx),
             None => match screen.active {
-                SessionScreenTab::Issues => self.render_issues(model, cx),
-                SessionScreenTab::Sessions => self.render_sessions(model, cx),
+                SessionScreenTab::Issues => self.render_issues(model, window, cx),
+                SessionScreenTab::Sessions => self.render_sessions(model, window, cx),
                 SessionScreenTab::Results => self.render_results_child(model, window, cx),
                 _ => div().flex_1().into_any_element(),
             },

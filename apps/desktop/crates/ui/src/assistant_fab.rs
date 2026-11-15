@@ -18,6 +18,9 @@
 //! with [`page_end`] (a spacer the corner tall while the FAB shows) and THE
 //! Dock band keeps its right edge [`lane`] in where its column runs into the
 //! circle, so the composer's send button sits beside the FAB.
+//! #EXP-1872: every other control row pinned to a pane's foot (the plan
+//! rail's Back / Next / decision, a side pane's footer) is THE [`foot`]: it
+//! measures itself and takes the same lane wherever it runs into the circle.
 
 use std::collections::HashMap;
 
@@ -53,6 +56,8 @@ pub(crate) const WIDGET_TEST_ID: &str = "assistant-widget";
 #[derive(Default)]
 struct FabCorners {
     by_window: HashMap<WindowId, Bounds<Pixels>>,
+    /// #EXP-1872: each [`foot`]'s box as last painted, by its key.
+    feet: HashMap<(WindowId, SharedString), Bounds<Pixels>>,
 }
 
 impl Global for FabCorners {}
@@ -94,17 +99,47 @@ pub(crate) fn page_end_height(window: &Window, cx: &App) -> Pixels {
     px(if corner(window, cx).is_some() { ASSISTANT_FAB.clearance } else { 0. })
 }
 
-/// #EXP-1860: THE Dock band's right padding: the FAB's corner
-/// (`clearance`) where the band's column runs into the circle (a page's
-/// chat), else `gutter` (the widget's own chat above the FAB, a pane beside
-/// it).
+/// #EXP-1860: THE Dock band's right padding (and #EXP-1872 every [`foot`]'s):
+/// where the band's column runs into the circle (a page's chat, a pane
+/// pinned to the card's corner), its content ends `inset` px left of the
+/// circle (= `clearance` px in from the card's edge); else `gutter` (the
+/// widget's own chat above the FAB, a pane beside it).
 pub(crate) fn lane(column: Option<Bounds<Pixels>>, gutter: Pixels, window: &Window, cx: &App) -> Pixels {
+    let inset = px(ASSISTANT_FAB.inset);
     match (corner(window, cx), column) {
-        (Some(circle), Some(column)) if column.right() > circle.left() && column.bottom() > circle.top() => {
-            gutter.max(px(ASSISTANT_FAB.clearance))
+        (Some(circle), Some(column))
+            if column.right() > circle.left() - inset && column.bottom() > circle.top() =>
+        {
+            gutter.max(column.right() - circle.left() + inset)
         }
         _ => gutter,
     }
+}
+
+/// #EXP-1872 THE pinned foot: the row of controls a pane pins under its
+/// scroll (Back / Next, a decision, a footer's buttons, an answer field).
+/// Put the foot's content in it: it records its own box (`key` = unique
+/// per window) and keeps its content beside the Assistant FAB wherever it
+/// runs into the circle ([`lane`]); anywhere else it is a plain full-width
+/// box with `gutter` right padding. A pane never pins a control at its foot
+/// without it.
+pub(crate) fn foot(key: impl Into<SharedString>, gutter: Pixels, window: &Window, cx: &App) -> gpui::Div {
+    let key = (window.window_handle().window_id(), key.into());
+    let measured = cx.try_global::<FabCorners>().and_then(|corners| corners.feet.get(&key).copied());
+    let probe = canvas(
+        move |bounds, window, cx| {
+            let corners = cx.default_global::<FabCorners>();
+            if corners.feet.insert(key.clone(), bounds) != Some(bounds) {
+                window.on_next_frame(|window, _| window.refresh());
+            }
+        },
+        |_, _, _, _| {},
+    )
+    .absolute()
+    .top_0()
+    .left_0()
+    .size_full();
+    div().relative().flex_shrink_0().w_full().min_w_0().pr(lane(measured, gutter, window, cx)).child(probe)
 }
 
 /// What the FAB derives from the store: the viewer's Assistant in the

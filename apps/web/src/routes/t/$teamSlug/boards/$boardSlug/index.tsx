@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
-import { SkeletonRows, useIsMobile } from "@exp/ui"
+import { FAB_FOOT_CLASS, SkeletonRows, useIsMobile } from "@exp/ui"
 import { BoardChips, type BoardChip } from "@/components/board-chips"
 import { DraftsList } from "@/components/drafts-list"
 import { MyIssuesView } from "@/components/my-issues-view"
@@ -14,6 +14,7 @@ import { IssueList } from "@/components/issue-list"
 import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { MobilePageHeader } from "@/components/team/mobile-page-header"
 import { useBoardViewData } from "@/hooks/use-board-view-data"
+import { useBulkBarIconOnly } from "@/hooks/use-bulk-bar-fits"
 import { useOpenNewDraft } from "@/hooks/use-open-new-draft"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { useAgentRows } from "@/hooks/use-agent-row"
@@ -106,6 +107,10 @@ function BoardPage() {
         .filter((issue) => selectedIds.has(issue.id)),
     [visibleGroups, selectedIds]
   )
+  // #EXP-1872: the floating bar drops its labels when it would not fit
+  // beside the Assistant FAB.
+  const bulkStrip = useRef<HTMLDivElement | null>(null)
+  const bulkIconOnly = useBulkBarIconOnly(bulkStrip, selectedIssues.length > 0)
 
   // EXP-1170: the empty state's pill and a group header's "+" open the New
   // issue page on THIS board, the "+" seeding its group's status.
@@ -241,7 +246,8 @@ function BoardPage() {
         // The bulk bar FLOATS bottom-centre at every width ×4 (desktop, the
         // natives): md+ over the list's bottom edge (click-through strip),
         // phones in the tab bar's slot (the bar positions itself there).
-        <div className="pointer-events-none absolute inset-x-0 bottom-4 z-10 flex justify-center px-4">
+        // #EXP-1872: THE pinned foot: centred beside the Assistant FAB.
+        <div ref={bulkStrip} className={`pointer-events-none absolute inset-x-0 bottom-4 z-10 flex justify-center px-4 ${FAB_FOOT_CLASS}`}>
           <div className="pointer-events-auto">
             <BulkActionBar
               issues={selectedIssues}
@@ -250,6 +256,7 @@ function BoardPage() {
               users={users}
               teamId={team.id}
               onClear={() => setSelectedIds(new Set())}
+              iconOnly={bulkIconOnly}
             />
           </div>
         </div>
