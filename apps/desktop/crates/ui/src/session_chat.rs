@@ -1276,10 +1276,11 @@ pub(crate) fn message_bubble(bubble: MessageBubble, cx: &App) -> AnyElement {
             // own avatar (`maxWidth.own`).
             None => card.max_w(gpui::relative(if own { sizes.max_width.own } else { sizes.max_width.wide })),
         })
-        // #EXP-1864: ONE bubble colour ×4, the own bubble too: THE opaque
-        // card under the card hairline.
+        // #EXP-1864: one colour per sender side ×4: anyone else = THE opaque
+        // card, the viewer's own = `glass.fillOwn`; both under the card
+        // hairline.
         .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-        .bg(crate::dock::card_fill())
+        .bg(if own { theme::tokens::glass::FILL_OWN.to_hsla() } else { crate::dock::card_fill() })
         // The sender's name: the bubble's own `author` line, at its top.
         .when_some(inner_name, |card, name| {
             card.child(
