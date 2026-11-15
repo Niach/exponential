@@ -695,8 +695,41 @@ struct ChatTranscriptSpecimens: View {
         }
     }
 
+    /// #EXP-1873 (transcript-grouping.json `checkInSpecimen`): an agent
+    /// chat's check-ins through `feedRows`: quiet runs = ONE line each, the
+    /// one that answered keeps its marker above the bubble.
+    private var checkIns: some View {
+        let rows = TranscriptGrouping.checkInSpecimen
+        let shown = TranscriptGrouping.feedRows(rows.map(\.kind))
+        return VStack(alignment: .leading, spacing: 12) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+                switch shown[index] {
+                case .hidden:
+                    EmptyView()
+                case let .checkIn(count):
+                    TranscriptMarkerRow(label: TranscriptGrouping.checkInLabel(count: count, time: row.time))
+                case .row:
+                    if row.kind == .schedule {
+                        TranscriptMarkerRow(label: TranscriptGrouping.Copy.markers["schedule"] ?? "")
+                    } else if row.kind == .quiet {
+                        TranscriptMarkerRow(label: TranscriptGrouping.traceNotice("exponential_session_self_quiet") ?? "")
+                    } else {
+                        MessageBubble(side: .other, author: "Assistant", time: row.time) {
+                            AgentMarkdownText(text: row.text ?? "", context: context, hugsWidth: true)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.bottom, 12)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("chat-check-in-specimen")
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // #EXP-1873: the check-ins first, the shot's first screen.
+            checkIns
             ForEach(Self.rows, id: \.item.id) { row in
                 let layout = Self.layouts[row.item.id]
                 // #FEED-239: the viewer's own group wears Alex's avatar right.

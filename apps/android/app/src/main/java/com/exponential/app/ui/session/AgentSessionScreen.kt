@@ -1838,7 +1838,7 @@ private fun ActivityFeed(
     // while it is an unsettled tool call, and only in a LIVE run (an ended run's
     // trailing unsettled row is history, not a tail). The rule is shared ×4.
     val liveRowId = remember(feed, live) { if (live) liveToolRowId(feed) else null }
-    val rows = remember(feed, windowStart, workflowIds, docked) {
+    val shownRows = remember(feed, windowStart, workflowIds, docked) {
         // #EXP-1772: a hidden marker (a system input the agent answered with
         // no reply) and a blank agent turn are no rows at all.
         dropHiddenFeedRows(
@@ -1846,6 +1846,7 @@ private fun ActivityFeed(
                 .filterNot { docked != null && isSameAskRow(it, docked) },
         )
     }
+    val rows = shownRows.rows
     // #EXP-1736 (transcript-grouping.json): the main stream's senders and
     // groups; the EXP-787 ladder keeps the gaps except between two bubbles.
     // ONE origin rule (data first): the feed's first prompt is the origin's
@@ -2259,7 +2260,11 @@ private fun ActivityFeed(
                                 val time = item.at?.let(::feedClock)
                                 // #EXP-1772: a system input = THE inline marker.
                                 val input = TranscriptGrouping.feedInput(item.text)
+                                // #EXP-1873: a quiet check-in (or a run of
+                                // them) = ONE marker line.
+                                val checkIns = shownRows.checkIns[row.id]
                                 when {
+                                    checkIns != null -> FeedMarkerRow(TranscriptGrouping.checkInLabel(checkIns, time))
                                     divider != null -> TranscriptDivider(divider, time)
                                     command != null -> CommandRow(command, item.text)
                                     input is TranscriptGrouping.FeedInput.Marker -> FeedMarkerRow(input.label)
@@ -2443,32 +2448,50 @@ internal data class FeedRowLayout(val layout: TranscriptGrouping.RowLayout, val 
 internal fun nearTranscriptTop(firstVisibleIndex: Int, visibleCount: Int, scrolledUp: Boolean): Boolean =
     scrolledUp && visibleCount > 0 && firstVisibleIndex < visibleCount
 
+/** The main feed's drawn rows; [checkIns] = a quiet check-in row's count
+ *  by row id (#EXP-1873: THE marker line covering that many check-ins). */
+internal data class ShownFeedRows(val rows: List<AgentFeedRow>, val checkIns: Map<Long, Int> = emptyMap())
+
 /**
  * #EXP-1772 (transcript-grouping.json `markersShown`): the main feed's rows
  * without the markers nobody answered (a system input shows only when an
  * agent reply follows it before the next input or marker) and without the
  * blank agent turns, BEFORE the transcript layout (a hidden marker never
- * breaks a group).
+ * breaks a group). #EXP-1873 (`feedRows`): a quiet check-in (a schedule
+ * firing answered only with quiet) is ONE line, consecutive ones collapse
+ * onto the last.
  */
-internal fun dropHiddenFeedRows(rows: List<AgentFeedRow>): List<AgentFeedRow> {
-    fun blank(row: AgentFeedRow): Boolean =
-        ((row as? AgentFeedRow.Single)?.item as? AgentFeedItem.Narration)?.text?.isBlank() == true
+internal fun dropHiddenFeedRows(rows: List<AgentFeedRow>): ShownFeedRows {
     val kinds = rows.map { row ->
         when (val item = (row as? AgentFeedRow.Single)?.item) {
-            is AgentFeedItem.UserMessage ->
-                if (TranscriptGrouping.feedInput(item.text) is TranscriptGrouping.FeedInput.Marker) {
-                    TranscriptGrouping.FeedRowKind.Marker
-                } else {
-                    TranscriptGrouping.FeedRowKind.Input
-                }
+            is AgentFeedItem.UserMessage -> when (val input = TranscriptGrouping.feedInput(item.text)) {
+                is TranscriptGrouping.FeedInput.Marker ->
+                    if (input.key == "schedule") TranscriptGrouping.FeedRowRole.Schedule else TranscriptGrouping.FeedRowRole.Marker
+                else -> TranscriptGrouping.FeedRowRole.Input
+            }
             is AgentFeedItem.Narration ->
-                if (item.text.isNotBlank()) TranscriptGrouping.FeedRowKind.Reply else TranscriptGrouping.FeedRowKind.Other
-            else -> TranscriptGrouping.FeedRowKind.Other
+                if (item.text.isNotBlank()) TranscriptGrouping.FeedRowRole.Reply else TranscriptGrouping.FeedRowRole.Blank
+            is AgentFeedItem.Tool ->
+                if (TranscriptGrouping.traceNotice(item.name) != null) TranscriptGrouping.FeedRowRole.Quiet else TranscriptGrouping.FeedRowRole.Other
+            else -> TranscriptGrouping.FeedRowRole.Other
         }
     }
-    if (kinds.none { it == TranscriptGrouping.FeedRowKind.Marker } && rows.none(::blank)) return rows
-    val shown = TranscriptGrouping.markersShown(kinds)
-    return rows.filterIndexed { index, row -> shown[index] && !blank(row) }
+    if (kinds.none { it == TranscriptGrouping.FeedRowRole.Schedule || it == TranscriptGrouping.FeedRowRole.Marker || it == TranscriptGrouping.FeedRowRole.Blank }) {
+        return ShownFeedRows(rows)
+    }
+    val shown = TranscriptGrouping.feedRows(kinds)
+    val checkIns = HashMap<Long, Int>()
+    val kept = rows.filterIndexed { index, row ->
+        when (val drawn = shown[index]) {
+            TranscriptGrouping.FeedRowShown.Hidden -> false
+            TranscriptGrouping.FeedRowShown.Row -> true
+            is TranscriptGrouping.FeedRowShown.CheckIn -> {
+                checkIns[row.id] = drawn.count
+                true
+            }
+        }
+    }
+    return ShownFeedRows(kept, checkIns)
 }
 
 /** The raw feed's viewer: every typed prompt there is the viewer's own

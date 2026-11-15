@@ -50,6 +50,9 @@ class TranscriptGroupingTest {
         assertEquals(fold.getValue("chars").jsonPrimitive.int, TranscriptGrouping.Fold.CHARS)
         val markers = copy.getValue("markers").jsonObject.mapValues { it.value.jsonPrimitive.content }
         assertEquals(markers, TranscriptGrouping.Copy.MARKERS)
+        assertEquals(copy.str("checkIn"), TranscriptGrouping.Copy.CHECK_IN)
+        assertEquals(copy.str("checkIns"), TranscriptGrouping.Copy.CHECK_INS)
+        assertEquals(copy.str("checkInTimeSeparator"), TranscriptGrouping.Copy.CHECK_IN_TIME_SEPARATOR)
     }
 
     private fun input(o: JsonObject): TranscriptGrouping.Input {
@@ -179,6 +182,52 @@ class TranscriptGroupingTest {
             val expected = case.getValue("expected").jsonArray.map { it.jsonPrimitive.boolean }
             assertEquals(case.str("name"), expected, TranscriptGrouping.markersShown(kinds))
         }
+    }
+
+    @Test
+    fun `every check-in case matches the fixture`() {
+        val cases = fixture.getValue("checkInCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val kinds = case.getValue("kinds").jsonArray.map { k ->
+                TranscriptGrouping.FeedRowRole.entries.first { it.wire == k.jsonPrimitive.content }
+            }
+            // #EXP-1873: JSON false / true / a number n.
+            val expected = case.getValue("expected").jsonArray.map {
+                val p = it.jsonPrimitive
+                when (p.content) {
+                    "false" -> TranscriptGrouping.FeedRowShown.Hidden
+                    "true" -> TranscriptGrouping.FeedRowShown.Row
+                    else -> TranscriptGrouping.FeedRowShown.CheckIn(p.int)
+                }
+            }
+            assertEquals(case.str("name"), expected, TranscriptGrouping.feedRows(kinds))
+        }
+    }
+
+    @Test
+    fun `every check-in label case matches the fixture`() {
+        val cases = fixture.getValue("checkInLabelCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            assertEquals(
+                case.str("name"),
+                case.str("expected"),
+                TranscriptGrouping.checkInLabel(case.getValue("count").jsonPrimitive.int, case.str("time")),
+            )
+        }
+    }
+
+    @Test
+    fun `the check-in specimen matches the fixture`() {
+        val rows = fixture.getValue("checkInSpecimen").jsonArray.map { it.jsonObject }.map { o ->
+            TranscriptGrouping.CheckInSpecimenRow(
+                TranscriptGrouping.FeedRowRole.entries.first { it.wire == o.str("kind") },
+                o.str("time"),
+                o.str("text"),
+            )
+        }
+        assertEquals(rows, TranscriptGrouping.CHECK_IN_SPECIMEN)
     }
 
     @Test

@@ -40,6 +40,11 @@ object TranscriptGrouping {
             "pr_checks" to "CI",
             "session" to "Session update",
         )
+
+        /** #EXP-1873 `copy.checkIn*`: the quiet check-in line. */
+        const val CHECK_IN = "Checked in, nothing to do"
+        const val CHECK_INS = "Checked in {count} times, nothing to do"
+        const val CHECK_IN_TIME_SEPARATOR = " · "
     }
 
     enum class ItemKind(val wire: String) { Message("message"), Trace("trace"), Full("full") }
@@ -260,6 +265,100 @@ object TranscriptGrouping {
         pending?.let { shown[it] = false }
         return shown.toList()
     }
+
+    /** #EXP-1873: a feed row as [feedRows] reads it: `schedule` = a schedule
+     *  firing (a check-in), `marker` = every other marker, `quiet` = the quiet
+     *  notice, `blank` = an agent turn with blank text. */
+    enum class FeedRowRole(val wire: String) {
+        Schedule("schedule"), Marker("marker"), Input("input"), Reply("reply"),
+        Quiet("quiet"), Blank("blank"), Other("other"),
+    }
+
+    /** Per row: not drawn, drawn as itself, or THE check-in line covering [count] quiet check-ins. */
+    sealed interface FeedRowShown {
+        data object Hidden : FeedRowShown
+        data object Row : FeedRowShown
+        data class CheckIn(val count: Int) : FeedRowShown
+    }
+
+    /** #EXP-1873 (`checkInCases`): a quiet check-in (a schedule firing whose
+     *  turn only called quiet, the forced filler after it aside) is one line;
+     *  consecutive ones collapse onto the last. */
+    fun feedRows(kinds: List<FeedRowRole>): List<FeedRowShown> {
+        val drawn = markersShown(
+            kinds.map {
+                when (it) {
+                    FeedRowRole.Schedule, FeedRowRole.Marker -> FeedRowKind.Marker
+                    FeedRowRole.Input -> FeedRowKind.Input
+                    FeedRowRole.Reply -> FeedRowKind.Reply
+                    FeedRowRole.Quiet, FeedRowRole.Blank, FeedRowRole.Other -> FeedRowKind.Other
+                }
+            },
+        )
+        val shown = MutableList<FeedRowShown>(kinds.size) { index ->
+            if (drawn[index] && kinds[index] != FeedRowRole.Blank) FeedRowShown.Row else FeedRowShown.Hidden
+        }
+        val ends = setOf(FeedRowRole.Schedule, FeedRowRole.Marker, FeedRowRole.Input)
+        kinds.forEachIndexed { start, kind ->
+            if (kind != FeedRowRole.Schedule) return@forEachIndexed
+            var end = start + 1
+            while (end < kinds.size && kinds[end] !in ends) end += 1
+            var quiet = false
+            for (index in start + 1 until end) {
+                val row = kinds[index]
+                if (row == FeedRowRole.Other || (row == FeedRowRole.Reply && !quiet)) return@forEachIndexed
+                if (row == FeedRowRole.Quiet) quiet = true
+            }
+            if (!quiet) return@forEachIndexed
+            shown[start] = FeedRowShown.CheckIn(1)
+            for (index in start + 1 until end) shown[index] = FeedRowShown.Hidden
+        }
+        var line: Int? = null
+        shown.forEachIndexed { index, row ->
+            when (row) {
+                is FeedRowShown.CheckIn -> {
+                    line?.let {
+                        shown[index] = FeedRowShown.CheckIn((shown[it] as FeedRowShown.CheckIn).count + row.count)
+                        shown[it] = FeedRowShown.Hidden
+                    }
+                    line = index
+                }
+                FeedRowShown.Row -> line = null
+                FeedRowShown.Hidden -> Unit
+            }
+        }
+        return shown
+    }
+
+    /** #EXP-1873 (`checkInLabelCases`): the check-in line's text. */
+    fun checkInLabel(count: Int, time: String?): String {
+        val label = if (count == 1) Copy.CHECK_IN else Copy.CHECK_INS.replace("{count}", count.toString())
+        return if (time.isNullOrEmpty()) label else "$label${Copy.CHECK_IN_TIME_SEPARATOR}$time"
+    }
+
+    /** #EXP-1873 `checkInSpecimen`: an agent chat's feed row (kind, `HH:mm`, text). */
+    data class CheckInSpecimenRow(val kind: FeedRowRole, val time: String?, val text: String?)
+
+    /** #EXP-1873: the chat-transcript specimen's agent chat: a run of quiet
+     *  check-ins, one that answered, a second run. */
+    val CHECK_IN_SPECIMEN: List<CheckInSpecimenRow> = listOf(
+        CheckInSpecimenRow(FeedRowRole.Schedule, "16:30", null),
+        CheckInSpecimenRow(FeedRowRole.Quiet, null, null),
+        CheckInSpecimenRow(FeedRowRole.Schedule, "16:45", null),
+        CheckInSpecimenRow(FeedRowRole.Quiet, null, null),
+        CheckInSpecimenRow(FeedRowRole.Reply, "16:45", "No change since my last update."),
+        CheckInSpecimenRow(FeedRowRole.Schedule, "17:00", null),
+        CheckInSpecimenRow(FeedRowRole.Quiet, null, null),
+        CheckInSpecimenRow(FeedRowRole.Schedule, "17:15", null),
+        CheckInSpecimenRow(FeedRowRole.Quiet, null, null),
+        CheckInSpecimenRow(FeedRowRole.Schedule, "17:30", null),
+        CheckInSpecimenRow(FeedRowRole.Reply, "17:31", "Two PRs landed overnight: #412 and #415, both green."),
+        CheckInSpecimenRow(FeedRowRole.Quiet, null, null),
+        CheckInSpecimenRow(FeedRowRole.Schedule, "17:45", null),
+        CheckInSpecimenRow(FeedRowRole.Quiet, null, null),
+        CheckInSpecimenRow(FeedRowRole.Schedule, "18:00", null),
+        CheckInSpecimenRow(FeedRowRole.Quiet, null, null),
+    )
 
     /** #FEED-238 `fold`: a bubble over [CHARS] characters or [LINES] lines folds. */
     object Fold {

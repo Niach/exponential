@@ -8,7 +8,9 @@
 //! own glass frame; its presses `reply`), a plan the agent replaced paints
 //! collapsed to `copy.superseded`, and a WAITING plan stays inline with its
 //! decision (FEED-140). #EXP-1864: the agent's bubbles wear their `HH:mm`,
-//! and the agent's quiet turn is THE inline marker on its own line. Every row goes through the chat screen's own
+//! and the agent's quiet turn is THE inline marker on its own line. #EXP-1873:
+//! on top `checkInSpecimen` through `feed_rows` (quiet check-ins = ONE line
+//! per run, the one that answered keeps its marker). Every row goes through the chat screen's own
 //! painters ([`crate::session_chat::card_row`]). Last, the surface card's
 //! ENTER frame a third of the way in (fade + rise + the primary hairline).
 
@@ -200,13 +202,57 @@ pub(crate) fn paint(row: &SessionChatRow, time: &str, images: &Entity<ImageCache
     }
 }
 
+/// #EXP-1873 (transcript-grouping.json `checkInSpecimen`): an agent chat's
+/// check-ins through `feed_rows`: quiet runs = ONE line each, the one that
+/// answered keeps its marker above the agent's bubble.
+fn check_in_rows(images: &Entity<ImageCache>, cx: &mut App) -> Vec<AnyElement> {
+    use domain::transcript_grouping::{check_in_label, check_in_specimen, copy, feed_rows, trace_notice, FeedRowRole, FeedRowShown};
+    let rows = check_in_specimen();
+    let kinds: Vec<FeedRowRole> = rows.iter().map(|row| FeedRowRole::parse(&row.kind).unwrap_or(FeedRowRole::Other)).collect();
+    let text = ChatText::default();
+    let mut out = Vec::new();
+    for (index, (row, drawn)) in rows.iter().zip(feed_rows(&kinds)).enumerate() {
+        let id = SharedString::from(format!("sg-chat-check-in-{index}"));
+        let marker = |label: &str, cx: &mut App| crate::surface_card::transcript_marker(id.clone(), label, None, cx);
+        out.push(match (drawn, kinds[index]) {
+            (FeedRowShown::Hidden, _) => continue,
+            (FeedRowShown::CheckIn(count), _) => marker(&check_in_label(count, row.time.as_deref()), cx),
+            (_, FeedRowRole::Schedule) => marker(copy().markers.get("schedule").map_or("", String::as_str), cx),
+            (_, FeedRowRole::Quiet) => marker(trace_notice(NOTICE_TOOL).unwrap_or_default(), cx),
+            _ => {
+                let body = row.text.clone().unwrap_or_default();
+                let markdown = message_markdown(SharedString::from(format!("sg-chat-check-in-text-{index}")), &body, &text, images);
+                message_bubble(
+                    MessageBubble {
+                        id: SharedString::from(format!("sg-chat-check-in-bubble-{index}")),
+                        body: markdown.into_any_element(),
+                        time: row.time.clone().unwrap_or_default(),
+                        own: false,
+                        name: Some(CHECK_IN_AUTHOR.to_string()),
+                        link: None,
+                        status: None,
+                        menu: None,
+                        width: None,
+                    },
+                    cx,
+                )
+            }
+        });
+    }
+    out
+}
+
+/// #EXP-1873: the specimen agent's name (web `author="Assistant"`).
+const CHECK_IN_AUTHOR: &str = "Assistant";
+
 fn rows_list() -> Vec<(SessionChatRow, &'static str)> {
     rows()
 }
 
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let images = window.use_keyed_state("sg-chat-transcript-images", cx, |_, _| ImageCache::new(None)).clone();
-    let mut rows: Vec<AnyElement> = Vec::new();
+    // #EXP-1873: the check-ins lead the specimen (web's order), in frame.
+    let mut rows: Vec<AnyElement> = check_in_rows(&images, cx);
     for (row, time) in rows_list() {
         rows.push(paint(&row, time, &images, window, cx));
         if matches!(&row, SessionChatRow::Message { id, .. } if id == OWN_AFTER) {
@@ -246,6 +292,18 @@ mod tests {
         assert!(rows().iter().any(|(row, time)| matches!(row, SessionChatRow::Message { author, .. } if author == "agent") && !time.is_empty()));
         assert_eq!(domain::transcript_grouping::trace_notice(NOTICE_TOOL), Some("Ended turn quietly"));
         assert!(rows().iter().any(|(row, _)| matches!(row, SessionChatRow::Surface { id, .. } if id == NOTICE_AFTER)));
+    }
+
+    /// #EXP-1873: the specimen draws two check-in runs and the answered one.
+    #[test]
+    fn the_check_in_specimen_draws_two_lines_and_the_answer() {
+        use domain::transcript_grouping::{check_in_specimen, feed_rows, FeedRowRole, FeedRowShown};
+        let kinds: Vec<FeedRowRole> = check_in_specimen().iter().map(|row| FeedRowRole::parse(&row.kind).unwrap()).collect();
+        let drawn: Vec<FeedRowShown> = feed_rows(&kinds).into_iter().filter(|shown| *shown != FeedRowShown::Hidden).collect();
+        assert_eq!(
+            drawn,
+            vec![FeedRowShown::CheckIn(4), FeedRowShown::Row, FeedRowShown::Row, FeedRowShown::Row, FeedRowShown::CheckIn(2)]
+        );
     }
 
     /// #FEED-237: m1 (an own, consumed row = `read`) is followed by one

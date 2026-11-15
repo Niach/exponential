@@ -978,7 +978,14 @@ struct AgentSessionView: View {
                                     avatar: grouping.avatars[entry.id]
                                 ) {
                                     TranscriptRowSlot(key: rowKey(entry, isLast: isLast, layout: layout, model: model)) {
-                                        feedRow(entry.row, isLast: isLast, layout: layout)
+                                        if let count = entry.checkIns {
+                                            // #EXP-1873: a quiet check-in (or a run) = ONE marker line.
+                                            TranscriptMarkerRow(label: TranscriptGrouping.checkInLabel(
+                                                count: count, time: Self.checkInTime(entry.row)
+                                            ))
+                                        } else {
+                                            feedRow(entry.row, isLast: isLast, layout: layout)
+                                        }
                                     }
                                     .equatable()
                                 }
@@ -1195,6 +1202,12 @@ struct AgentSessionView: View {
     /// rows that read live or per-view state beyond it (cards, a running
     /// subagent's clock, a workflow's Work card) are `volatile`: they
     /// re-evaluate with the list, exactly as before.
+    /// #EXP-1873: the check-in line's `HH:mm` (its schedule firing's `at`).
+    static func checkInTime(_ row: AgentFeedRow) -> String? {
+        guard case let .single(.userMessage(_, _, _, at)) = row, let at else { return nil }
+        return GlassTimeRow.formatted(Date(timeIntervalSince1970: Double(at) / 1000))
+    }
+
     private func rowKey(
         _ entry: TranscriptEntry, isLast: Bool, layout: TranscriptGrouping.RowLayout?, model: AgentSessionModel
     ) -> TranscriptRowKey {

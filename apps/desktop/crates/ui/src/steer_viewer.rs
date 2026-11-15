@@ -686,6 +686,9 @@ pub(crate) struct SteerSessionView {
     /// their own rows at the tail — between the transcript and the working
     /// row, in feed order. Web, iOS and Android render the same orphans.
     orphan_workflows: Vec<String>,
+    /// #EXP-1873: the schedule rows drawn as THE check-in line, with the
+    /// number of quiet check-ins each covers ([`drop_silent_rows`]).
+    check_ins: HashMap<FeedItemId, u32>,
     row_keys: Vec<RowKey>,
     active: HashSet<FeedItemId>,
     /// #EXP-1736 (transcript-grouping.json): one entry per `rows` entry —
@@ -1015,6 +1018,7 @@ impl SteerSessionView {
             chat_cycle: Default::default(),
             rows: Vec::new(),
             orphan_workflows: Vec::new(),
+            check_ins: HashMap::new(),
             row_keys: Vec::new(),
             active: HashSet::new(),
             transcript: Vec::new(),
@@ -1890,8 +1894,10 @@ impl SteerSessionView {
         // #EXP-1772 (transcript-grouping.json): a system input is THE marker
         // only above the agent's reply to it, a blank agent turn draws
         // nothing; both leave the projection before the grouping sees it.
+        // #EXP-1873: a quiet check-in (or a run of them) = ONE marker line.
+        self.check_ins.clear();
         if focus.is_none() {
-            drop_silent_rows(&mut self.rows, self.feed.items());
+            self.check_ins = drop_silent_rows(&mut self.rows, self.feed.items());
         }
     }
 
@@ -1930,6 +1936,11 @@ impl SteerSessionView {
             let fingerprint = match ix {
                 0 if !self.conv_head().is_empty() => transcript_rows::fold_extra(fingerprint, 1),
                 _ => fingerprint,
+            };
+            // #EXP-1873: the check-in line's count is its label.
+            let fingerprint = match self.check_ins.get(&id) {
+                Some(count) => transcript_rows::fold_extra(fingerprint, u64::from(*count) + 2),
+                None => fingerprint,
             };
             keys.push(RowKey { id, fingerprint });
         }
@@ -6300,6 +6311,14 @@ impl SteerSessionView {
                     Some(domain::transcript_grouping::FeedInput::Marker { label, .. }) => label,
                     _ => unreachable!("matched above"),
                 };
+                // #EXP-1873: a quiet check-in (or a run of them) = ONE line.
+                let label = match (self.check_ins.get(&item.id), &item.kind) {
+                    (Some(count), FeedKind::UserMessage { at, .. }) => domain::transcript_grouping::check_in_label(
+                        *count,
+                        at.map(crate::session_chat::clock_ms).as_deref(),
+                    ),
+                    _ => label,
+                };
                 crate::surface_card::transcript_marker(SharedString::from(format!("steer-marker-{}", item.id)), &label, None, cx)
             }
             // #EXP-1736: a person's prompt = THE bubble, the viewer's own
@@ -9575,31 +9594,44 @@ pub(crate) fn work_column_row(element: AnyElement) -> gpui::Div {
 /// #EXP-1772 (transcript-grouping.json `markersShown`): the main feed's rows
 /// minus a system input the agent never answered (THE marker shows only
 /// when an agent reply follows it before the next input or marker) and
-/// every blank agent turn (no empty bubble).
-pub(crate) fn drop_silent_rows(rows: &mut Vec<FeedRowSpec>, items: &[steer::feed::FeedItem]) {
-    use domain::transcript_grouping::{feed_input, markers_shown, FeedInput, FeedRowKind};
-    let kinds: Vec<Option<FeedRowKind>> = rows
+/// every blank agent turn (no empty bubble). #EXP-1873 (`feedRows`): a quiet
+/// check-in is ONE line, consecutive ones collapse onto the last; returns
+/// those schedule rows' ids with the count each line covers.
+pub(crate) fn drop_silent_rows(rows: &mut Vec<FeedRowSpec>, items: &[steer::feed::FeedItem]) -> HashMap<FeedItemId, u32> {
+    use domain::transcript_grouping::{feed_input, feed_rows, FeedInput, FeedRowRole, FeedRowShown};
+    let kinds: Vec<FeedRowRole> = rows
         .iter()
         .map(|spec| match spec {
-            FeedRowSpec::Single { item, .. } => match items.get(*item).map(|item| &item.kind) {
-                Some(FeedKind::UserMessage { text, .. }) => Some(match feed_input(text) {
-                    Some(FeedInput::Marker { .. }) => FeedRowKind::Marker,
-                    _ => FeedRowKind::Input,
-                }),
-                Some(FeedKind::Narration { text, .. }) if text.trim().is_empty() => None,
-                Some(FeedKind::Narration { .. }) => Some(FeedRowKind::Reply),
-                _ => Some(FeedRowKind::Other),
+            FeedRowSpec::Single { item, .. } => match items.get(*item) {
+                Some(item) if item.is_notice() => FeedRowRole::Quiet,
+                Some(item) => match &item.kind {
+                    FeedKind::UserMessage { text, .. } => match feed_input(text) {
+                        Some(FeedInput::Marker { key, .. }) if key == "schedule" => FeedRowRole::Schedule,
+                        Some(FeedInput::Marker { .. }) => FeedRowRole::Marker,
+                        _ => FeedRowRole::Input,
+                    },
+                    FeedKind::Narration { text, .. } if text.trim().is_empty() => FeedRowRole::Blank,
+                    FeedKind::Narration { .. } => FeedRowRole::Reply,
+                    _ => FeedRowRole::Other,
+                },
+                None => FeedRowRole::Other,
             },
-            _ => Some(FeedRowKind::Other),
+            _ => FeedRowRole::Other,
         })
         .collect();
-    if !kinds.iter().any(|kind| matches!(kind, None | Some(FeedRowKind::Marker))) {
-        return;
+    let mut check_ins = HashMap::new();
+    if !kinds.iter().any(|kind| matches!(kind, FeedRowRole::Schedule | FeedRowRole::Marker | FeedRowRole::Blank)) {
+        return check_ins;
     }
-    let present: Vec<FeedRowKind> = kinds.iter().flatten().copied().collect();
-    let mut shown = markers_shown(&present).into_iter();
-    let mut keep = kinds.iter().map(|kind| kind.is_some() && shown.next().unwrap_or(true));
+    let shown = feed_rows(&kinds);
+    for (spec, drawn) in rows.iter().zip(&shown) {
+        if let FeedRowShown::CheckIn(count) = drawn {
+            check_ins.insert(spec.id(), *count);
+        }
+    }
+    let mut keep = shown.iter().map(|drawn| *drawn != FeedRowShown::Hidden);
     rows.retain(|_| keep.next().unwrap_or(true));
+    check_ins
 }
 
 /// EXP-787 — the transcript's TOOL rung: tool rows, group captions, permission
@@ -10172,6 +10204,42 @@ fn may_seed_from_journal(row: &domain::rows::SessionRow, device_id: &str) -> boo
 
 #[cfg(test)]
 mod tests {
+    /// #EXP-1873: quiet check-ins (the schedule firing, the quiet call, the
+    /// forced filler) leave ONE row, the last firing's, covering the run.
+    #[test]
+    fn quiet_check_ins_collapse_onto_the_last_firing() {
+        use steer::feed::{FeedItem, FeedKind, FeedRowSpec};
+        let item = |id: u64, kind: FeedKind| FeedItem { id, kind, seq: None };
+        let fire = |id| item(id, FeedKind::UserMessage { text: "[schedule] Schedule `hourly` fired".into(), subagent_id: None, at: None });
+        let quiet = |id: u64| {
+            item(
+                id,
+                FeedKind::Tool {
+                    name: "mcp__exponential__exponential_session_self_quiet".into(),
+                    detail: None,
+                    subagent_id: None,
+                    call_id: Some(format!("call-{id}")),
+                    tool_kind: None,
+                    settled: true,
+                    failed: false,
+                    diff: None,
+                    output: None,
+                    preview: None,
+                    script: None,
+                    settled_at: None,
+                    started_at: None,
+                },
+            )
+        };
+        let reply = |id| item(id, FeedKind::Narration { text: "No change since my last update.".into(), message_id: None, subagent_id: None, at: None });
+        let items = vec![reply(1), fire(2), quiet(3), reply(4), fire(5), quiet(6)];
+        let mut rows: Vec<FeedRowSpec> = items.iter().enumerate().map(|(ix, item)| FeedRowSpec::Single { id: item.id, item: ix }).collect();
+        let check_ins = super::drop_silent_rows(&mut rows, &items);
+        assert_eq!(rows.iter().map(FeedRowSpec::id).collect::<Vec<_>>(), vec![1, 5]);
+        assert_eq!(check_ins.get(&5), Some(&2));
+        assert_eq!(check_ins.len(), 1);
+    }
+
     /// A long chat's replay: the drain takes the backlog in order, bounded,
     /// so a frame and input run between batches.
     #[test]

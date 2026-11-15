@@ -3667,58 +3667,68 @@ final class TranscriptEntry: Identifiable, Equatable {
     let id: Int
     let row: AgentFeedRow
     let gap: AgentTranscriptGap
+    /// #EXP-1873: THE check-in line covering this many quiet check-ins (the
+    /// row is the last one's schedule firing), else nil.
+    let checkIns: Int?
 
-    init(row: AgentFeedRow, gap: AgentTranscriptGap) {
+    init(row: AgentFeedRow, gap: AgentTranscriptGap, checkIns: Int? = nil) {
         self.id = row.id
         self.row = row
         self.gap = gap
+        self.checkIns = checkIns
     }
 
     nonisolated static func == (a: TranscriptEntry, b: TranscriptEntry) -> Bool {
-        a === b || (a.id == b.id && a.gap == b.gap && a.row == b.row)
+        a === b || (a.id == b.id && a.gap == b.gap && a.checkIns == b.checkIns && a.row == b.row)
     }
 
     /// #EXP-1772 (transcript-grouping.json `markersShown`): a system input's
     /// marker stays only above the agent's reply to it, and a blank agent
     /// turn draws nothing; both leave before the transcript layout.
-    static func shownRows(_ rows: [AgentFeedRow]) -> [AgentFeedRow] {
-        let kinds: [TranscriptGrouping.FeedRowKind] = rows.map { row in
+    /// #EXP-1873 (`feedRows`): a quiet check-in (a schedule firing answered
+    /// only with quiet) is ONE line, consecutive ones collapse onto the last.
+    static func shownRows(_ rows: [AgentFeedRow]) -> [(row: AgentFeedRow, checkIns: Int?)] {
+        let kinds: [TranscriptGrouping.FeedRowRole] = rows.map { row in
             guard case let .single(item) = row else { return .other }
             switch item {
             case let .userMessage(_, text, _, _):
-                if case .marker = TranscriptGrouping.feedInput(text) { return .marker }
+                if case let .marker(key, _) = TranscriptGrouping.feedInput(text) {
+                    return key == "schedule" ? .schedule : .marker
+                }
                 return .input
             case let .narration(_, text, _, _, _):
-                return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .other : .reply
+                return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .blank : .reply
+            case let .tool(_, name, _, _, _, _, _, _, _, _, _, _, _) where TranscriptGrouping.traceNotice(name) != nil:
+                return .quiet
             default:
                 return .other
             }
         }
-        let shown = TranscriptGrouping.markersShown(kinds)
-        return zip(rows, shown).compactMap { row, shown in
-            guard shown else { return nil }
-            if case let .single(.narration(_, text, _, _, _)) = row,
-               text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return nil }
-            return row
+        return zip(rows, TranscriptGrouping.feedRows(kinds)).compactMap { row, shown in
+            switch shown {
+            case .hidden: return nil
+            case .row: return (row, nil)
+            case .checkIn(let count): return (row, count)
+            }
         }
     }
 
     /// The entries for `rows`, reusing `previous`'s instance for every row
     /// that did not move (a diffed update: a live append rebuilds one).
-    static func entries(_ rows: [AgentFeedRow], previous: [TranscriptEntry]) -> [TranscriptEntry] {
+    static func entries(_ rows: [(row: AgentFeedRow, checkIns: Int?)], previous: [TranscriptEntry]) -> [TranscriptEntry] {
         var old: [Int: TranscriptEntry] = [:]
         old.reserveCapacity(previous.count)
         for entry in previous { old[entry.id] = entry }
         var out: [TranscriptEntry] = []
         out.reserveCapacity(rows.count)
         var prev: AgentRowClass?
-        for row in rows {
+        for (row, checkIns) in rows {
             let cur = row.rowClass
             let gap = AgentFeed.transcriptGap(prev: prev, cur: cur)
-            if let kept = old[row.id], kept.gap == gap, kept.row == row {
+            if let kept = old[row.id], kept.gap == gap, kept.checkIns == checkIns, kept.row == row {
                 out.append(kept)
             } else {
-                out.append(TranscriptEntry(row: row, gap: gap))
+                out.append(TranscriptEntry(row: row, gap: gap, checkIns: checkIns))
             }
             prev = cur
         }
