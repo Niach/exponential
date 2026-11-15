@@ -181,6 +181,13 @@ impl SurfaceView {
         self.surface.strings().get(id).cloned().or_else(|| eui_core::strings::default_string(id).map(str::to_string)).unwrap_or_else(|| id.to_string())
     }
 
+    /// The states a measured leaf `id` paints its own parts with (a Slider
+    /// thumb, a Switch thumb): the core's part states, the pointer's and
+    /// the keyboard's, and the host's forced ones (#EXP-1781).
+    pub fn leaf_states(&self, id: &str) -> Vec<String> {
+        self.placed_nodes().iter().find(|n| n.id == id && !n.removed).map(|n| self.states_of(n)).unwrap_or_default()
+    }
+
     fn states_of(&self, n: &PlacedNode) -> Vec<String> {
         let mut s = n.states.clone();
         s.extend(self.interaction.get(&n.id).copied().unwrap_or_default().states());

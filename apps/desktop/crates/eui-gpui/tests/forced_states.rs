@@ -81,3 +81,38 @@ fn forced_states_restyle_paint_only(cx: &mut TestAppContext) {
     draw(vcx);
     assert_eq!(bg(&view, vcx, "btn").as_deref(), Some("#00000000"), "cleared");
 }
+
+#[gpui::test]
+fn a_forced_focus_reaches_the_slider_thumb_the_painter_draws(cx: &mut TestAppContext) {
+    // The Slider thumb is no core node: `paint::natives::slider` resolves it
+    // from the track leaf's states, so a forced focus must be among them.
+    cx.update(gpui_component::init);
+    let options = SurfaceViewOptions { theme: eui_core::themes::builtin_theme("exponential"), mode: eui_core::theme::Mode::Light, host: Rc::new(Recorder::default()), ..Default::default() };
+    let tree = json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column"}, "children": [
+        {"id": "pad", "component": "Box", "style": {"height": 60}},
+        {"id": "vol", "component": "Slider", "props": {"label": "Volume", "min": 0, "max": 100, "value": 40}}
+    ]});
+    let (pane, vcx) = cx.add_window_view(move |window, cx| {
+        let view = cx.new(|cx| SurfaceView::new(options, window, cx));
+        view.update(cx, |v, cx| {
+            v.set_nested(serde_json::from_value::<NestedNode>(tree).unwrap(), cx);
+        });
+        Pane { view }
+    });
+    draw(vcx);
+    let view = pane.read_with(vcx, |p, _| p.view.clone());
+    let thumb = |view: &Entity<SurfaceView>, vcx: &mut VisualTestContext| {
+        view.read_with(vcx, |v, _| {
+            let states = v.leaf_states("vol.track");
+            let owner = v.placed_nodes().iter().find(|n| n.id == "vol").unwrap().props.clone();
+            (states.clone(), eui_gpui::paint::parts::part_props(v.surface().theme().map(|t| t.as_ref()), eui_core::theme::Mode::Light, "Slider", "thumb", &owner, &states))
+        })
+    };
+    let (rest_states, rest) = thumb(&view, vcx);
+    assert!(!rest_states.iter().any(|s| s == "focus"));
+    view.update(vcx, |v, cx| v.set_forced_states([("vol".to_string(), vec!["focus".to_string()])], cx));
+    draw(vcx);
+    let (states, focused) = thumb(&view, vcx);
+    assert!(states.iter().any(|s| s == "focus") && states.iter().any(|s| s == "focus-visible"), "{states:?}");
+    assert_ne!(focused, rest, "the thumb recipe restyles under the forced focus");
+}
