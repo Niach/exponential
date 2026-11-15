@@ -123,12 +123,16 @@ export function composeExponential(): ThemeSource {
   dark.bubbleOwn = hex(design.glass.fillOwn)
   light.bubbleOwn = `#e7f0fe`
   // #EXP-1876: the glassy sheen of a filled glyph (the Assistant's mark
-  // button), top → bottom: white → zinc-300 over the dark ground, zinc-600
-  // → the near-black foreground over white (Danny's pick, look (b)).
-  dark.sheenFrom = `#ffffff`
-  dark.sheenTo = `#c4c4cc`
-  light.sheenFrom = `#52525b`
-  light.sheenTo = light.foreground!
+  // button), top → bottom: the app's `--sheen-from` / `--sheen-to` (white →
+  // zinc-300 over the dark ground, zinc-600 → the near-black foreground over
+  // white; light first, then dark, as styles.css declares them).
+  const sheen = (name: string) => [...css.matchAll(new RegExp(`--${name}:\\s*([^;]+);`, `g`))].map((m) => hex(m[1]!.trim()))
+  const [sheenFrom, sheenTo] = [sheen(`sheen-from`), sheen(`sheen-to`)]
+  if (sheenFrom.length < 2 || sheenTo.length < 2) throw new Error(`styles.css lacks the light + dark --sheen-from / --sheen-to`)
+  light.sheenFrom = sheenFrom[0]!
+  dark.sheenFrom = sheenFrom[1]!
+  light.sheenTo = sheenTo[0]!
+  dark.sheenTo = sheenTo[1]!
   // Status semantics are fixed hues on every client (design-tokens `semantic`).
   for (const table of [light, dark]) {
     table.success = hex(design.semantic.green)

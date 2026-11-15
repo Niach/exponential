@@ -180,6 +180,11 @@ html {
   /* Editor tokens without a shadcn equivalent (links + code-block syntax
      highlighting). Defined per theme so .tiptap-* CSS stays token-driven. */
   --link: oklch(0.5 0.18 264);
+  /* #EXP-1876: the glassy sheen of a filled glyph (the Assistant's mark
+     button, `.fab-mark`), top → bottom; the genUI exponential theme's
+     `color.sheenFrom` / `sheenTo` (scripts/generate-themes.ts reads them). */
+  --sheen-from: #52525b;
+  --sheen-to: #0a0a0a;
   --hljs-comment: oklch(0.55 0.02 250);
   --hljs-keyword: oklch(0.5 0.2 350);
   --hljs-string: oklch(0.45 0.14 145);
@@ -383,6 +388,8 @@ html {
   --sidebar-ring: oklch(0.556 0 0);
   /* Editor tokens (dark) — close to GitHub Dark Dimmed for the hljs palette. */
   --link: oklch(0.65 0.15 264);
+  --sheen-from: #ffffff;
+  --sheen-to: #c4c4cc;
   --hljs-comment: oklch(0.55 0 0);
   --hljs-keyword: oklch(0.72 0.16 350);
   --hljs-string: oklch(0.75 0.14 145);
@@ -844,11 +851,11 @@ html {
 
 /* #EXP-1860 (agent-settings.json `assistant.fab.clearance`): the Assistant
    FAB (`[data-assistant-fab]`, a direct child of the team layout's <main>)
-   owns the card's bottom-right 84px square, reserved HERE, once, while it
+   owns the card's bottom-right 92px square, reserved HERE, once, while it
    shows: a page's scroll content (`.fab-clearance`, part of
-   PAGE_END_CLEARANCE) ends with an 84px spacer so its last row always
+   PAGE_END_CLEARANCE) ends with a 92px spacer so its last row always
    scrolls clear of the circle, and THE Dock band (`.fab-lane`) keeps its
-   right edge 84px in so the composer's send button sits beside the FAB,
+   right edge 92px in so the composer's send button sits beside the FAB,
    never under it. No FAB (phones, the Assistant's own page), no rule. */
 main:has(> [data-assistant-fab]) {
   --fab-clearance: 92px;
@@ -869,6 +876,19 @@ main:has(> [data-assistant-fab]) .fab-lane {
    (`--fab-foot-inset`, the pane's own padding, set by the pane). */
 main:has(> [data-assistant-fab]) .fab-foot {
   padding-right: max(0px, calc(var(--fab-clearance) - var(--fab-foot-inset, 0px)));
+}
+
+/* #EXP-1876 look (b): THE mark button (genUI Button `variant: fab`,
+   `size: lg` of the exponential theme): the ground under the mark's gaps
+   and the theme's `shadow.lg` lift; the mark itself wears the sheen
+   (`<ExponentialLogo sheen>`, `--sheen-from` → `--sheen-to`). */
+.fab-mark {
+  border-radius: 9999px;
+  background-color: var(--background);
+  box-shadow: 0 12px 32px -8px rgb(0 0 0 / 0.08);
+}
+.dark .fab-mark {
+  box-shadow: 0 12px 32px -8px rgb(0 0 0 / 0.4);
 }
 
 /* EXP-885 — THE issue chip box. ONE style for every surface that names an

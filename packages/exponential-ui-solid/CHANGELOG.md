@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Button fab lg (#EXP-1876): React's `GradientGlyph` (the glyph sheen of an icon part with `backgroundClip: text`).
 - List `reorderable` (#EXP-1832), React's (the shared `startListDrag`); `list-reorder.test.tsx` replays `fixtures/list-reorder.json`.
 - Button `variant: "fab"` (#EXP-1837): icon-only like `size: "icon"`, in step with React.
 - Markdown tables fit their columns (#FEED-224), React's (`watchMarkdownTable`, `fixtures/table-fit.json`).

@@ -135,17 +135,19 @@ function AssistantFabButton({
         )}
         <PopoverTrigger asChild>
           {/* #EXP-1876: the mark IS the button: the disc fills the whole
-              circle, no padding, no glass chrome around it. */}
+              circle, no padding, no glass chrome around it; look (b) =
+              `.fab-mark` (the ground + the lift) and the sheen on the mark
+              (genUI Button `fab` `lg`). */}
           <FabButton
             ref={fabRef}
             aria-label={assistant.name || ASSISTANT_FAB_COPY.label}
             title={assistant.name || ASSISTANT_FAB_COPY.label}
             data-testid={ASSISTANT_FAB_TEST_IDS.fab}
             emphasis="primary"
-            className="relative border-0 bg-transparent backdrop-blur-none active:bg-transparent"
+            className="fab-mark relative border-0 backdrop-blur-none active:opacity-85"
             style={{ width: ASSISTANT_FAB.size, height: ASSISTANT_FAB.size }}
           >
-            <ExponentialLogo variant="light" size={ASSISTANT_FAB.size} className="size-full text-foreground" />
+            <ExponentialLogo variant="light" sheen size={ASSISTANT_FAB.size} className="size-full text-foreground" />
             {badge && badge.count > 0 && (
               <Badge
                 count={badge.count}
