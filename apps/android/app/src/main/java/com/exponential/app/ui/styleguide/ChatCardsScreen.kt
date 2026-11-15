@@ -408,6 +408,7 @@ private fun SuggestionsSpecimens() {
             time = "18:40",
             author = reporter.label,
             onClick = {},
+            tail = true,
         )
     }
     // EXP-1211: the quick replies above the session composer.
