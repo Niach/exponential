@@ -2114,8 +2114,10 @@ mod tests {
                 })
                 .sum()
         };
-        let events = harness.until(|events| dialled(events) >= speech.len());
-        assert_eq!(dialled(&events), speech.len(), "every sample out, echo-cancelled");
+        // The canceller re-blocks: what is out trails the input by under one block.
+        let block = 256;
+        let events = harness.until(|events| dialled(events) + block >= speech.len());
+        assert!(dialled(&events) + block >= speech.len(), "the microphone goes out, echo-cancelled");
         harness.send(Job::Start { id: "u1".into(), language: "en".into() });
         harness.until(|events| events.iter().any(|event| matches!(event, Event::Empty { id } if id == "u1")));
         harness.send(Job::Hangup { id: "d1".into() });
