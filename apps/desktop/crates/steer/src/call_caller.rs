@@ -243,6 +243,7 @@ async fn run(url: &str, rx: &flume::Receiver<Outbound>, on_event: &(impl Fn(Call
     let mut down = Downlink::new()?;
     let mut ready = false;
     let mut muted = false;
+    let mut heard_down = false;
     loop {
         tokio::select! {
             inbound = source.next() => {
@@ -250,6 +251,10 @@ async fn run(url: &str, rx: &flume::Receiver<Outbound>, on_event: &(impl Fn(Call
                 match inbound.map_err(|err| crate::redact_ticket(&err.to_string()))? {
                     Message::Binary(frame) => {
                         if let Some((KIND_DOWN, seq, packet)) = parse_audio_frame(&frame) {
+                            if !heard_down {
+                                heard_down = true;
+                                log::info!("call caller: the host's audio arrived");
+                            }
                             let pcm = down.push(seq, packet);
                             if !pcm.is_empty() {
                                 on_event(CallCallerEvent::Audio(pcm));
@@ -267,6 +272,7 @@ async fn run(url: &str, rx: &flume::Receiver<Outbound>, on_event: &(impl Fn(Call
                             on_event(CallCallerEvent::Ready);
                         }
                         Some(Control::Event(event)) => {
+                            log::info!("call caller: host event {}", event["t"].as_str().unwrap_or("?"));
                             // Barge-in: the reply still buffered must not
                             // keep talking over the member.
                             if event["t"] == "speechStarted" {
