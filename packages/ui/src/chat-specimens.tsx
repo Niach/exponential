@@ -454,7 +454,7 @@ function CheckInSpecimen() {
   const rows = transcriptGrouping.checkInSpecimen
   const shown = feedRows(rows.map((row) => row.kind as never))
   return (
-    <div data-testid="chat-check-in-specimen" className="mt-3 flex flex-col gap-3">
+    <div data-testid="chat-check-in-specimen" className="mb-3 flex flex-col gap-3">
       {rows.map((row, index) => {
         const drawn = shown[index]
         if (drawn === false) return null
@@ -470,6 +470,8 @@ function CheckInSpecimen() {
 function Transcript({ layout }: { layout: `transcript` | `bubbles` }) {
   return (
     <>
+    {/* #EXP-1873: on top, so the shot's first screen shows it. */}
+    <CheckInSpecimen />
     <ChatConversation
       rows={TRANSCRIPT_ROWS}
       layout={layout}
@@ -486,7 +488,6 @@ function Transcript({ layout }: { layout: `transcript` | `bubbles` }) {
     <div data-testid="chat-notice-specimen" className="mt-3">
       <TranscriptMarker label={traceNotice(`mcp__exponential__exponential_session_self_quiet`) ?? ``} />
     </div>
-    <CheckInSpecimen />
     <div data-testid="chat-delivery-specimen" className="mt-3 flex flex-col gap-1.5">
       {DELIVERY_BUBBLES.map((bubble) => (
         <MessageBubble
