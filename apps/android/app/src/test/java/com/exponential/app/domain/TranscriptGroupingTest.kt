@@ -180,4 +180,22 @@ class TranscriptGroupingTest {
             assertEquals(case.str("name"), expected, TranscriptGrouping.markersShown(kinds))
         }
     }
+
+    @Test
+    fun `every notice case matches the fixture`() {
+        val notices = fixture.getValue("notices").jsonObject.mapValues { it.value.jsonPrimitive.content }
+        assertEquals(notices, TranscriptGrouping.NOTICES)
+        // A notice reads its contract row's `done` caption.
+        assertEquals("exponential_", DomainContract.expToolPrefix)
+        for ((row, label) in notices) {
+            val at = DomainContract.expToolNames.indexOf(row)
+            assertTrue(row, at >= 0)
+            assertEquals(row, DomainContract.expToolDone[at], label)
+        }
+        val cases = fixture.getValue("noticeCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            assertEquals(case.str("name"), case.str("expected"), TranscriptGrouping.traceNotice(case.str("toolName")))
+        }
+    }
 }

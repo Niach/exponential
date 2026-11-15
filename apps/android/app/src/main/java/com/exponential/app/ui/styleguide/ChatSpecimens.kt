@@ -579,7 +579,7 @@ private val SPECIMEN_CHAT = com.exponential.app.domain.TranscriptGrouping.Chat(
 
 /** The web entry's rows (chat-transcript.tsx), #EXP-1736 grouped: a member
  *  (avatar + name), the agent's group of two, a child's report (`›`), the
- *  viewer's own bubble. */
+ *  viewer's own bubble; #EXP-1864: every bubble its time, one notice. */
 private val TRANSCRIPT: List<SessionTree.SessionChatRow> = listOf(
     message("m1", "user", "Cold start is at 1.4 s on the Pixel 6a. Profile the launch path and cut the sync bootstrap out of it.", authorId = SPECIMEN_VIEWER),
     message("o1", "user", "Use the Pixel 6a numbers as the baseline.", authorId = SPECIMEN_VIEWER),
@@ -593,6 +593,8 @@ private val TRANSCRIPT: List<SessionTree.SessionChatRow> = listOf(
     ),
     message("m2b", "agent", "Here's where the time went:"),
     SessionTree.SessionChatRow.Surface(id = "s1", sessionId = "r", title = "Launch path", surface = LAUNCH_SURFACE),
+    // #EXP-1864: a notice (`Ended turn quietly`) = THE inline marker on its own line.
+    message("n1", "system", com.exponential.app.domain.TranscriptGrouping.NOTICES.getValue("session_self_quiet")),
     // `specimenClock` reads UTC: 18:20 / 09:30 like web, desktop and iOS.
     SessionTree.SessionChatRow.Divider(id = "d1", kind = Chats.DIVIDER_KIND_COMPACT, at = "2026-10-23T18:20:00.000Z"),
     SessionTree.SessionChatRow.Report(
@@ -601,6 +603,7 @@ private val TRANSCRIPT: List<SessionTree.SessionChatRow> = listOf(
         text = "Report from Measure on the Galaxy A54",
         summary = "Cold start is 0.9 s on the Galaxy A54 with the snapshot cache.",
         xref = SessionTree.SessionXref("report", "c1", "Measure on the Galaxy A54", null),
+        at = "2026-10-23T18:40:00.000Z",
     ),
     message("m3", "user", "Anything new overnight?", authorId = SPECIMEN_VIEWER),
     message("m4", "agent", "Three reports, all about the iPad sign-in. I linked them to #APP-19."),
