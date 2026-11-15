@@ -566,17 +566,18 @@ impl Selectable for FabCircle {
 
 impl RenderOnce for FabCircle {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let ink = cx.theme().foreground;
-        let mark = if self.entrance { entrance(ink).into_any_element() } else { fab_mark(ink, 1.).into_any_element() };
-        // LOOK: the circle's lift (shadow / sheen / ring) is still Danny's
-        // pick (#EXP-1876 draft); the genUI Button `fab` variant carries it.
-        div()
+        let look = fab_look(cx);
+        let mark = if self.entrance { entrance(look.clone()).into_any_element() } else { fab_mark(&look, 1.).into_any_element() };
+        // #EXP-1876 look (b), Danny's pick: the mark carries the genUI
+        // Button `fab` `lg` look (`fab_mark`), so the entrance scales it whole.
+        let circle = div()
             .id(TEST_IDS.0)
             .debug_selector(|| TEST_IDS.0.into())
             .relative()
             .size(px(fab_px()))
             .flex_shrink_0()
-            .rounded_full()
+            .rounded_full();
+        circle
             .flex()
             .items_center()
             .justify_center()
@@ -589,9 +590,45 @@ impl RenderOnce for FabCircle {
     }
 }
 
-/// The brand mark filling the circle, at `scale` of it (centred).
-fn fab_mark(ink: gpui::Hsla, scale: f32) -> gpui::Div {
+/// #EXP-1876 THE mark button's look: the genUI Button `variant: fab`,
+/// `size: lg` recipe of the built-in exponential theme in the app's mode
+/// (web `.assistant-fab-mark`, the catalogue's specimen): the circle's
+/// ground (under the mark's gaps), its shadow, the mark's flat ink and its
+/// sheen (`backgroundClip: text` + `backgroundGradient` on the icon part).
+#[derive(Clone)]
+struct FabLook {
+    ground: Option<gpui::Hsla>,
+    shadows: Vec<gpui::BoxShadow>,
+    ink: gpui::Hsla,
+    sheen: Option<eui_gpui::paint::GradientPaint>,
+}
+
+fn fab_look(cx: &App) -> FabLook {
+    fab_look_in(if cx.theme().is_dark() { eui_core::theme::Mode::Dark } else { eui_core::theme::Mode::Light }, cx.theme().foreground)
+}
+
+fn fab_look_in(mode: eui_core::theme::Mode, foreground: gpui::Hsla) -> FabLook {
+    let theme = eui_core::themes::builtin_theme("exponential");
+    let props = serde_json::Map::from_iter([("variant".to_string(), serde_json::json!("fab")), ("size".to_string(), serde_json::json!("lg"))]);
+    let part = |name: &str| eui_gpui::paint::parts::part_props(theme.as_deref(), mode, "Button", name, &props, &[]);
+    let style = |props: &serde_json::Map<String, serde_json::Value>| eui_gpui::paint::PaintStyle::from_visual(&eui_core::style::visual(props, eui_core::style::BoxKind::Leaf));
+    let root = style(&part("root"));
+    let icon_props = part("icon");
+    let sheen = (icon_props.get("backgroundClip").and_then(serde_json::Value::as_str) == Some("text")).then(|| style(&icon_props).gradient).flatten();
+    FabLook { ground: root.bg, shadows: root.shadows, ink: root.color.unwrap_or(foreground), sheen }
+}
+
+/// The brand mark filling the circle, at `scale` of it (centred): the
+/// look's ground disc under its gaps, lifted by the look's shadow, the mark
+/// wearing the sheen (else its flat ink).
+fn fab_mark(look: &FabLook, scale: f32) -> gpui::Div {
     let size = fab_px();
+    let glyph = size * scale;
+    let paint = |ink: gpui::Hsla| Icon::from(ExpIcon::Logo).with_size(px(glyph)).text_color(ink).into_any_element();
+    let mut disc = div().size(px(glyph)).flex_none().rounded_full().shadow(look.shadows.clone());
+    if let Some(ground) = look.ground {
+        disc = disc.bg(ground);
+    }
     div()
         .absolute()
         .top_0()
@@ -600,7 +637,10 @@ fn fab_mark(ink: gpui::Hsla, scale: f32) -> gpui::Div {
         .flex()
         .items_center()
         .justify_center()
-        .child(Icon::from(ExpIcon::Logo).with_size(px(size * scale)).text_color(ink))
+        .child(disc.child(match &look.sheen {
+            Some(sheen) => eui_gpui::paint::icons::sheen_bands(glyph, sheen, paint),
+            None => paint(look.ink),
+        }))
 }
 
 /// A piecewise scale over `stops` at `times` (0..1), each leg eased.
@@ -624,10 +664,10 @@ fn entrance_scale(t: f32, stops: [f32; 3], times: [f32; 3]) -> f32 {
 /// one soft ring ripple spreads `ripple.spreadPx` from the disc's edge.
 /// Reduce motion: a `reducedMotion.fadeMs` fade only. gpui has no element
 /// scale, so the mark's own size carries it.
-fn entrance(ink: gpui::Hsla) -> impl IntoElement {
+fn entrance(look: FabLook) -> impl IntoElement {
     let spec = &ASSISTANT_FAB.entrance;
     if theme::motion::reduce_motion() {
-        return fab_mark(ink, 1.)
+        return fab_mark(&look, 1.)
             .with_animation(
                 "assistant-fab-entrance",
                 Animation::new(Duration::from_millis(spec.reduced_motion.fade_ms)),
@@ -666,9 +706,9 @@ fn entrance(ink: gpui::Hsla) -> impl IntoElement {
                             .size(px(size + spread * 2.))
                             .rounded_full()
                             .border_2()
-                            .border_color(ink.opacity(0.45 * (1. - ring)))
+                            .border_color(look.ink.opacity(0.45 * (1. - ring)))
                     }))
-                    .child(fab_mark(ink, scale).top(px(rise * (1. - lead))).opacity(lead))
+                    .child(fab_mark(&look, scale).top(px(rise * (1. - lead))).opacity(lead))
             },
         )
         .into_any_element()
@@ -814,8 +854,15 @@ fn speech_bubble(bubble: &SpeechBubble, fab: gpui::WeakEntity<AssistantFab>, win
     .top_0()
     .left_0()
     .size_full();
+    let name = SharedString::from(match &bubble.kicker {
+        Some(kicker) if !bubble.text.is_empty() => format!("{kicker}: {}", bubble.text),
+        Some(kicker) => kicker.clone(),
+        None => bubble.text.clone(),
+    });
     div()
         .id(BUBBLE_TEST_ID)
+        .role(gpui::Role::Button)
+        .aria_label(name)
         .debug_selector(|| BUBBLE_TEST_ID.into())
         .absolute()
         .right_0()
@@ -990,5 +1037,24 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(waiting_card_view(&question), (false, "Which base?".to_string()));
+    }
+
+    /// #EXP-1876 look (b): the genUI Button `fab` `lg` recipe of the
+    /// exponential theme: the sheen white → zinc-300 in dark, zinc-600 →
+    /// the foreground in light, over the ground, lifted by `shadow.lg`.
+    #[test]
+    fn the_mark_wears_the_genui_fab_lg_look() {
+        use eui_core::theme::Mode;
+        let hex = |h: &str| eui_gpui::paint::color::parse_hex(h).unwrap();
+        let dark = fab_look_in(Mode::Dark, gpui::black());
+        let stops: Vec<gpui::Hsla> = dark.sheen.as_ref().expect("a sheen").stops.iter().map(|s| s.0).collect();
+        assert_eq!(stops, vec![hex("#ffffff"), hex("#c4c4cc")]);
+        assert_eq!(dark.sheen.as_ref().unwrap().angle, 180.0);
+        assert_eq!(dark.ground, Some(hex("#0a0a0a")));
+        assert!(!dark.shadows.is_empty(), "lifted");
+        let light = fab_look_in(Mode::Light, gpui::black());
+        let stops: Vec<gpui::Hsla> = light.sheen.expect("a sheen").stops.iter().map(|s| s.0).collect();
+        assert_eq!(stops, vec![hex("#52525b"), hex("#0a0a0a")]);
+        assert_eq!(light.ground, Some(hex("#ffffff")));
     }
 }
