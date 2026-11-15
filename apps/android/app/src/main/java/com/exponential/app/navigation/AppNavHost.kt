@@ -1302,6 +1302,8 @@ private fun AuthenticatedNav(
                 onOpenChat = { id -> navController.navigate(Routes.chat(id)) },
                 // The "+"'s New issue: filed + linked to this root on create.
                 onNewIssue = { boardId, rootId -> navController.openIssueDraft(boardId, chatId = rootId) },
+                // #EXP-1849: an app's root opens as the app, replacing this entry.
+                onOpenApp = { id -> navController.replaceWith(Routes.app(id)) },
             )
         }
         composable(Routes.AGENTS_SETTINGS) {
@@ -1347,6 +1349,8 @@ private fun AuthenticatedNav(
             AgentConversationScreen(
                 openSettings = entry.arguments?.getString("open") == "settings",
                 onBack = { navController.popBackStack() },
+                // #EXP-1849: an app's agent opens as its app, replacing this entry.
+                onOpenApp = { id -> navController.replaceWith(Routes.app(id)) },
                 onOpenConversation = { id ->
                     val here = navController.currentBackStackEntry?.destination?.id
                     navController.navigate(Routes.chat(id)) {
@@ -1822,4 +1826,12 @@ private interface TeamSelectionEntryPoint {
 @dagger.hilt.InstallIn(dagger.hilt.components.SingletonComponent::class)
 private interface WebLinkResolverEntryPoint {
     fun webLinkResolver(): WebLinkResolver
+}
+
+/** #EXP-1849: open [route] in place of the current entry (a redirect). */
+private fun androidx.navigation.NavHostController.replaceWith(route: String) {
+    val here = currentBackStackEntry?.destination?.id
+    navigate(route) {
+        if (here != null) popUpTo(here) { inclusive = true }
+    }
 }

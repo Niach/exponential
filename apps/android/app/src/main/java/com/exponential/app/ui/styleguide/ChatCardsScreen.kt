@@ -404,7 +404,7 @@ private fun SuggestionsSpecimens() {
         com.exponential.app.ui.chat.MessageBubble(
             text = "Below-the-fold images load lazily now; LCP is down 300 ms.",
             own = false,
-            time = null,
+            time = "18:40",
             author = reporter.label,
             onClick = {},
         )

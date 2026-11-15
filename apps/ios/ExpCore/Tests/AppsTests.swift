@@ -235,7 +235,7 @@ final class AppsTests: XCTestCase {
     }
 
     // #VAPP-220: `automationRow` replays `automationRowCases`.
-    // #FEED-204: `editorDevice` replays `editorDeviceCases`.
+    // #FEED-204: `editorDevice` replays `editorDeviceCases` (+ #EXP-1849's `slot`).
     func testEditorDeviceCases() throws {
         for item in try cases("editorDeviceCases") {
             let root = item["root"] as? [String: Any]
@@ -248,7 +248,8 @@ final class AppsTests: XCTestCase {
                     rootStatus: root?["status"] as? String,
                     rootDeviceId: root?["deviceId"] as? String,
                     candidates: candidates,
-                    remembered: item["remembered"] as? String
+                    remembered: item["remembered"] as? String,
+                    slot: item["slot"] as? String
                 ),
                 Apps.EditorDeviceChoice(
                     deviceId: expected["deviceId"] as? String,
@@ -257,6 +258,42 @@ final class AppsTests: XCTestCase {
                 item["name"] as? String ?? ""
             )
         }
+    }
+
+    // #EXP-1849 (`agentSlot`): the App settings' Agent group copy + test id,
+    // the slot's empty = each member's own device, the team-shared picker.
+    func testAgentSlot() throws {
+        let block = try XCTUnwrap(try fixture()["agentSlot"] as? [String: Any])
+        XCTAssertEqual(block["testId"] as? String, Apps.AgentSlot.testId)
+        XCTAssertEqual(block["copy"] as? [String: String], [
+            "title": Apps.AgentSlot.Copy.title,
+            "runsOn": Apps.AgentSlot.Copy.runsOn,
+            "eachMember": Apps.AgentSlot.Copy.eachMember,
+        ])
+        XCTAssertNil(Apps.AgentSlot.slot(nil))
+        XCTAssertNil(Apps.AgentSlot.slot(""))
+        XCTAssertEqual(Apps.AgentSlot.slot("build-server"), "build-server")
+        XCTAssertEqual(Apps.AgentSlot.write(Apps.AgentSlot.eachMemberId), "")
+        XCTAssertEqual(Apps.AgentSlot.write("build-server"), "build-server")
+        XCTAssertEqual(
+            Apps.AgentSlot.deviceIds(
+                [
+                    (deviceId: "mint", sharedTeamIds: []),
+                    (deviceId: "build-server", sharedTeamIds: ["t1"]),
+                    (deviceId: "other-team", sharedTeamIds: ["t2"]),
+                ],
+                teamId: "t1"
+            ),
+            ["build-server"]
+        )
+        // An empty slot never wins: the member's own device rule.
+        XCTAssertEqual(
+            Apps.editorDevice(
+                rootStatus: nil, rootDeviceId: nil,
+                candidates: [(deviceId: "mint", isDefault: true)], remembered: nil, slot: ""
+            ),
+            Apps.EditorDeviceChoice(deviceId: "mint", move: false)
+        )
     }
 
     // #EXP-1729: `editorHeader` replays `editorHeaderCases` (the WHOLE

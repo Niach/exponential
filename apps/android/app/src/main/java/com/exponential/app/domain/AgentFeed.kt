@@ -129,6 +129,9 @@ sealed interface AgentFeedItem {
         val messageId: String? = null,
         val subagentId: String? = null,
         override val seq: Long? = null,
+        /** #EXP-1864: the relay's `at` (ms) of the message's FIRST fragment —
+         *  the bubble's `HH:mm`; a merge keeps it. Null = no footer. */
+        val at: Long? = null,
     ) : AgentFeedItem
 
     /** A transient API error the agent hit mid-turn (`api_error`: "No response
@@ -1624,7 +1627,7 @@ fun ActivityFeedState.applyActivityEvent(
         } else {
             val messageId = event.str("messageId")?.takeIf { it.isNotBlank() }
             val subagentId = event.str("subagentId")?.takeIf { it.isNotBlank() }
-            val row = AgentFeedItem.Narration(nextEventId, text, messageId, subagentId, seq)
+            val row = AgentFeedItem.Narration(nextEventId, text, messageId, subagentId, seq, at = event.long("at"))
             // EXP-483: prose from the withheld ask/plan entry flushes AFTER
             // its already-published card — splice it back above.
             val anchor = event.str("beforeQuestionId")?.takeIf { it.isNotBlank() }

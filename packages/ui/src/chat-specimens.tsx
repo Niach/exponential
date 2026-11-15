@@ -11,6 +11,7 @@ import {
 } from "@exp/domain-contract/chats"
 import type { SessionChatRow } from "@exp/domain-contract/session-tree"
 import { SEALED_PLACEHOLDER } from "@exp/domain-contract/sealed-content"
+import { traceNotice } from "@exp/domain-contract/transcript-grouping"
 import { BoardGlyph } from "./board-glyph"
 import { BulkBarAction, BulkBarCapsule, BulkBarSeparator } from "./bulk-bar"
 import { Button } from "./button"
@@ -26,7 +27,7 @@ import { PhoneBoardMenuStrip } from "./phone-board-menu"
 import { PhoneTab, PhoneTabBar } from "./phone-tab-bar"
 import { PromptLayout } from "./prompt"
 import { ChatConversation } from "./session-chat-view"
-import { SurfaceCard } from "./surface-card"
+import { SurfaceCard, TranscriptMarker } from "./surface-card"
 import { TeamAvatar } from "./team-avatar"
 import { chatMenuRows, sessionScreenMenuRows } from "./chats-list"
 import { sessionScreenMenu } from "@exp/domain-contract/session-screen"
@@ -429,7 +430,7 @@ const TRANSCRIPT_ROWS: SessionChatRow[] = [
   { type: `divider`, id: `d2`, kind: `new`, at: `2026-10-24T09:30:00` },
 ]
 
-const TIMES: Record<string, string> = { m1: `21:02`, m2: `21:14`, m3: `09:02`, m4: `09:03`, m5: `09:03`, m6: `07:00`, x2: `08:41` }
+const TIMES: Record<string, string> = { m1: `21:02`, m2: `21:14`, m3: `09:02`, m4: `09:03`, m5: `09:03`, m6: `07:00`, x1: `08:12`, x2: `08:41` }
 
 /** #EXP-1736: the specimens' chat (a plain session) and its people. */
 const SPECIMEN_CHAT = { sessionId: `r`, title: `Reduce cold start`, agentId: null }
@@ -460,6 +461,10 @@ function Transcript({ layout }: { layout: `transcript` | `bubbles` }) {
       onSurfaceReply={() => {}}
       arrived={() => false}
     />
+    {/* #EXP-1864: a quiet turn's notice, on its own line. */}
+    <div data-testid="chat-notice-specimen" className="mt-3">
+      <TranscriptMarker label={traceNotice(`mcp__exponential__exponential_session_self_quiet`) ?? ``} />
+    </div>
     <div data-testid="chat-delivery-specimen" className="mt-3 flex flex-col gap-1.5">
       {DELIVERY_BUBBLES.map((bubble) => (
         <MessageBubble

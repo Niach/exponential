@@ -632,6 +632,8 @@ object SessionTree {
             val summary: String,
             /** S-3: renders AS the `Report from <chip> ›` header line. */
             val xref: SessionXref,
+            /** #EXP-1864: the message's `createdAt` (the bubble's `HH:mm`). */
+            val at: String? = null,
         ) : SessionChatRow
 
         /** EXP-1323: ONE suggestions card; [sessionId] = the posting session. */
@@ -1216,6 +1218,7 @@ object SessionTree {
                             ),
                             summary = card.str("summary") ?: message.body,
                             xref = xref("report", target.id)!!,
+                            at = message.createdAt,
                         ),
                     )
                 }

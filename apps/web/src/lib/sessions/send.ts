@@ -38,6 +38,7 @@ import { rules as eagentRules } from "@exp/eagent/copy"
 import { treeTeams } from "@/lib/sessions/tree-teams"
 import { conversationInTx, loadAgentForUser } from "@/lib/agents/conversation"
 import {
+  appRootDevice,
   briefedText,
   createEditorSessionInTx,
   defaultDeviceFor,
@@ -1602,7 +1603,11 @@ async function messageApp(
     const text = existing.status === `ended` && !isSealedBody(input.text) ? briefedText(app, input.text) : input.text
     return messageSession(userId, uploaderIds, { ...rest, sessionId: existing.id, text }, caller, extras, viaMcp)
   }
-  const deviceId = input.deviceId ?? (await defaultDeviceFor(userId))
+  // #EXP-1849: the app agent's slot runs every member's root when set.
+  const [slot] = app.agentId
+    ? await db.select({ deviceId: agents.deviceId }).from(agents).where(eq(agents.id, app.agentId)).limit(1)
+    : []
+  const deviceId = appRootDevice(slot ?? null, input.deviceId ?? (await defaultDeviceFor(userId)))
   if (!deviceId) {
     throw new TRPCError({ code: `BAD_REQUEST`, message: `Start a device to edit this app` })
   }

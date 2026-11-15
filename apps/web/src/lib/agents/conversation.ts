@@ -1,7 +1,8 @@
 import { TRPCError } from "@trpc/server"
 import { and, eq, isNull } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { agents, sessions, type Agent, type Session } from "@/db/schema"
+import { agents, apps, sessions, type Agent, type Session } from "@/db/schema"
+import { appRootDevice, createEditorSessionInTx, defaultDeviceFor } from "@/lib/apps/editor-session"
 import { getTeamMember } from "@/lib/auth/membership"
 import { resolveSessionDevice } from "@/lib/sessions/send"
 import type { Tx } from "@/lib/sessions/tx"
@@ -51,6 +52,14 @@ export async function conversationInTx(
 ): Promise<{ session: Session; created: { ownerId: string; deviceId: string } | null }> {
   const existing = await findConversation(tx, agent.id, userId)
   if (existing) return { session: existing, created: null }
+  // #EXP-1849: an app's agent talks to a member in the app's root (the
+  // editor), on its slot or the member's default device.
+  const [app] = await tx.select().from(apps).where(and(eq(apps.agentId, agent.id), isNull(apps.deletedAt))).limit(1)
+  if (app) {
+    const picked = appRootDevice(agent, await defaultDeviceFor(userId))
+    if (!picked) throw new TRPCError({ code: `BAD_REQUEST`, message: `Start a device to talk to this app's agent` })
+    return createEditorSessionInTx(tx, app, userId, picked, {})
+  }
   const device = await resolveSessionDevice(userId, agent.teamId, agent.deviceId)
   const id = crypto.randomUUID()
   const [session] = await tx

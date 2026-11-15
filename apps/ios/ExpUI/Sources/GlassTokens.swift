@@ -30,6 +30,9 @@ public enum GlassTokens {
     public static let fillPanel: Color = DesignTokens.Glass.fillPanel
     /// Selected / pressed: the one bright fill.
     public static let fillActive: Color = DesignTokens.Glass.fillActive
+    /// #EXP-1864: the viewer's OWN message bubble (opaque, the info blue
+    /// over the dark ground), under `strokeCard`.
+    public static let fillOwn: Color = DesignTokens.Glass.fillOwn
 
     // MARK: - Strokes
 

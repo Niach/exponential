@@ -477,6 +477,8 @@ export type FeedItem = FeedSeq &
       messageId?: string
       /** EXP-773: rendered inside that subagent's view, not in Main. */
       subagentId?: string
+      /** #EXP-1864: its FIRST fragment's stamp, the bubble's `HH:mm`. */
+      at?: number
     }
   // EXP-724: the quiet "Context compacted" hairline a finished compaction
   // leaves in the transcript. Carries nothing — the copy is a constant.
@@ -1176,6 +1178,10 @@ export function createSteerSessionStore(
     setFeed([...feed, row], [row])
   }
 
+  /** A wire `at` worth keeping (ms), else none. */
+  const stamp = (at: unknown): number | undefined =>
+    typeof at === `number` && Number.isFinite(at) ? at : undefined
+
   const handleActivity = (event: ActivityEvent) => {
     // EXP-724: the agent narrating, calling a tool, asking or spawning a
     // subagent proves it is working again — close a strip whose `ended`
@@ -1195,6 +1201,7 @@ export function createSteerSessionStore(
             text: event.text,
             messageId: event.messageId,
             subagentId: event.subagentId,
+            at: stamp(event.at),
             seq: currentSeq,
           }
           setFeed(spliceBeforeQuestion(feed, anchor, item) ?? [...feed, item], [item])
@@ -1219,6 +1226,7 @@ export function createSteerSessionStore(
           text: event.text,
           messageId: event.messageId,
           subagentId: event.subagentId,
+          at: stamp(event.at),
         })
         return
       }

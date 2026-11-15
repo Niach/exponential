@@ -165,6 +165,9 @@ final class AppEditorModel {
     private(set) var recordsCount = 0
     /// eApps R3: my app access (`appAccess.mine`; nil = write until known).
     private(set) var access: String?
+    /// #EXP-1849: the app's agent (Settings' Agent group; its `deviceId` =
+    /// the slot).
+    private(set) var agent: AgentDefinitionEntity?
 
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var graceTask: Task<Void, Never>?
@@ -219,6 +222,9 @@ final class AppEditorModel {
         let deviceOwners: [UserEntity]
         let isOwner: Bool
         let recordsCount: Int
+        /// #EXP-1849 (apps.json `agentSlot`): the app agent's synced row;
+        /// its `deviceId` is the app's slot ("" = each member's own device).
+        let agent: AgentDefinitionEntity?
     }
 
     func bind(accountId: String, appId: String, userId: String?, db: DatabaseManager) {
@@ -251,9 +257,11 @@ final class AppEditorModel {
                 )
             }
             let recordsCount = try AppRecordEntity.filter(Column("app_id") == appId).fetchCount(db)
+            let agent = try app?.agentId.flatMap { try AgentDefinitionEntity.fetchOne(db, key: $0) }
             return Snapshot(
                 app: app, versions: versions, users: users, root: root, devices: devices,
-                deviceOwners: deviceOwners, isOwner: role == "owner", recordsCount: recordsCount
+                deviceOwners: deviceOwners, isOwner: role == "owner", recordsCount: recordsCount,
+                agent: agent
             )
         }
         task = Task { [weak self] in
@@ -272,6 +280,7 @@ final class AppEditorModel {
                     self.rootId = snapshot.root?.id
                     self.rootLive = snapshot.root?.isLive ?? false
                     self.root = snapshot.root
+                    self.agent = snapshot.agent
                     self.lastSnapshot = snapshot
                     self.settleDevice()
                     self.isOwner = snapshot.isOwner
@@ -433,7 +442,8 @@ final class AppEditorModel {
             rootStatus: root?.status,
             rootDeviceId: root?.deviceId,
             candidates: candidates.map { (deviceId: $0.deviceId, isDefault: $0.isDefaultDevice) },
-            remembered: UserDefaults.standard.string(forKey: Self.editorDeviceKey(boundAppId))
+            remembered: UserDefaults.standard.string(forKey: Self.editorDeviceKey(boundAppId)),
+            slot: snapshot.agent?.deviceId
         )
         var rows = candidates.map { DevicePickerDevice($0) }
         if let shown = choice.deviceId, !rows.contains(where: { $0.id == shown }) {

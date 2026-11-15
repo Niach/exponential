@@ -273,6 +273,11 @@ export async function endSession(args: {
   const session = await loadSessionForUser(args.userId, args.sessionId)
   await assertCanSteer(args.userId, session)
   if (isPersistent(session)) {
+    // #EXP-1849: an app's root is its agent's conversation now; an older
+    // client still ends it when the member leaves the editor: a no-op.
+    if (session.appId && session.parentId === null) {
+      return { txid: await db.transaction((tx) => generateTxId(tx)), endedIds: [], summaryDropped: false }
+    }
     throw new TRPCError({
       code: `BAD_REQUEST`,
       message: `An agent's conversation never ends; delete the agent in Settings → Agents`,

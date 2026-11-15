@@ -1889,6 +1889,23 @@ struct AgentChatRoute: View {
 
     var body: some View {
         Group {
+            if let appId = model.appId {
+                // #EXP-1849 (apps.json `agentSlot`): an app's agent has no page
+                // of its own: the member's chat with it IS the app's (the editor).
+                AppEditorScreen(appId: appId)
+                    .id(appId)
+            } else {
+                channel
+            }
+        }
+        .onAppear {
+            model.bind(accountId: accountId, agentId: agentId, userId: deps.auth.userId, db: deps.db)
+        }
+        .onDisappear { model.stop() }
+    }
+
+    private var channel: some View {
+        Group {
             if let conversationId = model.conversationId {
                 ChatScreen(rootId: conversationId, initialPage: settings ? .settings : .conversation)
                     .id(conversationId)
@@ -1916,10 +1933,6 @@ struct AgentChatRoute: View {
         }
         // #EXP-1688: THE chat header replaces the bar, loading or not.
         .toolbar(.hidden, for: .navigationBar)
-        .onAppear {
-            model.bind(accountId: accountId, agentId: agentId, userId: deps.auth.userId, db: deps.db)
-        }
-        .onDisappear { model.stop() }
     }
 }
 
@@ -1932,6 +1945,8 @@ final class AgentChannelModel {
     private(set) var agent: AgentDefinitionEntity?
     private(set) var conversationId: String?
     private(set) var missing = false
+    /// #EXP-1849: the live app whose agent this is (nil = a plain agent).
+    private(set) var appId: String?
 
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var graceTask: Task<Void, Never>?
@@ -1941,7 +1956,7 @@ final class AgentChannelModel {
     func bind(accountId: String, agentId: String, userId: String?, db: DatabaseManager) {
         stop()
         guard let pool = try? db.pool(forAccountId: accountId) else { return }
-        let observation = ValueObservation.tracking { db -> (AgentDefinitionEntity?, String?) in
+        let observation = ValueObservation.tracking { db -> (AgentDefinitionEntity?, String?, String?) in
             let agent = try AgentDefinitionEntity.fetchOne(db, key: agentId)
             let conversation = try SessionEntity
                 .filter(Column("agent_id") == agentId)
@@ -1949,14 +1964,19 @@ final class AgentChannelModel {
                 .filter(Column("parent_id") == nil)
                 .order(Column("created_at"), Column("id"))
                 .fetchOne(db)
-            return (agent, conversation?.id)
+            let app = try AppEntity
+                .filter(Column("agent_id") == agentId)
+                .filter(Column("deleted_at") == nil)
+                .fetchOne(db)
+            return (agent, conversation?.id, app?.id)
         }
         task = Task { [weak self] in
             do {
-                for try await (agent, conversationId) in observation.values(in: pool) {
+                for try await (agent, conversationId, appId) in observation.values(in: pool) {
                     guard let self else { return }
                     self.agent = agent
                     self.conversationId = conversationId
+                    self.appId = appId
                     if agent != nil || conversationId != nil { self.missing = false }
                 }
             } catch {}

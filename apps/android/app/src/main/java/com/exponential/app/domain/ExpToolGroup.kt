@@ -69,6 +69,9 @@ object ExpToolGroup {
         val opener = feed.getOrNull(start) as? AgentFeedItem.Tool ?: return start
         val lane = opener.subagentId
         val row = ExpToolDisplay.row(opener.name) ?: return start
+        // #EXP-1864: a notice (`Ended turn quietly`) is THE inline marker, its
+        // own full row: it never opens a run.
+        if (TranscriptGrouping.traceNotice(opener.name) != null) return start
         var end = start
         while (
             end + 1 < feed.size &&

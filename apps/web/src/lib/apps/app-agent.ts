@@ -1,15 +1,16 @@
 import { eq } from "drizzle-orm"
 import { agents, apps, type App } from "@/db/schema"
-import { defaultDeviceFor } from "@/lib/apps/editor-session"
 import type { Tx } from "@/lib/sessions/tx"
 
 // #EXP-1730 (one-tree model): every app has an AGENT (`apps.agent_id`): the
-// app's name, icon and color, owned by its creator, on their default device
-// (the agent's `defaults`). Its root session is the app's editor; its
-// triggers carry the app's automations (phase B). Created with the app, in
-// the same transaction; a standalone (exported) app has none.
+// app's name, icon and color, owned by its creator. Its root sessions are
+// the app's editor chats (#EXP-1849: one per member), its triggers the app's
+// automations (#EXP-1848). #EXP-1849: its `device_id` is the app's AGENT
+// SLOT: empty (``) = each member's own device (the default), else a device
+// shared with the team that runs every member's chat. Created with the app,
+// in the same transaction; a standalone (exported) app has none.
 export async function createAppAgentInTx(tx: Tx, app: App, userId: string): Promise<string> {
-  const deviceId = (await defaultDeviceFor(userId)) ?? ``
+  const deviceId = ``
   const [agent] = await tx
     .insert(agents)
     .values({

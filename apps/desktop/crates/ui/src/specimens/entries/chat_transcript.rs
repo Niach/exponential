@@ -7,7 +7,8 @@
 //! card ([`crate::surface_card::surface_row`], the plan card's painter in its
 //! own glass frame; its presses `reply`), a plan the agent replaced paints
 //! collapsed to `copy.superseded`, and a WAITING plan stays inline with its
-//! decision (FEED-140). Every row goes through the chat screen's own
+//! decision (FEED-140). #EXP-1864: the agent's bubbles wear their `HH:mm`,
+//! and the agent's quiet turn is THE inline marker on its own line. Every row goes through the chat screen's own
 //! painters ([`crate::session_chat::card_row`]). Last, the surface card's
 //! ENTER frame a third of the way in (fade + rise + the primary hairline).
 
@@ -86,7 +87,7 @@ pub(crate) fn rows() -> Vec<(SessionChatRow, &'static str)> {
     vec![
         (message("m1", "user", "Cold start is at 1.4 s on the Pixel 6a. Profile the launch path and cut the sync bootstrap out of it."), "21:02"),
         (plan("p-old", "# Plan\nProfile first", Some("superseded")), ""),
-        (message("m2", "agent", "Deferred the shape subscribe until after the first frame and added a board snapshot cache. Here's where the time went:"), ""),
+        (message("m2", "agent", "Deferred the shape subscribe until after the first frame and added a board snapshot cache. Here's where the time went:"), "21:14"),
         (
             SessionChatRow::Surface {
                 id: "s1".into(),
@@ -98,7 +99,7 @@ pub(crate) fn rows() -> Vec<(SessionChatRow, &'static str)> {
         ),
         (SessionChatRow::Divider { id: "d1".into(), kind: DividerKind::Compact, at: String::new() }, "18:20"),
         (message("m3", "user", "Anything new overnight?"), "09:02"),
-        (message("m4", "agent", "Three reports, all about the iPad sign-in. I linked them to #APP-19."), ""),
+        (message("m4", "agent", "Three reports, all about the iPad sign-in. I linked them to #APP-19."), "09:03"),
         // #EXP-1772: a busy agent chat: a schedule firing the agent answered
         // (THE marker above the reply), a merge line, a relay (its name above).
         (event("e1", "trigger_fired", "Schedule"), ""),
@@ -124,6 +125,11 @@ pub(crate) fn rows() -> Vec<(SessionChatRow, &'static str)> {
         (SessionChatRow::Divider { id: "d2".into(), kind: DividerKind::New, at: String::new() }, "09:30"),
     ]
 }
+
+/// #EXP-1864 NOTICES: right under the agent's genUI card its quiet turn
+/// (`exponential_session_self_quiet`) = THE inline marker on its own line.
+pub(crate) const NOTICE_AFTER: &str = "s1";
+pub(crate) const NOTICE_TOOL: &str = "mcp__exponential__exponential_session_self_quiet";
 
 /// #FEED-237 (message-delivery.json): the viewer's own bubbles at the
 /// bottom in all four states (the clock, one check, two checks, the red
@@ -206,6 +212,10 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         if matches!(&row, SessionChatRow::Message { id, .. } if id == OWN_AFTER) {
             rows.extend(own_rows().into_iter().map(|(id, body, time, state, stored)| paint_own(id, body, time, state, stored, &images, cx)));
         }
+        if matches!(&row, SessionChatRow::Surface { id, .. } if id == NOTICE_AFTER) {
+            let label = domain::transcript_grouping::trace_notice(NOTICE_TOOL).unwrap_or_default();
+            rows.push(crate::surface_card::transcript_marker(SharedString::from("sg-chat-notice"), label, None, cx));
+        }
     }
     v_flex()
         // #EXP-1547: THE chat column's content box (the token inside the gutter).
@@ -228,6 +238,14 @@ mod tests {
         assert!(rows.iter().any(|(row, _)| matches!(row, SessionChatRow::Divider { kind: DividerKind::New, .. })));
         assert!(rows.iter().any(|(row, _)| matches!(row, SessionChatRow::Divider { kind: DividerKind::Compact, .. })));
         assert!(rows.iter().any(|(row, _)| matches!(row, SessionChatRow::Plan { decision: Some(d), .. } if d == "superseded")));
+    }
+
+    /// #EXP-1864: the agent's bubbles wear their time; the notice resolves.
+    #[test]
+    fn the_agent_bubbles_carry_a_time_and_the_notice_resolves() {
+        assert!(rows().iter().any(|(row, time)| matches!(row, SessionChatRow::Message { author, .. } if author == "agent") && !time.is_empty()));
+        assert_eq!(domain::transcript_grouping::trace_notice(NOTICE_TOOL), Some("Ended turn quietly"));
+        assert!(rows().iter().any(|(row, _)| matches!(row, SessionChatRow::Surface { id, .. } if id == NOTICE_AFTER)));
     }
 
     /// #FEED-237: m1 (an own, consumed row = `read`) is followed by one

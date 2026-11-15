@@ -16,7 +16,10 @@
 //! Input), the description (a `row` Textarea), the records line, Record
 //! access, Tools, then `app_mcp`'s groups (#EXP-1850: no Automations; the
 //! Webhooks group is on the Events tab). The share rows' ⋯ are genUI
-//! Menus; every confirm stays native.
+//! Menus; every confirm stays native. #EXP-1849 (apps.json `agentSlot`):
+//! the AGENT group right after the identity = THE agent page's Runs on rows
+//! in its slot mode ([`super::agent_detail::AgentDetailPane::for_app_slot`]),
+//! between the identity document and the rest.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -118,6 +121,13 @@ pub struct AppDetailPane {
     description_draft: Option<String>,
     binding: Entity<Binding<Value>>,
     view: Entity<SurfaceView>,
+    /// #EXP-1849: the identity + description document over the Agent group
+    /// (the same projection as [`Self::binding`]'s).
+    head_binding: Entity<Binding<Value>>,
+    head_view: Entity<SurfaceView>,
+    /// #EXP-1849 (apps.json `agentSlot`): the app agent's slot, keyed by the
+    /// agent it shows.
+    agent_slot: Option<(String, Entity<super::agent_detail::AgentDetailPane>)>,
     /// What the document's host draws itself (the rows' leaves).
     host: Rc<RefCell<HostState>>,
     /// The app id the fields were seeded for.
@@ -176,7 +186,7 @@ impl AppDetailPane {
         // is mid-update and the pane writes it.
         let pane = cx.weak_entity();
         let handle = window.window_handle();
-        let binding = cx.new(|_| {
+        let make_binding = |cx: &mut gpui::Context<Self>| cx.new(|_| {
             let mut binding = Binding::new(PATH, Value::Null, |state: &Value, _| state.clone());
             binding.set_toasts(Rc::new(IdeToasts));
             for &name in ACTIONS {
@@ -195,8 +205,11 @@ impl AppDetailPane {
             }
             binding
         });
+        let binding = make_binding(cx);
+        let head_binding = make_binding(cx);
         let host = Rc::new(RefCell::new(HostState { pane: Some(pane.clone()), ..Default::default() }));
         let plugin: Rc<dyn HostPlugin> = Rc::new(PaneHost { ide: super::doc::ide_plugin(), state: host.clone() });
+        let head_view = super::doc::mount_with("settings-app-identity", head_document(&Ink::of(cx)), &head_binding, plugin.clone(), true, window, cx);
         let view = super::doc::mount_with("settings-app", document(&Ink::of(cx), &Tints::of(cx)), &binding, plugin, true, window, cx);
         Self {
             app_id,
@@ -204,6 +217,9 @@ impl AppDetailPane {
             description_draft: None,
             binding,
             view,
+            head_binding,
+            head_view,
+            agent_slot: None,
             host,
             loaded: None,
             records_max: None,
@@ -243,7 +259,8 @@ impl AppDetailPane {
     /// reaches an eUI popup), its popup's enter fade run out.
     #[cfg(test)]
     pub(crate) fn press_for_shots(&mut self, id: &str, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        self.view.update(cx, |view, cx| {
+        let view = if self.head_view.read(cx).index_of(id).is_some() { self.head_view.clone() } else { self.view.clone() };
+        view.update(cx, |view, cx| {
             let index = view.index_of(id).expect("the pressed node");
             view.press(index, window, cx);
             view.advance_clock(std::time::Duration::from_millis(500), cx);
@@ -254,6 +271,7 @@ impl AppDetailPane {
     #[cfg(test)]
     pub(crate) fn press_for_shots_settle(&mut self, cx: &mut gpui::Context<Self>) {
         self.view.update(cx, |view, cx| view.advance_clock(std::time::Duration::from_millis(500), cx));
+        self.head_view.update(cx, |view, cx| view.advance_clock(std::time::Duration::from_millis(500), cx));
     }
 
     /// The pane's app row (the bench's, under test).
@@ -826,7 +844,7 @@ impl AppDetailPane {
 }
 
 impl Render for AppDetailPane {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "AppDetailPane").entered();
         let Some(page) = self.page() else {
             return div().into_any_element();
@@ -839,8 +857,28 @@ impl Render for AppDetailPane {
         self.sync_page(&page, &row, cx);
         self.load_mcp(&row, cx);
         let projection = self.project(&row, cx);
+        let head = projection.clone();
+        self.head_binding.update(cx, |binding, cx| binding.update_state(|state| *state = head, cx));
         self.binding.update(cx, |binding, cx| binding.update_state(|state| *state = projection, cx));
-        div().w_full().min_w_0().child(self.view.clone()).into_any_element()
+        // #EXP-1849: the app agent's slot, edited by the app's creator and
+        // the team's owners (`can_manage`), right after the identity.
+        let agent_id = row.agent_id.clone().filter(|id| !id.is_empty());
+        if self.agent_slot.as_ref().map(|(id, _)| id) != agent_id.as_ref() {
+            self.agent_slot = agent_id.map(|id| (id.clone(), cx.new(|cx| super::agent_detail::AgentDetailPane::for_app_slot(id, window, cx))));
+        }
+        let manage = self.can_manage(&row, cx);
+        if let Some((_, slot)) = &self.agent_slot {
+            slot.update(cx, |slot, cx| slot.set_slot_editor(manage, cx));
+        }
+        let gap = gpui::px(Ink::of(cx).r(1.));
+        gpui_component::v_flex()
+            .w_full()
+            .min_w_0()
+            .gap(gap)
+            .child(self.head_view.clone())
+            .children(self.agent_slot.as_ref().map(|(_, slot)| slot.clone()))
+            .child(self.view.clone())
+            .into_any_element()
     }
 }
 
@@ -1019,21 +1057,15 @@ pub(super) fn row_shell(ink: &Ink, id: &str, children: Vec<Value>) -> Value {
 }
 
 /// A group's heading (`px_1`, `text_sm` MEDIUM).
-fn heading(ink: &Ink, id: &str, title: &str) -> Value {
-    let mut text = ink.text(id, json!(title), SM, &ink.foreground);
-    text["style"]["fontWeight"] = json!(500);
-    text["style"]["paddingHorizontal"] = json!(ink.r(0.25));
-    text
-}
-
-/// A titled group (`gap_1`) shown where `<data>/show`: the heading over
-/// the `glass_group` of `<data>/rows`, one `item` each.
+/// A titled group shown where `<data>/show`: THE section band (apps.json
+/// `agentSlot` HEADERS, the agent page's) over the `glass_group` of
+/// `<data>/rows`, one `item` each.
 pub(super) fn titled(ink: &Ink, id: &str, title: &str, data: &str, item: Value, _tints: &Tints) -> Value {
     let template = item["id"].as_str().expect("the item's id").to_string();
     let list = json!({"id": format!("{id}_rows"), "component": "List", "props": {"gap": "none"},
         "template": {"component": template, "path": format!("{data}/rows"), "key": "key"}, "children": [item]});
-    json!({"id": id, "component": "Box", "visible": path(&format!("{data}/show")), "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "gap": ink.r(0.25)},
-        "children": [heading(ink, &format!("{id}_title"), title), ink.group(&format!("{id}_group"), vec![list])]})
+    json!({"id": id, "component": "Box", "visible": path(&format!("{data}/show")), "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0},
+        "children": [ink.band(&format!("{id}_title"), title, None), ink.group(&format!("{id}_group"), vec![list])]})
 }
 
 
@@ -1072,20 +1104,29 @@ fn tools(ink: &Ink) -> Value {
         "template": {"component": "tool_item", "path": "/pane/tools/rows", "key": "key"}, "children": [row]});
     let none = json!({"id": "tools_none", "component": "Box", "visible": path("/pane/tools/none"), "style": {"display": "flex", "flexDirection": "column", "paddingHorizontal": ink.r(1.), "paddingVertical": ink.r(0.75)},
         "children": [ink.text("tools_none_text", json!(copy.none), SM, &ink.muted)]});
+    // #EXP-1849 HEADERS: THE section band, the hint a muted line under it.
     let mut hint = ink.text("tools_hint", json!(copy.hint), SM, &ink.muted);
     hint["style"]["paddingHorizontal"] = json!(ink.r(0.25));
-    json!({"id": "app-settings-tools", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "gap": ink.r(0.25)},
+    hint["style"]["paddingBottom"] = json!(ink.r(0.25));
+    json!({"id": "app-settings-tools", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0},
         "children": [
-            {"id": "tools_head", "component": "Box", "style": {"display": "flex", "flexDirection": "column"}, "children": [heading(ink, "tools_title", &copy.title), hint]},
+            {"id": "tools_head", "component": "Box", "style": {"display": "flex", "flexDirection": "column"}, "children": [ink.band("tools_title", &copy.title, None), hint]},
             ink.group("tools_group", vec![list, none]),
         ]})
 }
 
-/// The tab's tree (`gap_4`, at most `editorTabs.settingsMaxWidth` wide).
+/// #EXP-1849: the tab's head (`gap_4`): the identity row and the
+/// description, over the Agent group.
+fn head_document(ink: &Ink) -> Value {
+    json!({"id": "app_settings_identity", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "maxWidth": APPS.editor_tabs.settings_max_width, "gap": ink.r(1.)}, "children": identity(ink)})
+}
+
+/// The tab's tree after the Agent group (`gap_4`, at most
+/// `editorTabs.settingsMaxWidth` wide).
 fn document(ink: &Ink, tints: &Tints) -> Value {
     let mut records = ink.text("records", path("/pane/records"), SM, &ink.muted);
     records["style"]["paddingHorizontal"] = json!(ink.r(0.25));
-    let mut children = identity(ink);
+    let mut children = Vec::new();
     children.extend([
         records,
         policies(ink, tints),
@@ -1143,12 +1184,13 @@ mod tests {
             outline_fg_dim: "#a1a1aa80".into(),
             list_hover: "#ffffff0f".into(),
         };
-        let tree = document(&ink, &tints);
-        let bound = super::super::doc::bound_values(&tree);
-        let mut surface = eui_core::surface::Surface::new("settings-app", Default::default());
-        let outcome = surface.set_nested(serde_json::from_value(tree).expect("parses"));
-        let issues = super::super::doc::unexpected_issues(&bound, &outcome.issues);
-        assert!(issues.is_empty(), "{issues:?}");
+        for tree in [head_document(&ink), document(&ink, &tints)] {
+            let bound = super::super::doc::bound_values(&tree);
+            let mut surface = eui_core::surface::Surface::new("settings-app", Default::default());
+            let outcome = surface.set_nested(serde_json::from_value(tree).expect("parses"));
+            let issues = super::super::doc::unexpected_issues(&bound, &outcome.issues);
+            assert!(issues.is_empty(), "{issues:?}");
+        }
     }
 
     #[test]

@@ -259,9 +259,10 @@ export function MessageBubble({
   const bubbleClass = cn(
     `min-w-0 rounded-2xl border px-3.5 py-2.5 text-sm [overflow-wrap:anywhere]`,
     BUBBLE_WIDTH[out ? `out` : `in`],
-    out
-      ? `border-glass-stroke-strong bg-glass-active text-foreground/90`
-      : `border-glass-stroke-card bg-glass-card-opaque text-foreground`
+    // #EXP-1864: one token per side (the own bubble's translucent glass
+    // read #252527 over the page gradient, the card #252525): the own
+    // bubble `glass.fillOwn`, everyone else the opaque card.
+    out ? `border-glass-stroke-card bg-glass-own text-foreground` : `border-glass-stroke-card bg-glass-card-opaque text-foreground`
   )
   return (
     <div

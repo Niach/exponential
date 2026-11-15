@@ -79,7 +79,7 @@ final class SteerWireFrameTests: XCTestCase {
             XCTAssertTrue(AgentFeed.mergeNarration(&feed, text: "b", messageId: "m", subagentId: nil))
         }
         XCTAssertLessThan(Date().timeIntervalSince(started), 3)
-        guard case let .narration(_, text, _, _)? = feed.last else { return XCTFail("no narration") }
+        guard case let .narration(_, text, _, _, _)? = feed.last else { return XCTFail("no narration") }
         XCTAssertEqual(text.count, count + 1)
         guard case let .tool(_, _, _, _, _, _, settled, _, _, _, _, _, _) = feed[0] else { return XCTFail("no tool") }
         XCTAssertTrue(settled)

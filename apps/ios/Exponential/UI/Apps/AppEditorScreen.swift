@@ -731,7 +731,8 @@ struct AppVersionsList: View {
 /// clients' Settings body, built
 /// from the existing pieces: the board form's identity row (icon + colour +
 /// name, the name saved when editing ends), the description (saved when
-/// editing ends), the records line, the Tools group (a team OWNER flips the
+/// editing ends), #EXP-1849 the Agent group (`AppAgentSlotGroup`), the
+/// records line, the Tools group (a team OWNER flips the
 /// grants: `apps.update {id, headVersion: grantVersion, grantedTools}`).
 /// Read-only for everyone else. #FEED-239: Export and Delete app are NOT on
 /// it (they are `…` entries).
@@ -825,6 +826,11 @@ struct AppSettingsPage: View {
             .onChange(of: descriptionFocused) { _, focused in
                 if !focused { saveDescription() }
             }
+            // #EXP-1849 (apps.json `agentSlot`): the app agent's slot.
+            if let agent = model.agent {
+                AppAgentSlotGroup(agent: agent, canEdit: canManage)
+                    .id(agent.id)
+            }
             Text(AppRecords.recordsCountLabel(count: model.recordsCount, max: nil))
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
@@ -878,11 +884,8 @@ struct AppSettingsPage: View {
     private func policiesGroup(_ app: AppListEntry) -> some View {
         let rows = Apps.policyRows(package: app.package ?? app.draftPackage)
         if !rows.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(Apps.Copy.Policies.title)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 4)
+            VStack(alignment: .leading, spacing: 0) {
+                GlassSectionBand(Apps.Copy.Policies.title)
                 VStack(spacing: 0) {
                     ForEach(rows, id: \.kind) { row in
                         VStack(alignment: .leading, spacing: 2) {
@@ -909,22 +912,20 @@ struct AppSettingsPage: View {
         }
     }
 
-    /// VAPP-120: `copy.tools` = the title + hint, then one row per action
+    /// VAPP-120: `copy.tools` = the band + the muted hint, then one row per action
     /// the head package declares: the display title over the function name,
     /// a switch (an owner only) or `Always asks` for an ungrantable one.
     private func tools(_ app: AppListEntry) -> some View {
         let declared = app.declaredActions
         let granted = app.grantableGranted
-        return VStack(alignment: .leading, spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(AppActions.Copy.title)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white)
-                Text(AppActions.Copy.hint)
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            }
-            .padding(.horizontal, 4)
+        return VStack(alignment: .leading, spacing: 0) {
+            GlassSectionBand(AppActions.Copy.title)
+            // #EXP-1849: the hint = a muted line under the band.
+            Text(AppActions.Copy.hint)
+                .font(.subheadline)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .padding(.horizontal, 4)
+                .padding(.bottom, 4)
             VStack(spacing: 0) {
                 if declared.isEmpty {
                     Text(AppActions.Copy.none)
@@ -988,11 +989,8 @@ struct AppSettingsPage: View {
     @ViewBuilder
     private var accountsGroup: some View {
         if !accounts.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(Apps.Copy.Accounts.title)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 4)
+            VStack(alignment: .leading, spacing: 0) {
+                GlassSectionBand(Apps.Copy.Accounts.title)
                 VStack(spacing: 0) {
                     ForEach(Array(accounts.enumerated()), id: \.offset) { _, account in
                         accountRow(account)
@@ -1088,11 +1086,8 @@ struct AppSettingsPage: View {
     @ViewBuilder
     private var mcpToolsGroup: some View {
         if !mcpTools.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(Apps.Copy.McpTools.title)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 4)
+            VStack(alignment: .leading, spacing: 0) {
+                GlassSectionBand(Apps.Copy.McpTools.title)
                 VStack(spacing: 0) {
                     ForEach(Array(mcpTools.enumerated()), id: \.offset) { _, tool in
                         mcpToolRow(tool)
@@ -1160,11 +1155,8 @@ struct AppSettingsPage: View {
     @ViewBuilder
     private var shareLinksGroup: some View {
         if !shares.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(AppShare.Copy.title)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 4)
+            VStack(alignment: .leading, spacing: 0) {
+                GlassSectionBand(AppShare.Copy.title)
                 VStack(spacing: 0) {
                     ForEach(Array(shares.enumerated()), id: \.offset) { _, share in
                         shareRow(share)

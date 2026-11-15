@@ -304,6 +304,24 @@ public enum TranscriptGrouping {
         text.utf16.count > Fold.chars || text.components(separatedBy: "\n").count > Fold.lines
     }
 
+    /// #EXP-1864 fixture `notices`: an Exponential tool row drawn as THE
+    /// inline marker (its own line, never a trace beside the avatar).
+    public static let notices: [String: String] = [
+        "session_self_quiet": "Ended turn quietly",
+    ]
+
+    private static let noticePrefix = "exponential_"
+
+    /// `noticeCases`: the notice label for a tool name ending in the contract
+    /// prefix + a `notices` row (whatever namespace sits before it), else nil.
+    public static func traceNotice(_ toolName: String?) -> String? {
+        let name = (toolName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        for (row, label) in notices where name.count > row.count && name.hasSuffix(row) {
+            if name.dropLast(row.count).hasSuffix(noticePrefix) { return label }
+        }
+        return nil
+    }
+
     /// A session input as the device words it (`coding::pickup::input_text`).
     public struct CrossSessionInput: Equatable, Sendable {
         public enum Kind: String, Equatable, Sendable {

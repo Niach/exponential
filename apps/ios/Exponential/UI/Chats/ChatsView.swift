@@ -142,10 +142,12 @@ struct ChatsView: View {
         )
     }
 
-    /// S-3: the AGENTS section pinned on top (`agentChatRows`).
+    /// S-3: the AGENTS section pinned on top (`agentChatRows`). #EXP-1849
+    /// (`sidebarAgents`): an app's agent has no row here; its chat IS the
+    /// app row.
     private var agentRows: [Chats.AgentChatRow] {
         Chats.agentChatRows(
-            agents: teamAgents,
+            agents: Chats.chatAgents(teamAgents, apps: lists.appsByTeam.values.flatMap { $0 }),
             sessions: lists.sessions,
             messages: lists.chatMessages,
             reads: lists.reads,

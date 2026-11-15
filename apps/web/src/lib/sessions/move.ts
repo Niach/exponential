@@ -73,7 +73,8 @@ async function sessionAgent(session: Session): Promise<string> {
 
 /** The refusals that hold whatever the target is (agent, ended). */
 export function assertMovable(session: Session): void {
-  if (isPersistent(session)) {
+  // #EXP-1849: an app's root (the member's DM with its agent) is movable.
+  if (isPersistent(session) && !session.appId) {
     throw new TRPCError({ code: `BAD_REQUEST`, message: MOVE_COPY.agent })
   }
   if (session.status === `ended`) {

@@ -34,9 +34,12 @@ public enum SessionDeviceMove {
     public static let reasonNoLogin = "This device has no signed-in login for this agent."
 
     /// The pin exists at all: never on an agent (a persistent kind moves
-    /// from Settings → Agents).
-    public static func pinVisible(kind: String) -> Bool {
-        !SessionKind.traits(kind).persistent
+    /// from Settings → Agents), EXCEPT an app's root (#EXP-1849: `appId`
+    /// set, it carries the app agent's `agentId` too): the member's app
+    /// chat moves like the editor always did.
+    public static func pinVisible(kind: String, appId: String? = nil) -> Bool {
+        if let appId, !appId.isEmpty { return true }
+        return !SessionKind.traits(kind).persistent
     }
 
     /// The whole pin's refusal, or nil = the picker opens. Steer first: a

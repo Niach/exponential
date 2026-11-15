@@ -538,6 +538,8 @@ function deriveColors(theme: ResolvedTheme): void {
     if (color.borderStrong === undefined && color.border !== undefined) color.borderStrong = color.border
     if (color.ghostHover === undefined && color.accent !== undefined) color.ghostHover = color.accent
     if (color.strokeActive === undefined && color.ring !== undefined) color.strokeActive = color.ring
+    // #EXP-1864: the own chat bubble = `popover` when the chain sets none.
+    if (color.bubbleOwn === undefined && color.popover !== undefined) color.bubbleOwn = color.popover
     if (color.destructiveHover === undefined && color.destructive !== undefined) color.destructiveHover = withAlpha(color.destructive, mode === `dark` ? 0.2 : 0.1)
     // #EXP-1760: `shadow.popoverRing` = `popover` when the chain sets none.
     const shadow = theme.modes[mode].shadow as Record<string, unknown> | undefined
