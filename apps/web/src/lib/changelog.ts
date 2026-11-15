@@ -34,6 +34,15 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **A server without a GPU**: its device page says "No usable GPU", and calls go to the desktop you're at or your newest desktop that can speak, which the call shows as "Voice on" with its name.`,
   },
   {
+    id: `2026-11-15-phones-calls-ring-the-agents-desktop`,
+    date: `2026-11-15`,
+    title: `Calls from your phone ring the agent's desktop`,
+    summary: `Android 0.14.143 and iOS 0.14.132: a call to an agent rings the desktop it runs on, and when another desktop has to answer the call shows "Voice on" with its name.`,
+    body: `- **The agent's desktop answers**: calling an agent from your phone rings the desktop the agent runs on and speaks in its voice there.
+- **A fallback that says so**: when that desktop is offline, has no usable GPU or the agent runs on a server, your newest desktop that can speak takes the call, and the call shows "Voice on" with its name.
+- **A clear reason**: with no desktop that can speak, the call says so instead of waiting.`,
+  },
+  {
     id: `2026-11-15-calls-ring-the-agents-desktop`,
     date: `2026-11-15`,
     title: `Calls ring the agent's own desktop`,

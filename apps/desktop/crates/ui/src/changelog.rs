@@ -57,6 +57,18 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
+const PREVIOUS_308: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-15-phones-calls-ring-the-agents-desktop",
+    date: "2026-11-15",
+    title: "Calls from your phone ring the agent's desktop",
+    summary: "Android 0.14.143 and iOS 0.14.132: a call to an agent rings the desktop it runs on, and when another desktop has to answer the call shows \"Voice on\" with its name.",
+    body: r##"- **The agent's desktop answers**: calling an agent from your phone rings the desktop the agent runs on and speaks in its voice there.
+- **A fallback that says so**: when that desktop is offline, has no usable GPU or the agent runs on a server, your newest desktop that can speak takes the call, and the call shows "Voice on" with its name.
+- **A clear reason**: with no desktop that can speak, the call says so instead of waiting."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
 const PREVIOUS_307: ChangelogEntry = ChangelogEntry {
     id: "2026-11-15-calls-ring-the-agents-desktop",
     date: "2026-11-15",
