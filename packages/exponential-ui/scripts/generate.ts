@@ -1713,6 +1713,64 @@ function prefixIds(node: NestedNode, prefix: string): NestedNode {
   return out
 }
 
+/** #EXP-1781: the STATE ROW of an interactive component's specimen: its
+ *  example (with `props` over it) once per forced state, captioned with the
+ *  state, the forced key = the case's root id + `target` (empty = the node
+ *  and all its parts; `.tab.1` = one placed part). The host passes the
+ *  specimen's `states` as its `forcedStates` (paint only). Only states the
+ *  exponential theme restyles. */
+interface SpecimenState {
+  state: `hover` | `pressed` | `focus`
+  target?: string
+  props?: Record<string, unknown>
+  label?: string
+}
+const node = (states: SpecimenState[`state`][], extra: Omit<SpecimenState, `state`> = {}): SpecimenState[] => states.map((state) => ({ state, ...extra }))
+const SPECIMEN_STATES: Record<string, SpecimenState[]> = {
+  Button: [{ state: `hover`, props: { variant: `ghost` }, label: `hover · ghost` }, ...node([`pressed`, `focus`])],
+  Toggle: node([`hover`]),
+  Link: node([`hover`]),
+  Chip: node([`hover`], { props: { selected: false } }),
+  Row: node([`hover`]),
+  Card: node([`hover`, `pressed`], { props: { pressable: true } }),
+  Input: node([`focus`]),
+  Textarea: node([`focus`]),
+  NumberField: node([`focus`]),
+  ChipInput: node([`focus`]),
+  Composer: node([`focus`]),
+  Checkbox: node([`focus`]),
+  Switch: node([`focus`]),
+  Slider: node([`focus`]),
+  Select: node([`hover`, `focus`]),
+  DatePicker: node([`focus`]),
+  DateRangePicker: node([`focus`]),
+  TimePicker: node([`focus`]),
+  Accordion: node([`hover`]),
+  Collapsible: node([`hover`]),
+  FileUpload: node([`hover`, `focus`]),
+  Resizable: node([`hover`, `pressed`, `focus`], { target: `.handle.0` }),
+  // Per item: one placed part.
+  Tabs: node([`hover`], { target: `.tab.1`, label: `hover · the second tab` }),
+  Segmented: [...node([`hover`], { target: `.item.1`, label: `hover · the second item` }), ...node([`pressed`], { target: `.item.1`, label: `pressed · the second item` })],
+  ChoiceTiles: [...node([`hover`], { target: `.tile.1`, label: `hover · the second tile` }), ...node([`focus`], { target: `.tile.0`, label: `focus · the first tile` })],
+  Radio: node([`focus`], { target: `.item.1`, label: `focus · the second item` }),
+  Table: node([`hover`], { target: `.row.b`, label: `hover · the second row` }),
+  Outline: node([`hover`], { target: `.row.0`, label: `hover · the first row` }),
+}
+
+/** The state cases of `name` (#EXP-1781), each with its forced target. */
+function specimenStateCases(name: string, all: ComponentCase[]): { label: string; node: NestedNode; forced: { target: string; states: string[] } }[] {
+  const rows = SPECIMEN_STATES[name]
+  if (!rows) return []
+  const example = generatedCases(name, all)[0]
+  if (!example) throw new Error(`specimen states: ${name} has no example`)
+  return rows.map((r) => {
+    const base = specimenContent(example.node)
+    const n: NestedNode = r.props ? { ...base, props: { ...(base.props ?? {}), ...r.props } } : base
+    return { label: r.label ?? r.state, node: n, forced: { target: r.target ?? ``, states: [r.state] } }
+  })
+}
+
 /** The cases a component's specimen shows: an overlay (an `open` prop) once,
  *  open; anything else its example, then up to two enum props × every value,
  *  then `true` for up to two booleans, deduplicated, at most SPECIMEN_MAX_CASES. */
@@ -1798,17 +1856,37 @@ function specimenNode(name: string, all: ComponentCase[]): NestedNode {
     style: wrap
       ? { display: `flex`, flexDirection: `row`, flexWrap: `wrap`, alignItems: `flex-start`, gap: `$spacing.lg`, padding: `$spacing.xl` }
       : { display: `flex`, flexDirection: `column`, gap: `$spacing.lg`, padding: `$spacing.xl`, maxWidth: SPECIMEN_MAX_WIDTH[name] ?? 720 },
-    children: specimenCases(name, all).map((c, i) => ({
-      id: `${root}_case_${i}`,
-      component: `Stack`,
-      props: { direction: `vertical`, gap: `xs`, align: inline ? `start` : `stretch` },
-      ...(wrap ? { style: wrap } : {}),
-      children: [
-        { id: `${root}_case_${i}_label`, component: `Text`, props: { text: c.label, variant: `caption` } },
-        prefixIds(c.node, `c${i}_`),
-      ],
-    })),
+    children: [
+      ...specimenCases(name, all).map((c, i) => ({
+        id: `${root}_case_${i}`,
+        component: `Stack`,
+        props: { direction: `vertical`, gap: `xs`, align: inline ? `start` : `stretch` },
+        ...(wrap ? { style: wrap } : {}),
+        children: [
+          { id: `${root}_case_${i}_label`, component: `Text`, props: { text: c.label, variant: `caption` } },
+          prefixIds(c.node, `c${i}_`),
+        ],
+      })),
+      ...specimenStateCases(name, all).map((c, i) => ({
+        id: `${root}_state_${i}`,
+        component: `Stack`,
+        props: { direction: `vertical`, gap: `xs`, align: inline ? `start` : `stretch` },
+        ...(wrap ? { style: wrap } : {}),
+        children: [
+          { id: `${root}_state_${i}_label`, component: `Text`, props: { text: c.label, variant: `caption` } },
+          prefixIds(c.node, `s${i}_`),
+        ],
+      })),
+    ],
   }
+}
+
+/** #EXP-1781: a specimen's forced states (`forcedStates` of its host): the
+ *  state cases' root ids (+ their target) → the state. */
+function specimenStates(name: string, all: ComponentCase[]): Record<string, string[]> | undefined {
+  const cases = specimenStateCases(name, all)
+  if (!cases.length) return undefined
+  return Object.fromEntries(cases.map((c, i) => [`${prefixIds(c.node, `s${i}_`).id}${c.forced.target}`, c.forced.states]))
 }
 
 interface SpecimenEntry {
@@ -1816,6 +1894,8 @@ interface SpecimenEntry {
   component: string | null
   title: string
   node: NestedNode
+  /** #EXP-1781: the forced interaction states the host paints (paint only). */
+  states?: Record<string, string[]>
 }
 
 /** fixtures/specimens.json: every visible component's specimen (view id =
@@ -1826,6 +1906,7 @@ function renderSpecimens(all: ComponentCase[], demo: NestedNode) {
     component: name,
     title: name,
     node: specimenNode(name, all),
+    ...(specimenStates(name, all) ? { states: specimenStates(name, all) } : {}),
   }))
   const { $comment: _, ...demoNode } = demo as NestedNode & { $comment?: string }
   specimens.push({ id: `exponential-ui-demo`, component: null, title: `Demo`, node: demoNode })
@@ -1834,7 +1915,7 @@ function renderSpecimens(all: ComponentCase[], demo: NestedNode) {
     if (result.issues.length > 0) throw new Error(`specimen ${s.id}: ${result.issues.map((i) => `${i.id}: ${i.message}`).join(`; `)}`)
   }
   return {
-    $comment: `${HEADER} One surface per visible component (id = its docs specimenId = its view-catalog id) plus the home page demo (exponential-ui-demo, from fixtures/demo-surface.json). ui.exponential.at shows the four platform shots of each; every renderer's example host paints an entry by id (web harness ?view=specimen&id=, the IDE's EXP_DEV_SCREEN, the Swift example's -shot, the Compose example's shot extra).`,
+    $comment: `${HEADER} One surface per visible component (id = its docs specimenId = its view-catalog id) plus the home page demo (exponential-ui-demo, from fixtures/demo-surface.json). #EXP-1781: an interactive component's specimen ends in its STATE ROW (its example once per forced state) and carries \`states\` = id (a node, or a placed part \`<id>.tab.1\`) → the forced interaction states its host passes as \`forcedStates\` (host-only, paint only; fixtures/forced-states.json). ui.exponential.at shows the four platform shots of each; every renderer's example host paints an entry by id (web harness ?view=specimen&id=, the IDE's EXP_DEV_SCREEN, the Swift example's -shot, the Compose example's shot extra).`,
     catalogId: CORE_CATALOG_ID,
     specimens,
   }
