@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-15-desktop-assistant-button-clear`,
+    date: `2026-11-15`,
+    title: `Nothing under the Assistant button on the desktop`,
+    summary: `Desktop and CLI 0.14.164: the floating Assistant button no longer covers the plan tab's Next button, the board's bulk bar, the Chats selection bar or the last rows of a scrolled pane.`,
+    body: `- **Plan tab**: with a question waiting, Next sits beside the Assistant button instead of under it.
+- **Selection bars**: the board's bulk bar and the Chats selection bar keep clear of the button when you select issues or chats.
+- **Scroll ends**: scroll any long pane to the end and its last row stays clear of the button.`,
+  },
+  {
     id: `2026-11-15-desktop-voice-per-agent`,
     date: `2026-11-15`,
     title: `A voice for every agent on the desktop`,
