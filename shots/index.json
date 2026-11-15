@@ -8014,8 +8014,8 @@
         "file": "shots/voice-call/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 13776,
-        "sha256": "fddd56b77bb2f11e6a49444a12ecb30cf666df6273ba88e5d5d4cda4435cac71"
+        "bytes": 24002,
+        "sha256": "24a39da45209e871cfb141e5e24ac429259c39731ff74c04b59a343277e23096"
       },
       "desktop": {
         "file": "shots/voice-call/desktop.webp",

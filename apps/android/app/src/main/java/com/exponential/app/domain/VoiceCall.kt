@@ -34,6 +34,8 @@ object VoiceCall {
         const val CANCEL = "Cancel"
         /** EXP-1681: the phone surface's minimize button. */
         const val MINIMIZE = "Minimize"
+        /** EXP-1857: the second status line while a call falls back ([View.via]). */
+        const val VIA = "Voice on {device}"
         const val QUEUED = "{count} queued · {text}"
 
         /** What the device says once answered, by language (`en` the fallback). */
@@ -52,6 +54,8 @@ object VoiceCall {
             const val BUSY = "{device} is in another call"
             /** #NEW-57: a meeting runs on the voice device. */
             const val MEETING = "{device} is transcribing a meeting"
+            /** EXP-1857: the member has no desktop at all ([callTarget]). */
+            const val NO_DESKTOP = "Open Exponential on one of your desktops to call"
         }
 
         /** A failure's toast by its code; an unknown code reads [Failed.DROPPED]. */
@@ -104,6 +108,8 @@ object VoiceCall {
         const val PILL = "voice-call-pill"
         const val TIMER = "voice-call-timer"
         const val MINIMIZE = "voice-call-minimize"
+        /** EXP-1857: the fallback's device line ([View.via]). */
+        const val VIA = "voice-call-via"
     }
 
     object Constants {
@@ -230,6 +236,86 @@ object VoiceCall {
         }
     }
 
+    /** EXP-1857: one of the member's own desktops as [callTarget] reads it. */
+    data class TargetDevice(
+        val id: String,
+        val name: String,
+        val online: Boolean,
+        /** Its doctor row `speech` through [callSpeechOf] (null = none yet). */
+        val speech: Speech?,
+        /** A meeting runs on it. */
+        val meeting: Boolean = false,
+    )
+
+    data class TargetInput(
+        val platform: Platform,
+        /** THIS client's own desktop (null on phones and web). */
+        val here: String?,
+        /** The called agent's Runs on device. */
+        val agentDevice: String?,
+        /** The member's own desktops, newest `lastSeenAt` first. */
+        val desktops: List<TargetDevice>,
+        /** A call this client does not run already runs on the target. */
+        val busy: Boolean,
+    )
+
+    data class Target(
+        val enabled: Boolean,
+        val reason: String?,
+        /** The desktop whose speech runs the call (null = disabled). */
+        val device: String?,
+        val name: String?,
+        /** The target is not the agent's own device. */
+        val fallback: Boolean,
+        /** The target is this client's own desktop: the IDE runs the call. */
+        val local: Boolean,
+    ) {
+        val availability: Availability get() = Availability(enabled, reason)
+    }
+
+    /** A desktop that can run a call now (a downloading voice rings until ready). */
+    fun speaks(device: TargetDevice): Boolean =
+        device.online && !device.meeting && (device.speech == Speech.Ok || device.speech == Speech.Preparing)
+
+    /**
+     * EXP-1857 (`targetCases`, TS `callTarget`): where a call's speech runs.
+     * The first desktop that speaks of: the agent's device (one of the
+     * member's own desktops), the desktop you're at, the other desktops newest
+     * first. None speaks = disabled with the first candidate's reason.
+     */
+    fun callTarget(input: TargetInput): Target {
+        fun byId(id: String?) = id?.let { want -> input.desktops.firstOrNull { it.id == want } }
+        val candidates = listOfNotNull(byId(input.agentDevice), byId(input.here)) + input.desktops
+        val target = candidates.firstOrNull(::speaks)
+        fun off(reason: String?) = Target(enabled = false, reason = reason, device = null, name = null, fallback = false, local = false)
+        if (target == null) {
+            val first = candidates.firstOrNull() ?: return off(Copy.Reasons.NO_DESKTOP)
+            return off(
+                callAvailability(
+                    AvailabilityInput(
+                        agent = true,
+                        platform = input.platform,
+                        device = first.name,
+                        online = first.online,
+                        here = true,
+                        speech = first.speech,
+                        busy = false,
+                        meeting = first.meeting,
+                    ),
+                ).reason,
+            )
+        }
+        if (input.busy) return off(Copy.Reasons.BUSY.replace("{device}", target.name))
+        return Target(
+            enabled = true,
+            reason = null,
+            device = target.id,
+            name = target.name,
+            fallback = target.id != input.agentDevice,
+            local = target.id == input.here,
+        )
+    }
+
     /**
      * The voice device's `speech` (group `voice`) doctor row: ok → ok,
      * missing (no usable GPU) → noGpu, error (NEW-99: the voice failed to
@@ -255,6 +341,8 @@ object VoiceCall {
         /** The loudspeaker (false = the earpiece). */
         val speaker: Boolean,
         val device: String,
+        /** EXP-1857: the device is not the agent's own ([Copy.VIA] shows it). */
+        val fallback: Boolean,
         /** The greeting the device says once answered. */
         val greeting: String,
         /** The ring's earliest answer ([callRingMs]) passed. */
@@ -274,6 +362,7 @@ object VoiceCall {
         muted = false,
         speaker = true,
         device = "",
+        fallback = false,
         greeting = "",
         rang = false,
         ready = false,
@@ -289,7 +378,7 @@ object VoiceCall {
 
     /** One `flowCases` event (`t` on the wire). */
     sealed interface Event {
-        data class Start(val device: String, val language: String? = null) : Event
+        data class Start(val device: String, val language: String? = null, val fallback: Boolean = false) : Event
         data object Rang : Event
         data object Ready : Event
         data object NoSound : Event
@@ -324,7 +413,11 @@ object VoiceCall {
             fun of(json: JsonObject): Event? {
                 fun str(key: String): String = (json[key] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: ""
                 return when (str("t")) {
-                    "start" -> Start(str("device"), str("language").ifEmpty { null })
+                    "start" -> Start(
+                        str("device"),
+                        str("language").ifEmpty { null },
+                        (json["fallback"] as? JsonPrimitive)?.booleanOrNull ?: false,
+                    )
                     "rang" -> Rang
                     "ready" -> Ready
                     "noSound" -> NoSound
@@ -357,7 +450,12 @@ object VoiceCall {
         fun at(phase: Phase, line: String, said: String = state.said, noSound: Boolean = state.noSound) =
             state.copy(phase = phase, line = line, toast = null, said = said, noSound = noSound)
         if (event is Event.Start) {
-            return CALL_IDLE.copy(phase = Phase.Ringing, device = event.device, greeting = callGreeting(event.language))
+            return CALL_IDLE.copy(
+                phase = Phase.Ringing,
+                device = event.device,
+                fallback = event.fallback,
+                greeting = callGreeting(event.language),
+            )
         }
         if (state.phase == Phase.Hidden) return state
         val ringing = state.phase == Phase.Ringing
@@ -431,6 +529,9 @@ object VoiceCall {
         val activity: Activity,
         /** The line under the name; null = the call's timer ([callTimer]). */
         val status: String?,
+        /** EXP-1857: the device that speaks while the call falls back (a
+         *  second status line, [Copy.VIA]); null otherwise. */
+        val via: String?,
         val caption: String,
         val muted: Boolean,
         val speaker: Boolean,
@@ -443,10 +544,12 @@ object VoiceCall {
     /** What the call surface shows; null = no surface. */
     fun callView(state: State, platform: Platform = Platform.Phone): View? {
         if (state.phase == Phase.Hidden) return null
+        val via = if (state.fallback) Copy.VIA.replace("{device}", state.device) else null
         if (state.phase == Phase.Ringing) {
             return View(
                 activity = Activity.Ringing,
                 status = if (state.rang) Copy.GETTING_READY else Copy.CALLING,
+                via = via,
                 caption = "",
                 muted = state.muted,
                 speaker = state.speaker,
@@ -458,6 +561,7 @@ object VoiceCall {
         fun inCall(activity: Activity, caption: String) = View(
             activity = activity,
             status = null,
+            via = via,
             caption = caption,
             muted = state.muted,
             speaker = state.speaker,
@@ -525,26 +629,33 @@ object VoiceCall {
     val surfaceSpecimens: List<SurfaceSpecimen> = listOf(
         SurfaceSpecimen(
             "ringing", "Assistant", null, 0.0, emptyList(),
-            View(Activity.Ringing, "Calling…", "", muted = false, speaker = true, buttons = listOf(Button.End), end = "Cancel"),
+            View(Activity.Ringing, "Calling…", null, "", muted = false, speaker = true, buttons = listOf(Button.End), end = "Cancel"),
         ),
         SurfaceSpecimen(
             "getting ready", "Assistant", null, 0.0, emptyList(),
-            View(Activity.Ringing, "Getting ready…", "", muted = false, speaker = true, buttons = listOf(Button.End), end = "Cancel"),
+            View(Activity.Ringing, "Getting ready…", null, "", muted = false, speaker = true, buttons = listOf(Button.End), end = "Cancel"),
         ),
         SurfaceSpecimen(
             "in call, speaking", "Assistant", "04:12", 0.5, listOf(0.7, 1.0, 0.5, 0.8),
             View(
-                Activity.Speaking, null, "Batch 4 is rebasing; the other two are merged. Want me to merge the last one when it's green?",
+                Activity.Speaking, null, null, "Batch 4 is rebasing; the other two are merged. Want me to merge the last one when it's green?",
                 muted = false, speaker = true, buttons = PHONE_BUTTONS, end = "End call",
             ),
         ),
         SurfaceSpecimen(
             "in call, listening", "Assistant", "04:20", 0.7, listOf(0.9, 0.6, 1.0, 0.5),
-            View(Activity.Listening, null, "“merge it when it's green”", muted = false, speaker = true, buttons = PHONE_BUTTONS, end = "End call"),
+            View(Activity.Listening, null, null, "“merge it when it's green”", muted = false, speaker = true, buttons = PHONE_BUTTONS, end = "End call"),
         ),
         SurfaceSpecimen(
             "muted", "Assistant", "04:31", 0.0, emptyList(),
-            View(Activity.Muted, null, "Microphone muted", muted = true, speaker = true, buttons = PHONE_BUTTONS, end = "End call"),
+            View(Activity.Muted, null, null, "Microphone muted", muted = true, speaker = true, buttons = PHONE_BUTTONS, end = "End call"),
+        ),
+        SurfaceSpecimen(
+            "in call, falling back", "Assistant", "04:20", 0.7, listOf(0.9, 0.6, 1.0, 0.5),
+            View(
+                Activity.Listening, null, "Voice on mint", "“merge it when it's green”",
+                muted = false, speaker = true, buttons = PHONE_BUTTONS, end = "End call",
+            ),
         ),
     )
 }

@@ -30,6 +30,12 @@ data class StartCallResult(
     val ticket: String,
     val url: String,
     val relayUrl: String? = null,
+    /** EXP-1857: the target desktop the server picked (absent from an older server). */
+    val deviceId: String? = null,
+    /** EXP-1857: its name (the call's `{device}`). */
+    val device: String? = null,
+    /** EXP-1857: the target is not the agent's own desktop. */
+    val fallback: Boolean? = null,
 )
 
 @Singleton
@@ -56,9 +62,9 @@ class VoiceApi @Inject constructor(private val trpc: TrpcClient) {
         )
 
     /**
-     * NEW-69: start a call with [agentId] streamed to the member's voice
-     * device; the server refuses with the availability reason
-     * (`fixtures/voice-call.json` `callAvailability`).
+     * NEW-69: start a call with [agentId]; EXP-1857 the server picks the
+     * target (`fixtures/voice-call.json` `callTarget`: the agent's desktop or
+     * the fallback) and refuses with its reason.
      */
     suspend fun startCall(accountId: String, agentId: String, platform: String = "phone"): StartCallResult =
         trpc.mutation(
