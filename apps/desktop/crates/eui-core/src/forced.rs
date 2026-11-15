@@ -10,6 +10,9 @@
 
 use indexmap::IndexMap;
 
+/// The forced map: id → states (insertion order kept).
+pub type ForcedStates = IndexMap<String, Vec<String>>;
+
 /// The states a host may force.
 pub const FORCED_STATE_NAMES: &[&str] = &["hover", "pressed", "focus"];
 
