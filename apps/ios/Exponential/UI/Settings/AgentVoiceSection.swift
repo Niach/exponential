@@ -245,6 +245,8 @@ struct AgentVoiceSection: View {
                 accessibilityIdentifier: input == .transcript ? "agent-voice-transcript" : "agent-voice-wake-phrase"
             )
             .multilineTextAlignment(.trailing)
+            // The value colour of every trailing field (web `text-foreground/70`).
+            .foregroundStyle(.white.opacity(canEdit ? TextOpacity.secondary : TextOpacity.quaternary))
             .autocorrectionDisabled()
             .submitLabel(.done)
             .focused($focused, equals: input)

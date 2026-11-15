@@ -1050,12 +1050,12 @@ private fun AgentVoiceSectionBlock(
     Column(Modifier.fillMaxWidth().testTag(AgentVoiceSection.TestIds.SECTION)) {
         SectionHeader(AgentVoiceSection.Copy.LABEL, modifier = Modifier.padding(horizontal = 16.dp))
         OptionGroup {
-            // Every language carries the voice device's GPU note (#NEW-74).
-            val languageDevice = settings?.voiceDeviceId?.let { vocabulary.deviceNames[it] ?: Voice.Copy.ELLIPSIS }
+            // The plain language name, as web, iOS and desktop (the GPU
+            // note stays on the member's Voice page, #NEW-74).
             val languages = Voice.languages.map { it.value }
             com.exponential.app.ui.components.picker.Picker(
                 items = languages.map {
-                    com.exponential.app.ui.components.picker.PickerItem(value = it, label = Voice.languageLabel(it, languageDevice))
+                    com.exponential.app.ui.components.picker.PickerItem(value = it, label = Voice.languageLabel(it, null))
                 },
                 mode = com.exponential.app.ui.components.picker.PickerMode.Single,
                 value = setOf(resolved.language),
@@ -1069,7 +1069,7 @@ private fun AgentVoiceSectionBlock(
             ) { open ->
                 PickerValueRow(
                     label = AgentVoiceSection.Copy.LANGUAGE,
-                    value = Voice.languageLabel(resolved.language, languageDevice),
+                    value = Voice.languageLabel(resolved.language, null),
                     onClick = open,
                     enabled = editable,
                     modifier = Modifier.testTag(AgentVoiceSection.TestIds.LANGUAGE),
