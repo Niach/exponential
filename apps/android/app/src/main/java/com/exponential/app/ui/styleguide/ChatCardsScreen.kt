@@ -397,6 +397,7 @@ private fun SuggestionsSpecimens() {
             sender = reporter,
             avatar = true,
             name = true,
+            tail = true,
             gap = 0,
         ),
         avatar = { com.exponential.app.ui.chat.SenderAvatar(reporter) },

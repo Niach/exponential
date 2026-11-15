@@ -994,7 +994,7 @@ mod tests {
     use domain::transcript_grouping::SenderKind;
 
     fn layout(side: TranscriptSide, sender: Option<TranscriptSender>, avatar: bool, name: bool) -> TranscriptRowLayout {
-        TranscriptRowLayout { id: "x".into(), side, sender, avatar, name, gap: 0. }
+        TranscriptRowLayout { id: "x".into(), side, sender, avatar, name, tail: avatar, gap: 0. }
     }
 
     fn facts<'a>(content: RowContent<'a>, layout: Option<&'a TranscriptRowLayout>, gap: f32, cards: bool) -> RowFacts<'a> {
