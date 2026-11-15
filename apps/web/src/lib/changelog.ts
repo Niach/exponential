@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-15-calls-ring-the-agents-desktop`,
+    date: `2026-11-15`,
+    title: `Calls ring the agent's own desktop`,
+    summary: `A call to an agent rings the desktop it runs on. When that desktop can't speak, another of your desktops answers and the call shows which one.`,
+    body: `- **The agent's desktop answers**: calling an agent from your phone, the web or the desktop app rings the desktop the agent runs on and speaks in its voice there.
+- **A fallback that says so**: when that desktop is offline, has no usable GPU or the agent runs on a server, the desktop you're at or your newest desktop that can speak takes the call, and the call shows "Voice on" with its name.
+- **Call from any desktop**: the desktop app calls an agent on another machine like your phone does, over the relay. Push to talk works on the desktop you're at.`,
+  },
+  {
     id: `2026-11-15-voice-per-agent`,
     date: `2026-11-15`,
     title: `Every agent gets its own voice`,
