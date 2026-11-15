@@ -19,14 +19,16 @@ use etalk_gpui::voice_overlay::{call_panel, specimen_face, CallActions};
 pub(crate) const ID: &str = "voice-call";
 pub(crate) const OWNER: &str = "NEW-55";
 
-/// One specimen's frame (a narrow portrait: all of them in one row), tall
-/// enough for the panel at full size with a 4-line caption.
-const FRAME_W: f32 = 208.;
+/// One specimen's frame (a narrow portrait: all six in one row of the
+/// 1440 px capture window), tall enough for the panel at full size with a
+/// 4-line caption.
+const FRAME_W: f32 = 172.;
+const GAP: f32 = 12.;
 const FRAME_H: f32 = etalk_gpui::voice_overlay::PANEL_FULL_H + 8.;
 
 pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
     let actions = CallActions::none();
-    let mut row = h_flex().flex_wrap().items_start().gap(px(16.));
+    let mut row = h_flex().flex_wrap().items_start().gap(px(GAP));
     for (i, specimen) in VOICE_CALL.surface_specimens.iter().enumerate() {
         let mut face = specimen_face(specimen);
         // The IDE's panel: no speaker (voice-call.json `callView(.., desktop)`).
