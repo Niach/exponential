@@ -69,8 +69,9 @@ private val BubbleMuted: Color @Composable get() = MaterialTheme.colorScheme.onS
  * THE message bubble: the glass card bubble (16dp radius, its `HH:mm`
  * bottom-right inside), at most `layout.maxWidth.phoneIn` of its column;
  * #FEED-239: an [own] bubble `maxWidth.own` (the whole column left of the
- * viewer's avatar). #EXP-1864: every bubble wears THE opaque card under the
- * card hairline, and its [time] footer whoever sent it. [own]
+ * viewer's avatar). #EXP-1864: the own bubble wears `glass.fillOwn`, anyone
+ * else's THE opaque card, both under the card hairline; every bubble shows
+ * its [time] footer whoever sent it. [own]
  * = the viewer's (right, no name); else anyone else's (left) with the sender's name
  * line [author] (12sp medium, muted; the group's first bubble only) and, for
  * a cross-session sender, [onClick] on the whole bubble (that session).
@@ -103,9 +104,9 @@ fun MessageBubble(
                 .align(if (own) Alignment.CenterEnd else Alignment.CenterStart)
                 .widthIn(max = max)
                 .clip(shape)
-                // #EXP-1864: ONE bubble colour, every side: THE opaque card
-                // under the card hairline (side + avatar tell senders apart).
-                .background(GlassTokens.OpaqueCardFill, shape)
+                // #EXP-1864: one colour per side, both tokens: the own bubble
+                // `glass.fillOwn`, anyone else's THE opaque card; one hairline.
+                .background(if (own) GlassTokens.OwnBubbleFill else GlassTokens.OpaqueCardFill, shape)
                 .border(GlassTokens.Hairline, GlassTokens.StrokeCard, shape)
                 .then(
                     when {
