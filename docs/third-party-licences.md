@@ -439,7 +439,8 @@ same glyphs:
   Fonts' `Nunito[wght].ttf` and `Nunito-Italic[wght].ttf` with
   `fonttools varLib.instancer --update-name-table`. OFL allows modified
   versions under the same licence; with no Reserved Font Name the family name
-  may stay.
+  may stay. `Nunito-Variable.ttf` is Google Fonts' `Nunito[wght].ttf` itself,
+  unmodified (#VAPP-166: the renderers' variable-font weight tests).
 - **Fira Code** 6.2 (tonsky/FiraCode, SIL OFL 1.1, The Fira Code Project
   Authors): the release's TTFs, unmodified.
 
