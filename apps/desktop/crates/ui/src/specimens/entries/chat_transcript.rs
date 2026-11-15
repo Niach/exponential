@@ -126,9 +126,9 @@ pub(crate) fn rows() -> Vec<(SessionChatRow, &'static str)> {
     ]
 }
 
-/// #EXP-1864 NOTICES: right under the merge line the agent's quiet turn
+/// #EXP-1864 NOTICES: right under the agent's genUI card its quiet turn
 /// (`exponential_session_self_quiet`) = THE inline marker on its own line.
-pub(crate) const NOTICE_AFTER: &str = "e2";
+pub(crate) const NOTICE_AFTER: &str = "s1";
 pub(crate) const NOTICE_TOOL: &str = "mcp__exponential__exponential_session_self_quiet";
 
 /// #FEED-237 (message-delivery.json): the viewer's own bubbles at the
@@ -212,7 +212,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         if matches!(&row, SessionChatRow::Message { id, .. } if id == OWN_AFTER) {
             rows.extend(own_rows().into_iter().map(|(id, body, time, state, stored)| paint_own(id, body, time, state, stored, &images, cx)));
         }
-        if matches!(&row, SessionChatRow::Event { id, .. } if id == NOTICE_AFTER) {
+        if matches!(&row, SessionChatRow::Surface { id, .. } if id == NOTICE_AFTER) {
             let label = domain::transcript_grouping::trace_notice(NOTICE_TOOL).unwrap_or_default();
             rows.push(crate::surface_card::transcript_marker(SharedString::from("sg-chat-notice"), label, None, cx));
         }
@@ -245,7 +245,7 @@ mod tests {
     fn the_agent_bubbles_carry_a_time_and_the_notice_resolves() {
         assert!(rows().iter().any(|(row, time)| matches!(row, SessionChatRow::Message { author, .. } if author == "agent") && !time.is_empty()));
         assert_eq!(domain::transcript_grouping::trace_notice(NOTICE_TOOL), Some("Ended turn quietly"));
-        assert!(rows().iter().any(|(row, _)| matches!(row, SessionChatRow::Event { id, .. } if id == NOTICE_AFTER)));
+        assert!(rows().iter().any(|(row, _)| matches!(row, SessionChatRow::Surface { id, .. } if id == NOTICE_AFTER)));
     }
 
     /// #FEED-237: m1 (an own, consumed row = `read`) is followed by one
