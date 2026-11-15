@@ -1417,8 +1417,11 @@ fn handle<H: Hearing>(
                 return;
             }
             let Some(Active::Call(running)) = active.as_mut() else { unreachable!("checked") };
-            // Only a remote call takes streamed audio.
-            if !running.remote {
+            // Only a remote call takes streamed audio; EXP-1857: and only
+            // once its ears are up (a recognizer still downloading keeps it
+            // ringing: the caller's audio until then is dropped, never fed
+            // to engines that are not loaded yet).
+            if !running.remote || running.ears.is_none() {
                 return;
             }
             if let Err((reason, detail)) = running.hear(&samples, hearing.engines(), links) {
@@ -2216,6 +2219,28 @@ mod tests {
         let events = harness.said(1);
         assert_eq!(events.iter().filter(|event| matches!(event, Event::CallListening { .. })).count(), 1, "once per call");
         assert!(!events.iter().any(|event| matches!(event, Event::ListenFailed { .. })));
+        harness.close();
+    }
+
+    /// EXP-1857 (found in the real call test on mint): a REMOTE call whose
+    /// recognizer is still downloading drops the caller's streamed audio
+    /// until its ears are up, instead of panicking the listen thread on
+    /// engines that are not loaded; it then listens and hears as usual.
+    #[test]
+    fn a_remote_call_drops_streamed_audio_while_it_downloads() {
+        let harness = Harness::new();
+        *harness.probe.downloads.lock().unwrap() = (3, false);
+        harness.call("c1", true);
+        for chunk in phrase(0.8).chunks(320) {
+            harness.send(Job::Audio { id: "c1".into(), samples: chunk.to_vec() });
+        }
+        let events = harness.until(|events| events.iter().any(|event| matches!(event, Event::CallListening { .. })));
+        assert!(!events.iter().any(|event| matches!(event, Event::Said { .. } | Event::ListenFailed { .. })));
+        assert_eq!(harness.probe.downloads.lock().unwrap().0, 0, "it waited the download out");
+        for chunk in phrase(0.8).chunks(320) {
+            harness.send(Job::Audio { id: "c1".into(), samples: chunk.to_vec() });
+        }
+        harness.said(1);
         harness.close();
     }
 
