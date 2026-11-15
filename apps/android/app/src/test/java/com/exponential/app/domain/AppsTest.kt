@@ -63,9 +63,52 @@ class AppsTest {
                     root?.let { Apps.EditorDeviceRoot(it["status"]!!.jsonPrimitive.content, opt(it, "deviceId")) },
                     candidates,
                     opt(case, "remembered"),
+                    opt(case, "slot"),
                 ),
             )
         }
+        // #EXP-1849: the new slot cases ride along.
+        assert(cases.any { it["slot"] != null })
+    }
+
+    // #EXP-1849 (`agentSlot`): the App settings' Agent group copy.
+    @Test
+    fun `agentSlot copy`() {
+        val slot = fixture["agentSlot"]!!.jsonObject
+        val copy = slot["copy"]!!.jsonObject
+        assertEquals(slot["testId"]!!.jsonPrimitive.content, Apps.AgentSlot.TEST_ID)
+        assertEquals(copy["title"]!!.jsonPrimitive.content, Apps.AgentSlot.TITLE)
+        assertEquals(copy["runsOn"]!!.jsonPrimitive.content, Apps.AgentSlot.RUNS_ON)
+        assertEquals(copy["eachMember"]!!.jsonPrimitive.content, Apps.AgentSlot.EACH_MEMBER)
+    }
+
+    // #EXP-1849: the slot picker = Each member's own device + the team-shared
+    // devices only (offline ones disabled); Account and Model need a device.
+    @Test
+    fun `agentSlot picker rows and writes`() {
+        val rows = Apps.AgentSlot.rows(
+            listOf(
+                Apps.AgentSlot.Device("mine", online = true, sharedWithTeam = false),
+                Apps.AgentSlot.Device("build-server", online = true, sharedWithTeam = true),
+                Apps.AgentSlot.Device("old-box", online = false, sharedWithTeam = true),
+            ),
+        )
+        assertEquals(
+            listOf(
+                Apps.AgentSlot.Row(Apps.AgentSlot.EACH_MEMBER_PICK, false),
+                Apps.AgentSlot.Row("build-server", false),
+                Apps.AgentSlot.Row("old-box", true),
+            ),
+            rows,
+        )
+        assertEquals(Apps.AgentSlot.EACH_MEMBER_PICK, Apps.AgentSlot.pick(""))
+        assertEquals(Apps.AgentSlot.EACH_MEMBER_PICK, Apps.AgentSlot.pick(null))
+        assertEquals("build-server", Apps.AgentSlot.pick("build-server"))
+        assertEquals("", Apps.AgentSlot.deviceIdFor(Apps.AgentSlot.EACH_MEMBER_PICK))
+        assertEquals("build-server", Apps.AgentSlot.deviceIdFor("build-server"))
+        assert(!Apps.AgentSlot.showsRunner(null))
+        assert(!Apps.AgentSlot.showsRunner(""))
+        assert(Apps.AgentSlot.showsRunner("build-server"))
     }
 
     // #EXP-1729: `editorHeader` replays `editorHeaderCases` (the whole value)

@@ -111,6 +111,13 @@ class AgentConversationViewModel @Inject constructor(
         dbFlow.scopedQuery<AgentDefinitionEntity?>(null) { it.agentDefinitionDao().observeById(agentId) }
             .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    /** #EXP-1849 (chats.json): an app's agent has no page of its own: its
+     *  chat with me IS the app's root, so this page opens the app instead. */
+    val ownApp: StateFlow<String?> =
+        dbFlow.scopedQuery(emptyList()) { it.appDao().observeAll() }
+            .map { apps -> apps.firstOrNull { it.agentId == agentId }?.id }
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     /** #FEED-239: the viewer may open the agent's settings from `…` (an
      *  agent: team owners; the Assistant: its owner). */
     val maySettings: StateFlow<Boolean> = combine(agent, auth.userId) { row, me -> row to me }
@@ -409,8 +416,12 @@ fun AgentConversationScreen(
     onOpenConversation: (sessionId: String) -> Unit,
     /** #FEED-239: open on the settings item (a row's `…` › Agent settings). */
     openSettings: Boolean = false,
+    /** #EXP-1849: the agent is an app's: open the app (the editor) in place. */
+    onOpenApp: (appId: String) -> Unit = {},
     viewModel: AgentConversationViewModel = hiltViewModel(),
 ) {
+    val ownApp by viewModel.ownApp.collectAsStateWithLifecycle()
+    LaunchedEffect(ownApp) { ownApp?.let(onOpenApp) }
     val agent by viewModel.agent.collectAsStateWithLifecycle()
     val conversationId by viewModel.conversationId.collectAsStateWithLifecycle()
     val sent by viewModel.sent.collectAsStateWithLifecycle()

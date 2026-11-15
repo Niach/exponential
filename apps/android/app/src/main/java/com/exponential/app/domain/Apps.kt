@@ -214,6 +214,37 @@ object Apps {
     }
 
     /** #EXP-1850 (apps.json `eventsTab`): the Events tab's copy and limits. */
+    /** #EXP-1849 (apps.json `agentSlot`): the App settings' Agent group =
+     *  the app agent's slot (`deviceId` "" = each member's own device). */
+    object AgentSlot {
+        const val TEST_ID = "app-settings-agent"
+        const val TITLE = "Agent"
+        const val RUNS_ON = "Runs on"
+        const val EACH_MEMBER = "Each member's own device"
+
+        /** The picker's `Each member's own device` row (writes `deviceId: ""`). */
+        const val EACH_MEMBER_PICK = "__each-member__"
+
+        data class Device(val deviceId: String, val online: Boolean, val sharedWithTeam: Boolean)
+
+        data class Row(val id: String, val disabled: Boolean)
+
+        /** The Device picker's rows: [EACH_MEMBER] first, then the devices
+         *  shared with the team only (offline ones listed, disabled). */
+        fun rows(devices: List<Device>): List<Row> =
+            listOf(Row(EACH_MEMBER_PICK, disabled = false)) +
+                devices.filter { it.sharedWithTeam }.map { Row(it.deviceId, disabled = !it.online) }
+
+        /** The picker's value for the agent's `deviceId` ("" = each member's). */
+        fun pick(slot: String?): String = slot?.takeIf { it.isNotEmpty() } ?: EACH_MEMBER_PICK
+
+        /** The `agents.update` `deviceId` a pick writes ("" empties the slot). */
+        fun deviceIdFor(pick: String): String = if (pick == EACH_MEMBER_PICK) "" else pick
+
+        /** Account and Model show only while a device is set. */
+        fun showsRunner(slot: String?): Boolean = !slot.isNullOrEmpty()
+    }
+
     object EventsTab {
         const val LIMIT = 50
         const val DAYS = 7
@@ -327,10 +358,14 @@ object Apps {
         root: EditorDeviceRoot?,
         candidates: List<EditorDeviceCandidate>,
         remembered: String?,
+        /** #EXP-1849 (apps.json `agentSlot`): the app agent's slot (a
+         *  team-shared device), null = empty (each member's own device). */
+        slot: String? = null,
     ): EditorDeviceChoice {
         if (root != null && root.status != DomainContract.sessionStatusEnded) {
             return EditorDeviceChoice(root.deviceId, move = false)
         }
+        if (!slot.isNullOrEmpty()) return EditorDeviceChoice(slot, move = root != null && slot != root.deviceId)
         fun known(id: String?) = id != null && candidates.any { it.deviceId == id }
         val deviceId = when {
             known(remembered) -> remembered

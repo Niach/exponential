@@ -61,6 +61,7 @@ import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.PromptAlert
+import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.picker.InlinePickerRow
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.parseColor
@@ -195,6 +196,12 @@ internal fun AppSettingsBody(
                     .commitOnBlur(saveDescription),
             )
         }
+        // #EXP-1849 (apps.json `agentSlot`): the app agent's slot, after the
+        // identity (the creator and team owners edit, members read).
+        app.agentId?.takeIf { it.isNotEmpty() }?.let { agentId ->
+            Spacer(Modifier.height(16.dp))
+            com.exponential.app.ui.settings.AppAgentSlotGroup(agentId = agentId, editable = canManage)
+        }
         // VAPP-122: the count; no plan quota on phones (null = the plain count).
         Text(
             AppRecords.recordsCountLabel(records, null),
@@ -210,12 +217,8 @@ internal fun AppSettingsBody(
             Apps.policyRows(grantPackage?.let { runCatching { JsonValue.parse(it) }.getOrNull() })
         }
         if (policies.isNotEmpty()) Column(Modifier.fillMaxWidth().testTag(Apps.TestIds.POLICIES)) {
-            Text(
-                Apps.PoliciesCopy.TITLE,
-                style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.padding(horizontal = 20.dp),
-            )
-            Spacer(Modifier.height(8.dp))
+            // #EXP-1849 (apps.json `agentSlot` HEADERS): THE section band.
+            SectionHeader(Apps.PoliciesCopy.TITLE, modifier = Modifier.padding(horizontal = 16.dp))
             OptionGroup {
                 policies.forEachIndexed { index, policy ->
                     if (index > 0) GroupDivider()
@@ -240,11 +243,16 @@ internal fun AppSettingsBody(
         }
 
         // ── Tools (VAPP-120) ─────────────────────────────────────────────
-        Column(Modifier.padding(horizontal = 20.dp).testTag("app-settings-tools")) {
-            Text(AppActions.Copy.TITLE, style = MaterialTheme.typography.titleSmall)
-            Text(AppActions.Copy.HINT, style = MaterialTheme.typography.bodyMedium, color = muted)
+        // #EXP-1849 (HEADERS): the band, the hint a muted line under it.
+        Column(Modifier.fillMaxWidth().testTag("app-settings-tools")) {
+            SectionHeader(AppActions.Copy.TITLE, modifier = Modifier.padding(horizontal = 16.dp))
+            Text(
+                AppActions.Copy.HINT,
+                style = MaterialTheme.typography.bodyMedium,
+                color = muted,
+                modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 8.dp),
+            )
         }
-        Spacer(Modifier.height(8.dp))
         OptionGroup {
             if (declared.isEmpty()) {
                 Text(
@@ -300,12 +308,8 @@ internal fun AppSettingsBody(
         // Everyone reads the rows; an owner switches a link and, while it is
         // on, copies it or mints a new one from the `…` menu.
         if (shares.isNotEmpty()) Column(Modifier.fillMaxWidth().testTag(AppShare.TestIds.SHARE_LINKS)) {
-            Text(
-                AppShare.Copy.TITLE,
-                style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.padding(horizontal = 20.dp),
-            )
-            Spacer(Modifier.height(8.dp))
+            // #EXP-1849 (apps.json `agentSlot` HEADERS): THE section band.
+            SectionHeader(AppShare.Copy.TITLE, modifier = Modifier.padding(horizontal = 16.dp))
             OptionGroup {
                 shares.forEachIndexed { index, share ->
                     if (index > 0) GroupDivider()
@@ -399,12 +403,8 @@ internal fun AppSettingsBody(
         // #VAPP-254 (`upstreamPickerCases`): the real server on a second muted
         // line when it differs; an owner's server picker before the trailing state.
         if (accounts.isNotEmpty()) Column(Modifier.fillMaxWidth().testTag(Apps.TestIds.ACCOUNTS)) {
-            Text(
-                Apps.AccountsCopy.TITLE,
-                style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.padding(horizontal = 20.dp),
-            )
-            Spacer(Modifier.height(8.dp))
+            // #EXP-1849 (apps.json `agentSlot` HEADERS): THE section band.
+            SectionHeader(Apps.AccountsCopy.TITLE, modifier = Modifier.padding(horizontal = 16.dp))
             OptionGroup {
                 accounts.forEachIndexed { index, account ->
                     if (index > 0) GroupDivider()
@@ -467,12 +467,8 @@ internal fun AppSettingsBody(
         // The exposed tools: title over the name, Read / Write, the switch
         // (an owner; everyone else reads it).
         if (mcpTools.isNotEmpty()) Column(Modifier.fillMaxWidth().testTag(Apps.TestIds.MCP_TOOLS)) {
-            Text(
-                Apps.McpToolsCopy.TITLE,
-                style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.padding(horizontal = 20.dp),
-            )
-            Spacer(Modifier.height(8.dp))
+            // #EXP-1849 (apps.json `agentSlot` HEADERS): THE section band.
+            SectionHeader(Apps.McpToolsCopy.TITLE, modifier = Modifier.padding(horizontal = 16.dp))
             OptionGroup {
                 mcpTools.forEachIndexed { index, tool ->
                     if (index > 0) GroupDivider()
