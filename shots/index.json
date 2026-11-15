@@ -408,6 +408,22 @@
         "sha256": "aaa98fda0a93cc0904eb3a98f43c6d8f2b9ad23b303bcf3d53f4921b0dbf0a05"
       }
     },
+    "app-events": {
+      "web": {
+        "file": "shots/app-events/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 67484,
+        "sha256": "35d29f76f1e5d6817f63ae9df16b725f5abaf75b3775b609106f324339ede54c"
+      },
+      "web-mobile": {
+        "file": "shots/app-events/web-mobile.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 57346,
+        "sha256": "1417ae38284cc5a1f7a604c1d5bd56ed25f89dbde00afcb73b88d2f5ae7220df"
+      }
+    },
     "app-export": {
       "android": {
         "file": "shots/app-export/android.webp",
