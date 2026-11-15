@@ -219,9 +219,10 @@ struct TextLabel: NSViewRepresentable {
             }
             let lines = fits ? 1 : wantedLines
             if maximumNumberOfLines != lines { maximumNumberOfLines = lines }
-            if lineBreakMode != mode { lineBreakMode = mode }
+            // `wraps` first: setting it resets the cell's break mode.
             let wraps = !fits && wantedWraps
             if cell?.wraps != wraps { cell?.wraps = wraps }
+            if lineBreakMode != mode { lineBreakMode = mode }
         }
 
         override class var cellClass: AnyClass? {
