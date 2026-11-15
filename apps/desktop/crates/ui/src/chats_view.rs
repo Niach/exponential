@@ -546,7 +546,8 @@ impl Render for ChatsView {
                 &actions.iter().map(|(action, _)| *action).collect::<Vec<_>>(),
             );
             label_min_w = Some(min_w);
-            let labels = self.measured_width.get() >= min_w;
+            // #EXP-1872: less the Assistant FAB's corner (THE pinned foot).
+            let labels = self.measured_width.get() - crate::assistant_fab::page_end_height(window, cx) >= min_w;
             let clear = entity.clone();
             let act = entity.clone();
             crate::chat_list::chat_selection_bar(

@@ -825,7 +825,7 @@ impl IssueListView {
     /// projection `render` prunes `selected` with. Since REV-39 that read is
     /// the memoized [`Self::data`], so agreeing with the rows underneath no
     /// longer costs an extra board query per frame.
-    pub(crate) fn bulk_bar(&mut self, cx: &mut gpui::Context<Self>) -> Option<gpui::AnyElement> {
+    pub(crate) fn bulk_bar(&mut self, window: &Window, cx: &mut gpui::Context<Self>) -> Option<gpui::AnyElement> {
         if self.selected.is_empty() {
             return None;
         }
@@ -847,7 +847,10 @@ impl IssueListView {
         // team (see `render_bulk_bar`'s assignee menu), and then not counted
         // toward the label threshold either (EXP-827).
         let has_assignee = bulk_has_assignee(cx, &team_id);
-        let labels = self.measured_width.get() >= bulk_bar_label_min_width(has_assignee);
+        // #EXP-1872: the bar centres in what the Assistant FAB's corner
+        // leaves of the pane (THE pinned foot), so the labels need that much more.
+        let corner = crate::assistant_fab::page_end_height(window, cx);
+        let labels = self.measured_width.get() - corner >= bulk_bar_label_min_width(has_assignee);
         Some(render_bulk_bar(team_id, ids, self.bulk_busy, labels, false, cx))
     }
 }
