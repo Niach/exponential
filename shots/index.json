@@ -3931,8 +3931,8 @@
         "file": "shots/exponential-ui-message-bubble/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 24956,
-        "sha256": "2f1834c086210f637ce0b739b29b27bf6952fb3660790c1c966104d727e685e0"
+        "bytes": 35222,
+        "sha256": "fee43ca9949f73d963095c59c0efa1c26df0f63b2882e361bbe4959cb802a186"
       },
       "web": {
         "file": "shots/exponential-ui-message-bubble/web.webp",
