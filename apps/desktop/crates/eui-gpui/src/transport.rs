@@ -976,10 +976,11 @@ mod net {
                     }
                 });
             }
-            let events = Arc::new(Mutex::new(Vec::<TransportEvent>::new()));
+            // Each event with the moment it arrived.
+            let events = Arc::new(Mutex::new(Vec::<(Instant, TransportEvent)>::new()));
             let sink = {
                 let events = events.clone();
-                TransportSink::new(move |e| events.lock().unwrap().push(e))
+                TransportSink::new(move |e| events.lock().unwrap().push((Instant::now(), e)))
             };
             let total = Duration::from_millis(300);
             let (tx, handle) = poster(url, Vec::new(), Some(sink), Live::next(&Arc::new(AtomicU64::new(0))), Duration::from_millis(300), total);
@@ -988,15 +989,20 @@ mod net {
             tx.send(json!({"n": 2})).unwrap();
             // Both hang; the second is not stalled behind the first forever.
             let deadline = began + Duration::from_secs(5);
-            loop {
-                let errors = events.lock().unwrap().iter().filter(|e| matches!(e, TransportEvent::Status(TransportStatus::Error, Some(d)) if d.starts_with("send failed"))).count();
-                if errors == 2 {
-                    break;
+            let failed_at = loop {
+                let failed_at: Vec<Instant> = events.lock().unwrap().iter().filter(|(_, e)| matches!(e, TransportEvent::Status(TransportStatus::Error, Some(d)) if d.starts_with("send failed"))).map(|(at, _)| *at).collect();
+                if failed_at.len() == 2 {
+                    break failed_at;
                 }
                 assert!(Instant::now() < deadline, "the hung POSTs never timed out: {:?}", events.lock().unwrap());
                 std::thread::sleep(Duration::from_millis(20));
-            }
-            assert!(began.elapsed() < total * 2 + Duration::from_secs(1));
+            };
+            // #EXP-1869: timed from the first failure, not from `began` (that
+            // counted the post thread's start and client build, which a loaded
+            // runner stretched past the budget); the second POST is bounded by
+            // `total` on its own, with the slack of the MCP call test above.
+            let gap = failed_at[1] - failed_at[0];
+            assert!(gap < total + Duration::from_secs(2), "the second POST waited {gap:?} behind the first");
             // Dropping the sender (what `close` does) ends the thread.
             tx.send(json!({"n": 3})).unwrap();
             drop(tx);
