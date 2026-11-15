@@ -60,6 +60,11 @@ pub struct TranscriptCopy {
     /// #FEED-238: THE fold's text button.
     pub show_more: String,
     pub show_less: String,
+    /// #EXP-1873: the quiet check-in line's label (one, `{count}` many).
+    pub check_in: String,
+    pub check_ins: String,
+    /// #EXP-1873: between the label and the last firing's `HH:mm`.
+    pub check_in_time_separator: String,
 }
 
 /// #FEED-238 THE FOLD (`fold`): a bubble over `chars` characters or
@@ -77,6 +82,22 @@ struct Fixture {
     fold: TranscriptFold,
     /// #EXP-1864: the Exponential tool rows that draw as THE inline marker.
     notices: std::collections::BTreeMap<String, String>,
+    /// #EXP-1873: the chat-transcript specimen's check-ins.
+    #[serde(rename = "checkInSpecimen")]
+    check_in_specimen: Vec<CheckInSpecimenRow>,
+}
+
+/// #EXP-1873: one row of `checkInSpecimen` (an agent chat's feed).
+#[derive(Debug, Clone, Deserialize)]
+pub struct CheckInSpecimenRow {
+    pub kind: String,
+    pub time: Option<String>,
+    pub text: Option<String>,
+}
+
+/// #EXP-1873: the specimen ×4 draws these through [`feed_rows`].
+pub fn check_in_specimen() -> &'static [CheckInSpecimenRow] {
+    &FIXTURE.check_in_specimen
 }
 
 static FIXTURE: LazyLock<Fixture> = LazyLock::new(|| {
@@ -573,6 +594,124 @@ pub fn markers_shown(kinds: &[FeedRowKind]) -> Vec<bool> {
     shown
 }
 
+/// #EXP-1873: a feed row as [`feed_rows`] reads it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FeedRowRole {
+    /// A schedule firing (a check-in).
+    Schedule,
+    /// Every other marker (an event, a PR or session line).
+    Marker,
+    Input,
+    Reply,
+    /// The quiet notice row (`session_self_quiet`).
+    Quiet,
+    /// An agent turn with blank text: never drawn.
+    Blank,
+    Other,
+}
+
+impl FeedRowRole {
+    pub fn parse(word: &str) -> Option<Self> {
+        match word {
+            "schedule" => Some(Self::Schedule),
+            "marker" => Some(Self::Marker),
+            "input" => Some(Self::Input),
+            "reply" => Some(Self::Reply),
+            "quiet" => Some(Self::Quiet),
+            "blank" => Some(Self::Blank),
+            "other" => Some(Self::Other),
+            _ => None,
+        }
+    }
+}
+
+/// #EXP-1873: per row, hidden, drawn as itself, or THE check-in line
+/// covering n quiet check-ins.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FeedRowShown {
+    Hidden,
+    Row,
+    CheckIn(u32),
+}
+
+/// #EXP-1873 (`checkInCases`): a quiet check-in (a schedule firing whose
+/// turn only called quiet, the forced filler after it aside) is one line;
+/// consecutive ones collapse onto the last.
+pub fn feed_rows(kinds: &[FeedRowRole]) -> Vec<FeedRowShown> {
+    let marker_kinds: Vec<FeedRowKind> = kinds
+        .iter()
+        .map(|kind| match kind {
+            FeedRowRole::Schedule | FeedRowRole::Marker => FeedRowKind::Marker,
+            FeedRowRole::Input => FeedRowKind::Input,
+            FeedRowRole::Reply => FeedRowKind::Reply,
+            FeedRowRole::Quiet | FeedRowRole::Blank | FeedRowRole::Other => FeedRowKind::Other,
+        })
+        .collect();
+    let mut shown: Vec<FeedRowShown> = markers_shown(&marker_kinds)
+        .into_iter()
+        .zip(kinds)
+        .map(|(drawn, kind)| if drawn && *kind != FeedRowRole::Blank { FeedRowShown::Row } else { FeedRowShown::Hidden })
+        .collect();
+    for (start, kind) in kinds.iter().enumerate() {
+        if *kind != FeedRowRole::Schedule {
+            continue;
+        }
+        let end = (start + 1..kinds.len())
+            .find(|&index| matches!(kinds[index], FeedRowRole::Schedule | FeedRowRole::Marker | FeedRowRole::Input))
+            .unwrap_or(kinds.len());
+        let mut quiet = false;
+        let mut answered = false;
+        for row in &kinds[start + 1..end] {
+            match row {
+                FeedRowRole::Other => answered = true,
+                FeedRowRole::Reply if !quiet => answered = true,
+                FeedRowRole::Quiet => quiet = true,
+                _ => {}
+            }
+            if answered {
+                break;
+            }
+        }
+        if answered || !quiet {
+            continue;
+        }
+        shown[start] = FeedRowShown::CheckIn(1);
+        for row in &mut shown[start + 1..end] {
+            *row = FeedRowShown::Hidden;
+        }
+    }
+    let mut line: Option<usize> = None;
+    for index in 0..shown.len() {
+        match shown[index] {
+            FeedRowShown::CheckIn(count) => {
+                if let Some(at) = line {
+                    if let FeedRowShown::CheckIn(before) = shown[at] {
+                        shown[index] = FeedRowShown::CheckIn(before + count);
+                    }
+                    shown[at] = FeedRowShown::Hidden;
+                }
+                line = Some(index);
+            }
+            FeedRowShown::Row => line = None,
+            FeedRowShown::Hidden => {}
+        }
+    }
+    shown
+}
+
+/// #EXP-1873 (`checkInLabelCases`): the check-in line's text.
+pub fn check_in_label(count: u32, time: Option<&str>) -> String {
+    let copy = copy();
+    let label = match count {
+        1 => copy.check_in.clone(),
+        _ => copy.check_ins.replace("{count}", &count.to_string()),
+    };
+    match time {
+        Some(time) if !time.is_empty() => format!("{label}{}{time}", copy.check_in_time_separator),
+        _ => label,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -732,6 +871,43 @@ mod tests {
             let expected: Vec<bool> =
                 case["expected"].as_array().unwrap().iter().map(|v| v.as_bool().unwrap()).collect();
             assert_eq!(markers_shown(&kinds), expected, "{name}");
+        }
+    }
+
+    #[test]
+    fn every_check_in_case_matches() {
+        let fixture = fixture();
+        let cases = fixture["checkInCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let kinds: Vec<FeedRowRole> = case["kinds"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|kind| FeedRowRole::parse(kind.as_str().unwrap()).unwrap())
+                .collect();
+            let got: Vec<Value> = feed_rows(&kinds)
+                .into_iter()
+                .map(|shown| match shown {
+                    FeedRowShown::Hidden => json!(false),
+                    FeedRowShown::Row => json!(true),
+                    FeedRowShown::CheckIn(count) => json!(count),
+                })
+                .collect();
+            assert_eq!(Value::Array(got), case["expected"], "{name}");
+        }
+    }
+
+    #[test]
+    fn every_check_in_label_case_matches() {
+        let fixture = fixture();
+        let cases = fixture["checkInLabelCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let count = case["count"].as_u64().unwrap() as u32;
+            assert_eq!(check_in_label(count, case["time"].as_str()), case["expected"].as_str().unwrap(), "{name}");
         }
     }
 
