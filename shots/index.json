@@ -8035,8 +8035,8 @@
         "file": "shots/voice-call/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 65200,
-        "sha256": "20e7c28d18e9c34a5974806c7fb0d20b46bfce632e9c1f8870d94f2f379aa8b8"
+        "bytes": 69230,
+        "sha256": "6ff634c327c8d3e845abd9172f12ba2b27269aaba369fa2024b4018421557eb9"
       },
       "web-mobile": {
         "file": "shots/voice-call/web-mobile.webp",
