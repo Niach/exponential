@@ -1,0 +1,3 @@
+- An Events tab on every app: its agent's triggers, webhooks and recent runs
+- Sending into a chat whose keys changed re-seals and sends again, once
+- Large accounts stay inside the memory limit, so the app no longer closes itself
