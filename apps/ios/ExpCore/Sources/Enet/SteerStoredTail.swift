@@ -62,11 +62,12 @@ public enum SteerStoredTail {
         }
     }
 
-    /// The JSON a tail is stored as (sealed or not): `{"v":1,"frames":[…]}`.
+    /// The JSON a tail is stored as (sealed or not): `{"frames":[…],"v":1}`,
+    /// keys sorted: a Swift Dictionary's order changes per instance (#EXP-1853).
     public static func encode(_ frames: [String]) -> String {
-        let body = (try? JSONSerialization.data(withJSONObject: ["v": 1, "frames": frames]))
+        let body = (try? JSONSerialization.data(withJSONObject: ["v": 1, "frames": frames], options: [.sortedKeys]))
             .flatMap { String(data: $0, encoding: .utf8) }
-        return body ?? "{\"v\":1,\"frames\":[]}"
+        return body ?? "{\"frames\":[],\"v\":1}"
     }
 
     /// The frames of a tail's JSON; nil = malformed.
