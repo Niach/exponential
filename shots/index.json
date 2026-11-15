@@ -8020,9 +8020,9 @@
       "desktop": {
         "file": "shots/voice-call/desktop.webp",
         "width": 1800,
-        "height": 1126,
-        "bytes": 57294,
-        "sha256": "6148764d6bfeb2882e87918b4a66f049712209beb2e565ea4a469c74c69569c0"
+        "height": 1125,
+        "bytes": 69218,
+        "sha256": "48b53e5fe5c2bbc60f7baf118ad4f8038f00f5945677bd83a83defbc6dd8547f"
       },
       "ios": {
         "file": "shots/voice-call/ios.webp",
