@@ -10,10 +10,12 @@ import {
   callRingMs,
   callRingToneOn,
   callStep,
+  callTarget,
   callTimer,
   callView,
   type CallPlatform,
   type CallAvailabilityInput,
+  type CallTargetInput,
   type CallEvent,
 } from "./voice-call"
 
@@ -29,6 +31,14 @@ describe(`callAvailability`, () => {
   for (const entry of fixture.availabilityCases) {
     test(entry.name, () => {
       expect(callAvailability(entry.input as CallAvailabilityInput)).toEqual(entry.expected)
+    })
+  }
+})
+
+describe(`EXP-1857: callTarget`, () => {
+  for (const entry of fixture.targetCases) {
+    test(entry.name, () => {
+      expect(callTarget(entry.input as CallTargetInput)).toEqual(entry.expected)
     })
   }
 })

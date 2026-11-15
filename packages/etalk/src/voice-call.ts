@@ -68,6 +68,83 @@ export function callAvailability(input: CallAvailabilityInput): CallAvailability
   return { enabled: true, reason: null }
 }
 
+/** EXP-1857: one of the member's own desktops as `callTarget` reads it. */
+export interface CallTargetDevice {
+  id: string
+  name: string
+  online: boolean
+  /** Its doctor row `speech` through `callSpeechOf` (null = none yet). */
+  speech: CallSpeech | null
+  /** A meeting runs on it. */
+  meeting?: boolean
+}
+
+export interface CallTargetInput {
+  platform: CallPlatform
+  /** THIS client's own desktop (null on phones and web). */
+  here: string | null
+  /** The called agent's Runs on device. */
+  agentDevice: string | null
+  /** The member's own desktops, newest `lastSeenAt` first. */
+  desktops: CallTargetDevice[]
+  /** A call this client does not run already runs on the target. */
+  busy: boolean
+}
+
+export interface CallTarget extends CallAvailability {
+  /** The desktop whose speech runs the call (null = disabled). */
+  device: string | null
+  name: string | null
+  /** The target is not the agent's own device. */
+  fallback: boolean
+  /** The target is this client's own desktop: the IDE runs the call. */
+  local: boolean
+}
+
+/** A desktop that can run a call now (a downloading voice rings until ready). */
+function speaks(device: CallTargetDevice): boolean {
+  return device.online && !device.meeting && (device.speech === `ok` || device.speech === `preparing`)
+}
+
+/** EXP-1857 (`targetCases`): where a call's speech runs. The first desktop
+ *  that speaks of: the agent's device (one of the member's own desktops),
+ *  the desktop you're at, the other desktops newest first. None speaks =
+ *  disabled with the first candidate's reason. */
+export function callTarget(input: CallTargetInput): CallTarget {
+  const byId = (id: string | null) => (id === null ? undefined : input.desktops.find((device) => device.id === id))
+  const candidates = [byId(input.agentDevice), byId(input.here), ...input.desktops].filter(
+    (device): device is CallTargetDevice => device !== undefined
+  )
+  const target = candidates.find(speaks)
+  const none = { device: null, name: null, fallback: false, local: false }
+  if (!target) {
+    const first = candidates[0]
+    if (!first) return { ...none, enabled: false, reason: fixture.copy.reasons.noDesktop }
+    const { reason } = callAvailability({
+      agent: true,
+      platform: input.platform,
+      device: first.name,
+      online: first.online,
+      here: true,
+      speech: first.speech,
+      busy: false,
+      meeting: first.meeting,
+    })
+    return { ...none, enabled: false, reason }
+  }
+  if (input.busy) {
+    return { ...none, enabled: false, reason: fixture.copy.reasons.busy.replace(`{device}`, target.name) }
+  }
+  return {
+    enabled: true,
+    reason: null,
+    device: target.id,
+    name: target.name,
+    fallback: target.id !== input.agentDevice,
+    local: target.id === input.here,
+  }
+}
+
 export type CallPhase = `hidden` | `ringing` | `listening` | `thinking` | `speaking`
 
 export interface CallState {
@@ -76,6 +153,8 @@ export interface CallState {
   /** Phones: the loudspeaker (false = the earpiece). */
   speaker: boolean
   device: string
+  /** EXP-1857: the device is not the agent's own (`copy.via` shows it). */
+  fallback: boolean
   /** The greeting the device says once answered. */
   greeting: string
   /** The ring's earliest answer (`callRingMs`) passed. */
@@ -91,7 +170,7 @@ export interface CallState {
 }
 
 export type CallEvent =
-  | { t: `start`; device: string; language?: string }
+  | { t: `start`; device: string; language?: string; fallback?: boolean }
   | { t: `rang` }
   | { t: `ready` }
   | { t: `noSound` }
@@ -114,6 +193,7 @@ export const CALL_IDLE: CallState = {
   muted: false,
   speaker: true,
   device: ``,
+  fallback: false,
   greeting: ``,
   rang: false,
   ready: false,
@@ -154,7 +234,13 @@ export function callStep(state: CallState, event: CallEvent): CallState {
     ...patch,
   })
   if (event.t === `start`) {
-    return { ...CALL_IDLE, phase: `ringing`, device: event.device, greeting: callGreeting(event.language) }
+    return {
+      ...CALL_IDLE,
+      phase: `ringing`,
+      device: event.device,
+      fallback: event.fallback ?? false,
+      greeting: callGreeting(event.language),
+    }
   }
   if (state.phase === `hidden`) return state
   const ringing = state.phase === `ringing`
@@ -212,6 +298,9 @@ export interface CallView {
   activity: CallActivity
   /** The line under the name; null = the call's timer (`callTimer`). */
   status: string | null
+  /** EXP-1857: the device that speaks while the call falls back (a second
+   *  status line); null otherwise. */
+  via: string | null
   caption: string
   muted: boolean
   speaker: boolean
@@ -225,7 +314,8 @@ export interface CallView {
 export function callView(state: CallState, platform: CallPlatform = `phone`): CallView | null {
   const copy = fixture.copy
   if (state.phase === `hidden`) return null
-  const base = { muted: state.muted, speaker: state.speaker }
+  const via = state.fallback ? copy.via.replace(`{device}`, state.device) : null
+  const base = { via, muted: state.muted, speaker: state.speaker }
   if (state.phase === `ringing`) {
     return {
       ...base,
