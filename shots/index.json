@@ -1615,8 +1615,8 @@
         "file": "shots/chat-transcript/desktop.webp",
         "width": 1800,
         "height": 1125,
-        "bytes": 58686,
-        "sha256": "f01fc9f5210eb04fb2d49bba1c1c3b5e747fa1b5cba8b9d4147f08892b44db82"
+        "bytes": 59086,
+        "sha256": "56906d279c16d84d84d7da76550ca697ffe864c82dc936c50008126ea15b08de"
       },
       "ios": {
         "file": "shots/chat-transcript/ios.webp",
@@ -3924,8 +3924,8 @@
         "file": "shots/exponential-ui-message-bubble/desktop.webp",
         "width": 1800,
         "height": 1125,
-        "bytes": 44426,
-        "sha256": "fe8eca718f2c524e0e6cb911560ecb4a279b8465ed38ce6dda5cc2fa1c08e0dd"
+        "bytes": 48618,
+        "sha256": "575ce33a0a1db36cc6aa883a4c26f71db4822365aee4ad3748c807c0212c7d1a"
       },
       "ios": {
         "file": "shots/exponential-ui-message-bubble/ios.webp",
