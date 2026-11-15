@@ -2640,8 +2640,8 @@
         "file": "shots/exponential-ui-call-surface/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 24534,
-        "sha256": "49a9df72e34db597e35623fa4bad11382c95a9a3c8fd1febc9d5fb86c855e44d"
+        "bytes": 25112,
+        "sha256": "81ce4288b92c6dfa7908a8fcf429d703285b53c73da0b44b22760a5c2edf431b"
       },
       "web": {
         "file": "shots/exponential-ui-call-surface/web.webp",
