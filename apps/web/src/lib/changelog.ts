@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-15-one-chat-per-app`,
+    date: `2026-11-15`,
+    title: `One chat per app, and where its agent runs`,
+    summary: `An app's editor chat is now your chat with the app's agent: one per member, never ended when you leave, and the app's settings pick where it runs.`,
+    body: `- **One chat per app**: the chat in an app's editor is your own chat with the app's agent. It shows once in Chats (as the app), triggers land in it, and leaving the editor no longer ends it.
+- **Where it runs**: the app's settings have a new Agent group. Runs on each member's own device by default, or pick a device shared with the team to run everyone's chat there, with its account, model, skills and MCP servers.
+- **Same headers everywhere**: every group on an app's settings page now uses the same section header as the agent settings page.`,
+  },
+  {
     id: `2026-11-15-phones-events-tab-memory`,
     date: `2026-11-15`,
     title: `An Events tab on your phone, and Android stays open in big accounts`,
