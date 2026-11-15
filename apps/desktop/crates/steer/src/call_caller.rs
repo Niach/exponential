@@ -258,6 +258,7 @@ async fn run(url: &str, rx: &flume::Receiver<Outbound>, on_event: &(impl Fn(Call
                     }
                     Message::Text(text) => match parse_control(&text) {
                         Some(Control::Ready) => {
+                            log::info!("call caller: the host answered (call_ready)");
                             ready = true;
                             if muted {
                                 let frame = json!({ "t": "call_mute", "muted": true }).to_string();
@@ -274,23 +275,29 @@ async fn run(url: &str, rx: &flume::Receiver<Outbound>, on_event: &(impl Fn(Call
                             on_event(CallCallerEvent::Event(event));
                         }
                         Some(Control::End { reason }) => {
+                            log::info!("call caller: call_end ({})", reason.as_deref().unwrap_or("hung up"));
                             on_event(CallCallerEvent::Ended { reason });
                             let _ = sink.close().await;
                             return Ok(());
                         }
                         Some(Control::Error(code)) => {
+                            log::info!("call caller: the relay refused the call: {code}");
                             on_event(CallCallerEvent::Failed(code));
                             let _ = sink.close().await;
                             return Ok(());
                         }
                         Some(Control::Bye(outcome)) => {
+                            log::info!("call caller: bye ({})", outcome.as_deref().unwrap_or("-"));
                             on_event(CallCallerEvent::Failed(outcome.unwrap_or_else(|| "dropped".into())));
                             let _ = sink.close().await;
                             return Ok(());
                         }
                         None => {}
                     },
-                    Message::Close(_) => return Err("the relay closed the call".into()),
+                    Message::Close(_) => {
+                        log::info!("call caller: the relay closed the call");
+                        return Err("the relay closed the call".into());
+                    }
                     _ => {}
                 }
             }
