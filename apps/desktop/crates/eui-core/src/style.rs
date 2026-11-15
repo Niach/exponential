@@ -188,6 +188,13 @@ pub struct Visual {
     /// = paint the background alone.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub backdrop_blur: Option<f32>,
+    /// #EXP-1876: `tail` = `start | end | down` (`none` / unset = None): a
+    /// speech-bubble tail painted with the box as ONE outline (style.json):
+    /// sideways 6 x 9 px at the top corner of the inline-start/-end side (that
+    /// corner square), or down 9 px, 6 px wide, its tip 22 px in from the
+    /// inline-end edge; a ~2 px rounded tip; paint-only, outside the frame.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tail: Option<String>,
     /// Round 2: the keyframe animation with its resolved timing; a painter
     /// keeps the time the node entered the tree and paints
     /// [`crate::animation::frame_with_timing`].
@@ -720,6 +727,7 @@ pub fn visual(r: &Map<String, Value>, kind: BoxKind) -> Visual {
         series_colors: None,
         direction: None,
         backdrop_blur: r.get("backdropBlur").and_then(px),
+        tail: str_of("tail").filter(|t| matches!(t.as_str(), "start" | "end" | "down")),
         animation: None,
         sticky: r.get("position").and_then(Value::as_str) == Some("sticky"),
     }
