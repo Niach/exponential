@@ -409,6 +409,13 @@
       }
     },
     "app-events": {
+      "android": {
+        "file": "shots/app-events/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 55414,
+        "sha256": "c4278db5af4cd02883afa621d0947d87ac4a7eaa06039f199a813abf17b31c5d"
+      },
       "ios": {
         "file": "shots/app-events/ios.webp",
         "width": 828,
