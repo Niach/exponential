@@ -562,6 +562,73 @@ pub struct AssistantFabSpec {
     pub clearance: f32,
     /// How far the bottom-right toast stack rises while the FAB shows.
     pub toast_lift: f32,
+    /// #EXP-1876 THE entrance: the first show on a device.
+    pub entrance: AssistantFabEntrance,
+    /// #EXP-1876 THE speech bubble above the FAB.
+    pub bubble: AssistantFabBubbleSpec,
+}
+
+/// #EXP-1876 `assistant.fab.entrance`.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantFabEntrance {
+    pub duration_ms: u64,
+    pub rise_y: f32,
+    /// from → overshoot → rest.
+    pub scale: [f32; 3],
+    /// Where each `scale` stop lands on the 0..1 timeline.
+    pub scale_times: [f32; 3],
+    pub ripple: AssistantFabRipple,
+    pub reduced_motion: AssistantFabReducedMotion,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantFabRipple {
+    pub count: u32,
+    pub start_ms: u64,
+    pub duration_ms: u64,
+    pub spread_px: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantFabReducedMotion {
+    pub fade_ms: u64,
+}
+
+/// #EXP-1876 `assistant.fab.bubble`.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantFabBubbleSpec {
+    pub max_width: f32,
+    pub max_lines: usize,
+    pub gap: f32,
+    pub pop_in_ms: u64,
+    pub pop_from_scale: f32,
+    pub stay_ms: AssistantFabStay,
+    pub kicker_icon: String,
+    pub copy: AssistantFabKickerCopy,
+    pub welcome: Vec<AssistantFabWelcomeLine>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantFabStay {
+    pub welcome: u64,
+    pub needs_you: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct AssistantFabKickerCopy {
+    pub plan: String,
+    pub question: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct AssistantFabWelcomeLine {
+    pub en: String,
+    pub de: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -1294,6 +1361,13 @@ mod tests {
         assert_eq!((fab.inset, fab.size, fab.toast_lift), (16., 60., 84.));
         // #EXP-1860: the corner the FAB owns = inset + the circle + inset.
         assert_eq!(fab.clearance, fab.inset * 2. + fab.size);
+        assert_eq!((fab.entrance.duration_ms, fab.entrance.rise_y, fab.entrance.reduced_motion.fade_ms), (700, 12., 150));
+        assert_eq!(fab.entrance.scale, [0.6, 1.06, 1.]);
+        assert_eq!((fab.bubble.max_width, fab.bubble.max_lines, fab.bubble.pop_in_ms), (270., 2, 180));
+        assert_eq!((fab.bubble.stay_ms.welcome, fab.bubble.stay_ms.needs_you), (6000, 10000));
+        assert_eq!(fab.bubble.welcome.len(), 8);
+        assert_eq!(fab.bubble.welcome[0].en, "Hi! I'm your Assistant. Ask me anything.");
+        assert_eq!((fab.bubble.copy.plan.as_str(), fab.bubble.copy.question.as_str()), ("Plan ready", "Question"));
     }
 
     #[test]
