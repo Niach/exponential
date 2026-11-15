@@ -6,7 +6,7 @@
 // EXP-746: the two chip labels live in steer-commands.ts (the ×4 copy home);
 // the import is one-way — steer-commands only takes TYPES from here, so the
 // merged `/` catalog and the chips never form a runtime cycle.
-import { feedInput, markersShown, type FeedRowKind } from "@exp/domain-contract/transcript-grouping"
+import { feedInput, feedRows, traceNotice, type FeedRowRole } from "@exp/domain-contract/transcript-grouping"
 import {
   CONFIG_DEFAULT_VALUE_LABEL,
   CONFIG_MODE_LABEL,
@@ -2753,21 +2753,30 @@ export function scriptCardInput(item: {
 /** #EXP-1772 (transcript-grouping.json MARKER): the rows the feed draws. A
  *  system input (a schedule or event firing, a PR or session status line)
  *  stays only right above the agent's reply to it (`markersShown`); a blank
- *  narration draws nothing. Runs BEFORE the transcript layout, so a hidden
- *  row never breaks a group. */
-export function shownFeedRows<T extends { id: number; kind: string; text?: string; subagentId?: string }>(
+ *  narration draws nothing. #EXP-1873 (`feedRows`): a quiet check-in (a
+ *  schedule firing answered only with quiet) is ONE line, consecutive ones
+ *  collapse onto the last: its row carries `checkIns`. Runs BEFORE the
+ *  transcript layout, so a hidden row never breaks a group. */
+export function shownFeedRows<T extends { id: number; kind: string; text?: string; name?: string; subagentId?: string }>(
   rows: readonly FeedRow<T>[]
-): FeedRow<T>[] {
-  const kinds: FeedRowKind[] = rows.map((row) => {
+): FeedRow<T & { checkIns?: number }>[] {
+  const kinds: FeedRowRole[] = rows.map((row) => {
     if (row.kind !== `single`) return `other`
     const item = row.item
-    if (item.kind === `user_message`) return feedInput(item.text ?? ``)?.kind === `marker` ? `marker` : `input`
-    if (item.kind === `narration` && (item.text ?? ``).trim()) return `reply`
+    if (item.kind === `user_message`) {
+      const input = feedInput(item.text ?? ``)
+      if (input?.kind !== `marker`) return `input`
+      return input.key === `schedule` ? `schedule` : `marker`
+    }
+    if (item.kind === `narration`) return (item.text ?? ``).trim() ? `reply` : `blank`
+    if (item.kind === `tool` && traceNotice(item.name)) return `quiet`
     return `other`
   })
-  const shown = markersShown(kinds)
-  return rows.filter(
-    (row, index) =>
-      shown[index] && !(row.kind === `single` && row.item.kind === `narration` && !(row.item.text ?? ``).trim())
-  )
+  const shown = feedRows(kinds)
+  return rows.flatMap((row, index) => {
+    const drawn = shown[index]!
+    if (drawn === false) return []
+    if (drawn === true || row.kind !== `single`) return [row]
+    return [{ kind: `single` as const, item: { ...row.item, checkIns: drawn } }]
+  })
 }

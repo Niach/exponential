@@ -201,6 +201,57 @@ export function markersShown(kinds: readonly FeedRowKind[]): boolean[] {
   return shown
 }
 
+/** #EXP-1873: a feed row as `feedRows` reads it: `schedule` = a schedule
+ *  firing (a check-in), `marker` = every other marker, `quiet` = the quiet
+ *  notice, `blank` = an agent turn with blank text. */
+export type FeedRowRole = FeedRowKind | `schedule` | `quiet` | `blank`
+
+/** Per row: `false` = not drawn, `true` = drawn as itself, a number n = THE
+ *  check-in line covering n quiet check-ins. */
+export type FeedRowShown = boolean | number
+
+/** #EXP-1873 (`checkInCases`): a quiet check-in (a schedule firing whose
+ *  turn only called quiet, the forced filler after it aside) is one line;
+ *  consecutive ones collapse onto the last. */
+export function feedRows(kinds: readonly FeedRowRole[]): FeedRowShown[] {
+  const shown: FeedRowShown[] = markersShown(
+    kinds.map((kind) => (kind === `schedule` ? `marker` : kind === `quiet` || kind === `blank` ? `other` : kind))
+  ).map((drawn, index) => drawn && kinds[index] !== `blank`)
+  kinds.forEach((kind, start) => {
+    if (kind !== `schedule`) return
+    let end = start + 1
+    while (end < kinds.length && ![`schedule`, `marker`, `input`].includes(kinds[end]!)) end += 1
+    let quiet = false
+    for (let index = start + 1; index < end; index += 1) {
+      const row = kinds[index]
+      if (row === `other` || (row === `reply` && !quiet)) return
+      if (row === `quiet`) quiet = true
+    }
+    if (!quiet) return
+    shown[start] = 1
+    for (let index = start + 1; index < end; index += 1) shown[index] = false
+  })
+  let line: number | null = null
+  shown.forEach((drawn, index) => {
+    if (typeof drawn === `number`) {
+      if (line !== null) {
+        shown[index] = (shown[line] as number) + drawn
+        shown[line] = false
+      }
+      line = index
+    } else if (drawn) {
+      line = null
+    }
+  })
+  return shown
+}
+
+/** #EXP-1873 (`checkInLabelCases`): the check-in line's text. */
+export function checkInLabel(count: number, time: string | null): string {
+  const label = count === 1 ? fixture.copy.checkIn : fixture.copy.checkIns.replace(`{count}`, String(count))
+  return time ? `${label}${fixture.copy.checkInTimeSeparator}${time}` : label
+}
+
 export const TRANSCRIPT_FOLD = fixture.fold
 
 /** #FEED-238 THE FOLD ×4 (`foldCases`): a message bubble longer than

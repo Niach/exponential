@@ -106,6 +106,7 @@ import {
 } from "@exp/ui"
 import {
   TRANSCRIPT_LAYOUT,
+  checkInLabel,
   feedInput,
   traceNotice,
   transcriptLayout,
@@ -975,6 +976,10 @@ export function AgentSessionView({
         if (command) return wrap(<CommandRow name={command.command.name} args={command.args} />)
         // #EXP-1772: a system input (a firing, a PR or session line) is
         // THE inline marker (`shownFeedRows` kept it: a reply follows).
+        // #EXP-1873: a quiet check-in (or a run of them) = ONE marker line.
+        if (item.checkIns) {
+          return wrap(<TranscriptMarker label={checkInLabel(item.checkIns, item.at ? userMessageTime(item.at) : null)} />)
+        }
         const input = feedInput(item.text)
         if (input?.kind === `marker`) return wrap(<TranscriptMarker label={input.label} />)
         // #EXP-1736: another session's input = that session's bubble.
