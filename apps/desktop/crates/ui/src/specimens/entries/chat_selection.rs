@@ -60,7 +60,7 @@ fn selection_rows(list: &ChatList, selected: &[String]) -> Vec<ChatSelectionRow>
         .collect()
 }
 
-pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
+pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let (list, archived, selected) = model();
     let actions = chat_selection_actions(&selection_rows(&list, &selected), ChatListView::List);
     let (_, agent_rows) = super::chat_list::model();
@@ -113,16 +113,12 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
                         .children(agent_rows.iter().map(|row| agent_chat_row(row, cx).into_any_element()))
                 })
                 .children(rows)
-                .child(crate::issue_list::bulk_bar_dock(chat_selection_bar(
-                    selected.len(),
-                    actions,
-                    false,
-                    false,
-                    true,
-                    |_, _, _| {},
-                    None,
+                .child(crate::issue_list::bulk_bar_dock(
+                    "specimen-chat-selection",
+                    chat_selection_bar(selected.len(), actions, false, false, true, |_, _, _| {}, None, cx),
+                    window,
                     cx,
-                ))),
+                )),
         )
 }
 

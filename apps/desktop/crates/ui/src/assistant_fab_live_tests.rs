@@ -4,7 +4,7 @@
 //! an outside click close it.
 
 use gpui::{
-    div, px, AppContext as _, Context, Entity, IntoElement, Modifiers, ParentElement as _, Render, Styled as _, VisualTestContext,
+    div, px, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement, Modifiers, ParentElement as _, Render, Styled as _, VisualTestContext,
     Window,
 };
 use serde_json::json;
@@ -365,7 +365,10 @@ fn nothing_pins_to_a_foot_without_the_fab_foot() {
             for line in text.lines() {
                 let pinned = line.find(".bottom").is_some_and(|at| {
                     let rest = &line[at + ".bottom".len()..];
-                    !rest.starts_with("()") && (rest.starts_with('(') || rest.starts_with('_'))
+                    // `.bottom(x)` / `.bottom_0()`…, never the `bottom()`
+                    // getter or a `bottom_left` / `bottom_right` corner.
+                    let corner = rest.starts_with("_left") || rest.starts_with("_right");
+                    !rest.starts_with("()") && !corner && (rest.starts_with('(') || rest.starts_with('_'))
                 });
                 if pinned {
                     *found.entry(name.clone()).or_default() += 1;
