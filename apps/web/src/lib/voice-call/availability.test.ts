@@ -24,18 +24,22 @@ function doctorFor(speech: CallSpeech | null): DeviceDoctor {
 function rowsFor(input: CallTargetInput) {
   const meetingOn = input.desktops.find((desktop) => desktop.meeting)
   const settings = { voiceDeviceId: meetingOn?.id ?? null, meetingStartedAt: meetingOn ? NOW.toISOString() : null }
-  const rows: CallDeviceRowLike[] = input.desktops.map((desktop, index) => ({
-    deviceId: desktop.id,
+  const rowOf = (kind: string) => (device: CallTargetInput[`desktops`][number], index: number): CallDeviceRowLike => ({
+    deviceId: device.id,
     userId: `me`,
-    kind: `desktop`,
-    label: desktop.name,
+    kind,
+    label: device.name,
     // Newest first: a few seconds apart, stale when offline.
-    lastSeenAt: desktop.online ? new Date(NOW.getTime() - 1_000 * (index + 1)) : new Date(STALE.getTime() - index),
-    doctor: doctorFor(desktop.speech),
-  }))
-  // Another member's desktop and one of my servers never count.
+    lastSeenAt: device.online ? new Date(NOW.getTime() - 1_000 * (index + 1)) : new Date(STALE.getTime() - index),
+    doctor: doctorFor(device.speech),
+  })
+  // EXP-1858: the member's own servers are rows of kind `server`.
+  const rows: CallDeviceRowLike[] = [...input.desktops.map(rowOf(`desktop`)), ...(input.servers ?? []).map(rowOf(`server`))]
+  // Another member's desktop and server, and a spare server of mine that
+  // runs no called agent, never count.
   rows.push({ deviceId: `d-theirs`, userId: `them`, kind: `desktop`, label: `theirs`, lastSeenAt: NOW, doctor: doctorFor(`ok`) })
-  rows.push({ deviceId: `d-server`, userId: `me`, kind: `server`, label: `server`, lastSeenAt: NOW, doctor: doctorFor(`ok`) })
+  rows.push({ deviceId: `d-server`, userId: `them`, kind: `server`, label: `theirs`, lastSeenAt: NOW, doctor: doctorFor(`ok`) })
+  rows.push({ deviceId: `d-spare`, userId: `me`, kind: `server`, label: `spare`, lastSeenAt: NOW, doctor: doctorFor(`ok`) })
   return { settings, rows }
 }
 

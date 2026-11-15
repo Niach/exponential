@@ -1,6 +1,7 @@
 // NEW-70 (voice V6): the telephone's availability as web reads it.
 // EXP-1857 (`fixtures/voice-call.json` `callTarget`): a call rings the
-// called agent's desktop, else falls back to the member's newest desktop
+// called agent's desktop (EXP-1858: or the member's own server it runs on),
+// else falls back to the member's newest desktop
 // that speaks. The inputs are the member's voice settings (`voice.get`, the
 // running meeting), the agent's Runs on device and the member's SYNCED
 // desktop `devices` rows: online by `lastSeenAt` freshness, their doctor row
@@ -54,19 +55,21 @@ export function webCallInput(
   userId: string | null,
   now: Date
 ): CallTargetInput {
-  const desktops = settings
-    ? rows
-        .filter((row) => row.kind === `desktop` && row.userId === userId)
-        .sort((a, b) => new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime())
-        .map((row) => ({
-          id: row.deviceId,
-          name: row.label,
-          online: deviceRowIsOnline(row.lastSeenAt, now),
-          speech: callSpeechOf(row.doctor),
-          meeting: Boolean(settings.meetingStartedAt) && row.deviceId === settings.voiceDeviceId,
-        }))
-    : []
-  return { platform: `web`, here: null, agentDevice, desktops, busy: false }
+  const own = (kind: string) =>
+    settings
+      ? rows
+          .filter((row) => row.kind === kind && row.userId === userId)
+          .sort((a, b) => new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime())
+          .map((row) => ({
+            id: row.deviceId,
+            name: row.label,
+            online: deviceRowIsOnline(row.lastSeenAt, now),
+            speech: callSpeechOf(row.doctor),
+            meeting: Boolean(settings.meetingStartedAt) && row.deviceId === settings.voiceDeviceId,
+          }))
+      : []
+  // EXP-1858: the member's own servers (a candidate only as the agent's device).
+  return { platform: `web`, here: null, agentDevice, desktops: own(`desktop`), servers: own(`server`), busy: false }
 }
 
 export function webCallTarget(

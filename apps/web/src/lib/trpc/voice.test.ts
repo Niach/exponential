@@ -529,12 +529,15 @@ describe(`voice.startCall`, () => {
   })
   const desktop = (deviceId: string, label: string, patch: Record<string, unknown> = {}) => ({
     deviceId,
+    kind: `desktop`,
     label,
     lastSeenAt: new Date(),
     doctor: doctor(`ok`),
     ...patch,
   })
   const MINT = (patch: Record<string, unknown> = {}) => desktop(`d-mint`, `mint`, patch)
+  // EXP-1858: one of the member's own servers (a CLI daemon).
+  const SERVER = (patch: Record<string, unknown> = {}) => desktop(`d-server`, `server`, { kind: `server`, ...patch })
   const MAC = (patch: Record<string, unknown> = {}) =>
     desktop(`d-mac`, `macbook`, { lastSeenAt: new Date(Date.now() - 1000), ...patch })
   const agentOn = (deviceId: string) => [{ id: AGENT, deviceId }]
@@ -569,6 +572,27 @@ describe(`voice.startCall`, () => {
     const out = await caller.startCall({ agentId: AGENT, platform: `web` })
     expect(out).toMatchObject({ deviceId: `d-mint`, device: `mint`, fallback: true })
     expect(claimsOf(out.ticket)).toMatchObject({ role: `caller`, deviceId: `d-mint` })
+  })
+
+  it(`EXP-1858: an agent on the member's own server rings that server`, async () => {
+    h.state.selectQueue = [agentOn(`d-server`), [{ userId: `me`, ...stored }], [MAC(), MINT(), SERVER()]]
+    const out = await caller.startCall({ agentId: AGENT, platform: `web` })
+    expect(out).toMatchObject({ deviceId: `d-server`, device: `server`, fallback: false })
+    expect(claimsOf(out.ticket)).toMatchObject({ role: `caller`, deviceId: `d-server`, deviceOwnerId: `me` })
+  })
+
+  it(`EXP-1858: a server without a GPU falls back; alone it names its reason; never another agent's fallback`, async () => {
+    h.state.selectQueue = [agentOn(`d-server`), [{ userId: `me`, ...stored }], [SERVER({ doctor: doctor(`missing`) }), MAC()]]
+    await expect(caller.startCall({ agentId: AGENT, platform: `phone` })).resolves.toMatchObject({
+      deviceId: `d-mac`,
+      fallback: true,
+    })
+    h.state.selectQueue = [agentOn(`d-server`), [{ userId: `me`, ...stored }], [SERVER({ doctor: doctor(`missing`) })]]
+    await expect(caller.startCall({ agentId: AGENT, platform: `web` })).rejects.toMatchObject(
+      refused(`server can't speak: no usable GPU`)
+    )
+    h.state.selectQueue = [agentOn(`d-mint`), [{ userId: `me`, ...stored }], [MINT({ lastSeenAt: new Date(0) }), SERVER()]]
+    await expect(caller.startCall({ agentId: AGENT, platform: `web` })).rejects.toMatchObject(refused(`mint is offline`))
   })
 
   it(`the agent's desktop without a GPU falls back`, async () => {

@@ -14,7 +14,10 @@ readme = "../etalk/README.md"
 # Qwen3-TTS 0.6B Base through CrispASR (`crates/etalk-crispasr`: the pinned prebuilt
 # runtime and models, sha256-verified, loaded at runtime; nothing linked),
 # on the GPU only, plus playback.
-etalk = { path = "../etalk" }
+# EXP-1858: without etalk's `pipewire` feature, so the CLI daemon (which
+# runs this worker too) never links libpipewire; the IDE's own etalk
+# dependency keeps it on there (one feature set per build).
+etalk = { path = "../etalk", default-features = false }
 etalk-crispasr = { path = "../etalk-crispasr" }
 # EXP-1424: the wake word's model detector (tract, pure Rust) for phrases
 # with a published model; the files are pinned downloads like the others.

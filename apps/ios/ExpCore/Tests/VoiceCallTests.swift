@@ -122,6 +122,7 @@ final class VoiceCallTests: XCTestCase {
             "maxFramesPerSecond": VoiceCall.Constants.maxFramesPerSecond,
             "maxCallMs": VoiceCall.Constants.maxCallMs,
             "idleTimeoutMs": VoiceCall.Constants.idleTimeoutMs,
+            "serverIdleMs": VoiceCall.Constants.serverIdleMs,
         ])
         let wire = try XCTUnwrap(fixture["wire"] as? [String: Any])
         XCTAssertEqual(try XCTUnwrap(wire["kinds"] as? [String: Int]), [
@@ -185,20 +186,25 @@ final class VoiceCallTests: XCTestCase {
             let name = row["name"] as? String ?? "?"
             let input = try XCTUnwrap(row["input"] as? [String: Any], name)
             let expected = try XCTUnwrap(row["expected"] as? [String: Any], name)
-            let desktops = try XCTUnwrap(input["desktops"] as? [[String: Any]], name).map { device in
-                VoiceCall.TargetDevice(
-                    id: try XCTUnwrap(device["id"] as? String, name),
-                    name: try XCTUnwrap(device["name"] as? String, name),
-                    online: device["online"] as? Bool ?? false,
-                    speech: try (device["speech"] as? String).map { try XCTUnwrap(VoiceCall.Speech(rawValue: $0), name) },
-                    meeting: device["meeting"] as? Bool ?? false
-                )
+            func devices(_ key: String) throws -> [VoiceCall.TargetDevice] {
+                try (input[key] as? [[String: Any]] ?? []).map { device in
+                    VoiceCall.TargetDevice(
+                        id: try XCTUnwrap(device["id"] as? String, name),
+                        name: try XCTUnwrap(device["name"] as? String, name),
+                        online: device["online"] as? Bool ?? false,
+                        speech: try (device["speech"] as? String).map { try XCTUnwrap(VoiceCall.Speech(rawValue: $0), name) },
+                        meeting: device["meeting"] as? Bool ?? false
+                    )
+                }
             }
+            XCTAssertNotNil(input["desktops"] as? [[String: Any]], name)
             let target = VoiceCall.callTarget(VoiceCall.TargetInput(
                 platform: try XCTUnwrap(VoiceCall.Platform(rawValue: input["platform"] as? String ?? ""), name),
                 here: input["here"] as? String,
                 agentDevice: input["agentDevice"] as? String,
-                desktops: desktops,
+                desktops: try devices("desktops"),
+                // EXP-1858: the member's own servers.
+                servers: try devices("servers"),
                 busy: input["busy"] as? Bool ?? false
             ))
             XCTAssertEqual(target, VoiceCall.Target(

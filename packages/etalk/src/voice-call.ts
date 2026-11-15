@@ -87,6 +87,9 @@ export interface CallTargetInput {
   agentDevice: string | null
   /** The member's own desktops, newest `lastSeenAt` first. */
   desktops: CallTargetDevice[]
+  /** EXP-1858: the member's own servers (CLI daemons): a candidate only as
+   *  the agent's device, never here nor a fallback. Absent = none. */
+  servers?: CallTargetDevice[]
   /** A call this client does not run already runs on the target. */
   busy: boolean
 }
@@ -107,12 +110,16 @@ function speaks(device: CallTargetDevice): boolean {
 }
 
 /** EXP-1857 (`targetCases`): where a call's speech runs. The first desktop
- *  that speaks of: the agent's device (one of the member's own desktops),
- *  the desktop you're at, the other desktops newest first. None speaks =
- *  disabled with the first candidate's reason. */
+ *  that speaks of: the agent's device (one of the member's own desktops,
+ *  EXP-1858: or servers), the desktop you're at, the other desktops newest
+ *  first. None speaks = disabled with the first candidate's reason. */
 export function callTarget(input: CallTargetInput): CallTarget {
   const byId = (id: string | null) => (id === null ? undefined : input.desktops.find((device) => device.id === id))
-  const candidates = [byId(input.agentDevice), byId(input.here), ...input.desktops].filter(
+  const agentDevice =
+    input.agentDevice === null
+      ? undefined
+      : (byId(input.agentDevice) ?? input.servers?.find((device) => device.id === input.agentDevice))
+  const candidates = [agentDevice, byId(input.here), ...input.desktops].filter(
     (device): device is CallTargetDevice => device !== undefined
   )
   const target = candidates.find(speaks)

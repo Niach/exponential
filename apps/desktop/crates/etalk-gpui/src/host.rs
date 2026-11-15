@@ -336,6 +336,12 @@ pub trait TalkHost: 'static {
         let _ = cx;
         Vec::new()
     }
+    /// EXP-1858: the member's OWN servers (CLI daemons), newest first: a
+    /// call rings one only when the agent runs on it.
+    fn servers(&self, cx: &App) -> Vec<TalkDesktop> {
+        let _ = cx;
+        Vec::new()
+    }
     /// The device's desktop audio as it reports it (meeting mode's who).
     fn desktop_audio(&self, device_id: &str, cx: &App) -> (DesktopAudioCapability, Vec<AudioApp>);
     fn icon(&self, icon: TalkIcon<'_>) -> Icon;

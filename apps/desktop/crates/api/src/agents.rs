@@ -58,6 +58,10 @@ pub struct Agent {
     /// S-3: contract `agentRole` (`assistant` | `agent`); absent = `agent`.
     #[serde(default)]
     pub role: Option<String>,
+    /// #EXP-1847 (agent-settings.json `voice`): the agent's own voice
+    /// (`agents.get` carries it; `agents.list` does not).
+    #[serde(default)]
+    pub voice: Option<serde_json::Value>,
 }
 
 /// `{txid}` of a plain mutation.

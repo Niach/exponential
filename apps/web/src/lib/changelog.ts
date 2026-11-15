@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-15-calls-ring-the-agents-server`,
+    date: `2026-11-15`,
+    title: `Call an agent on your server`,
+    summary: `An agent that runs on a server with a GPU now takes its calls itself. A server without one hands the call to one of your desktops, as before.`,
+    body: `- **The server speaks**: the \`exponential\` daemon on a server answers a call to an agent that runs there, in the agent's own voice, with no microphone or speakers of its own.
+- **Only while it's needed**: the voice is checked once, loads when a call rings and is unloaded after ten quiet minutes, so the GPU is free the rest of the time.
+- **A server without a GPU**: its device page says "No usable GPU", and calls go to the desktop you're at or your newest desktop that can speak, which the call shows as "Voice on" with its name.`,
+  },
+  {
     id: `2026-11-15-phones-calls-ring-the-agents-desktop`,
     date: `2026-11-15`,
     title: `Calls from your phone ring the agent's desktop`,

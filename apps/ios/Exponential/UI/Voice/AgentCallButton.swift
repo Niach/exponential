@@ -72,13 +72,18 @@ final class AgentCallAvailability {
     nonisolated init() {}
 
     /// The member's own desktops as `callTarget` reads them, newest first.
-    var desktops: [VoiceCall.TargetDevice] {
+    var desktops: [VoiceCall.TargetDevice] { own(kind: "desktop") }
+
+    /// EXP-1858: the member's own servers (only the agent's counts).
+    var servers: [VoiceCall.TargetDevice] { own(kind: "server") }
+
+    private func own(kind: String) -> [VoiceCall.TargetDevice] {
         guard let settings else { return [] }
         func seen(_ row: DeviceEntity) -> Date {
             row.lastSeenAt.flatMap(WireTimestamps.parse) ?? .distantPast
         }
         return devices
-            .filter { $0.kind == "desktop" && (userId == nil || $0.userId == userId) }
+            .filter { $0.kind == kind && (userId == nil || $0.userId == userId) }
             .sorted { seen($0) > seen($1) }
             .map { row in
                 VoiceCall.TargetDevice(
@@ -95,7 +100,7 @@ final class AgentCallAvailability {
     /// Where a call to the agent running on `agentDevice` speaks.
     func target(agentDevice: String?) -> VoiceCall.Target {
         VoiceCall.callTarget(VoiceCall.TargetInput(
-            platform: .phone, here: nil, agentDevice: agentDevice, desktops: desktops, busy: false
+            platform: .phone, here: nil, agentDevice: agentDevice, desktops: desktops, servers: servers, busy: false
         ))
     }
 

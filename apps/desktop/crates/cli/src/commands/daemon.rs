@@ -557,6 +557,24 @@ fn run_daemon(args: &[String]) -> CommandResult {
             .map_err(|err| log::warn!("the viewer proxy socket failed to bind (`sessions log --follow` will refuse here): {err}"))
             .ok()
     });
+    // #EXP-1858: speech on a server: the call host of the agents that run
+    // here (headless; the worker only while one does, see `voice_host`).
+    let voice = runtime.as_ref().and_then(|runtime| {
+        let (teams, rows) = (Arc::clone(&pickup), Arc::clone(&pickup));
+        crate::voice_host::spawn(crate::voice_host::Deps {
+            trpc: Arc::clone(&ctx.trpc),
+            runtime: Arc::clone(runtime),
+            data_dir: ctx.data_dir.clone(),
+            device_id: device_id.clone(),
+            teams: Arc::new(move || synced_team_ids(&teams)),
+            messages: Arc::new(move |session_id| {
+                let Some(store) = rows.store() else { return Vec::new() };
+                let messages = read_shape_rows_where::<domain::rows::MessageRow>(&store, "messages", "session_id", &[session_id]);
+                coding::sealing::open_messages(&messages)
+            }),
+            beat_soon: Arc::clone(&check_in),
+        })
+    });
     let mut enet_teams = synced_team_ids(&pickup);
     let mut last_team_check = Instant::now();
     // `register` only SEEDS the label (it never stomps a rename); an
@@ -581,7 +599,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
     }
 
     let mut control = runtime.as_ref().and_then(|runtime| {
-        dial_control(runtime, &ctx, &device_id, &device_label, &advertised, &check_in)
+        dial_control(runtime, &ctx, &device_id, &device_label, &advertised, &check_in, voice.as_ref())
     });
     if advertised.nothing_installed() {
         log::info!("no agent CLI installed — registered offline; install claude or codex to run sessions here");
@@ -873,6 +891,10 @@ fn run_daemon(args: &[String]) -> CommandResult {
                 let missing = coding::sealing::key_holder_missing();
                 coding::device_doctor::record_key_holder(&ctx.data_dir, missing);
                 coding::device_doctor::add_key_holder(&mut device, !missing);
+                // #EXP-1858: the `speech` row while an agent runs here.
+                if let Some(voice) = &voice {
+                    voice.add_doctor(&mut device);
+                }
                 device
             };
             let doctor_key = coding::device_doctor::items_key(&device_doctor);
@@ -901,6 +923,10 @@ fn run_daemon(args: &[String]) -> CommandResult {
             ) {
                 Ok(result) => {
                     heartbeat_health.on_ok("devices.heartbeat", carried_optional);
+                    // #EXP-1858: the member's voice language (a call's default).
+                    if let (Some(voice), Some(settings)) = (&voice, result.voice.clone()) {
+                        voice.settings(settings);
+                    }
                     // Only an ACCEPTED beat updates the last-sent copies: a
                     // failed one must resend on the next tick.
                     if send_accounts {
@@ -1190,7 +1216,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
                         }
                         control = runtime.as_ref().and_then(|runtime| {
                             dial_control(
-                                runtime, &ctx, &device_id, &device_label, &advertised, &check_in,
+                                runtime, &ctx, &device_id, &device_label, &advertised, &check_in, voice.as_ref(),
                             )
                         });
                     }
@@ -1219,6 +1245,10 @@ fn run_daemon(args: &[String]) -> CommandResult {
     }
     if let Some(handle) = control.take() {
         handle.stop();
+    }
+    // #EXP-1858: a running call ends, the speech worker with it.
+    if let Some(voice) = &voice {
+        voice.stop();
     }
     // EXP-530: stop the shape threads before the session teardown so the
     // pipeline isn't long-polling while children die (the store stays on
@@ -1475,6 +1505,7 @@ fn dial_control(
     device_label: &str,
     advertised: &coding::AgentAdvertisement,
     check_in: &Arc<AtomicBool>,
+    voice: Option<&crate::voice_host::VoiceHost>,
 ) -> Option<steer::ControlChannelHandle> {
     if advertised.nothing_installed() {
         return None;
@@ -1501,9 +1532,12 @@ fn dial_control(
         device,
         control_api,
         on_check_in,
-        // NEW-55: the daemon is never a voice device (the voice runs in the
-        // IDE alone), so a ring is not its to answer.
-        Arc::new(|_ring| {}),
+        // #EXP-1858: a ring is answered by the call host of the agents that
+        // run here (non-blocking: it only queues the ring).
+        match voice.cloned() {
+            Some(voice) => Arc::new(move |ring: steer::control_channel::CallRing| voice.ring(ring.call_id, ring.agent_id)),
+            None => Arc::new(|_ring| {}),
+        },
     ))
 }
 
