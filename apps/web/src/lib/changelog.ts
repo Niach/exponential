@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-15-desktop-voice-per-agent`,
+    date: `2026-11-15`,
+    title: `A voice for every agent on the desktop`,
+    summary: `Desktop and CLI 0.14.163 with eDE 0.2.26: every agent's settings page on the desktop has a Voice section, your voice device speaks each agent's replies in that agent's voice, and your own chat bubbles in eDE take the new bubble colour.`,
+    body: `- **Voice per agent**: open an agent's settings on the desktop, a team agent or the Assistant, and set its language, a voice clip, what the clip says and its wake phrase.
+- **Spoken in its voice**: the desktop's voice features read each agent's replies and calls in that agent's own voice; rows you leave empty use your own voice settings.
+- **eDE chat bubbles**: your own messages in eDE's chats use the same bubble colour as the desktop app.`,
+  },
+  {
     id: `2026-11-15-phones-bubbles-app-chat-voice`,
     date: `2026-11-15`,
     title: `Chat bubbles, one chat per app and a voice per agent on your phone`,
