@@ -547,6 +547,13 @@ abstract class MessageDao {
     abstract fun rawObserveBySession(sessionId: String): Flow<List<MessageEntity>>
     fun observeBySession(sessionId: String): Flow<List<MessageEntity>> = rawObserveBySession(sessionId).openedMessages()
 
+    // #ERR-23: a session's CARD rows only (its plans and questions), for the
+    // push/inbox landing lookups; the whole session was 12k rows on a long
+    // Assistant chat, read on every tap.
+    @Query("SELECT * FROM messages WHERE session_id = :sessionId AND card IS NOT NULL AND card != 'null' ORDER BY created_at, id")
+    abstract fun rawObserveCardsBySession(sessionId: String): Flow<List<MessageEntity>>
+    fun observeCardsBySession(sessionId: String): Flow<List<MessageEntity>> = rawObserveCardsBySession(sessionId).openedMessages()
+
     // Every message of one tree (the root's conversation + its children's).
     @Query("SELECT * FROM messages WHERE root_id = :rootId ORDER BY created_at, id")
     abstract fun rawObserveByRoot(rootId: String): Flow<List<MessageEntity>>
