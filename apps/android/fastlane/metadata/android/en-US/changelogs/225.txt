@@ -1,0 +1,3 @@
+- Chat bubbles in their own colour, with the time on every bubble
+- One chat per app: an app's chat is your chat with its agent
+- A Voice section on every agent's settings page

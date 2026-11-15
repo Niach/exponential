@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-15-phones-bubbles-app-chat-voice",
+    date: "2026-11-15",
+    title: "Chat bubbles, one chat per app and a voice per agent on your phone",
+    summary: "Android 0.14.142 and iOS 0.14.131 bring chat bubbles with a time on each, one chat per app with its agent, a Voice section on every agent's settings page, and the / menu's notes above the card.",
+    body: r##"- **Chat bubbles**: messages sit in bubbles of their own colour, every bubble shows its time, and a turn that ended quietly says so on its own line.
+- **One chat per app**: an app's chat is your own chat with the app's agent, and the app's settings pick where that agent runs.
+- **Voice per agent**: every agent's settings page has a Voice group with its language, a voice clip, the clip's transcript and the wake phrase.
+- **The / menu**: its notes and the Home menu draw above the card, as on the web."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_303: ChangelogEntry = ChangelogEntry {
     id: "2026-11-15-voice-per-agent",
     date: "2026-11-15",
     title: "Every agent gets its own voice",
