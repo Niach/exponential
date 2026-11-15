@@ -36,6 +36,7 @@
 
 import contractJson from "../contract.json" with { type: "json" }
 import { TOOL_GROUP_SUMMARY_SEPARATOR } from "./tool-group-summary"
+import { traceNotice } from "./transcript-grouping"
 
 const json = contractJson as unknown as {
   expToolDisplay: {
@@ -108,7 +109,8 @@ export function expToolRunEnd<
 >(feed: readonly T[], start: number): number {
   const lane = feed[start]?.subagentId
   const row = expToolRowName(feed[start]?.name)
-  if (row === null) return start
+  // #EXP-1864: a notice (`Ended turn quietly`) is its own marker line.
+  if (row === null || traceNotice(feed[start]?.name) !== null) return start
   let end = start
   while (
     end + 1 < feed.length &&

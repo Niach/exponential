@@ -35,6 +35,7 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from "./sheet"
 import { useMediaQuery } from "./use-media-query"
 import { useIsMobile } from "./use-mobile"
 import { CHAT_COLUMN_CLASS } from "./work-header"
+import { FAB_LANE_CLASS } from "./fab-chrome"
 
 // N-12: THE Dock ×web (fixtures/dock.json ×4; desktop `dock.rs`, iOS
 // `Dock.swift`, Android `Dock.kt`): the band under the transcript's
@@ -166,6 +167,8 @@ export function Dock({
             `relative flex flex-col gap-1.5`,
             view.mode === `none` && !composer ? `pointer-events-none` : `pointer-events-auto`,
             DOCK_COLUMN_CLASS,
+            // #EXP-1860: beside the Assistant FAB, never under it.
+            FAB_LANE_CLASS,
             phoneClearance ? PHONE_CLEARANCE_CLASS : `pb-3 md:pb-4`
           )}
         >

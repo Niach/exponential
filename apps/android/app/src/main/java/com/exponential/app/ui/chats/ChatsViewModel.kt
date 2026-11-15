@@ -119,6 +119,17 @@ class ChatsViewModel @Inject constructor(
         .flowOn(Dispatchers.Default)
         .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
 
+    // #ERR-23: every session's digest turned back into messages ONCE per
+    // sessions read (session id → its messages): the list's team slice and
+    // the per-team badges both read it. Each parsed it on its own before,
+    // which kept two to four copies of every digest's messages (and their
+    // card JSON trees) on a large account.
+    private val digestMessagesById = sessionRows.map { rows ->
+        rows.associate { row -> row.id to Chats.digestMessages(row.id, Chats.parseDigest(row.digest)) }
+    }
+        .flowOn(Dispatchers.Default)
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
+
     private val inputs = combine(
         sessions,
         dbFlow.scopedQuery(emptyList()) { it.sessionIssueDao().observeAll() }.map { it.map(SessionTree::sessionIssue) },
@@ -139,8 +150,8 @@ class ChatsViewModel @Inject constructor(
                     rows.filter { it.teamId == team || (ids.isNotEmpty() && it.teamId !in ids) }
                 }
             }
-        }.map { rows ->
-            rows.flatMap { row -> Chats.digestMessages(row.id, Chats.parseDigest(row.digest)) }
+        }.combine(digestMessagesById) { rows, byId ->
+            rows.flatMap { row -> byId[row.id].orEmpty() }
         },
         // EXP-1323: the viewer's read marks (bold rows + the nav dot).
         dbFlow.scopedQuery(emptyList()) { it.sessionReadDao().observeAll() }.map { it.map(SessionTree::sessionRead) },
@@ -568,8 +579,8 @@ class ChatsViewModel @Inject constructor(
      * active one's.
      */
     val needsYouByTeam: StateFlow<Map<String, Int>> = combine(
-        combine(sessions, sessionRows) { s, rows ->
-            s to rows.flatMap { row -> Chats.digestMessages(row.id, Chats.parseDigest(row.digest)) }
+        combine(sessions, sessionRows, digestMessagesById) { s, rows, byId ->
+            s to rows.flatMap { row -> byId[row.id].orEmpty() }
         },
         dbFlow.scopedQuery(emptyList()) { it.teamDao().observeAll() },
         agentDefinitions,

@@ -29,6 +29,14 @@ export const FAB_CHROME_CLASS = `border border-glass-stroke-card bg-popover/85 b
 // capsule it stretches into).
 export const FAB_CIRCLE_CLASS = `pointer-events-auto flex size-[52px] shrink-0 items-center justify-center rounded-full ${FAB_CHROME_CLASS} text-foreground/70`
 
+// #EXP-1860 — the Assistant FAB's corner, reserved once (styles.css
+// `main:has(> [data-assistant-fab])`): a page's scroll content wears
+// `FAB_CLEARANCE_CLASS` (an 84px spacer after its last row while the FAB
+// shows), THE Dock band `FAB_LANE_CLASS` (its right edge 84px in). Without a
+// FAB both are no-ops.
+export const FAB_CLEARANCE_CLASS = `fab-clearance`
+export const FAB_LANE_CLASS = `fab-lane`
+
 export function FabButton({
   emphasis = `secondary`,
   asChild = false,

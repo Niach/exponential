@@ -87542,10 +87542,10 @@
         "exponential": {
           "light": {
             "default": {
-              "backgroundColor": "#f5f5f5",
-              "color": "#171717",
+              "backgroundColor": "#e7f0fe",
+              "color": "#0a0a0a",
               "borderWidth": 1,
-              "borderColor": "#d4d4d4",
+              "borderColor": "#e5e5e5",
               "borderRadius": 16,
               "borderTopLeftRadius": 16,
               "paddingHorizontal": 14,
@@ -87555,10 +87555,10 @@
           },
           "dark": {
             "default": {
-              "backgroundColor": "#ffffff1c",
+              "backgroundColor": "#132034",
               "color": "#fafafa",
               "borderWidth": 1,
-              "borderColor": "#ffffff1f",
+              "borderColor": "#ffffff1a",
               "borderRadius": 16,
               "borderTopLeftRadius": 16,
               "paddingHorizontal": 14,
@@ -87588,10 +87588,10 @@
         "orange": {
           "light": {
             "default": {
-              "backgroundColor": "#ffedd5",
-              "color": "#7c2d12",
+              "backgroundColor": "#e7f0fe",
+              "color": "#0a0a0a",
               "borderWidth": 1,
-              "borderColor": "#d4d4d4",
+              "borderColor": "#e5e5e5",
               "borderRadius": 16,
               "borderTopLeftRadius": 16,
               "paddingHorizontal": 14,
@@ -87601,10 +87601,10 @@
           },
           "dark": {
             "default": {
-              "backgroundColor": "#431407",
-              "color": "#fed7aa",
+              "backgroundColor": "#132034",
+              "color": "#fafafa",
               "borderWidth": 1,
-              "borderColor": "#ffffff1f",
+              "borderColor": "#ffffff1a",
               "borderRadius": 16,
               "borderTopLeftRadius": 16,
               "paddingHorizontal": 14,

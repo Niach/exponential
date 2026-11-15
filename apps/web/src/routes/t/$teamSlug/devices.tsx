@@ -8,7 +8,7 @@ import { useSession } from "@/hooks/use-session"
 import { useTeamBySlug } from "@/hooks/use-team-data"
 import { useCrossTeamScope } from "@/hooks/use-cross-team-scope"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
-import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
+import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { MobilePageHeader } from "@/components/team/mobile-page-header"
 import { pageTitle } from "@/lib/page-title"
 
@@ -111,7 +111,7 @@ function DevicesPage() {
           appearing mid-page beside a centred list (the actions.tsx pattern). */}
       <div className="h-full overflow-y-auto">
         <div
-          className={`mx-auto w-full max-w-3xl px-4 py-4 md:max-w-5xl ${TAB_BAR_CLEARANCE}`}
+          className={`mx-auto w-full max-w-3xl px-4 py-4 md:max-w-5xl ${PAGE_END_CLEARANCE}`}
         >
           {header}
           {isMember && steerConfig?.enabled && (

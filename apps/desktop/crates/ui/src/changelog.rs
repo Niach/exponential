@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-15-phones-events-tab-memory",
+    date: "2026-11-15",
+    title: "An Events tab on your phone, and Android stays open in big accounts",
+    summary: "Android 0.14.141 and iOS 0.14.130 bring every app's Events tab, re-seal a chat whose keys changed before sending, and Android keeps a large account inside its memory.",
+    body: r##"- **Events tab**: open an app and pick Events to see its agent's triggers, its webhooks and the last week's runs.
+- **Changed keys**: a message into an encrypted chat whose keys changed meanwhile is re-sealed and sent again once, instead of failing.
+- **Android memory**: a large account syncs one table at a time, so the app no longer closes itself after a while in a big chat or session list."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_299: ChangelogEntry = ChangelogEntry {
     id: "2026-11-14-app-events-tab",
     date: "2026-11-14",
     title: "An Events tab on every app",

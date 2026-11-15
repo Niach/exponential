@@ -468,6 +468,7 @@ mod tests {
                 text: "hello".to_string(),
                 message_id: None,
                 subagent_id: None,
+                at: None,
             },
         )
     }

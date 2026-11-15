@@ -7,7 +7,7 @@ import { Empty } from "@/components/empty"
 import type { NotificationType } from "@exp/db-schema/domain"
 import { notificationTypeValues } from "@exp/db-schema/domain"
 import type { Issue, Notification, Board, Team } from "@/db/schema"
-import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
+import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { inboxRowTarget } from "@exp/domain-contract/inbox-route"
 import { planPageFor } from "@exp/domain-contract/plan-page"
 import { sessionWaitingCard } from "@exp/domain-contract/chat-row-action"
@@ -330,7 +330,7 @@ export function InboxView({
         className={cn(
           `flex w-full flex-col gap-0`,
           !compact && `mx-auto max-w-3xl px-4 py-4`,
-          !compact && TAB_BAR_CLEARANCE
+          !compact && PAGE_END_CLEARANCE
         )}
       >
         {groups.length === 0 ? (

@@ -403,9 +403,11 @@ private fun SessionCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
     val links by observeScoped(rootId, emptyList()) { it.sessionIssueDao().observeByRoot(rootId) }
     // Large chats: the title reads the tree's title rows, never its transcript.
     val messages by observeScoped(rootId, emptyList()) { it.keyedMessages(it.messageDao().observeFirstTitleRowsByRoot(rootId)) }
-    val issues by observeScoped(Unit, emptyList()) { it.issueDao().observeAll() }
+    // #ERR-23: only the tree's linked issues, never a copy of the whole table per card.
+    val linkedIds = remember(links) { links.map { it.issueId }.distinct() }
+    val issues by observeScoped(linkedIds, emptyList()) { it.issueDao().observeByIds(linkedIds) }
     val title = remember(row, links, messages, issues) {
-        val ids = links.map { it.issueId }.toSet()
+        val ids = linkedIds.toSet()
         SessionTree.sessionTitle(
             SessionTree.session(row),
             links.map(SessionTree::sessionIssue),
