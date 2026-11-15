@@ -11,10 +11,20 @@
 //! Hidden on the Assistant's own page and while there is no Assistant
 //! (`assistant_fab_visible`). While it shows, the toast stack rises by
 //! `toastLift` (the Shell sets it).
+//!
+//! #EXP-1860 NOTHING HIDES UNDER IT (`assistant.fab.clearance`, web
+//! `.fab-clearance` / `.fab-lane` in @exp/ui styles.css): the FAB records
+//! its circle per window ([`FabCorners`]); a page's scroll content ends
+//! with [`page_end`] (a spacer the corner tall while the FAB shows) and THE
+//! Dock band keeps its right edge [`lane`] in where its column runs into the
+//! circle, so the composer's send button sits beside the FAB.
+
+use std::collections::HashMap;
 
 use gpui::{
-    div, px, App, AppContext as _, Entity, InteractiveElement as _, IntoElement, ParentElement as _, Render,
-    RenderOnce, SharedString, StatefulInteractiveElement as _, Styled as _, Subscription, Window,
+    canvas, div, px, App, AppContext as _, Bounds, Entity, Global, InteractiveElement as _, IntoElement,
+    ParentElement as _, Pixels, Render, RenderOnce, SharedString, StatefulInteractiveElement as _, Styled as _,
+    Subscription, Window, WindowId,
 };
 use gpui_component::{h_flex, popover::Popover, v_flex, ActiveTheme as _, Icon, Selectable, Sizable as _};
 use sync::Store;
@@ -37,6 +47,65 @@ const HEADER_MARK_PX: f32 = 16.;
 pub(crate) const TEST_IDS: (&str, &str, &str) = ("assistant-fab", "assistant-widget-maximize", "assistant-widget-minimize");
 /// The open widget's body (the live tests read whether it paints).
 pub(crate) const WIDGET_TEST_ID: &str = "assistant-widget";
+
+/// #EXP-1860: each window's FAB circle in window coordinates while it
+/// shows (`None` = no FAB on that window's screen).
+#[derive(Default)]
+struct FabCorners {
+    by_window: HashMap<WindowId, Bounds<Pixels>>,
+}
+
+impl Global for FabCorners {}
+
+fn corner(window: &Window, cx: &App) -> Option<Bounds<Pixels>> {
+    cx.try_global::<FabCorners>()
+        .and_then(|corners| corners.by_window.get(&window.window_handle().window_id()).copied())
+}
+
+/// Record (or clear) the window's circle; a change repaints the next frame
+/// so the cached dock area reads it.
+fn set_corner(window: &mut Window, circle: Option<Bounds<Pixels>>, cx: &mut App) {
+    let id = window.window_handle().window_id();
+    let corners = cx.default_global::<FabCorners>();
+    let changed = match circle {
+        Some(circle) => corners.by_window.insert(id, circle) != Some(circle),
+        None => corners.by_window.remove(&id).is_some(),
+    };
+    if changed {
+        window.on_next_frame(|window, _| window.refresh());
+    }
+}
+
+/// The Shell's half: no FAB on this window (signed out, onboarding).
+pub(crate) fn clear_corner(window: &mut Window, cx: &mut App) {
+    set_corner(window, None, cx);
+}
+
+/// #EXP-1860: the end of a page's scroll content: a spacer the FAB's corner
+/// tall (`clearance`) while the FAB shows, so the last row scrolls clear of
+/// the circle; nothing otherwise. Append it as the scroll content's last
+/// child.
+pub(crate) fn page_end(window: &Window, cx: &App) -> gpui::Div {
+    div().flex_shrink_0().w_full().h(page_end_height(window, cx))
+}
+
+/// [`page_end`]'s height, for a virtual list's trailing spacer row.
+pub(crate) fn page_end_height(window: &Window, cx: &App) -> Pixels {
+    px(if corner(window, cx).is_some() { ASSISTANT_FAB.clearance } else { 0. })
+}
+
+/// #EXP-1860: THE Dock band's right padding: the FAB's corner
+/// (`clearance`) where the band's column runs into the circle (a page's
+/// chat), else `gutter` (the widget's own chat above the FAB, a pane beside
+/// it).
+pub(crate) fn lane(column: Option<Bounds<Pixels>>, gutter: Pixels, window: &Window, cx: &App) -> Pixels {
+    match (corner(window, cx), column) {
+        (Some(circle), Some(column)) if column.right() > circle.left() && column.bottom() > circle.top() => {
+            gutter.max(px(ASSISTANT_FAB.clearance))
+        }
+        _ => gutter,
+    }
+}
 
 /// What the FAB derives from the store: the viewer's Assistant in the
 /// active team and its conversation's badge.
@@ -209,6 +278,7 @@ impl Render for AssistantFab {
         let _span = tracing::trace_span!("render", view = "AssistantFab").entered();
         let Some(derived) = self.derived.clone().filter(|_| self.shows(cx)) else {
             self.open = false;
+            set_corner(window, None, cx);
             return div().into_any_element();
         };
         let open = self.open;
@@ -283,6 +353,14 @@ impl Render for AssistantFab {
                         let _ = fab.update(cx, |fab, cx| fab.set_open(open, cx));
                     })
                     .content(content),
+            )
+            // #EXP-1860: the circle's window bounds (`page_end`, `lane`).
+            .child(
+                canvas(|bounds, window, cx| set_corner(window, Some(bounds), cx), |_, _, _, _| {})
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .size(px(FAB_PX)),
             )
             .into_any_element()
     }

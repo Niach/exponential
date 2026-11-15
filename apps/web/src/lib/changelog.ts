@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-14-app-events-tab`,
+    date: `2026-11-14`,
+    title: `An Events tab on every app`,
+    summary: `Apps get an Events tab beside Preview and Data: the app agent's triggers, the app's webhooks and the runs of the last week.`,
+    body: `- **Events tab**: open an app and pick Events to see its agent's triggers (schedules, team events, record writes, webhooks), switch them on or off, add schedules and events, and delete the rest.
+- **What each trigger does**: a trigger that runs a binding says what it runs on a second line.
+- **Recent runs**: the last week's runs with their outcome: Ran, Woke agent, Failed, Dropped (over 30 a minute), Paused (the agent's owner can't write) or Refused (a webhook delivery that didn't verify).
+- **Webhooks** moved from the app's settings to the Events tab; the Automations group in settings is gone.`,
+  },
+  {
     id: `2026-11-14-desktop-chat-shell-folders`,
     date: `2026-11-14`,
     title: `Folders, one chat menu and a floating Assistant on the desktop`,

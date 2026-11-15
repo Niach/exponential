@@ -20,6 +20,7 @@ import com.exponential.app.domain.AgentSettings
 import com.exponential.app.domain.AgentTrigger
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.SessionTree
+import com.exponential.app.domain.TriggerWhen
 import com.exponential.app.domain.WireTimestamps
 import com.exponential.app.domain.parseAgentTriggers
 import com.exponential.app.domain.unreadableAgentTriggers
@@ -405,7 +406,8 @@ class AgentSettingsViewModel @Inject constructor(
             val next = build(triggers.value)
             val wire: List<JsonObject> = next.map { it.toWireJson() } +
                 unreadableAgentTriggers(agent.value?.triggers)
-            agentsApi.update(accountId, id, UpdateAgentPatch(triggers = wire))
+            // #EXP-1850: every write names all four kinds (none is kept behind it).
+            agentsApi.update(accountId, id, UpdateAgentPatch(triggers = wire, triggerKinds = TriggerWhen.KINDS))
             lastWritten.value = System.currentTimeMillis() to next
             onDone()
         }

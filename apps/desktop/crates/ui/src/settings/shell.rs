@@ -149,7 +149,7 @@ impl DetailShell {
 
     /// The column showing `pane`; `key` names the scroll region (one per
     /// section).
-    pub(crate) fn render(&mut self, key: SharedString, pane: PaneBuild, window: &mut Window, _cx: &mut App) -> AnyElement {
+    pub(crate) fn render(&mut self, key: SharedString, pane: PaneBuild, window: &mut Window, cx: &mut App) -> AnyElement {
         *self.slot.pane.borrow_mut() = Some(pane);
         // EXP-1558 (DEV-ONLY): `settings-assistant-meeting` = the Assistant
         // pane at its end (the Meeting mode rows), web's `scrollToMeetingMode`.
@@ -164,7 +164,12 @@ impl DetailShell {
                 // EXP-1557: the column lays out at the web's 16px rem, so the
                 // panes' type, rows and controls match web's settings page
                 // size for size (the IDE's 14px rem drew them ~12% small).
-                div().w_full().min_w_0().child(crate::controls::web_rem(div().w_full().min_w_0().child(self.view.clone()))),
+                div()
+                    .w_full()
+                    .min_w_0()
+                    .child(crate::controls::web_rem(div().w_full().min_w_0().child(self.view.clone())))
+                    // #EXP-1860: the last row scrolls clear of the Assistant FAB.
+                    .child(crate::assistant_fab::page_end(window, cx)),
             ))
             .into_any_element()
     }

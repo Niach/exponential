@@ -55,6 +55,8 @@ mod agent_doc;
 pub(crate) mod agent_triggers;
 // VAPP-177: the app editor's Settings tab (rendered by the app screen).
 pub(crate) mod app_detail;
+// #EXP-1850: the app screen's Events tab.
+pub(crate) mod app_events;
 pub(crate) mod app_mcp;
 pub(crate) mod new_agent;
 pub(crate) mod agents;

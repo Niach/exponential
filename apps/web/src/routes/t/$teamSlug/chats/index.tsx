@@ -15,7 +15,7 @@ import {
   useIsMobile,
 } from "@exp/ui"
 import { useIssueMenuSelection } from "@/components/issue-context-menu/selection"
-import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
+import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { ChatSelectionBar } from "@/components/chat/chat-selection-bar"
 import { useSession } from "@/hooks/use-session"
 import { useTeamBySlug } from "@/hooks/use-team-data"
@@ -203,7 +203,7 @@ function ChatsPage() {
         <div
           className={`mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 ${
             isMobile ? `pt-[max(1rem,env(safe-area-inset-top))]` : `pt-4 pb-4`
-          } ${TAB_BAR_CLEARANCE} ${selection ? `md:pb-20` : ``}`}
+          } ${PAGE_END_CLEARANCE} ${selection ? `md:pb-20` : ``}`}
         >
           {isMobile ? (
             <ChatsHeader

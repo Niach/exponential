@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 import {
+  FAB_CLEARANCE_CLASS,
   BoardGlyph,
   conceptIcon,
   EmptyState,
@@ -299,7 +300,7 @@ function AgentChannelPage() {
       item={
         screen.open === `settings` ? (
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-testid="session-settings">
-            <div className="mx-auto w-full max-w-3xl px-4 pt-4 pb-10">{parts.settings}</div>
+            <div className={`mx-auto w-full max-w-3xl px-4 pt-4 pb-10 ${FAB_CLEARANCE_CLASS}`}>{parts.settings}</div>
           </div>
         ) : null
       }

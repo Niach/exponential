@@ -3,6 +3,7 @@ import { ReadMarkdown } from "@/components/read-markdown"
 import type * as React from "react"
 import { Files } from "lucide-react"
 import {
+  FAB_CLEARANCE_CLASS,
   CollapsedTitle,
   conceptIcon,
   useIsMobile,
@@ -694,7 +695,7 @@ export function IssueDetailView({
             route, so nothing else is reserved here. */}
         <div
           ref={bodyScrollRef}
-          className={cn(`flex-1 overflow-y-auto`, !embedded && MOBILE_WORK_BAR_CLEARANCE)}
+          className={cn(`flex-1 overflow-y-auto`, !embedded && MOBILE_WORK_BAR_CLEARANCE, FAB_CLEARANCE_CLASS)}
           /* EXP-1162: the header band floats over this scroller — the
              column starts below it and scrolls under it. */
           style={{ paddingTop: embedded ? topInset : mobileHeaderSize.height }}

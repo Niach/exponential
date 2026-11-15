@@ -176,3 +176,37 @@ fn an_outside_click_closes_the_widget(cx: &mut gpui::TestAppContext) {
     assert!(!h.widget(), "an outside click closes the widget");
     assert!(h.fab());
 }
+
+#[gpui::test]
+#[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
+fn nothing_hides_under_the_fab(cx: &mut gpui::TestAppContext) {
+    use domain::agent_settings::ASSISTANT_FAB;
+    // #EXP-1860: while the FAB shows, a page's scroll content ends with a
+    // spacer the corner tall and THE Dock band keeps a column that runs into
+    // the circle `clearance` in; one above the circle (the widget's own
+    // chat) keeps its gutter. On the Assistant's own page: nothing.
+    let mut h = harness(cx);
+    let circle = h.cx.debug_bounds(TEST_IDS.0).expect("the FAB paints");
+    let gutter = px(20.);
+    let under = gpui::Bounds::new(gpui::point(px(0.), circle.top() - px(40.)), gpui::size(circle.right(), px(100.)));
+    let above = gpui::Bounds::new(gpui::point(px(0.), px(0.)), gpui::size(circle.right(), circle.top() - px(8.)));
+    let (end, lane_under, lane_above) = h.cx.update(|window, cx| {
+        (
+            crate::assistant_fab::page_end_height(window, cx),
+            crate::assistant_fab::lane(Some(under), gutter, window, cx),
+            crate::assistant_fab::lane(Some(above), gutter, window, cx),
+        )
+    });
+    assert_eq!(end, px(ASSISTANT_FAB.clearance), "the page end reserves the corner");
+    assert_eq!(lane_under, px(ASSISTANT_FAB.clearance), "a composer beside the FAB, not under it");
+    assert_eq!(lane_above, gutter, "the widget's chat keeps its gutter");
+
+    h.cx.update(|window, cx| crate::navigation::navigate(window, cx, Screen::Agent { agent_id: "as1".into() }));
+    h.settle();
+    assert!(!h.fab());
+    let (end, lane_under) = h.cx.update(|window, cx| {
+        (crate::assistant_fab::page_end_height(window, cx), crate::assistant_fab::lane(Some(under), gutter, window, cx))
+    });
+    assert_eq!(end, px(0.), "no FAB, no spacer");
+    assert_eq!(lane_under, gutter, "no FAB, no lane");
+}

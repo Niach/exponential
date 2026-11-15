@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
-import type { AgentTrigger, TriggerWhen } from "@exp/db-schema/domain"
+import { agentTriggerKindValues, type AgentTrigger, type TriggerWhen } from "@exp/db-schema/domain"
 import {
   Button,
   conceptIcon,
@@ -17,6 +17,7 @@ import {
   ASSISTANT_SCHEDULES,
   checkInOf,
   listedTriggers,
+  triggerDetail,
   triggerSummary,
   withCheckIn,
   type AssistantScheduleId,
@@ -33,6 +34,9 @@ import { TriggerDialog } from "@/components/trigger-dialog"
 // presets, `checkInOf` / `withCheckIn`) and a row per `listedTriggers`
 // (sentence · Switch · ⋯ Edit/Delete; the row opens the editor). Every write
 // is the WHOLE array, each trigger kept as stored (its `preset` included).
+// #EXP-1850: every kind is listed (record/webhook rows have no editor, a
+// `run` trigger reads what it runs on a second line) and every write names
+// all kinds (`triggerKinds`).
 
 const COPY = AGENT_SETTINGS_COPY
 const UiAddIcon = conceptIcon(`ui-add`)
@@ -56,14 +60,33 @@ export function readTriggers(value: unknown): AgentTrigger[] {
   )
 }
 
-/** The kinds a trigger row reads; any other kind is kept, never listed. */
+/** #EXP-1850: every kind is listed; a kind newer than this client is kept,
+ *  never listed. */
 function isListedKind(trigger: { kind?: unknown }): boolean {
+  return (agentTriggerKindValues as readonly unknown[]).includes(trigger.kind)
+}
+
+/** #EXP-1850: the editor edits schedules and events; record and webhook
+ *  rows have none (⋯ = Delete). */
+function isEditableKind(trigger: { kind?: unknown }): boolean {
   return trigger.kind === `schedule` || trigger.kind === `event`
 }
 
-/** A trigger as stored: the when-part plus its id and switch. */
-function withTriggerMeta(when: TriggerWhen, id: string, enabled: boolean): AgentTrigger {
-  return { ...when, id, enabled }
+/** The kinds every write of this client names (agents.update replaces only
+ *  those, agent-settings.json #EXP-1850). */
+export const WRITTEN_TRIGGER_KINDS = [...agentTriggerKindValues]
+
+/** An edited trigger: the new when-part over the stored one, every other key
+ *  (prompt, run) kept; a schedule's Check in tag goes with its old cron. */
+function withTriggerMeta(when: TriggerWhen, existing: AgentTrigger | null): AgentTrigger {
+  if (!existing) return { ...when, id: crypto.randomUUID(), enabled: true } as AgentTrigger
+  const { cron: _cron, tz: _tz, name: _name, preset: _preset, ...rest } = existing as AgentTrigger & {
+    cron?: string
+    tz?: string
+    name?: string
+    preset?: string
+  }
+  return { ...rest, ...when, id: existing.id, enabled: existing.enabled } as AgentTrigger
 }
 
 const localZone = () => {
@@ -106,10 +129,8 @@ export function AgentTriggers({ triggers, readOnly, onWrite }: AgentTriggersProp
   const saveTrigger = async (when: TriggerWhen) => {
     const editing = dialog.editing
     const next = editing
-      ? triggers.map((existing) =>
-          existing.id === editing.id ? withTriggerMeta(when, existing.id, existing.enabled) : existing
-        )
-      : [...triggers, withTriggerMeta(when, crypto.randomUUID(), true)]
+      ? triggers.map((existing) => (existing.id === editing.id ? withTriggerMeta(when, existing) : existing))
+      : [...triggers, withTriggerMeta(when, null)]
     await onWrite(next)
   }
 
@@ -155,7 +176,7 @@ export function AgentTriggers({ triggers, readOnly, onWrite }: AgentTriggersProp
                 )
               )
             }
-            onEdit={() => setDialog({ open: true, editing: trigger })}
+            onEdit={isEditableKind(trigger) ? () => setDialog({ open: true, editing: trigger }) : null}
             onDelete={() => setDeleting(trigger)}
           />
         ))}
@@ -214,7 +235,7 @@ export function AgentTriggersFor({
       const previous = triggers
       setTriggers(next)
       try {
-        await trpc.agents.update.mutate({ id: agent.id, triggers: next }, SKIP_ERROR_TOAST)
+        await trpc.agents.update.mutate({ id: agent.id, triggers: next, triggerKinds: WRITTEN_TRIGGER_KINDS }, SKIP_ERROR_TOAST)
       } catch (err) {
         setTriggers(previous)
         failedAction(`save`, `the agent`, err, { retry: () => void write(next).catch(() => {}) })
@@ -238,22 +259,26 @@ function AgentTriggerRow({
   trigger: AgentTrigger
   readOnly: boolean
   onToggle: (enabled: boolean) => void
-  onEdit: () => void
+  /** Null = no editor for this kind (#EXP-1850: record, webhook). */
+  onEdit: (() => void) | null
   onDelete: () => void
 }) {
   const sentence = triggerSummary({ ...trigger, enabled: true })
+  const detail = triggerDetail(trigger)
+  const editable = !readOnly && onEdit !== null
   return (
     <ListRow
-      interactive={!readOnly}
-      onClick={readOnly ? undefined : onEdit}
-      aria-label={readOnly ? undefined : sentence}
+      interactive={editable}
+      onClick={editable ? onEdit! : undefined}
+      aria-label={editable ? sentence : undefined}
       // In a GlassGroup the hairline between rows is this row's border: a
       // rounded row bends it at both ends (#EXP-1846 pictures).
       className="rounded-none px-4"
       data-testid={`agent-trigger-${trigger.id}`}
     >
-      <span className={`min-w-0 flex-1 truncate text-sm ${trigger.enabled ? `` : `text-muted-foreground`}`}>
-        {sentence}
+      <span className={`min-w-0 flex-1 ${trigger.enabled ? `` : `text-muted-foreground`}`}>
+        <span className="block truncate text-sm">{sentence}</span>
+        {detail && <span className="block truncate text-xs text-muted-foreground">{detail}</span>}
       </span>
       <div
         className="flex shrink-0 items-center gap-1"
@@ -273,7 +298,7 @@ function AgentTriggerRow({
             aria-label={`${sentence} actions`}
             title={sentence}
             entries={[
-              { kind: `item`, id: `edit`, label: `Edit`, icon: UiEditIcon, onSelect: onEdit },
+              ...(onEdit ? [{ kind: `item` as const, id: `edit`, label: `Edit`, icon: UiEditIcon, onSelect: onEdit }] : []),
               {
                 kind: `item`,
                 id: `delete`,

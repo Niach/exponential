@@ -541,7 +541,7 @@ export function BulkBarDock({ children }: { children: ReactNode }) {
     // bar's box exactly — pinned to `bottom-0` with the safe-area inset as its
     // own PADDING, never as an offset. #EXP-1553: and it spans the width the
     // way the natives' bottom bar does (`inset-x-4`, the capsule `w-full`). That is what makes the measured
-    // `--bulkbar-h` (published here, spent by TAB_BAR_CLEARANCE) cover the
+    // `--bulkbar-h` (published here, spent by PAGE_END_CLEARANCE) cover the
     // same footprint `--tabbar-h` does; an inset expressed as `bottom-…` would
     // sit outside the measured box and under-reserve the list's clearance.
     <div

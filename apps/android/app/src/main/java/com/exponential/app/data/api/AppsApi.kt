@@ -54,6 +54,19 @@ private data class AppVersionInput(val id: String, val version: Int)
 @Serializable
 private data class AppRestoreInput(val id: String, val number: Int)
 
+/** #EXP-1850 `apps.events` `runs`: one audit row of the app's triggers. */
+@Serializable
+data class AppEventRunDto(
+    val triggerId: String? = null,
+    val at: String = "",
+    val status: String = "",
+    val error: String? = null,
+    val tool: String = "",
+)
+
+@Serializable
+data class AppEventsResult(val runs: List<AppEventRunDto> = emptyList())
+
 @Serializable
 data class AppDiscardResult(val discarded: Boolean = false, val txid: Long? = null)
 
@@ -221,6 +234,16 @@ class AppsApi @Inject constructor(private val trpc: TrpcClient) {
             inputSerializer = AppIdInput.serializer(),
             outputSerializer = AppDiscardResult.serializer(),
         )
+
+    /** #EXP-1850 `apps.events {id}`: the Events tab's Recent runs, newest first. */
+    suspend fun events(accountId: String, appId: String): List<AppEventRunDto> =
+        trpc.query(
+            accountId,
+            path = "apps.events",
+            input = AppIdInput(appId),
+            inputSerializer = AppIdInput.serializer(),
+            outputSerializer = AppEventsResult.serializer(),
+        ).runs
 
     /** Trash the app (the shape's `deleted_at` mirror hides it). */
     suspend fun delete(accountId: String, appId: String) {

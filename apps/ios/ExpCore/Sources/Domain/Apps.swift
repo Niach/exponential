@@ -252,6 +252,10 @@ public enum Apps {
         // #VAPP-243: the Settings tab's Record access group and its rows.
         public static let policies = "app-settings-policies"
         public static let policyRow = "app-policy"
+        // #EXP-1850: the Events tab, its Recent runs group and a run row.
+        public static let eventsTab = "app-events"
+        public static let recentRuns = "app-events-runs"
+        public static let runRow = "app-event-run"
     }
 
     /// VAPP-177 the editor's tabs (fixture `editorTabs`): web ≥ md and

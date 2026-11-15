@@ -631,7 +631,7 @@ impl IssueDetailView {
     /// The area under the fixed header: the scrolling body. (EXP-818 retired
     /// the EXP-791 slide-in session panel — a run opens on its own
     /// `Screen::Session` beside the list it came from.)
-    fn render_center(&mut self, body: AnyElement, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> AnyElement {
+    fn render_center(&mut self, body: AnyElement, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         div()
             .id("issue-detail-scroll")
             .flex_1()
@@ -641,6 +641,8 @@ impl IssueDetailView {
             .overflow_y_scroll()
             .track_scroll(&self.body_scroll)
             .child(body)
+            // #EXP-1860: the last comment scrolls clear of the Assistant FAB.
+            .child(crate::assistant_fab::page_end(window, cx))
             .into_any_element()
     }
 

@@ -58,6 +58,8 @@ internal fun triggerDraftFor(trigger: TriggerWhen?): TriggerDraft = when (trigge
         schedule = scheduleDraftFromCron(trigger.cron, trigger.tz),
     )
     is TriggerWhen.Event -> TriggerDraft(kind = TRIGGER_KIND_EVENT, name = trigger.name)
+    // #EXP-1850: record and webhook rows have no editor; never seeded.
+    is TriggerWhen.Record, is TriggerWhen.Webhook -> TriggerDraft(schedule = freshScheduleDraft(java.util.TimeZone.getDefault().id))
 }
 
 

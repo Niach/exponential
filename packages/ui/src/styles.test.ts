@@ -2,6 +2,8 @@
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
+import { ASSISTANT_FAB } from "@exp/domain-contract/agent-settings"
+import { FAB_CLEARANCE_CLASS, FAB_LANE_CLASS } from "./fab-chrome"
 
 // EXP-887 — the stylesheet half of the package's contract. `styles.css` is the
 // theme every consumer imports; these are the pieces an app (or an island
@@ -92,5 +94,14 @@ describe(`@exp/ui styles.css`, () => {
     }
     // The EDITOR's copy of the same palette stays in apps/web with tiptap.
     expect(css).not.toContain(`.tiptap-content`)
+  })
+
+  it(`reserves the Assistant FAB's corner while it shows (#EXP-1860)`, () => {
+    // agent-settings.json `assistant.fab.clearance`: page scroll content ends
+    // with a spacer the corner tall, THE Dock keeps its right edge clear.
+    const scope = `main:has(> [data-assistant-fab])`
+    expect(css).toContain(`${scope} {\n  --fab-clearance: ${ASSISTANT_FAB.clearance}px;`)
+    expect(css).toContain(`${scope} .${FAB_CLEARANCE_CLASS}::after {`)
+    expect(css).toContain(`${scope} .${FAB_LANE_CLASS} {`)
   })
 })

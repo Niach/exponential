@@ -23,6 +23,8 @@ import {
   versionMigration,
 } from "@exp/domain-contract/apps"
 import {
+  FAB_CLEARANCE_CLASS,
+  FAB_LANE_CLASS,
   BoardGlyph,
   Button,
   conceptIcon,
@@ -72,6 +74,7 @@ import { AppExportDialog } from "@/components/apps/app-export-dialog"
 import { AppImportDialog } from "@/components/apps/app-import-dialog"
 import { APP_TEMPLATES_COPY, APP_TEMPLATES_TEST_IDS } from "@exp/domain-contract/app-templates"
 import { relativeTime } from "@/components/comment-rows/format"
+import { AppEventsTab } from "@/components/apps/app-events-tab"
 import { useAppVersions, useEditorSession, type AppListEntry } from "@/hooks/use-apps"
 import { useSessionTitles } from "@/hooks/use-session-tree"
 import { useTeamUsers } from "@/hooks/use-team-data"
@@ -596,7 +599,7 @@ export function AppEditor({
         <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col justify-end px-4 pt-6 pb-6">{empty}</div>
       </div>
       {isMember && (
-        <div className="shrink-0 px-4 pt-2 pb-4" data-testid={APPS_TEST_IDS.composer}>
+        <div className={`shrink-0 px-4 pt-2 pb-4 ${FAB_LANE_CLASS}`} data-testid={APPS_TEST_IDS.composer}>
           {appComposer(false)}
         </div>
       )}
@@ -780,12 +783,20 @@ export function AppEditor({
 
   let pane: ReactNode = null
   if (screen.active === `preview`) pane = preview
-  else if (screen.active === `data`) pane = <div className="h-full overflow-y-auto p-4">{dataBody}</div>
-  else if (screen.active === `versions`) pane = <div className="h-full overflow-y-auto p-4">{versionsBody}</div>
+  else if (screen.active === `data`) pane = <div className={`h-full overflow-y-auto p-4 ${FAB_CLEARANCE_CLASS}`}>{dataBody}</div>
+  else if (screen.active === `events`)
+    pane = (
+      <div className={`h-full overflow-y-auto p-4 ${FAB_CLEARANCE_CLASS}`}>
+        <div className="w-full" style={isMobile ? undefined : { maxWidth: APPS_EDITOR_TABS.settingsMaxWidth }}>
+          <AppEventsTab app={{ id: app.id, headVersion: app.headVersion, agentId: app.row?.agentId ?? null }} teamSlug={teamSlug} canManage={canManage} onOpenChat={() => pickTab(`chat`)} />
+        </div>
+      </div>
+    )
+  else if (screen.active === `versions`) pane = <div className={`h-full overflow-y-auto p-4 ${FAB_CLEARANCE_CLASS}`}>{versionsBody}</div>
 
   const item: ReactNode =
     screen.open === `settings` ? (
-      <div className="h-full overflow-y-auto p-4">{settingsBody}</div>
+      <div className={`h-full overflow-y-auto p-4 ${FAB_CLEARANCE_CLASS}`}>{settingsBody}</div>
     ) : screen.open === `session` && openSessionRow ? (
       <InPlaceSession key={openSessionRow.id} row={openSessionRow} floating={isMobile} />
     ) : null

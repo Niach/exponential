@@ -11,6 +11,7 @@ import {
   BoardGlyph,
   Button,
   FAB_CHROME_CLASS,
+  FAB_CLEARANCE_CLASS,
   PhoneBoardMenuStrip,
   PhoneTab,
   PhoneTabBar,
@@ -56,7 +57,12 @@ const BoardCaretIcon = conceptIcon(`nav-team-switcher`)
 // EXP-698 r5: the bulk bar takes the tab bar's slot on a selection, so the
 // clearance is whichever bar is actually down there — `max()` of the two
 // published heights, never their sum.
-export const TAB_BAR_CLEARANCE = `max-md:pb-[calc(max(var(--tabbar-h,4.25rem),var(--bulkbar-h,0px))+1.25rem)]`
+// #EXP-1860: the wide half — while the Assistant FAB shows, the content
+// ends with a spacer the FAB's corner tall (`FAB_CLEARANCE_CLASS`, an
+// `::after`: it adds to the route's own padding and is a no-op without the
+// FAB), so the last row scrolls clear of the circle. Wear it on a page's
+// scroller or on its content column (block or flex column).
+export const PAGE_END_CLEARANCE = `max-md:pb-[calc(max(var(--tabbar-h,4.25rem),var(--bulkbar-h,0px))+1.25rem)] ${FAB_CLEARANCE_CLASS}`
 
 // Mobile chrome (topbar + tab bar) hides on the detail routes — they carry
 // their own breadcrumb/back headers, mirroring the native apps pushing a
@@ -203,7 +209,7 @@ export function MobileTabBar({
   const { bulkBarPresent } = useMobileChrome()
   const visible = useMobileChromeVisible() && !bulkBarPresent
   const { boardSlug } = useParams({ strict: false })
-  // EXP-698: what TAB_BAR_CLEARANCE spends. `0px` on the detail routes that
+  // EXP-698: what PAGE_END_CLEARANCE spends. `0px` on the detail routes that
   // hide the bar (never removed — the literal fallback would reserve a
   // phantom pill there), and 0 on md+ where the element is `display:none`.
   const publishTabBarHeight = useChromeHeightVar(`--tabbar-h`)

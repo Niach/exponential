@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useBlocker, useNavigate } from "@tanstack/react-router"
 import {
+  FAB_CLEARANCE_CLASS,
   Button,
   CollapsedTitle,
   Pill,
@@ -646,7 +647,7 @@ export function IssueDraftPage({
         />
         <div
           ref={scrollRef}
-          className="flex-1 overflow-y-auto pb-[max(2rem,env(safe-area-inset-bottom))]"
+          className={`flex-1 overflow-y-auto pb-[max(2rem,env(safe-area-inset-bottom))] ${FAB_CLEARANCE_CLASS}`}
           style={{ paddingTop: mobileHeaderSize.height }}
         >
           <div ref={titleRef}>{titleInput}</div>

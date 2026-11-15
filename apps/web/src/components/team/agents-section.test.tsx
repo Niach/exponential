@@ -195,6 +195,7 @@ describe(`AgentSettingsPage Triggers (#EXP-1846)`, () => {
             { id: `t-ci`, kind: `schedule`, cron: `*/15 * * * *`, preset: `15m`, enabled: true, tz: `Europe/Berlin` },
             EVENT,
           ],
+          triggerKinds: [`schedule`, `event`, `record`, `webhook`],
         },
         expect.anything()
       )
@@ -207,21 +208,25 @@ describe(`AgentSettingsPage Triggers (#EXP-1846)`, () => {
     fireEvent.click(within(screen.getByTestId(`agent-trigger-t-ev`)).getByRole(`switch`))
     await waitFor(() =>
       expect(update).toHaveBeenCalledWith(
-        { id: `ag-1`, triggers: [CHECK_IN, { ...EVENT, enabled: false }] },
+        { id: `ag-1`, triggers: [CHECK_IN, { ...EVENT, enabled: false }], triggerKinds: [`schedule`, `event`, `record`, `webhook`] },
         expect.anything()
       )
     )
   })
 
-  it(`a kind this client can't read (an app agent's record trigger) is never listed and survives every write`, async () => {
+  it(`#EXP-1850: an app agent's record trigger is listed with what it runs; a kind newer than this client survives every write`, async () => {
     update.mockResolvedValue({ txid: 1 })
-    const RECORD = { id: `t-rec`, kind: `record`, record: `orders`, op: `insert`, run: `notify`, enabled: true }
-    render(<AgentSettingsPage team={team} agent={agent([RECORD, EVENT])} isOwner />)
-    expect(screen.queryByTestId(`agent-trigger-t-rec`)).toBeNull()
+    const RECORD = { id: `t-rec`, kind: `record`, record: `orders`, op: `create`, run: { records: { op: `upsert`, kind: `log` } }, enabled: true }
+    const FUTURE = { id: `t-new`, kind: `future`, enabled: true }
+    render(<AgentSettingsPage team={team} agent={agent([RECORD, FUTURE, EVENT])} isOwner />)
+    const recordRow = screen.getByTestId(`agent-trigger-t-rec`)
+    expect(recordRow.textContent).toContain(`When a orders is created`)
+    expect(recordRow.textContent).toContain(`Runs records.upsert log`)
+    expect(screen.queryByTestId(`agent-trigger-t-new`)).toBeNull()
     fireEvent.click(within(screen.getByTestId(`agent-trigger-t-ev`)).getByRole(`switch`))
     await waitFor(() =>
       expect(update).toHaveBeenCalledWith(
-        { id: `ag-1`, triggers: [RECORD, { ...EVENT, enabled: false }] },
+        { id: `ag-1`, triggers: [RECORD, FUTURE, { ...EVENT, enabled: false }], triggerKinds: [`schedule`, `event`, `record`, `webhook`] },
         expect.anything()
       )
     )

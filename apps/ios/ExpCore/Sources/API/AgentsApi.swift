@@ -130,7 +130,7 @@ struct UpdateAgentInput: Encodable {
     let patch: AgentPatch
 
     enum CodingKeys: String, CodingKey {
-        case id, name, icon, color, instructions, triggers, deviceId, cli, account, model, sortOrder, skillIds, mcpServerIds
+        case id, name, icon, color, instructions, triggers, triggerKinds, deviceId, cli, account, model, sortOrder, skillIds, mcpServerIds
     }
 
     func encode(to encoder: Encoder) throws {
@@ -142,6 +142,11 @@ struct UpdateAgentInput: Encodable {
         try c.encodeIfPresent(patch.instructions, forKey: .instructions)
         // The whole array, an EMPTY one included ("no triggers left").
         try c.encodeIfPresent(patch.triggers, forKey: .triggers)
+        // #EXP-1850: every triggers write names all four kinds (the server
+        // replaces only the named ones; this build reads them all).
+        if patch.triggers != nil {
+            try c.encode(DomainContract.agentTriggerKindValues, forKey: .triggerKinds)
+        }
         try c.encodeIfPresent(patch.deviceId, forKey: .deviceId)
         try c.encodeIfPresent(patch.cli, forKey: .cli)
         // The unwrapped inner optional is encoded even when nil — an explicit
