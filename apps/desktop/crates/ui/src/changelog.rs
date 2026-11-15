@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-15-desktop-events-tab-key-reseal",
+    date: "2026-11-15",
+    title: "The Events tab and sturdier agent chats on the desktop",
+    summary: "Desktop and CLI 0.14.162: an app's Events tab on the desktop, messages to an agent or app that no longer fail on a chat the desktop had not caught up on, and nothing hidden under the Assistant button.",
+    body: r##"- **Events tab**: open an app on the desktop and pick Events to see its agent's triggers, the app's webhooks and the last week's runs.
+- **Agent and app chats catch up**: when your chat with an agent or app moved on elsewhere (a new chat or new keys) before the desktop synced it, the desktop app asks the server, seals your message again and sends it once instead of failing.
+- **Nothing under the Assistant button**: the floating Assistant button no longer covers the last row or a page's buttons in the bottom-right corner."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_299: ChangelogEntry = ChangelogEntry {
     id: "2026-11-14-app-events-tab",
     date: "2026-11-14",
     title: "An Events tab on every app",
