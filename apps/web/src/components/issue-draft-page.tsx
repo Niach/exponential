@@ -671,7 +671,8 @@ export function IssueDraftPage({
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <div
             ref={scrollRef}
-            className="min-h-0 flex-1 overflow-y-auto"
+            // #EXP-1872: the files section scrolls clear of the Assistant FAB.
+            className={`min-h-0 flex-1 overflow-y-auto ${FAB_CLEARANCE_CLASS}`}
             data-detail-scroll=""
           >
             <WorkHeader

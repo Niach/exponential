@@ -242,7 +242,8 @@ function AppPreviewBody({
   }
   const { frameClass, frameStyle, testId, outer } = previewFrame(variant, frame, className, phone)
   const surface = !shell || !resolved ? (
-    <div className={`${frameClass} overflow-y-auto`} style={{ ...frameStyle, padding: APPS_PREVIEW.padding }} data-testid={testId}>
+    // #EXP-1872: the surface's last row scrolls clear of the Assistant FAB.
+    <div className={`${frameClass} overflow-y-auto ${FAB_CLEARANCE_CLASS}`} style={{ ...frameStyle, padding: APPS_PREVIEW.padding }} data-testid={testId}>
       {content}
     </div>
   ) : shell === `sidebar` ? (

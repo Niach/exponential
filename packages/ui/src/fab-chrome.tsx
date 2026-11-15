@@ -36,6 +36,12 @@ export const FAB_CIRCLE_CLASS = `pointer-events-auto flex size-[52px] shrink-0 i
 // FAB both are no-ops.
 export const FAB_CLEARANCE_CLASS = `fab-clearance`
 export const FAB_LANE_CLASS = `fab-lane`
+// #EXP-1872 — THE pinned foot: every control row a pane pins under its
+// scroll wears it (its content ends beside the FAB); the pane sets
+// `--fab-foot-inset` (FAB_FOOT_INSET_VAR) to the gap between the foot and
+// the card's right edge.
+export const FAB_FOOT_CLASS = `fab-foot`
+export const FAB_FOOT_INSET_VAR = `--fab-foot-inset`
 
 export function FabButton({
   emphasis = `secondary`,

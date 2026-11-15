@@ -753,7 +753,8 @@ export function IssueDetailView({
         <div className="flex flex-1 min-w-0 flex-col overflow-hidden">
           <div
             ref={bodyScrollRef}
-            className="flex-1 min-h-0 overflow-y-auto"
+            // #EXP-1872: the comment composer scrolls clear of the Assistant FAB.
+            className={`flex-1 min-h-0 overflow-y-auto ${FAB_CLEARANCE_CLASS}`}
             data-detail-scroll=""
             /* EXP-1191: sticky rows inside (a diff's file headers) stick
                below the bar and the tray. */
