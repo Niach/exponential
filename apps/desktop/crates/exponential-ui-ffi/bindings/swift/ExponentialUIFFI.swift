@@ -3528,6 +3528,12 @@ public protocol SurfaceProtocol: AnyObject, Sendable {
     func fieldChecksJson(id: String)  -> String
     
     /**
+     * #EXP-1781: the forced states `id` carries, for a part the painter
+     * draws itself (a Segmented item `<id>.item.<k>`).
+     */
+    func forcedStatesOf(id: String)  -> [String]
+    
+    /**
      * VAPP-162: one input on a `hold: true` Button (round-5 contract §9).
      * `input_json` = `{"do": "pointerdown"|"pointermove"|"pointerup", x, y}`
      * (px relative to the button's top-left), `{"do": "pointercancel"}`,
@@ -3690,6 +3696,17 @@ public protocol SurfaceProtocol: AnyObject, Sendable {
      * Dynamic Type / font scale (1 = the theme's sizes).
      */
     func setFontScale(scale: Float) 
+    
+    /**
+     * #EXP-1781: the host's FORCED interaction states (paint only; a
+     * catalogue specimen's `states`): id (a node, or a placed part such as
+     * `tabs.tab.1`; a key covers the node and its parts) → `hover` /
+     * `pressed` / `focus`, the whole map, replacing the last. They join the
+     * host's own states in the style resolution only (no event, no
+     * hover-opened overlay, no focus move). Returns the refused entries
+     * (`<id>:<state>`). Lay out again after it.
+     */
+    func setForcedStates(forced: [String: [String]])  -> [String]
     
     /**
      * Round 2: format through the host's formatter (built from the
@@ -4065,6 +4082,20 @@ open func fieldChecksJson(id: String) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
         uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_field_checks_json(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(id),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * #EXP-1781: the forced states `id` carries, for a part the painter
+     * draws itself (a Segmented item `<id>.item.<k>`).
+     */
+open func forcedStatesOf(id: String) -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_method_surface_forced_states_of(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(id),uniffiCallStatus
     )
@@ -4480,6 +4511,25 @@ open func setFontScale(scale: Float)  {try! rustCall() {
         FfiConverterFloat.lower(scale),uniffiCallStatus
     )
 }
+}
+    
+    /**
+     * #EXP-1781: the host's FORCED interaction states (paint only; a
+     * catalogue specimen's `states`): id (a node, or a placed part such as
+     * `tabs.tab.1`; a key covers the node and its parts) → `hover` /
+     * `pressed` / `focus`, the whole map, replacing the last. They join the
+     * host's own states in the style resolution only (no event, no
+     * hover-opened overlay, no focus move). Returns the refused entries
+     * (`<id>:<state>`). Lay out again after it.
+     */
+open func setForcedStates(forced: [String: [String]]) -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_method_surface_set_forced_states(
+            self.uniffiCloneHandle(),
+        FfiConverterDictionaryStringSequenceString.lower(forced),uniffiCallStatus
+    )
+})
 }
     
     /**
@@ -8780,6 +8830,32 @@ fileprivate struct FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer {
         return seq
     }
 }
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterDictionaryStringSequenceString: FfiConverterRustBuffer {
+    public static func write(_ value: [String: [String]], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for (key, value) in value {
+            FfiConverterString.write(key, into: &buf)
+            FfiConverterSequenceString.write(value, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [String: [String]] {
+        let len: Int32 = try readInt(&buf)
+        var dict = [String: [String]]()
+        dict.reserveCapacity(Int(len))
+        for _ in 0..<len {
+            let key = try FfiConverterString.read(from: &buf)
+            let value = try FfiConverterSequenceString.read(from: &buf)
+            dict[key] = value
+        }
+        return dict
+    }
+}
 /**
  * The wire version every message carries (`A2UI_VERSION`, §1.1).
  */
@@ -10726,6 +10802,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_method_surface_field_checks_json() != 24616) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_forced_states_of() != 25369) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_hold() != 27849) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -10820,6 +10899,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_set_font_scale() != 9647) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_forced_states() != 44109) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_set_formatter() != 61684) {

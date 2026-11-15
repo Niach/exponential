@@ -1530,6 +1530,30 @@ impl Surface {
         })
     }
 
+    /// #EXP-1781: the host's FORCED interaction states (paint only; a
+    /// catalogue specimen's `states`): id (a node, or a placed part such as
+    /// `tabs.tab.1`; a key covers the node and its parts) → `hover` /
+    /// `pressed` / `focus`, the whole map, replacing the last. They join the
+    /// host's own states in the style resolution only (no event, no
+    /// hover-opened overlay, no focus move). Returns the refused entries
+    /// (`<id>:<state>`). Lay out again after it.
+    pub fn set_forced_states(&self, forced: std::collections::HashMap<String, Vec<String>>) -> Vec<String> {
+        self.shield("set_forced_states", Vec::new, || {
+            let mut keys: Vec<&String> = forced.keys().collect();
+            keys.sort();
+            let map: indexmap::IndexMap<String, Vec<String>> = keys.into_iter().map(|k| (k.clone(), forced[k].clone())).collect();
+            self.core().set_forced_states(&map)
+        })
+    }
+
+    /// #EXP-1781: the forced states `id` carries, for a part the painter
+    /// draws itself (a Segmented item `<id>.item.<k>`).
+    pub fn forced_states_of(&self, id: String) -> Vec<String> {
+        self.shield("forced_states_of", Vec::new, || {
+            self.core().forced_states_of(&id)
+        })
+    }
+
     pub fn set_pressed(&self, ids: Vec<String>) -> bool {
         self.shield("set_pressed", || false, || {
             self.core().set_pressed(&ids)

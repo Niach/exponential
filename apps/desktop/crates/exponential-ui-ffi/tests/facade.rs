@@ -1107,6 +1107,28 @@ fn hover_crosses_the_facade_and_resolves_recipes() {
 }
 
 #[test]
+fn forced_states_cross_the_facade_paint_only() {
+    // #EXP-1781 (fixtures/forced-states.json): a forced hover restyles like
+    // a real one, but the node's `interaction_states` stay the host's.
+    let s = Surface::new("t".into(), core_catalog_id(), Some("neutral".into()), "light".into()).unwrap();
+    s.set_nested(json!({"id": "pill", "component": "Chip", "props": {"label": "All", "pressable": true}}).to_string()).unwrap();
+    s.set_viewport(300.0, 0.0, None);
+    s.layout(recording(0.0));
+    let i = s.index_of("pill".into()).unwrap();
+    let rest = s.visual(i).unwrap().background_color;
+    let dropped = s.set_forced_states(std::collections::HashMap::from([("pill".to_string(), vec!["hover".to_string(), "checked".to_string()])]));
+    assert_eq!(dropped, vec!["pill:checked".to_string()]);
+    let out = s.layout(recording(0.0));
+    assert!(out.visual_changes.contains(&i));
+    assert_eq!(s.visual(i).unwrap().background_color, Theme::builtin("neutral".into()).unwrap().color("accent".into(), "light".into()));
+    assert!(s.nodes_at(vec![i])[0].interaction_states.is_empty(), "forced states never reach the host's");
+    assert_eq!(s.forced_states_of("pill.item.0".into()), vec!["hover".to_string()]);
+    assert!(s.set_forced_states(std::collections::HashMap::new()).is_empty());
+    s.layout(recording(0.0));
+    assert_eq!(s.visual(i).unwrap().background_color, rest);
+}
+
+#[test]
 fn hover_styled_names_the_nodes_a_painter_tracks_the_pointer_over() {
     let s = Surface::new("t".into(), core_catalog_id(), Some("neutral".into()), "light".into()).unwrap();
     s.set_nested(json!({"id": "root", "component": "Box", "children": [
