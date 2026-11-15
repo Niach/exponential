@@ -416,6 +416,13 @@
         "bytes": 55414,
         "sha256": "c4278db5af4cd02883afa621d0947d87ac4a7eaa06039f199a813abf17b31c5d"
       },
+      "desktop": {
+        "file": "shots/app-events/desktop.webp",
+        "width": 1800,
+        "height": 1125,
+        "bytes": 63074,
+        "sha256": "03a5165eabfb7e219ef18ad8e3e9f651ddef1a6094931a5a0ef4cede178f6e8b"
+      },
       "ios": {
         "file": "shots/app-events/ios.webp",
         "width": 828,
