@@ -44,6 +44,8 @@ const AGENTS_EVERY: Duration = Duration::from_secs(60);
 const TICK: Duration = Duration::from_millis(100);
 /// The mic check listens at least this long after `CallListening`.
 const MIC_CHECK_MIN: Duration = Duration::from_millis(1500);
+/// The probe's call: it only fetches and loads the recognizer.
+const PROBE_CALL: &str = "probe";
 /// How often a running call looks for the agent's reply.
 const REPLY_POLL: Duration = Duration::from_millis(300);
 
@@ -219,6 +221,8 @@ pub struct Host {
     up: bool,
     /// The probe's Prepare went out (once per hosting spell).
     probed: bool,
+    /// The recognizer loaded once (the probe call listened).
+    ears: bool,
     crashes: u32,
     /// The probe runs again then (a failed download, a crash before it answered).
     retry_at: Option<Instant>,
@@ -240,6 +244,7 @@ impl Host {
             voices: None,
             up: false,
             probed: false,
+            ears: false,
             crashes: 0,
             retry_at: None,
             retries: 0,
@@ -466,7 +471,8 @@ impl Host {
         let call_owns = |id: &str| current.as_deref() == Some(id);
         match event {
             etalk::Event::Downloading { .. } => self.download = Download::Running,
-            etalk::Event::ModelReady => self.download = Download::Idle,
+            // Still not spoken for: `Voices` settles it (no flap to no row).
+            etalk::Event::ModelReady => {}
             etalk::Event::Voices { voices } => {
                 // A failed download settles as no voices: it is not "no GPU".
                 let failed = self.download == Download::Failed && voices.is_empty();
@@ -478,10 +484,18 @@ impl Host {
                     self.voices = Some(voices);
                     self.retries = 0;
                 }
-                // The probe answered: an idle server holds no voice.
+                // The probe answered. A voice here: the recognizer is
+                // fetched and loaded too (a probe call), so the first ring
+                // never waits for a download; then (or with no GPU at once)
+                // the worker exits: an idle server holds no voice.
+                let speaks = self.voices.as_ref().is_some_and(|voices| !voices.is_empty());
                 if self.call.is_none() && self.up {
-                    self.speech.shutdown();
-                    self.up = false;
+                    if speaks && !self.ears {
+                        self.speech.call(PROBE_CALL, self.settings.language());
+                    } else {
+                        self.speech.shutdown();
+                        self.up = false;
+                    }
                 }
                 if failed {
                     self.retry_later(now);
@@ -490,6 +504,23 @@ impl Host {
             etalk::Event::DownloadFailed { error } => {
                 log::warn!("[voice] the voice download failed: {error}");
                 self.download = Download::Failed;
+            }
+            etalk::Event::CallListening { id } if id == PROBE_CALL => {
+                self.ears = true;
+                self.speech.hangup(PROBE_CALL);
+                if self.call.is_none() {
+                    self.speech.shutdown();
+                    self.up = false;
+                }
+            }
+            etalk::Event::ListenFailed { id, reason, detail } if id == PROBE_CALL && !matches!(reason, etalk::ListenFailure::Downloading) => {
+                log::warn!("[voice] the recognizer did not load: {detail}");
+                self.ears = true;
+                self.speech.hangup(PROBE_CALL);
+                if self.call.is_none() {
+                    self.speech.shutdown();
+                    self.up = false;
+                }
             }
             etalk::Event::CallListening { id } if call_owns(&id) => {
                 if let Some(call) = self.call.as_mut() {
@@ -1081,7 +1112,9 @@ mod tests {
             let mut rig = Rig::new();
             rig.handle(Input::Agents(vec![agent()]));
             rig.handle(Input::Worker(etalk::Event::Voices { voices: vec!["en".into(), "de".into()] }));
-            rig.speech.take();
+            assert_eq!(rig.speech.take(), ["prepare en", "call probe en"], "a voice: the recognizer loads too");
+            rig.handle(Input::Worker(etalk::Event::CallListening { id: "probe".into() }));
+            assert_eq!(rig.speech.take(), ["hangup probe", "shutdown"]);
             rig
         }
 
@@ -1164,6 +1197,7 @@ mod tests {
         assert_eq!(rig.speech.take(), ["prepare en"], "the probe runs again");
         rig.handle(Input::Worker(etalk::Event::Voices { voices: vec!["en".into()] }));
         assert_eq!(rig.host.speech_state(), Some(SpeechState::Ready));
+        assert_eq!(rig.speech.take(), ["call probe en"]);
     }
 
     #[test]
