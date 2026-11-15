@@ -710,7 +710,8 @@ struct AgentSessionView: View {
                                                 text: input.text,
                                                 context: markdownContext,
                                                 caption: input.at.map { GlassTimeRow.formatted($0) },
-                                                status: .read
+                                                status: .read,
+                                                tail: index == 0
                                             )
                                         }
                                     }
@@ -922,7 +923,8 @@ struct AgentSessionView: View {
                                         SubagentLaneRow(
                                             row: row, context: markdownContext, nested: false,
                                             live: model.agentWorking, testResults: model.testResults,
-                                            author: layout?.name == true ? layout?.sender?.displayName : nil
+                                            author: layout?.name == true ? layout?.sender?.displayName : nil,
+                                            tail: layout?.tail == true
                                         )
                                     }
                                 }
@@ -1335,7 +1337,7 @@ struct AgentSessionView: View {
                     senderBubble(text, layout: layout, streaming: false, time: time)
                 } else {
                     // #FEED-237: the live transcript's echo of the turn = two checks.
-                    UserMessageBubble(text: text, context: markdownContext, caption: time, status: .read)
+                    UserMessageBubble(text: text, context: markdownContext, caption: time, status: .read, tail: layout?.tail == true)
                 }
             case let .question(question):
                 questionCard(question)
@@ -1380,7 +1382,9 @@ struct AgentSessionView: View {
             side: .other,
             author: author,
             time: time,
-            onPress: link.map { sessionId -> () -> Void in { openSender(sessionId) } }
+            onPress: link.map { sessionId -> () -> Void in { openSender(sessionId) } },
+            // #EXP-1876: the group's first bubble wears THE tail.
+            tail: layout?.tail == true
         ) {
             // #FEED-238: every bubble folds, a relay's too.
             MessageFold(text: text) {
@@ -1932,7 +1936,8 @@ struct AgentSessionView: View {
                     caption: bubble.at.map { GlassTimeRow.formatted($0) },
                     status: bubble.state,
                     actions: bubble.actions,
-                    onAction: { action in ownBubbleAction(action, bubble: bubble, model: model) }
+                    onAction: { action in ownBubbleAction(action, bubble: bubble, model: model) },
+                    tail: index == 0
                 )
             }
             .id("own-\(bubble.id)")
@@ -2970,6 +2975,8 @@ struct UserMessageBubble: View {
     /// press); empty = none.
     var actions: [MessageDelivery.Action] = []
     var onAction: (MessageDelivery.Action) -> Void = { _ in }
+    /// #EXP-1876: the group's first bubble wears THE tail (`RowLayout.tail`).
+    var tail: Bool = false
 
     /// EXP-698: a steered message with images (EXP-511) splits into its PROSE
     /// — whose `[Image #N]` markers become chips — and the embeds themselves,
@@ -2987,7 +2994,7 @@ struct UserMessageBubble: View {
         // more "lines" of nothing, and they used to push a two-line steer into
         // the fold — which then hid the images the fold was measuring.
         let hasCaption = (caption?.isEmpty == false) || status != nil
-        return MessageBubble(side: .own, hasFooter: hasCaption) {
+        return MessageBubble(side: .own, hasFooter: hasCaption, tail: tail) {
             VStack(alignment: .leading, spacing: 4) {
                 MessageFold(text: hasImages ? parsed.text : text) {
                     if !hasImages {
@@ -4521,6 +4528,8 @@ struct SubagentLaneRow: View {
     /// #EXP-1736: the subagent's name on its group's first bubble (its own
     /// tab only); nil = none.
     var author: String? = nil
+    /// #EXP-1876: its group's first bubble wears THE tail.
+    var tail: Bool = false
 
     var body: some View {
         switch row {
@@ -4592,7 +4601,7 @@ struct SubagentItemRow: View {
                 NarrationBubble(text: text, context: context)
             } else {
                 // #EXP-1736: the subagent's own tab = THE message bubble.
-                MessageBubble(side: .other, author: author, time: at.map { GlassTimeRow.formatted(Date(timeIntervalSince1970: Double($0) / 1000)) }) {
+                MessageBubble(side: .other, author: author, time: at.map { GlassTimeRow.formatted(Date(timeIntervalSince1970: Double($0) / 1000)) }, tail: tail) {
                     MessageFold(text: text) {
                         AgentMarkdownText(text: text, context: context, streaming: false, hugsWidth: true)
                     }
@@ -4604,7 +4613,8 @@ struct SubagentItemRow: View {
             // #EXP-1864: every bubble its `HH:mm`.
             UserMessageBubble(
                 text: text, context: context,
-                caption: at.map { GlassTimeRow.formatted(Date(timeIntervalSince1970: Double($0) / 1000)) }
+                caption: at.map { GlassTimeRow.formatted(Date(timeIntervalSince1970: Double($0) / 1000)) },
+                tail: tail
             )
         default:
             EmptyView()

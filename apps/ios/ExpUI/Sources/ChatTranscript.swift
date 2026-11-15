@@ -1,4 +1,5 @@
 import ExpCore
+internal import ExponentialUIPrimitives
 import SwiftUI
 
 // Session 58cb32df (chats.json TRANSCRIPT + SURFACE CARD, ×4): the phone
@@ -63,12 +64,17 @@ public enum MessageBubbleSide: Equatable, Sendable {
 /// sits ABOVE the bubble, outside it, and only that line opens the
 /// sender's session; the bubble itself is never a link. The
 /// footer line (the `HH:mm`, a queued row's caption) sits bottom-right
-/// inside. The avatar column is `TranscriptRow`'s.
+/// inside. The avatar column is `TranscriptRow`'s. #EXP-1876: `tail` (a
+/// group's first bubble, `RowLayout.tail`) grows THE tail out of the top
+/// corner beside the avatar (start for others, end for own), box and tail
+/// one outline (genUI `TailedBoxShape`).
 public struct MessageBubble<Content: View, Footer: View>: View {
     let side: MessageBubbleSide
     let author: String?
     let onPress: (() -> Void)?
     let hasFooter: Bool
+    let tail: Bool
+    @Environment(\.layoutDirection) private var layoutDirection
     @ViewBuilder let content: () -> Content
     @ViewBuilder let footer: () -> Footer
 
@@ -77,6 +83,7 @@ public struct MessageBubble<Content: View, Footer: View>: View {
         author: String? = nil,
         onPress: (() -> Void)? = nil,
         hasFooter: Bool = true,
+        tail: Bool = false,
         @ViewBuilder content: @escaping () -> Content,
         @ViewBuilder footer: @escaping () -> Footer
     ) {
@@ -84,6 +91,7 @@ public struct MessageBubble<Content: View, Footer: View>: View {
         self.author = author
         self.onPress = onPress
         self.hasFooter = hasFooter
+        self.tail = tail
         self.content = content
         self.footer = footer
     }
@@ -106,7 +114,10 @@ public struct MessageBubble<Content: View, Footer: View>: View {
     }
 
     public var body: some View {
-        let shape = RoundedRectangle(cornerRadius: ChatBubbleMetrics.radius)
+        let shape = TailedBoxShape(
+            radius: ChatBubbleMetrics.radius,
+            tail: tail ? BubbleTail.resolve(own ? "end" : "start", rtl: layoutDirection == .rightToLeft) : nil
+        )
         let bubble = BubbleColumn(spacing: 4, trailingLast: hasFooter) {
             if let name, !relay {
                 nameLine(name)
@@ -121,7 +132,7 @@ public struct MessageBubble<Content: View, Footer: View>: View {
         // #EXP-1864: in = THE opaque card, own = `glass.fillOwn`; both
         // under the card hairline.
         .background(own ? GlassTokens.fillOwn : GlassTokens.opaqueCardFill, in: shape)
-        .overlay(shape.stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline))
+        .overlay(shape.strokeInside(GlassTokens.strokeCard, style: StrokeStyle(lineWidth: GlassTokens.hairline)))
         BubbleWidthCap(fraction: own ? TranscriptGrouping.Layout.maxWidthOwn : TranscriptGrouping.Layout.maxWidthPhoneIn, trailing: own) {
             if let onPress, !own {
                 VStack(alignment: .leading, spacing: 4) {
@@ -149,6 +160,7 @@ public extension MessageBubble where Footer == BubbleTime {
         author: String? = nil,
         time: String?,
         onPress: (() -> Void)? = nil,
+        tail: Bool = false,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.init(
@@ -156,6 +168,7 @@ public extension MessageBubble where Footer == BubbleTime {
             author: author,
             onPress: onPress,
             hasFooter: !(time ?? "").isEmpty,
+            tail: tail,
             content: content,
             footer: { BubbleTime(text: time ?? "") }
         )
