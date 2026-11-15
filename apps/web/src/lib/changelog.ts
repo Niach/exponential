@@ -34,6 +34,15 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Nothing under the Assistant button**: the floating Assistant button no longer covers the last row or a page's buttons in the bottom-right corner.`,
   },
   {
+    id: `2026-11-15-phones-events-tab-memory`,
+    date: `2026-11-15`,
+    title: `An Events tab on your phone, and Android stays open in big accounts`,
+    summary: `Android 0.14.141 and iOS 0.14.130 bring every app's Events tab, re-seal a chat whose keys changed before sending, and Android keeps a large account inside its memory.`,
+    body: `- **Events tab**: open an app and pick Events to see its agent's triggers, its webhooks and the last week's runs.
+- **Changed keys**: a message into an encrypted chat whose keys changed meanwhile is re-sealed and sent again once, instead of failing.
+- **Android memory**: a large account syncs one table at a time, so the app no longer closes itself after a while in a big chat or session list.`,
+  },
+  {
     id: `2026-11-14-app-events-tab`,
     date: `2026-11-14`,
     title: `An Events tab on every app`,
