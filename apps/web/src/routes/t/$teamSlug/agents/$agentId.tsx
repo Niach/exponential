@@ -97,7 +97,9 @@ function AgentChannelPage() {
   // screen keeps its own once it does).
   const nav = useSessionNav({ teamSlug, here: null, back: search.back })
   // NEW-70 (voice-call.json): THE telephone left of `…`, the call card over the chat.
-  const callAvailability = useVoiceCallAvailability()
+  // EXP-1857: it rings the agent's own desktop (else the fallback) and
+  // greets in the agent's language.
+  const callAvailability = useVoiceCallAvailability(agent?.deviceId ?? null, agent?.voice?.language || undefined)
   const voiceCall = useVoiceCall(agentId)
   usePageTitle(agent?.name ? pageTitle(agent.name, CHATS_LIST_COPY.agents) : undefined)
 
@@ -165,7 +167,9 @@ function AgentChannelPage() {
         availability={callAvailability}
         agentName={name}
         active={voiceCall.call.active}
-        onCall={() => void voiceCall.call.start(agent.id, callAvailability.device, callAvailability.language)}
+        onCall={() =>
+          void voiceCall.call.start(agent.id, callAvailability.device, callAvailability.language, callAvailability.fallback)
+        }
         className={buttonClass}
       />
     ),

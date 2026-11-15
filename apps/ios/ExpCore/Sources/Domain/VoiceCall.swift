@@ -4,7 +4,9 @@ import Foundation
 // `packages/etalk/src/voice-call.ts` (desktop `domain::voice_call`,
 // Android `domain/VoiceCall.kt`), byte-locked by `fixtures/voice-call.json`
 // (`copy`, `testIds`, `icons`, `constants`, `wire`, `surfaceSpecimens`, every
-// `availabilityCases` and `flowCases` row, replayed by `VoiceCallTests`). The
+// `availabilityCases`, `targetCases` and `flowCases` row, replayed by
+// `VoiceCallTests`). EXP-1857: `callTarget` picks the desktop that speaks
+// (the agent's own, else the fallback the `via` line names). The
 // fixture's `$comment` holds the rules: a phone STREAMS the call to the
 // member's voice device, which recognises and speaks; the phone folds the
 // host's `call_event` frames into the same `callStep` machine.
@@ -28,6 +30,8 @@ public enum VoiceCall {
         /// EXP-1681: the phone surface's minimize button.
         public static let minimize = "Minimize"
         public static let queued = "{count} queued · {text}"
+        /// EXP-1857: the second status line while the call falls back.
+        public static let via = "Voice on {device}"
         /// S-3: what the voice device says once the call is answered.
         public static let greeting: [String: String] = ["en": "Hello?", "de": "Hallo?"]
 
@@ -45,6 +49,8 @@ public enum VoiceCall {
             public static let busy = "{device} is in another call"
             /// #NEW-57: a meeting runs on the voice device.
             public static let meeting = "{device} is transcribing a meeting"
+            /// EXP-1857: the member has no desktop at all.
+            public static let noDesktop = "Open Exponential on one of your desktops to call"
         }
 
         /// The toast a failed call ends with, by error code; an unknown code
@@ -77,6 +83,8 @@ public enum VoiceCall {
         public static let pill = "voice-call-pill"
         public static let timer = "voice-call-timer"
         public static let minimize = "voice-call-minimize"
+        /// EXP-1857: the fallback's second status line.
+        public static let via = "voice-call-via"
     }
 
     /// Icon concepts (`AppIcons.voiceCall`, `AppIcons.callMute`, …).
@@ -332,6 +340,102 @@ public enum VoiceCall {
         return Availability(enabled: true, reason: nil)
     }
 
+    // MARK: - Target
+
+    /// EXP-1857: one of the member's own desktops as `callTarget` reads it.
+    public struct TargetDevice: Equatable, Sendable {
+        public var id: String
+        public var name: String
+        public var online: Bool
+        /// Its doctor row `speech` through `callSpeech` (nil = none yet).
+        public var speech: Speech?
+        /// A meeting runs on it.
+        public var meeting: Bool
+
+        public init(id: String, name: String, online: Bool, speech: Speech?, meeting: Bool = false) {
+            self.id = id
+            self.name = name
+            self.online = online
+            self.speech = speech
+            self.meeting = meeting
+        }
+
+        /// It can run a call now (a downloading voice rings until ready).
+        public var speaks: Bool {
+            online && !meeting && (speech == .ok || speech == .preparing)
+        }
+    }
+
+    public struct TargetInput: Equatable, Sendable {
+        public var platform: Platform
+        /// THIS client's own desktop (nil on phones and web).
+        public var here: String?
+        /// The called agent's Runs on device.
+        public var agentDevice: String?
+        /// The member's own desktops, newest `lastSeenAt` first.
+        public var desktops: [TargetDevice]
+        /// A call this client does not run already runs on the target.
+        public var busy: Bool
+
+        public init(platform: Platform, here: String?, agentDevice: String?, desktops: [TargetDevice], busy: Bool) {
+            self.platform = platform
+            self.here = here
+            self.agentDevice = agentDevice
+            self.desktops = desktops
+            self.busy = busy
+        }
+    }
+
+    public struct Target: Equatable, Sendable {
+        public var enabled: Bool
+        public var reason: String?
+        /// The desktop whose speech runs the call (nil = disabled).
+        public var device: String?
+        public var name: String?
+        /// The target is not the agent's own device.
+        public var fallback: Bool
+        /// The target is this client's own desktop: it runs the call itself.
+        public var local: Bool
+
+        public init(enabled: Bool, reason: String?, device: String?, name: String?, fallback: Bool, local: Bool) {
+            self.enabled = enabled
+            self.reason = reason
+            self.device = device
+            self.name = name
+            self.fallback = fallback
+            self.local = local
+        }
+
+        public var availability: Availability { Availability(enabled: enabled, reason: reason) }
+    }
+
+    /// EXP-1857 (`targetCases`): where a call's speech runs. The first
+    /// desktop that speaks of: the agent's device (one of the member's own
+    /// desktops), the desktop you're at, the other desktops newest first.
+    /// None speaks = disabled with the first candidate's reason.
+    public static func callTarget(_ input: TargetInput) -> Target {
+        func byId(_ id: String?) -> TargetDevice? {
+            guard let id else { return nil }
+            return input.desktops.first { $0.id == id }
+        }
+        let candidates = [byId(input.agentDevice), byId(input.here)].compactMap { $0 } + input.desktops
+        func off(_ reason: String?) -> Target {
+            Target(enabled: false, reason: reason, device: nil, name: nil, fallback: false, local: false)
+        }
+        guard let target = candidates.first(where: \.speaks) else {
+            guard let first = candidates.first else { return off(Copy.Reasons.noDesktop) }
+            return off(callAvailability(AvailabilityInput(
+                agent: true, platform: input.platform, device: first.name, online: first.online,
+                here: true, speech: first.speech, busy: false, meeting: first.meeting
+            )).reason)
+        }
+        if input.busy { return off(Copy.Reasons.busy.replacingOccurrences(of: "{device}", with: target.name)) }
+        return Target(
+            enabled: true, reason: nil, device: target.id, name: target.name,
+            fallback: target.id != input.agentDevice, local: target.id == input.here
+        )
+    }
+
     /// NEW-99 (`speechCases`): the doctor row `speech` state as a caller
     /// reads it: nil → nil, ok → ok, missing (no usable GPU) → noGpu,
     /// error → failed, anything else → preparing (TS `callSpeechOf`).
@@ -367,6 +471,8 @@ public enum VoiceCall {
         /// Phones: the loudspeaker (false = the earpiece).
         public var speaker: Bool
         public var device: String
+        /// EXP-1857: the device is not the agent's own (`Copy.via` shows it).
+        public var fallback: Bool
         /// The greeting the device says once answered.
         public var greeting: String
         /// The ring's earliest answer (`callRingMs`) passed.
@@ -382,13 +488,14 @@ public enum VoiceCall {
 
         public init(
             phase: Phase, muted: Bool = false, speaker: Bool = true, device: String = "",
-            greeting: String = "", rang: Bool = false, ready: Bool = false, noSound: Bool = false,
+            fallback: Bool = false, greeting: String = "", rang: Bool = false, ready: Bool = false, noSound: Bool = false,
             said: String = "", line: String = "", toast: String? = nil
         ) {
             self.phase = phase
             self.muted = muted
             self.speaker = speaker
             self.device = device
+            self.fallback = fallback
             self.greeting = greeting
             self.rang = rang
             self.ready = ready
@@ -403,7 +510,7 @@ public enum VoiceCall {
     /// partial, said, queued, replyStarted, replyFinished and speechStarted
     /// as `call_event`).
     public enum Event: Equatable, Sendable {
-        case start(device: String, language: String? = nil)
+        case start(device: String, language: String? = nil, fallback: Bool = false)
         case rang
         case ready
         case noSound
@@ -424,7 +531,11 @@ public enum VoiceCall {
         public init?(json: [String: Any]) {
             let text = json["text"] as? String ?? ""
             switch json["t"] as? String {
-            case "start": self = .start(device: json["device"] as? String ?? "", language: json["language"] as? String)
+            case "start":
+                self = .start(
+                    device: json["device"] as? String ?? "", language: json["language"] as? String,
+                    fallback: json["fallback"] as? Bool ?? false
+                )
             case "rang": self = .rang
             case "ready": self = .ready
             case "noSound": self = .noSound
@@ -490,10 +601,11 @@ public enum VoiceCall {
             if let noSound { next.noSound = noSound }
             return next
         }
-        if case let .start(device, language) = event {
+        if case let .start(device, language, fallback) = event {
             var next = idle
             next.phase = .ringing
             next.device = device
+            next.fallback = fallback
             next.greeting = callGreeting(language)
             return next
         }
@@ -572,6 +684,9 @@ public enum VoiceCall {
         public var activity: Activity
         /// The line under the name; nil = the call's timer (`callTimer`).
         public var status: String?
+        /// EXP-1857: the device that speaks while the call falls back (a
+        /// second status line); nil otherwise.
+        public var via: String?
         public var caption: String
         public var muted: Bool
         public var speaker: Bool
@@ -581,11 +696,12 @@ public enum VoiceCall {
         public var end: String
 
         public init(
-            activity: Activity, status: String?, caption: String, muted: Bool,
+            activity: Activity, status: String?, via: String? = nil, caption: String, muted: Bool,
             speaker: Bool, buttons: [Button], end: String
         ) {
             self.activity = activity
             self.status = status
+            self.via = via
             self.caption = caption
             self.muted = muted
             self.speaker = speaker
@@ -596,19 +712,20 @@ public enum VoiceCall {
 
     /// What the call surface shows; nil = no surface.
     public static func callView(_ state: State, platform: Platform = .phone) -> View? {
+        let via = state.fallback ? Copy.via.replacingOccurrences(of: "{device}", with: state.device) : nil
         switch state.phase {
         case .hidden:
             return nil
         case .ringing:
             return View(
-                activity: .ringing, status: state.rang ? Copy.gettingReady : Copy.calling, caption: "",
+                activity: .ringing, status: state.rang ? Copy.gettingReady : Copy.calling, via: via, caption: "",
                 muted: state.muted, speaker: state.speaker, buttons: [.end], end: Copy.cancel
             )
         case .listening, .thinking, .speaking:
             let buttons: [Button] = platform == .phone ? [.mute, .speaker, .end] : [.mute, .end]
             func inCall(_ activity: Activity, _ caption: String) -> View {
                 View(
-                    activity: activity, status: nil, caption: caption, muted: state.muted,
+                    activity: activity, status: nil, via: via, caption: caption, muted: state.muted,
                     speaker: state.speaker, buttons: buttons, end: Copy.endCall
                 )
             }
@@ -700,6 +817,10 @@ public enum VoiceCall {
             activity: .muted, status: nil, caption: "Microphone muted",
             muted: true, speaker: true, buttons: inCallButtons, end: "End call"
         )),
+        Specimen(name: "in call, falling back", agent: "Assistant", timer: "04:20", level: 0.7, bands: [0.9, 0.6, 1, 0.5], view: View(
+            activity: .listening, status: nil, via: "Voice on mint", caption: "“merge it when it's green”",
+            muted: false, speaker: true, buttons: inCallButtons, end: "End call"
+        )),
     ]
 
     /// The floating pill's fixed size (the desktop's; EXP-1681 the phones'
@@ -716,15 +837,27 @@ public enum VoiceCall {
 
     /// `voice.startCall`'s answer: the caller's relay ticket and the URL to
     /// dial AS-IS.
+    /// EXP-1857: the server picks the target itself and answers it
+    /// (`deviceId`, `device` = its name, `fallback`); optional so an older
+    /// server still decodes.
     public struct Ticket: Decodable, Equatable, Sendable {
         public let callId: String
         public let ticket: String
         public let url: String
+        public let deviceId: String?
+        public let device: String?
+        public let fallback: Bool?
 
-        public init(callId: String, ticket: String, url: String) {
+        public init(
+            callId: String, ticket: String, url: String,
+            deviceId: String? = nil, device: String? = nil, fallback: Bool? = nil
+        ) {
             self.callId = callId
             self.ticket = ticket
             self.url = url
+            self.deviceId = deviceId
+            self.device = device
+            self.fallback = fallback
         }
     }
 }

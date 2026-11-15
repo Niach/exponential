@@ -86,7 +86,8 @@ pub const DATA_DIR_FLAG: &str = "--data-dir";
 /// only reads the number.
 /// NEW-78: 3 = listening. NEW-56 (#1263): 4 = the wake word. NEW-55: 5 = calls.
 /// NEW-57: 6 = meetings. S-3: 7 = the ring and CallListening.
-pub const PROTOCOL: u32 = 7;
+/// EXP-1857: 8 = caller mode (Dial, DialPlay, DialFlush, DialAudio).
+pub const PROTOCOL: u32 = 8;
 
 /// S-3: a worker stderr line starting with this is logged at debug (the
 /// rest at info): the call's per-second input level.
@@ -183,6 +184,24 @@ pub enum Request {
     /// NEW-57: hold every channel of meeting `id` (its audio is dropped,
     /// open segments with it) or resume it.
     MeetingPause { id: String, paused: bool },
+    /// EXP-1857 (protocol 8): CALLER MODE, call `id` streamed to ANOTHER
+    /// desktop over the relay. The worker opens the microphone through its
+    /// echo canceller (the call's one output stream as the reference, as a
+    /// local call) and sends it as [`Event::DialAudio`]; it plays what the
+    /// host hands it ([`Request::DialPlay`]) on that stream, which rings at
+    /// most `ring_ms` first (a Stop or the first DialPlay ends the ring).
+    /// No recognizer, no voice: nothing to download. Replaces a running
+    /// Listen or Call; Hangup ends it.
+    Dial {
+        id: String,
+        #[serde(default)]
+        ring_ms: u32,
+    },
+    /// EXP-1857: the far end's audio of dialled call `id`: base64 of i16
+    /// little-endian mono samples at `rate` Hz ([`encode_pcm`]).
+    DialPlay { id: String, pcm: String, rate: u32 },
+    /// EXP-1857: barge-in: drop what call `id` has queued to play.
+    DialFlush { id: String },
 }
 
 /// NEW-57: which desktop audio a meeting hears beside the microphone
@@ -270,6 +289,9 @@ pub enum Event {
     /// base64 of i16 LE mono samples at `rate` Hz (the voice's, 24000), at
     /// most [`SPEECH_AUDIO_CHUNK_MS`] per event, between Started and Finished.
     SpeechAudio { id: String, pcm: String, rate: u32 },
+    /// EXP-1857: dialled call `id`'s microphone, echo-cancelled: base64 of
+    /// i16 LE mono [`CALL_RATE`] samples (one capture block each).
+    DialAudio { id: String, pcm: String },
     /// #NEW-56: the wake phrase was heard: turn `id` runs like a Listen
     /// (Level, Partial) and the worker ends it itself (Heard or Empty).
     Woke { id: String },
@@ -747,6 +769,22 @@ impl SpeechClient {
         self.send_if_running(&Request::CallMute { id: id.into(), muted });
     }
 
+    /// EXP-1857: dial call `id` (caller mode, [`Request::Dial`]): the
+    /// microphone comes back as [`Event::DialAudio`]; rings at most `ring_ms`.
+    pub fn dial(&self, id: impl Into<String>, ring_ms: u32) {
+        self.send(&Request::Dial { id: id.into(), ring_ms });
+    }
+
+    /// EXP-1857: play the far end's `pcm` (mono, `rate` Hz) on dialled call `id`.
+    pub fn dial_play(&self, id: impl Into<String>, pcm: &[i16], rate: u32) {
+        self.send_if_running(&Request::DialPlay { id: id.into(), pcm: encode_pcm(pcm), rate });
+    }
+
+    /// EXP-1857: barge-in: drop what dialled call `id` still has to play.
+    pub fn dial_flush(&self, id: impl Into<String>) {
+        self.send_if_running(&Request::DialFlush { id: id.into() });
+    }
+
     /// NEW-55: end call `id`.
     pub fn hangup(&self, id: impl Into<String>) {
         self.send_if_running(&Request::Hangup { id: id.into() });
@@ -1070,6 +1108,25 @@ mod tests {
         assert_eq!(MeetingApps::Exclude(vec!["b".into()]).selection(Capability::PerApp), Some(Selection::Exclude(vec!["b".into()])));
     }
 
+    /// EXP-1857: protocol 8, caller mode.
+    #[test]
+    fn protocol_8_dials() {
+        let requests = [
+            (Request::Dial { id: "c1".into(), ring_ms: 300_000 }, r#"{"t":"dial","id":"c1","ringMs":300000}"#),
+            (Request::DialPlay { id: "c1".into(), pcm: "AQA=".into(), rate: 24_000 }, r#"{"t":"dialPlay","id":"c1","pcm":"AQA=","rate":24000}"#),
+            (Request::DialFlush { id: "c1".into() }, r#"{"t":"dialFlush","id":"c1"}"#),
+        ];
+        for (request, json) in requests {
+            assert_eq!(serde_json::to_string(&request).unwrap(), json);
+            assert_eq!(serde_json::from_str::<Request>(json).unwrap(), request);
+        }
+        let bare: Request = serde_json::from_str(r#"{"t":"dial","id":"c1"}"#).unwrap();
+        assert_eq!(bare, Request::Dial { id: "c1".into(), ring_ms: 0 });
+        let audio = Event::DialAudio { id: "c1".into(), pcm: "AQA=".into() };
+        assert_eq!(serde_json::to_string(&audio).unwrap(), r#"{"t":"dialAudio","id":"c1","pcm":"AQA="}"#);
+        assert_eq!(PROTOCOL, 8);
+    }
+
     #[test]
     fn protocol_5_calls() {
         let requests = [
@@ -1102,7 +1159,7 @@ mod tests {
 
     #[test]
     fn protocol_7_rings() {
-        assert_eq!(PROTOCOL, 7);
+        assert!(PROTOCOL >= 7);
         let call = Request::Call { id: "c1".into(), language: "en".into(), remote: false, ring_ms: 3000 };
         let json = r#"{"t":"call","id":"c1","language":"en","remote":false,"ringMs":3000}"#;
         assert_eq!(serde_json::to_string(&call).unwrap(), json);

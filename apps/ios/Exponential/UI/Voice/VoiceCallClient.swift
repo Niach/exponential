@@ -54,10 +54,11 @@ final class VoiceCallClient {
 
     // MARK: - Commands
 
-    /// Calls `agentId` on the member's voice device (named `device`).
+    /// Calls `agentId` on the desktop named `device` (EXP-1857: `callTarget`,
+    /// the agent's own desktop or, `fallback`, another of the member's).
     func start(
         accountId: String, agentId: String, callee: VoiceCallCallee, device: String, language: String?,
-        voiceApi: VoiceApi
+        fallback: Bool, voiceApi: VoiceApi
     ) {
         guard state.phase == .hidden else { return }
         self.callee = callee
@@ -65,7 +66,7 @@ final class VoiceCallClient {
         minimized = false
         generation += 1
         let generation = generation
-        step(.start(device: device, language: language))
+        step(.start(device: device, language: language, fallback: fallback))
         CallAudioSession.setSpeaker(state.speaker)
         ring.start()
         startTask = Task { [weak self] in
@@ -87,6 +88,10 @@ final class VoiceCallClient {
                 return
             }
             guard generation == self.generation else { return }
+            // EXP-1857: the server picked the target itself (an older server
+            // answers neither field): its answer names the device that speaks.
+            if let device = ticket.device { self.state.device = device }
+            if let fallback = ticket.fallback { self.state.fallback = fallback }
             guard let url = URL(string: ticket.url) else {
                 self.fail("dropped")
                 return

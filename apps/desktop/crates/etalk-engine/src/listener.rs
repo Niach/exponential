@@ -41,6 +41,11 @@
 //! out. Nothing is heard before it (the canceller keeps pace, nothing is
 //! metered or transcribed).
 //!
+//! EXP-1857: a [`Job::Dial`] (CALLER MODE, the call streams to another
+//! desktop) needs no engines: the microphone opens at once, through the
+//! echo canceller, and every block goes out as `DialAudio`; it owns the
+//! microphone like a call until Hangup.
+//!
 //! NEW-57: the same thread runs a MEETING ([`crate::meeting`]): it owns the
 //! microphone (channel `you`) and the desktop audio [`Hearing::apps`] opens,
 //! once no Listen or Call runs, until MeetingStop; the wake word's scan
@@ -191,12 +196,15 @@ pub enum Job {
     /// `drain`: the open segments are emitted first, then MeetingStopped.
     MeetingStop { id: String, drain: bool },
     MeetingPause { id: String, paused: bool },
+    /// EXP-1857: caller mode: call `id`'s microphone, echo-cancelled, goes
+    /// out as `DialAudio` until Hangup (replaces a Listen or Call).
+    Dial { id: String },
 }
 
 impl Job {
-    /// A Listen or a Call: it replaces whatever runs.
+    /// A Listen, a Call or a Dial: it replaces whatever runs.
     fn starts(&self) -> bool {
-        matches!(self, Job::Start { .. } | Job::Call { .. })
+        matches!(self, Job::Start { .. } | Job::Call { .. } | Job::Dial { .. })
     }
 }
 
@@ -337,6 +345,11 @@ pub trait Hearing {
     /// the Listen. Runs BEFORE the microphone opens; `microphone` = it will
     /// open (NEW-55: a remote call never does, so needs no permission).
     fn prepare(&mut self, microphone: bool) -> Result<(), (ListenFailure, String)>;
+    /// EXP-1857: the microphone may be opened (no engines needed): a
+    /// dialled call asks only this.
+    fn microphone(&mut self) -> Result<(), (ListenFailure, String)> {
+        Ok(())
+    }
     /// Whether a download runs (the loop wakes to see it end).
     fn downloading(&self) -> bool;
     /// Take a finished download's result.
@@ -481,10 +494,11 @@ fn hear_meeting<H: Hearing>(run: &mut MeetingRun<H>, hearing: &mut H, links: &Li
     run.meeting.idle(epoch_ms(), hearing.engines(), &mut emit)
 }
 
-/// The Listen or Call running now.
+/// The Listen, Call or Dial running now.
 enum Active<H: Hearing> {
     Listen(Held<H>),
     Call(Calling<H>),
+    Dial(Dialing<H>),
 }
 
 impl<H: Hearing> Active<H> {
@@ -492,15 +506,46 @@ impl<H: Hearing> Active<H> {
         match self {
             Active::Listen(held) => held.utterance.id(),
             Active::Call(calling) => calling.call.id(),
+            Active::Dial(dialing) => &dialing.id,
         }
     }
 
     /// Whether the loop reads a microphone (else it waits on jobs).
     fn hears_a_mic(&self) -> bool {
         match self {
-            Active::Listen(_) => true,
+            Active::Listen(_) | Active::Dial(_) => true,
             Active::Call(calling) => calling.ears.as_ref().is_some_and(|ears| ears.mic.is_some()),
         }
+    }
+
+    /// A call (local, remote or dialled) owns the microphone until Hangup.
+    fn is_call(&self) -> bool {
+        matches!(self, Active::Call(_) | Active::Dial(_))
+    }
+}
+
+/// EXP-1857: a dialled call: the microphone through the canceller (the far
+/// end the stream plays is its reference), sent as it comes.
+struct Dialing<H: Hearing> {
+    id: String,
+    mic: H::Mic,
+    echo: Echo,
+}
+
+impl<H: Hearing> Dialing<H> {
+    /// The microphone allowed and open (else why not).
+    fn open(id: String, hearing: &mut H, links: &Links) -> Result<Self, (ListenFailure, String)> {
+        hearing.microphone()?;
+        let mic = hearing.mic()?;
+        eprintln!("call {id}: dialled, the microphone echo-cancelled");
+        Ok(Dialing { id, mic, echo: Echo::new(links.far.clone()) })
+    }
+
+    /// One microphone block out, without the far end's echo.
+    fn hear(&mut self, samples: &[f32], links: &Links) {
+        let cleaned = self.echo.cancel(samples);
+        let pcm: Vec<i16> = cleaned.iter().copied().map(etalk::to_i16).collect();
+        (links.emit)(&Event::DialAudio { id: self.id.clone(), pcm: etalk::encode_pcm(&pcm) });
     }
 }
 
@@ -863,6 +908,10 @@ impl Hearing for Ears {
         }
     }
 
+    fn microphone(&mut self) -> Result<(), (ListenFailure, String)> {
+        microphone_refused().map_or(Ok(()), |reason| Err((reason, "the microphone is not allowed".into())))
+    }
+
     fn downloading(&self) -> bool {
         matches!(self.fetch, Fetch::Running { .. })
     }
@@ -1102,7 +1151,7 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
                 emit(Event::Empty { id });
                 continue;
             }
-            Some(Job::Call { id, .. }) if meeting_wanted.is_some() => {
+            Some(Job::Call { id, .. } | Job::Dial { id }) if meeting_wanted.is_some() => {
                 links.listening.end(&id);
                 emit(Event::ListenFailed { id, reason: ListenFailure::Meeting, detail: "a meeting holds the microphone".into() });
                 continue;
@@ -1121,7 +1170,7 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
                 // a call opens its own (behind its echo canceller).
                 let lent = match &job {
                     Job::Start { .. } => scan.take().map(|scan| (scan.vad, scan.mic)),
-                    Job::Call { .. } => {
+                    Job::Call { .. } | Job::Dial { .. } => {
                         // A call takes precedence: the scan pauses until
                         // Hangup (the tray's dot goes out, also when the
                         // call replaces a wake turn).
@@ -1135,6 +1184,20 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
                 continue;
             }
             None => {}
+        }
+        // EXP-1857: a dialled call needs no engines (none may be loaded).
+        if let Some(Active::Dial(dialing)) = active.as_mut() {
+            match dialing.mic.recv_timeout(Duration::from_millis(20)) {
+                Ok(samples) => dialing.hear(&samples, links),
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => {
+                    let id = dialing.id.clone();
+                    active = None;
+                    links.listening.end(&id);
+                    emit(Event::ListenFailed { id, reason: ListenFailure::NoMicrophone, detail: "the microphone closed".into() });
+                }
+            }
+            continue;
         }
         if let Some(running) = active.as_mut() {
             let engines = hearing.engines();
@@ -1188,6 +1251,8 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
                         emit(Event::ListenFailed { id, reason, detail });
                     }
                 }
+                // Read above (no engines).
+                Active::Dial(_) => {}
             }
             continue;
         }
@@ -1294,11 +1359,14 @@ fn handle<H: Hearing>(
     let calling = |active: &mut Option<Active<H>>, id: &str| -> bool {
         matches!(active, Some(Active::Call(calling)) if calling.call.id() == id)
     };
+    let dialling = |active: &mut Option<Active<H>>, id: &str| -> bool {
+        matches!(active, Some(Active::Dial(dialing)) if dialing.id == id)
+    };
     match job {
         Job::Start { id, language } => {
             // A call owns the microphone until Hangup: a Listen during it
             // is refused, nothing heard (talk-listen.json `micOwnerCases`).
-            if matches!(active, Some(Active::Call(_))) {
+            if active.as_ref().is_some_and(Active::is_call) {
                 (links.emit)(&Event::Empty { id });
                 return;
             }
@@ -1318,6 +1386,19 @@ fn handle<H: Hearing>(
             // S-3: it warms up on the loop's next passes (Calling::warm_up).
             *active = Some(Active::Call(Calling::new(id, language_of(&language), remote)));
         }
+        Job::Dial { id } => {
+            if let Some(replaced) = active.take() {
+                links.listening.end(replaced.id());
+            }
+            match Dialing::open(id.clone(), hearing, links) {
+                Ok(dialing) => *active = Some(Active::Dial(dialing)),
+                Err((reason, detail)) => {
+                    eprintln!("call {id}: the microphone did not open ({reason:?}): {detail}");
+                    links.listening.end(&id);
+                    (links.emit)(&Event::ListenFailed { id, reason, detail });
+                }
+            }
+        }
         Job::End { id } => {
             if matches!(active, Some(Active::Listen(held)) if held.utterance.id() == id) {
                 let Some(Active::Listen(held)) = active.take() else { unreachable!("checked") };
@@ -1336,8 +1417,11 @@ fn handle<H: Hearing>(
                 return;
             }
             let Some(Active::Call(running)) = active.as_mut() else { unreachable!("checked") };
-            // Only a remote call takes streamed audio.
-            if !running.remote {
+            // Only a remote call takes streamed audio; EXP-1857: and only
+            // once its ears are up (a recognizer still downloading keeps it
+            // ringing: the caller's audio until then is dropped, never fed
+            // to engines that are not loaded yet).
+            if !running.remote || running.ears.is_none() {
                 return;
             }
             if let Err((reason, detail)) = running.hear(&samples, hearing.engines(), links) {
@@ -1369,7 +1453,7 @@ fn handle<H: Hearing>(
             running.muted = muted;
         }
         Job::Hangup { id } => {
-            if calling(active, &id) {
+            if calling(active, &id) || dialling(active, &id) {
                 // Drops the microphone and the canceller.
                 *active = None;
             }
@@ -2011,6 +2095,45 @@ mod tests {
         assert!(!events.iter().any(|event| matches!(event, Event::ListenFailed { .. } | Event::Heard { .. } | Event::Empty { .. })));
     }
 
+    /// EXP-1857: a dialled call needs no engines: the microphone opens at
+    /// once, every block goes out as DialAudio (never transcribed), a
+    /// Listen meanwhile is refused, and Hangup closes it silently.
+    #[test]
+    fn a_dialled_call_sends_the_microphone_until_hangup() {
+        let harness = Harness::new();
+        harness.listening.begin_call("d1", false);
+        harness.send(Job::Dial { id: "d1".into() });
+        harness.opened.recv_timeout(Duration::from_secs(10)).expect("the microphone opened");
+        let speech = tone(0.1, 0.3);
+        for chunk in speech.chunks(320) {
+            harness.probe.say(chunk.to_vec());
+        }
+        let dialled = |events: &[Event]| -> usize {
+            events
+                .iter()
+                .filter_map(|event| match event {
+                    Event::DialAudio { id, pcm } if id == "d1" => Some(etalk::decode_pcm(pcm).unwrap().len()),
+                    _ => None,
+                })
+                .sum()
+        };
+        // The canceller re-blocks: what is out trails the input by under one block.
+        let block = 256;
+        let events = harness.until(|events| dialled(events) + block >= speech.len());
+        assert!(dialled(&events) + block >= speech.len(), "the microphone goes out, echo-cancelled");
+        harness.send(Job::Start { id: "u1".into(), language: "en".into() });
+        harness.until(|events| events.iter().any(|event| matches!(event, Event::Empty { id } if id == "u1")));
+        harness.send(Job::Hangup { id: "d1".into() });
+        let closed = harness.probe.opened.lock().unwrap()[0].clone();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !closed.load(Ordering::SeqCst) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(closed.load(Ordering::SeqCst), "the microphone closed");
+        let events = harness.close();
+        assert!(said(&events).is_empty() && !events.iter().any(|event| matches!(event, Event::ListenFailed { .. } | Event::Level { .. })));
+    }
+
     /// NEW-55: muted, the audio is dropped (no Level, no utterance).
     #[test]
     fn a_muted_call_hears_nothing() {
@@ -2096,6 +2219,28 @@ mod tests {
         let events = harness.said(1);
         assert_eq!(events.iter().filter(|event| matches!(event, Event::CallListening { .. })).count(), 1, "once per call");
         assert!(!events.iter().any(|event| matches!(event, Event::ListenFailed { .. })));
+        harness.close();
+    }
+
+    /// EXP-1857 (found in the real call test on mint): a REMOTE call whose
+    /// recognizer is still downloading drops the caller's streamed audio
+    /// until its ears are up, instead of panicking the listen thread on
+    /// engines that are not loaded; it then listens and hears as usual.
+    #[test]
+    fn a_remote_call_drops_streamed_audio_while_it_downloads() {
+        let harness = Harness::new();
+        *harness.probe.downloads.lock().unwrap() = (3, false);
+        harness.call("c1", true);
+        for chunk in phrase(0.8).chunks(320) {
+            harness.send(Job::Audio { id: "c1".into(), samples: chunk.to_vec() });
+        }
+        let events = harness.until(|events| events.iter().any(|event| matches!(event, Event::CallListening { .. })));
+        assert!(!events.iter().any(|event| matches!(event, Event::Said { .. } | Event::ListenFailed { .. })));
+        assert_eq!(harness.probe.downloads.lock().unwrap().0, 0, "it waited the download out");
+        for chunk in phrase(0.8).chunks(320) {
+            harness.send(Job::Audio { id: "c1".into(), samples: chunk.to_vec() });
+        }
+        harness.said(1);
         harness.close();
     }
 

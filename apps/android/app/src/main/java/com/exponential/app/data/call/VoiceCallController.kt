@@ -151,8 +151,10 @@ class VoiceCallController @Inject constructor(
     }
 
     /**
-     * Call [agentId] ([agentName] for the copy) on the voice device named
-     * [device]; [language] picks the greeting the device answers with.
+     * Call [agentId] ([agentName] for the copy) on the desktop named
+     * [device] (EXP-1857 `callTarget`); [language] = the agent's voice
+     * language, the greeting the device answers with; [fallback] = that
+     * desktop is not the agent's own (the surface's `via` line names it).
      */
     fun start(
         agentId: String,
@@ -161,11 +163,12 @@ class VoiceCallController @Inject constructor(
         language: String? = null,
         agentIcon: String? = null,
         agentColor: String? = null,
+        fallback: Boolean = false,
     ) {
         if (current != null || _ui.value.state.phase != VoiceCall.Phase.Hidden) return
         // A new call always opens full screen.
         _ui.update { it.copy(agent = agentName, agentIcon = agentIcon, agentColor = agentColor, toast = null, answeredAt = null, minimized = false) }
-        step(VoiceCall.Event.Start(device, language))
+        step(VoiceCall.Event.Start(device, language, fallback))
         if (!hasMicPermission()) return step(VoiceCall.Event.Failed("not_granted"))
         // No Opus encoder below API 29 (MediaCodec), or no microphone at all.
         if (!VoiceCallAudio.isSupported(context)) return step(VoiceCall.Event.Failed("no_microphone"))
@@ -235,6 +238,17 @@ class VoiceCallController @Inject constructor(
             if (current !== run) return
             _ui.update { it.copy(state = VoiceCall.CALL_IDLE, toast = trpcErrorMessage(t, VoiceCall.Copy.Failed.DROPPED)) }
             return finish(run)
+        }
+        // EXP-1857: the server picked the target itself; its answer names it
+        // (an older server answers neither field: keep ours).
+        if (current === run && (ticket.device != null || ticket.fallback != null)) {
+            _ui.update { ui ->
+                if (ui.state.phase == VoiceCall.Phase.Hidden) {
+                    ui
+                } else {
+                    ui.copy(state = ui.state.copy(device = ticket.device ?: ui.state.device, fallback = ticket.fallback ?: ui.state.fallback))
+                }
+            }
         }
         val session = try {
             client.webSocketSession(urlString = dialUrl(ticket.url))

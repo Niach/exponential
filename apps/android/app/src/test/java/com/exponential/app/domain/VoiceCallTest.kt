@@ -64,6 +64,7 @@ class VoiceCallTest {
             "endCall" to c.END_CALL,
             "cancel" to c.CANCEL,
             "minimize" to c.MINIMIZE,
+            "via" to c.VIA,
             "queued" to c.QUEUED,
         )
         // A key added to the fixture must land here too.
@@ -80,6 +81,7 @@ class VoiceCallTest {
             "noGpu" to VoiceCall.Copy.Reasons.NO_GPU,
             "busy" to VoiceCall.Copy.Reasons.BUSY,
             "meeting" to VoiceCall.Copy.Reasons.MEETING,
+            "noDesktop" to VoiceCall.Copy.Reasons.NO_DESKTOP,
         )
         assertEquals(copy.getValue("reasons").jsonObject.strings(), reasons)
         assertEquals(copy.getValue("failed").jsonObject.strings(), VoiceCall.Copy.Failed.byCode)
@@ -98,6 +100,7 @@ class VoiceCallTest {
             "pill" to VoiceCall.TestIds.PILL,
             "timer" to VoiceCall.TestIds.TIMER,
             "minimize" to VoiceCall.TestIds.MINIMIZE,
+            "via" to VoiceCall.TestIds.VIA,
         )
         assertEquals(obj("testIds").strings(), ids)
         val i = VoiceCall.Icons
@@ -193,6 +196,44 @@ class VoiceCallTest {
     }
 
     @Test
+    fun `EXP-1857 every target case matches the fixture`() {
+        for (case in cases("targetCases")) {
+            val input = case.getValue("input").jsonObject
+            val got = VoiceCall.callTarget(
+                VoiceCall.TargetInput(
+                    platform = VoiceCall.Platform.entries.single { it.wire == input.str("platform") },
+                    here = input.str("here"),
+                    agentDevice = input.str("agentDevice"),
+                    desktops = input.getValue("desktops").jsonArray.map { raw ->
+                        val d = raw.jsonObject
+                        VoiceCall.TargetDevice(
+                            id = d.str("id")!!,
+                            name = d.str("name")!!,
+                            online = d.getValue("online").jsonPrimitive.boolean,
+                            speech = d.str("speech")?.let { s -> VoiceCall.Speech.entries.single { it.wire == s } },
+                            meeting = d["meeting"]?.jsonPrimitive?.boolean ?: false,
+                        )
+                    },
+                    busy = input.getValue("busy").jsonPrimitive.boolean,
+                ),
+            )
+            val e = case.getValue("expected").jsonObject
+            assertEquals(
+                case.str("name"),
+                VoiceCall.Target(
+                    enabled = e.getValue("enabled").jsonPrimitive.boolean,
+                    reason = e.str("reason"),
+                    device = e.str("device"),
+                    name = e.str("name"),
+                    fallback = e.getValue("fallback").jsonPrimitive.boolean,
+                    local = e.getValue("local").jsonPrimitive.boolean,
+                ),
+                got,
+            )
+        }
+    }
+
+    @Test
     fun `every flow case matches the fixture`() {
         for (case in cases("flowCases")) {
             val name = case.str("name")
@@ -217,6 +258,7 @@ class VoiceCallTest {
     private fun view(v: JsonObject) = VoiceCall.View(
         activity = VoiceCall.Activity.entries.single { it.wire == v.str("activity") },
         status = v.str("status"),
+        via = v.str("via"),
         caption = v.str("caption")!!,
         muted = v.getValue("muted").jsonPrimitive.boolean,
         speaker = v.getValue("speaker").jsonPrimitive.boolean,

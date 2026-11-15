@@ -1969,6 +1969,22 @@ pub fn init(cx: &mut App) {
     ]);
 }
 
+/// DEV-ONLY `EXP_DEV_CALL=<agentId>@<seconds>` (#EXP-1857, same family as
+/// `EXP_DEV_TOUR`): after the seconds, call that agent as the telephone would
+/// (a local call, or this IDE dialling the target desktop), so a real call
+/// test needs no synthetic input. Unset in normal runs; never document for users.
+pub fn start_dev_call(cx: &mut App) {
+    let Ok(spec) = std::env::var("EXP_DEV_CALL") else { return };
+    let Some((agent_id, secs)) = spec.trim().rsplit_once('@') else { return };
+    let (agent_id, Ok(secs)) = (agent_id.to_string(), secs.parse::<f32>()) else { return };
+    cx.spawn(async move |cx| {
+        cx.background_executor().timer(std::time::Duration::from_secs_f32(secs)).await;
+        eprintln!("[dev-call] {agent_id}");
+        let _ = cx.update(|cx| etalk_gpui::voice_call::start(agent_id, cx));
+    })
+    .detach();
+}
+
 /// DEV-ONLY `EXP_DEV_TOUR=<screen>@<seconds>,…` (#LOGS-3/4/5, same family as
 /// `EXP_DEV_SCREEN`): for each step, wait its seconds, then navigate the
 /// active window to its `EXP_DEV_SCREEN` value, so `EXP_FRAME_STATS=1` runs

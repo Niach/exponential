@@ -26,6 +26,8 @@ pub struct CallReasons {
     pub busy: String,
     /// #NEW-57: a meeting runs on the voice device.
     pub meeting: String,
+    /// EXP-1857: the member has no desktop at all.
+    pub no_desktop: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -47,6 +49,8 @@ pub struct CallCopy {
     pub cancel: String,
     /// EXP-1681: the phones' minimize button (the pill's way in).
     pub minimize: String,
+    /// EXP-1857: the device that speaks while a call falls back.
+    pub via: String,
     pub queued: String,
     /// S-3: what the device says once answered, by language.
     pub greeting: HashMap<String, String>,
@@ -77,6 +81,8 @@ pub struct CallTestIds {
     pub pill: String,
     pub timer: String,
     pub minimize: String,
+    /// EXP-1857: the fallback's second status line.
+    pub via: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -146,6 +152,9 @@ pub struct SurfaceSpecimen {
     pub bands: Vec<f32>,
     pub activity: String,
     pub status: Option<String>,
+    /// EXP-1857: the fallback's device line (None = the agent's own device).
+    #[serde(default)]
+    pub via: Option<String>,
     pub caption: String,
     pub muted: bool,
     pub speaker: bool,
@@ -256,6 +265,91 @@ pub fn call_unavailable(input: &CallAvailabilityInput<'_>) -> Option<String> {
     None
 }
 
+/// EXP-1857: one of the member's own desktops as [`call_target`] reads it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CallTargetDevice {
+    pub id: String,
+    pub name: String,
+    pub online: bool,
+    /// Its doctor row `speech` through [`call_speech_of`] (None = none yet).
+    pub speech: Option<CallSpeech>,
+    /// A meeting runs on it.
+    pub meeting: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CallTargetInput<'a> {
+    pub platform: CallPlatform,
+    /// THIS client's own desktop (None on phones and web).
+    pub here: Option<&'a str>,
+    /// The called agent's Runs on device.
+    pub agent_device: Option<&'a str>,
+    /// The member's own desktops, newest `lastSeenAt` first.
+    pub desktops: &'a [CallTargetDevice],
+    /// A call this client does not run already runs on the target.
+    pub busy: bool,
+}
+
+/// Where a call's speech runs (`targetCases`); `device` None = disabled
+/// with `reason`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CallTarget {
+    pub reason: Option<String>,
+    /// The target desktop's id and name.
+    pub device: Option<String>,
+    pub name: Option<String>,
+    /// The target is not the agent's own device.
+    pub fallback: bool,
+    /// The target is this client's own desktop: the IDE runs the call.
+    pub local: bool,
+}
+
+impl CallTarget {
+    pub fn enabled(&self) -> bool {
+        self.reason.is_none()
+    }
+}
+
+/// A desktop that can run a call now (a downloading voice rings until ready).
+fn speaks(device: &CallTargetDevice) -> bool {
+    device.online && !device.meeting && matches!(device.speech, Some(CallSpeech::Ok | CallSpeech::Preparing))
+}
+
+/// EXP-1857 (`targetCases`): where a call's speech runs. The first desktop
+/// that speaks of: the agent's device (one of the member's own desktops),
+/// the desktop you're at, the other desktops newest first. None speaks =
+/// disabled with the first candidate's reason.
+pub fn call_target(input: &CallTargetInput<'_>) -> CallTarget {
+    let by_id = |id: Option<&str>| id.and_then(|id| input.desktops.iter().find(|device| device.id == id));
+    let candidates: Vec<&CallTargetDevice> =
+        by_id(input.agent_device).into_iter().chain(by_id(input.here)).chain(input.desktops.iter()).collect();
+    let off = |reason: String| CallTarget { reason: Some(reason), device: None, name: None, fallback: false, local: false };
+    let Some(target) = candidates.iter().copied().find(|device| speaks(device)) else {
+        let Some(first) = candidates.first() else { return off(VOICE_CALL.copy.reasons.no_desktop.clone()) };
+        let reason = call_unavailable(&CallAvailabilityInput {
+            agent: true,
+            platform: input.platform,
+            device: Some(&first.name),
+            online: first.online,
+            here: true,
+            speech: first.speech,
+            busy: false,
+            meeting: first.meeting,
+        });
+        return off(reason.unwrap_or_default());
+    };
+    if input.busy {
+        return off(VOICE_CALL.copy.reasons.busy.replace("{device}", &target.name));
+    }
+    CallTarget {
+        reason: None,
+        device: Some(target.id.clone()),
+        name: Some(target.name.clone()),
+        fallback: Some(target.id.as_str()) != input.agent_device,
+        local: Some(target.id.as_str()) == input.here,
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum CallPhase {
     #[default]
@@ -273,6 +367,8 @@ pub struct CallState {
     /// Phones: the loudspeaker (false = the earpiece).
     pub speaker: bool,
     pub device: String,
+    /// EXP-1857: the device is not the agent's own (`copy.via` shows it).
+    pub fallback: bool,
     /// The greeting the device says once answered.
     pub greeting: String,
     /// The ring's earliest answer ([`call_ring_ms`]) passed.
@@ -296,6 +392,7 @@ impl Default for CallState {
             muted: false,
             speaker: true,
             device: String::new(),
+            fallback: false,
             greeting: String::new(),
             rang: false,
             ready: false,
@@ -310,7 +407,8 @@ impl Default for CallState {
 /// One flow event (`flowCases` events; a caller gets them as `call_event`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CallEvent {
-    Start { device: String, language: Option<String> },
+    /// EXP-1857: `fallback` = the device is not the agent's own.
+    Start { device: String, language: Option<String>, fallback: bool },
     /// The ring's earliest answer ([`call_ring_ms`]) passed.
     Rang,
     /// The worker listens (`CallListening`).
@@ -357,10 +455,11 @@ fn answered(state: CallState) -> CallState {
 /// One step of the call (the same machine on the voice device and a caller).
 pub fn call_step(state: &CallState, event: &CallEvent) -> CallState {
     let at = |phase: CallPhase, line: String| CallState { phase, line, toast: None, ..state.clone() };
-    if let CallEvent::Start { device, language } = event {
+    if let CallEvent::Start { device, language, fallback } = event {
         return CallState {
             phase: CallPhase::Ringing,
             device: device.clone(),
+            fallback: *fallback,
             greeting: call_greeting(language.as_deref()),
             ..CallState::default()
         };
@@ -440,6 +539,7 @@ pub fn call_event_of_wire(value: &serde_json::Value) -> Option<CallEvent> {
         "start" => CallEvent::Start {
             device: value["device"].as_str()?.to_string(),
             language: value["language"].as_str().map(str::to_string),
+            fallback: value["fallback"].as_bool().unwrap_or(false),
         },
         "rang" => CallEvent::Rang,
         "ready" => CallEvent::Ready,
@@ -477,6 +577,9 @@ pub struct CallView {
     pub activity: &'static str,
     /// The line under the name; None = the call's timer (`call_timer`).
     pub status: Option<String>,
+    /// EXP-1857: the device that speaks while the call falls back (a second
+    /// status line); None otherwise.
+    pub via: Option<String>,
     pub caption: String,
     pub muted: bool,
     pub speaker: bool,
@@ -489,9 +592,11 @@ pub struct CallView {
 /// None = no call surface.
 pub fn call_view(state: &CallState, platform: CallPlatform) -> Option<CallView> {
     let copy = &VOICE_CALL.copy;
+    let via = state.fallback.then(|| copy.via.replace("{device}", &state.device));
     let view = |activity: &'static str, status: Option<String>, caption: &str, buttons: Vec<CallButton>, end: &str| CallView {
         activity,
         status,
+        via: via.clone(),
         caption: caption.to_string(),
         muted: state.muted,
         speaker: state.speaker,
@@ -672,6 +777,50 @@ mod tests {
         }
     }
 
+    fn speech(value: &Value) -> Option<CallSpeech> {
+        value.as_str().map(|speech| match speech {
+            "ok" => CallSpeech::Ok,
+            "noGpu" => CallSpeech::NoGpu,
+            "failed" => CallSpeech::Failed,
+            "preparing" => CallSpeech::Preparing,
+            other => panic!("unknown speech {other}"),
+        })
+    }
+
+    #[test]
+    fn target_matches_the_fixture() {
+        for case in fixture()["targetCases"].as_array().unwrap() {
+            let input = &case["input"];
+            let desktops: Vec<CallTargetDevice> = input["desktops"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|device| CallTargetDevice {
+                    id: device["id"].as_str().unwrap().into(),
+                    name: device["name"].as_str().unwrap().into(),
+                    online: device["online"].as_bool().unwrap(),
+                    speech: speech(&device["speech"]),
+                    meeting: device["meeting"].as_bool().unwrap_or(false),
+                })
+                .collect();
+            let target = call_target(&CallTargetInput {
+                platform: platform(&input["platform"]),
+                here: input["here"].as_str(),
+                agent_device: input["agentDevice"].as_str(),
+                desktops: &desktops,
+                busy: input["busy"].as_bool().unwrap(),
+            });
+            let expected = &case["expected"];
+            let name = &case["name"];
+            assert_eq!(target.enabled(), expected["enabled"].as_bool().unwrap(), "{name}");
+            assert_eq!(target.reason.as_deref(), expected["reason"].as_str(), "{name}");
+            assert_eq!(target.device.as_deref(), expected["device"].as_str(), "{name}");
+            assert_eq!(target.name.as_deref(), expected["name"].as_str(), "{name}");
+            assert_eq!(target.fallback, expected["fallback"].as_bool().unwrap(), "{name}");
+            assert_eq!(target.local, expected["local"].as_bool().unwrap(), "{name}");
+        }
+    }
+
     #[test]
     fn speech_matches_the_fixture() {
         for case in fixture()["speechCases"].as_array().unwrap() {
@@ -717,6 +866,7 @@ mod tests {
                     assert!(!expected.is_null(), "{name}: expected hidden, got {view:?}");
                     assert_eq!(view.activity, expected["activity"].as_str().unwrap(), "{name}");
                     assert_eq!(view.status.as_deref(), expected["status"].as_str(), "{name}");
+                    assert_eq!(view.via.as_deref(), expected["via"].as_str(), "{name}");
                     assert_eq!(view.caption, expected["caption"].as_str().unwrap(), "{name}");
                     assert_eq!(view.muted, expected["muted"].as_bool().unwrap(), "{name}");
                     assert_eq!(view.speaker, expected["speaker"].as_bool().unwrap(), "{name}");

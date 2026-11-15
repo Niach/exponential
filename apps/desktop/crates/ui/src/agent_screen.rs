@@ -147,14 +147,14 @@ fn take_settings_request(agent_id: &str, cx: &mut App) -> bool {
 
 /// NEW-55 (voice-call.json): THE telephone, left of `…`, the header's icon
 /// button: disabled with the reason as its tooltip while a call cannot start
-/// here (no voice device, not this machine, no voice yet, no usable GPU, a
-/// call this client does not run). S-3: while THIS client runs the call with
+/// (EXP-1857: no desktop of the member's speaks, voice-call.json
+/// `callTarget`, or a call this client does not run). S-3: while THIS client runs the call with
 /// this agent it stays enabled and focuses the call panel; a new call focuses
 /// it too (Esc there ends it).
 pub(crate) fn agent_header_call(agent_id: &str, name: &str, panel: FocusHandle, cx: &App) -> AnyElement {
     let copy = &etalk::call::VOICE_CALL.copy;
     let here = etalk_gpui::voice_call::runs_for(agent_id, cx);
-    let reason = (!here).then(|| etalk_gpui::voice_call::unavailable(cx)).flatten();
+    let reason = (!here).then(|| etalk_gpui::voice_call::unavailable(agent_id, cx)).flatten();
     let tooltip = reason.clone().unwrap_or_else(|| copy.call.replace("{agent}", name));
     let agent_id = agent_id.to_string();
     let button = crate::controls::ghost_icon_button(

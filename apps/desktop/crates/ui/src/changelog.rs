@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-15-calls-ring-the-agents-desktop",
+    date: "2026-11-15",
+    title: "Calls ring the agent's own desktop",
+    summary: "A call to an agent rings the desktop it runs on. When that desktop can't speak, another of your desktops answers and the call shows which one.",
+    body: r##"- **The agent's desktop answers**: calling an agent from your phone, the web or the desktop app rings the desktop the agent runs on and speaks in its voice there.
+- **A fallback that says so**: when that desktop is offline, has no usable GPU or the agent runs on a server, the desktop you're at or your newest desktop that can speak takes the call, and the call shows "Voice on" with its name.
+- **Call from any desktop**: the desktop app calls an agent on another machine like your phone does, over the relay. Push to talk works on the desktop you're at."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_306: ChangelogEntry = ChangelogEntry {
     id: "2026-11-15-desktop-assistant-button-clear",
     date: "2026-11-15",
     title: "Nothing under the Assistant button on the desktop",
