@@ -733,7 +733,7 @@ export function AgentSettingsPage({
         <GlassGroup>
           <DevicePicker
             triggerVariant="row"
-            mobileTitle={APPS_AGENT_SLOT.copy.runsOn}
+            mobileTitle="Device"
             value={deviceId || EACH_MEMBER}
             onChange={(next) => pickDevice(next === EACH_MEMBER ? `` : next)}
             devices={slotRows}
