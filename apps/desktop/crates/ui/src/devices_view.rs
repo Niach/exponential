@@ -44,15 +44,16 @@ impl DevicesView {
 }
 
 impl Render for DevicesView {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "DevicesView").entered();
-        let _ = cx;
         page_scaffold(
             "devices-screen-scroll",
             &self.scroll,
             // EXP-818: the Running / Past run sections moved to the Agent
             // page's sessions list (`sidebar::SidebarPanel::render_sessions_tool`).
             gpui_component::v_flex().child(self.machines.clone()),
+            window,
+            cx,
         )
     }
 }

@@ -1,6 +1,7 @@
 import { useMemo } from "react"
 import { SESSION_SCREEN_TEST_IDS } from "@exp/domain-contract/session-screen"
 import {
+  FAB_CLEARANCE_CLASS,
   ChatSessionTree,
   conceptIcon,
   EmptyState,
@@ -58,7 +59,7 @@ export function SessionIssuesTab({
 }) {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-testid={SESSION_SCREEN_TEST_IDS.issues}>
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-1 px-3 pt-3 pb-8 md:px-4">
+      <div className={`mx-auto flex w-full max-w-3xl flex-col gap-1 px-3 pt-3 pb-8 md:px-4 ${FAB_CLEARANCE_CLASS}`}>
         {issues.length === 0 ? (
           <EmptyState icon={IssuesIcon} title="No issues" size="list" />
         ) : (
@@ -127,7 +128,7 @@ export function SessionSessionsTab({
 }) {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-testid={SESSION_SCREEN_TEST_IDS.sessions}>
-      <div className="mx-auto w-full max-w-3xl px-3 pt-3 pb-8 md:px-4">
+      <div className={`mx-auto w-full max-w-3xl px-3 pt-3 pb-8 md:px-4 ${FAB_CLEARANCE_CLASS}`}>
         {rows.length === 0 ? (
           <EmptyState icon={SessionsIcon} title="No sessions" size="list" />
         ) : (
@@ -160,7 +161,7 @@ export function SessionResultsTab({
 }) {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-testid="chat-results-scroll">
-      <div className="mx-auto w-full max-w-3xl px-4 pt-6 pb-10 md:px-5">
+      <div className={`mx-auto w-full max-w-3xl px-4 pt-6 pb-10 md:px-5 ${FAB_CLEARANCE_CLASS}`}>
         <ChatResults
           tab={results}
           teamSlug={teamSlug}

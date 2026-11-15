@@ -468,7 +468,7 @@ class AgentSessionViewModel @AssistedInject constructor(
             }
         },
     ) { row, devices, userId, hasSubSessions ->
-        if (row == null || !SessionDeviceMove.visible(SessionKind.sessionKindOf(row.agentId))) {
+        if (row == null || !SessionDeviceMove.visible(SessionKind.sessionKindOf(row.agentId), row.appId)) {
             return@combine SessionDeviceMoveState()
         }
         val rows = SessionDeviceMove.rows(

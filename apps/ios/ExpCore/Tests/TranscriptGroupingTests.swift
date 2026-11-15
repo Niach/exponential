@@ -189,4 +189,32 @@ final class TranscriptGroupingTests: XCTestCase {
             XCTAssertEqual(TranscriptGrouping.markersShown(kinds), try XCTUnwrap(testCase["expected"] as? [Bool]), name)
         }
     }
+    // #EXP-1864: a tool row named in `notices` is THE inline marker.
+    func testReplaysEveryNoticeCase() throws {
+        let fixture = try fixture()
+        let notices = try XCTUnwrap(fixture["notices"] as? [String: String])
+        XCTAssertEqual(notices, TranscriptGrouping.notices)
+        let contractURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("packages/domain-contract/contract.json")
+        let contract = try XCTUnwrap(try JSONSerialization.jsonObject(with: try Data(contentsOf: contractURL)) as? [String: Any])
+        let display = try XCTUnwrap(contract["expToolDisplay"] as? [String: Any])
+        XCTAssertEqual(display["prefix"] as? String, "exponential_")
+        let rows = try XCTUnwrap(display["tools"] as? [[String: Any]])
+        for (row, label) in notices {
+            let entry = try XCTUnwrap(rows.first { $0["name"] as? String == row }, row)
+            XCTAssertEqual(entry["done"] as? String, label, row)
+        }
+        let cases = try XCTUnwrap(fixture["noticeCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = testCase["name"] as? String ?? ""
+            let toolName = try XCTUnwrap(string(testCase["toolName"]), name)
+            XCTAssertEqual(TranscriptGrouping.traceNotice(toolName), string(testCase["expected"]), name)
+        }
+    }
 }

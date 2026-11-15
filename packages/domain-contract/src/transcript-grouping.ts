@@ -208,3 +208,19 @@ export const TRANSCRIPT_FOLD = fixture.fold
 export function messageFolds(text: string): boolean {
   return text.length > fixture.fold.chars || text.split(`\n`).length > fixture.fold.lines
 }
+
+/** #EXP-1864 (`notices`): the label an Exponential tool row draws as THE
+ *  inline marker (its own line, never a trace beside the avatar), else null.
+ *  The name must end in the contract prefix + the row, whatever namespace
+ *  sits before it (`expToolDisplay`'s match). */
+export const TRANSCRIPT_NOTICES = fixture.notices as Record<string, string>
+
+const NOTICE_PREFIX = `exponential_`
+
+export function traceNotice(toolName: string | null | undefined): string | null {
+  const name = toolName?.trim() ?? ``
+  for (const [row, label] of Object.entries(TRANSCRIPT_NOTICES)) {
+    if (name.length > row.length && name.endsWith(row) && name.slice(0, name.length - row.length).endsWith(NOTICE_PREFIX)) return label
+  }
+  return null
+}

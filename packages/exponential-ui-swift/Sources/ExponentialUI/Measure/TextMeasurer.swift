@@ -28,13 +28,20 @@ public enum TextFonts {
         public let weight: Int
         public let italic: Bool
         public let descriptor: CTFontDescriptor
+        /// A variable face's `wght` axis (min…max): any weight inside it is
+        /// painted at that weight (CSS: a variable family has every weight).
+        public let weights: ClosedRange<Double>?
 
-        public init(weight: Int, italic: Bool, descriptor: CTFontDescriptor) {
+        public init(weight: Int, italic: Bool, descriptor: CTFontDescriptor, weights: ClosedRange<Double>? = nil) {
             self.weight = weight
             self.italic = italic
             self.descriptor = descriptor
+            self.weights = weights
         }
     }
+
+    /// The `wght` variation axis tag.
+    static let wghtAxis = 0x7767_6874
 
     /// An explicit font set: family name → its faces, theme family names →
     /// the family that stands in for them (`Nunito` → `Inter`), and the
@@ -55,7 +62,8 @@ public enum TextFonts {
 
         /// The faces of the font files at `urls`, keyed by `family` (the
         /// files are also registered with the process so views that name the
-        /// family find them). Weight = the face's OS/2 `usWeightClass`.
+        /// family find them). Weight = the named instance's `wght` (a
+        /// variable file), else the face's OS/2 `usWeightClass`.
         public mutating func add(family: String, files urls: [URL]) {
             for url in urls {
                 ExponentialUIFonts.register(url: url)
@@ -92,13 +100,25 @@ public enum TextFonts {
     static func face(of d: CTFontDescriptor) -> Face {
         let font = CTFontCreateWithFontDescriptor(d, 12, nil)
         var weight = 400
-        if let table = CTFontCopyTable(font, CTFontTableTag(kCTFontTableOS2), []) as Data?, table.count >= 6 {
+        // VAPP-166: every named instance of a variable file shares ONE OS/2
+        // `usWeightClass` (Nunito[wght]: 200), so the instance's weight is its
+        // `wght` coordinate (the default instance: the axis default).
+        let axis = (CTFontCopyVariationAxes(font) as? [[CFString: Any]])?.first { ($0[kCTFontVariationAxisIdentifierKey] as? Int) == wghtAxis }
+        let weights = axis.flatMap { a -> ClosedRange<Double>? in
+            guard let lo = a[kCTFontVariationAxisMinimumValueKey] as? Double, let hi = a[kCTFontVariationAxisMaximumValueKey] as? Double, lo <= hi else { return nil }
+            return lo...hi
+        }
+        let instance = ((CTFontDescriptorCopyAttribute(d, kCTFontVariationAttribute) as? [Int: Double]) ?? [:])[wghtAxis]
+            ?? (axis?[kCTFontVariationAxisDefaultValueKey] as? Double)
+        if weights != nil, let instance {
+            weight = Int(instance.rounded())
+        } else if let table = CTFontCopyTable(font, CTFontTableTag(kCTFontTableOS2), []) as Data?, table.count >= 6 {
             weight = Int(table[4]) << 8 | Int(table[5])
         } else if let traits = CTFontCopyTraits(font) as? [CFString: Any], let w = traits[kCTFontWeightTrait] as? CGFloat {
             weight = w >= 0.62 ? 900 : w >= 0.5 ? 800 : w >= 0.35 ? 700 : w >= 0.25 ? 600 : w >= 0.15 ? 500 : w > -0.15 ? 400 : w > -0.3 ? 300 : 200
         }
         let italic = CTFontGetSymbolicTraits(font).contains(.traitItalic)
-        return Face(weight: weight, italic: italic, descriptor: d)
+        return Face(weight: weight, italic: italic, descriptor: d, weights: weights)
     }
 
     private static let sansGenerics: Swift.Set<String> = ["system-ui", "sans-serif", "ui-sans-serif", "-apple-system", "BlinkMacSystemFont"]
@@ -181,7 +201,13 @@ public enum TextFonts {
         let (resolved, mono, serif) = resolve(family)
         var font: CTFont
         if let resolved, let face = match(faces(of: resolved), weight: weight, italic: italic) {
-            font = CTFontCreateWithFontDescriptor(face.descriptor, size, nil)
+            var descriptor = face.descriptor
+            // A variable face paints the requested weight itself (CSS), not
+            // its nearest named instance.
+            if let range = face.weights, face.weight != weight, range.contains(Double(weight)) {
+                descriptor = CTFontDescriptorCreateCopyWithVariation(descriptor, wghtAxis as CFNumber, CGFloat(weight))
+            }
+            font = CTFontCreateWithFontDescriptor(descriptor, size, nil)
         } else if mono {
             font = ExponentialUIFonts.monospacedFont(weight: weight, size: size, italic: italic) as CTFont
         } else if serif {

@@ -46,12 +46,18 @@ fn point(default: (f32, f32)) -> gpui::Point<gpui::Pixels> {
 }
 
 fn shoot(name: &str, shot: AppShot, pointer: Pointer) {
+    shoot_seeded(name, shot, pointer, |_| {});
+}
+
+/// [`shoot`] with rows seeded into the headless store first.
+fn shoot_seeded(name: &str, shot: AppShot, pointer: Pointer, seed: impl FnOnce(&mut gpui::App)) {
     let Some(dir) = std::env::var_os("EXP_SETTINGS_SHOTS") else { return };
     let mut cx = headless();
     cx.update(|cx| {
         crate::init(cx);
         let store = sync::Store::open(cx, None, None);
         cx.set_global(store);
+        seed(cx);
     });
     let mut frame = None;
     let handle = cx
@@ -176,9 +182,7 @@ fn owner() -> AppShot {
         tool_busy: None,
         mcp_busy: None,
         upstream_busy: None,
-        hook_busy: None,
         share_busy: None,
-        hook_secrets: vec![("intake".into(), "whsec_9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d".into())],
     }
 }
 
@@ -191,14 +195,14 @@ fn settings_app_detail_owner() {
 #[test]
 #[ignore]
 fn settings_app_detail_member() {
-    let shot = AppShot { manage: false, grant: false, records_max: None, mcp: Some(mcp(false)), hook_secrets: Vec::new(), ..owner() };
+    let shot = AppShot { manage: false, grant: false, records_max: None, mcp: Some(mcp(false)), ..owner() };
     shoot("app-detail-member", shot, Pointer::Rest);
 }
 
 #[test]
 #[ignore]
 fn settings_app_detail_empty() {
-    let shot = AppShot { row: row(false, 0), records: 0, mcp: Some(api::app_access::AppToolsOut::default()), hook_secrets: Vec::new(), ..owner() };
+    let shot = AppShot { row: row(false, 0), records: 0, mcp: Some(api::app_access::AppToolsOut::default()), ..owner() };
     shoot("app-detail-empty", shot, Pointer::Rest);
 }
 
@@ -209,7 +213,6 @@ fn settings_app_detail_busy() {
         tool_busy: Some("exponential_issues_update_status".into()),
         mcp_busy: Some("s-sf".into()),
         upstream_busy: Some("crm".into()),
-        hook_busy: Some("billing".into()),
         share_busy: Some("contact-form".into()),
         ..owner()
     };
@@ -257,4 +260,20 @@ fn settings_app_detail_account_open() {
     // The IDE pane's picture: a real click on the trigger (its popover never
     // paints headless), so compare the trigger; `app_mcp_twins` judged the popup.
     shoot("app-detail-account-open", owner(), Pointer::Press("account_select.github.trigger"));
+}
+
+/// #EXP-1849 (apps.json `agentSlot`): "Ops desk" with its agent bound to a
+/// team-shared machine: the Agent group (Runs on, Account, Model) between
+/// the identity and the rest.
+#[test]
+#[ignore]
+fn settings_app_detail_agent_slot() {
+    let mut row = row(true, 3);
+    row.name = "Ops desk".into();
+    row.slug = "ops-desk".into();
+    row.description = Some("Runbooks, on-call and incidents in one place.".into());
+    row.team_id = Some(super::agent_detail::TEAM.into());
+    row.agent_id = Some("ag-ops".into());
+    let agent = super::agent_detail::agent("ag-ops", "agent", "mint", json!([]));
+    shoot_seeded("app-detail-agent-slot", AppShot { row, ..owner() }, Pointer::Rest, move |cx| super::agent_detail::seed(agent, cx));
 }

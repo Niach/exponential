@@ -223,5 +223,7 @@ class DomainContractLockTest {
         // Every kind the contract names parses into a [TriggerWhen].
         assertTrue(TriggerWhen.parse("""{"kind":"schedule","cron":"0 9 * * *"}""") is TriggerWhen.Schedule)
         assertTrue(TriggerWhen.parse("""{"kind":"event","name":"pr.merged"}""") is TriggerWhen.Event)
+        assertTrue(TriggerWhen.parse("""{"kind":"record","record":"request","op":"create"}""") is TriggerWhen.Record)
+        assertTrue(TriggerWhen.parse("""{"kind":"webhook","name":"stripe"}""") is TriggerWhen.Webhook)
     }
 }

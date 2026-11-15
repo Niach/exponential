@@ -124,8 +124,10 @@ pub(crate) fn page_scaffold(
     id: &'static str,
     scroll: &ScrollHandle,
     column: gpui::Div,
+    window: &gpui::Window,
+    cx: &gpui::App,
 ) -> impl IntoElement {
-    page_scaffold_with(id, scroll, column, PAGE_COLUMN_W)
+    page_scaffold_with(id, scroll, column, PAGE_COLUMN_W, window, cx)
 }
 
 /// [`page_scaffold`] with an explicit column cap — a list page (EXP-706)
@@ -136,6 +138,8 @@ pub(crate) fn page_scaffold_with(
     scroll: &ScrollHandle,
     column: gpui::Div,
     width: f32,
+    window: &gpui::Window,
+    cx: &gpui::App,
 ) -> impl IntoElement {
     gpui_component::v_flex()
         .size_full()
@@ -144,14 +148,19 @@ pub(crate) fn page_scaffold_with(
         .child(crate::scroll_pane::v_scroll_pane(
             id,
             scroll,
-            div().w_full().min_w_0().child(
-                column
-                    .w_full()
-                    .min_w_0()
-                    .px_4()
-                    .py_4()
-                    .max_w(px(width))
-                    .mx_auto(),
-            ),
+            div()
+                .w_full()
+                .min_w_0()
+                .child(
+                    column
+                        .w_full()
+                        .min_w_0()
+                        .px_4()
+                        .py_4()
+                        .max_w(px(width))
+                        .mx_auto(),
+                )
+                // #EXP-1860: the last row scrolls clear of the Assistant FAB.
+                .child(crate::assistant_fab::page_end(window, cx)),
         ))
 }

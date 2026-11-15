@@ -385,7 +385,8 @@ export const agentsRouter = router({
         // client: schedule + event); stored triggers of other kinds that
         // `triggers` leaves out are kept.
         triggerKinds: z.array(z.enum(agentTriggerKindValues)).optional(),
-        deviceId: z.string().min(1).max(128).optional(),
+        // #EXP-1849: `` empties an app agent's slot (each member's own device).
+        deviceId: z.string().max(128).optional(),
         cli: z.string().min(1).max(16).optional(),
         account: z.string().min(1).max(64).nullable().optional(),
         model: z.string().max(64).nullable().optional(),
@@ -428,14 +429,25 @@ export const agentsRouter = router({
       // A new device re-stamps every conversation's visibility (its device's
       // share decides it) and hands them over: queued again, the new device
       // boots them, the old one drops rows that no longer name it.
+      // #EXP-1849: an app agent's device is the app's AGENT SLOT: empty
+      // (each member's own device) or a device shared with the team.
+      const appAgent = (await appOfAgent(agent.id)) !== null
+      if (input.deviceId === `` && !appAgent) throw new TRPCError({ code: `BAD_REQUEST`, message: `Pick a device` })
+      const clearSlot = appAgent && input.deviceId === `` && agent.deviceId !== ``
       const result = await ctx.db.transaction(async (tx) => {
         const txid = await generateTxId(tx)
         const now = new Date()
         // #EXP-1259: the new device is read under its share lock.
         const moved =
-          input.deviceId !== undefined && input.deviceId !== agent.deviceId
+          input.deviceId !== undefined && input.deviceId !== `` && input.deviceId !== agent.deviceId
             ? await resolveSessionDeviceInTx(tx, userId, agent.teamId, input.deviceId)
             : null
+        if (moved && appAgent && !moved.shared) {
+          throw new TRPCError({ code: `BAD_REQUEST`, message: `An app's agent runs on a device shared with the team, or on each member's own` })
+        }
+        // #EXP-1849: with an empty slot each member's app root keeps its own
+        // device and runner; only skills and MCP servers follow the agent.
+        const slotless = appAgent && (clearSlot || (!moved && agent.deviceId === ``))
         // S-3: the login is re-checked on every save against the device the
         // agent runs on, and the conversations take the SAME value, so the
         // definition and its sessions never drift apart (a profile the
@@ -481,7 +493,7 @@ export const agentsRouter = router({
             ...(mcpServerIds !== undefined ? { mcpServerIds } : {}),
             ...(voice !== undefined ? { voice } : {}),
             ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
-            ...(moved ? { deviceId: input.deviceId } : {}),
+            ...(moved ? { deviceId: input.deviceId } : clearSlot ? { deviceId: `` } : {}),
             updatedAt: now,
           })
           .where(eq(agents.id, agent.id))
@@ -493,9 +505,9 @@ export const agentsRouter = router({
           await tx
             .update(sessions)
             .set({
-              ...(input.cli !== undefined ? { cli: input.cli } : {}),
-              ...accountWrite,
-              ...(model !== undefined ? { model } : {}),
+              ...(slotless ? {} : input.cli !== undefined ? { cli: input.cli } : {}),
+              ...(slotless ? {} : accountWrite),
+              ...(slotless ? {} : model !== undefined ? { model } : {}),
               // #EXP-1656: and the skills its next launch installs.
               ...(skillIds !== undefined ? { skillIds: skillIds.length > 0 ? skillIds : null } : {}),
               // #EXP-1793: and the MCP servers it resolves (re-read between turns).

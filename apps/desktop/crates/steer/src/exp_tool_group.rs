@@ -60,8 +60,14 @@ pub fn is_exp_tool_call(is_tool: bool, name: Option<&str>, is_workflow_call: boo
 /// Exponential tool starting at `start` (which must itself be one).
 /// `same_lane_call(i)` answers "is item i a call to the same contract row in
 /// the SAME lane as `start`" for the caller's feed, whose length is `len` —
-/// the shape [`domain::edit_card::edit_run_end`] has.
-pub fn exp_tool_run_end(start: usize, len: usize, same_lane_call: impl Fn(usize) -> bool) -> usize {
+/// the shape [`domain::edit_card::edit_run_end`] has. #EXP-1864: a notice
+/// (`start_name` a [`domain::transcript_grouping::trace_notice`] call, `Ended
+/// turn quietly`) is its own marker line and never opens a run (web
+/// `expToolRunEnd`).
+pub fn exp_tool_run_end(start: usize, len: usize, start_name: Option<&str>, same_lane_call: impl Fn(usize) -> bool) -> usize {
+    if start_name.and_then(domain::transcript_grouping::trace_notice).is_some() {
+        return start;
+    }
     let mut end = start;
     while end + 1 < len && same_lane_call(end + 1) {
         end += 1;
@@ -123,6 +129,16 @@ mod tests {
 
     /// The copy is the contract's: plural, progressive while any call runs,
     /// done once they all settled, failures counted last.
+    /// #EXP-1864: a notice never opens a run; any other call runs on.
+    #[test]
+    fn a_notice_never_opens_a_run() {
+        let quiet = "mcp__exponential__exponential_session_self_quiet";
+        assert_eq!(exp_tool_run_end(0, 3, Some(quiet), |_| true), 0);
+        assert_eq!(exp_tool_run_end(0, 3, Some("exponential_session_self_quiet"), |_| true), 0);
+        assert_eq!(exp_tool_run_end(0, 3, Some("exponential_issues_get"), |_| true), 2);
+        assert_eq!(exp_tool_run_end(0, 3, None, |ix| ix < 2), 1);
+    }
+
     #[test]
     fn the_caption_is_the_contract_copy() {
         let read = |n: usize, settled: bool| {

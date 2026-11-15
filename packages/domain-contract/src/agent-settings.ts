@@ -20,6 +20,11 @@ export interface AgentTriggerLike {
   name?: string
   /** #EXP-1846: the Check in preset this schedule is (`checkIn`). */
   preset?: string | null
+  /** #EXP-1850: record: the record kind and the op it listens on. */
+  record?: string
+  op?: string
+  /** #EXP-1850: an app binding the trigger runs instead of a wake. */
+  run?: Record<string, unknown> | null
 }
 
 /** One Triggers row's text. */
@@ -29,11 +34,35 @@ export function triggerSummary(trigger: AgentTriggerLike): string {
   if (trigger.kind === `schedule`) {
     // NEW-2: the schedule picker's sentence (`schedule-picker.json`).
     text = scheduleSummary(trigger.cron ?? ``, trigger.tz)
+  } else if (trigger.kind === `record`) {
+    // #EXP-1850: an app agent's record trigger.
+    const op = (copy.recordOps as Record<string, string>)[trigger.op ?? ``] ?? trigger.op ?? ``
+    text = copy.record.replace(`{record}`, trigger.record ?? ``).replace(`{op}`, op)
+  } else if (trigger.kind === `webhook`) {
+    text = copy.webhook.replace(`{name}`, trigger.name ?? ``)
   } else {
     const name = trigger.name ?? ``
     text = (copy.events as Record<string, string>)[name] ?? copy.event.replace(`{name}`, name)
   }
   return trigger.enabled === false ? `${text} · ${copy.paused}` : text
+}
+
+/** #EXP-1850: an app binding in a few words (`detailCases`). */
+export function runLabel(run: Record<string, unknown>): string {
+  const records = run.records as { op?: string; kind?: string } | undefined
+  if (records && typeof records === `object`) return `records.${records.op ?? ``} ${records.kind ?? ``}`
+  if (typeof run.action === `string`) return run.action
+  if (typeof run.upstream === `string`) return `${run.upstream}/${typeof run.tool === `string` ? run.tool : ``}`
+  return ``
+}
+
+/** #EXP-1850: a Triggers row's second line: what a `run` trigger runs; null
+ *  for a wake (`detailCases`). */
+export function triggerDetail(trigger: AgentTriggerLike): string | null {
+  const run = trigger.run
+  if (!run || typeof run !== `object`) return null
+  if (typeof run.agent === `string`) return fixture.copy.handsOff.replace(`{agent}`, run.agent)
+  return fixture.copy.runs.replace(`{tool}`, runLabel(run))
 }
 
 export interface AgentForm {

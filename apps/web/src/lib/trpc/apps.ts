@@ -5,9 +5,10 @@ import { and, asc, desc, eq, isNull, sql } from "drizzle-orm"
 import { MAX_AGENT_TRIGGERS, boardIconSchema, type AgentTrigger } from "@exp/db-schema/domain"
 import { validateAutomations, type Automation } from "@exp/emcp/automations"
 import { agentSlug } from "@exp/emcp/exposes"
-import { automationAsTrigger, packageContext } from "@/lib/agents/app-triggers"
+import { automationAsTrigger, packageContext, triggerIdOfAutomation } from "@/lib/agents/app-triggers"
 import {
   APPS_COPY,
+  APPS_EVENTS_TAB,
   APP_DESCRIPTION_MAX,
   APP_NAME_MAX,
   APP_NOTE_MAX,
@@ -17,7 +18,7 @@ import {
   slugify,
 } from "@exp/domain-contract/apps"
 import { router, authedProcedure, generateTxId, type Context } from "@/lib/trpc"
-import { agents, appVersions, apps, mcpServers, sessions, teams, type App, type AppPackageJson } from "@/db/schema"
+import { agents, appVersions, apps, mcpCalls, mcpServers, sessions, teams, type App, type AppPackageJson } from "@/db/schema"
 import { assertTeamMember, getTeamMember } from "@/lib/auth/membership"
 import { resolveTeamAccess } from "@/lib/auth/access"
 import { appPackageIssues, packageBytes, recordKindSchema, upstreamIssues, validateAppPackage } from "@/lib/apps/package"
@@ -499,6 +500,38 @@ export const appsRouter = router({
         .where(eq(appVersions.appId, app.id))
         .orderBy(desc(appVersions.number))
       return { versions: rows }
+    }),
+
+  /** #EXP-1850 (apps.json `eventsTab`): the Events tab's Recent runs = the
+   *  app's `automation:*` audit rows, newest first, each named by its
+   *  trigger's id (`automation:t_<id>`). Every member who may read the app. */
+  events: authedProcedure
+    .input(z.object({ id: uuid }))
+    .query(async ({ ctx, input }) => {
+      const app = await loadApp(ctx.db, { id: input.id })
+      await assertTeamMember(ctx.session.user.id, app.teamId)
+      await assertAppAccess(ctx.db, app, ctx.session.user.id, `read`)
+      const rows = await ctx.db
+        .select({ clientId: mcpCalls.clientId, status: mcpCalls.status, error: mcpCalls.error, tool: mcpCalls.tool, at: mcpCalls.createdAt })
+        .from(mcpCalls)
+        .where(
+          and(
+            eq(mcpCalls.appId, app.id),
+            sql`${mcpCalls.clientId} LIKE 'automation:%'`,
+            sql`${mcpCalls.createdAt} > now() - make_interval(days => ${APPS_EVENTS_TAB.days})`
+          )
+        )
+        .orderBy(desc(mcpCalls.createdAt))
+        .limit(APPS_EVENTS_TAB.limit)
+      return {
+        runs: rows.map((row) => ({
+          triggerId: triggerIdOfAutomation((row.clientId ?? ``).slice(`automation:`.length)),
+          at: row.at.toISOString(),
+          status: row.status,
+          error: row.error,
+          tool: row.tool,
+        })),
+      }
     }),
 
   create: authedProcedure

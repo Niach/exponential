@@ -171,7 +171,7 @@ impl DraftsView {
 }
 
 impl Render for DraftsView {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "DraftsView").entered();
         let team_id = active_team_id(&self.nav, cx);
         let is_ready = Store::try_global(cx).is_some_and(|store| {
@@ -215,6 +215,6 @@ impl Render for DraftsView {
                 .children(rows)
         };
 
-        page_scaffold_with("drafts-screen-scroll", &self.scroll, column, DRAFTS_COLUMN_W)
+        page_scaffold_with("drafts-screen-scroll", &self.scroll, column, DRAFTS_COLUMN_W, window, cx)
     }
 }

@@ -11,7 +11,6 @@ import com.exponential.app.data.api.AppShareDto
 import com.exponential.app.data.api.AppToolsDto
 import com.exponential.app.data.api.AppUpdateInput
 import com.exponential.app.data.api.AppsApi
-import com.exponential.app.data.api.SessionsApi
 import com.exponential.app.data.api.SessionsSendInput
 import com.exponential.app.data.api.TrpcException
 import com.exponential.app.data.api.isOfflineError
@@ -86,6 +85,8 @@ data class AppListEntry(
     val publishedVersion: Int = 0,
     /** eApps V1: the head's package while it is ahead of the published one. */
     val draftPackageJson: String? = null,
+    /** #EXP-1850: the app's agent (the Events tab's triggers); null = none. */
+    val agentId: String? = null,
 ) : Apps.ListLike {
     /** eApps V1: the two pointers (`Apps.shownVersion`, `listPill`, …). */
     val versions: Apps.Versions get() = Apps.Versions(headVersion, publishedVersion)
@@ -107,6 +108,7 @@ fun AppEntity.toListEntry() = AppListEntry(
     packageJson = packageJson?.takeIf { it.isNotBlank() && it != "null" },
     publishedVersion = publishedVersion ?: 0,
     draftPackageJson = draftPackageJson?.takeIf { it.isNotBlank() && it != "null" },
+    agentId = agentId?.takeIf { it.isNotEmpty() },
 )
 
 private fun Flow<ExponentialDatabase?>.isOwnerOf(team: Flow<String?>, userId: Flow<String?>): Flow<Boolean> =
@@ -247,7 +249,6 @@ class AppEditorViewModel @Inject constructor(
     private val auth: AuthRepository,
     holder: DatabaseHolder,
     private val api: AppsApi,
-    private val sessionsApi: SessionsApi,
     private val sender: SessionSender,
     private val accessApi: com.exponential.app.data.api.McpSettingsApi,
     @ApplicationContext context: Context,
@@ -348,22 +349,21 @@ class AppEditorViewModel @Inject constructor(
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    /** #VAPP-220: the published package's automations; empty = no group. */
-    val automations: StateFlow<List<Apps.AutomationRowInput>> =
-        appTools.map { tools -> tools?.automations.orEmpty().mapNotNull { it.toRowInput() } }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    private val _eventRuns = MutableStateFlow<List<Apps.AppEventRun>?>(null)
+    /** #EXP-1850 (`eventsTab`): tRPC `apps.events` `runs`; null while the
+     *  first read is in flight (a failed read = none). */
+    val eventRuns: StateFlow<List<Apps.AppEventRun>?> = _eventRuns
 
-    /** #VAPP-243: per automation name, who it runs as or why it is paused
-     *  (`Apps.automationSponsor`), #VAPP-255: then the runs the rate cap
-     *  dropped; absent = the trigger line alone. */
-    val automationSponsors: StateFlow<Map<String, String>> =
-        appTools.map { tools ->
-            tools?.automations.orEmpty().mapNotNull { a ->
-                listOfNotNull(Apps.automationSponsor(a.paused, a.sponsorName), Apps.automationDropped(a.droppedRuns))
-                    .takeIf { it.isNotEmpty() }
-                    ?.let { a.name to it.joinToString(" · ") }
-            }.toMap()
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+    /** Re-read the Events tab's Recent runs. */
+    suspend fun loadEventRuns() {
+        val accountId = auth.activeAccountId.value ?: return
+        try {
+            _eventRuns.value = api.events(accountId, appId).map { Apps.AppEventRun(it.triggerId, it.status, it.error, it.tool, it.at) }
+        } catch (t: Throwable) {
+            if (t is CancellationException) throw t
+            if (_eventRuns.value == null) _eventRuns.value = emptyList()
+        }
+    }
 
     /** #VAPP-238: the published package's webhooks (package order); empty = no group. */
     val hooks: StateFlow<List<AppHookDto>> =
@@ -550,12 +550,27 @@ class AppEditorViewModel @Inject constructor(
         steerDeviceFlow(dbFlow, app.map { it?.teamId }.distinctUntilChanged(), auth.userId)
             .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    /** #EXP-1849 (apps.json `agentSlot`): the app agent's synced row (its
+     *  `deviceId` = the app's slot; the Settings sheet's Agent group). */
+    val slotAgent: StateFlow<com.exponential.app.data.db.AgentDefinitionEntity?> =
+        combine(dbFlow, app.map { it?.agentId }.distinctUntilChanged()) { db, agent -> db to agent }
+            .flatMapLatest { (db, agent) ->
+                if (db == null || agent == null) flowOf(null) else db.agentDefinitionDao().observeById(agent)
+            }
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** #EXP-1850: the app agent's readable triggers (the Recent runs titles). */
+    val agentTriggers: StateFlow<List<com.exponential.app.domain.AgentTrigger>> =
+        slotAgent.map { row -> com.exponential.app.domain.parseAgentTriggers(row?.triggers) }
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     val editorDevice: StateFlow<EditorDevice> = combine(
         devices,
         root,
         rememberedDevice,
         auth.userId,
-    ) { devices, session, remembered, me ->
+        slotAgent.map { it?.deviceId?.takeIf(String::isNotEmpty) }.distinctUntilChanged(),
+    ) { devices, session, remembered, me, slot ->
         val all = devices.orEmpty()
         val candidates = all.filter { device ->
             device.online && (
@@ -573,6 +588,7 @@ class AppEditorViewModel @Inject constructor(
             session?.let { Apps.EditorDeviceRoot(it.status, it.deviceId.takeIf(String::isNotEmpty)) },
             candidates.map { Apps.EditorDeviceCandidate(it.deviceId, it.isDefault) },
             remembered,
+            slot,
         )
         fun row(device: com.exponential.app.data.api.SteerDevice) = DevicePickerDevice(
             id = device.deviceId,
@@ -1088,23 +1104,17 @@ class AppEditorViewModel @Inject constructor(
         }
     }
 
-    /** Leaving the editor ENDS my live editor session (its tree); the next
-     *  send continues it. VAPP-176: leaving an EMPTY draft (no version, no
-     *  editor session: nothing was ever sent) discards it (`apps.discardDraft`,
-     *  a server-checked no-op otherwise). Outlives the screen (a detached scope). */
+    /** #EXP-1849 (apps.json `agentSlot`): leaving the editor ENDS NOTHING
+     *  (my app root is my persistent chat with the app's agent). VAPP-176:
+     *  leaving an EMPTY draft (no version, no editor session: nothing was
+     *  ever sent) discards it (`apps.discardDraft`, a server-checked no-op
+     *  otherwise). Outlives the screen (a detached scope). */
     fun leave() {
         val accountId = auth.activeAccountId.value ?: return
-        val current = root.value
-        if (current == null) {
-            val entry = app.value
-            if (entry != null && Apps.isDraft(entry.headVersion) && !_sending.value) {
-                leaveScope.launch { runCatching { api.discardDraft(accountId, appId) } }
-            }
-            return
-        }
-        val live = current.takeIf { !it.isEnded } ?: return
-        leaveScope.launch {
-            runCatching { sessionsApi.end(accountId, live.id) }
+        if (root.value != null) return
+        val entry = app.value
+        if (entry != null && Apps.isDraft(entry.headVersion) && !_sending.value) {
+            leaveScope.launch { runCatching { api.discardDraft(accountId, appId) } }
         }
     }
 

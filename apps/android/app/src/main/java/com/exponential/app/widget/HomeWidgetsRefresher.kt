@@ -48,7 +48,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -93,33 +95,54 @@ class HomeWidgetsRefresher @Inject constructor(
         }
     }
 
+    /** #ERR-23: whether any widget sits on a home screen; none = no reads at all. */
+    private val placed = MutableStateFlow(false)
+
+    /** Re-checks [placed] (a provider callback: a widget placed, updated or removed). */
+    fun refreshPlaced() {
+        placed.value = runCatching {
+            val manager = AppWidgetManager.getInstance(context)
+            HomeWidgetKind.entries.any { manager.getAppWidgetIds(ComponentName(context, it.providerClass())).isNotEmpty() }
+        }.getOrDefault(false)
+    }
+
+    /**
+     * #ERR-23: the widgets read every issue and session of the account (the
+     * Needs you fold parses every digest) once a minute and on every synced
+     * write; without a placed widget that was pure heap churn, so the reads
+     * run only while one is placed.
+     */
     fun start() {
+        refreshPlaced()
         scope.launch {
-            val sessions = dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeAll() }
-            val issueInputs = combine(
-                dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() },
-                dbFlow.scopedQuery(emptyList<BoardEntity>()) { it.boardDao().observeAll() },
-                dbFlow.scopedQuery(emptyList<IssueStatusEntity>()) { it.issueStatusDao().observeAll() },
-                dbFlow.scopedQuery(emptyList<TeamEntity>()) { it.teamDao().observeAll() },
-            ) { issues, boards, statuses, teams -> IssueInputs(issues, boards, statuses, teams) }
-            val chatInputs = combine(
-                sessions,
-                dbFlow.scopedQuery(emptyList<AgentDefinitionEntity>()) { it.agentDefinitionDao().observeAll() },
-                dbFlow.scopedQuery(emptyList<PullRequestEntity>()) { it.pullRequestDao().observeAll() },
-            ) { s, agents, prs -> ChatInputs(s, agents, prs) }
-            combine(
-                issueInputs,
-                chatInputs,
-                combine(auth.userId, auth.token.map { it != null }.distinctUntilChanged()) { me, signedIn -> me.takeIf { signedIn } },
-                minuteClock,
-            ) { issues, chats, me, now -> build(issues, chats, me, now) }
-                .debounce(DEBOUNCE_MS)
-                .distinctUntilChanged()
-                .collect {
-                    data.value = it
-                    drawAll()
-                }
+            placed.flatMapLatest { on -> if (on) widgetData() else flowOf(null) }.collect {
+                data.value = it
+                if (it != null) drawAll()
+            }
         }
+    }
+
+    private fun widgetData(): Flow<Data> {
+        val sessions = dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeAll() }
+        val issueInputs = combine(
+            dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() },
+            dbFlow.scopedQuery(emptyList<BoardEntity>()) { it.boardDao().observeAll() },
+            dbFlow.scopedQuery(emptyList<IssueStatusEntity>()) { it.issueStatusDao().observeAll() },
+            dbFlow.scopedQuery(emptyList<TeamEntity>()) { it.teamDao().observeAll() },
+        ) { issues, boards, statuses, teams -> IssueInputs(issues, boards, statuses, teams) }
+        val chatInputs = combine(
+            sessions,
+            dbFlow.scopedQuery(emptyList<AgentDefinitionEntity>()) { it.agentDefinitionDao().observeAll() },
+            dbFlow.scopedQuery(emptyList<PullRequestEntity>()) { it.pullRequestDao().observeAll() },
+        ) { s, agents, prs -> ChatInputs(s, agents, prs) }
+        return combine(
+            issueInputs,
+            chatInputs,
+            combine(auth.userId, auth.token.map { it != null }.distinctUntilChanged()) { me, signedIn -> me.takeIf { signedIn } },
+            minuteClock,
+        ) { issues, chats, me, now -> build(issues, chats, me, now) }
+            .debounce(DEBOUNCE_MS)
+            .distinctUntilChanged()
     }
 
     private data class IssueInputs(
@@ -202,6 +225,7 @@ class HomeWidgetsRefresher @Inject constructor(
 
     /** Draw [ids] of [kind] from the last data (a provider callback, a pick). */
     fun draw(kind: HomeWidgetKind, ids: IntArray) {
+        refreshPlaced()
         val manager = AppWidgetManager.getInstance(context)
         val current = data.value
         ids.forEach { id ->

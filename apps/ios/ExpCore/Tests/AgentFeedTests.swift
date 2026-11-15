@@ -1296,6 +1296,14 @@ final class AgentFeedTests: XCTestCase {
         XCTAssertNil(AgentFeed.mergeNarration(first, text: "x", messageId: "m1", subagentId: "s1"))
     }
 
+    /// #EXP-1864: a narration bubble's `HH:mm` = its FIRST fragment's `at`;
+    /// a merged fragment keeps it.
+    func testAMergedNarrationKeepsItsFirstFragmentsAt() {
+        var feed: [AgentFeedItem] = [.narration(id: 1, text: "Reading ", messageId: "m1", at: 1_700_000_000_000)]
+        XCTAssertTrue(AgentFeed.mergeNarration(&feed, text: "the file.", messageId: "m1", subagentId: nil))
+        XCTAssertEqual(feed, [.narration(id: 1, text: "Reading the file.", messageId: "m1", at: 1_700_000_000_000)])
+    }
+
     /// EXP-846: the look-back is LANE-scoped, not tail-only. The real shape
     /// off the wire while a subagent works: main-lane prose, the subagent's
     /// spawn edge, its tool call, that call's `tool_update` (which PATCHES the

@@ -20,6 +20,7 @@ import com.exponential.app.domain.AgentSettings
 import com.exponential.app.domain.AgentTrigger
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.SessionTree
+import com.exponential.app.domain.TriggerWhen
 import com.exponential.app.domain.WireTimestamps
 import com.exponential.app.domain.parseAgentTriggers
 import com.exponential.app.domain.unreadableAgentTriggers
@@ -248,8 +249,14 @@ class AgentSettingsViewModel @Inject constructor(
      *  team the caller may start on (the caller's machines + the team's shared
      *  servers), plus the agent's CURRENT device even while it is offline so
      *  the field still shows its value. null = loading. */
+    /** The agent's team's devices, offline ones too (#EXP-1849: the app
+     *  agent slot lists the team-shared ones, offline ones disabled). */
+    val teamDevices: StateFlow<List<SteerDevice>?> =
+        steerDeviceFlow(dbFlow, combine(agent, teamId) { row, selected -> row?.teamId ?: selected }, auth.userId)
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     val devices: StateFlow<List<SteerDevice>?> = combine(
-        steerDeviceFlow(dbFlow, combine(agent, teamId) { row, selected -> row?.teamId ?: selected }, auth.userId),
+        teamDevices,
         agent,
     ) { list, row ->
         val current = row?.runnerDefaults?.deviceId
@@ -408,7 +415,8 @@ class AgentSettingsViewModel @Inject constructor(
             val next = build(triggers.value)
             val wire: List<JsonObject> = next.map { it.toWireJson() } +
                 unreadableAgentTriggers(agent.value?.triggers)
-            agentsApi.update(accountId, id, UpdateAgentPatch(triggers = wire))
+            // #EXP-1850: every write names all four kinds (none is kept behind it).
+            agentsApi.update(accountId, id, UpdateAgentPatch(triggers = wire, triggerKinds = TriggerWhen.KINDS))
             lastWritten.value = System.currentTimeMillis() to next
             onDone()
         }

@@ -207,6 +207,103 @@ object Apps {
         // #VAPP-243: the Record access group + one of its rows.
         const val POLICIES = "app-settings-policies"
         const val POLICY_ROW = "app-policy"
+        // #EXP-1850: the Events tab, its Recent runs group, one run row.
+        const val EVENTS_TAB = "app-events"
+        const val RECENT_RUNS = "app-events-runs"
+        const val RUN_ROW = "app-event-run"
+    }
+
+    /** #EXP-1850 (apps.json `eventsTab`): the Events tab's copy and limits. */
+    /** #EXP-1849 (apps.json `agentSlot`): the App settings' Agent group =
+     *  the app agent's slot (`deviceId` "" = each member's own device). */
+    object AgentSlot {
+        const val TEST_ID = "app-settings-agent"
+        const val TITLE = "Agent"
+        const val RUNS_ON = "Runs on"
+        const val EACH_MEMBER = "Each member's own device"
+
+        /** The picker's `Each member's own device` row (writes `deviceId: ""`). */
+        const val EACH_MEMBER_PICK = "__each-member__"
+
+        data class Device(val deviceId: String, val online: Boolean, val sharedWithTeam: Boolean)
+
+        data class Row(val id: String, val disabled: Boolean)
+
+        /** The Device picker's rows: [EACH_MEMBER] first, then the devices
+         *  shared with the team only (offline ones listed, disabled). */
+        fun rows(devices: List<Device>): List<Row> =
+            listOf(Row(EACH_MEMBER_PICK, disabled = false)) +
+                devices.filter { it.sharedWithTeam }.map { Row(it.deviceId, disabled = !it.online) }
+
+        /** The picker's value for the agent's `deviceId` ("" = each member's). */
+        fun pick(slot: String?): String = slot?.takeIf { it.isNotEmpty() } ?: EACH_MEMBER_PICK
+
+        /** The `agents.update` `deviceId` a pick writes ("" empties the slot). */
+        fun deviceIdFor(pick: String): String = if (pick == EACH_MEMBER_PICK) "" else pick
+
+        /** Account and Model show only while a device is set. */
+        fun showsRunner(slot: String?): Boolean = !slot.isNullOrEmpty()
+    }
+
+    object EventsTab {
+        const val LIMIT = 50
+        const val DAYS = 7
+        val PAUSED_ERRORS = listOf("sponsorGone", "sponsorReadOnly", "sponsorNotAllowed")
+        const val RECENT_RUNS = "Recent runs"
+        const val NO_RUNS = "No runs yet"
+        const val REMOVED_TRIGGER = "A removed trigger"
+        val BADGES: Map<String, String> = linkedMapOf(
+            "ran" to "Ran",
+            "woke" to "Woke agent",
+            "failed" to "Failed",
+            "dropped" to "Dropped",
+            "paused" to "Paused",
+            "refused" to "Refused",
+        )
+        val ERRORS: Map<String, String> = linkedMapOf(
+            "rateLimited" to "30 runs a minute reached",
+            "sponsorGone" to "The agent's owner left the team",
+            "sponsorReadOnly" to "The agent's owner has read-only access",
+            "sponsorNotAllowed" to "Only an owner can make it run as someone else",
+            "toolError" to "The binding failed",
+            "badSignature" to "The signature did not match",
+            "missingSignature" to "No signature",
+            "stale" to "The delivery was too old",
+            "replayed" to "A delivery sent twice",
+        )
+    }
+
+    /** One audit row of an app's trigger (tRPC `apps.events` `runs`). */
+    data class AppEventRun(
+        val triggerId: String?,
+        val status: String,
+        val error: String?,
+        val tool: String,
+        /** ISO-8601; the row's relative time. */
+        val at: String = "",
+    )
+
+    enum class AppEventBadge(val wire: String) {
+        RAN("ran"), WOKE("woke"), FAILED("failed"), DROPPED("dropped"), PAUSED("paused"), REFUSED("refused");
+
+        val label: String get() = EventsTab.BADGES.getValue(wire)
+    }
+
+    data class AppEventRow(val title: String, val badge: AppEventBadge, val detail: String?)
+
+    /** #EXP-1850 (`runCases`): a Recent runs row's title, badge and detail. */
+    fun eventRunRow(run: AppEventRun, triggers: List<AgentTrigger>): AppEventRow {
+        val trigger = run.triggerId?.let { id -> triggers.firstOrNull { it.id == id } }
+        val title = trigger?.let { AgentSettings.triggerSummary(it.copy(enabled = true)) } ?: EventsTab.REMOVED_TRIGGER
+        val error = run.error?.takeIf { it.isNotEmpty() }
+        val badge = when {
+            error == "rateLimited" -> AppEventBadge.DROPPED
+            error != null && error in EventsTab.PAUSED_ERRORS -> AppEventBadge.PAUSED
+            run.status == "denied" && error != null -> AppEventBadge.REFUSED
+            run.status == "ok" -> if (run.tool.startsWith("agent:")) AppEventBadge.WOKE else AppEventBadge.RAN
+            else -> AppEventBadge.FAILED
+        }
+        return AppEventRow(title, badge, error?.let { EventsTab.ERRORS[it] ?: it })
     }
 
     /** VAPP-177 (fixture `editorTabs`): the editor's tabs. Wide (web ≥ md,
@@ -261,10 +358,14 @@ object Apps {
         root: EditorDeviceRoot?,
         candidates: List<EditorDeviceCandidate>,
         remembered: String?,
+        /** #EXP-1849 (apps.json `agentSlot`): the app agent's slot (a
+         *  team-shared device), null = empty (each member's own device). */
+        slot: String? = null,
     ): EditorDeviceChoice {
         if (root != null && root.status != DomainContract.sessionStatusEnded) {
             return EditorDeviceChoice(root.deviceId, move = false)
         }
+        if (!slot.isNullOrEmpty()) return EditorDeviceChoice(slot, move = root != null && slot != root.deviceId)
         fun known(id: String?) = id != null && candidates.any { it.deviceId == id }
         val deviceId = when {
             known(remembered) -> remembered

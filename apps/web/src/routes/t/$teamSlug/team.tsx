@@ -18,7 +18,7 @@ import {
   conceptIcon,
   whileBlocking,
 } from "@exp/ui"
-import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
+import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { MobilePageHeader } from "@/components/team/mobile-page-header"
 import { CreateTeamDialog } from "@/components/create-team-dialog"
 import { ChangelogSheet } from "@/components/whats-new"
@@ -234,7 +234,7 @@ function TeamTabPage() {
   return (
     <div className="h-full overflow-y-auto" data-testid="team-tab">
       <div
-        className={`mx-auto flex w-full max-w-xl flex-col gap-4 px-4 pt-[max(1rem,env(safe-area-inset-top))] ${TAB_BAR_CLEARANCE}`}
+        className={`mx-auto flex w-full max-w-xl flex-col gap-4 px-4 pt-[max(1rem,env(safe-area-inset-top))] ${PAGE_END_CLEARANCE}`}
       >
         <MobilePageHeader teamSlug={teamSlug} title={teamName} />
         <div className="flex flex-col items-center gap-3 pb-2 text-center">

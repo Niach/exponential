@@ -215,11 +215,15 @@ public final class SessionsApi: Sendable {
                 input: SealedSendInput(input: input, clientMessageId: clientMessageId)
             )
         }
-        var prepared = await sealer.prepare(accountId: accountId, input)
-        if let clientMessageId { prepared.input.clientMessageId = clientMessageId }
-        let result: SessionsSendResult = try await trpc.mutation(accountId: accountId, path: "sessions.send", input: prepared.input)
-        await sealer.completed(prepared, result: result)
-        return result
+        // #FEED-250: a tree that moved on behind this store is re-resolved
+        // and re-sealed once, the first refusal never surfaced.
+        return try await StaleTreeResend.send { fresh in
+            var prepared = await sealer.prepare(accountId: accountId, input, fresh: fresh)
+            if let clientMessageId { prepared.input.clientMessageId = clientMessageId }
+            let result: SessionsSendResult = try await trpc.mutation(accountId: accountId, path: "sessions.send", input: prepared.input)
+            await sealer.completed(prepared, result: result)
+            return result
+        }
     }
 
     /// #EXP-1641: a message into an ENCRYPTED tree (`rootId`) that never

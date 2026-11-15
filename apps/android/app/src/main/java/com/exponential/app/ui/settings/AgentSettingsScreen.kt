@@ -596,61 +596,14 @@ fun AgentSettingsScreen(
             // #EXP-1661: the agent's default skills (an existing agent only:
             // `New agent` picks them after Create). Owners edit, members read.
             skillsRow = agent?.takeIf { !isNew }?.let { row ->
-                {
-                    // Clamped to skills that still exist (a deleted one drops out).
-                    val known = teamSkills.mapTo(HashSet()) { it.id }
-                    val picked = row.skillIdList.filter { it in known }
-                    SkillPicker(
-                        skills = teamSkills,
-                        value = picked,
-                        onToggle = { id ->
-                            val next = if (id in picked) picked - id else picked + id
-                            patch(UpdateAgentPatch(skillIds = next))
-                        },
-                        trigger = { open ->
-                            PickerValueRow(
-                                label = Skills.AGENT_ROW_LABEL,
-                                // The picked names, the one multi summary; `None` at zero.
-                                value = agentSkillsValue(teamSkills.filter { it.id in picked }.map { it.name }),
-                                onClick = open,
-                                enabled = editable && teamSkills.isNotEmpty(),
-                                modifier = Modifier.testTag("agent-settings-skills"),
-                            )
-                        },
-                    )
-                }
+                { AgentSkillsRow(row, teamSkills, editable) { patch(it) } }
             },
             // #EXP-1793 (agent-settings.json `mcpRow`): the agent's MCP
             // servers, right under Skills; THE composer's MCP servers picker.
             // Shown while the team has a server or the agent names one.
             mcpRow = agent?.takeIf { !isNew }
                 ?.takeIf { AgentSettings.McpRow.visible(teamMcpServers.size, it.mcpServerIdList.size) }
-                ?.let { row ->
-                    {
-                        // Clamped to servers that still exist, in the team list's order.
-                        val saved = row.mcpServerIdList.toSet()
-                        val picked = teamMcpServers.filter { it.id in saved }.map { it.id }
-                        McpServerPicker(
-                            servers = teamMcpServers,
-                            value = picked,
-                            onToggle = { id ->
-                                val next = if (id in picked) picked - id else picked + id
-                                patch(UpdateAgentPatch(mcpServerIds = next))
-                            },
-                            title = AgentSettings.McpRow.LABEL,
-                            trigger = { open ->
-                                PickerValueRow(
-                                    label = AgentSettings.McpRow.LABEL,
-                                    // The picked names, the one multi summary; `None` at zero.
-                                    value = agentMcpServersValue(teamMcpServers.filter { it.id in saved }.map { it.name }),
-                                    onClick = open,
-                                    enabled = editable && teamMcpServers.isNotEmpty(),
-                                    modifier = Modifier.testTag(AgentSettings.McpRow.TEST_ID),
-                                )
-                            },
-                        )
-                    }
-                },
+                ?.let { row -> { AgentMcpRow(row, teamMcpServers, editable) { patch(it) } } },
             modifier = Modifier
                 .padding(padding)
                 .consumeWindowInsets(padding)
@@ -738,7 +691,6 @@ internal fun AgentSettingsContent(
     fun errorOf(field: String) = errors.firstOrNull { it.field == field }?.message
     fun label(field: String) = AgentSettings.FIELDS.first { it.key == field }.label
     val device = devices.firstOrNull { it.id == deviceId }
-    val account = accountValueKey?.let { key -> accounts.firstOrNull { it.key == key } }
 
     Column(
         modifier = modifier
@@ -792,67 +744,22 @@ internal fun AgentSettingsContent(
         // ── Runs on: Device, Account, Model, Skills, MCP servers ─────────
         SectionHeader(AgentSettings.Copy.RUNS_ON, modifier = Modifier.padding(horizontal = 16.dp))
         OptionGroup {
-            DevicePicker(
+            AgentRunsOnRows(
                 devices = devices,
-                value = deviceId,
-                onChange = onDeviceChange,
-                title = label(AgentSettings.FIELD_DEVICE),
-                trigger = { open ->
-                    PickerValueRow(
-                        label = label(AgentSettings.FIELD_DEVICE),
-                        // EXP-1554: the value is the machine alone (×4); the
-                        // owner suffix only tells picker rows apart.
-                        value = device?.name?.substringBefore(" — ") ?: "Select",
-                        onClick = open,
-                        enabled = editable,
-                        modifier = Modifier.testTag("agent-settings-device"),
-                    )
-                },
+                deviceId = deviceId,
+                onDeviceChange = onDeviceChange,
+                deviceValue = device?.name?.substringBefore(" — ") ?: "Select",
+                accounts = accounts,
+                accountValueKey = accountValueKey,
+                onAccountChange = onAccountChange,
+                editable = editable,
+                model = model,
+                modelOptions = modelOptions,
+                modelCli = modelCli,
+                onModelChange = onModelChange,
+                skillsRow = skillsRow,
+                mcpRow = mcpRow,
             )
-            GroupDivider()
-            AccountPicker(
-                options = accounts,
-                value = account?.key,
-                onChange = onAccountChange,
-                trigger = { open ->
-                    // EXP-1306: the composer chip's value — the brand mark + the
-                    // email; no login reported = `Last used`, muted.
-                    PickerValueRow(
-                        label = label(AgentSettings.FIELD_ACCOUNT),
-                        value = account?.email ?: AgentSettings.Copy.ACCOUNT_LAST_USED,
-                        valueAgent = account?.agent,
-                        onClick = open,
-                        enabled = editable && accounts.isNotEmpty(),
-                        modifier = Modifier.testTag("agent-settings-account"),
-                    )
-                },
-            )
-            GroupDivider()
-            // agent-settings.json `modelValueCases`: unpinned = the default
-            // for the login's CLI, any agent's.
-            val shownModel = AgentSettings.Assistant.modelValue(model, modelCli)
-            com.exponential.app.ui.components.picker.ModelPicker(
-                options = modelOptions.map { com.exponential.app.ui.components.picker.ModelPickerOption(it, com.exponential.app.ui.components.modelLabel(it)) },
-                value = shownModel,
-                onChange = onModelChange,
-                trigger = { open ->
-                    PickerValueRow(
-                        label = "Model",
-                        value = com.exponential.app.ui.components.modelLabel(shownModel),
-                        onClick = open,
-                        enabled = editable && modelOptions.isNotEmpty(),
-                        modifier = Modifier.testTag("agent-settings-model"),
-                    )
-                },
-            )
-            if (skillsRow != null) {
-                GroupDivider()
-                skillsRow()
-            }
-            if (mcpRow != null) {
-                GroupDivider()
-                mcpRow()
-            }
         }
         FieldErrors(listOfNotNull(errorOf(AgentSettings.FIELD_DEVICE)))
         Spacer(Modifier.height(12.dp))
@@ -911,6 +818,162 @@ internal fun AgentSettingsContent(
         }
         Spacer(Modifier.height(24.dp))
     }
+}
+
+/**
+ * #EXP-1846 (agent-settings.json `page` › `runs-on`): THE Runs on rows
+ * (Device, Account, Model, Skills, MCP servers) inside the caller's group.
+ * #EXP-1849 (apps.json `agentSlot`): the App settings' Agent group mounts
+ * the same rows; [runner] false = no Account and Model (an empty slot).
+ */
+@Composable
+internal fun AgentRunsOnRows(
+    devices: List<DevicePickerDevice>,
+    deviceId: String?,
+    onDeviceChange: (String) -> Unit,
+    deviceValue: String,
+    accounts: List<AccountPickerOption>,
+    accountValueKey: String?,
+    onAccountChange: (String) -> Unit,
+    editable: Boolean,
+    model: String?,
+    modelOptions: List<String>,
+    modelCli: String?,
+    onModelChange: (String) -> Unit,
+    skillsRow: (@Composable () -> Unit)?,
+    mcpRow: (@Composable () -> Unit)?,
+    deviceLabel: String = AgentSettings.FIELDS.first { it.key == AgentSettings.FIELD_DEVICE }.label,
+    /** The Device sheet's headline (#EXP-1849: the slot's `Runs on`). */
+    deviceTitle: String = deviceLabel,
+    runner: Boolean = true,
+) {
+    val account = accountValueKey?.let { key -> accounts.firstOrNull { it.key == key } }
+    DevicePicker(
+        devices = devices,
+        value = deviceId,
+        onChange = onDeviceChange,
+        title = deviceTitle,
+        trigger = { open ->
+            PickerValueRow(
+                label = deviceLabel,
+                // EXP-1554: the value is the machine alone (×4); the
+                // owner suffix only tells picker rows apart.
+                value = deviceValue,
+                onClick = open,
+                enabled = editable,
+                modifier = Modifier.testTag("agent-settings-device"),
+            )
+        },
+    )
+    if (runner) {
+        GroupDivider()
+        AccountPicker(
+            options = accounts,
+            value = account?.key,
+            onChange = onAccountChange,
+            trigger = { open ->
+                // EXP-1306: the composer chip's value — the brand mark + the
+                // email; no login reported = `Last used`, muted.
+                PickerValueRow(
+                    label = AgentSettings.FIELDS.first { it.key == AgentSettings.FIELD_ACCOUNT }.label,
+                    value = account?.email ?: AgentSettings.Copy.ACCOUNT_LAST_USED,
+                    valueAgent = account?.agent,
+                    onClick = open,
+                    enabled = editable && accounts.isNotEmpty(),
+                    modifier = Modifier.testTag("agent-settings-account"),
+                )
+            },
+        )
+        GroupDivider()
+        // agent-settings.json `modelValueCases`: unpinned = the default
+        // for the login's CLI, any agent's.
+        val shownModel = AgentSettings.Assistant.modelValue(model, modelCli)
+        com.exponential.app.ui.components.picker.ModelPicker(
+            options = modelOptions.map { com.exponential.app.ui.components.picker.ModelPickerOption(it, com.exponential.app.ui.components.modelLabel(it)) },
+            value = shownModel,
+            onChange = onModelChange,
+            trigger = { open ->
+                PickerValueRow(
+                    label = "Model",
+                    value = com.exponential.app.ui.components.modelLabel(shownModel),
+                    onClick = open,
+                    enabled = editable && modelOptions.isNotEmpty(),
+                    modifier = Modifier.testTag("agent-settings-model"),
+                )
+            },
+        )
+    }
+    if (skillsRow != null) {
+        GroupDivider()
+        skillsRow()
+    }
+    if (mcpRow != null) {
+        GroupDivider()
+        mcpRow()
+    }
+}
+
+/** #EXP-1661 (skills.json `agentRow`): the agent's default skills (owners
+ *  edit, members read), clamped to skills that still exist. */
+@Composable
+internal fun AgentSkillsRow(
+    row: com.exponential.app.data.db.AgentDefinitionEntity,
+    teamSkills: List<com.exponential.app.domain.SkillOption>,
+    editable: Boolean,
+    patch: (UpdateAgentPatch) -> Unit,
+) {
+    val known = teamSkills.mapTo(HashSet()) { it.id }
+    val picked = row.skillIdList.filter { it in known }
+    SkillPicker(
+        skills = teamSkills,
+        value = picked,
+        onToggle = { id ->
+            val next = if (id in picked) picked - id else picked + id
+            patch(UpdateAgentPatch(skillIds = next))
+        },
+        trigger = { open ->
+            PickerValueRow(
+                label = Skills.AGENT_ROW_LABEL,
+                // The picked names, the one multi summary; `None` at zero.
+                value = agentSkillsValue(teamSkills.filter { it.id in picked }.map { it.name }),
+                onClick = open,
+                enabled = editable && teamSkills.isNotEmpty(),
+                modifier = Modifier.testTag("agent-settings-skills"),
+            )
+        },
+    )
+}
+
+/** #EXP-1793 (agent-settings.json `mcpRow`): the agent's MCP servers, in
+ *  the team list's order, clamped to servers that still exist. */
+@Composable
+internal fun AgentMcpRow(
+    row: com.exponential.app.data.db.AgentDefinitionEntity,
+    teamMcpServers: List<com.exponential.app.domain.McpServerOption>,
+    editable: Boolean,
+    patch: (UpdateAgentPatch) -> Unit,
+) {
+    val saved = row.mcpServerIdList.toSet()
+    val picked = teamMcpServers.filter { it.id in saved }.map { it.id }
+    McpServerPicker(
+        servers = teamMcpServers,
+        value = picked,
+        onToggle = { id ->
+            val next = if (id in picked) picked - id else picked + id
+            patch(UpdateAgentPatch(mcpServerIds = next))
+        },
+        title = AgentSettings.McpRow.LABEL,
+        trigger = { open ->
+            PickerValueRow(
+                label = AgentSettings.McpRow.LABEL,
+                // The picked names, the one multi summary; `None` at zero.
+                value = agentMcpServersValue(teamMcpServers.filter { it.id in saved }.map { it.name }),
+                onClick = open,
+                enabled = editable && teamMcpServers.isNotEmpty(),
+                modifier = Modifier.testTag(AgentSettings.McpRow.TEST_ID),
+            )
+        },
+    )
 }
 
 /** [onBlur] fires when focus LEAVES the field (never on the first,

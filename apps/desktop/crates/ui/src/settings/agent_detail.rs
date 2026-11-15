@@ -34,6 +34,7 @@ use serde_json::{json, Value};
 use sync::Store;
 
 use domain::agent_settings::{agent_account_value, validate_agent_form, AgentAccountOption, AgentForm, AGENT_SETTINGS};
+use domain::apps::APPS;
 use domain::rows::AgentDefRow;
 use eui_gpui::binding::Binding;
 use eui_gpui::host::HostPlugin;
@@ -76,6 +77,8 @@ pub(crate) struct AgentDevice {
     pub(crate) online: bool,
     /// The signed-in user's DEFAULT machine (EXP-622) — a new agent seeds to it.
     pub(crate) is_default: bool,
+    /// #EXP-1849: shared with the agent's team (an app agent's slot).
+    pub(crate) team_shared: bool,
     /// The agent CLIs the machine advertises.
     agents: Vec<String>,
     /// Its `agent_accounts` / `agent_usage` payloads (the account picker).
@@ -147,6 +150,7 @@ pub(crate) fn agent_devices(team_id: &str, cx: &App) -> Vec<AgentDevice> {
                     .as_deref()
                     .is_some_and(|me| row.user_id.as_deref() == Some(me))
                     && row.is_default.unwrap_or(false),
+                team_shared: row.is_shared_with(team_id),
                 agents,
                 accounts: crate::device_settings::parse_agent_map(row.agent_accounts.as_ref()),
                 usage: crate::device_settings::parse_agent_map(row.agent_usage.as_ref()),
@@ -350,6 +354,10 @@ pub struct AgentDetailPane {
     /// (the settings this IDE last received stand in).
     member_voice: Option<etalk::voice::VoiceSettings>,
     member_voice_requested: bool,
+    /// #EXP-1849 (apps.json `agentSlot`): THE app agent's slot, the App
+    /// settings' Agent group (`Some(editor)`): only the Runs on rows, the
+    /// device = `Each member's own device` or a team-shared one.
+    slot: Option<bool>,
     binding: Entity<Binding<Value>>,
     view: Entity<SurfaceView>,
     /// The bench's owner flag (headless has no signed-in member).
@@ -366,6 +374,10 @@ const PATH: &str = "/pane";
 
 impl AgentDetailPane {
     pub fn new(nav: Entity<Navigation>, shared: Entity<RailShared>, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        Self::mount(nav, shared, false, window, cx)
+    }
+
+    fn mount(nav: Entity<Navigation>, shared: Entity<RailShared>, slot: bool, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let collections = Store::global(cx).collections().clone();
         let subscriptions = vec![
             cx.observe(&nav, |_, _, cx| cx.notify()),
@@ -399,7 +411,11 @@ impl AgentDetailPane {
         });
         let plugin: Rc<dyn HostPlugin> = Rc::new(PanePlugin { pane: cx.weak_entity(), inner: super::doc::ide_plugin() });
         let wake_placeholder = domain::agent_settings::agent_wake_phrase_placeholder("");
-        let view = super::doc::mount_with("settings-agent", document(&Ink::of(cx), &Chrome::of(cx), &wake_placeholder), &binding, plugin, true, window, cx);
+        let view = if slot {
+            super::doc::mount_with("settings-app-agent", slot_document(&Ink::of(cx)), &binding, plugin, true, window, cx)
+        } else {
+            super::doc::mount_with("settings-agent", document(&Ink::of(cx), &Chrome::of(cx), &wake_placeholder), &binding, plugin, true, window, cx)
+        };
         Self {
             nav,
             shared,
@@ -421,6 +437,7 @@ impl AgentDetailPane {
             wake_placeholder,
             member_voice: None,
             member_voice_requested: false,
+            slot: slot.then_some(false),
             binding,
             view,
             #[cfg(test)]
@@ -437,6 +454,25 @@ impl AgentDetailPane {
         let mut pane = Self::new(nav, shared, window, cx);
         pane.fixed_agent = Some(agent_id);
         pane
+    }
+
+    /// #EXP-1849 (apps.json `agentSlot`): the App settings' Agent group over
+    /// the app's agent `agent_id`; read-only until [`Self::set_slot_editor`].
+    pub(crate) fn for_app_slot(agent_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        let nav = crate::navigation::nav_for_window(window, cx);
+        let shared = crate::sidebar::rail_shared_for_window(window, cx);
+        let mut pane = Self::mount(nav, shared, true, window, cx);
+        pane.fixed_agent = Some(agent_id);
+        pane
+    }
+
+    /// #EXP-1849: the slot's editors = the app's creator and the team's
+    /// owners (the app pane's `can_manage`).
+    pub(crate) fn set_slot_editor(&mut self, editor: bool, cx: &mut gpui::Context<Self>) {
+        if self.slot.is_some() && self.slot != Some(editor) {
+            self.slot = Some(editor);
+            cx.notify();
+        }
     }
 
     /// The bench's page of `agent_id` (its row seeded into the store).
@@ -491,6 +527,9 @@ impl AgentDetailPane {
         #[cfg(test)]
         if let Some(owner) = self.shot_owner {
             return owner;
+        }
+        if let Some(editor) = self.slot {
+            return editor;
         }
         agent_triggers::editor_of(agent, team_id, cx)
     }
@@ -931,6 +970,10 @@ impl AgentDetailPane {
     /// (NEW-99 `runsOnCases`) desktops only, a bound non-desktop kept.
     fn devices(&self, agent: &AgentDefRow, team_id: &str, cx: &App) -> Vec<AgentDevice> {
         let all = agent_devices(team_id, cx);
+        // #EXP-1849: an app agent's slot = a device shared with the team.
+        if self.slot.is_some() {
+            return all.into_iter().filter(|device| device.team_shared).collect();
+        }
         if !agent.is_assistant() {
             return all;
         }
@@ -967,6 +1010,12 @@ impl AgentDetailPane {
             "color" if !value.is_empty() => update_agent(cx, "change", "the agent's color", api::agents::UpdateInput { color: Some(Some(value)), ..api::agents::UpdateInput::new(agent_id) }),
             // A machine re-binds the agent and drops its account pin (a
             // profile id is device-local, EXP-995).
+            // #EXP-1849: `Each member's own device` empties an app agent's slot.
+            "device" if self.slot.is_some() && value == EACH_MEMBER => {
+                if agent.device_id.as_deref().is_some_and(|id| !id.is_empty()) {
+                    update_agent(cx, "change", "the agent's device", api::agents::UpdateInput { device_id: Some(String::new()), ..api::agents::UpdateInput::new(agent_id) })
+                }
+            }
             "device" if !value.is_empty() && agent.device_id.as_deref() != Some(value.as_str()) => {
                 update_agent(cx, "change", "the agent's device", api::agents::UpdateInput { device_id: Some(value), account: Some(None), ..api::agents::UpdateInput::new(agent_id) })
             }
@@ -1036,11 +1085,30 @@ impl AgentDetailPane {
                 option
             })
             .collect();
-        if let Some(bound) = agent.device_id.as_deref() {
+        let bound_device = agent.device_id.as_deref().filter(|id| !id.is_empty());
+        if let Some(bound) = bound_device {
             if !devices.iter().any(|device| device.device_id == bound) {
                 device_options.push(json!({"label": bound, "value": bound}));
             }
         }
+        // #EXP-1849 (apps.json `agentSlot`): the slot picker = `Each member's
+        // own device`, then the team-shared devices (offline ones disabled);
+        // Account and Model only while a device is set.
+        let slot = self.slot.is_some();
+        if slot {
+            for (option, device) in device_options.iter_mut().zip(devices.iter()) {
+                if !device.online {
+                    option["disabled"] = json!(true);
+                }
+            }
+            device_options.insert(0, json!({"label": APPS.agent_slot.copy.each_member, "value": EACH_MEMBER}));
+        }
+        let device_value = match bound_device {
+            Some(id) => id.to_string(),
+            None if slot => EACH_MEMBER.to_string(),
+            None => String::new(),
+        };
+        let has_device = !slot || bound_device.is_some();
         // The Account row: THE account picker over the bound machine's
         // logins (brand mark + email), "Last used" when it reports none.
         let account_options_list = agent.device_id.as_deref().and_then(|id| devices.iter().find(|device| device.device_id == id)).map(account_options).unwrap_or_default();
@@ -1098,8 +1166,9 @@ impl AgentDetailPane {
                 "wakeInvalid": self.wake_invalid.clone().unwrap_or_default(),
                 "hasWakeInvalid": self.wake_invalid.is_some(),
             },
-            "device": {"value": agent.device_id.clone().unwrap_or_default(), "options": device_options},
-            "account": {"has": current.is_some(), "none": current.is_none(), "value": current.as_ref().map(|option| option.account_option_key()).unwrap_or_default(), "options": logins},
+            "device": {"value": device_value, "options": device_options},
+            "hasDevice": has_device,
+            "account": {"has": has_device && current.is_some(), "none": has_device && current.is_none(), "value": current.as_ref().map(|option| option.account_option_key()).unwrap_or_default(), "options": logins},
             "skills": {"value": picked.iter().map(|skill| skill.id.as_str()).collect::<Vec<_>>().join(","), "summary": domain::skills::agent_skills_value(&names), "empty": names.is_empty(), "some": !names.is_empty(),
                 "options": rows.iter().map(|skill| {
                     // THE skills picker's row: the docs glyph, the name, the description caption.
@@ -1140,14 +1209,17 @@ impl Render for AgentDetailPane {
         let Some(agent) = agent else {
             return div().into_any_element();
         };
-        self.sync_selected_agent(&agent, window, cx);
+        // #EXP-1849: the slot shows no name or instructions to seed.
+        if self.slot.is_none() {
+            self.sync_selected_agent(&agent, window, cx);
+        }
         let team_id = agent.team_id.clone().or_else(|| active_team_id(&self.nav, cx)).unwrap_or_default();
         self.ensure_mcp_loaded(&team_id, cx);
         self.ensure_member_voice(cx);
         // #EXP-1847: the wake phrase's placeholder names the agent (a
         // static prop): a renamed agent rebuilds the tree.
         let placeholder = domain::agent_settings::agent_wake_phrase_placeholder(agent.name.as_deref().unwrap_or_default());
-        if placeholder != self.wake_placeholder {
+        if self.slot.is_none() && placeholder != self.wake_placeholder {
             let tree: eui_core::NestedNode = serde_json::from_value(document(&Ink::of(cx), &Chrome::of(cx), &placeholder)).expect("the agent document parses");
             self.view.update(cx, |view, cx| {
                 view.set_nested(tree, cx);
@@ -1157,6 +1229,9 @@ impl Render for AgentDetailPane {
         let projection = self.project(&agent, &team_id, cx);
         self.binding.update(cx, |binding, cx| binding.update_state(|state| *state = projection, cx));
         let page = div().w_full().min_w_0().child(self.view.clone());
+        if self.slot.is_some() {
+            return gpui::InteractiveElement::id(page, SharedString::from(APPS.agent_slot.test_id.clone())).into_any_element();
+        }
         if !agent.is_assistant() {
             return page.into_any_element();
         }
@@ -1217,6 +1292,10 @@ impl HostPlugin for PanePlugin {
 }
 
 /// The Skills row (owners pick, members read).
+/// #EXP-1849: the slot picker's `Each member's own device` value (writes
+/// `deviceId: ""`).
+const EACH_MEMBER: &str = "__each-member__";
+
 fn skills_rows(ink: &Ink) -> [Value; 2] {
     let label = domain::skills::AGENT_ROW_LABEL;
     let mut pick = select_row("skills", label, "skills", "skills", json!({"multiple": true, "searchable": true, "placeholder": domain::skills::agent_skills_value(&[])}));
@@ -1288,6 +1367,36 @@ fn banded(ink: &Ink, id: &str, label: &str, group: Value) -> Value {
     json!({"id": id, "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%"}, "children": [ink.band(&format!("{id}_band"), label, None), group]})
 }
 
+/// The Runs on rows: device, account, model, skills, MCP servers (members
+/// read; account and model only while `/pane/hasDevice`).
+fn runs_on_rows(ink: &Ink) -> Vec<Value> {
+    let read_only = |mut row: Value| {
+        row["props"]["disabled"] = path("/pane/member");
+        row
+    };
+    let [skills_pick, skills_read] = skills_rows(ink);
+    let [mcp_pick, mcp_read] = mcp_rows(ink);
+    let [account_pick, account_none] = account_rows(ink);
+    let mut model = read_only(select_row("model", crate::chat_screen::MENU_MODEL, "model", "model", json!({})));
+    model["visible"] = path("/pane/hasDevice");
+    let mut runs_on = vec![read_only(device_row())];
+    runs_on.extend(divided(ink, read_only(account_pick)));
+    runs_on.extend(divided(ink, account_none));
+    runs_on.extend(divided(ink, model));
+    runs_on.extend(divided(ink, skills_pick));
+    runs_on.extend(divided(ink, skills_read));
+    runs_on.extend(divided(ink, mcp_pick));
+    runs_on.extend(divided(ink, mcp_read));
+    runs_on
+}
+
+/// #EXP-1849 (apps.json `agentSlot`): the App settings' Agent group: the
+/// section header `copy.title` over THE Runs on rows.
+fn slot_document(ink: &Ink) -> Value {
+    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "maxWidth": APPS.editor_tabs.settings_max_width},
+        "children": [banded(ink, "agent_slot", &APPS.agent_slot.copy.title, ink.group("agent_slot_group", runs_on_rows(ink)))]})
+}
+
 /// The pane's tree (`gap_4`, #EXP-1846 `page`): identity; Runs on; the
 /// Triggers list; Voice (#EXP-1847: every agent's rows; the Assistant's
 /// member block follows the document); Instructions, the error and the
@@ -1301,21 +1410,7 @@ fn document(ink: &Ink, chrome: &Chrome, wake_placeholder: &str) -> Value {
     mark_identity["visible"] = path("/pane/assistant");
     let identity_group = ink.group("identity_group", vec![agent_identity, mark_identity]);
     // Runs on: device, account, model, skills, MCP servers (members read).
-    let read_only = |mut row: Value| {
-        row["props"]["disabled"] = path("/pane/member");
-        row
-    };
-    let [skills_pick, skills_read] = skills_rows(ink);
-    let [mcp_pick, mcp_read] = mcp_rows(ink);
-    let [account_pick, account_none] = account_rows(ink);
-    let mut runs_on = vec![read_only(device_row())];
-    runs_on.extend(divided(ink, read_only(account_pick)));
-    runs_on.extend(divided(ink, account_none));
-    runs_on.extend(divided(ink, read_only(select_row("model", crate::chat_screen::MENU_MODEL, "model", "model", json!({})))));
-    runs_on.extend(divided(ink, skills_pick));
-    runs_on.extend(divided(ink, skills_read));
-    runs_on.extend(divided(ink, mcp_pick));
-    runs_on.extend(divided(ink, mcp_read));
+    let runs_on = runs_on_rows(ink);
     let voice_copy = &domain::agent_settings::AGENT_VOICE.copy;
     let wake_invalid = field_error(ink, chrome, "voice_wake_invalid", path("/pane/voice/wakeInvalid"), path("/pane/voice/hasWakeInvalid"));
     let voice = json!({"id": "voice", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%"},
@@ -1385,6 +1480,21 @@ mod tests {
         let wake = serde_json::to_string(&tree).unwrap();
         assert!(wake.contains("\"placeholder\":\"Hey Sloppy\""));
         assert!(wake.contains(&domain::agent_settings::AGENT_VOICE.copy.transcript_placeholder));
+    }
+
+    /// #EXP-1849: the App settings' Agent group raises none either, and
+    /// heads with the fixture's title.
+    #[test]
+    fn the_slot_document_raises_no_unexpected_issue() {
+        let tree = slot_document(&super::super::readiness::tests::test_ink());
+        let bound = super::super::doc::bound_values(&tree);
+        let mut surface = eui_core::surface::Surface::new("settings-app-agent", Default::default());
+        let outcome = surface.set_nested(serde_json::from_value(tree.clone()).expect("parses"));
+        let issues = super::super::doc::unexpected_issues(&bound, &outcome.issues);
+        assert!(issues.is_empty(), "{issues:?}");
+        assert!(tree.to_string().contains(&format!("\"{}\"", APPS.agent_slot.copy.title)));
+        assert_eq!(APPS.agent_slot.copy.title, "Agent");
+        assert_eq!(APPS.agent_slot.copy.each_member, "Each member's own device");
     }
 
     fn option(agent: &str, id: &str, is_last_used: bool) -> coding::AccountOption {

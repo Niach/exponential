@@ -1,6 +1,8 @@
+import { useApps } from "@/hooks/use-apps"
 import { useEffect, useState } from "react"
-import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
+import { createFileRoute, Navigate, redirect, useNavigate } from "@tanstack/react-router"
 import {
+  FAB_CLEARANCE_CLASS,
   BoardGlyph,
   conceptIcon,
   EmptyState,
@@ -99,12 +101,20 @@ function AgentChannelPage() {
   const voiceCall = useVoiceCall(agentId)
   usePageTitle(agent?.name ? pageTitle(agent.name, CHATS_LIST_COPY.agents) : undefined)
 
+  const { apps: teamApps } = useApps(team?.id)
+  const ownApp = teamApps.find((app) => app.row?.agentId === agentId) ?? null
   const [graceOver, setGraceOver] = useState(false)
   useEffect(() => {
     setGraceOver(false)
     const timer = setTimeout(() => setGraceOver(true), SYNC_GRACE_MS)
     return () => clearTimeout(timer)
   }, [agentId])
+
+  // #EXP-1849: an app's agent has no page of its own: its chat with you is
+  // the app's (the editor).
+  if (ownApp) {
+    return <Navigate to="/t/$teamSlug/app-editor/$appSlug" params={{ teamSlug, appSlug: ownApp.slug }} replace />
+  }
 
   if (!team || !agent) {
     if (team && isReady && graceOver) {
@@ -299,7 +309,7 @@ function AgentChannelPage() {
       item={
         screen.open === `settings` ? (
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-testid="session-settings">
-            <div className="mx-auto w-full max-w-3xl px-4 pt-4 pb-10">{parts.settings}</div>
+            <div className={`mx-auto w-full max-w-3xl px-4 pt-4 pb-10 ${FAB_CLEARANCE_CLASS}`}>{parts.settings}</div>
           </div>
         ) : null
       }

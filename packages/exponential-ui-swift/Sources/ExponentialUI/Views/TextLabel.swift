@@ -17,6 +17,31 @@ struct TextLabel: UIViewRepresentable {
     final class Label: UILabel {
         var halfLeading: CGFloat = 0
         var rtl = false
+        /// The runs and the break `lines` asks for; `fitBreak` paints them
+        /// (without the ellipsis when the measured line fits).
+        var source = NSAttributedString()
+        var wantedLines = 0
+        var wantedBreak: NSLineBreakMode = .byWordWrapping
+        private var fitted: (source: NSAttributedString, mode: NSLineBreakMode)?
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            fitBreak()
+        }
+
+        /// VAPP-166: a line the measurer fitted in this box never truncates.
+        func fitBreak() {
+            let scale = window?.screen.scale ?? traitCollection.displayScale
+            let fits = wantedBreak == .byTruncatingTail && TextLabel.fitsOneLine(source, width: bounds.width, scale: scale)
+            let mode: NSLineBreakMode = fits ? .byClipping : wantedBreak
+            if fitted?.source !== source || fitted?.mode != mode {
+                fitted = (source, mode)
+                attributedText = TextLabel.breaking(source, mode)
+            }
+            let lines = fits ? 1 : wantedLines
+            if numberOfLines != lines { numberOfLines = lines }
+            if lineBreakMode != mode { lineBreakMode = mode }
+        }
 
         override func drawText(in rect: CGRect) {
             // TextKit sits the glyphs at the BOTTOM of a pinned line (the
@@ -41,11 +66,12 @@ struct TextLabel: UIViewRepresentable {
     func updateUIView(_ label: Label, context: Context) {
         let rtl = context.environment.xuiRTL
         let shaped = TextLabel.shaped(attributed, context.environment.xuiTextPaint, rtl: rtl)
-        label.attributedText = shaped
+        label.source = shaped
         label.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
         label.rtl = rtl
-        label.numberOfLines = wraps ? (lines ?? 0) : 1
-        label.lineBreakMode = wraps ? ((lines ?? 0) > 0 ? .byTruncatingTail : .byWordWrapping) : .byClipping
+        label.wantedLines = wraps ? (lines ?? 0) : 1
+        label.wantedBreak = wraps ? ((lines ?? 0) > 0 ? .byTruncatingTail : .byWordWrapping) : .byClipping
+        label.fitBreak()
         label.halfLeading = shaped.length > 0 ? (shaped.attribute(.init("ExponentialUI.halfLeading"), at: 0, effectiveRange: nil) as? CGFloat ?? 0) : 0
         label.textAlignment = (shaped.length > 0 ? (shaped.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)?.alignment : nil) ?? .natural
     }
@@ -166,7 +192,39 @@ struct TextLabel: NSViewRepresentable {
 
     final class Label: NSTextField {
         var halfLeading: CGFloat = 0
+        /// The runs and the break `lines` asks for; `fitBreak` paints them
+        /// (without the ellipsis when the measured line fits).
+        var source = NSAttributedString()
+        var wantedLines = 0
+        var wantedBreak: NSLineBreakMode = .byWordWrapping
+        var wantedWraps = true
+        private var fitted: (source: NSAttributedString, mode: NSLineBreakMode)?
         override var isFlipped: Bool { true }
+
+        override func setFrameSize(_ newSize: NSSize) {
+            super.setFrameSize(newSize)
+            fitBreak()
+        }
+
+        /// VAPP-166: a line the measurer fitted in this box never truncates
+        /// (the box = the frame less the field's alignment insets).
+        func fitBreak() {
+            let scale = window?.backingScaleFactor ?? 2
+            let insets = alignmentRectInsets
+            let fits = wantedBreak == .byTruncatingTail && TextLabel.fitsOneLine(source, width: bounds.width - insets.left - insets.right, scale: scale)
+            let mode: NSLineBreakMode = fits ? .byClipping : wantedBreak
+            if fitted?.source !== source || fitted?.mode != mode {
+                fitted = (source, mode)
+                attributedStringValue = TextLabel.breaking(source, mode)
+            }
+            let lines = fits ? 1 : wantedLines
+            if maximumNumberOfLines != lines { maximumNumberOfLines = lines }
+            // `wraps` first: setting it resets the cell's break mode.
+            let wraps = !fits && wantedWraps
+            if cell?.wraps != wraps { cell?.wraps = wraps }
+            if lineBreakMode != mode { lineBreakMode = mode }
+        }
+
         override class var cellClass: AnyClass? {
             get { Cell.self }
             set {}
@@ -205,10 +263,11 @@ struct TextLabel: NSViewRepresentable {
         if shifted.length > 0, let half = shifted.attribute(.init("ExponentialUI.halfLeading"), at: 0, effectiveRange: nil) as? CGFloat, half > 0 {
             shifted.addAttribute(.baselineOffset, value: half, range: NSRange(location: 0, length: shifted.length))
         }
-        label.attributedStringValue = shifted
-        label.maximumNumberOfLines = wraps ? (lines ?? 0) : 1
-        label.lineBreakMode = wraps ? ((lines ?? 0) > 0 ? .byTruncatingTail : .byWordWrapping) : .byClipping
-        label.cell?.wraps = wraps
+        label.source = shifted
+        label.wantedLines = wraps ? (lines ?? 0) : 1
+        label.wantedBreak = wraps ? ((lines ?? 0) > 0 ? .byTruncatingTail : .byWordWrapping) : .byClipping
+        label.wantedWraps = wraps
+        label.fitBreak()
         label.baseWritingDirection = rtl ? .rightToLeft : .leftToRight
         label.alignment = (shifted.length > 0 ? (shifted.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)?.alignment : nil) ?? .natural
         // `userSelect: text` opts a label into selection (contract §2);
@@ -223,6 +282,29 @@ struct TextLabel: NSViewRepresentable {
 #endif
 
 extension TextLabel {
+    /// VAPP-166: does the text fit `width` on ONE line, give or take the
+    /// view system's pixel snapping (the `paintRect` slack)? The core sized
+    /// the box to the measured width, so a fitting line must paint whole:
+    /// TextKit's own fit test ceils and pads differently and tail-truncated
+    /// a 24 px "spezl" to "spe…" in a box exactly its measured width.
+    static func fitsOneLine(_ text: NSAttributedString, width: CGFloat, scale: CGFloat) -> Bool {
+        guard text.length > 0, !text.string.contains(where: TextShaper.isNewline) else { return false }
+        return TextShaper.lineWidth(text) <= width + 2 / max(scale, 1) + 0.001
+    }
+
+    /// `text` with every paragraph's break mode set to `mode` (TextKit
+    /// truncates by the paragraph style, whatever the label's mode says).
+    static func breaking(_ text: NSAttributedString, _ mode: NSLineBreakMode) -> NSAttributedString {
+        let out = NSMutableAttributedString(attributedString: text)
+        let all = NSRange(location: 0, length: out.length)
+        out.enumerateAttribute(.paragraphStyle, in: all) { value, range, _ in
+            guard let p = (value as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle, p.lineBreakMode != mode else { return }
+            p.lineBreakMode = mode
+            out.addAttribute(.paragraphStyle, value: p, range: range)
+        }
+        return out
+    }
+
     /// The rect a label lays its text out in: its bounds WIDENED by two
     /// device pixels on the side(s) the text grows towards. The frame is the
     /// measurer's width (1/64 px), but the view system snaps it to the

@@ -382,7 +382,7 @@ impl AppDataTab {
 }
 
 impl Render for AppDataTab {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "AppDataTab").entered();
         let (package, records, viewer) = app_state(&self.app_id, self.access.clone(), cx);
         let kinds = data_kinds(package.as_ref(), records.iter().map(|r| r.kind.as_str()));
@@ -502,7 +502,13 @@ impl Render for AppDataTab {
         crate::scroll_pane::v_scroll_pane(
             "app-data-scroll",
             &self.scroll,
-            div().id(SharedString::from(APPS.test_ids.data.clone())).w_full().p_4().child(body),
+            div()
+                .id(SharedString::from(APPS.test_ids.data.clone()))
+                .w_full()
+                .p_4()
+                .child(body)
+                // #EXP-1860: the last row scrolls clear of the Assistant FAB.
+                .child(crate::assistant_fab::page_end(window, cx)),
         )
     }
 }

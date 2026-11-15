@@ -54,6 +54,9 @@ final class SessionDeviceMoveTests: XCTestCase {
     func testPinHiddenForAgents() {
         XCTAssertTrue(SessionDeviceMove.pinVisible(kind: "thread"))
         XCTAssertFalse(SessionDeviceMove.pinVisible(kind: "agent"))
+        // #EXP-1849: an app's root carries the app agent's id and stays movable.
+        XCTAssertTrue(SessionDeviceMove.pinVisible(kind: "agent", appId: "app-1"))
+        XCTAssertFalse(SessionDeviceMove.pinVisible(kind: "agent", appId: ""))
     }
 
     func testPinBlockedSteerBeforeEnded() {

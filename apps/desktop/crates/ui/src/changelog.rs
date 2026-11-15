@@ -46,6 +46,79 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-15-voice-per-agent",
+    date: "2026-11-15",
+    title: "Every agent gets its own voice",
+    summary: "Each agent's settings page has a Voice group: its language, a voice clip, the clip's transcript and its wake phrase. Your voice device speaks each agent's replies in that voice.",
+    body: r##"- **Voice per agent**: every agent's settings page, team agents and the Assistant, has a Voice group with the language, a voice clip (a WAV upload you can remove again), what the clip says and the wake phrase.
+- **Spoken in its voice**: your voice device reads each agent's replies and calls in that agent's own voice. Rows you leave empty use your own voice settings."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_301: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-15-one-chat-per-app",
+    date: "2026-11-15",
+    title: "One chat per app, and where its agent runs",
+    summary: "An app's editor chat is now your chat with the app's agent: one per member, never ended when you leave, and the app's settings pick where it runs.",
+    body: r##"- **One chat per app**: the chat in an app's editor is your own chat with the app's agent. It shows once in Chats (as the app), triggers land in it, and leaving the editor no longer ends it.
+- **Where it runs**: the app's settings have a new Agent group. Runs on each member's own device by default, or pick a device shared with the team to run everyone's chat there, with its account, model, skills and MCP servers.
+- **Same headers everywhere**: every group on an app's settings page now uses the same section header as the agent settings page."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_300: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-15-phones-events-tab-memory",
+    date: "2026-11-15",
+    title: "An Events tab on your phone, and Android stays open in big accounts",
+    summary: "Android 0.14.141 and iOS 0.14.130 bring every app's Events tab, re-seal a chat whose keys changed before sending, and Android keeps a large account inside its memory.",
+    body: r##"- **Events tab**: open an app and pick Events to see its agent's triggers, its webhooks and the last week's runs.
+- **Changed keys**: a message into an encrypted chat whose keys changed meanwhile is re-sealed and sent again once, instead of failing.
+- **Android memory**: a large account syncs one table at a time, so the app no longer closes itself after a while in a big chat or session list."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_299: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-14-app-events-tab",
+    date: "2026-11-14",
+    title: "An Events tab on every app",
+    summary: "Apps get an Events tab beside Preview and Data: the app agent's triggers, the app's webhooks and the runs of the last week.",
+    body: r##"- **Events tab**: open an app and pick Events to see its agent's triggers (schedules, team events, record writes, webhooks), switch them on or off, add schedules and events, and delete the rest.
+- **What each trigger does**: a trigger that runs a binding says what it runs on a second line.
+- **Recent runs**: the last week's runs with their outcome: Ran, Woke agent, Failed, Dropped (over 30 a minute), Paused (the agent's owner can't write) or Refused (a webhook delivery that didn't verify).
+- **Webhooks** moved from the app's settings to the Events tab; the Automations group in settings is gone."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_298: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-14-desktop-chat-shell-folders",
+    date: "2026-11-14",
+    title: "Folders, one chat menu and a floating Assistant on the desktop",
+    summary: "Desktop and CLI 0.14.161 and eDE 0.2.25: sidebar folders you can drag, one chat shell with a single … menu, the floating Assistant, one settings page for every agent, and [Image #N] in chat composers.",
+    body: r##"- **Sidebar folders**: group boards, agents and apps into folders and drag them into the order you want; the order follows you to every device.
+- **One chat shell**: every chat has one … menu, no gear, and your own messages show your avatar on the right.
+- **Floating Assistant**: a round button in the bottom-right corner opens your Assistant's chat over the page.
+- **One agent settings page**: your Assistant and your team agents share one settings page, with a Model, a Check in and triggers for every agent; an app's automations are now its agent's triggers.
+- **Images in the composer**: an image you attach shows up as [Image #1] right where you are typing.
+- **My issues tabs**: a board's My issues lists only your issues on that board."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_297: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-14-android-memory-stopgap",
+    date: "2026-11-14",
+    title: "Android stays open in long sessions",
+    summary: "Android 0.14.140 gives the app more memory, so it no longer crashes over and over on some phones while a large chat or session list is open.",
+    body: r##"- **Fewer crashes**: on phones where Exponential kept closing itself after a while in a big chat, the app now has more room and stays open. A proper fix for the memory use follows."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_296: ChangelogEntry = ChangelogEntry {
     id: "2026-11-14-app-triggers",
     date: "2026-11-14",
     title: "App automations are the app agent's triggers",

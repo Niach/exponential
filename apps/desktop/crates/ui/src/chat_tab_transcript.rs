@@ -90,8 +90,8 @@ pub(crate) struct RowFacts<'a> {
     /// Conversation cards ride it (anchored to its calls, or the head cards
     /// over the first row): it stays the IDE's row.
     pub cards: bool,
-    /// #EXP-1756: a person's prompt carries its `HH:mm` (epoch ms); the
-    /// agent's narration none.
+    /// #EXP-1756 / #EXP-1864: the row's `HH:mm` (epoch ms): a prompt's
+    /// `at`, a narration's first fragment's.
     pub at: Option<i64>,
 }
 
@@ -159,10 +159,9 @@ pub(crate) fn chat_row(facts: &RowFacts) -> ChatRowInput {
         // #EXP-1772: the document draws a relay's name (+ its chevron) above
         // the bubble itself.
         name: facts.layout.filter(|layout| layout.name).and(sender).map(|sender| sender.name.clone()),
-        time: match facts.content {
-            RowContent::Prompt(_) => facts.at.map(crate::session_chat::clock_ms).unwrap_or_default(),
-            _ => String::new(),
-        },
+        // #EXP-1864: every bubble wears its `HH:mm` (a prompt's `at`, a
+        // narration's first fragment's).
+        time: facts.at.map(crate::session_chat::clock_ms).unwrap_or_default(),
         queued: false,
         // #FEED-237: the live transcript's echo of the viewer's own turn
         // reads two checks.
@@ -1078,8 +1077,12 @@ mod tests {
         let ChatRowInput::Message { time, .. } = chat_row(&prompt) else { panic!("a bubble") };
         assert_eq!(time, crate::session_chat::clock_ms(at));
         assert!(!time.is_empty());
+        // #EXP-1864: the agent's narration wears its time too.
         let narration = RowFacts { at: Some(at), ..facts(RowContent::Narration("Done."), None, 0., false) };
         let ChatRowInput::Message { time, .. } = chat_row(&narration) else { panic!("a bubble") };
+        assert_eq!(time, crate::session_chat::clock_ms(at));
+        let unknown = facts(RowContent::Narration("Done."), None, 0., false);
+        let ChatRowInput::Message { time, .. } = chat_row(&unknown) else { panic!("a bubble") };
         assert!(time.is_empty());
     }
 

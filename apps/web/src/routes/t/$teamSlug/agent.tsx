@@ -50,7 +50,7 @@ import {
   useTeamUsers,
 } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
-import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
+import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { MobilePageHeader } from "@/components/team/mobile-page-header"
 import type { Team, User } from "@/db/schema"
 import type { SteerDevice } from "@/lib/steer-devices"
@@ -171,7 +171,7 @@ function AgentRoute() {
   const isMobile = useIsMobile()
   if (dev) {
     return (
-      <div className={`h-full min-h-0 overflow-y-auto p-6 max-md:p-4 ${TAB_BAR_CLEARANCE}`}>
+      <div className={`h-full min-h-0 overflow-y-auto p-6 max-md:p-4 ${PAGE_END_CLEARANCE}`}>
         {dev === `trace` ? (
           <TraceSpecimen />
         ) : dev === `ask-dock` ? (
@@ -334,7 +334,7 @@ function AgentPage() {
             md+ keeps the centred column. */}
         <div
           data-testid={HOME_TEST_IDS.home}
-          className={`mx-auto flex min-h-full w-full max-w-2xl flex-col justify-center px-4 py-6 max-md:justify-end ${TAB_BAR_CLEARANCE}`}
+          className={`mx-auto flex min-h-full w-full max-w-2xl flex-col justify-center px-4 py-6 max-md:justify-end ${PAGE_END_CLEARANCE}`}
           style={keyboard > 0 ? { paddingBottom: keyboard } : undefined}
         >
           <HomeColumn

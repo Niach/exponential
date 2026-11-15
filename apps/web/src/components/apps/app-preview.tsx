@@ -5,7 +5,7 @@ import { A2UI_VERSION, DEFAULT_THEME_ID, navScreens, resolveScreen, screenData, 
 import { HostSurface } from "@exponential_app/eui-react"
 import { swipeBlocked } from "@exponential_app/eui/web"
 import { APPS_COPY, APPS_PREVIEW, APPS_SCREENS, APPS_TEST_IDS, previewTemplate, screenShell, surfaceState } from "@exp/domain-contract/apps"
-import { appReactExtension, conceptIcon, EmptyState, PhoneTab, PhoneTabBar, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "@exp/ui"
+import { FAB_CLEARANCE_CLASS, appReactExtension, conceptIcon, EmptyState, PhoneTab, PhoneTabBar, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "@exp/ui"
 import { AppSurfaceBoundary } from "@/components/apps/app-surface-boundary"
 import { ConsentCard, HostBanner, createAppHost, createConsentGate, type AppHostOptions } from "@/lib/exponential-ui-host"
 import { useIssueRefs } from "@/components/issue-ref-provider"
@@ -260,7 +260,7 @@ function AppPreviewBody({
           ))}
         </SidebarMenu>
       </nav>
-      <div className="relative min-h-0 min-w-0 flex-1 overflow-y-auto border-l border-border" style={{ padding: APPS_PREVIEW.padding }}>
+      <div className={`relative min-h-0 min-w-0 flex-1 overflow-y-auto border-l border-border ${FAB_CLEARANCE_CLASS}`} style={{ padding: APPS_PREVIEW.padding }}>
         {content}
       </div>
     </div>

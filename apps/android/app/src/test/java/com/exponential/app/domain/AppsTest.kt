@@ -63,9 +63,52 @@ class AppsTest {
                     root?.let { Apps.EditorDeviceRoot(it["status"]!!.jsonPrimitive.content, opt(it, "deviceId")) },
                     candidates,
                     opt(case, "remembered"),
+                    opt(case, "slot"),
                 ),
             )
         }
+        // #EXP-1849: the new slot cases ride along.
+        assert(cases.any { it["slot"] != null })
+    }
+
+    // #EXP-1849 (`agentSlot`): the App settings' Agent group copy.
+    @Test
+    fun `agentSlot copy`() {
+        val slot = fixture["agentSlot"]!!.jsonObject
+        val copy = slot["copy"]!!.jsonObject
+        assertEquals(slot["testId"]!!.jsonPrimitive.content, Apps.AgentSlot.TEST_ID)
+        assertEquals(copy["title"]!!.jsonPrimitive.content, Apps.AgentSlot.TITLE)
+        assertEquals(copy["runsOn"]!!.jsonPrimitive.content, Apps.AgentSlot.RUNS_ON)
+        assertEquals(copy["eachMember"]!!.jsonPrimitive.content, Apps.AgentSlot.EACH_MEMBER)
+    }
+
+    // #EXP-1849: the slot picker = Each member's own device + the team-shared
+    // devices only (offline ones disabled); Account and Model need a device.
+    @Test
+    fun `agentSlot picker rows and writes`() {
+        val rows = Apps.AgentSlot.rows(
+            listOf(
+                Apps.AgentSlot.Device("mine", online = true, sharedWithTeam = false),
+                Apps.AgentSlot.Device("build-server", online = true, sharedWithTeam = true),
+                Apps.AgentSlot.Device("old-box", online = false, sharedWithTeam = true),
+            ),
+        )
+        assertEquals(
+            listOf(
+                Apps.AgentSlot.Row(Apps.AgentSlot.EACH_MEMBER_PICK, false),
+                Apps.AgentSlot.Row("build-server", false),
+                Apps.AgentSlot.Row("old-box", true),
+            ),
+            rows,
+        )
+        assertEquals(Apps.AgentSlot.EACH_MEMBER_PICK, Apps.AgentSlot.pick(""))
+        assertEquals(Apps.AgentSlot.EACH_MEMBER_PICK, Apps.AgentSlot.pick(null))
+        assertEquals("build-server", Apps.AgentSlot.pick("build-server"))
+        assertEquals("", Apps.AgentSlot.deviceIdFor(Apps.AgentSlot.EACH_MEMBER_PICK))
+        assertEquals("build-server", Apps.AgentSlot.deviceIdFor("build-server"))
+        assert(!Apps.AgentSlot.showsRunner(null))
+        assert(!Apps.AgentSlot.showsRunner(""))
+        assert(Apps.AgentSlot.showsRunner("build-server"))
     }
 
     // #EXP-1729: `editorHeader` replays `editorHeaderCases` (the whole value)
@@ -493,6 +536,7 @@ class AppsTest {
             "importUpstreams" to Apps.TestIds.IMPORT_UPSTREAMS, "importUpstream" to Apps.TestIds.IMPORT_UPSTREAM,
             "mcpTools" to Apps.TestIds.MCP_TOOLS, "mcpToolRow" to Apps.TestIds.MCP_TOOL_ROW,
             "policies" to Apps.TestIds.POLICIES, "policyRow" to Apps.TestIds.POLICY_ROW,
+            "eventsTab" to Apps.TestIds.EVENTS_TAB, "recentRuns" to Apps.TestIds.RECENT_RUNS, "runRow" to Apps.TestIds.RUN_ROW,
         )
         assertEquals(ids.keys, expectedIds.keys)
         for ((key, value) in expectedIds) assertEquals(ids[key]!!.jsonPrimitive.content, value)
@@ -600,5 +644,46 @@ class AppsTest {
             val got = Apps.withUploadedUrl(value(case["list"]), case["fileName"]!!.jsonPrimitive.content, case["url"]!!.jsonPrimitive.content)
             assertEquals(case.toString(), value(case["expected"])?.json, got?.json)
         }
+    }
+
+    // #EXP-1850 (`eventsTab.runCases`): the Events tab's Recent runs rows.
+    @Test
+    fun `eventRunRow replays runCases`() {
+        val tab = fixture.getValue("eventsTab").jsonObject
+        val cases = tab.getValue("runCases").jsonArray.map { it.jsonObject }
+        org.junit.Assert.assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val run = case.getValue("run").jsonObject
+            fun JsonObject.text(key: String): String? = this[key]?.takeUnless { it is JsonNull }?.jsonPrimitive?.content
+            val triggers = case.getValue("triggers").jsonArray.mapNotNull(::parseAgentTrigger)
+            val row = Apps.eventRunRow(
+                Apps.AppEventRun(run.text("triggerId"), run.text("status")!!, run.text("error"), run.text("tool")!!),
+                triggers,
+            )
+            val expected = case.getValue("expected").jsonObject
+            val name = case.text("name")!!
+            assertEquals(name, expected.text("title"), row.title)
+            assertEquals(name, expected.text("badge"), row.badge.wire)
+            assertEquals(name, expected.text("detail"), row.detail)
+        }
+    }
+
+    @Test
+    fun `the events tab copy is the fixture's`() {
+        val tab = fixture.getValue("eventsTab").jsonObject
+        val copy = tab.getValue("copy").jsonObject
+        assertEquals(tab.getValue("limit").jsonPrimitive.int, Apps.EventsTab.LIMIT)
+        assertEquals(tab.getValue("days").jsonPrimitive.int, Apps.EventsTab.DAYS)
+        assertEquals(tab.getValue("pausedErrors").jsonArray.map { it.jsonPrimitive.content }, Apps.EventsTab.PAUSED_ERRORS)
+        assertEquals(copy.getValue("recentRuns").jsonPrimitive.content, Apps.EventsTab.RECENT_RUNS)
+        assertEquals(copy.getValue("noRuns").jsonPrimitive.content, Apps.EventsTab.NO_RUNS)
+        assertEquals(copy.getValue("removedTrigger").jsonPrimitive.content, Apps.EventsTab.REMOVED_TRIGGER)
+        assertEquals(copy.getValue("badges").jsonObject.mapValues { it.value.jsonPrimitive.content }, Apps.EventsTab.BADGES)
+        assertEquals(copy.getValue("errors").jsonObject.mapValues { it.value.jsonPrimitive.content }, Apps.EventsTab.ERRORS)
+        assertEquals(Apps.AppEventBadge.entries.map { it.wire }.toSet(), Apps.EventsTab.BADGES.keys)
+        val ids = fixture.getValue("testIds").jsonObject
+        assertEquals(ids.getValue("eventsTab").jsonPrimitive.content, Apps.TestIds.EVENTS_TAB)
+        assertEquals(ids.getValue("recentRuns").jsonPrimitive.content, Apps.TestIds.RECENT_RUNS)
+        assertEquals(ids.getValue("runRow").jsonPrimitive.content, Apps.TestIds.RUN_ROW)
     }
 }

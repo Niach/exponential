@@ -63,6 +63,15 @@ class SessionDeviceMoveTest {
         assertTrue(SessionDeviceMove.visible(DomainContract.sessionKindThread))
     }
 
+    /** #EXP-1849 (session-device-move.json): an app's root carries the app
+     *  agent's id too, and stays movable. */
+    @Test
+    fun appRootStaysMovable() {
+        assertNull(SessionDeviceMove.hiddenReason(DomainContract.sessionKindAgent, appId = "app-1"))
+        assertTrue(SessionDeviceMove.visible(DomainContract.sessionKindAgent, appId = "app-1"))
+        assertEquals(SessionDeviceMove.REASON_AGENT, SessionDeviceMove.hiddenReason(DomainContract.sessionKindAgent, appId = ""))
+    }
+
     @Test
     fun blockedOrderIsSteerThenEnded() {
         assertEquals(SessionDeviceMove.REASON_STEER, SessionDeviceMove.blockedReason(canSteer = false, ended = true))

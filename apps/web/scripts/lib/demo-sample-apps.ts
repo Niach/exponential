@@ -3,14 +3,19 @@
  * - CRM and Leave planner, the repo's signed samples (`samples/apps`), so
  *   RecordTable, RecordForm, Calendar and Timeline photograph real data;
  * - Ops desk, a small package declaring every server-side capability at once,
- *   so one Settings tab shows Accounts, MCP tools, Automations (a running one
- *   and a paused one), Webhooks, Public links, and its run view the Connect
- *   banner (the seeded `sentry` server has no credential for the demo user).
+ *   so one Settings tab shows Accounts, MCP tools, Webhooks, Public links,
+ *   and its run view the Connect banner (the seeded `sentry` server has no
+ *   credential for the demo user). #EXP-1829: its automations are its
+ *   agent's triggers (created with the app, `automationAsTrigger`).
  */
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
+import { eq } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { apps, appShareLinks, mcpCalls } from "@/db/schema"
+import { agents, apps, appShareLinks, mcpCalls } from "@/db/schema"
+import type { Automation } from "@exp/emcp/automations"
+import { automationAsTrigger, triggerAutomationName } from "@/lib/agents/app-triggers"
+import { createAppAgentInTx } from "@/lib/apps/app-agent"
 import { appPackageIssues } from "@/lib/apps/package"
 import { publishVersionInTx, writeVersionInTx } from "@/lib/trpc/apps"
 import { importRecords } from "@/lib/apps/records-service"
@@ -60,7 +65,7 @@ const opsPackage = {
   ],
   automations: [
     { name: `log_deploy`, on: { webhook: { name: `deploys` } }, run: { records: { op: `upsert`, kind: `lead`, data: { email: `deploy@acme.example`, note: `\${event.version}` } } } },
-    { name: `morning_digest`, on: { schedule: { cron: `0 8 * * 1-5`, tz: `Europe/Vienna` } }, sponsor: `gone@acme.example`, run: { records: { op: `upsert`, kind: `lead`, data: { email: `digest@acme.example`, note: `\${firedAt}` } } } },
+    { name: `morning_digest`, on: { schedule: { cron: `0 8 * * 1-5`, tz: `Europe/Vienna` } }, run: { records: { op: `upsert`, kind: `lead`, data: { email: `digest@acme.example`, note: `\${firedAt}` } } } },
   ],
   share: [
     { name: `signup`, mode: `submit`, kind: `lead`, fields: [`email`, `note`] },
@@ -108,17 +113,28 @@ async function installApp(
   teamId: string,
   userId: string,
   row: { id?: string; slug: string; name: string; icon: string | null; color: string | null; description: string },
-  pkg: Record<string, unknown>,
+  input: Record<string, unknown>,
   records: readonly { kind: string; data: Record<string, unknown> }[]
-) {
+): Promise<Record<string, string>> {
+  // #EXP-1829: a package's automations are its agent's triggers.
+  const { automations = [], ...pkg } = input as Record<string, unknown> & { automations?: Automation[] }
   const issues = appPackageIssues(pkg)
   if (issues.length > 0) throw new Error(`demo app ${row.slug} is invalid: ${JSON.stringify(issues)}`)
+  const triggerIds: Record<string, string> = {}
   await db.transaction(async (tx) => {
     const [app] = await tx.insert(apps).values({ ...row, teamId, createdBy: userId }).returning()
+    const agentId = await createAppAgentInTx(tx, app!, userId)
+    const triggers = automations.flatMap((automation) => {
+      const trigger = automationAsTrigger(automation, { teamZone: null, ownSlug: null })
+      if (trigger) triggerIds[automation.name] = trigger.id
+      return trigger ? [trigger] : []
+    })
+    if (triggers.length > 0) await tx.update(agents).set({ triggers }).where(eq(agents.id, agentId))
     const { number } = await writeVersionInTx(tx, app!, pkg, { note: `Imported`, sessionId: null, createdBy: userId, byOwner: false })
     await publishVersionInTx(tx, app!, { number, byOwner: false, userId })
     await importRecords(tx, { ...app!, package: pkg as never }, userId, `owner`, records)
   })
+  return triggerIds
 }
 
 export async function seedSampleApps(teamId: string, userId: string): Promise<void> {
@@ -128,7 +144,7 @@ export async function seedSampleApps(teamId: string, userId: string): Promise<vo
     await installApp(teamId, userId, { slug, name: parsed.app.name, icon: parsed.app.icon, color: parsed.app.color, description: parsed.app.description }, parsed.package, [...thisMonth(parsed.records ?? []), ...(slug === `crm` ? crmContacts : [])])
   }
 
-  await installApp(
+  const ops = await installApp(
     teamId,
     userId,
     { id: DEMO_OPS_APP_ID, slug: `ops-desk`, name: `Ops desk`, icon: `server`, color: `#ef4444`, description: `Deploys, leads and the morning digest.` },
@@ -136,5 +152,21 @@ export async function seedSampleApps(teamId: string, userId: string): Promise<vo
     leads
   )
   await db.insert(appShareLinks).values({ appId: DEMO_OPS_APP_ID, teamId, name: `signup`, token: DEMO_OPS_SHARE_TOKEN, enabledBy: userId })
-  await db.insert(mcpCalls).values({ teamId, userId, appId: DEMO_OPS_APP_ID, clientId: `automation:log_deploy`, tool: `log_deploy`, status: `ok`, latencyMs: 42, argsHash: `seed` })
+  // #EXP-1850: the Events tab's rows: a wake trigger beside the two runs,
+  // and recent runs of every badge (ran, woke, dropped, refused).
+  const greet = crypto.randomUUID()
+  const [opsAgent] = await db.select({ id: agents.id, triggers: agents.triggers }).from(agents).innerJoin(apps, eq(apps.agentId, agents.id)).where(eq(apps.id, DEMO_OPS_APP_ID))
+  await db
+    .update(agents)
+    .set({ triggers: [...(opsAgent!.triggers ?? []), { id: greet, enabled: true, kind: `record`, record: `lead`, op: `create`, prompt: `Greet \${record.email} and log what they asked for.` }] })
+    .where(eq(agents.id, opsAgent!.id))
+  const at = (minutesAgo: number) => new Date(Date.now() - minutesAgo * 60_000)
+  const call = (id: string, tool: string, status: `ok` | `denied` | `failed`, error: string | null, minutesAgo: number) => ({ teamId, userId, appId: DEMO_OPS_APP_ID, clientId: `automation:${triggerAutomationName(id)}`, tool, status, error, latencyMs: 42, argsHash: `seed`, createdAt: at(minutesAgo) })
+  await db.insert(mcpCalls).values([
+    call(ops.log_deploy!, `records.upsert:lead`, `ok`, null, 4),
+    call(greet, `agent:ops-desk`, `ok`, null, 18),
+    call(ops.log_deploy!, `webhook:deploys`, `denied`, `badSignature`, 52),
+    call(ops.morning_digest!, `records.upsert:lead`, `denied`, `rateLimited`, 130),
+    call(ops.morning_digest!, `records.upsert:lead`, `ok`, null, 60 * 9),
+  ])
 }

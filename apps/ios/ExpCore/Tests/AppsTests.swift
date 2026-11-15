@@ -133,6 +133,7 @@ final class AppsTests: XCTestCase {
             "accountRow": Apps.TestIds.accountRow,
             "mcpTools": Apps.TestIds.mcpTools, "mcpToolRow": Apps.TestIds.mcpToolRow,
             "policies": Apps.TestIds.policies, "policyRow": Apps.TestIds.policyRow,
+            "eventsTab": Apps.TestIds.eventsTab, "recentRuns": Apps.TestIds.recentRuns, "runRow": Apps.TestIds.runRow,
         ])
         // VAPP-177: the floating layout and its chat card are gone.
         XCTAssertNil(fixture["layout"])
@@ -234,7 +235,7 @@ final class AppsTests: XCTestCase {
     }
 
     // #VAPP-220: `automationRow` replays `automationRowCases`.
-    // #FEED-204: `editorDevice` replays `editorDeviceCases`.
+    // #FEED-204: `editorDevice` replays `editorDeviceCases` (+ #EXP-1849's `slot`).
     func testEditorDeviceCases() throws {
         for item in try cases("editorDeviceCases") {
             let root = item["root"] as? [String: Any]
@@ -247,7 +248,8 @@ final class AppsTests: XCTestCase {
                     rootStatus: root?["status"] as? String,
                     rootDeviceId: root?["deviceId"] as? String,
                     candidates: candidates,
-                    remembered: item["remembered"] as? String
+                    remembered: item["remembered"] as? String,
+                    slot: item["slot"] as? String
                 ),
                 Apps.EditorDeviceChoice(
                     deviceId: expected["deviceId"] as? String,
@@ -256,6 +258,42 @@ final class AppsTests: XCTestCase {
                 item["name"] as? String ?? ""
             )
         }
+    }
+
+    // #EXP-1849 (`agentSlot`): the App settings' Agent group copy + test id,
+    // the slot's empty = each member's own device, the team-shared picker.
+    func testAgentSlot() throws {
+        let block = try XCTUnwrap(try fixture()["agentSlot"] as? [String: Any])
+        XCTAssertEqual(block["testId"] as? String, Apps.AgentSlot.testId)
+        XCTAssertEqual(block["copy"] as? [String: String], [
+            "title": Apps.AgentSlot.Copy.title,
+            "runsOn": Apps.AgentSlot.Copy.runsOn,
+            "eachMember": Apps.AgentSlot.Copy.eachMember,
+        ])
+        XCTAssertNil(Apps.AgentSlot.slot(nil))
+        XCTAssertNil(Apps.AgentSlot.slot(""))
+        XCTAssertEqual(Apps.AgentSlot.slot("build-server"), "build-server")
+        XCTAssertEqual(Apps.AgentSlot.write(Apps.AgentSlot.eachMemberId), "")
+        XCTAssertEqual(Apps.AgentSlot.write("build-server"), "build-server")
+        XCTAssertEqual(
+            Apps.AgentSlot.deviceIds(
+                [
+                    (deviceId: "mint", sharedTeamIds: []),
+                    (deviceId: "build-server", sharedTeamIds: ["t1"]),
+                    (deviceId: "other-team", sharedTeamIds: ["t2"]),
+                ],
+                teamId: "t1"
+            ),
+            ["build-server"]
+        )
+        // An empty slot never wins: the member's own device rule.
+        XCTAssertEqual(
+            Apps.editorDevice(
+                rootStatus: nil, rootDeviceId: nil,
+                candidates: [(deviceId: "mint", isDefault: true)], remembered: nil, slot: ""
+            ),
+            Apps.EditorDeviceChoice(deviceId: "mint", move: false)
+        )
     }
 
     // #EXP-1729: `editorHeader` replays `editorHeaderCases` (the WHOLE
@@ -668,5 +706,48 @@ final class AppsTests: XCTestCase {
         XCTAssertEqual(value.rows[1].tone, "idle")
         XCTAssertEqual(value.rows[1].discTone, "muted")
         XCTAssertEqual(value.rows[2].status, "Offline")
+    }
+
+    // #EXP-1850 (`eventsTab`): the constants, the copy and every `runCases` row.
+    func testEventsTabMatchesTheFixture() throws {
+        let tab = try XCTUnwrap(try fixture()["eventsTab"] as? [String: Any])
+        XCTAssertEqual(tab["limit"] as? Int, Apps.EventsTab.limit)
+        XCTAssertEqual(tab["days"] as? Int, Apps.EventsTab.days)
+        XCTAssertEqual(tab["pausedErrors"] as? [String], Apps.EventsTab.pausedErrors)
+        let copy = try XCTUnwrap(tab["copy"] as? [String: Any])
+        XCTAssertEqual(copy["recentRuns"] as? String, Apps.EventsTab.Copy.recentRuns)
+        XCTAssertEqual(copy["noRuns"] as? String, Apps.EventsTab.Copy.noRuns)
+        XCTAssertEqual(copy["removedTrigger"] as? String, Apps.EventsTab.Copy.removedTrigger)
+        XCTAssertEqual(copy["errors"] as? [String: String], Apps.EventsTab.Copy.errors)
+        let badges = try XCTUnwrap(copy["badges"] as? [String: String])
+        XCTAssertEqual(Set(badges.keys), Set(Apps.EventsTab.Badge.allCases.map(\.rawValue)))
+        for badge in Apps.EventsTab.Badge.allCases {
+            XCTAssertEqual(badges[badge.rawValue], badge.label)
+        }
+    }
+
+    func testEventRunRowReplaysEveryCase() throws {
+        let tab = try XCTUnwrap(try fixture()["eventsTab"] as? [String: Any])
+        let cases = try XCTUnwrap(tab["runCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            let name = c["name"] as? String ?? ""
+            let run = try XCTUnwrap(c["run"] as? [String: Any])
+            let triggers = try XCTUnwrap(c["triggers"] as? [Any])
+            let raw = try XCTUnwrap(String(data: JSONSerialization.data(withJSONObject: triggers), encoding: .utf8))
+            let row = Apps.eventRunRow(
+                Apps.EventsTab.Run(
+                    triggerId: run["triggerId"] as? String,
+                    status: try XCTUnwrap(run["status"] as? String),
+                    error: run["error"] as? String,
+                    tool: try XCTUnwrap(run["tool"] as? String)
+                ),
+                triggers: AgentTrigger.parseList(raw)
+            )
+            let expected = try XCTUnwrap(c["expected"] as? [String: Any])
+            XCTAssertEqual(row.title, expected["title"] as? String, name)
+            XCTAssertEqual(row.badge.rawValue, expected["badge"] as? String, name)
+            XCTAssertEqual(row.detail, expected["detail"] as? String, name)
+        }
     }
 }

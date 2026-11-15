@@ -1277,12 +1277,21 @@ struct AgentSessionView: View {
             askCard(group)
         case let .single(item):
             switch item {
-            case let .narration(_, text, _, _):
+            case let .narration(_, text, _, _, at):
                 // #EXP-1736: the agent's prose = THE message bubble under its
                 // avatar. #VAPP-258: the live tail is the reply being written.
-                senderBubble(text, layout: layout, streaming: isLast && model?.agentWorking == true)
+                // #EXP-1864: its first fragment's `HH:mm`.
+                senderBubble(
+                    text, layout: layout, streaming: isLast && model?.agentWorking == true,
+                    time: at.map { GlassTimeRow.formatted(Date(timeIntervalSince1970: Double($0) / 1000)) }
+                )
             case let .apiError(_, message, errorType, _):
                 ApiErrorRow(message: message, errorType: errorType)
+            case let .tool(_, name, _, _, _, _, _, _, _, _, _, _, _)
+                where TranscriptGrouping.traceNotice(name) != nil:
+                // #EXP-1864: a notice (`Ended turn quietly`) = THE inline
+                // marker on its own line, never a trace beside the avatar.
+                TranscriptMarkerRow(label: TranscriptGrouping.traceNotice(name) ?? "")
             case let .tool(
                 id, name, detail, _, callId, kind, settled, failed, diff, preview, output, script,
                 settledAt
@@ -1438,10 +1447,11 @@ struct AgentSessionView: View {
                             id: id, kind: .message, authorKind: DomainContract.messageAuthorKindUser, authorId: viewerId
                         )
                     }
-                case let .tool(_, _, _, _, callId, _, _, _, _, _, _, _, _):
+                case let .tool(_, name, _, _, callId, _, _, _, _, _, _, _, _):
                     // EXP-1750: a `Workflow` call draws as THE Work card,
-                    // a full row (web, desktop, Android alike).
-                    if model.workflow(for: callId) == nil {
+                    // a full row (web, desktop, Android alike). #EXP-1864:
+                    // a notice is THE inline marker, a full row too.
+                    if model.workflow(for: callId) == nil, TranscriptGrouping.traceNotice(name) == nil {
                         item = TranscriptGrouping.Item(id: id, kind: .trace)
                     }
                 case .thought, .subagent:
@@ -1509,6 +1519,9 @@ struct AgentSessionView: View {
                     return TranscriptGrouping.Item(
                         id: id, kind: .message, authorKind: DomainContract.messageAuthorKindUser, authorId: viewer
                     )
+                // #EXP-1864: a notice is THE marker (full, never grouped).
+                case let .tool(_, name, _, _, _, _, _, _, _, _, _, _, _) where TranscriptGrouping.traceNotice(name) != nil:
+                    return TranscriptGrouping.Item(id: id, kind: .full)
                 case .tool, .thought, .subagent:
                     return TranscriptGrouping.Item(id: id, kind: .trace)
                 default:
@@ -4558,6 +4571,9 @@ struct SubagentItemRow: View {
             where ScriptCards.isScriptCall(name: name, toolKind: kind):
             // EXP-1279: a lane's code-mode call is its Script card too.
             ScriptCallRow(settled: settled, failed: failed, script: script)
+        case let .tool(_, name, _, _, _, _, _, _, _, _, _, _, _) where TranscriptGrouping.traceNotice(name) != nil:
+            // #EXP-1864: a notice = THE inline marker on its own line.
+            TranscriptMarkerRow(label: TranscriptGrouping.traceNotice(name) ?? "")
         case let .tool(_, name, detail, _, callId, kind, settled, failed, _, preview, output, _, _):
             // A subagent's rows are a digest inside the main transcript — its
             // own tab is where its work is read — so none of them is the live
@@ -4571,12 +4587,12 @@ struct SubagentItemRow: View {
         case let .thought(_, _, running, durationMs, _):
             // The main lane's rule: shimmer only while the run works.
             TraceLine(Trace.reasoning(running: running && live, durationMs: durationMs), size: .sm)
-        case let .narration(_, text, _, _):
+        case let .narration(_, text, _, _, at):
             if nested {
                 NarrationBubble(text: text, context: context)
             } else {
                 // #EXP-1736: the subagent's own tab = THE message bubble.
-                MessageBubble(side: .other, author: author, time: nil) {
+                MessageBubble(side: .other, author: author, time: at.map { GlassTimeRow.formatted(Date(timeIntervalSince1970: Double($0) / 1000)) }) {
                     MessageFold(text: text) {
                         AgentMarkdownText(text: text, context: context, streaming: false, hugsWidth: true)
                     }
@@ -4584,8 +4600,12 @@ struct SubagentItemRow: View {
             }
         case let .apiError(_, message, errorType, _):
             ApiErrorRow(message: message, errorType: errorType)
-        case let .userMessage(_, text, _, _):
-            UserMessageBubble(text: text, context: context)
+        case let .userMessage(_, text, _, at):
+            // #EXP-1864: every bubble its `HH:mm`.
+            UserMessageBubble(
+                text: text, context: context,
+                caption: at.map { GlassTimeRow.formatted(Date(timeIntervalSince1970: Double($0) / 1000)) }
+            )
         default:
             EmptyView()
         }

@@ -213,7 +213,7 @@ class WebLinkResolver @Inject constructor(
      *  message ([PlanPage.planPageFor]) an inbox row / push opens its chat's
      *  plan tab on; null = none (the session's own route). */
     suspend fun planPageTarget(sessionId: String): String? = activeDb(null) { db ->
-        val messages = db.messageDao().observeBySession(sessionId).first().mapNotNull { row ->
+        val messages = db.messageDao().observeCardsBySession(sessionId).first().mapNotNull { row ->
             val message = SessionTree.message(row, sessionId)
             if (message.card?.get("kind")?.toString() != "\"plan\"") return@mapNotNull null
             PlanPage.Message(
@@ -228,11 +228,11 @@ class WebLinkResolver @Inject constructor(
     }
 
     /** waiting-cards.json DEEP LINKS: the session's own NEWEST waiting card
-     *  ([ChatRowAction.sessionWaitingCard] over ALL its synced messages, never
+     *  ([ChatRowAction.sessionWaitingCard] over ALL its synced card rows, never
      *  the chat's newest-200 window, + its digest's `waits`: the messages
      *  sync on demand, the digest always) an inbox row lands on; null = none. */
     suspend fun waitingCard(sessionId: String): String? = activeDb(null) { db ->
-        val messages = db.messageDao().observeBySession(sessionId).first().map { SessionTree.message(it, sessionId) }
+        val messages = db.messageDao().observeCardsBySession(sessionId).first().map { SessionTree.message(it, sessionId) }
         val digest = db.sessionDao().getById(sessionId)?.digest
         ChatRowAction.sessionWaitingCard(sessionId, messages + Chats.digestMessages(sessionId, Chats.parseDigest(digest)))
     }

@@ -2200,7 +2200,8 @@ private fun ActivityFeed(
                             is AgentFeedItem.Narration -> if (item.text.isNotBlank()) {
                                 MessageBubble(
                                     own = false,
-                                    time = null,
+                                    // #EXP-1864: its first fragment's time.
+                                    time = item.at?.let(::feedClock),
                                     author = layout.authorLine(),
                                     testTag = "session-agent-narration",
                                 ) {
@@ -2534,9 +2535,15 @@ internal fun feedTranscriptLayout(
                         authorSessionId = cross?.sessionId,
                     )
                 }
+                // #EXP-1864: a notice (`Ended turn quietly`) is THE marker:
+                // full, never beside the avatar.
                 is AgentFeedItem.Tool -> TranscriptGrouping.Item(
                     id,
-                    if (feedItem.callId?.let { it in workflowIds } == true) TranscriptGrouping.ItemKind.Full else TranscriptGrouping.ItemKind.Trace,
+                    if (feedItem.callId?.let { it in workflowIds } == true || TranscriptGrouping.traceNotice(feedItem.name) != null) {
+                        TranscriptGrouping.ItemKind.Full
+                    } else {
+                        TranscriptGrouping.ItemKind.Trace
+                    },
                 )
                 is AgentFeedItem.Thought -> TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Trace)
                 is AgentFeedItem.Subagent -> TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Trace)
@@ -2595,7 +2602,12 @@ internal fun laneTranscriptLayout(
                     bubbleIds += id
                     TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Message, authorKind = "user", authorId = FEED_VIEWER)
                 }
-                is AgentFeedItem.Tool, is AgentFeedItem.Thought ->
+                // #EXP-1864: a notice is THE marker (full, never grouped).
+                is AgentFeedItem.Tool -> TranscriptGrouping.Item(
+                    id,
+                    if (TranscriptGrouping.traceNotice(feedItem.name) != null) TranscriptGrouping.ItemKind.Full else TranscriptGrouping.ItemKind.Trace,
+                )
+                is AgentFeedItem.Thought ->
                     TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Trace)
                 else -> TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Full)
             }
@@ -2826,6 +2838,8 @@ private fun NarrationBubble(
     text: String,
     /** The bubble's name line (the group's first bubble only). */
     author: String? = null,
+    /** #EXP-1864: the first fragment's relay stamp (ms); null = no footer. */
+    at: Long? = null,
     /** Inside a subagent group, where the surrounding rows keep their own
      *  compact rhythm — the feed's rows get theirs from the gap ladder
      *  (EXP-787), so a top-level bubble carries no outer padding. */
@@ -2836,7 +2850,7 @@ private fun NarrationBubble(
     // EXP-440: GFM; EXP-430 bare URLs stay tappable.
     MessageBubble(
         own = false,
-        time = null,
+        time = at?.let(::feedClock),
         author = author,
         modifier = if (nested) Modifier.padding(vertical = 5.dp) else Modifier,
         testTag = "session-agent-narration",
@@ -3408,12 +3422,13 @@ private fun Modifier.foldedTo(clampHeight: Dp): Modifier =
 // are the point of the message, and a long prose clamp must never be what
 // hides them.
 @Composable
-private fun UserMessageBubble(text: String, nested: Boolean = false) {
+private fun UserMessageBubble(text: String, nested: Boolean = false, at: Long? = null) {
     // #EXP-1736: THE message bubble, the viewer's side; EXP-787: inside a
-    // subagent group the turn keeps the group's own rhythm.
+    // subagent group the turn keeps the group's own rhythm; #EXP-1864: its
+    // relay stamp as the footer.
     MessageBubble(
         own = true,
-        time = null,
+        time = at?.let(::feedClock),
         modifier = if (nested) Modifier.padding(vertical = 5.dp) else Modifier,
     ) { UserMessageBody(text) }
 }
@@ -4667,9 +4682,9 @@ private fun LaneRow(
 private fun SubagentItemRow(item: AgentFeedItem, live: Boolean, nested: Boolean = false, author: String? = null) {
     when (item) {
         is AgentFeedItem.Tool -> ToolRow(item, nested = nested)
-        is AgentFeedItem.Narration -> NarrationBubble(item.text, author = author, nested = nested)
+        is AgentFeedItem.Narration -> NarrationBubble(item.text, author = author, at = item.at, nested = nested)
         is AgentFeedItem.ApiError -> ApiErrorRow(item.message, item.errorType)
-        is AgentFeedItem.UserMessage -> UserMessageBubble(item.text, nested = nested)
+        is AgentFeedItem.UserMessage -> UserMessageBubble(item.text, nested = nested, at = item.at)
         is AgentFeedItem.Thought -> ThoughtRow(item, running = live && !item.ended)
         else -> Unit
     }
@@ -4689,6 +4704,13 @@ private fun ToolRow(
      *  itself. */
     live: Boolean = false,
 ) {
+    // #EXP-1864 (`notices`): `Ended turn quietly` is THE inline marker on its
+    // own line, never a trace beside the avatar.
+    val notice = remember(item.name) { TranscriptGrouping.traceNotice(item.name) }
+    if (notice != null) {
+        FeedMarkerRow(notice, testTag = "session-notice-marker")
+        return
+    }
     // EXP-1279: a code-mode call is its Script card, the calls it made
     // grouped by tool.
     if (item.isScriptCall) {

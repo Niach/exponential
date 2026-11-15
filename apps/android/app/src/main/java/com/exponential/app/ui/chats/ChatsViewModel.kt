@@ -119,6 +119,17 @@ class ChatsViewModel @Inject constructor(
         .flowOn(Dispatchers.Default)
         .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
 
+    // #ERR-23: every session's digest turned back into messages ONCE per
+    // sessions read (session id → its messages): the list's team slice and
+    // the per-team badges both read it. Each parsed it on its own before,
+    // which kept two to four copies of every digest's messages (and their
+    // card JSON trees) on a large account.
+    private val digestMessagesById = sessionRows.map { rows ->
+        rows.associate { row -> row.id to Chats.digestMessages(row.id, Chats.parseDigest(row.digest)) }
+    }
+        .flowOn(Dispatchers.Default)
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
+
     private val inputs = combine(
         sessions,
         dbFlow.scopedQuery(emptyList()) { it.sessionIssueDao().observeAll() }.map { it.map(SessionTree::sessionIssue) },
@@ -139,8 +150,8 @@ class ChatsViewModel @Inject constructor(
                     rows.filter { it.teamId == team || (ids.isNotEmpty() && it.teamId !in ids) }
                 }
             }
-        }.map { rows ->
-            rows.flatMap { row -> Chats.digestMessages(row.id, Chats.parseDigest(row.digest)) }
+        }.combine(digestMessagesById) { rows, byId ->
+            rows.flatMap { row -> byId[row.id].orEmpty() }
         },
         // EXP-1323: the viewer's read marks (bold rows + the nav dot).
         dbFlow.scopedQuery(emptyList()) { it.sessionReadDao().observeAll() }.map { it.map(SessionTree::sessionRead) },
@@ -393,6 +404,19 @@ class ChatsViewModel @Inject constructor(
         )
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, LIST_SHARING, Chats.ChatList(emptyList()))
 
+    /** #EXP-1733: the ACTIVE team's live apps (the dao hides trashed rows). */
+    private val teamAppRows: Flow<List<com.exponential.app.data.db.AppEntity>> = activeTeam.flatMapLatest { team ->
+        if (team == null) {
+            flowOf(emptyList())
+        } else {
+            dbFlow.scopedQuery(emptyList()) { it.appDao().observeByTeam(team) }
+        }
+    }
+
+    private val teamApps: Flow<List<Chats.AppChatInput>> = teamAppRows.map { rows ->
+        rows.map { Chats.AppChatInput(appId = it.id, slug = it.slug, name = it.name, icon = it.icon, color = it.color) }
+    }
+
     /** S-3 (chats.json `agentChatRows`): the AGENT rows pinned on top of the
      *  list, [agents] order (the viewer's Assistant first); none on the
      *  Archived page. */
@@ -401,9 +425,11 @@ class ChatsViewModel @Inject constructor(
         auth.userId,
         _view,
         minuteClock,
-    ) { (rows, input), me, view, now ->
+        teamAppRows,
+    ) { (rows, input), me, view, now, apps ->
         Chats.agentChatRows(
-            agents = rows,
+            // #EXP-1849 (chats.json): an app's agent chat IS the app row.
+            agents = Chats.sidebarAgents(rows, apps.map { it.agentId }) { it.agentId },
             sessions = input.sessions,
             messages = input.messages,
             reads = input.reads,
@@ -413,17 +439,6 @@ class ChatsViewModel @Inject constructor(
             utcOffsetMinutes = Chats.deviceUtcOffsetMinutes(now),
         )
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, LIST_SHARING, emptyList())
-
-    /** #EXP-1733: the ACTIVE team's live apps (the dao hides trashed rows). */
-    private val teamApps: Flow<List<Chats.AppChatInput>> = activeTeam.flatMapLatest { team ->
-        if (team == null) {
-            flowOf(emptyList())
-        } else {
-            dbFlow.scopedQuery(emptyList()) { it.appDao().observeByTeam(team) }
-        }
-    }.map { rows ->
-        rows.map { Chats.AppChatInput(appId = it.id, slug = it.slug, name = it.name, icon = it.icon, color = it.color) }
-    }
 
     /** #EXP-1733 (chats.json `appChatRows`): the APP rows between the Agents
      *  and the sessions, by name; none on the Archived page. */
@@ -564,8 +579,8 @@ class ChatsViewModel @Inject constructor(
      * active one's.
      */
     val needsYouByTeam: StateFlow<Map<String, Int>> = combine(
-        combine(sessions, sessionRows) { s, rows ->
-            s to rows.flatMap { row -> Chats.digestMessages(row.id, Chats.parseDigest(row.digest)) }
+        combine(sessions, sessionRows, digestMessagesById) { s, rows, byId ->
+            s to rows.flatMap { row -> byId[row.id].orEmpty() }
         },
         dbFlow.scopedQuery(emptyList()) { it.teamDao().observeAll() },
         agentDefinitions,

@@ -5,6 +5,7 @@
 import fixture from "../fixtures/apps.json" with { type: "json" }
 import contract from "../contract.json" with { type: "json" }
 import skillsFixture from "../fixtures/skills.json" with { type: "json" }
+import { triggerSummary, type AgentTriggerLike } from "./agent-settings"
 
 export const APPS_COPY = fixture.copy
 export const APPS_PANES = fixture.panes
@@ -260,9 +261,12 @@ export interface EditorDeviceChoice {
 export function editorDevice(
   root: { status: string; deviceId: string | null } | null,
   candidates: readonly { deviceId: string; isDefault?: boolean }[],
-  remembered: string | null
+  remembered: string | null,
+  /** #EXP-1849: the app agent's slot (a team-shared device), null = empty. */
+  slot: string | null = null
 ): EditorDeviceChoice {
   if (root && root.status !== `ended`) return { deviceId: root.deviceId, move: false }
+  if (slot) return { deviceId: slot, move: root !== null && slot !== root.deviceId }
   const known = (id: string | null | undefined): id is string => !!id && candidates.some((row) => row.deviceId === id)
   const deviceId = known(remembered)
     ? remembered
@@ -483,3 +487,37 @@ export function screenParamsFromQuery(query: Record<string, unknown>): Record<st
   }
   return out
 }
+
+/** #EXP-1850 (`eventsTab`): the Events tab's copy, limits and test ids. */
+export const APPS_EVENTS_TAB = fixture.eventsTab
+
+/** One audit row of an app's trigger (tRPC `apps.events` `runs`). */
+export interface AppEventRun {
+  triggerId: string | null
+  status: string
+  error: string | null
+  tool: string
+}
+
+export type AppEventBadge = `ran` | `woke` | `failed` | `dropped` | `paused` | `refused`
+
+/** #EXP-1850 (`runCases`): a Recent runs row's title, badge and detail. */
+export function eventRunRow(
+  run: AppEventRun,
+  triggers: ReadonlyArray<AgentTriggerLike & { id?: string }>
+): { title: string; badge: AppEventBadge; detail: string | null } {
+  const tab = fixture.eventsTab
+  const trigger = run.triggerId ? triggers.find((t) => t.id === run.triggerId) : undefined
+  const title = trigger ? triggerSummary({ ...trigger, enabled: true }) : tab.copy.removedTrigger
+  let badge: AppEventBadge
+  if (run.error === `rateLimited`) badge = `dropped`
+  else if (run.error && (tab.pausedErrors as readonly string[]).includes(run.error)) badge = `paused`
+  else if (run.status === `denied` && run.error) badge = `refused`
+  else if (run.status === `ok`) badge = run.tool.startsWith(`agent:`) ? `woke` : `ran`
+  else badge = `failed`
+  const detail = run.error ? ((tab.copy.errors as Record<string, string>)[run.error] ?? run.error) : null
+  return { title, badge, detail }
+}
+
+/** #EXP-1849 (`agentSlot`): the app Settings' Agent group. */
+export const APPS_AGENT_SLOT = fixture.agentSlot

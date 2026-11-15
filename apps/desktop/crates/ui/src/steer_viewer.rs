@@ -1378,6 +1378,8 @@ impl SteerSessionView {
                             None => TranscriptItem::message(id, domain::contract::MESSAGE_AUTHOR_KIND_USER, Some(VIEWER), None),
                         }
                     }
+                    // #EXP-1864: a notice = THE marker, full width.
+                    Some((item, FeedKind::Tool { .. })) if item.is_notice() => TranscriptItem::full(id),
                     Some((item, FeedKind::Tool { .. })) if self.workflow_of(item).is_none() => TranscriptItem::trace(id),
                     Some((_, FeedKind::Thought { .. } | FeedKind::Subagent { .. })) => TranscriptItem::trace(id),
                     _ => TranscriptItem::full(id),
@@ -2074,7 +2076,7 @@ impl SteerSessionView {
                 let layout = spec.and_then(|_| self.row_layout(ix));
                 let at = match spec {
                     Some(FeedRowSpec::Single { item, .. }) => match items.get(*item).map(|item| &item.kind) {
-                        Some(FeedKind::UserMessage { at, .. }) => *at,
+                        Some(FeedKind::UserMessage { at, .. } | FeedKind::Narration { at, .. }) => *at,
                         _ => None,
                     },
                     _ => None,
@@ -6189,7 +6191,7 @@ impl SteerSessionView {
     /// written: genUI holds its unfinished tail back).
     /// #EXP-1736: THE bubble under the session's (or its agent's) avatar,
     /// its name over a group's first bubble.
-    fn render_narration(&self, id: FeedItemId, text: String, streaming: bool, cx: &mut gpui::Context<Self>) -> AnyElement {
+    fn render_narration(&self, id: FeedItemId, text: String, at: Option<i64>, streaming: bool, cx: &mut gpui::Context<Self>) -> AnyElement {
         // #EXP-1772: a blank agent turn draws nothing (no empty bubble).
         if text.trim().is_empty() {
             return div().into_any_element();
@@ -6207,7 +6209,9 @@ impl SteerSessionView {
             crate::session_chat::MessageBubble {
                 id: SharedString::from(format!("steer-bubble-{id}")),
                 body,
-                time: String::new(),
+                // #EXP-1864: every bubble wears its `HH:mm` (the first
+                // fragment's `at`).
+                time: at.map(crate::session_chat::clock_ms).unwrap_or_default(),
                 own: false,
                 name: layout.filter(|layout| layout.name).and_then(|layout| layout.sender.as_ref()).map(|sender| sender.display_name()),
                 link: layout.and_then(|layout| layout.sender.as_ref()).and_then(|sender| sender.link.clone()),
@@ -6238,9 +6242,9 @@ impl SteerSessionView {
     ) -> AnyElement {
         let muted = cx.theme().muted_foreground;
         match &item.kind {
-            FeedKind::Narration { text, .. } => {
+            FeedKind::Narration { text, at, .. } => {
                 let streaming = self.phase == ViewerPhase::Live && self.feed.items().last().is_some_and(|last| last.id == item.id);
-                self.render_narration(item.id, text.clone(), streaming, cx)
+                self.render_narration(item.id, text.clone(), *at, streaming, cx)
             }
             // Session 58cb32df (chats.json TRANSCRIPT): a person's `/new` or
             // `/compact` line is THE divider pill, never a bubble.
@@ -6342,6 +6346,14 @@ impl SteerSessionView {
                     cx,
                 )
             }
+            // #EXP-1864 NOTICES: `Ended turn quietly` = THE inline marker on
+            // its own line, never a trace beside the avatar.
+            FeedKind::Tool { .. } if item.is_notice() => crate::surface_card::transcript_marker(
+                SharedString::from(format!("steer-notice-{}", item.id)),
+                item.notice().unwrap_or_default(),
+                None,
+                cx,
+            ),
             // EXP-850 §3: a `Workflow` call renders as its CARD, never as a
             // tool row — the card is the row (looked up by the call's id).
             FeedKind::Tool { .. } => match self.workflow_of(item).cloned() {

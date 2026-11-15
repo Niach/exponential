@@ -685,7 +685,8 @@ fun ChatConversation(
                         val open = onOpenXref?.takeIf { action.action != ChatRowAction.Kind.None }
                         RelayBubble(
                             author = layout.authorLine(),
-                            time = null,
+                            // #EXP-1864: a child's report wears its time too.
+                            time = row.at?.let(clock),
                             onOpen = open?.let { { it(row.sessionId) } },
                         ) {
                             val text = row.summary.ifEmpty { row.text }

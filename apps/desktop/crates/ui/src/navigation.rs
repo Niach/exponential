@@ -1229,15 +1229,41 @@ fn forward_to_owner_shell(window: &Window, cx: &mut App, screen: &Screen) -> boo
 
 /// #EXP-1732 (session-screen.json): an app's editor session IS the app's
 /// screen, so the chat route of an app root opens the app editor.
+/// #EXP-1849 (apps.json `agentSlot`): that root is also the member's chat
+/// with the app's agent, so an app's agent (or its root) opening as an agent
+/// opens the app instead: the app wins (`kindCases`).
 fn app_editor_screen(screen: Screen, cx: &App) -> Screen {
-    let Screen::Chat { session_id } = &screen else {
-        return screen;
+    let app_of_agent = |agent_id: &str| -> Option<String> {
+        let agent_id = crate::agent_screen::resolve_agent_id(agent_id, cx);
+        let store = Store::try_global(cx)?;
+        let apps = store.collections().apps.read(cx);
+        apps.iter()
+            .find(|app| app.deleted_at.is_none() && app.agent_id.as_deref() == Some(agent_id.as_str()))
+            .map(|app| app.id.clone())
     };
-    match crate::session_data::session(session_id, cx)
-        .filter(|row| row.is_root())
-        .and_then(|row| row.app_id)
-        .filter(|app_id| !app_id.is_empty())
-    {
+    app_screen_of(screen, |id| crate::session_data::session(id, cx), app_of_agent)
+}
+
+/// The pure core of [`app_editor_screen`]: `app_of_agent` = the live app
+/// whose agent the id (an agent's or its root's) is.
+pub(crate) fn app_screen_of(
+    screen: Screen,
+    session: impl Fn(&str) -> Option<domain::rows::SessionRow>,
+    app_of_agent: impl Fn(&str) -> Option<String>,
+) -> Screen {
+    let app = match &screen {
+        Screen::Chat { session_id } | Screen::Session { session_id } => session(session_id)
+            .filter(|row| row.is_root())
+            .and_then(|row| row.app_id)
+            .filter(|app_id| !app_id.is_empty()),
+        Screen::Agent { agent_id } => session(agent_id)
+            .filter(|row| row.is_root())
+            .and_then(|row| row.app_id)
+            .filter(|app_id| !app_id.is_empty())
+            .or_else(|| app_of_agent(agent_id)),
+        _ => None,
+    };
+    match app {
         Some(app) => Screen::App { app },
         None => screen,
     }
@@ -2317,6 +2343,40 @@ mod tests {
             issue_id: "i1".into()
         }
         .undockable());
+    }
+
+    /// #EXP-1849: a root with both `app_id` and `agent_id` is an APP: its
+    /// chat, session or agent route (and its agent's) opens the app editor.
+    #[test]
+    fn an_app_root_opens_the_app_exp_1849() {
+        let row = |id: &str, parent: Option<&str>, agent: Option<&str>, app: Option<&str>| domain::rows::SessionRow {
+            id: id.to_string(),
+            parent_id: parent.map(str::to_string),
+            agent_id: agent.map(str::to_string),
+            app_id: app.map(str::to_string),
+            ..Default::default()
+        };
+        let rows = [
+            row("s-app", None, Some("ag-ops"), Some("app-ops")),
+            row("s-app-child", Some("s-app"), None, None),
+            row("s-agent", None, Some("ag-scout"), None),
+        ];
+        let open = |screen: Screen| {
+            app_screen_of(
+                screen,
+                |id| rows.iter().find(|row| row.id == id).cloned(),
+                |agent| (agent == "ag-ops").then(|| "app-ops".to_string()),
+            )
+        };
+        let app = Screen::App { app: "app-ops".into() };
+        assert_eq!(open(Screen::Chat { session_id: "s-app".into() }), app);
+        assert_eq!(open(Screen::Session { session_id: "s-app".into() }), app);
+        assert_eq!(open(Screen::Agent { agent_id: "ag-ops".into() }), app);
+        assert_eq!(open(Screen::Agent { agent_id: "s-app".into() }), app);
+        let child = Screen::Session { session_id: "s-app-child".into() };
+        assert_eq!(open(child.clone()), child);
+        let agent = Screen::Agent { agent_id: "ag-scout".into() };
+        assert_eq!(open(agent.clone()), agent);
     }
 
     /// #EXP-1456 (inbox-route.json `sessionCases`): the viewer's own agent

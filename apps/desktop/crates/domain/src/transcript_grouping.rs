@@ -75,6 +75,8 @@ struct Fixture {
     layout: TranscriptLayout,
     copy: TranscriptCopy,
     fold: TranscriptFold,
+    /// #EXP-1864: the Exponential tool rows that draw as THE inline marker.
+    notices: std::collections::BTreeMap<String, String>,
 }
 
 static FIXTURE: LazyLock<Fixture> = LazyLock::new(|| {
@@ -102,6 +104,21 @@ pub fn fold() -> &'static TranscriptFold {
 pub fn message_folds(text: &str) -> bool {
     let fold = fold();
     text.encode_utf16().count() > fold.chars || text.split('\n').count() > fold.lines
+}
+
+/// #EXP-1864 NOTICES ×4 (`traceNotice`, `noticeCases`): the label an
+/// Exponential tool row draws as THE inline marker (its own full-width line,
+/// never a trace beside the avatar, never in a tool run), else None. The name
+/// must END in the contract prefix + a `notices` row, whatever namespace
+/// sits before it (`expToolDisplay`'s match).
+pub fn trace_notice(tool_name: &str) -> Option<&'static str> {
+    let name = tool_name.trim();
+    FIXTURE.notices.iter().find_map(|(row, label)| {
+        (name.len() > row.len()
+            && name.ends_with(row.as_str())
+            && name[..name.len() - row.len()].ends_with(crate::contract::EXP_TOOL_PREFIX))
+        .then_some(label.as_str())
+    })
 }
 
 /// What a transcript row is to the grouping.
@@ -742,6 +759,32 @@ mod tests {
         for case in cases {
             let name = case["name"].as_str().unwrap();
             assert_eq!(message_folds(case["text"].as_str().unwrap()), case["expected"].as_bool().unwrap(), "{name}");
+        }
+    }
+
+    #[test]
+    fn every_notice_case_matches() {
+        let fixture = fixture();
+        let cases = fixture["noticeCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let got = trace_notice(case["toolName"].as_str().unwrap());
+            assert_eq!(got.map(str::to_string), opt(&case["expected"]), "{name}");
+        }
+    }
+
+    /// A notice's label is the contract row's `done` caption.
+    #[test]
+    fn every_notice_is_its_rows_done_caption() {
+        let notices = fixture()["notices"].as_object().unwrap().clone();
+        assert!(!notices.is_empty());
+        for (row, label) in notices {
+            let index = crate::contract::EXP_TOOL_NAMES
+                .iter()
+                .position(|name| *name == row)
+                .unwrap_or_else(|| panic!("{row} has no expToolDisplay row"));
+            assert_eq!(label.as_str().unwrap(), crate::contract::EXP_TOOL_DONE[index], "{row}");
         }
     }
 

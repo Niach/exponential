@@ -3,6 +3,7 @@ import { describe, expect, it, test } from "bun:test"
 import fixture from "../fixtures/agent-settings.json" with { type: "json" }
 import contract from "../contract.json" with { type: "json" }
 import {
+  triggerDetail,
   agentMcpServersValue,
   agentsInTeam,
   coordinatorOf,
@@ -50,6 +51,11 @@ describe(`agent settings fixtures (EXP-1291)`, () => {
   for (const entry of fixture.summaryCases) {
     test(`summary: ${entry.expected}`, () => {
       expect(triggerSummary(entry.trigger as never)).toBe(entry.expected)
+    })
+  }
+  for (const entry of fixture.detailCases) {
+    test(`detail: ${entry.expected}`, () => {
+      expect(triggerDetail(entry.trigger as never)).toBe(entry.expected)
     })
   }
   for (const entry of fixture.validationCases) {

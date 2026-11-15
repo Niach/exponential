@@ -72,6 +72,7 @@ public enum DesignTokens {
         public static let strokeCard: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.1020)
         public static let strokeStrong: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.1216)
         public static let strokeActive: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.1608)
+        public static let fillOwn: Color = Color(red: 0.0745, green: 0.1255, blue: 0.2039, opacity: 1.0000)
     }
 
     // The unified-diff palette (EXP-895) — one look on all four clients:
