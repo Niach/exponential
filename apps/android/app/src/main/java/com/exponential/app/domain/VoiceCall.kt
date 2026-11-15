@@ -139,6 +139,8 @@ object VoiceCall {
         const val MAX_FRAMES_PER_SECOND = 60
         const val MAX_CALL_MS = 3_600_000
         const val IDLE_TIMEOUT_MS = 30_000
+        /** EXP-1858: a server's speech worker exits after this long without a call. */
+        const val SERVER_IDLE_MS = 600_000
     }
 
     /** The floating call pill (`pill`): the desktop's, EXP-1681 the phones' minimized call. */

@@ -114,6 +114,9 @@ pub struct CallConstants {
     pub up_kbps: u32,
     pub down_kbps: u32,
     pub jitter_ms: u32,
+    /// EXP-1858: a server's speech worker exits after this long without a
+    /// call (its GPU memory is free while idle; a ring loads it again).
+    pub server_idle_ms: u64,
 }
 
 #[derive(Debug, Clone, Deserialize)]

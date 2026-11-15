@@ -122,6 +122,7 @@ final class VoiceCallTests: XCTestCase {
             "maxFramesPerSecond": VoiceCall.Constants.maxFramesPerSecond,
             "maxCallMs": VoiceCall.Constants.maxCallMs,
             "idleTimeoutMs": VoiceCall.Constants.idleTimeoutMs,
+            "serverIdleMs": VoiceCall.Constants.serverIdleMs,
         ])
         let wire = try XCTUnwrap(fixture["wire"] as? [String: Any])
         XCTAssertEqual(try XCTUnwrap(wire["kinds"] as? [String: Int]), [
