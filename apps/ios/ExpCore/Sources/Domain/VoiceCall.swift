@@ -126,6 +126,8 @@ public enum VoiceCall {
         public static let maxFramesPerSecond = 60
         public static let maxCallMs = 3_600_000
         public static let idleTimeoutMs = 30_000
+        /// EXP-1858: a server's speech worker exits after this long without a call.
+        public static let serverIdleMs = 600_000
     }
 
     /// `hangUpRules`: a `call_end` steps `hungUp(reason)`; ANY reason
@@ -374,14 +376,18 @@ public enum VoiceCall {
         public var agentDevice: String?
         /// The member's own desktops, newest `lastSeenAt` first.
         public var desktops: [TargetDevice]
+        /// EXP-1858: the member's own servers (CLI daemons): a candidate
+        /// only as the agent's device, never here nor a fallback.
+        public var servers: [TargetDevice]
         /// A call this client does not run already runs on the target.
         public var busy: Bool
 
-        public init(platform: Platform, here: String?, agentDevice: String?, desktops: [TargetDevice], busy: Bool) {
+        public init(platform: Platform, here: String?, agentDevice: String?, desktops: [TargetDevice], servers: [TargetDevice] = [], busy: Bool) {
             self.platform = platform
             self.here = here
             self.agentDevice = agentDevice
             self.desktops = desktops
+            self.servers = servers
             self.busy = busy
         }
     }
@@ -411,14 +417,16 @@ public enum VoiceCall {
 
     /// EXP-1857 (`targetCases`): where a call's speech runs. The first
     /// desktop that speaks of: the agent's device (one of the member's own
-    /// desktops), the desktop you're at, the other desktops newest first.
-    /// None speaks = disabled with the first candidate's reason.
+    /// desktops, EXP-1858: or servers), the desktop you're at, the other
+    /// desktops newest first. None speaks = disabled with the first
+    /// candidate's reason.
     public static func callTarget(_ input: TargetInput) -> Target {
         func byId(_ id: String?) -> TargetDevice? {
             guard let id else { return nil }
             return input.desktops.first { $0.id == id }
         }
-        let candidates = [byId(input.agentDevice), byId(input.here)].compactMap { $0 } + input.desktops
+        let agentDevice = byId(input.agentDevice) ?? input.agentDevice.flatMap { id in input.servers.first { $0.id == id } }
+        let candidates = [agentDevice, byId(input.here)].compactMap { $0 } + input.desktops
         func off(_ reason: String?) -> Target {
             Target(enabled: false, reason: reason, device: nil, name: nil, fallback: false, local: false)
         }

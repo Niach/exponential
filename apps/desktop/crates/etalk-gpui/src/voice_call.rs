@@ -270,12 +270,16 @@ pub fn target(agent_id: &str, cx: &App) -> CallTarget {
     // #NEW-57: a meeting runs on the voice device only.
     let meeting_on = settings.voice_device_id.as_deref().filter(|_| settings.meeting());
     let desktops = target_desktops(here.as_deref().map(|id| (id, name.as_str())), speech, &desktops, meeting_on);
+    // EXP-1858: the member's own servers (only the agent's counts).
+    let servers = host::host(cx).map(|host| host.servers(cx)).unwrap_or_default();
+    let servers = target_desktops(None, None, &servers, None);
     let agent_device = host::agent(agent_id, cx).and_then(|agent| agent.device_id);
     call_target(&CallTargetInput {
         platform: CallPlatform::Desktop,
         here: here.as_deref(),
         agent_device: agent_device.as_deref(),
         desktops: &desktops,
+        servers: &servers,
         busy: active(cx),
     })
 }
@@ -1397,6 +1401,7 @@ mod tests {
             here: Some("d-new"),
             agent_device: Some("d-server"),
             desktops: &unsynced,
+            servers: &[],
             busy: false,
         });
         assert_eq!((target.name.as_deref(), target.local, target.fallback), (Some("new"), true, true));
@@ -1407,6 +1412,7 @@ mod tests {
             here: Some("d-mac"),
             agent_device: Some("d-server"),
             desktops: &here_silent,
+            servers: &[],
             busy: false,
         });
         assert_eq!((target.device.as_deref(), target.local, target.fallback), (Some("d-mint"), false, true));

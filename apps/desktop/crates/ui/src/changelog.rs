@@ -46,13 +46,37 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
-    id: "2026-11-15-desktop-0-14-165-voice-and-assistant",
-    date: "2026-11-15",
-    title: "Agent calls and a bigger Assistant on the desktop",
-    summary: "Desktop and CLI 0.14.165: calls ring the agent's own desktop and fall back with \"Voice on\" another desktop, and the Assistant widget opens bigger, resizes and sits on the page's dark ground.",
+    id: "2026-11-16-desktop-cli-0-14-165-voice-and-assistant",
+    date: "2026-11-16",
+    title: "Agent calls on every desktop and server, and a bigger Assistant",
+    summary: "Desktop and CLI 0.14.165: calls ring the agent's own desktop or GPU server and fall back with \"Voice on\" another desktop, and the Assistant widget opens bigger, resizes and sits on the page's dark ground.",
     body: r##"- **Calls ring the agent's desktop**: a call to an agent speaks on the desktop it runs on; when that desktop can't, another of your desktops answers and the call shows "Voice on" with its name.
-- **Every desktop speaks**: the desktop app calls an agent on another machine like your phone does, over the relay.
+- **Servers with a GPU answer too**: the `exponential` daemon on a server with a GPU takes its agents' calls, loading the voice only while a call needs it; a server without one says "No usable GPU" and hands the call to a desktop.
 - **A bigger Assistant**: the Assistant widget opens larger, sized to the window, sits on the page's dark ground, and you can drag its edge to resize it."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_309: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-15-calls-ring-the-agents-server",
+    date: "2026-11-15",
+    title: "Call an agent on your server",
+    summary: "An agent that runs on a server with a GPU now takes its calls itself. A server without one hands the call to one of your desktops, as before.",
+    body: r##"- **The server speaks**: the `exponential` daemon on a server answers a call to an agent that runs there, in the agent's own voice, with no microphone or speakers of its own.
+- **Only while it's needed**: the voice is checked once, loads when a call rings and is unloaded after ten quiet minutes, so the GPU is free the rest of the time.
+- **A server without a GPU**: its device page says "No usable GPU", and calls go to the desktop you're at or your newest desktop that can speak, which the call shows as "Voice on" with its name."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_308: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-15-phones-calls-ring-the-agents-desktop",
+    date: "2026-11-15",
+    title: "Calls from your phone ring the agent's desktop",
+    summary: "Android 0.14.143 and iOS 0.14.132: a call to an agent rings the desktop it runs on, and when another desktop has to answer the call shows \"Voice on\" with its name.",
+    body: r##"- **The agent's desktop answers**: calling an agent from your phone rings the desktop the agent runs on and speaks in its voice there.
+- **A fallback that says so**: when that desktop is offline, has no usable GPU or the agent runs on a server, your newest desktop that can speak takes the call, and the call shows "Voice on" with its name.
+- **A clear reason**: with no desktop that can speak, the call says so instead of waiting."##,
 };
 
 /// An earlier head entry, kept so the mirror's history reads in place.

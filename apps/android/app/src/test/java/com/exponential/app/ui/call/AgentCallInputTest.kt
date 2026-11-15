@@ -36,6 +36,8 @@ class AgentCallInputTest {
             ),
             input.desktops,
         )
+        // EXP-1858: the member's own servers, apart.
+        assertEquals(listOf("d-server"), input.servers.map { it.id })
     }
 
     @Test

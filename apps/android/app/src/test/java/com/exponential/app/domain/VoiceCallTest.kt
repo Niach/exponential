@@ -1,6 +1,7 @@
 package com.exponential.app.domain
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
@@ -135,6 +136,7 @@ class VoiceCallTest {
             "maxFramesPerSecond" to k.MAX_FRAMES_PER_SECOND,
             "maxCallMs" to k.MAX_CALL_MS,
             "idleTimeoutMs" to k.IDLE_TIMEOUT_MS,
+            "serverIdleMs" to k.SERVER_IDLE_MS,
         )
         val fixtureConstants = obj("constants")
         assertEquals(fixtureConstants.keys, constants.keys)
@@ -195,6 +197,17 @@ class VoiceCallTest {
         }
     }
 
+    private fun devices(raw: JsonArray) = raw.map { entry ->
+        val d = entry.jsonObject
+        VoiceCall.TargetDevice(
+            id = d.str("id")!!,
+            name = d.str("name")!!,
+            online = d.getValue("online").jsonPrimitive.boolean,
+            speech = d.str("speech")?.let { s -> VoiceCall.Speech.entries.single { it.wire == s } },
+            meeting = d["meeting"]?.jsonPrimitive?.boolean ?: false,
+        )
+    }
+
     @Test
     fun `EXP-1857 every target case matches the fixture`() {
         for (case in cases("targetCases")) {
@@ -204,17 +217,10 @@ class VoiceCallTest {
                     platform = VoiceCall.Platform.entries.single { it.wire == input.str("platform") },
                     here = input.str("here"),
                     agentDevice = input.str("agentDevice"),
-                    desktops = input.getValue("desktops").jsonArray.map { raw ->
-                        val d = raw.jsonObject
-                        VoiceCall.TargetDevice(
-                            id = d.str("id")!!,
-                            name = d.str("name")!!,
-                            online = d.getValue("online").jsonPrimitive.boolean,
-                            speech = d.str("speech")?.let { s -> VoiceCall.Speech.entries.single { it.wire == s } },
-                            meeting = d["meeting"]?.jsonPrimitive?.boolean ?: false,
-                        )
-                    },
+                    desktops = devices(input.getValue("desktops").jsonArray),
                     busy = input.getValue("busy").jsonPrimitive.boolean,
+                    // EXP-1858: the member's own servers.
+                    servers = devices(input["servers"]?.jsonArray ?: JsonArray(emptyList())),
                 ),
             )
             val e = case.getValue("expected").jsonObject
