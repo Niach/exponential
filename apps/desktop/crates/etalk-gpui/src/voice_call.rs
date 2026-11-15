@@ -954,6 +954,13 @@ impl VoiceCall {
         if text.trim().is_empty() {
             return;
         }
+        // S-3 (voice-call.json): words during the ring are not the call's.
+        // EXP-1857 real call test: a remote caller streams from `call_ready`
+        // on, so the host heard (and sent) them before the greeting.
+        if self.state.phase == CallPhase::Ringing {
+            log::info!("[voice] call: an utterance during the ring was dropped");
+            return;
+        }
         let busy = matches!(self.state.phase, CallPhase::Thinking | CallPhase::Speaking);
         let agent_id = active.agent_id.clone();
         if busy {
@@ -1235,6 +1242,20 @@ mod tests {
             assert_eq!(face.view.status, None, "answered: the timer");
             assert_eq!(face.timer.as_ref(), "00:00");
             assert_eq!(face.view.buttons, vec![etalk::call::CallButton::Mute, etalk::call::CallButton::End]);
+        });
+    }
+
+    /// EXP-1857 (the real call test): an utterance heard during the ring
+    /// is not the call's: dropped, the call still rings and shows nothing.
+    #[gpui::test]
+    async fn an_utterance_during_the_ring_is_dropped(cx: &mut gpui::TestAppContext) {
+        setup(cx);
+        cx.update(|cx| {
+            let id = ring_for_test("agent-1", cx);
+            on_worker_event(etalk::Event::Said { id: id.clone(), text: "status of the release".into() }, cx);
+            assert_eq!(phase(cx), CallPhase::Ringing);
+            assert_eq!(face(cx).unwrap().view.caption, "");
+            assert_eq!(global(cx).unwrap().read(cx).active.as_ref().unwrap().queued, 0);
         });
     }
 
