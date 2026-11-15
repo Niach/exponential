@@ -15633,6 +15633,16 @@
           "description": "out = the viewer's.",
           "default": "in"
         },
+        "tail": {
+          "enum": [
+            "none",
+            "start",
+            "end",
+            "down"
+          ],
+          "description": "Speech tail: start/end = top corner sideways (a group's first bubble), down = bottom edge near the end.",
+          "default": "none"
+        },
         "time": {
           "$ref": "common_types.json#/$defs/DynamicString",
           "description": "Under the text."
@@ -19544,6 +19554,14 @@
           "type": "string",
           "pattern": "^\\$blur\\.[a-zA-Z0-9]+$"
         },
+        "tail": {
+          "enum": [
+            "none",
+            "start",
+            "end",
+            "down"
+          ]
+        },
         "animation": {
           "enum": [
             "pulse",
@@ -20457,6 +20475,14 @@
             "backdropBlur": {
               "type": "string",
               "pattern": "^\\$blur\\.[a-zA-Z0-9]+$"
+            },
+            "tail": {
+              "enum": [
+                "none",
+                "start",
+                "end",
+                "down"
+              ]
             },
             "animation": {
               "enum": [
@@ -21375,6 +21401,14 @@
               "type": "string",
               "pattern": "^\\$blur\\.[a-zA-Z0-9]+$"
             },
+            "tail": {
+              "enum": [
+                "none",
+                "start",
+                "end",
+                "down"
+              ]
+            },
             "animation": {
               "enum": [
                 "pulse",
@@ -22291,6 +22325,14 @@
             "backdropBlur": {
               "type": "string",
               "pattern": "^\\$blur\\.[a-zA-Z0-9]+$"
+            },
+            "tail": {
+              "enum": [
+                "none",
+                "start",
+                "end",
+                "down"
+              ]
             },
             "animation": {
               "enum": [
@@ -23210,6 +23252,14 @@
             "backdropBlur": {
               "type": "string",
               "pattern": "^\\$blur\\.[a-zA-Z0-9]+$"
+            },
+            "tail": {
+              "enum": [
+                "none",
+                "start",
+                "end",
+                "down"
+              ]
             },
             "animation": {
               "enum": [

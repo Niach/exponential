@@ -970,6 +970,10 @@ const SPECIMEN_OVERRIDES: Record<string, { label: string; node: NestedNode }[]> 
     { label: `side · in · author + attachment`, node: { id: `bubble`, component: `MessageBubble`, props: { text: `There you go.`, author: `spezl`, time: `20:21` }, style: { width: 360 }, slots: { attachment: { id: `file`, component: `Chip`, props: { label: `IMG_2041.jpg`, icon: `ui-file`, shape: `rect` } } } } },
     // #FEED-239: the viewer's own bubble wears its avatar on the RIGHT and takes the width left of it.
     { label: `side · out · avatar`, node: { id: `bubble`, component: `MessageBubble`, props: { text: `Ship it once the gate is green; the tag can wait for the morning.`, side: `out`, time: `18:05`, status: `read` }, style: { width: 360 }, slots: { avatar: { id: `avatar`, component: `Avatar`, props: { name: `Mia Berger`, seed: `user-mia` } } } } },
+    // #EXP-1876: THE tail: a group's first bubble, top corner beside the avatar (start = in, end = out), and the down tail of the Assistant's speech bubble.
+    { label: `tail · start`, node: { id: `bubble`, component: `MessageBubble`, props: { text: `Rebased and pushed; tests pass locally.`, author: `Reruster`, time: `22:41`, tail: `start` }, style: { width: 360 }, slots: { avatar: { id: `avatar`, component: `Avatar`, props: { name: `Reruster`, seed: `agent-reruster` } } } } },
+    { label: `tail · end`, node: { id: `bubble`, component: `MessageBubble`, props: { text: `Ship it once CI is green.`, side: `out`, time: `22:44`, status: `read`, tail: `end` }, style: { width: 360 }, slots: { avatar: { id: `avatar`, component: `Avatar`, props: { name: `Mia Berger`, seed: `user-mia` } } } } },
+    { label: `tail · down`, node: { id: `bubble`, component: `MessageBubble`, props: { text: `A plan is ready for you.`, side: `out`, tail: `down` }, style: { width: 360, paddingBottom: 10 } } },
   ],
   // #FEED-237: the four delivery marks (packages/domain-contract/fixtures/message-delivery.json `marks`).
   MessageStatus: [`sending`, `sent`, `read`, `failed`].map((status) => ({ label: `status · ${status}`, node: { id: `status`, component: `MessageStatus`, props: { status } } })),

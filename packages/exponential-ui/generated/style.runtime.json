@@ -430,6 +430,14 @@
       "type": "token",
       "group": "blur"
     },
+    "tail": {
+      "enum": [
+        "none",
+        "start",
+        "end",
+        "down"
+      ]
+    },
     "animation": {
       "enum": [
         "pulse",
