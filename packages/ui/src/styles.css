@@ -703,6 +703,24 @@ html {
   );
 }
 
+/* #EXP-1876 (agent-settings.json `assistant.fab.widget`): THE CONTENT CARD's
+   own ground for a surface floating INSIDE the card (the Assistant widget):
+   the page gradient, pinned to the viewport like body::before, under the
+   card's panel fill — so it reads as the card itself, never as the menu
+   surface (`bg-glass-card-opaque` = the `in` bubbles and the composer card,
+   which melted into it). Opaque: what scrolls behind it never shows. */
+@utility bg-glass-card-ground {
+  background-color: var(--glass-background-bottom);
+  background-image:
+    linear-gradient(var(--glass-fill-panel), var(--glass-fill-panel)),
+    linear-gradient(
+      to bottom,
+      var(--glass-background-top),
+      var(--glass-background-bottom)
+    );
+  background-attachment: scroll, fixed;
+}
+
 /* Translucent chrome pinned to a viewport EDGE: sticky top bars, the docked
    agent bar. The scrim must read as the page gradient continuing behind the
    blur — so it is tinted with the gradient's own endpoint, never with

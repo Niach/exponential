@@ -1287,7 +1287,7 @@ mod tests {
         let fab = &*ASSISTANT_FAB;
         assert_eq!(fab.copy.maximize, "Open full chat");
         assert_eq!(fab.copy.minimize, "Minimize");
-        assert_eq!((fab.widget.width, fab.widget.height), (440., 560.));
+        assert_eq!((fab.widget.min.width, fab.widget.min.height, fab.widget.radius), (480., 560., 16.));
         assert_eq!((fab.inset, fab.toast_lift), (16., 76.));
         // #EXP-1860: the corner the FAB owns = inset + the 52px circle + inset.
         assert_eq!(fab.clearance, fab.inset * 2. + 52.);
