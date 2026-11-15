@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- `SurfaceView::set_forced_states` (#EXP-1781): the host's forced interaction states (paint only); leaves (a Slider thumb) and the painter-drawn Segmented item (`<id>.item.<k>`) take them too. The IDE's specimen screen passes a specimen's `states`. `tests/forced_states.rs`.
 - `SurfaceView::caret_on_write` (#EXP-1841): the next programmatic write into a field (an `assign_data` on its binding) parks the caret at a byte offset of the written text instead of the end, moving it even unfocused: the IDE composer's thumbnail X keeps the writer's place.
 - `SurfaceView::field_caret` / `insert_into_field` (#EXP-1841): a host reads a field's caret and types text in at a byte offset through the platform text-input entry point (its change, undo and caret behind it, no focus move): the IDE composer's `[Image #N]` placeholders.
 - List `reorderable` (#EXP-1832): a press inside a row becomes its drag past `tabDragThreshold` (the press is spent; a field keeps its pointer); the core's `list_drag_paint` draws the dragged row at 0.4, its lifted copy (the row painted again on the popover colour, `$radius.md`, the overlay shadow, 12px right, following the pointer), the 2px primary drop line with its ring or the into ring + faint fill; Esc cancels (`SurfaceView::list_drag_cancel`). `tests/interaction.rs` drags into, before, cancels and clicks.
