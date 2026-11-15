@@ -182,7 +182,7 @@
       "issues": [
         {
           "path": "recipes.Button.root[0].style.display",
-          "message": "not a recipe key; known: backgroundColor|color|borderColor|borderWidth|borderTopWidth|borderRightWidth|borderBottomWidth|borderLeftWidth|borderRadius|borderStyle|padding|paddingHorizontal|paddingVertical|gap|width|height|minWidth|minHeight|fontSize|fontWeight|lineHeight|fontFamily|letterSpacing|textDecoration|textTransform|fontStyle|boxShadow|opacity|transition|transitionEasing|transform|backdropBlur|animation|native|marginTop|marginBottom|borderTopLeftRadius|maxWidth|backgroundClip|paddingTop|paddingBottom|textAlign|borderTopRightRadius|borderBottomRightRadius|borderBottomLeftRadius"
+          "message": "not a recipe key; known: backgroundColor|color|borderColor|borderWidth|borderTopWidth|borderRightWidth|borderBottomWidth|borderLeftWidth|borderRadius|borderStyle|padding|paddingHorizontal|paddingVertical|gap|width|height|minWidth|minHeight|fontSize|fontWeight|lineHeight|fontFamily|letterSpacing|textDecoration|textTransform|fontStyle|boxShadow|opacity|transition|transitionEasing|transform|backdropBlur|animation|native|marginTop|marginBottom|borderTopLeftRadius|maxWidth|backgroundClip|paddingTop|paddingBottom|textAlign|borderTopRightRadius|borderBottomRightRadius|borderBottomLeftRadius|backgroundGradient"
         }
       ]
     },
@@ -700,6 +700,22 @@
         {
           "path": "modes.dark.color.bubbleOwn",
           "message": "missing value for $color.bubbleOwn"
+        },
+        {
+          "path": "modes.light.color.sheenFrom",
+          "message": "missing value for $color.sheenFrom"
+        },
+        {
+          "path": "modes.dark.color.sheenFrom",
+          "message": "missing value for $color.sheenFrom"
+        },
+        {
+          "path": "modes.light.color.sheenTo",
+          "message": "missing value for $color.sheenTo"
+        },
+        {
+          "path": "modes.dark.color.sheenTo",
+          "message": "missing value for $color.sheenTo"
         },
         {
           "path": "tokens.spacing.none",

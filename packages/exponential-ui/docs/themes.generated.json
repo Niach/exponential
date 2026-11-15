@@ -1035,6 +1035,50 @@
             "dark": "#132034"
           }
         }
+      },
+      {
+        "name": "sheenFrom",
+        "ref": "$color.sheenFrom",
+        "values": {
+          "neutral": {
+            "light": "#52525b",
+            "dark": "#ffffff"
+          },
+          "exponential": {
+            "light": "#52525b",
+            "dark": "#ffffff"
+          },
+          "playful": {
+            "light": "#52525b",
+            "dark": "#ffffff"
+          },
+          "orange": {
+            "light": "#52525b",
+            "dark": "#ffffff"
+          }
+        }
+      },
+      {
+        "name": "sheenTo",
+        "ref": "$color.sheenTo",
+        "values": {
+          "neutral": {
+            "light": "#0a0a0a",
+            "dark": "#c4c4cc"
+          },
+          "exponential": {
+            "light": "#0a0a0a",
+            "dark": "#c4c4cc"
+          },
+          "playful": {
+            "light": "#0a0a0a",
+            "dark": "#c4c4cc"
+          },
+          "orange": {
+            "light": "#0a0a0a",
+            "dark": "#c4c4cc"
+          }
+        }
       }
     ],
     "spacing": [
@@ -2838,7 +2882,8 @@
     "textAlign",
     "borderTopRightRadius",
     "borderBottomRightRadius",
-    "borderBottomLeftRadius"
+    "borderBottomLeftRadius",
+    "backgroundGradient"
   ],
   "components": [
     {

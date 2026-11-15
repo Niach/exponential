@@ -122,6 +122,13 @@ export function composeExponential(): ThemeSource {
   // (the info blue at 18% over the ground), the info blue at 12% over white.
   dark.bubbleOwn = hex(design.glass.fillOwn)
   light.bubbleOwn = `#e7f0fe`
+  // #EXP-1876: the glassy sheen of a filled glyph (the Assistant's mark
+  // button), top → bottom: white → zinc-300 over the dark ground, zinc-600
+  // → the near-black foreground over white (Danny's pick, look (b)).
+  dark.sheenFrom = `#ffffff`
+  dark.sheenTo = `#c4c4cc`
+  light.sheenFrom = `#52525b`
+  light.sheenTo = light.foreground!
   // Status semantics are fixed hues on every client (design-tokens `semantic`).
   for (const table of [light, dark]) {
     table.success = hex(design.semantic.green)
@@ -282,6 +289,16 @@ export function themeSchema(): Record<string, unknown> {
     animation: { enum: styleKeyEnum(`animation`) },
     native: { type: `boolean` },
     backgroundClip: { enum: BACKGROUND_CLIPS },
+    // #EXP-1876: a glyph part's sheen (with `backgroundClip: text`).
+    backgroundGradient: {
+      type: `object`,
+      additionalProperties: false,
+      required: [`angle`, `stops`],
+      properties: {
+        angle: { type: `number` },
+        stops: { type: `array`, minItems: 2, items: { type: `object`, additionalProperties: false, required: [`color`, `offset`], properties: { color: colorOrToken, offset: { type: `number`, minimum: 0, maximum: 1 } } } },
+      },
+    },
   }
   for (const key of RECIPE_KEYS) if (!styleProps[key]) throw new Error(`theme schema: no schema for recipe key ${key}`)
   const whenValue = { anyOf: [{ type: `string` }, { type: `number` }, { type: `boolean` }, { type: `array`, items: { anyOf: [{ type: `string` }, { type: `number` }, { type: `boolean` }] } }] }

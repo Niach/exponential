@@ -106,13 +106,16 @@ const KEY_GROUPS: Record<string, readonly string[]> = {
   borderTopRightRadius: [`radius`, `spacing`],
   borderBottomRightRadius: [`radius`, `spacing`],
   borderBottomLeftRadius: [`radius`, `spacing`],
+  // #EXP-1876: a glyph part's sheen (with `backgroundClip: text`, the mark button).
+  backgroundGradient: [`color`],
 }
 /** #EDE-65: the recipe keys that also take a percentage of the parent (`"62%"`). */
 const PERCENT_KEYS = new Set([`maxWidth`])
 const isPercent = (value: unknown): boolean => typeof value === `string` && /^[0-9]+(?:\.[0-9]+)?%$/.test(value) && parseFloat(value) <= 100
 /** #EXP-1629: the recipe-only `backgroundClip` (`padding-box` = the fill
- *  paints inside the border). */
-export const BACKGROUND_CLIPS: readonly string[] = [`border-box`, `padding-box`]
+ *  paints inside the border; #EXP-1876 `text` = on a glyph part the
+ *  `backgroundGradient` paints the glyph itself). */
+export const BACKGROUND_CLIPS: readonly string[] = [`border-box`, `padding-box`, `text`]
 const COLOR_KEYS = new Set([`backgroundColor`, `color`, `borderColor`])
 /** The ONLY free text a theme contributes to a stylesheet verbatim: a family
  *  NAME (`tokens.type.family.*`) and a `fonts.*.fallback` list, both pasted
@@ -263,6 +266,20 @@ function checkFonts(value: unknown, path: string, issues: ThemeIssue[]): void {
   }
 }
 
+/** #EXP-1876: a recipe gradient: style.json's shape, a stop colour a
+ *  literal hex (themes keep literals) or a known `$color.*` token. */
+function isThemeGradient(value: unknown): boolean {
+  if (!isObj(value) || typeof value.angle !== `number` || !Number.isFinite(value.angle)) return false
+  if (Object.keys(value).some((k) => k !== `angle` && k !== `stops`)) return false
+  const stops = value.stops
+  if (!Array.isArray(stops) || stops.length < 2) return false
+  return stops.every((stop) => {
+    if (!isObj(stop) || typeof stop.offset !== `number` || stop.offset < 0 || stop.offset > 1) return false
+    const ref = parseTokenRef(stop.color)
+    return ref ? ref.group === `color` && (TOKEN_GROUPS.color ?? []).includes(ref.name) : isThemeHex(stop.color)
+  })
+}
+
 function checkRecipeValue(key: string, value: unknown, path: string, issues: ThemeIssue[]): void {
   if (key === `native`) {
     if (typeof value !== `boolean`) issues.push({ path, message: `expected true|false` })
@@ -270,6 +287,10 @@ function checkRecipeValue(key: string, value: unknown, path: string, issues: The
   }
   if (key === `backgroundClip`) {
     if (!BACKGROUND_CLIPS.includes(value as string)) issues.push({ path, message: `expected ${known(BACKGROUND_CLIPS)}` })
+    return
+  }
+  if (key === `backgroundGradient`) {
+    if (!isThemeGradient(value)) issues.push({ path, message: `expected {angle, stops: [{color, offset 0..1}, …]} with two or more stops, each colour #rrggbb, #rrggbbaa or $color.<name>` })
     return
   }
   if (ENUM_KEYS.has(key)) {
@@ -540,6 +561,9 @@ function deriveColors(theme: ResolvedTheme): void {
     if (color.strokeActive === undefined && color.ring !== undefined) color.strokeActive = color.ring
     // #EXP-1864: the own chat bubble = `popover` when the chain sets none.
     if (color.bubbleOwn === undefined && color.popover !== undefined) color.bubbleOwn = color.popover
+    // #EXP-1876: the glyph sheen = a flat `foreground` when the chain sets none.
+    if (color.sheenFrom === undefined && color.foreground !== undefined) color.sheenFrom = color.foreground
+    if (color.sheenTo === undefined && color.foreground !== undefined) color.sheenTo = color.foreground
     if (color.destructiveHover === undefined && color.destructive !== undefined) color.destructiveHover = withAlpha(color.destructive, mode === `dark` ? 0.2 : 0.1)
     // #EXP-1760: `shadow.popoverRing` = `popover` when the chain sets none.
     const shadow = theme.modes[mode].shadow as Record<string, unknown> | undefined
@@ -731,3 +755,28 @@ export function themeMode(theme: ResolvedTheme, mode: ModeName): ThemeMode {
   return theme.modes[mode]
 }
 export type { ThemeRecipes }
+
+/** #EXP-1876: a glyph part's sheen. A resolved part style with
+ *  `backgroundClip: text` + a `backgroundGradient` paints its GLYPH with the
+ *  gradient instead of `color` (the Button `fab` `lg` mark): the gradient
+ *  line in the glyph's (square) box as SVG `objectBoundingBox` end points
+ *  (CSS angle: 0 = up, 90 = right) and the stops' resolved colours. `null`
+ *  = a plain `color` glyph. */
+export interface GlyphGradient {
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+  stops: { color: string; offset: number }[]
+}
+export function glyphGradient(style: Record<string, unknown>): GlyphGradient | null {
+  if (style.backgroundClip !== `text`) return null
+  const g = style.backgroundGradient
+  if (!isObj(g) || typeof g.angle !== `number` || !Array.isArray(g.stops) || g.stops.length < 2) return null
+  const stops = g.stops.filter(isObj).map((s) => ({ color: String(s.color), offset: Number(s.offset ?? 0) }))
+  const rad = (g.angle * Math.PI) / 180
+  const round = (n: number) => Math.round(n * 10000) / 10000 + 0
+  const dx = Math.sin(rad) / 2
+  const dy = -Math.cos(rad) / 2
+  return { x1: round(0.5 - dx), y1: round(0.5 - dy), x2: round(0.5 + dx), y2: round(0.5 + dy), stops }
+}

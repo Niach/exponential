@@ -13,11 +13,11 @@
 // "on|off"`): Kobalte's ToggleButton writes `data-pressed` instead.
 
 import { Show, createEffect, createMemo, createSignal, onCleanup, useContext, type Accessor, type Component, type JSX } from "solid-js"
-import { PENDING_DELAY_MS } from "@exponential_app/eui"
+import { PENDING_DELAY_MS, glyphGradient, nativeRecipeProps, resolveRecipe } from "@exponential_app/eui"
 import { ButtonHold, isPickerPick, linkHref } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
 import { ClosePickerContext, useForm } from "../form"
-import { CHROME, IconGlyph, PaintIcon } from "../icons"
+import { CHROME, GradientGlyph, IconGlyph, PaintIcon } from "../icons"
 import type { NativeProps } from "../node-view"
 import { createBoundState } from "./bound"
 import { bool, css, failingChecks, parts, str } from "./shared"
@@ -68,6 +68,8 @@ export function ButtonNative(props: NativeProps): JSX.Element {
   const disabled = () => bool(props.props.disabled) || failingChecks(props.props.checks).length > 0
   const inert = () => disabled() || loading()
   const iconOnly = () => props.props.size === `icon` || props.props.size === `icon-xs` || props.props.variant === `fab` // #EXP-1837: a fab is icon-only
+  // #EXP-1876: the icon part's sheen (the `fab` `lg` mark), else `color`.
+  const sheen = createMemo(() => (icon() ? glyphGradient(resolveRecipe(ctx.theme, { component: `Button`, part: `icon`, props: nativeRecipeProps(`Button`, props.props, ctx.extensionDefs) }, ctx.mode)) : null))
   const hasChild = () => props.node.children.length > 0
   const shown = createPendingShown(loading)
   const pendingLabel = () => str(props.props.pendingLabel)
@@ -129,7 +131,7 @@ export function ButtonNative(props: NativeProps): JSX.Element {
         </span>
       ) : icon() ? (
         <span {...part(`icon`)}>
-          <IconGlyph icons={ctx.host.icons} name={icon()} />
+          {sheen() ? <GradientGlyph icons={ctx.host.icons} name={icon()} gradient={sheen()!} /> : <IconGlyph icons={ctx.host.icons} name={icon()} />}
         </span>
       ) : null}
       <Show when={hasChild()} fallback={!iconOnly() && paintedLabel() ? <span {...part(`label`)}>{paintedLabel()}</span> : null}>
