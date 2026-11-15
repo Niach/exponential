@@ -1645,8 +1645,8 @@
         "file": "shots/chat-transcript/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 58956,
-        "sha256": "0410065bd25ab44908051b2a9b966ed90eb585ed37f7238827996eb44ecd2523"
+        "bytes": 58840,
+        "sha256": "4640011615f42f62e8b19ef5feff0669baf2bb76e0ec50a7b1910e5f2884ef87"
       },
       "desktop": {
         "file": "shots/chat-transcript/desktop.webp",
@@ -3954,8 +3954,8 @@
         "file": "shots/exponential-ui-message-bubble/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 24246,
-        "sha256": "02baf5d04e656004256f07ba676a1b4d31b4f2d79ff72bb8f34b2a130454b658"
+        "bytes": 39328,
+        "sha256": "62ae8b0b5f0a06d017d7acd4b3ba5f496fe1e408f331d3a77b36087c88305854"
       },
       "desktop": {
         "file": "shots/exponential-ui-message-bubble/desktop.webp",
