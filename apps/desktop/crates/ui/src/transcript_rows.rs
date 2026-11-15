@@ -663,6 +663,7 @@ mod tests {
                 text: text.to_string(),
                 message_id: None,
                 subagent_id: None,
+                at: None,
             },
             seq: None,
         }

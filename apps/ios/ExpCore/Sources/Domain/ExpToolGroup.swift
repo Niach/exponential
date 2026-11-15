@@ -66,6 +66,14 @@ public enum ExpToolGroup {
         return ExpToolDisplay.resolve(toolName: name) != nil
     }
 
+    /// #EXP-1864 (transcript-grouping.json `notices`): a tool row drawn as
+    /// THE inline marker, its label; nil = an ordinary row. A notice never
+    /// joins a tool run or an Exponential tool run.
+    public static func notice(_ item: AgentFeedItem) -> String? {
+        guard case let .tool(_, name, _, _, _, _, _, _, _, _, _, _, _) = item else { return nil }
+        return TranscriptGrouping.traceNotice(name)
+    }
+
     /// The inclusive end index of the maximal run of same-lane calls to the
     /// SAME Exponential tool that starts at `start` (which must itself be one).
     /// A caller's group scan uses it exactly like its edit-run scan.
@@ -74,6 +82,7 @@ public enum ExpToolGroup {
     ) -> Int {
         guard feed.indices.contains(start),
               isExpToolCall(feed[start], workflowIds: workflowIds),
+              notice(feed[start]) == nil,
               let row = rowName(feed[start])
         else { return start }
         let lane = feed[start].subagentKey

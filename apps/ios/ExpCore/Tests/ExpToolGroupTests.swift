@@ -228,4 +228,19 @@ final class ExpToolGroupTests: XCTestCase {
         XCTAssertEqual(AgentFeedRow.expRun([call(3), call(4)]).rowClass, .tool)
         XCTAssertEqual(AgentFeedRow.expRun([call(3), call(4)]).id, 3)
     }
+    // #EXP-1864: a notice is THE inline marker: never in an Exponential
+    // tool run or a tool run, it breaks both like a card.
+    func testANoticeNeverJoinsARun() {
+        let quiet = { (id: Int) in self.call(id, "mcp__exponential__exponential_session_self_quiet") }
+        let bash = { (id: Int) in self.call(id, "Bash") }
+        let feed: [AgentFeedItem] = [bash(1), quiet(2), bash(3), quiet(4), quiet(5)]
+        XCTAssertEqual(
+            AgentFeed.rows(feed),
+            [.single(feed[0]), .single(feed[1]), .single(feed[2]), .single(feed[3]), .single(feed[4])]
+        )
+        XCTAssertEqual(ExpToolGroup.notice(feed[1]), "Ended turn quietly")
+        XCTAssertNil(ExpToolGroup.notice(feed[0]))
+        XCTAssertEqual(AgentFeedRow.single(feed[1]).rowClass, .prose)
+        XCTAssertEqual(AgentFeed.laneRows([quiet(1), quiet(2)]).count, 2)
+    }
 }

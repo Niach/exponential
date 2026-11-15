@@ -52,11 +52,11 @@ public enum MessageBubbleSide: Equatable, Sendable {
 
 /// #EXP-1736 (transcript-grouping.json): THE message bubble ×4, every chat
 /// a group chat (web packages/ui `MessageBubble`). The glass card bubble
-/// (16pt radius) hugging its text: `own` = the viewer's (right, the active
-/// glass fill inside the strong hairline, no name; #FEED-239: no left inset,
+/// (16pt radius, THE opaque card under its hairline on both sides, #EXP-1864)
+/// hugging its text: `own` = the viewer's (right, no name; #FEED-239: no left inset,
 /// at most `layout.maxWidth.own` of its column, the viewer's avatar is
 /// `TranscriptRow`'s); `other` = anyone else's
-/// (left, THE card surface), its sender's NAME on the group's first bubble
+/// (left), its sender's NAME on the group's first bubble
 /// (`author`, 12pt medium secondary). #EXP-1772: set `onPress` = a RELAY
 /// (another session's message, a child's report): its name (ending in ` ›`)
 /// sits ABOVE the bubble, outside it, and only that line opens the
@@ -117,8 +117,9 @@ public struct MessageBubble<Content: View, Footer: View>: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(own ? GlassTokens.fillActive : GlassTokens.opaqueCardFill, in: shape)
-        .overlay(shape.stroke(own ? GlassTokens.strokeStrong : GlassTokens.strokeCard, lineWidth: GlassTokens.hairline))
+        // #EXP-1864 ONE BUBBLE COLOUR: own and in = THE opaque card + its hairline.
+        .background(GlassTokens.opaqueCardFill, in: shape)
+        .overlay(shape.stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline))
         BubbleWidthCap(fraction: own ? TranscriptGrouping.Layout.maxWidthOwn : TranscriptGrouping.Layout.maxWidthPhoneIn, trailing: own) {
             if let onPress, !own {
                 VStack(alignment: .leading, spacing: 4) {

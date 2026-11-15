@@ -1629,8 +1629,8 @@
         "file": "shots/chat-transcript/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 53364,
-        "sha256": "ed33fd36ca6221d0ff619affc18a3aecfdc99689a83a0c3e4aa82efc9867dca7"
+        "bytes": 56806,
+        "sha256": "bd6907b6d76e713f640e59a3d46e1401757eeec3e6006e91004028eae6a0c375"
       },
       "web-mobile": {
         "file": "shots/chat-transcript/web-mobile.webp",
@@ -3938,8 +3938,8 @@
         "file": "shots/exponential-ui-message-bubble/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 17082,
-        "sha256": "86ccbbc17fe409a5cca94d3043fb425560f0d2cb56542c78cb50d45afb152129"
+        "bytes": 23276,
+        "sha256": "c692c74f026e1915298b2db10a97eff45d40cbac68f52bd90b3fb726abed60fe"
       }
     },
     "exponential-ui-meter": {

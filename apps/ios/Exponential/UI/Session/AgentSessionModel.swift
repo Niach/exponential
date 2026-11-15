@@ -949,7 +949,7 @@ final class AgentSessionModel {
 
     private static func newestAgentMessageKey(_ feed: [AgentFeedItem]) -> String? {
         for item in feed.reversed() {
-            if case let .narration(id, _, messageId, subagentId) = item, subagentId == nil {
+            if case let .narration(id, _, messageId, subagentId, _) = item, subagentId == nil {
                 return messageId ?? "\(id)"
             }
         }
@@ -3021,6 +3021,8 @@ final class AgentSessionModel {
     /// may publish events this build has no renderer for.
     private func handleActivityEvent(_ activity: SteerWireFrame.Activity) {
         guard let decoded = activity.event else { return }
+        // #EXP-1864: the event's own `at` (ms), a narration bubble's `HH:mm`.
+        let activityAt = activity.at.flatMap { $0 > 0 && $0 < 1_000_000_000_000_000 ? Int($0) : nil }
         switch decoded {
         case let .narration(text, messageId, narrationAgent, beforeQuestionId):
             // EXP-483: prose from the withheld ask/plan entry flushes AFTER
@@ -3036,7 +3038,7 @@ final class AgentSessionModel {
                     feed, anchor: anchor,
                     item: .narration(
                         id: id, text: text,
-                        messageId: messageId, subagentId: narrationAgent
+                        messageId: messageId, subagentId: narrationAgent, at: activityAt
                     )
                 ) {
                     if let seq = currentSeq { seqById[id] = seq }
@@ -3060,7 +3062,7 @@ final class AgentSessionModel {
             }
             append(.narration(
                 id: splicedId ?? takeEventId(), text: text,
-                messageId: messageId, subagentId: narrationAgent
+                messageId: messageId, subagentId: narrationAgent, at: activityAt
             ))
         case let .apiError(message, errorType, subagentId):
             // An inline row, never the rate-limit slot: a transient API error
@@ -3686,7 +3688,7 @@ final class TranscriptEntry: Identifiable, Equatable {
             case let .userMessage(_, text, _, _):
                 if case .marker = TranscriptGrouping.feedInput(text) { return .marker }
                 return .input
-            case let .narration(_, text, _, _):
+            case let .narration(_, text, _, _, _):
                 return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .other : .reply
             default:
                 return .other
@@ -3695,7 +3697,7 @@ final class TranscriptEntry: Identifiable, Equatable {
         let shown = TranscriptGrouping.markersShown(kinds)
         return zip(rows, shown).compactMap { row, shown in
             guard shown else { return nil }
-            if case let .single(.narration(_, text, _, _)) = row,
+            if case let .single(.narration(_, text, _, _, _)) = row,
                text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return nil }
             return row
         }
