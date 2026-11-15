@@ -3,7 +3,8 @@
 //! full-height overlay, the IDE the in-window CALL PANEL over the agent
 //! chat's body (`voice_overlay::call_panel`). The twin paints the panel
 //! for each of `fixtures/voice-call.json` `surfaceSpecimens` (ringing,
-//! getting ready, speaking, listening, muted) in a narrow portrait frame
+//! getting ready, speaking, listening, muted, EXP-1857 falling back: the
+//! `Voice on {device}` line under the timer) in a narrow portrait frame
 //! with the desktop's buttons (mute and the red end), its `name` as the
 //! caption centred under it: the same row as the web's
 //! `VoiceCallSpecimen`.
@@ -18,7 +19,7 @@ use etalk_gpui::voice_overlay::{call_panel, specimen_face, CallActions};
 pub(crate) const ID: &str = "voice-call";
 pub(crate) const OWNER: &str = "NEW-55";
 
-/// One specimen's frame (a narrow portrait: all five in one row), tall
+/// One specimen's frame (a narrow portrait: all of them in one row), tall
 /// enough for the panel at full size with a 4-line caption.
 const FRAME_W: f32 = 208.;
 const FRAME_H: f32 = etalk_gpui::voice_overlay::PANEL_FULL_H + 8.;

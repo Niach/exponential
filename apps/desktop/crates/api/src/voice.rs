@@ -103,17 +103,67 @@ pub struct CallTicket {
 #[serde(rename_all = "camelCase")]
 struct CallHostTicketInput<'a> {
     call_id: &'a str,
+    /// EXP-1857: the answering desktop (any of the member's own).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    device_id: Option<&'a str>,
 }
 
-/// NEW-55: `voice.callHostTicket` — mutation; the voice device answers the
-/// relay's `call_ring` with it.
-pub fn voice_call_host_ticket(trpc: &TrpcClient, call_id: &str) -> Result<CallTicket, ApiError> {
-    trpc.mutation("voice.callHostTicket", &CallHostTicketInput { call_id })
+/// NEW-55: `voice.callHostTicket` — mutation; a desktop the relay rang
+/// (`call_ring`) answers with it. EXP-1857: `device_id` = this desktop's
+/// own id (any of the member's desktops may be rung; None = the voice device).
+pub fn voice_call_host_ticket(trpc: &TrpcClient, call_id: &str, device_id: Option<&str>) -> Result<CallTicket, ApiError> {
+    trpc.mutation("voice.callHostTicket", &CallHostTicketInput { call_id, device_id })
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StartCallInput<'a> {
+    agent_id: &'a str,
+    platform: &'a str,
+    device_id: &'a str,
+}
+
+/// EXP-1857: `voice.startCall`'s answer: the caller's ticket URL and the
+/// desktop it rings (the server's `callTarget`).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartedCall {
+    pub call_id: String,
+    pub url: String,
+    pub device_id: String,
+    pub device: String,
+    #[serde(default)]
+    pub fallback: bool,
+}
+
+/// EXP-1857: `voice.startCall` — mutation; the desktop IDE as a CALLER
+/// (platform `desktop`, `device_id` = this desktop, the first fallback).
+/// Refused (`PRECONDITION_FAILED`, the availability reason as the message)
+/// when no desktop speaks, `BAD_REQUEST` when this desktop is the target.
+pub fn voice_start_call(trpc: &TrpcClient, agent_id: &str, device_id: &str) -> Result<StartedCall, ApiError> {
+    trpc.mutation("voice.startCall", &StartCallInput { agent_id, platform: "desktop", device_id })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// EXP-1857: the host ticket names the answering desktop; the caller
+    /// is a desktop with its own id.
+    #[test]
+    fn call_inputs_name_this_desktop() {
+        let host = CallHostTicketInput { call_id: "c1", device_id: Some("d-mac") };
+        assert_eq!(serde_json::to_string(&host).unwrap(), r#"{"callId":"c1","deviceId":"d-mac"}"#);
+        let old = CallHostTicketInput { call_id: "c1", device_id: None };
+        assert_eq!(serde_json::to_string(&old).unwrap(), r#"{"callId":"c1"}"#);
+        let start = StartCallInput { agent_id: "a1", platform: "desktop", device_id: "d-mac" };
+        assert_eq!(serde_json::to_string(&start).unwrap(), r#"{"agentId":"a1","platform":"desktop","deviceId":"d-mac"}"#);
+        let started: StartedCall = serde_json::from_str(
+            r#"{"callId":"c1","ticket":"t","url":"wss://r/x?ticket=t","relayUrl":"wss://r","deviceId":"d-mint","device":"mint","fallback":true}"#,
+        )
+        .unwrap();
+        assert_eq!((started.device.as_str(), started.fallback, started.url.as_str()), ("mint", true, "wss://r/x?ticket=t"));
+    }
 
     #[test]
     fn an_update_sends_only_what_changed_and_explicit_nulls() {
