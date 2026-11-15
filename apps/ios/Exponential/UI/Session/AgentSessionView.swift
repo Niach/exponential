@@ -1519,6 +1519,9 @@ struct AgentSessionView: View {
                     return TranscriptGrouping.Item(
                         id: id, kind: .message, authorKind: DomainContract.messageAuthorKindUser, authorId: viewer
                     )
+                // #EXP-1864: a notice is THE marker (full, never grouped).
+                case let .tool(_, name, _, _, _, _, _, _, _, _, _, _, _) where TranscriptGrouping.traceNotice(name) != nil:
+                    return TranscriptGrouping.Item(id: id, kind: .full)
                 case .tool, .thought, .subagent:
                     return TranscriptGrouping.Item(id: id, kind: .trace)
                 default:
@@ -4568,6 +4571,9 @@ struct SubagentItemRow: View {
             where ScriptCards.isScriptCall(name: name, toolKind: kind):
             // EXP-1279: a lane's code-mode call is its Script card too.
             ScriptCallRow(settled: settled, failed: failed, script: script)
+        case let .tool(_, name, _, _, _, _, _, _, _, _, _, _, _) where TranscriptGrouping.traceNotice(name) != nil:
+            // #EXP-1864: a notice = THE inline marker on its own line.
+            TranscriptMarkerRow(label: TranscriptGrouping.traceNotice(name) ?? "")
         case let .tool(_, name, detail, _, callId, kind, settled, failed, _, preview, output, _, _):
             // A subagent's rows are a digest inside the main transcript — its
             // own tab is where its work is read — so none of them is the live
@@ -4594,8 +4600,12 @@ struct SubagentItemRow: View {
             }
         case let .apiError(_, message, errorType, _):
             ApiErrorRow(message: message, errorType: errorType)
-        case let .userMessage(_, text, _, _):
-            UserMessageBubble(text: text, context: context)
+        case let .userMessage(_, text, _, at):
+            // #EXP-1864: every bubble its `HH:mm`.
+            UserMessageBubble(
+                text: text, context: context,
+                caption: at.map { GlassTimeRow.formatted(Date(timeIntervalSince1970: Double($0) / 1000)) }
+            )
         default:
             EmptyView()
         }
