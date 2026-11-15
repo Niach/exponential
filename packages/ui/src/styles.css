@@ -851,7 +851,7 @@ html {
    right edge 84px in so the composer's send button sits beside the FAB,
    never under it. No FAB (phones, the Assistant's own page), no rule. */
 main:has(> [data-assistant-fab]) {
-  --fab-clearance: 84px;
+  --fab-clearance: 92px;
 }
 main:has(> [data-assistant-fab]) .fab-clearance::after {
   content: "";
