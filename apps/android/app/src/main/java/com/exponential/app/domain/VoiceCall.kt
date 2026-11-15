@@ -257,6 +257,11 @@ object VoiceCall {
         val desktops: List<TargetDevice>,
         /** A call this client does not run already runs on the target. */
         val busy: Boolean,
+        /**
+         * EXP-1858: the member's own servers (CLI daemons): a candidate only
+         * as the agent's device, never here nor a fallback.
+         */
+        val servers: List<TargetDevice> = emptyList(),
     )
 
     data class Target(
@@ -280,12 +285,15 @@ object VoiceCall {
     /**
      * EXP-1857 (`targetCases`, TS `callTarget`): where a call's speech runs.
      * The first desktop that speaks of: the agent's device (one of the
-     * member's own desktops), the desktop you're at, the other desktops newest
-     * first. None speaks = disabled with the first candidate's reason.
+     * member's own desktops, EXP-1858: or servers), the desktop you're at, the
+     * other desktops newest first. None speaks = disabled with the first
+     * candidate's reason.
      */
     fun callTarget(input: TargetInput): Target {
         fun byId(id: String?) = id?.let { want -> input.desktops.firstOrNull { it.id == want } }
-        val candidates = listOfNotNull(byId(input.agentDevice), byId(input.here)) + input.desktops
+        val agentDevice = byId(input.agentDevice)
+            ?: input.agentDevice?.let { want -> input.servers.firstOrNull { it.id == want } }
+        val candidates = listOfNotNull(agentDevice, byId(input.here)) + input.desktops
         val target = candidates.firstOrNull(::speaks)
         fun off(reason: String?) = Target(enabled = false, reason = reason, device = null, name = null, fallback = false, local = false)
         if (target == null) {

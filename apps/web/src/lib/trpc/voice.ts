@@ -263,27 +263,31 @@ async function memberAgent(database: Db, userId: string, agentId: string): Promi
 }
 
 /** EXP-1857 (voice-call.json `callTarget`): the member's OWN desktops,
- *  newest first, as a call's possible speech devices. A meeting runs on
+ *  newest first, as a call's possible speech devices (EXP-1858: and their
+ *  own servers, a candidate only as the agent's device). A meeting runs on
  *  the voice device only. */
-export async function callDesktopsOf(
+export async function callDevicesOf(
   database: Db,
   userId: string,
   settings: Pick<VoiceSettings, `voiceDeviceId` | `meetingStartedAt`>,
   now: Date
-): Promise<CallTargetDevice[]> {
+): Promise<{ desktops: CallTargetDevice[]; servers: CallTargetDevice[] }> {
   const rows = await database
-    .select({ deviceId: devices.deviceId, label: devices.label, lastSeenAt: devices.lastSeenAt, doctor: devices.doctor })
+    .select({ deviceId: devices.deviceId, kind: devices.kind, label: devices.label, lastSeenAt: devices.lastSeenAt, doctor: devices.doctor })
     .from(devices)
-    .where(and(eq(devices.userId, userId), eq(devices.kind, `desktop`)))
-  return [...rows]
-    .sort((a, b) => new Date(b.lastSeenAt ?? 0).getTime() - new Date(a.lastSeenAt ?? 0).getTime())
-    .map((row) => ({
-      id: row.deviceId,
-      name: row.label ?? row.deviceId,
-      online: deviceRowIsOnline(row.lastSeenAt, now),
-      speech: callSpeechOf(row.doctor),
-      meeting: Boolean(settings.meetingStartedAt) && row.deviceId === settings.voiceDeviceId,
-    }))
+    .where(and(eq(devices.userId, userId), inArray(devices.kind, [`desktop`, `server`])))
+  const sorted = [...rows].sort((a, b) => new Date(b.lastSeenAt ?? 0).getTime() - new Date(a.lastSeenAt ?? 0).getTime())
+  const of = (kind: string) =>
+    sorted
+      .filter((row) => row.kind === kind)
+      .map((row) => ({
+        id: row.deviceId,
+        name: row.label ?? row.deviceId,
+        online: deviceRowIsOnline(row.lastSeenAt, now),
+        speech: callSpeechOf(row.doctor),
+        meeting: Boolean(settings.meetingStartedAt) && row.deviceId === settings.voiceDeviceId,
+      }))
+  return { desktops: of(`desktop`), servers: of(`server`) }
 }
 
 // NEW-55: `callSpeechOf` lives beside the web caller's availability
@@ -464,7 +468,7 @@ export const voiceRouter = router({
         platform: input.platform,
         here: input.platform === `desktop` ? (input.deviceId ?? null) : null,
         agentDevice: agent.deviceId,
-        desktops: await callDesktopsOf(db, userId, settings, new Date()),
+        ...(await callDevicesOf(db, userId, settings, new Date())),
         busy: false,
       })
       if (!target.enabled || !target.device) {

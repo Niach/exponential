@@ -298,10 +298,19 @@ fn doctor_speech(doctor: Option<&serde_json::Value>) -> Option<String> {
 /// EXP-1857: the member's OWN desktops (`user_id` = `me`), newest
 /// `lastSeenAt` first, as a call's target reads them.
 fn own_desktops(rows: &[&domain::rows::DeviceRow], me: &str, now_ms: i64) -> Vec<TalkDesktop> {
+    own_devices(rows, me, now_ms, |kind| kind.is_none_or(|kind| kind == "desktop"))
+}
+
+/// EXP-1858: the member's own servers (CLI daemons), newest first.
+fn own_servers(rows: &[&domain::rows::DeviceRow], me: &str, now_ms: i64) -> Vec<TalkDesktop> {
+    own_devices(rows, me, now_ms, |kind| kind == Some("server"))
+}
+
+fn own_devices(rows: &[&domain::rows::DeviceRow], me: &str, now_ms: i64, kind: impl Fn(Option<&str>) -> bool) -> Vec<TalkDesktop> {
     let mut rows: Vec<&domain::rows::DeviceRow> = rows
         .iter()
         .copied()
-        .filter(|row| row.user_id.as_deref() == Some(me) && row.kind.as_deref().is_none_or(|kind| kind == "desktop") && row.device_id.is_some())
+        .filter(|row| row.user_id.as_deref() == Some(me) && kind(row.kind.as_deref()) && row.device_id.is_some())
         .collect();
     let seen = |row: &domain::rows::DeviceRow| row.last_seen_at.as_deref().and_then(crate::comments::parse_epoch).unwrap_or(0);
     rows.sort_by_key(|row| std::cmp::Reverse(seen(row)));
@@ -528,6 +537,14 @@ impl TalkHost for ExponentialHost {
         own_desktops(&rows, &me, chrono::Utc::now().timestamp_millis())
     }
 
+    fn servers(&self, cx: &App) -> Vec<TalkDesktop> {
+        let Some(store) = Store::try_global(cx) else { return Vec::new() };
+        let Some(me) = crate::queries::active_account(cx).map(|account| account.user_id) else { return Vec::new() };
+        let devices = store.collections().devices.read(cx);
+        let rows: Vec<&domain::rows::DeviceRow> = devices.iter().collect();
+        own_servers(&rows, &me, chrono::Utc::now().timestamp_millis())
+    }
+
     fn device(&self, device_id: &str, cx: &App) -> Option<TalkDevice> {
         let store = Store::try_global(cx)?;
         let devices = store.collections().devices.read(cx);
@@ -631,6 +648,9 @@ mod tests {
         assert_eq!(desktops.iter().map(|desktop| desktop.id.as_str()).collect::<Vec<_>>(), ["d-mint", "d-old"]);
         assert_eq!((desktops[0].name.as_str(), desktops[0].online, desktops[0].speech.as_deref()), ("d-mint-name", true, Some("missing")));
         assert!(!desktops[1].online, "seen long ago");
+        // EXP-1858: the member's own servers, apart (only the agent's counts).
+        let servers = own_servers(&refs, "me", now.timestamp_millis());
+        assert_eq!(servers.iter().map(|server| (server.id.as_str(), server.online)).collect::<Vec<_>>(), [("d-server", true)]);
         assert_eq!(dial_error(api::ApiError::Http { status: 412, message: "mint is offline".into() }), DialError::Refused("mint is offline".into()));
         assert!(matches!(dial_error(api::ApiError::Http { status: 500, message: "x".into() }), DialError::Failed(_)));
     }

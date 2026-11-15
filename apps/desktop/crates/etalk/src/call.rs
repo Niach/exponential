@@ -286,6 +286,9 @@ pub struct CallTargetInput<'a> {
     pub agent_device: Option<&'a str>,
     /// The member's own desktops, newest `lastSeenAt` first.
     pub desktops: &'a [CallTargetDevice],
+    /// EXP-1858: the member's own servers (CLI daemons): a candidate only as
+    /// the agent's device, never here nor a fallback.
+    pub servers: &'a [CallTargetDevice],
     /// A call this client does not run already runs on the target.
     pub busy: bool,
 }
@@ -316,13 +319,15 @@ fn speaks(device: &CallTargetDevice) -> bool {
 }
 
 /// EXP-1857 (`targetCases`): where a call's speech runs. The first desktop
-/// that speaks of: the agent's device (one of the member's own desktops),
-/// the desktop you're at, the other desktops newest first. None speaks =
-/// disabled with the first candidate's reason.
+/// that speaks of: the agent's device (one of the member's own desktops,
+/// EXP-1858: or servers), the desktop you're at, the other desktops newest
+/// first. None speaks = disabled with the first candidate's reason.
 pub fn call_target(input: &CallTargetInput<'_>) -> CallTarget {
     let by_id = |id: Option<&str>| id.and_then(|id| input.desktops.iter().find(|device| device.id == id));
+    let agent_device =
+        by_id(input.agent_device).or_else(|| input.agent_device.and_then(|id| input.servers.iter().find(|device| device.id == id)));
     let candidates: Vec<&CallTargetDevice> =
-        by_id(input.agent_device).into_iter().chain(by_id(input.here)).chain(input.desktops.iter()).collect();
+        agent_device.into_iter().chain(by_id(input.here)).chain(input.desktops.iter()).collect();
     let off = |reason: String| CallTarget { reason: Some(reason), device: None, name: None, fallback: false, local: false };
     let Some(target) = candidates.iter().copied().find(|device| speaks(device)) else {
         let Some(first) = candidates.first() else { return off(VOICE_CALL.copy.reasons.no_desktop.clone()) };
@@ -791,23 +796,28 @@ mod tests {
     fn target_matches_the_fixture() {
         for case in fixture()["targetCases"].as_array().unwrap() {
             let input = &case["input"];
-            let desktops: Vec<CallTargetDevice> = input["desktops"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|device| CallTargetDevice {
-                    id: device["id"].as_str().unwrap().into(),
-                    name: device["name"].as_str().unwrap().into(),
-                    online: device["online"].as_bool().unwrap(),
-                    speech: speech(&device["speech"]),
-                    meeting: device["meeting"].as_bool().unwrap_or(false),
-                })
-                .collect();
+            let devices = |key: &str| -> Vec<CallTargetDevice> {
+                input[key]
+                    .as_array()
+                    .map(Vec::as_slice)
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|device| CallTargetDevice {
+                        id: device["id"].as_str().unwrap().into(),
+                        name: device["name"].as_str().unwrap().into(),
+                        online: device["online"].as_bool().unwrap(),
+                        speech: speech(&device["speech"]),
+                        meeting: device["meeting"].as_bool().unwrap_or(false),
+                    })
+                    .collect()
+            };
+            let (desktops, servers) = (devices("desktops"), devices("servers"));
             let target = call_target(&CallTargetInput {
                 platform: platform(&input["platform"]),
                 here: input["here"].as_str(),
                 agent_device: input["agentDevice"].as_str(),
                 desktops: &desktops,
+                servers: &servers,
                 busy: input["busy"].as_bool().unwrap(),
             });
             let expected = &case["expected"];

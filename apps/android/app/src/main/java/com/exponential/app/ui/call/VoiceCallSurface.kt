@@ -557,10 +557,10 @@ class AgentCallViewModel @Inject constructor(
             me: String?,
             now: Long,
         ): VoiceCall.TargetInput {
-            val desktops = if (settings == null || me == null) {
+            fun own(kind: String) = if (settings == null || me == null) {
                 emptyList()
             } else {
-                rows.filter { it.kind == "desktop" && it.userId == me }
+                rows.filter { it.kind == kind && it.userId == me }
                     .sortedByDescending { it.lastSeenAt?.let(WireTimestamps::parseEpochMs) ?: Long.MIN_VALUE }
                     .map { row ->
                         VoiceCall.TargetDevice(
@@ -572,7 +572,10 @@ class AgentCallViewModel @Inject constructor(
                         )
                     }
             }
-            return VoiceCall.TargetInput(VoiceCall.Platform.Phone, here = null, agentDevice = agentDevice, desktops = desktops, busy = false)
+            val desktops = own("desktop")
+            // EXP-1858: the member's own servers (only the agent's counts).
+            val servers = own("server")
+            return VoiceCall.TargetInput(VoiceCall.Platform.Phone, here = null, agentDevice = agentDevice, desktops = desktops, busy = false, servers = servers)
         }
     }
 }
