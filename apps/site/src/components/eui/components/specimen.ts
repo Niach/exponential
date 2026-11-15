@@ -16,7 +16,7 @@ import { EUI_GROUP_LABELS, EUI_GROUP_ORDER, euiComponentSlug } from "../../../li
 export type ComponentDoc = (typeof componentsDoc.components)[number]
 
 export const COMPONENT_DOCS: readonly ComponentDoc[] = componentsDoc.components
-const SPECIMENS = specimensDoc.specimens as unknown as { id: string; component: string; title: string; node: NestedNode }[]
+const SPECIMENS = specimensDoc.specimens as unknown as { id: string; component: string; title: string; node: NestedNode; states?: Record<string, string[]> }[]
 
 /* The catalogue (#EXP-1779: /sdk/genui/ renders every component, the one
    component catalogue since the styleguide app retired): the components by
@@ -88,6 +88,8 @@ export function withSamples<T>(value: T): T {
 
 export const componentBySlug = (slug: string) => COMPONENT_DOCS.find((d) => euiComponentSlug(d) === slug)
 export const specimenFor = (doc: ComponentDoc) => SPECIMENS.find((s) => s.id === doc.specimenId)?.node
+/** #EXP-1781: the specimen's state rows' FORCED states (id → hover/pressed/focus), the surface's `forcedStates`. */
+export const specimenStatesFor = (doc: ComponentDoc) => SPECIMENS.find((s) => s.id === doc.specimenId)?.states
 
 // ---------------------------------------------------------------------------
 // Variants (old site: lib/catalog.ts variantsOf + sdk/ComponentStudio.tsx)

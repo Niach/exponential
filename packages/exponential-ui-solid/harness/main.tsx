@@ -308,7 +308,7 @@ function Controls(): JSX.Element {
 /** One specimens.json entry alone (the per-component docs shot). */
 function Specimen(): JSX.Element {
   const id = params.get(`id`) ?? ``
-  const entry = (specimens as unknown as { specimens: { id: string; node: NestedNode }[] }).specimens.find((s) => s.id === id)
+  const entry = (specimens as unknown as { specimens: { id: string; node: NestedNode; states?: Record<string, string[]> }[] }).specimens.find((s) => s.id === id)
   const surface = createSurface({ surfaceId: id || `specimen`, catalogId: CORE_CATALOG_ID, initial: entry?.node ?? { id: `root`, component: `Box` } })
   const plugin: HostPlugin = {
     icons: harnessIcons,
@@ -329,7 +329,8 @@ function Specimen(): JSX.Element {
   return (
     <Show when={entry} fallback={<div>unknown specimen {id}</div>}>
       <div data-testid="exponential-ui-specimen" data-specimen={id}>
-        <ExponentialSurface id="specimen" surface={surface} host={plugin} theme={themeId} mode={mode} direction={rtl ? `rtl` : `ltr`} width={width ?? `100%`} />
+        {/* #EXP-1781: the entry's state rows paint their forced hover/pressed/focus. */}
+        <ExponentialSurface id="specimen" surface={surface} host={plugin} theme={themeId} mode={mode} direction={rtl ? `rtl` : `ltr`} width={width ?? `100%`} forcedStates={entry?.states} />
       </div>
     </Show>
   )

@@ -39,6 +39,9 @@ export interface SurfaceContextValue {
   readonly templateBudget?: TemplateBudget
   /** Interaction states forced on every node (the recipe sheet). */
   readonly states: readonly string[]
+  /** #EXP-1781: the host's FORCED states, normalized (`forcedStatesOf`
+   *  reads a node's or a part's); a stable empty map when none. */
+  readonly forced: Readonly<Record<string, readonly string[]>>
   /** Geometry mode: every leaf becomes a fixed box of this size. */
   readonly measure?: (node: UiNode) => { w: number; h: number } | null
   /** Where overlays portal: the overlay LAYER inside the `xui` container. */

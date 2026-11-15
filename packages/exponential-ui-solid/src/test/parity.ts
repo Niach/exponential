@@ -59,6 +59,8 @@ export interface ParityCase {
   direction?: `ltr` | `rtl`
   locale?: string
   states?: readonly string[]
+  /** #EXP-1781: the host's FORCED states (both sides). */
+  forcedStates?: Readonly<Record<string, readonly string[]>>
   /** The surface id (both sides; default `parity`). */
   id?: string
   reactHost?: ReactHostPlugin
@@ -123,7 +125,7 @@ export async function renderReact(c: ParityCase): Promise<{ root: Element; clean
   document.body.appendChild(container)
   const r = createRoot(container)
   await act(async () => {
-    r.render(createElement(ReactSurface, { id: c.id ?? `parity`, root, templates, data: c.data, theme: c.theme ?? `neutral`, mode: c.mode ?? `light`, width: c.width, direction: c.direction, locale: c.locale, states: c.states, host: c.reactHost }))
+    r.render(createElement(ReactSurface, { id: c.id ?? `parity`, root, templates, data: c.data, theme: c.theme ?? `neutral`, mode: c.mode ?? `light`, width: c.width, direction: c.direction, locale: c.locale, states: c.states, forcedStates: c.forcedStates, host: c.reactHost }))
   })
   if (c.settle) await act(async () => c.settle!(container))
   return {
@@ -140,7 +142,7 @@ export async function renderSolidSurface(c: ParityCase): Promise<{ root: Element
   const { root, templates } = reduced(c)
   const container = document.createElement(`div`)
   document.body.appendChild(container)
-  const dispose = renderSolid(() => createComponent(SolidSurface, { id: c.id ?? `parity`, root, templates, data: c.data, theme: c.theme ?? `neutral`, mode: c.mode ?? `light`, width: c.width, direction: c.direction, locale: c.locale, states: c.states, host: c.solidHost }), container)
+  const dispose = renderSolid(() => createComponent(SolidSurface, { id: c.id ?? `parity`, root, templates, data: c.data, theme: c.theme ?? `neutral`, mode: c.mode ?? `light`, width: c.width, direction: c.direction, locale: c.locale, states: c.states, forcedStates: c.forcedStates, host: c.solidHost }), container)
   await Promise.resolve()
   if (c.settle) {
     c.settle(container)

@@ -29,6 +29,7 @@ import {
   textDirection,
   DEFAULT_LOCALE,
   DEFAULT_THEME_ID,
+  normalizeForcedStates,
 } from "@exponential_app/eui"
 import type { FormFactor, Formatter, ModeName, ResolvedTheme, ScrollAlign, TemplateBudget, ThemeIssue, ThemeSource, UiNode, SurfaceCommand } from "@exponential_app/eui"
 import { BASE_CSS } from "@exponential_app/eui/web"
@@ -93,6 +94,13 @@ export interface ExponentialSurfaceProps {
   extensions?: readonly ReactExtension[]
   /** Forced interaction states on every node (the builder's recipe sheet). */
   states?: readonly string[]
+  /** #EXP-1781: FORCED interaction states, host-only and PAINT ONLY: id →
+   *  `hover` / `pressed` / `focus` (`focus` = a keyboard focus). A key
+   *  covers the node and its parts (ids `<key>.…`, e.g. `tabs.tab.1`);
+   *  they only add `data-xs` tokens: no event, no overlay, no focus move,
+   *  no ARIA change. Other state names are dropped
+   *  (`fixtures/forced-states.json`). */
+  forcedStates?: Readonly<Record<string, readonly string[]>>
   /** Geometry mode: leaves become fixed boxes of the returned size. */
   measure?: (node: UiNode) => { w: number; h: number } | null
   /** EXP-1673: a static render (docs, galleries, server markup): every
@@ -181,6 +189,7 @@ export function surfaceTheme(theme: ResolvedTheme, density: `compact` | `default
 const EMPTY: readonly ReactExtension[] = []
 const NO_TEMPLATES: Readonly<Record<string, UiNode>> = {}
 const EMPTY_HOST: HostPlugin = {}
+const NO_FORCED: Readonly<Record<string, readonly string[]>> = Object.freeze({})
 
 const useIsoLayoutEffect = typeof window === `undefined` ? useEffect : useLayoutEffect
 
@@ -358,6 +367,7 @@ export function ExponentialSurface({
   host,
   extensions: extensionsProp = EMPTY,
   states = EMPTY as unknown as readonly string[],
+  forcedStates,
   measure,
   inlineOverlays = false,
   direction: directionProp,
@@ -552,6 +562,10 @@ export function ExponentialSurface({
   useIsoLayoutEffect(() => {
     for (const listener of [...listeners]) listener()
   }, [data, breakpoint, xq, mode, writeEpoch, listeners])
+  // #EXP-1781: normalized once per CONTENT (a host's inline literal keeps
+  // the context, and every memoized node, stable); none = the shared EMPTY.
+  const forcedKey = forcedStates && Object.keys(forcedStates).length ? JSON.stringify(forcedStates) : ``
+  const forced = useMemo(() => (forcedKey ? normalizeForcedStates(JSON.parse(forcedKey) as Record<string, string[]>).forced : NO_FORCED), [forcedKey])
   const ctx: SurfaceContextValue = useMemo(
     () => withLive({
       surfaceId,
@@ -565,6 +579,7 @@ export function ExponentialSurface({
       templateNode,
       templateBudget: budget,
       states,
+      forced,
       measure,
       portal,
       toastLayer,
@@ -584,7 +599,7 @@ export function ExponentialSurface({
       announce,
       subscribe,
     }, live),
-    [surfaceId, compiled, theme, hostValue, extensions, extensionDefs, setData, assignData, templateNode, budget, states, measure, portal, toastLayer, inlineOverlays, direction, functions, openUrl, locale, formatter, now, registerScroller, paintFailures, strings, t, reducedMotion, hover, announce, subscribe]
+    [surfaceId, compiled, theme, hostValue, extensions, extensionDefs, setData, assignData, templateNode, budget, states, forced, measure, portal, toastLayer, inlineOverlays, direction, functions, openUrl, locale, formatter, now, registerScroller, paintFailures, strings, t, reducedMotion, hover, announce, subscribe]
   )
 
   const nodeEl = useCallback((id: string): HTMLElement | null => rootEl?.querySelector<HTMLElement>(`[data-xui-id="${typeof CSS !== `undefined` && CSS.escape ? CSS.escape(id) : id.replace(/"/g, `\\"`)}"]`) ?? null, [rootEl])

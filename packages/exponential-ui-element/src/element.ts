@@ -69,7 +69,7 @@ export function lengthOf(value: number | string | null | undefined): number | st
 }
 
 /** Every settable property (the upgrade pass). */
-const PROPERTIES = [...Object.values(ATTRIBUTES), `surface`, `root`, `templates`, `data`, `host`, `plugin`, `extensions`, `strings`, `states`, `measure`, `viewportHeight`] as const
+const PROPERTIES = [...Object.values(ATTRIBUTES), `surface`, `root`, `templates`, `data`, `host`, `plugin`, `extensions`, `strings`, `states`, `forcedStates`, `measure`, `viewportHeight`] as const
 
 const isConnectable = (h: ExponentialHost) => h.hasTransport && h.status === `closed`
 
@@ -109,6 +109,8 @@ export class ExponentialSurfaceElement extends HTMLElement {
   #extensions = createSignal<readonly SolidExtension[] | undefined>(undefined)
   #strings = createSignal<Record<string, string> | undefined>(undefined)
   #states = createSignal<readonly string[] | undefined>(undefined)
+  /** #EXP-1781: the host's FORCED states (id → hover/pressed/focus), paint only. */
+  #forcedStates = createSignal<ExponentialSurfaceProps[`forcedStates`]>(undefined)
   #measure = createSignal<ExponentialSurfaceProps[`measure`]>(undefined)
   #viewportHeight = createSignal<number | undefined>(undefined)
   /** The store `apply()` made (and its owner's disposer). */
@@ -340,6 +342,12 @@ export class ExponentialSurfaceElement extends HTMLElement {
   }
   set states(v: readonly string[] | undefined | null) {
     this.#states[1](() => v ?? undefined)
+  }
+  get forcedStates(): ExponentialSurfaceProps[`forcedStates`] {
+    return this.#forcedStates[0]()
+  }
+  set forcedStates(v: ExponentialSurfaceProps[`forcedStates`] | null) {
+    this.#forcedStates[1](() => v ?? undefined)
   }
   get measure(): ExponentialSurfaceProps[`measure`] {
     return this.#measure[0]()
@@ -711,6 +719,9 @@ export class ExponentialSurfaceElement extends HTMLElement {
       },
       get states() {
         return el.#states[0]()
+      },
+      get forcedStates() {
+        return el.#forcedStates[0]()
       },
       get measure() {
         return el.#measure[0]()

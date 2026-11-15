@@ -590,7 +590,7 @@ export function SegmentedNative(props: NativeProps): JSX.Element {
                   data-disabled={disabled() ? `` : undefined}
                   disabled={disabled()}
                   aria-label={item().label ? undefined : key}
-                  {...part(`item`, selected() && `selected`, disabled() && `disabled`)}
+                  {...part(`item`, selected() && `selected`, disabled() && `disabled`, ...part.forced(`${part.domId}.item.${index()}`))}
                   tabindex={r.tabindex()}
                   data-orientation={vertical() ? `vertical` : undefined}
                   data-radix-collection-item=""
@@ -655,7 +655,7 @@ function SegmentedBar(props: { rootProps: Record<string, unknown>; vertical: Acc
             <button
               ref={(el) => void (refs[index()] = el)}
               type="button"
-              {...props.part(`item`, selected() && `selected`, disabled() && `disabled`)}
+              {...props.part(`item`, selected() && `selected`, disabled() && `disabled`, ...props.part.forced(`${props.part.domId}.item.${index()}`))}
               disabled={disabled()}
               tabindex={index() === stop() ? 0 : -1}
               aria-current={selected() ? `page` : undefined}
