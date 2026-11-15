@@ -46,12 +46,18 @@ fn point(default: (f32, f32)) -> gpui::Point<gpui::Pixels> {
 }
 
 fn shoot(name: &str, shot: AppShot, pointer: Pointer) {
+    shoot_seeded(name, shot, pointer, |_| {});
+}
+
+/// [`shoot`] with rows seeded into the headless store first.
+fn shoot_seeded(name: &str, shot: AppShot, pointer: Pointer, seed: impl FnOnce(&mut gpui::App)) {
     let Some(dir) = std::env::var_os("EXP_SETTINGS_SHOTS") else { return };
     let mut cx = headless();
     cx.update(|cx| {
         crate::init(cx);
         let store = sync::Store::open(cx, None, None);
         cx.set_global(store);
+        seed(cx);
     });
     let mut frame = None;
     let handle = cx
@@ -254,4 +260,20 @@ fn settings_app_detail_account_open() {
     // The IDE pane's picture: a real click on the trigger (its popover never
     // paints headless), so compare the trigger; `app_mcp_twins` judged the popup.
     shoot("app-detail-account-open", owner(), Pointer::Press("account_select.github.trigger"));
+}
+
+/// #EXP-1849 (apps.json `agentSlot`): "Ops desk" with its agent bound to a
+/// team-shared machine: the Agent group (Runs on, Account, Model) between
+/// the identity and the rest.
+#[test]
+#[ignore]
+fn settings_app_detail_agent_slot() {
+    let mut row = row(true, 3);
+    row.name = "Ops desk".into();
+    row.slug = "ops-desk".into();
+    row.description = Some("Runbooks, on-call and incidents in one place.".into());
+    row.team_id = Some(super::agent_detail::TEAM.into());
+    row.agent_id = Some("ag-ops".into());
+    let agent = super::agent_detail::agent("ag-ops", "agent", "mint", json!([]));
+    shoot_seeded("app-detail-agent-slot", AppShot { row, ..owner() }, Pointer::Rest, move |cx| super::agent_detail::seed(agent, cx));
 }

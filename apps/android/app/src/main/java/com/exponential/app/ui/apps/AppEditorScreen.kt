@@ -222,7 +222,7 @@ fun AppEditorScreen(
             viewModel.clearToast()
         }
     }
-    // Leaving the editor ends the live editor session (its whole tree); a
+    // #EXP-1849: leaving ends nothing (only an empty draft is discarded); a
     // rotation recreates the screen without leaving it.
     val activity = androidx.activity.compose.LocalActivity.current
     DisposableEffect(viewModel) {

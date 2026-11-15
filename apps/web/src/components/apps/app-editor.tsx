@@ -80,7 +80,8 @@ import { useSessionTitles } from "@/hooks/use-session-tree"
 import { useTeamUsers } from "@/hooks/use-team-data"
 import { useSteerDevices } from "@/hooks/use-steer-devices"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
-import { appCollection, sessionCollection } from "@/lib/collections"
+import { agentCollection, appCollection, sessionCollection } from "@/lib/collections"
+import { eq, useLiveQuery } from "@tanstack/react-db"
 import { sendSessionMessage } from "@/lib/enet/send-sealed"
 import { loadEditorDevice, saveEditorDevice } from "@/lib/launch-device"
 import { deviceMoveAgent, deviceMoveName, deviceMovePick, deviceMoveTargetReason } from "@/lib/session-device-move"
@@ -334,7 +335,16 @@ export function AppEditor({
   }, [devices.devices, root, me])
   const [pickedDevice, setPickedDevice] = useState<{ appId: string; deviceId: string } | null>(null)
   const remembered = pickedDevice?.appId === app.id ? pickedDevice.deviceId : loadEditorDevice(app.id)
-  const device = editorDevice(root ? { status: root.status, deviceId: root.deviceId } : null, candidates, remembered)
+  // #EXP-1849: the app agent's slot (a team-shared device) runs a new root.
+  const { data: slotRows } = useLiveQuery(
+    (query) => {
+      const agentId = app.row?.agentId
+      return agentId ? query.from({ agents: agentCollection }).where(({ agents }) => eq(agents.id, agentId)) : undefined
+    },
+    [app.row?.agentId]
+  )
+  const slot = ((slotRows?.[0] as { deviceId?: string } | undefined)?.deviceId || null) as string | null
+  const device = editorDevice(root ? { status: root.status, deviceId: root.deviceId } : null, candidates, remembered, slot)
   const deviceId = device.deviceId
   const deviceRows = useMemo<DevicePickerDevice[]>(() => {
     const row = (d: (typeof candidates)[number]) => ({

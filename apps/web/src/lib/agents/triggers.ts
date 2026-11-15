@@ -3,7 +3,8 @@ import { memberChatsChanged } from "@/lib/agents/assistant-chat"
 import type { AgentTrigger, AgentTriggerState } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
 import { db } from "@/db/connection"
-import { agents, conversations, messages, sessions, type Agent, type Event, type Session } from "@/db/schema"
+import { agents, apps, conversations, messages, sessions, type Agent, type Event, type Session } from "@/db/schema"
+import { briefedText } from "@/lib/apps/editor-session"
 import { conversationInTx } from "@/lib/agents/conversation"
 import { latestCronMatch, parseCron } from "@/lib/agents/cron"
 import { askHidden } from "@/lib/sessions/bus"
@@ -85,10 +86,13 @@ export async function postAgentInputInTx(
   card: { triggerId: string | null; eventId: string | null; name: string | null; issueId?: string | null }
 ): Promise<{ ownerId: string; deviceId: string } | null> {
   const { session, created } = await conversationInTx(tx, agent, userId)
+  const text = typeof body === `function` ? body(session) : body
+  // #EXP-1849: a fresh app root opens with the app brief, like the editor's.
+  const brief = created && session.appId ? await appBriefOf(tx, session.appId) : null
   await insertMessage(tx, session, {
     authorKind: `user`,
     authorId: userId,
-    body: typeof body === `function` ? body(session) : body,
+    body: brief ? `${brief}\n\n${text}` : text,
     card: {
       kind: `event`,
       event: `trigger_fired`,
@@ -99,7 +103,14 @@ export async function postAgentInputInTx(
       ...(card.issueId ? { issueId: card.issueId } : {}),
     },
   })
-  return created ?? { ownerId: agent.ownerId, deviceId: agent.deviceId }
+  // #EXP-1849: the row's own device (an app agent's slot may be empty).
+  return created ?? { ownerId: agent.ownerId, deviceId: session.deviceId ?? agent.deviceId }
+}
+
+/** The app brief of a fresh app root (`editorBrief`). */
+async function appBriefOf(tx: Tx, appId: string): Promise<string | null> {
+  const [app] = await tx.select().from(apps).where(eq(apps.id, appId)).limit(1)
+  return app ? briefedText(app, undefined) : null
 }
 
 function nudge(host: { ownerId: string; deviceId: string } | null) {

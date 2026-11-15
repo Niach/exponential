@@ -393,7 +393,7 @@ final class SessionListsModel {
             ),
             appsByTeam: Dictionary(grouping: rows.apps, by: \.teamId).mapValues { apps in
                 apps.map {
-                    Chats.ChatApp(appId: $0.id, slug: $0.slug, name: $0.name, icon: $0.icon, color: $0.color)
+                    Chats.ChatApp(appId: $0.id, slug: $0.slug, name: $0.name, icon: $0.icon, color: $0.color, agentId: $0.agentId)
                 }
             },
             running: running,

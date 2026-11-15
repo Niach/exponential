@@ -57,11 +57,13 @@ object SessionDeviceMove {
 
     /** Why the whole pin is HIDDEN (the server's refusal for the same
      *  request), or null = it renders: never for an agent's conversation
-     *  (persistent; it moves from Settings → Agents). */
-    fun hiddenReason(kind: String?): String? =
-        if (SessionKind.sessionTraits(kind).persistent) REASON_AGENT else null
+     *  (persistent; it moves from Settings → Agents). #EXP-1849: EXCEPT an
+     *  app's root ([appId] set; it carries the app agent's id too): the
+     *  member's app chat, movable like the editor always was. */
+    fun hiddenReason(kind: String?, appId: String? = null): String? =
+        if (SessionKind.sessionTraits(kind).persistent && appId.isNullOrEmpty()) REASON_AGENT else null
 
-    fun visible(kind: String?): Boolean = hiddenReason(kind) == null
+    fun visible(kind: String?, appId: String? = null): Boolean = hiddenReason(kind, appId) == null
 
     /** A shared session is steerable by every member, any other only by its
      *  starter (EXP-1291; web `canSteerSession`). */

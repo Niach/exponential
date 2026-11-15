@@ -65,6 +65,7 @@ import {
 import { useSession } from "@/hooks/use-session"
 import { useNow } from "@/hooks/use-now"
 import { BoardIdentityRow } from "@/components/board-form-fields"
+import { APPS_AGENT_SLOT } from "@exp/domain-contract/apps"
 import { AgentTriggers, readTriggers, WRITTEN_TRIGGER_KINDS } from "@/components/agents/agent-triggers"
 import {
   accountPinOf,
@@ -211,6 +212,9 @@ function deviceRows(
   return rows
 }
 
+/** #EXP-1849: the slot picker's `Each member's own device` entry. */
+const EACH_MEMBER = `__each-member__`
+
 function errorFor(errors: readonly AgentFormError[], field: string) {
   return errors.find((error) => error.field === field)?.message ?? null
 }
@@ -219,11 +223,17 @@ export function AgentSettingsPage({
   team,
   agent,
   isOwner,
+  appSlot = false,
 }: {
   team: Team
   /** The live `agents` row; null = the create page. */
   agent: SyncedAgent | null
   isOwner: boolean
+  /** #EXP-1849 (apps.json `agentSlot`): an app's Settings mounts ONLY the
+   *  app agent's Runs on rows as its Agent group: the device is the SLOT
+   *  (`Each member's own device` or a team-shared device), account and
+   *  model only with a device. */
+  appSlot?: boolean
 }) {
   const navigate = useNavigate()
   const creating = agent === null
@@ -294,8 +304,8 @@ export function AgentSettingsPage({
     if (syncedColor) setColor(syncedColor)
   }, [syncedColor])
   useEffect(() => {
-    if (syncedDevice) setDeviceId(syncedDevice)
-  }, [syncedDevice])
+    if (syncedDevice || appSlot) setDeviceId(syncedDevice ?? null)
+  }, [syncedDevice, appSlot])
   const syncedSkillIds = agent?.skillIds
   useEffect(() => {
     if (syncedSkillIds) setSkillIds(syncedSkillIds)
@@ -369,7 +379,8 @@ export function AgentSettingsPage({
 
   const pickDevice = (next: string) => {
     const previous = { deviceId, pin }
-    setDeviceId(next)
+    // #EXP-1849: `` empties an app agent's slot (each member's own device).
+    setDeviceId(next || null)
     setErrors((current) => current.filter((error) => error.field !== `device`))
     if (creating) return
     const nextDevice = devices?.find((candidate) => candidate.deviceId === next)
@@ -708,6 +719,46 @@ export function AgentSettingsPage({
         </span>
       </div>
     )
+
+  if (appSlot) {
+    const slotRows: DevicePickerDevice[] = [
+      { id: EACH_MEMBER, name: APPS_AGENT_SLOT.copy.eachMember },
+      ...deviceRows(devices ?? [], deviceId, false).filter((row) =>
+        (devices ?? []).some((d) => d.deviceId === row.id && (d.sharedTeamIds ?? []).includes(team.id))
+      ),
+    ]
+    return (
+      <div data-testid={APPS_AGENT_SLOT.testId}>
+        <GlassSectionHeader label={APPS_AGENT_SLOT.copy.title} />
+        <GlassGroup>
+          <DevicePicker
+            triggerVariant="row"
+            mobileTitle="Device"
+            value={deviceId || EACH_MEMBER}
+            onChange={(next) => pickDevice(next === EACH_MEMBER ? `` : next)}
+            devices={slotRows}
+            disabled={readOnly}
+            emptyText="No devices online"
+            data-testid="app-agent-slot-device"
+          />
+          {deviceId ? accountRow : null}
+          {deviceId ? (
+            <ModelPicker
+              triggerVariant="row"
+              width="md"
+              value={assistantModelValue({ model, cli: modelCli })}
+              onChange={pickModel}
+              models={modelOptions}
+              disabled={readOnly}
+              data-testid="agent-model"
+            />
+          ) : null}
+          {skillsRow}
+          {mcpRow}
+        </GlassGroup>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-4" data-testid={AGENT_SETTINGS_TEST_IDS.page}>

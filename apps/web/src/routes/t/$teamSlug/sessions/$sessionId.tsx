@@ -98,7 +98,9 @@ function ChildSession({
   const { data: auth } = useSession()
   // The root decides: an agent's conversation tree has no chat page.
   if (!root && !rootReady) return <Loading />
-  if (root?.agentId && search.view !== `guide`) {
+  // #EXP-1849: an app's root carries its agent too; its tree keeps the
+  // app's own path (below), never the agent page.
+  if (root?.agentId && !root.appId && search.view !== `guide`) {
     // #EXP-1732: a session under MY conversation with the agent opens in
     // place on the agent's screen (its Sessions tab); anyone else's keeps
     // its own screen.

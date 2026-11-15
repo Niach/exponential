@@ -190,6 +190,12 @@ pub(crate) fn local_engine(session_id: &str, cx: &App) -> Option<engine::EngineS
 /// chat's screen under its title, or an agent's channel under its name.
 fn back_target(session_id: &str, cx: &App) -> Option<(Screen, String)> {
     let root = crate::session_data::root_of(session_id, cx)?;
+    // #EXP-1849 (apps.json `agentSlot`): an app's root is the app's screen,
+    // so its children go back to the app under the app's name.
+    if let Some(app) = root.app_id.clone().filter(|app| !app.is_empty()) {
+        let title = crate::app_screen::app_tab_title(&app, cx).to_string();
+        return Some((Screen::App { app }, title));
+    }
     if root.is_agent() {
         // NEW-6: the agent's page, under the `agents` row's name.
         let agent_id = root.agent_id.clone().unwrap_or_else(|| root.id.clone());

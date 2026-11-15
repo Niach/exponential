@@ -131,6 +131,8 @@ fun ChatScreen(
     /** The "+"'s New issue: the New issue page on [boardId], linked to this
      *  root on create. Null hides the row. */
     onNewIssue: ((boardId: String, rootSessionId: String) -> Unit)? = null,
+    /** #EXP-1849: the root is an app's: open the app (the editor) in place. */
+    onOpenApp: (appId: String) -> Unit = {},
     viewModel: ChatViewModel = hiltViewModel(),
 ) {
     val view by viewModel.view.collectAsStateWithLifecycle()
@@ -254,6 +256,10 @@ fun ChatScreen(
         }
     }
     val rootRow = root
+    // #EXP-1849: an app's root (it carries the app agent's id too) is the
+    // app's chat: it opens as the app (the editor), never as an agent chat.
+    val rootAppId = rootRow?.appId?.takeIf { it.isNotEmpty() }
+    LaunchedEffect(rootAppId) { rootAppId?.let(onOpenApp) }
     // NEW-2: the agent's DEFINITION row names the header (its coloured icon +
     // name); NEW-8: the only source (the session's legacy facets are gone).
     val agentDefinition by viewModel.agentDefinition.collectAsStateWithLifecycle()

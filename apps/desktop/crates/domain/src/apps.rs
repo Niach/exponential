@@ -396,6 +396,25 @@ pub struct AppsSpec {
     pub run: AppsRun,
     /// #EXP-1729: the editor header's `status · device` words (`editorHeader`).
     pub editor_header: AppsEditorHeader,
+    /// #EXP-1849: the app agent's slot, App settings' Agent group (`agentSlot`).
+    pub agent_slot: AppsAgentSlot,
+}
+
+/// #EXP-1849 (`agentSlot`).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppsAgentSlot {
+    pub test_id: String,
+    pub copy: AppsAgentSlotCopy,
+}
+
+/// #EXP-1849 (`agentSlot.copy`).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppsAgentSlotCopy {
+    pub title: String,
+    pub runs_on: String,
+    pub each_member: String,
 }
 
 /// #EXP-1729 (`editorHeader.copy`).
@@ -644,10 +663,13 @@ pub struct EditorDeviceChoice {
 
 /// `root` = the editor root's (status, device); `candidates` = the member's
 /// online devices as (id, is default), with a root the targets a move accepts.
+/// #EXP-1849: `slot` = the app agent's slot (a team-shared device, `None` =
+/// each member's own); it wins over a remembered pick for a new or ended root.
 pub fn editor_device(
     root: Option<(&str, Option<&str>)>,
     candidates: &[(&str, bool)],
     remembered: Option<&str>,
+    slot: Option<&str>,
 ) -> EditorDeviceChoice {
     if let Some((status, device_id)) = root {
         if status != crate::contract::SESSION_STATUS_ENDED {
@@ -655,6 +677,9 @@ pub fn editor_device(
         }
     }
     let root_device = root.and_then(|(_, device_id)| device_id);
+    if let Some(slot) = slot.filter(|slot| !slot.is_empty()) {
+        return EditorDeviceChoice { device_id: Some(slot.to_string()), moves: root.is_some() && Some(slot) != root_device };
+    }
     let known = |id: &&str| candidates.iter().any(|(candidate, _)| candidate == id);
     let device_id = remembered
         .filter(known)
@@ -1866,7 +1891,7 @@ mod tests {
                 .collect();
             let expected = &case["expected"];
             assert_eq!(
-                editor_device(root, &candidates, case["remembered"].as_str()),
+                editor_device(root, &candidates, case["remembered"].as_str(), case["slot"].as_str()),
                 EditorDeviceChoice {
                     device_id: expected["deviceId"].as_str().map(str::to_string),
                     moves: expected["move"].as_bool().unwrap(),

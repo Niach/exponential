@@ -1103,8 +1103,8 @@ class StyleguideScreenshotsTest {
         // row (VAPP-122, with records) RUNS it (sg_app-run: the published
         // package full screen under the detail header); its `…` › Edit app
         // opens the editor and the shot shows its PREVIEW tab (web-mobile's
-        // `app` shot). Leaving it ends the editor session, exactly as the web
-        // capture does.
+        // `app` shot). #EXP-1849: leaving it ends nothing (the root is the
+        // member's persistent chat with the app's agent).
         step("apps") {
             composeRule.onNode(hasTestTag("tab-apps")).performClick()
             flow.waitFor(hasTestTag(Apps.TestIds.LIST), NAV_TIMEOUT)
@@ -1302,6 +1302,8 @@ class StyleguideScreenshotsTest {
                 flow.waitFor(hasText("Accounts"), SYNC_TIMEOUT)
                 // #EXP-1850: Webhooks left Settings; MCP tools end it now.
                 flow.waitFor(hasTestTag(Apps.TestIds.MCP_TOOLS), SYNC_TIMEOUT)
+                // #EXP-1849 (apps.json `agentSlot`): the Agent group after the identity.
+                flow.waitFor(hasTestTag(Apps.AgentSlot.TEST_ID), SYNC_TIMEOUT)
                 Espresso.closeSoftKeyboard()
                 flow.settle()
                 flow.screenshot("sg_app-settings-links")

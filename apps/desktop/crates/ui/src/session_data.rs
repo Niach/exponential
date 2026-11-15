@@ -1353,7 +1353,8 @@ pub(crate) fn agents_in_team(team_id: &str, cx: &App) -> Vec<AgentRow> {
 
 /// #FEED-239 (chats.json `sidebarAgents`): the IDE rail's Agents group
 /// and Settings › Agents = [`agents_in_team`] minus every live app's agent
-/// (an app's agent is listed under Apps only; the Chats list keeps it).
+/// (an app's agent is listed under Apps only; #EXP-1849: the Chats list
+/// drops it too, its chat IS the app row).
 /// #EXP-1837 (chats.json `railAgentCases`): the IDE rail's Agents group =
 /// [`sidebar_agents_in_team`] minus the viewer's Assistant, which is THE FAB
 /// (`crate::assistant_fab`). Settings › Agents keeps the Assistant.
@@ -1517,7 +1518,8 @@ pub(crate) fn chats_model_stale_until(cx: &App) -> Option<std::time::Instant> {
 fn derive_chats_model(team_id: &str, groups: &[ChatsListGroup], cx: &App) -> ChatsModel {
     let collections = Store::global(cx).collections();
     let me = crate::queries::active_account(cx).map(|account| account.user_id);
-    let agents = agents_in_team(team_id, cx);
+    // #EXP-1849 (chats.json): an app's agent chat IS the app row.
+    let agents = sidebar_agents_in_team(team_id, cx);
     let team_ids = synced_team_ids(cx);
     let sessions = collections.sessions.read(cx);
     let team_sessions: Vec<&SessionRow> = sessions
