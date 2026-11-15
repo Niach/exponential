@@ -1,20 +1,19 @@
 import { describe, expect, it } from "vitest"
 import fixture from "@exp/etalk/fixtures/voice-call.json"
-import type { CallAvailabilityInput } from "@exp/etalk/voice-call"
+import type { CallSpeech, CallTargetInput } from "@exp/etalk/voice-call"
 
 import type { DeviceDoctor } from "@/db/schema"
-import { callSpeechOf, webCallAvailability, webCallInput, type CallDeviceRowLike } from "./availability"
+import { callSpeechOf, webCallInput, webCallTarget, type CallDeviceRowLike } from "./availability"
 
-// NEW-70: the web telephone replays voice-call.json `availabilityCases`
-// through what web actually reads (the member's voice settings and the voice
-// device's synced row), never through a hand-built input.
+// NEW-70 / EXP-1857: the web telephone replays voice-call.json `targetCases`
+// through what web actually reads (the member's voice settings, the agent's
+// device and the member's synced desktop rows), never a hand-built input.
 
 const NOW = new Date(`2026-10-27T12:00:00Z`)
-const FRESH = new Date(NOW.getTime() - 10_000)
 const STALE = new Date(NOW.getTime() - 10 * 60_000)
 
 /** The doctor's `speech` row a caller's input stands for. */
-function doctorFor(speech: CallAvailabilityInput[`speech`]): DeviceDoctor {
+function doctorFor(speech: CallSpeech | null): DeviceDoctor {
   const state = { ok: `ok`, noGpu: `missing`, preparing: `action`, failed: `error` } as const
   return {
     checkedAt: NOW.toISOString(),
@@ -22,48 +21,38 @@ function doctorFor(speech: CallAvailabilityInput[`speech`]): DeviceDoctor {
   } as DeviceDoctor
 }
 
-function rowsFor(input: CallAvailabilityInput) {
-  const settings = {
-    agentId: input.agent ? `agent-1` : null,
-    voiceDeviceId: input.device === null ? null : `dev-1`,
-    meetingStartedAt: input.meeting ? NOW.toISOString() : null,
-  }
-  const device: CallDeviceRowLike | null =
-    input.device === null
-      ? null
-      : { deviceId: `dev-1`, label: input.device, lastSeenAt: input.online ? FRESH : STALE, doctor: doctorFor(input.speech) }
-  return { settings, device }
+function rowsFor(input: CallTargetInput) {
+  const meetingOn = input.desktops.find((desktop) => desktop.meeting)
+  const settings = { voiceDeviceId: meetingOn?.id ?? null, meetingStartedAt: meetingOn ? NOW.toISOString() : null }
+  const rows: CallDeviceRowLike[] = input.desktops.map((desktop, index) => ({
+    deviceId: desktop.id,
+    userId: `me`,
+    kind: `desktop`,
+    label: desktop.name,
+    // Newest first: a few seconds apart, stale when offline.
+    lastSeenAt: desktop.online ? new Date(NOW.getTime() - 1_000 * (index + 1)) : new Date(STALE.getTime() - index),
+    doctor: doctorFor(desktop.speech),
+  }))
+  // Another member's desktop and one of my servers never count.
+  rows.push({ deviceId: `d-theirs`, userId: `them`, kind: `desktop`, label: `theirs`, lastSeenAt: NOW, doctor: doctorFor(`ok`) })
+  rows.push({ deviceId: `d-server`, userId: `me`, kind: `server`, label: `server`, lastSeenAt: NOW, doctor: doctorFor(`ok`) })
+  return { settings, rows }
 }
 
-// Web never IS the voice device, and `busy` is the relay's to say on dial.
-const WEB_CASES = fixture.availabilityCases.filter((c) => c.input.platform !== `desktop` && !c.input.busy && !c.input.here)
+// Web is never a desktop itself, and `busy` is the relay's to say on dial.
+const WEB_CASES = fixture.targetCases.filter((c) => c.input.platform !== `desktop` && !c.input.busy)
 
-describe(`web call availability (voice-call.json availabilityCases)`, () => {
+describe(`web call target (voice-call.json targetCases)`, () => {
   it.each(WEB_CASES.map((c) => [c.name, c] as const))(`%s`, (_name, c) => {
-    const input = c.input as CallAvailabilityInput
-    const { settings, device } = rowsFor(input)
-    // A phone case reads the same on web: only `desktop` has `notHere`.
-    expect(webCallInput(settings, device, NOW)).toEqual({ meeting: false, ...input, platform: `web` })
-    expect(webCallAvailability(settings, device, NOW)).toEqual(c.expected)
-  })
-
-  it(`covers every reason a web caller can see`, () => {
-    for (const key of [`noAgent`, `noVoiceDevice`, `offline`, `meeting`, `preparing`, `voiceFailed`, `noGpu`] as const) {
-      const hit = WEB_CASES.some((c) => c.expected.reason === fixture.copy.reasons[key].replace(`{device}`, c.input.device ?? ``))
-      expect(hit, key).toBe(true)
-    }
-    expect(WEB_CASES.some((c) => c.expected.enabled)).toBe(true)
-  })
-
-  it(`a voice device whose row is gone reads as none picked`, () => {
-    const settings = { voiceDeviceId: `dev-1`, agentId: `agent-1` }
-    expect(webCallAvailability(settings, null, NOW).reason).toBe(fixture.copy.reasons.noVoiceDevice)
-    const other = { deviceId: `dev-2`, label: `mint`, lastSeenAt: FRESH, doctor: doctorFor(`ok`) }
-    expect(webCallAvailability(settings, other, NOW).reason).toBe(fixture.copy.reasons.noVoiceDevice)
+    const input = c.input as CallTargetInput
+    const { settings, rows } = rowsFor(input)
+    const read = webCallInput(settings, input.agentDevice, rows, `me`, NOW)
+    expect(read.desktops.map((desktop) => desktop.id)).toEqual(input.desktops.map((desktop) => desktop.id))
+    expect(webCallTarget(settings, input.agentDevice, rows, `me`, NOW)).toEqual(c.expected)
   })
 
   it(`settings not loaded yet keep the telephone off`, () => {
-    expect(webCallAvailability(null, null, NOW).enabled).toBe(false)
+    expect(webCallTarget(null, `d-mint`, [], `me`, NOW).enabled).toBe(false)
   })
 
   it.each(fixture.speechCases.map((c) => [c.name, c] as const))(`speechCases: %s`, (_name, c) => {
