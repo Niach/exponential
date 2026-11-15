@@ -1724,6 +1724,12 @@ impl SurfaceView {
             if ring {
                 st.push("focus-visible".into());
             }
+            // #EXP-1781: the host's forced states of this item (paint only).
+            for f in self.surface.forced_states_of(&item_id) {
+                if !st.contains(&f) {
+                    st.push(f);
+                }
+            }
             let s = lcx.part("Segmented", "item", &st);
             let color = s.color.unwrap_or(lcx.ink);
             let label = display_text(it.get("label"));
