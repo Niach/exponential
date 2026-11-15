@@ -606,6 +606,9 @@ struct ChatTranscriptSpecimens: View {
         message("o2", "user", author: "u1", "And keep the cache behind a flag.", "21:03", status: .sending),
         message("o3", "user", author: "u1", "Ping me when it's under a second.", "21:03", status: .failed),
         message("m2", "user", author: "u2", "Seeing the same on the Galaxy A54.", "21:04"),
+        // #EXP-1864: a notice (the agent's quiet turn) = THE inline marker
+        // on its own line, never a trace beside the avatar.
+        event("q1", TranscriptGrouping.traceNotice("mcp__exponential__exponential_session_self_quiet") ?? ""),
         message("m3", "agent", "Deferred the shape subscribe until after the first frame and added a board snapshot cache.", "21:14"),
         message("m4", "agent", "Here's where the time went:", "21:14"),
         card("surface"),

@@ -86,6 +86,7 @@ html {
   --color-card-opaque: color-mix(in srgb, oklch(1 0 0) 6%, var(--popover));
   --color-glass-panel: var(--glass-fill-panel);
   --color-glass-active: var(--glass-fill-active);
+  --color-glass-own: var(--glass-fill-own);
   --color-glass-stroke: var(--glass-stroke-row);
   --color-glass-stroke-section: var(--glass-stroke-section);
   --color-glass-stroke-card: var(--glass-stroke-card);
@@ -204,6 +205,8 @@ html {
   --glass-stroke-card: oklch(1 0 0 / 10%);
   --glass-stroke-strong: oklch(1 0 0 / 12%);
   --glass-stroke-active: oklch(1 0 0 / 16%);
+  /* #EXP-1864: the viewer's own chat bubble (tokens.json glass.fillOwn). */
+  --glass-fill-own: #132034;
   /* EXP-698 r3: inline-code tint of the agent chat feeds — tokens.json `semantic.code*`. */
   --code-text: #8AB4F8;
   --code-fill: #8AB4F81F;
@@ -403,6 +406,8 @@ html {
   --glass-stroke-card: oklch(1 0 0 / 10%);
   --glass-stroke-strong: oklch(1 0 0 / 12%);
   --glass-stroke-active: oklch(1 0 0 / 16%);
+  /* #EXP-1864: the viewer's own chat bubble (tokens.json glass.fillOwn). */
+  --glass-fill-own: #132034;
   /* EXP-698 r3: inline-code tint of the agent chat feeds — tokens.json `semantic.code*`. */
   --code-text: #8AB4F8;
   --code-fill: #8AB4F81F;

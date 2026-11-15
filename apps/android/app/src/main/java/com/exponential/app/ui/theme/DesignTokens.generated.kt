@@ -79,6 +79,7 @@ object DesignTokens {
         val StrokeCard: Color = Color(0x1AFFFFFF)
         val StrokeStrong: Color = Color(0x1FFFFFFF)
         val StrokeActive: Color = Color(0x29FFFFFF)
+        val FillOwn: Color = Color(0xFF132034)
     }
 
     // The unified-diff palette (EXP-895) — one look on all four clients:

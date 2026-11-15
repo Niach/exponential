@@ -34,6 +34,7 @@
         "borderStrong": "#d4d4d4",
         "ghostHover": "#f5f5f5",
         "strokeActive": "#a1a1a1",
+        "bubbleOwn": "#e7f0fe",
         "success": "#22c55e",
         "warning": "#facc15",
         "info": "#3b82f6",
@@ -150,6 +151,7 @@
         "borderStrong": "#ffffff1f",
         "ghostHover": "#ffffff0e",
         "strokeActive": "#ffffff29",
+        "bubbleOwn": "#132034",
         "success": "#22c55e",
         "warning": "#facc15",
         "info": "#3b82f6",
@@ -2237,9 +2239,9 @@
             "side": "out"
           },
           "style": {
-            "backgroundColor": "$color.accent",
-            "color": "$color.accentForeground",
-            "borderColor": "$color.borderStrong",
+            "backgroundColor": "$color.bubbleOwn",
+            "color": "$color.popoverForeground",
+            "borderColor": "$color.border",
             "maxWidth": "100%"
           }
         }

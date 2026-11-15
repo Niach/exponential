@@ -155,6 +155,9 @@
                 },
                 "destructiveHover": {
                   "$ref": "#/$defs/hex"
+                },
+                "bubbleOwn": {
+                  "$ref": "#/$defs/hex"
                 }
               }
             },
@@ -307,6 +310,9 @@
                   "$ref": "#/$defs/hex"
                 },
                 "destructiveHover": {
+                  "$ref": "#/$defs/hex"
+                },
+                "bubbleOwn": {
                   "$ref": "#/$defs/hex"
                 }
               }
@@ -468,6 +474,9 @@
                 },
                 "destructiveHover": {
                   "$ref": "#/$defs/hex"
+                },
+                "bubbleOwn": {
+                  "$ref": "#/$defs/hex"
                 }
               }
             },
@@ -620,6 +629,9 @@
                   "$ref": "#/$defs/hex"
                 },
                 "destructiveHover": {
+                  "$ref": "#/$defs/hex"
+                },
+                "bubbleOwn": {
                   "$ref": "#/$defs/hex"
                 }
               }

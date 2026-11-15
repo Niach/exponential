@@ -118,6 +118,10 @@ export function composeExponential(): ThemeSource {
   // glass ramp, so it takes the light focus colour (`ring`, neutral-400).
   dark.strokeActive = hex(design.glass.strokeActive)
   light.strokeActive = light.ring!
+  // #EXP-1864: the viewer's own chat bubble: the glass `fillOwn` in dark
+  // (the info blue at 18% over the ground), the info blue at 12% over white.
+  dark.bubbleOwn = hex(design.glass.fillOwn)
+  light.bubbleOwn = `#e7f0fe`
   // Status semantics are fixed hues on every client (design-tokens `semantic`).
   for (const table of [light, dark]) {
     table.success = hex(design.semantic.green)

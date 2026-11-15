@@ -486,7 +486,9 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
     /// consecutive flushes of the SAME message merge into one bubble
     /// (`mergeNarration`). `subagentId` (EXP-773) tags prose a subagent wrote:
     /// it renders inside that subagent's run, never in the main feed.
-    case narration(id: Int, text: String, messageId: String? = nil, subagentId: String? = nil)
+    /// #EXP-1864: `at` (epoch ms) = its FIRST fragment's `at`, the bubble's
+    /// `HH:mm` (a merged fragment keeps it).
+    case narration(id: Int, text: String, messageId: String? = nil, subagentId: String? = nil, at: Int? = nil)
     /// A transient API error the agent hit (`api_error`): an inline prose-class
     /// row, subagent-scoped like narration — never a wall.
     case apiError(id: Int, message: String, errorType: String? = nil, subagentId: String? = nil)
@@ -558,7 +560,7 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
 
     public var id: Int {
         switch self {
-        case let .narration(id, _, _, _): id
+        case let .narration(id, _, _, _, _): id
         case let .apiError(id, _, _, _): id
         case let .tool(id, _, _, _, _, _, _, _, _, _, _, _, _): id
         case let .userMessage(id, _, _, _): id
@@ -576,8 +578,8 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
     /// row's identity changes.
     public func withId(_ id: Int) -> AgentFeedItem {
         switch self {
-        case let .narration(_, text, messageId, subagentId):
-            .narration(id: id, text: text, messageId: messageId, subagentId: subagentId)
+        case let .narration(_, text, messageId, subagentId, at):
+            .narration(id: id, text: text, messageId: messageId, subagentId: subagentId, at: at)
         case let .apiError(_, message, errorType, subagentId):
             .apiError(id: id, message: message, errorType: errorType, subagentId: subagentId)
         case let .tool(
@@ -641,7 +643,7 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
         switch self {
         case let .tool(_, _, _, subagentId, _, _, _, _, _, _, _, _, _): return subagentId
         case let .subagent(_, subagentId, _, _, _, _, _, _): return subagentId
-        case let .narration(_, _, _, subagentId): return subagentId
+        case let .narration(_, _, _, subagentId, _): return subagentId
         case let .apiError(_, _, _, subagentId): return subagentId
         case let .userMessage(_, _, subagentId, _): return subagentId
         case let .thought(_, _, _, _, subagentId): return subagentId
@@ -795,6 +797,8 @@ extension AgentFeedRow {
             switch item {
             case .userMessage: .turn
             case .narration, .apiError, .question, .compaction: .prose
+            // #EXP-1864: a notice reads like the compaction marker.
+            case .tool where ExpToolGroup.notice(item) != nil: .prose
             case .tool, .subagent, .permission, .thought: .tool
             }
         }
@@ -950,7 +954,7 @@ public enum AgentFeed {
     public static func itemBytes(_ item: AgentFeedItem) -> Int {
         let overhead = DomainContract.steerFeedItemOverheadBytes
         switch item {
-        case let .narration(_, text, _, _): return overhead + text.utf8.count
+        case let .narration(_, text, _, _, _): return overhead + text.utf8.count
         case let .apiError(_, message, errorType, _):
             return overhead + message.utf8.count + (errorType?.utf8.count ?? 0)
         case let .userMessage(_, text, _, _): return overhead + text.utf8.count
@@ -1643,13 +1647,13 @@ public enum AgentFeed {
         var index = feed.count - 1
         while index >= 0 {
             let item = feed[index]
-            if case let .narration(id, existing, previousMessage, previousSubagent) = item,
+            if case let .narration(id, existing, previousMessage, previousSubagent, at) = item,
                previousSubagent == subagentId {
                 // The lane's latest prose: the same message grows, another one
                 // opens a new bubble.
                 guard previousMessage == messageId else { return false }
                 feed[index] = .narration(
-                    id: id, text: existing + text, messageId: messageId, subagentId: subagentId
+                    id: id, text: existing + text, messageId: messageId, subagentId: subagentId, at: at
                 )
                 return true
             }
@@ -1944,6 +1948,14 @@ public enum AgentFeed {
                 continue
             }
 
+            // #EXP-1864: a notice (`Ended turn quietly`) is THE inline marker
+            // on its own line: it breaks every run like a card.
+            if ExpToolGroup.notice(item) != nil {
+                builders.append(RowBuilder(kind: .single, items: [item]))
+                i += 1
+                continue
+            }
+
             // EXP-948: one of OUR OWN MCP calls never hides inside a collapsed
             // run — ≥2 consecutive calls to the SAME tool are their own
             // captioned row, and a lone one stays the single row it always was.
@@ -1973,6 +1985,7 @@ public enum AgentFeed {
                       !isWorkflowTool(feed[end], workflowIds: workflowIds),
                       !EditCard.isEditCall(feed[end], workflowIds: workflowIds),
                       !ExpToolGroup.isExpToolCall(feed[end], workflowIds: workflowIds),
+                      ExpToolGroup.notice(feed[end]) == nil,
                       !ScriptCards.isScriptCall(feed[end]) {
                     end += 1
                 }

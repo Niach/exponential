@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test"
 
+import contract from "../contract.json" with { type: "json" }
 import fixture from "../fixtures/transcript-grouping.json" with { type: "json" }
-import { TRANSCRIPT_LAYOUT, crossSessionInput, feedInput, markersShown, messageFolds, transcriptLayout } from "./transcript-grouping"
+import { TRANSCRIPT_LAYOUT, crossSessionInput, feedInput, markersShown, messageFolds, traceNotice, transcriptLayout } from "./transcript-grouping"
 
 describe(`transcript grouping (EXP-1736)`, () => {
   test(`layout comes from the fixture`, () => {
@@ -30,4 +31,13 @@ describe(`transcript grouping (EXP-1736)`, () => {
       expect(markersShown(entry.kinds as never)).toEqual(entry.expected)
     })
   }
+  for (const entry of fixture.noticeCases) {
+    test(`notice: ${entry.name}`, () => expect(traceNotice(entry.toolName)).toBe(entry.expected))
+  }
+  test(`a notice reads its contract row's done caption`, () => {
+    expect(contract.expToolDisplay.prefix).toBe(`exponential_`)
+    for (const [row, label] of Object.entries(fixture.notices)) {
+      expect(contract.expToolDisplay.tools.find((tool) => tool.name === row)?.done).toBe(label)
+    }
+  })
 })

@@ -57,7 +57,8 @@ fn the_exponential_bubble_caps_at_62_percent_with_four_16px_corners() {
         let v = s.visual(s.index_of("m.bubble").unwrap()).unwrap();
         let corners = v.corner_radii.unwrap_or([v.border_radius.unwrap_or(0.0); 4]);
         assert_eq!(corners, [16.0; 4], "{side}: no 6 px leading corner");
-        assert_eq!(v.border_color.as_deref(), Some(if side == "out" { "#ffffff1f" } else { "#ffffff1a" }), "{side}");
+        // #EXP-1864: one hairline for every sender.
+        assert_eq!(v.border_color.as_deref(), Some("#ffffff1a"), "{side}");
     }
 }
 

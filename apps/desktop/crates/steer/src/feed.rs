@@ -150,6 +150,9 @@ pub enum FeedKind {
         /// EXP-773: set when the prose came from a subagent's transcript —
         /// the row is nested under that subagent's card, never the main feed.
         subagent_id: Option<String>,
+        /// #EXP-1864: the `at` (epoch ms) of the message's FIRST fragment,
+        /// the bubble's `HH:mm`; later fragments merge and keep it.
+        at: Option<i64>,
     },
     Tool {
         name: String,
@@ -462,6 +465,22 @@ impl FeedItem {
             }
             _ => false,
         }
+    }
+
+    /// #EXP-1864 NOTICES: the inline marker's label when this row is a call
+    /// to an Exponential tool the transcript draws as a notice
+    /// ([`domain::transcript_grouping::trace_notice`], `Ended turn quietly`):
+    /// its own full-width line, never a trace, never in a run.
+    pub fn notice(&self) -> Option<&'static str> {
+        match &self.kind {
+            FeedKind::Tool { name, .. } => domain::transcript_grouping::trace_notice(name),
+            _ => None,
+        }
+    }
+
+    /// [`Self::notice`] as a flag.
+    pub fn is_notice(&self) -> bool {
+        self.notice().is_some()
     }
 }
 
@@ -1264,7 +1283,7 @@ impl SteerFeed {
                 before_question_id,
                 message_id,
                 subagent_id,
-                ..
+                at,
             } => {
                 if text.trim().is_empty() {
                     return;
@@ -1272,16 +1291,17 @@ impl SteerFeed {
                 // EXP-483: prose from the withheld ask/plan entry flushes
                 // AFTER its already-published card — splice it back above.
                 if let Some(anchor) = before_question_id {
-                    if let Some(at) = self.question_position(&anchor) {
+                    if let Some(position) = self.question_position(&anchor) {
                         let id = self.take_id();
                         let kind = FeedKind::Narration {
                             text,
                             message_id,
                             subagent_id,
+                            at,
                         };
                         self.bytes += item_bytes(&kind);
                         let seq = self.seq;
-                        self.items.insert(at, FeedItem { id, kind, seq });
+                        self.items.insert(position, FeedItem { id, kind, seq });
                         self.trim();
                         return;
                     }
@@ -1303,6 +1323,7 @@ impl SteerFeed {
                     text,
                     message_id,
                     subagent_id,
+                    at,
                 });
             }
             ActivityEvent::Tool {
@@ -2171,8 +2192,12 @@ impl FeedKind {
 
 impl FeedItem {
     /// [`FeedKind::class`] — a single item classifies exactly as the row that
-    /// renders it alone.
+    /// renders it alone. #EXP-1864: a notice is THE inline marker, prose like
+    /// the compaction divider.
     pub fn class(&self) -> RowClass {
+        if self.is_notice() {
+            return RowClass::Prose;
+        }
         self.kind.class()
     }
 }
@@ -2407,8 +2432,9 @@ pub fn group_feed_row_specs_into(
         // EXP-850 §3: the `Workflow` call renders as its own CARD, so it is
         // never folded into a collapsed "N tool calls" run — neither as the
         // run's opener nor as a member of one (web `groupFeedRows`). EXP-1279:
-        // so does a code-mode call (its Script card).
-        if !item.is_tool() || item.is_workflow_call(workflow_ids) || item.is_script_call() {
+        // so does a code-mode call (its Script card). #EXP-1864: and a notice
+        // (THE inline marker on its own line).
+        if !item.is_tool() || item.is_workflow_call(workflow_ids) || item.is_script_call() || item.is_notice() {
             rows.push(FeedRowSpec::Single {
                 id: item.id,
                 item: i,
@@ -2437,7 +2463,7 @@ pub fn group_feed_row_specs_into(
         // single visible row it always was, ≥2 consecutive calls to the SAME
         // contract row are ONE captioned run (`exp_tool_group`, ×4).
         if let Some(row) = item.exp_tool_row(workflow_ids) {
-            let end = crate::exp_tool_group::exp_tool_run_end(i, items.len(), |ix| {
+            let end = crate::exp_tool_group::exp_tool_run_end(i, items.len(), item.tool_name(), |ix| {
                 items[ix].subagent_id().is_none()
                     && items[ix].exp_tool_row(workflow_ids) == Some(row)
             });
@@ -2465,6 +2491,8 @@ pub fn group_feed_row_specs_into(
             && !items[end + 1].is_exp_tool_call(workflow_ids)
             // EXP-1279: so does a code-mode call.
             && !items[end + 1].is_script_call()
+            // #EXP-1864: and a notice.
+            && !items[end + 1].is_notice()
         {
             end += 1;
         }
@@ -2521,8 +2549,8 @@ pub fn group_subagent_row_specs_into(
         // EXP-850 §3: a workflow call is its OWN card here too — it never
         // joins the lane's tool run and never a card, exactly as in the main
         // projection (web/iOS/Android say the same). EXP-1279: a code-mode
-        // call is its own Script card here too.
-        if !item.is_tool() || item.is_workflow_call(workflow_ids) || item.is_script_call() {
+        // call is its own Script card here too. #EXP-1864: a notice its marker.
+        if !item.is_tool() || item.is_workflow_call(workflow_ids) || item.is_script_call() || item.is_notice() {
             rows.push(FeedRowSpec::Single {
                 id: item.id,
                 item: i,
@@ -2551,6 +2579,7 @@ pub fn group_subagent_row_specs_into(
                 if !next.is_tool()
                     || next.is_workflow_call(workflow_ids)
                     || next.is_script_call()
+                    || next.is_notice()
                     || next.is_edit_call(workflow_ids) != edits
                     || next.exp_tool_row(workflow_ids) != exp_row
                 {
@@ -4103,6 +4132,24 @@ mod tests {
         assert_eq!(answers, vec![Some("A".into()), Some("B".into())]);
     }
 
+    /// #EXP-1864: a narration row keeps the `at` of its FIRST fragment,
+    /// the bubble's `HH:mm`; later fragments merge without moving it.
+    #[test]
+    fn a_narration_keeps_its_first_fragments_time() {
+        let mut feed = SteerFeed::new();
+        let fragment = |text: &str, at: i64| ActivityEvent::Narration {
+            text: text.into(),
+            before_question_id: None,
+            message_id: Some("m1".into()),
+            subagent_id: None,
+            at: Some(at),
+        };
+        feed.apply(fragment("Hello ", 1_000));
+        feed.apply(fragment("world", 9_000));
+        assert_eq!(feed.items().len(), 1);
+        assert!(matches!(&feed.items()[0].kind, FeedKind::Narration { text, at: Some(1_000), .. } if text == "Hello world"));
+    }
+
     // ── Narration splicing (EXP-483) ───────────────────────────────────────
 
     #[test]
@@ -5603,6 +5650,7 @@ mod edit_card_fixture_tests {
                     text: raw.text.clone().unwrap_or_default(),
                     message_id: None,
                     subagent_id: raw.subagent_id.clone(),
+                    at: None,
                 }
             }
         };
@@ -5743,6 +5791,7 @@ mod edit_card_fixture_tests {
                 text: "x".to_string(),
                 message_id: None,
                 subagent_id: None,
+                at: None,
             },
             seq: None,
         };
@@ -5856,6 +5905,7 @@ mod exp_tool_group_fixture_tests {
                     text: raw.text.clone().unwrap_or_default(),
                     message_id: None,
                     subagent_id: raw.subagent_id.clone(),
+                    at: None,
                 }
             }
         };
@@ -5935,5 +5985,49 @@ mod exp_tool_group_fixture_tests {
         for needle in ["splits", "single", "running", "failed", "subagent", "window"] {
             assert!(names.contains(needle), "the fixture covers `{needle}`");
         }
+    }
+    /// #EXP-1864 NOTICES: a quiet call (`Ended turn quietly`) is a row of
+    /// its own, never joined into a tool run or an Exponential run, in the
+    /// main feed and inside a lane; it classifies as prose (THE marker).
+    #[test]
+    fn a_notice_is_its_own_row_and_breaks_every_run() {
+        let quiet = "mcp__exponential__exponential_session_self_quiet";
+        let call = |id: FeedItemId, name: &str, lane: Option<&str>| {
+            item_of(&FixtureItem {
+                id,
+                kind: "tool".into(),
+                name: Some(name.into()),
+                tool_kind: None,
+                workflow_id: None,
+                subagent_id: lane.map(str::to_string),
+                detail: None,
+                settled: true,
+                failed: false,
+                text: None,
+                message: None,
+            })
+        };
+        let items = vec![
+            call(1, "Bash", None),
+            call(2, quiet, None),
+            call(3, "Read", None),
+            call(4, quiet, None),
+            call(5, quiet, None),
+            call(6, "Grep", None),
+        ];
+        assert_eq!(items[1].notice(), Some("Ended turn quietly"));
+        assert_eq!(items[1].class(), RowClass::Prose);
+        assert!(!items[0].is_notice());
+        let mut rows = Vec::new();
+        group_feed_row_specs_into(&items, 0, &[], &mut rows);
+        assert!(rows.iter().all(|row| matches!(row, FeedRowSpec::Single { .. })), "{rows:?}");
+        assert_eq!(rows.len(), 6);
+        let lane: Vec<FeedItem> = [(1, "Bash"), (2, quiet), (3, quiet), (4, "Read")]
+            .into_iter()
+            .map(|(id, name)| call(id, name, Some("sa")))
+            .collect();
+        group_subagent_row_specs_into(&lane, 0, "sa", &[], &mut rows);
+        assert!(rows.iter().all(|row| matches!(row, FeedRowSpec::Single { .. })), "{rows:?}");
+        assert_eq!(rows.len(), 4);
     }
 }

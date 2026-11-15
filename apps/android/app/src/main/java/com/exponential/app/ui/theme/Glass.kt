@@ -54,6 +54,10 @@ object GlassTokens {
      */
     val OpaqueCardFill: Color = CardFill.compositeOver(DesignTokens.Palette.Card)
 
+    /** #EXP-1864: the viewer's OWN message bubble (`glass.fillOwn`, #132034;
+     *  everyone else's wears [OpaqueCardFill]). */
+    val OwnBubbleFill = DesignTokens.Glass.FillOwn
+
     // Hairline strokes.
     val StrokeRow = DesignTokens.Glass.StrokeRow
     val StrokeSection = DesignTokens.Glass.StrokeSection
