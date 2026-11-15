@@ -1,3 +1,6 @@
+- Chat bubbles in their own colour, with the time on every bubble
+- One chat per app: an app's chat is your chat with its agent
+- A Voice section on every agent's settings page
 - An Events tab on every app: its agent's triggers, webhooks and recent runs
 - Sending into a chat whose keys changed re-seals and sends again, once
 - One … menu in every chat, no settings gear, your own picture on your messages
@@ -57,6 +60,3 @@
 - Team owners pick which team MCP server fills each of an app's connections
 - The same look everywhere: one chat header, and a file in an encrypted chat shows as a file line
 - App records have date and time pickers, and owners can pick the author
-- Owners set when a public link expires from Settings
-- Issues, settings and chats look the same on every app
-- Saving a date-time record no longer shifts it by your time zone
