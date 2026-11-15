@@ -87,6 +87,7 @@ pub(crate) enum PinState {
 /// The pin's state for a session: hidden for an agent, then disabled when
 /// the viewer cannot steer it, then when it has ended.
 pub(crate) fn pin_state(persistent: bool, may_steer: bool, ended: bool) -> PinState {
+    // (`persistent` = [`pinless_agent`].)
     if persistent {
         return PinState::Hidden;
     }
@@ -97,6 +98,13 @@ pub(crate) fn pin_state(persistent: bool, may_steer: bool, ended: bool) -> PinSt
         return PinState::Disabled(REASON_ENDED);
     }
     PinState::Enabled
+}
+
+/// #EXP-1849 (session-device-move.json): an agent's conversation takes no
+/// pin, EXCEPT an app's root (`app_id`; it carries the app agent's
+/// `agent_id` too): the member's app chat moves like the editor always did.
+pub(crate) fn pinless_agent(session: &domain::rows::SessionRow) -> bool {
+    session.is_persistent() && !session.is_app_editor()
 }
 
 /// One device the session could be on, as the rules read it.
@@ -453,7 +461,7 @@ pub(crate) fn session_device_pin(
     may_steer: bool,
     cx: &mut App,
 ) -> Option<AnyElement> {
-    let state = pin_state(session.is_persistent(), may_steer, session.is_ended());
+    let state = pin_state(pinless_agent(session), may_steer, session.is_ended());
     if state == PinState::Hidden {
         return None;
     }
@@ -494,7 +502,7 @@ pub(crate) fn session_device_move_button(
     use gpui::Styled as _;
     use gpui_component::button::{Button, ButtonVariants as _};
     use gpui_component::{Icon, Sizable as _};
-    if pin_state(session.is_persistent(), may_steer, session.is_ended()) != PinState::Enabled {
+    if pin_state(pinless_agent(session), may_steer, session.is_ended()) != PinState::Enabled {
         return None;
     }
     let current = session.device_id.clone().filter(|id| !id.is_empty())?;
@@ -616,6 +624,20 @@ mod tests {
         assert_eq!(pin_state(false, false, true), PinState::Disabled(REASON_STEER));
         assert_eq!(pin_state(false, true, true), PinState::Disabled(REASON_ENDED));
         assert_eq!(pin_state(false, true, false), PinState::Enabled);
+    }
+
+    #[test]
+    fn an_app_root_stays_movable_exp_1849() {
+        let row = |agent: Option<&str>, app: Option<&str>| domain::rows::SessionRow {
+            id: "s1".into(),
+            agent_id: agent.map(str::to_string),
+            app_id: app.map(str::to_string),
+            ..Default::default()
+        };
+        assert!(pinless_agent(&row(Some("ag"), None)), "an agent's conversation takes no pin");
+        assert!(!pinless_agent(&row(Some("ag"), Some("app1"))), "an app's root moves");
+        assert!(!pinless_agent(&row(None, Some("app1"))));
+        assert!(!pinless_agent(&row(None, None)));
     }
 
     fn candidate(id: &str, online: bool, shared: bool, login: bool) -> MoveCandidate {
