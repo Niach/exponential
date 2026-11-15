@@ -1718,7 +1718,8 @@ function prefixIds(node: NestedNode, prefix: string): NestedNode {
  *  state, the forced key = the case's root id + `target` (empty = the node
  *  and all its parts; `.tab.1` = one placed part). The host passes the
  *  specimen's `states` as its `forcedStates` (paint only). Only states the
- *  exponential theme restyles. */
+ *  exponential theme restyles (a Radio item's focus is the painters' own
+ *  ring, never forced: no row). */
 interface SpecimenState {
   state: `hover` | `pressed` | `focus`
   target?: string
@@ -1741,7 +1742,8 @@ const SPECIMEN_STATES: Record<string, SpecimenState[]> = {
   Checkbox: node([`focus`]),
   Switch: node([`focus`]),
   Slider: node([`focus`]),
-  Select: node([`hover`, `focus`]),
+  // The field trigger restyles on focus only (hover: pill/button/row).
+  Select: node([`focus`]),
   DatePicker: node([`focus`]),
   DateRangePicker: node([`focus`]),
   TimePicker: node([`focus`]),
@@ -1751,9 +1753,9 @@ const SPECIMEN_STATES: Record<string, SpecimenState[]> = {
   Resizable: node([`hover`, `pressed`, `focus`], { target: `.handle.0` }),
   // Per item: one placed part.
   Tabs: node([`hover`], { target: `.tab.1`, label: `hover · the second tab` }),
-  Segmented: [...node([`hover`], { target: `.item.1`, label: `hover · the second item` }), ...node([`pressed`], { target: `.item.1`, label: `pressed · the second item` })],
+  // `pressed` restyles the bar variant only.
+  Segmented: node([`hover`], { target: `.item.1`, label: `hover · the second item` }),
   ChoiceTiles: [...node([`hover`], { target: `.tile.1`, label: `hover · the second tile` }), ...node([`focus`], { target: `.tile.0`, label: `focus · the first tile` })],
-  Radio: node([`focus`], { target: `.item.1`, label: `focus · the second item` }),
   Table: node([`hover`], { target: `.row.b`, label: `hover · the second row` }),
   Outline: node([`hover`], { target: `.row.0`, label: `hover · the first row` }),
 }

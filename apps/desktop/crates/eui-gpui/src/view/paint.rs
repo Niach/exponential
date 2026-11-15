@@ -184,6 +184,12 @@ impl SurfaceView {
     fn states_of(&self, n: &PlacedNode) -> Vec<String> {
         let mut s = n.states.clone();
         s.extend(self.interaction.get(&n.id).copied().unwrap_or_default().states());
+        // #EXP-1781: the host's forced states (a Slider thumb's focus).
+        for f in self.surface.forced_states_of(&n.id) {
+            if !s.contains(&f) {
+                s.push(f);
+            }
+        }
         s
     }
 

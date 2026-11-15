@@ -5230,51 +5230,12 @@
                 }
               }
             ]
-          },
-          {
-            "id": "specimen_segmented_state_1",
-            "component": "Stack",
-            "props": {
-              "direction": "vertical",
-              "gap": "xs",
-              "align": "start"
-            },
-            "children": [
-              {
-                "id": "specimen_segmented_state_1_label",
-                "component": "Text",
-                "props": {
-                  "text": "pressed · the second item",
-                  "variant": "caption"
-                }
-              },
-              {
-                "id": "s1_segmented",
-                "component": "Segmented",
-                "props": {
-                  "items": [
-                    {
-                      "label": "List",
-                      "value": "list"
-                    },
-                    {
-                      "label": "Board",
-                      "value": "board"
-                    }
-                  ],
-                  "value": "list"
-                }
-              }
-            ]
           }
         ]
       },
       "states": {
         "s0_segmented.item.1": [
           "hover"
-        ],
-        "s1_segmented.item.1": [
-          "pressed"
         ]
       }
     },
@@ -13425,50 +13386,7 @@
                 }
               }
             ]
-          },
-          {
-            "id": "specimen_radio_state_0",
-            "component": "Stack",
-            "props": {
-              "direction": "vertical",
-              "gap": "xs",
-              "align": "start"
-            },
-            "children": [
-              {
-                "id": "specimen_radio_state_0_label",
-                "component": "Text",
-                "props": {
-                  "text": "focus · the second item",
-                  "variant": "caption"
-                }
-              },
-              {
-                "id": "s0_radio",
-                "component": "Radio",
-                "props": {
-                  "label": "Plan",
-                  "name": "plan",
-                  "options": [
-                    {
-                      "label": "Free",
-                      "value": "free"
-                    },
-                    {
-                      "label": "Team",
-                      "value": "team"
-                    }
-                  ],
-                  "value": "free"
-                }
-              }
-            ]
           }
-        ]
-      },
-      "states": {
-        "s0_radio.item.1": [
-          "focus"
         ]
       }
     },
@@ -15139,7 +15057,7 @@
                 "id": "specimen_select_state_0_label",
                 "component": "Text",
                 "props": {
-                  "text": "hover",
+                  "text": "focus",
                   "variant": "caption"
                 }
               },
@@ -15163,52 +15081,11 @@
                 }
               }
             ]
-          },
-          {
-            "id": "specimen_select_state_1",
-            "component": "Stack",
-            "props": {
-              "direction": "vertical",
-              "gap": "xs",
-              "align": "stretch"
-            },
-            "children": [
-              {
-                "id": "specimen_select_state_1_label",
-                "component": "Text",
-                "props": {
-                  "text": "focus",
-                  "variant": "caption"
-                }
-              },
-              {
-                "id": "s1_select",
-                "component": "Select",
-                "props": {
-                  "label": "Board",
-                  "name": "board",
-                  "options": [
-                    {
-                      "label": "Backlog",
-                      "value": "backlog"
-                    },
-                    {
-                      "label": "Sprint",
-                      "value": "sprint"
-                    }
-                  ],
-                  "value": "sprint"
-                }
-              }
-            ]
           }
         ]
       },
       "states": {
         "s0_select": [
-          "hover"
-        ],
-        "s1_select": [
           "focus"
         ]
       }
