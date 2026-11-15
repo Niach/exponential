@@ -97,9 +97,6 @@ name: record-compose-fixtures
 # EXP-1760 (2026-11-10): again for the No icon row (a pressable Box).
 # EXP-1629 (2026-11-09): re-recorded for Select option `trailing` + `open`
 # (the specimen's Branch row; `InteractionTest.selectTrailingAndOpen`).
-# EXP-1864 (2026-11-15): re-recorded for the exponential theme's MessageBubble
-# `out` (`$color.bubbleOwn` + the `$color.border` hairline): `MessageBubble.png`,
-# `components.json` and the kitchen-sink goldens.
 on:
   workflow_dispatch: {}
   push:
