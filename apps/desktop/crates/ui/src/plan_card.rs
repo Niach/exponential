@@ -1070,7 +1070,13 @@ pub(crate) fn plan_parts(facts: &PlanFacts, answer: bool, images: &Entity<ImageC
     PlanParts {
         step,
         body: body.map(IntoElement::into_any_element),
-        footer: (!footer.is_empty()).then(|| v_flex().flex_shrink_0().w_full().min_w_0().gap_2().children(footer).into_any_element()),
+        // #EXP-1872: THE pinned foot: beside the Assistant FAB where the
+        // rail (or the floating panel) runs into its corner.
+        footer: (!footer.is_empty()).then(|| {
+            crate::assistant_fab::foot(format!("plan-foot-{message_id}"), window, cx)
+                .child(v_flex().w_full().min_w_0().gap_2().children(footer))
+                .into_any_element()
+        }),
     }
 }
 
@@ -1142,7 +1148,14 @@ pub(crate) fn plan_rail(
 
 /// A footer button (small secondary, or the primary).
 fn footer_button(id: String, label: &str, primary: bool) -> Button {
-    let button = Button::new(SharedString::from(id)).small().cursor_pointer().label(label.to_string());
+    // The id doubles as the debug selector (#EXP-1872: the live test reads
+    // where Next paints beside the Assistant FAB).
+    let selector = id.clone();
+    let button = Button::new(SharedString::from(id))
+        .debug_selector(move || selector)
+        .small()
+        .cursor_pointer()
+        .label(label.to_string());
     if primary {
         button.primary()
     } else {

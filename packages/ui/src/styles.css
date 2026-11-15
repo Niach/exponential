@@ -862,6 +862,14 @@ main:has(> [data-assistant-fab]) .fab-clearance::after {
 main:has(> [data-assistant-fab]) .fab-lane {
   padding-right: var(--fab-clearance);
 }
+/* #EXP-1872 THE pinned foot (`.fab-foot`): a row of controls a pane pins
+   under its scroll (the plan rail's Back / Next and decision, a side pane's
+   footer). Its content ends the corner's width in from the card's edge,
+   less what already sits between the foot and that edge
+   (`--fab-foot-inset`, the pane's own padding, set by the pane). */
+main:has(> [data-assistant-fab]) .fab-foot {
+  padding-right: max(0px, calc(var(--fab-clearance) - var(--fab-foot-inset, 0px)));
+}
 
 /* EXP-885 — THE issue chip box. ONE style for every surface that names an
    issue as a chip: the markdown editor's `#IDENTIFIER` decoration

@@ -16,12 +16,57 @@ use crate::navigation::{nav_for_window, resolved_screen, Navigation, Screen};
 /// The content card the FAB sits in (the Shell's `relative` content area).
 struct Scene {
     fab: Entity<AssistantFab>,
+    /// #EXP-1872: a right pane pinned to the card's corner holding THE plan
+    /// rail (its Back / Next foot), as the plan tab draws it.
+    rail: Option<Entity<crate::markdown::ImageCache>>,
 }
 
+/// The plan the rail shows: three questions, so its foot reads Next.
+const PLAN_ID: &str = "plan1";
+
 impl Render for Scene {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "Scene").entered();
-        div().relative().size_full().child(self.fab.clone())
+        let rail = self.rail.clone().map(|images| {
+            let option = |label: &str| domain::session_tree::QuestionOption {
+                label: label.into(),
+                description: None,
+                attachment_id: None,
+            };
+            let questions: Vec<domain::session_tree::PlanQuestion> = (1..=3)
+                .map(|n| domain::session_tree::PlanQuestion {
+                    id: format!("q{n}"),
+                    prompt: format!("Question {n}?"),
+                    multi: false,
+                    custom: false,
+                    options: vec![option("One"), option("Two")],
+                })
+                .collect();
+            let facts = crate::plan_card::PlanFacts {
+                message_id: PLAN_ID,
+                session_id: "s1",
+                questions: &questions,
+                surface: None,
+                decision: None,
+                fresh: false,
+                answers: None,
+                feedback: None,
+                surface_data: None,
+                on_tab: true,
+            };
+            let body = crate::plan_card::plan_rail(&facts, true, true, &images, window, cx);
+            gpui::div()
+                .absolute()
+                .top_0()
+                .right_0()
+                .bottom_0()
+                .w(px(domain::plan_page::PLAN_PAGE.layout.rail_width))
+                .flex()
+                .flex_col()
+                .p(px(domain::plan_page::PLAN_PAGE.panel.padding))
+                .children(body)
+        });
+        div().relative().size_full().children(rail).child(self.fab.clone())
     }
 }
 
@@ -43,6 +88,11 @@ struct Harness<'a> {
 
 /// A signed-in viewer (`u1`) in team `t1` whose Assistant is `as1`.
 fn harness(cx: &mut gpui::TestAppContext) -> Harness<'_> {
+    harness_with(cx, false)
+}
+
+/// [`harness`] with THE plan rail pinned to the card's right edge.
+fn harness_with(cx: &mut gpui::TestAppContext, rail: bool) -> Harness<'_> {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(
         dir.path().join("accounts.json"),
@@ -74,7 +124,8 @@ fn harness(cx: &mut gpui::TestAppContext) -> Harness<'_> {
             nav.update(cx, |nav, _| nav.team_id = Some("t1".into()));
             let fab = cx.new(|cx| AssistantFab::new(nav.clone(), cx));
             *slot.borrow_mut() = Some(nav);
-            let scene = cx.new(|_| Scene { fab });
+            let rail = rail.then(|| cx.new(|_| crate::markdown::ImageCache::new(None)));
+            let scene = cx.new(|_| Scene { fab, rail });
             gpui_component::Root::new(scene, window, cx)
         }
     });
@@ -188,7 +239,11 @@ fn nothing_hides_under_the_fab(cx: &mut gpui::TestAppContext) {
     let mut h = harness(cx);
     let circle = h.cx.debug_bounds(TEST_IDS.0).expect("the FAB paints");
     let gutter = px(20.);
-    let under = gpui::Bounds::new(gpui::point(px(0.), circle.top() - px(40.)), gpui::size(circle.right(), px(100.)));
+    // A column that runs to the card's edge (`inset` right of the circle).
+    let under = gpui::Bounds::new(
+        gpui::point(px(0.), circle.top() - px(40.)),
+        gpui::size(circle.right() + px(ASSISTANT_FAB.inset), px(100.)),
+    );
     let above = gpui::Bounds::new(gpui::point(px(0.), px(0.)), gpui::size(circle.right(), circle.top() - px(8.)));
     let (end, lane_under, lane_above) = h.cx.update(|window, cx| {
         (
@@ -209,4 +264,23 @@ fn nothing_hides_under_the_fab(cx: &mut gpui::TestAppContext) {
     });
     assert_eq!(end, px(0.), "no FAB, no spacer");
     assert_eq!(lane_under, gutter, "no FAB, no lane");
+}
+
+#[gpui::test]
+#[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
+fn a_pinned_foot_sits_beside_the_fab(cx: &mut gpui::TestAppContext) {
+    use domain::agent_settings::ASSISTANT_FAB;
+    // #EXP-1872: THE plan rail pinned to the card's right edge: its foot
+    // (Back / Next, the decision) is THE `foot`, so Next paints beside the
+    // circle, `inset` px clear of it, never under it.
+    let mut h = harness_with(cx, true);
+    let next = format!("{}-{PLAN_ID}", domain::plan_card::test_ids().step_next);
+    let next: &'static str = Box::leak(next.into_boxed_str());
+    let circle = h.cx.debug_bounds(TEST_IDS.0).expect("the FAB paints");
+    let button = h.cx.debug_bounds(next).expect("Next paints");
+    assert!(button.bottom() > circle.top(), "the foot sits at the card's foot: {button:?} {circle:?}");
+    assert!(
+        button.right() + px(ASSISTANT_FAB.inset) <= circle.left(),
+        "Next ends `inset` left of the FAB, never under it: {button:?} {circle:?}"
+    );
 }

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import { ASSISTANT_FAB } from "@exp/domain-contract/agent-settings"
-import { FAB_CLEARANCE_CLASS, FAB_LANE_CLASS } from "./fab-chrome"
+import { FAB_CLEARANCE_CLASS, FAB_FOOT_CLASS, FAB_FOOT_INSET_VAR, FAB_LANE_CLASS } from "./fab-chrome"
 
 // EXP-887 — the stylesheet half of the package's contract. `styles.css` is the
 // theme every consumer imports; these are the pieces an app (or an island
@@ -103,5 +103,16 @@ describe(`@exp/ui styles.css`, () => {
     expect(css).toContain(`${scope} {\n  --fab-clearance: ${ASSISTANT_FAB.clearance}px;`)
     expect(css).toContain(`${scope} .${FAB_CLEARANCE_CLASS}::after {`)
     expect(css).toContain(`${scope} .${FAB_LANE_CLASS} {`)
+  })
+
+  it(`keeps every pinned foot beside the Assistant FAB (#EXP-1872)`, () => {
+    // A pane's pinned foot (the plan rail's Back / Next) ends the corner's
+    // width in from the card's edge, less the pane's own inset: the rail's
+    // Next (inset = its 16px padding) gets 68px, so it ends 84px in, 16px
+    // left of the 52px circle.
+    const scope = `main:has(> [data-assistant-fab])`
+    expect(css).toContain(
+      `${scope} .${FAB_FOOT_CLASS} {\n  padding-right: max(0px, calc(var(--fab-clearance) - var(${FAB_FOOT_INSET_VAR}, 0px)));\n}`
+    )
   })
 })
