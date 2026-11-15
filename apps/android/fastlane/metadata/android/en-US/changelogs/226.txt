@@ -1,0 +1,2 @@
+- Calls ring the agent's own desktop, or show "Voice on" the desktop that answers
+- A call with no desktop that can speak says so instead of waiting
