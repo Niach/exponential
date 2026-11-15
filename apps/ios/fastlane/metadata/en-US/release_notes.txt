@@ -1,3 +1,5 @@
+- An Events tab on every app: its agent's triggers, webhooks and recent runs
+- Sending into a chat whose keys changed re-seals and sends again, once
 - One … menu in every chat, no settings gear, your own picture on your messages
 - Your sidebar folders show in the board pickers and the Apps list
 - My issues tabs on a board; [Image #1] placeholders when you attach an image
@@ -58,18 +60,3 @@
 - Owners set when a public link expires from Settings
 - Issues, settings and chats look the same on every app
 - Saving a date-time record no longer shifts it by your time zone
-- Issues an app created read "via" that app
-- An approved plan gets a check, and decided plans leave the tabs
-- Needs you shows every waiting card
-- A session on an offline device says so and offers Move
-- If Mark all read fails, you get a message with Retry
-- A number field that starts with a value selects it when you tap in, so the first Save works
-- The iPad gets a sidebar, list and detail side by side
-- Running sessions show as a Live Activity on the Lock Screen and in the Dynamic Island
-- Issues and chats in Spotlight; Siri and Shortcuts can create an issue or start a chat
-- Pull requests show their merge status with Merge now and Hold
-- Markdown in issues, comments and chats looks the same on every app
-- Your Assistant works across all your teams
-- Team owners can name a Coordinator agent
-- Apps can draw on a canvas and react to taps and drags
-- Saving a record in an app form works again
