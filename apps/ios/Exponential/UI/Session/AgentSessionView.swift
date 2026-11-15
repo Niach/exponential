@@ -4545,7 +4545,7 @@ struct SubagentLaneRow: View {
         case let .single(item):
             SubagentItemRow(
                 item: item, context: context, nested: nested, live: live, testResults: testResults,
-                author: author
+                author: author, tail: tail
             )
         default:
             EmptyView()
@@ -4568,6 +4568,8 @@ struct SubagentItemRow: View {
     var testResults: [String: TestResults] = [:]
     /// #EXP-1736: the bubble's name line in the subagent's own tab.
     var author: String? = nil
+    /// #EXP-1876: its group's first bubble wears THE tail.
+    var tail: Bool = false
 
     var body: some View {
         content.padding(.vertical, nested ? 2 : 0)
