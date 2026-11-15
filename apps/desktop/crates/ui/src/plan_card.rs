@@ -1073,7 +1073,7 @@ pub(crate) fn plan_parts(facts: &PlanFacts, answer: bool, images: &Entity<ImageC
         // #EXP-1872: THE pinned foot: beside the Assistant FAB where the
         // rail (or the floating panel) runs into its corner.
         footer: (!footer.is_empty()).then(|| {
-            crate::assistant_fab::foot(format!("plan-foot-{message_id}"), window, cx)
+            crate::assistant_fab::foot(format!("plan-foot-{message_id}"), px(0.), window, cx)
                 .child(v_flex().w_full().min_w_0().gap_2().children(footer))
                 .into_any_element()
         }),

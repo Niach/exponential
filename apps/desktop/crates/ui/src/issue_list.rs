@@ -1761,16 +1761,16 @@ pub(crate) fn select_cell(
 
 /// THE bulk bar's dock ×2 (the board's issue list, #EXP-1388's Chats page):
 /// floated over the bottom of the list pane, centred, content-sized — the
-/// rows under it never move (EXP-289).
-pub(crate) fn bulk_bar_dock(bar: gpui::AnyElement) -> gpui::Div {
-    h_flex()
+/// rows under it never move (EXP-289). #EXP-1872: THE pinned foot: centred
+/// in what the Assistant FAB leaves of the pane's foot, never under it.
+pub(crate) fn bulk_bar_dock(key: &'static str, bar: gpui::AnyElement, window: &Window, cx: &App) -> gpui::Div {
+    crate::assistant_fab::foot(key, px(16.), window, cx)
         .absolute()
         .bottom_4()
         .left_0()
         .right_0()
-        .justify_center()
-        .px_4()
-        .child(bar)
+        .pl_4()
+        .child(h_flex().w_full().justify_center().child(bar))
 }
 
 /// One bulk bar action button ×2 (the issue bar's Delete, every chat

@@ -121,8 +121,9 @@ pub(crate) fn lane(column: Option<Bounds<Pixels>>, gutter: Pixels, window: &Wind
 /// Put the foot's content in it: it records its own box (`key` = unique
 /// per window) and keeps its content beside the Assistant FAB wherever it
 /// runs into the circle ([`lane`]); anywhere else it is a plain full-width
-/// box. A pane never pins a control at its foot without it.
-pub(crate) fn foot(key: impl Into<SharedString>, window: &Window, cx: &App) -> gpui::Div {
+/// box with `gutter` right padding. A pane never pins a control at its foot
+/// without it.
+pub(crate) fn foot(key: impl Into<SharedString>, gutter: Pixels, window: &Window, cx: &App) -> gpui::Div {
     let key = (window.window_handle().window_id(), key.into());
     let measured = cx.try_global::<FabCorners>().and_then(|corners| corners.feet.get(&key).copied());
     let probe = canvas(
@@ -138,7 +139,7 @@ pub(crate) fn foot(key: impl Into<SharedString>, window: &Window, cx: &App) -> g
     .top_0()
     .left_0()
     .size_full();
-    div().relative().flex_shrink_0().w_full().min_w_0().pr(lane(measured, px(0.), window, cx)).child(probe)
+    div().relative().flex_shrink_0().w_full().min_w_0().pr(lane(measured, gutter, window, cx)).child(probe)
 }
 
 /// What the FAB derives from the store: the viewer's Assistant in the

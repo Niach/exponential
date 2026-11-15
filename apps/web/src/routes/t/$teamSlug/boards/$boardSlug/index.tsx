@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
-import { SkeletonRows, useIsMobile } from "@exp/ui"
+import { FAB_FOOT_CLASS, SkeletonRows, useIsMobile } from "@exp/ui"
 import { BoardChips, type BoardChip } from "@/components/board-chips"
 import { DraftsList } from "@/components/drafts-list"
 import { MyIssuesView } from "@/components/my-issues-view"
@@ -241,7 +241,8 @@ function BoardPage() {
         // The bulk bar FLOATS bottom-centre at every width ×4 (desktop, the
         // natives): md+ over the list's bottom edge (click-through strip),
         // phones in the tab bar's slot (the bar positions itself there).
-        <div className="pointer-events-none absolute inset-x-0 bottom-4 z-10 flex justify-center px-4">
+        // #EXP-1872: THE pinned foot: centred beside the Assistant FAB.
+        <div className={`pointer-events-none absolute inset-x-0 bottom-4 z-10 flex justify-center px-4 ${FAB_FOOT_CLASS}`}>
           <div className="pointer-events-auto">
             <BulkActionBar
               issues={selectedIssues}

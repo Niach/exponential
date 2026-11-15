@@ -1718,7 +1718,14 @@ impl Render for IssueDraftView {
             .w_full()
             .overflow_y_scroll()
             .track_scroll(&self.body_scroll)
-            .child(v_flex().w_full().pb_6().child(centered_column(column)));
+            .child(
+                v_flex()
+                    .w_full()
+                    .pb_6()
+                    .child(centered_column(column))
+                    // #EXP-1872: the files section scrolls clear of the Assistant FAB.
+                    .child(crate::assistant_fab::page_end(window, cx)),
+            );
         base.child(
             div()
                 .relative()

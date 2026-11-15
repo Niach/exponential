@@ -613,7 +613,7 @@ impl Render for ChatsView {
                 this.clear_selection(cx);
             }))
             .child(page_scaffold_with("chats-screen-scroll", &self.scroll, column, CHATS_COLUMN_W, window, cx))
-            .children(bar.map(crate::issue_list::bulk_bar_dock))
+            .children(bar.map(|bar| crate::issue_list::bulk_bar_dock("chats-bulk-bar", bar, window, cx)))
     }
 }
 

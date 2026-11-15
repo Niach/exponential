@@ -19,7 +19,13 @@ struct Scene {
     /// #EXP-1872: a right pane pinned to the card's corner holding THE plan
     /// rail (its Back / Next foot), as the plan tab draws it.
     rail: Option<Entity<crate::markdown::ImageCache>>,
+    /// #EXP-1872: THE bulk bar's dock over the pane's foot, a bar too wide
+    /// to stay clear of the corner by centring alone.
+    bulk: bool,
 }
+
+/// The test bulk bar's selector.
+const BULK_BAR: &str = "test-bulk-bar";
 
 /// The plan the rail shows: three questions, so its foot reads Next.
 const PLAN_ID: &str = "plan1";
@@ -66,7 +72,11 @@ impl Render for Scene {
                 .p(px(domain::plan_page::PLAN_PAGE.panel.padding))
                 .children(body)
         });
-        div().relative().size_full().children(rail).child(self.fab.clone())
+        let bulk = self.bulk.then(|| {
+            let bar = div().debug_selector(|| BULK_BAR.into()).w(px(700.)).h(px(40.)).into_any_element();
+            crate::issue_list::bulk_bar_dock("test-bulk-dock", bar, window, cx)
+        });
+        div().relative().size_full().children(rail).children(bulk).child(self.fab.clone())
     }
 }
 
@@ -88,11 +98,11 @@ struct Harness<'a> {
 
 /// A signed-in viewer (`u1`) in team `t1` whose Assistant is `as1`.
 fn harness(cx: &mut gpui::TestAppContext) -> Harness<'_> {
-    harness_with(cx, false)
+    harness_with(cx, false, false)
 }
 
 /// [`harness`] with THE plan rail pinned to the card's right edge.
-fn harness_with(cx: &mut gpui::TestAppContext, rail: bool) -> Harness<'_> {
+fn harness_with(cx: &mut gpui::TestAppContext, rail: bool, bulk: bool) -> Harness<'_> {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(
         dir.path().join("accounts.json"),
@@ -125,7 +135,7 @@ fn harness_with(cx: &mut gpui::TestAppContext, rail: bool) -> Harness<'_> {
             let fab = cx.new(|cx| AssistantFab::new(nav.clone(), cx));
             *slot.borrow_mut() = Some(nav);
             let rail = rail.then(|| cx.new(|_| crate::markdown::ImageCache::new(None)));
-            let scene = cx.new(|_| Scene { fab, rail });
+            let scene = cx.new(|_| Scene { fab, rail, bulk });
             gpui_component::Root::new(scene, window, cx)
         }
     });
@@ -273,7 +283,7 @@ fn a_pinned_foot_sits_beside_the_fab(cx: &mut gpui::TestAppContext) {
     // #EXP-1872: THE plan rail pinned to the card's right edge: its foot
     // (Back / Next, the decision) is THE `foot`, so Next paints beside the
     // circle, `inset` px clear of it, never under it.
-    let mut h = harness_with(cx, true);
+    let mut h = harness_with(cx, true, false);
     let next = format!("{}-{PLAN_ID}", domain::plan_card::test_ids().step_next);
     let next: &'static str = Box::leak(next.into_boxed_str());
     let circle = h.cx.debug_bounds(TEST_IDS.0).expect("the FAB paints");
@@ -283,4 +293,89 @@ fn a_pinned_foot_sits_beside_the_fab(cx: &mut gpui::TestAppContext) {
         button.right() + px(ASSISTANT_FAB.inset) <= circle.left(),
         "Next ends `inset` left of the FAB, never under it: {button:?} {circle:?}"
     );
+}
+
+#[gpui::test]
+#[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
+fn the_bulk_bar_centres_beside_the_fab(cx: &mut gpui::TestAppContext) {
+    use domain::agent_settings::ASSISTANT_FAB;
+    // #EXP-1872: THE bulk bar's dock is THE pinned foot: in a pane whose
+    // width leaves the centred bar under the circle, it centres in what the
+    // corner leaves and ends `inset` px left of the FAB.
+    let mut h = harness_with(cx, false, true);
+    h.cx.simulate_resize(gpui::size(px(800.), px(600.)));
+    h.settle();
+    let circle = h.cx.debug_bounds(TEST_IDS.0).expect("the FAB paints");
+    let bar = h.cx.debug_bounds(BULK_BAR).expect("the bar paints");
+    assert!(bar.bottom() > circle.top(), "the bar floats at the pane's foot: {bar:?} {circle:?}");
+    assert!(bar.right() + px(ASSISTANT_FAB.inset) <= circle.left(), "the bar ends beside the FAB: {bar:?} {circle:?}");
+}
+
+/// #EXP-1872: every element positioned at a pane's bottom, per file. A new
+/// one fails here until it is THE pinned foot (`assistant_fab::foot`, then
+/// count it with that reason) or earns an entry saying why it never meets the
+/// Assistant FAB. Web twin: packages/ui/src/styles.test.ts.
+#[test]
+fn nothing_pins_to_a_foot_without_the_fab_foot() {
+    const ALLOWED: &[(&str, usize, &str)] = &[
+        ("app_csv_import_dialog.rs", 1, "a modal dialog over the FAB"),
+        ("app_data_tab.rs", 2, "the table's scrollbar; the record form's modal dialog"),
+        ("app_import_dialog.rs", 1, "a modal dialog over the FAB"),
+        ("assistant_fab.rs", 1, "the FAB itself"),
+        ("chat_list.rs", 1, "a row's selection ring"),
+        ("comments.rs", 1, "a clamped comment's fade, inside the scroll"),
+        ("controls.rs", 3, "jump-to-bottom (centred above the Dock), a full overlay, a typeahead above its host"),
+        ("create_board_dialog.rs", 1, "a modal dialog over the FAB"),
+        ("create_team_dialog.rs", 1, "a modal dialog over the FAB"),
+        ("dock.rs", 1, "THE Dock band's sheet drop (its column takes `lane`)"),
+        ("issue_list.rs", 1, "THE bulk bar's dock = THE pinned foot"),
+        ("issue_rail.rs", 1, "a rail guide line"),
+        ("join_team.rs", 1, "a modal dialog over the FAB"),
+        ("media_tile.rs", 1, "a video tile's duration chip, inside the tile"),
+        ("outline.rs", 1, "the active row's bar"),
+        ("phone_bar.rs", 2, "the app preview's phone tab bar inside its frame"),
+        ("picker/mod.rs", 1, "a picker popover's fade"),
+        ("picker/search_list.rs", 1, "a popover's fade"),
+        ("plan_page.rs", 2, "the floating panel's overlay (its foot = THE pinned foot), the scrollbar"),
+        ("pr_rows.rs", 1, "a tree guide line"),
+        ("resize_edge.rs", 1, "a resize handle"),
+        ("screens.rs", 1, "a resize handle"),
+        ("scroll_pane.rs", 3, "scrollbars"),
+        ("session_results.rs", 2, "a tile's scrim + badge, inside the tile"),
+        ("shell.rs", 2, "the settings slide strip, a resize handle"),
+        ("specimens/entries/phone_board_menu.rs", 2, "a catalogue specimen (no FAB)"),
+        ("steer_viewer.rs", 2, "jump-to-bottom (centred), the band's height probe"),
+        ("timeline.rs", 1, "a timeline guide line"),
+        ("toast.rs", 2, "the toast stack (lifts by `toastLift`)"),
+        ("trace.rs", 1, "a trace rail line"),
+        ("tree_guides.rs", 1, "a tree guide line"),
+    ];
+    fn walk(dir: &std::path::Path, root: &std::path::Path, found: &mut std::collections::BTreeMap<String, usize>) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                walk(&path, root, found);
+                continue;
+            }
+            let name = path.strip_prefix(root).unwrap().to_string_lossy().replace('\\', "/");
+            if !name.ends_with(".rs") || name.ends_with("_tests.rs") {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).unwrap();
+            for line in text.lines() {
+                let pinned = line.find(".bottom").is_some_and(|at| {
+                    let rest = &line[at + ".bottom".len()..];
+                    !rest.starts_with("()") && (rest.starts_with('(') || rest.starts_with('_'))
+                });
+                if pinned {
+                    *found.entry(name.clone()).or_default() += 1;
+                }
+            }
+        }
+    }
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut found = std::collections::BTreeMap::new();
+    walk(&root, &root, &mut found);
+    let allowed: std::collections::BTreeMap<String, usize> = ALLOWED.iter().map(|(file, count, _)| (file.to_string(), *count)).collect();
+    assert_eq!(found, allowed, "a new element pinned to a pane's bottom: THE pinned foot (`assistant_fab::foot`) or an entry with its reason");
 }
