@@ -3,7 +3,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vites
 import { and, asc, eq, inArray, sql } from "drizzle-orm"
 import type { TrainCheck, TrainPipelineInputs, TrainPipelineOutcome, TrainPipelineUnit } from "@exp/domain-contract/merge-train"
 import { db } from "@/db/connection"
-import { agents, boards, devices, mergeTrains, messages, pullRequestChecks, pullRequests, repositories, sessions, teamMembers, teams } from "@/db/schema"
+import { agents, boards, ciJobs, ciRuns, devices, mergeTrains, messages, pullRequestChecks, pullRequests, repositories, sessions, teamMembers, teams } from "@/db/schema"
 import { probeRealDb, retryingConflict } from "@/test/real-db"
 import { inSession } from "@/lib/sessions/messages"
 import { partialForgeForTests, type Forge } from "@/lib/ecode/forge"
@@ -486,6 +486,81 @@ describe.skipIf(!ready.ok)(`EXP-1709: the merge train worker`, () => {
     expect(fake.dispatches.map((d) => d.units.map((u) => u.prs.map((p) => p.number)))).toEqual([[[523]]])
     expect((await prRow(stranded)).mergeState).toBe(`queued`)
     expect((await prRow(free)).mergeState).toBe(`testing`)
+  })
+
+  it(`#EXP-1862: our own CI's pending or red checks never hold a PR, whatever the base's protection answers`, async () => {
+    const w = await world()
+    const own = async (prId: string, number: number, jobs: Array<{ check: string; status: `queued` | `in_progress` | `completed`; conclusion?: `failure` | null }>) => {
+      const [run] = await db
+        .insert(ciRuns)
+        .values({ teamId: w.teamId, repositoryId: w.repoId, number, name: `ci`, sha: `head-${number}`, trigger: `pull_request`, pullRequestId: prId })
+        .returning({ id: ciRuns.id })
+      for (const [i, job] of jobs.entries()) {
+        await db.insert(ciJobs).values({ teamId: w.teamId, runId: run!.id, key: `j${i}`, check: job.check, position: i, status: job.status, conclusion: job.conclusion ?? null, spec: {} as never })
+        await db.insert(pullRequestChecks).values({ teamId: w.teamId, pullRequestId: prId, headSha: `head-${number}`, name: job.check, status: job.status, conclusion: job.conclusion ?? null })
+      }
+    }
+    // gate green, our typecheck queued and our merge-train red.
+    const a = await w.pr(571)
+    await own(a, 571, [{ check: `ecode typecheck`, status: `queued` }, { check: `ecode merge-train`, status: `completed`, conclusion: `failure` }])
+    // No required names known (an unreadable read, a session branch) and no
+    // row flagged: the forge's own checks decide, ours never do.
+    fake.required = []
+    const b = await w.pr(572, { checks: false })
+    await db.update(pullRequestChecks).set({ required: false }).where(eq(pullRequestChecks.pullRequestId, a))
+    await db.insert(pullRequestChecks).values({ teamId: w.teamId, pullRequestId: b, headSha: `head-572`, name: `web / unit`, status: `completed`, conclusion: `success` })
+    await own(b, 572, [{ check: `ecode typecheck`, status: `in_progress` }, { check: `ecode rewrite-gaps`, status: `completed`, conclusion: `failure` }])
+    fake.hold = true
+    await w.idle()
+    await pass(w.repoId)
+    expect((await prRow(a)).mergeState).toBe(`testing`)
+    expect((await prRow(b)).mergeState).toBe(`testing`)
+  })
+
+  it(`#EXP-1862: a repo that names its own check required is held by it`, async () => {
+    const w = await world()
+    await db.update(repositories).set({ ciConfig: { requiredChecks: [`ecode typecheck`] } }).where(eq(repositories.id, w.repoId))
+    const a = await w.pr(581)
+    const [run] = await db
+      .insert(ciRuns)
+      .values({ teamId: w.teamId, repositoryId: w.repoId, number: 1, name: `ci`, sha: `head-581`, trigger: `pull_request`, pullRequestId: a })
+      .returning({ id: ciRuns.id })
+    await db.insert(ciJobs).values({ teamId: w.teamId, runId: run!.id, key: `t`, check: `ecode typecheck`, position: 0, status: `queued`, spec: {} as never })
+    await db.insert(pullRequestChecks).values({ teamId: w.teamId, pullRequestId: a, headSha: `head-581`, name: `ecode typecheck`, status: `queued` })
+    await w.idle()
+    await pass(w.repoId)
+    expect((await prRow(a)).mergeState).toBe(`checks`)
+  })
+
+  it(`#FEED-252: a PR opened on a branch AFTER that branch's PR landed keeps its base and lands there`, async () => {
+    // #2832 (head exp/session-bc03b473) landed at 05:16; the session kept
+    // working on its branch and its children opened #2855/#2859 on it hours
+    // later: the train moved them onto master 4 s after their open.
+    const w = await world()
+    fake.branch.set(`exp/550`, `live0`)
+    fake.history.add(`live0`)
+    const parent = await w.pr(550)
+    await db.update(pullRequests).set({ state: `merged`, mergeState: `merged`, mergedAt: new Date(Date.now() - 3_600_000) }).where(eq(pullRequests.id, parent))
+    const child = await w.pr(551, { base: `exp/550` })
+    await w.idle()
+    await pass(w.repoId)
+    expect(fake.dispatches.map((d) => d.inputs.base)).toEqual([`exp/550`])
+    expect((await prRow(child)).mergeState).toBe(`testing`)
+    await pass(w.repoId)
+    expect(await prRow(child)).toMatchObject({ mergeState: `merged`, base: `exp/550` })
+    expect(fake.branch.get(`exp/550`)).not.toBe(`live0`)
+  })
+
+  it(`#FEED-252: a PR opened BEFORE its base's PR landed is still stranded`, async () => {
+    const w = await world()
+    const child = await w.pr(561, { base: `exp/560` })
+    const parent = await w.pr(560)
+    await db.update(pullRequests).set({ state: `merged`, mergeState: `merged`, mergedAt: new Date() }).where(eq(pullRequests.id, parent))
+    await w.idle()
+    await pass(w.repoId)
+    expect(fake.dispatches).toEqual([])
+    expect((await prRow(child)).base).toBe(`exp/560`)
+    expect((await prRow(child)).mergeState).toBe(`queued`)
   })
 
   it(`a run whose base landed meanwhile never fast-forwards it (#EXP-1711)`, async () => {

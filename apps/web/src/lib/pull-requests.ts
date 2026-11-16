@@ -208,10 +208,16 @@ function issueForPrSelect() {
     .innerJoin(boards, eq(boards.id, issues.boardId))
 }
 
+/** #FEED-234: the waits before re-trying a create GitHub answered 5xx
+ *  (its POST /pulls sometimes 500s with an empty body, then succeeds). */
+export const prCreateRetry = { delaysMs: [1_000, 3_000] }
+
 /** Create the PR, or adopt the one the forge already holds open on `head`
  *  (FEED-59: GitHub's 422 only fires for the same head AND base, so the
- *  lookup runs first and ignores the base). */
-async function createOrAdoptOnForge(
+ *  lookup runs first and ignores the base). #FEED-234: a 5xx is re-tried
+ *  (after a lookup: a 500 that did create the PR is adopted). #FEED-252:
+ *  the base reported is the one the forge answers, never just the one asked. */
+export async function createOrAdoptOnForge(
   forge: Forge,
   at: ForgeRepo,
   opts: {
@@ -231,16 +237,25 @@ async function createOrAdoptOnForge(
   }
   const open = await lookup()
   if (open) return { url: open.url, number: open.number, base: open.baseRef || opts.base, adopted: true }
-  try {
-    const created = await forge.openPullRequest(at, opts)
-    return { ...created, base: opts.base, adopted: false }
-  } catch (e) {
-    if (!(e instanceof ForgeError) || e.reason !== `exists`) {
-      return fail(`BAD_GATEWAY`, e instanceof Error ? e.message : String(e))
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const created = await forge.openPullRequest(at, opts)
+      return { url: created.url, number: created.number, base: created.base || opts.base, adopted: false }
+    } catch (e) {
+      const transient = e instanceof ForgeError && e.status >= 500 && e.reason === null
+      if (transient && attempt < prCreateRetry.delaysMs.length) {
+        await new Promise((resolve) => setTimeout(resolve, prCreateRetry.delaysMs[attempt]))
+        const made = await lookup()
+        if (made) return { url: made.url, number: made.number, base: made.baseRef || opts.base, adopted: true }
+        continue
+      }
+      if (!(e instanceof ForgeError) || e.reason !== `exists`) {
+        return fail(`BAD_GATEWAY`, e instanceof Error ? e.message : String(e))
+      }
+      const raced = await lookup(opts.base)
+      if (!raced) return fail(`BAD_GATEWAY`, e.message)
+      return { url: raced.url, number: raced.number, base: raced.baseRef || opts.base, adopted: true }
     }
-    const raced = await lookup(opts.base)
-    if (!raced) return fail(`BAD_GATEWAY`, e.message)
-    return { url: raced.url, number: raced.number, base: raced.baseRef || opts.base, adopted: true }
   }
 }
 

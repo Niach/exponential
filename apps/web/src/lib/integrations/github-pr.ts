@@ -37,6 +37,8 @@ export async function resolveRepoToken(opts: {
 export interface CreatedPull {
   url: string
   number: number
+  /** #FEED-252: the base GitHub recorded (absent on an older answer). */
+  base?: string
 }
 
 // Create a PR server-side (the desktop coding session pushes the branch, the
@@ -78,8 +80,8 @@ export async function createPullRequest(opts: {
     }
     throw new Error(message)
   }
-  const data = (await res.json()) as { html_url: string; number: number }
-  return { url: data.html_url, number: data.number }
+  const data = (await res.json()) as { html_url: string; number: number; base?: { ref?: string } }
+  return { url: data.html_url, number: data.number, ...(data.base?.ref ? { base: data.base.ref } : {}) }
 }
 
 // FEED-59: GitHub's 422 for a head that already has an OPEN PR. `pr_open`
