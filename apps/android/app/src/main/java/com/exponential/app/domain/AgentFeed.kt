@@ -1622,7 +1622,7 @@ fun ActivityFeedState.applyActivityEvent(
 ): ActivityFeedState = when (event.str("kind")) {
     "narration" -> {
         val text = event.str("text").orEmpty()
-        if (text.isBlank()) {
+        if (TranscriptGrouping.isBlankText(text)) {
             this
         } else {
             val messageId = event.str("messageId")?.takeIf { it.isNotBlank() }
@@ -1701,7 +1701,7 @@ fun ActivityFeedState.applyActivityEvent(
     "diff" -> copy(latestDiff = event.str("diff")?.takeIf { it.isNotBlank() })
     "user_message" -> {
         val text = event.str("text")
-        if (text.isNullOrBlank() || isEcho(text)) {
+        if (text == null || TranscriptGrouping.isBlankText(text) || isEcho(text)) {
             this
         } else {
             // EXP-773: a turn addressed to a subagent renders inside that

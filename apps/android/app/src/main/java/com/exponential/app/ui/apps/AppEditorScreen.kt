@@ -266,6 +266,12 @@ fun AppEditorScreen(
                 open = openKind,
                 counts = SessionScreen.Counts(sessions = items.sessions.size, results = resultsCount),
             )
+            // #FEED-257 (session-screen.json): THE tree's word; needs input
+            // only while something waits.
+            val waiting = remember(tree.view?.rows, tree.sessions, rootId) {
+                com.exponential.app.ui.chat.chatWaiting(rootId.orEmpty(), tree.sessions, tree.view?.rows)
+            }
+            val stateWord = com.exponential.app.ui.chat.chatStateWord(rootId.orEmpty(), tree.sessions, tree.view?.rows)
             if (screen.layout == SessionScreen.Layout.Item && entry != null) {
                 // THE pushed page: `‹` + the item's name; system Back pops it.
                 BackHandler(onBack = closeItem)
@@ -322,17 +328,31 @@ fun AppEditorScreen(
                         // tree's word (never dropped) · apps.json
                         // `editorHeader`'s device part, in its tone.
                         subtitle = if (entry != null) {
-                            SessionScreen.subtitle(
-                                com.exponential.app.ui.chat.chatStateWord(rootId.orEmpty(), tree.sessions),
-                                headerDevice,
-                                null,
-                            )
+                            SessionScreen.subtitle(stateWord, headerDevice, null)
                         } else null,
-                        subtitleColor = when (header.tone) {
-                            Apps.EditorHeaderTone.Attention -> NeedsInputAmber
-                            Apps.EditorHeaderTone.Active -> MaterialTheme.colorScheme.onSurface
-                            Apps.EditorHeaderTone.Muted -> null
+                        // #FEED-257: amber while the word is needs input (or no
+                        // device is online), never off a stale flag alone.
+                        subtitleColor = when {
+                            stateWord == SessionScreen.Copy.Status.NEEDS_INPUT || headerDevice == Apps.EditorHeader.NO_DEVICE_ONLINE -> NeedsInputAmber
+                            header.tone == Apps.EditorHeaderTone.Active -> MaterialTheme.colorScheme.onSurface
+                            else -> com.exponential.app.ui.chat.chatStateTone(stateWord)
                         },
+                        // #FEED-257: the needs-input line opens the waiting item:
+                        // a session opened, else the Conversation.
+                        onSubtitleClick = if (entry != null) {
+                            waiting?.let { item ->
+                                {
+                                    if (item.open == SessionScreen.WaitingOpen.Session) {
+                                        openKind = SessionScreen.Open.Session.wire
+                                        openId = item.id
+                                    } else {
+                                        requestedTab = SessionScreen.Tab.Chat.wire
+                                        openKind = null
+                                        openId = null
+                                    }
+                                }
+                            }
+                        } else null,
                         lead = {
                             if (entry != null) {
                                 Box(
