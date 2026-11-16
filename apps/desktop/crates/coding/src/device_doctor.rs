@@ -567,16 +567,21 @@ pub fn add_store_conflicts(doctor: &mut DeviceDoctor, count: usize) {
 /// never a problem). No sweep yet, or no `disk` row to hang off = no row.
 pub fn add_cargo_sweep(doctor: &mut DeviceDoctor, last: Option<&crate::cargo_target_gc::SweepRecord>) {
     let Some(last) = last else { return };
-    if !doctor.items.iter().any(|item| item.key == KEY_DISK) {
-        return;
-    }
     let when = chrono::DateTime::from_timestamp(last.at, 0)
         .map(|at| at.with_timezone(&chrono::Local).format("%-d %b %H:%M").to_string())
         .unwrap_or_default();
-    let size = crate::worktree_lifecycle::format_free(last.freed_bytes);
+    add_cargo_sweep_at(doctor, last.freed_bytes, last.dry_run, &when);
+}
+
+/// [`add_cargo_sweep`] with the time already formatted (pure).
+pub fn add_cargo_sweep_at(doctor: &mut DeviceDoctor, freed_bytes: u64, dry_run: bool, when: &str) {
+    if !doctor.items.iter().any(|item| item.key == KEY_DISK) {
+        return;
+    }
+    let size = crate::worktree_lifecycle::format_free(freed_bytes);
     let mut row = item(KEY_CARGO_SWEEP, DoctorGroup::Storage, DoctorState::Off)
         .parent(KEY_DISK)
-        .detail(cargo_sweep(&size, last.dry_run, &when));
+        .detail(cargo_sweep(&size, dry_run, when));
     row.label = Some(CARGO_SWEEP_LABEL.to_string());
     doctor.items.push(row);
 }
@@ -948,6 +953,10 @@ mod tests {
             }
             if let Some((free, kept)) = case_storage(index) {
                 add_storage(&mut doctor, Some(free), &kept);
+            }
+            // #EXP-1865: the low-disk case's machine also swept its build cache.
+            if index == 13 {
+                add_cargo_sweep_at(&mut doctor, 31_200_000_000, false, "14 Nov 23:02");
             }
             add_key_holder(&mut doctor, index != 12);
             assert_eq!(

@@ -1072,7 +1072,7 @@ private struct CallPillSpecimens: View {
 private struct DeviceReadinessSpecimens: View {
     private static let cases: [(name: String, json: String)] = [
         ("EXP-1375: low disk with two kept worktrees: a warning, never a blocker", #"""
-        {"checkedAt":"2026-10-28T09:00:00.000Z","items":[{"key":"git","group":"required","state":"ok","detail":"2.55.0"},{"key":"claude","group":"agents","state":"ok","detail":"2.1.289"},{"key":"codex","group":"agents","state":"missing","detail":"Signed out","action":"sign_in"},{"key":"computer_use","group":"computer_use","state":"off"},{"key":"disk","group":"storage","state":"action","detail":"6.2 GB free"},{"key":"worktree-1","group":"storage","parent":"disk","label":"exp-session-9497089a","state":"off","detail":"Uncommitted changes"},{"key":"worktree-2","group":"storage","parent":"disk","label":"exp-EXP-1375","state":"off","detail":"Unpushed commits"}]}
+        {"checkedAt":"2026-10-28T09:00:00.000Z","items":[{"key":"git","group":"required","state":"ok","detail":"2.55.0"},{"key":"claude","group":"agents","state":"ok","detail":"2.1.289"},{"key":"codex","group":"agents","state":"missing","detail":"Signed out","action":"sign_in"},{"key":"computer_use","group":"computer_use","state":"off"},{"key":"disk","group":"storage","state":"action","detail":"6.2 GB free"},{"key":"worktree-1","group":"storage","parent":"disk","label":"exp-session-9497089a","state":"off","detail":"Uncommitted changes"},{"key":"worktree-2","group":"storage","parent":"disk","label":"exp-EXP-1375","state":"off","detail":"Unpushed commits"},{"key":"cargo_sweep","group":"storage","parent":"disk","label":"Build cache","state":"off","detail":"31 GB freed · 14 Nov 23:02"}]}
         """#),
     ]
 
