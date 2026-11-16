@@ -686,7 +686,13 @@ export const sessionsRouter = router({
             ...(session.status === `queued` ? { status: `running` as const } : {}),
             startedAt: session.startedAt ?? now,
             ...(input.branch ? { branch: input.branch } : {}),
-            ...(unclaimed ? { blocked: null, needsInput: false } : {}),
+            // #FEED-257: an open card still waits (needs_input re-derived).
+            ...(unclaimed
+              ? {
+                  blocked: null,
+                  needsInput: sql`EXISTS (SELECT 1 FROM ${messages} m WHERE m.conversation_id = ${sessionConversation(sessions.id)} AND m.answered_at IS NULL AND m.card->>'kind' IN ('question', 'plan'))`,
+                }
+              : {}),
             updatedAt: now,
           })
           .where(

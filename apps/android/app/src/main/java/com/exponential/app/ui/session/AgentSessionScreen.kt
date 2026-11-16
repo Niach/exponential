@@ -2111,7 +2111,11 @@ private fun ActivityFeed(
                     // EXP-916: the lane's own projection — its consecutive
                     // edits fold into ONE edited-files card, exactly as they
                     // do in the main transcript.
-                    val laneRows = projectLaneRows(focused.items, workflowIds)
+                    // #FEED-256: a blank narration (a lone U+200B) draws no bubble.
+                    val laneRows = projectLaneRows(
+                        focused.items.filter { it !is AgentFeedItem.Narration || !TranscriptGrouping.isBlankText(it.text) },
+                        workflowIds,
+                    )
                     // #EXP-1736: the same grouping as the main stream, the
                     // subagent as the chat's own sender.
                     val laneLayouts = laneTranscriptLayout(laneRows, focused)
@@ -2201,7 +2205,7 @@ private fun ActivityFeed(
                         is AgentFeedRow.QuestionStepper -> AnswerCardRow(row, cards)
                         is AgentFeedRow.Single -> when (val item = row.item) {
                             // #VAPP-258: the live tail is the reply being written.
-                            is AgentFeedItem.Narration -> if (item.text.isNotBlank()) {
+                            is AgentFeedItem.Narration -> if (!TranscriptGrouping.isBlankText(item.text)) {
                                 MessageBubble(
                                     own = false,
                                     // #EXP-1864: its first fragment's time.
@@ -2473,10 +2477,13 @@ internal fun dropHiddenFeedRows(rows: List<AgentFeedRow>): ShownFeedRows {
             is AgentFeedItem.UserMessage -> when (val input = TranscriptGrouping.feedInput(item.text)) {
                 is TranscriptGrouping.FeedInput.Marker ->
                     if (input.key == "schedule") TranscriptGrouping.FeedRowRole.Schedule else TranscriptGrouping.FeedRowRole.Marker
+                // #FEED-254: another session's relayed line with a blank body draws nothing.
+                is TranscriptGrouping.FeedInput.Relay ->
+                    if (TranscriptGrouping.isBlankText(input.body)) TranscriptGrouping.FeedRowRole.Blank else TranscriptGrouping.FeedRowRole.Input
                 else -> TranscriptGrouping.FeedRowRole.Input
             }
             is AgentFeedItem.Narration ->
-                if (item.text.isNotBlank()) TranscriptGrouping.FeedRowRole.Reply else TranscriptGrouping.FeedRowRole.Blank
+                if (!TranscriptGrouping.isBlankText(item.text)) TranscriptGrouping.FeedRowRole.Reply else TranscriptGrouping.FeedRowRole.Blank
             is AgentFeedItem.Tool ->
                 if (TranscriptGrouping.traceNotice(item.name) != null) TranscriptGrouping.FeedRowRole.Quiet else TranscriptGrouping.FeedRowRole.Other
             else -> TranscriptGrouping.FeedRowRole.Other
@@ -2535,7 +2542,7 @@ internal fun feedTranscriptLayout(
                 TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Trace)
             is AgentFeedRow.QuestionStepper -> TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Full)
             is AgentFeedRow.Single -> when (val feedItem = row.item) {
-                is AgentFeedItem.Narration -> if (feedItem.text.isNotBlank()) {
+                is AgentFeedItem.Narration -> if (!TranscriptGrouping.isBlankText(feedItem.text)) {
                     bubbleIds += id
                     TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Message, authorKind = "agent")
                 } else {
@@ -2621,7 +2628,7 @@ internal fun laneTranscriptLayout(
             is AgentFeedRow.Edits, is AgentFeedRow.ExpRun, is AgentFeedRow.ToolRun ->
                 TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Trace)
             is AgentFeedRow.Single -> when (val feedItem = row.item) {
-                is AgentFeedItem.Narration -> if (feedItem.text.isNotBlank()) {
+                is AgentFeedItem.Narration -> if (!TranscriptGrouping.isBlankText(feedItem.text)) {
                     bubbleIds += id
                     TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Message, authorKind = "agent")
                 } else {
@@ -2877,7 +2884,7 @@ private fun NarrationBubble(
     tail: Boolean = false,
 ) {
     // MarkdownView renders nothing for blank input.
-    if (text.isBlank()) return
+    if (TranscriptGrouping.isBlankText(text)) return
     // EXP-440: GFM; EXP-430 bare URLs stay tappable.
     MessageBubble(
         own = false,

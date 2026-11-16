@@ -596,6 +596,23 @@ pub const AGENT_TITLE_MAX: usize = 255;
 /// #EXP-1772: the keys the device leads a system input with (`[<key>] `,
 /// `coding::pickup::input_text`; transcript-grouping.json `copy.markers`,
 /// gated by `input_tags_match_the_fixture`).
+/// #FEED-256 / #FEED-254 (transcript-grouping.json `blank.codePoints`, its
+/// `blankCases` replayed below): the characters a BLANK text is made of: the
+/// Unicode White_Space set plus the invisible format characters (soft hyphen,
+/// Mongolian vowel separator, ZWSP, ZWNJ, ZWJ, LRM, RLM, word joiner, BOM).
+pub const BLANK_CODE_POINTS: &[u32] = &[
+    0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x20, 0x85, 0xA0, 0xAD, 0x1680, 0x180E, 0x2000, 0x2001, 0x2002, 0x2003,
+    0x2004, 0x2005, 0x2006, 0x2007, 0x2008, 0x2009, 0x200A, 0x200B, 0x200C, 0x200D, 0x200E, 0x200F, 0x2028,
+    0x2029, 0x202F, 0x205F, 0x2060, 0x3000, 0xFEFF,
+];
+
+/// #FEED-256 / #FEED-254: a text whose every character is whitespace or
+/// invisible is no message (a turn ending on a lone U+200B is quiet). Never
+/// `str::trim`: it keeps U+200B and U+FEFF.
+pub fn is_blank_text(text: &str) -> bool {
+    text.chars().all(|c| BLANK_CODE_POINTS.contains(&(c as u32)))
+}
+
 pub const INPUT_TAGS: &[&str] = &["schedule", "event", "pr_opened", "pr_merged", "pr_merge", "pr_checks", "session"];
 
 /// #EXP-1772: `text` without the device's `[<key>] ` lead (an unknown key
@@ -908,6 +925,29 @@ mod tests {
         // A person's own brackets stay.
         assert_eq!(normalize_agent_title("[todo] buy milk").as_deref(), Some("[todo] buy milk"));
         assert_eq!(normalize_agent_title("[schedule]").as_deref(), Some("[schedule]"));
+    }
+
+    #[test]
+    fn blank_text_matches_the_fixture() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../../packages/domain-contract/fixtures/transcript-grouping.json"
+        ))
+        .unwrap();
+        let points: Vec<u32> = fixture["blank"]["codePoints"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|hex| u32::from_str_radix(hex.as_str().unwrap(), 16).unwrap())
+            .collect();
+        assert_eq!(points, BLANK_CODE_POINTS);
+        for case in fixture["blankCases"].as_array().unwrap() {
+            assert_eq!(
+                is_blank_text(case["text"].as_str().unwrap()),
+                case["expected"].as_bool().unwrap(),
+                "{}",
+                case["name"]
+            );
+        }
     }
 
     #[test]

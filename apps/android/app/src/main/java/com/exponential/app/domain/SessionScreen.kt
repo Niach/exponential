@@ -341,16 +341,44 @@ object SessionScreen {
         MenuEntry.Separator -> ""
     }
 
-    /** One session of the tree for [status]. */
-    data class StatusInput(val status: String, val busy: Boolean, val needsInput: Boolean, val root: Boolean)
+    /** One session of the tree for [status]; #FEED-257: its [id] and its
+     *  `blocked.kind` (a wall or a watchdog flag; null = none). */
+    data class StatusInput(
+        val status: String,
+        val busy: Boolean,
+        val needsInput: Boolean,
+        val root: Boolean,
+        val id: String = "",
+        val blocked: String? = null,
+    )
 
-    /** THE tree's status word (`statusCases`): needs input > working > queued
-     *  (the root) > done (the root ended) > idle; an empty tree = idle. */
-    fun status(sessions: List<StatusInput>): String {
+    /** #FEED-257: one waiting card of the chat (`chatPendingAsks`,
+     *  Conversation order); [kind] = `plan` | `question`. */
+    data class Ask(val id: String, val sessionId: String, val kind: String)
+
+    /** #FEED-257: what the needs-input line opens. */
+    enum class WaitingOpen(val wire: String) { Plan("plan"), Card("card"), Session("session"), Chat("chat") }
+
+    data class Waiting(val open: WaitingOpen, val id: String)
+
+    /** #FEED-257 (`waitingCases`): THE waiting item: the first ask, else the
+     *  first flagged non-root session that waits, else the root's own flag,
+     *  else null (a stale `needsInput` with nothing to open is nothing). */
+    fun waiting(sessions: List<StatusInput>, asks: List<Ask> = emptyList()): Waiting? {
+        asks.firstOrNull()?.let { return Waiting(if (it.kind == "plan") WaitingOpen.Plan else WaitingOpen.Card, it.id) }
+        val flagged = sessions.filter { it.status != "ended" && it.needsInput && !it.blocked.isNullOrEmpty() }
+        flagged.firstOrNull { !it.root }?.let { return Waiting(WaitingOpen.Session, it.id) }
+        return flagged.firstOrNull { it.root }?.let { Waiting(WaitingOpen.Chat, it.id) }
+    }
+
+    /** THE tree's status word (`statusCases`): needs input (#FEED-257: only
+     *  while something waits, [waiting]) > working > queued (the root) >
+     *  done (the root ended) > idle; an empty tree = idle. */
+    fun status(sessions: List<StatusInput>, asks: List<Ask> = emptyList()): String {
         val live = sessions.filter { it.status != "ended" }
         val root = sessions.firstOrNull { it.root }
         return when {
-            live.any { it.needsInput } -> Copy.Status.NEEDS_INPUT
+            waiting(sessions, asks) != null -> Copy.Status.NEEDS_INPUT
             live.any { it.busy } -> Copy.Status.WORKING
             root?.status == "queued" -> Copy.Status.QUEUED
             root?.status == "ended" -> Copy.Status.DONE

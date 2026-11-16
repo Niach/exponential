@@ -1428,6 +1428,14 @@ async function seedSessionTree(ctx: {
         body: `### Board snapshot cache\n\nThe last rendered board is written to disk on every sync and painted on launch, then replaced in place once the shape catches up.\n\nDeferred the shape subscribe until after the first frame and added a board snapshot cache that paints the last board before sync finishes: 740 ms on the CI device, under the 800 ms target. Filed #${fb3} for the editor's highlighting bundle.`,
         at: minutesAgo(11),
       },
+      // #FEED-256: a turn that ended on a lone zero-width space (stored by a
+      // driver from before the fix): every client draws nothing for it.
+      {
+        sessionId: ids.coldStart,
+        author: `agent`,
+        body: `\u200b`,
+        at: minutesAgo(10),
+      },
       // The session's own card, waiting (Needs you).
       {
         sessionId: ids.coldStart,

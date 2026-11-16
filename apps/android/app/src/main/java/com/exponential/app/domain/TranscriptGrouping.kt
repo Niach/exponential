@@ -345,6 +345,30 @@ object TranscriptGrouping {
         return if (time.isNullOrEmpty()) label else "$label${Copy.CHECK_IN_TIME_SEPARATOR}$time"
     }
 
+    /** #FEED-256 `blank.codePoints`: whitespace + the invisible format
+     *  characters (hex Unicode scalars, the fixture's order). */
+    val BLANK_CODE_POINTS: List<Int> = listOf(
+        0x0009, 0x000A, 0x000B, 0x000C, 0x000D, 0x0020, 0x0085, 0x00A0, 0x00AD,
+        0x1680, 0x180E, 0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006,
+        0x2007, 0x2008, 0x2009, 0x200A, 0x200B, 0x200C, 0x200D, 0x200E, 0x200F,
+        0x2028, 0x2029, 0x202F, 0x205F, 0x2060, 0x3000, 0xFEFF,
+    )
+    private val BLANK_SET: Set<Int> = BLANK_CODE_POINTS.toHashSet()
+
+    /** #FEED-256 / #FEED-254 (`blankCases`): a text whose every code point
+     *  is whitespace or invisible ([BLANK_CODE_POINTS]) is no message: no
+     *  client draws it. Never Kotlin's `isBlank`: it keeps U+200B and U+FEFF. */
+    fun isBlankText(text: String?): Boolean {
+        if (text == null) return true
+        var index = 0
+        while (index < text.length) {
+            val point = text.codePointAt(index)
+            if (point !in BLANK_SET) return false
+            index += Character.charCount(point)
+        }
+        return true
+    }
+
     /** #EXP-1873 `checkInSpecimen`: an agent chat's feed row (kind, `HH:mm`, text). */
     data class CheckInSpecimenRow(val kind: FeedRowRole, val time: String?, val text: String?)
 
