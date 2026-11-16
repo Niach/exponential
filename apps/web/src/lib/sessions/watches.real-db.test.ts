@@ -171,7 +171,7 @@ describe.skipIf(!ready.ok)(`#NEW-49 event watches`, () => {
 
     const gone = await w.issue()
     await w.watchFrom(w.coordinator, [`issue:${gone.identifier}:done`])
-    await db.transaction((tx) => trashIssuesInTx(tx, [gone.id], { userId: w.owner, origin: {} }))
+    await db.transaction((tx) => trashIssuesInTx(tx, [gone.id], { userId: w.owner, origin: { viaMcp: false, sessionId: null } }))
     expect((await w.fired(w.coordinator)).at(-1)?.body).toBe(`${gone.identifier} was deleted; its watches are gone.`)
     expect(await w.watching(w.coordinator)).toBeNull()
   })
