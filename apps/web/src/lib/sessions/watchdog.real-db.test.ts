@@ -80,7 +80,10 @@ const {
   clearLiveStuckInTx,
   recordSessionActivityInTx,
   touchSessionActivity,
+  clearDrainedInTx,
 } = await import(`@/lib/sessions/watchdog`)
+const { insertMessage } = await import(`@/lib/sessions/messages`)
+const { supersedePrMerge } = await import(`@/lib/merge-train/messages`)
 const { sessionsRouter } = await import(`@/lib/trpc/sessions`)
 const { devicesRouter } = await import(`@/lib/trpc/devices`)
 
@@ -1081,4 +1084,102 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
     expect((await brief()).consumedAt).not.toBeNull()
     expect(relay.nudges).not.toContainEqual({ userId: w.owner, deviceId: w.deviceId })
   })
+})
+
+describe.skipIf(!ready.ok)(`#FEED-257: needs input clears with what set it`, () => {
+  /** A claimed child that already answered its first Request, then a held
+   *  notice it never picked up: the watchdog's `unclaimed` + Needs you. */
+  async function heldChild() {
+    const w = await world()
+    const rootId = await w.root()
+    const child = await w.child(rootId, `rebase #12`)
+    await w.host.claim({ sessionId: child, deviceId: w.deviceId })
+    await w.host.report({ sessionId: child, busy: true })
+    await w.host.reply({ sessionId: child, body: `Rebasing #12.` })
+    await w.host.report({ sessionId: child, status: `idle`, busy: false })
+    await db.update(messages).set({ consumedAt: new Date() }).where(inSession(child))
+    const pullRequestId = crypto.randomUUID()
+    const held = await db.transaction((tx) =>
+      insertMessage(tx, child, {
+        authorKind: `user`,
+        authorId: w.owner,
+        body: `A person put #12 on hold. It does not merge until they resume it.`,
+        card: { kind: `event`, event: `pr_merge`, pullRequestId, mergeOutcome: `held` },
+      })
+    )
+    await db
+      .update(sessions)
+      .set({ blocked: { kind: `unclaimed`, agent: null, window: null, resetsAt: null, since: NOW.toISOString() }, needsInput: true })
+      .where(eq(sessions.id, child))
+    return { w, rootId, child, held, pullRequestId }
+  }
+
+  it(`a hold notice the device never took: the flag stays while it waits; the PR's newer line supersedes it and the flag goes (Danny's child 83c00937)`, async () => {
+    const { child, pullRequestId } = await heldChild()
+    await runWatchdog(NOW)
+    expect(await row(child)).toMatchObject({ needsInput: true, blocked: { kind: `unclaimed` } })
+
+    // The PR merged: its line supersedes the held one in the same transaction.
+    await db.transaction((tx) => supersedePrMerge(tx, child, pullRequestId))
+    expect(await row(child)).toMatchObject({ needsInput: false, blocked: null })
+  }, COLD_CASE_MS)
+
+  it(`a stale flag whose input went away by any path is cleared by the next tick (the repair); an open card keeps Needs you`, async () => {
+    const { w, child, held } = await heldChild()
+    await db.update(messages).set({ consumedAt: new Date() }).where(eq(messages.id, held))
+    await postAskCard({
+      userId: w.owner,
+      sessionId: child,
+      card: buildQuestionCard({ question: `Which base?`, options: [{ label: `main` }, { label: `dev` }] }),
+    })
+    const run = await runWatchdog(NOW)
+    expect(run.drained).toBeGreaterThanOrEqual(1)
+    expect(await row(child)).toMatchObject({ blocked: null, needsInput: true })
+  }, COLD_CASE_MS)
+
+  it(`an unanswered first Request keeps its flag (the device never ran a turn)`, async () => {
+    const w = await world()
+    const rootId = await w.root()
+    const child = await w.child(rootId, `never ran`)
+    await w.host.claim({ sessionId: child, deviceId: w.deviceId })
+    await db.update(messages).set({ consumedAt: new Date() }).where(inSession(child))
+    await db
+      .update(sessions)
+      .set({ blocked: { kind: `unclaimed`, agent: null, window: null, resetsAt: null, since: NOW.toISOString() }, needsInput: true })
+      .where(eq(sessions.id, child))
+    expect(await db.transaction((tx) => clearDrainedInTx(tx, [child]))).toBe(0)
+    expect(await row(child)).toMatchObject({ needsInput: true, blocked: { kind: `unclaimed` } })
+  }, COLD_CASE_MS)
+
+  it(`the claim clears unclaimed but an open card keeps Needs you`, async () => {
+    const w = await world()
+    const rootId = await w.root()
+    const child = await w.child(rootId, `queued`)
+    await postAskCard({
+      userId: w.owner,
+      sessionId: child,
+      card: buildQuestionCard({ question: `Which base?`, options: [{ label: `main` }, { label: `dev` }] }),
+    })
+    await db
+      .update(sessions)
+      .set({ blocked: { kind: `unclaimed`, agent: null, window: null, resetsAt: null, since: NOW.toISOString() }, needsInput: true })
+      .where(eq(sessions.id, child))
+    await w.host.claim({ sessionId: child, deviceId: w.deviceId })
+    expect(await row(child)).toMatchObject({ blocked: null, needsInput: true })
+  }, COLD_CASE_MS)
+
+  it(`#FEED-256 / #FEED-254: a blank reply (a lone U+200B) is no message: nothing stored, nothing relayed to the parent`, async () => {
+    const w = await world()
+    const rootId = await w.root()
+    const child = await w.child(rootId, `work`)
+    await w.host.claim({ sessionId: child, deviceId: w.deviceId })
+    const before = (await db.select().from(messages).where(inSession(rootId))).length
+    const blank = await w.host.reply({ sessionId: child, body: `\u200b` })
+    expect(blank.messageId).toBe(``)
+    const nbsp = await w.host.reply({ sessionId: child, body: `\n\u00a0\ufeff\n` })
+    expect(nbsp.messageId).toBe(``)
+    const own = (await db.select().from(messages).where(inSession(child))).filter((m) => m.authorKind === `agent` && !m.card)
+    expect(own).toHaveLength(0)
+    expect((await db.select().from(messages).where(inSession(rootId))).length).toBe(before)
+  }, COLD_CASE_MS)
 })

@@ -977,6 +977,18 @@ function tick(ctx: Ctx): StepResult {
     Object.assign(row, { blocked: flag(`unclaimed`, now), needsInput: true, updatedAt: now })
     busLine(ctx, row, `session_unclaimed`, undeliveredText(), { waking: true })
   }
+  // #FEED-257 Drained: a claimed session's `unclaimed` flag whose input is gone without a consume by its device
+  // (a newer pr_merge line superseded it, a person removed it): nothing left to deliver and its first Request
+  // answered (or none) = cleared, silent; needsInput re-derived from its open cards.
+  for (const row of watched) {
+    if (!isWorking(row) || row.blocked?.kind !== `unclaimed` || row.startedAt === null) continue
+    const mine = ctx.state.messages.filter((m) => m.sessionId === row.id)
+    const pending = mine.some((m) => m.pending && isPendingInput(m))
+    const unstarted =
+      mine.some((m) => m.card === null && isPendingInput(m)) &&
+      !mine.some((m) => m.authorKind === `agent` && (m.authorSessionId === null || m.authorSessionId === row.id))
+    if (!pending && !unstarted) clearBlocked(ctx, row, `unclaimed`)
+  }
   // Stuck: busy with no sign of life, unless its online host lists it live.
   for (const row of watched) {
     const alive = liveness(row)
