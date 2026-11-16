@@ -421,6 +421,16 @@ fun main(args: Array<String>) {
     val styled = asks.nodes().associate { it.id to it.hoverStyled }
     check(styled["hov"] == true && styled["pill"] == true) { "hoverStyled: a :hover block and a hover recipe ($styled)" }
     check(styled["cap"] == false && styled["root"] == false) { "hoverStyled: plain nodes ($styled)" }
+    // #EXP-1781 (fixtures/forced-states.json): a forced hover restyles like a real one, paint only.
+    val rest = asks.visual(pill)!!.backgroundColor
+    check(asks.setForcedStates(mapOf("pill" to listOf("hover", "checked"))) == listOf("pill:checked")) { "forced: the refused entry" }
+    asks.layout(rec)
+    check(asks.visual(pill)!!.backgroundColor == eff.color("accent", "light")) { "forced: hover resolves the recipe" }
+    check(asks.nodesAt(listOf(pill))[0].interactionStates.isEmpty()) { "forced: never the host's states" }
+    check(asks.forcedStatesOf("pill.item.0") == listOf("hover")) { "forced: a key covers its parts" }
+    check(asks.setForcedStates(mapOf()).isEmpty()) { "forced: cleared" }
+    asks.layout(rec)
+    check(asks.visual(pill)!!.backgroundColor == rest) { "forced: the unforced look" }
     println("asks: $checks checks so far")
 
     println("kotlin binding suite: $checks checks, $failures failures")

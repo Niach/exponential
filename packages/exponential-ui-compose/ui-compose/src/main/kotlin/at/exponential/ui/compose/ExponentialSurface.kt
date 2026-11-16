@@ -62,9 +62,16 @@ val LocalSurfaceModel = staticCompositionLocalOf<SurfaceModel> {
  * generic primitives read the theme's tokens ([LocalPrimitiveTokens]). The
  * width the surface gets is reported to the model after layout
  * (`setViewport`), never during composition.
+ *
+ * [forcedStates] (#EXP-1781, `fixtures/forced-states.json`): node or part id
+ * → `hover` / `pressed` / `focus` the surface PAINTS as if they held (a
+ * specimen's state row, a design review). Paint only: no event, overlay,
+ * focus move or semantics change; refused entries are dropped
+ * ([SurfaceModel.setForcedStates] returns them).
  */
 @Composable
-fun ExponentialSurface(model: SurfaceModel, modifier: Modifier = Modifier) {
+fun ExponentialSurface(model: SurfaceModel, modifier: Modifier = Modifier, forcedStates: Map<String, List<String>> = emptyMap()) {
+    SideEffect { model.setForcedStates(forcedStates) }
     val outer = LocalDensity.current
     val density = remember(outer.density) { Density(outer.density, fontScale = 1f) }
     CompositionLocalProvider(

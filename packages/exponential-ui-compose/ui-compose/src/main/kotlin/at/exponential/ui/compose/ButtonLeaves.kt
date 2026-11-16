@@ -132,6 +132,8 @@ internal fun SegmentedLeaf(cx: LeafContext) {
         val states = buildList {
             if (selected) add("selected")
             if (disabled) add("disabled")
+            // #EXP-1781: the host's forced states of this item (paint only; gpui `paint_segmented`).
+            addAll(model.forcedStatesOf("${cx.node.id}.item.$k"))
         }
         val st = cx.part("Segmented", "item", states)
         val ink = st.color ?: cx.ink
