@@ -3,7 +3,12 @@ import { describe, expect, it, vi } from "vitest"
 vi.mock(`@/db/connection`, () => ({ db: {} }))
 
 import { contract } from "@exp/domain-contract"
-import { SESSION_TREE_MAX_DEPTH, SESSION_TREE_MAX_SESSIONS, sessionsSendInputSchema } from "@exp/db-schema/domain"
+import {
+  SESSION_TREE_MAX_DEPTH,
+  SESSION_TREE_MAX_SESSIONS,
+  SESSIONS_SEND_MAX_WAKE_ON,
+  sessionsSendInputSchema,
+} from "@exp/db-schema/domain"
 import * as spec from "@exp/eagent/copy"
 import reuse from "@exp/eagent/fixtures/reuse.json"
 import watchdog from "@exp/eagent/fixtures/watchdog.json"
@@ -13,6 +18,7 @@ import { agentReuseRefusal } from "./agent-reuse"
 import { askHiddenText, askText, BUS_COPY, privateText, REPORT_FALLBACK, REPORT_REASONS } from "./bus"
 import { BACKGROUND_STUCK_MINUTES, silentMinutes } from "./watchdog"
 import { PLAIN_IN_SEALED_TREE_MESSAGE, START_NEEDS_WORK } from "./send"
+import { SESSION_WATCH_MAX, WATCH_COPY } from "./watches"
 import {
   SUBAGENT_FAILED_BARE,
   SUBAGENT_NO_CHILDREN,
@@ -90,6 +96,13 @@ describe(`eagent spec: the server's copy`, () => {
     // The schema refuses an empty start before send.ts sees it: the same words.
     const parsed = sessionsSendInputSchema.safeParse({ teamId: `00000000-0000-4000-8000-000000000000` })
     expect(parsed.success ? null : parsed.error.issues.map((issue) => issue.message)).toContain(START_NEEDS_WORK)
+  })
+  it(`watches (#NEW-49)`, () => {
+    expect(rules.watch.maxPerSession).toBe(SESSION_WATCH_MAX)
+    expect(SESSION_WATCH_MAX).toBe(SESSIONS_SEND_MAX_WAKE_ON)
+    expect(rules.copy.watchInvalid).toBe(WATCH_COPY.invalid)
+    expect(spec.fill(rules.copy.tooManyWatches, { max: 20 })).toBe(WATCH_COPY.tooMany(20))
+    expect(spec.fill(rules.copy.watchAt, { label: `14:30 UTC` })).toBe(WATCH_COPY.at(`14:30 UTC`))
   })
   it(`plaintext into a sealed tree (#FEED-185)`, () => {
     expect(rules.copy.plainInSealedTree).toBe(PLAIN_IN_SEALED_TREE_MESSAGE)

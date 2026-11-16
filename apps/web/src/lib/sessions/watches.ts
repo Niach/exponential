@@ -49,6 +49,9 @@ export const WATCH_COPY = {
 
 const LABEL_MAX = 32
 
+/** Rows of one insert keep the order they were named in (`now()` is one instant per transaction). */
+const ORDERED_NOW = sql<Date>`clock_timestamp()`
+
 /** The label of a private session watched from a session others read (#EXP-1408). */
 export const PRIVATE_WATCH_LABEL = `a private chat`
 
@@ -172,6 +175,7 @@ export async function watchSessions(tx: Tx, watcherId: string, ids: readonly str
         kind: `session` as const,
         subjectId: id,
         label: hidden.has(id) ? PRIVATE_WATCH_LABEL : (labels.get(id) ?? `a session`),
+        createdAt: ORDERED_NOW,
       }))
     )
     .onConflictDoNothing()
@@ -207,7 +211,7 @@ export async function handOverWatches(tx: Tx, ended: string, next: string): Prom
   if (own.length > 0) {
     await tx
       .insert(sessionWatches)
-      .values(own.map(({ id: _id, sessionId: _s, createdAt: _c, ...rest }) => ({ ...rest, sessionId: next })))
+      .values(own.map(({ id: _id, sessionId: _s, createdAt: _c, ...rest }) => ({ ...rest, sessionId: next, createdAt: ORDERED_NOW })))
       .onConflictDoNothing()
   }
   const watchers = await tx
@@ -355,7 +359,7 @@ export async function watch(tx: Tx, watcher: Session, entries: readonly string[]
   if (watches.length > 0) {
     await tx
       .insert(sessionWatches)
-      .values(watches.map((entry) => ({ ...entry, sessionId: watcher.id })))
+      .values(watches.map((entry) => ({ ...entry, sessionId: watcher.id, createdAt: ORDERED_NOW })))
       .onConflictDoNothing()
   }
   await watchSessions(tx, watcher.id, sessionIds)
