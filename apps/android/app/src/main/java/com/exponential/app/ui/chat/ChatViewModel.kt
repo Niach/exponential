@@ -469,6 +469,8 @@ class ChatViewModel @Inject constructor(
             messages = messageRows,
             pullRequests = prs.mapNotNull(SessionTree::pullRequest),
             now = SessionTree.nowIso(System.currentTimeMillis()),
+            // #NEW-49: an idle session card reads what it waits on.
+            waitingCards = true,
         )
         val previous = lastRows
         val rows = built.rows.map { row -> previous[row.id]?.takeIf { it == row } ?: row }

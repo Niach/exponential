@@ -24,7 +24,7 @@ use gpui_component::{v_flex, ActiveTheme as _, Icon, Sizable as _};
 
 use domain::chats::{chat_selection_range, chat_sections, ChatListView, ChatRow, CHATS};
 use domain::rows::{PullRequestRow, SessionRow};
-use domain::session_tree::{chat_in_stack, chat_row_word_on, StackPr, ChatRowWord};
+use domain::session_tree::{chat_in_stack, chat_row_word_on, chat_row_word_waiting, StackPr, ChatRowWord};
 
 use crate::scroll_pane::page_scaffold_with;
 use crate::icons::registry;
@@ -72,9 +72,22 @@ impl ChatWords {
 
     /// [`chat_word`] of `root_id`.
     pub(crate) fn word(&self, root_id: &str, busy: bool, needs_you: bool, offline: bool) -> Option<ChatRowWord> {
+        self.word_waiting(root_id, busy, needs_you, offline, false)
+    }
+
+    /// [`Self::word`] with #NEW-49's `waiting` (the row's
+    /// `ChatsListRow::waiting` is set): the LAST word.
+    pub(crate) fn word_waiting(
+        &self,
+        root_id: &str,
+        busy: bool,
+        needs_you: bool,
+        offline: bool,
+        waiting: bool,
+    ) -> Option<ChatRowWord> {
         let own = self.own.get(root_id).map(Vec::as_slice).unwrap_or_default();
         let in_stack = own.iter().any(|pull| pull.state == "open" && self.stacked.contains(&pull.id));
-        chat_row_word_on(own.iter().map(|pull| pull.state.as_str()), busy, needs_you, in_stack, offline)
+        chat_row_word_waiting(own.iter().map(|pull| pull.state.as_str()), busy, needs_you, in_stack, offline, waiting)
     }
 }
 

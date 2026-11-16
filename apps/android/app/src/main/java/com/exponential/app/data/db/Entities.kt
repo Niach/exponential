@@ -785,6 +785,11 @@ data class SessionEntity(
     // slots with the root's keys.
     @ColumnInfo(name = "digest") @SerialName("digest")
     @Serializable(with = JsonAsStringSerializer::class) val digest: String? = null,
+    // #NEW-49 ([MIGRATION_129_130]): what the session waits on, raw jsonb
+    // TEXT of `[{id, kind, subjectId, label, at?}]`; NULL = nothing. Read
+    // through [com.exponential.app.domain.SessionTree.parseWatching].
+    @ColumnInfo(name = "watching") @SerialName("watching")
+    @Serializable(with = JsonAsStringSerializer::class) val watching: String? = null,
 ) {
     /** #EXP-1715: [scopeTeamIds] as ids; null (or empty) = every team. */
     val scopeTeamIdList: List<String>? get() = scopeTeamIds?.let(PgUuidArraySerializer::parseText)?.takeIf { it.isNotEmpty() }

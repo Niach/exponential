@@ -776,6 +776,21 @@ pub struct IssueSubscriber {
 ///
 /// Only `id` is required; the bools the UI branches on read `false` when
 /// absent or unparsable, jsonb arrives tolerant (a TEXT cell re-parses).
+/// #NEW-49: one entry of `sessions.watching` (eagent wakeups.json WATCH
+/// EVENTS; TS `SessionWatching`). `kind` = session | pr_checks | pr_closed |
+/// issue_status | at, kept verbatim (an unknown kind still names itself).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionWatch {
+    pub id: String,
+    pub kind: String,
+    #[serde(default)]
+    pub subject_id: Option<String>,
+    pub label: String,
+    #[serde(default)]
+    pub at: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct SessionRow {
     pub id: String,
@@ -886,6 +901,12 @@ pub struct SessionRow {
     /// empty or unparsable alike).
     #[serde(default, deserialize_with = "tolerant_opt_id_list")]
     pub scope_team_ids: Option<Vec<String>>,
+    /// #NEW-49: what it waits on (`sessions.watching`, the server's
+    /// projection of `session_watches`): null, absent or garbage = nothing;
+    /// unparsable entries drop, unknown kinds stay. Read through
+    /// [`crate::session_tree::session_waiting`].
+    #[serde(default, deserialize_with = "crate::hydrate::tolerant_watching")]
+    pub watching: Vec<SessionWatch>,
     /// #VAPP-229: the app whose tool started it (NOT [`Self::app_id`], an
     /// editor session's app) — the session view reads `via <app>`.
     #[serde(default)]

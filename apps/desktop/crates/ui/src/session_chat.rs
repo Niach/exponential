@@ -496,6 +496,13 @@ fn session_card_row(
     use domain::chat_row_action::RowAction;
     let action = session_row_action("session", Some(&card.session_id), root_id, rows, cx);
     let mut shown = card.clone();
+    // #NEW-49: an idle session that waits reads `Waiting on …` (its live
+    // children, then its watches); the row action's word still wins.
+    if shown.state == domain::session_tree::SessionState::Idle {
+        if let Some(waiting) = crate::session_data::session_waiting_of(&card.session_id, cx) {
+            shown.kind_word = domain::session_tree::SESSION_CARD.copy.waiting.replacen("{labels}", &waiting, 1);
+        }
+    }
     if let Some(word) = &action.kind_word {
         shown.kind_word = word.clone();
     }
@@ -2791,10 +2798,11 @@ pub(crate) fn session_pane(view: &Entity<crate::session_screen::SessionScreenVie
 }
 
 /// session-screen.json STATUS WORD (`session_screen_status`): THE tree's
-/// lowercase word (needs input > working > queued > done > idle), never
-/// dropped; `tree` may or may not carry the root.
-pub(crate) fn tree_status_word(root: Option<&SessionRow>, tree: &[SessionRow]) -> String {
-    use domain::session_screen::{session_screen_status, SessionScreenStatusInput};
+/// lowercase word (needs input > working > queued > done > #NEW-49 waiting
+/// on … (the root's live children by title, then its watches) > idle),
+/// never dropped; `tree` may or may not carry the root.
+pub(crate) fn tree_status_word(root: Option<&SessionRow>, tree: &[SessionRow], cx: &App) -> String {
+    use domain::session_screen::{session_screen_status_waiting, SessionScreenStatusInput};
     let input = |row: &SessionRow, is_root: bool| SessionScreenStatusInput {
         status: row.status.clone().unwrap_or_default(),
         busy: row.busy,
@@ -2807,7 +2815,12 @@ pub(crate) fn tree_status_word(root: Option<&SessionRow>, tree: &[SessionRow]) -
         rows.push(input(root, true));
     }
     rows.extend(tree.iter().map(|row| input(row, Some(row.id.as_str()) == root_id)));
-    session_screen_status(&rows)
+    let waiting = root.and_then(|root| {
+        domain::session_tree::session_waiting_in(root, tree.iter(), |child| {
+            crate::session_data::session_title_of(&child.id, cx).unwrap_or_default()
+        })
+    });
+    session_screen_status_waiting(&rows, waiting.as_deref())
 }
 
 /// session-screen.json TONE ×4: the subtitle's colour (attention = the
@@ -2829,7 +2842,7 @@ pub(crate) fn screen_subtitle(
     agent: Option<&domain::rows::AgentDefRow>,
     cx: &App,
 ) -> String {
-    let status = tree_status_word(root, tree);
+    let status = tree_status_word(root, tree, cx);
     let device_id = root
         .and_then(|root| root.device_id.clone())
         .or_else(|| agent.and_then(|agent| agent.device_id.clone()));
@@ -3895,7 +3908,7 @@ impl SessionChatScreenView {
         drop(lead_span);
         let subtitle_span = tracing::trace_span!("header.subtitle").entered();
         let subtitle = screen_subtitle(Some(&model.root), &model.tree, agent.as_ref(), cx);
-        let tone = domain::session_screen::session_screen_tone(&tree_status_word(Some(&model.root), &model.tree), false);
+        let tone = domain::session_screen::session_screen_tone(&tree_status_word(Some(&model.root), &model.tree, cx), false);
         drop(subtitle_span);
         let _span = tracing::trace_span!("header.build").entered();
         let subtitle_color = Some(tone_color(tone, cx));

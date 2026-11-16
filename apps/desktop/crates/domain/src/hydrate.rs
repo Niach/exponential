@@ -182,6 +182,24 @@ where
     Ok((!ids.is_empty()).then_some(ids))
 }
 
+/// #NEW-49: `sessions.watching` (jsonb `[{id, kind, subjectId, label, at?}]`,
+/// a SQLite TEXT cell re-parses): null, absent or garbage = empty; an entry
+/// that is no watch drops alone, unknown kinds stay.
+pub fn tolerant_watching<'de, D>(deserializer: D) -> Result<Vec<crate::rows::SessionWatch>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = tolerant_opt_json(deserializer)?;
+    Ok(match value {
+        Some(Value::Array(items)) => items
+            .into_iter()
+            .filter_map(|item| serde_json::from_value::<crate::rows::SessionWatch>(item).ok())
+            .filter(|watch| !watch.id.is_empty())
+            .collect(),
+        _ => Vec::new(),
+    })
+}
+
 fn value_to_id_list(value: &Value) -> Vec<String> {
     let clean = |raw: &str| {
         let id = raw.trim().trim_matches('"').trim();
@@ -213,6 +231,32 @@ fn value_to_id_list(value: &Value) -> Vec<String> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn tolerant_watching_reads_every_wire_form() {
+        let parse = |watching: Value| {
+            let row: crate::rows::SessionRow =
+                serde_json::from_value(json!({"id": "s1", "watching": watching})).expect("the row survives");
+            row.watching.iter().map(|watch| (watch.id.clone(), watch.kind.clone(), watch.label.clone())).collect::<Vec<_>>()
+        };
+        let one = json!([
+            {"id": "w1", "kind": "pr_checks", "subjectId": "p1", "label": "CI #1130"},
+            {"id": "w2", "kind": "someday", "subjectId": null, "label": "Later", "at": null},
+            {"kind": "at", "label": "no id"},
+            42
+        ]);
+        let expected = vec![
+            ("w1".to_string(), "pr_checks".to_string(), "CI #1130".to_string()),
+            ("w2".to_string(), "someday".to_string(), "Later".to_string()),
+        ];
+        assert_eq!(parse(one.clone()), expected, "an array; unknown kinds stay, garbage entries drop");
+        assert_eq!(parse(Value::String(one.to_string())), expected, "a SQLite TEXT cell re-parses");
+        for empty in [Value::Null, json!("garbage"), json!({"id": "w1"}), json!(7), json!([])] {
+            assert!(parse(empty.clone()).is_empty(), "{empty}");
+        }
+        let absent: crate::rows::SessionRow = serde_json::from_value(json!({"id": "s1"})).unwrap();
+        assert!(absent.watching.is_empty());
+    }
 
     #[test]
     fn tolerant_bool_accepts_all_wire_forms() {

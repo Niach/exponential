@@ -49,8 +49,21 @@ class ChatRowWordTest {
                 inStack = input.bool("inStack"),
                 // #EXP-1703: `treeOffline` (absent = false).
                 offline = input.bool("offline"),
+                // #NEW-49: the root's sessionWaiting (absent = null).
+                waiting = input.str("waiting"),
             )
             assertEquals(case.str("name"), case.str("expected"), actual?.wire)
+        }
+    }
+
+    /** #NEW-49 (TS `chatRowWordText`): `wordTextCases`. */
+    @Test
+    fun `every word text case matches the fixture`() {
+        val cases = cases("wordTextCases")
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val word = case.str("word")?.let { key -> SessionTree.ChatRowWord.entries.first { it.wire == key } }
+            assertEquals(case.str("name"), case.str("expected"), SessionTree.chatRowWordText(word, case.str("waiting")))
         }
     }
 

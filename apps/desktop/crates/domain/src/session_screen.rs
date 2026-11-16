@@ -177,6 +177,8 @@ pub struct SessionScreenCopy {
     pub link_issue: String,
     pub status: SessionScreenStatusCopy,
     pub menu: SessionScreenMenuCopy,
+    /// #NEW-49: an idle tree whose root waits (`waiting on {labels}`).
+    pub waiting: String,
 }
 
 /// `copy.menu`: THE `…`'s labels (settings and delete by kind).
@@ -503,6 +505,13 @@ pub struct SessionScreenStatusInput {
 /// THE tree's status word (`sessionScreenStatus`, `statusCases`): needs
 /// input > working > queued (the root) > done (the root ended) > idle.
 pub fn session_screen_status(sessions: &[SessionScreenStatusInput]) -> String {
+    session_screen_status_waiting(sessions, None)
+}
+
+/// [`session_screen_status`] with #NEW-49's `waiting` (the root's
+/// `session_tree::session_waiting`, `waitingStatusCases`): an idle tree
+/// reads `waiting on …`.
+pub fn session_screen_status_waiting(sessions: &[SessionScreenStatusInput], waiting: Option<&str>) -> String {
     let words = &SESSION_SCREEN.copy.status;
     let live: Vec<&SessionScreenStatusInput> = sessions.iter().filter(|session| session.status != "ended").collect();
     let root = sessions.iter().find(|session| session.root);
@@ -515,7 +524,10 @@ pub fn session_screen_status(sessions: &[SessionScreenStatusInput]) -> String {
     match root.map(|root| root.status.as_str()) {
         Some("queued") => words.queued.clone(),
         Some("ended") => words.done.clone(),
-        _ => words.idle.clone(),
+        _ => match waiting.filter(|waiting| !waiting.is_empty()) {
+            Some(waiting) => SESSION_SCREEN.copy.waiting.replacen("{labels}", waiting, 1),
+            None => words.idle.clone(),
+        },
     }
 }
 
@@ -637,6 +649,22 @@ mod tests {
         for case in cases {
             let input: Vec<SessionScreenStatusInput> = serde_json::from_value(case["input"].clone()).unwrap();
             assert_eq!(session_screen_status(&input), case["expected"].as_str().unwrap(), "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn waiting_status_cases_match_the_fixture() {
+        let cases = fixture()["waitingStatusCases"].as_array().unwrap().clone();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let input: Vec<SessionScreenStatusInput> = serde_json::from_value(case["input"]["sessions"].clone()).unwrap();
+            let waiting = case["input"]["waiting"].as_str();
+            assert_eq!(
+                session_screen_status_waiting(&input, waiting),
+                case["expected"].as_str().unwrap(),
+                "{}",
+                case["name"]
+            );
         }
     }
 

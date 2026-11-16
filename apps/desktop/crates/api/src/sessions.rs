@@ -395,6 +395,21 @@ pub fn unqueue(trpc: &TrpcClient, message_id: &str) -> Result<TxOutput, ApiError
     trpc.mutation("sessions.unqueue", &MessageIdInput { message_id })
 }
 
+/// #NEW-49 `sessions.unwatch` input.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UnwatchInput<'a> {
+    session_id: &'a str,
+    ids: &'a [String],
+}
+
+/// #NEW-49: cancel watches of a session (`sessions.watching` ids; the Dock's
+/// watches sheet, dock.json `copy.cancelWatch`). Anyone who may steer the
+/// session may; the synced row drops them.
+pub fn unwatch(trpc: &TrpcClient, session_id: &str, ids: &[String]) -> Result<TxOutput, ApiError> {
+    trpc.mutation("sessions.unwatch", &UnwatchInput { session_id, ids })
+}
+
 /// #FEED-237 `sessions.delivered` input.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -633,6 +648,16 @@ mod tests {
         let request = request(&captured);
         assert!(request.starts_with("POST /api/trpc/sessions.send HTTP/1.1"), "{request}");
         assert!(request.ends_with(r#"{"sessionId":"s-1","text":"Ship it"}"#), "{request}");
+    }
+
+    /// #NEW-49: the watches sheet's cancel posts `{sessionId, ids}`.
+    #[test]
+    fn unwatch_posts_the_session_and_its_watch_ids() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txid":7}}}"#);
+        unwatch(&client(&base), "s-1", &["w-1".to_string()]).unwrap();
+        let request = request(&captured);
+        assert!(request.starts_with("POST /api/trpc/sessions.unwatch HTTP/1.1"), "{request}");
+        assert!(request.ends_with(r#"{"sessionId":"s-1","ids":["w-1"]}"#), "{request}");
     }
 
     /// NEW-57: a meeting turn carries `meeting: true`; nothing else does.

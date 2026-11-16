@@ -8898,8 +8898,65 @@ impl SteerSessionView {
         // #FEED-237 (dock.json): no `queued` source any more: a sent message
         // is the viewer's own bubble at the transcript's bottom.
         out.push(tasks);
+        // #NEW-49 (dock.json `watches`): what this session waits on, each
+        // cancellable from the sheet; none = no card.
+        if let Some(row) = self.row.as_ref().filter(|row| !row.is_ended()) {
+            out.push(domain::dock::watch_source(&row.watching));
+        }
         out.extend(self.dock_banners(cx));
         out
+    }
+
+    /// #NEW-49: the watches card's sheet: one row per `sessions.watching`
+    /// entry (the queued strip's recipe), each trailing THE close glyph
+    /// (`copy.cancelWatch`) that calls `sessions.unwatch` while the viewer
+    /// may steer.
+    fn render_watches_sheet(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        let watching = self.row.as_ref().map(|row| row.watching.clone()).unwrap_or_default();
+        if watching.is_empty() {
+            return None;
+        }
+        let muted = cx.theme().muted_foreground;
+        let dock = &domain::dock::DOCK;
+        let cancel_label = SharedString::from(dock.copy.cancel_watch.clone());
+        let clock = registry::concept_by_name(&dock.icons.watches).unwrap_or(registry::UI_CLOCK);
+        let close = registry::concept_by_name(&dock.icons.close).unwrap_or(registry::UI_CLOSE);
+        let mut column = v_flex().id("steer-watches").w_full().min_w_0().gap_0p5();
+        for watch in watching {
+            let mut row = tool_text(h_flex())
+                .w_full()
+                .min_w_0()
+                .gap_1p5()
+                .items_center()
+                .text_color(muted)
+                .child(Icon::new(clock.clone()).xsmall().text_color(muted.opacity(0.7)))
+                .child(div().flex_1().min_w_0().truncate().child(SharedString::from(watch.label.clone())));
+            if self.may_message {
+                let session_id = self.session_id.clone();
+                let watch_id = watch.id.clone();
+                let tooltip = cancel_label.clone();
+                row = row.child(
+                    div()
+                        .id(SharedString::from(format!("steer-unwatch-{}", watch.id)))
+                        .flex_shrink_0()
+                        .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(tooltip.clone()).build(window, cx))
+                        .child(
+                            crate::controls::ghost_icon_button(
+                                SharedString::from(format!("steer-unwatch-{}-x", watch.id)),
+                                Icon::new(close.clone()).xsmall(),
+                                cx,
+                            )
+                            .accessibility_label(cancel_label.clone())
+                            .on_click(move |_: &ClickEvent, _, cx| {
+                                cx.stop_propagation();
+                                unwatch(&session_id, &watch_id, cx);
+                            }),
+                        ),
+                );
+            }
+            column = column.child(row);
+        }
+        Some(column.into_any_element())
     }
 
     /// N-12: the sheet of one of [`Self::session_dock_sources`]' cards: THE
@@ -8926,6 +8983,7 @@ impl SteerSessionView {
         let body = match row.kind {
             domain::dock::DockKind::Tasks => self.render_task_queue(window, cx)?,
             domain::dock::DockKind::Queued => self.render_queue_strip(cx)?,
+            domain::dock::DockKind::Watches => self.render_watches_sheet(cx)?,
             _ => return None,
         };
         Some(crate::dock::SheetContent {
@@ -9642,6 +9700,29 @@ pub(crate) fn drop_silent_rows(rows: &mut Vec<FeedRowSpec>, items: &[steer::feed
 /// rows, the compaction divider, "Working…". 12/18. The 11px `text_2xs`
 /// captions that hang UNDER one of these (a tool's argument, a subagent's
 /// status) stay where EXP-698 put them.
+/// #NEW-49: the watches sheet's cancel: `sessions.unwatch {sessionId,
+/// ids: [watch]}`; the synced row drops it, a refusal = the failed toast.
+fn unwatch(session_id: &str, watch_id: &str, cx: &mut App) {
+    // `Couldn't stop waiting` (dock.json `copy.cancelWatch`).
+    let (verb, what) = ("stop", "waiting");
+    let Some(trpc) = crate::queries::trpc_client(cx) else {
+        crate::action_error::failed_action(verb, what, None, cx);
+        return;
+    };
+    let session_id = session_id.to_string();
+    let ids = vec![watch_id.to_string()];
+    cx.spawn(async move |cx| {
+        let result = cx
+            .background_executor()
+            .spawn(async move { api::sessions::unwatch(&trpc, &session_id, &ids) })
+            .await;
+        if let Err(err) = result {
+            let _ = cx.update(|cx| crate::action_error::failed_action_err(verb, what, &err, cx));
+        }
+    })
+    .detach();
+}
+
 fn tool_text<E: Styled>(element: E) -> E {
     element
         .text_size(px(transcript::TOOL_SIZE))

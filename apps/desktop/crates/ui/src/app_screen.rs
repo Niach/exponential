@@ -1068,7 +1068,7 @@ impl AppScreenView {
         // device is online).
         let root = self.editor_root(cx);
         let tree = root.as_ref().map(|root| crate::session_data::tree_of_root(&root.id, cx)).unwrap_or_default();
-        let word = crate::session_chat::tree_status_word(root.as_ref(), &tree);
+        let word = crate::session_chat::tree_status_word(root.as_ref(), &tree, cx);
         let (subtitle, subtitle_color) = match self.editor_header.clone() {
             Some((_, device)) => {
                 let offline = device == domain::apps::APPS.editor_header.copy.no_device_online;

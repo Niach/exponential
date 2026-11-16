@@ -415,9 +415,24 @@ private fun SessionCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
             messages,
         )
     }
+    // #NEW-49: its tree too: an idle card reads what it waits on (its live
+    // children by the names their cards show, its watches).
+    val tree by observeScoped(rootId, emptyList()) { it.sessionDao().observeTreeNoDigest(rootId) }
+    val waiting = remember(row, tree, links, messages, issues) {
+        val ids = linkedIds.toSet()
+        val treeSessions = tree.map(SessionTree::session)
+        SessionTree.sessionWaitingIn(SessionTree.session(row), treeSessions) { child ->
+            SessionTree.sessionTitle(
+                child,
+                links.map(SessionTree::sessionIssue),
+                issues.filter { it.id in ids }.map { SessionTree.issue(it) },
+                messages,
+            )
+        }
+    }
     val nowMs = System.currentTimeMillis()
-    val card = remember(row, title, nowMs / 60_000) {
-        SessionTree.sessionCard(SessionTree.session(row), title, SessionTree.nowIso(nowMs))
+    val card = remember(row, title, waiting, nowMs / 60_000) {
+        SessionTree.sessionCard(SessionTree.session(row), title, SessionTree.nowIso(nowMs), waiting)
     }
     EntityPreviewCard(
         icon = { AgentRunMark(agent = row.cli, state = card.state, size = 16.dp, badgeSize = 6.dp) },

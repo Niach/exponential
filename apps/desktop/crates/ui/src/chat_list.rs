@@ -30,7 +30,11 @@ const GLYPH_PX: f32 = 24.;
 fn word_glyph(word: ChatRowWord) -> Option<crate::icons::ExpIcon> {
     match word {
         ChatRowWord::Stack => Some(registry::PR_STACK),
-        ChatRowWord::ReadyToMerge | ChatRowWord::Merged | ChatRowWord::Offline | ChatRowWord::Question => None,
+        ChatRowWord::ReadyToMerge
+        | ChatRowWord::Merged
+        | ChatRowWord::Offline
+        | ChatRowWord::Question
+        | ChatRowWord::Waiting => None,
     }
 }
 
@@ -123,9 +127,11 @@ pub(crate) fn chat_row(row: &ChatRow, lead: AnyElement, cx: &App) -> Div {
     } else {
         theme.muted_foreground
     };
-    let word = row
-        .word
-        .and_then(|word| word.text().map(|text| (word_glyph(word), text)));
+    // #NEW-49: `waiting on …` names the root's labels (`chat_row_word_text`).
+    let word = row.word.and_then(|word| {
+        domain::session_tree::chat_row_word_text(Some(word), row.waiting.as_deref()).map(|text| (word_glyph(word), text))
+    });
+    let shrinks = row.word == Some(ChatRowWord::Waiting);
     // #FEED-232: THE count badge (`row_badge`), attention while it needs you.
     let badge = crate::sidebar::nav_count(domain::nav_badges::row_badge(row.unread_count, row.needs_you), cx);
     let (prefix, rest) = preview_parts(row);
@@ -153,12 +159,14 @@ pub(crate) fn chat_row(row: &ChatRow, lead: AnyElement, cx: &App) -> Div {
         .children(word.map(|(glyph, text)| {
             h_flex()
                 .flex_shrink_0()
+                // #NEW-49: a long `waiting on …` truncates with the row.
+                .when(shrinks, |this| this.flex_shrink(1.).min_w_0())
                 .gap_1()
                 .items_center()
                 .text_xs()
                 .text_color(theme.muted_foreground)
                 .children(glyph.map(|glyph| Icon::new(glyph).with_size(px(14.)).text_color(theme.muted_foreground)))
-                .child(text)
+                .child(div().min_w_0().truncate().child(text))
         }))
         .children(badge);
     // S-3: a DONE chat stays in the list, the whole row dimmed.
@@ -509,6 +517,7 @@ fn pinned_chat_row(
         needs_you,
         busy,
         word: None,
+        waiting: None,
         dim: false,
     };
     chat_row(&as_chat, lead, cx)
