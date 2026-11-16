@@ -2019,8 +2019,8 @@
         "file": "shots/device-readiness/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 42224,
-        "sha256": "136f22d84ad1704dbc7671875ff930600684691699478a8667fb9376120fe9c0"
+        "bytes": 45654,
+        "sha256": "e43b8571cb8ed8bc0a507f527b4665b77b86cb680bfae8f801574c91ba57aac7"
       },
       "web-mobile": {
         "file": "shots/device-readiness/web-mobile.webp",
