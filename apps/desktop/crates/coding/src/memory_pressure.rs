@@ -10,7 +10,8 @@
 //! Which slices: every ancestor of this process's own cgroup that sets a
 //! `memory.high`, plus the user manager's `expbg.slice` (where every
 //! `systemd-run --user --scope` run lands on a desktop-first machine,
-//! `.github/runners/README.md`), the first one throttled wins. Linux only;
+//! `.github/runners/README.md`; `EXP_RUNS_SLICE` names another), the first
+//! one throttled wins. Linux only;
 //! read-only (never changes a cap: those are the machine owner's call).
 
 use std::path::{Path, PathBuf};
@@ -19,6 +20,12 @@ use std::path::{Path, PathBuf};
 /// every task of the cgroup stalled on memory) at which a slice reads
 /// throttled even below its `memory.high` (reclaim keeps it just under).
 pub const FULL_PRESSURE_PERCENT: f64 = 10.0;
+
+/// The slice (under the user manager) agent runs land in when it is not
+/// `expbg.slice`.
+pub const RUNS_SLICE_ENV: &str = "EXP_RUNS_SLICE";
+/// Where `run-.scope.d` puts every run on a desktop-first machine.
+pub const DEFAULT_RUNS_SLICE: &str = "expbg.slice";
 
 /// One throttled slice.
 #[derive(Clone, Debug, PartialEq)]
@@ -55,13 +62,14 @@ pub fn parse_own_cgroup(proc_cgroup: &str) -> Option<&str> {
 }
 
 /// The slices to check under `root` (the cgroup2 mount) for a process in
-/// `own` (relative cgroup path): its ancestors, nearest first, then the
-/// `expbg.slice` of the `user@<uid>.service` it lives under, if any.
-pub fn candidates(root: &Path, own: &str) -> Vec<PathBuf> {
+/// `own` (relative cgroup path): its ancestors, nearest first, then the runs
+/// slice (`runs_slice`, e.g. `expbg.slice`) of the `user@<uid>.service` it
+/// lives under, if any.
+pub fn candidates(root: &Path, own: &str, runs_slice: &str) -> Vec<PathBuf> {
     let parts: Vec<&str> = own.trim_matches('/').split('/').filter(|part| !part.is_empty()).collect();
     let mut dirs: Vec<PathBuf> = (1..=parts.len()).rev().map(|n| root.join(parts[..n].join("/"))).collect();
     if let Some(at) = parts.iter().position(|part| part.starts_with("user@") && part.ends_with(".service")) {
-        let expbg = root.join(parts[..=at].join("/")).join("expbg.slice");
+        let expbg = root.join(parts[..=at].join("/")).join(runs_slice);
         if !dirs.contains(&expbg) {
             dirs.push(expbg);
         }
@@ -80,8 +88,8 @@ pub fn read_slice(dir: &Path) -> Option<SliceMemory> {
 }
 
 /// The first throttled slice of [`candidates`] under `root`.
-pub fn throttled_under(root: &Path, own: &str) -> Option<SliceMemory> {
-    candidates(root, own).iter().filter_map(|dir| read_slice(dir)).find(SliceMemory::throttled)
+pub fn throttled_under(root: &Path, own: &str, runs_slice: &str) -> Option<SliceMemory> {
+    candidates(root, own, runs_slice).iter().filter_map(|dir| read_slice(dir)).find(SliceMemory::throttled)
 }
 
 /// This host's throttled slice right now (Linux, cgroup v2), else `None`.
@@ -90,7 +98,11 @@ pub fn throttled_slice() -> Option<SliceMemory> {
         return None;
     }
     let proc_cgroup = std::fs::read_to_string("/proc/self/cgroup").ok()?;
-    throttled_under(Path::new("/sys/fs/cgroup"), parse_own_cgroup(&proc_cgroup)?)
+    let runs_slice = std::env::var(RUNS_SLICE_ENV)
+        .ok()
+        .filter(|name| name.ends_with(".slice") && !name.contains('/'))
+        .unwrap_or_else(|| DEFAULT_RUNS_SLICE.to_string());
+    throttled_under(Path::new("/sys/fs/cgroup"), parse_own_cgroup(&proc_cgroup)?, &runs_slice)
 }
 
 #[cfg(test)]
@@ -114,12 +126,14 @@ mod tests {
     fn the_daemons_slices_and_the_runs_slice_are_checked() {
         let root = Path::new("/sys/fs/cgroup");
         let own = "/user.slice/user-1000.slice/user@1000.service/app.slice/exponential-daemon.service";
-        let dirs = candidates(root, own);
+        let dirs = candidates(root, own, DEFAULT_RUNS_SLICE);
         assert_eq!(dirs[0], root.join(own.trim_start_matches('/')));
         assert_eq!(dirs[1], root.join("user.slice/user-1000.slice/user@1000.service/app.slice"));
         assert_eq!(dirs.last().unwrap(), &root.join("user.slice/user-1000.slice/user@1000.service/expbg.slice"));
-        let inside = candidates(root, "/user.slice/user-1000.slice/user@1000.service/expbg.slice/run-x.scope");
+        let inside = candidates(root, "/user.slice/user-1000.slice/user@1000.service/expbg.slice/run-x.scope", DEFAULT_RUNS_SLICE);
         assert_eq!(inside.iter().filter(|dir| dir.ends_with("expbg.slice")).count(), 1, "never twice");
+        let other = candidates(root, own, "agents.slice");
+        assert_eq!(other.last().unwrap(), &root.join("user.slice/user-1000.slice/user@1000.service/agents.slice"));
     }
 
     #[test]
@@ -146,14 +160,14 @@ mod tests {
         std::fs::write(expbg.join("memory.current"), "18683000000\n").unwrap();
         std::fs::write(expbg.join("memory.pressure"), "some avg10=80.00 avg60=0 avg300=0 total=0\nfull avg10=75.00 avg60=0 avg300=0 total=0\n").unwrap();
         let own_path = "/user.slice/user-1000.slice/user@1000.service/app.slice/exponential-daemon.service";
-        let found = throttled_under(&root, own_path).expect("expbg.slice is throttled");
+        let found = throttled_under(&root, own_path, DEFAULT_RUNS_SLICE).expect("expbg.slice is throttled");
         assert_eq!(
             found,
             SliceMemory { name: "expbg.slice".into(), current: 18_683_000_000, high: 17_179_869_184, full_avg10: 75.0 }
         );
         std::fs::write(expbg.join("memory.current"), "12000000000\n").unwrap();
         std::fs::write(expbg.join("memory.pressure"), "full avg10=0.00 avg60=0 avg300=0 total=0\n").unwrap();
-        assert_eq!(throttled_under(&root, own_path), None);
+        assert_eq!(throttled_under(&root, own_path, DEFAULT_RUNS_SLICE), None);
         let _ = std::fs::remove_dir_all(&root);
     }
 }

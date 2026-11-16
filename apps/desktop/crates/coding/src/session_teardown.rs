@@ -23,7 +23,7 @@
 //! - The compose stacks the session started from ITS OWN worktree (a
 //!   container's `com.docker.compose.project.working_dir` or one of its
 //!   `config_files` inside it) go `docker compose -p <project> down`
-//!   (volumes kept). A worktree another live run still works in keeps its
+//!   WITH their volumes (a session stack's data is its own). A worktree another live run still works in keeps its
 //!   stacks; the main checkout never matches (it is not inside a session
 //!   worktree).
 //! - An idle session (suspended, released) keeps everything: only an END
@@ -117,7 +117,7 @@ pub fn compose_projects_in(listing: &str, worktree: &Path) -> Vec<String> {
     projects
 }
 
-/// `docker compose -p <project> down` for every stack started from
+/// `docker compose -p <project> down --volumes` for every stack started from
 /// `worktree`. No docker, or a docker that does not answer: nothing.
 fn down_compose_stacks(session_id: &str, worktree: &Path) -> Vec<String> {
     let listing = match run_bounded(
@@ -132,7 +132,7 @@ fn down_compose_stacks(session_id: &str, worktree: &Path) -> Vec<String> {
     for project in compose_projects_in(&listing, worktree) {
         match run_bounded(
             "docker",
-            &["compose", "-p", &project, "down", "--remove-orphans", "--timeout", "10"],
+            &["compose", "-p", &project, "down", "--volumes", "--remove-orphans", "--timeout", "10"],
             COMPOSE_DOWN_TIMEOUT,
         ) {
             Some((true, _)) => downed.push(project),
