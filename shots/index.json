@@ -50,8 +50,8 @@
         "file": "shots/agent-channel/desktop.webp",
         "width": 1800,
         "height": 1125,
-        "bytes": 66812,
-        "sha256": "dadc662a15465e6cf90ac09050662f604da23063aa8c624589d35be9c0626bc7"
+        "bytes": 71408,
+        "sha256": "9b1cb7aa6fa89721ce903e864b22c3f20081e96014e142c660688804d226719b"
       },
       "ios": {
         "file": "shots/agent-channel/ios.webp",
