@@ -11,7 +11,7 @@ import type { StackConstants } from "./stack"
 
 // VAPP-129: `chat` = the app editor's floating chat card (apps.json
 // `dockCard`; web and the IDE only, never from `dockRows`).
-export type DockKind = `plan` | `question` | `tasks` | `queued` | `suggestions` | `banner` | `chat`
+export type DockKind = `plan` | `question` | `tasks` | `queued` | `watches` | `suggestions` | `banner` | `chat`
 export type DockTint = `plan` | `question` | `muted` | `warning`
 
 export type DockSource =
@@ -40,6 +40,9 @@ export type DockSource =
       } | null
     }
   | { kind: `queued`; messages: readonly { id: string; text: string }[] }
+  /** #NEW-49: what the session waits on (`sessions.watching`): each a
+   *  row of the sheet with its cancel glyph. */
+  | { kind: `watches`; watches: readonly { id: string; label: string }[] }
   | {
       kind: `suggestions`
       /** The suggestions row's id (a `messages.id`). */
@@ -107,6 +110,7 @@ export const DOCK_AUTO_OPEN_GRACE_MS = fixture.autoOpenGraceMs
 const ORDER: Record<DockKind, number> = {
   queued: fixture.order.indexOf(`queued`),
   tasks: fixture.order.indexOf(`tasks`),
+  watches: fixture.order.indexOf(`watches`),
   suggestions: fixture.order.indexOf(`suggestions`),
   banner: fixture.order.indexOf(`banner`),
   question: fixture.order.indexOf(`ask`),
@@ -163,6 +167,23 @@ export function dockRows(sources: readonly DockSource[]): DockRow[] {
               .join(` · `) || null,
           meta: first.description,
           title: first.label,
+          expandable: true,
+          action: null,
+        },
+      })
+    } else if (source.kind === `watches`) {
+      if (source.watches.length === 0) continue
+      rows.push({
+        createdAt: 0,
+        row: {
+          id: `watches`,
+          kind: `watches`,
+          tint: `muted`,
+          icon: fixture.icons.watches,
+          label: fixture.copy.watches,
+          caption: null,
+          meta: source.watches.length > 1 ? String(source.watches.length) : null,
+          title: source.watches.map((watch) => watch.label).join(`, `),
           expandable: true,
           action: null,
         },

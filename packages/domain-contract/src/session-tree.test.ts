@@ -24,13 +24,20 @@ import {
   treeOffline,
   chatsListUnread,
   treeState,
+  sessionWaiting,
+  chatRowWordText,
 } from "./session-tree"
 
 describe(`session-tree fixtures (EXP-1291)`, () => {
   for (const entry of card.cases) {
     test(`session card: ${entry.name}`, () => {
-      const { session, title, now } = entry.input as never
-      expect(sessionCard(session, title, now)).toEqual(entry.expected as never)
+      const { session, title, now, waiting } = entry.input as never as { session: never; title: string; now: string; waiting?: string | null }
+      expect(sessionCard(session, title, now, waiting ?? null)).toEqual(entry.expected as never)
+    })
+  }
+  for (const entry of card.waitingCases) {
+    test(`session waiting (#NEW-49): ${entry.name}`, () => {
+      expect(sessionWaiting(entry.input.watching as never, entry.input.children)).toBe(entry.expected as never)
     })
   }
   test(`session card: a flagged session that needs you names its kind (copy.blockedKinds)`, () => {
@@ -129,6 +136,11 @@ describe(`session-tree fixtures (EXP-1291)`, () => {
   for (const entry of list.wordCases) {
     test(`row word: ${entry.name}`, () => {
       expect(chatRowWord(entry.input)).toBe(entry.expected as never)
+    })
+  }
+  for (const entry of list.wordTextCases) {
+    test(`row word text (#NEW-49): ${entry.name}`, () => {
+      expect(chatRowWordText(entry.word as never, entry.waiting)).toBe(entry.expected as never)
     })
   }
   for (const entry of list.offlineCases) {

@@ -49,10 +49,48 @@ export interface TreeSession {
   startedByAgentId?: string | null
   /** VAPP-110: the app this root is a member's editor session of (absent = null). */
   appId?: string | null
+  /** #NEW-49: what it waits on (`sessions.watching`, absent = nothing). */
+  watching?: readonly SessionWatching[] | null
   startedAt: string | null
   endedAt: string | null
   createdAt: string
   updatedAt: string
+}
+
+/** #NEW-49: one entry of `sessions.watching` (eagent wakeups.json WATCH EVENTS). */
+export interface SessionWatching {
+  id: string
+  kind: string
+  subjectId: string | null
+  label: string
+  at?: string | null
+}
+
+/** #NEW-49 (session-card.json `waitingCases`): what an IDLE session waits
+ *  on, as one label list: its live children's names (tree order), then its
+ *  watches' labels (a watched session that is also a listed child once),
+ *  each label once, the first `waitingMax` shown and ` +N` for the rest.
+ *  null = nothing. */
+export function sessionWaiting(
+  watching: readonly SessionWatching[] | null | undefined,
+  children: readonly { id: string; name: string }[] = []
+): string | null {
+  const childIds = new Set(children.map((child) => child.id))
+  const labels: string[] = []
+  for (const child of children) labels.push(child.name)
+  for (const watch of watching ?? []) {
+    if (watch.kind === `session` && watch.subjectId && childIds.has(watch.subjectId)) continue
+    labels.push(watch.label)
+  }
+  const unique: string[] = []
+  for (const label of labels) {
+    const trimmed = label.trim()
+    if (trimmed && !unique.includes(trimmed)) unique.push(trimmed)
+  }
+  if (unique.length === 0) return null
+  const shown = unique.slice(0, cardFixture.waitingMax)
+  const more = unique.length - shown.length
+  return shown.join(`, `) + (more > 0 ? cardFixture.copy.waitingMore.replace(`{count}`, String(more)) : ``)
 }
 
 /** EXP-1323: the viewer's read marks (`session_reads`, already user-scoped). */
@@ -242,7 +280,9 @@ export function sessionKindWord(session: Pick<TreeSession, `blocked`>, state: Se
 export function sessionCard(
   session: TreeSession,
   title: string,
-  now: string
+  now: string,
+  /** #NEW-49: `sessionWaiting` of it; an idle card reads "Waiting on …". */
+  waiting: string | null = null
 ): SessionCard {
   const state = sessionState(session)
   const start = ms(session.startedAt)
@@ -257,7 +297,8 @@ export function sessionCard(
     sessionId: session.id,
     icon: SESSION_CARD_ICONS[state],
     name: title,
-    kindWord: sessionKindWord(session, state),
+    kindWord:
+      state === `idle` && waiting ? cardFixture.copy.waiting.replace(`{labels}`, () => waiting) : sessionKindWord(session, state),
     state,
     tone: cardFixture.tones[state],
     elapsed,
@@ -755,7 +796,8 @@ function eventText(
   card: Record<string, unknown>,
   issues: ReadonlyMap<string, TreeIssue>,
   prs: ReadonlyMap<string, TreePullRequest>,
-  sessionName: (id: string) => string | null = () => null
+  sessionName: (id: string) => string | null = () => null,
+  body = ``
 ): string | null {
   const event = String(card.event ?? ``)
   // #EXP-1710: a `pr_merge` line reads by its `mergeOutcome`
@@ -781,6 +823,12 @@ function eventText(
     const name = typeof card.sessionId === `string` ? sessionName(card.sessionId) : null
     if (!name) return null
     text = text.replace(`{session}`, () => name)
+  }
+  if (text.includes(`{body}`)) {
+    // #NEW-49: a fired watch reads its own line ('CI on #1130: success.').
+    const said = body.trim()
+    if (!said) return null
+    text = text.replace(`{body}`, () => said)
   }
   if (text.includes(`{name}`)) {
     // NEW-2: a trigger line names its event (an event trigger) and nothing
@@ -1130,10 +1178,16 @@ export function buildSessionChat(input: {
           rows.push({ type: `event`, id: message.id, event: `trigger_fired`, text, sessionId: null })
           break
         }
-        const text = eventText(card, issueMap, prMap, (id) => {
-          const target = byId.get(id)
-          return target ? sessionCard(target, titles.get(target.id) ?? ``, now).name : null
-        })
+        const text = eventText(
+          card,
+          issueMap,
+          prMap,
+          (id) => {
+            const target = byId.get(id)
+            return target ? sessionCard(target, titles.get(target.id) ?? ``, now).name : null
+          },
+          message.body
+        )
         if (!text) break
         const about = typeof card.sessionId === `string` && byId.has(card.sessionId) ? card.sessionId : null
         rows.push({ type: `event`, id: message.id, event: String(card.event), text, sessionId: about })
@@ -1464,7 +1518,7 @@ export function listAgents(
 /** EXP-1309/1318: the ONE quiet trailing word of a chat row ×4. Keys;
  *  `CHAT_ROW_WORDS` = the copy (EXP-1339: `merged` has none, it only
  *  turns the lead violet). */
-export type ChatRowWord = `stack` | `readyToMerge` | `merged` | `offline` | `question`
+export type ChatRowWord = `stack` | `readyToMerge` | `merged` | `offline` | `question` | `waiting`
 
 export const CHAT_ROW_WORDS: Partial<Record<ChatRowWord | `needsInput`, string>> =
   listFixture.copy.words
@@ -1502,6 +1556,8 @@ export function chatRowWord(input: {
   inStack: boolean
   /** #EXP-1703: `treeOffline` (absent = false). */
   offline?: boolean
+  /** #NEW-49: the root's `sessionWaiting` while it is idle (absent = null). */
+  waiting?: string | null
 }): ChatRowWord | null {
   if (input.pullRequests.some((pr) => pr.state === `open`)) {
     if (input.inStack) return `stack`
@@ -1509,7 +1565,17 @@ export function chatRowWord(input: {
   }
   if (input.pullRequests.some((pr) => pr.state === `merged`)) return `merged`
   if (input.needsYou) return input.offline ? `offline` : `question`
+  if (input.waiting) return `waiting`
   return null
+}
+
+/** #NEW-49: a row word's text (`copy.words`; `waiting` names what it
+ *  waits on); null = the word draws no text (`merged`) or none. */
+export function chatRowWordText(word: ChatRowWord | null, waiting: string | null = null): string | null {
+  if (!word) return null
+  const text = (CHAT_ROW_WORDS as Record<string, string | undefined>)[word] ?? null
+  if (word === `waiting`) return waiting && text ? text.replace(`{labels}`, () => waiting) : null
+  return text
 }
 
 /** #EXP-1703: a tree on a person ONLY because its device stayed away: some

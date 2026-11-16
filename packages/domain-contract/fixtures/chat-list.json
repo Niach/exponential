@@ -1,5 +1,5 @@
 {
-  "$comment": "EXP-1291 the Chats page (rail entry Chats, concept nav-chats; the composer on top) and the rail's Agents section, ×4 in the existing styleguide list (a filled group band, no count, over FLAT gapless rows, NO dividers ×4, EXP-1320). partitionChats({sessions, sessionIssues, issues, messages, teamId}) = the roots of kind `chat` (teamId = the ACTIVE team on web/desktop; null = every team, phones band rows per team) grouped `needs_you` (any non-ended session of the tree has needsInput) · `running` (S-3: titled `copy.groups.running` 'Working'; else any non-ended session queued or BUSY, never by status) · `recent` (the rest), each by the tree's newest updatedAt desc (ties by id); empty groups omitted; Needs you and Running uncapped, Recent per `recent` (NEW-1, below). A row = the chat title (session-chat.json sessionTitle, EXP-1341), NO lock (EXP-1339), a spinner while busy, an amber dot when needsYou; ONE quiet trailing word off the team's PRs, EXP-1309. listAgents(agents, sessions, teamId, me) = the team's `agents` rows (NEW-2: definitions, never sessions) by sortOrder, then name, then id, each icon + color like a board row (missing → `agentDefaults`); busy / needsYou come from the viewer's OWN conversation session with the agent (a root with `agentId` and `userId == me`; none = false); the section sits above Boards and opens the agent's conversation (the same Conversation + composer). Reference packages/domain-contract/src/session-tree.ts; mirrors replay `cases` and `agentCases` comparing the WHOLE expected value. EXP-1312: chatRowMarkState({needsYou, busy}) = the lead of a chat row outside the Chats tab (home Running band, the rail Running rows, work tabs) x4: needs_you (the brand mark with the amber badge) beats working (the working mark), else waiting (the bare brand mark); markCases replay it. EXP-1318 (owner 2026-10-14): ONE row ×4 = lead mark (EXP-1344: chatRowMarkState FIRST, at every depth ×4: needsYou → the amber badge BEATS busy → the working mark, a parked plan/question keeps the device busy; then the ROOT's PRs, never the word (NEW-41, owner 2026-10-22): ANY open PR, a stacked one too → pr-open emerald, else a merged one → pr-merged VIOLET on every client incl. the IDE, else no PR glyph; chatRowLeadPr(prStates) = `open` | `merged` | null, `leadCases` replay it ×4, a stacked open PR is just another `open` state) · the title (no separate identifier slot: sessionTitle names it) · trailing = the word (EXP-1339: no lock). The word = chatRowWord({pullRequests, busy, needsYou, inStack}) (keys; `copy.words` = the text; EXP-1339: `merged` has NO text, it only turns the lead pr-merged violet), order stack → readyToMerge (an open PR while nothing works) → merged → question; inStack = chatInStack(chatPrs, teamPrs) (an open PR based on another open PR, or one based on it); mirrors replay `wordCases` + `stackCases`. Group bands carry their glyph ×4 (Needs you = coding-needs-input amber, Running = the working mark, Recent = ui-check), no count. Phones (teamId null): the TEAM band is OUTER (the filled team section header with the avatar), the group bands sit inside it, page title = `copy.title` in each platform's own root-screen header (Android: the large in-content headline its roots share; iOS: the sticky inline nav-bar title its other tab roots use, EXP-1358). The rail (web + IDE) = ONE band `copy.rail` = railChats(groups, wordOf): every needs_you row, every running row, then the recent rows whose word is readyToMerge or stack, in that order (`railCases`, input words by sessionId); both list every chat the shapes make visible (no own-user filter). EXP-1318 (owner 2026-10-15): the device icon is back ×4: row trailing = word · the DEVICE ICON (list-item.json SessionRow anatomy: the title line + the trailing device glyph). The row's `deviceId` = the ROOT session's logical device_id (null when unset or absent: mirrors read a missing field as null); the icon = that device row's icon through the `deviceIcon` concept map, tooltip/accessibility label = the device name; a device the viewer cannot see (not in their synced devices) or a null deviceId → no icon. Rail rows (railChats) carry the same field. EXP-1323 (owner 2026-10-15): rows carry `depth` (0 = the chat, opens the chat), `parentId`, `rootId`, `unread`. #EXP-1461 (owner 2026-10-30: 'we don't wanna see all the nested child sessions, only the root ones'): EVERY list row is a ROOT (depth 0, parentId null), in every group ×4: no nested descendants, no `earlier` fold row; a child's needs you / working / unread roll up into its root's row, and a child opens from its chat (the strip's session chips keep `visibleChild(session, now)`: a session shows while working (queued or busy) or needs_you, or while its last activity, endedAt once ended else updatedAt, is within `recentChildMinutes` of `now` (absent now = only working/needs_you); `visibleTree` keeps every ancestor of a visible one). `reads` = the viewer's `session_reads` {sessionId, readAt} (absent = none): a root is `unread` when the tree's newest agent-authored message (any session of the tree, cards included) is newer than the read of the ROOT; no agent message = read. Unread = a bold title ×4; chatsUnread(groups) (any depth-0 row unread) = the Chats nav dot (`unreadCases`). `caption` = the session-card rule. Rows animate between bands on motion tokens. NEW-1 (plan 3.13): `recent` = Recent holds every tree with activity in the last `recent.hours` and, beyond those, fills up to the last `recent.max` by activity (`now` input; absent = no window, the last `recent.max` only; `recentCases` replay it with `now`). treeState(tree, pullRequests, now) = a tree's display state (S-3: the FOUR states of session-card.json, never running/stale) for every surface that colours a chat: `needs_you` (a live session waits on a person: a card, a usage wall or a watchdog flag all set needsInput) · `working` (any live session queued or busy) · `done` (every session ended, or the chat has PRs and every one merged) · else `idle`; `treeStateCases` replay it. A chat's issues ×4 = the UNION over its tree's `session_issues` rows (NEW-1: a row sits on the session that holds the issue; `assignedSessionId` is gone), the root's rows first, then each child's in creation order, every issue once. recentCases: expected = the Recent group's ROOT session ids in order (other groups empty). #EXP-1703 (owner 2026-11-05): a row on a person ONLY because its device stayed away reads `offline` ('device offline'), never `question`: chatRowWord takes `offline` (absent = false) = treeOffline(tree): some live session of the tree needs you and EVERY live session that needs you is session-card.json `sessionOffline` (needsInput, blocked.kind device_offline, no blocked.resumeSince); a real card anywhere in the tree keeps `question`. Order stack → readyToMerge → merged → offline → question. `offlineCases` replay treeOffline (expected = the boolean); partitionChats rows carry `offline: true` when it holds (absent = false).",
+  "$comment": "EXP-1291 the Chats page (rail entry Chats, concept nav-chats; the composer on top) and the rail's Agents section, ×4 in the existing styleguide list (a filled group band, no count, over FLAT gapless rows, NO dividers ×4, EXP-1320). partitionChats({sessions, sessionIssues, issues, messages, teamId}) = the roots of kind `chat` (teamId = the ACTIVE team on web/desktop; null = every team, phones band rows per team) grouped `needs_you` (any non-ended session of the tree has needsInput) · `running` (S-3: titled `copy.groups.running` 'Working'; else any non-ended session queued or BUSY, never by status) · `recent` (the rest), each by the tree's newest updatedAt desc (ties by id); empty groups omitted; Needs you and Running uncapped, Recent per `recent` (NEW-1, below). A row = the chat title (session-chat.json sessionTitle, EXP-1341), NO lock (EXP-1339), a spinner while busy, an amber dot when needsYou; ONE quiet trailing word off the team's PRs, EXP-1309. listAgents(agents, sessions, teamId, me) = the team's `agents` rows (NEW-2: definitions, never sessions) by sortOrder, then name, then id, each icon + color like a board row (missing → `agentDefaults`); busy / needsYou come from the viewer's OWN conversation session with the agent (a root with `agentId` and `userId == me`; none = false); the section sits above Boards and opens the agent's conversation (the same Conversation + composer). Reference packages/domain-contract/src/session-tree.ts; mirrors replay `cases` and `agentCases` comparing the WHOLE expected value. EXP-1312: chatRowMarkState({needsYou, busy}) = the lead of a chat row outside the Chats tab (home Running band, the rail Running rows, work tabs) x4: needs_you (the brand mark with the amber badge) beats working (the working mark), else waiting (the bare brand mark); markCases replay it. EXP-1318 (owner 2026-10-14): ONE row ×4 = lead mark (EXP-1344: chatRowMarkState FIRST, at every depth ×4: needsYou → the amber badge BEATS busy → the working mark, a parked plan/question keeps the device busy; then the ROOT's PRs, never the word (NEW-41, owner 2026-10-22): ANY open PR, a stacked one too → pr-open emerald, else a merged one → pr-merged VIOLET on every client incl. the IDE, else no PR glyph; chatRowLeadPr(prStates) = `open` | `merged` | null, `leadCases` replay it ×4, a stacked open PR is just another `open` state) · the title (no separate identifier slot: sessionTitle names it) · trailing = the word (EXP-1339: no lock). The word = chatRowWord({pullRequests, busy, needsYou, inStack}) (keys; `copy.words` = the text; EXP-1339: `merged` has NO text, it only turns the lead pr-merged violet), order stack → readyToMerge (an open PR while nothing works) → merged → question; inStack = chatInStack(chatPrs, teamPrs) (an open PR based on another open PR, or one based on it); mirrors replay `wordCases` + `stackCases`. Group bands carry their glyph ×4 (Needs you = coding-needs-input amber, Running = the working mark, Recent = ui-check), no count. Phones (teamId null): the TEAM band is OUTER (the filled team section header with the avatar), the group bands sit inside it, page title = `copy.title` in each platform's own root-screen header (Android: the large in-content headline its roots share; iOS: the sticky inline nav-bar title its other tab roots use, EXP-1358). The rail (web + IDE) = ONE band `copy.rail` = railChats(groups, wordOf): every needs_you row, every running row, then the recent rows whose word is readyToMerge or stack, in that order (`railCases`, input words by sessionId); both list every chat the shapes make visible (no own-user filter). EXP-1318 (owner 2026-10-15): the device icon is back ×4: row trailing = word · the DEVICE ICON (list-item.json SessionRow anatomy: the title line + the trailing device glyph). The row's `deviceId` = the ROOT session's logical device_id (null when unset or absent: mirrors read a missing field as null); the icon = that device row's icon through the `deviceIcon` concept map, tooltip/accessibility label = the device name; a device the viewer cannot see (not in their synced devices) or a null deviceId → no icon. Rail rows (railChats) carry the same field. EXP-1323 (owner 2026-10-15): rows carry `depth` (0 = the chat, opens the chat), `parentId`, `rootId`, `unread`. #EXP-1461 (owner 2026-10-30: 'we don't wanna see all the nested child sessions, only the root ones'): EVERY list row is a ROOT (depth 0, parentId null), in every group ×4: no nested descendants, no `earlier` fold row; a child's needs you / working / unread roll up into its root's row, and a child opens from its chat (the strip's session chips keep `visibleChild(session, now)`: a session shows while working (queued or busy) or needs_you, or while its last activity, endedAt once ended else updatedAt, is within `recentChildMinutes` of `now` (absent now = only working/needs_you); `visibleTree` keeps every ancestor of a visible one). `reads` = the viewer's `session_reads` {sessionId, readAt} (absent = none): a root is `unread` when the tree's newest agent-authored message (any session of the tree, cards included) is newer than the read of the ROOT; no agent message = read. Unread = a bold title ×4; chatsUnread(groups) (any depth-0 row unread) = the Chats nav dot (`unreadCases`). `caption` = the session-card rule. Rows animate between bands on motion tokens. NEW-1 (plan 3.13): `recent` = Recent holds every tree with activity in the last `recent.hours` and, beyond those, fills up to the last `recent.max` by activity (`now` input; absent = no window, the last `recent.max` only; `recentCases` replay it with `now`). treeState(tree, pullRequests, now) = a tree's display state (S-3: the FOUR states of session-card.json, never running/stale) for every surface that colours a chat: `needs_you` (a live session waits on a person: a card, a usage wall or a watchdog flag all set needsInput) · `working` (any live session queued or busy) · `done` (every session ended, or the chat has PRs and every one merged) · else `idle`; `treeStateCases` replay it. A chat's issues ×4 = the UNION over its tree's `session_issues` rows (NEW-1: a row sits on the session that holds the issue; `assignedSessionId` is gone), the root's rows first, then each child's in creation order, every issue once. recentCases: expected = the Recent group's ROOT session ids in order (other groups empty). #EXP-1703 (owner 2026-11-05): a row on a person ONLY because its device stayed away reads `offline` ('device offline'), never `question`: chatRowWord takes `offline` (absent = false) = treeOffline(tree): some live session of the tree needs you and EVERY live session that needs you is session-card.json `sessionOffline` (needsInput, blocked.kind device_offline, no blocked.resumeSince); a real card anywhere in the tree keeps `question`. Order stack → readyToMerge → merged → offline → question. `offlineCases` replay treeOffline (expected = the boolean); partitionChats rows carry `offline: true` when it holds (absent = false). #NEW-49 (owner 2026-11-16): the row word `waiting` = the ROOT's `sessionWaiting` (session-card.json) while the root is idle and nothing else speaks: LAST in the order (stack → readyToMerge → merged → question/offline → waiting), so a PR word wins; its text `copy.words.waiting` ('waiting on {labels}'), truncated by the row like any word; `chatRowWordText(word, waiting)` = a word's text (null for merged) and `wordTextCases` replay it.",
   "copy": {
     "title": "Chats",
     "agents": "Agents",
@@ -15,7 +15,8 @@
       "readyToMerge": "ready to merge",
       "question": "question",
       "needsInput": "needs input",
-      "offline": "device offline"
+      "offline": "device offline",
+      "waiting": "waiting on {labels}"
     }
   },
   "agentDefaults": {
@@ -2130,6 +2131,43 @@
         "inStack": false
       },
       "expected": null
+    },
+    {
+      "name": "#NEW-49: an idle root that waits says so",
+      "input": {
+        "pullRequests": [],
+        "busy": false,
+        "needsYou": false,
+        "inStack": false,
+        "waiting": "N-12, CI #1130"
+      },
+      "expected": "waiting"
+    },
+    {
+      "name": "#NEW-49: a PR word wins over waiting",
+      "input": {
+        "pullRequests": [
+          {
+            "state": "open"
+          }
+        ],
+        "busy": false,
+        "needsYou": false,
+        "inStack": false,
+        "waiting": "CI #1130"
+      },
+      "expected": "readyToMerge"
+    },
+    {
+      "name": "#NEW-49: a question wins over waiting",
+      "input": {
+        "pullRequests": [],
+        "busy": false,
+        "needsYou": true,
+        "inStack": false,
+        "waiting": "CI #1130"
+      },
+      "expected": "question"
     }
   ],
   "railCases": [
@@ -4517,6 +4555,38 @@
         }
       ],
       "expected": false
+    }
+  ],
+  "wordTextCases": [
+    {
+      "name": "waiting names its labels",
+      "word": "waiting",
+      "waiting": "N-12, Apps, CI #1130",
+      "expected": "waiting on N-12, Apps, CI #1130"
+    },
+    {
+      "name": "waiting without labels draws nothing",
+      "word": "waiting",
+      "waiting": null,
+      "expected": null
+    },
+    {
+      "name": "a fixed word is its copy",
+      "word": "readyToMerge",
+      "waiting": null,
+      "expected": "ready to merge"
+    },
+    {
+      "name": "merged has no text",
+      "word": "merged",
+      "waiting": null,
+      "expected": null
+    },
+    {
+      "name": "no word, no text",
+      "word": null,
+      "waiting": "CI #1130",
+      "expected": null
     }
   ]
 }

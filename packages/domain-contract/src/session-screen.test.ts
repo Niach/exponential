@@ -28,6 +28,11 @@ describe(`session-screen.json`, () => {
       expect(sessionScreenStatus(c.input)).toBe(c.expected)
     })
   }
+  for (const c of fixture.waitingStatusCases) {
+    test(`status waiting (#NEW-49): ${c.name}`, () => {
+      expect(sessionScreenStatus(c.input.sessions, c.input.waiting)).toBe(c.expected)
+    })
+  }
   test(`tone: editorHeader's tones by the word`, () => {
     const words = fixture.copy.status
     expect(sessionScreenTone(words.needsInput)).toBe(`attention`)

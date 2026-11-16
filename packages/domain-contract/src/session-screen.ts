@@ -141,7 +141,11 @@ export interface SessionScreenStatusInput {
 
 /** THE tree's status word (`statusCases`): needs input > working > queued
  *  (the root) > done (the root ended) > idle. */
-export function sessionScreenStatus(sessions: readonly SessionScreenStatusInput[]): string {
+export function sessionScreenStatus(
+  sessions: readonly SessionScreenStatusInput[],
+  /** #NEW-49: the root's `sessionWaiting` (session-card.json); an idle tree reads "waiting on …". */
+  waiting: string | null = null
+): string {
   const words = fixture.copy.status
   const live = sessions.filter((session) => session.status !== `ended`)
   const root = sessions.find((session) => session.root) ?? null
@@ -149,6 +153,7 @@ export function sessionScreenStatus(sessions: readonly SessionScreenStatusInput[
   if (live.some((session) => session.busy)) return words.working
   if (root?.status === `queued`) return words.queued
   if (root?.status === `ended`) return words.done
+  if (waiting) return fixture.copy.waiting.replace(`{labels}`, () => waiting)
   return words.idle
 }
 
