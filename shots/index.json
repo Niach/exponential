@@ -64,15 +64,15 @@
         "file": "shots/agent-channel/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 63696,
-        "sha256": "36a196593751153a6411b894e24c576d40c7d191183b518e0d72d0d064187908"
+        "bytes": 69844,
+        "sha256": "6107a9102e2972d94164d701f14c2d66a089759978d2242359b675243ad36d8e"
       },
       "web-mobile": {
         "file": "shots/agent-channel/web-mobile.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 55838,
-        "sha256": "1148d30975ea83b49caeab6a2cf750c36830c626715ead4fe35343388ea2e60c"
+        "bytes": 60722,
+        "sha256": "5d6fd2fc760af87a8611258dc8a7cc20dfaaacec9be91c6bf8d6865f10e96781"
       }
     },
     "agent-home": {
