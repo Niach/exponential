@@ -13,7 +13,7 @@ import type { NestedNode } from "@exponential_app/eui"
 import fixture from "@exponential_app/eui/fixtures/forced-states.json"
 import specimens from "@exponential_app/eui/fixtures/specimens.json"
 import { ExponentialSurface } from "./surface"
-import { expectDomParity } from "./test/parity"
+import { expectDomParity, renderBoth } from "./test/parity"
 import type { SurfaceActionEvent } from "./host"
 
 afterEach(() => cleanup())
@@ -139,7 +139,12 @@ describe(`forced states: the DOM is React's`, () => {
   for (const c of (fixture as unknown as { cases: Case[] }).cases)
     it(c.name, async () => expectDomParity({ tree: c.tree, theme: `exponential`, forcedStates: [...c.steps].reverse().find((s) => s.forced)?.forced }))
   for (const s of (specimens as unknown as { specimens: Specimen[] }).specimens.filter((s) => s.states))
-    it(`specimen ${s.id}`, async () => expectDomParity({ tree: s.node, theme: `exponential`, forcedStates: s.states }), 30_000)
+    it(`specimen ${s.id}`, async () => {
+      // Generated ids (React `_r_1_`, Solid `cl-1`: the fab mark's gradient) differ by design; the browser parity run normalizes them too.
+      const { react, solid } = await renderBoth({ tree: s.node, theme: `exponential`, forcedStates: s.states })
+      const ids = (html: string) => html.replace(/url\(#[^)]*\)/g, `url(#ID)`).replace(/ id="(_r_|cl-)[^"]*"/g, ` id="ID"`)
+      expect(ids(solid)).toBe(ids(react))
+    }, 30_000)
   it(`Radio and Segmented items a host forces (unplaced per-item parts)`, async () =>
     expectDomParity({
       tree: { id: `root`, component: `Box`, children: [{ id: `rd`, component: `Radio`, props: { label: `Plan`, value: `a`, options: [{ label: `A`, value: `a` }, { label: `B`, value: `b` }] } }, { id: `sg`, component: `Segmented`, props: { value: `a`, items: [{ label: `A`, value: `a` }, { label: `B`, value: `b` }] } }, { id: `bar`, component: `Segmented`, props: { variant: `bar`, value: `a`, items: [{ label: `A`, value: `a`, icon: `star` }, { label: `B`, value: `b`, icon: `star` }] } }] } as unknown as NestedNode,
