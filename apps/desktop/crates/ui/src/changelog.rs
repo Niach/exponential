@@ -46,6 +46,16 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-16-whole-chat-messages",
+    date: "2026-11-16",
+    title: "Chat messages always show in full",
+    summary: "Every chat message shows its whole text again, on web, desktop, iOS and Android: no more \"Show more\" under long messages.",
+    body: r##"- **No more "Show more"**: long messages in a chat, your own, an agent's and those from other sessions, show their whole text; long links or codes still wrap inside the bubble."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_316: ChangelogEntry = ChangelogEntry {
     id: "2026-11-16-phones-issue-chip-punctuation",
     date: "2026-11-16",
     title: "An issue reference keeps its punctuation",
