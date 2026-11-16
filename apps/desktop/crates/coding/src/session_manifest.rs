@@ -327,10 +327,18 @@ mod tests {
         assert_eq!(results[1].1, Outcome::Gone);
         assert!(!manifests.join(session).exists(), "the manifest goes with the session");
         assert!(outside.exists(), "an unlisted dir is never touched");
-        // A dir outside every root is refused even when listed.
-        let roots = vec![std::env::temp_dir()];
-        let home_like = Path::new(env!("CARGO_MANIFEST_DIR"));
-        assert!(!dir_allowed(home_like, &roots), "a repo dir is no temp dir");
+        // A dir outside every root is refused even when listed (roots of
+        // their own: a CI checkout can itself live under the temp dir).
+        let root = base.join("root");
+        std::fs::create_dir_all(root.join("build")).unwrap();
+        let roots = vec![root.clone()];
+        assert!(dir_allowed(&root.join("build"), &roots));
+        assert!(!dir_allowed(&outside, &roots), "a dir beside the root is not inside it");
+        assert_eq!(clean_entry(&Entry::Dir(outside.clone()), &roots), Outcome::Kept(format!(
+            "{} is outside the temp, DerivedData and worktree roots",
+            outside.display()
+        )));
+        assert!(outside.exists(), "a refused dir stays");
         assert!(clean(&manifests, session, None).is_empty(), "nothing left to clean");
         assert_eq!(sessions_with_manifests(&manifests), Vec::<String>::new());
         let _ = std::fs::remove_dir_all(&base);
