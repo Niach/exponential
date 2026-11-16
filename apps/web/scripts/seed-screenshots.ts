@@ -77,6 +77,7 @@ import {
   sessionIssues,
   sessionReads,
   sessions,
+  sessionWatches,
   sidebarLayout,
   teamInvites,
   users,
@@ -1294,6 +1295,26 @@ async function seedSessionTree(ctx: {
       createdAt: extra.at,
       updatedAt: extra.at,
     }
+  }
+  // #NEW-49: the offline spike waits between turns (idle): on APP-14's
+  // chat, a PR's CI and a time (the row, the header and the Dock say
+  // "Waiting on …"; its sheet cancels each).
+  {
+    const waits = [
+      { kind: `session` as const, subjectId: ids.groupByAssignee, label: `APP-14`, at: null },
+      { kind: `pr_checks` as const, subjectId: DEMO_PULL_REQUEST_IDS.batchLabels, label: `CI #54`, at: null },
+      { kind: `at` as const, subjectId: null, label: `17:30 UTC`, at: new Date(now + 3 * 3_600_000) },
+    ]
+    const rows = await db
+      .insert(sessionWatches)
+      .values(waits.map((wait, index) => ({ ...wait, sessionId: ids.offlineSpike, createdAt: minutesAgo(30 - index) })))
+      .returning()
+    await db
+      .update(sessions)
+      .set({
+        watching: rows.map((row) => ({ id: row.id, kind: row.kind, subjectId: row.subjectId, label: row.label, ...(row.at ? { at: row.at.toISOString() } : {}) })),
+      })
+      .where(eq(sessions.id, ids.offlineSpike))
   }
   await db.insert(sessionIssues).values([
     link(ids.coldStart, `APP-5`, 1, { at: minutesAgo(60) }),
