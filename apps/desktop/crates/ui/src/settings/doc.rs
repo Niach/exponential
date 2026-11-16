@@ -490,6 +490,10 @@ pub(super) fn bound_values(tree: &Value) -> std::collections::HashSet<(String, S
             walk(slot, out);
         }
     }
+    // #EXP-1887: every test that checks a document's mount also checks it
+    // has no twin ids (the debug mount refuses one).
+    #[cfg(test)]
+    assert_eq!(duplicate_ids(tree), Vec::<String>::new(), "node ids used twice");
     let mut out = std::collections::HashSet::new();
     walk(tree, &mut out);
     out
@@ -524,8 +528,9 @@ pub(super) fn mount_with<S: 'static>(surface_id: &str, tree: Value, binding: &gp
     };
     #[cfg(debug_assertions)]
     let bound = bound_values(&tree);
-    // #EXP-1887: a twin id doubles its accessibility node, which a debug
-    // build only noticed (and panicked on) once a screen reader was on.
+    // #EXP-1887: a twin id doubles its accessibility node; gpui's debug
+    // build panics on it whenever it builds the a11y tree (an AT-SPI bus on
+    // Linux), so refuse it at mount, a11y or not.
     #[cfg(debug_assertions)]
     {
         let twins = duplicate_ids(&tree);
@@ -590,6 +595,9 @@ pub(super) fn duplicate_ids(tree: &Value) -> Vec<String> {
         }
         for child in node.get("children").and_then(Value::as_array).into_iter().flatten() {
             walk(child, seen, twins);
+        }
+        for slot in node.get("slots").and_then(Value::as_object).into_iter().flat_map(|slots| slots.values()) {
+            walk(slot, seen, twins);
         }
     }
     let mut twins = Vec::new();
