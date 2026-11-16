@@ -1206,6 +1206,8 @@ private fun RunFaceContent(
                             ownTail,
                             viewModel::ownBubbleAction,
                             modifier = Modifier.padding(top = 8.dp),
+                            // #EXP-1876: below the sent inputs = the same own group.
+                            startsGroup = sessionEnded || noFeedInputs.isEmpty(),
                         )
                     }
                     Box(Modifier.fillMaxWidth().weight(1f)) { placeholderBody() }
