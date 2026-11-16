@@ -117,6 +117,12 @@ private struct LinkIssuesInput: Encodable {
     let issueIds: [String]
 }
 
+/// #NEW-49: `sessions.unwatch` (cancel watches of a session).
+struct UnwatchInput: Encodable {
+    let sessionId: String
+    let ids: [String]
+}
+
 private struct UnlinkIssueInput: Encodable {
     let sessionId: String
     let issueId: String
@@ -325,6 +331,14 @@ public final class SessionsApi: Sendable {
         // #EXP-1641: a sealed card's answer never leaves in clear.
         if sealedOnly { throw SealedOnlyError() }
         try await trpc.mutationVoid(accountId: accountId, path: "sessions.answer", input: input)
+    }
+
+    /// #NEW-49 (dock.json `watches`): cancel watches of a session (the
+    /// Dock's watches sheet, "Stop waiting"); anyone who may steer it.
+    public func unwatch(accountId: String, sessionId: String, ids: [String]) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId, path: "sessions.unwatch", input: UnwatchInput(sessionId: sessionId, ids: ids)
+        )
     }
 
     /// #EXP-1561: dismiss a WAITING question or plan card through THE answer

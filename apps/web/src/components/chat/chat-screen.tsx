@@ -68,6 +68,7 @@ import {
   type PullRequestRow,
   type SessionRow,
   type SessionChatView,
+  sessionWaitingOf,
 } from "@/lib/session-tree"
 import type { SessionChatRow } from "@exp/domain-contract/session-tree"
 import { PLAN_PAGE_COPY, planTabTarget } from "@exp/domain-contract/plan-page"
@@ -604,7 +605,8 @@ export function ChatScreen({
       : (chatLeadPrState(pullRequests) ?? `waiting`)
   const avatar = agent ? agent.avatar : <ChatLeadDisc lead={lead} agent={root.cli ?? null} className={HEADER_DISC_CLASS} />
   // session-screen.json STATUS WORD: THE tree's word, never dropped.
-  const status = sessionScreenStatus(statusSessions, waitingAsks)
+  // #NEW-49: an idle tree reads what its root waits on.
+  const status = sessionScreenStatus(statusSessions, waitingAsks, sessionWaitingOf(root, rows, titles))
   const subtitle = sessionScreenSubtitle({
     status,
     device: deviceGlyph(root.deviceId)?.name ?? null,

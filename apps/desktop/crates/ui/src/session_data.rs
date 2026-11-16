@@ -21,7 +21,7 @@ use domain::rows::{
     Issue, MessageRow, PullRequestIssueRow, PullRequestRow, SessionIssueRow, SessionReadRow, SessionRow,
 };
 use domain::session_tree::{
-    build_session_chat, list_agents, session_card, tree_order,
+    build_session_chat, list_agents, tree_order,
     AgentRow, SessionCard, SessionChatInput, SessionChatRow, SessionChatView, ChatsListGroup, ChatsListInput,
     TreeIssue,
 };
@@ -246,11 +246,32 @@ pub(crate) fn tree_of_root(root_id: &str, cx: &App) -> Vec<SessionRow> {
     tree_order(&members).into_iter().cloned().collect()
 }
 
-/// THE session card of one session, named by [`session_title_of`].
+/// THE session card of one session, named by [`session_title_of`];
+/// #NEW-49: an idle one reads `Waiting on …` ([`session_waiting_of`]).
 pub(crate) fn session_card_of(session_id: &str, now_ms: i64, cx: &App) -> Option<SessionCard> {
     let row = session(session_id, cx)?;
     let title = session_title_of(session_id, cx)?;
-    Some(session_card(&row, &title, now_ms))
+    let waiting = (domain::session_tree::session_state(&row) == domain::session_tree::SessionState::Idle)
+        .then(|| session_waiting_of(session_id, cx))
+        .flatten();
+    Some(domain::session_tree::session_card_waiting(&row, &title, now_ms, waiting.as_deref()))
+}
+
+/// #NEW-49 (session-card.json `waitingCases`): what `session_id` waits on:
+/// its live CHILD sessions by their card title (tree order), then its
+/// synced `watching`; `None` = nothing (or not synced).
+pub(crate) fn session_waiting_of(session_id: &str, cx: &App) -> Option<String> {
+    let store = Store::try_global(cx)?;
+    let sessions = store.collections().sessions.read(cx);
+    let row = sessions.get(session_id)?;
+    let children: Vec<&SessionRow> = sessions
+        .iter()
+        .filter(|session| session.parent_id.as_deref() == Some(session_id) && !session.is_ended())
+        .collect();
+    if row.watching.is_empty() && children.is_empty() {
+        return None;
+    }
+    domain::session_tree::session_waiting_in(row, children, |child| session_title_of(&child.id, cx).unwrap_or_default())
 }
 
 /// EXP-1341: THE display title of any session (`domain::session_title`:
@@ -1566,7 +1587,11 @@ fn derive_chats_model(team_id: &str, groups: &[ChatsListGroup], cx: &App) -> Cha
         .iter()
         .flat_map(|group| group.rows.iter())
         .filter(|row| row.depth == 0)
-        .filter_map(|row| chat_words.word(&row.session_id, row.busy, row.needs_you, row.offline).map(|word| (row.session_id.clone(), word)))
+        .filter_map(|row| {
+            chat_words
+                .word_waiting(&row.session_id, row.busy, row.needs_you, row.offline, row.waiting.is_some())
+                .map(|word| (row.session_id.clone(), word))
+        })
         .collect();
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let offset = chrono::Local::now().offset().local_minus_utc() / 60;
@@ -2103,6 +2128,7 @@ mod tests {
                     unread: false,
                     activity_at: String::new(),
                     offline: false,
+                    waiting: None,
                 })
                 .collect(),
         };

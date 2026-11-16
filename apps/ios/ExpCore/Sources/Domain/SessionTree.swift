@@ -78,6 +78,47 @@ public struct TreeGuideEntry: Equatable, Sendable {
     }
 }
 
+/// #NEW-49: one entry of `sessions.watching` (eagent wakeups.json WATCH
+/// EVENTS): what a session waits on. `kind` = session | pr_checks |
+/// pr_closed | issue_status | at (an unknown kind is kept as is).
+public struct SessionWatching: Equatable, Sendable, Identifiable {
+    public let id: String
+    public let kind: String
+    public let subjectId: String?
+    public let label: String
+    public let at: String?
+
+    public init(id: String, kind: String, subjectId: String? = nil, label: String, at: String? = nil) {
+        self.id = id
+        self.kind = kind
+        self.subjectId = subjectId
+        self.label = label
+        self.at = at
+    }
+
+    /// The synced jsonb TEXT, tolerantly: nil, `null`, a non-array or
+    /// garbage = nothing; an entry without a string `id` or `label` drops;
+    /// unknown kinds stay.
+    public static func parseList(_ raw: String?) -> [SessionWatching] {
+        guard let raw, let data = raw.data(using: .utf8),
+              let entries = (try? JSONSerialization.jsonObject(with: data)) as? [Any]
+        else { return [] }
+        return entries.compactMap { entry -> SessionWatching? in
+            guard let object = entry as? [String: Any],
+                  let id = object["id"] as? String,
+                  let label = object["label"] as? String
+            else { return nil }
+            return SessionWatching(
+                id: id,
+                kind: (object["kind"] as? String) ?? "",
+                subjectId: object["subjectId"] as? String,
+                label: label,
+                at: object["at"] as? String
+            )
+        }
+    }
+}
+
 /// One `sessions` row (root or child).
 public struct TreeSession: Equatable, Sendable, Identifiable {
     public let id: String
@@ -113,6 +154,8 @@ public struct TreeSession: Equatable, Sendable, Identifiable {
     /// VAPP-110: the app this root is a member's editor session of (nil =
     /// none); like an agent's conversation it is no chat.
     public let appId: String?
+    /// #NEW-49: what it waits on (`sessions.watching`; empty = nothing).
+    public let watching: [SessionWatching]
 
     public init(
         id: String,
@@ -135,8 +178,10 @@ public struct TreeSession: Equatable, Sendable, Identifiable {
         agentId: String? = nil,
         appId: String? = nil,
         background: Bool = false,
-        startedByAgentId: String? = nil
+        startedByAgentId: String? = nil,
+        watching: [SessionWatching] = []
     ) {
+        self.watching = watching
         self.agentId = agentId
         self.startedByAgentId = startedByAgentId
         self.appId = appId
@@ -1250,8 +1295,12 @@ public enum ChatRowWord: String, Equatable, Sendable, CaseIterable {
     case question
     /// An agent row waiting on a person.
     case needsInput
+    /// #NEW-49: an idle root that waits on something (its `sessionWaiting`).
+    case waiting
 
     /// EXP-1339: `merged` has no text (it only turns the lead violet).
+    /// #NEW-49: `waiting` is a template (`{labels}`): draw it through
+    /// `SessionTree.chatRowWordText`.
     public var text: String? {
         switch self {
         case .readyToMerge: "ready to merge"
@@ -1260,6 +1309,7 @@ public enum ChatRowWord: String, Equatable, Sendable, CaseIterable {
         case .offline: "device offline"
         case .question: "question"
         case .needsInput: "needs input"
+        case .waiting: "waiting on {labels}"
         }
     }
 }
@@ -1397,6 +1447,11 @@ public enum SessionTree {
             "offline": "Move",
         ]
         public static let bannerDevice = "Its device"
+        /// #NEW-49: an idle card's word while it waits (`{labels}` =
+        /// `sessionWaiting`), its `+N` tail and how many labels show.
+        public static let waiting = "Waiting on {labels}"
+        public static let waitingMore = " +{count}"
+        public static let waitingMax = 3
     }
 
     /// fixtures/session-chat.json `copy` + `testIds` (titles: `SessionTitle`).
@@ -1429,6 +1484,8 @@ public enum SessionTree {
             "pr_merge": "Auto-merge of PR {pr}",
             // #EXP-1772: a schedule's firing (no name) as the marker.
             "trigger_schedule": "Schedule",
+            // #NEW-49: a fired watch reads its own body.
+            "watch_fired": "{body}",
         ]
         /// S-3: the lead of a `SessionXref` header, per kind.
         public static let xref: [String: String] = [
@@ -1584,7 +1641,9 @@ public enum SessionTree {
     /// fixtures/session-title.json; never `Session N`). S-3: elapsed only
     /// while working (not queued; startedAt → now) and once done (startedAt
     /// → endedAt, else updatedAt).
-    public static func sessionCard(_ session: TreeSession, title: String, now: Date) -> SessionCard {
+    /// #NEW-49: `waiting` = its `sessionWaiting`; an IDLE card reads
+    /// "Waiting on …" (`CardCopy.waiting`).
+    public static func sessionCard(_ session: TreeSession, title: String, now: Date, waiting: String? = nil) -> SessionCard {
         let state = sessionState(session)
         let start = ms(session.startedAt)
         let end: Double? =
@@ -1597,7 +1656,9 @@ public enum SessionTree {
             sessionId: session.id,
             icon: state.icon,
             name: title,
-            kindWord: sessionKindWord(session, state: state),
+            kindWord: state == .idle && !(waiting ?? "").isEmpty
+                ? CardCopy.waiting.replacingOccurrences(of: "{labels}", with: waiting ?? "")
+                : sessionKindWord(session, state: state),
             state: state,
             tone: state.tone,
             elapsed: elapsed,
@@ -1616,6 +1677,55 @@ public enum SessionTree {
             return word
         }
         return state.word
+    }
+
+    /// #NEW-49 (session-card.json `waitingCases`): what an IDLE session
+    /// waits on, as one label list: its live children's names (tree order),
+    /// then its watches' labels (a watched session that is also a listed
+    /// child once), each trimmed label once, the first `waitingMax` shown
+    /// and ` +N` for the rest. nil = nothing. Web `sessionWaiting`.
+    public static func sessionWaiting(
+        watching: [SessionWatching],
+        children: [(id: String, name: String)] = []
+    ) -> String? {
+        let childIds = Set(children.map { $0.id })
+        var labels: [String] = children.map { $0.name }
+        for watch in watching {
+            if watch.kind == "session", let subjectId = watch.subjectId, !subjectId.isEmpty,
+               childIds.contains(subjectId) {
+                continue
+            }
+            labels.append(watch.label)
+        }
+        var unique: [String] = []
+        for label in labels {
+            let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty && !unique.contains(trimmed) { unique.append(trimmed) }
+        }
+        if unique.isEmpty { return nil }
+        let shown = Array(unique.prefix(CardCopy.waitingMax))
+        let more = unique.count - shown.count
+        let tail = more > 0 ? CardCopy.waitingMore.replacingOccurrences(of: "{count}", with: String(more)) : ""
+        return shown.joined(separator: ", ") + tail
+    }
+
+    /// #NEW-49: `sessionWaiting` of one synced session: its non-ended
+    /// CHILD sessions (direct children of `session` among `sessions`, tree
+    /// order) named by `name` (the title their card shows), then its own
+    /// watches.
+    public static func sessionWaiting(
+        _ session: TreeSession,
+        sessions: [TreeSession],
+        name: (TreeSession) -> String
+    ) -> String? {
+        let children = treeOrder(sessions.filter {
+            $0.parentId == session.id && $0.id != session.id && $0.status != "ended"
+        })
+        if children.isEmpty && session.watching.isEmpty { return nil }
+        return sessionWaiting(
+            watching: session.watching,
+            children: children.map { (id: $0.id, name: name($0)) }
+        )
     }
 
     /// #EXP-1703: on a person because its device stayed away (#EXP-1675): it
@@ -1870,9 +1980,13 @@ public enum SessionTree {
                     rows.append(.event(id: message.id, event: DomainContract.messageEventKindTriggerFired, text: text, sessionId: nil))
                     break
                 }
-                let text = eventText(card, issues: issueMap, pullRequests: prMap) { id in
-                    byId[id].map { sessionCard($0, title: titles[$0.id] ?? "", now: now).name }
-                }
+                let text = eventText(
+                    card, issues: issueMap, pullRequests: prMap,
+                    sessionName: { id in
+                        byId[id].map { sessionCard($0, title: titles[$0.id] ?? "", now: now).name }
+                    },
+                    body: message.body
+                )
                 if let text {
                     let about = card.sessionId.flatMap { byId[$0] == nil ? nil : $0 }
                     rows.append(.event(id: message.id, event: card.event ?? "", text: text, sessionId: about))
@@ -2288,13 +2402,16 @@ public enum SessionTree {
     /// nothing works → `readyToMerge` (working = no word); no open PR but a
     /// merged one → `merged`; else waiting on a person → `offline`
     /// (#EXP-1703: only because its device stayed away, `treeOffline`) or
-    /// `question`; else none. Fixture `wordCases`.
+    /// `question`; else (#NEW-49) an idle root that waits on something →
+    /// `waiting` (`waiting` = the root's `sessionWaiting` while it is idle);
+    /// else none. Fixture `wordCases`.
     public static func chatRowWord(
         prStates: [String],
         busy: Bool,
         needsYou: Bool,
         inStack: Bool,
-        offline: Bool = false
+        offline: Bool = false,
+        waiting: String? = nil
     ) -> ChatRowWord? {
         if prStates.contains(DomainContract.prStateOpen) {
             if inStack { return .stack }
@@ -2302,7 +2419,20 @@ public enum SessionTree {
         }
         if prStates.contains(DomainContract.prStateMerged) { return .merged }
         if needsYou { return offline ? .offline : .question }
+        if let waiting, !waiting.isEmpty { return .waiting }
         return nil
+    }
+
+    /// #NEW-49 (chat-list.json `wordTextCases`): a row word's text; `waiting`
+    /// names what it waits on. nil = no word, or a word without text
+    /// (`merged`, `waiting` without labels).
+    public static func chatRowWordText(_ word: ChatRowWord?, waiting: String? = nil) -> String? {
+        guard let word, let text = word.text else { return nil }
+        if word == .waiting {
+            guard let waiting, !waiting.isEmpty else { return nil }
+            return text.replacingOccurrences(of: "{labels}", with: waiting)
+        }
+        return text
     }
 
     /// The synced-row form: `prs` = the root's own pull requests, `teamPrs`
@@ -2312,14 +2442,16 @@ public enum SessionTree {
         needsYou: Bool,
         prs: [PullRequestEntity],
         teamPrs: [PullRequestEntity],
-        offline: Bool = false
+        offline: Bool = false,
+        waiting: String? = nil
     ) -> ChatRowWord? {
         chatRowWord(
             prStates: prs.map(\.state),
             busy: busy,
             needsYou: needsYou,
             inStack: chatInStack(prs.map(StackPr.init), teamPrs: teamPrs.map(StackPr.init)),
-            offline: offline
+            offline: offline,
+            waiting: waiting
         )
     }
 
@@ -2400,7 +2532,8 @@ public enum SessionTree {
         _ card: TreeMessageCard,
         issues: [String: TreeIssue],
         pullRequests: [String: TreePullRequest],
-        sessionName: (String) -> String? = { _ in nil }
+        sessionName: (String) -> String? = { _ in nil },
+        body: String = ""
     ) -> String? {
         guard var template = ChatCopy.events[card.event ?? ""] else { return nil }
         // #EXP-1710: the merge train's line by its outcome (merge-train.json
@@ -2422,6 +2555,13 @@ public enum SessionTree {
             // NEW-1: a bus line about a session of the tree; an unsynced one drops.
             guard let name = card.sessionId.flatMap(sessionName), !name.isEmpty else { return nil }
             text = text.replacingOccurrences(of: "{session}", with: name)
+        }
+        if text.contains("{body}") {
+            // #NEW-49: a fired watch reads its own line ('CI on #1130:
+            // success.'); a blank body draws none.
+            let said = body.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !said.isEmpty else { return nil }
+            text = text.replacingOccurrences(of: "{body}", with: said)
         }
         if text.contains("{name}") {
             // NEW-2: a nameless firing drops, like any unresolvable target.

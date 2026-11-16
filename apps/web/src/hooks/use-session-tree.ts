@@ -49,6 +49,7 @@ import {
   type TreeSession,
   type TreeSessionIssue,
   type TreeSessionRead,
+  sessionWaitingOf,
 } from "@/lib/session-tree"
 
 // EXP-1293 (web): ONE read layer over the session-tree shapes.
@@ -1029,14 +1030,19 @@ export function useSessionTitles(rows: readonly SessionRow[]): {
  *  `sessionTitle`); null while the row is absent or its title is held. */
 export function useSessionCard(row: SessionRow | null): SessionCard | null {
   const now = useNow(1_000)
-  const rows = useMemo(() => (row ? [row] : []), [row])
+  // #NEW-49: its tree too: an idle card reads what it waits on (its live children by name, its watches).
+  const { rows: tree } = useTreeSessions(row?.rootId ?? null)
+  const rows = useMemo(
+    () => (row ? [row, ...tree.filter((other) => other.parentId === row.id && other.status !== `ended`)] : []),
+    [row, tree]
+  )
   const { titles } = useSessionTitles(rows)
   return useMemo(() => {
     if (!row) return null
     const title = titles.get(row.id)
     if (title === undefined) return null
-    return sessionCard(toTreeSession(row), title, now.toISOString())
-  }, [row, titles, now])
+    return sessionCard(toTreeSession(row), title, now.toISOString(), sessionWaitingOf(row, rows, titles))
+  }, [row, rows, titles, now])
 }
 
 /** The chats (roots) one issue sits in, newest activity first. NEW-1: a

@@ -223,10 +223,28 @@ class ChatsViewModel @Inject constructor(
      * the synced pull requests its root opened; a stack edge may cross
      * chats, so the row's whole TEAM's PRs are the stack context.
      */
+    /**
+     * #NEW-49 (chat-list.json `waiting`): what each listed IDLE root waits on
+     * ([SessionTree.sessionWaiting]: its live children by the names their
+     * cards show, then its watches), by root id; absent = nothing.
+     */
+    val waiting: StateFlow<Map<String, String>> = combine(groups, inputs) { g, input ->
+        val roots = g.flatMap { it.rows }.filter { it.depth == 0 && !it.busy && !it.needsYou }.map { it.sessionId }.toSet()
+        if (roots.isEmpty()) return@combine emptyMap()
+        val byId = input.sessions.associateBy { it.id }
+        roots.mapNotNull { id ->
+            val root = byId[id] ?: return@mapNotNull null
+            SessionTree.sessionWaitingIn(root, input.sessions) { child ->
+                SessionTree.sessionTitle(child, input.links, input.issues, input.messages)
+            }?.let { id to it }
+        }.toMap()
+    }.distinctUntilChanged().flowOn(Dispatchers.Default).stateIn(viewModelScope, LIST_SHARING, emptyMap())
+
     val words: StateFlow<Map<String, SessionTree.ChatRowWord>> = combine(
         groups,
         pullRequestRows,
-    ) { g, prs ->
+        waiting,
+    ) { g, prs, waits ->
         val byRoot = prs.filter { it.rootSessionId != null }.groupBy { it.rootSessionId }
         val byTeam = prs.groupBy { it.teamId }
         g.flatMap { it.rows }.mapNotNull { row ->
@@ -236,6 +254,7 @@ class ChatsViewModel @Inject constructor(
                 prs = byRoot[row.sessionId].orEmpty(),
                 teamPrs = byTeam[row.teamId].orEmpty(),
                 offline = row.offline,
+                waiting = waits[row.sessionId],
             )?.let { row.sessionId to it }
         }.toMap()
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, LIST_SHARING, emptyMap())
@@ -386,16 +405,17 @@ class ChatsViewModel @Inject constructor(
     val chatList: StateFlow<Chats.ChatList> = combine(
         combine(groups, inputs) { g, i -> g to i },
         prStates,
-        words,
+        combine(words, waiting) { w, waits -> w to waits },
         _view,
         minuteClock,
-    ) { (g, input), states, w, view, now ->
+    ) { (g, input), states, (w, waits), view, now ->
         Chats.chatList(
             groups = g,
             messages = input.messages,
             reads = input.reads,
             prStates = states,
             words = w,
+            waiting = waits,
             view = view,
             now = SessionTree.nowIso(now),
             utcOffsetMinutes = Chats.deviceUtcOffsetMinutes(now),

@@ -496,6 +496,13 @@ fn session_card_row(
     use domain::chat_row_action::RowAction;
     let action = session_row_action("session", Some(&card.session_id), root_id, rows, cx);
     let mut shown = card.clone();
+    // #NEW-49: an idle session that waits reads `Waiting on …` (its live
+    // children, then its watches); the row action's word still wins.
+    if shown.state == domain::session_tree::SessionState::Idle {
+        if let Some(waiting) = crate::session_data::session_waiting_of(&card.session_id, cx) {
+            shown.kind_word = domain::session_tree::SESSION_CARD.copy.waiting.replacen("{labels}", &waiting, 1);
+        }
+    }
     if let Some(word) = &action.kind_word {
         shown.kind_word = word.clone();
     }
@@ -2807,8 +2814,15 @@ pub(crate) fn tree_status_word(
     root: Option<&SessionRow>,
     tree: &[SessionRow],
     asks: &[domain::session_screen::SessionScreenAsk],
+    cx: &App,
 ) -> String {
-    domain::session_screen::session_screen_status(&tree_status_input(root, tree), asks)
+    // #NEW-49: an idle tree reads what its root waits on (its live children by title, then its watches).
+    let waiting = root.and_then(|root| {
+        domain::session_tree::session_waiting_in(root, tree.iter(), |child| {
+            crate::session_data::session_title_of(&child.id, cx).unwrap_or_default()
+        })
+    });
+    domain::session_screen::session_screen_status_waiting(&tree_status_input(root, tree), asks, waiting.as_deref())
 }
 
 /// #FEED-257 (`session_screen_waiting`): THE waiting item the needs-input
@@ -2882,7 +2896,7 @@ pub(crate) fn screen_subtitle(
     asks: &[domain::session_screen::SessionScreenAsk],
     cx: &App,
 ) -> String {
-    let status = tree_status_word(root, tree, asks);
+    let status = tree_status_word(root, tree, asks, cx);
     let device_id = root
         .and_then(|root| root.device_id.clone())
         .or_else(|| agent.and_then(|agent| agent.device_id.clone()));
@@ -3978,7 +3992,7 @@ impl SessionChatScreenView {
         drop(lead_span);
         let subtitle_span = tracing::trace_span!("header.subtitle").entered();
         let subtitle = screen_subtitle(Some(&model.root), &model.tree, agent.as_ref(), &asks, cx);
-        let tone = domain::session_screen::session_screen_tone(&tree_status_word(Some(&model.root), &model.tree, &asks), false);
+        let tone = domain::session_screen::session_screen_tone(&tree_status_word(Some(&model.root), &model.tree, &asks, cx), false);
         // #FEED-257 THE LINE LEADS TO IT: the needs-input line opens the
         // waiting item the way its own row would.
         let on_subtitle = waiting_item.map(|item| {

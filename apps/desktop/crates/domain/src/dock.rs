@@ -38,6 +38,10 @@ pub struct DockCopy {
     pub questions: Counted,
     pub close: String,
     pub show_all: String,
+    /// #NEW-49: the watches card's label (`Waiting on`).
+    pub watches: String,
+    /// #NEW-49: a watch row's cancel glyph's accessibility label (`Stop waiting`).
+    pub cancel_watch: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -49,6 +53,8 @@ pub struct DockIcons {
     pub open: String,
     pub close: String,
     pub suggestions: String,
+    /// #NEW-49: the watches card (`ui-clock`).
+    pub watches: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -101,6 +107,8 @@ pub enum DockKind {
     Question,
     Tasks,
     Queued,
+    /// #NEW-49: what the session waits on (`sessions.watching`).
+    Watches,
     Suggestions,
     Banner,
     /// VAPP-129: the app editor's floating chat card (apps.json
@@ -158,6 +166,14 @@ pub struct DockSuggestionsRow {
     pub items: Vec<DockSuggestionItem>,
 }
 
+/// #NEW-49: one watch of the session (`sessions.watching`): a row of the
+/// watches sheet with its cancel glyph (`sessions.unwatch`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DockWatch {
+    pub id: String,
+    pub label: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DockQueuedMessage {
     pub id: String,
@@ -192,6 +208,8 @@ pub enum DockSource {
         queue: Option<DockQueue>,
     },
     Queued { messages: Vec<DockQueuedMessage> },
+    /// #NEW-49: what the session waits on; none = no card.
+    Watches { watches: Vec<DockWatch> },
     /// EXP-1323's suggested-tasks card while ANY item is open
     /// ([`suggestion_sources`]).
     Suggestions {
@@ -263,6 +281,7 @@ fn order(kind: DockKind) -> usize {
     let key = match kind {
         DockKind::Queued => "queued",
         DockKind::Tasks => "tasks",
+        DockKind::Watches => "watches",
         DockKind::Suggestions => "suggestions",
         DockKind::Banner => "banner",
         DockKind::Plan | DockKind::Question => "ask",
@@ -271,7 +290,14 @@ fn order(kind: DockKind) -> usize {
     DOCK.order.iter().position(|k| k == key).unwrap_or(usize::MAX)
 }
 
-/// The cards, in the Dock's order (queued, tasks, suggestions, banners, then the asks
+/// #NEW-49: the watches card's source off a session's synced watches.
+pub fn watch_source(watching: &[crate::rows::SessionWatch]) -> DockSource {
+    DockSource::Watches {
+        watches: watching.iter().map(|watch| DockWatch { id: watch.id.clone(), label: watch.label.clone() }).collect(),
+    }
+}
+
+/// The cards, in the Dock's order (queued, tasks, watches, suggestions, banners, then the asks
 /// oldest first, ties by id). An empty queue or no queued message draws
 /// nothing.
 pub fn dock_rows(sources: &[DockSource]) -> Vec<DockRow> {
@@ -309,6 +335,26 @@ pub fn dock_rows(sources: &[DockSource]) -> Vec<DockRow> {
                         caption: tasks_caption(session_name.as_deref(), queue.completed.as_ref().map(|c| c.title.as_str())),
                         meta: first.description.clone(),
                         title: first.label.clone(),
+                        expandable: true,
+                        action: None,
+                    },
+                    0,
+                ));
+            }
+            DockSource::Watches { watches } => {
+                if watches.is_empty() {
+                    continue;
+                }
+                rows.push((
+                    DockRow {
+                        id: "watches".into(),
+                        kind: DockKind::Watches,
+                        tint: DockTint::Muted,
+                        icon: DOCK.icons.watches.clone(),
+                        label: DOCK.copy.watches.clone(),
+                        caption: None,
+                        meta: (watches.len() > 1).then(|| watches.len().to_string()),
+                        title: watches.iter().map(|watch| watch.label.as_str()).collect::<Vec<_>>().join(", "),
                         expandable: true,
                         action: None,
                     },

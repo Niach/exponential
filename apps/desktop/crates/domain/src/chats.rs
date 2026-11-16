@@ -657,6 +657,11 @@ pub struct ChatRow {
     pub needs_you: bool,
     pub busy: bool,
     pub word: Option<ChatRowWord>,
+    /// #NEW-49: what the idle root waits on (the `Waiting` word's labels,
+    /// `session_tree::chat_row_word_text`); never serialized (the fixture's
+    /// row leaves it to the word).
+    #[serde(default, skip_serializing)]
+    pub waiting: Option<String>,
     /// S-3: the chat is DONE (every PR of the root merged and nothing works
     /// or needs you): it stays in the list, dimmed (`shell.dimOpacity`).
     pub dim: bool,
@@ -970,6 +975,7 @@ pub fn chat_list(input: ChatListInput<'_>) -> ChatList {
                 needs_you: row.needs_you,
                 busy: row.busy,
                 word: input.words.get(&row.session_id).copied(),
+                waiting: row.waiting.clone(),
                 dim,
             }
         })
@@ -1928,6 +1934,7 @@ mod tests {
                     needs_you: false,
                     busy: false,
                     word: None,
+                    waiting: None,
                     dim: false,
                 })
                 .collect();

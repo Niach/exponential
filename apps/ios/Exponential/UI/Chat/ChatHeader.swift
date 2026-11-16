@@ -170,7 +170,7 @@ struct ChatHeaderTitle: View {
     /// every session of the tree, the root included. #FEED-257: `asks` =
     /// the chat's waiting cards (`chatPendingAsks`, Conversation order).
     static func status(rows: ChatRows, asks: [SessionScreen.Ask] = []) -> String {
-        SessionScreen.status(statusInputs(rows: rows), asks: asks)
+        SessionScreen.status(statusInputs(rows: rows), asks: asks, waitingOn: waitingOn(rows: rows))
     }
 
     /// #FEED-257 (`waitingCases`): what the needs-input line opens; nil =
@@ -192,6 +192,21 @@ struct ChatHeaderTitle: View {
             inputs.insert(input(rows.root), at: 0)
         }
         return inputs
+    }
+
+    /// #NEW-49 (session-screen.json `waitingStatusCases`): what the chat's
+    /// ROOT waits on (`SessionTree.sessionWaiting`): its live children by
+    /// their titles (tree order), then its own watches; nil = nothing.
+    static func waitingOn(rows: ChatRows) -> String? {
+        let root = rows.session(id: rows.root.id) ?? rows.root
+        let children = rows.sessions.filter { $0.parentId == root.id && $0.id != root.id && $0.isLive }
+        if children.isEmpty && (root.watching ?? "").isEmpty { return nil }
+        let titles = rows.sessionTitles
+        return SessionTree.sessionWaiting(
+            TreeSession(sessionRow: root),
+            sessions: children.map { TreeSession(sessionRow: $0) },
+            name: { titles[$0.id] ?? $0.title ?? SessionTitle.Copy.untitled }
+        )
     }
 
     /// #EXP-1732 (session-screen.json `subtitle`): `status · device ·

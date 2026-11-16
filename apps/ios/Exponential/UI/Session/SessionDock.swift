@@ -39,6 +39,12 @@ enum SessionDock {
         let paused = hostPaused(model)
         let hasFeed = model.hasFeed
         let row = model.session ?? session
+        // #NEW-49 (dock.json `watches`): what it waits on, each cancellable
+        // in the card's sheet (`DockWatchesSheet`).
+        if !model.isOver {
+            let watching = SessionDock.watches(row)
+            if !watching.isEmpty { out.append(.watches(watching)) }
+        }
         let tree = TreeSession(sessionRow: row)
         // EXP-1374 (session-card.json `banner`): a background or queued
         // session's own card; #EXP-1703: a device that stayed away names
@@ -94,6 +100,11 @@ enum SessionDock {
         return out
     }
 
+    /// #NEW-49: a session's watches (`sessions.watching`) as the Dock reads them.
+    static func watches(_ session: SessionEntity) -> [Dock.Watch] {
+        SessionWatching.parseList(session.watching).map { Dock.Watch(id: $0.id, label: $0.label) }
+    }
+
     /// #EXP-1383 (chats.json `agentHint`): the "Instructions changed" banner
     /// of an agent chat's ROOT that still runs on instructions older than the
     /// agent's current ones (`Chats.agentInstructionsChanged`); nil = no hint.
@@ -144,5 +155,56 @@ enum SessionDock {
             GlassPill("Reconnect", icon: AppIcons.uiRefresh, mode: .action { model.connect(force: true) })
                 .accessibilityIdentifier("session-reconnect")
         )
+    }
+}
+
+/// #NEW-49 (dock.json `watches`): THE watches card's sheet: one row per
+/// watch (its label, trailing the ghost icon-xs `ui-close` whose label is
+/// `Dock.Copy.cancelWatch`, for a viewer who may steer), hairline-divided
+/// like the suggested tasks' rows. A tap cancels that watch
+/// (`sessions.unwatch`); the last one gone takes the card and its sheet.
+struct DockWatchesSheet: View {
+    let row: Dock.Row
+    let watches: [Dock.Watch]
+    var pending: Set<String> = []
+    /// nil = the viewer may not steer the session (no cancel glyph).
+    var onCancel: ((String) -> Void)?
+    let onClose: () -> Void
+
+    var body: some View {
+        DockSheetChrome(row: row, onClose: onClose) {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(watches.enumerated()), id: \.element.id) { index, watch in
+                    if index > 0 { GlassDivider() }
+                    watchRow(watch)
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.white)
+            // The rows pad themselves (as the suggested tasks' sheet).
+            .padding(.horizontal, -12)
+            .accessibilityIdentifier(Dock.TestIds.watches)
+        }
+    }
+
+    private func watchRow(_ watch: Dock.Watch) -> some View {
+        HStack(spacing: 8) {
+            Text(watch.label)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 8)
+            if let onCancel {
+                GhostIconButton(
+                    AppIcons.uiClose, accessibilityLabel: Dock.Copy.cancelWatch, size: 24, glyphSize: 12,
+                    tint: DesignTokens.Palette.mutedForeground, enabled: !pending.contains(watch.id),
+                    action: { onCancel(watch.id) }
+                )
+                .accessibilityIdentifier("dock-watch-cancel")
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(minHeight: WorkCards.Geometry.row)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("dock-watch")
     }
 }

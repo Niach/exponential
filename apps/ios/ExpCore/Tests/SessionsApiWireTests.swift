@@ -166,6 +166,14 @@ final class SessionsApiWireTests: XCTestCase {
         XCTAssertEqual(wire["account"] as? String, "work")
     }
 
+    /// #NEW-49: `sessions.unwatch` = `{sessionId, ids}` (the Dock's Stop waiting).
+    func testUnwatchSendsTheSessionAndTheIds() throws {
+        let wire = try json(UnwatchInput(sessionId: "s-1", ids: ["w-1"]))
+        XCTAssertEqual(wire.keys.sorted(), ["ids", "sessionId"])
+        XCTAssertEqual(wire["sessionId"] as? String, "s-1")
+        XCTAssertEqual(wire["ids"] as? [String], ["w-1"])
+    }
+
     func testSendResultDecodesWithAndWithoutAMessage() throws {
         let withMessage = try JSONDecoder().decode(
             SessionsSendResult.self,

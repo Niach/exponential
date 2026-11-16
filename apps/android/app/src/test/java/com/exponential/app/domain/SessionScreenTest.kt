@@ -183,6 +183,26 @@ class SessionScreenTest {
         }
     }
 
+    /** #NEW-49: `waitingStatusCases` (the root's sessionWaiting on an idle tree). */
+    @Test
+    fun `every waiting status case matches the fixture`() {
+        val all = cases("waitingStatusCases")
+        assertTrue(all.isNotEmpty())
+        for (case in all) {
+            val input = case.getValue("input").jsonObject
+            val sessions = input.getValue("sessions").jsonArray.map { it.jsonObject }.map { session ->
+                SessionScreen.StatusInput(
+                    status = session.str("status") ?: "",
+                    busy = session.getValue("busy").jsonPrimitive.boolean,
+                    needsInput = session.getValue("needsInput").jsonPrimitive.boolean,
+                    root = session.getValue("root").jsonPrimitive.boolean,
+                    blocked = session.str("blocked"),
+                )
+            }
+            assertEquals(case.str("name"), case.str("expected"), SessionScreen.status(sessions, waitingOn = input.str("waiting")))
+        }
+    }
+
     @Test
     fun `the copy, test ids, kinds, legacy tabs and beside equal the fixture`() {
         val copy = fixture.getValue("copy").jsonObject
@@ -201,6 +221,7 @@ class SessionScreenTest {
         assertEquals(status.str("queued"), SessionScreen.Copy.Status.QUEUED)
         assertEquals(status.str("done"), SessionScreen.Copy.Status.DONE)
         assertEquals(status.str("idle"), SessionScreen.Copy.Status.IDLE)
+        assertEquals(copy.str("waiting"), SessionScreen.Copy.WAITING)
 
         val ids = fixture.getValue("testIds").jsonObject
         assertEquals(ids.str("tabs"), SessionScreen.TestIds.TABS)

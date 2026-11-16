@@ -58,6 +58,9 @@ object SessionScreen {
             const val DONE = "done"
             const val IDLE = "idle"
         }
+
+        /** #NEW-49 `copy.waiting`: an idle tree whose root waits. */
+        const val WAITING = "waiting on {labels}"
     }
 
     object TestIds {
@@ -374,7 +377,7 @@ object SessionScreen {
     /** THE tree's status word (`statusCases`): needs input (#FEED-257: only
      *  while something waits, [waiting]) > working > queued (the root) >
      *  done (the root ended) > idle; an empty tree = idle. */
-    fun status(sessions: List<StatusInput>, asks: List<Ask> = emptyList()): String {
+    fun status(sessions: List<StatusInput>, asks: List<Ask> = emptyList(), waitingOn: String? = null): String {
         val live = sessions.filter { it.status != "ended" }
         val root = sessions.firstOrNull { it.root }
         return when {
@@ -382,6 +385,7 @@ object SessionScreen {
             live.any { it.busy } -> Copy.Status.WORKING
             root?.status == "queued" -> Copy.Status.QUEUED
             root?.status == "ended" -> Copy.Status.DONE
+            !waitingOn.isNullOrEmpty() -> Copy.WAITING.replace("{labels}", waitingOn)
             else -> Copy.Status.IDLE
         }
     }

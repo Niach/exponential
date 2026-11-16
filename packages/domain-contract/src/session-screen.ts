@@ -177,7 +177,9 @@ export function sessionScreenWaiting(
  *  root) > done (the root ended) > idle. */
 export function sessionScreenStatus(
   sessions: readonly SessionScreenStatusInput[],
-  asks: readonly SessionScreenAsk[] = []
+  asks: readonly SessionScreenAsk[] = [],
+  /** #NEW-49: the root's `sessionWaiting` (session-card.json); an idle tree reads "waiting on …". */
+  waiting: string | null = null
 ): string {
   const words = fixture.copy.status
   const live = sessions.filter((session) => session.status !== `ended`)
@@ -186,6 +188,7 @@ export function sessionScreenStatus(
   if (live.some((session) => session.busy)) return words.working
   if (root?.status === `queued`) return words.queued
   if (root?.status === `ended`) return words.done
+  if (waiting) return fixture.copy.waiting.replace(`{labels}`, () => waiting)
   return words.idle
 }
 

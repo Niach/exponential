@@ -22,6 +22,7 @@ import type {
 } from "@exp/domain-contract/session-tree"
 
 export * from "@exp/domain-contract/session-tree"
+import { sessionWaiting, treeOrder } from "@exp/domain-contract/session-tree"
 export {
   guideViewer,
   type GuideViewerEntry,
@@ -78,6 +79,8 @@ export function toTreeSession(row: SessionRow): TreeSession {
     background: row.background ?? false,
     needsInput: row.needsInput,
     blocked: row.blocked ?? null,
+    // #NEW-49: what it waits on (tolerant: anything but a list = nothing).
+    watching: Array.isArray(row.watching) ? row.watching : null,
     shared: row.shared,
     // EXP-1459: a sealed title this install opens wins; else the neutral one.
     title: openTitleWith(row.sealedTitle, row.rootId ?? row.id, currentKeySource()) ?? row.title,
@@ -143,4 +146,19 @@ export function keyMessageRows(rows: readonly SyncedMessageRow[]): MessageRow[] 
 
 export function toTreePullRequest(row: PullRequestRow): TreePullRequest {
   return { id: row.id, number: row.number, state: row.state }
+}
+
+/** #NEW-49 (session-card.json `sessionWaiting`): what `row` waits on: its
+ *  live children by the names their cards show (tree order), then its
+ *  watches; null = nothing. `rows` = its tree (any superset). */
+export function sessionWaitingOf(
+  row: SessionRow,
+  rows: readonly SessionRow[],
+  titles: ReadonlyMap<string, string>
+): string | null {
+  const children = rows
+    .filter((child) => child.parentId === row.id && child.status !== `ended`)
+    .map(toTreeSession)
+  const named = treeOrder(children).map((child) => ({ id: child.id, name: titles.get(child.id) ?? `` }))
+  return sessionWaiting(Array.isArray(row.watching) ? row.watching : null, named)
 }

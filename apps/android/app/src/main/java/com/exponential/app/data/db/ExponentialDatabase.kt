@@ -111,7 +111,9 @@ import androidx.room.TypeConverters
     //      [MIGRATION_127_128]; the new shape starts fresh.
     // v129 (#EXP-1847): agents.voice (the agent's own voice), explicit
     //      [MIGRATION_128_129]; only the agents shape refetches.
-    version = 129,
+    // v130 (#NEW-49): sessions.watching (what a session waits on), explicit
+    //      [MIGRATION_129_130]; only the sessions shape refetches.
+    version = 130,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

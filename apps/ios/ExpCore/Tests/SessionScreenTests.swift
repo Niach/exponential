@@ -67,6 +67,8 @@ final class SessionScreenTests: XCTestCase {
             "queued": SessionScreen.Copy.Status.queued, "done": SessionScreen.Copy.Status.done,
             "idle": SessionScreen.Copy.Status.idle,
         ])
+        // #NEW-49: an idle tree whose root waits.
+        XCTAssertEqual(copy["waiting"] as? String, SessionScreen.Copy.waiting)
         XCTAssertEqual(f["testIds"] as? [String: String], [
             "tabs": SessionScreen.TestIds.tabs,
             "beside": SessionScreen.TestIds.beside, "pane": SessionScreen.TestIds.pane,
@@ -205,6 +207,27 @@ final class SessionScreenTests: XCTestCase {
                 id: try XCTUnwrap(string(raw["id"]), name),
                 sessionId: try XCTUnwrap(string(raw["sessionId"]), name),
                 kind: try XCTUnwrap(SessionScreen.Ask.Kind(rawValue: try XCTUnwrap(string(raw["kind"]), name)), name)
+            )
+        }
+    }
+
+    /// #NEW-49: `waitingStatusCases` — the tree's word with the root's
+    /// `sessionWaiting` (an idle tree reads "waiting on …").
+    func testReplaysEveryWaitingStatusCase() throws {
+        for testCase in try cases("waitingStatusCases") {
+            let name = string(testCase["name"]) ?? ""
+            let input = try XCTUnwrap(testCase["input"] as? [String: Any], name)
+            let sessions = try XCTUnwrap(input["sessions"] as? [[String: Any]], name).map { raw in
+                SessionScreen.StatusInput(
+                    status: try XCTUnwrap(string(raw["status"]), name),
+                    busy: try XCTUnwrap(raw["busy"] as? Bool, name),
+                    needsInput: try XCTUnwrap(raw["needsInput"] as? Bool, name),
+                    blocked: string(raw["blocked"]),
+                    root: try XCTUnwrap(raw["root"] as? Bool, name)
+                )
+            }
+            XCTAssertEqual(
+                SessionScreen.status(sessions, waitingOn: string(input["waiting"])), string(testCase["expected"]), name
             )
         }
     }

@@ -328,7 +328,8 @@ struct ChatsView: View {
             previewItalic: row.preview.kind == .working || row.preview.kind == .locked,
             needsYou: row.needsYou,
             unreadCount: row.unreadCount,
-            word: row.word?.text,
+            // #NEW-49: `waiting` names what the idle root waits on.
+            word: SessionTree.chatRowWordText(row.word, waiting: lists.waiting[row.sessionId]),
             wordIcon: row.word == .stack ? AppIcons.prStack : nil,
             selected: selected
         ) {

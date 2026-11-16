@@ -73,6 +73,10 @@ class DockTest {
         "queued" -> Dock.Source.Queued(
             json.getValue("messages").jsonArray.map { Dock.QueuedMessage(it.jsonObject.str("id")!!, it.jsonObject.str("text")!!) },
         )
+        // #NEW-49: what the session waits on.
+        "watches" -> Dock.Source.Watches(
+            json.getValue("watches").jsonArray.map { Dock.Watch(it.jsonObject.str("id")!!, it.jsonObject.str("label")!!) },
+        )
         "suggestions" -> Dock.Source.Suggestions(
             id = json.str("id")!!,
             label = json.str("label")!!,
@@ -127,6 +131,8 @@ class DockTest {
         assertEquals(questions.str("many"), Dock.Copy.QUESTIONS_MANY)
         assertEquals(copy.str("close"), Dock.Copy.CLOSE)
         assertEquals(copy.str("showAll"), Dock.Copy.SHOW_ALL)
+        assertEquals(copy.str("watches"), Dock.Copy.WATCHES)
+        assertEquals(copy.str("cancelWatch"), Dock.Copy.CANCEL_WATCH)
         val icons = fixture.getValue("icons").jsonObject.mapValues { it.value.jsonPrimitive.content }
         assertEquals(
             mapOf(
@@ -137,6 +143,7 @@ class DockTest {
                 "open" to Dock.Icons.OPEN,
                 "close" to Dock.Icons.CLOSE,
                 "suggestions" to Dock.Icons.SUGGESTIONS,
+                "watches" to Dock.Icons.WATCHES,
             ),
             icons,
         )
@@ -150,6 +157,7 @@ class DockTest {
                 "sheetBody" to Dock.TestIds.SHEET_BODY,
                 "sheetFooter" to Dock.TestIds.SHEET_FOOTER,
                 "close" to Dock.TestIds.CLOSE,
+                "watches" to Dock.TestIds.WATCHES,
             ),
             ids,
         )

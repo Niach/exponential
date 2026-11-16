@@ -260,6 +260,10 @@ data class SessionsSetArchivedInput(val sessionIds: List<String>, val archived: 
 @Serializable
 private data class MessageIdInput(val messageId: String)
 
+/** #NEW-49: `sessions.unwatch` (cancel watches by `watching` id). */
+@Serializable
+data class SessionsUnwatchInput(val sessionId: String, val ids: List<String>)
+
 @Serializable
 private data class LinkIssuesInput(val sessionId: String, val issueIds: List<String>)
 
@@ -465,6 +469,17 @@ class SessionsApi @Inject constructor(
             path = "sessions.configure",
             input = input,
             inputSerializer = SessionConfigureInput.serializer(),
+        )
+    }
+
+    /** #NEW-49 (dock.json `watches`): stop waiting on [ids] (`sessions.watching`
+     *  entries); anyone who may steer the session. The row re-syncs without them. */
+    suspend fun unwatch(accountId: String, sessionId: String, ids: List<String>) {
+        trpc.mutationUnit(
+            accountId,
+            path = "sessions.unwatch",
+            input = SessionsUnwatchInput(sessionId, ids),
+            inputSerializer = SessionsUnwatchInput.serializer(),
         )
     }
 

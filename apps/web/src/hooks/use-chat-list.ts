@@ -18,8 +18,9 @@ import {
   useSessionReads,
   useTeamSessions,
   useChatsList,
+  useSessionTitles,
 } from "@/hooks/use-session-tree"
-import { type ChatRowWord } from "@/lib/session-tree"
+import { sessionWaitingOf, type ChatRowWord } from "@/lib/session-tree"
 
 // Chat 58cb32df (#EXP-1373, fixture `chats.json`): the Chats
 // screen's model (every form factor since #EXP-1380) for the ONE active team — the contract's `chatList` over
@@ -48,10 +49,19 @@ export function useChatList(
   appRows: AppChatRow[]
   /** A root's agent CLI (its brand mark). */
   cliOf: (sessionId: string) => string | null
+  /** #NEW-49: what a root waits on (the `waiting` word's labels), else null. */
+  waitingOf: (sessionId: string) => string | null
   isReady: boolean
 } {
   const { groups, isReady } = useChatsList(teamId)
   const { rows, tree } = useTeamSessions(teamId)
+  const { titles } = useSessionTitles(rows)
+  // #NEW-49: what each root waits on (its live children, its watches).
+  const waiting = useMemo(() => {
+    const out = new Map<string, string | null>()
+    for (const row of rows) if (!row.parentId) out.set(row.id, sessionWaitingOf(row, rows, titles))
+    return out
+  }, [rows, titles])
   const { agents } = useAgents(teamId, me)
   const { apps } = useApps(teamId)
   const reads = useSessionReads()
@@ -71,7 +81,7 @@ export function useChatList(
         if (row.depth > 0) continue
         const own = prs.byRoot.get(row.sessionId) ?? []
         prStates[row.sessionId] = own.map((pr) => pr.state)
-        words[row.sessionId] = chatWordOf(row, own, prs.all)
+        words[row.sessionId] = chatWordOf(row, own, prs.all, waiting.get(row.sessionId) ?? null)
       }
     }
     return chatList({
@@ -86,7 +96,7 @@ export function useChatList(
       // #EXP-1399 review: an ask mirror of a session I cannot see shows no text.
       visibleSessionIds: tree.map((session) => session.id),
     })
-  }, [groups, messages, reads, prs, view, nowIso, offset, tree])
+  }, [groups, messages, reads, prs, view, nowIso, offset, tree, waiting])
 
   const agentRows = useMemo(
     () =>
@@ -125,6 +135,7 @@ export function useChatList(
     agentRows,
     appRows,
     cliOf: (sessionId) => cliByRoot.get(sessionId) ?? null,
+    waitingOf: (sessionId) => waiting.get(sessionId) ?? null,
     isReady,
   }
 }

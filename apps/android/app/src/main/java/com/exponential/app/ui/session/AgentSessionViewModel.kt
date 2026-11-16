@@ -1581,6 +1581,31 @@ class AgentSessionViewModel @AssistedInject constructor(
     @Volatile
     var appPicks: AppPicks? = null
 
+    /** #NEW-49: a refused Stop waiting: `Couldn't cancel the watch`. */
+    private val _watchError = MutableStateFlow<com.exponential.app.ui.components.FailedAction?>(null)
+    val watchError: StateFlow<com.exponential.app.ui.components.FailedAction?> = _watchError
+    fun clearWatchError() {
+        _watchError.value = null
+    }
+
+    /** #NEW-49 (dock.json `watches`): the sheet's Stop waiting = `sessions.unwatch
+     *  {sessionId, ids: [watchId]}`; the synced row drops it. */
+    fun unwatch(watchId: String) {
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            try {
+                sessionsApi.unwatch(accountId, codingSessionId, listOf(watchId))
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _watchError.value = com.exponential.app.ui.components.FailedAction(
+                    "cancel",
+                    "the watch",
+                    trpcErrorMessage(t, "").ifBlank { null },
+                )
+            }
+        }
+    }
+
     /** EXP-1291: revoke one of the viewer's held messages (`sessions.unqueue`). */
     fun unqueueMessage(messageId: String) {
         viewModelScope.launch {
