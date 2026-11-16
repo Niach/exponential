@@ -85,6 +85,7 @@ struct Fixture {
     /// #EXP-1873: the chat-transcript specimen's check-ins.
     #[serde(rename = "checkInSpecimen")]
     check_in_specimen: Vec<CheckInSpecimenRow>,
+    #[serde(rename = "checkInSpecimenAgent")]
     check_in_specimen_agent: CheckInSpecimenAgent,
 }
 
