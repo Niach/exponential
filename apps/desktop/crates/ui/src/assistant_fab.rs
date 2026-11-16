@@ -427,6 +427,13 @@ impl AssistantFab {
         let Some((_, memory)) = self.memory.as_ref() else {
             return;
         };
+        // Nothing is decided before the sessions (the waiting cards ride
+        // their digests) and the read marks caught up: an empty snapshot
+        // would spend the welcome on a frame a needs-you card wins a moment
+        // later.
+        if !bubble_inputs_ready(cx) {
+            return;
+        }
         let shows = self.derived.is_some() && self.shows(cx);
         let messages = match &self.derived {
             Some(derived) => waiting_cards(&derived.assistant_id, cx),
@@ -709,7 +716,10 @@ impl RenderOnce for FabCircle {
             .active(|style| style.opacity(0.85))
             .child(mark)
             .children(crate::sidebar::nav_count(self.badge, cx).map(|badge| {
-                div().absolute().top(px(-2.)).right(px(-2.)).child(badge)
+                let badge = div().absolute().top(px(-2.)).right(px(-2.)).child(badge);
+                // The badge rides the entrance's fade (web: it sits inside
+                // the animated button), never ahead of the mark.
+                if self.entrance { entrance_fade(badge).into_any_element() } else { badge.into_any_element() }
             }))
     }
 }
@@ -781,6 +791,29 @@ fn entrance_scale(t: f32, stops: [f32; 3], times: [f32; 3]) -> f32 {
         }
     }
     stops[2]
+}
+
+/// The entrance's fade alone (the badge's share of it): the mark's opacity
+/// curve, or the reduced-motion fade.
+fn entrance_fade(element: gpui::Div) -> impl IntoElement {
+    let spec = &ASSISTANT_FAB.entrance;
+    if theme::motion::reduce_motion() {
+        return element
+            .with_animation(
+                "assistant-fab-entrance-badge",
+                Animation::new(Duration::from_millis(spec.reduced_motion.fade_ms)),
+                |badge, t| badge.opacity(t),
+            )
+            .into_any_element();
+    }
+    let lead_at = spec.scale_times[1].max(f32::EPSILON);
+    element
+        .with_animation(
+            "assistant-fab-entrance-badge",
+            Animation::new(Duration::from_millis(spec.duration_ms)),
+            move |badge, t| badge.opacity(theme::motion::decelerate()((t / lead_at).min(1.))),
+        )
+        .into_any_element()
 }
 
 /// #EXP-1876 THE entrance (`assistant.fab.entrance`, web `useFabEntrance`):
@@ -865,6 +898,15 @@ fn waiting_cards(agent_id: &str, cx: &App) -> Vec<(domain::rows::MessageRow, boo
         .collect()
 }
 
+/// The bubble's inputs synced: the sessions shape (the waiting cards ride
+/// its digests) and the read marks reached their first up-to-date.
+fn bubble_inputs_ready(cx: &App) -> bool {
+    let Some(store) = Store::try_global(cx) else {
+        return false;
+    };
+    store.collections().sessions.read(cx).is_ready() && store.collections().session_reads.read(cx).is_ready()
+}
+
 /// The synced read marks of the waiting cards' sessions: (session, readAt).
 fn session_reads(cards: &[(domain::rows::MessageRow, bool)], cx: &App) -> Vec<(String, String)> {
     let Some(store) = Store::try_global(cx) else {
@@ -938,7 +980,7 @@ fn speech_bubble(bubble: &SpeechBubble, fab: gpui::WeakEntity<AssistantFab>, win
     let body = v_flex()
         .min_w_0()
         .children(kicker)
-        .children((!bubble.text.is_empty()).then(|| div().line_clamp(spec.max_lines).child(SharedString::from(bubble.text.clone()))));
+        .children((!bubble.text.is_empty()).then(|| div().text_ellipsis().line_clamp(spec.max_lines).child(SharedString::from(bubble.text.clone()))));
     // TODO(tail-down): `tail: Down` (PR 1 of #EXP-1876) once THE message
     // bubble takes it: the tail at the bottom, pointing at the FAB.
     let card = crate::session_chat::message_bubble(

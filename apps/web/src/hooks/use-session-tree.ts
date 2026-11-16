@@ -258,6 +258,11 @@ function useTitleContext(teamIds: readonly string[]) {
   )
 }
 
+/** #EXP-1876: the viewer's read marks reached their first up-to-date. */
+export function useSessionReadsReady(): boolean {
+  return useLiveQuery((query) => query.from({ reads: sessionReadsCollection }), []).isReady
+}
+
 /** EXP-1323: the viewer's read marks (`session_reads`, a per-user shape). */
 export function useSessionReads(): TreeSessionRead[] {
   const { data } = useLiveQuery((query) => query.from({ reads: sessionReadsCollection }), [])

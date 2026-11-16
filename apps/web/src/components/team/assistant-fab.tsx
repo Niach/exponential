@@ -39,7 +39,7 @@ import { useAgentBadges } from "@/components/team/sidebar-agents"
 import { useMyAgentConversation } from "@/hooks/use-agent-row"
 import { useSession } from "@/hooks/use-session"
 import { useSessionNav } from "@/hooks/use-session-nav"
-import { useAgents, useDigestMessages, useSessionChat, useSessionReads, useTeamSessions } from "@/hooks/use-session-tree"
+import { useAgents, useDigestMessages, useSessionChat, useSessionReads, useSessionReadsReady, useTeamSessions } from "@/hooks/use-session-tree"
 import { useSuggestionActions } from "@/hooks/use-suggestion-actions"
 import { useTeamUsers } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
@@ -506,14 +506,21 @@ function useWindowFocused(): boolean {
 /** The Assistant conversation tree's waiting cards (an unanswered plan /
  *  question / ask card on a session that waits on the viewer): what turns
  *  the FAB's badge yellow. */
-function useWaitingCards(conversation: SessionRow | null): { cards: AssistantFabWaitingCard[]; byId: Map<string, TreeMessage> } {
-  const { tree } = useTeamSessions(conversation?.teamId ?? null)
+function useWaitingCards(
+  teamId: string,
+  conversation: SessionRow | null
+): { cards: AssistantFabWaitingCard[]; byId: Map<string, TreeMessage>; ready: boolean } {
+  // The team's sessions (not the conversation's): an Assistant nobody has
+  // talked to yet has no conversation, and its welcome must not wait on one.
+  const { tree, isReady: treeReady } = useTeamSessions(teamId)
   const waiting = useMemo(
     () => (conversation ? tree.filter((s) => s.rootId === conversation.id && s.needsInput).map((s) => s.id) : []),
     [tree, conversation]
   )
-  const { messages } = useDigestMessages({ sessionIds: waiting })
-  return useMemo(() => {
+  const { messages, isReady: digestsReady, loaded } = useDigestMessages({ sessionIds: waiting })
+  // Settled = the sessions synced and every waiting session's digest read.
+  const ready = treeReady && (waiting.length === 0 || (digestsReady && waiting.every((id) => loaded.has(id))))
+  const view = useMemo(() => {
     const open = messages.filter(
       (m) => m.answeredAt === null && m.card !== null && WAITING_CARD_KINDS.has(String(m.card.kind))
     )
@@ -522,6 +529,7 @@ function useWaitingCards(conversation: SessionRow | null): { cards: AssistantFab
       byId: new Map(open.map((m) => [m.id, m])),
     }
   }, [messages])
+  return { ...view, ready }
 }
 
 /** The bubble's kicker + text of a waiting card: the chat list's preview
@@ -538,8 +546,12 @@ export function waitingCardView(message: TreeMessage): { cardKind: `plan` | `que
  *  shown bubble for `stayMs` (hover pauses) and reports the toast lift. */
 function useFabSpeech({ assistant, me, widgetOpen }: { assistant: AgentRow; me: string | null; widgetOpen: boolean }) {
   const conversation = useMyAgentConversation(assistant.agentId, me)
-  const { cards, byId } = useWaitingCards(conversation)
+  const { cards, byId, ready: cardsReady } = useWaitingCards(assistant.teamId, conversation)
   const reads = useSessionReads()
+  const readsReady = useSessionReadsReady()
+  // Nothing is decided before the inputs settled: an empty first snapshot
+  // would spend the welcome on a frame a needs-you card wins a moment later.
+  const settled = cardsReady && readsReady
   const focused = useWindowFocused()
   const [welcomeSeen, setWelcomeSeen] = useState(() => readFlag(deviceKey(me, `welcomed`)))
   const [bubbled, setBubbled] = useState(() => readList(deviceKey(me, `bubbled`)))
@@ -550,6 +562,7 @@ function useFabSpeech({ assistant, me, widgetOpen }: { assistant: AgentRow; me: 
 
   const decision = useMemo(
     () =>
+      settled &&
       assistantFabBubble({
         welcomeSeen,
         cards,
@@ -560,7 +573,7 @@ function useFabSpeech({ assistant, me, widgetOpen }: { assistant: AgentRow; me: 
         onAssistantPage: false,
         focused,
       }),
-    [welcomeSeen, cards, reads, bubbled, widgetOpen, focused]
+    [settled, welcomeSeen, cards, reads, bubbled, widgetOpen, focused]
   )
 
   useEffect(() => {
@@ -659,12 +672,18 @@ function FabSpeechBubble({
       { duration: ASSISTANT_FAB_BUBBLE.popInMs, easing: EASE_DECELERATE }
     )
   }, [key, reduced])
+  // A stable ref: an inline one re-runs on every render, and its detach /
+  // attach pair (setHeight 0, then the height) re-renders forever.
+  const setRefs = useCallback(
+    (el: HTMLDivElement | null) => {
+      popRef.current = el
+      measureRef(el)
+    },
+    [measureRef]
+  )
   return (
     <div
-      ref={(el) => {
-        popRef.current = el
-        measureRef(el)
-      }}
+      ref={setRefs}
       role="button"
       tabIndex={0}
       data-testid={ASSISTANT_FAB_TEST_IDS.bubble}
