@@ -60,6 +60,7 @@ import {
 } from "./android.ts"
 import { IOS_MOBILE_FFI, iosFfiProblems, iosProjectMissing, iosSimArch } from "./ios.ts"
 import { isolatedStack, relayHealthUrl, relayUrl } from "./stack.ts"
+import { ENET_RUSTUP_STEPS, wasmBindgenCliVersion, wasmBindgenLockVersion, wasmBindgenToolRoot } from "./enet.ts"
 import { baselineSkipNote, scopeSince, storeBaseline, type AffectedScope } from "./affected.ts"
 import {
   captureDesktop,
@@ -752,17 +753,56 @@ function ensureWebEnet(): Promise<string | undefined> {
   webEnet ??= (async () => {
     if (existsSync(join(repoRoot(), WEB_ENET.wasm))) return undefined
     console.log(`\n── web: ${WEB_ENET.wasm} is missing, building it ──`)
+    const missing = (step: string) =>
+      `${WEB_ENET.wasm} is missing and ${step} — without it every session page reads "No live transcript"`
+    const toolchain = await webEnetToolchain()
+    if (`problem` in toolchain) return missing(toolchain.problem)
     const result = await run({
       cmd: [`bash`, WEB_ENET.script],
       cwd: repoRoot(),
+      env: { PATH: toolchain.path },
       stream: true,
       label: `[web:enet]`,
       timeoutMs: 45 * 60_000,
     })
     if (result.code === 0 && existsSync(join(repoRoot(), WEB_ENET.wasm))) return undefined
-    return `${WEB_ENET.wasm} is missing and \`bash ${WEB_ENET.script}\` exited ${result.code} (its log says what to install) — without it every session page reads "No live transcript"`
+    return missing(`\`bash ${WEB_ENET.script}\` exited ${result.code} (its log says what to install)`)
   })()
   return webEnet
+}
+
+/**
+ * The PATH `build-enet-wasm.sh` runs with: the pinned toolchain's wasm32 target
+ * and llvm-tools added, and wasm-bindgen-cli at the lock's version first
+ * (installed into its versioned root when the PATH one is another version).
+ */
+async function webEnetToolchain(): Promise<{ path: string } | { problem: string }> {
+  const desktop = join(repoRoot(), `apps/desktop`)
+  const path = process.env.PATH ?? ``
+  // From apps/desktop: rust-toolchain.toml picks the pinned toolchain.
+  for (const cmd of ENET_RUSTUP_STEPS) {
+    const step = await run({ cmd: [...cmd], cwd: desktop, stream: true, label: `[web:enet]` })
+    if (step.code !== 0) return { problem: `\`${cmd.join(` `)}\` exited ${step.code}` }
+  }
+  const want = wasmBindgenLockVersion(readFileSync(join(desktop, `Cargo.lock`), `utf8`))
+  if (!want) return { problem: `apps/desktop/Cargo.lock pins no wasm-bindgen` }
+  const have = (await run({ cmd: [`wasm-bindgen`, `--version`] }).catch(() => undefined))?.stdout
+  if (have && wasmBindgenCliVersion(have) === want) return { path }
+  const target = process.env.CARGO_TARGET_DIR || join(desktop, `target`)
+  const root = wasmBindgenToolRoot(target, want)
+  const bin = join(root, `bin`)
+  if (!existsSync(join(bin, `wasm-bindgen`))) {
+    console.log(`── web: installing wasm-bindgen-cli ${want} into ${root} ──`)
+    const install = await run({
+      cmd: [`cargo`, `install`, `wasm-bindgen-cli`, `--version`, want, `--locked`, `--root`, root],
+      cwd: desktop,
+      stream: true,
+      label: `[web:enet]`,
+      timeoutMs: 30 * 60_000,
+    })
+    if (install.code !== 0) return { problem: `\`cargo install wasm-bindgen-cli --version ${want}\` exited ${install.code}` }
+  }
+  return { path: `${bin}:${path}` }
 }
 
 async function captureWebPass(
