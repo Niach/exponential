@@ -13,8 +13,10 @@ import {
   assertBinaryFromCheckout,
   binaryCheckout,
   desktopChangelogHeadId,
+  desktopWaitsForFeed,
   makeDataDir,
 } from "./capture-desktop.ts"
+import { viewsFor } from "@exp/view-catalog"
 
 describe(`makeDataDir`, () => {
   test(`pre-dismisses the head changelog entry, with or without a repos root`, () => {
@@ -93,5 +95,29 @@ describe(`windowCapture`, () => {
     expect(windowCapture({})).toBe(true)
     expect(windowCapture({ SHOTS_DESKTOP_CAPTURE: `window` })).toBe(true)
     expect(windowCapture({ SHOTS_DESKTOP_CAPTURE: ` RECT ` })).toBe(false)
+  })
+})
+
+/**
+ * #EXP-1886: a chat's Chat tab is the steer feed. A capture that did not
+ * wait for its first replay photographed "No live transcript" (chat-screen),
+ * "Waiting for activity" (chat-replies) or "offline" (session-slash-menu).
+ */
+describe(`desktopWaitsForFeed`, () => {
+  test(`every view on a chat's Chat tab waits for the feed`, () => {
+    const onChatTab = viewsFor(`desktop`).filter(
+      (view) =>
+        view.desktop?.drive.kind === `screen` &&
+        view.desktop.drive.value?.startsWith(`chat:`) &&
+        !view.desktop.env?.EXP_DEV_CHAT_CHILD
+    )
+    expect(onChatTab.map((view) => view.id)).toContain(`chat-screen`)
+    expect(onChatTab.filter((view) => !desktopWaitsForFeed(view.desktop!)).map((view) => view.id)).toEqual([])
+  })
+
+  test(`a session screen waits on its own; a settings page never`, () => {
+    expect(desktopWaitsForFeed({ drive: { kind: `screen`, value: `session:$session` } })).toBe(true)
+    expect(desktopWaitsForFeed({ drive: { kind: `screen`, value: `chat:$chat` }, env: { EXP_DEV_WAIT_FEED: `1` } })).toBe(true)
+    expect(desktopWaitsForFeed({ drive: { kind: `settings`, value: `profile` } })).toBe(false)
   })
 })
