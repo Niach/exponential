@@ -18,6 +18,10 @@ import {
   steerOfflineRedial,
   steerNoFeedState,
   steerNoFeedInputs,
+  steerSyncedTail,
+  steerOfflineLine,
+  type SteerTailFeedRow,
+  type SteerSyncedMessage,
   steerRowWakes,
   type SteerWakeRow,
   type SteerNoFeedInputRow,
@@ -67,6 +71,22 @@ describe(`steer over eNet (fixtures/steer-enet.json)`, () => {
   for (const c of fixture.noFeedInputCases) {
     test(`noFeedInputs: ${c.name}`, () => {
       expect(steerNoFeedInputs(c.messages as SteerNoFeedInputRow[], c.max).map((m) => m.id)).toEqual(c.expected)
+    })
+  }
+  for (const c of fixture.syncedTailCases) {
+    test(`syncedTail: ${c.name}`, () => {
+      const picked = steerSyncedTail({
+        live: c.live,
+        feed: c.feed as SteerTailFeedRow[],
+        messages: c.messages as SteerSyncedMessage[],
+        max: c.max,
+      })
+      expect(picked.map((m) => m.id)).toEqual(c.expected)
+    })
+  }
+  for (const c of fixture.offlineLineCases) {
+    test(`offlineLine: ${c.name}`, () => {
+      expect(steerOfflineLine(c)).toBe(c.line)
     })
   }
   for (const c of fixture.rowWakeCases) {
