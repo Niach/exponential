@@ -46,6 +46,16 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-16-phones-issue-chip-punctuation",
+    date: "2026-11-16",
+    title: "An issue reference keeps its punctuation",
+    summary: "Android 0.14.147 and iOS 0.14.136: an issue reference in a chat message or description no longer leaves the full stop or comma that follows it alone at the start of the next line.",
+    body: r##"- **Punctuation stays with the chip**: when a line wraps right after an issue reference, the full stop, comma or closing bracket touching it moves with it instead of starting the next line."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_315: ChangelogEntry = ChangelogEntry {
     id: "2026-11-16-desktop-cli-0-14-167-quiet-check-ins-and-build-cache",
     date: "2026-11-16",
     title: "Quiet check-ins on one line, and a self-cleaning build cache",

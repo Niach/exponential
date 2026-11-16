@@ -7,6 +7,9 @@ root=$(mktemp -d "${TMPDIR:-/tmp}/exp-lane-test.XXXXXX")
 trap 'rm -rf "$root"' EXIT
 # The machine config must not leak into the checks (mint says heavy=2).
 export XDG_CONFIG_HOME="$root/config"
+# Nor may the checks write the machine's queue log.
+export XDG_STATE_HOME="$root/state"
+unset LANE_LOG
 fails=0
 ok() { echo "ok - $1"; }
 no() { echo "not ok - $1"; fails=$((fails + 1)); }
@@ -122,5 +125,61 @@ mkdir -p "$XDG_CONFIG_HOME/exponential" && printf 'heavy=3\n' > "$XDG_CONFIG_HOM
 printf 'heavy=1\n' > "$root/exp-lane-slots"
 [ "$(lane_slots heavy)" = 1 ] && ok "the lock-root file overrides the machine config" || no "the lock-root file overrides the machine config"
 rm -f "$root/exp-lane-slots" "$XDG_CONFIG_HOME/exponential/lane-slots"
+
+
+# #EXP-1844: who holds a lane, for how long, and a max hold for heavy.
+log="$root/state/exponential/lanes.log"
+now=$(date +%s)
+EXP_MCP_SESSION_ID=abcdef12-3456-7890-abcd-ef1234567890 LANE_LOCK_PID=$$ take_lock "$root/exp-perf-heavy-1" me
+[ "$(lock_field "$root/exp-perf-heavy-1" 5)" = abcdef12 ] && ok "the owner file records the session" || no "the owner file records the session"
+grep -q "exp-perf-heavy-1 take owner=me session=abcdef12 pid=$$ waited=0s" "$log" && ok "a take is logged" || no "a take is logged"
+LANE_LOCK_PID=$$ release_lock "$root/exp-perf-heavy-1" me
+grep -q "exp-perf-heavy-1 release owner=me .* held=[0-9]*s" "$log" && ok "a release is logged with its hold time" || no "a release is logged with its hold time"
+
+mkdir "$root/described" && echo "other $((now - 125)) $$ $host sess1234" > "$root/described/owner"
+d=$(lock_describe "$root/described")
+[ "$d" = "held by other (session sess1234, pid $$) for 2m" ] && ok "a busy lock names owner, session, pid and age" || no "a busy lock names owner, session, pid and age (got '$d')"
+
+# A live heavy holder past LANE_MAX_HOLD_SECONDS hands its slot to the next
+# waiter, and the overrun holder can no longer release the new holder's lock.
+mkdir "$root/exp-perf-heavy-1" && echo "slow $((now - 100)) $$ $host sess0001" > "$root/exp-perf-heavy-1/owner"
+out=$(LANE_MAX_HOLD_SECONDS=60 LANE_LOCK_POLL_SECONDS=0 "$here/lane.sh" heavy fast -- sh -c 'cut -d" " -f1 "$EXP_LANE_LOCK_ROOT/exp-perf-heavy-1/owner"' 2>/dev/null)
+[ "$out" = fast ] && ok "an overdue heavy holder hands its slot to the waiter" || no "an overdue heavy holder hands its slot to the waiter (got '$out')"
+grep -q "exp-perf-heavy-1 handover owner=slow session=sess0001 pid=$$ held=[0-9]*s reason=overdue to=fast" "$log" && ok "a handover is logged with the old holder's hold" || no "a handover is logged with the old holder's hold"
+mkdir "$root/exp-perf-heavy-1" && echo "slow $((now - 100)) $$ $host sess0001" > "$root/exp-perf-heavy-1/owner"
+if LANE_MAX_HOLD_SECONDS=0 try_take_lock "$root/exp-perf-heavy-1" fast 2>/dev/null; then no "LANE_MAX_HOLD_SECONDS=0 never hands over"; else ok "LANE_MAX_HOLD_SECONDS=0 never hands over"; fi
+if LANE_MAX_HOLD_SECONDS=600 try_take_lock "$root/exp-perf-heavy-1" fast 2>/dev/null; then no "a heavy holder within its max hold keeps the slot"; else ok "a heavy holder within its max hold keeps the slot"; fi
+rm -rf "$root/exp-perf-heavy-1"
+mkdir "$root/exp-ios-sim-1" && echo "sim $((now - 100000)) $$ $host sess0002" > "$root/exp-ios-sim-1/owner"
+if LANE_MAX_HOLD_SECONDS=60 try_take_lock "$root/exp-ios-sim-1" fast 2>/dev/null; then no "a device lane is never handed over"; else ok "a device lane is never handed over"; fi
+rm -rf "$root/exp-ios-sim-1"
+mkdir "$root/handed" && echo "me $now 1 $host -" > "$root/handed/owner"
+if LANE_LOCK_PID=$$ release_lock "$root/handed" me 2>/dev/null; then no "a handed-over holder never frees the new holder's lock"; else ok "a handed-over holder never frees the new holder's lock"; fi
+
+# The holder is warned at its deadline, its command keeps running to the end.
+err=$(LANE_MAX_HOLD_SECONDS=1 "$here/lane.sh" heavy long -- sh -c 'sleep 2; echo done' 2>&1)
+case "$err" in *"keeps running"*done*) ok "the holder is warned at the max hold and keeps running" ;; *) no "the holder is warned at the max hold and keeps running (got '$err')" ;; esac
+grep -q "exp-perf-heavy-1 overrun owner=long .* held=1s" "$log" && ok "an overrun is logged" || no "an overrun is logged"
+[ ! -e "$root/exp-perf-heavy-1" ] && ok "an overrun holder still releases its slot" || no "an overrun holder still releases its slot"
+
+# A waiter names the holder's session, is logged and listed by `status`.
+mkdir "$root/exp-perf-heavy-1" && echo "busy $((now - 300)) $$ $host sess0003" > "$root/exp-perf-heavy-1/owner"
+EXP_MCP_SESSION_ID=waiter99 LANE_LOCK_POLL_SECONDS=1 "$here/lane.sh" heavy queued -- true 2>"$root/waiter.err" &
+waiter=$!
+i=0; while ! grep -q waiting "$root/waiter.err" 2>/dev/null && [ $i -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
+grep -q "heavy lane busy: held by busy (session sess0003, pid $$) for 5m" "$root/waiter.err" && ok "a waiter is told who holds the lane and for how long" || no "a waiter is told who holds the lane and for how long ($(cat "$root/waiter.err"))"
+status=$("$here/lane.sh" status)
+echo "$status" | grep -q "^heavy slot 1: held by busy (session sess0003, pid $$) for 5m" && ok "status prints the holder" || no "status prints the holder ($status)"
+echo "$status" | grep -q "exp-perf-heavy-1: queued (session waiter99, pid [0-9]*) for" && ok "status prints the waiters" || no "status prints the waiters ($status)"
+echo "$status" | grep -q "^ios slot 1: free" && ok "status prints a free lane" || no "status prints a free lane"
+grep -q "exp-perf-heavy-1 wait owner=queued session=waiter99 .* holder=busy holder_session=sess0003" "$log" && ok "a wait is logged with the holder" || no "a wait is logged with the holder"
+rm -rf "$root/exp-perf-heavy-1"
+wait "$waiter"
+grep -q "take owner=queued session=waiter99 pid=[0-9]* waited=[0-9]*s" "$log" && ok "the waiter's take is logged with its wait" || no "the waiter's take is logged with its wait"
+[ -z "$(ls "$root/exp-lane-waiters" 2>/dev/null)" ] && ok "a waiter that got its slot leaves the queue" || no "a waiter that got its slot leaves the queue"
+
+# Gradle daemons don't outlive their session (#EXP-1844): an idle timeout
+# well under the 3 h default.
+grep -q '^org.gradle.daemon.idletimeout=1800000$' "$here/../../apps/android/gradle.properties" && ok "gradle daemons stop after 30 idle minutes" || no "gradle daemons stop after 30 idle minutes"
 
 [ "$fails" -eq 0 ] && echo "all lane lock checks passed" || { echo "$fails lane lock check(s) failed"; exit 1; }

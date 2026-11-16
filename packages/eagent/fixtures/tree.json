@@ -1801,6 +1801,125 @@
       }
     },
     {
+      "name": "#FEED-253: a run its device ended on a stall reports WHY (endReason), never the fallback nor a stale mid-work reply",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1",
+            "status": "idle"
+          },
+          {
+            "id": "c1",
+            "parentId": "r1",
+            "status": "running",
+            "busy": true
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "device.reply",
+            "at": 60000,
+            "data": {
+              "sessionId": "c1",
+              "body": "Building the app now."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "c1",
+              "authorKind": "agent",
+              "authorSessionId": null,
+              "body": "Building the app now.",
+              "card": null,
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "r1",
+              "authorKind": "agent",
+              "authorSessionId": "c1",
+              "body": "Building the app now.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "c1",
+            "messageId": "m1"
+          }
+        },
+        {
+          "event": {
+            "kind": "device.report",
+            "at": 1600000,
+            "data": {
+              "sessionId": "c1",
+              "deviceId": "d1",
+              "status": "ended",
+              "endReason": "stalled"
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m3",
+              "to": "c1",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "event",
+                "event": "session_ended",
+                "sessionId": "c1"
+              },
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m4",
+              "to": "r1",
+              "authorKind": "agent",
+              "authorSessionId": "c1",
+              "body": "Stopped responding mid-turn (no output, and an interrupt changed nothing), so its device ended the run. A message to it resumes the work.",
+              "card": {
+                "kind": "report",
+                "sessionId": "c1",
+                "summary": "Stopped responding mid-turn (no output, and an interrupt changed nothing), so its device ended the run. A message to it resumes the work.",
+                "final": true
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "kill",
+              "sessionId": "c1"
+            }
+          ],
+          "result": {
+            "sessionId": "c1",
+            "endedIds": [
+              "c1"
+            ]
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "c1": {
+            "status": "ended"
+          }
+        }
+      }
+    },
+    {
       "name": "an ended row ignores late reports; a report from a device the session left is ignored",
       "given": {
         "sessions": [

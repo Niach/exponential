@@ -83,6 +83,25 @@ export function gatedChecks<T extends PrCheckLike>(checks: readonly T[]): T[] {
   return required.length > 0 ? required : [...checks]
 }
 
+/** #EXP-1862 (merge-train.json READINESS `gating`): the train's checks
+ *  state. `required` = the base's required names (forge protection + the
+ *  repo's own `requiredChecks`); `informational` = our own CI's check names
+ *  the repo does NOT mark required: they never hold, bounce or delay a PR,
+ *  whatever the base's protection says or fails to say (no names known, a
+ *  base without protection, an unreadable read). */
+export function trainChecksState(
+  checks: readonly PrCheckLike[],
+  required: Iterable<string>,
+  informational: Iterable<string> = []
+): PrChecksState {
+  const names = new Set(required)
+  const skip = new Set([...informational].filter((name) => !names.has(name)))
+  return requiredChecksState(
+    checks.filter((check) => !skip.has(check.name)),
+    names
+  )
+}
+
 /** #EXP-1711 (merge-train.json READINESS): the aggregate over the GATED
  *  checks only — what holds a PR before the train; an informational leg
  *  (not required while the base names required ones) never does. */

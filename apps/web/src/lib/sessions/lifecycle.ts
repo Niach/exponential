@@ -8,7 +8,7 @@ import { generateTxId } from "@/lib/trpc"
 import { emitEventInTx } from "@/lib/events"
 import { assertCanSteer, loadSessionForUser, sessionVisibleTo } from "@/lib/sessions/access"
 import { getTeamMember } from "@/lib/auth/membership"
-import { busListeners, busReport, closeAskMirrorsOf, forgetWatched, type ListenerCopy } from "@/lib/sessions/bus"
+import { busListeners, busReport, closeAskMirrorsOf, forgetWatched, REPORT_REASONS, type ListenerCopy, type ReportEndReason } from "@/lib/sessions/bus"
 import { lockSessionRows, lockTreeRows } from "@/lib/sessions/locks"
 import { isSealedBody, validSealedCard } from "@/lib/sessions/sealed"
 import { postAgentMessage, postMovedMessage, postSystemCard } from "@/lib/sessions/messages"
@@ -372,8 +372,17 @@ export async function deleteSession(args: { userId: string; sessionId: string })
  *  CHILD gets here: a chat's root and an agent's conversation survive
  *  their process (`sessions.report` turns their `ended` into `idle`,
  *  FEED-134) and a message resumes the same row. */
-export async function endDeadSessionInTx(tx: Tx, session: TreeRow): Promise<boolean> {
-  const ended = await endRowsInTx(tx, [session])
+export async function endDeadSessionInTx(
+  tx: Tx,
+  session: TreeRow,
+  /** #FEED-253: why its device ended the run (the report says it). */
+  endReason?: ReportEndReason
+): Promise<boolean> {
+  const ended = await endRowsInTx(
+    tx,
+    [session],
+    endReason ? { id: session.id, summary: REPORT_REASONS[endReason] } : null
+  )
   return ended.length > 0
 }
 

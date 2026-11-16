@@ -1117,6 +1117,8 @@ struct ReportData {
     blocked: Field<Wall>,
     lost: Option<String>,
     mid_turn: Option<bool>,
+    /// #FEED-253: why the device ended the run itself (`rules.report.reasons`).
+    end_reason: Option<String>,
 }
 
 fn report(ctx: &mut Ctx, data: ReportData) -> Step<StepResult> {
@@ -1164,7 +1166,10 @@ fn report(ctx: &mut Ctx, data: ReportData) -> Step<StepResult> {
     if status == Some(Status::Ended) {
         ctx.row_mut(&row.id).busy = false;
         let mut ended_ids = sweep_subagents(ctx, &row.id);
-        ended_ids.extend(end_rows(ctx, std::slice::from_ref(&row.id), None));
+        // #FEED-253: a run its device ended reports why, never a stale mid-work reply nor the fallback.
+        let reason = data.end_reason.as_deref().and_then(|reason| rules().report.reasons.get(reason));
+        let named = reason.map(|reason| Named { id: &row.id, summary: Some(reason.as_str()), summary_sealed: false });
+        ended_ids.extend(end_rows(ctx, std::slice::from_ref(&row.id), named));
         return Ok(StepResult { ended_ids: Some(ended_ids), ..StepResult::session(&row.id) });
     }
     let (blocked, handled) = match data.blocked {

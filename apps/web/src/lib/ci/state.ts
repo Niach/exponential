@@ -28,12 +28,16 @@ export function specJob(row: CiJob): SpecJob {
 
 /** The run's scheduler state: its jobs in queue order and the runners that
  *  run them. `lastSeen` = the runner's newest sign of life (its device
- *  heartbeat or a job beat). */
+ *  heartbeat or a job beat). `expected` = each check's last run duration on
+ *  the repository (ms), the claim order's `expectMs` (#EXP-1862). */
 export function runState(
   rows: readonly CiJob[],
-  runners: ReadonlyArray<{ id: string; labels: string[]; slots: number; lastSeen: number }>
+  runners: ReadonlyArray<{ id: string; labels: string[]; slots: number; lastSeen: number }>,
+  expected?: ReadonlyMap<string, number>
 ): RunnerState {
-  const jobs = [...rows].sort((a, b) => a.position - b.position).map(specJob)
+  const jobs = [...rows]
+    .sort((a, b) => a.position - b.position)
+    .map((row) => ({ ...specJob(row), expectMs: expected?.get(row.check) ?? null }))
   const spec: SpecRunner[] = runners.map((runner) => ({
     ...runner,
     running: jobs.filter((job) => job.status === `in_progress` && job.runner === runner.id).map((job) => job.id),

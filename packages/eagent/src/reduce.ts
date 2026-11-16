@@ -753,6 +753,8 @@ interface ReportData {
   blocked?: (Omit<Blocked, `since`> & { since?: number; handled?: boolean }) | null
   lost?: `process_lost` | `daemon_restart`
   midTurn?: boolean
+  /** #FEED-253: why the device ended the run itself (`rules.report.reasons`). */
+  endReason?: keyof typeof rules.report.reasons
 }
 
 function report(ctx: Ctx, data: ReportData): StepResult {
@@ -785,7 +787,10 @@ function report(ctx: Ctx, data: ReportData): StepResult {
   if (status === `ended`) {
     row.busy = false
     const swept = sweepSubagents(ctx, row)
-    const endedIds = [...swept, ...endRows(ctx, [row])]
+    // #FEED-253: a run its device ended reports why, never a stale mid-work reply nor the fallback.
+    const reason = data.endReason ? rules.report.reasons[data.endReason] : undefined
+    const named = reason ? { id: row.id, summary: reason, summarySealed: false } : undefined
+    const endedIds = [...swept, ...endRows(ctx, [row], named)]
     return { sessionId: row.id, endedIds }
   }
   const { handled = false, ...wall } = data.blocked ?? {}

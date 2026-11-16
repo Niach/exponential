@@ -481,8 +481,14 @@ fn finish_row(
     }
     match lost {
         Some(lost) => coding::end_session_lost(trpc, &ctx.session_id, lost, mid_turn),
-        None => coding::end_session(trpc, &ctx.session_id),
+        None => coding::end_session_because(trpc, &ctx.session_id, end_reason(ctx)),
     }
+}
+
+/// #FEED-253: why THIS device ends the run, said in its end report (the
+/// parent reads it instead of "Ended without a summary.").
+pub(crate) fn end_reason(ctx: &SessionCtx) -> Option<api::session_device::EndReason> {
+    ctx.stalled.load(Ordering::SeqCst).then_some(api::session_device::EndReason::Stalled)
 }
 
 /// EXP-1669: did this run fail to START? It expected a first turn
@@ -1235,6 +1241,7 @@ fn tick_stall(
                 silent.as_secs()
             );
             ctx.set_failure(crate::stall::StallWatchdog::end_reason(silent));
+            ctx.stalled.store(true, Ordering::SeqCst);
             let _ = commands.send(EngineCommand::Shutdown { outcome: "ended" });
         }
     }

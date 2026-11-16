@@ -28,11 +28,15 @@ import {
   type PrMergeState,
   type TeamMergeMode,
 } from "./merge-train"
+import { trainChecksState } from "./pr-checks"
 
 // EXP-1707: the TS reference replays fixtures/merge-train.json.
 describe(`merge-train fixture`, () => {
   it.each(fixture.readiness)(`readiness: $name`, ({ input, expected }) => {
     expect(mergeWait(input as never)).toBe(expected as never)
+  })
+  it.each(fixture.gating.cases)(`gating: $name`, ({ input, expected }) => {
+    expect(trainChecksState(input.checks as never, input.required, input.informational)).toBe(expected as never)
   })
   it.each(fixture.steps)(`step: $name`, ({ pr, event, expected }) => {
     expect(mergeStep(pr as never, event as never)).toEqual(expected as never)

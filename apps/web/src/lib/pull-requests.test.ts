@@ -125,9 +125,12 @@ import { compareChangedPaths } from "@/lib/pr-ui-guard"
 import { compareCommitMessages, linkedIssuesOfPullRequest, loadPrPictures } from "@/lib/pr-pictures"
 import { prDefaultIssueIds } from "@/lib/sessions/pr-issues"
 import { _clearPrActorClaims, takePrOpenClaim } from "@/lib/integrations/pr-actor-claims"
+import { ForgeError, partialForgeForTests, type Forge } from "@/lib/ecode/forge"
 import {
   closePullRequest,
+  createOrAdoptOnForge,
   openPullRequest,
+  prCreateRetry,
   pullRequestFiles,
   resolvePullRequest,
   syncPullRequestBodies,
@@ -610,5 +613,77 @@ describe(`syncPullRequestBodies`, () => {
     const warn = vi.spyOn(console, `warn`).mockImplementation(() => {})
     await expect(syncPullRequestBodies(`root-1`)).resolves.toBeUndefined()
     warn.mockRestore()
+  })
+})
+
+describe(`createOrAdoptOnForge`, () => {
+  const at = { id: `repo-1`, fullName: `o/r`, token: `t` }
+  const opts = { head: `exp/a`, base: `exp/parent`, title: `T`, body: `` }
+  beforeEach(() => {
+    prCreateRetry.delaysMs = [0, 0]
+  })
+
+  it(`#FEED-234: a GitHub 5xx on create is re-tried, and a create that answered 500 but made the PR is adopted`, async () => {
+    let creates = 0
+    let made = false
+    const forge = partialForgeForTests({
+      kind: `github`,
+      findOpenByHead: async () => (made ? { number: 7, url: `u7`, headRef: `exp/a`, baseRef: `exp/parent` } : null),
+      openPullRequest: async () => {
+        creates++
+        if (creates === 1) throw new ForgeError(500, `GitHub PR create failed (500): empty response body`)
+        return { number: 8, url: `u8`, base: `exp/parent` }
+      },
+    } as Partial<Forge> & Pick<Forge, `kind`>)
+    await expect(createOrAdoptOnForge(forge, at, opts)).resolves.toEqual({ url: `u8`, number: 8, base: `exp/parent`, adopted: false })
+    expect(creates).toBe(2)
+
+    creates = 0
+    const adopting = partialForgeForTests({
+      kind: `github`,
+      findOpenByHead: async () => (made ? { number: 9, url: `u9`, headRef: `exp/a`, baseRef: `exp/parent` } : null),
+      openPullRequest: async () => {
+        creates++
+        made = true
+        throw new ForgeError(502, `GitHub PR create failed (502): empty response body`)
+      },
+    } as Partial<Forge> & Pick<Forge, `kind`>)
+    await expect(createOrAdoptOnForge(adopting, at, opts)).resolves.toEqual({ url: `u9`, number: 9, base: `exp/parent`, adopted: true })
+    expect(creates).toBe(1)
+  })
+
+  it(`#FEED-234: a 5xx on every attempt fails after the retries; a 4xx is never re-tried`, async () => {
+    let creates = 0
+    const down = partialForgeForTests({
+      kind: `github`,
+      findOpenByHead: async () => null,
+      openPullRequest: async () => {
+        creates++
+        throw new ForgeError(500, `GitHub PR create failed (500): empty response body`)
+      },
+    } as Partial<Forge> & Pick<Forge, `kind`>)
+    await expect(createOrAdoptOnForge(down, at, opts)).rejects.toThrow(/500/)
+    expect(creates).toBe(3)
+
+    creates = 0
+    const invalid = partialForgeForTests({
+      kind: `github`,
+      findOpenByHead: async () => null,
+      openPullRequest: async () => {
+        creates++
+        throw new ForgeError(422, `GitHub PR create failed (422): Validation Failed: base invalid`, `base`)
+      },
+    } as Partial<Forge> & Pick<Forge, `kind`>)
+    await expect(createOrAdoptOnForge(invalid, at, opts)).rejects.toThrow(/422/)
+    expect(creates).toBe(1)
+  })
+
+  it(`#FEED-252: the base reported is the one the forge recorded`, async () => {
+    const forge = partialForgeForTests({
+      kind: `github`,
+      findOpenByHead: async () => null,
+      openPullRequest: async () => ({ number: 3, url: `u3`, base: `master` }),
+    } as Partial<Forge> & Pick<Forge, `kind`>)
+    await expect(createOrAdoptOnForge(forge, at, opts)).resolves.toMatchObject({ base: `master` })
   })
 })
