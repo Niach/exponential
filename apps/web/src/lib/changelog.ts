@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-16-desktop-cli-0-14-167-build-cache-sweep`,
+    date: `2026-11-16`,
+    title: `A self-cleaning build cache on your coding devices`,
+    summary: `Desktop and CLI 0.14.167: when a coding device's disk runs under 20 GB free, stale build output in the shared cargo target is cleared, and the device page shows what it freed in a "Build cache" row.`,
+    body: `- **A self-cleaning build cache**: when free disk on a coding device drops under 20 GB, the desktop and the \`exponential\` daemon clear stale build output from the repository's shared cargo target, keeping the newest two builds of each crate and anything built in the last two hours; turn it off with \`cargoSweep.enabled\` in settings.json.
+- **A "Build cache" row**: after a sweep, the device page shows what it freed and when.`,
+  },
+  {
     id: `2026-11-16-phones-bubbles-hug-and-call-reason`,
     date: `2026-11-16`,
     title: `Phone bubbles that hug their text, and a call button that says why`,
