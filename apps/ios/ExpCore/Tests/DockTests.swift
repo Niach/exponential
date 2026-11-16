@@ -107,7 +107,7 @@ final class DockTests: XCTestCase {
         XCTAssertEqual(f["testIds"] as? [String: String], [
             "dock": Dock.TestIds.dock, "pile": Dock.TestIds.pile, "card": Dock.TestIds.card,
             "sheet": Dock.TestIds.sheet, "sheetBody": Dock.TestIds.sheetBody,
-            "sheetFooter": Dock.TestIds.sheetFooter, "close": Dock.TestIds.close,
+            "sheetFooter": Dock.TestIds.sheetFooter, "close": Dock.TestIds.close, "watches": Dock.TestIds.watches,
         ])
         let stack = try XCTUnwrap(f["stack"] as? [String: Any])
         XCTAssertEqual(

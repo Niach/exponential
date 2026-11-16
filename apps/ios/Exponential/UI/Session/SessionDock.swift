@@ -183,7 +183,7 @@ struct DockWatchesSheet: View {
             .foregroundStyle(.white)
             // The rows pad themselves (as the suggested tasks' sheet).
             .padding(.horizontal, -12)
-            .accessibilityIdentifier("dock-watches-sheet")
+            .accessibilityIdentifier(Dock.TestIds.watches)
         }
     }
 
