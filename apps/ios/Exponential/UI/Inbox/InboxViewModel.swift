@@ -154,7 +154,13 @@ final class InboxViewModel {
                 }
             } catch {}
         })
-        let issueObs = ValueObservation.tracking { db in try IssueEntity.fetchAll(db) }
+        // #ERR-26: only the issues a notification names, without their
+        // descriptions (a row draws the identifier and the title).
+        let issueObs = ValueObservation.tracking { db in
+            try IssueEntity.withoutDescription(db)
+                .filter(sql: #""id" IN (SELECT "issue_id" FROM "notifications" WHERE "issue_id" IS NOT NULL)"#)
+                .fetchAll(db)
+        }
         observationTasks.append(Task { [weak self] in
             do {
                 for try await issues in issueObs.values(in: pool) {

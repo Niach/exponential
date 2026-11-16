@@ -43,19 +43,18 @@ final class HomeWidgetsPublisher {
         stop()
         boundAccountId = accountId
         me = account.userId
-        guard let pool = try? db.pool(forAccountId: accountId) else { return }
-        let observation = ValueObservation.tracking { db in try Self.read(db) }.removeDuplicates()
+        guard let reads = try? db.sharedReads(forAccountId: accountId) else { return }
+        // #ERR-26: read at most once per `throttle` (a sleep in this loop
+        // would not bound GRDB's fetches: they ran on every write).
+        let read = reads.shared("homeWidgets", tables: Self.tables, minInterval: Self.throttle) { writer in
+            try await writer.read { try Self.read($0) }
+        }
         task = Task { @MainActor [weak self] in
-            do {
-                for try await lists in observation.values(in: pool, bufferingPolicy: .bufferingNewest(1)) {
-                    guard let self, self.boundAccountId == accountId else { return }
-                    self.lists = lists
-                    self.write()
-                    try await Task.sleep(for: Self.throttle)
-                }
-            } catch is CancellationError {
-            } catch {
-                logger.error("Home widgets stream ended: \(error.localizedDescription)")
+            for await lists in read.values() {
+                guard let self, self.boundAccountId == accountId else { return }
+                guard lists != self.lists else { continue }
+                self.lists = lists
+                self.write()
             }
         }
     }
@@ -135,11 +134,14 @@ final class HomeWidgetsPublisher {
         let sealedRootIds: [String]
     }
 
+    nonisolated private static let tables = ["teams", "boards", "issue_statuses", "issues", "sessions"]
+
     nonisolated private static func read(_ db: Database) throws -> Lists {
         let teams = try TeamEntity.fetchAll(db)
         let boards = try BoardEntity.fetchAll(db)
         let statusRows = try IssueStatusEntity.fetchAll(db)
-        let issues = try IssueEntity.fetchAll(db)
+        // #ERR-26: a widget row never draws the description.
+        let issues = try IssueEntity.withoutDescription(db).fetchAll(db)
         let sealedRootIds = try String.fetchAll(db, sql: """
             SELECT "id" FROM "sessions"
             WHERE "parent_id" IS NULL AND ("seal_public_key" IS NOT NULL OR "sealed_title" IS NOT NULL)
