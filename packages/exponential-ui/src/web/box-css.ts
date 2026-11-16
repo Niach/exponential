@@ -23,6 +23,7 @@
 // row wears its author and macro styles (audit bug B).
 
 import { nativeRecipeProps, parseMediaCondition, parseTokenRef, recipeStyle, type FontSpec, type ResolvedTheme, type UiNode } from "@exponential_app/eui"
+import { isBubbleTail, tailRules } from "./bubble-tail"
 import { hasDynamic } from "./data"
 import { cssValue, declarations, rule, shimmerRule } from "./theme-css"
 
@@ -176,9 +177,30 @@ function nodeChunk(node: UiNode, style: Record<string, unknown>, scope: string, 
     const author = styleRules(picked, own, withVars, scope, cls, theme, fonts, queries, fenced)
     if (author) css += AUTHOR_SEP + author
   }
+  // #EXP-1876: the tail's pseudo-elements, its square corner in the author
+  // layer (after the macro part's radius).
+  if (isBubbleTail(style.tail)) {
+    const sel = fenced ? `${scope} .${cls}:not(${scope} .xui-surface .${cls})` : `${scope} .${cls}`
+    const tail = tailRules(sel, style.tail, tailBorder(node, style, theme), { positioned: true })
+    css = css.includes(AUTHOR_SEP) ? css.replace(AUTHOR_SEP, tail.pseudo + AUTHOR_SEP) + tail.corner : css + tail.pseudo + AUTHOR_SEP + tail.corner
+  }
   const chunk = { css, queries: [...queries] }
   chunkCache.set(node, { scope, theme, fonts, fenced, chunk })
   return chunk
+}
+
+/** #EXP-1876: the uniform border width the tail continues: the node's own
+ *  `borderWidth`, else its macro part's recipe one, as px. */
+function tailBorder(node: UiNode, style: Record<string, unknown>, theme: ResolvedTheme | undefined): number {
+  const recipe = theme && node.recipe ? recipeStyle(theme, { component: node.recipe.macro, part: node.recipe.part, props: node.recipe.props }) : undefined
+  const raw = style.borderWidth ?? (recipe as Record<string, unknown> | undefined)?.borderWidth
+  if (typeof raw === `number`) return raw
+  const ref = parseTokenRef(raw)
+  if (ref && theme) {
+    const v = (theme.tokens as unknown as Record<string, Record<string, unknown>>)[ref.group]?.[ref.name]
+    if (typeof v === `number`) return v
+  }
+  return 0
 }
 
 /** #EXP-1787 (interactions-round1 `fieldInk`): an Input/Textarea node's
