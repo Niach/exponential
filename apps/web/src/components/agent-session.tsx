@@ -102,7 +102,6 @@ import {
   SenderAvatar,
   TranscriptRow,
   transcriptSenderName,
-  MessageFold,
   UserAvatar,
   type UserAvatarUser,
   type WorkCardLaneTarget,
@@ -2168,8 +2167,8 @@ export const NarrationBubble = memo(function NarrationBubble({
   return (
     // #EXP-1736: THE message bubble on every client (was a bare paragraph
     // here, a bubble on iOS).
-    // #FEED-238: THE FOLD, every message bubble.
-    <MessageBubble side="in" author={author} time={time} tail={tail} foldText={text}>
+    // #EXP-1888: the whole message, never folded.
+    <MessageBubble side="in" author={author} time={time} tail={tail}>
       <div className={cn(`min-w-0 text-foreground/90`, TRANSCRIPT_BODY_TEXT)}>
         <FeedText text={text} ariaLabel="Agent message" hardBreaks streaming={streaming} />
       </div>
@@ -2320,11 +2319,6 @@ const UserMessageBubble = memo(function UserMessageBubble({
           viewer's own turn). */}
       <MessageBubble side={side} author={author} onPress={onPress} relay={relay} time={time} status={status} menu={menu} tail={tail}>
       <div className={TRANSCRIPT_BODY_TEXT}>
-        {/* #FEED-238 THE FOLD: every bubble, a relay too. Clamp the PROSE,
-            never the wire message: four embed lines are four more "lines"
-            of nothing, and they used to push a two-line steer into the fold
-            — which then hid the images the fold was measuring. */}
-        <MessageFold text={hasAttachments ? body : text}>
           {!hasAttachments ? (
             <FeedText text={text} ariaLabel="Your message" hardBreaks />
           ) : (
@@ -2339,9 +2333,6 @@ const UserMessageBubble = memo(function UserMessageBubble({
               <FeedText text={body} ariaLabel="Your message" hardBreaks />
             ))
           )}
-        </MessageFold>
-        {/* OUTSIDE the fold: the images are the point of the message, and a
-            long prose clamp must never be what hides them. */}
         {hasImages && (
           <div className={cn(`flex flex-col gap-2`, body && `mt-2`)}>
             {attachmentIds.map((id, i) => (
