@@ -700,8 +700,8 @@ function FabSpeechBubble({
         }
       }}
     >
-      {/* TODO(tail-down): `tail="down"` (PR 1 of #EXP-1876) once MessageBubble takes it. */}
-      <MessageBubble side="in" className="items-end [&>*]:max-w-full">
+      {/* #EXP-1876: the tail at the bottom, pointing down at the button. */}
+      <MessageBubble side="in" tail="down" className="items-end [&>*]:max-w-full">
         {bubble.kind === `needsYou` ? (
           <div className="flex items-center gap-1 text-xs font-medium text-yellow-400">
             <NeedsYouIcon className="size-3.5 shrink-0" aria-hidden />

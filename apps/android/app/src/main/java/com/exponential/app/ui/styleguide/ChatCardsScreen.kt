@@ -397,6 +397,7 @@ private fun SuggestionsSpecimens() {
             sender = reporter,
             avatar = true,
             name = true,
+            tail = true,
             gap = 0,
         ),
         avatar = { com.exponential.app.ui.chat.SenderAvatar(reporter) },
@@ -407,6 +408,7 @@ private fun SuggestionsSpecimens() {
             time = "18:40",
             author = reporter.label,
             onClick = {},
+            tail = true,
         )
     }
     // EXP-1211: the quick replies above the session composer.

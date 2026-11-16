@@ -6464,7 +6464,8 @@
                   },
                   "default": 6
                 }
-              }
+              },
+              "tail": "{props.tail}"
             },
             "children": [
               {

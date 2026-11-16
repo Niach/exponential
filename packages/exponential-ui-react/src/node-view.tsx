@@ -20,7 +20,7 @@ import type { UiNode } from "@exponential_app/eui"
 import { dynamicStyleEntries, nodeClass, queryToken, styleDirection } from "@exponential_app/eui/web"
 import { InstanceContext, ScopeContext, SurfaceContext, deriveContext, resolveContextOf, useSurfaceContext, type SurfaceContextValue } from "./context"
 import { responsiveProps, useLive } from "./live"
-import { absolutePath, ariaAttributes, getPointer, resolveAccessibility, resolveNodeProps, resolveValue, resolveVisible, type ResolveContext } from "@exponential_app/eui/web"
+import { absolutePath, ariaAttributes, getPointer, hasDynamic, isBubbleTail, resolveAccessibility, resolveNodeProps, resolveValue, resolveVisible, type ResolveContext } from "@exponential_app/eui/web"
 import { extensionComponent, extensionMacroNames } from "./extensions"
 import type { ExtensionComponentProps, SurfaceActionEvent } from "./host"
 import { NATIVES } from "./natives"
@@ -62,6 +62,12 @@ export function useRootProps(node: UiNode, props: Record<string, unknown>, domId
     // painter's own role/aria-* set after the spread wins.
     if (node.accessibility) Object.assign(attrs, ariaAttributes(resolveAccessibility(node.accessibility, { data: ctx.data, scope, functions: ctx.functions, locale: ctx.locale, strings: ctx.strings })))
     if (style) attrs.style = style
+    // #EXP-1876: a BOUND `tail` (a macro's bound prop) picks its node-sheet
+    // rules through this attribute (box-css `tailRules`).
+    if (hasDynamic(node.style?.tail)) {
+      const tail = resolveValue(node.style!.tail, resolveContextOf(ctx, scope))
+      if (isBubbleTail(tail)) attrs[`data-xui-tail`] = tail
+    }
     // Round 2: a node's own direction is also the `dir` attribute (`:dir()`
     // selectors, the bidi paragraph direction of its text).
     const dir = ownDirection(node, ctx)

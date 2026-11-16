@@ -15978,12 +15978,129 @@
                 "id": "specimen_message_bubble_case_3_label",
                 "component": "Text",
                 "props": {
+                  "text": "tail · start",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c3_bubble",
+                "component": "MessageBubble",
+                "props": {
+                  "text": "Rebased and pushed; tests pass locally.",
+                  "author": "Reruster",
+                  "time": "22:41",
+                  "tail": "start"
+                },
+                "style": {
+                  "width": 360
+                },
+                "slots": {
+                  "avatar": {
+                    "id": "c3_avatar",
+                    "component": "Avatar",
+                    "props": {
+                      "name": "Reruster",
+                      "seed": "agent-reruster"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_message_bubble_case_4",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_message_bubble_case_4_label",
+                "component": "Text",
+                "props": {
+                  "text": "tail · end",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c4_bubble",
+                "component": "MessageBubble",
+                "props": {
+                  "text": "Ship it once CI is green.",
+                  "side": "out",
+                  "time": "22:44",
+                  "status": "read",
+                  "tail": "end"
+                },
+                "style": {
+                  "width": 360
+                },
+                "slots": {
+                  "avatar": {
+                    "id": "c4_avatar",
+                    "component": "Avatar",
+                    "props": {
+                      "name": "Mia Berger",
+                      "seed": "user-mia"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_message_bubble_case_5",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_message_bubble_case_5_label",
+                "component": "Text",
+                "props": {
+                  "text": "tail · down",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c5_bubble",
+                "component": "MessageBubble",
+                "props": {
+                  "text": "A plan is ready for you.",
+                  "side": "out",
+                  "tail": "down"
+                },
+                "style": {
+                  "width": 360,
+                  "paddingBottom": 10
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_message_bubble_case_6",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_message_bubble_case_6_label",
+                "component": "Text",
+                "props": {
                   "text": "a conversation",
                   "variant": "caption"
                 }
               },
               {
-                "id": "c3_chat",
+                "id": "c6_chat",
                 "component": "Stack",
                 "props": {
                   "gap": "sm"
@@ -15993,7 +16110,7 @@
                 },
                 "children": [
                   {
-                    "id": "c3_m1",
+                    "id": "c6_m1",
                     "component": "MessageBubble",
                     "props": {
                       "text": "Is the printer fixed?",
@@ -16003,7 +16120,7 @@
                     }
                   },
                   {
-                    "id": "c3_m2",
+                    "id": "c6_m2",
                     "component": "MessageBubble",
                     "props": {
                       "text": "Yes, driver's updated. Try again.",
@@ -16011,7 +16128,7 @@
                     }
                   },
                   {
-                    "id": "c3_m3",
+                    "id": "c6_m3",
                     "component": "MessageBubble",
                     "props": {
                       "text": "Send me the photo from the Wiesn I put on the desktop.",
@@ -16021,7 +16138,7 @@
                     }
                   },
                   {
-                    "id": "c3_m4",
+                    "id": "c6_m4",
                     "component": "MessageBubble",
                     "props": {
                       "text": "On its way…",

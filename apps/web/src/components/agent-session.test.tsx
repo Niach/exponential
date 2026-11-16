@@ -736,3 +736,27 @@ describe(`AgentSessionView scroll paging`, () => {
     expect(storeLoadEarlier).toHaveBeenCalledTimes(1)
   })
 })
+
+// #EXP-1876: a subagent's conversation tab groups like every transcript
+// (iOS `laneGrouping`, Android's lane): the subagent's prose under its avatar,
+// the turns to it the viewer's, each group's first bubble wearing THE tail.
+describe(`subagent tab grouping`, () => {
+  it(`gives the lane's first bubble per group the avatar and the tail`, async () => {
+    const { laneTranscriptLayout } = await import(`./agent-session`)
+    const { groupLaneRows } = await import(`@/lib/agent-feed`)
+    const rows = groupLaneRows([
+      { id: 1, seq: 1, kind: `narration`, text: `Looking at the launch path.` },
+      { id: 2, seq: 2, kind: `narration`, text: `Found it.` },
+      { id: 3, seq: 3, kind: `user_message`, text: `Keep going` },
+      { id: 4, seq: 4, kind: `narration`, text: `On it.` },
+    ] as never)
+    const layouts = [...laneTranscriptLayout(rows as never, { id: `subagent:a1`, name: `Explore` }).values()]
+    expect(layouts.map((l) => [l.side, l.avatar, l.tail])).toEqual([
+      [`other`, true, true],
+      [`other`, false, false],
+      [`own`, true, true],
+      [`other`, true, true],
+    ])
+    expect(layouts[0]!.sender).toEqual({ kind: `session`, id: `subagent:a1`, name: `Explore`, link: null })
+  })
+})

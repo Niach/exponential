@@ -55,6 +55,9 @@ export interface TranscriptRowLayout {
   sender: TranscriptSender | null
   avatar: boolean
   name: boolean
+  /** #EXP-1876: the group's first bubble wears THE tail (MessageBubble `tail`
+   *  start for others, end for own), at its top corner beside the avatar. */
+  tail: boolean
   gap: number
 }
 
@@ -78,6 +81,7 @@ export function transcriptLayout(input: TranscriptInput): TranscriptRowLayout[] 
   const out: TranscriptRowLayout[] = []
   let prevKey: string | null = null
   let groupNamed = false
+  let groupTailed = false
   for (const item of input.items) {
     let side: TranscriptRowLayout[`side`]
     let sender: TranscriptSender | null = null
@@ -113,9 +117,14 @@ export function transcriptLayout(input: TranscriptInput): TranscriptRowLayout[] 
     }
     const key = side === `full` ? null : side === `own` ? `own` : `${sender!.kind}:${sender!.id}:${sender!.link ?? ``}`
     const sameGroup = key !== null && key === prevKey
-    if (!sameGroup) groupNamed = false
+    if (!sameGroup) {
+      groupNamed = false
+      groupTailed = false
+    }
     const name = side === `other` && item.kind === `message` && !groupNamed
     if (name) groupNamed = true
+    const tail = side !== `full` && item.kind === `message` && !groupTailed
+    if (tail) groupTailed = true
     out.push({
       id: item.id,
       side,
@@ -123,6 +132,7 @@ export function transcriptLayout(input: TranscriptInput): TranscriptRowLayout[] 
       // #FEED-239: the viewer's own group wears THEIR avatar on the right.
       avatar: side !== `full` && !sameGroup,
       name,
+      tail,
       gap: out.length === 0 ? 0 : sameGroup ? TRANSCRIPT_LAYOUT.gapInGroup : TRANSCRIPT_LAYOUT.gapBetween,
     })
     prevKey = key
