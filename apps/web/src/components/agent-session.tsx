@@ -101,6 +101,7 @@ import {
   transcriptSenderName,
   MessageFold,
   UserAvatar,
+  type UserAvatarUser,
   type WorkCardLaneTarget,
   type MenuEntry,
 } from "@exp/ui"
@@ -1383,6 +1384,7 @@ export function AgentSessionView({
                   summary={agents.find((a) => a.subagentId === activeAgent)}
                   items={agentItems}
                   live={live && !sessionEnded}
+                  viewer={viewerAvatar}
                 />
               </div>
             ) : (
@@ -1962,27 +1964,108 @@ function TaskQueueLines({
  *  flush against each other. */
 // #PERF-9: memo: the lane re-rendered with every parent render (a scroll
 // state flip, an unrelated card), not only when its own items moved.
-const LaneRows = memo(function LaneRows({
+export const LaneRows = memo(function LaneRows({
   items,
   gaps = false,
   live = false,
+  lane = null,
+  viewer = null,
 }: {
   items: FeedItem[]
   gaps?: boolean
   /** The lane's agent is still running: its newest unsettled call is live. */
   live?: boolean
+  /** #EXP-1876: a conversation TAB groups like a transcript
+   *  (transcript-grouping.json): the subagent = its own sender. */
+  lane?: { id: string; name: string } | null
+  viewer?: UserAvatarUser | null
 }) {
   const rows = useMemo(() => groupLaneRows(items), [items])
   const liveRowId = live ? liveToolRowId(items) : undefined
+  const layouts = useMemo(() => (lane ? laneTranscriptLayout(rows, lane) : null), [rows, lane?.id, lane?.name])
   return (
     <>
       {rows.map((row, index) => {
-        const gap = gaps
+        const ladder = gaps
           ? transcriptGapClass(
               index === 0 ? null : rowClass(rows[index - 1]),
               rowClass(row)
             )
           : `py-0.5`
+        const layout = layouts?.get(feedRowKey(row)) ?? null
+        const grouped = Boolean(layout && layout.side !== `full`)
+        const content = laneRowContent(row, grouped ? `` : ladder, liveRowId, live, layout)
+        if (!grouped || !layout || !layouts || content === null) return content
+        // Two bubbles in a row take the grouping's gap, everything else keeps
+        // the ladder (the main transcript's rule).
+        const prev = index > 0 ? layouts.get(feedRowKey(rows[index - 1]!)) : undefined
+        const isBubble = (r: (typeof rows)[number]) => r.kind === `single` && (r.item.kind === `narration` || r.item.kind === `user_message`)
+        const bubbles = index > 0 && isBubble(row) && isBubble(rows[index - 1]!) && prev?.side !== `full`
+        return (
+          <TranscriptRow
+            key={feedRowKey(row)}
+            layout={{ ...layout, gap: bubbles ? layout.gap : 0 }}
+            avatar={
+              layout.sender ? (
+                <SenderAvatar sender={layout.sender} agent={null} />
+              ) : layout.side === `own` && viewer ? (
+                <UserAvatar user={viewer} size={32} />
+              ) : null
+            }
+            className={bubbles ? undefined : ladder}
+          >
+            {content}
+          </TranscriptRow>
+        )
+      })}
+    </>
+  )
+})
+
+/** #EXP-1876: a lane's rows through THE grouping (iOS `laneGrouping`, Android's
+ *  lane layouts): prose = the subagent's message, a turn to it = the viewer's,
+ *  its work = trace, a notice / ask / error = full. */
+export function laneTranscriptLayout(rows: ReturnType<typeof groupLaneRows<FeedItem>>, lane: { id: string; name: string }) {
+  const viewer = `viewer`
+  const items = rows.map((row) => {
+    const id = feedRowKey(row)
+    if (row.kind !== `single`) return row.kind === `ask` ? { id, kind: `full` as const } : { id, kind: `trace` as const }
+    const item = row.item
+    switch (item.kind) {
+      case `narration`:
+        return { id, kind: `message` as const, authorKind: `agent`, authorId: null, authorSessionId: null }
+      case `user_message`:
+        return { id, kind: `message` as const, authorKind: `user`, authorId: viewer, authorSessionId: null }
+      case `tool`:
+        return { id, kind: traceNotice(item.name) ? (`full` as const) : (`trace` as const) }
+      case `thought`:
+        return { id, kind: `trace` as const }
+      default:
+        return { id, kind: `full` as const }
+    }
+  })
+  const layouts = transcriptLayout({
+    viewerId: viewer,
+    chat: { sessionId: lane.id, title: lane.name, agentId: null, originSessionId: null, fromStart: false },
+    members: [],
+    agents: [],
+    sessions: [],
+    items,
+  })
+  return new Map(layouts.map((layout) => [layout.id, layout]))
+}
+
+/** One lane row's body (the ladder class on its own wrapper; inside a
+ *  TranscriptRow the bubble's group gap replaces it). */
+function laneRowContent(
+  row: ReturnType<typeof groupLaneRows<FeedItem>>[number],
+  gap: string,
+  liveRowId: number | undefined,
+  live: boolean,
+  layout: TranscriptRowLayout | null
+): ReactNode {
+        const author = layout?.name ? transcriptSenderName(layout.sender) : null
+        const tail = layout?.tail ?? false
         if (row.kind === `edits`) {
           return (
             <div key={row.id} className={gap}>
@@ -2029,14 +2112,14 @@ const LaneRows = memo(function LaneRows({
         if (item.kind === `narration`) {
           return (
             <div key={item.id} className={gap}>
-              <NarrationBubble text={item.text} time={item.at ? userMessageTime(item.at) : null} />
+              <NarrationBubble text={item.text} author={author} tail={tail} time={item.at ? userMessageTime(item.at) : null} />
             </div>
           )
         }
         if (item.kind === `user_message`) {
           return (
             <div key={item.id} className={gap}>
-              <UserMessageBubble text={item.text} />
+              <UserMessageBubble text={item.text} tail={tail} />
             </div>
           )
         }
@@ -2048,10 +2131,7 @@ const LaneRows = memo(function LaneRows({
           )
         }
         return null
-      })}
-    </>
-  )
-})
+}
 
 // memo: a live feed re-renders on every incoming frame; re-painting the
 // markdown of unchanged text is the one cost worth avoiding here.
@@ -3327,10 +3407,13 @@ function AgentConversation({
   summary,
   items,
   live,
+  viewer = null,
 }: {
   summary?: SubagentSummary
   items: FeedItem[]
   live: boolean
+  /** #FEED-239: the viewer's own avatar beside the turns to the subagent. */
+  viewer?: UserAvatarUser | null
 }) {
   // A tab shows the agent's STREAM: its tool calls and the prose and user
   // turns the mapper stamped with its id. Its lifecycle edges and everything
@@ -3382,7 +3465,16 @@ function AgentConversation({
       ) : (
         /* EXP-787: a subagent's conversation is a transcript too — same rows,
            same gap ladder. */
-        <LaneRows items={stream} gaps live={live && summary?.done !== true} />
+        <LaneRows
+          items={stream}
+          gaps
+          live={live && summary?.done !== true}
+          // #EXP-1876: the tab is a transcript like iOS's and Android's: the
+          // subagent's prose under its avatar, the turns to it the viewer's,
+          // each group's first bubble wearing THE tail.
+          lane={{ id: `subagent:${summary?.subagentId ?? ``}`, name: summary ? subagentLabel(summary) : `` }}
+          viewer={viewer}
+        />
       )}
     </>
   )
