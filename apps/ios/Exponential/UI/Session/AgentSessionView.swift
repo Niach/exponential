@@ -1198,21 +1198,22 @@ struct AgentSessionView: View {
         }
     }
 
-    /// #EXP-1625: everything `feedRow` draws one row from, as a value. The
-    /// rows that read live or per-view state beyond it (cards, a running
-    /// subagent's clock, a workflow's Work card) are `volatile`: they
-    /// re-evaluate with the list, exactly as before.
     /// #EXP-1873: the check-in line's `HH:mm` (its schedule firing's `at`).
     static func checkInTime(_ row: AgentFeedRow) -> String? {
         guard case let .single(.userMessage(_, _, _, at)) = row, let at else { return nil }
         return GlassTimeRow.formatted(Date(timeIntervalSince1970: Double(at) / 1000))
     }
 
+    /// #EXP-1625: everything `feedRow` draws one row from, as a value. The
+    /// rows that read live or per-view state beyond it (cards, a running
+    /// subagent's clock, a workflow's Work card) are `volatile`: they
+    /// re-evaluate with the list, exactly as before.
     private func rowKey(
         _ entry: TranscriptEntry, isLast: Bool, layout: TranscriptGrouping.RowLayout?, model: AgentSessionModel
     ) -> TranscriptRowKey {
         let ids = Self.rowItemIds(entry.row)
-        var volatile = false
+        // #EXP-1873: a check-in line re-evaluates with its count.
+        var volatile = entry.checkIns != nil
         var working = false
         var callIds: [String] = []
         switch entry.row {
