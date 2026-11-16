@@ -168,6 +168,7 @@ public enum Dock {
         public static let sheetBody = "dock-sheet-body"
         public static let sheetFooter = "dock-sheet-footer"
         public static let close = "dock-sheet-close"
+        public static let watches = "dock-watches"
     }
 
     /// The pile's numbers (`Stack.layout`).
