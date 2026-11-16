@@ -1573,13 +1573,45 @@ impl ClaudeSession {
             None => None,
         };
         let resume = resume.map(str::to_string).or(recorded);
+        // EXP-1794: never start inside a conversation-store migration of this
+        // login's root (renames only: a wait of seconds, once per device).
+        // Before the transcript check below: a migration moves transcripts.
+        if let Some(config_dir) = claude_config_dir(&self.spec.spawn.env) {
+            if crate::claude_store::wait_for_migration(&config_dir) {
+                log::info!("engine: claude spawn waited for the conversation store migration");
+            }
+        }
+        // #FEED-259: a conversation the CLI never recorded (its first start
+        // wedged before writing a line) cannot be resumed: `--resume` exits 1
+        // with "No conversation found", on every later message. Start fresh
+        // under the SAME id instead, so the run record stays true (an aside
+        // never takes its parent's id: it gets one of its own).
+        let (resume, fresh_pin) = match resume {
+            Some(id) if transcript_path(&self.spec.spawn.env, &id).is_none() => {
+                let pin = if self.spec.aside { uuid::Uuid::new_v4().to_string() } else { id.clone() };
+                log::warn!(
+                    "engine: claude conversation {id} has no transcript under the spawn's config dir; starting fresh as {pin} instead of --resume"
+                );
+                (None, Some(pin))
+            }
+            resume => (resume, None),
+        };
         // The pin: claude's own uuid, minted in `new` and NEVER the ACP id.
-        let pin = native.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let pin = fresh_pin
+            .clone()
+            .or_else(|| native.clone())
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         {
             // Whatever the child is told to be is what it is until an init
             // says otherwise: a resume continues under the resumed id.
             let mut state = self.lock();
             state.native_session_id = Some(resume.clone().unwrap_or_else(|| pin.clone()));
+            if fresh_pin.is_some() {
+                // EXP-1051: nothing was reloaded, so the first request is a
+                // fresh prefix again (measured), and no base carries over.
+                state.resumed_conversation = false;
+                state.carried_base = None;
+            }
         }
         // Without `elicitation.form` the model must never pick
         // AskUserQuestion: there would be nothing to render its form with.
@@ -1618,13 +1650,6 @@ impl ClaudeSession {
         let mut spawn = self.spec.spawn.clone().args(argv);
         for (key, value) in wire::extra_env() {
             spawn = spawn.env(key, value);
-        }
-        // EXP-1794: never start inside a conversation-store migration of this
-        // login's root (renames only: a wait of seconds, once per device).
-        if let Some(config_dir) = claude_config_dir(&spawn.env) {
-            if crate::claude_store::wait_for_migration(&config_dir) {
-                log::info!("engine: claude spawn waited for the conversation store migration");
-            }
         }
         spawn_lines(&spawn, StderrPolicy::Log)
     }

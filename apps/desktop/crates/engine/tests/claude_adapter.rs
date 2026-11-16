@@ -3329,6 +3329,8 @@ async fn the_context_layout_is_published_once_per_conversation() {
 async fn a_resumed_conversation_carries_its_base_instead_of_measuring() {
     let _session = one_session_at_a_time();
     let work = workdir("context-layout-resume");
+    // #FEED-259: only a RECORDED conversation is resumed.
+    record_transcript(&work.0, "11111111-2222-3333-4444-555555555555", &work.0);
     let run = drive_turns_with(
         "context-layout",
         &work.0,
@@ -3490,6 +3492,7 @@ async fn a_workflows_agents_get_lanes_of_their_own() {
 async fn an_aside_forks_the_parents_conversation_read_only() {
     let _session = one_session_at_a_time();
     let work = workdir("aside-fork");
+    record_transcript(&work.0, "11111111-2222-3333-4444-555555555555", &work.0);
     let run = drive_turns_with(
         "context-layout",
         &work.0,
@@ -3510,4 +3513,57 @@ async fn an_aside_forks_the_parents_conversation_read_only() {
     for tool in ["Edit", "Write", "NotebookEdit", "Bash"] {
         assert!(tools.split(',').any(|listed| listed == tool), "{tool} in {tools}");
     }
+}
+
+/// #FEED-259: a run whose first CLI wedged before writing a line keeps its
+/// pinned native id, but there is no conversation behind it: `--resume`
+/// exits 1 ("No conversation found") on every later message. With no
+/// transcript under the spawn's own config dir the CLI starts FRESH under
+/// the same id, and the first request is measured like any fresh one.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_resume_of_a_conversation_never_recorded_starts_fresh_under_the_same_id() {
+    let _session = one_session_at_a_time();
+    let work = workdir("resume-unrecorded");
+    let run = drive_turns_with(
+        "context-layout",
+        &work.0,
+        &["First."],
+        reject_all(),
+        cancel_elicitations(),
+        |spec| {
+            spec.resume = Some(engine::ResumeHandle::Native(
+                "11111111-2222-3333-4444-555555555555".to_string(),
+            ));
+            spec.context_layers = coding::ContextLayers {
+                playbook_bytes: 4_000,
+                carried_base: Some(coding::CarriedBase {
+                    tokens: 21_000,
+                    model: "claude-opus-5[1m]".to_string(),
+                }),
+                ..Default::default()
+            };
+        },
+    )
+    .await;
+    assert!(
+        !run.argv.iter().any(|arg| arg.starts_with("--resume")),
+        "nothing recorded = nothing to resume: {:?}",
+        run.argv
+    );
+    assert!(
+        run.argv.iter().any(|arg| arg == "--session-id=11111111-2222-3333-4444-555555555555"),
+        "the fresh start keeps the pinned id: {:?}",
+        run.argv
+    );
+    let bases: Vec<i64> = run
+        .updates
+        .iter()
+        .filter_map(|notification| notification.meta.as_ref())
+        .filter_map(|meta| meta.get(engine::CONTEXT_LAYOUT_META_KEY))
+        .map(|frame| frame["segments"][0]["tokens"].as_i64().expect("a base"))
+        .collect();
+    assert!(
+        !bases.is_empty() && !bases.contains(&21_000),
+        "a fresh start measures its own base, never the carried one: {bases:?}"
+    );
 }
