@@ -10,8 +10,8 @@ import org.junit.Test
  *  adapter: the ROOT is the row whose id is the chat's, and every row of the
  *  tree counts (never the root alone). */
 class ChatStateWordTest {
-    private fun row(id: String, status: String = "idle", busy: Boolean = false, needsInput: Boolean = false) =
-        SessionEntity(id = id, rootId = "r", status = status, busy = busy, needsInput = needsInput)
+    private fun row(id: String, status: String = "idle", busy: Boolean = false, needsInput: Boolean = false, blocked: String? = null) =
+        SessionEntity(id = id, rootId = "r", status = status, busy = busy, needsInput = needsInput, blocked = blocked)
 
     @Test fun emptyTreeIsIdle() = assertEquals(SessionScreen.Copy.Status.IDLE, chatStateWord("r", emptyList()))
 
@@ -19,8 +19,18 @@ class ChatStateWordTest {
 
     @Test fun aChildNeedingInputIsTheTreesWord() = assertEquals(
         SessionScreen.Copy.Status.NEEDS_INPUT,
-        chatStateWord("r", listOf(row("r"), row("c", needsInput = true))),
+        chatStateWord("r", listOf(row("r"), row("c", needsInput = true, blocked = """{"kind":"unclaimed"}"""))),
     )
+
+    // #FEED-257: a stale flag with nothing to open is no word; the line opens the flagged child.
+    @Test fun aStaleFlagIsNothing() {
+        assertEquals("idle", chatStateWord("r", listOf(row("r"), row("c", needsInput = true))))
+        assertEquals(null, chatWaiting("r", listOf(row("r"), row("c", needsInput = true))))
+        assertEquals(
+            SessionScreen.Waiting(SessionScreen.WaitingOpen.Session, "c"),
+            chatWaiting("r", listOf(row("r"), row("c", needsInput = true, blocked = """{"kind":"stuck"}"""))),
+        )
+    }
 
     @Test fun aBusyChildMakesTheTreeWorking() = assertEquals(
         SessionScreen.Copy.Status.WORKING,

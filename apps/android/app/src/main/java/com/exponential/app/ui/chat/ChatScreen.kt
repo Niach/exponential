@@ -827,7 +827,7 @@ private fun chatAsks(rows: List<SessionTree.SessionChatRow>?): List<SessionScree
 internal fun chatWaiting(
     rootId: String,
     tree: List<com.exponential.app.data.db.SessionEntity>,
-    rows: List<SessionTree.SessionChatRow>?,
+    rows: List<SessionTree.SessionChatRow>? = null,
 ): SessionScreen.Waiting? = SessionScreen.waiting(chatStatusInputs(rootId, tree), chatAsks(rows))
 
 /** The chat header's state word ×4 (#EXP-1732 session-screen.json STATUS
@@ -836,7 +836,7 @@ internal fun chatWaiting(
 internal fun chatStateWord(
     rootId: String,
     tree: List<com.exponential.app.data.db.SessionEntity>,
-    rows: List<SessionTree.SessionChatRow>?,
+    rows: List<SessionTree.SessionChatRow>? = null,
 ): String = SessionScreen.status(chatStatusInputs(rootId, tree), chatAsks(rows))
 
 /** session-screen.json TONE ×4: needs input = amber, working or queued =
