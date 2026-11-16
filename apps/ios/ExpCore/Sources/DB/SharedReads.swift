@@ -193,12 +193,19 @@ public final class SharedReads {
     }
 }
 
+public extension FetchableRecord where Self: TableRecord {
+    /// #ERR-26: every row with every column but `excluded` (decoded as nil):
+    /// the readers that only list rows leave their big text out.
+    static func all(_ db: Database, except excluded: Set<String>) throws -> QueryInterfaceRequest<Self> {
+        let columns = try db.columns(in: databaseTableName).map(\.name).filter { !excluded.contains($0) }
+        return all().select(columns.map { Column($0) })
+    }
+}
+
 public extension IssueEntity {
-    /// #ERR-26: every column but `description` (4.9 MB on a large account):
-    /// the readers that only list issues (the inbox, the home widgets) decode
-    /// it as nil.
+    /// #ERR-26: every issue without its `description` (4.9 MB on a large
+    /// account): the inbox and the home widgets draw identifier and title.
     static func withoutDescription(_ db: Database) throws -> QueryInterfaceRequest<IssueEntity> {
-        let columns = try db.columns(in: databaseTableName).map(\.name).filter { $0 != "description" }
-        return select(columns.map { Column($0) })
+        try all(db, except: ["description"])
     }
 }
