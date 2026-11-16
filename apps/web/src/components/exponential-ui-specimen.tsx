@@ -8,7 +8,7 @@ import { exponentialUiIcons } from "@/lib/exponential-ui-icons"
 
 // VAPP-93: one specimens.json entry painted alone on the page ground (the
 // ui.exponential.at web shot of that component, view id = specimen id).
-type Specimen = { id: string; component: string | null; title: string; node: NestedNode }
+type Specimen = { id: string; component: string | null; title: string; node: NestedNode; states?: Record<string, string[]> }
 
 const SPECIMENS = (specimens as unknown as { specimens: Specimen[] }).specimens
 
@@ -50,7 +50,8 @@ function SpecimenSurface({ id, theme, mode, width, rtl }: Props) {
   return (
     <div className="min-h-dvh w-full overflow-y-auto bg-background">
       <div data-testid="exponential-ui-specimen" data-specimen={id}>
-        <ExponentialSurface surface={surface} host={host} theme={theme ?? DEFAULT_THEME_ID} mode={mode ?? `dark`} direction={rtl ? `rtl` : `ltr`} width={width} />
+        {/* #EXP-1781: the specimen's state rows paint their forced states. */}
+        <ExponentialSurface surface={surface} host={host} theme={theme ?? DEFAULT_THEME_ID} mode={mode ?? `dark`} direction={rtl ? `rtl` : `ltr`} width={width} forcedStates={specimen.states} />
       </div>
     </div>
   )

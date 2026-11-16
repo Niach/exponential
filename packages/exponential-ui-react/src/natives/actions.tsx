@@ -9,7 +9,7 @@
 // at no less than the idle width.
 
 import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react"
-import { PENDING_DELAY_MS, glyphGradient, nativeRecipeProps, resolveRecipe } from "@exponential_app/eui"
+import { PENDING_DELAY_MS, forcedStatesOf, glyphGradient, nativeRecipeProps, resolveRecipe } from "@exponential_app/eui"
 import { Toggle as TogglePrimitive } from "radix-ui"
 import { useSurfaceContext } from "../context"
 import { ClosePickerContext, useForm } from "../form"
@@ -40,7 +40,7 @@ export function usePending() {
   return { pending, track }
 }
 
-export function ButtonNative({ node, props, rootProps, emit, children }: NativeProps) {
+export function ButtonNative({ node, props, rootProps, emit, children, domId }: NativeProps) {
   const ctx = useSurfaceContext()
   const part = useParts(node, props)
   const form = useForm()
@@ -81,7 +81,8 @@ export function ButtonNative({ node, props, rootProps, emit, children }: NativeP
   const { held, handlers } = useHold(hold, inert, emit)
   const holdingLabel = str(props.holdingLabel)
   const paintedLabel = held && holdingLabel ? holdingLabel : shownLabel
-  const states = [...(ctx.states ?? []), disabled ? `disabled` : ``, pending ? `pending` : ``, held ? `pressed` : ``].filter(Boolean).join(` `)
+  // #EXP-1781: + the host's forced states of this node (paint only).
+  const states = [...new Set([...(ctx.states ?? []), ...forcedStatesOf(ctx.forced, domId), disabled ? `disabled` : ``, pending ? `pending` : ``, held ? `pressed` : ``].filter(Boolean))].join(` `)
   return (
     <button
       {...(rootProps as Record<string, unknown>)}

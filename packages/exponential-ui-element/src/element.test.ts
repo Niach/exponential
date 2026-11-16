@@ -211,6 +211,18 @@ describe(`<exponential-surface>`, () => {
     expect(textOf(el, `root`)).toBe(`From the store`)
   })
 
+  it(`forcedStates (#EXP-1781): paint only, joins the node's and its parts' data-xs; null clears`, () => {
+    const el = mount(fixture)
+    const xs = (id: string) => el.querySelector(`[data-xui-id="${id}"]`)?.getAttribute(`data-xs`) ?? null
+    el.forcedStates = { save: [`hover`], notify: [`focus`, `disabled`] }
+    expect(xs(`save`)).toBe(`hover`)
+    expect(xs(`notify`)).toBe(`focus focus-visible`)
+    expect(xs(`text`)).toBeNull()
+    el.forcedStates = null
+    expect(el.forcedStates).toBeUndefined()
+    expect(xs(`save`)).toBeNull()
+  })
+
   it(`setData in fixture mode writes a new data model`, () => {
     const el = mount(fixture)
     el.setData(`/name`, `Linus`)

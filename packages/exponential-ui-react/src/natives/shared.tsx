@@ -6,7 +6,7 @@
 // `builtinIcons` (never a hardcoded glyph for an owned part).
 
 import { useContext, useMemo, type ReactNode } from "react"
-import { displayString, nativeRecipeProps, rootPartMacro } from "@exponential_app/eui"
+import { displayString, forcedStatesOf, nativeRecipeProps, rootPartMacro } from "@exponential_app/eui"
 import { arr, bool, builtinIconName, failingCheck, failingChecks, resolvedFieldChecks, formatFileSize, num, objects, phrase, str } from "@exponential_app/eui/web"
 import type { UiNode } from "@exponential_app/eui"
 import { InstanceContext, useSurfaceContext } from "../context"
@@ -27,6 +27,9 @@ export type PartFn = ((name: string, ...states: (string | false | undefined | nu
   at: (name: string, item: string | number, ...states: (string | false | undefined | null)[]) => Attrs
   /** `at` with part-level recipe props. */
   atWith: (name: string, item: string | number, extra: Record<string, unknown>, ...states: (string | false | undefined | null)[]) => Attrs
+  /** #EXP-1781: the host's FORCED states of a per-item part a painter
+   *  draws without a placed id (`fn.forced(\`${domId}.item.1\`)`). */
+  forced: (id: string) => string[]
   /** The painted id of the node (`<id><instance suffix>`). */
   domId: string
 }
@@ -40,11 +43,14 @@ export function useParts(node: UiNode, props: Record<string, unknown>): PartFn {
     const recipeAttrs: Attrs = {}
     for (const [k, v] of Object.entries(recipe)) if (typeof v !== `object`) recipeAttrs[propAttribute(false, k)] = String(v)
     const scope = ctx.compiled.scope
-    const forcedStates = ctx.states
+    const surfaceStates = ctx.states
+    const forcedMap = ctx.forced
     const domId = `${node.id}${instance}`
     const placed = PLACED[node.component]
+    // #EXP-1781: a part's `data-xs` = the surface states + the host's forced
+    // states of its id (its node's when it has none) + the painter's own.
     const build = (name: string, extra: Record<string, unknown> | null, states: (string | false | undefined | null)[], id: string | null): Attrs => {
-      const all = [...forcedStates, ...states.filter((s): s is string => Boolean(s))]
+      const all = [...new Set([...surfaceStates, ...forcedStatesOf(forcedMap, id ?? domId), ...states.filter((s): s is string => Boolean(s))])]
       const own: Attrs = {}
       if (extra) for (const [k, v] of Object.entries(extra)) if (v !== undefined && v !== null) own[propAttribute(false, k)] = String(v)
       return {
@@ -64,9 +70,10 @@ export function useParts(node: UiNode, props: Record<string, unknown>): PartFn {
     fn.with = (name, extra, ...states) => build(name, extra, states, single(name))
     fn.at = (name, item, ...states) => build(name, null, states, `${domId}.${name}.${item}`)
     fn.atWith = (name, item, extra, ...states) => build(name, extra, states, `${domId}.${name}.${item}`)
+    fn.forced = (id) => forcedStatesOf(forcedMap, id)
     fn.domId = domId
     return fn
-  }, [node.component, node.id, instance, props, ctx.compiled.scope, ctx.states, ctx.extensionDefs])
+  }, [node.component, node.id, instance, props, ctx.compiled.scope, ctx.states, ctx.forced, ctx.extensionDefs])
 }
 
 export function TextPart({ part, text, as: Tag = `span`, id, htmlFor }: { part: Attrs; text: unknown; as?: `span` | `label` | `div` | `p`; id?: string; htmlFor?: string }) {

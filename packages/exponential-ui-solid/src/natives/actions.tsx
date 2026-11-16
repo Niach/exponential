@@ -13,7 +13,7 @@
 // "on|off"`): Kobalte's ToggleButton writes `data-pressed` instead.
 
 import { Show, createEffect, createMemo, createSignal, onCleanup, useContext, type Accessor, type Component, type JSX } from "solid-js"
-import { PENDING_DELAY_MS, glyphGradient, nativeRecipeProps, resolveRecipe } from "@exponential_app/eui"
+import { PENDING_DELAY_MS, forcedStatesOf, glyphGradient, nativeRecipeProps, resolveRecipe } from "@exponential_app/eui"
 import { ButtonHold, isPickerPick, linkHref } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
 import { ClosePickerContext, useForm } from "../form"
@@ -93,7 +93,8 @@ export function ButtonNative(props: NativeProps): JSX.Element {
   const { held, handlers } = createHold(hold, inert, (event) => props.emit(event))
   const holdingLabel = () => str(props.props.holdingLabel)
   const paintedLabel = () => (held() && holdingLabel() ? holdingLabel() : shownLabel())
-  const xs = () => [...(ctx.states ?? []), disabled() ? `disabled` : ``, pending() ? `pending` : ``, held() ? `pressed` : ``].filter(Boolean).join(` `) || undefined
+  // #EXP-1781: + the host's forced states of this node (paint only).
+  const xs = () => [...new Set([...(ctx.states ?? []), ...forcedStatesOf(ctx.forced, props.domId), disabled() ? `disabled` : ``, pending() ? `pending` : ``, held() ? `pressed` : ``].filter(Boolean))].join(` `) || undefined
   return (
     <button
       {...props.rootProps}

@@ -436,9 +436,11 @@ export function RadioNative({ node, props, rootProps, emit, scope, domId }: Nati
           const oid = `${id}-${o.value}`
           // Placed parts (round 2 §6): the option ROW = `item.<i>`, its
           // circle = `dot.<i>` (the recipe's item), its text = `label.<i>`.
+          // #EXP-1781: a host's forced `<id>.item.<i>` paints the row and its circle.
+          const forcedRow = part.forced(`${part.domId}.item.${i}`)
           return (
-            <label key={o.value} className="xui-radio-row" htmlFor={oid} data-xui-id={`${part.domId}.item.${i}`}>
-              <RadioPrimitive.Item id={oid} value={o.value} disabled={bool(o.disabled)} {...(part(`item`, checked && `checked`, bool(o.disabled) && `disabled`, f.invalid && `invalid`) as Record<string, string>)} data-xui-id={`${part.domId}.dot.${i}`}>
+            <label key={o.value} className="xui-radio-row" htmlFor={oid} data-xui-id={`${part.domId}.item.${i}`} data-xs={forcedRow.length ? forcedRow.join(` `) : undefined}>
+              <RadioPrimitive.Item id={oid} value={o.value} disabled={bool(o.disabled)} {...(part(`item`, checked && `checked`, bool(o.disabled) && `disabled`, f.invalid && `invalid`, ...forcedRow) as Record<string, string>)} data-xui-id={`${part.domId}.dot.${i}`}>
                 <RadioPrimitive.Indicator {...(part(`dot`, checked && `checked`) as Record<string, string>)} />
               </RadioPrimitive.Item>
               {o.icon ? <IconGlyph icons={ctx.host.icons} name={o.icon} className="xui-icon" width={16} height={16} /> : null}

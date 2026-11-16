@@ -47,7 +47,7 @@
 // 5. A painter that is not ported yet stays `Pending` (natives/pending.tsx).
 
 import { createMemo, type JSX } from "solid-js"
-import { displayString, nativeRecipeProps, rootPartMacro } from "@exponential_app/eui"
+import { displayString, forcedStatesOf, nativeRecipeProps, rootPartMacro } from "@exponential_app/eui"
 import { PLACED, arr, bool, builtinIconName, failingCheck, failingChecks, resolvedFieldChecks, formatFileSize, num, objects, partClass, phrase, propAttribute, str } from "@exponential_app/eui/web"
 import type { UiNode } from "@exponential_app/eui"
 import { useInstance, useSurfaceContext } from "../context"
@@ -68,6 +68,9 @@ export type PartFn = ((name: string, ...states: State[]) => Attrs) & {
   at: (name: string, item: string | number, ...states: State[]) => Attrs
   /** `at` with part-level recipe props. */
   atWith: (name: string, item: string | number, extra: Record<string, unknown>, ...states: State[]) => Attrs
+  /** #EXP-1781: the host's FORCED states of a per-item part a painter
+   *  draws without a placed id (`fn.forced(\`${domId}.item.1\`)`). */
+  forced: (id: string) => string[]
   /** The painted id of the node (`<id><instance suffix>`), live. */
   readonly domId: string
 }
@@ -92,7 +95,9 @@ export function parts(source: { readonly node: UiNode; readonly props: Record<st
   const build = (name: string, extra: Record<string, unknown> | null, states: State[], item: string | number | null): Attrs => {
     const component = source.node.component
     const id = item !== null ? `${domId()}.${name}.${item}` : PLACED[component]?.includes(name) ? `${domId()}.${name}` : null
-    const all = [...ctx.states, ...states.filter((s): s is string => Boolean(s))]
+    // #EXP-1781: the surface states + the host's forced states of the part's
+    // id (its node's when it has none) + the painter's own.
+    const all = [...new Set([...ctx.states, ...forcedStatesOf(ctx.forced, id ?? domId()), ...states.filter((s): s is string => Boolean(s))])]
     const own: Attrs = {}
     if (extra) for (const [k, v] of Object.entries(extra)) if (v !== undefined && v !== null) own[propAttribute(false, k)] = String(v)
     return {
@@ -111,6 +116,7 @@ export function parts(source: { readonly node: UiNode; readonly props: Record<st
   fn.with = (name, extra, ...states) => build(name, extra, states, null)
   fn.at = (name, item, ...states) => build(name, null, states, item)
   fn.atWith = (name, item, extra, ...states) => build(name, extra, states, item)
+  fn.forced = (id) => forcedStatesOf(ctx.forced, id)
   Object.defineProperty(fn, `domId`, { get: domId })
   return fn
 }

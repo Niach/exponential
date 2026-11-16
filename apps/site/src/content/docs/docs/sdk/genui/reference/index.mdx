@@ -44,3 +44,24 @@ Every node takes an `accessibility` object beside its props. It is closed: any o
 | `expanded` | boolean or binding | A disclosure's open state: `aria-expanded`, the SwiftUI value expanded or collapsed, Compose expand or collapse, AccessKit `expanded`. |
 
 An unset `selected` or `expanded` reports no state at all, never `false`. A nav row or a disclosure should always set its state.
+
+## Forced states
+
+A host can pin an interaction state on a node, so a catalogue specimen or a doc picture shows what a pointer or a keyboard would paint. The option belongs to the host. It is never part of the catalog or of an agent's tree.
+
+```tsx
+<ExponentialSurface surface={surface} forcedStates={{ save: [`hover`], "tabs.tab.1": [`hover`], name: [`focus`] }} />
+```
+
+| Renderer | The option |
+|---|---|
+| React, Solid | the `forcedStates` prop |
+| `<exponential-surface>` | the `forcedStates` property |
+| Rust core, FFI, gpui | `Surface::set_forced_states`, `setForcedStates`, `EuiView::set_forced_states` |
+| SwiftUI, Compose | `forcedStates:` |
+
+- The allowed states are `hover`, `pressed` and `focus`. `focus` is a keyboard focus, so the focus ring paints. Any other state name is dropped.
+- A key covers the node and every part whose id starts with `<key>.`. A placed part id such as `tabs.tab.1` or `table.row.b` forces only that part.
+- Forced states only change paint. They fire no event, open no hover overlay, move no focus and change no accessibility state. A real pointer adds to them; a pointer leaving never clears a forced hover.
+
+`fixtures/forced-states.json` is the spec every renderer replays. The `states` of a `specimens.json` entry are the forced states of its state rows.

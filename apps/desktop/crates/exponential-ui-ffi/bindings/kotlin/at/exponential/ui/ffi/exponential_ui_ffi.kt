@@ -1118,6 +1118,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_field_checks_json(
     ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_forced_states_of(
+    ): Int
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_hold(
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_hover_timeout(
@@ -1181,6 +1183,8 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_fallback_zone(
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_font_scale(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_forced_states(
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_formatter(
     ): Int
@@ -1525,6 +1529,8 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_method_surface_field_checks_json(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_forced_states_of(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_method_surface_hold(`ptr`: Long,`index`: Int,`inputJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_method_surface_hover_timeout(`ptr`: Long,`owner`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1589,6 +1595,8 @@ internal object UniffiLib {
     ): Unit
     external fun uniffi_exponential_ui_ffi_fn_method_surface_set_font_scale(`ptr`: Long,`scale`: Float,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_set_forced_states(`ptr`: Long,`forced`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_method_surface_set_formatter(`ptr`: Long,`formatter`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_exponential_ui_ffi_fn_method_surface_set_hover(`ptr`: Long,`id`: RustBuffer.ByValue,`hovered`: Byte,uniffi_out_err: UniffiRustCallStatus, 
@@ -6888,6 +6896,12 @@ public interface SurfaceInterface {
     fun `fieldChecksJson`(`id`: kotlin.String): kotlin.String
     
     /**
+     * #EXP-1781: the forced states `id` carries, for a part the painter
+     * draws itself (a Segmented item `<id>.item.<k>`).
+     */
+    fun `forcedStatesOf`(`id`: kotlin.String): List<kotlin.String>
+    
+    /**
      * VAPP-162: one input on a `hold: true` Button (round-5 contract §9).
      * `input_json` = `{"do": "pointerdown"|"pointermove"|"pointerup", x, y}`
      * (px relative to the button's top-left), `{"do": "pointercancel"}`,
@@ -7050,6 +7064,17 @@ public interface SurfaceInterface {
      * Dynamic Type / font scale (1 = the theme's sizes).
      */
     fun `setFontScale`(`scale`: kotlin.Float)
+    
+    /**
+     * #EXP-1781: the host's FORCED interaction states (paint only; a
+     * catalogue specimen's `states`): id (a node, or a placed part such as
+     * `tabs.tab.1`; a key covers the node and its parts) → `hover` /
+     * `pressed` / `focus`, the whole map, replacing the last. They join the
+     * host's own states in the style resolution only (no event, no
+     * hover-opened overlay, no focus move). Returns the refused entries
+     * (`<id>:<state>`). Lay out again after it.
+     */
+    fun `setForcedStates`(`forced`: Map<kotlin.String, List<kotlin.String>>): List<kotlin.String>
     
     /**
      * Round 2: format through the host's formatter (built from the
@@ -7501,6 +7526,24 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     callWithHandle {
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_field_checks_json(
+        it,
+        
+        FfiConverterString.lower(`id`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * #EXP-1781: the forced states `id` carries, for a part the painter
+     * draws itself (a Segmented item `<id>.item.<k>`).
+     */override fun `forcedStatesOf`(`id`: kotlin.String): List<kotlin.String> {
+            return FfiConverterSequenceString.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_forced_states_of(
         it,
         
         FfiConverterString.lower(`id`),_status)
@@ -8056,6 +8099,29 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
 }
     }
     
+    
+
+    
+    /**
+     * #EXP-1781: the host's FORCED interaction states (paint only; a
+     * catalogue specimen's `states`): id (a node, or a placed part such as
+     * `tabs.tab.1`; a key covers the node and its parts) → `hover` /
+     * `pressed` / `focus`, the whole map, replacing the last. They join the
+     * host's own states in the style resolution only (no event, no
+     * hover-opened overlay, no focus move). Returns the refused entries
+     * (`<id>:<state>`). Lay out again after it.
+     */override fun `setForcedStates`(`forced`: Map<kotlin.String, List<kotlin.String>>): List<kotlin.String> {
+            return FfiConverterSequenceString.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_forced_states(
+        it,
+        
+        FfiConverterMapStringSequenceString.lower(`forced`),_status)
+}
+    }
+    )
+    }
     
 
     
@@ -12520,6 +12586,45 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeFfiVisual.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterMapStringSequenceString: FfiConverterRustBuffer<Map<kotlin.String, List<kotlin.String>>> {
+    override fun read(buf: ByteBuffer): Map<kotlin.String, List<kotlin.String>> {
+        val len = buf.getInt()
+        return buildMap<kotlin.String, List<kotlin.String>>(len) {
+            repeat(len) {
+                val k = FfiConverterString.read(buf)
+                val v = FfiConverterSequenceString.read(buf)
+                this[k] = v
+            }
+        }
+    }
+
+    override fun allocationSize(value: Map<kotlin.String, List<kotlin.String>>): ULong {
+        val spaceForMapSize = 4UL
+        val spaceForChildren = value.map { (k, v) ->
+            FfiConverterString.allocationSize(k) +
+            FfiConverterSequenceString.allocationSize(v)
+        }.sum()
+        return spaceForMapSize + spaceForChildren
+    }
+
+    override fun write(value: Map<kotlin.String, List<kotlin.String>>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        // The parens on `(k, v)` here ensure we're calling the right method,
+        // which is important for compatibility with older android devices.
+        // Ref https://blog.danlew.net/2017/03/16/kotlin-puzzler-whose-line-is-it-anyways/
+        value.forEach { (k, v) ->
+            FfiConverterString.write(k, buf)
+            FfiConverterSequenceString.write(v, buf)
         }
     }
 }

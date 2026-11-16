@@ -15,7 +15,13 @@ struct LeafContext {
     var index: Int { node.index }
     var props: Props { node.props }
     var ownerProps: Props { model.ownerProps(node.index) }
-    var states: [String] { model.states(of: node.id) }
+    /// The node's interaction states, the host's FORCED ones joined
+    /// (#EXP-1781: a part the painter queries itself, a Slider thumb).
+    var states: [String] {
+        let forced = model.forcedStates(of: node.id)
+        let own = model.states(of: node.id)
+        return forced.isEmpty ? own : own + forced.filter { !own.contains($0) }
+    }
     var dark: Bool { model.mode == .dark }
     var rtl: Bool { model.isRTL }
 

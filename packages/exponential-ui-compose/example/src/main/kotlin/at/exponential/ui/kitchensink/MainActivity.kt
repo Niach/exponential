@@ -159,7 +159,7 @@ fun SinkScreen(state: SinkState, rootView: View) {
                     .verticalScroll(rememberScrollState()),
             ) {
                 Box((dump?.modifier ?: Modifier).background(background)) {
-                    ExponentialSurface(model, options.width?.let { Modifier.width(it.dp) } ?: Modifier)
+                    ExponentialSurface(model, options.width?.let { Modifier.width(it.dp) } ?: Modifier, forcedStates = state.forcedStates)
                 }
                 // A shot paints the surface alone: the host line appears there
                 // only once the host has echoed something (TypingTest reads it).

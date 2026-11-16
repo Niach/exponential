@@ -1,0 +1,444 @@
+{
+  "$comment": "#EXP-1781: FORCED interaction states, a HOST-ONLY option (never in the catalog or the A2UI schema; every renderer's `forcedStates`: React/Solid/element `forcedStates` prop, core `Surface::set_forced_states`, FFI `setForcedStates`, gpui `EuiView::set_forced_states`, SwiftUI/Compose `forcedStates:`), HAND-AUTHORED and replayed by packages/exponential-ui/src/forced-states.test.ts (the TS reference), packages/exponential-ui-react + -solid `forced-states.test.tsx` (the `data-xs` every painted part carries), apps/desktop/crates/eui-core/tests/forced_states.rs (the core: gpui and the natives through the FFI resolve their visuals there) and the FFI facade tests. A case: `tree`, then `steps` in order (`forced` = the host's whole map, replacing the last; `host` = the host's own interaction states of one node, `set_states`), then `expect` after a layout at 480 \u00d7 900 in the exponential theme, light: `dropped` = what the LAST `forced` refused (`<id>:<state>`; a SET: hosts whose map has no order, the FFI's, report it sorted by id), `states` = the forced states each id carries (`focus` = a keyboard focus: `focus` + `focus-visible`; a key covers the node and its parts, ids `<key>.\u2026`; order hover, pressed, focus, focus-visible), `visuals` = resolved visuals the core paints (a subset of keys), `layers` = open overlay layers, `events` = what the core raised (paint only: none). Allowed states: hover, pressed, focus; any other name is dropped, an unknown id is kept (it paints once a node has it).",
+  "cases": [
+    {
+      "name": "a forced focus strokes a box Input's field: the key covers the node and its parts",
+      "tree": {
+        "id": "root",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": 8
+        },
+        "children": [
+          {
+            "id": "inp",
+            "component": "Input",
+            "props": {
+              "label": "Name",
+              "name": "name"
+            }
+          }
+        ]
+      },
+      "steps": [
+        {
+          "forced": {
+            "inp": [
+              "focus"
+            ]
+          }
+        }
+      ],
+      "expect": {
+        "dropped": [],
+        "states": {
+          "inp": [
+            "focus",
+            "focus-visible"
+          ],
+          "inp.field": [
+            "focus",
+            "focus-visible"
+          ],
+          "inp.label": [
+            "focus",
+            "focus-visible"
+          ],
+          "root": []
+        },
+        "visuals": {
+          "inp.field": {
+            "borderColor": "#a1a1a1",
+            "backgroundColor": "#ffffff"
+          }
+        },
+        "layers": 0,
+        "events": []
+      }
+    },
+    {
+      "name": "a forced hover fills a ghost Button, a forced pressed dims a default one",
+      "tree": {
+        "id": "root",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": 8
+        },
+        "children": [
+          {
+            "id": "btn",
+            "component": "Button",
+            "props": {
+              "label": "Save",
+              "variant": "ghost"
+            }
+          },
+          {
+            "id": "pri",
+            "component": "Button",
+            "props": {
+              "label": "Save"
+            }
+          }
+        ]
+      },
+      "steps": [
+        {
+          "forced": {
+            "btn": [
+              "hover"
+            ],
+            "pri": [
+              "pressed"
+            ]
+          }
+        }
+      ],
+      "expect": {
+        "dropped": [],
+        "states": {
+          "btn": [
+            "hover"
+          ],
+          "pri": [
+            "pressed"
+          ]
+        },
+        "visuals": {
+          "btn": {
+            "backgroundColor": "#f5f5f5",
+            "color": "#171717"
+          },
+          "pri": {
+            "backgroundColor": "#171717",
+            "opacity": 0.8
+          }
+        },
+        "layers": 0,
+        "events": []
+      }
+    },
+    {
+      "name": "a placed part id forces ONE tab: its siblings keep their look",
+      "tree": {
+        "id": "root",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": 8
+        },
+        "children": [
+          {
+            "id": "tabs",
+            "component": "Tabs",
+            "props": {
+              "tabs": [
+                {
+                  "label": "Issue",
+                  "value": "issue"
+                },
+                {
+                  "label": "Session",
+                  "value": "session"
+                },
+                {
+                  "label": "Board",
+                  "value": "board"
+                }
+              ],
+              "value": "issue"
+            }
+          }
+        ]
+      },
+      "steps": [
+        {
+          "forced": {
+            "tabs.tab.2": [
+              "hover"
+            ]
+          }
+        }
+      ],
+      "expect": {
+        "dropped": [],
+        "states": {
+          "tabs": [],
+          "tabs.tab.1": [],
+          "tabs.tab.2": [
+            "hover"
+          ]
+        },
+        "visuals": {
+          "tabs.tab.1": {
+            "color": "#737373"
+          },
+          "tabs.tab.2": {
+            "color": "#0a0a0a"
+          }
+        },
+        "layers": 0,
+        "events": []
+      }
+    },
+    {
+      "name": "sticky: a real pointer enter and leave never clears a forced hover; a real focus joins it",
+      "tree": {
+        "id": "root",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": 8
+        },
+        "children": [
+          {
+            "id": "btn",
+            "component": "Button",
+            "props": {
+              "label": "Save",
+              "variant": "ghost"
+            }
+          }
+        ]
+      },
+      "steps": [
+        {
+          "forced": {
+            "btn": [
+              "hover"
+            ]
+          }
+        },
+        {
+          "host": {
+            "id": "btn",
+            "states": [
+              "hover"
+            ]
+          }
+        },
+        {
+          "host": {
+            "id": "btn",
+            "states": []
+          }
+        },
+        {
+          "host": {
+            "id": "btn",
+            "states": [
+              "focus",
+              "focus-visible"
+            ]
+          }
+        }
+      ],
+      "expect": {
+        "dropped": [],
+        "states": {
+          "btn": [
+            "hover"
+          ]
+        },
+        "visuals": {
+          "btn": {
+            "backgroundColor": "#f5f5f5",
+            "borderColor": "#a1a1a1"
+          }
+        },
+        "layers": 0,
+        "events": []
+      }
+    },
+    {
+      "name": "paint only: a forced hover on a Tooltip opens nothing and fires nothing",
+      "tree": {
+        "id": "root",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": 8
+        },
+        "children": [
+          {
+            "id": "tip",
+            "component": "Tooltip",
+            "props": {
+              "content": "Copy link"
+            },
+            "children": [
+              {
+                "id": "copy",
+                "component": "Button",
+                "props": {
+                  "label": "Copy",
+                  "variant": "outline"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "steps": [
+        {
+          "forced": {
+            "tip": [
+              "hover",
+              "focus"
+            ]
+          }
+        }
+      ],
+      "expect": {
+        "dropped": [],
+        "states": {
+          "tip": [
+            "hover",
+            "focus",
+            "focus-visible"
+          ],
+          "tip.anchor": [
+            "hover",
+            "focus",
+            "focus-visible"
+          ],
+          "copy": []
+        },
+        "visuals": {
+          "copy": {
+            "backgroundColor": "#f5f5f5",
+            "borderColor": "#e5e5e5"
+          }
+        },
+        "layers": 0,
+        "events": []
+      }
+    },
+    {
+      "name": "refused: a state other than hover, pressed or focus is dropped (reported), an unknown id is kept and paints nothing",
+      "tree": {
+        "id": "root",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": 8
+        },
+        "children": [
+          {
+            "id": "pri",
+            "component": "Button",
+            "props": {
+              "label": "Save"
+            }
+          }
+        ]
+      },
+      "steps": [
+        {
+          "forced": {
+            "pri": [
+              "pressed",
+              "disabled"
+            ],
+            "nope": [
+              "checked",
+              "hover"
+            ]
+          }
+        }
+      ],
+      "expect": {
+        "dropped": [
+          "pri:disabled",
+          "nope:checked"
+        ],
+        "states": {
+          "pri": [
+            "pressed"
+          ],
+          "nope": [
+            "hover"
+          ]
+        },
+        "visuals": {
+          "pri": {
+            "opacity": 0.8
+          }
+        },
+        "layers": 0,
+        "events": []
+      }
+    },
+    {
+      "name": "an empty map restores the unforced look",
+      "tree": {
+        "id": "root",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": 8
+        },
+        "children": [
+          {
+            "id": "inp",
+            "component": "Input",
+            "props": {
+              "label": "Name",
+              "name": "name"
+            }
+          },
+          {
+            "id": "btn",
+            "component": "Button",
+            "props": {
+              "label": "Save",
+              "variant": "ghost"
+            }
+          }
+        ]
+      },
+      "steps": [
+        {
+          "forced": {
+            "inp": [
+              "focus"
+            ],
+            "btn": [
+              "hover"
+            ]
+          }
+        },
+        {
+          "forced": {}
+        }
+      ],
+      "expect": {
+        "dropped": [],
+        "states": {
+          "inp.field": [],
+          "btn": []
+        },
+        "visuals": {
+          "inp.field": {
+            "borderColor": "#e5e5e5"
+          },
+          "btn": {
+            "backgroundColor": "#00000000",
+            "color": "#0a0a0a"
+          }
+        },
+        "layers": 0,
+        "events": []
+      }
+    }
+  ]
+}

@@ -22,6 +22,8 @@ export interface EuiSurfaceProps {
   icons?: IconMap
   /** Open overlays paint in place (build-time specimens: a portal renders nothing). */
   inlineOverlays?: boolean
+  /** #EXP-1781: FORCED interaction states (id → hover/pressed/focus), paint only: a specimen's state rows. */
+  forcedStates?: Record<string, string[]>
   /** The page's origin (`Astro.url.origin`): a build-time surface has no
    *  document, so a site-relative picture (`/shots/…`) resolves against it. */
   origin?: string
@@ -29,7 +31,7 @@ export interface EuiSurfaceProps {
 
 const PRIVATE = /^(localhost|127\.0\.0\.1|\[::1\])$/
 
-export default function EuiSurface({ id, tree, data, theme = `exponential`, icons, inlineOverlays, origin }: EuiSurfaceProps) {
+export default function EuiSurface({ id, tree, data, theme = `exponential`, icons, inlineOverlays, forcedStates, origin }: EuiSurfaceProps) {
   const surface = useSurface({ surfaceId: id, initial: tree, data })
   const { setData } = surface
   const host = useMemo<HostPlugin>(
@@ -45,5 +47,5 @@ export default function EuiSurface({ id, tree, data, theme = `exponential`, icon
     }),
     [setData, icons, origin]
   )
-  return <ExponentialSurface id={`xui-${id}`} surface={surface} theme={theme} mode="dark" host={host} inlineOverlays={inlineOverlays} />
+  return <ExponentialSurface id={`xui-${id}`} surface={surface} theme={theme} mode="dark" host={host} inlineOverlays={inlineOverlays} forcedStates={forcedStates} />
 }

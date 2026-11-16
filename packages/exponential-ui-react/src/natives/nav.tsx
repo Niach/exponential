@@ -399,10 +399,11 @@ export function SegmentedNative({ node, props, rootProps, emit, scope }: NativeP
     setValue(next)
     void emit(`change`, { value: next }, { value: next })
   }} />
-  const body = items.map((item) => {
+  const body = items.map((item, i) => {
     const selected = isSelected(item)
+    // #EXP-1781: a host's forced `<id>.item.<i>` (the item has no placed id).
     return (
-      <ToggleGroupPrimitive.Item key={item.value} value={item.value} disabled={bool(item.disabled)} aria-label={item.label ? undefined : item.value} {...(part(`item`, selected && `selected`, bool(item.disabled) && `disabled`) as Record<string, string>)}>
+      <ToggleGroupPrimitive.Item key={item.value} value={item.value} disabled={bool(item.disabled)} aria-label={item.label ? undefined : item.value} {...(part(`item`, selected && `selected`, bool(item.disabled) && `disabled`, ...part.forced(`${part.domId}.item.${i}`)) as Record<string, string>)}>
         {content(item, selected)}
       </ToggleGroupPrimitive.Item>
     )
@@ -479,7 +480,7 @@ function SegmentedBar({ rootProps, vertical, items, value, part, content, onPick
             key={item.value}
             ref={(el) => void (refs.current[i] = el)}
             type="button"
-            {...(part(`item`, selected && `selected`, disabled && `disabled`) as Record<string, string>)}
+            {...(part(`item`, selected && `selected`, disabled && `disabled`, ...part.forced(`${part.domId}.item.${i}`)) as Record<string, string>)}
             disabled={disabled}
             tabIndex={i === stop ? 0 : -1}
             aria-current={selected ? `page` : undefined}

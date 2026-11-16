@@ -16,6 +16,7 @@ interface Props {
   hydrate?: boolean
   icons?: IconMap
   inlineOverlays?: boolean
+  forcedStates?: Record<string, string[]>
 }
 const { hydrate, ...props } = Astro.props
 const llms = Astro.url.pathname.endsWith(`.txt`)

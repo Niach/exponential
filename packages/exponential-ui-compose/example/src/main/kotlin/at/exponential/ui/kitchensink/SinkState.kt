@@ -58,6 +58,10 @@ class SinkState(context: Context, val options: LaunchOptions, private val scope:
     /** The surface. */
     val model: SurfaceModel
 
+    /** #EXP-1781: the specimen's `states` (its state row's forced interaction states), passed as `forcedStates`. */
+    var forcedStates: Map<String, List<String>> = emptyMap()
+        private set
+
     init {
         ExponentialUi.appContext = context.applicationContext
         val density = context.resources.displayMetrics.density
@@ -94,6 +98,7 @@ class SinkState(context: Context, val options: LaunchOptions, private val scope:
         } else if (specimen != null) {
             model.setNested(specimen.first)
             specimen.second?.let { model.setData("", it) }
+            forcedStates = specimen.third
         } else {
             var json = assets.open("kitchen-sink.json").bufferedReader().use { it.readText() }
             if (options.rtl) json = json.replace("\"direction\": \"ltr\"", "\"direction\": \"rtl\"")
@@ -115,14 +120,15 @@ class SinkState(context: Context, val options: LaunchOptions, private val scope:
 
     /** The nested node of the specimen [id] and its data model, if any (`fixtures/specimens.json`;
      *  an `exponential-ui-eval-<corpus id>` = a recorded eval surface, `eval/eval-specimens.json`, VAPP-127;
-     *  both copied into the assets). */
-    private fun specimenNode(id: String): Pair<String, JsonValue?>? {
+     *  both copied into the assets), and its `states` (#EXP-1781). */
+    private fun specimenNode(id: String): Triple<String, JsonValue?, Map<String, List<String>>>? {
         val file = if (id.startsWith(EVAL_PREFIX)) "eval-specimens.json" else "specimens.json"
         val fixture = JsonValue.parse(assets.open(file).bufferedReader().use { it.readText() })
         val entry = fixture["specimens"]?.array?.firstOrNull { it["id"]?.string == id }
         val node = entry?.get("node")
         if (node == null) Log.w(LOG_TAG, "specimen $id: not in $file")
-        return node?.let { it.json to entry["data"] }
+        val states = entry?.get("states")?.obj.orEmpty().mapValues { (_, v) -> v.array.orEmpty().mapNotNull { it.string } }
+        return node?.let { Triple(it.json, entry["data"], states) }
     }
 
     /** Switch the theme (a built-in id or `brand`). */

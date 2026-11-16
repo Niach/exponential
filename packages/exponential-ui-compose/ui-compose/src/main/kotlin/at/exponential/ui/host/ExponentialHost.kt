@@ -875,11 +875,11 @@ class ExponentialHost(
  * as tall as its content; wrap it in your scroller).
  */
 @Composable
-fun HostSurface(host: ExponentialHost, surfaceId: String, modifier: Modifier = Modifier, fallback: @Composable () -> Unit = {}) {
+fun HostSurface(host: ExponentialHost, surfaceId: String, modifier: Modifier = Modifier, forcedStates: Map<String, List<String>> = emptyMap(), fallback: @Composable () -> Unit = {}) {
     val model = host.surfaces[surfaceId]
     if (model == null) {
         fallback()
     } else {
-        key(model) { ExponentialSurface(model, modifier) }
+        key(model) { ExponentialSurface(model, modifier, forcedStates) }
     }
 }

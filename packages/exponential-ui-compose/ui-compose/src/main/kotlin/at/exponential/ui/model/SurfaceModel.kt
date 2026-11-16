@@ -464,6 +464,47 @@ class SurfaceModel(
         if (applySettings()) fullInvalidate()
     }
 
+    // Forced states (#EXP-1781)
+
+    private var forced: Map<String, List<String>> = emptyMap()
+    private var forcedDropped: List<String> = emptyList()
+
+    /** Bumped when the forced map changes: painters reading [forcedStatesOf] recompose. */
+    var forcedVersion: Int by mutableIntStateOf(0)
+        private set
+
+    /**
+     * #EXP-1781 (`fixtures/forced-states.json`): the host's FORCED interaction
+     * states, replacing the last map: id (a node, or a placed part such as
+     * `tabs.tab.1`; a key covers the node and its parts `<id>.…`) → `hover`,
+     * `pressed`, `focus` (= `focus` + `focus-visible`). PAINT ONLY: they join
+     * the style resolution and nothing else (no event, no overlay, no focus
+     * move, no semantics change, no press scale). Returns the refused entries
+     * (`<id>:<state>`); an unknown id is kept.
+     */
+    fun setForcedStates(forced: Map<String, List<String>>): List<String> {
+        if (forced == this.forced) return forcedDropped
+        this.forced = forced
+        forcedDropped = surface.setForcedStates(forced)
+        forcedVersion += 1
+        paintFull = true
+        invalidate(false)
+        return forcedDropped
+    }
+
+    /** The forced states node or part [id] carries (its own key and every dotted prefix). */
+    fun forcedStatesOf(id: String): List<String> {
+        @Suppress("UNUSED_VARIABLE") val v = forcedVersion
+        return if (forced.isEmpty()) emptyList() else surface.forcedStatesOf(id)
+    }
+
+    /** The host's interaction states of [id] plus its forced ones: what a painter-drawn part resolves with. */
+    fun paintStatesOf(id: String): List<String> {
+        val own = statesOf(id)
+        val f = forcedStatesOf(id)
+        return if (f.isEmpty()) own else own + f.filter { it !in own }
+    }
+
     /**
      * Settings ⊕ environment → the core's `SurfaceSettings` and the
      * formatter. Returns whether anything reached the core.
@@ -1390,7 +1431,7 @@ class SurfaceModel(
         val base = style(index)
         val n = node(index) ?: return base
         if (theme == null) return base
-        val states = statesOf(n.id)
+        val states = paintStatesOf(n.id)
         val rc = n.recipeComponent
         return when {
             (rc == "Checkbox" && n.part == "box") || (rc == "Switch" && n.part == "track") -> {

@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- `Surface.set_forced_states(forced: {id: [state]}) -> [dropped]` and `Surface.forced_states_of(id)` (#EXP-1781): the host's forced interaction states, paint only (`dropped` sorted by id). Bindings regenerated.
 - `FfiVisual.tail` (#EXP-1876): `start | end | down` (null = none), the Box style key `tail`; the Swift and Compose painters draw the box + its speech-bubble tail as one outline. Bindings regenerated.
 - List `reorderable` (#EXP-1832): `Surface.list_drag(index, input_json)` (`{"phase": "start"|"move"|"end", x, y}` in the UNSCROLLED frame space, or `{"phase": "cancel"}`; the host starts it after a long press on touch, past `tabDragThreshold` for a pointer; `end` fires `move {id, before|after|into}`), `Surface.list_reorder_row(index)` (the row slot a press sits in, None = no drag there), `Surface.list_dragging()`, `Surface.list_drag_paint()` -> `[FfiListDragPaint]` (`row` to dim, `lift` frame, `drop_key` / `drop_position` / `drop_row`, `line` + `ring` or `into`), `list_drag_style()` -> `FfiListDragStyle` (dim, line, ring, lift_offset, lift_opacity, into_fill), `list_drop_slot_json(request_json)` (the pure rule). Bindings regenerated.
 - `FfiTextStyle.font_variant_numeric` (`tabular-nums` = shape with `tnum`; `None` = the font's own figures). Bindings regenerated.
