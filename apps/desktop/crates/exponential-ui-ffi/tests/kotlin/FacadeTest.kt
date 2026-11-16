@@ -422,6 +422,7 @@ fun main(args: Array<String>) {
     check(styled["hov"] == true && styled["pill"] == true) { "hoverStyled: a :hover block and a hover recipe ($styled)" }
     check(styled["cap"] == false && styled["root"] == false) { "hoverStyled: plain nodes ($styled)" }
     // #EXP-1781 (fixtures/forced-states.json): a forced hover restyles like a real one, paint only.
+    asks.layout(rec) // the cleared hover, laid out: the unforced look
     val rest = asks.visual(pill)!!.backgroundColor
     check(asks.setForcedStates(mapOf("pill" to listOf("hover", "checked"))) == listOf("pill:checked")) { "forced: the refused entry" }
     asks.layout(rec)
