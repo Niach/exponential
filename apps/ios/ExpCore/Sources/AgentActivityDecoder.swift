@@ -593,8 +593,10 @@ public enum AgentActivityDecoder {
         return String(trimmed.prefix(DomainContract.steerWorkingPreviewMax))
     }
 
+    /// #FEED-256 (transcript-grouping.json `blank`): whitespace or invisible
+    /// characters only (a lone U+200B) carry nothing.
     private static func blank(_ text: String) -> Bool {
-        text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        TranscriptGrouping.isBlankText(text)
     }
 
     /// JSON numbers arrive as `NSNumber` through JSONSerialization; a

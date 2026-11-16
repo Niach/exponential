@@ -98,6 +98,9 @@ struct ChatHeaderTitle: View {
     /// #EXP-1732 APP LEAD: what follows the name on its line (an app's
     /// version pill).
     var titleAccessory: AnyView?
+    /// #FEED-257: while the word is needs input, the subtitle line is ONE
+    /// press opening the waiting item (the same text, no new style).
+    var onSubtitle: (() -> Void)?
 
     /// EXP-1552: THE chat lead ×4 (web `ChatLeadDisc`, Android
     /// `chatLeadOf`, the Chats list's `ChatLeadMark`): the mark first, then
@@ -148,7 +151,14 @@ struct ChatHeaderTitle: View {
                     if let titleAccessory { titleAccessory }
                 }
                 if let subtitle {
-                    ChatHeaderSubtitle(text: subtitle, tone: subtitleTone)
+                    if let onSubtitle {
+                        Button(action: onSubtitle) {
+                            ChatHeaderSubtitle(text: subtitle, tone: subtitleTone)
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        ChatHeaderSubtitle(text: subtitle, tone: subtitleTone)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -157,33 +167,47 @@ struct ChatHeaderTitle: View {
 
     /// #EXP-1732 STATUS WORD (session-screen.json `statusCases`): THE
     /// tree's lowercase word (`SessionScreen.status`, never dropped) over
-    /// every session of the tree, the root included.
-    static func status(rows: ChatRows) -> String {
+    /// every session of the tree, the root included. #FEED-257: `asks` =
+    /// the chat's waiting cards (`chatPendingAsks`, Conversation order).
+    static func status(rows: ChatRows, asks: [SessionScreen.Ask] = []) -> String {
+        SessionScreen.status(statusInputs(rows: rows), asks: asks)
+    }
+
+    /// #FEED-257 (`waitingCases`): what the needs-input line opens; nil =
+    /// nothing waits (a stale flag included).
+    static func waiting(rows: ChatRows, asks: [SessionScreen.Ask] = []) -> SessionScreen.Waiting? {
+        SessionScreen.waiting(statusInputs(rows: rows), asks: asks)
+    }
+
+    private static func statusInputs(rows: ChatRows) -> [SessionScreen.StatusInput] {
+        func input(_ session: SessionEntity) -> SessionScreen.StatusInput {
+            SessionScreen.StatusInput(
+                id: session.id, status: session.status, busy: session.busy, needsInput: session.needsInput,
+                blocked: TreeSessionBlocked.parse(session.blocked)?.kind, root: session.id == rows.root.id
+            )
+        }
         let tree = rows.sessions.filter { $0.rootId == rows.root.id || $0.id == rows.root.id }
-        var inputs = tree.map {
-            SessionScreen.StatusInput(status: $0.status, busy: $0.busy, needsInput: $0.needsInput, root: $0.id == rows.root.id)
-        }
+        var inputs = tree.map(input)
         if !tree.contains(where: { $0.id == rows.root.id }) {
-            let root = rows.root
-            inputs.insert(SessionScreen.StatusInput(status: root.status, busy: root.busy, needsInput: root.needsInput, root: true), at: 0)
+            inputs.insert(input(rows.root), at: 0)
         }
-        return SessionScreen.status(inputs)
+        return inputs
     }
 
     /// #EXP-1732 (session-screen.json `subtitle`): `status · device ·
     /// trigger` for every kind — the tree's word, the root's device, an
     /// agent's first enabled trigger (`triggerSummary`).
-    static func subtitle(rows: ChatRows) -> String {
+    static func subtitle(rows: ChatRows, asks: [SessionScreen.Ask] = []) -> String {
         let trigger = rows.agent.flatMap { agent in
             AgentTrigger.parseList(agent.triggers).first(where: \.enabled).map { AgentSettings.triggerSummary($0) }
         }
-        return SessionScreen.subtitle(status: status(rows: rows), device: rows.rootDevice?.label, trigger: trigger)
+        return SessionScreen.subtitle(status: status(rows: rows, asks: asks), device: rows.rootDevice?.label, trigger: trigger)
     }
 
     /// session-screen.json TONE ×4: the tree word's tone (needs input =
     /// amber, working or queued = the foreground, else muted).
-    static func tone(rows: ChatRows) -> Tone {
-        switch status(rows: rows) {
+    static func tone(rows: ChatRows, asks: [SessionScreen.Ask] = []) -> Tone {
+        switch status(rows: rows, asks: asks) {
         case SessionScreen.Copy.Status.needsInput: return .needsYou
         case SessionScreen.Copy.Status.working, SessionScreen.Copy.Status.queued: return .working
         default: return .muted

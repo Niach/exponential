@@ -901,7 +901,9 @@ struct AgentSessionView: View {
                                 // calls, in publish order. EXP-916: its edit
                                 // runs project into edited-files cards, exactly
                                 // as they do in the main transcript.
-                                let laneRows = AgentFeed.laneRows(focused.items)
+                                // #FEED-256: a blank narration draws nothing
+                                // and never breaks a group.
+                                let laneRows = AgentFeed.laneRows(focused.items).filter { !Self.isBlankNarration($0) }
                                 // #EXP-1736: the tab is a transcript too:
                                 // its prose = THE message bubble under the
                                 // subagent's avatar, the turns to it own.
@@ -1293,6 +1295,9 @@ struct AgentSessionView: View {
             askCard(group)
         case let .single(item):
             switch item {
+            case let .narration(_, text, _, _, _) where TranscriptGrouping.isBlankText(text):
+                // #FEED-256: a blank narration draws nothing.
+                EmptyView()
             case let .narration(_, text, _, _, at):
                 // #EXP-1736: the agent's prose = THE message bubble under its
                 // avatar. #VAPP-258: the live tail is the reply being written.
@@ -1518,6 +1523,13 @@ struct AgentSessionView: View {
     /// #EXP-1736: a subagent's own tab through the same grouping: the
     /// subagent is the chat's own sender (its prose = its bubbles, its
     /// calls = its trace), the turns addressed to it the viewer's own.
+    /// #FEED-256 (transcript-grouping.json `blank`): a narration whose text
+    /// is whitespace or invisible characters only.
+    static func isBlankNarration(_ row: AgentFeedRow) -> Bool {
+        guard case let .single(.narration(_, text, _, _, _)) = row else { return false }
+        return TranscriptGrouping.isBlankText(text)
+    }
+
     static func laneGrouping(
         _ rows: [AgentFeedRow], run: AgentSubagentRun, ownAvatar: SenderAvatarModel? = nil
     ) -> FeedGrouping {
@@ -1876,7 +1888,7 @@ struct AgentSessionView: View {
                 }
                 let inputs: [NoFeedInput] = picked.compactMap { m in
                     let text = m.locked.map(SealedPlaceholder.copy) ?? m.body
-                    return text.isEmpty ? nil : NoFeedInput(id: m.id, text: text, at: WireTimestamps.parse(m.createdAt))
+                    return TranscriptGrouping.isBlankText(text) ? nil : NoFeedInput(id: m.id, text: text, at: WireTimestamps.parse(m.createdAt))
                 }
                 if inputs != noFeedInputs { noFeedInputs = inputs }
             }
@@ -4612,6 +4624,9 @@ struct SubagentItemRow: View {
         case let .thought(_, _, running, durationMs, _):
             // The main lane's rule: shimmer only while the run works.
             TraceLine(Trace.reasoning(running: running && live, durationMs: durationMs), size: .sm)
+        case let .narration(_, text, _, _, _) where TranscriptGrouping.isBlankText(text):
+            // #FEED-256: a blank narration draws nothing.
+            EmptyView()
         case let .narration(_, text, _, _, at):
             if nested {
                 NarrationBubble(text: text, context: context)

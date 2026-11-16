@@ -3692,12 +3692,17 @@ final class TranscriptEntry: Identifiable, Equatable {
             guard case let .single(item) = row else { return .other }
             switch item {
             case let .userMessage(_, text, _, _):
-                if case let .marker(key, _) = TranscriptGrouping.feedInput(text) {
+                switch TranscriptGrouping.feedInput(text) {
+                case let .marker(key, _):
                     return key == "schedule" ? .schedule : .marker
+                // #FEED-254: another session's relayed line with a blank body draws nothing.
+                case let .relay(_, _, body, _) where TranscriptGrouping.isBlankText(body):
+                    return .blank
+                default:
+                    return .input
                 }
-                return .input
             case let .narration(_, text, _, _, _):
-                return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .blank : .reply
+                return TranscriptGrouping.isBlankText(text) ? .blank : .reply
             case let .tool(_, name, _, _, _, _, _, _, _, _, _, _, _) where TranscriptGrouping.traceNotice(name) != nil:
                 return .quiet
             default:

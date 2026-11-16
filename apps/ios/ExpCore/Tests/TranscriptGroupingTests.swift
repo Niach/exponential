@@ -218,6 +218,21 @@ final class TranscriptGroupingTests: XCTestCase {
             XCTAssertEqual(TranscriptGrouping.checkInLabel(count: count, time: string(testCase["time"])), testCase["expected"] as? String, name)
         }
     }
+    // #FEED-256 / #FEED-254: the blank-text rule.
+    func testReplaysEveryBlankCase() throws {
+        let blank = try XCTUnwrap(try fixture()["blank"] as? [String: Any])
+        let points = try XCTUnwrap(blank["codePoints"] as? [String]).map { hex in
+            try XCTUnwrap(UInt32(hex, radix: 16), hex)
+        }
+        XCTAssertEqual(Set(points), TranscriptGrouping.blankCodePoints)
+        let cases = try XCTUnwrap(try fixture()["blankCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = testCase["name"] as? String ?? ""
+            let text = try XCTUnwrap(testCase["text"] as? String, name)
+            XCTAssertEqual(TranscriptGrouping.isBlankText(text), try XCTUnwrap(testCase["expected"] as? Bool, name), name)
+        }
+    }
     func testCheckInSpecimenMatchesFixture() throws {
         let rows = try XCTUnwrap(try fixture()["checkInSpecimen"] as? [[String: Any]])
         let want = try rows.map { row in

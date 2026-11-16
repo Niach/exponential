@@ -413,26 +413,31 @@ struct ChatScreen: View {
     /// chat PR's entries in THE Menu's sheet).
     private func chatHeader(rows: ChatRows, view: SessionChatView) -> some View {
         ChatHeader {
+            let asks = headerAsks
+            let waiting = ChatHeaderTitle.waiting(rows: rows, asks: asks)
+            let openWaiting: (() -> Void)? = waiting.map { item in { openWaitingItem(item) } }
             if let editor {
                 // #EXP-1729: the editor's title block carries its own
                 // subtitle (apps.json `editorHeader`: why nothing starts).
-                editor.title(ChatHeaderTitle.status(rows: rows))
+                editor.title(ChatHeaderTitle.status(rows: rows, asks: asks), openWaiting)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 ChatHeaderTitle(
                     title: rows.isAgent && !rows.agentName.isEmpty ? rows.agentName : view.title,
-                    subtitle: ChatHeaderTitle.subtitle(rows: rows),
-                    subtitleTone: ChatHeaderTitle.tone(rows: rows),
+                    subtitle: ChatHeaderTitle.subtitle(rows: rows, asks: asks),
+                    subtitleTone: ChatHeaderTitle.tone(rows: rows, asks: asks),
                     isPrivate: view.isPrivate,
                     agentIcon: rows.isAgent ? rows.agentIcon : nil,
                     agentColor: rows.isAgent ? rows.agentColor : nil,
                     assistant: rows.isAgent && rows.app == nil && rows.agent?.isAssistant == true,
                     cli: rows.root.cli,
                     prStates: rows.pullRequests.map(\.state),
+                    // #FEED-257: the lead needs you only while something waits.
                     mark: SessionTree.chatRowMarkState(
-                        needsYou: rows.sessions.contains { $0.needsInput && $0.status != DomainContract.sessionStatusEnded },
+                        needsYou: waiting != nil,
                         busy: rows.sessions.contains { $0.busy && $0.status != DomainContract.sessionStatusEnded }
-                    )
+                    ),
+                    onSubtitle: openWaiting
                 )
             }
         } trailing: {
@@ -483,6 +488,37 @@ struct ChatScreen: View {
         }, uniquingKeysWith: { first, _ in first })
         return AskDock.chatPendingAsks(view.rows, sessionName: { _ in nil }).map {
             ($0, sessions[$0.id] ?? rootId)
+        }
+    }
+
+    /// #FEED-257: the waiting cards as the status word reads them.
+    private var headerAsks: [SessionScreen.Ask] {
+        waitingCards.map { picked in
+            SessionScreen.Ask(
+                id: picked.card.id, sessionId: picked.sessionId, kind: picked.card.kind == .plan ? .plan : .question
+            )
+        }
+    }
+
+    /// #FEED-257 (session-screen.json THE LINE LEADS TO IT): the subtitle's
+    /// press opens the waiting item the way its own row would: a plan = its
+    /// plan page, a card = the Conversation scrolled to it (its ring), a
+    /// session = that session opened, the chat = the Conversation.
+    private func openWaitingItem(_ item: SessionScreen.Waiting) {
+        UIApplication.endEditing()
+        pendingPage = nil
+        switch item.open {
+        case .plan:
+            land(on: .plan(item.id))
+        case .card:
+            opened = nil
+            setTab(.chat)
+            waitingFocus = WaitingFocus(id: item.id, at: Date())
+        case .session:
+            openSession(item.id)
+        case .chat:
+            opened = nil
+            setTab(.chat)
         }
     }
 

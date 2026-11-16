@@ -760,7 +760,7 @@ public enum Chats {
             .filter { m in
                 if m.isLocked { return true }
                 if let card = m.card { return previewCards.contains(card.kind ?? "") }
-                return !m.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                return !TranscriptGrouping.isBlankText(m.body)
             }
             .sorted { a, b in
                 let ta = ms(a.createdAt) ?? 0, tb = ms(b.createdAt) ?? 0
