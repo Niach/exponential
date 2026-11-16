@@ -1308,7 +1308,9 @@ fn run_sync_worker(
                             report.skipped,
                         );
                     }
-                    sweep_cargo_target(clone, &repo.full_name);
+                    if let Some(sweep) = sweep {
+                        sweep_cargo_target(clone, &sweep.data_dir);
+                    }
                 }
             }
             // NEW-5: once a day per clone, every finished session's stale
@@ -1479,21 +1481,12 @@ fn carry_prune_policy(issues_ready: bool, boards_ready: bool) -> bool {
     issues_ready && boards_ready
 }
 
-/// Bound the clone's shared cargo target (`coding::cargo_target_gc`); the
-/// shared throttle walks it at most once an hour, not on every 120-s
-/// AutoSync pass it rides.
-fn sweep_cargo_target(clone: &Path, full_name: &str) {
-    let Some(report) = coding::cargo_target_gc::sweep_if_due(clone) else {
-        return;
-    };
-    if report.bytes_freed > 0 || !report.skipped_locked.is_empty() {
-        log::info!(
-            "[ui] cargo-target gc {full_name}: freed {} of {} bytes, skipped locked {:?}",
-            report.bytes_freed,
-            report.bytes_before,
-            report.skipped_locked,
-        );
-    }
+/// #EXP-1865: sweep the clone's shared cargo target while its disk is low
+/// (`coding::cargo_target_gc`, which logs its own line); the shared
+/// throttle walks it at most once per 15 min, not on every 120-s AutoSync
+/// pass it rides.
+fn sweep_cargo_target(clone: &Path, data_dir: &Path) {
+    coding::cargo_target_gc::sweep_if_due(clone, data_dir);
 }
 
 #[cfg(test)]

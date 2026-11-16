@@ -10,6 +10,7 @@ pub mod motion;
 pub mod remote;
 pub mod run;
 pub mod sessions;
+pub mod sweep_target;
 pub mod uninstall;
 pub mod update;
 

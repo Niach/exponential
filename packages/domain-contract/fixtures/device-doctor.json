@@ -57,9 +57,13 @@
     "keyHolderLabel": "Encryption keys",
     "keyHolderNotRunning": "Key holder not running · restart while signed in and online",
     "storeConflictsLabel": "Conversations",
-    "storeConflicts": "{count} diverged · kept in store/conflicts"
+    "storeConflicts": "{count} diverged · kept in store/conflicts",
+    "cargoSweepLabel": "Build cache",
+    "cargoSweepFreed": "{size} freed · {when}",
+    "cargoSweepDryRun": "{size} stale · dry run · {when}"
   },
   "rules": [
+    "#EXP-1865: a device whose shared cargo target sweep (coding::cargo_target_gc: free disk on the target's volume under settings.json cargoSweep.freeDiskGb, default 20) ever freed something adds ONE storage row under `disk`: key `cargo_sweep`, parent `disk` (indented), its own `label` = cargoSweepLabel, state off (grey, never a problem, no pill), detail = cargoSweepFreed with {size} in the disk row's GB format and {when} the device-local time of that sweep (`16 Nov 08:14`); a dry-run sweep (cargoSweep.dryRun) reads cargoSweepDryRun. No sweep yet = no row. Clients draw it like the kept-worktree rows and never compose the detail.",
     "EXP-1794: a device whose claude conversation-store migration parked diverged copies (store/conflicts/, nothing deleted) adds ONE storage row: key `store_conflicts`, its own `label` = storeConflictsLabel, state action (the warning tone, no pill), detail = storeConflicts with {count} = the parked files. None parked = no row.",
     "#FEED-192: a device whose key holder is not running (signed out, offline or its install not registered, past the one-minute start grace) adds ONE storage row: key `key_holder`, its own `label` = keyHolderLabel, state action (the warning tone, no pill), detail = keyHolderNotRunning. It cannot read or write encrypted chats until then, and it still runs everything else: never a blocker. A running holder adds no row. `exponential doctor` reads the daemon's state, since the holder lives in the daemon's process.",
     "The computer_use item IS the switch row: label + switch, no glyph, no detail. Its switch writes launch_defaults.computerUse. state off = switch off; ok/action = on.",
@@ -303,7 +307,8 @@
           { "key": "computer_use", "group": "computer_use", "state": "off" },
           { "key": "disk", "group": "storage", "state": "action", "detail": "6.2 GB free" },
           { "key": "worktree-1", "group": "storage", "parent": "disk", "label": "exp-session-9497089a", "state": "off", "detail": "Uncommitted changes" },
-          { "key": "worktree-2", "group": "storage", "parent": "disk", "label": "exp-EXP-1375", "state": "off", "detail": "Unpushed commits" }
+          { "key": "worktree-2", "group": "storage", "parent": "disk", "label": "exp-EXP-1375", "state": "off", "detail": "Unpushed commits" },
+          { "key": "cargo_sweep", "group": "storage", "parent": "disk", "label": "Build cache", "state": "off", "detail": "31 GB freed · 14 Nov 23:02" }
         ]
       },
       "runnable": ["claude"],
