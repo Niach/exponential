@@ -1257,7 +1257,13 @@ private fun RunFaceContent(
                 val transcriptFooter: (@Composable () -> Unit)? = if (offlineLine) {
                     {
                         Column {
-                            com.exponential.app.ui.chat.FeedMarkerRow(offlineTitle, testTag = "transcript-offline-line")
+                            // The marker's own place in the transcript (a Turn gap,
+                            // like any row after a bubble).
+                            com.exponential.app.ui.chat.FeedMarkerRow(
+                                offlineTitle,
+                                modifier = Modifier.padding(top = TranscriptGap.Turn.dp),
+                                testTag = "transcript-offline-line",
+                            )
                             hostFooter?.invoke()
                         }
                     }
