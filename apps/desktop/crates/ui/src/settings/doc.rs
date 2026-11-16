@@ -288,14 +288,20 @@ impl Ink {
 
     /// [`Ink::band`] with a leading glyph and `glass_section_band_loading`'s
     /// reload spinner (shown where `loading`), BEFORE the trailing control.
+    /// An empty `label` draws no text of its own: the danger zones' leading
+    /// node IS their label, and an empty `{id}_label` beside it doubled that
+    /// node id (#EXP-1887: a debug build panicked on the duplicate
+    /// accessibility node, a release one dropped it from the tree).
     pub(super) fn band_with(&self, id: &str, leading: Option<Value>, label: &str, loading: Option<Value>, trailing: Option<Value>) -> Value {
-        let mut text = faded(self.text(&format!("{id}_label"), json!(label), SM, &self.foreground), 0.85);
-        text["props"]["lines"] = json!(1);
-        text["style"]["fontWeight"] = json!(500);
-        text["style"]["minWidth"] = json!(0);
-        text["style"]["flexShrink"] = json!(1);
         let mut children: Vec<Value> = leading.into_iter().collect();
-        children.push(text);
+        if !label.is_empty() {
+            let mut text = faded(self.text(&format!("{id}_label"), json!(label), SM, &self.foreground), 0.85);
+            text["props"]["lines"] = json!(1);
+            text["style"]["fontWeight"] = json!(500);
+            text["style"]["minWidth"] = json!(0);
+            text["style"]["flexShrink"] = json!(1);
+            children.push(text);
+        }
         children.push(json!({"id": format!("{id}_spacer"), "component": "Box", "style": {"flexGrow": 1}}));
         if let Some(loading) = loading {
             let size = eui_gpui::controls::INLINE_SPINNER_PX;
@@ -518,6 +524,13 @@ pub(super) fn mount_with<S: 'static>(surface_id: &str, tree: Value, binding: &gp
     };
     #[cfg(debug_assertions)]
     let bound = bound_values(&tree);
+    // #EXP-1887: a twin id doubles its accessibility node, which a debug
+    // build only noticed (and panicked on) once a screen reader was on.
+    #[cfg(debug_assertions)]
+    {
+        let twins = duplicate_ids(&tree);
+        debug_assert!(twins.is_empty(), "{surface_id}: node ids used twice: {twins:?}");
+    }
     let tree: eui_core::NestedNode = serde_json::from_value(tree).expect("a settings document parses");
     let view = cx.new(|cx| {
         let mut view = eui_gpui::view::SurfaceView::new(options, window, cx);
@@ -562,6 +575,46 @@ fn focus_retry(view: gpui::Entity<eui_gpui::view::SurfaceView>, field: String, f
             log::warn!("[ui] no field `{field}` to focus");
         }
     });
+}
+
+/// Every node id that appears more than once in `tree` (a document's ids are
+/// its painted elements' ids: a twin shares their state and doubles their
+/// accessibility node, #EXP-1887).
+#[cfg(any(test, debug_assertions))]
+pub(super) fn duplicate_ids(tree: &Value) -> Vec<String> {
+    fn walk<'a>(node: &'a Value, seen: &mut std::collections::HashSet<&'a str>, twins: &mut Vec<String>) {
+        if let Some(id) = node.get("id").and_then(Value::as_str) {
+            if !seen.insert(id) {
+                twins.push(id.to_string());
+            }
+        }
+        for child in node.get("children").and_then(Value::as_array).into_iter().flatten() {
+            walk(child, seen, twins);
+        }
+    }
+    let mut twins = Vec::new();
+    walk(tree, &mut std::collections::HashSet::new(), &mut twins);
+    twins
+}
+
+#[cfg(test)]
+mod band_tests {
+    use super::*;
+
+    /// #EXP-1887: a band whose leading node is its label (the danger zones)
+    /// draws no second, empty `{id}_label` with that node's id.
+    #[test]
+    fn a_band_led_by_its_own_label_has_one_node_per_id() {
+        let ink = super::super::readiness::tests::test_ink();
+        let label = ink.text("danger_band_label", json!("Danger zone"), SM, "#f87171ff");
+        let band = ink.band_with("danger_band", Some(label), "", None, None);
+        assert_eq!(duplicate_ids(&band), Vec::<String>::new());
+        let texts: Vec<_> = band["children"].as_array().unwrap().iter().filter(|c| c["component"] == "Text").collect();
+        assert_eq!(texts.len(), 1, "{band}");
+        // A labelled band keeps its label.
+        let labelled = ink.band("band", "Servers", None);
+        assert_eq!(labelled["children"][0]["id"], "band_label");
+    }
 }
 
 #[cfg(test)]
