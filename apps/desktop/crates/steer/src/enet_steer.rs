@@ -138,6 +138,116 @@ pub fn no_feed_inputs<'r, T>(rows: &'r [T], max: usize, row: impl Fn(&'r T) -> N
     inputs.into_iter().skip(skip).map(|(_, item)| item).collect()
 }
 
+/// #FEED-260 (`syncedTailMax`): how many synced messages a not-live
+/// transcript draws after its feed.
+pub const SYNCED_TAIL_MAX: usize = 50;
+
+/// One row of the viewer's feed as [`synced_tail`] reads it: a main-lane
+/// narration (`Some("agent")`), an input (`Some("user")`) or anything else
+/// (`None`), its text and its known time in epoch ms (a narration's first
+/// fragment, an input, a settled tool; `None` = unknown).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TailFeedRow<'a> {
+    pub author: Option<&'a str>,
+    pub text: Option<&'a str>,
+    pub at_ms: Option<i64>,
+}
+
+/// One synced message as [`synced_tail`] reads it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SyncedTailRow<'a> {
+    pub id: &'a str,
+    pub author_kind: &'a str,
+    /// The row carries a card (`card` set and not JSON null).
+    pub has_card: bool,
+    pub consumed_at: Option<&'a str>,
+    pub created_at: &'a str,
+    pub body: &'a str,
+}
+
+/// #FEED-260 (steer-enet.json SYNCED TAIL, TS `steerSyncedTail`): the synced
+/// messages a NOT-live transcript draws after its feed, oldest first
+/// (`createdAt`, then `id`), the newest `max`: card-less with a non-blank
+/// body, the agent's or a person's CONSUMED input, later than the feed's
+/// newest known row time, and not already held by the feed (an agent line
+/// equal to, a prefix of or prefixed by a narration; an input equal to a feed
+/// input). An empty feed takes the tail only when it holds an agent line
+/// (else SENT INPUTS keeps the placeholder). A live feed = none.
+pub fn synced_tail<'r, T>(
+    live: bool,
+    feed: &[TailFeedRow<'_>],
+    rows: &'r [T],
+    max: usize,
+    row: impl Fn(&'r T) -> SyncedTailRow<'r>,
+) -> Vec<&'r T> {
+    if live {
+        return Vec::new();
+    }
+    let feed_at = feed.iter().filter_map(|r| r.at_ms).max();
+    if !feed.is_empty() && feed_at.is_none() {
+        return Vec::new();
+    }
+    let narrations: Vec<&str> = feed
+        .iter()
+        .filter(|r| r.author == Some("agent"))
+        .filter_map(|r| r.text.filter(|t| !t.is_empty()))
+        .map(str::trim)
+        .collect();
+    let inputs: Vec<&str> = feed
+        .iter()
+        .filter(|r| r.author == Some("user"))
+        .filter_map(|r| r.text.filter(|t| !t.is_empty()))
+        .map(str::trim)
+        .collect();
+    let mut tail: Vec<(SyncedTailRow<'r>, &'r T)> = rows
+        .iter()
+        .map(|item| (row(item), item))
+        .filter(|(m, _)| {
+            if m.has_card {
+                return false;
+            }
+            let body = m.body.trim();
+            if body.is_empty() {
+                return false;
+            }
+            match m.author_kind {
+                "agent" => {
+                    if narrations.iter().any(|text| !text.is_empty() && (text.starts_with(body) || body.starts_with(text))) {
+                        return false;
+                    }
+                }
+                "user" => {
+                    if m.consumed_at.is_none() || inputs.contains(&body) {
+                        return false;
+                    }
+                }
+                _ => return false,
+            }
+            match feed_at {
+                None => true,
+                Some(feed_at) => domain::session_tree::iso_ms(m.created_at).is_some_and(|created| created > feed_at),
+            }
+        })
+        .collect();
+    tail.sort_by(|(a, _), (b, _)| a.created_at.cmp(b.created_at).then_with(|| a.id.cmp(b.id)));
+    if feed.is_empty() && !tail.iter().any(|(m, _)| m.author_kind == "agent") {
+        return Vec::new();
+    }
+    let skip = tail.len().saturating_sub(max);
+    tail.into_iter().skip(skip).map(|(_, item)| item).collect()
+}
+
+/// #FEED-260 (steer-enet.json OFFLINE LINE, TS `steerOfflineLine`): whether a
+/// not-live transcript showing `rows` ends with THE inline marker reading
+/// `noFeedAway.title`: an ended row whose last dial said NO FEED, a row not
+/// ended whose device is offline.
+pub fn offline_line(live: bool, rows: usize, ended: bool, no_feed: bool, device_offline: bool) -> bool {
+    if live || rows == 0 {
+        return false;
+    }
+    if ended { no_feed } else { device_offline }
+}
+
 /// The synced row fields [`row_wakes`] reads.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WakeRow {
@@ -1147,6 +1257,53 @@ mod tests {
             let ids: Vec<&str> = picked.iter().map(|m| m["id"].as_str().unwrap()).collect();
             let expected: Vec<&str> = case["expected"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
             assert_eq!(ids, expected, "{}", case["name"]);
+        }
+    }
+
+    /// #FEED-260: `syncedTailMax` + `syncedTailCases` (SYNCED TAIL).
+    #[test]
+    fn synced_tail_cases() {
+        let f = fixture();
+        assert_eq!(f["syncedTailMax"], SYNCED_TAIL_MAX as u64);
+        for case in f["syncedTailCases"].as_array().unwrap() {
+            let feed: Vec<TailFeedRow> = case["feed"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|r| TailFeedRow {
+                    author: r["author"].as_str(),
+                    text: r["text"].as_str(),
+                    at_ms: r["at"].as_str().and_then(domain::session_tree::iso_ms),
+                })
+                .collect();
+            let messages = case["messages"].as_array().unwrap();
+            let max = case["max"].as_u64().map_or(SYNCED_TAIL_MAX, |max| max as usize);
+            let picked = synced_tail(case["live"].as_bool().unwrap(), &feed, messages, max, |m| SyncedTailRow {
+                id: m["id"].as_str().unwrap(),
+                author_kind: m["authorKind"].as_str().unwrap(),
+                has_card: !m["card"].is_null(),
+                consumed_at: m["consumedAt"].as_str(),
+                created_at: m["createdAt"].as_str().unwrap(),
+                body: m["body"].as_str().unwrap(),
+            });
+            let ids: Vec<&str> = picked.iter().map(|m| m["id"].as_str().unwrap()).collect();
+            let expected: Vec<&str> = case["expected"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
+            assert_eq!(ids, expected, "{}", case["name"]);
+        }
+    }
+
+    /// #FEED-260: `offlineLineCases` (OFFLINE LINE).
+    #[test]
+    fn offline_line_cases() {
+        for case in fixture()["offlineLineCases"].as_array().unwrap() {
+            let line = offline_line(
+                case["live"].as_bool().unwrap(),
+                case["rows"].as_u64().unwrap() as usize,
+                case["ended"].as_bool().unwrap(),
+                case["noFeed"].as_bool().unwrap(),
+                case["deviceOffline"].as_bool().unwrap(),
+            );
+            assert_eq!(line, case["line"].as_bool().unwrap(), "{}", case["name"]);
         }
     }
 
