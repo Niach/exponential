@@ -43,6 +43,21 @@ describe(`#VAPP-258 Markdown host hooks`, () => {
     expect(openUrl).toHaveBeenCalledWith(`https://app.example/i/ABC-1`)
   })
 
+  it(`#EXP-1882: a chip and the punctuation it touches wrap as one`, () => {
+    const glued = (text: string) => {
+      const p = paint(text, chipHost()).querySelector(`.xui-Markdown-paragraph`)!
+      const g = p.querySelector(`:scope > .xui-md-glue`)
+      expect(p.textContent).toBe(text.replace(`#ABC-1`, `ABC-1 Fix login`))
+      cleanup()
+      return g?.querySelector(`:scope > a.xui-md-chip`) ? g.textContent : null
+    }
+    expect(glued(`merged it (#ABC-1) ok`)).toBe(`(ABC-1 Fix login)`)
+    expect(glued(`linked it to #ABC-1.`)).toBe(`ABC-1 Fix login.`)
+    expect(glued(`see #ABC-1, merged it.`)).toBe(`ABC-1 Fix login,`)
+    expect(glued(`open (#ABC-1 now`)).toBe(`(ABC-1 Fix login`)
+    expect(glued(`see #ABC-1 now`)).toBeNull()
+  })
+
   it(`a chip with a denied href is text; an unknown kind is a plain link`, () => {
     const c = paint(`see #ABC-1`, { textLinks: (t) => (t.includes(`#ABC-1`) ? [{ text: `see ` }, { text: `#ABC-1`, href: `javascript:alert(1)`, chip: { kind: `issue`, label: `x` } }] : null) })
     expect(c.querySelector(`.xui-md-chip`)).toBeNull()

@@ -692,6 +692,60 @@ export function linkMarkdownText(tree: readonly MarkdownBlock[], ask: TextLinkAs
   })
 }
 
+/** #EXP-1882: a chip with the text it touches ("(#A-1)", "#A-1."), one
+ *  unbreakable group: an atomic inline breaks before and after itself. */
+export type MarkdownGlued = MarkdownInline | { type: `glue`; children: MarkdownInline[] }
+
+/** #EXP-1882: a glue group's text in `ch` (`--xui-md-glue`): a chip capped
+ *  at the line leaves it room there (one `ch` per character, at least as
+ *  wide as punctuation). */
+export function glueWidth(group: readonly MarkdownInline[]): string {
+  return `${group.reduce((n, c) => n + (typeof c === `string` ? c.length : 0), 0)}ch`
+}
+
+/** #EXP-1882: an inline list with each chip glued to the non-space text
+ *  around it (`MarkdownGlued`); a chip between spaces stays as it is. */
+export function glueChips(nodes: readonly MarkdownInline[]): MarkdownGlued[] {
+  const out: MarkdownGlued[] = []
+  for (let i = 0; i < nodes.length; i++) {
+    const n = nodes[i]
+    if (typeof n === `string` || n.type !== `link` || !n.chip) {
+      out.push(n)
+      continue
+    }
+    const last = out[out.length - 1]
+    const group: MarkdownInline[] = []
+    if (typeof last === `string`) {
+      const lead = /\S*$/.exec(last)![0]
+      if (lead) {
+        out[out.length - 1] = last.slice(0, last.length - lead.length)
+        if (!out[out.length - 1]) out.pop()
+        group.push(lead)
+      }
+    }
+    group.push(n)
+    const next = nodes[i + 1]
+    const tail = typeof next === `string` ? /^\S*/.exec(next)![0] : ``
+    if (tail) group.push(tail)
+    out.push(...glued(group))
+    if (tail) {
+      i++
+      if (next !== tail) out.push((next as string).slice(tail.length))
+    }
+  }
+  return out
+
+  // A chip right after a group (`#A-1#B-2`, `#A-1,#B-2`) joins it.
+  function glued(group: MarkdownInline[]): MarkdownGlued[] {
+    const last = out[out.length - 1]
+    if (typeof last === `object` && last.type === `glue` && typeof group[0] !== `string`) {
+      last.children.push(...group)
+      return []
+    }
+    return group.length > 1 ? [{ type: `glue`, children: group }] : group
+  }
+}
+
 /** catalog/host.json `markdown`: the chip and attachment kinds a host may
  *  answer, and a block image box's max height. */
 export const ATTACHMENT_KINDS: readonly string[] = [`video`, `audio`, `file`]

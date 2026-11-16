@@ -15,7 +15,7 @@
 
 import { For, Show, createMemo, createSignal, onCleanup, useContext, type JSX } from "solid-js"
 import { Dynamic } from "solid-js/web"
-import { MARKDOWN_CELL_TEXT, watchMarkdownTable, linkedMarkdown, linkHref, markdownChipOverlay, markdownPartAttrs, markdownProfileHost, loadedImageSize, markdownCodeLines, markdownImageCap, markdownImageSizeOf, markdownImageStyle, mediaRequestOf, rememberImageSize, parseMarkdown, partClass, propAttribute, type MarkdownBlock, type MarkdownChip, type MarkdownInline, type MarkdownList } from "@exponential_app/eui/web"
+import { MARKDOWN_CELL_TEXT, watchMarkdownTable, glueChips, glueWidth, linkedMarkdown, linkHref, markdownChipOverlay, markdownPartAttrs, markdownProfileHost, loadedImageSize, markdownCodeLines, markdownImageCap, markdownImageSizeOf, markdownImageStyle, mediaRequestOf, rememberImageSize, parseMarkdown, partClass, propAttribute, type MarkdownBlock, type MarkdownChip, type MarkdownInline, type MarkdownList } from "@exponential_app/eui/web"
 import type { MarkdownVariant } from "@exponential_app/eui/web"
 import type { UiNode } from "@exponential_app/eui"
 import { SurfaceContext } from "./context"
@@ -167,35 +167,38 @@ function MarkdownAttachment(props: { host: HostPlugin; b: Extract<MarkdownBlock,
 }
 
 function inline(nodes: readonly MarkdownInline[], host: HostPlugin, scope = ``): JSX.Element[] {
-  return nodes.map((n): JSX.Element => {
-    // #VAPP-258: a hard line break is a newline in the run.
-    if (typeof n === `string`) return n.includes(`\n`) ? n.split(`\n`).flatMap((line, i) => (i ? [<br />, line] : [line])) : n
-    switch (n.type) {
-      case `code`:
-        return <code {...mdPart(host, scope, `code`)}>{n.text}</code>
-      case `strong`:
-        return <strong>{inline(n.children, host, scope)}</strong>
-      case `em`:
-        return <em>{inline(n.children, host, scope)}</em>
-      case `del`:
-        return <del>{n.children ? inline(n.children, host, scope) : n.text}</del>
-      case `link`: {
-        const href = linkHref(host, n.dest)
-        if (href && n.chip) return <MarkdownChipLink host={host} href={href} chip={n.chip} scope={scope} />
-        const label = inline(n.children, host, scope)
-        return href ? (
-          <MarkdownLink host={host} href={href} scope={scope}>
-            {label}
-          </MarkdownLink>
-        ) : (
-          <span {...mdPart(host, scope, `link`)} data-denied="">
-            {label}
-          </span>
-        )
-      }
+  // #EXP-1882: a chip and the text it touches wrap as one.
+  return glueChips(nodes).map((n): JSX.Element => (typeof n !== `string` && n.type === `glue` ? <span class="xui-md-glue" style={{ "--xui-md-glue": glueWidth(n.children) }}>{n.children.map((c) => inlineNode(c, host, scope))}</span> : inlineNode(n, host, scope)))
+}
+
+function inlineNode(n: MarkdownInline, host: HostPlugin, scope: string): JSX.Element {
+  // #VAPP-258: a hard line break is a newline in the run.
+  if (typeof n === `string`) return n.includes(`\n`) ? n.split(`\n`).flatMap((line, i) => (i ? [<br />, line] : [line])) : n
+  switch (n.type) {
+    case `code`:
+      return <code {...mdPart(host, scope, `code`)}>{n.text}</code>
+    case `strong`:
+      return <strong>{inline(n.children, host, scope)}</strong>
+    case `em`:
+      return <em>{inline(n.children, host, scope)}</em>
+    case `del`:
+      return <del>{n.children ? inline(n.children, host, scope) : n.text}</del>
+    case `link`: {
+      const href = linkHref(host, n.dest)
+      if (href && n.chip) return <MarkdownChipLink host={host} href={href} chip={n.chip} scope={scope} />
+      const label = inline(n.children, host, scope)
+      return href ? (
+        <MarkdownLink host={host} href={href} scope={scope}>
+          {label}
+        </MarkdownLink>
+      ) : (
+        <span {...mdPart(host, scope, `link`)} data-denied="">
+          {label}
+        </span>
+      )
     }
-    return null
-  })
+  }
+  return null
 }
 
 function renderList(list: MarkdownList, host: HostPlugin, scope: string): JSX.Element {

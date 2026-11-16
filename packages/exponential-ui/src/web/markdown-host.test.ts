@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test"
 import fixture from "../../fixtures/markdown-host.json" with { type: "json" }
 import host from "../../catalog/host.json" with { type: "json" }
 import type { AnyHostPlugin, TextLinkSegment } from "./host-types"
-import { MARKDOWN_IMAGE_MAX_HEIGHT, markdownImageBox, markdownImageCap, markdownImageSizeOf, markdownImageStyle, parseMarkdown } from "./markdown"
+import { MARKDOWN_IMAGE_MAX_HEIGHT, glueChips, markdownImageBox, markdownImageCap, markdownImageSizeOf, markdownImageStyle, parseMarkdown } from "./markdown"
 import { normalMarkdown, type NormalBlock, type NormalRun } from "./markdown-normal"
 import { linkHref } from "./urls"
 import { linkedMarkdown } from "./markdown-linked"
@@ -89,5 +89,28 @@ describe(`markdown-host.json (web)`, () => {
       const tree = parseMarkdown(entry.text)
       expect(linkedMarkdown({ urls: fixture.policy }, tree)).toBe(tree)
     }
+  })
+})
+
+// #EXP-1882: a chip's punctuation never wraps away from it (an atomic inline
+// breaks before and after itself): the painters wrap the chip and the text it
+// touches as one (`.xui-md-glue`).
+describe(`#EXP-1882 glueChips`, () => {
+  const chip = { type: `link` as const, dest: `https://app.example/i/ABC-1`, children: [`#ABC-1`], chip: { kind: `issue`, label: `ABC-1 Fix login` } }
+  const glue = (...children: unknown[]) => ({ type: `glue`, children })
+  test.each([
+    [`chip + ")"`, [`merged (`, chip, `) ok`], [`merged `, glue(`(`, chip, `)`), ` ok`]],
+    [`chip + "."`, [`linked it to `, chip, `.`], [`linked it to `, glue(chip, `.`)]],
+    [`chip + ","`, [`see `, chip, `, merged it.`], [`see `, glue(chip, `,`), ` merged it.`]],
+    [`"(" + chip`, [`open (`, chip, ` now`], [`open `, glue(`(`, chip), ` now`]],
+    [`a chip between spaces stays`, [`see `, chip, ` now`], [`see `, chip, ` now`]],
+    [`chips touching join one group`, [chip, `,`, chip, `.`], [glue(chip, `,`, chip, `.`)]],
+    [`a hard break is a space`, [`x\n(`, chip, `)\ny`], [`x\n`, glue(`(`, chip, `)`), `\ny`]],
+  ])(`%s`, (_, nodes, want) => {
+    expect(glueChips(nodes as never)).toEqual(want as never)
+  })
+  test(`no chip, no change`, () => {
+    const nodes = [`a (`, { type: `link` as const, dest: `https://x.example`, children: [`x`] }, `).`]
+    expect(glueChips(nodes)).toEqual(nodes)
   })
 })
