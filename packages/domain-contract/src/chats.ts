@@ -17,6 +17,7 @@ import {
 } from "./session-tree"
 import { SEALED_BODY_PREFIX, SEALED_PLACEHOLDER, type LockedReason } from "./sealed-content"
 import { titleLine, usableTitleLine } from "./session-title"
+import { isBlankText } from "./transcript-grouping"
 
 export const CHATS_COPY = fixture.copy
 
@@ -223,7 +224,7 @@ export function chatPreview(input: {
   const visible = input.visibleSessionIds ? new Set(input.visibleSessionIds) : null
   const own = input.messages
     .filter((m) => m.sessionId === input.rootId && (m.authorKind === `user` || m.authorKind === `agent`))
-    .filter((m) => m.locked || (m.card ? PREVIEW_CARDS.has(String(m.card.kind)) : m.body.trim() !== ``))
+    .filter((m) => m.locked || (m.card ? PREVIEW_CARDS.has(String(m.card.kind)) : !isBlankText(m.body)))
     .sort((a, b) => (ms(b.createdAt) ?? 0) - (ms(a.createdAt) ?? 0) || (a.id < b.id ? 1 : -1))
   if (input.needsYou) {
     const waiting = own.find(

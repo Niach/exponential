@@ -1,5 +1,6 @@
 import { isPersistent, linksIssues } from "@exp/domain-contract/session-kind"
 import { titleLine } from "@exp/domain-contract/session-title"
+import { isBlankText } from "@exp/domain-contract/transcript-grouping"
 import { isAssistantConversation, turnHasMemberInput } from "@/lib/agents/assistant-chat"
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
@@ -1074,8 +1075,11 @@ export const sessionsRouter = router({
       ) {
         throw new TRPCError({ code: `BAD_REQUEST`, message: `Invalid question option descriptions` })
       }
-      if (!card && !input.body.trim()) {
-        throw new TRPCError({ code: `BAD_REQUEST`, message: `A reply needs a body or a card` })
+      // #FEED-256 / #FEED-254 (transcript-grouping.json `blank`): a card-less
+      // reply whose text is blank (whitespace or invisible characters only,
+      // a lone U+200B) is no message: nothing stored, nothing relayed.
+      if (!card && isBlankText(input.body)) {
+        return { messageId: ``, ...(await noOpTx(ctx.db)) }
       }
       // EXP-1472: a keyed tree takes sealed replies only (the device seals
       // every body and card; one in clear failed open).

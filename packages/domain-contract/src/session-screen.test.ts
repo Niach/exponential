@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/session-screen.json" with { type: "json" }
-import { sessionScreen, sessionScreenKind, sessionScreenMenu, sessionScreenStatus, sessionScreenSubtitle, sessionScreenTone } from "./session-screen"
+import { sessionScreen, sessionScreenKind, sessionScreenMenu, sessionScreenStatus, sessionScreenSubtitle, sessionScreenTone, sessionScreenWaiting, type SessionScreenAsk, type SessionScreenWaiting } from "./session-screen"
 
 describe(`session-screen.json`, () => {
   for (const c of fixture.cases) {
@@ -25,7 +25,12 @@ describe(`session-screen.json`, () => {
   }
   for (const c of fixture.statusCases) {
     test(`status: ${c.name}`, () => {
-      expect(sessionScreenStatus(c.input)).toBe(c.expected)
+      expect(sessionScreenStatus(c.input, (c as { asks?: SessionScreenAsk[] }).asks)).toBe(c.expected)
+    })
+  }
+  for (const c of fixture.waitingCases) {
+    test(`waiting: ${c.name}`, () => {
+      expect(sessionScreenWaiting(c.sessions, c.asks as SessionScreenAsk[])).toEqual(c.expected as SessionScreenWaiting | null)
     })
   }
   test(`tone: editorHeader's tones by the word`, () => {

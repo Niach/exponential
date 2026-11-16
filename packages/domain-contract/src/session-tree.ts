@@ -16,6 +16,7 @@ import { sessionTitle, sessionTitles } from "./session-title"
 import { pictureFor, type CardSurface, type PlanCardPicture } from "./plan-card"
 import { commandDivider } from "./chats"
 import type { LockedReason } from "./sealed-content"
+import { isBlankText } from "./transcript-grouping"
 
 export interface TreeSession {
   id: string
@@ -1030,7 +1031,8 @@ export function buildSessionChat(input: {
           ? message.authorKind
           : `system`
       const body = messageRowBody(message.body, message.attachmentIds)
-      if (!body.trim()) continue
+      // #FEED-256 (transcript-grouping.json `blank`): a blank body (a lone U+200B) draws nothing.
+      if (isBlankText(body)) continue
       const divider = author === `user` ? commandDivider(message.body) : null
       if (divider) {
         rows.push({ type: `divider`, id: message.id, kind: divider, at: message.createdAt })

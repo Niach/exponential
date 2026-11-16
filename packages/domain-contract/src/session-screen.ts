@@ -132,20 +132,57 @@ export function sessionScreen(input: SessionScreenInput): SessionScreen {
 }
 
 export interface SessionScreenStatusInput {
+  /** #FEED-257: the session's id (absent = ``). */
+  id?: string
   status: string
   busy: boolean
   needsInput: boolean
+  /** #FEED-257: its `blocked.kind` (a wall or a watchdog flag; absent = none). */
+  blocked?: string | null
   /** The tree's root. */
   root: boolean
 }
 
-/** THE tree's status word (`statusCases`): needs input > working > queued
- *  (the root) > done (the root ended) > idle. */
-export function sessionScreenStatus(sessions: readonly SessionScreenStatusInput[]): string {
+/** #FEED-257: one waiting card of the chat (`chatPendingAsks`, Conversation order). */
+export interface SessionScreenAsk {
+  id: string
+  sessionId: string
+  kind: `plan` | `question`
+}
+
+/** #FEED-257: what the needs-input line opens. */
+export interface SessionScreenWaiting {
+  open: `plan` | `card` | `session` | `chat`
+  id: string
+}
+
+/** #FEED-257 (`waitingCases`): THE waiting item: the first ask, else the
+ *  first flagged non-root session that waits, else the root's own flag,
+ *  else null (a stale `needsInput` with nothing to open is nothing). */
+export function sessionScreenWaiting(
+  sessions: readonly Omit<SessionScreenStatusInput, `busy`>[],
+  asks: readonly SessionScreenAsk[] = []
+): SessionScreenWaiting | null {
+  const ask = asks[0]
+  if (ask) return { open: ask.kind === `plan` ? `plan` : `card`, id: ask.id }
+  const flagged = sessions.filter((session) => session.status !== `ended` && session.needsInput && !!session.blocked)
+  const child = flagged.find((session) => !session.root)
+  if (child) return { open: `session`, id: child.id ?? `` }
+  const root = flagged.find((session) => session.root)
+  return root ? { open: `chat`, id: root.id ?? `` } : null
+}
+
+/** THE tree's status word (`statusCases`): needs input (#FEED-257: only
+ *  while something waits, `sessionScreenWaiting`) > working > queued (the
+ *  root) > done (the root ended) > idle. */
+export function sessionScreenStatus(
+  sessions: readonly SessionScreenStatusInput[],
+  asks: readonly SessionScreenAsk[] = []
+): string {
   const words = fixture.copy.status
   const live = sessions.filter((session) => session.status !== `ended`)
   const root = sessions.find((session) => session.root) ?? null
-  if (live.some((session) => session.needsInput)) return words.needsInput
+  if (sessionScreenWaiting(sessions, asks)) return words.needsInput
   if (live.some((session) => session.busy)) return words.working
   if (root?.status === `queued`) return words.queued
   if (root?.status === `ended`) return words.done

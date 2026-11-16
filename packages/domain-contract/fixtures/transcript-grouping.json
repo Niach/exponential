@@ -1220,6 +1220,38 @@
       ]
     },
     {
+      "name": "a blank message after quiet (a lone zero-width space) keeps it a quiet check-in (#FEED-256)",
+      "kinds": [
+        "schedule",
+        "quiet",
+        "blank"
+      ],
+      "expected": [
+        1,
+        false,
+        false
+      ]
+    },
+    {
+      "name": "blank messages after quiet never split a run (#FEED-256)",
+      "kinds": [
+        "schedule",
+        "quiet",
+        "blank",
+        "schedule",
+        "quiet",
+        "blank"
+      ],
+      "expected": [
+        false,
+        false,
+        false,
+        2,
+        false,
+        false
+      ]
+    },
+    {
       "name": "a message after quiet is shown and makes it a normal turn (Danny's screenshot)",
       "kinds": [
         "reply",
@@ -1436,6 +1468,112 @@
       "count": 2,
       "time": null,
       "expected": "Checked in 2 times, nothing to do"
+    }
+  ],
+  "blank": {
+    "$comment": "#FEED-256 / #FEED-254 BLANK TEXT ×5 (`isBlankText(text)`, `blankCases`; web, desktop, iOS, Android and the driver (eagent `blank::is_blank_text`) replay it): a text is BLANK when every character in it is one of `codePoints` (hex Unicode scalars: the Unicode White_Space set plus the invisible format characters: soft hyphen, Mongolian vowel separator, zero-width space, zero-width non-joiner, zero-width joiner, LRM, RLM, word joiner, BOM); the empty text is blank. Never a platform's own trim (JS `trim` keeps U+200B, Rust/Swift/Kotlin differ on U+FEFF and U+00A0). THE DRIVER: a turn whose final text is blank posts no reply (nothing stored, nothing relayed to the person, a parent or a managing agent); the server treats a blank card-less reply as no message too. EVERY CLIENT: a stored card-less message with a blank body draws nothing (no bubble, no transcript item, it never breaks a group), and a feed narration with blank text is the `blank` role (`checkInCases`: a blank message after quiet keeps the check-in quiet).",
+    "codePoints": [
+      "0009",
+      "000A",
+      "000B",
+      "000C",
+      "000D",
+      "0020",
+      "0085",
+      "00A0",
+      "00AD",
+      "1680",
+      "180E",
+      "2000",
+      "2001",
+      "2002",
+      "2003",
+      "2004",
+      "2005",
+      "2006",
+      "2007",
+      "2008",
+      "2009",
+      "200A",
+      "200B",
+      "200C",
+      "200D",
+      "200E",
+      "200F",
+      "2028",
+      "2029",
+      "202F",
+      "205F",
+      "2060",
+      "3000",
+      "FEFF"
+    ]
+  },
+  "blankCases": [
+    {
+      "name": "the empty text",
+      "text": "",
+      "expected": true
+    },
+    {
+      "name": "a lone zero-width space (Danny's screenshot)",
+      "text": "\u200b",
+      "expected": true
+    },
+    {
+      "name": "spaces and newlines",
+      "text": " \n\n\t ",
+      "expected": true
+    },
+    {
+      "name": "a non-breaking space",
+      "text": "\u00a0",
+      "expected": true
+    },
+    {
+      "name": "a BOM",
+      "text": "\ufeff",
+      "expected": true
+    },
+    {
+      "name": "joiners, word joiner and marks",
+      "text": "\u200c\u200d\u2060\u200e\u200f",
+      "expected": true
+    },
+    {
+      "name": "a mix of whitespace and invisible characters",
+      "text": "\n\u200b \u00a0\ufeff\u3000\n",
+      "expected": true
+    },
+    {
+      "name": "one letter",
+      "text": "a",
+      "expected": false
+    },
+    {
+      "name": "a word between zero-width spaces",
+      "text": "\u200bok\u200b",
+      "expected": false
+    },
+    {
+      "name": "an emoji",
+      "text": "👍",
+      "expected": false
+    },
+    {
+      "name": "an emoji with a joiner",
+      "text": "👩\u200d💻",
+      "expected": false
+    },
+    {
+      "name": "a dot",
+      "text": ".",
+      "expected": false
+    },
+    {
+      "name": "an em dash",
+      "text": "—",
+      "expected": false
     }
   ],
   "checkInSpecimen": [
