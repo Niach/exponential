@@ -1220,6 +1220,9 @@
         "drive": {
           "kind": "screen",
           "value": "chat:$chat"
+        },
+        "env": {
+          "EXP_DEV_WAIT_FEED": "1"
         }
       },
       "notes": {
@@ -1255,6 +1258,9 @@
         "drive": {
           "kind": "screen",
           "value": "chat:$guideChat"
+        },
+        "env": {
+          "EXP_DEV_WAIT_FEED": "1"
         }
       },
       "notes": {
@@ -6627,7 +6633,8 @@
         },
         "anchorDelayMs": 2500,
         "env": {
-          "EXP_DEV_COMPOSER_TEXT": "/"
+          "EXP_DEV_COMPOSER_TEXT": "/",
+          "EXP_DEV_WAIT_FEED": "1"
         }
       }
     },
