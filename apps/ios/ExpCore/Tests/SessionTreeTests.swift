@@ -359,6 +359,10 @@ final class SessionTreeTests: XCTestCase {
         // #EXP-1703: the offline card's button and unknown-device name.
         XCTAssertEqual(fixture["bannerActions"] as? [String: String], SessionTree.CardCopy.bannerActions)
         XCTAssertEqual(fixture["bannerDevice"] as? String, SessionTree.CardCopy.bannerDevice)
+        // #NEW-49: the waiting word, its `+N` tail and the label cap.
+        XCTAssertEqual(copy["waiting"] as? String, SessionTree.CardCopy.waiting)
+        XCTAssertEqual(copy["waitingMore"] as? String, SessionTree.CardCopy.waitingMore)
+        XCTAssertEqual(fixture["waitingMax"] as? Int, SessionTree.CardCopy.waitingMax)
     }
 
     func testSessionCardReplaysEveryCase() throws {
@@ -368,10 +372,59 @@ final class SessionTreeTests: XCTestCase {
             let card = SessionTree.sessionCard(
                 try session(input["session"]),
                 title: try XCTUnwrap(input["title"] as? String),
-                now: try date(input["now"])
+                now: try date(input["now"]),
+                // #NEW-49: the card's 4th input (absent = nothing to wait on).
+                waiting: string(input["waiting"])
             )
             assertJSON(json(card), testCase["expected"], name)
         }
+    }
+
+    /// #NEW-49: `waitingCases` — `sessionWaiting(watching, children)`, the
+    /// label list or none.
+    func testSessionWaitingReplaysEveryCase() throws {
+        for testCase in try cases(try fixture("session-card.json"), "waitingCases") {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let input = try XCTUnwrap(testCase["input"] as? [String: Any])
+            let watching = try ((input["watching"] as? [[String: Any]]) ?? []).map { raw in
+                SessionWatching(
+                    id: try XCTUnwrap(string(raw["id"]), name),
+                    kind: try XCTUnwrap(string(raw["kind"]), name),
+                    subjectId: string(raw["subjectId"]),
+                    label: try XCTUnwrap(string(raw["label"]), name),
+                    at: string(raw["at"])
+                )
+            }
+            let children = try ((input["children"] as? [[String: Any]]) ?? []).map { raw in
+                (id: try XCTUnwrap(string(raw["id"]), name), name: try XCTUnwrap(string(raw["name"]), name))
+            }
+            XCTAssertEqual(
+                SessionTree.sessionWaiting(watching: watching, children: children), string(testCase["expected"]), name
+            )
+        }
+    }
+
+    /// #NEW-49: the synced `sessions.watching` jsonb parses tolerantly:
+    /// null / garbage / a non-array = nothing, an entry without id or label
+    /// drops, an unknown kind stays.
+    func testSessionWatchingParsesTolerantly() {
+        XCTAssertEqual(SessionWatching.parseList(nil), [])
+        XCTAssertEqual(SessionWatching.parseList("null"), [])
+        XCTAssertEqual(SessionWatching.parseList("not json"), [])
+        XCTAssertEqual(SessionWatching.parseList(#"{"id":"w1"}"#), [])
+        XCTAssertEqual(
+            SessionWatching.parseList(#"""
+                [{"id":"w1","kind":"pr_checks","subjectId":"p1","label":"CI #1130"},
+                 {"id":"w2","kind":"future_kind","subjectId":null,"label":"Later"},
+                 {"id":"w3","kind":"at","label":"14:30 UTC","at":"2026-11-16T14:30:00.000Z"},
+                 {"kind":"session","label":"no id"}, 7]
+                """#),
+            [
+                SessionWatching(id: "w1", kind: "pr_checks", subjectId: "p1", label: "CI #1130"),
+                SessionWatching(id: "w2", kind: "future_kind", subjectId: nil, label: "Later"),
+                SessionWatching(id: "w3", kind: "at", label: "14:30 UTC", at: "2026-11-16T14:30:00.000Z"),
+            ]
+        )
     }
 
     /// NEW-1: a session that needs you names its flag's kind
@@ -738,9 +791,27 @@ final class SessionTreeTests: XCTestCase {
                 busy: try XCTUnwrap(input["busy"] as? Bool),
                 needsYou: try XCTUnwrap(input["needsYou"] as? Bool),
                 inStack: try XCTUnwrap(input["inStack"] as? Bool),
-                offline: (input["offline"] as? Bool) ?? false
+                offline: (input["offline"] as? Bool) ?? false,
+                // #NEW-49: the root's `sessionWaiting` (absent = none).
+                waiting: string(input["waiting"])
             )
             XCTAssertEqual(word?.rawValue, string(testCase["expected"]), name)
+        }
+    }
+
+    /// #NEW-49: `wordTextCases` — a row word's text (`waiting` names its
+    /// labels), or none.
+    func testChatRowWordTextReplaysEveryCase() throws {
+        for testCase in try cases(try fixture("chat-list.json"), "wordTextCases") {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let raw = string(testCase["word"])
+            let word = raw.flatMap { ChatRowWord(rawValue: $0) }
+            XCTAssertEqual(word?.rawValue, raw, name)
+            XCTAssertEqual(
+                SessionTree.chatRowWordText(word, waiting: string(testCase["waiting"])),
+                string(testCase["expected"]),
+                name
+            )
         }
     }
 
@@ -885,7 +956,10 @@ final class SessionTreeTests: XCTestCase {
         // Merged beats the question; a closed PR says nothing.
         XCTAssertEqual(SessionTree.chatRowWord(busy: false, needsYou: true, prs: [mergedBase], teamPrs: [mergedBase]), .merged)
         XCTAssertNil(SessionTree.chatRowWord(busy: false, needsYou: false, prs: [pr("c", "closed")], teamPrs: []))
-        XCTAssertEqual(ChatRowWord.allCases.map(\.text), ["stack", "ready to merge", nil, "device offline", "question", "needs input"])
+        XCTAssertEqual(
+            ChatRowWord.allCases.map(\.text),
+            ["stack", "ready to merge", nil, "device offline", "question", "needs input", "waiting on {labels}"]
+        )
     }
 
     // MARK: - sealed-content.json `placeholder.rowCases` (EXP-1459)

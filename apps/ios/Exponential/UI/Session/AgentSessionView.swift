@@ -220,6 +220,8 @@ struct AgentSessionView: View {
     @State private var suggestionRows: [SessionChatRow] = []
     /// In-flight suggestion actions (`ChatSuggestionActions.key`).
     @State private var suggestionPending: Set<String> = []
+    /// #NEW-49: the watches whose Stop waiting is in flight.
+    @State private var watchPending: Set<String> = []
     /// #EXP-1715: the Teams pick (nil = every team), seeded from the root's
     /// synced `scope_team_ids` and re-seeded when another client moves it.
     @State private var teamsPicked: [String]?
@@ -1984,7 +1986,48 @@ struct AgentSessionView: View {
 
     /// A DockCard's sheet: THE Queue / the queued messages their lists.
     private func dockSheet(_ row: Dock.Row, model: AgentSessionModel, close: @escaping () -> Void) -> AnyView? {
-        suggestionsSheet(row, close: close) ?? SessionDock.sheet(row, model: model, close: close)
+        suggestionsSheet(row, close: close)
+            ?? watchesSheet(row, model: model, close: close)
+            ?? SessionDock.sheet(row, model: model, close: close)
+    }
+
+    /// #NEW-49 (dock.json `watches`): the watches DockCard's sheet, each
+    /// watch with its Stop waiting for a viewer who may steer the session.
+    private func watchesSheet(_ row: Dock.Row, model: AgentSessionModel, close: @escaping () -> Void) -> AnyView? {
+        guard row.kind == .watches else { return nil }
+        let current = model.session ?? session
+        let sessionId = current.id
+        var onCancel: ((String) -> Void)?
+        if model.mayPost {
+            onCancel = { id in cancelWatch(id, sessionId: sessionId) }
+        }
+        return AnyView(DockWatchesSheet(
+            row: row,
+            watches: SessionDock.watches(current),
+            pending: watchPending,
+            onCancel: onCancel,
+            onClose: close
+        ))
+    }
+
+    /// #NEW-49: `sessions.unwatch` for one watch; a refusal = the failed
+    /// action toast (feedback-states.json).
+    private func cancelWatch(_ id: String, sessionId: String) {
+        guard !watchPending.contains(id) else { return }
+        watchPending.insert(id)
+        let api = deps.sessionsApi
+        let accountId = accountId
+        Task {
+            do {
+                try await api.unwatch(accountId: accountId, sessionId: sessionId, ids: [id])
+            } catch {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "stop", thing: "waiting"),
+                    description: error.userFacingMessage
+                )
+            }
+            watchPending.remove(id)
+        }
     }
 
     /// A banner's one button: Reconnect, the usage wall's account switch.

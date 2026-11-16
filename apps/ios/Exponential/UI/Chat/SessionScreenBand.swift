@@ -20,6 +20,9 @@ struct ChatTreeItems: Equatable {
         let name: String
         let markState: SessionState
         let depth: Int
+        /// #NEW-49: the row's word when it differs from the mark state's
+        /// (an idle session that waits reads its card's "Waiting on …").
+        var word: String? = nil
         var id: String { sessionId }
     }
 
@@ -59,17 +62,30 @@ struct ChatTreeItems: Equatable {
         let tree = rows.sessions.filter { $0.rootId == rootId && $0.id != rootId }
         let treeIds = Set(tree.map(\.id))
         let ordered = tree.sorted { a, b in a.createdAt != b.createdAt ? a.createdAt < b.createdAt : a.id < b.id }
+        // #NEW-49: an idle session's card word names what it waits on (its
+        // live children by their titles, then its watches).
+        let liveSessions = tree.filter(\.isLive).map { TreeSession(sessionRow: $0) }
+        let titles = rows.sessionTitles
         sessions = Self.forest(
             ordered,
             id: \.id,
             parent: { session in session.parentId.flatMap { $0 != rootId && treeIds.contains($0) ? $0 : nil } }
         ).map { session, depth in
             let tree = TreeSession(sessionRow: session)
+            let markState = SessionTree.sessionTabMarkState(tree)
+            let waiting = markState == .idle
+                ? SessionTree.sessionWaiting(
+                    tree, sessions: liveSessions,
+                    name: { titles[$0.id] ?? $0.title ?? SessionTitle.Copy.untitled }
+                )
+                : nil
+            let card = SessionTree.sessionCard(tree, title: session.title ?? "", now: now, waiting: waiting)
             return Session(
                 sessionId: session.id,
-                name: SessionTree.sessionCard(tree, title: session.title ?? "", now: now).name,
-                markState: SessionTree.sessionTabMarkState(tree),
-                depth: depth
+                name: card.name,
+                markState: markState,
+                depth: depth,
+                word: waiting == nil ? nil : card.kindWord
             )
         }
         let issueIds = Set(rows.issues.map(\.id))
@@ -279,7 +295,7 @@ struct ChatSessionsTab: View {
                     Button {
                         onOpen(row.sessionId)
                     } label: {
-                        SessionRow(title: row.name, guide: guides[index], word: row.markState.word) {
+                        SessionRow(title: row.name, guide: guides[index], word: row.word ?? row.markState.word) {
                             ChatSessionMark(state: row.markState)
                         }
                     }

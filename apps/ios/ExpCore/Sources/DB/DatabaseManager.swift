@@ -3385,6 +3385,25 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v110 (#NEW-49): `sessions.watching` (jsonb, JSON text here like
+        // `sessions.digest`): what a session waits on. The sessions cursor
+        // resets only when the column was added, so synced rows re-arrive
+        // carrying it.
+        migrator.registerMigration("v110_session_watching") { db in
+            guard try db.tableExists("sessions") else { return }
+            guard try db.columns(in: "sessions").contains(where: { $0.name == "watching" }) == false else { return }
+            try db.alter(table: "sessions") { t in
+                t.add(column: "watching", .text)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'sessions'
+                    """)
+            }
+        }
+
         return migrator
     }
 

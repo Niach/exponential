@@ -8,7 +8,7 @@ import Foundation
 /// tap opens a card's bottom sheet. `DockTests` replays every fixture case.
 public enum Dock {
     public enum Kind: String, Equatable, Sendable {
-        case plan, question, tasks, queued, suggestions, banner
+        case plan, question, tasks, queued, watches, suggestions, banner
     }
 
     public enum Tint: String, Equatable, Sendable {
@@ -61,6 +61,9 @@ public enum Dock {
         case tasks(QueueSummary?, sessionName: String? = nil)
         /// The queued messages' texts, oldest first.
         case queued([String])
+        /// #NEW-49: what the session waits on (`sessions.watching`), each a
+        /// row of the sheet with its cancel glyph.
+        case watches([Watch])
         /// EXP-1323's suggested-tasks row while any item is open
         /// (`suggestionSources`): `label` = the header's count, `caption` =
         /// its started part, `title` = the first open item's, `open` = how
@@ -68,6 +71,17 @@ public enum Dock {
         case suggestions(id: String, label: String, caption: String?, title: String, open: Int)
         /// A status strip: `action` = its one button word, else nil.
         case banner(id: String, icon: String, label: String, text: String, tone: Tint, action: String?)
+    }
+
+    /// #NEW-49: one watch of the `watches` source (its sheet row).
+    public struct Watch: Equatable, Sendable, Identifiable {
+        public let id: String
+        public let label: String
+
+        public init(id: String, label: String) {
+            self.id = id
+            self.label = label
+        }
     }
 
     public struct Row: Equatable, Sendable, Identifiable {
@@ -130,6 +144,9 @@ public enum Dock {
         public static let questionsMany = "{count} questions"
         public static let close = "Close"
         public static let showAll = "Show all"
+        /// #NEW-49: the watches card's label and its sheet rows' cancel.
+        public static let watches = "Waiting on"
+        public static let cancelWatch = "Stop waiting"
     }
 
     public enum Icons {
@@ -140,6 +157,7 @@ public enum Dock {
         public static let open = "ui-chevron-right"
         public static let close = "ui-close"
         public static let suggestions = "ui-checklist"
+        public static let watches = "ui-clock"
     }
 
     public enum TestIds {
@@ -157,8 +175,8 @@ public enum Dock {
     /// The sheet: at most this fraction of the viewport; top corner radius.
     public static let sheetMaxHeightFraction: Double = 0.85
     public static let sheetRadius: Double = 24
-    /// `order`: queued, tasks, suggestions, banners, then the asks.
-    public static let order: [String] = ["queued", "tasks", "suggestions", "banner", "ask"]
+    /// `order`: queued, tasks, watches, suggestions, banners, then the asks.
+    public static let order: [String] = ["queued", "tasks", "watches", "suggestions", "banner", "ask"]
     /// `autoOpenGraceMs`: how long after a host's data loads its cards
     /// still count as already waiting (auto-open seeds over it).
     public static let autoOpenGraceMs: Int = 1500
@@ -173,13 +191,14 @@ public enum Dock {
         switch kind {
         case .queued: order.firstIndex(of: "queued") ?? 0
         case .tasks: order.firstIndex(of: "tasks") ?? 1
-        case .suggestions: order.firstIndex(of: "suggestions") ?? 2
-        case .banner: order.firstIndex(of: "banner") ?? 3
-        case .plan, .question: order.firstIndex(of: "ask") ?? 4
+        case .watches: order.firstIndex(of: "watches") ?? 2
+        case .suggestions: order.firstIndex(of: "suggestions") ?? 3
+        case .banner: order.firstIndex(of: "banner") ?? 4
+        case .plan, .question: order.firstIndex(of: "ask") ?? 5
         }
     }
 
-    /// The cards, in the Dock's order (queued, tasks, suggestions, banners, then the asks
+    /// The cards, in the Dock's order (queued, tasks, watches, suggestions, banners, then the asks
     /// oldest first, ties by id). An empty queue or no queued message draws
     /// nothing.
     public static func rows(_ sources: [Source]) -> [Row] {
@@ -200,6 +219,13 @@ public enum Dock {
                     id: "tasks", kind: .tasks, tint: .muted, icon: Icons.tasks, label: queue.todoTitle,
                     caption: caption.isEmpty ? nil : caption, meta: first.description, title: first.label,
                     expandable: true, action: nil
+                ), 0))
+            case let .watches(watches):
+                guard !watches.isEmpty else { continue }
+                rows.append((Row(
+                    id: "watches", kind: .watches, tint: .muted, icon: Icons.watches, label: Copy.watches,
+                    caption: nil, meta: watches.count > 1 ? String(watches.count) : nil,
+                    title: watches.map(\.label).joined(separator: ", "), expandable: true, action: nil
                 ), 0))
             case let .suggestions(id, label, caption, title, _):
                 rows.append((Row(

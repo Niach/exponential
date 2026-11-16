@@ -147,7 +147,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v100_app_record_share_name", "v101_merge_train",
              "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers",
              "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
-             "v108_sidebar_layout", "v109_agent_voice"]
+             "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching"]
         )
     }
 
@@ -216,7 +216,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v100_app_record_share_name", "v101_merge_train",
              "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers",
              "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
-             "v108_sidebar_layout", "v109_agent_voice"]
+             "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching"]
         )
     }
 
@@ -757,7 +757,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v100_app_record_share_name", "v101_merge_train",
              "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers",
              "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
-             "v108_sidebar_layout", "v109_agent_voice"]
+             "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -874,7 +874,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v100_app_record_share_name", "v101_merge_train",
              "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers",
              "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
-             "v108_sidebar_layout", "v109_agent_voice"]
+             "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1921,7 +1921,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "needs_input", "blocked", "started_at", "last_turn_at", "ended_at",
              "shared", "title", "guide", "created_at", "updated_at", "agent_id", "app_id",
              "agent_instructions_at", "started_by_agent_id", "background",
-             "seal_public_key", "seal_epoch", "sealed_title", "via_app_id", "scope_team_ids", "digest"]
+             "seal_public_key", "seal_epoch", "sealed_title", "via_app_id", "scope_team_ids", "digest",
+             "watching"]
         )
         // NEW-2: agent definitions, events and prompts carry exactly the
         // shape allowlists (`instructions`, `trigger_state`, `body` never).
@@ -4046,6 +4047,62 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
         try pool.write { db in try agent.save(db) }
         XCTAssertEqual(try pool.read { db in try AgentDefinitionEntity.fetchOne(db, key: "ag2")?.voice }, want)
+    }
+
+    // #NEW-49: v110 adds `sessions.watching` (jsonb text), resetting ONLY
+    // the sessions cursor; a wire row's array round-trips through the
+    // store as JSON text, null and absent read as nothing.
+    func testSessionWatchingAdded() throws {
+        let pool = try makePool("new49-session-watching")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v109_agent_voice")
+        try pool.write { db in
+            for shape in ["sessions", "messages"] {
+                try db.execute(sql: """
+                    INSERT INTO "electric_offsets"
+                        ("shape", "handle", "offset", "needs_refetch", "is_live")
+                    VALUES (?, 'h', '0_0', 0, 1)
+                    ON CONFLICT("shape") DO UPDATE SET "handle" = 'h', "offset" = '0_0',
+                        "needs_refetch" = 0, "is_live" = 1
+                    """, arguments: [shape])
+            }
+        }
+        XCTAssertFalse(try columnNames(pool, "sessions").contains("watching"))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v110_session_watching"))
+        XCTAssertTrue(try columnNames(pool, "sessions").contains("watching"))
+        try pool.read { db in
+            let reset = try String.fetchAll(
+                db,
+                sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
+            )
+            XCTAssertEqual(reset, ["sessions"])
+        }
+        let waiting = try JSONDecoder().decode(SessionEntity.self, from: Data(#"""
+            {"id":"s-1","team_id":"t","user_id":"u","device_id":"d",
+             "watching":[{"id":"w1","kind":"pr_checks","subjectId":"p1","label":"CI #1130"}],
+             "created_at":"x","updated_at":"x"}
+            """#.utf8))
+        let want = [SessionWatching(id: "w1", kind: "pr_checks", subjectId: "p1", label: "CI #1130")]
+        XCTAssertEqual(SessionWatching.parseList(waiting.watching), want)
+        let none = try JSONDecoder().decode(SessionEntity.self, from: Data(#"""
+            {"id":"s-2","team_id":"t","user_id":"u","device_id":"d","watching":null,
+             "created_at":"x","updated_at":"x"}
+            """#.utf8))
+        XCTAssertNil(none.watching)
+        let legacy = try JSONDecoder().decode(SessionEntity.self, from: Data(#"""
+            {"id":"s-3","team_id":"t","user_id":"u","device_id":"d","created_at":"x","updated_at":"x"}
+            """#.utf8))
+        XCTAssertNil(legacy.watching)
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+        try pool.write { db in
+            try waiting.save(db)
+            try none.save(db)
+        }
+        try pool.read { db in
+            let stored = try SessionEntity.fetchOne(db, key: "s-1")
+            XCTAssertEqual(SessionWatching.parseList(stored?.watching), want)
+            XCTAssertNil(try SessionEntity.fetchOne(db, key: "s-2")?.watching)
+        }
     }
 
     // eApps V1 (#VAPP-210): v93 adds `apps.published_version` (existing rows

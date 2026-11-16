@@ -167,7 +167,22 @@ struct ChatHeaderTitle: View {
             let root = rows.root
             inputs.insert(SessionScreen.StatusInput(status: root.status, busy: root.busy, needsInput: root.needsInput, root: true), at: 0)
         }
-        return SessionScreen.status(inputs)
+        return SessionScreen.status(inputs, waiting: waiting(rows: rows))
+    }
+
+    /// #NEW-49 (session-screen.json `waitingStatusCases`): what the chat's
+    /// ROOT waits on (`SessionTree.sessionWaiting`): its live children by
+    /// their titles (tree order), then its own watches; nil = nothing.
+    static func waiting(rows: ChatRows) -> String? {
+        let root = rows.session(id: rows.root.id) ?? rows.root
+        let children = rows.sessions.filter { $0.parentId == root.id && $0.id != root.id && $0.isLive }
+        if children.isEmpty && (root.watching ?? "").isEmpty { return nil }
+        let titles = rows.sessionTitles
+        return SessionTree.sessionWaiting(
+            TreeSession(sessionRow: root),
+            sessions: children.map { TreeSession(sessionRow: $0) },
+            name: { titles[$0.id] ?? $0.title ?? SessionTitle.Copy.untitled }
+        )
     }
 
     /// #EXP-1732 (session-screen.json `subtitle`): `status · device ·

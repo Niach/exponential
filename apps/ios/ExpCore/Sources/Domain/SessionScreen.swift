@@ -36,6 +36,9 @@ public enum SessionScreen {
             public static let done = "done"
             public static let idle = "idle"
         }
+        /// #NEW-49: an idle tree whose root waits (`{labels}` = its
+        /// `SessionTree.sessionWaiting`).
+        public static let waiting = "waiting on {labels}"
         /// #FEED-239: THE `…` menu's labels (settings and delete by kind).
         public enum Menu {
             /// #EXP-1834: THE link menu's way in (Link an issue · New issue).
@@ -286,13 +289,16 @@ public enum SessionScreen {
 
     /// THE tree's status word (`statusCases`, lowercase, never dropped):
     /// needs input > working > queued (the root) > done (the root ended) > idle.
-    public static func status(_ sessions: [StatusInput]) -> String {
+    /// #NEW-49 (`waitingStatusCases`): `waiting` = the root's
+    /// `SessionTree.sessionWaiting`; an idle tree reads "waiting on …".
+    public static func status(_ sessions: [StatusInput], waiting: String? = nil) -> String {
         let live = sessions.filter { $0.status != "ended" }
         let root = sessions.first { $0.root }
         if live.contains(where: \.needsInput) { return Copy.Status.needsInput }
         if live.contains(where: \.busy) { return Copy.Status.working }
         if root?.status == "queued" { return Copy.Status.queued }
         if root?.status == "ended" { return Copy.Status.done }
+        if let waiting, !waiting.isEmpty { return Copy.waiting.replacingOccurrences(of: "{labels}", with: waiting) }
         return Copy.Status.idle
     }
 

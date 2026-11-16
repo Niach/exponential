@@ -58,6 +58,11 @@ final class DockTests: XCTestCase {
             )
         case "queued":
             return .queued(try XCTUnwrap(raw["messages"] as? [[String: Any]]).map { $0["text"] as? String ?? "" })
+        case "watches":
+            // #NEW-49: what the session waits on.
+            return .watches(try XCTUnwrap(raw["watches"] as? [[String: Any]]).map {
+                Dock.Watch(id: $0["id"] as? String ?? "", label: $0["label"] as? String ?? "")
+            })
         default:
             return .banner(
                 id: try XCTUnwrap(raw["id"] as? String), icon: try XCTUnwrap(raw["icon"] as? String),
@@ -92,10 +97,12 @@ final class DockTests: XCTestCase {
         )
         XCTAssertEqual(copy["close"] as? String, Dock.Copy.close)
         XCTAssertEqual(copy["showAll"] as? String, Dock.Copy.showAll)
+        XCTAssertEqual(copy["watches"] as? String, Dock.Copy.watches)
+        XCTAssertEqual(copy["cancelWatch"] as? String, Dock.Copy.cancelWatch)
         XCTAssertEqual(f["icons"] as? [String: String], [
             "plan": Dock.Icons.plan, "question": Dock.Icons.question, "tasks": Dock.Icons.tasks,
             "queued": Dock.Icons.queued, "open": Dock.Icons.open, "close": Dock.Icons.close,
-            "suggestions": Dock.Icons.suggestions,
+            "suggestions": Dock.Icons.suggestions, "watches": Dock.Icons.watches,
         ])
         XCTAssertEqual(f["testIds"] as? [String: String], [
             "dock": Dock.TestIds.dock, "pile": Dock.TestIds.pile, "card": Dock.TestIds.card,
