@@ -28,8 +28,12 @@
     "caughtUpAfterMinutes": 2
   },
   "report": {
+    "$comment": "#FEED-251/#FEED-253: a device that ENDS a run itself says why (`device.report` data `endReason`); the report then carries that reason instead of the agent's last reply or the fallback, so the parent never reads a bare \"Ended without a summary.\" for a run that died. `stalled` = the engine's stall watchdog (no output mid-turn, an interrupt changed nothing).",
     "max": 4000,
-    "fallback": "Ended without a summary."
+    "fallback": "Ended without a summary.",
+    "reasons": {
+      "stalled": "Stopped responding mid-turn (no output, and an interrupt changed nothing), so its device ended the run. A message to it resumes the work."
+    }
   },
   "ask": {
     "planMax": 2000

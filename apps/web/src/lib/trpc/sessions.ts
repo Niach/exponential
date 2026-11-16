@@ -53,7 +53,7 @@ import {
   loadCardForAnswer,
   stampAnsweredCard,
 } from "@/lib/sessions/answer"
-import { BUS_COPY, busAsk, busLine, busListenerTrees, busRelayTurn } from "@/lib/sessions/bus"
+import { BUS_COPY, busAsk, busLine, busListenerTrees, busRelayTurn, REPORT_REASONS, type ReportEndReason } from "@/lib/sessions/bus"
 import { lockBusRows } from "@/lib/sessions/locks"
 import { isSealedBody, isSealedCard, validSealedBody, validSealedCard } from "@/lib/sessions/sealed"
 import {
@@ -787,6 +787,10 @@ export const sessionsRouter = router({
         // NEW-17: with `lost`, the device's own word that a turn was still
         // open (the row can already read idle off a late status tick).
         midTurn: z.boolean().optional(),
+        // #FEED-253: with `status: "ended"`, why the DEVICE ended the run
+        // (its stall watchdog): the end report says it instead of
+        // "Ended without a summary.". Older devices omit it.
+        endReason: z.enum(Object.keys(REPORT_REASONS) as [ReportEndReason, ...ReportEndReason[]]).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -907,7 +911,7 @@ export const sessionsRouter = router({
           // it). The bus posts its report. #EXP-1731: the subagents its
           // device never closed end first.
           if (session.subagentKey === null) await sweepSubagentsInTx(tx, session.id)
-          endedHere = await endDeadSessionInTx(tx, session)
+          endedHere = await endDeadSessionInTx(tx, session, input.endReason)
           return txid
         }
         const needsInput =

@@ -49,6 +49,8 @@ pub struct TriggerRules {
 pub struct ReportRules {
     pub max: usize,
     pub fallback: String,
+    /// #FEED-253: why a device ended a run itself (`endReason` -> copy).
+    pub reasons: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -1198,6 +1198,9 @@ pub struct SessionCtx {
     /// `EnginePhase::Failed` ahead of `Ended` (the connection itself did not
     /// error, so nothing else would say why).
     pub(crate) failure: Mutex<Option<String>>,
+    /// #FEED-253: the stall watchdog ended this run; the row's end report
+    /// says so (`EndReason::Stalled`) instead of a bare end.
+    pub stalled: std::sync::atomic::AtomicBool,
     pub exit: ExitState,
     /// Set by `Shutdown`; wins over the child's exit code.
     pub outcome: Mutex<Option<&'static str>>,

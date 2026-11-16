@@ -1968,6 +1968,22 @@ describe.skipIf(!ready.ok)(`EXP-1323: reports, reads and suggestions`, async () 
     expect(fallback!.body).toBe(REPORT_FALLBACK)
   })
 
+  it(`#FEED-253: a device's ended report with an endReason says why, not the fallback or a stale reply`, async () => {
+    const w = await world()
+    const root = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `r` } })
+    const child = await sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `c` } })
+    const host = caller(w.owner)
+    await host.claim({ sessionId: child.sessionId, deviceId: w.deviceId })
+    await host.reply({ sessionId: child.sessionId, body: `Building the app now.` })
+    await host.report({ sessionId: child.sessionId, status: `ended`, endReason: `stalled` })
+    const { REPORT_REASONS } = await import(`@/lib/sessions/bus`)
+    const report = (await sessionMessages(root.sessionId)).find(
+      (m) => (m.card as { kind?: string } | null)?.kind === `report`
+    )
+    expect(report!.body).toBe(REPORT_REASONS.stalled)
+    expect((report!.card as { summary?: string }).summary).toBe(REPORT_REASONS.stalled)
+  })
+
   it(`markRead upserts the caller's read mark of a visible session only`, async () => {
     const w = await world()
     const root = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `r` } })

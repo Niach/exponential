@@ -251,6 +251,17 @@ pub enum LostReason {
     DaemonRestart,
 }
 
+/// #FEED-253: why a device ENDED a run itself (`sessions.report {status:
+/// ended, endReason}`): the server's end report says it instead of "Ended
+/// without a summary.". An older server strips the key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EndReason {
+    /// The engine's stall watchdog: no output mid-turn, an interrupt
+    /// changed nothing (`eagent::engine::stall`).
+    Stalled,
+}
+
 /// The usage wall a device saw (EXP-804) — the server's
 /// `codingSessionBlockedSchema` wire shape. EXP-1292: owned (it now rides
 /// [`SessionReport`], which hosts keep across ticks).
@@ -322,6 +333,9 @@ pub struct SessionReport {
     /// went away (the row may already read idle off a late tick).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mid_turn: Option<bool>,
+    /// #FEED-253: with `status: ended`, why the device ended the run.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_reason: Option<EndReason>,
 }
 
 #[derive(Serialize)]
