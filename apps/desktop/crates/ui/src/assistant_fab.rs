@@ -32,15 +32,22 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use std::cell::Cell;
+use std::rc::Rc;
+
 use gpui::{
-    canvas, div, px, Animation, AnimationExt as _, App, AppContext as _, Bounds, Entity, Global,
-    InteractiveElement as _, IntoElement, ParentElement as _, Pixels, Render, RenderOnce, SharedString,
-    StatefulInteractiveElement as _, Styled as _, Subscription, Task, Window, WindowId,
+    canvas, div, prelude::FluentBuilder as _, px, Animation, AnimationExt as _, App, AppContext as _, BoxShadow, Bounds,
+    CursorStyle, Entity, Global, InteractiveElement as _, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent,
+    MouseUpEvent, ParentElement as _, Pixels, Render, RenderOnce, SharedString, StatefulInteractiveElement as _,
+    Styled as _, Subscription, Task, Window, WindowId,
 };
 use gpui_component::{h_flex, popover::Popover, v_flex, ActiveTheme as _, Icon, Selectable, Sizable as _};
 use sync::Store;
 
-use domain::agent_settings::{assistant_fab_bubble, assistant_fab_visible, FabBubble, FabWaitingCard, ASSISTANT_FAB};
+use domain::agent_settings::{
+    assistant_fab_bubble, assistant_fab_visible, assistant_widget_size, AssistantWidgetSize, FabBubble, FabWaitingCard,
+    ASSISTANT_FAB,
+};
 use domain::nav_badges::CountBadgeValue;
 
 use crate::icons::{registry, ExpIcon};
@@ -73,6 +80,60 @@ const HEADER_MARK_PX: f32 = 16.;
 pub(crate) const TEST_IDS: (&str, &str, &str) = ("assistant-fab", "assistant-widget-maximize", "assistant-widget-minimize");
 /// The open widget's body (the live tests read whether it paints).
 pub(crate) const WIDGET_TEST_ID: &str = "assistant-widget";
+/// #EXP-1876: the widget's header (a double-click resets the size) and its
+/// three invisible resize bands (web `ASSISTANT_FAB_TEST_IDS`).
+pub(crate) const HEADER_TEST_ID: &str = "assistant-widget-header";
+pub(crate) const RESIZE_TEST_IDS: (&str, &str, &str) =
+    ("assistant-widget-resize-top", "assistant-widget-resize-left", "assistant-widget-resize-corner");
+
+/// #EXP-1876 THE CONTENT CARD's own ground for the widget (web
+/// `bg-glass-card-ground`): the page gradient sampled at the widget's own
+/// window rows (`top` / `bottom` as fractions of the window height) under the
+/// card's panel fill — never the menu surface (`theme.popover`), which is
+/// the `in` bubbles' and the composer card's fill and melted into it.
+/// Opaque: what scrolls behind the widget never shows.
+pub(crate) fn card_ground(top: f32, bottom: f32) -> gpui::Background {
+    let panel: gpui::Rgba = theme::tokens::glass::FILL_PANEL.to_hsla().into();
+    let at = |t: f32| -> gpui::Hsla {
+        let ground: gpui::Rgba = theme::background_gradient_color_at(t).into();
+        let k = panel.a;
+        gpui::Rgba {
+            r: ground.r + (panel.r - ground.r) * k,
+            g: ground.g + (panel.g - ground.g) * k,
+            b: ground.b + (panel.b - ground.b) * k,
+            a: 1.,
+        }
+        .into()
+    };
+    gpui::linear_gradient(180., gpui::linear_color_stop(at(top), 0.), gpui::linear_color_stop(at(bottom), 1.))
+}
+
+/// #EXP-1876: the widget's float — the card hairline (`strokeCard`) as a
+/// crisp 1px ring and the floating surfaces' drop (web
+/// `0 12px 32px -12px oklch(0 0 0 / .45)`; gpui's blur is the CSS one
+/// halved).
+fn widget_shadow() -> Vec<BoxShadow> {
+    vec![
+        BoxShadow::new(px(0.), px(0.), theme::tokens::glass::STROKE_CARD.to_hsla()).blur_radius(px(0.)).spread_radius(px(1.)),
+        BoxShadow::new(px(0.), px(12.), gpui::hsla(0., 0., 0., 0.45)).blur_radius(px(16.)).spread_radius(px(-12.)),
+    ]
+}
+
+/// #EXP-1876: a live drag of one of the widget's edges. Anchored bottom-
+/// right, so dragging left / up grows it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct WidgetDrag {
+    x: f32,
+    y: f32,
+    start: AssistantWidgetSize,
+    width: bool,
+    height: bool,
+}
+
+/// The ui-prefs key of the member's dragged size.
+fn size_key(member: Option<&str>) -> String {
+    member.unwrap_or("anon").to_string()
+}
 
 /// #EXP-1860: each window's FAB circle in window coordinates while it
 /// shows (`None` = no FAB on that window's screen).
@@ -203,6 +264,13 @@ pub(crate) struct AssistantFab {
     _entrance_done: Option<Task<()>>,
     /// The bubble's painted height (the toast lift grows by it).
     bubble_height: f32,
+    /// #EXP-1876: the content card's size as last painted (the widget's
+    /// size follows it, re-clamped on every resize).
+    card: Rc<Cell<Option<AssistantWidgetSize>>>,
+    /// The member's dragged size on this device (ui-prefs.json), read back
+    /// through the clamp; `None` = the responsive default.
+    stored: Option<AssistantWidgetSize>,
+    drag: Option<WidgetDrag>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -271,6 +339,10 @@ impl AssistantFab {
             _stay: None,
             _entrance_done: None,
             bubble_height: 0.,
+            card: Rc::new(Cell::new(None)),
+            stored: crate::ui_prefs::assistant_widget_size(&size_key(crate::session_data::signed_in_user(cx).as_deref()))
+                .map(|(width, height)| AssistantWidgetSize { width, height }),
+            drag: None,
             _subscriptions: subscriptions,
         };
         this.refresh(cx);
@@ -527,6 +599,58 @@ impl AssistantFab {
             self.opened_on = resolved_screen(&self.nav, cx);
             cx.notify();
         }
+    }
+
+    /// #EXP-1876 `assistantWidgetSize`: the size the widget paints at in
+    /// the card as last measured (the floor before the first measure).
+    fn widget_size(&self) -> AssistantWidgetSize {
+        let spec = &ASSISTANT_FAB.widget;
+        match self.card.get() {
+            Some(card) => assistant_widget_size(card, self.stored),
+            None => spec.min,
+        }
+    }
+
+    fn start_resize(&mut self, event: &MouseDownEvent, width: bool, height: bool, cx: &mut gpui::Context<Self>) {
+        cx.stop_propagation();
+        self.drag = Some(WidgetDrag {
+            x: f32::from(event.position.x),
+            y: f32::from(event.position.y),
+            start: self.widget_size(),
+            width,
+            height,
+        });
+        cx.notify();
+    }
+
+    fn track_resize(&mut self, x: f32, y: f32, cx: &mut gpui::Context<Self>) {
+        let (Some(drag), Some(card)) = (self.drag, self.card.get()) else { return };
+        let next = AssistantWidgetSize {
+            width: if drag.width { drag.start.width + drag.x - x } else { drag.start.width },
+            height: if drag.height { drag.start.height + drag.y - y } else { drag.start.height },
+        };
+        let next = assistant_widget_size(card, Some(next));
+        if self.stored != Some(next) {
+            self.stored = Some(next);
+            cx.notify();
+        }
+    }
+
+    fn end_resize(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.drag.take().is_some() {
+            let key = size_key(crate::session_data::signed_in_user(cx).as_deref());
+            crate::ui_prefs::set_assistant_widget_size(&key, self.stored.map(|s| (s.width, s.height)));
+            cx.notify();
+        }
+    }
+
+    /// The header's double-click: back to the responsive default.
+    fn reset_size(&mut self, cx: &mut gpui::Context<Self>) {
+        self.drag = None;
+        self.stored = None;
+        let key = size_key(crate::session_data::signed_in_user(cx).as_deref());
+        crate::ui_prefs::set_assistant_widget_size(&key, None);
+        cx.notify();
     }
 
     fn chat_for(&mut self, agent_id: &str, window: &mut Window, cx: &mut gpui::Context<Self>) -> Entity<crate::agent_screen::AgentScreenView> {
@@ -930,6 +1054,7 @@ impl Render for AssistantFab {
         let name: SharedString = derived.name.clone().into();
         let assistant_id = derived.assistant_id.clone();
         let header_fab = fab.clone();
+        let drag = self.drag;
         let content = move |_: &mut gpui_component::popover::PopoverState, _: &mut Window, cx: &mut gpui::Context<gpui_component::popover::PopoverState>| {
             let maximize_fab = header_fab.clone();
             let minimize_fab = header_fab.clone();
@@ -947,7 +1072,15 @@ impl Render for AssistantFab {
                 .on_click(move |_, _, cx| {
                     let _ = minimize_fab.update(cx, |fab, cx| fab.set_open(false, cx));
                 });
+            let reset_fab = header_fab.clone();
             let header = h_flex()
+                .id(HEADER_TEST_ID)
+                .debug_selector(|| HEADER_TEST_ID.into())
+                .on_mouse_down(MouseButton::Left, move |event: &MouseDownEvent, _, cx| {
+                    if event.click_count >= 2 {
+                        let _ = reset_fab.update(cx, |fab, cx| fab.reset_size(cx));
+                    }
+                })
                 .flex_shrink_0()
                 .h(px(HEADER_H))
                 .px_2()
@@ -967,16 +1100,66 @@ impl Render for AssistantFab {
                         .child(name.clone()),
                 )
                 .child(minimize);
+            let band = px(ASSISTANT_FAB.widget.handle);
+            let edge = |id: &'static str, width: bool, height: bool, cursor: CursorStyle| {
+                let fab = header_fab.clone();
+                div()
+                    .id(id)
+                    .debug_selector(|| id.into())
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .when(width && height, |d| d.size(band * 2.))
+                    .when(width && !height, |d| d.h_full().w(band))
+                    .when(height && !width, |d| d.w_full().h(band))
+                    .cursor(cursor)
+                    .on_mouse_down(MouseButton::Left, move |event: &MouseDownEvent, _, cx| {
+                        let _ = fab.update(cx, |fab, cx| fab.start_resize(event, width, height, cx));
+                    })
+            };
             v_flex()
                 .debug_selector(|| WIDGET_TEST_ID.into())
+                .relative()
                 .size_full()
                 .min_h_0()
                 .overflow_hidden()
                 .child(header)
                 .child(div().flex_1().min_h_0().children(chat.clone()))
+                .child(edge(RESIZE_TEST_IDS.0, false, true, CursorStyle::ResizeUpDown))
+                .child(edge(RESIZE_TEST_IDS.1, true, false, CursorStyle::ResizeLeftRight))
+                .child(edge(RESIZE_TEST_IDS.2, true, true, CursorStyle::ResizeUpLeftDownRight))
+                .children(drag_capture(drag, header_fab.clone()))
         };
-        let widget = &ASSISTANT_FAB.widget;
+        let size = self.widget_size();
+        // The ground samples the page gradient at the widget's own rows:
+        // its bottom sits WIDGET_OFFSET above the circle.
+        let window_h = f32::from(window.viewport_size().height).max(1.);
+        let bottom = corner(window, cx).map_or(window_h, |circle| f32::from(circle.top()) - WIDGET_OFFSET);
+        let ground = card_ground((bottom - size.height) / window_h, bottom / window_h);
+        let card_cell = self.card.clone();
+        let measure = cx.entity().downgrade();
         div()
+            .absolute()
+            .inset_0()
+            // #EXP-1876: the content card's size (this layer fills it).
+            .child(
+                canvas(
+                    move |bounds, window, _| {
+                        let card = AssistantWidgetSize { width: f32::from(bounds.size.width), height: f32::from(bounds.size.height) };
+                        if card_cell.get() != Some(card) {
+                            card_cell.set(Some(card));
+                            let measure = measure.clone();
+                            window.on_next_frame(move |_, cx| {
+                                let _ = measure.update(cx, |_, cx| cx.notify());
+                            });
+                        }
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .inset_0(),
+            )
+            .child(div()
             .absolute()
             .right(px(ASSISTANT_FAB.inset))
             .bottom(px(ASSISTANT_FAB.inset))
@@ -985,9 +1168,12 @@ impl Render for AssistantFab {
                     .open(open)
                     .anchor(gpui::Anchor::BottomRight)
                     .offset(px(WIDGET_OFFSET))
-                    .w(px(widget.width))
-                    .h(px(widget.height))
+                    .w(px(size.width))
+                    .h(px(size.height))
                     .p_0()
+                    .bg(ground)
+                    .rounded(px(ASSISTANT_FAB.widget.radius))
+                    .shadow(widget_shadow())
                     .overflow_hidden()
                     .trigger(FabCircle { selected: open, badge: derived.badge, entrance })
                     .on_open_change(move |open, _, cx| {
@@ -1004,9 +1190,52 @@ impl Render for AssistantFab {
                     .left_0()
                     .size(px(fab_px())),
             )
-            .children(bubble)
+            .children(bubble))
             .into_any_element()
     }
+}
+
+/// #EXP-1876: while an edge drag is live, a window-level capture (the
+/// pointer leaves the 6px band at once) pins the resize cursor and tracks
+/// the size; the up (or a move with the button released) ends it and
+/// remembers the size (resize_edge.rs `drag_capture`'s pattern).
+fn drag_capture(drag: Option<WidgetDrag>, fab: gpui::WeakEntity<AssistantFab>) -> Option<gpui::AnyElement> {
+    let drag = drag?;
+    let cursor = match (drag.width, drag.height) {
+        (true, true) => CursorStyle::ResizeUpLeftDownRight,
+        (true, false) => CursorStyle::ResizeLeftRight,
+        _ => CursorStyle::ResizeUpDown,
+    };
+    Some(
+        canvas(
+            |_, _, _| (),
+            move |_, _, window, _| {
+                window.set_window_cursor_style(cursor);
+                let move_fab = fab.clone();
+                window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx| {
+                    if !phase.bubble() {
+                        return;
+                    }
+                    let _ = move_fab.update(cx, |fab, cx| {
+                        if event.pressed_button != Some(MouseButton::Left) {
+                            fab.end_resize(cx);
+                        } else {
+                            fab.track_resize(f32::from(event.position.x), f32::from(event.position.y), cx);
+                        }
+                    });
+                });
+                let up_fab = fab.clone();
+                window.on_mouse_event(move |_: &MouseUpEvent, phase, _, cx| {
+                    if phase.bubble() {
+                        let _ = up_fab.update(cx, |fab, cx| fab.end_resize(cx));
+                    }
+                });
+            },
+        )
+        .absolute()
+        .size_full()
+        .into_any_element(),
+    )
 }
 
 #[cfg(test)]

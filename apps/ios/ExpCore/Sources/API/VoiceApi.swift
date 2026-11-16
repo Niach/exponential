@@ -22,7 +22,8 @@ public final class VoiceApi: Sendable {
 
     /// NEW-69: a phone's call with an agent (`platform: phone`); the server
     /// refuses with the availability reason, else answers the caller's relay
-    /// ticket and the URL to dial as-is.
+    /// ticket and the URL to dial as-is (EXP-1857: and the target it picked,
+    /// `deviceId`, `device`, `fallback`).
     public func startCall(accountId: String, agentId: String) async throws -> VoiceCall.Ticket {
         try await trpc.mutation(
             accountId: accountId,

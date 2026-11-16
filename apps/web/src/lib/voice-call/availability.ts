@@ -1,71 +1,83 @@
-// NEW-70 (voice V6): the telephone's availability as web reads it
-// (`fixtures/voice-call.json` `callAvailability`). The inputs are the
-// member's voice settings (`voice.get`) and the voice device's SYNCED
-// `devices` row: online by `lastSeenAt` freshness, its doctor row `speech`.
-// The server's `voice.startCall` reads the same row through the same
-// `callSpeechOf`, so the telephone and the refusal never disagree.
+// NEW-70 (voice V6): the telephone's availability as web reads it.
+// EXP-1857 (`fixtures/voice-call.json` `callTarget`): a call rings the
+// called agent's desktop (EXP-1858: or the member's own server it runs on),
+// else falls back to the member's newest desktop
+// that speaks. The inputs are the member's voice settings (`voice.get`, the
+// running meeting), the agent's Runs on device and the member's SYNCED
+// desktop `devices` rows: online by `lastSeenAt` freshness, their doctor row
+// `speech`. The server's `voice.startCall` reads the same rows through the
+// same `callSpeechOf` and `callTarget`, so the telephone and the refusal
+// never disagree.
 
 import {
-  callAvailability,
   callSpeechOf as speechOfState,
-  type CallAvailability,
-  type CallAvailabilityInput,
+  callTarget,
   type CallSpeech,
+  type CallTarget,
+  type CallTargetInput,
 } from "@exp/etalk/voice-call"
 
 import type { DeviceDoctor } from "@/db/schema"
 import { deviceRowIsOnline } from "@/lib/steer-devices"
 
-/** The voice device's doctor row `speech` (group voice) as a caller reads
- *  it (voice-call.json `speechCases`; no row = null). */
+/** A device's doctor row `speech` (group voice) as a caller reads it
+ *  (voice-call.json `speechCases`; no row = null). */
 export function callSpeechOf(doctor: DeviceDoctor | null | undefined): CallSpeech | null {
   const row = doctor?.items.find((item) => item.key === `speech` && item.group === `voice`)
   return speechOfState(row?.state ?? null)
 }
 
 export interface CallSettingsLike {
+  /** The member's Assistant's desktop (where a meeting runs). */
   voiceDeviceId: string | null
-  /** NEW-99: the member's voice Assistant (null = none yet). */
-  agentId: string | null
-  /** The member's voice language (the call's greeting). */
+  /** The member's voice language (the fallback greeting). */
   language?: string
-  /** #NEW-57: a meeting runs on the voice device (the telephone is off). */
+  /** #NEW-57: a meeting runs on the voice device. */
   meetingStartedAt?: string | null
 }
 
 export interface CallDeviceRowLike {
   deviceId: string
+  userId?: string
+  kind?: string
   label: string
   lastSeenAt: Date | string
   doctor?: DeviceDoctor | null
 }
 
-/** The availability input of a web caller: never the voice device itself
- *  (`here` false), and `busy` is the relay's to say on dial. A voice device
- *  whose row is gone reads as none picked, as on the server; settings not
- *  loaded yet read as no Assistant. */
+/** The target input of a web caller: never a desktop itself (`here` null),
+ *  and `busy` is the relay's to say on dial. Only the member's OWN desktops
+ *  count, newest first; settings not loaded yet read as no desktop. */
 export function webCallInput(
   settings: CallSettingsLike | null,
-  device: CallDeviceRowLike | null,
+  agentDevice: string | null,
+  rows: readonly CallDeviceRowLike[],
+  userId: string | null,
   now: Date
-): CallAvailabilityInput {
-  const row = settings?.voiceDeviceId && device?.deviceId === settings.voiceDeviceId ? device : null
-  return {
-    agent: Boolean(settings?.agentId),
-    platform: `web`,
-    device: row ? row.label : null,
-    online: row ? deviceRowIsOnline(row.lastSeenAt, now) : false,
-    here: false,
-    speech: row ? callSpeechOf(row.doctor) : null,
-    busy: false,
-    meeting: Boolean(settings?.meetingStartedAt),
-  }
+): CallTargetInput {
+  const own = (kind: string) =>
+    settings
+      ? rows
+          .filter((row) => row.kind === kind && row.userId === userId)
+          .sort((a, b) => new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime())
+          .map((row) => ({
+            id: row.deviceId,
+            name: row.label,
+            online: deviceRowIsOnline(row.lastSeenAt, now),
+            speech: callSpeechOf(row.doctor),
+            meeting: Boolean(settings.meetingStartedAt) && row.deviceId === settings.voiceDeviceId,
+          }))
+      : []
+  // EXP-1858: the member's own servers (a candidate only as the agent's device).
+  return { platform: `web`, here: null, agentDevice, desktops: own(`desktop`), servers: own(`server`), busy: false }
 }
 
-export function webCallAvailability(
+export function webCallTarget(
   settings: CallSettingsLike | null,
-  device: CallDeviceRowLike | null,
+  agentDevice: string | null,
+  rows: readonly CallDeviceRowLike[],
+  userId: string | null,
   now: Date
-): CallAvailability {
-  return callAvailability(webCallInput(settings, device, now))
+): CallTarget {
+  return callTarget(webCallInput(settings, agentDevice, rows, userId, now))
 }

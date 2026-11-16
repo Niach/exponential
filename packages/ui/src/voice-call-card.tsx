@@ -12,7 +12,8 @@ import { cn } from "./cn"
 // TIMER, testId `timer`), the caption (centred, at most 4 lines), and at the
 // bottom the round call buttons in `callView`'s order (`CallControls`, the
 // `call-controls` entry). No text pills and no state word: the activity is
-// the avatar's accessibility value. Exponential-specific (the copy is the
+// the avatar's accessibility value. EXP-1857: while the call falls back,
+// `view.via` names the device that speaks on a second status line. Exponential-specific (the copy is the
 // fixture's), so it is no eUI primitive; the round button is.
 
 export interface VoiceCallSurfaceProps extends Omit<HTMLAttributes<HTMLDivElement>, `onClick`> {
@@ -66,6 +67,11 @@ export function VoiceCallSurface({
         ) : (
           <span className="mt-1 text-sm text-muted-foreground">{view.status}</span>
         )}
+        {view.via ? (
+          <span data-testid={VOICE_CALL_TEST_IDS.via} className="max-w-full truncate text-sm text-muted-foreground">
+            {view.via}
+          </span>
+        ) : null}
         <p aria-live="polite" className="mt-8 line-clamp-4 min-h-6 text-base leading-relaxed text-foreground/90">
           {view.caption}
         </p>

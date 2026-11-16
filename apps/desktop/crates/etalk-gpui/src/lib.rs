@@ -19,8 +19,8 @@ pub mod voice_overlay;
 pub mod voice_tray;
 
 pub use host::{
-    AgentVoice, Brand, CallConnection, CallLink, CallLinkEvent, Notice, Outgoing, SendError, SendJob, Sent, SignedIn, Surface, TalkAgent,
-    TalkDevice, TalkHost, TalkIcon, TalkMessage, VoiceWrite,
+    AgentVoice, Brand, CallConnection, CallLink, CallLinkEvent, DialConnection, DialError, DialLink, DialLinkEvent, Notice, Outgoing, SendError,
+    SendJob, Sent, SignedIn, Surface, TalkAgent, TalkDesktop, TalkDevice, TalkHost, TalkIcon, TalkMessage, VoiceWrite, DIAL_DOWN_RATE,
 };
 pub use speak_replies::{set_settings, SpeechState};
 

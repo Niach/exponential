@@ -521,37 +521,97 @@ describe(`withClearOnNone matches the fixture`, () => {
 })
 
 // NEW-55: the call's availability + the caller/host relay tickets.
+// EXP-1857: the call rings the agent's device, else falls back (`callTarget`).
 describe(`voice.startCall`, () => {
   const doctor = (state: string | null) => ({
     checkedAt: new Date().toISOString(),
     items: state === null ? [] : [{ key: `speech`, group: `voice`, state }],
   })
-  const deviceRow = (patch: Record<string, unknown> = {}) => ({
-    label: `mint`,
+  const desktop = (deviceId: string, label: string, patch: Record<string, unknown> = {}) => ({
+    deviceId,
+    kind: `desktop`,
+    label,
     lastSeenAt: new Date(),
     doctor: doctor(`ok`),
     ...patch,
   })
+  const MINT = (patch: Record<string, unknown> = {}) => desktop(`d-mint`, `mint`, patch)
+  // EXP-1858: one of the member's own servers (a CLI daemon).
+  const SERVER = (patch: Record<string, unknown> = {}) => desktop(`d-server`, `server`, { kind: `server`, ...patch })
+  const MAC = (patch: Record<string, unknown> = {}) =>
+    desktop(`d-mac`, `macbook`, { lastSeenAt: new Date(Date.now() - 1000), ...patch })
+  const agentOn = (deviceId: string) => [{ id: AGENT, deviceId }]
   const reasons = callFixture.copy.reasons
   const refused = (message: string) => ({ code: `PRECONDITION_FAILED`, message })
+  const claimsOf = (ticket: string) => {
+    const verdict = verifySteerTicket(ticket, `relay-secret`)
+    expect(verdict.ok).toBe(true)
+    return verdict.ok ? verdict.claims : null
+  }
 
-  it(`mints a caller ticket ringing the member's voice device`, async () => {
-    h.state.selectQueue = [[{ id: AGENT }], [{ userId: `me`, ...stored }], [deviceRow()]]
+  it(`mints a caller ticket ringing the agent's own desktop`, async () => {
+    h.state.selectQueue = [agentOn(`d-mint`), [{ userId: `me`, ...stored }], [MAC(), MINT()]]
     const out = await caller.startCall({ agentId: AGENT, platform: `phone` })
     expect(out.relayUrl).toBe(`https://relay.example`)
     expect(out.url).toBe(`wss://relay.example/ws?ticket=${encodeURIComponent(out.ticket)}`)
-    const verdict = verifySteerTicket(out.ticket, `relay-secret`)
-    expect(verdict.ok).toBe(true)
-    if (verdict.ok) {
-      expect(verdict.claims).toMatchObject({
-        role: `caller`,
-        sub: `me`,
-        callId: out.callId,
-        agentId: AGENT,
-        deviceId: `d-mint`,
-        deviceOwnerId: `me`,
-      })
-    }
+    expect(out).toMatchObject({ deviceId: `d-mint`, device: `mint`, fallback: false })
+    expect(claimsOf(out.ticket)).toMatchObject({
+      role: `caller`,
+      sub: `me`,
+      callId: out.callId,
+      agentId: AGENT,
+      deviceId: `d-mint`,
+      deviceOwnerId: `me`,
+    })
+  })
+
+  it(`an agent on a server falls back to the newest desktop that speaks`, async () => {
+    // Danny's Bro on the N95 `server`: no voice device, still callable.
+    h.state.assistants = [{ id: AGENT, voiceDeviceId: null }]
+    h.state.selectQueue = [agentOn(`d-server`), [{ userId: `me`, ...stored }], [MAC(), MINT()]]
+    const out = await caller.startCall({ agentId: AGENT, platform: `web` })
+    expect(out).toMatchObject({ deviceId: `d-mint`, device: `mint`, fallback: true })
+    expect(claimsOf(out.ticket)).toMatchObject({ role: `caller`, deviceId: `d-mint` })
+  })
+
+  it(`EXP-1858: an agent on the member's own server rings that server`, async () => {
+    h.state.selectQueue = [agentOn(`d-server`), [{ userId: `me`, ...stored }], [MAC(), MINT(), SERVER()]]
+    const out = await caller.startCall({ agentId: AGENT, platform: `web` })
+    expect(out).toMatchObject({ deviceId: `d-server`, device: `server`, fallback: false })
+    expect(claimsOf(out.ticket)).toMatchObject({ role: `caller`, deviceId: `d-server`, deviceOwnerId: `me` })
+  })
+
+  it(`EXP-1858: a server without a GPU falls back; alone it names its reason; never another agent's fallback`, async () => {
+    h.state.selectQueue = [agentOn(`d-server`), [{ userId: `me`, ...stored }], [SERVER({ doctor: doctor(`missing`) }), MAC()]]
+    await expect(caller.startCall({ agentId: AGENT, platform: `phone` })).resolves.toMatchObject({
+      deviceId: `d-mac`,
+      fallback: true,
+    })
+    h.state.selectQueue = [agentOn(`d-server`), [{ userId: `me`, ...stored }], [SERVER({ doctor: doctor(`missing`) })]]
+    await expect(caller.startCall({ agentId: AGENT, platform: `web` })).rejects.toMatchObject(
+      refused(`server can't speak: no usable GPU`)
+    )
+    h.state.selectQueue = [agentOn(`d-mint`), [{ userId: `me`, ...stored }], [MINT({ lastSeenAt: new Date(0) }), SERVER()]]
+    await expect(caller.startCall({ agentId: AGENT, platform: `web` })).rejects.toMatchObject(refused(`mint is offline`))
+  })
+
+  it(`the agent's desktop without a GPU falls back`, async () => {
+    h.state.selectQueue = [agentOn(`d-mint`), [{ userId: `me`, ...stored }], [MINT({ doctor: doctor(`missing`) }), MAC()]]
+    await expect(caller.startCall({ agentId: AGENT, platform: `phone` })).resolves.toMatchObject({
+      deviceId: `d-mac`,
+      fallback: true,
+    })
+  })
+
+  it(`the desktop IDE calls another desktop; its own target is refused`, async () => {
+    h.state.selectQueue = [agentOn(`d-mint`), [{ userId: `me`, ...stored }], [MAC(), MINT()]]
+    await expect(
+      caller.startCall({ agentId: AGENT, platform: `desktop`, deviceId: `d-mac` })
+    ).resolves.toMatchObject({ deviceId: `d-mint`, fallback: false })
+    h.state.selectQueue = [agentOn(`d-server`), [{ userId: `me`, ...stored }], [MAC(), MINT()]]
+    await expect(
+      caller.startCall({ agentId: AGENT, platform: `desktop`, deviceId: `d-mint` })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
   })
 
   it(`refuses an agent outside the member's teams`, async () => {
@@ -560,56 +620,57 @@ describe(`voice.startCall`, () => {
   })
 
   it(`S-3: refuses another member's Assistant, takes the caller's own`, async () => {
-    h.state.selectQueue = [[{ role: `assistant`, ownerId: `someone-else` }]]
+    h.state.selectQueue = [[{ role: `assistant`, ownerId: `someone-else`, deviceId: `d-mint` }]]
     await expect(caller.startCall({ agentId: AGENT, platform: `phone` })).rejects.toMatchObject({ code: `NOT_FOUND` })
-    h.state.selectQueue = [[{ role: `assistant`, ownerId: `me` }], [{ userId: `me`, ...stored }], [deviceRow()]]
+    h.state.selectQueue = [
+      [{ role: `assistant`, ownerId: `me`, deviceId: `d-mint` }],
+      [{ userId: `me`, ...stored }],
+      [MINT()],
+    ]
     await expect(caller.startCall({ agentId: AGENT, platform: `phone` })).resolves.toMatchObject({
       relayUrl: `https://relay.example`,
     })
   })
 
-  it(`refuses with the fixture's reason, first match wins`, async () => {
-    // NEW-99: no Assistant at all names the Assistant, not a voice device.
-    h.state.assistants = []
-    h.state.selectQueue = [[{ id: AGENT }], []]
-    await expect(caller.startCall({ agentId: AGENT, platform: `phone` })).rejects.toMatchObject(refused(reasons.noAgent))
-    // An Assistant on a server (no desktop) has no voice device.
-    h.state.assistants = [{ id: AGENT, voiceDeviceId: null }]
-    h.state.selectQueue = [[{ id: AGENT }], []]
-    await expect(caller.startCall({ agentId: AGENT, platform: `phone` })).rejects.toMatchObject(refused(reasons.noVoiceDevice))
-    h.state.assistants = [{ id: AGENT, voiceDeviceId: `d-mint` }]
+  it(`refuses with the first candidate's reason when nothing speaks`, async () => {
+    h.state.selectQueue = [agentOn(`d-server`), [{ userId: `me`, ...stored }], []]
+    await expect(caller.startCall({ agentId: AGENT, platform: `phone` })).rejects.toMatchObject(refused(reasons.noDesktop))
 
-    h.state.selectQueue = [[{ id: AGENT }], [{ userId: `me`, ...stored }], [deviceRow({ lastSeenAt: new Date(0) })]]
+    h.state.selectQueue = [agentOn(`d-mint`), [{ userId: `me`, ...stored }], [MINT({ lastSeenAt: new Date(0) })]]
     await expect(caller.startCall({ agentId: AGENT, platform: `phone` })).rejects.toMatchObject(refused(`mint is offline`))
 
-    h.state.selectQueue = [[{ id: AGENT }], [{ userId: `me`, ...stored }], [deviceRow()]]
-    await expect(caller.startCall({ agentId: AGENT, platform: `desktop`, deviceId: `d-other` })).rejects.toMatchObject(
-      refused(`Calls run on mint`)
-    )
-
-    h.state.selectQueue = [[{ id: AGENT }], [{ userId: `me`, ...stored }], [deviceRow({ doctor: null })]]
+    h.state.selectQueue = [agentOn(`d-mint`), [{ userId: `me`, ...stored }], [MINT({ doctor: null })]]
     await expect(caller.startCall({ agentId: AGENT, platform: `phone` })).rejects.toMatchObject(
       refused(`mint is getting its voice ready`)
     )
 
-    h.state.selectQueue = [[{ id: AGENT }], [{ userId: `me`, ...stored }], [deviceRow({ doctor: doctor(`missing`) })]]
+    h.state.selectQueue = [agentOn(`d-mint`), [{ userId: `me`, ...stored }], [MINT({ doctor: doctor(`missing`) })]]
     await expect(caller.startCall({ agentId: AGENT, platform: `web` })).rejects.toMatchObject(
       refused(`mint can't speak: no usable GPU`)
     )
-  })
 
-  it(`NEW-99: a voice that failed to load refuses with its reason`, async () => {
-    h.state.selectQueue = [[{ id: AGENT }], [{ userId: `me`, ...stored }], [deviceRow({ doctor: doctor(`error`) })]]
+    h.state.selectQueue = [agentOn(`d-mint`), [{ userId: `me`, ...stored }], [MINT({ doctor: doctor(`error`) })]]
     await expect(caller.startCall({ agentId: AGENT, platform: `web` })).rejects.toMatchObject(
       refused(`mint couldn't load its voice: restart Exponential there`)
     )
   })
 
-  it(`S-3: Speak replies off never refuses, and a downloading voice rings`, async () => {
-    h.state.selectQueue = [[{ id: AGENT }], [{ userId: `me`, ...stored }], [deviceRow()]]
-    await expect(caller.startCall({ agentId: AGENT, platform: `web` })).resolves.toMatchObject({ relayUrl: `https://relay.example` })
-    h.state.selectQueue = [[{ id: AGENT }], [{ userId: `me`, ...stored }], [deviceRow({ doctor: doctor(`action`) })]]
-    await expect(caller.startCall({ agentId: AGENT, platform: `phone` })).resolves.toMatchObject({ relayUrl: `https://relay.example` })
+  it(`#NEW-57: a meeting on the voice device falls back, alone it refuses`, async () => {
+    const meeting = { ...stored, meetingStartedAt: new Date().toISOString() }
+    h.state.selectQueue = [agentOn(`d-mint`), [{ userId: `me`, ...meeting }], [MINT(), MAC()]]
+    await expect(caller.startCall({ agentId: AGENT, platform: `phone` })).resolves.toMatchObject({
+      deviceId: `d-mac`,
+      fallback: true,
+    })
+    h.state.selectQueue = [agentOn(`d-mint`), [{ userId: `me`, ...meeting }], [MINT()]]
+    await expect(caller.startCall({ agentId: AGENT, platform: `phone` })).rejects.toMatchObject(
+      refused(`mint is transcribing a meeting`)
+    )
+  })
+
+  it(`S-3: a downloading voice rings`, async () => {
+    h.state.selectQueue = [agentOn(`d-mint`), [{ userId: `me`, ...stored }], [MINT({ doctor: doctor(`action`) })]]
+    await expect(caller.startCall({ agentId: AGENT, platform: `phone` })).resolves.toMatchObject({ deviceId: `d-mint` })
   })
 
   it(`reads the speech doctor row`, () => {
@@ -625,17 +686,29 @@ describe(`voice.startCall`, () => {
 })
 
 describe(`voice.callHostTicket`, () => {
-  it(`mints a call_host ticket for the member's voice device`, async () => {
+  const callId = `7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d`
+
+  it(`mints a call_host ticket for the member's voice device (an old IDE)`, async () => {
     h.state.selectQueue = [[{ userId: `me`, ...stored, createdAt: new Date(), updatedAt: new Date() }]]
-    const callId = `7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d`
     const out = await caller.callHostTicket({ callId })
     expect(out.url).toBe(`wss://relay.example/ws?ticket=${encodeURIComponent(out.ticket)}`)
     const verdict = verifySteerTicket(out.ticket, `relay-secret`)
     expect(verdict.ok && verdict.claims).toMatchObject({ role: `call_host`, sub: `me`, callId, deviceId: `d-mint` })
   })
 
+  it(`EXP-1857: any of the member's own desktops answers for itself`, async () => {
+    h.state.assistants = [{ id: AGENT, voiceDeviceId: null }]
+    h.state.selectQueue = [[{ deviceId: `d-mac` }]]
+    const out = await caller.callHostTicket({ callId, deviceId: `d-mac` })
+    const verdict = verifySteerTicket(out.ticket, `relay-secret`)
+    expect(verdict.ok && verdict.claims).toMatchObject({ role: `call_host`, sub: `me`, callId, deviceId: `d-mac` })
+    // Someone else's device is not the member's to answer for.
+    h.state.selectQueue = [[]]
+    await expect(caller.callHostTicket({ callId, deviceId: `d-theirs` })).rejects.toMatchObject({ code: `NOT_FOUND` })
+  })
+
   it(`refuses a member without a voice device`, async () => {
     h.state.assistants = [{ id: AGENT, voiceDeviceId: null }]
-    await expect(caller.callHostTicket({ callId: `7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d` })).rejects.toThrow(`No voice device`)
+    await expect(caller.callHostTicket({ callId })).rejects.toThrow(`No voice device`)
   })
 })

@@ -41,7 +41,7 @@ const val CallControlsSpecimenTestId = "call-controls-specimen"
 private val C = VoiceCall.Copy
 
 private fun view(activity: VoiceCall.Activity, muted: Boolean, buttons: List<VoiceCall.Button>, end: String) =
-    VoiceCall.View(activity, null, "", muted, true, buttons, end)
+    VoiceCall.View(activity, null, null, "", muted, true, buttons, end)
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable

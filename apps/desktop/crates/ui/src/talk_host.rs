@@ -14,8 +14,8 @@ use std::rc::Rc;
 use etalk::meeting::{AudioApp, DesktopAudioCapability};
 use etalk::voice::{UtteranceTarget, VoiceMessage, VoiceSettings};
 use etalk_gpui::{
-    AgentVoice, Brand, CallConnection, CallLink, CallLinkEvent, Notice, Outgoing, SendError, SendJob, Sent, SignedIn, Surface, TalkAgent, TalkDevice,
-    TalkHost, TalkIcon, TalkMessage, VoiceWrite,
+    AgentVoice, Brand, CallConnection, CallLink, CallLinkEvent, DialConnection, DialError, DialLink, DialLinkEvent, Notice, Outgoing, SendError,
+    SendJob, Sent, SignedIn, Surface, TalkAgent, TalkDesktop, TalkDevice, TalkHost, TalkIcon, TalkMessage, VoiceWrite,
 };
 use gpui::{App, Task};
 use gpui_component::Icon;
@@ -245,6 +245,88 @@ impl CallLink for SteerLink {
     }
 }
 
+/// EXP-1857: the relay's caller socket as eTalk's dial link.
+struct SteerDial(steer::call_caller::CallCaller);
+
+impl DialLink for SteerDial {
+    fn send_audio(&self, pcm: Vec<i16>) {
+        self.0.send_audio(pcm);
+    }
+
+    fn set_muted(&self, muted: bool) {
+        self.0.set_muted(muted);
+    }
+
+    fn end(&self) {
+        self.0.end();
+    }
+}
+
+fn dial_event(event: steer::call_caller::CallCallerEvent) -> DialLinkEvent {
+    use steer::call_caller::CallCallerEvent;
+    match event {
+        CallCallerEvent::Ready => DialLinkEvent::Ready,
+        CallCallerEvent::Event(event) => DialLinkEvent::Event(event),
+        CallCallerEvent::Audio(pcm) => DialLinkEvent::Audio(pcm),
+        CallCallerEvent::Ended { reason } => DialLinkEvent::Ended { reason },
+        CallCallerEvent::Failed(code) => DialLinkEvent::Failed(code),
+        CallCallerEvent::Dropped(reason) => DialLinkEvent::Dropped(reason),
+    }
+}
+
+/// EXP-1857: `voice.startCall`'s refusal: the server's own words for a
+/// precondition (an availability reason), anything else a failure.
+fn dial_error(err: api::ApiError) -> DialError {
+    match err {
+        api::ApiError::Http { status: 412, message } => DialError::Refused(message),
+        other => DialError::Failed(other.to_string()),
+    }
+}
+
+/// EXP-1857: a doctor's `speech` row state (group voice; None = no row).
+fn doctor_speech(doctor: Option<&serde_json::Value>) -> Option<String> {
+    doctor?
+        .get("items")?
+        .as_array()?
+        .iter()
+        .find(|item| item["key"] == coding::device_doctor::KEY_SPEECH && item["group"] == "voice")?
+        .get("state")?
+        .as_str()
+        .map(str::to_string)
+}
+
+/// EXP-1857: the member's OWN desktops (`user_id` = `me`), newest
+/// `lastSeenAt` first, as a call's target reads them.
+fn own_desktops(rows: &[&domain::rows::DeviceRow], me: &str, now_ms: i64) -> Vec<TalkDesktop> {
+    own_devices(rows, me, now_ms, |kind| kind.is_none_or(|kind| kind == "desktop"))
+}
+
+/// EXP-1858: the member's own servers (CLI daemons), newest first.
+fn own_servers(rows: &[&domain::rows::DeviceRow], me: &str, now_ms: i64) -> Vec<TalkDesktop> {
+    own_devices(rows, me, now_ms, |kind| kind == Some("server"))
+}
+
+fn own_devices(rows: &[&domain::rows::DeviceRow], me: &str, now_ms: i64, kind: impl Fn(Option<&str>) -> bool) -> Vec<TalkDesktop> {
+    let mut rows: Vec<&domain::rows::DeviceRow> = rows
+        .iter()
+        .copied()
+        .filter(|row| row.user_id.as_deref() == Some(me) && kind(row.kind.as_deref()) && row.device_id.is_some())
+        .collect();
+    let seen = |row: &domain::rows::DeviceRow| row.last_seen_at.as_deref().and_then(crate::comments::parse_epoch).unwrap_or(0);
+    rows.sort_by_key(|row| std::cmp::Reverse(seen(row)));
+    rows.into_iter()
+        .map(|row| {
+            let id = row.device_id.clone().unwrap_or_default();
+            TalkDesktop {
+                name: row.label.clone().filter(|label| !label.is_empty()).unwrap_or_else(|| id.clone()),
+                online: crate::device_settings::row_is_online(row.last_seen_at.as_deref(), now_ms),
+                speech: doctor_speech(row.doctor.as_ref()),
+                id,
+            }
+        })
+        .collect()
+}
+
 fn link_event(event: steer::call_host::CallHostEvent) -> CallLinkEvent {
     use steer::call_host::CallHostEvent;
     match event {
@@ -318,6 +400,7 @@ impl TalkHost for ExponentialHost {
             team_id: agent.team_id.clone().unwrap_or_default(),
             icon: agent.icon.clone(),
             color: agent.color.clone(),
+            device_id: agent.device_id.clone().filter(|id| !id.is_empty()),
         })
     }
 
@@ -409,10 +492,12 @@ impl TalkHost for ExponentialHost {
         let trpc = crate::queries::trpc_client(cx)?;
         let runtime = crate::steer_wiring::runtime(cx)?;
         let call_id = call_id.to_string();
+        // EXP-1857: the ticket names THIS desktop (any of the member's may be rung).
+        let device_id = self.device_id();
         Some(cx.spawn(async move |cx| {
             let ticket = cx
                 .background_executor()
-                .spawn(async move { api::voice::voice_call_host_ticket(&trpc, &call_id) })
+                .spawn(async move { api::voice::voice_call_host_ticket(&trpc, &call_id, Some(&device_id)) })
                 .await
                 .map_err(|err| err.to_string())?;
             let (tx, events) = flume::unbounded::<CallLinkEvent>();
@@ -421,6 +506,43 @@ impl TalkHost for ExponentialHost {
             });
             Ok(CallConnection { link: Box::new(SteerLink(host)), events })
         }))
+    }
+
+    /// EXP-1857: `voice.startCall` as a desktop (this one the first
+    /// fallback), then the relay's caller socket.
+    fn dial_call(&self, agent_id: &str, cx: &mut App) -> Option<Task<Result<DialConnection, DialError>>> {
+        let trpc = crate::queries::trpc_client(cx)?;
+        let runtime = crate::steer_wiring::runtime(cx)?;
+        let (agent_id, device_id) = (agent_id.to_string(), self.device_id());
+        Some(cx.spawn(async move |cx| {
+            let started = cx
+                .background_executor()
+                .spawn(async move { api::voice::voice_start_call(&trpc, &agent_id, &device_id) })
+                .await
+                .map_err(dial_error)?;
+            log::info!("[voice] call {}: dialling {} (fallback {})", started.call_id, started.device, started.fallback);
+            let (tx, events) = flume::unbounded::<DialLinkEvent>();
+            let caller = steer::call_caller::connect(&runtime, started.url, move |event| {
+                let _ = tx.send(dial_event(event));
+            });
+            Ok(DialConnection { link: Box::new(SteerDial(caller)), events })
+        }))
+    }
+
+    fn desktops(&self, cx: &App) -> Vec<TalkDesktop> {
+        let Some(store) = Store::try_global(cx) else { return Vec::new() };
+        let Some(me) = crate::queries::active_account(cx).map(|account| account.user_id) else { return Vec::new() };
+        let devices = store.collections().devices.read(cx);
+        let rows: Vec<&domain::rows::DeviceRow> = devices.iter().collect();
+        own_desktops(&rows, &me, chrono::Utc::now().timestamp_millis())
+    }
+
+    fn servers(&self, cx: &App) -> Vec<TalkDesktop> {
+        let Some(store) = Store::try_global(cx) else { return Vec::new() };
+        let Some(me) = crate::queries::active_account(cx).map(|account| account.user_id) else { return Vec::new() };
+        let devices = store.collections().devices.read(cx);
+        let rows: Vec<&domain::rows::DeviceRow> = devices.iter().collect();
+        own_servers(&rows, &me, chrono::Utc::now().timestamp_millis())
     }
 
     fn device(&self, device_id: &str, cx: &App) -> Option<TalkDevice> {
@@ -498,6 +620,39 @@ mod tests {
         assert_eq!(voice_inputs(&team, |_| None).voice, etalk::VoiceChoice { language: "de".into(), ..Default::default() });
         assert_eq!(clip_file(Path::new("/d"), "c-1"), Some(PathBuf::from("/d/c-1.wav")));
         assert_eq!(clip_file(Path::new("/d"), "../x"), None);
+    }
+
+    /// EXP-1857: the member's own desktops, newest first, with their
+    /// doctor's `speech` row; servers and other members' machines never.
+    #[test]
+    fn a_calls_desktops_are_the_members_own_newest_first() {
+        let now = chrono::Utc::now();
+        let at = |ago: i64| (now - chrono::Duration::seconds(ago)).to_rfc3339();
+        let row = |device: &str, user: &str, kind: &str, ago: i64, speech: Option<&str>| domain::rows::DeviceRow {
+            user_id: Some(user.into()),
+            device_id: Some(device.into()),
+            label: Some(format!("{device}-name")),
+            kind: Some(kind.into()),
+            last_seen_at: Some(at(ago)),
+            doctor: speech.map(|state| serde_json::json!({ "checkedAt": "x", "items": [{ "key": "speech", "group": "voice", "state": state }] })),
+            ..serde_json::from_value(serde_json::json!({ "id": device })).unwrap()
+        };
+        let rows = [
+            row("d-old", "me", "desktop", 9_000, Some("ok")),
+            row("d-server", "me", "server", 1, None),
+            row("d-mint", "me", "desktop", 5, Some("missing")),
+            row("d-theirs", "them", "desktop", 1, Some("ok")),
+        ];
+        let refs: Vec<&domain::rows::DeviceRow> = rows.iter().collect();
+        let desktops = own_desktops(&refs, "me", now.timestamp_millis());
+        assert_eq!(desktops.iter().map(|desktop| desktop.id.as_str()).collect::<Vec<_>>(), ["d-mint", "d-old"]);
+        assert_eq!((desktops[0].name.as_str(), desktops[0].online, desktops[0].speech.as_deref()), ("d-mint-name", true, Some("missing")));
+        assert!(!desktops[1].online, "seen long ago");
+        // EXP-1858: the member's own servers, apart (only the agent's counts).
+        let servers = own_servers(&refs, "me", now.timestamp_millis());
+        assert_eq!(servers.iter().map(|server| (server.id.as_str(), server.online)).collect::<Vec<_>>(), [("d-server", true)]);
+        assert_eq!(dial_error(api::ApiError::Http { status: 412, message: "mint is offline".into() }), DialError::Refused("mint is offline".into()));
+        assert!(matches!(dial_error(api::ApiError::Http { status: 500, message: "x".into() }), DialError::Failed(_)));
     }
 
     /// meeting.json FLUSH: a refusal (4xx) drops the batch, never requeued;

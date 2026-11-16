@@ -10,7 +10,7 @@ use gpui::{
 use serde_json::json;
 use sync::Store;
 
-use crate::assistant_fab::{AssistantFab, BUBBLE_TEST_ID, TEST_IDS, WIDGET_TEST_ID};
+use crate::assistant_fab::{AssistantFab, BUBBLE_TEST_ID, HEADER_TEST_ID, RESIZE_TEST_IDS, TEST_IDS, WIDGET_TEST_ID};
 use crate::navigation::{nav_for_window, resolved_screen, Navigation, Screen};
 
 /// The content card the FAB sits in (the Shell's `relative` content area).
@@ -471,4 +471,63 @@ fn no_bubble_while_the_window_is_unfocused(cx: &mut gpui::TestAppContext) {
     assert!(!h.paints(BUBBLE_TEST_ID), "an unfocused window waits");
     h.focus();
     assert!(h.paints(BUBBLE_TEST_ID), "shown on the next focus");
+}
+
+#[gpui::test]
+#[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
+fn the_widget_sizes_off_the_card_and_resizes_from_its_edges(cx: &mut gpui::TestAppContext) {
+    use domain::agent_settings::{assistant_widget_size, AssistantWidgetSize};
+    // #EXP-1876 (`assistant.fab.widget`): the widget takes the responsive
+    // size of the card it floats in; a drag of its top edge grows it upward,
+    // of its left edge leftward, of the corner both (anchored to the FAB),
+    // the size is remembered, and a double-click on the header resets it.
+    let mut h = harness(cx);
+    let card = h.cx.update(|window, _| window.viewport_size());
+    let card = AssistantWidgetSize { width: f32::from(card.width), height: f32::from(card.height) };
+    h.click(TEST_IDS.0);
+    let size = |h: &mut Harness<'_>| {
+        let b = h.cx.debug_bounds(WIDGET_TEST_ID).expect("the widget paints");
+        (f32::from(b.size.width).round(), f32::from(b.size.height).round(), f32::from(b.right()), f32::from(b.bottom()))
+    };
+    let default = assistant_widget_size(card, None);
+    let (w0, h0, right, bottom) = size(&mut h);
+    assert_eq!((w0, h0), (default.width, default.height), "the responsive default");
+    let mut drag = |h: &mut Harness<'_>, id: &'static str, dx: f32, dy: f32| {
+        let b = h.cx.debug_bounds(id).unwrap_or_else(|| panic!("{id} paints"));
+        let from = b.center();
+        let to = gpui::point(from.x + px(dx), from.y + px(dy));
+        h.cx.simulate_mouse_down(from, gpui::MouseButton::Left, Modifiers::default());
+        h.settle();
+        h.cx.simulate_mouse_move(to, Some(gpui::MouseButton::Left), Modifiers::default());
+        h.settle();
+        h.cx.simulate_mouse_up(to, gpui::MouseButton::Left, Modifiers::default());
+        h.settle();
+    };
+    drag(&mut h, RESIZE_TEST_IDS.0, 0., -40.);
+    let (w1, h1, r1, b1) = size(&mut h);
+    let grown = assistant_widget_size(card, Some(AssistantWidgetSize { width: w0, height: h0 + 40. }));
+    assert_eq!((w1, h1), (grown.width, grown.height), "the top edge drags the height");
+    assert_eq!((r1, b1), (right, bottom), "anchored to the FAB");
+    drag(&mut h, RESIZE_TEST_IDS.1, -30., 0.);
+    let (w2, h2, _, _) = size(&mut h);
+    let wider = assistant_widget_size(card, Some(AssistantWidgetSize { width: w1 + 30., height: h1 }));
+    assert_eq!((w2, h2), (wider.width, wider.height), "the left edge drags the width");
+    assert_eq!(
+        crate::ui_prefs::assistant_widget_size("u1"),
+        Some((w2, h2)),
+        "the size is remembered for the member on this device"
+    );
+    let header = h.cx.debug_bounds(HEADER_TEST_ID).expect("the header paints").center();
+    h.cx.simulate_event(gpui::MouseDownEvent {
+        position: header,
+        button: gpui::MouseButton::Left,
+        modifiers: Modifiers::default(),
+        click_count: 2,
+        first_mouse: false,
+    });
+    h.cx.simulate_event(gpui::MouseUpEvent { position: header, button: gpui::MouseButton::Left, modifiers: Modifiers::default(), click_count: 2 });
+    h.settle();
+    let (w3, h3, _, _) = size(&mut h);
+    assert_eq!((w3, h3), (default.width, default.height), "a header double-click resets the size");
+    assert_eq!(crate::ui_prefs::assistant_widget_size("u1"), None);
 }

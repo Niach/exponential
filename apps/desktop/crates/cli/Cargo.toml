@@ -35,6 +35,14 @@ observability = { path = "../observability" }
 # the merge train's `compose` job (ecode::compose, the TS train engine's port).
 ecode = { path = "../ecode", default-features = false, features = ["repo", "exponential", "runner", "compose"] }
 git-remote-exp = { path = "../git-remote-exp" }
+# #EXP-1858: speech on a server: the speech worker (`__speech-worker`, the
+# IDE's) and its host side, headless (no microphone, no speakers: only remote
+# calls). CrispASR stays a sha256-pinned runtime download, nothing linked;
+# etalk without `pipewire` (#EXP-1442: the daemon never links libpipewire).
+etalk = { path = "../etalk", default-features = false }
+etalk-engine = { path = "../etalk-engine" }
+# #EXP-1858: a call's utterance is sealed with its conversation's key.
+enet-core = { path = "../enet-core", default-features = false }
 
 anyhow = { workspace = true }
 # EXP-530: the automation host's local clock (schedule occurrences are

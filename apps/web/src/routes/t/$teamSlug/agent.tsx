@@ -136,6 +136,10 @@ const DEV_VIEWS = [
   `sealed-locked`,
 ] as const
 type DevView = (typeof DEV_VIEWS)[number]
+/** EXP-1857: the web `voice-call` row of five (the fallback replaces
+ *  "getting ready"); phones show all six. */
+const WEB_CALL_SPECIMENS = [`ringing`, `in call, speaking`, `in call, listening`, `muted`, `in call, falling back`]
+
 const devView = (value: unknown): DevView | undefined =>
   !isProductionBuild && DEV_VIEWS.includes(value as DevView)
     ? (value as DevView)
@@ -221,10 +225,13 @@ function AgentRoute() {
         ) : dev === `code-block` ? (
           <CodeBlockSpecimen />
         ) : dev === `voice-call` ? (
-          // voice-call.json `surfaceSpecimens`: all five states, each
-          // captioned; one row on web, one full-width column on phones.
+          // voice-call.json `surfaceSpecimens`, each captioned: one row of
+          // five on web (EXP-1857: the fallback's device line in place of
+          // "getting ready", the ring's other status), all six in one
+          // full-width column on phones.
           <VoiceCallSpecimen
             platform="web"
+            names={isMobile ? undefined : WEB_CALL_SPECIMENS}
             className={isMobile ? `grid grid-cols-1 gap-4` : `grid grid-cols-5 items-start gap-3`}
             frameClassName={isMobile ? `h-[640px] w-full` : `h-[704px] w-full`}
           />
