@@ -2004,9 +2004,9 @@
       "desktop": {
         "file": "shots/device-readiness/desktop.webp",
         "width": 1800,
-        "height": 1126,
-        "bytes": 36582,
-        "sha256": "88e00228e4debb947ed703afc4ee24a400cc696e557fbf520264ad9f7a1a4f2d"
+        "height": 1125,
+        "bytes": 44910,
+        "sha256": "2ac60ccbf5fcd8604425086a00f8b6f59b7bb9baf8648d91f6af0e47b12ad012"
       },
       "ios": {
         "file": "shots/device-readiness/ios.webp",
