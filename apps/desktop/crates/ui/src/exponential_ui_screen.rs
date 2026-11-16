@@ -462,6 +462,21 @@ impl Render for ExponentialUiKitchenSink {
 const SPECIMENS_JSON: &str =
     include_str!("../../../../../packages/exponential-ui/fixtures/specimens.json");
 
+/// #EXP-1781: a specimen's forced interaction states (its `states`: the
+/// state row's ids → `hover` / `pressed` / `focus`), empty when none.
+fn specimen_states(id: &str) -> Vec<(String, Vec<String>)> {
+    let doc: &Value = {
+        static DOC: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+        DOC.get_or_init(|| serde_json::from_str(SPECIMENS_JSON).expect("the specimens fixture parses"))
+    };
+    doc.get("specimens")
+        .and_then(Value::as_array)
+        .and_then(|rows| rows.iter().find(|r| r.get("id").and_then(Value::as_str) == Some(id)))
+        .and_then(|r| r.get("states")?.as_object().cloned())
+        .map(|m| m.into_iter().map(|(k, v)| (k, v.as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default())).collect())
+        .unwrap_or_default()
+}
+
 /// The specimens fixture's entries, `(id, node)`, parsed once.
 fn specimens() -> &'static [(String, Value)] {
     static SPECIMENS: std::sync::OnceLock<Vec<(String, Value)>> = std::sync::OnceLock::new();
@@ -628,6 +643,11 @@ impl ExponentialUiSpecimen {
                 if let Err(err) = view.set_data("", Some(data), cx) {
                     log::warn!("[exponential-ui specimen] {id}: data: {err}");
                 }
+            }
+            // #EXP-1781: the state row paints its forced states.
+            let forced = specimen_states(id);
+            if !forced.is_empty() {
+                view.set_forced_states(forced, cx);
             }
             view
         });

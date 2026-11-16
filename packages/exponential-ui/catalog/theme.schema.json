@@ -158,6 +158,12 @@
                 },
                 "bubbleOwn": {
                   "$ref": "#/$defs/hex"
+                },
+                "sheenFrom": {
+                  "$ref": "#/$defs/hex"
+                },
+                "sheenTo": {
+                  "$ref": "#/$defs/hex"
                 }
               }
             },
@@ -313,6 +319,12 @@
                   "$ref": "#/$defs/hex"
                 },
                 "bubbleOwn": {
+                  "$ref": "#/$defs/hex"
+                },
+                "sheenFrom": {
+                  "$ref": "#/$defs/hex"
+                },
+                "sheenTo": {
                   "$ref": "#/$defs/hex"
                 }
               }
@@ -477,6 +489,12 @@
                 },
                 "bubbleOwn": {
                   "$ref": "#/$defs/hex"
+                },
+                "sheenFrom": {
+                  "$ref": "#/$defs/hex"
+                },
+                "sheenTo": {
+                  "$ref": "#/$defs/hex"
                 }
               }
             },
@@ -632,6 +650,12 @@
                   "$ref": "#/$defs/hex"
                 },
                 "bubbleOwn": {
+                  "$ref": "#/$defs/hex"
+                },
+                "sheenFrom": {
+                  "$ref": "#/$defs/hex"
+                },
+                "sheenTo": {
                   "$ref": "#/$defs/hex"
                 }
               }
@@ -86236,8 +86260,52 @@
         "backgroundClip": {
           "enum": [
             "border-box",
-            "padding-box"
+            "padding-box",
+            "text"
           ]
+        },
+        "backgroundGradient": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "angle",
+            "stops"
+          ],
+          "properties": {
+            "angle": {
+              "type": "number"
+            },
+            "stops": {
+              "type": "array",
+              "minItems": 2,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "color",
+                  "offset"
+                ],
+                "properties": {
+                  "color": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/hex"
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^\\$color\\.[a-zA-Z0-9]+$"
+                      }
+                    ]
+                  },
+                  "offset": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  }
+                }
+              }
+            }
+          }
         }
       }
     }

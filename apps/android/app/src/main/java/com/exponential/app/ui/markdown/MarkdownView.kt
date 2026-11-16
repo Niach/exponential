@@ -93,6 +93,8 @@ fun MarkdownView(
     imageMaxHeight: Float? = if (chat) CHAT_IMAGE_MAX_HEIGHT else null,
     /** The laid-out document (a fold at whole lines, [MarkdownLaidOut.foldHeight]). */
     onLayout: ((MarkdownLaidOut) -> Unit)? = null,
+    /** #EXP-1881: as wide as the text needs (inside a message bubble, [LocalMarkdownHug]). */
+    hug: Boolean = LocalMarkdownHug.current,
 ) {
     if (markdown.isBlank()) return
     val issueRefs = LocalIssueRefs.current
@@ -152,8 +154,13 @@ fun MarkdownView(
         },
         options = MarkdownOptions(hardBreaks = softBreaksAsNewlines, chat = chat, selectable = true, streaming = streaming, imageMaxHeight = imageMaxHeight),
         onLayout = onLayout,
+        hug = hug,
     )
 }
+
+/** #EXP-1881: a [MarkdownView] inside a message bubble hugs its text, so the
+ *  bubble does (web's and iOS's bubbles size to their content). */
+val LocalMarkdownHug = androidx.compose.runtime.staticCompositionLocalOf { false }
 
 /** A chat's block image height cap (dp); documents have none. */
 const val CHAT_IMAGE_MAX_HEIGHT = 240f

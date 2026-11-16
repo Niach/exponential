@@ -565,6 +565,7 @@ fun ChatConversation(
                                 } else {
                                     com.exponential.app.domain.MessageDelivery.State.Read
                                 },
+                                tail = layout.hasTail(),
                             )
                             TranscriptGrouping.Side.Other -> {
                                 val link = sender?.link
@@ -577,6 +578,7 @@ fun ChatConversation(
                                         time = rowMeta?.time,
                                         onOpen = if (link != null && open != null) ({ open(link) }) else null,
                                         queued = row.queued,
+                                        tail = layout.hasTail(),
                                     ) { MessageFold(row.body) { MarkdownView(markdown = row.body, softBreaksAsNewlines = true) } }
                                 } else {
                                     MessageBubble(
@@ -585,6 +587,7 @@ fun ChatConversation(
                                         time = rowMeta?.time,
                                         author = layout.authorLine(),
                                         queued = row.queued,
+                                        tail = layout.hasTail(),
                                     )
                                 }
                             }

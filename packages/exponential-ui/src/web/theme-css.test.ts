@@ -109,6 +109,10 @@ describe(`#EXP-1629 exponential recipes`, () => {
     expect(css).toMatch(/--xui-shadow-popover:0px 10px 15px -3px #0000001a, 0px 4px 6px -4px #0000001a/)
     expect(css).toContain(`box-shadow:var(--xui-shadow-popover)`)
   })
+  it(`#EXP-1876: the fab lg mark's sheen never paints as its icon box's background`, () => {
+    expect(css).not.toContain(`background-clip:text`)
+    expect(css).not.toMatch(/\.xui-Button-icon[^{]*\{[^}]*background-image/)
+  })
   it(`a picture avatar has gpui-component's opaque secondary fill under its ring`, () => {
     expect(css).toMatch(/\.xui-Avatar-image[^{]*\{[^}]*background-color:#262626/)
   })

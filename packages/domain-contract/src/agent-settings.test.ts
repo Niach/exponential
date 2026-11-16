@@ -9,6 +9,7 @@ import {
   coordinatorOf,
   coordinatorOptions,
   leadOptions,
+  assistantFabBubble,
   assistantFabVisible,
   assistantWidgetSize,
   assistantModelValue,
@@ -98,6 +99,19 @@ describe(`agent-settings.json assistant`, () => {
       expect(assistantFabVisible(c)).toBe(c.expected)
     })
   }
+
+  for (const c of fixture.assistant.fab.bubble.cases) {
+    it(`fab bubble.cases: ${c.name}`, () => {
+      expect(assistantFabBubble(c)).toEqual(c.expected)
+    })
+  }
+
+  it(`fab: clearance = inset + size + inset; the welcome has 8 en + de lines`, () => {
+    const fab = fixture.assistant.fab
+    expect(fab.clearance).toBe(fab.inset * 2 + fab.size)
+    expect(fab.bubble.welcome).toHaveLength(8)
+    for (const line of fab.bubble.welcome) expect(line.en && line.de).toBeTruthy()
+  })
   for (const c of fixture.assistant.fab.widget.sizeCases) {
     it(`widget sizeCases: ${c.name}`, () => {
       expect(assistantWidgetSize({ card: c.card, stored: c.stored })).toEqual(c.expected)

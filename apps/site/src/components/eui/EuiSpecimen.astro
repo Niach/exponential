@@ -4,7 +4,7 @@
    @exponential_app/eui/fixtures/specimens.json, or with `variants` the
    variants gallery (one surface). */
 import Eui from "./Eui.astro"
-import { componentBySlug, specimenFor, variantsTree, withSamples } from "./components/specimen.ts"
+import { componentBySlug, specimenFor, specimenStatesFor, variantsTree, withSamples } from "./components/specimen.ts"
 
 interface Props {
   /** The component's slug (specimen id minus `exponential-ui-`). */
@@ -16,8 +16,10 @@ const doc = componentBySlug(slug)
 if (!doc) throw new Error(`EuiSpecimen: no component ${slug}`)
 const tree = variants ? variantsTree(doc) : specimenFor(doc)
 if (!tree) throw new Error(`EuiSpecimen: no ${variants ? `variants` : `specimen`} for ${slug}`)
+// #EXP-1781: the specimen's state rows paint their forced states (the variants gallery has none).
+const forcedStates = variants ? undefined : specimenStatesFor(doc)
 ---
 
 <div class="eui-specimen not-content">
-  <Eui id={`${variants ? `variants` : `specimen`}-${slug}`} tree={withSamples(tree)} inlineOverlays />
+  <Eui id={`${variants ? `variants` : `specimen`}-${slug}`} tree={withSamples(tree)} inlineOverlays forcedStates={forcedStates} />
 </div>

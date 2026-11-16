@@ -122,6 +122,17 @@ export function composeExponential(): ThemeSource {
   // (the info blue at 18% over the ground), the info blue at 12% over white.
   dark.bubbleOwn = hex(design.glass.fillOwn)
   light.bubbleOwn = `#e7f0fe`
+  // #EXP-1876: the glassy sheen of a filled glyph (the Assistant's mark
+  // button), top → bottom: the app's `--sheen-from` / `--sheen-to` (white →
+  // zinc-300 over the dark ground, zinc-600 → the near-black foreground over
+  // white; light first, then dark, as styles.css declares them).
+  const sheen = (name: string) => [...css.matchAll(new RegExp(`--${name}:\\s*([^;]+);`, `g`))].map((m) => hex(m[1]!.trim()))
+  const [sheenFrom, sheenTo] = [sheen(`sheen-from`), sheen(`sheen-to`)]
+  if (sheenFrom.length < 2 || sheenTo.length < 2) throw new Error(`styles.css lacks the light + dark --sheen-from / --sheen-to`)
+  light.sheenFrom = sheenFrom[0]!
+  dark.sheenFrom = sheenFrom[1]!
+  light.sheenTo = sheenTo[0]!
+  dark.sheenTo = sheenTo[1]!
   // Status semantics are fixed hues on every client (design-tokens `semantic`).
   for (const table of [light, dark]) {
     table.success = hex(design.semantic.green)
@@ -282,6 +293,16 @@ export function themeSchema(): Record<string, unknown> {
     animation: { enum: styleKeyEnum(`animation`) },
     native: { type: `boolean` },
     backgroundClip: { enum: BACKGROUND_CLIPS },
+    // #EXP-1876: a glyph part's sheen (with `backgroundClip: text`).
+    backgroundGradient: {
+      type: `object`,
+      additionalProperties: false,
+      required: [`angle`, `stops`],
+      properties: {
+        angle: { type: `number` },
+        stops: { type: `array`, minItems: 2, items: { type: `object`, additionalProperties: false, required: [`color`, `offset`], properties: { color: colorOrToken, offset: { type: `number`, minimum: 0, maximum: 1 } } } },
+      },
+    },
   }
   for (const key of RECIPE_KEYS) if (!styleProps[key]) throw new Error(`theme schema: no schema for recipe key ${key}`)
   const whenValue = { anyOf: [{ type: `string` }, { type: `number` }, { type: `boolean` }, { type: `array`, items: { anyOf: [{ type: `string` }, { type: `number` }, { type: `boolean` }] } }] }

@@ -17,6 +17,7 @@ pub mod markdown_selection;
 pub mod natives;
 pub mod parts;
 pub mod qr;
+pub mod tail;
 
 use eui_core::style::{Transition, TransformOp, Visual};
 use gpui::{BoxShadow, CursorStyle, Hsla};
@@ -146,6 +147,9 @@ pub struct PaintStyle {
     pub animation: Option<eui_core::style::VisualAnimation>,
     /// Round 2: `position: sticky` (pinned by the core's sticky offsets).
     pub sticky: bool,
+    /// #EXP-1876: the speech-bubble tail (`tail::paint`); its sideways
+    /// corner is already squared in `radii`.
+    pub tail: Option<tail::Tail>,
 }
 
 fn overflow_clips(v: Option<&str>) -> (bool, bool) {
@@ -177,7 +181,12 @@ impl PaintStyle {
         let uniform = v.border_width.unwrap_or(0.0).max(0.0);
         let border = v.border_widths.map(|b| b.map(|w| w.max(0.0))).unwrap_or([uniform; 4]);
         let r = v.border_radius.unwrap_or(0.0).max(0.0);
-        let radii = v.corner_radii.map(|c| c.map(|x| x.max(0.0))).unwrap_or([r; 4]);
+        let mut radii = v.corner_radii.map(|c| c.map(|x| x.max(0.0))).unwrap_or([r; 4]);
+        let rtl = v.direction.as_deref() == Some("rtl");
+        let tail = v.tail.as_deref().and_then(tail::Tail::parse);
+        if let Some(corner) = tail.and_then(|t| t.square_corner(rtl)) {
+            radii[corner] = 0.0;
+        }
         let padding = v.padding.unwrap_or_else(|| {
             let (h, vv) = (v.padding_horizontal.unwrap_or(0.0), v.padding_vertical.unwrap_or(0.0));
             [vv, h, vv, h]
@@ -245,6 +254,7 @@ impl PaintStyle {
             backdrop_blur: v.backdrop_blur.filter(|b| *b > 0.0),
             animation: v.animation.clone(),
             sticky: v.sticky,
+            tail,
         }
     }
 

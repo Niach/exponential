@@ -55,12 +55,16 @@ fun ChatHeaderButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    /** #EXP-1878: the disabled look (the dimmed glyph) on a control that
+     *  still takes its press (a tap says why it is off). */
+    dimmed: Boolean = false,
 ) {
     CircleIconButton(
         icon,
         contentDescription,
         onClick = onClick,
         modifier = modifier,
+        tint = if (dimmed) MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Quaternary) else null,
         enabled = enabled,
         borderless = true,
         size = Chats.Shell.ChatHeader.BUTTON.dp,

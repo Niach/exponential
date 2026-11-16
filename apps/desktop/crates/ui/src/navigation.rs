@@ -1669,6 +1669,36 @@ fn load_settings_string(cx: &App, key: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+/// #EXP-1876: a persisted per-member value under `key` (`{ key: { member:
+/// value } }` in `settings.json`): what this device remembers for the
+/// signed-in member (the Assistant FAB's entrance, welcome, bubbled cards).
+pub(crate) fn load_member_setting(cx: &App, key: &str, member: &str) -> Option<serde_json::Value> {
+    let raw = std::fs::read_to_string(settings_json_path(cx)?).ok()?;
+    serde_json::from_str::<serde_json::Value>(&raw).ok()?.get(key)?.get(member).cloned()
+}
+
+/// #EXP-1876: write [`load_member_setting`]'s value (best-effort,
+/// off-thread, merged: every other member's entry stays).
+pub(crate) fn persist_member_setting(cx: &mut App, key: &'static str, member: String, value: serde_json::Value) {
+    let Some(path) = settings_json_path(cx) else {
+        return;
+    };
+    cx.background_executor()
+        .spawn(async move {
+            let _guard = SETTINGS_WRITE_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+            update_settings_json(&path, |object| {
+                let entry = object.entry(key.to_string()).or_insert_with(|| serde_json::Value::Object(Default::default()));
+                if !entry.is_object() {
+                    *entry = serde_json::Value::Object(Default::default());
+                }
+                if let Some(members) = entry.as_object_mut() {
+                    members.insert(member, value);
+                }
+            });
+        })
+        .detach();
+}
+
 /// Remember the window's team/board selection for the next launch
 /// (best-effort, off-thread). ONE writer for BOTH keys: the `OpenBoard`
 /// cross-team path mutates team then board back-to-back, and two

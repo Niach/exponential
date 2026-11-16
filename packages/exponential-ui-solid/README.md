@@ -132,6 +132,19 @@ import { Button, Dialog, DialogContent, DialogTitle, DialogTrigger } from "@expo
   `plain/mosaic`, `plain/carousel-extras`; the natives' Carousel `counter` +
   `thumbnails` are React's markup (`src/round6.test.tsx`, `media.parity`).
 
+## Forced states (`forcedStates`, #EXP-1781)
+
+`<ExponentialSurface forcedStates={{"save": ["hover"], "tabs.tab.1": ["hover"], "name": ["focus"]}} />`
+pins `hover`, `pressed` or `focus` (a keyboard focus: `focus` +
+`focus-visible`) on a node so a catalogue specimen or a doc shot can show
+what a pointer or a keyboard would paint. A host-only option, never in the
+catalog. A key covers the node and every part whose id is `<key>.…`
+(`tabs.tab.1`, `table.row.b`, `radio.item.1`). PAINT ONLY: the states only add
+`data-xs` tokens (the recipe sheet's `when.state`); no event, no hover-opened
+overlay, no focus move, no ARIA change. Other state names are dropped.
+`fixtures/forced-states.json` is the spec (`src/forced-states.test.tsx`; the DOM is React's); the
+specimen hosts pass a `specimens.json` entry's `states` here.
+
 ## State attributes: the porting rule
 
 The theme CSS (`STATE_SELECTORS`) targets Radix's attribute names, so the

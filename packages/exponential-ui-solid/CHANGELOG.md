@@ -5,6 +5,9 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- `forcedStates` surface prop (#EXP-1781), React's (the same `data-xs`); `forced-states.test.tsx` replays `fixtures/forced-states.json`; the harness `?view=specimen` passes a specimen's `states`.
+- Box style key `tail` (#EXP-1876, MessageBubble `tail`): the shared node sheet (`web/bubble-tail.ts`) draws the speech-bubble tail as two pseudo-elements over the box's edge, the outer shape in the box's border colour and the same shape inset by the border in its background, so box + tail read as one outline; the tail's corner squares in the author layer; logical insets + `:dir(rtl)` mirror it.
+- Button fab lg (#EXP-1876): React's `GradientGlyph` (the glyph sheen of an icon part with `backgroundClip: text`).
 - List `reorderable` (#EXP-1832), React's (the shared `startListDrag`); `list-reorder.test.tsx` replays `fixtures/list-reorder.json`.
 - Button `variant: "fab"` (#EXP-1837): icon-only like `size: "icon"`, in step with React.
 - Markdown tables fit their columns (#FEED-224), React's (`watchMarkdownTable`, `fixtures/table-fit.json`).

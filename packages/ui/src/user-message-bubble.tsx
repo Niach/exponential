@@ -1,4 +1,5 @@
 import { useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from "react"
+import { tailRules } from "@exponential_app/eui/web"
 import type { DeliveryState } from "@exp/domain-contract/message-delivery"
 import { MESSAGE_DELIVERY_TEST_IDS } from "@exp/domain-contract/message-delivery"
 import type { TranscriptRowLayout, TranscriptSender } from "@exp/domain-contract/transcript-grouping"
@@ -93,6 +94,16 @@ export function MessageFold({ text, children }: { text: string; children: ReactN
   )
 }
 
+/** #EXP-1876: THE tail's classes and their one stylesheet (the genUI web
+ *  renderers' `tailRules`, the bubble's 1 px border). */
+const BUBBLE_TAIL_CLASS = { start: `exp-bubble-tail-start`, end: `exp-bubble-tail-end`, down: `exp-bubble-tail-down` } as const
+const BUBBLE_TAIL_CSS = ([`start`, `end`, `down`] as const)
+  .map((side) => {
+    const rules = tailRules(`.${BUBBLE_TAIL_CLASS[side]}`, side, 1, { positioned: true })
+    return rules.pseudo + rules.corner
+  })
+  .join(``)
+
 export function MessageBubble({
   side = `out`,
   text,
@@ -110,6 +121,7 @@ export function MessageBubble({
   menu,
   foldText,
   variant = `chat`,
+  tail = false,
   className,
 }: {
   /** `out` = the viewer's own (right), `in` = anyone else's (left). */
@@ -150,6 +162,12 @@ export function MessageBubble({
   foldText?: string
   /** @deprecated #EXP-1736: one bubble everywhere; kept for old call sites. */
   variant?: `transcript` | `chat`
+  /** #EXP-1876 (transcript-grouping.json `tail`): the group's first bubble
+   *  wears THE tail at its top corner beside the avatar (start for `in`,
+   *  end for `out`), drawn like genUI MessageBubble `tail`; `down` = the
+   *  bottom-edge tail pointing at what the bubble speaks for (the Assistant
+   *  button's speech bubble). */
+  tail?: boolean | `down`
   className?: string
 }) {
   void variant
@@ -262,7 +280,8 @@ export function MessageBubble({
     // #EXP-1864: one token per side (the own bubble's translucent glass
     // read #252527 over the page gradient, the card #252525): the own
     // bubble `glass.fillOwn`, everyone else the opaque card.
-    out ? `border-glass-stroke-card bg-glass-own text-foreground` : `border-glass-stroke-card bg-glass-card-opaque text-foreground`
+    out ? `border-glass-stroke-card bg-glass-own text-foreground` : `border-glass-stroke-card bg-glass-card-opaque text-foreground`,
+    tail && cn(`relative`, tail === `down` ? BUBBLE_TAIL_CLASS.down : out ? BUBBLE_TAIL_CLASS.end : BUBBLE_TAIL_CLASS.start)
   )
   return (
     <div
@@ -270,6 +289,11 @@ export function MessageBubble({
       data-side={side}
       className={cn(`flex w-full flex-col gap-1`, out ? `items-end` : `items-start`, className)}
     >
+      {tail ? (
+        <style href="exp-bubble-tail" precedence="default">
+          {BUBBLE_TAIL_CSS}
+        </style>
+      ) : null}
       {!out && relay ? <RelayName name={relay.name} onPress={relay.onPress} /> : null}
       {!out && onPress && !relay ? (
         <div

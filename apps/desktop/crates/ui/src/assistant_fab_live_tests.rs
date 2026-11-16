@@ -10,7 +10,7 @@ use gpui::{
 use serde_json::json;
 use sync::Store;
 
-use crate::assistant_fab::{AssistantFab, HEADER_TEST_ID, RESIZE_TEST_IDS, TEST_IDS, WIDGET_TEST_ID};
+use crate::assistant_fab::{AssistantFab, BUBBLE_TEST_ID, HEADER_TEST_ID, RESIZE_TEST_IDS, TEST_IDS, WIDGET_TEST_ID};
 use crate::navigation::{nav_for_window, resolved_screen, Navigation, Screen};
 
 /// The content card the FAB sits in (the Shell's `relative` content area).
@@ -92,6 +92,7 @@ fn seed<T: sync::ShapeRow + serde::de::DeserializeOwned>(collection: &Entity<syn
 
 struct Harness<'a> {
     nav: Entity<Navigation>,
+    fab: Entity<AssistantFab>,
     cx: &'a mut VisualTestContext,
     _dir: tempfile::TempDir,
 }
@@ -133,14 +134,14 @@ fn harness_with(cx: &mut gpui::TestAppContext, rail: bool, bulk: bool) -> Harnes
             let nav = nav_for_window(window, cx);
             nav.update(cx, |nav, _| nav.team_id = Some("t1".into()));
             let fab = cx.new(|cx| AssistantFab::new(nav.clone(), cx));
-            *slot.borrow_mut() = Some(nav);
+            *slot.borrow_mut() = Some((nav, fab.clone()));
             let rail = rail.then(|| cx.new(|_| crate::markdown::ImageCache::new(None)));
             let scene = cx.new(|_| Scene { fab, rail, bulk });
             gpui_component::Root::new(scene, window, cx)
         }
     });
-    let nav = slot.borrow().clone().expect("the nav was built");
-    let mut h = Harness { nav, cx: vcx, _dir: dir };
+    let (nav, fab) = slot.borrow().clone().expect("the nav was built");
+    let mut h = Harness { nav, fab, cx: vcx, _dir: dir };
     h.settle();
     h
 }
@@ -321,7 +322,7 @@ fn nothing_pins_to_a_foot_without_the_fab_foot() {
         ("app_csv_import_dialog.rs", 1, "a modal dialog over the FAB"),
         ("app_data_tab.rs", 2, "the table's scrollbar; the record form's modal dialog"),
         ("app_import_dialog.rs", 1, "a modal dialog over the FAB"),
-        ("assistant_fab.rs", 1, "the FAB itself"),
+        ("assistant_fab.rs", 2, "the FAB itself, its speech bubble above it"),
         ("chat_list.rs", 1, "a row's selection ring"),
         ("comments.rs", 1, "a clamped comment's fade, inside the scroll"),
         ("controls.rs", 3, "jump-to-bottom (centred above the Dock), a full overlay, a typeahead above its host"),
@@ -381,6 +382,95 @@ fn nothing_pins_to_a_foot_without_the_fab_foot() {
     walk(&root, &root, &mut found);
     let allowed: std::collections::BTreeMap<String, usize> = ALLOWED.iter().map(|(file, count, _)| (file.to_string(), *count)).collect();
     assert_eq!(found, allowed, "a new element pinned to a pane's bottom: THE pinned foot (`assistant_fab::foot`) or an entry with its reason");
+}
+
+impl Harness<'_> {
+    /// #EXP-1876: the window takes focus (a test window may start inactive).
+    fn focus(&mut self) {
+        let fab = self.fab.clone();
+        self.cx.update(|_, cx| fab.update(cx, |fab, cx| fab.set_focused_for_test(true, cx)));
+        self.settle();
+    }
+
+    fn memory(&mut self) -> serde_json::Value {
+        let path = self._dir.path().join("settings.json");
+        std::fs::read_to_string(path)
+            .ok()
+            .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+            .map(|root| root["assistantFab"]["u1"].clone())
+            .unwrap_or_default()
+    }
+}
+
+#[gpui::test]
+#[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
+fn the_circle_is_the_mark_at_its_size(cx: &mut gpui::TestAppContext) {
+    use domain::agent_settings::ASSISTANT_FAB;
+    let mut h = harness(cx);
+    let circle = h.cx.debug_bounds(TEST_IDS.0).expect("the FAB paints");
+    assert_eq!((circle.size.width, circle.size.height), (px(ASSISTANT_FAB.size), px(ASSISTANT_FAB.size)));
+    assert_eq!(h.memory()["entered"], json!(true), "the entrance plays once per device");
+}
+
+#[gpui::test]
+#[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
+fn the_welcome_bubble_pops_above_the_fab_once(cx: &mut gpui::TestAppContext) {
+    use domain::agent_settings::ASSISTANT_FAB;
+    // #EXP-1876: the first sight on a device: one welcome line in THE
+    // message bubble above the FAB, right-aligned with it, at most
+    // `maxWidth`; the toasts rise above it; it leaves after `stayMs.welcome`
+    // (a hover pauses it) and never comes back.
+    let mut h = harness(cx);
+    h.focus();
+    let circle = h.cx.debug_bounds(TEST_IDS.0).expect("the FAB paints");
+    let bubble = h.cx.debug_bounds(BUBBLE_TEST_ID).expect("the welcome bubble paints");
+    assert!(bubble.bottom() <= circle.top(), "above the FAB: {bubble:?} {circle:?}");
+    assert_eq!(bubble.right(), circle.right(), "right-aligned with it");
+    assert!(bubble.size.width <= px(ASSISTANT_FAB.bubble.max_width));
+    assert_eq!(h.memory()["welcomed"], json!(true));
+    let fab = h.fab.clone();
+    let lift = h.cx.update(|_, cx| fab.read(cx).toast_lift());
+    assert!(lift > ASSISTANT_FAB.toast_lift, "the toasts rise above the bubble: {lift}");
+
+    let stay = std::time::Duration::from_millis(ASSISTANT_FAB.bubble.stay_ms.welcome);
+    h.cx.update(|_, cx| fab.update(cx, |fab, cx| fab.set_hovered_for_test(true, cx)));
+    h.cx.executor().advance_clock(stay * 2);
+    h.settle();
+    assert!(h.paints(BUBBLE_TEST_ID), "a hover pauses it");
+    h.cx.update(|_, cx| fab.update(cx, |fab, cx| fab.set_hovered_for_test(false, cx)));
+    h.cx.executor().advance_clock(stay + std::time::Duration::from_millis(100));
+    h.settle();
+    assert!(!h.paints(BUBBLE_TEST_ID), "it leaves after its stay");
+    let lift = h.cx.update(|_, cx| fab.read(cx).toast_lift());
+    assert_eq!(lift, ASSISTANT_FAB.toast_lift);
+}
+
+#[gpui::test]
+#[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
+fn a_press_on_the_bubble_opens_the_widget(cx: &mut gpui::TestAppContext) {
+    let mut h = harness(cx);
+    h.focus();
+    assert!(h.paints(BUBBLE_TEST_ID));
+    h.click(BUBBLE_TEST_ID);
+    assert!(h.widget(), "a press opens the widget");
+    assert!(!h.paints(BUBBLE_TEST_ID), "the bubble leaves while the widget is open");
+}
+
+#[gpui::test]
+#[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
+fn no_bubble_while_the_window_is_unfocused(cx: &mut gpui::TestAppContext) {
+    let mut h = harness(cx);
+    let fab = h.fab.clone();
+    h.cx.update(|_, cx| {
+        fab.update(cx, |fab, cx| {
+            fab.set_focused_for_test(false, cx);
+            fab.forget_bubble_for_test(cx);
+        })
+    });
+    h.settle();
+    assert!(!h.paints(BUBBLE_TEST_ID), "an unfocused window waits");
+    h.focus();
+    assert!(h.paints(BUBBLE_TEST_ID), "shown on the next focus");
 }
 
 #[gpui::test]

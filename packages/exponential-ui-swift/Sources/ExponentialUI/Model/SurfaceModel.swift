@@ -57,6 +57,8 @@ public final class SurfaceModel {
     public internal(set) var theme: ThemeHandle?
     /// The RESOLVED colour mode (`system` follows the platform).
     public internal(set) var mode: Mode
+    /// #EXP-1781: the host's FORCED interaction states (`setForcedStates`).
+    public private(set) var forcedStates: [String: [String]] = [:]
     /// The host settings (nil / `system` parts follow `platform`).
     public internal(set) var settings: SurfaceSettings
     /// What the platform reports (the SwiftUI environment).
@@ -332,6 +334,29 @@ public final class SurfaceModel {
         visualsDirty = true
         refreshPaintTheme()
         invalidate(structure: true)
+    }
+
+    /// #EXP-1781 (`fixtures/forced-states.json`): FORCED interaction states,
+    /// a catalogue specimen's `states`: id (a node or a placed part such as
+    /// `tabs.tab.1`; a key covers the node and its parts) → `hover` /
+    /// `pressed` / `focus`, the whole map, replacing the last. PAINT ONLY:
+    /// they join the style resolution (no event, no hover-opened layer, no
+    /// focus move, no accessibility change, no press scale, no platform
+    /// focus ring). Returns the refused entries (`<id>:<state>`).
+    @discardableResult
+    public func setForcedStates(_ forced: [String: [String]]) -> [String] {
+        let dropped = surface.setForcedStates(forced: forced)
+        if forced != forcedStates { forcedStates = forced }
+        invalidate(structure: false)
+        return dropped
+    }
+
+    /// #EXP-1781: the forced states `id` carries (`focus` = `focus` +
+    /// `focus-visible`), for a part a painter draws itself (a Segmented
+    /// item `<id>.item.<k>`). Reads `forcedStates`, so the painter repaints
+    /// when the map changes.
+    public func forcedStates(of id: String) -> [String] {
+        forcedStates.isEmpty ? [] : surface.forcedStatesOf(id: id)
     }
 
     /// A fixed light / dark mode (`setModeSetting(.system)` follows the platform).

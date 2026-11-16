@@ -104,6 +104,8 @@ object TranscriptGrouping {
         val sender: Sender?,
         val avatar: Boolean,
         val name: Boolean,
+        /** #EXP-1876: THE bubble tail (a group's first message): start for others, end for own. */
+        val tail: Boolean,
         val gap: Int,
     )
 
@@ -131,6 +133,7 @@ object TranscriptGrouping {
         val out = ArrayList<RowLayout>(input.items.size)
         var prevKey: String? = null
         var groupNamed = false
+        var groupTailed = false
         for (item in input.items) {
             val side: Side
             var sender: Sender? = null
@@ -173,9 +176,14 @@ object TranscriptGrouping {
                 Side.Other -> "${sender!!.kind.wire}:${sender.id}:${sender.link ?: ""}"
             }
             val sameGroup = key != null && key == prevKey
-            if (!sameGroup) groupNamed = false
+            if (!sameGroup) {
+                groupNamed = false
+                groupTailed = false
+            }
             val name = side == Side.Other && item.kind == ItemKind.Message && !groupNamed
             if (name) groupNamed = true
+            val tail = side != Side.Full && item.kind == ItemKind.Message && !groupTailed
+            if (tail) groupTailed = true
             out += RowLayout(
                 id = item.id,
                 side = side,
@@ -183,6 +191,7 @@ object TranscriptGrouping {
                 // #FEED-239: the viewer's own group wears THEIR avatar on the right.
                 avatar = side != Side.Full && !sameGroup,
                 name = name,
+                tail = tail,
                 gap = if (out.isEmpty()) 0 else if (sameGroup) Layout.GAP_IN_GROUP else Layout.GAP_BETWEEN,
             )
             prevKey = key

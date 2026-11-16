@@ -484,6 +484,8 @@ fun MarkdownView(
     viewportHeight: Float? = null,
     /** #VAPP-258: the laid-out document each time it lays out (a host folding it at whole lines, [MarkdownLaidOut.foldHeight]). */
     onLayout: ((MarkdownLaidOut) -> Unit)? = null,
+    /** #EXP-1881: true = as wide as its content needs ([Markdown.maxContentWidth]), at most the offered width (a chat bubble hugging its text); false = the offered width. */
+    hug: Boolean = false,
 ) {
     val prepared = remember(text, linkPolicy, imagePolicy, attachments, imageSize, options.hardBreaks, options.streaming) {
         Markdown.prepare(text, MarkdownHooks(linkPolicy = linkPolicy, imagePolicy = imagePolicy, attachment = attachments, imageSize = imageSize, options = options))
@@ -509,8 +511,9 @@ fun MarkdownView(
         val viewport = viewportHeight ?: window.takeIf { it > 0f }
         // #VAPP-258: the host's image cap (options) and the viewport an uncapped image stops at.
         val styles = remember(styles, options.imageCap, viewport) { styles.copy(imageHeight = options.imageCap, viewportHeight = viewport) }
-        BoxWithConstraints(modifier.fillMaxWidth()) {
-            val width = if (constraints.hasBoundedWidth) constraints.maxWidth / pinned.density else 10_000f
+        BoxWithConstraints(if (hug) modifier else modifier.fillMaxWidth()) {
+            val offered = if (constraints.hasBoundedWidth) constraints.maxWidth / pinned.density else 10_000f
+            val width = if (hug) remember(blocks, styles, offered, shaper) { minOf(offered, Markdown.maxContentWidth(blocks, styles, shaper)) } else offered
             val layout = remember(blocks, styles, width, shaper) { Markdown.layout(blocks, styles, width, shaper) }
             if (onLayout != null) {
                 val laid = remember(layout, blocks, styles) { MarkdownLaidOut(blocks, layout, styles) }

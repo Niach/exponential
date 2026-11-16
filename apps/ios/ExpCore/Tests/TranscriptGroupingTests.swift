@@ -123,13 +123,14 @@ final class TranscriptGroupingTests: XCTestCase {
                 items: items
             ))
             let want = try XCTUnwrap(testCase["expected"] as? [[String: Any]]).map { row in
-                XCTAssertEqual(Set(row.keys), ["id", "side", "sender", "avatar", "name", "gap"], name)
+                XCTAssertEqual(Set(row.keys), ["id", "side", "sender", "avatar", "name", "tail", "gap"], name)
                 return TranscriptGrouping.RowLayout(
                     id: try XCTUnwrap(string(row["id"])),
                     side: try XCTUnwrap(TranscriptGrouping.Side(rawValue: try XCTUnwrap(string(row["side"])))),
                     sender: try sender(row["sender"]),
                     avatar: try XCTUnwrap(row["avatar"] as? Bool),
                     name: try XCTUnwrap(row["name"] as? Bool),
+                    tail: try XCTUnwrap(row["tail"] as? Bool),
                     gap: try number(row["gap"])
                 )
             }

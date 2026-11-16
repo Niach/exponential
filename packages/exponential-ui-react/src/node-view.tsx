@@ -15,12 +15,12 @@
 // once per item under the item's scope, keyed by `template.key`.
 
 import { Component, Fragment, memo, useCallback, useContext, useEffect, useMemo, useRef, type CSSProperties, type ReactNode } from "react"
-import { UNKNOWN_COMPONENT, instanceSegment, isResponsiveValue, nativeRecipeProps, responsiveAt, templateItemKeys, templateSiteKey, withOwnWrites } from "@exponential_app/eui"
+import { UNKNOWN_COMPONENT, forcedStatesOf, instanceSegment, isResponsiveValue, nativeRecipeProps, responsiveAt, templateItemKeys, templateSiteKey, withOwnWrites } from "@exponential_app/eui"
 import type { UiNode } from "@exponential_app/eui"
 import { dynamicStyleEntries, nodeClass, queryToken, styleDirection } from "@exponential_app/eui/web"
 import { InstanceContext, ScopeContext, SurfaceContext, deriveContext, resolveContextOf, useSurfaceContext, type SurfaceContextValue } from "./context"
 import { responsiveProps, useLive } from "./live"
-import { absolutePath, ariaAttributes, getPointer, resolveAccessibility, resolveNodeProps, resolveValue, resolveVisible, type ResolveContext } from "@exponential_app/eui/web"
+import { absolutePath, ariaAttributes, getPointer, hasDynamic, isBubbleTail, resolveAccessibility, resolveNodeProps, resolveValue, resolveVisible, type ResolveContext } from "@exponential_app/eui/web"
 import { extensionComponent, extensionMacroNames } from "./extensions"
 import type { ExtensionComponentProps, SurfaceActionEvent } from "./host"
 import { NATIVES } from "./natives"
@@ -56,18 +56,26 @@ export function useRootProps(node: UiNode, props: Record<string, unknown>, domId
       for (const [k, v] of Object.entries(recipeProps ?? node.recipe.props)) if (v !== undefined && v !== null && typeof v !== `object`) attrs[propAttribute(macro, k)] = String(v)
     }
     for (const [k, v] of Object.entries(nativeRecipeProps(node.component, props, ctx.extensionDefs))) if (typeof v !== `object`) attrs[propAttribute(false, k)] = String(v)
-    if (ctx.states.length) attrs[`data-xs`] = ctx.states.join(` `)
+    // #EXP-1781: + the host's forced states of this node (paint only).
+    const xs = [...new Set([...ctx.states, ...forcedStatesOf(ctx.forced, domId)])]
+    if (xs.length) attrs[`data-xs`] = xs.join(` `)
     // Contract §6: the node's accessibility (author label/description + a
     // macro part's role and states) resolved, then mapped to ARIA. A
     // painter's own role/aria-* set after the spread wins.
     if (node.accessibility) Object.assign(attrs, ariaAttributes(resolveAccessibility(node.accessibility, { data: ctx.data, scope, functions: ctx.functions, locale: ctx.locale, strings: ctx.strings })))
     if (style) attrs.style = style
+    // #EXP-1876: a BOUND `tail` (a macro's bound prop) picks its node-sheet
+    // rules through this attribute (box-css `tailRules`).
+    if (hasDynamic(node.style?.tail)) {
+      const tail = resolveValue(node.style!.tail, resolveContextOf(ctx, scope))
+      if (isBubbleTail(tail)) attrs[`data-xui-tail`] = tail
+    }
     // Round 2: a node's own direction is also the `dir` attribute (`:dir()`
     // selectors, the bidi paragraph direction of its text).
     const dir = ownDirection(node, ctx)
     if (dir) attrs.dir = dir
     return { className: classes.join(` `), "data-xui-id": domId, "data-xui-c": node.component, ...attrs }
-  }, [node, props, domId, recipeProps, style, scope, ctx.compiled.scope, ctx.states, ctx.extensions, ctx.extensionDefs, ctx.data, ctx.functions, ctx.locale, ctx.strings, ctx.theme, ctx.xq])
+  }, [node, props, domId, recipeProps, style, scope, ctx.compiled.scope, ctx.states, ctx.forced, ctx.extensions, ctx.extensionDefs, ctx.data, ctx.functions, ctx.locale, ctx.strings, ctx.theme, ctx.xq])
 }
 
 /** `className` on top of the renderer's own. */

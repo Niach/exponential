@@ -131,6 +131,9 @@ public struct PaintStyle: Equatable, Sendable {
     /// (and gradient) paint inside the border, so a translucent border
     /// blends over what is behind the box.
     public var backgroundClipPadding: Bool = false
+    /// #EXP-1876: `backgroundClip: text` on a glyph part: the `gradient`
+    /// paints the glyph itself (the `fab` `lg` mark's sheen).
+    public var backgroundClipText: Bool = false
     /// The uniform radius (the largest corner).
     public var radius: CGFloat = 0
     /// `[topLeft, topRight, bottomRight, bottomLeft]`.
@@ -186,6 +189,9 @@ public struct PaintStyle: Equatable, Sendable {
     public var animation: KeyframeAnimation?
     /// Round 2: `position: sticky` (the offset arrives in `SurfaceModel.sticky`).
     public var sticky = false
+    /// #EXP-1876: the speech-bubble tail (`start | end | down`, LOGICAL;
+    /// nil = none), painted with the box as one outline (`TailedBoxShape`).
+    public var tail: String?
 
     public init() {}
 
@@ -200,9 +206,11 @@ public struct PaintStyle: Equatable, Sendable {
         backdropBlur = v.backdropBlur.flatMap { $0 > 0 ? CGFloat($0) : nil }
         animation = v.animationJson.flatMap(KeyframeAnimation.init(json:))
         sticky = v.sticky
+        tail = v.tail
         borderColor = v.borderColor.flatMap { Color(hex: $0) }
         borderStyle = v.borderStyle ?? "solid"
         backgroundClipPadding = v.backgroundClip == "padding-box"
+        backgroundClipText = v.backgroundClip == "text"
         let r = CGFloat(max(0, v.borderRadius ?? 0))
         radii = v.cornerRadii.map { $0.map { CGFloat(max(0, $0)) } }.flatMap { $0.count == 4 ? $0 : nil } ?? [r, r, r, r]
         radius = radii.max() ?? 0
@@ -288,6 +296,14 @@ public struct PaintStyle: Equatable, Sendable {
 
     /// The box's shape at `size`.
     public func shape(_ size: CGSize) -> BoxShape { BoxShape(radii: clampedRadii(size)) }
+
+    /// #EXP-1876: the box and its tail as one outline (nil = no tail): the
+    /// tail resolved against the node's direction, else the surface's.
+    public func tailedShape(_ size: CGSize, rtl: Bool) -> TailedBoxShape? {
+        let isRTL = direction.map { $0 == "rtl" } ?? rtl
+        guard let t = BubbleTail.resolve(tail, rtl: isRTL) else { return nil }
+        return TailedBoxShape(radii: clampedRadii(size), tail: t)
+    }
 }
 
 /// A part's resolved look: its `PaintStyle` plus the flat style map
@@ -337,25 +353,59 @@ extension View {
     /// background), border (inside, per side, dashed / dotted), per-corner
     /// radii and opacity. The border is an overlay so children are never
     /// offset (their frames already include it).
+    /// #EXP-1876: a `tail` paints box and tail as ONE outline (one fill,
+    /// the border stroked inside the whole path), outside the frame.
     @ViewBuilder
-    func paintedBox(_ s: PaintStyle, size: CGSize, group: Bool = false) -> some View {
-        let shape = s.shape(size)
-        let fill = s.backgroundClipPadding && s.hasBorder ? BorderInnerBox(widths: s.borderWidths, radii: shape.radii) : BorderInnerBox(widths: [0, 0, 0, 0], radii: shape.radii)
-        self
-            .background {
-                ZStack {
-                    if let bg = s.background { fill.fill(bg) }
-                    if let g = s.gradient {
-                        let p = g.points(in: size)
-                        fill.fill(LinearGradient(stops: g.stops, startPoint: p.start, endPoint: p.end))
+    func paintedBox(_ s: PaintStyle, size: CGSize, group: Bool = false, rtl: Bool = false) -> some View {
+        if let tailed = s.tailedShape(size, rtl: rtl) {
+            self
+                .background {
+                    ZStack {
+                        if let bg = s.background { tailed.fill(bg) }
+                        if let g = s.gradient {
+                            let p = g.points(in: size)
+                            tailed.fill(LinearGradient(stops: g.stops, startPoint: p.start, endPoint: p.end))
+                        }
                     }
                 }
-            }
-            .overlay {
-                if s.hasBorder { BorderView(style: s, shape: shape) }
-            }
-            .modifier(ShadowsModifier(shadows: s.shadows, shape: shape))
-            .modifier(GroupOpacity(opacity: s.opacity ?? 1, group: group))
+                .overlay {
+                    if s.hasBorder {
+                        tailed.strokeInside(s.borderColor ?? .clear, style: BorderView.stroke(width: s.borderWidth, style: s.borderStyle))
+                    }
+                }
+                .modifier(ShadowsModifier(shadows: s.shadows, shape: AnyShape(tailed)))
+                .modifier(GroupOpacity(opacity: s.opacity ?? 1, group: group))
+        } else {
+            let shape = s.shape(size)
+            let fill = s.backgroundClipPadding && s.hasBorder ? BorderInnerBox(widths: s.borderWidths, radii: shape.radii) : BorderInnerBox(widths: [0, 0, 0, 0], radii: shape.radii)
+            self
+                .background {
+                    ZStack {
+                        if let bg = s.background { fill.fill(bg) }
+                        if let g = s.gradient {
+                            let p = g.points(in: size)
+                            fill.fill(LinearGradient(stops: g.stops, startPoint: p.start, endPoint: p.end))
+                        }
+                    }
+                }
+                .overlay {
+                    if s.hasBorder { BorderView(style: s, shape: shape) }
+                }
+                .modifier(ShadowsModifier(shadows: s.shadows, shape: AnyShape(shape)))
+                .modifier(GroupOpacity(opacity: s.opacity ?? 1, group: group))
+        }
+    }
+}
+
+extension View {
+    /// #EXP-1876: a glyph painted with a recipe's sheen (`backgroundClip:
+    /// text` + `backgroundGradient`): the gradient masked by the glyph (its
+    /// coverage, the gradient's colour), over the glyph's `size` square.
+    func glyphSheen(_ g: GradientPaint, size: CGFloat) -> some View {
+        let p = g.points(in: CGSize(width: size, height: size))
+        return LinearGradient(stops: g.stops, startPoint: p.start, endPoint: p.end)
+            .frame(width: size, height: size)
+            .mask { self }
     }
 }
 
@@ -460,7 +510,7 @@ struct BorderInnerBox: Shape {
 
 private struct ShadowsModifier: ViewModifier {
     let shadows: [ShadowLayer]
-    let shape: BoxShape
+    let shape: AnyShape
 
     func body(content: Content) -> some View {
         if shadows.isEmpty {

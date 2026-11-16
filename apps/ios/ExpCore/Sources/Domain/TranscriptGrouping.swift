@@ -199,15 +199,19 @@ public enum TranscriptGrouping {
         public let avatar: Bool
         /// The sender's name on this row (a group's first message, not own).
         public let name: Bool
+        /// #EXP-1876: THE bubble tail (a group's first message): start for
+        /// others, end for own.
+        public let tail: Bool
         /// The space above the row.
         public let gap: CGFloat
 
-        public init(id: String, side: Side, sender: Sender?, avatar: Bool, name: Bool, gap: CGFloat) {
+        public init(id: String, side: Side, sender: Sender?, avatar: Bool, name: Bool, tail: Bool, gap: CGFloat) {
             self.id = id
             self.side = side
             self.sender = sender
             self.avatar = avatar
             self.name = name
+            self.tail = tail
             self.gap = gap
         }
     }
@@ -235,6 +239,7 @@ public enum TranscriptGrouping {
         var out: [RowLayout] = []
         var prevKey: String?
         var groupNamed = false
+        var groupTailed = false
         for item in input.items {
             let side: Side
             var sender: Sender?
@@ -278,9 +283,14 @@ public enum TranscriptGrouping {
             case .other: key = sender.map { "\($0.kind.rawValue):\($0.id):\($0.link ?? "")" }
             }
             let sameGroup = key != nil && key == prevKey
-            if !sameGroup { groupNamed = false }
+            if !sameGroup {
+                groupNamed = false
+                groupTailed = false
+            }
             let name = side == .other && item.kind == .message && !groupNamed
             if name { groupNamed = true }
+            let tail = side != .full && item.kind == .message && !groupTailed
+            if tail { groupTailed = true }
             out.append(RowLayout(
                 id: item.id,
                 side: side,
@@ -288,6 +298,7 @@ public enum TranscriptGrouping {
                 // #FEED-239: the viewer's own group wears THEIR avatar on the right.
                 avatar: side != .full && !sameGroup,
                 name: name,
+                tail: tail,
                 gap: out.isEmpty ? 0 : sameGroup ? Layout.gapInGroup : Layout.gapBetween
             ))
             prevKey = key

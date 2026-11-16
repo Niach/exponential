@@ -545,6 +545,8 @@ pub struct Surface {
     pub(crate) style_issues: Vec<ReduceIssue>,
     local: LocalState,
     states: HashMap<String, Vec<String>>,
+    /// #EXP-1781: the host's FORCED states (normalized; paint only).
+    forced: IndexMap<String, Vec<String>>,
 
     /// Slots (dead ones have `live[i] == false`).
     nodes: Vec<LNode>,
@@ -685,6 +687,7 @@ impl Surface {
             style_issues: Vec::new(),
             local: LocalState::default(),
             states: HashMap::new(),
+            forced: Default::default(),
             nodes: Vec::new(),
             live: Vec::new(),
             slot_of: HashMap::new(),
@@ -1278,6 +1281,39 @@ impl Surface {
             s.retain(|x| x != "hover");
         }
         self.set_states(id, s)
+    }
+
+    /// #EXP-1781: the host's FORCED interaction states, replacing the last
+    /// map: id (a node, or a placed part such as `tabs.tab.1`; a key covers
+    /// the node and its parts `<id>.…`) → `hover` / `pressed` / `focus`
+    /// (`focus` = a keyboard focus, so `focus-visible` too). PAINT ONLY: they
+    /// join the host's own states in the style resolution and nothing else
+    /// (no event, no hover-opened overlay, no focus move); a real pointer
+    /// leave never clears them. Returns the refused entries (`<id>:<state>`,
+    /// any other state name); an unknown id is kept, and paints once a node
+    /// has it. `fixtures/forced-states.json`.
+    pub fn set_forced_states(&mut self, forced: &IndexMap<String, Vec<String>>) -> Vec<String> {
+        let (next, dropped) = crate::forced::normalize_forced_states(forced.iter());
+        if next != self.forced {
+            self.forced = next;
+            self.restyle_all = true;
+        }
+        dropped
+    }
+
+    /// The forced map as normalized ([`Self::set_forced_states`]).
+    pub fn forced_states(&self) -> &IndexMap<String, Vec<String>> {
+        &self.forced
+    }
+
+    /// The forced states `id` carries (its own key and every dotted prefix
+    /// of it): what a painter adds to a part it draws ITSELF (a Segmented
+    /// item, `<id>.item.<k>`) next to its own pointer state.
+    pub fn forced_states_of(&self, id: &str) -> Vec<String> {
+        if self.forced.is_empty() {
+            return Vec::new();
+        }
+        crate::forced::forced_states_of(&self.forced, id)
     }
 
     /// The interaction states the HOST set on a node (`hover`, `pressed`,
@@ -2051,10 +2087,23 @@ impl Surface {
         }
     }
 
+    /// The host's states of `id` plus its forced ones (#EXP-1781).
+    fn interaction_of(&self, id: &str) -> Vec<String> {
+        let mut states = self.states.get(id).cloned().unwrap_or_default();
+        if !self.forced.is_empty() {
+            for s in crate::forced::forced_states_of(&self.forced, id) {
+                if !states.contains(&s) {
+                    states.push(s);
+                }
+            }
+        }
+        states
+    }
+
     fn states_of(&self, n: &LNode) -> Vec<String> {
-        let mut states = self.states.get(&n.id).cloned().unwrap_or_default();
+        let mut states = self.interaction_of(&n.id);
         if let Some(lender) = Self::state_lender(n) {
-            for s in self.states.get(&lender).into_iter().flatten() {
+            for s in &self.interaction_of(&lender) {
                 if matches!(s.as_str(), "hover" | "focus" | "focus-visible") && !states.contains(s) {
                     states.push(s.clone());
                 }

@@ -13,6 +13,8 @@ export { compileTheme, compiledTheme, globalsCss, themeScope, partClass, propAtt
 export type { CompiledTheme } from "./theme-css"
 export { nodeSheet, compileNodeSheet, nodeSheetBatches, dynamicStyleEntries, queryToken, nodeClass, surfaceClass, walkNodes, cssEscape, resolvedMediaKey, styleDirection } from "./box-css"
 export type { NodeSheet, NodeSheetBatch, DynamicStyleEntry } from "./box-css"
+export { tailRules, tailGeometry, isBubbleTail, TAIL } from "./bubble-tail"
+export type { BubbleTail } from "./bubble-tail"
 export { BASE_CSS } from "./base-css"
 export { QUIET_FOCUS_ATTR, openFocusTarget, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide } from "./focus"
 export { findAnchor, isFieldAnchor, isFieldAnchorElement, linkAnchor, markAnchor, popoverPanelWidth, virtualAnchor, watchAnchor, withinAnchor, withinOtherOverlay } from "./anchor"

@@ -345,6 +345,7 @@ import com.exponential.app.ui.chat.MessageFold
 import com.exponential.app.ui.chat.SenderAvatar
 import com.exponential.app.ui.chat.TranscriptBubbleRow
 import com.exponential.app.ui.chat.authorLine
+import com.exponential.app.ui.chat.hasTail
 import com.exponential.app.ui.chat.FeedMarkerRow
 import com.exponential.app.ui.chat.RelayBubble
 import com.exponential.app.ui.chat.isRelay
@@ -1205,6 +1206,8 @@ private fun RunFaceContent(
                             ownTail,
                             viewModel::ownBubbleAction,
                             modifier = Modifier.padding(top = 8.dp),
+                            // #EXP-1876: below the sent inputs = the same own group.
+                            startsGroup = sessionEnded || noFeedInputs.isEmpty(),
                         )
                     }
                     Box(Modifier.fillMaxWidth().weight(1f)) { placeholderBody() }
@@ -2133,7 +2136,7 @@ private fun ActivityFeed(
                                 layout = layout?.copy(gap = 0),
                                 avatar = { layout?.sender?.let { SenderAvatar(it) } },
                             ) {
-                                LaneRow(laneRow, liveItemId = liveRowId, live = live, author = layout.authorLine())
+                                LaneRow(laneRow, liveItemId = liveRowId, live = live, author = layout.authorLine(), tail = layout.hasTail())
                             }
                         }
                     }
@@ -2205,6 +2208,7 @@ private fun ActivityFeed(
                                     time = item.at?.let(::feedClock),
                                     author = layout.authorLine(),
                                     testTag = "session-agent-narration",
+                                    tail = layout.hasTail(),
                                 ) {
                                     // #FEED-238: THE FOLD, every bubble.
                                     MessageFold(item.text) {
@@ -2282,6 +2286,7 @@ private fun ActivityFeed(
                                             author = layout.authorLine(),
                                             time = time,
                                             onOpen = if (link != null && open != null) ({ open(link) }) else null,
+                                            tail = layout.hasTail(),
                                         ) { UserMessageBody(relay?.body ?: item.text) }
                                     }
                                     // #FEED-237: the live echo of the person's
@@ -2290,6 +2295,7 @@ private fun ActivityFeed(
                                         own = true,
                                         time = time,
                                         status = com.exponential.app.domain.MessageDelivery.State.Read,
+                                        tail = layout.hasTail(),
                                     ) { UserMessageBody(item.text) }
                                 }
                             }
@@ -2867,6 +2873,8 @@ private fun NarrationBubble(
      *  compact rhythm — the feed's rows get theirs from the gap ladder
      *  (EXP-787), so a top-level bubble carries no outer padding. */
     nested: Boolean = false,
+    /** #EXP-1876: the bubble's tail (a group's first message). */
+    tail: Boolean = false,
 ) {
     // MarkdownView renders nothing for blank input.
     if (text.isBlank()) return
@@ -2877,6 +2885,7 @@ private fun NarrationBubble(
         author = author,
         modifier = if (nested) Modifier.padding(vertical = 5.dp) else Modifier,
         testTag = "session-agent-narration",
+        tail = tail,
     ) {
         // #FEED-238: THE FOLD, every bubble.
         MessageFold(text) { MarkdownView(text, softBreaksAsNewlines = true) }
@@ -3445,7 +3454,7 @@ private fun Modifier.foldedTo(clampHeight: Dp): Modifier =
 // are the point of the message, and a long prose clamp must never be what
 // hides them.
 @Composable
-private fun UserMessageBubble(text: String, nested: Boolean = false, at: Long? = null) {
+private fun UserMessageBubble(text: String, nested: Boolean = false, at: Long? = null, tail: Boolean = false) {
     // #EXP-1736: THE message bubble, the viewer's side; EXP-787: inside a
     // subagent group the turn keeps the group's own rhythm; #EXP-1864: its
     // relay stamp as the footer.
@@ -3453,6 +3462,7 @@ private fun UserMessageBubble(text: String, nested: Boolean = false, at: Long? =
         own = true,
         time = at?.let(::feedClock),
         modifier = if (nested) Modifier.padding(vertical = 5.dp) else Modifier,
+        tail = tail,
     ) { UserMessageBody(text) }
 }
 
@@ -4688,11 +4698,13 @@ private fun LaneRow(
     nested: Boolean = false,
     /** #EXP-1736: the bubble's name line ([laneTranscriptLayout]). */
     author: String? = null,
+    /** #EXP-1876: the bubble's tail (a group's first message). */
+    tail: Boolean = false,
 ) {
     when (row) {
         is AgentFeedRow.Edits -> EditedFilesCard(items = row.items, liveItemId = liveItemId)
         is AgentFeedRow.ExpRun -> ExpToolGroupRow(items = row.items, nested = nested)
-        is AgentFeedRow.Single -> SubagentItemRow(row.item, live = live, nested = nested, author = author)
+        is AgentFeedRow.Single -> SubagentItemRow(row.item, live = live, nested = nested, author = author, tail = tail)
         else -> Unit
     }
 }
@@ -4702,12 +4714,12 @@ private fun LaneRow(
 // renders nothing rather than breaking the feed. `live` = the RUN still
 // lives: an ended session's open reasoning never shimmers (main-site rule).
 @Composable
-private fun SubagentItemRow(item: AgentFeedItem, live: Boolean, nested: Boolean = false, author: String? = null) {
+private fun SubagentItemRow(item: AgentFeedItem, live: Boolean, nested: Boolean = false, author: String? = null, tail: Boolean = false) {
     when (item) {
         is AgentFeedItem.Tool -> ToolRow(item, nested = nested)
-        is AgentFeedItem.Narration -> NarrationBubble(item.text, author = author, at = item.at, nested = nested)
+        is AgentFeedItem.Narration -> NarrationBubble(item.text, author = author, at = item.at, nested = nested, tail = tail)
         is AgentFeedItem.ApiError -> ApiErrorRow(item.message, item.errorType)
-        is AgentFeedItem.UserMessage -> UserMessageBubble(item.text, nested = nested, at = item.at)
+        is AgentFeedItem.UserMessage -> UserMessageBubble(item.text, nested = nested, at = item.at, tail = tail)
         is AgentFeedItem.Thought -> ThoughtRow(item, running = live && !item.ended)
         else -> Unit
     }

@@ -143,3 +143,35 @@ describe(`fieldInk (#EXP-1787)`, () => {
     expect(compileNodeSheet([field(`Select`, { color: `$color.info` })], `s`, theme).chunks.get(`f`)).not.toContain(`-field`)
   })
 })
+
+describe(`tail (#EXP-1876)`, () => {
+  it(`draws the tail as two pseudo-elements and squares its corner in the author layer`, () => {
+    const t = node(`root`, undefined, [node(`b`, { borderWidth: 1, borderRadius: 16, tail: `start` })])
+    const css = compileNodeSheet([t], `s`).chunks.get(`b`)!
+    expect(css).not.toContain(`tail:`)
+    const [nodeLayer, author] = css.split(AUTHOR_SEP)
+    expect(nodeLayer).toContain(`.xui-s-s .xui-n-b::before,.xui-s-s .xui-n-b::after{content:"";position:absolute;inset-inline-start:-7px;top:-1px;width:8px;height:11px`)
+    expect(nodeLayer).toContain(`.xui-s-s .xui-n-b:dir(rtl)::before{clip-path:path(`)
+    expect(author).toBe(`.xui-s-s .xui-n-b{border-start-start-radius:0}`)
+  })
+  it(`end squares the inline-end top corner; down keeps every corner, its tip 22 px in`, () => {
+    const t = node(`root`, undefined, [node(`e`, { borderWidth: 1, tail: `end` }), node(`d`, { borderWidth: 1, tail: `down` })])
+    const sheet = compileNodeSheet([t], `s`)
+    expect(sheet.chunks.get(`e`)!.split(AUTHOR_SEP)[1]).toBe(`.xui-s-s .xui-n-e{border-start-end-radius:0}`)
+    expect(sheet.chunks.get(`e`)).toContain(`inset-inline-end:-7px;top:-1px`)
+    const down = sheet.chunks.get(`d`)!
+    expect(down).toContain(`inset-inline-end:20px;bottom:-10px;width:8px;height:11px`)
+    expect(down.split(AUTHOR_SEP)[1]).toBe(``)
+  })
+  it(`a bound tail emits each shape behind data-xui-tail (the renderer sets it)`, () => {
+    const t = node(`root`, undefined, [node(`v`, { borderWidth: 1, tail: { "@path": `/tail` } })])
+    const css = compileNodeSheet([t], `s`).chunks.get(`v`)!
+    expect(css).toContain(`.xui-s-s .xui-n-v[data-xui-tail="start"]::before,`)
+    expect(css).toContain(`.xui-s-s .xui-n-v[data-xui-tail="down"]::before,`)
+    expect(css.split(AUTHOR_SEP)[1]).toBe(`.xui-s-s .xui-n-v[data-xui-tail="start"]{border-start-start-radius:0}.xui-s-s .xui-n-v[data-xui-tail="end"]{border-start-end-radius:0}`)
+  })
+  it(`none / unset = no tail rules`, () => {
+    const t = node(`root`, undefined, [node(`n`, { borderWidth: 1, tail: `none` })])
+    expect(compileNodeSheet([t], `s`).chunks.get(`n`)).toBe(`.xui-s-s .xui-n-n{border-width:1px;border-style:solid}`)
+  })
+})

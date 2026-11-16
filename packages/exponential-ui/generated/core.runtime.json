@@ -319,6 +319,12 @@
       "in",
       "out"
     ],
+    "messageTail": [
+      "none",
+      "start",
+      "end",
+      "down"
+    ],
     "messageStatus": [
       "sending",
       "sent",
@@ -4859,6 +4865,12 @@
           "type": "enum",
           "enum": "messageSide",
           "default": "in"
+        },
+        "tail": {
+          "type": "enum",
+          "enum": "messageTail",
+          "default": "none",
+          "bindable": true
         },
         "time": {
           "type": "string",

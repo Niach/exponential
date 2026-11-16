@@ -833,6 +833,23 @@ impl SurfaceView {
         cx.notify();
     }
 
+    /// #EXP-1781: the host's FORCED interaction states (a catalogue
+    /// specimen's `states`), the whole map: id (a node, or a placed part such
+    /// as `tabs.tab.1`; a key covers the node and its parts) → `hover` /
+    /// `pressed` / `focus`. PAINT ONLY: they join the pointer's and the
+    /// keyboard's states in the style resolution (and a painter-drawn
+    /// Segmented item's), never an event, an overlay or a focus move.
+    /// Returns the refused entries (`<id>:<state>`).
+    pub fn set_forced_states(&mut self, forced: impl IntoIterator<Item = (String, Vec<String>)>, cx: &mut Context<Self>) -> Vec<String> {
+        let forced: eui_core::forced::ForcedStates = forced.into_iter().collect();
+        let dropped = self.surface.set_forced_states(&forced);
+        self.changed = true;
+        self.styles.clear();
+        self.nodes_dirty = true;
+        cx.notify();
+        dropped
+    }
+
     pub fn set_mode(&mut self, mode: Mode, cx: &mut Context<Self>) {
         self.changed = true;
         let mut s = self.surface.settings().clone();

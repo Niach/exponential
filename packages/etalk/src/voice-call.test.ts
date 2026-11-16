@@ -10,6 +10,7 @@ import {
   callRingMs,
   callRingToneOn,
   callStep,
+  callTap,
   callTarget,
   callTimer,
   callView,
@@ -31,6 +32,14 @@ describe(`callAvailability`, () => {
   for (const entry of fixture.availabilityCases) {
     test(entry.name, () => {
       expect(callAvailability(entry.input as CallAvailabilityInput)).toEqual(entry.expected)
+    })
+  }
+})
+
+describe(`EXP-1878: callTap`, () => {
+  for (const entry of fixture.tapCases) {
+    test(entry.name, () => {
+      expect(callTap(entry.input.platform as CallPlatform, entry.input.availability)).toEqual(entry.expected)
     })
   }
 })

@@ -94,6 +94,7 @@ pub mod engine;
 pub mod expr;
 pub mod extension;
 pub mod fold;
+pub mod forced;
 pub mod tree;
 pub mod format;
 pub mod functions;

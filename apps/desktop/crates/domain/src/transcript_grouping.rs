@@ -329,6 +329,9 @@ pub struct TranscriptRowLayout {
     pub avatar: bool,
     /// The sender's name above this row (a group's first message).
     pub name: bool,
+    /// #EXP-1876: THE bubble tail on this row (a group's first message):
+    /// genUI MessageBubble `tail` start for others, end for own.
+    pub tail: bool,
     /// The space above the row, px.
     pub gap: f32,
 }
@@ -380,6 +383,7 @@ pub fn transcript_layout(input: &TranscriptInput) -> Vec<TranscriptRowLayout> {
     // A group = the same sender (kind + id + link; `own` = one sender).
     let mut prev_key: Option<(TranscriptSide, Option<(SenderKind, String, Option<String>)>)> = None;
     let mut group_named = false;
+    let mut group_tailed = false;
     for item in &input.items {
         let author_kind = item.author_kind.as_deref();
         let author_session = item.author_session_id.as_deref().filter(|id| !id.is_empty());
@@ -430,10 +434,15 @@ pub fn transcript_layout(input: &TranscriptInput) -> Vec<TranscriptRowLayout> {
         let same_group = key.is_some() && key == prev_key;
         if !same_group {
             group_named = false;
+            group_tailed = false;
         }
         let name = side == TranscriptSide::Other && item.kind == TranscriptItemKind::Message && !group_named;
         if name {
             group_named = true;
+        }
+        let tail = side != TranscriptSide::Full && item.kind == TranscriptItemKind::Message && !group_tailed;
+        if tail {
+            group_tailed = true;
         }
         let gap = if out.is_empty() {
             0.
@@ -449,6 +458,7 @@ pub fn transcript_layout(input: &TranscriptInput) -> Vec<TranscriptRowLayout> {
             // #FEED-239: the viewer's own group wears THEIR avatar on the right.
             avatar: side != TranscriptSide::Full && !same_group,
             name,
+            tail,
             gap,
         });
         prev_key = key;
@@ -784,6 +794,7 @@ mod tests {
             })),
             "avatar": row.avatar,
             "name": row.name,
+            "tail": row.tail,
             "gap": row.gap,
         })
     }

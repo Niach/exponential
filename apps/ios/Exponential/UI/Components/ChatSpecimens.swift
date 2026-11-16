@@ -655,14 +655,16 @@ struct ChatTranscriptSpecimens: View {
             if layout?.side == .own {
                 UserMessageBubble(
                     text: text, context: context, caption: row.time, status: row.status,
-                    actions: row.status.map { MessageDelivery.bubbleActions(state: $0, stored: $0 != .failed) } ?? []
+                    actions: row.status.map { MessageDelivery.bubbleActions(state: $0, stored: $0 != .failed) } ?? [],
+                    tail: layout?.tail == true
                 )
             } else {
                 MessageBubble(
                     side: .other,
                     author: layout?.name == true ? layout?.sender?.displayName : nil,
                     time: row.time,
-                    onPress: layout?.sender?.link.map { _ -> () -> Void in {} }
+                    onPress: layout?.sender?.link.map { _ -> () -> Void in {} },
+                    tail: layout?.tail == true
                 ) {
                     MessageFold(text: text) {
                         AgentMarkdownText(text: text, context: context, hugsWidth: true)

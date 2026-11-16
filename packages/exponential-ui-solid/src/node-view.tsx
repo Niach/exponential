@@ -17,9 +17,9 @@
 
 import { ErrorBoundary, For, Show, createComputed, createEffect, createMemo, on, onCleanup, onMount, untrack, type Accessor, type JSX } from "solid-js"
 import { Dynamic } from "solid-js/web"
-import { UNKNOWN_COMPONENT, catalogView, instanceSegment, isResponsiveValue, nativeRecipeProps, responsiveAt, templateItemKeys, templateSiteKey, withOwnWrites } from "@exponential_app/eui"
+import { UNKNOWN_COMPONENT, catalogView, forcedStatesOf, instanceSegment, isResponsiveValue, nativeRecipeProps, responsiveAt, templateItemKeys, templateSiteKey, withOwnWrites } from "@exponential_app/eui"
 import type { ExtensionDef, UiNode } from "@exponential_app/eui"
-import { absolutePath, ariaAttributes, cssValue, dynamicStyleEntries, getPointer, isMacroComponent, nodeClass, partClass, propAttribute, queryToken, resolveAccessibility, resolveNodeProps, resolveValue, resolveVisible, styleDirection, type ResolveContext } from "@exponential_app/eui/web"
+import { absolutePath, ariaAttributes, cssValue, dynamicStyleEntries, getPointer, hasDynamic, isBubbleTail, isMacroComponent, nodeClass, partClass, propAttribute, queryToken, resolveAccessibility, resolveNodeProps, resolveValue, resolveVisible, styleDirection, type ResolveContext } from "@exponential_app/eui/web"
 import { InstanceContext, ScopeContext, SurfaceContext, deriveContext, resolveContextOf, useInstance, useScope, useSurfaceContext, type SurfaceContextValue } from "./context"
 import { extensionComponent, extensionMacroNames } from "./extensions"
 import type { ExtensionComponentProps, SurfaceActionEvent } from "./host"
@@ -83,12 +83,20 @@ export function createRootProps(node: Accessor<UiNode>, props: Accessor<Record<s
       for (const [k, v] of Object.entries(recipeProps?.() ?? n.recipe.props)) if (v !== undefined && v !== null && typeof v !== `object`) attrs[propAttribute(macro, k)] = String(v)
     }
     for (const [k, v] of Object.entries(nativeRecipeProps(n.component, props(), ctx.extensionDefs))) if (typeof v !== `object`) attrs[propAttribute(false, k)] = String(v)
-    if (ctx.states.length) attrs[`data-xs`] = ctx.states.join(` `)
+    // #EXP-1781: + the host's forced states of this node (paint only).
+    const xs = [...new Set([...ctx.states, ...forcedStatesOf(ctx.forced, domId())])]
+    if (xs.length) attrs[`data-xs`] = xs.join(` `)
     // Contract §6: the node's accessibility resolved, then mapped to ARIA. A
     // painter's own role/aria-* set after the spread wins.
     if (n.accessibility) Object.assign(attrs, ariaAttributes(resolveAccessibility(n.accessibility, resolveContextOf(ctx, scope()))))
     const s = style?.()
     if (s) attrs.style = s
+    // #EXP-1876: a BOUND `tail` picks its node-sheet rules through this
+    // attribute (box-css `tailRules`).
+    if (hasDynamic(n.style?.tail)) {
+      const tail = resolveValue(n.style!.tail, resolveContextOf(ctx, scope()))
+      if (isBubbleTail(tail)) attrs[`data-xui-tail`] = tail
+    }
     const dir = ownDirection(n, ctx)
     if (dir) attrs.dir = dir
     return { class: classes.join(` `), "data-xui-id": domId(), "data-xui-c": n.component, ...attrs }

@@ -323,6 +323,24 @@ public enum VoiceCall {
         }
     }
 
+    /// #EXP-1878 (`tapCases`): what a press on the telephone does: call,
+    /// or (a phone's tap on a disabled one) toast the reason; web and the
+    /// desktop show it as the disabled control's tooltip.
+    public struct Tap: Equatable, Sendable {
+        public var call: Bool
+        public var toast: String?
+
+        public init(call: Bool, toast: String?) {
+            self.call = call
+            self.toast = toast
+        }
+    }
+
+    public static func callTap(_ platform: Platform, _ availability: Availability) -> Tap {
+        if availability.enabled { return Tap(call: true, toast: nil) }
+        return Tap(call: false, toast: platform == .phone ? availability.reason : nil)
+    }
+
     /// Whether the telephone is enabled, and the reason when it is not
     /// (first match wins). S-3: a voice that is still downloading rings
     /// until it is ready.

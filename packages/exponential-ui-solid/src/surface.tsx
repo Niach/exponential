@@ -27,6 +27,7 @@ import {
   DEFAULT_THEME_ID,
   readOnlyTemplates,
   readOnlyTree,
+  normalizeForcedStates,
 } from "@exponential_app/eui"
 import type { FormFactor, ModeName, ResolvedTheme, ScrollAlign, ThemeIssue, ThemeSource, UiNode, SurfaceCommand } from "@exponential_app/eui"
 import { BASE_CSS, CLIENT_FUNCTIONS, compileNodeSheet, compiledTheme, memoFormatter, nodeSheetBatches, layoutSize, openAllowed, queryToken, setPointer, share, surfaceClass, walkNodes, type DataModel, type NodeSheetBatch } from "@exponential_app/eui/web"
@@ -79,6 +80,13 @@ export interface ExponentialSurfaceProps {
   extensions?: readonly SolidExtension[]
   /** Forced interaction states on every node (the builder's recipe sheet). */
   states?: readonly string[]
+  /** #EXP-1781: FORCED interaction states, host-only and PAINT ONLY: id →
+   *  `hover` / `pressed` / `focus` (`focus` = a keyboard focus). A key
+   *  covers the node and its parts (ids `<key>.…`, e.g. `tabs.tab.1`);
+   *  they only add `data-xs` tokens: no event, no overlay, no focus move,
+   *  no ARIA change. Other state names are dropped
+   *  (`fixtures/forced-states.json`). */
+  forcedStates?: Readonly<Record<string, readonly string[]>>
   /** Geometry mode: leaves become fixed boxes of the returned size. */
   measure?: (node: UiNode) => { w: number; h: number } | null
   /** Default: the locale's direction (`textDirection`). */
@@ -156,6 +164,7 @@ export function surfaceTheme(theme: ResolvedTheme, density: `compact` | `default
 const EMPTY: readonly never[] = []
 const NO_TEMPLATES: Readonly<Record<string, UiNode>> = {}
 const EMPTY_HOST: HostPlugin = {}
+const NO_FORCED: Readonly<Record<string, readonly string[]>> = Object.freeze({})
 
 /** What the surface knows of its box. */
 export interface SurfaceBox {
@@ -368,6 +377,12 @@ export function ExponentialSurface(input: ExponentialSurfaceProps): JSX.Element 
     return cell.get
   }
   // VAPP-103: past `maxTemplateItems` items or `maxComponents` nodes.
+  // #EXP-1781: normalized once per CONTENT (a host's new literal with the
+  // same entries repaints nothing); none = the shared empty map.
+  const forced = createMemo(() => {
+    const f = props.forcedStates
+    return f && Object.keys(f).length ? normalizeForcedStates(f).forced : NO_FORCED
+  }, NO_FORCED, { equals: (a, b) => a === b || JSON.stringify(a) === JSON.stringify(b) })
   const budget = createMemo(() => {
     const r = root()
     return r ? templateBudget(r, data(), templateNode) : undefined
@@ -502,6 +517,9 @@ export function ExponentialSurface(input: ExponentialSurfaceProps): JSX.Element 
     },
     get states() {
       return props.states ?? EMPTY
+    },
+    get forced() {
+      return forced()
     },
     get measure() {
       return props.measure

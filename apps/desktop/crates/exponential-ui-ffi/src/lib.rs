@@ -453,6 +453,10 @@ pub struct FfiVisual {
     /// background alone).
     #[uniffi(default = None)]
     pub backdrop_blur: Option<f32>,
+    /// #EXP-1876: `start | end | down` (null = none): the speech-bubble tail
+    /// painted with the box as ONE outline (style.json `tail`).
+    #[uniffi(default = None)]
+    pub tail: Option<String>,
     /// Round 2: `{name, timing: {durationMs, easing, iterations}, reduced?}`;
     /// sample it with `animationFrameJson`.
     #[uniffi(default = None)]
@@ -721,6 +725,7 @@ fn visual(v: &eui_core::style::Visual) -> FfiVisual {
         series_colors: v.series_colors.clone(),
         direction: v.direction.clone(),
         backdrop_blur: v.backdrop_blur,
+        tail: v.tail.clone(),
         animation_json: v.animation.as_ref().map(|a| serde_json::to_string(a).unwrap_or_default()),
         sticky: v.sticky,
         background_clip: v.background_clip.clone(),
@@ -1527,6 +1532,30 @@ impl Surface {
     pub fn set_states(&self, id: String, states: Vec<String>) -> bool {
         self.shield("set_states", || false, || {
             self.core().set_states(&id, states)
+        })
+    }
+
+    /// #EXP-1781: the host's FORCED interaction states (paint only; a
+    /// catalogue specimen's `states`): id (a node, or a placed part such as
+    /// `tabs.tab.1`; a key covers the node and its parts) → `hover` /
+    /// `pressed` / `focus`, the whole map, replacing the last. They join the
+    /// host's own states in the style resolution only (no event, no
+    /// hover-opened overlay, no focus move). Returns the refused entries
+    /// (`<id>:<state>`). Lay out again after it.
+    pub fn set_forced_states(&self, forced: std::collections::HashMap<String, Vec<String>>) -> Vec<String> {
+        self.shield("set_forced_states", Vec::new, || {
+            let mut keys: Vec<&String> = forced.keys().collect();
+            keys.sort();
+            let map: indexmap::IndexMap<String, Vec<String>> = keys.into_iter().map(|k| (k.clone(), forced[k].clone())).collect();
+            self.core().set_forced_states(&map)
+        })
+    }
+
+    /// #EXP-1781: the forced states `id` carries, for a part the painter
+    /// draws itself (a Segmented item `<id>.item.<k>`).
+    pub fn forced_states_of(&self, id: String) -> Vec<String> {
+        self.shield("forced_states_of", Vec::new, || {
+            self.core().forced_states_of(&id)
         })
     }
 

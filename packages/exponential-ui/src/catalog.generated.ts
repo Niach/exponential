@@ -76,6 +76,7 @@ export const ENUMS = {
   voiceWaveActivity: ["idle","listening","thinking","speaking","muted"],
   voiceWaveSize: ["sm","md","lg","xl"],
   messageSide: ["in","out"],
+  messageTail: ["none","start","end","down"],
   messageStatus: ["sending","sent","read","failed"],
   callState: ["ringing","connecting","talking","ended"],
   voiceWaveVariant: ["ring","bars"],
@@ -145,6 +146,7 @@ export type TraceSizeValue = (typeof ENUMS)["traceSize"][number]
 export type VoiceWaveActivityValue = (typeof ENUMS)["voiceWaveActivity"][number]
 export type VoiceWaveSizeValue = (typeof ENUMS)["voiceWaveSize"][number]
 export type MessageSideValue = (typeof ENUMS)["messageSide"][number]
+export type MessageTailValue = (typeof ENUMS)["messageTail"][number]
 export type MessageStatusValue = (typeof ENUMS)["messageStatus"][number]
 export type CallStateValue = (typeof ENUMS)["callState"][number]
 export type VoiceWaveVariantValue = (typeof ENUMS)["voiceWaveVariant"][number]
@@ -166,7 +168,7 @@ export type CountBadgeToneValue = (typeof ENUMS)["countBadgeTone"][number]
 
 /** Token NAMES by group (values come from a theme). */
 export const TOKEN_NAMES = {
-  "color": ["background","foreground","card","cardForeground","popover","popoverForeground","primary","primaryForeground","secondary","secondaryForeground","muted","mutedForeground","accent","accentForeground","destructive","destructiveForeground","success","successForeground","warning","warningForeground","info","infoForeground","border","input","ring","chart1","chart2","chart3","chart4","chart5","chart6","chart7","chart8","link","borderStrong","ghostHover","strokeActive","destructiveHover","bubbleOwn"],
+  "color": ["background","foreground","card","cardForeground","popover","popoverForeground","primary","primaryForeground","secondary","secondaryForeground","muted","mutedForeground","accent","accentForeground","destructive","destructiveForeground","success","successForeground","warning","warningForeground","info","infoForeground","border","input","ring","chart1","chart2","chart3","chart4","chart5","chart6","chart7","chart8","link","borderStrong","ghostHover","strokeActive","destructiveHover","bubbleOwn","sheenFrom","sheenTo"],
   "spacing": ["none","xxs","xs","sm","md","lg","xl","xl2","xl3"],
   "radius": ["none","sm","md","lg","xl","xl2","xl3","full"],
   "type.size": ["xs","sm","base","lg","xl","xl2","xl3"],
@@ -186,7 +188,7 @@ export const TOKEN_NAMES = {
 } as const
 export type TokenGroup = keyof typeof TOKEN_NAMES
 
-export const STYLE_KEY_NAMES = ["display","flexDirection","flexWrap","justifyContent","alignItems","alignContent","alignSelf","justifySelf","flexGrow","flexShrink","flexBasis","gap","rowGap","columnGap","direction","overflow","overflowX","overflowY","width","height","minWidth","minHeight","maxWidth","maxHeight","aspectRatio","position","top","right","bottom","left","inset","insetInlineStart","insetInlineEnd","insetBlockStart","insetBlockEnd","padding","paddingTop","paddingRight","paddingBottom","paddingLeft","paddingHorizontal","paddingVertical","paddingInlineStart","paddingInlineEnd","margin","marginTop","marginRight","marginBottom","marginLeft","marginHorizontal","marginVertical","marginInlineStart","marginInlineEnd","gridTemplateColumns","gridTemplateRows","gridTemplateAreas","gridArea","gridColumn","gridRow","backgroundColor","backgroundGradient","color","borderWidth","borderTopWidth","borderRightWidth","borderBottomWidth","borderLeftWidth","borderColor","borderStyle","borderRadius","borderTopLeftRadius","borderTopRightRadius","borderBottomRightRadius","borderBottomLeftRadius","opacity","boxShadow","fontSize","fontWeight","lineHeight","letterSpacing","textAlign","textDecoration","textTransform","fontStyle","fontVariantNumeric","fontFamily","transition","transitionEasing","transform","visibility","pointerEvents","userSelect","cursor","backdropBlur","animation","animationDuration"] as const
+export const STYLE_KEY_NAMES = ["display","flexDirection","flexWrap","justifyContent","alignItems","alignContent","alignSelf","justifySelf","flexGrow","flexShrink","flexBasis","gap","rowGap","columnGap","direction","overflow","overflowX","overflowY","width","height","minWidth","minHeight","maxWidth","maxHeight","aspectRatio","position","top","right","bottom","left","inset","insetInlineStart","insetInlineEnd","insetBlockStart","insetBlockEnd","padding","paddingTop","paddingRight","paddingBottom","paddingLeft","paddingHorizontal","paddingVertical","paddingInlineStart","paddingInlineEnd","margin","marginTop","marginRight","marginBottom","marginLeft","marginHorizontal","marginVertical","marginInlineStart","marginInlineEnd","gridTemplateColumns","gridTemplateRows","gridTemplateAreas","gridArea","gridColumn","gridRow","backgroundColor","backgroundGradient","color","borderWidth","borderTopWidth","borderRightWidth","borderBottomWidth","borderLeftWidth","borderColor","borderStyle","borderRadius","borderTopLeftRadius","borderTopRightRadius","borderBottomRightRadius","borderBottomLeftRadius","opacity","boxShadow","fontSize","fontWeight","lineHeight","letterSpacing","textAlign","textDecoration","textTransform","fontStyle","fontVariantNumeric","fontFamily","transition","transitionEasing","transform","visibility","pointerEvents","userSelect","cursor","backdropBlur","tail","animation","animationDuration"] as const
 export const STYLE_STATE_NAMES = [":hover",":focus-visible",":pressed"] as const
 
 /** The Icon prop's vocabulary: packages/icons/icons.json at generate time. */
@@ -324,7 +326,7 @@ export interface ComponentProps {
   Composer: { placeholder?: string; value?: string | Dynamic; submitLabel?: string; attachments?: boolean; busy?: boolean; layout?: "stacked" | "flat"; menuKeys?: boolean | Dynamic }
   Row: { title: string | Dynamic; identifier?: string | Dynamic; subtitle?: string | Dynamic; meta?: string | Dynamic; value?: string | Dynamic; placeholder?: string; icon?: IconName | Dynamic; chevron?: RowChevronValue | Dynamic; selected?: boolean | Dynamic; density?: DensityValue; surface?: RowSurfaceValue; pressable?: boolean; href?: string; depth?: number; open?: boolean | Dynamic }
   Tree: { items: Shapes["treeItem"][]; expanded?: string[] | Dynamic; value?: string | Dynamic; label?: string }
-  MessageBubble: { text: string | Dynamic; side?: MessageSideValue; time?: string | Dynamic; status?: MessageStatusValue | Dynamic; author?: string | Dynamic; pressable?: boolean; href?: string | Dynamic }
+  MessageBubble: { text: string | Dynamic; side?: MessageSideValue; tail?: MessageTailValue | Dynamic; time?: string | Dynamic; status?: MessageStatusValue | Dynamic; author?: string | Dynamic; pressable?: boolean; href?: string | Dynamic }
   TreeGuides: { depth: number; elbowAt?: number; tee?: boolean; passThrough?: number[] }
   Unknown: { component: string; catalogId?: string }
   Motion: { layers?: Record<string, unknown>[]; size?: number[]; duration?: number; fps?: number; assets?: Record<string, unknown>; markers?: Record<string, unknown>[]; lottie?: Record<string, unknown>; src?: string; autoplay?: boolean; loop?: boolean; plays?: number; direction?: MotionDirectionValue; speed?: number; segment?: number[]; marker?: string; progress?: number | Dynamic; play?: boolean | Dynamic; poster?: number; fit?: MotionFitValue; slots?: Record<string, unknown>; stateMachine?: Record<string, unknown>; inputs?: Record<string, unknown> | Dynamic; label?: string; style?: Style }

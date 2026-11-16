@@ -181,9 +181,22 @@ impl SurfaceView {
         self.surface.strings().get(id).cloned().or_else(|| eui_core::strings::default_string(id).map(str::to_string)).unwrap_or_else(|| id.to_string())
     }
 
+    /// The states a measured leaf `id` paints its own parts with (a Slider
+    /// thumb, a Switch thumb): the core's part states, the pointer's and
+    /// the keyboard's, and the host's forced ones (#EXP-1781).
+    pub fn leaf_states(&self, id: &str) -> Vec<String> {
+        self.placed_nodes().iter().find(|n| n.id == id && !n.removed).map(|n| self.states_of(n)).unwrap_or_default()
+    }
+
     fn states_of(&self, n: &PlacedNode) -> Vec<String> {
         let mut s = n.states.clone();
         s.extend(self.interaction.get(&n.id).copied().unwrap_or_default().states());
+        // #EXP-1781: the host's forced states (a Slider thumb's focus).
+        for f in self.surface.forced_states_of(&n.id) {
+            if !s.contains(&f) {
+                s.push(f);
+            }
+        }
         s
     }
 
@@ -315,7 +328,10 @@ impl SurfaceView {
         // A Skeleton leaf's fill is its pulse (`natives::skeleton`), not the box's.
         let pulses = leaf && n.component == "Skeleton";
         let inset_bg = style.padding_box && style.has_border();
-        el = el.when_some(style.bg.filter(|_| !pulses && !inset_bg), |d, bg| d.bg(bg));
+        // #EXP-1876: a tailed box paints its fill and border as ONE outline
+        // (`tail::tail_canvas`, under the children), never the box's own.
+        let tail = style.tail.filter(|_| !pulses && !native);
+        el = el.when_some(style.bg.filter(|_| !pulses && !inset_bg && tail.is_none()), |d, bg| d.bg(bg));
         el = rounded(el, radii);
         // #EXP-1629: a padding-box fill sits inside the border overlay.
         if let Some(bg) = style.bg.filter(|_| !pulses && inset_bg) {
@@ -358,7 +374,11 @@ impl SurfaceView {
         }
         // The border paints over the background, under the children, and
         // never offsets them (an overlay, not gpui's box border).
-        if style.has_border() {
+        if let Some(t) = tail {
+            let uniform = style.border.iter().copied().fold(0.0, f32::max);
+            let border = style.border_color.filter(|_| style.has_border()).map(|c| (uniform, c));
+            el = el.child(crate::paint::tail::tail_canvas(t, style.rtl == Some(true), radii, style.bg, border));
+        } else if style.has_border() {
             let mut b = div().absolute().top_0().left_0().w(px(w)).h(px(h)).border_color(style.border_color.unwrap_or_default());
             b = b.border_t(px(style.border[0])).border_r(px(style.border[1])).border_b(px(style.border[2])).border_l(px(style.border[3]));
             if style.dashed {
@@ -1723,6 +1743,12 @@ impl SurfaceView {
             let ring = focused_item && roving == k;
             if ring {
                 st.push("focus-visible".into());
+            }
+            // #EXP-1781: the host's forced states of this item (paint only).
+            for f in self.surface.forced_states_of(&item_id) {
+                if !st.contains(&f) {
+                    st.push(f);
+                }
             }
             let s = lcx.part("Segmented", "item", &st);
             let color = s.color.unwrap_or(lcx.ink);

@@ -116,6 +116,8 @@ final class SinkState: ObservableObject {
     let specimenJSON: String?
     /// An eval specimen's data model (VAPP-127).
     let specimenData: JSONValue?
+    /// #EXP-1781: the specimen's FORCED states (its state row), paint only.
+    let specimenStates: [String: [String]]
     var isSpecimen: Bool { specimenJSON != nil }
 
     init(options: LaunchOptions) {
@@ -123,6 +125,7 @@ final class SinkState: ObservableObject {
         let specimen = SinkState.specimen(options.shot)
         specimenJSON = specimen?.node
         specimenData = specimen?.data
+        specimenStates = specimen?.states ?? [:]
         let mode = Mode(rawValue: options.mode) ?? .dark
         themeId = options.theme
         self.mode = mode
@@ -179,10 +182,10 @@ final class SinkState: ObservableObject {
     /// `exponential-ui-eval-<corpus id>` names a recorded eval surface of
     /// `eval/eval-specimens.json` (VAPP-127), its data model included.
     /// Anything else (incl. `exponential-ui-kitchen-sink`) = nil.
-    static func specimen(_ id: String?) -> (node: String, data: JSONValue?)? {
+    static func specimen(_ id: String?) -> (node: String, data: JSONValue?, states: [String: [String]])? {
         guard let id else { return nil }
-        if id == "exponential-ui-field-states" { return (fieldStates, fieldStateData) }
-        if id == "exponential-ui-markdown-inline" { return (markdownInline, nil) }
+        if id == "exponential-ui-field-states" { return (fieldStates, fieldStateData, [:]) }
+        if id == "exponential-ui-markdown-inline" { return (markdownInline, nil, [:]) }
         let file = id.hasPrefix("exponential-ui-eval-") ? "eval-specimens" : "specimens"
         guard let url = Bundle.main.url(forResource: file, withExtension: "json"),
               let data = try? Data(contentsOf: url),
@@ -201,9 +204,9 @@ final class SinkState: ObservableObject {
         if id == "exponential-ui-record-form" {
             var data = entry["data"].map { JSONValue(any: $0) }?.object ?? [:]
             data.merge(fieldStateData.object ?? [:]) { _, new in new }
-            return (#"{"id":"record-form-states","component":"Stack","props":{"gap":"xl"},"children":[\#(json),\#(fieldStates)]}"#, .object(data))
+            return (#"{"id":"record-form-states","component":"Stack","props":{"gap":"xl"},"children":[\#(json),\#(fieldStates)]}"#, .object(data), [:])
         }
-        return (json, entry["data"].map { JSONValue(any: $0) })
+        return (json, entry["data"].map { JSONValue(any: $0) }, entry["states"] as? [String: [String]] ?? [:])
     }
 
     /// Round 9 §6.6 (the web's `ExponentialUiFieldStates`): one Input per
@@ -302,7 +305,7 @@ struct ContentView: View {
             }
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: 0) {
-                    ExponentialSurface(model: state.model)
+                    ExponentialSurface(model: state.model, forcedStates: state.specimenStates)
                         .frame(width: options.width)
                         .task {
                             try? await Task.sleep(for: .milliseconds(300))
@@ -335,7 +338,7 @@ struct ContentView: View {
             }
             if let path = options.dump {
                 try? await Task.sleep(for: .seconds(2))
-                await FullSurfaceDump.write(model: state.model, to: path)
+                await FullSurfaceDump.write(model: state.model, forcedStates: state.specimenStates, to: path)
             }
             if let path = options.frames {
                 try? await Task.sleep(for: .seconds(2))

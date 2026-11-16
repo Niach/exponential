@@ -58,6 +58,7 @@ el.apply({ updateComponents: { surfaceId: "main", components } })
 | `host` | An `ExponentialHost` to use instead of `src` |
 | `plugin` | A `HostPlugin`: icons, `Markdown`, URL and media policies, `optionSource`, `mediaRequest`, `mediaStreamUrl`, `resolveUrl`, `functions`, `qrScanner` (the QrScanner's camera, below), and the callbacks |
 | `extensions`, `strings`, `states`, `measure`, `viewportHeight` | The same as the Solid props |
+| `forcedStates` | Property only: FORCED interaction states, id → `hover`, `pressed` or `focus` (a key covers the node and its parts, `tabs.tab.1`). Paint only: no events, no overlay, no focus move. Like the Solid prop |
 
 String properties reflect to their attributes. Setting a property to
 `null` removes its attribute. Properties set before the element is attached

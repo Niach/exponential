@@ -262,6 +262,47 @@ export function assistantFabVisible(input: {
   return input.wide && Boolean(input.assistantId) && input.activeAgentId !== input.assistantId
 }
 
+// #EXP-1876 (`assistant.fab.entrance` / `bubble`): the 60px mark-button's
+// first-show entrance and THE speech bubble above it.
+export const ASSISTANT_FAB_ENTRANCE = fixture.assistant.fab.entrance
+export const ASSISTANT_FAB_BUBBLE = fixture.assistant.fab.bubble
+
+/** A waiting card of the Assistant conversation's tree (an unanswered plan /
+ *  question / ask card): what turns the FAB's badge yellow. */
+export interface AssistantFabWaitingCard {
+  messageId: string
+  sessionId: string
+  createdAt: string
+}
+
+export type AssistantFabBubble = { kind: `welcome` } | { kind: `needsYou`; messageId: string } | null
+
+/** `bubble.cases`: which speech bubble the FAB shows now. Nothing while the
+ *  widget is open, on the Assistant's page or while the window is unfocused;
+ *  else the newest waiting card this device has not bubbled and the
+ *  viewer's reads do not cover; else the welcome on the device's first
+ *  sight; else nothing (a plain new message = the badge only). */
+export function assistantFabBubble(input: {
+  welcomeSeen: boolean
+  cards: readonly AssistantFabWaitingCard[]
+  reads: readonly { sessionId: string; readAt: string }[]
+  bubbled: readonly string[]
+  widgetOpen: boolean
+  onAssistantPage: boolean
+  focused: boolean
+}): AssistantFabBubble {
+  if (input.widgetOpen || input.onAssistantPage || !input.focused) return null
+  const at = (iso: string) => Date.parse(iso)
+  const bubbled = new Set(input.bubbled)
+  const covered = (card: AssistantFabWaitingCard) =>
+    input.reads.some((read) => read.sessionId === card.sessionId && at(read.readAt) >= at(card.createdAt))
+  const newest = input.cards
+    .filter((card) => !bubbled.has(card.messageId) && !covered(card))
+    .sort((a, b) => at(b.createdAt) - at(a.createdAt) || (a.messageId < b.messageId ? 1 : -1))[0]
+  if (newest) return { kind: `needsYou`, messageId: newest.messageId }
+  return input.welcomeSeen ? null : { kind: `welcome` }
+}
+
 /** The agents a member sees, in order: their Assistant first, then the team
  *  agents by sortOrder, then name. */
 export function orderedAgents<T extends AgentRoleLike & { name: string; sortOrder: number }>(

@@ -25,6 +25,14 @@ describe(`generated ids`, () => {
     expect(firstDomDiff(a, normalizeIds(solid))).toBeUndefined()
   })
 
+  test(`#EXP-1879: an SVG url(#id) paint/mask reference follows its target's id`, () => {
+    const svg = (g: string) => [el(`svg`, {}, [el(`linearGradient`, { id: `${g}g` }), el(`mask`, { id: `${g}m` }), el(`rect`, { fill: `url(#${g}g)`, mask: `url(#${g}m)` })])]
+    const a = normalizeIds(svg(`_r_1_`))
+    expect(a).toEqual([el(`svg`, {}, [el(`linearGradient`, { id: `#id-1` }), el(`mask`, { id: `#id-2` }), el(`rect`, { fill: `url(#id-1)`, mask: `url(#id-2)` })])])
+    expect(firstDomDiff(a, normalizeIds(svg(`cl-1`)))).toBeUndefined()
+    expect(normalizeIds([el(`rect`, { fill: `url(#dash-bar)` })])).toEqual([el(`rect`, { fill: `url(#dash-bar)` })])
+  })
+
   test(`only id attributes are normalised (data-xui-*, classes verbatim)`, () => {
     const [n] = normalizeIds([el(`div`, { "data-xui-id": `radix-x`, class: `cl-1`, id: `cl-1` })])
     expect(n).toEqual(el(`div`, { "data-xui-id": `radix-x`, class: `cl-1`, id: `#id-1` }))

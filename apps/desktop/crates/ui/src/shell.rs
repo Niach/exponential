@@ -1001,7 +1001,8 @@ impl Render for Shell {
         let fab_shows = matches!(session, SessionPhase::Synced { .. })
             && !self.onboarding.read(cx).is_active(cx)
             && self.assistant_fab.read(cx).shows(cx);
-        let toast_lift = if fab_shows { domain::agent_settings::ASSISTANT_FAB.toast_lift } else { 0. };
+        // #EXP-1876: and above its speech bubble while that shows.
+        let toast_lift = if fab_shows { self.assistant_fab.read(cx).toast_lift() } else { 0. };
         if !fab_shows {
             crate::assistant_fab::clear_corner(window, cx);
         }

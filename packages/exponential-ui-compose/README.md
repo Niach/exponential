@@ -64,6 +64,7 @@ Column(Modifier.verticalScroll(rememberScrollState())) {
 - **Camera (VAPP-162).** A `QrScanner` is chrome only; the camera is the host's. Provide a `QrScannerHost` through `LocalQrScanner` around the surface: `Feed(formats, report, modifier)` paints the live feed (CameraX stays in your app) and calls `report(value)` on the main thread per decoded string; the renderer fires `scanned {value}` once per distinct value. No host (or `available = false`) = the scan icon and `Camera unavailable`.
 - **Fonts.** `ExponentialUi.registerFont(family, FontFamily)` registers a family a theme names. Text without a family uses the theme's `sans`; a family that is not registered falls back to the platform default. `ui-serif` (`type.family.serif`, VAPP-162) is `FontFamily.Serif`.
 - **Button hold (VAPP-162).** A `hold: true` Button hands its pointer to the core (`Surface.hold`: the slop, `pressed` and `holdingLabel` are the core's) and emits holdStart / holdEnd / holdCancel.
+- **Forced states (#EXP-1781).** `ExponentialSurface(model, forcedStates = mapOf("save" to listOf("hover"), "tabs.tab.1" to listOf("hover"), "name" to listOf("focus")))` (also `HostSurface(…, forcedStates = …)`, or `model.setForcedStates(map)`, which returns the refused `id:state` entries) pins `hover`, `pressed` or `focus` (a keyboard focus: `focus` + `focus-visible`) so a catalogue specimen or a doc shot shows what a pointer or a keyboard would paint. A host-only option, never in the catalog. A key covers the node and every part `<key>.…`. PAINT ONLY: the states join the core's style resolution (and the painter-drawn Segmented items, `model.forcedStatesOf("<id>.item.<k>")`); no event, overlay, focus move or semantics change, no press scale, no platform focus indication. Other state names are dropped. `fixtures/forced-states.json` is the spec (`ForcedStatesTest`); the example app passes a `specimens.json` entry's `states`.
 - **Themes.** Load one with `ThemeHandle.builtin(id)` or `ThemeHandle.load(json, parents)`; switch with `model.setTheme` / `setMode`.
   - Painters never read recipes: the core hands them resolved visuals.
   - Sub-parts the core does not synthesize (a Checkbox `check`, a Switch `thumb`, a Select `trigger`…) resolve through the facade's `Theme` object (`model.part(component, part, props)`), cached per query.
@@ -261,7 +262,7 @@ Launch extras (`adb shell am start -n at.exponential.ui.kitchensink/.MainActivit
 
 | extra | effect |
 |---|---|
-| `--es shot <view>` | hides the chrome. What `bun run shots --platform android --views exponential-ui-kitchen-sink` captures (release build). |
+| `--es shot <view>` | hides the chrome. What `bun run shots --platform android --views exponential-ui-kitchen-sink` captures (release build). An `exponential-ui-<component>` id paints that `specimens.json` entry with its `states` as `forcedStates` (#EXP-1781: the state row). |
 | `--es theme exponential\|neutral\|playful\|orange\|brand`, `--es mode light\|dark` | the look |
 | `--ez rtl true` | the root `direction` becomes `rtl` |
 | `--ei width <dp>` | pins the surface width |

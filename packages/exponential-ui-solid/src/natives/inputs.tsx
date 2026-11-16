@@ -566,8 +566,10 @@ export function RadioNative(props: NativeProps): JSX.Element {
             const [btnEl, setBtnEl] = createSignal<HTMLButtonElement>()
             // Placed parts (round 2 §6): the option ROW = `item.<i>`, its
             // circle = `dot.<i>` (the recipe's item), its text = `label.<i>`.
+            // #EXP-1781: a host's forced `<id>.item.<i>` paints the row and its circle.
+            const forcedRow = () => part.forced(`${part.domId}.item.${i()}`)
             return (
-              <label class="xui-radio-row" for={oid} data-xui-id={`${part.domId}.item.${i()}`}>
+              <label class="xui-radio-row" for={oid} data-xui-id={`${part.domId}.item.${i()}`} data-xs={forcedRow().length ? forcedRow().join(` `) : undefined}>
                 <button
                   tabindex={tabStop() === o.value ? 0 : -1}
                   data-orientation={orientation()}
@@ -584,7 +586,7 @@ export function RadioNative(props: NativeProps): JSX.Element {
                     btn = e
                     setBtnEl(e)
                   }}
-                  {...part(`item`, checked() && `checked`, isDisabled() && `disabled`, f.invalid && `invalid`)}
+                  {...part(`item`, checked() && `checked`, isDisabled() && `disabled`, f.invalid && `invalid`, ...forcedRow())}
                   data-xui-id={`${part.domId}.dot.${i()}`}
                   onMouseDown={(e) => {
                     if (isDisabled()) e.preventDefault()

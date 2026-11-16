@@ -157,6 +157,20 @@ final class VoiceCallTests: XCTestCase {
         XCTAssertEqual(rows, VoiceCall.surfaceSpecimens)
     }
 
+    func testTapCases() throws {
+        for row in try cases("tapCases") {
+            let name = row["name"] as? String ?? "?"
+            let input = try XCTUnwrap(row["input"] as? [String: Any], name)
+            let availability = try XCTUnwrap(input["availability"] as? [String: Any], name)
+            let expected = try XCTUnwrap(row["expected"] as? [String: Any], name)
+            let tap = VoiceCall.callTap(
+                try XCTUnwrap(VoiceCall.Platform(rawValue: input["platform"] as? String ?? ""), name),
+                VoiceCall.Availability(enabled: availability["enabled"] as? Bool ?? false, reason: availability["reason"] as? String)
+            )
+            XCTAssertEqual(tap, VoiceCall.Tap(call: expected["call"] as? Bool ?? false, toast: expected["toast"] as? String), name)
+        }
+    }
+
     func testAvailabilityCases() throws {
         for row in try cases("availabilityCases") {
             let name = row["name"] as? String ?? "?"

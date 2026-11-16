@@ -91,7 +91,7 @@ type InputEvent = Parameters<NonNullable<HostPlugin[`onInput`]>>[0]
 type Waitable<T> = T & { waitUntil: (promise: Promise<unknown>) => void }
 
 /** The element's settable surface (properties, camelCase). */
-type SurfaceProps = Partial<Pick<ExponentialSurfaceElement, `surface` | `root` | `templates` | `data` | `theme` | `mode` | `direction` | `width` | `height` | `locale` | `surfaceId` | `plugin` | `measure` | `viewportHeight` | `states` | `readOnly` | `formFactor`>>
+type SurfaceProps = Partial<Pick<ExponentialSurfaceElement, `surface` | `root` | `templates` | `data` | `theme` | `mode` | `direction` | `width` | `height` | `locale` | `surfaceId` | `plugin` | `measure` | `viewportHeight` | `states` | `forcedStates` | `readOnly` | `formFactor`>>
 
 /** A new `<exponential-surface>` with `props` set as properties (before it
  *  is attached: the element paints on connect). Undefined values stay unset. */
@@ -297,10 +297,11 @@ function Controls(): Node {
 /** One specimens.json entry alone (the per-component docs shot). */
 function Specimen(): Node {
   const id = params.get(`id`) ?? ``
-  const entry = (specimens as unknown as { specimens: { id: string; node: NestedNode }[] }).specimens.find((s) => s.id === id)
+  const entry = (specimens as unknown as { specimens: { id: string; node: NestedNode; states?: Record<string, string[]> }[] }).specimens.find((s) => s.id === id)
   if (!entry) return div(``, `unknown specimen ${id}`)
   const surface = createSurface({ surfaceId: id || `specimen`, catalogId: CORE_CATALOG_ID, initial: entry.node })
-  const el = surfaceEl({ surfaceId: `specimen`, surface, plugin: { icons: harnessIcons }, theme: themeId, mode, direction: rtl ? `rtl` : `ltr`, width: width ?? `100%` })
+  // #EXP-1781: the specimen's state row paints its forced states.
+  const el = surfaceEl({ surfaceId: `specimen`, surface, plugin: { icons: harnessIcons }, theme: themeId, mode, direction: rtl ? `rtl` : `ltr`, width: width ?? `100%`, forcedStates: entry.states })
   onAction(el, (e) => {
     window.__xuiLog.push({ action: e.name, event: e.event, componentId: e.componentId, context: e.context, payload: e.payload })
     e.waitUntil(new Promise((r) => setTimeout(r, echoMs)))

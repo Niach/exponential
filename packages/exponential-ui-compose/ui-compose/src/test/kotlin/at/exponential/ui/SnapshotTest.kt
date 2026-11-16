@@ -66,6 +66,7 @@ class SnapshotTest {
                     m.style(n.index).backgroundHex?.let { row["bg"] = JsonValue.Str(it) }
                     if (s.borderWidth > 0f) row["border"] = JsonValue.Num(s.borderWidth.toDouble())
                     if (s.radius > 0f) row["radius"] = JsonValue.Num(s.radius.toDouble())
+                    s.tail?.let { row["tail"] = JsonValue.Str(it) }
                     s.opacity?.let { row["opacity"] = JsonValue.Num(it.toDouble()) }
                     if (n.partStates.isNotEmpty()) row["states"] = JsonValue.Arr(n.partStates.map { JsonValue.Str(it) })
                     rows.add(JsonValue.Obj(row))

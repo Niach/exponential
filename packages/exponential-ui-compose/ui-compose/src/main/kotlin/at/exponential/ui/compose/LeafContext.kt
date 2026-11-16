@@ -56,8 +56,8 @@ class LeafContext(
     /** The owner's props (a synthetic part's component). */
     val ownerProps: Props get() = model.ownerProps(node.index)
 
-    /** The reported interaction states (`hover`, `pressed`, `focus`). */
-    val states: List<String> get() = model.statesOf(node.id)
+    /** The reported interaction states (`hover`, `pressed`, `focus`) plus the host's forced ones (#EXP-1781). */
+    val states: List<String> get() = model.paintStatesOf(node.id)
 
     /** Dark mode? */
     val dark: Boolean get() = model.mode == Mode.Dark

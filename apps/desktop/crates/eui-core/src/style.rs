@@ -92,7 +92,8 @@ pub struct Visual {
     pub border_style: Option<String>,
     /// #EXP-1629: a recipe's `backgroundClip` (`border-box` when unset;
     /// `padding-box` = the fill paints inside the border, so a translucent
-    /// border blends over what is behind the box).
+    /// border blends over what is behind the box; #EXP-1876 `text` = on a
+    /// glyph part the `background_gradient` paints the glyph itself).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background_clip: Option<String>,
     /// The uniform radius in px (a `%` resolves against the laid-out box).
@@ -188,6 +189,13 @@ pub struct Visual {
     /// = paint the background alone.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub backdrop_blur: Option<f32>,
+    /// #EXP-1876: `tail` = `start | end | down` (`none` / unset = None): a
+    /// speech-bubble tail painted with the box as ONE outline (style.json):
+    /// sideways 6 x 9 px at the top corner of the inline-start/-end side (that
+    /// corner square), or down 9 px, 6 px wide, its tip 22 px in from the
+    /// inline-end edge; a ~2 px rounded tip; paint-only, outside the frame.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tail: Option<String>,
     /// Round 2: the keyframe animation with its resolved timing; a painter
     /// keeps the time the node entered the tree and paints
     /// [`crate::animation::frame_with_timing`].
@@ -686,7 +694,7 @@ pub fn visual(r: &Map<String, Value>, kind: BoxKind) -> Visual {
         border_widths: borders.filter(|_| uniform_border.is_none()),
         border_color: str_of("borderColor"),
         border_style: str_of("borderStyle"),
-        background_clip: str_of("backgroundClip").filter(|c| c == "padding-box"),
+        background_clip: str_of("backgroundClip").filter(|c| c == "padding-box" || c == "text"),
         border_radius: radius,
         corner_radii,
         opacity: r.get("opacity").and_then(num),
@@ -720,6 +728,7 @@ pub fn visual(r: &Map<String, Value>, kind: BoxKind) -> Visual {
         series_colors: None,
         direction: None,
         backdrop_blur: r.get("backdropBlur").and_then(px),
+        tail: str_of("tail").filter(|t| matches!(t.as_str(), "start" | "end" | "down")),
         animation: None,
         sticky: r.get("position").and_then(Value::as_str) == Some("sticky"),
     }
@@ -798,6 +807,8 @@ mod tests {
         let clip = |c: &str| visual(json!({"backgroundClip": c}).as_object().unwrap(), BoxKind::Container).background_clip;
         assert_eq!(clip("padding-box").as_deref(), Some("padding-box"));
         assert_eq!(clip("border-box"), None);
+        // #EXP-1876: a glyph part's `text` clip (its gradient paints the glyph).
+        assert_eq!(clip("text").as_deref(), Some("text"));
     }
 
     #[test]

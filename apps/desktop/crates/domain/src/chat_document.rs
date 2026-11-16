@@ -184,6 +184,7 @@ pub fn group(out: &mut [ChatRowInput], rows: &[SessionChatRow], mut transcript: 
             indent: side == "in",
             link: sender.filter(|_| side == "in").and_then(|s| s.link.clone()),
             gap: layout.gap.round().max(0.0) as u32,
+            tail: layout.tail,
         });
     }
 }
