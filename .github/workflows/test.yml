@@ -8,12 +8,14 @@ name: test
 # workspace package (#EXP-1677), and `cargo check` of the desktop workspace
 # plus the eagent, coding, engine and ui tests when the PR touches it, the eDE compositor's headless tests when it touches apps/ede, packages/uicore's TS tests + typecheck when it touches the eDE shell, packages/domain-contract's suite when it touches the contract, the Android
 # debug assemble (Kotlin, resource + manifest merge, dex; no cargo-ndk .so) + JVM unit tests when it touches what the app builds or reads (#EXP-1544), plus the
-# eUI conformance pass (`eui`, below; every renderer but SwiftUI) when it touches eUI. The Mac-runner
+# eUI conformance pass (`eui`, below; every renderer but SwiftUI, with eui-gpui's full `cargo test`) when it touches eUI, a short eDE golden check
+# (`ede-goldens-lite`: ede-chat, ede-settings, ede-panel-menu) when it touches what eDE paints with, and
+# the shot store's tests + `shots:check` when it touches a view or the store (`shots`; #EXP-1870). The Mac-runner
 # legs (`ios-core`, the ExpCore fixture replay, `ios-app`, the app target's compile, and `eui-swift`, the SwiftUI conformance pass) run on
 # PRs too but are informational: `gate` does not wait for them, EXCEPT `eui-swift` when the PR
 # touches the Swift package, eui-core, the FFI or the generated catalog (then required; on PR runs only: a merge-train run skips it, see eui-swift). Everything heavy (the rest of the eUI suite: unit suites,
 # parity, guides, benches, Simulator + emulator; iOS, Android lint + licences, the full desktop cargo test, the site,
-# shots:check, the package suites, the real-DB suites, image smoke builds)
+# the full shots:check run, the package suites, the real-DB suites, image smoke builds)
 # runs in release-suite.yml: on release tags and on workflow_dispatch.
 #
 # Runs ONCE per change: on the pull request, never again on the squash push
@@ -56,6 +58,8 @@ jobs:
       train: ${{ steps.f.outputs.train }}
       ede: ${{ steps.f.outputs.ede }}
       ede_shell: ${{ steps.f.outputs.ede_shell }}
+      ede_goldens: ${{ steps.f.outputs.ede_goldens }}
+      shots: ${{ steps.f.outputs.shots }}
       ios: ${{ steps.f.outputs.ios }}
       ios_app: ${{ steps.f.outputs.ios_app }}
       ios_runner: ${{ steps.f.outputs.ios_runner }}
@@ -91,7 +95,7 @@ jobs:
             files="$(git diff --name-only "$BASE_SHA" HEAD)"
             printf 'Train diff from %s:\n%s\n' "$BASE_SHA" "$files"
           else
-            printf 'desktop=true\neui=true\nswift=true\nios_runner=true\nede=true\nede_shell=true\nios=true\nios_app=true\nandroid=true\nrunner_android=true\nsite=true\nweb_build=true\ndb=true\nreal_db=true\nworkflows=true\ngaps=true\nmerge_train=true\nengine_ts=true\ncontract_ts=true\nrelease_scripts=true\n' >> "$GITHUB_OUTPUT"
+            printf 'desktop=true\neui=true\nswift=true\nios_runner=true\nede=true\nede_shell=true\nede_goldens=true\nshots=true\nios=true\nios_app=true\nandroid=true\nrunner_android=true\nsite=true\nweb_build=true\ndb=true\nreal_db=true\nworkflows=true\ngaps=true\nmerge_train=true\nengine_ts=true\ncontract_ts=true\nrelease_scripts=true\n' >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # The Rust legs (desktop, eUI, eDE, Android) skip prose: a package's
@@ -102,7 +106,8 @@ jobs:
           desktop='^(apps/desktop/|samples/apps/photobook|packages/(domain-contract|ecode|ecore|eengine|etalk|exponential-ui|icons|design-tokens|emoji|electric-protocol)/|packages/ui/exponential-ui/|\.github/actions/cargo-fetch/|\.github/workflows/test\.yml$)'
           echo "desktop=$(grep -qE "$desktop" <<<"$rfiles" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # The catalog, the six renderers, the facade, what they bundle (tokens, icons), the desktop lockfile (gpui revs).
-          eui='^(packages/exponential-ui[a-z-]*/|apps/desktop/crates/(eui-[a-z-]+|exponential-ui-ffi)/|apps/desktop/vendor/gpui-pre-wgpu/|apps/desktop/Cargo\.(lock|toml)$|packages/(design-tokens|icons)/|\.github/workflows/(test|exponential-ui|pick-runner)\.yml$)'
+          # #EXP-1870: + the vendored gpui crates eui-gpui links on Linux (#2875's text system).
+          eui='^(packages/exponential-ui[a-z-]*/|apps/desktop/crates/(eui-[a-z-]+|exponential-ui-ffi)/|apps/desktop/vendor/(gpui-pre-wgpu|gpui-pre-linux|gpui-component)/|apps/desktop/Cargo\.(lock|toml)$|packages/(design-tokens|icons)/|\.github/workflows/(test|exponential-ui|pick-runner)\.yml$)'
           echo "eui=$(grep -qE "$eui" <<<"$rfiles" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # What the SwiftUI renderer compiles or replays: its package, the core and
           # facade it links (eui-core, exponential-ui-ffi) and the generated
@@ -114,6 +119,12 @@ jobs:
           # #EDE-10 / #EDE-51: the shell (a desktop-workspace member), the crates it takes by path and the factory documents it embeds.
           ede_shell='^(apps/desktop/crates/(ede-shell|ede-protocol|uicore-[a-z]+)/|packages/uicore/|apps/ede/ui/|apps/ede/crates/(ede-ui|ede-services|ede-theme)/|apps/desktop/crates/(eui-core|eui-gpui|eui-motion|ecore)/|apps/desktop/vendor/(gpui-component|gpui-pre-wgpu)/|\.github/workflows/test\.yml$)'
           echo "ede_shell=$(grep -qE "$ede_shell" <<<"$rfiles" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
+          # #EXP-1870: what an eDE picture is painted with: eDE itself, the shell
+          # and uicore, eUI (catalog, themes, renderers, the gpui it links), the
+          # tokens and icons, the goldens and the capture lane. #2869 moved a
+          # theme token and re-recorded every platform but eDE.
+          ede_goldens='^(apps/ede/|packages/(ede|uicore|design-tokens|icons|exponential-ui|shots)/|apps/desktop/crates/(ede-shell|ede-protocol|uicore-[a-z]+|eui-[a-z-]+|ecore)/|apps/desktop/vendor/(gpui-pre-wgpu|gpui-pre-linux|gpui-component)/|apps/desktop/Cargo\.lock$|shots/ede-|\.github/workflows/test\.yml$)'
+          echo "ede_goldens=$(grep -qE "$ede_goldens" <<<"$rfiles" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # ExpCore + every file its tests read through `#filePath`.
           ios='^(apps/ios/(ExpCore|Tuist)/|packages/(domain-contract|ecode|ecore|etalk)/|packages/exponential-ui/fixtures/|packages/icons/icons\.json$|\.github/workflows/(test|ios-core)\.yml$)'
           echo "ios=$(grep -qE "$ios" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
@@ -155,6 +166,9 @@ jobs:
           echo "workflows=$(grep -qE "$workflows" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # The rewrite-gap list against the view catalog (the train serializes
           # merges, so a merge race can no longer double a row behind a PR's back).
+          # #EXP-1870 (#EXP-1866's gap): a view added or changed, the store, its writer.
+          shots='^(packages/(view-catalog|shots)/|shots/|package\.json$|\.github/workflows/test\.yml$)'
+          echo "shots=$(grep -qE "$shots" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           gaps='^(packages/(view-catalog|exponential-ui)/|\.github/workflows/test\.yml$)'
           echo "gaps=$(grep -qE "$gaps" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           merge_train='^(scripts/merge-train/|packages/domain-contract/(src/merge-train|fixtures/merge-train)|\.exponential/|\.github/workflows/(test|train)\.yml$)'
@@ -580,6 +594,68 @@ jobs:
         working-directory: apps/desktop
         run: cargo test -p ede-shell -p ede-protocol -p uicore-model -p uicore-data -p uicore-docs -p uicore-gpui --locked
 
+  # #EXP-1870: a short eDE golden check. release-suite.yml's `ede-goldens`
+  # re-captures all 21 views (~1m40s of capture); here the three that carry
+  # the most text and theme (the chat, settings, the panel menu) with the
+  # same per-view tolerance (`--golden`: `--views` alone writes any pixel).
+  # A drift beyond it rewrites the store and fails the diff; re-record with
+  # `bun run shots -- --platform ede --skip-seed`.
+  ede-goldens-lite:
+    needs: [pick, changes]
+    if: needs.changes.outputs.ede_goldens == 'true'
+    runs-on: ${{ fromJSON(needs.pick.outputs.linux) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/apt-mirror
+      - name: Linux system deps (smithay + wgpu/gpui)
+        run: |
+          sudo apt-get install -y \
+            libxkbcommon-dev libpixman-1-dev libwayland-dev pkg-config libxcb1-dev libssl-dev libfontconfig1-dev clang \
+            mesa-vulkan-drivers libegl1
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        if: runner.environment == 'github-hosted'
+        with:
+          workspaces: |
+            apps/ede
+            apps/desktop
+      - uses: ./.github/actions/cargo-fetch
+        with:
+          dir: apps/ede
+      - uses: ./.github/actions/cargo-fetch
+      - uses: ./.github/actions/setup-bun
+      - run: bun install --frozen-lockfile
+      - name: Capture ede-chat, ede-settings, ede-panel-menu
+        run: bun run shots -- --platform ede --views ede-chat,ede-settings,ede-panel-menu --skip-seed --golden
+      - name: The store did not move
+        run: git diff --exit-code --stat -- shots/
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: ede-goldens-lite
+          path: |
+            .shots-raw/ede
+            shots/ede-chat
+            shots/ede-settings
+            shots/ede-panel-menu
+          retention-days: 14
+          if-no-files-found: ignore
+
+  # #EXP-1870 (#EXP-1866): the shot store's own tests (the view catalog's
+  # drift gates, the store writer, the lanes) and `shots:check` (every
+  # declared view/platform pair captured, nothing stray) on a PR that adds
+  # or changes a view; both ran only in release-suite.yml.
+  shots:
+    needs: [pick, changes]
+    if: needs.changes.outputs.shots == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-bun
+      - run: bun install --frozen-lockfile
+      - run: bun run test:shots
+      - run: bun run shots:check
+
   # #EDE-65: packages/uicore's TS side (the shell and chat reducers the
   # Rust crates replay): its tests and its typecheck, which had rotted
   # unseen until #2303.
@@ -781,7 +857,7 @@ jobs:
   # gate" ruleset). Green = every job passed or was path-skipped; a fork PR
   # (pick skipped, nothing ran) stays red.
   gate:
-    needs: [pick, changes, web, web-build, migrations, desktop, desktop-scope, ede, ede-shell, uicore-ts, android, runner-android, eui, gpui-revs, rewrite-gaps, actionlint, site, merge-train, engine-ts, contract-ts, release-scripts, eui-swift]
+    needs: [pick, changes, web, web-build, migrations, desktop, desktop-scope, ede, ede-shell, ede-goldens-lite, shots, uicore-ts, android, runner-android, eui, gpui-revs, rewrite-gaps, actionlint, site, merge-train, engine-ts, contract-ts, release-scripts, eui-swift]
     if: always()
     runs-on: ubuntu-latest
     steps:
