@@ -17,7 +17,7 @@
 // the only merge, for every team and every repository (#EXP-1711).
 import { repoInstallationId } from "@/lib/ecode/provider-config"
 import { and, asc, desc, eq, inArray, isNotNull, ne, notInArray, sql } from "drizzle-orm"
-import { requiredChecksState } from "@exp/domain-contract/pr-checks"
+import { trainChecksState } from "@exp/domain-contract/pr-checks"
 import type { RepositoryCiConfig } from "@exp/db-schema"
 import { withRepoRequired } from "@/lib/ci/required"
 import {
@@ -44,7 +44,7 @@ import {
   type TrainUnit,
 } from "@exp/domain-contract/merge-train"
 import { db, pool } from "@/db/connection"
-import { mergeTrains, pullRequestChecks, pullRequests, repositories, sessions, teams } from "@/db/schema"
+import { ciJobs, ciRuns, mergeTrains, pullRequestChecks, pullRequests, repositories, sessions, teams } from "@/db/schema"
 import { forgeFor, type Forge, type ForgeRepo } from "@/lib/ecode/forge"
 import { readCommitChecks } from "@/lib/merge-train/commit-checks"
 import { confirmLanding } from "@/lib/merge-train/confirm"
@@ -217,15 +217,31 @@ async function readinessInputs(prs: PrRow[], repo: RepoRow, forge: Forge) {
           .where(inArray(pullRequestChecks.pullRequestId, ids))
   const checks = new Map<string, typeof rows>()
   for (const row of rows) checks.set(row.pullRequestId, [...(checks.get(row.pullRequestId) ?? []), row])
-  return { tree, modes, checks, required }
+  // #EXP-1862 (merge-train.json `gating`): our own CI's checks of these PRs
+  // are informational unless the repo names them required.
+  const own =
+    ids.length === 0
+      ? []
+      : await db
+          .selectDistinct({ pullRequestId: ciRuns.pullRequestId, check: ciJobs.check })
+          .from(ciJobs)
+          .innerJoin(ciRuns, eq(ciRuns.id, ciJobs.runId))
+          .where(inArray(ciRuns.pullRequestId, ids))
+  const informational = new Map<string, string[]>()
+  for (const row of own) {
+    if (!row.pullRequestId) continue
+    informational.set(row.pullRequestId, [...(informational.get(row.pullRequestId) ?? []), row.check])
+  }
+  return { tree, modes, checks, required, informational }
 }
 
-function waitOf(pr: PrRow, { tree, modes, checks, required }: ReadinessInputs): MergeWait | null {
+function waitOf(pr: PrRow, { tree, modes, checks, required, informational }: ReadinessInputs): MergeWait | null {
   const rows = checks.get(pr.id) ?? []
   const names = required.get(pr.base) ?? []
   return mergeWait({
     draft: pr.state === `draft`,
-    checksState: rows.length > 0 || names.length > 0 ? requiredChecksState(rows, names) : pr.checksState,
+    checksState:
+      rows.length > 0 || names.length > 0 ? trainChecksState(rows, names, informational.get(pr.id) ?? []) : pr.checksState,
     subtreeIdle: subtreeIdle(
       pr.sessionId,
       tree.filter((s) => s.rootId === pr.rootSessionId)
