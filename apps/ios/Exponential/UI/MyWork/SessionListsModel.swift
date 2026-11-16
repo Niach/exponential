@@ -168,18 +168,16 @@ final class SessionListsModel {
         guard let reads = try? db.sharedReads(forAccountId: accountId) else { return }
         // EXP-1358: `derive` runs off the main actor (this model is
         // `@MainActor`, so the loop below is), and an emission equal to the
-        // last one is dropped before it can re-render the Chats tab, the tab
-        // bar and Home. #ERR-26: the account's ONE shared read (every
-        // navigator's model shares it), re-read at most once a second while
-        // the sync writes; the raw rows (every session's digest) live only
-        // for the derive.
+        // last one is dropped (by the shared read) before it can re-render
+        // the Chats tab, the tab bar and Home. #ERR-26: the account's ONE
+        // shared read (every navigator's model shares it), re-read at most
+        // once a second while the sync writes; the raw rows (every session's
+        // digest) live only for the derive.
         let read = reads.shared("sessionLists:\(userId ?? "")", tables: Self.tables) { writer in
             Self.derive(try await writer.read { try Self.read($0) }, userId: userId)
         }
         task = Task { [weak self] in
-            var last: Derived?
-            for await derived in read.values() where derived != last {
-                last = derived
+            for await derived in read.values() {
                 self?.apply(derived)
             }
         }

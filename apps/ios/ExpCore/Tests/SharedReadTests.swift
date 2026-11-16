@@ -112,6 +112,31 @@ final class SharedReadTests: XCTestCase {
         try await waitUntil { again.values[0]?.count == 2 }
     }
 
+    func testAnEqualReReadKeepsTheHeldValue() async throws {
+        try await insert(0)
+        let read = SharedRead<[IssueEntity]>(
+            writer: pool, tables: ["issues"], minInterval: .milliseconds(50), same: { $0 == $1 },
+            fetch: { try IssueEntity.fetchAll($0) }
+        )
+        var deliveries = 0
+        var held: [IssueEntity] = []
+        let stream = read.values()
+        let task = Task { @MainActor in
+            for await value in stream {
+                deliveries += 1
+                held = value
+            }
+        }
+        defer { task.cancel() }
+        try await waitUntil { deliveries == 1 }
+        let before = held.withUnsafeBufferPointer { Int(bitPattern: $0.baseAddress) }
+        try await pool.write { try $0.execute(sql: #"UPDATE "issues" SET "title" = "title""#) }
+        try await waitUntil { read.reads == 2 }
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(deliveries, 1, "an equal re-read is no emission")
+        XCTAssertEqual(held.withUnsafeBufferPointer { Int(bitPattern: $0.baseAddress) }, before)
+    }
+
     func testOneAccountDatabaseHasOneIssuesRead() {
         let reads = SharedReads(writer: pool)
         XCTAssertTrue(reads.issues === reads.issues)

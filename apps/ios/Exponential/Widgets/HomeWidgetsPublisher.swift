@@ -52,7 +52,6 @@ final class HomeWidgetsPublisher {
         task = Task { @MainActor [weak self] in
             for await lists in read.values() {
                 guard let self, self.boundAccountId == accountId else { return }
-                guard lists != self.lists else { continue }
                 self.lists = lists
                 self.write()
             }

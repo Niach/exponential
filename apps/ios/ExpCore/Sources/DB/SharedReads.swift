@@ -22,6 +22,7 @@ public final class SharedRead<Value: Sendable> {
     private let minInterval: Duration
     private let stopAfter: Duration
     private let load: @Sendable (any DatabaseWriter) async throws -> Value
+    private let same: (@Sendable (Value, Value) -> Bool)?
 
     private var subscribers: [UUID: AsyncStream<Value>.Continuation] = [:]
     private var latest: Value?
@@ -33,17 +34,21 @@ public final class SharedRead<Value: Sendable> {
 
     /// `load` reads the value off main (`tables` = what a change to
     /// re-reads); it may derive inside, so the derived value is what's shared.
+    /// `same` drops a re-read equal to the value held (subscribers keep the
+    /// one instance, never an equal second one).
     public nonisolated init(
         writer: any DatabaseWriter,
         tables: [String],
         minInterval: Duration = SharedReads.minInterval,
         stopAfter: Duration = SharedReads.stopAfter,
+        same: (@Sendable (Value, Value) -> Bool)? = nil,
         load: @escaping @Sendable (any DatabaseWriter) async throws -> Value
     ) {
         self.writer = writer
         self.tables = tables
         self.minInterval = minInterval
         self.stopAfter = stopAfter
+        self.same = same
         self.load = load
     }
 
@@ -52,9 +57,10 @@ public final class SharedRead<Value: Sendable> {
         tables: [String],
         minInterval: Duration = SharedReads.minInterval,
         stopAfter: Duration = SharedReads.stopAfter,
+        same: (@Sendable (Value, Value) -> Bool)? = nil,
         fetch: @escaping @Sendable (Database) throws -> Value
     ) {
-        self.init(writer: writer, tables: tables, minInterval: minInterval, stopAfter: stopAfter) {
+        self.init(writer: writer, tables: tables, minInterval: minInterval, stopAfter: stopAfter, same: same) {
             try await $0.read(fetch)
         }
     }
@@ -127,6 +133,7 @@ public final class SharedRead<Value: Sendable> {
 
     private func deliver(_ value: Value) {
         reads += 1
+        if let same, let latest, same(latest, value) { return }
         latest = value
         for continuation in subscribers.values { continuation.yield(value) }
     }
@@ -177,12 +184,23 @@ public final class SharedReads {
         _ key: String,
         tables: [String],
         minInterval: Duration = SharedReads.minInterval,
+        same: (@Sendable (Value, Value) -> Bool)? = nil,
         load: @escaping @Sendable (any DatabaseWriter) async throws -> Value
     ) -> SharedRead<Value> {
         if let existing = reads[key] as? SharedRead<Value> { return existing }
-        let read = SharedRead(writer: writer, tables: tables, minInterval: minInterval, load: load)
+        let read = SharedRead(writer: writer, tables: tables, minInterval: minInterval, same: same, load: load)
         reads[key] = read
         return read
+    }
+
+    /// An equatable read drops a re-read equal to the value held.
+    public func shared<Value: Sendable & Equatable>(
+        _ key: String,
+        tables: [String],
+        minInterval: Duration = SharedReads.minInterval,
+        load: @escaping @Sendable (any DatabaseWriter) async throws -> Value
+    ) -> SharedRead<Value> {
+        shared(key, tables: tables, minInterval: minInterval, same: { $0 == $1 }, load: load)
     }
 
     /// Every issue row, whole (the composer's picker ranks descriptions).

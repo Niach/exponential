@@ -97,9 +97,7 @@ final class SystemSearchIndexer {
             try await writer.read { try Self.read($0, userId: userId) }
         }
         tasks[accountId] = Task { @MainActor [weak self] in
-            var last: [SystemSearch.Item]?
-            for await items in read.values() where items != last {
-                last = items
+            for await items in read.values() {
                 guard let self else { return }
                 await self.write(accountId: accountId, items: items)
             }
