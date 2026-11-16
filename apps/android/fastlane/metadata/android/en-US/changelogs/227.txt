@@ -1,0 +1,2 @@
+- Chat bubbles get a tail on the first message of each group, yours on the right
+- A call to an agent on a server with a GPU is answered there; otherwise the call says why and hands over
