@@ -60,6 +60,14 @@ if [ -n "$own_target" ]; then
   export CARGO_TARGET_DIR
   echo "lane.sh: building into $CARGO_TARGET_DIR (own target)" >&2
 fi
+# #EXP-1865: the slot is ours; before its build, sweep stale output from the
+# shared cargo target if its disk is low (a no-op otherwise, and skipped
+# when the CLI is missing or predates `sweep-target`). Never a failure.
+if [ -z "$own_target" ] && [ -n "${CARGO_TARGET_DIR:-}" ] && command -v exponential >/dev/null 2>&1; then
+  if swept=$(exponential sweep-target --if-low "$CARGO_TARGET_DIR" 2>&1) && [ -n "$swept" ]; then
+    echo "lane.sh: $swept" >&2
+  fi
+fi
 # PERF-4: a lane's build is the machine's background work: nice 19 and, on
 # Linux, idle IO, so the desktop keeps its cores and disk while it runs
 # (.github/runners/README.md "Desktop first"). Not exec'd: the lock holder

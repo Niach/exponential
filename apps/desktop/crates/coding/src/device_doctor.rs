@@ -41,6 +41,9 @@ pub const KEY_KEY_HOLDER: &str = "key_holder";
 /// EXP-1794: the storage row of diverged conversation copies the claude
 /// store migration parked (see [`add_store_conflicts`]).
 pub const KEY_STORE_CONFLICTS: &str = "store_conflicts";
+/// #EXP-1865: the storage row of the last shared cargo target sweep (see
+/// [`add_cargo_sweep`]).
+pub const KEY_CARGO_SWEEP: &str = "cargo_sweep";
 /// NEW-55: the speech row when the voice is loaded.
 pub const READY: &str = "Ready";
 /// NEW-55: the speech row without a usable GPU (grey, no pill).
@@ -498,6 +501,7 @@ pub fn current(settings: &Settings, data_dir: &Path, report: &DoctorReport) -> D
         &crate::worktree_lifecycle::kept_rows(data_dir),
     );
     add_store_conflicts(&mut doctor, crate::agent_profiles::claude_store_conflicts(data_dir));
+    add_cargo_sweep(&mut doctor, crate::cargo_target_gc::last_sweep(data_dir).as_ref());
     // NEW-59: the displays ride every doctor (register + heartbeat), so the
     // Work screen row can offer them before the switch is on.
     doctor.displays = crate::computer::displays().iter().map(DoctorDisplay::from).collect();
@@ -556,6 +560,37 @@ pub fn add_store_conflicts(doctor: &mut DeviceDoctor, count: usize) {
         .detail(store_conflicts(count));
     row.label = Some("Conversations".to_string());
     doctor.items.push(row);
+}
+
+/// #EXP-1865: the `Build cache` row under `disk`: what the last shared cargo
+/// target sweep freed (or, dry, found) and when, device-local time (grey,
+/// never a problem). No sweep yet, or no `disk` row to hang off = no row.
+pub fn add_cargo_sweep(doctor: &mut DeviceDoctor, last: Option<&crate::cargo_target_gc::SweepRecord>) {
+    let Some(last) = last else { return };
+    if !doctor.items.iter().any(|item| item.key == KEY_DISK) {
+        return;
+    }
+    let when = chrono::DateTime::from_timestamp(last.at, 0)
+        .map(|at| at.with_timezone(&chrono::Local).format("%-d %b %H:%M").to_string())
+        .unwrap_or_default();
+    let size = crate::worktree_lifecycle::format_free(last.freed_bytes);
+    let mut row = item(KEY_CARGO_SWEEP, DoctorGroup::Storage, DoctorState::Off)
+        .parent(KEY_DISK)
+        .detail(cargo_sweep(&size, last.dry_run, &when));
+    row.label = Some(CARGO_SWEEP_LABEL.to_string());
+    doctor.items.push(row);
+}
+
+/// The fixture's `cargoSweepLabel`.
+pub const CARGO_SWEEP_LABEL: &str = "Build cache";
+
+/// The fixture's `cargoSweepFreed` / `cargoSweepDryRun` templates.
+pub fn cargo_sweep(size: &str, dry_run: bool, when: &str) -> String {
+    if dry_run {
+        format!("{size} stale · dry run · {when}")
+    } else {
+        format!("{size} freed · {when}")
+    }
 }
 
 /// The fixture's `storeConflicts` template.
@@ -1013,6 +1048,29 @@ mod tests {
         assert_eq!(row.action, None);
         assert_eq!(row.label.as_deref(), copy["storeConflictsLabel"].as_str());
         assert_eq!(store_conflicts(2), copy["storeConflicts"].as_str().unwrap().replace("{count}", "2"));
+        // #EXP-1865: the Build cache row hangs off `disk`, grey.
+        let last = crate::cargo_target_gc::SweepRecord {
+            at: 1_763_280_000,
+            freed_bytes: 31_234_000_000,
+            dry_run: false,
+            target: "/repos/acme/web.cargo-target".into(),
+        };
+        let mut doctor = DeviceDoctor { checked_at: String::new(), items: Vec::new(), displays: Vec::new(), desktop_audio: None };
+        add_cargo_sweep(&mut doctor, Some(&last));
+        assert!(doctor.items.is_empty(), "no disk row, no sweep row");
+        add_storage(&mut doctor, Some(50_000_000_000), &[]);
+        add_cargo_sweep(&mut doctor, None);
+        assert_eq!(doctor.items.len(), 1, "no sweep yet, no row");
+        add_cargo_sweep(&mut doctor, Some(&last));
+        let row = &doctor.items[1];
+        assert_eq!((row.key.as_str(), row.group, row.state), (KEY_CARGO_SWEEP, DoctorGroup::Storage, DoctorState::Off));
+        assert_eq!(row.parent.as_deref(), Some(KEY_DISK));
+        assert_eq!(row.action, None);
+        assert_eq!(row.label.as_deref(), copy["cargoSweepLabel"].as_str());
+        assert!(row.detail.as_deref().unwrap().starts_with("31 GB freed · "), "{:?}", row.detail);
+        let fill = |template: &str| template.replace("{size}", "S").replace("{when}", "W");
+        assert_eq!(cargo_sweep("S", false, "W"), fill(copy["cargoSweepFreed"].as_str().unwrap()));
+        assert_eq!(cargo_sweep("S", true, "W"), fill(copy["cargoSweepDryRun"].as_str().unwrap()));
         assert_eq!(
             needs_version("{version}", (0, 0, 0)).replace("0.0.0", "{min}"),
             copy["needsVersion"].as_str().unwrap()

@@ -118,6 +118,8 @@ Commands:
   daemon [--foreground] [--label <name>]  Run the device daemon (runs the sessions queued here)
   daemon install|uninstall|status         Manage the systemd/launchd service
   update [--auto on|off]                  Self-update now, or switch auto-update
+  sweep-target [--if-low] [--dry-run] [<dir>]
+                                          Delete stale build output from the shared cargo target
   diagnostics [on|off]                    Send diagnostics (errors, performance) to your server
   uninstall [--yes]                       Remove the daemon service and delete this binary
   version                                 Print the CLI version
@@ -246,6 +248,7 @@ fn main() -> ExitCode {
         "bundle" => commands::bundle::run(rest),
         "daemon" => commands::daemon::run(rest),
         "update" => commands::update::run(rest),
+        "sweep-target" => commands::sweep_target::run(rest),
         "diagnostics" => diagnostics(rest),
         "uninstall" => commands::uninstall::run(rest),
         "version" | "--version" | "-V" => {
