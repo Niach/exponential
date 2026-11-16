@@ -599,6 +599,15 @@ fn zones_from_tab(tab: &str) -> Vec<String> {
 mod tests {
     use super::*;
 
+    /// #EXP-1887: no node id twice in the Account document (a twin doubled
+    /// its accessibility node: a debug build panicked as Settings opened).
+    #[test]
+    fn the_document_has_one_node_per_id() {
+        let chrome = Chrome { radius: 6., danger: "#a1a1aaff".into(), button: "#a1a1aaff".into(), button_fg: "#a1a1aaff".into(), button_hover: "#a1a1aaff".into(), skeleton: "#a1a1aaff".into() };
+        let tree = document(&super::super::readiness::tests::test_ink(), &chrome, [json!({"id": "methods", "component": "Box"}), json!({"id": "methods_more", "component": "Box"})]);
+        assert_eq!(super::super::doc::duplicate_ids(&tree), Vec::<String>::new());
+    }
+
     #[test]
     fn zone_tab_reads_the_third_column() {
         let tab = "# comment\nAT\t+4813+01620\tEurope/Vienna\nUS\t+404251-0740023\tAmerica/New_York\tEastern\n";
