@@ -1825,6 +1825,15 @@ fn delete_document(ink: &Ink, team_name: &str) -> Value {
 mod tests {
     use super::*;
 
+    /// #EXP-1887: no node id twice in the General document (a twin doubled
+    /// its accessibility node: a debug build panicked as Settings opened).
+    #[test]
+    fn the_document_has_one_node_per_id() {
+        let chrome = Chrome { radius: 6., danger: "#a1a1aaff".into(), danger_button: "#a1a1aaff".into(), danger_button_fg: "#a1a1aaff".into(), danger_button_hover: "#a1a1aaff".into(), track: "#a1a1aaff".into(), chip_stroke: "#a1a1aaff".into(), chip_fill: "#a1a1aaff".into(), button_fg: "#a1a1aaff".into(), button_fill: "#a1a1aaff".into(), button_stroke: "#a1a1aaff".into(), muted: "#a1a1aaff".into(), list_hover: "#a1a1aaff".into() };
+        let tree = document(&super::super::readiness::tests::test_ink(), &chrome);
+        assert_eq!(super::super::doc::duplicate_ids(&tree), Vec::<String>::new());
+    }
+
     /// #EXP-1629: the Delete team body raises no issue a debug build's
     /// mount check refuses (#EXP-1767's class).
     #[test]
