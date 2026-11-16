@@ -25,6 +25,13 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-16-desktop-cli-0-14-168-issue-chip-punctuation`,
+    date: `2026-11-16`,
+    title: `Issue links keep their punctuation`,
+    summary: `Desktop and CLI 0.14.168: a full stop or comma right after an issue link stays on the link's line instead of wrapping alone onto the next one.`,
+    body: `- **Issue links keep their punctuation**: in chat bubbles and descriptions, punctuation touching an issue link like #EXP-12 wraps together with it, so a line never starts with a lone punctuation mark.`,
+  },
+  {
     id: `2026-11-16-desktop-cli-0-14-167-quiet-check-ins-and-build-cache`,
     date: `2026-11-16`,
     title: `Quiet check-ins on one line, and a self-cleaning build cache`,

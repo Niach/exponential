@@ -46,6 +46,16 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-16-desktop-cli-0-14-168-issue-chip-punctuation",
+    date: "2026-11-16",
+    title: "Issue links keep their punctuation",
+    summary: "Desktop and CLI 0.14.168: a full stop or comma right after an issue link stays on the link's line instead of wrapping alone onto the next one.",
+    body: r##"- **Issue links keep their punctuation**: in chat bubbles and descriptions, punctuation touching an issue link like #EXP-12 wraps together with it, so a line never starts with a lone punctuation mark."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_315: ChangelogEntry = ChangelogEntry {
     id: "2026-11-16-desktop-cli-0-14-167-quiet-check-ins-and-build-cache",
     date: "2026-11-16",
     title: "Quiet check-ins on one line, and a self-cleaning build cache",
