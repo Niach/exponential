@@ -513,11 +513,19 @@ async function composeServices(): Promise<{ states: Map<string, string>; problem
   return { states }
 }
 
+/**
+ * A cold vite answers its first SSR request in well over 8s (the proof run on
+ * a fresh clone failed its preflight there): one patient retry before "down".
+ */
 async function reachable(url: string): Promise<boolean> {
+  return (await reachableWithin(url, 8_000)) || reachableWithin(url, 60_000)
+}
+
+async function reachableWithin(url: string, timeoutMs: number): Promise<boolean> {
   try {
     const response = await fetch(url, {
       method: `GET`,
-      signal: AbortSignal.timeout(8_000),
+      signal: AbortSignal.timeout(timeoutMs),
       // Bun-only fetch option: Caddy serves a self-signed dev certificate.
       tls: { rejectUnauthorized: false },
     })
