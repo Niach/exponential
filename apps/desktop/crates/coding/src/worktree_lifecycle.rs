@@ -207,13 +207,15 @@ pub fn launcher_owned(clone: &Path, branch: &str, worktree: &Path) -> bool {
     let (Some(parent), Some(name)) = (layout.parent(), layout.file_name().and_then(|n| n.to_str())) else {
         return false;
     };
-    let path = canonical(worktree);
-    if path.parent() != Some(canonical(parent).as_path()) {
-        return false;
-    }
-    let Some(dir) = path.file_name().and_then(|n| n.to_str()) else {
+    // The PARENTS are compared canonically, never the worktree itself: a
+    // worktree not yet (or no longer) on disk can't canonicalize and kept its
+    // symlinked spelling (`/var` vs `/private/var` on macOS, #EXP-1886).
+    let (Some(wt_parent), Some(dir)) = (worktree.parent(), worktree.file_name().and_then(|n| n.to_str())) else {
         return false;
     };
+    if canonical(wt_parent) != canonical(parent) {
+        return false;
+    }
     dir == name
         || dir
             .strip_prefix(name)
@@ -476,6 +478,25 @@ mod tests {
             .join(format!("exp-wt-lifecycle-{tag}-{}-{nanos}", std::process::id()));
         fs::create_dir_all(&path).unwrap();
         TempDir(path.canonicalize().unwrap())
+    }
+
+    /// #EXP-1886: a clone reached through a symlink (`/tmp` = `/private/tmp`
+    /// on macOS) still owns its layout path's `-<n>` sibling before that
+    /// sibling exists on disk, and a hand-made name stays foreign.
+    #[cfg(unix)]
+    #[test]
+    fn launcher_owned_sees_through_a_symlinked_clone_path() {
+        let dir = temp_dir("owned-symlink");
+        let real = dir.0.join("real");
+        fs::create_dir_all(real.join("repo")).unwrap();
+        fs::create_dir_all(real.join("repo.worktrees")).unwrap();
+        let link = dir.0.join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let clone = link.join("repo");
+        let missing = crate::git_worktree::worktrees_dir(&clone).join("exp-EXP-77-2");
+        assert!(launcher_owned(&clone, "exp/EXP-77", &missing));
+        assert!(launcher_owned(&real.join("repo"), "exp/EXP-77", &missing));
+        assert!(!launcher_owned(&clone, "exp/EXP-77", &crate::git_worktree::worktrees_dir(&clone).join("rel-3a741b2f")));
     }
 
     fn git(cwd: &Path, args: &[&str]) {
