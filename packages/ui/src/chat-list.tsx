@@ -265,9 +265,10 @@ function ChatRowText({
             {rest}
           </span>
           {word && (
-            <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+            // #NEW-49: a long word ("waiting on …") truncates; it never takes the preview's half.
+            <span className="flex min-w-0 max-w-[45%] items-center gap-1 text-xs text-muted-foreground">
               {row.word === `stack` && <PrStackIcon className="size-3.5 shrink-0" />}
-              {word}
+              <span className="truncate">{word}</span>
             </span>
           )}
           {/* #FEED-232: THE count badge (nav-badges.json `rowBadge`). */}
