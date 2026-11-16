@@ -4,7 +4,7 @@ import SwiftUI
 // N-12: THE Dock ×iOS (fixtures/dock.json ×4: web `@exp/ui` dock.tsx, desktop
 // `dock.rs`, Android `Dock.kt`): the band UNDER the transcript's bottom
 // edge: the DockCards (a waiting plan or question, THE Queue, the
-// queued messages, the suggested tasks, a status banner) piled like the toasts (`Dock.layout`,
+// queued messages, what the session waits on, the suggested tasks, a status banner) piled like the toasts (`Dock.layout`,
 // anchored at the bottom: the front card last, the older ones peeking out
 // above it, `visible` at most; a tap fans them `gap` apart, the next tap on a
 // card opens it), then THE composer, which never leaves. An opened card is
@@ -54,7 +54,8 @@ public enum DockMetrics {
         // EXP-1374: the session banner (session-card.json `icons`).
         case "run-pause": AppIcons.runPause
         case "trace-background": AppIcons.traceBackground
-        // #EXP-1405: a queued session waiting for its device.
+        // #EXP-1405: a queued session waiting for its device; #NEW-49: the
+        // watches card (`Dock.Icons.watches`).
         case "ui-clock": AppIcons.uiClock
         default: concept
         }

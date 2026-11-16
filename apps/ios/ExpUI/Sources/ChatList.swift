@@ -121,9 +121,13 @@ public struct ChatRowView<Lead: View>: View {
                             }
                             Text(word)
                                 .font(.subheadline)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
                         }
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .fixedSize()
+                        // #NEW-49: whole before the preview, truncated only
+                        // by the row (a long `waiting on …`).
+                        .layoutPriority(1)
                     }
                     CountBadge(NavBadges.rowBadge(unreadCount: unreadCount, needsYou: needsYou))
                 }

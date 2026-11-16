@@ -469,6 +469,10 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
     /// every Chats list reads `Chats.digestMessages` over it, never a
     /// transcript. nil = nothing yet.
     public let digest: String?
+    /// #NEW-49: what the session waits on (`sessions.watching` jsonb, stored
+    /// as its JSON text; `SessionWatching.parseList` reads it). nil =
+    /// nothing.
+    public let watching: String?
 
     public init(
         id: String,
@@ -509,10 +513,12 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
         sealedTitle: String? = nil,
         viaAppId: String? = nil,
         scopeTeamIds: [String]? = nil,
-        digest: String? = nil
+        digest: String? = nil,
+        watching: String? = nil
     ) {
         self.scopeTeamIds = scopeTeamIds
         self.digest = digest
+        self.watching = watching
         self.sealPublicKey = sealPublicKey
         self.sealEpoch = sealEpoch
         self.sealedTitle = sealedTitle
@@ -563,7 +569,7 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
 
     enum CodingKeys: String, CodingKey {
         case id, depth, cli, account, model, effort, ultracode, branch, status
-        case busy, background, blocked, shared, title, guide, digest
+        case busy, background, blocked, shared, title, guide, digest, watching
         case teamId = "team_id"
         case parentId = "parent_id"
         case rootId = "root_id"
@@ -650,6 +656,9 @@ extension SessionEntity: Codable {
         // #EXP-1730: the jsonb as JSON text (object off the wire, text out of
         // GRDB); absent on a pre-v103 row / an older server = no digest.
         digest = c.decodeWireJsonString(forKey: .digest)
+        // #NEW-49: the jsonb as JSON text; absent on a pre-v110 row / an
+        // older server = nothing watched.
+        watching = c.decodeWireJsonString(forKey: .watching)
     }
 }
 

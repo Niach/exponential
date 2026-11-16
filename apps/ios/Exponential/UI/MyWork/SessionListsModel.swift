@@ -36,6 +36,10 @@ final class SessionListsModel {
     /// EXP-1309: a Chats row's quiet word off its pull requests, by root id
     /// (`SessionTree.chatRowWord`).
     private(set) var words: [String: ChatRowWord] = [:]
+    /// #NEW-49: what an IDLE root waits on (`SessionTree.sessionWaiting`:
+    /// its live children's titles, then its watches), by root id; the
+    /// `waiting` word's labels (`SessionTree.chatRowWordText`).
+    private(set) var waiting: [String: String] = [:]
     /// NEW-41: each root's pull-request states (the Chats tab's lead glyph).
     private(set) var prStates: [String: [String]] = [:]
     /// EXP-1316: a chat row's device glyph (the ROOT's `device_id` against
@@ -192,6 +196,7 @@ final class SessionListsModel {
         identifiers = [:]
         clis = [:]
         words = [:]
+        waiting = [:]
         prStates = [:]
         devices = [:]
         chatMessages = []
@@ -233,6 +238,7 @@ final class SessionListsModel {
         var identifiers: [String: String]
         var clis: [String: String]
         var words: [String: ChatRowWord]
+        var waiting: [String: String]
         var prStates: [String: [String]]
         var devices: [String: ChatRowDevice]
         var chatMessages: [TreeMessage]
@@ -255,6 +261,7 @@ final class SessionListsModel {
         identifiers = derived.identifiers
         clis = derived.clis
         words = derived.words
+        waiting = derived.waiting
         prStates = derived.prStates
         devices = derived.devices
         chatMessages = derived.chatMessages
@@ -347,16 +354,35 @@ final class SessionListsModel {
             $0.rootSessionId ?? ""
         }
         var words: [String: ChatRowWord] = [:]
+        var waiting: [String: String] = [:]
         var prStates: [String: [String]] = [:]
+        let sessionsById = Dictionary(rows.sessions.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let liveChildren = Dictionary(
+            grouping: rows.sessions.filter { $0.parentId != nil && $0.status != DomainContract.sessionStatusEnded },
+            by: { $0.parentId ?? "" }
+        )
         for row in groups.flatMap(\.rows) {
             let prs = prsByRoot[row.sessionId] ?? []
+            // #NEW-49 (chat-list.json `wordCases`): an IDLE root names what
+            // it waits on (its live children by their titles, then its
+            // watches); a PR word or a question still wins.
+            var rootWaiting: String?
+            if row.depth == 0, let root = sessionsById[row.sessionId], SessionTree.sessionState(root) == .idle {
+                rootWaiting = SessionTree.sessionWaiting(root, sessions: liveChildren[root.id] ?? []) { child in
+                    SessionTree.sessionTitle(
+                        child, sessionIssues: rows.sessionIssues, issues: rows.issues, messages: rows.messages
+                    )
+                }
+            }
+            if let rootWaiting { waiting[row.sessionId] = rootWaiting }
             words[row.sessionId] = SessionTree.chatRowWord(
                 busy: row.busy,
                 needsYou: row.needsYou,
                 prs: prs,
                 teamPrs: prsByTeam[row.teamId] ?? [],
                 // #EXP-1703: on a person only because its device stayed away.
-                offline: row.offline
+                offline: row.offline,
+                waiting: rootWaiting
             )
             // NEW-41: the lead's PR glyph follows the root's PRs, not the word.
             prStates[row.sessionId] = prs.map(\.state)
@@ -400,6 +426,7 @@ final class SessionListsModel {
             identifiers: identifiers,
             clis: rows.clis,
             words: words,
+            waiting: waiting,
             prStates: prStates,
             devices: devices,
             chatMessages: rows.messages,

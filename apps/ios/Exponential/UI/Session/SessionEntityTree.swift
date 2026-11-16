@@ -8,8 +8,8 @@ import GRDB
 // off the same input; the jsonb text columns parse here, once.
 
 extension TreeSession {
-    /// A synced `sessions` row, its jsonb columns (`blocked`, `guide`) parsed
-    /// tolerantly.
+    /// A synced `sessions` row, its jsonb columns (`blocked`, `guide`,
+    /// `watching`) parsed tolerantly.
     init(sessionRow row: SessionEntity) {
         self.init(
             id: row.id,
@@ -32,7 +32,9 @@ extension TreeSession {
             agentId: row.agentId,
             appId: row.appId,
             background: row.background,
-            startedByAgentId: row.startedByAgentId
+            startedByAgentId: row.startedByAgentId,
+            // #NEW-49: what it waits on, parsed tolerantly.
+            watching: SessionWatching.parseList(row.watching)
         )
     }
 }
