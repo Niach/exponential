@@ -835,6 +835,7 @@ mod tests {
             interrupted: Some(false),
             lost: Some(LostReason::ProcessLost),
             mid_turn: Some(true),
+            end_reason: Some(EndReason::Stalled),
         };
         let input = ReportInput {
             session_id: "s1",
@@ -842,7 +843,7 @@ mod tests {
         };
         assert_eq!(
             serde_json::to_string(&input).unwrap(),
-            r#"{"sessionId":"s1","status":"running","needsInput":true,"background":true,"blocked":{"kind":"rate_limit","agent":"claude","window":"session","resetsAt":"2026-10-13T12:00:00Z","since":"2026-10-13T10:00:00Z","handled":true},"branch":"exp/EXP-1","title":"Fix the login","account":"0a1b2c3d","model":"opus","deviceId":"dev-1","interrupted":false,"lost":"process_lost","midTurn":true}"#
+            r#"{"sessionId":"s1","status":"running","needsInput":true,"background":true,"blocked":{"kind":"rate_limit","agent":"claude","window":"session","resetsAt":"2026-10-13T12:00:00Z","since":"2026-10-13T10:00:00Z","handled":true},"branch":"exp/EXP-1","title":"Fix the login","account":"0a1b2c3d","model":"opus","deviceId":"dev-1","interrupted":false,"lost":"process_lost","midTurn":true,"endReason":"stalled"}"#
         );
 
         // Some(None) = an explicit null (the wall cleared); a no-reset wall
