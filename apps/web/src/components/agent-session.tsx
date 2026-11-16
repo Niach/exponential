@@ -924,7 +924,7 @@ export function AgentSessionView({
     switch (item.kind) {
       case `narration`:
         // EXP-1676: the run view's row on every form factor.
-        return wrap(<NarrationBubble text={item.text} author={bubbleName} time={item.at ? userMessageTime(item.at) : null} />)
+        return wrap(<NarrationBubble text={item.text} author={bubbleName} tail={layout?.tail ?? false} time={item.at ? userMessageTime(item.at) : null} />)
       case `thought`:
         // EXP-1324: the reasoning line; still open only while the run lives.
         return wrap(
@@ -987,6 +987,7 @@ export function AgentSessionView({
             text={input?.kind === `relay` ? input.body : item.text}
             side={layout?.side === `other` ? `in` : `out`}
             author={link ? null : bubbleName}
+            tail={layout?.tail ?? false}
             relay={
               link && layout?.name && sender
                 ? { name: sender.name, onPress: openSessionRef.current ? () => openSessionRef.current?.(link) : undefined }
@@ -1146,7 +1147,7 @@ export function AgentSessionView({
             }}
             avatar={viewerAvatar ? <UserAvatar user={viewerAvatar} size={32} /> : null}
           >
-            <OutboxBubble sessionId={session.id} entry={entry} />
+            <OutboxBubble sessionId={session.id} entry={entry} tail={index === 0 && !extrasEndOwn} />
           </TranscriptRow>
         ))}
       </div>
@@ -1510,7 +1511,7 @@ const NO_DOCKED: ReadonlySet<string> = new Set()
 
 /** #FEED-237 (message-delivery.json): an outbox entry = the viewer's own
  *  bubble with the clock, or the red mark whose menu retries or deletes. */
-function OutboxBubble({ sessionId, entry }: { sessionId: string; entry: WebOutboxEntry }) {
+function OutboxBubble({ sessionId, entry, tail }: { sessionId: string; entry: WebOutboxEntry; tail: boolean }) {
   const state = deliveryState({
     local: entry.state,
     stored: entry.messageId !== null,
@@ -1522,6 +1523,7 @@ function OutboxBubble({ sessionId, entry }: { sessionId: string; entry: WebOutbo
   return (
     <UserMessageBubble
       text={entry.text}
+      tail={tail}
       time={userMessageTime(new Date(entry.createdAt))}
       status={state}
       menu={actions.map((action) => ({
@@ -2057,10 +2059,13 @@ export const NarrationBubble = memo(function NarrationBubble({
   text,
   author = null,
   time = null,
+  tail = false,
 }: {
   text: string
   /** #EXP-1736: the sender's name (the group's first bubble). */
   author?: string | null
+  /** #EXP-1876: the group's first bubble wears THE tail. */
+  tail?: boolean
   /** #EXP-1864: every bubble's `HH:mm` (its first fragment's). */
   time?: string | null
 }) {
@@ -2070,7 +2075,7 @@ export const NarrationBubble = memo(function NarrationBubble({
     // #EXP-1736: THE message bubble on every client (was a bare paragraph
     // here, a bubble on iOS).
     // #FEED-238: THE FOLD, every message bubble.
-    <MessageBubble side="in" author={author} time={time} foldText={text}>
+    <MessageBubble side="in" author={author} time={time} tail={tail} foldText={text}>
       <div className={cn(`min-w-0 text-foreground/90`, TRANSCRIPT_BODY_TEXT)}>
         <FeedText text={text} ariaLabel="Agent message" hardBreaks streaming={streaming} />
       </div>
@@ -2188,7 +2193,10 @@ const UserMessageBubble = memo(function UserMessageBubble({
   time = null,
   status = null,
   menu,
+  tail = false,
 }: {
+  /** #EXP-1876: the group's first bubble wears THE tail. */
+  tail?: boolean
   /** #EXP-1772: a relay's session name above the bubble (its one link). */
   relay?: { name: string; onPress?: () => void } | null
   text: string
@@ -2216,7 +2224,7 @@ const UserMessageBubble = memo(function UserMessageBubble({
     <>
       {/* #EXP-1736: THE message bubble (EXP-696's neutral glass for the
           viewer's own turn). */}
-      <MessageBubble side={side} author={author} onPress={onPress} relay={relay} time={time} status={status} menu={menu}>
+      <MessageBubble side={side} author={author} onPress={onPress} relay={relay} time={time} status={status} menu={menu} tail={tail}>
       <div className={TRANSCRIPT_BODY_TEXT}>
         {/* #FEED-238 THE FOLD: every bubble, a relay too. Clamp the PROSE,
             never the wire message: four embed lines are four more "lines"

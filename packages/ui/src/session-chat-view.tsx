@@ -545,6 +545,7 @@ export function ChatConversation(props: ChatConversationProps) {
               side="out"
               text={row.body}
               renderText={renderText}
+              tail={layout?.tail ?? false}
               time={time}
               status={mine ? state : null}
               menu={actions.map((action) => ({
@@ -573,6 +574,7 @@ export function ChatConversation(props: ChatConversationProps) {
             renderText={renderText}
             author={layout?.name ? transcriptSenderName(layout.sender) : null}
             relay={relay}
+            tail={layout?.tail ?? false}
             time={time}
             className={enter}
           />
@@ -591,6 +593,7 @@ export function ChatConversation(props: ChatConversationProps) {
             renderText={renderText}
             author={null}
             relay={layout?.name && layout.sender ? { name: layout.sender.name, onPress: open ? () => openXref(row.sessionId) : undefined } : null}
+            tail={layout?.tail ?? false}
             time={messageTime?.(row) ?? null}
             className={enter}
           />
