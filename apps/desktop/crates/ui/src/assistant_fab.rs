@@ -793,25 +793,39 @@ fn entrance_scale(t: f32, stops: [f32; 3], times: [f32; 3]) -> f32 {
     stops[2]
 }
 
+/// DEV-ONLY (the EXP_DEV_* family): `EXP_DEV_FAB_ENTRANCE_AT_MS=<ms>`
+/// freezes THE entrance at that millisecond (a capture's mid-entrance
+/// frame); unset = the live animation.
+fn frozen_entrance_t() -> Option<f32> {
+    let ms: f32 = std::env::var("EXP_DEV_FAB_ENTRANCE_AT_MS").ok()?.parse().ok()?;
+    let spec = &ASSISTANT_FAB.entrance;
+    let total = if theme::motion::reduce_motion() { spec.reduced_motion.fade_ms } else { spec.duration_ms };
+    Some((ms / total.max(1) as f32).clamp(0., 1.))
+}
+
+/// The badge's opacity at entrance progress `t`: the mark's fade curve,
+/// or the reduced-motion fade.
+fn badge_fade_at(t: f32) -> f32 {
+    if theme::motion::reduce_motion() {
+        return t;
+    }
+    let lead_at = ASSISTANT_FAB.entrance.scale_times[1].max(f32::EPSILON);
+    theme::motion::decelerate()((t / lead_at).min(1.))
+}
+
 /// The entrance's fade alone (the badge's share of it): the mark's opacity
 /// curve, or the reduced-motion fade.
 fn entrance_fade(element: gpui::Div) -> impl IntoElement {
     let spec = &ASSISTANT_FAB.entrance;
-    if theme::motion::reduce_motion() {
-        return element
-            .with_animation(
-                "assistant-fab-entrance-badge",
-                Animation::new(Duration::from_millis(spec.reduced_motion.fade_ms)),
-                |badge, t| badge.opacity(t),
-            )
-            .into_any_element();
+    if let Some(t) = frozen_entrance_t() {
+        return element.opacity(badge_fade_at(t)).into_any_element();
     }
-    let lead_at = spec.scale_times[1].max(f32::EPSILON);
+    let lasts = if theme::motion::reduce_motion() { spec.reduced_motion.fade_ms } else { spec.duration_ms };
     element
         .with_animation(
             "assistant-fab-entrance-badge",
-            Animation::new(Duration::from_millis(spec.duration_ms)),
-            move |badge, t| badge.opacity(theme::motion::decelerate()((t / lead_at).min(1.))),
+            Animation::new(Duration::from_millis(lasts)),
+            |badge, t| badge.opacity(badge_fade_at(t)),
         )
         .into_any_element()
 }
@@ -823,7 +837,11 @@ fn entrance_fade(element: gpui::Div) -> impl IntoElement {
 /// scale, so the mark's own size carries it.
 fn entrance(look: FabLook) -> impl IntoElement {
     let spec = &ASSISTANT_FAB.entrance;
+    let frozen = frozen_entrance_t();
     if theme::motion::reduce_motion() {
+        if let Some(t) = frozen {
+            return fab_mark(&look, 1.).opacity(t).into_any_element();
+        }
         return fab_mark(&look, 1.)
             .with_animation(
                 "assistant-fab-entrance",
@@ -832,43 +850,46 @@ fn entrance(look: FabLook) -> impl IntoElement {
             )
             .into_any_element();
     }
-    let total = spec.duration_ms.max(1) as f32;
-    let ripple = spec.ripple;
-    let rise = spec.rise_y;
-    let (stops, times) = (spec.scale, spec.scale_times);
-    div()
-        .absolute()
-        .top_0()
-        .left_0()
-        .size(px(fab_px()))
+    let layer = div().absolute().top_0().left_0().size(px(fab_px()));
+    if let Some(t) = frozen {
+        return entrance_frame(layer, &look, t).into_any_element();
+    }
+    layer
         .with_animation(
             "assistant-fab-entrance",
             Animation::new(Duration::from_millis(spec.duration_ms)),
-            move |layer, t| {
-                let ease = theme::motion::decelerate();
-                // The rise + fade ride the first leg (to the overshoot).
-                let lead = ease((t / times[1].max(f32::EPSILON)).min(1.));
-                let scale = entrance_scale(t, stops, times);
-                let ms = t * total;
-                let ring = ((ms - ripple.start_ms as f32) / ripple.duration_ms.max(1) as f32).clamp(0., 1.);
-                let ring_on = ripple.count > 0 && ms >= ripple.start_ms as f32 && ring < 1.;
-                let size = fab_px();
-                let spread = ripple.spread_px * ease(ring);
-                layer
-                    .children(ring_on.then(|| {
-                        div()
-                            .absolute()
-                            .top(px(-spread))
-                            .left(px(-spread))
-                            .size(px(size + spread * 2.))
-                            .rounded_full()
-                            .border_2()
-                            .border_color(look.ink.opacity(0.45 * (1. - ring)))
-                    }))
-                    .child(fab_mark(&look, scale).top(px(rise * (1. - lead))).opacity(lead))
-            },
+            move |layer, t| entrance_frame(layer, &look, t),
         )
         .into_any_element()
+}
+
+/// THE entrance's frame at progress `t` (0..1) on `layer`.
+fn entrance_frame(layer: gpui::Div, look: &FabLook, t: f32) -> gpui::Div {
+    let spec = &ASSISTANT_FAB.entrance;
+    let total = spec.duration_ms.max(1) as f32;
+    let ripple = spec.ripple;
+    let (stops, times) = (spec.scale, spec.scale_times);
+    let ease = theme::motion::decelerate();
+    // The rise + fade ride the first leg (to the overshoot).
+    let lead = ease((t / times[1].max(f32::EPSILON)).min(1.));
+    let scale = entrance_scale(t, stops, times);
+    let ms = t * total;
+    let ring = ((ms - ripple.start_ms as f32) / ripple.duration_ms.max(1) as f32).clamp(0., 1.);
+    let ring_on = ripple.count > 0 && ms >= ripple.start_ms as f32 && ring < 1.;
+    let size = fab_px();
+    let spread = ripple.spread_px * ease(ring);
+    layer
+        .children(ring_on.then(|| {
+            div()
+                .absolute()
+                .top(px(-spread))
+                .left(px(-spread))
+                .size(px(size + spread * 2.))
+                .rounded_full()
+                .border_2()
+                .border_color(look.ink.opacity(0.45 * (1. - ring)))
+        }))
+        .child(fab_mark(look, scale).top(px(spec.rise_y * (1. - lead))).opacity(lead))
 }
 
 /// The Assistant conversation tree's waiting cards (web `useWaitingCards`):
@@ -1075,7 +1096,8 @@ impl Render for AssistantFab {
             self.remember(cx, |memory| memory.entered = true);
             let spec = &ASSISTANT_FAB.entrance;
             let lasts = if theme::motion::reduce_motion() { spec.reduced_motion.fade_ms } else { spec.duration_ms };
-            self._entrance_done = Some(cx.spawn(async move |this, cx| {
+            // A frozen capture frame (`EXP_DEV_FAB_ENTRANCE_AT_MS`) never ends.
+            self._entrance_done = frozen_entrance_t().is_none().then(|| cx.spawn(async move |this, cx| {
                 cx.background_executor().timer(Duration::from_millis(lasts + 50)).await;
                 let _ = this.update(cx, |this, cx| {
                     this.entrance = Entrance::Done;
