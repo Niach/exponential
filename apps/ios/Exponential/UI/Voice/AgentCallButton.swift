@@ -5,7 +5,8 @@ import SwiftUI
 
 /// NEW-69 (voice-call.json ENTRY): THE telephone in the agent chat's header,
 /// left of `…`, the header's own icon button (the bare toolbar glyph the `…`
-/// wears). Disabled = visible and dimmed; a long press toasts the reason.
+/// wears). Disabled = visible and dimmed; #EXP-1878: a tap toasts the
+/// reason (`callTap`, voice-call.json `tapCases`).
 /// Never in the Agents list.
 struct AgentCallButton: View {
     let agentId: String
@@ -27,7 +28,9 @@ struct AgentCallButton: View {
         let target = model.target(agentDevice: agentDevice)
         let availability = target.availability
         Button {
-            guard target.enabled else { return }
+            let tap = VoiceCall.callTap(.phone, availability)
+            if let reason = tap.toast { toaster.info(reason) }
+            guard tap.call else { return }
             VoiceCallClient.shared.start(
                 accountId: accountId,
                 agentId: agentId,
@@ -43,9 +46,6 @@ struct AgentCallButton: View {
                 opacity: availability.enabled ? TextOpacity.secondary : TextOpacity.quaternary
             )
         }
-        .simultaneousGesture(LongPressGesture().onEnded { _ in
-            if let reason = availability.reason { toaster.info(reason) }
-        })
         .accessibilityLabel(VoiceCall.Copy.call(agent: agentName))
         .accessibilityHint(availability.reason ?? "")
         .accessibilityIdentifier(VoiceCall.TestIds.call)

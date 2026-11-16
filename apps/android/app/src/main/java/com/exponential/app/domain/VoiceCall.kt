@@ -219,6 +219,15 @@ object VoiceCall {
 
     data class Availability(val enabled: Boolean, val reason: String?)
 
+    /** #EXP-1878 (`tapCases`): what a press on the telephone does: call, or
+     *  (a phone's tap on a disabled one) toast the reason; web and the
+     *  desktop show it as the disabled control's tooltip. */
+    data class Tap(val call: Boolean, val toast: String?)
+
+    fun callTap(platform: Platform, availability: Availability): Tap =
+        if (availability.enabled) Tap(call = true, toast = null)
+        else Tap(call = false, toast = availability.reason.takeIf { platform == Platform.Phone })
+
     /** Whether the telephone is enabled, and the reason when it is not. S-3:
      *  a voice that is still downloading rings until it is ready. */
     fun callAvailability(input: AvailabilityInput): Availability {
