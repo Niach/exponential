@@ -60,9 +60,12 @@
     "storeConflicts": "{count} diverged · kept in store/conflicts",
     "cargoSweepLabel": "Build cache",
     "cargoSweepFreed": "{size} freed · {when}",
-    "cargoSweepDryRun": "{size} stale · dry run · {when}"
+    "cargoSweepDryRun": "{size} stale · dry run · {when}",
+    "memoryLabel": "Memory",
+    "memoryThrottled": "{slice} at {used} of {high} · throttled, not offline"
   },
   "rules": [
+    "#EXP-1868: a device whose runs' slice is memory-throttled (coding::memory_pressure: the daemon's own cgroup ancestors with a memory.high, plus the user manager's expbg.slice; memory.current over memory.high, or memory.pressure full avg10 >= 10) adds ONE storage row: key `memory`, its own `label` = memoryLabel, state action (the warning tone, no pill), detail = memoryThrottled with {slice} the cgroup name and {used}/{high} in the disk row's GB format. Every command in that slice runs slowly then (docker, curl, ssh hang while ping answers): a session reads it as throttling, never as an outage. Never a blocker; the device never changes a cap. Not throttled = no row.",
     "#EXP-1865: a device whose shared cargo target sweep (coding::cargo_target_gc: free disk on the target's volume under settings.json cargoSweep.freeDiskGb, default 20) ever freed something adds ONE storage row under `disk`: key `cargo_sweep`, parent `disk` (indented), its own `label` = cargoSweepLabel, state off (grey, never a problem, no pill), detail = cargoSweepFreed with {size} in the disk row's GB format and {when} the device-local time of that sweep (`16 Nov 08:14`); a dry-run sweep (cargoSweep.dryRun) reads cargoSweepDryRun. No sweep yet = no row. Clients draw it like the kept-worktree rows and never compose the detail.",
     "EXP-1794: a device whose claude conversation-store migration parked diverged copies (store/conflicts/, nothing deleted) adds ONE storage row: key `store_conflicts`, its own `label` = storeConflictsLabel, state action (the warning tone, no pill), detail = storeConflicts with {count} = the parked files. None parked = no row.",
     "#FEED-192: a device whose key holder is not running (signed out, offline or its install not registered, past the one-minute start grace) adds ONE storage row: key `key_holder`, its own `label` = keyHolderLabel, state action (the warning tone, no pill), detail = keyHolderNotRunning. It cannot read or write encrypted chats until then, and it still runs everything else: never a blocker. A running holder adds no row. `exponential doctor` reads the daemon's state, since the holder lives in the daemon's process.",

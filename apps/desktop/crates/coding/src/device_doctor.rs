@@ -44,6 +44,9 @@ pub const KEY_STORE_CONFLICTS: &str = "store_conflicts";
 /// #EXP-1865: the storage row of the last shared cargo target sweep (see
 /// [`add_cargo_sweep`]).
 pub const KEY_CARGO_SWEEP: &str = "cargo_sweep";
+/// #EXP-1868: the storage row of a memory-throttled slice (see
+/// [`add_memory`]).
+pub const KEY_MEMORY: &str = "memory";
 /// NEW-55: the speech row when the voice is loaded.
 pub const READY: &str = "Ready";
 /// NEW-55: the speech row without a usable GPU (grey, no pill).
@@ -502,6 +505,7 @@ pub fn current(settings: &Settings, data_dir: &Path, report: &DoctorReport) -> D
     );
     add_store_conflicts(&mut doctor, crate::agent_profiles::claude_store_conflicts(data_dir));
     add_cargo_sweep(&mut doctor, crate::cargo_target_gc::last_sweep(data_dir).as_ref());
+    add_memory(&mut doctor, crate::memory_pressure::throttled_slice().as_ref());
     // NEW-59: the displays ride every doctor (register + heartbeat), so the
     // Work screen row can offer them before the switch is on.
     doctor.displays = crate::computer::displays().iter().map(DoctorDisplay::from).collect();
@@ -584,6 +588,28 @@ pub fn add_cargo_sweep_at(doctor: &mut DeviceDoctor, freed_bytes: u64, dry_run: 
         .detail(cargo_sweep(&size, dry_run, when));
     row.label = Some(CARGO_SWEEP_LABEL.to_string());
     doctor.items.push(row);
+}
+
+/// #EXP-1868: the row of a slice over its `memory.high` (a warning, no pill,
+/// never a blocker): every command in it runs throttled, which reads like an
+/// outage from inside. Not throttled = no row.
+pub fn add_memory(doctor: &mut DeviceDoctor, throttled: Option<&crate::memory_pressure::SliceMemory>) {
+    let Some(slice) = throttled.filter(|slice| slice.throttled()) else { return };
+    let mut row = item(KEY_MEMORY, DoctorGroup::Storage, DoctorState::Action).detail(memory_throttled(
+        &slice.name,
+        &crate::worktree_lifecycle::format_free(slice.current),
+        &crate::worktree_lifecycle::format_free(slice.high),
+    ));
+    row.label = Some(MEMORY_LABEL.to_string());
+    doctor.items.push(row);
+}
+
+/// The fixture's `memoryLabel`.
+pub const MEMORY_LABEL: &str = "Memory";
+
+/// The fixture's `memoryThrottled` template.
+pub fn memory_throttled(slice: &str, used: &str, high: &str) -> String {
+    format!("{slice} at {used} of {high} · throttled, not offline")
 }
 
 /// The fixture's `cargoSweepLabel`.
@@ -1057,6 +1083,30 @@ mod tests {
         assert_eq!(row.action, None);
         assert_eq!(row.label.as_deref(), copy["storeConflictsLabel"].as_str());
         assert_eq!(store_conflicts(2), copy["storeConflicts"].as_str().unwrap().replace("{count}", "2"));
+        // #EXP-1868: a throttled slice adds the Memory warning; a calm one none.
+        let mut doctor = DeviceDoctor { checked_at: String::new(), items: Vec::new(), displays: Vec::new(), desktop_audio: None };
+        let calm = crate::memory_pressure::SliceMemory { name: "expbg.slice".into(), current: 12_000_000_000, high: 16_000_000_000, full_avg10: 0.0 };
+        add_memory(&mut doctor, Some(&calm));
+        add_memory(&mut doctor, None);
+        assert!(doctor.items.is_empty(), "not throttled, no row");
+        let over = crate::memory_pressure::SliceMemory { current: 17_400_000_000, full_avg10: 75.0, ..calm };
+        add_memory(&mut doctor, Some(&over));
+        let row = &doctor.items[0];
+        assert_eq!((row.key.as_str(), row.group, row.state), (KEY_MEMORY, DoctorGroup::Storage, DoctorState::Action));
+        assert_eq!(row.action, None);
+        assert_eq!(row.label.as_deref(), copy["memoryLabel"].as_str());
+        assert_eq!(
+            row.detail.as_deref(),
+            Some(
+                copy["memoryThrottled"]
+                    .as_str()
+                    .unwrap()
+                    .replace("{slice}", "expbg.slice")
+                    .replace("{used}", "17 GB")
+                    .replace("{high}", "16 GB")
+                    .as_str()
+            )
+        );
         // #EXP-1865: the Build cache row hangs off `disk`, grey.
         let last = crate::cargo_target_gc::SweepRecord {
             at: 1_763_280_000,

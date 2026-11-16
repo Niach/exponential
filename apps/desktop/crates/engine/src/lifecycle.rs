@@ -414,6 +414,17 @@ impl Attached {
         coding::codemode::revoke(&ctx.session_id);
         // NEW-58: and its screen-memory grant (the voice conversation's).
         coding::screen::revoke(&ctx.session_id);
+        // #EXP-1868: a session that ENDED takes what it started with it
+        // (its scopes: vite, gradle/kotlin daemons, emulators; the compose
+        // stacks of its worktree). An idle, suspended or released run keeps
+        // everything (`ends_row`), as does a replay.
+        if tears_down(ctx.replay, ctx.persistent, outcome) {
+            coding::session_teardown::end_session_processes_soon(
+                ctx.data_dir.clone(),
+                ctx.session_id.clone(),
+                Some(ctx.run.worktree.clone()).filter(|worktree| !worktree.as_os_str().is_empty()),
+            );
+        }
         ctx.exit.finish(&exit);
         // The host gets the full exit; `wait()` rebuilds it from the summary.
         life.host.on_exit(exit);
@@ -582,6 +593,13 @@ pub(crate) fn suspend_cuts_turn(outcome: Option<&str>, busy_at_shutdown: bool) -
 /// agent root) never does.
 fn ends_row(persistent: bool, outcome: &str) -> bool {
     !persistent && outcome != SUSPEND_OUTCOME
+}
+
+/// #EXP-1868: does this exit tear the session's processes down? Only an END:
+/// never an agent root's idle, a suspend, a release to another device or a
+/// transcript replay.
+fn tears_down(replay: bool, persistent: bool, outcome: &str) -> bool {
+    !replay && ends_row(persistent, outcome) && outcome != RELEASED_OUTCOME
 }
 
 /// EXP-1292: an agent root (or a suspended session) whose process is gone —
@@ -1513,6 +1531,18 @@ mod tests {
         assert!(!ends_row(false, SUSPEND_OUTCOME));
         assert!(!ends_row(true, "ended"));
         assert!(!ends_row(true, SUSPEND_OUTCOME));
+    }
+
+    /// #EXP-1868: only an ended session's exit tears its processes down; an
+    /// idle (agent root), a suspend, a release and a replay keep them.
+    #[test]
+    fn only_an_end_tears_the_sessions_processes_down() {
+        assert!(tears_down(false, false, "ended"));
+        assert!(tears_down(false, false, "killed"));
+        assert!(!tears_down(false, false, SUSPEND_OUTCOME));
+        assert!(!tears_down(false, false, RELEASED_OUTCOME));
+        assert!(!tears_down(false, true, "ended"));
+        assert!(!tears_down(true, false, "ended"));
     }
 
     #[test]

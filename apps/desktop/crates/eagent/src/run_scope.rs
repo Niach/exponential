@@ -39,6 +39,15 @@
 //! - `EXP_RUN_MEMORY_MAX=<systemd value>` (`4G`, `60%`): each run's
 //!   `MemoryMax=`; unset or empty = no per-run limit (isolation only).
 //!
+//! #EXP-1868: a run's scope is NAMED after its session
+//! (`run-exp-<session id>-<nonce>.scope`, [`ScopeMode::wrap_for`]): the
+//! session's agent and everything it starts (vite, gradle and kotlin daemons,
+//! emulators) live in it whatever process group they `setsid` into, and when
+//! the session ENDS [`stop_session_scopes`] stops exactly those scopes (the
+//! `run-` prefix keeps `run-.scope.d`'s expbg.slice drop-in). Before this a
+//! scope was `run-<random>`, nothing could find a session's scopes again, and
+//! `--collect` kept every scope alive as long as one leftover lived in it.
+//!
 //! Anything that keeps a scope from working (not Linux, no `systemd-run`, no
 //! reachable user manager, an older systemd that refuses a property) falls
 //! back SILENTLY to the plain spawn: one probe per process
@@ -48,6 +57,11 @@ use std::sync::OnceLock;
 
 /// The disable switch.
 pub const RUN_SCOPE_ENV: &str = "EXP_RUN_SCOPE";
+/// #EXP-1868: the session a spawn belongs to, read off its own environment
+/// (the launcher's `coding::MCP_SESSION_ID_ENV`).
+pub const SESSION_ENV: &str = "EXP_MCP_SESSION_ID";
+/// The unit-name prefix of a session's scopes.
+const SESSION_SCOPE_PREFIX: &str = "run-exp-";
 /// The per-run memory cap.
 pub const RUN_MEMORY_MAX_ENV: &str = "EXP_RUN_MEMORY_MAX";
 /// The nice level of every agent run (PERF-4): below the desktop, above a
@@ -145,6 +159,14 @@ impl ScopeMode {
 
     /// The argv that runs `program args` under this mode (program first).
     pub fn wrap(&self, program: &str, args: &[String]) -> Vec<String> {
+        self.wrap_for(program, args, None)
+    }
+
+    /// [`Self::wrap`] for `session`'s run: its scope is named
+    /// `run-exp-<session>-<nonce>.scope` (#EXP-1868), so
+    /// [`stop_session_scopes`] finds it when the session ends. A session id
+    /// that cannot be a unit name runs in an anonymous scope.
+    pub fn wrap_for(&self, program: &str, args: &[String], session: Option<&str>) -> Vec<String> {
         match self {
             ScopeMode::Off => std::iter::once(program.to_string()).chain(args.iter().cloned()).collect(),
             ScopeMode::Systemd { user, oom_policy, no_expand, background, memory_max } => {
@@ -153,6 +175,9 @@ impl ScopeMode {
                     argv.push("--user".to_string());
                 }
                 argv.extend(["--scope", "--quiet", "--collect"].map(str::to_string));
+                if let Some(unit) = session.and_then(session_unit) {
+                    argv.push(format!("--unit={unit}"));
+                }
                 if *no_expand {
                     argv.push("--expand-environment=no".to_string());
                 }
@@ -172,6 +197,101 @@ impl ScopeMode {
             }
         }
     }
+}
+
+/// A unit-name-safe session id: ASCII letters, digits and `-`, 1..=64 long.
+fn valid_session(session: &str) -> bool {
+    !session.is_empty() && session.len() <= 64 && session.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+}
+
+/// A fresh unit name for one of `session`'s runs (a session re-spawns after
+/// an idle release or a switch: each run its own scope, all found by the
+/// session's pattern).
+fn session_unit(session: &str) -> Option<String> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    if !valid_session(session) {
+        return None;
+    }
+    let nonce = format!("{}x{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed));
+    Some(format!("{SESSION_SCOPE_PREFIX}{session}-{nonce}.scope"))
+}
+
+/// The glob naming every scope of `session` (`systemctl stop` takes it).
+pub fn session_scope_pattern(session: &str) -> Option<String> {
+    valid_session(session).then(|| format!("{SESSION_SCOPE_PREFIX}{session}-*.scope"))
+}
+
+/// The session a scope unit belongs to (`run-exp-<session>-<nonce>.scope`),
+/// `None` for any other unit.
+pub fn scope_session(unit: &str) -> Option<&str> {
+    let rest = unit.strip_prefix(SESSION_SCOPE_PREFIX)?.strip_suffix(".scope")?;
+    let (session, nonce) = rest.rsplit_once('-')?;
+    (valid_session(session) && !nonce.is_empty()).then_some(session)
+}
+
+/// The `systemctl` argv that talks to the manager `mode` wraps runs in.
+fn systemctl(mode: &ScopeMode) -> Option<Vec<String>> {
+    match mode {
+        ScopeMode::Off => None,
+        ScopeMode::Systemd { user, .. } => {
+            let mut argv = vec!["systemctl".to_string()];
+            if *user {
+                argv.push("--user".to_string());
+            }
+            Some(argv)
+        }
+    }
+}
+
+/// #EXP-1868: the argv that stops every scope of `session`: SIGTERM to every
+/// process in them (whatever process group it moved to), SIGKILL after the
+/// scope's stop timeout. `--no-block`: the end never waits on a slow vite.
+pub fn stop_session_scopes_argv(mode: &ScopeMode, session: &str) -> Option<Vec<String>> {
+    let mut argv = systemctl(mode)?;
+    argv.extend(["stop".to_string(), "--no-block".to_string(), session_scope_pattern(session)?]);
+    Some(argv)
+}
+
+/// Stops every scope `session`'s runs live in on this host (its agent and
+/// everything that agent started). Only the ENDED session's own scopes,
+/// matched by unit name, never a process name. False = nothing could be
+/// asked (no scopes on this host, or systemctl failed).
+pub fn stop_session_scopes(session: &str) -> bool {
+    let Some(argv) = stop_session_scopes_argv(ScopeMode::current(), session) else { return false };
+    log::info!("run scope: stopping session {session}'s scopes");
+    run_ok(&argv)
+}
+
+/// The sessions that have a scope on this host right now (live or leftover).
+pub fn sessions_with_scopes() -> Vec<String> {
+    let Some(mut argv) = systemctl(ScopeMode::current()) else { return Vec::new() };
+    argv.extend(
+        ["list-units", "--type=scope", "--no-legend", "--plain", "--state=active"]
+            .map(str::to_string),
+    );
+    argv.push(format!("{SESSION_SCOPE_PREFIX}*"));
+    let Some((program, args)) = argv.split_first() else { return Vec::new() };
+    let output = crate::process::background_command(program)
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output();
+    let Ok(output) = output else { return Vec::new() };
+    parse_scope_sessions(&String::from_utf8_lossy(&output.stdout))
+}
+
+/// The distinct sessions in `systemctl list-units --plain` output.
+pub fn parse_scope_sessions(listing: &str) -> Vec<String> {
+    let mut sessions: Vec<String> = listing
+        .lines()
+        .filter_map(|line| line.split_whitespace().next())
+        .filter_map(scope_session)
+        .map(str::to_string)
+        .collect();
+    sessions.sort();
+    sessions.dedup();
+    sessions
 }
 
 /// The command every candidate mode must run: it exits 0 only when its `$0`
@@ -269,6 +389,43 @@ mod tests {
             system.wrap("codex", &[]),
             s(&["systemd-run", "--scope", "--quiet", "--collect", "--", "codex"])
         );
+    }
+
+    /// #EXP-1868: a session's run lands in a scope named after the session,
+    /// still under the `run-` prefix the expbg.slice drop-in matches, and
+    /// its end stops exactly that session's scopes.
+    #[test]
+    fn a_sessions_scope_is_named_after_it_and_stopped_by_that_name() {
+        let mode = ScopeMode::Systemd { user: true, oom_policy: false, no_expand: false, background: false, memory_max: None };
+        let session = "36b5b51a-dde0-47d7-af90-b4b008e11df5";
+        let argv = mode.wrap_for("claude", &[], Some(session));
+        let unit = argv.iter().find_map(|arg| arg.strip_prefix("--unit=")).expect("a named unit");
+        assert!(unit.starts_with(&format!("run-exp-{session}-")) && unit.ends_with(".scope"), "{unit}");
+        assert_eq!(scope_session(unit), Some(session));
+        let unit_index = argv.iter().position(|arg| arg.starts_with("--unit=")).unwrap();
+        assert!(unit_index < argv.iter().position(|arg| arg == "--").unwrap(), "a systemd-run option");
+        let second = mode.wrap_for("claude", &[], Some(session));
+        assert_ne!(argv, second, "every run of a session gets its own scope");
+        assert_eq!(
+            stop_session_scopes_argv(&mode, session).unwrap(),
+            s(&["systemctl", "--user", "stop", "--no-block", &format!("run-exp-{session}-*.scope")])
+        );
+        // Anonymous as before: no session, an id no unit name may carry, no scope.
+        assert!(!mode.wrap_for("claude", &[], None).iter().any(|arg| arg.starts_with("--unit=")));
+        assert!(!mode.wrap_for("claude", &[], Some("a b*")).iter().any(|arg| arg.starts_with("--unit=")));
+        assert_eq!(stop_session_scopes_argv(&mode, "*"), None, "a glob is never a session");
+        assert_eq!(stop_session_scopes_argv(&ScopeMode::Off, session), None);
+    }
+
+    #[test]
+    fn a_scope_listing_names_its_sessions() {
+        let listing = "run-exp-aaaa-1-1x0.scope loaded active running run-exp-aaaa-1-1x0.scope\n\
+                       run-exp-aaaa-1-1x3.scope loaded active running x\n\
+                       run-r485b88db7b08438d94d2e98969efc61c.scope loaded active running x\n\
+                       run-exp-bbbb-77x2.scope loaded active abandoned x\n";
+        assert_eq!(parse_scope_sessions(listing), s(&["aaaa-1", "bbbb"]));
+        assert_eq!(scope_session("run-exp-.scope"), None);
+        assert_eq!(scope_session("session-c2.scope"), None);
     }
 
     #[cfg(target_os = "linux")]

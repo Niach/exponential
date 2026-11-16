@@ -293,7 +293,10 @@ impl Drop for ChildGuard {
 /// the pid and pipes below are the agent's own.
 pub fn spawn_lines(spec: &SpawnSpec, stderr: StderrPolicy) -> std::io::Result<ChildLines> {
     let mode = crate::run_scope::ScopeMode::current();
-    let argv = mode.wrap(&spec.program, &spec.args);
+    // #EXP-1868: a session's run gets the scope its end stops by name.
+    let session =
+        spec.env.iter().find(|(key, _)| key == crate::run_scope::SESSION_ENV).map(|(_, value)| value.as_str());
+    let argv = mode.wrap_for(&spec.program, &spec.args, session);
     let mut cmd = background_command(&argv[0]);
     cmd.env("PATH", login_path());
     for (key, value) in &spec.env {
@@ -508,6 +511,38 @@ mod tests {
             .recv_timeout(Duration::from_secs(10))
             .expect("cat echoes the line back");
         assert_eq!(echoed, r#"{"jsonrpc":"2.0","method":"initialize"}"#);
+    }
+
+    /// #EXP-1868, end to end on a host that scopes runs: a leftover the
+    /// session's agent `setsid`ed away (a vite, a gradle daemon) outlives the
+    /// agent's process group kill, and the session's scope stop takes it.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_sessions_setsid_leftover_dies_with_its_scope() {
+        if *crate::run_scope::ScopeMode::current() == crate::run_scope::ScopeMode::Off {
+            return;
+        }
+        let session = format!("00000000-0000-4000-8000-{:012}", std::process::id());
+        let spec = SpawnSpec::new("sh")
+            .args(["-c", "setsid sleep 300 >/dev/null 2>&1 & echo $!; cat"])
+            .env(crate::run_scope::SESSION_ENV, &session);
+        let child = spawn_lines(&spec, StderrPolicy::Drop).expect("sh spawns");
+        let leftover: i32 =
+            child.lines.recv_timeout(Duration::from_secs(10)).expect("the leftover's pid").trim().parse().unwrap();
+        let alive = |pid: i32| unsafe { libc::kill(pid, 0) == 0 };
+        drop(child);
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(alive(leftover), "the agent's group kill misses a setsid leftover");
+        assert!(crate::run_scope::stop_session_scopes(&session), "the stop is asked");
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        while alive(leftover) && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let gone = !alive(leftover);
+        if !gone {
+            unsafe { libc::kill(leftover, libc::SIGKILL) };
+        }
+        assert!(gone, "the session's scope stop takes its leftover");
     }
 
     /// PERF-4: a run starts at the run's nice level, scope or not (a scope
