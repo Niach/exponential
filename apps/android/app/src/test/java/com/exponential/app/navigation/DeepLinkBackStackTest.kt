@@ -1,10 +1,13 @@
 package com.exponential.app.navigation
 
 import android.app.Application
+import androidx.navigation.NavDestination
+import androidx.navigation.NavDestinationBuilder
+import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavType
+import androidx.navigation.Navigator
 import androidx.navigation.createGraph
 import androidx.navigation.testing.TestNavHostController
-import androidx.navigation.testing.test
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -29,24 +32,27 @@ class DeepLinkBackStackTest {
     fun setUp() {
         nav = TestNavHostController(RuntimeEnvironment.getApplication())
         nav.graph = nav.createGraph(startDestination = MainTabs.AGENT) {
-            MainTabs.routes.forEach { test(it) }
-            test(MainTabs.INBOX)
-            test(Routes.CHAT_PATTERN) {
-                listOf("tab", "plan", "card").forEach { name ->
+            MainTabs.routes.forEach { screen(it) }
+            screen(MainTabs.INBOX)
+            screen(Routes.CHAT_PATTERN, "tab", "plan", "card")
+            screen(Routes.SESSION_PATTERN)
+            screen(ISSUE_ROUTE, "comment")
+        }
+    }
+
+    /** A destination on the test navigator (any name resolves to one). */
+    private fun NavGraphBuilder.screen(route: String, vararg optional: String) {
+        val navigator = provider.getNavigator<Navigator<NavDestination>>("test")
+        destination(
+            NavDestinationBuilder(navigator, route).apply {
+                optional.forEach { name ->
                     argument(name) {
                         type = NavType.StringType
                         nullable = true
                     }
                 }
-            }
-            test(Routes.SESSION_PATTERN)
-            test(ISSUE_ROUTE) {
-                argument("comment") {
-                    type = NavType.StringType
-                    nullable = true
-                }
-            }
-        }
+            },
+        )
     }
 
     private fun routes() = nav.currentBackStack.value.map { it.destination.route }
