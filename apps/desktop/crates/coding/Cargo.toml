@@ -83,6 +83,11 @@ log = "0.4"
 # gpui-facing driver the optional dep once carried went with the PTY path
 # (EXP-773), and nothing under `src/` has referenced it since.
 
+# #EXP-1865: free disk on Windows (GetDiskFreeSpaceExW) for the `disk` row
+# and the cargo target sweep's trigger.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Storage_FileSystem"] }
+
 [dev-dependencies]
 # EXP-1458: the MCP gateway tests run a fake upstream on loopback and call
 # the gateway over HTTP (both already in the tree via codemode).

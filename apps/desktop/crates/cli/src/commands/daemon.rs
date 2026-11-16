@@ -833,7 +833,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
             let trpc = Arc::clone(&ctx.trpc);
             let running = Arc::clone(&cargo_gc_running);
             std::thread::spawn(move || {
-                sweep_cargo_targets(&repos_root);
+                sweep_cargo_targets(&repos_root, &data_dir);
                 if let Some(open) = open {
                     sweep_stale_worktrees(&repos_root, &data_dir, live, open, &trpc);
                 }
@@ -2648,25 +2648,16 @@ fn run_device_command(
     }
 }
 
-/// EXP-1353: offer every clone under `repos_root` to the shared cargo target
-/// GC (`coding::cargo_target_gc`, throttled per clone). Returns the clones
+/// EXP-1353 / #EXP-1865: offer every clone under `repos_root` to the shared
+/// cargo target sweep (`coding::cargo_target_gc`: only while its disk is
+/// low, throttled per target; it logs its own line). Returns the clones
 /// actually walked.
-fn sweep_cargo_targets(repos_root: &Path) -> Vec<String> {
+fn sweep_cargo_targets(repos_root: &Path, data_dir: &Path) -> Vec<String> {
     let mut walked = Vec::new();
     for clone in coding::scan_clones(repos_root) {
-        let Some(report) = coding::cargo_target_gc::sweep_if_due(&clone.path) else {
-            continue;
-        };
-        if report.bytes_freed > 0 || !report.skipped_locked.is_empty() {
-            log::info!(
-                "cargo-target gc {}: freed {} of {} bytes, skipped locked {:?}",
-                clone.full_name,
-                report.bytes_freed,
-                report.bytes_before,
-                report.skipped_locked,
-            );
+        if coding::cargo_target_gc::sweep_if_due(&clone.path, data_dir).is_some() {
+            walked.push(clone.full_name);
         }
-        walked.push(clone.full_name);
     }
     walked
 }
@@ -4186,21 +4177,30 @@ mod tests {
     }
 
     #[test]
-    fn sweep_cargo_targets_walks_each_clone_once_per_interval() {
+    fn sweep_cargo_targets_walks_each_low_target_once_per_interval() {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
         let root = std::env::temp_dir().join(format!("exp-cli-gc-{}-{nanos}", std::process::id()));
+        let data_dir = root.join("data");
+        std::fs::create_dir_all(&data_dir).unwrap();
         for name in ["acme/web", "acme/api"] {
             std::fs::create_dir_all(root.join(name).join(".git")).unwrap();
         }
-        // A bare sibling is no clone.
+        // Only web has a shared target (a bare sibling is no clone).
         std::fs::create_dir_all(root.join("acme/web.cargo-target")).unwrap();
-        let first = sweep_cargo_targets(&root);
-        let second = sweep_cargo_targets(&root);
+        std::fs::write(root.join("acme/web.cargo-target/CACHEDIR.TAG"), "").unwrap();
+        // Not low: nothing walked.
+        std::fs::write(data_dir.join("settings.json"), r#"{"cargoSweep":{"freeDiskGb":0}}"#).unwrap();
+        let idle = sweep_cargo_targets(&root, &data_dir);
+        // Low (every disk is under 100 PB): walked once, then throttled.
+        std::fs::write(data_dir.join("settings.json"), r#"{"cargoSweep":{"freeDiskGb":100000000}}"#).unwrap();
+        let first = sweep_cargo_targets(&root, &data_dir);
+        let second = sweep_cargo_targets(&root, &data_dir);
         let _ = std::fs::remove_dir_all(&root);
-        assert_eq!(first, vec!["acme/api".to_string(), "acme/web".to_string()]);
+        assert!(idle.is_empty());
+        assert_eq!(first, vec!["acme/web".to_string()]);
         assert!(second.is_empty());
     }
 

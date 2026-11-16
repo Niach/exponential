@@ -19,6 +19,12 @@ scripts/lanes/lane.sh <ios|android|heavy> <owner> [--own-target] -- <command...>
   takes over a lock whose pid is gone. Release only your own
   (`release_lock <dir> <owner>`); never `rm` a lock.
 
+- **Disk:** once it holds a slot, `lane.sh` runs `exponential sweep-target
+  --if-low "$CARGO_TARGET_DIR"` before the command: while the target's disk is
+  under `cargoSweep.freeDiskGb` (settings.json, default 20) it deletes stale
+  build output from the shared target (#EXP-1865, the daemon's rule), else
+  nothing.
+
 ## Own target for anything that must be YOUR code
 
 Dev machines export one shared `CARGO_TARGET_DIR` so worktrees share a build

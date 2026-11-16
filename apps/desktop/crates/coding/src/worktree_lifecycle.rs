@@ -397,7 +397,7 @@ pub fn kept_rows(data_dir: &Path) -> Vec<KeptRow> {
 }
 
 /// The free bytes available to this user on the volume holding `path` (its
-/// nearest existing ancestor). `None` = unreadable (and on Windows for now).
+/// nearest existing ancestor). `None` = unreadable.
 pub fn free_bytes(path: &Path) -> Option<u64> {
     let mut probe = path;
     while !probe.exists() {
@@ -420,7 +420,25 @@ fn free_bytes_at(path: &Path) -> Option<u64> {
     Some((stat.f_bavail as u64).saturating_mul(stat.f_frsize as u64))
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn free_bytes_at(path: &Path) -> Option<u64> {
+    use std::os::windows::ffi::OsStrExt;
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+    let mut available: u64 = 0;
+    // SAFETY: `wide` is a NUL-terminated UTF-16 path; the out-parameter is a
+    // valid u64 and the two optional ones are null.
+    let ok = unsafe {
+        windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW(
+            wide.as_ptr(),
+            &mut available,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    };
+    (ok != 0).then_some(available)
+}
+
+#[cfg(not(any(unix, windows)))]
 fn free_bytes_at(_path: &Path) -> Option<u64> {
     None
 }
