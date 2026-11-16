@@ -829,10 +829,25 @@ fn run_daemon(args: &[String]) -> CommandResult {
                         &read_shape_rows::<domain::rows::PullRequestRow>(&store, "pull_requests"),
                     )
                 });
+            // #EXP-1868: the sessions that ended while no run of them was
+            // live here (idle first, or this host restarted) still hold
+            // their scopes and compose stacks: the sweep takes them.
+            let synced_sessions = pickup
+                .store()
+                .filter(|_| synced.ready(SWEEP_SHAPES))
+                .map(|store| read_shape_rows::<SessionRow>(&store, "sessions"));
+            let live_ids: std::collections::HashSet<String> = lock_sessions(&sessions)
+                .iter()
+                .filter(|live| !live.session.is_done())
+                .map(|live| live.session.session_id.clone())
+                .collect();
             let data_dir = ctx.data_dir.clone();
             let trpc = Arc::clone(&ctx.trpc);
             let running = Arc::clone(&cargo_gc_running);
             std::thread::spawn(move || {
+                if let Some(rows) = synced_sessions {
+                    coding::session_teardown::sweep_ended(&data_dir, &rows, &live_ids);
+                }
                 sweep_cargo_targets(&repos_root, &data_dir);
                 if let Some(open) = open {
                     sweep_stale_worktrees(&repos_root, &data_dir, live, open, &trpc);
