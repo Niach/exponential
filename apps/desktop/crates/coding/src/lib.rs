@@ -91,6 +91,7 @@ pub mod sealing;
 pub mod scm;
 pub mod wip_save;
 pub mod session_retention;
+pub mod session_env;
 pub mod session_manifest;
 pub mod session_teardown;
 pub mod settings;

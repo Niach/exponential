@@ -2613,7 +2613,8 @@ fn session_spawn(
             )
             .env("CARGO_INCREMENTAL", "0");
     }
-    spawn
+    // #EXP-1875: no AppImage identity, and the session's own XDG dirs.
+    crate::session_env::apply(spawn, Some(session_id))
 }
 
 /// EXP-1292 — RESUME a session natively (blocking, background executor): a
@@ -3612,6 +3613,9 @@ pub fn prepare_agent_shell(
             shared_cargo_target_dir(&clone).to_string_lossy().into_owned(),
         )
         .env("CARGO_INCREMENTAL", "0");
+    // #EXP-1875: an agent shell is no session (no own XDG dirs), but it
+    // never passes the IDE's AppImage identity on either.
+    spawn = crate::session_env::apply(spawn, None);
 
     Ok(PreparedAgentShell::Ready(AgentShellLaunch {
         spawn,

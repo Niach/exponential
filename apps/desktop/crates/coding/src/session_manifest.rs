@@ -61,6 +61,27 @@ pub fn sessions_with_manifests(dir: &Path) -> Vec<String> {
     sessions
 }
 
+/// Append a `dir` entry to `session`'s manifest in `dir` (once; best-effort).
+/// The Rust twin of `scripts/lanes/session-manifest.sh add dir <path>`.
+pub fn record_dir(dir: &Path, session: &str, path: &Path) {
+    if !valid_session(session) || !path.is_absolute() {
+        return;
+    }
+    let file = dir.join(session);
+    let line = format!("dir\t{}", path.display());
+    if std::fs::read_to_string(&file).is_ok_and(|text| text.lines().any(|existing| existing == line)) {
+        return;
+    }
+    let appended = std::fs::create_dir_all(dir).and_then(|()| {
+        use std::io::Write as _;
+        let mut out = std::fs::OpenOptions::new().create(true).append(true).open(&file)?;
+        writeln!(out, "{line}")
+    });
+    if let Err(err) = appended {
+        log::warn!("session manifest [{session}]: could not record {}: {err:#}", path.display());
+    }
+}
+
 /// A manifest's entries in order, each once. Unknown kinds and malformed lines
 /// are skipped (a newer writer's kind is no reason to keep the rest).
 pub fn parse(text: &str) -> Vec<Entry> {
@@ -273,6 +294,21 @@ mod tests {
                 Entry::Compose("cap9122".into()),
             ]
         );
+    }
+
+    #[test]
+    fn a_recorded_dir_is_written_once_and_cleaned_with_the_session() {
+        let manifests = temp("record");
+        let xdg = std::env::temp_dir().join(format!("exp-manifest-record-xdg-{}", std::process::id()));
+        std::fs::create_dir_all(xdg.join("data")).unwrap();
+        record_dir(&manifests, "s1875", &xdg);
+        record_dir(&manifests, "s1875", &xdg);
+        record_dir(&manifests, "../bad", &xdg);
+        assert_eq!(parse(&std::fs::read_to_string(manifests.join("s1875")).unwrap()), vec![Entry::Dir(xdg.clone())]);
+        assert_eq!(std::fs::read_dir(&manifests).unwrap().count(), 1);
+        clean(&manifests, "s1875", None);
+        assert!(!xdg.exists());
+        let _ = std::fs::remove_dir_all(&manifests);
     }
 
     #[test]

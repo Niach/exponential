@@ -33,6 +33,7 @@ use sha2::Digest as _;
 
 pub mod app_shot;
 pub mod feed;
+pub mod install;
 pub mod restart;
 
 /// GitHub rejects API/asset calls without a User-Agent.
@@ -81,9 +82,14 @@ pub enum Capability {
 pub fn capability() -> Capability {
     #[cfg(target_os = "linux")]
     {
-        // Only AppImage runs self-update: `$APPIMAGE` is set by the AppImage
-        // runtime to the path being executed. Raw dev binaries stay banner-only.
-        appimage_capability(std::env::var_os("APPIMAGE").map(PathBuf::from))
+        // Only the USER's AppImage self-updates: `$APPIMAGE` names it, and
+        // this binary must run from its mount (#EXP-1875: an inherited
+        // `$APPIMAGE`, a debug build or an `EXP_DATA_DIR` test instance never
+        // swaps the user's file). Raw dev binaries stay banner-only.
+        match install::classify(&install::LaunchEnv::current()) {
+            install::Install::AppImage(appimage) => appimage_capability(Some(appimage)),
+            _ => Capability::BannerOnly,
+        }
     }
     #[cfg(target_os = "windows")]
     {
@@ -126,7 +132,12 @@ pub fn self_update_unavailable_reason() -> Option<String> {
     }
     #[cfg(target_os = "linux")]
     {
-        let Some(appimage) = std::env::var_os("APPIMAGE").map(PathBuf::from) else {
+        let appimage = match install::classify(&install::LaunchEnv::current()) {
+            install::Install::NotTheUsers(why) => return Some(why.reason().to_string()),
+            install::Install::AppImage(appimage) => Some(appimage),
+            install::Install::Binary(_) => None,
+        };
+        let Some(appimage) = appimage else {
             return Some(
                 "this install isn't running as an AppImage ($APPIMAGE is unset)".to_string(),
             );
