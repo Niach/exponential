@@ -270,26 +270,71 @@ public enum SessionScreen {
 
     /// One session of the tree, as `status(_:)` reads it.
     public struct StatusInput: Equatable, Sendable {
+        /// #FEED-257: the session's id.
+        public var id: String
         public var status: String
         public var busy: Bool
         public var needsInput: Bool
+        /// #FEED-257: its `blocked.kind` (a wall or a watchdog flag; nil = none).
+        public var blocked: String?
         /// The tree's root.
         public var root: Bool
 
-        public init(status: String, busy: Bool, needsInput: Bool, root: Bool) {
+        public init(id: String = "", status: String, busy: Bool, needsInput: Bool, blocked: String? = nil, root: Bool) {
+            self.id = id
             self.status = status
             self.busy = busy
             self.needsInput = needsInput
+            self.blocked = blocked
             self.root = root
         }
     }
 
+    /// #FEED-257: one waiting card of the chat (`chatPendingAsks`,
+    /// Conversation order).
+    public struct Ask: Equatable, Sendable {
+        public enum Kind: String, Sendable { case plan, question }
+        public var id: String
+        public var sessionId: String
+        public var kind: Kind
+
+        public init(id: String, sessionId: String, kind: Kind) {
+            self.id = id
+            self.sessionId = sessionId
+            self.kind = kind
+        }
+    }
+
+    /// #FEED-257: what the needs-input line opens.
+    public struct Waiting: Equatable, Sendable {
+        public enum Open: String, Sendable { case plan, card, session, chat }
+        public var open: Open
+        public var id: String
+
+        public init(open: Open, id: String) {
+            self.open = open
+            self.id = id
+        }
+    }
+
+    /// #FEED-257 (`waitingCases`): THE waiting item: the first ask, else the
+    /// first flagged non-root session that waits, else the root's own flag,
+    /// else nil (a stale `needsInput` with nothing to open is nothing).
+    public static func waiting(_ sessions: [StatusInput], asks: [Ask] = []) -> Waiting? {
+        if let ask = asks.first { return Waiting(open: ask.kind == .plan ? .plan : .card, id: ask.id) }
+        let flagged = sessions.filter { $0.status != "ended" && $0.needsInput && $0.blocked != nil }
+        if let child = flagged.first(where: { !$0.root }) { return Waiting(open: .session, id: child.id) }
+        if let root = flagged.first(where: \.root) { return Waiting(open: .chat, id: root.id) }
+        return nil
+    }
+
     /// THE tree's status word (`statusCases`, lowercase, never dropped):
-    /// needs input > working > queued (the root) > done (the root ended) > idle.
-    public static func status(_ sessions: [StatusInput]) -> String {
+    /// needs input (#FEED-257: only while something waits, `waiting`) >
+    /// working > queued (the root) > done (the root ended) > idle.
+    public static func status(_ sessions: [StatusInput], asks: [Ask] = []) -> String {
         let live = sessions.filter { $0.status != "ended" }
         let root = sessions.first { $0.root }
-        if live.contains(where: \.needsInput) { return Copy.Status.needsInput }
+        if waiting(sessions, asks: asks) != nil { return Copy.Status.needsInput }
         if live.contains(where: \.busy) { return Copy.Status.working }
         if root?.status == "queued" { return Copy.Status.queued }
         if root?.status == "ended" { return Copy.Status.done }

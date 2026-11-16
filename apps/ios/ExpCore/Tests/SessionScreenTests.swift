@@ -159,13 +159,53 @@ final class SessionScreenTests: XCTestCase {
             let input = try XCTUnwrap(testCase["input"] as? [[String: Any]], name)
             let sessions = try input.map { raw in
                 SessionScreen.StatusInput(
+                    id: string(raw["id"]) ?? "",
                     status: try XCTUnwrap(string(raw["status"]), name),
                     busy: try XCTUnwrap(raw["busy"] as? Bool, name),
                     needsInput: try XCTUnwrap(raw["needsInput"] as? Bool, name),
+                    blocked: string(raw["blocked"]),
                     root: try XCTUnwrap(raw["root"] as? Bool, name)
                 )
             }
-            XCTAssertEqual(SessionScreen.status(sessions), string(testCase["expected"]), name)
+            let asks = try self.asks(testCase["asks"], name)
+            XCTAssertEqual(SessionScreen.status(sessions, asks: asks), string(testCase["expected"]), name)
+        }
+    }
+
+    // #FEED-257: the needs-input line leads to THE waiting item.
+    func testReplaysEveryWaitingCase() throws {
+        let all = try cases("waitingCases")
+        XCTAssertFalse(all.isEmpty)
+        for testCase in all {
+            let name = string(testCase["name"]) ?? ""
+            let input = try XCTUnwrap(testCase["sessions"] as? [[String: Any]], name)
+            let sessions = try input.map { raw in
+                SessionScreen.StatusInput(
+                    id: try XCTUnwrap(string(raw["id"]), name),
+                    status: try XCTUnwrap(string(raw["status"]), name),
+                    busy: false,
+                    needsInput: try XCTUnwrap(raw["needsInput"] as? Bool, name),
+                    blocked: string(raw["blocked"]),
+                    root: try XCTUnwrap(raw["root"] as? Bool, name)
+                )
+            }
+            let expected = try (testCase["expected"] as? [String: Any]).map { raw in
+                SessionScreen.Waiting(
+                    open: try XCTUnwrap(SessionScreen.Waiting.Open(rawValue: try XCTUnwrap(string(raw["open"]), name)), name),
+                    id: try XCTUnwrap(string(raw["id"]), name)
+                )
+            }
+            XCTAssertEqual(SessionScreen.waiting(sessions, asks: try asks(testCase["asks"], name)), expected, name)
+        }
+    }
+
+    private func asks(_ value: Any?, _ name: String) throws -> [SessionScreen.Ask] {
+        try ((value as? [[String: Any]]) ?? []).map { raw in
+            SessionScreen.Ask(
+                id: try XCTUnwrap(string(raw["id"]), name),
+                sessionId: try XCTUnwrap(string(raw["sessionId"]), name),
+                kind: try XCTUnwrap(SessionScreen.Ask.Kind(rawValue: try XCTUnwrap(string(raw["kind"]), name)), name)
+            )
         }
     }
 }
