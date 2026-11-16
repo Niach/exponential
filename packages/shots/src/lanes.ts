@@ -62,6 +62,13 @@ export const RESOURCE_REASONS = {
   "ios-simulator": `the iOS package app drives the stock simulator`,
   "ios-lane-simulator": `the store and sg_* lanes share one exp-store simulator and DerivedData`,
   /**
+   * #PERF-11 (EXP-1839): `ExponentialUIFFI.xcframework` is the SDK's
+   * standalone library for the package example but the mobile FFI's link
+   * stub for the app; each lane rebuilds the one it links, so they never
+   * overlap.
+   */
+  "ios-ui-ffi": `the iOS package app and the app lanes link different ExponentialUIFFI.xcframework builds`,
+  /**
    * Preflight insists on exactly ONE attached adb device, and the package app,
    * screengrab, demo mode and the autofill toggle all drive it.
    */

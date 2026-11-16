@@ -88,14 +88,45 @@ export function deviceFfiAbi(abilist: string): FfiAbi | undefined {
   return undefined
 }
 
-/** The path the native library must have inside an apk for `abi`. */
-export function apkLibPath(abi: FfiAbi): string {
-  return `lib/${abi}/libexponential_ui_ffi.so`
+/**
+ * The native library an android lane builds and then requires in its apk.
+ * #PERF-11 (EXP-1842): the Exponential app links genUI, the Engine and P2P
+ * into ONE `libexponential_mobile_ffi.so` and excludes the standalone
+ * `libexponential_ui_ffi.so` (`apps/android/gradle.properties`
+ * `exponential.uiFfi.linkedByHost`); only the SDK's Compose example still
+ * ships the genUI facade on its own.
+ */
+export interface AndroidFfi {
+  /** The crate's `build-android.sh` (cargo-ndk; `ABIS` narrows it). */
+  script: string
+  /** Where the script writes `<abi>/<lib>`. */
+  jniLibs: string
+  lib: string
 }
 
-/** Does an `unzip -l <apk>` listing carry the FFI library for `abi`? */
-export function apkListingHasFfi(listing: string, abi: FfiAbi): boolean {
-  const wanted = apkLibPath(abi)
+export const ANDROID_FFI = {
+  /** The Compose example app (the `package` lanes). */
+  package: {
+    script: `apps/desktop/crates/exponential-ui-ffi/build-android.sh`,
+    jniLibs: `apps/desktop/crates/exponential-ui-ffi/out/jniLibs`,
+    lib: `libexponential_ui_ffi.so`,
+  },
+  /** The Exponential app (the fastlane lanes): `app/build.gradle.kts` `buildMobileFfi`. */
+  app: {
+    script: `apps/desktop/crates/exponential-mobile-ffi/build-android.sh`,
+    jniLibs: `apps/desktop/crates/exponential-mobile-ffi/out/jniLibs`,
+    lib: `libexponential_mobile_ffi.so`,
+  },
+} as const satisfies Record<string, AndroidFfi>
+
+/** The path `ffi`'s library must have inside an apk for `abi`. */
+export function apkLibPath(ffi: AndroidFfi, abi: FfiAbi): string {
+  return `lib/${abi}/${ffi.lib}`
+}
+
+/** Does an `unzip -l <apk>` listing carry `ffi`'s library for `abi`? */
+export function apkListingHasFfi(listing: string, ffi: AndroidFfi, abi: FfiAbi): boolean {
+  const wanted = apkLibPath(ffi, abi)
   return listing.split(`\n`).some((line) => line.trim().endsWith(wanted))
 }
 

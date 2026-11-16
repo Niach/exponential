@@ -46,6 +46,7 @@ import {
   type Platform,
 } from "@exp/view-catalog"
 import {
+  ANDROID_FFI,
   FFI_ABIS,
   apkLibPath,
   apkListingHasFfi,
@@ -53,9 +54,11 @@ import {
   deviceFfiAbi,
   resolveAndroidSdk,
   specimenState,
+  type AndroidFfi,
   type AndroidSdk,
   type FfiAbi,
 } from "./android.ts"
+import { IOS_MOBILE_FFI, iosFfiProblems, iosProjectMissing, iosSimArch } from "./ios.ts"
 import { baselineSkipNote, scopeSince, storeBaseline, type AffectedScope } from "./affected.ts"
 import {
   captureDesktop,
@@ -648,7 +651,7 @@ async function preflight(options: Options, scope: Scope): Promise<Check[]> {
     checks.push({
       label: `cargo (mobile FFI build)`,
       ok: cargo,
-      detail: cargo ? undefined : `not on PATH — install rustup; the android lanes run ${ANDROID_FFI.script}`,
+      detail: cargo ? undefined : `not on PATH — install rustup; the android lanes run ${ANDROID_FFI.app.script}`,
     })
   }
 
@@ -1001,9 +1004,10 @@ async function capturePackageIOS(views: string[], outcomes: LaneOutcome[], lane?
 
   // EXP-1558: the example imports `ExponentialUI`, which the SDK's
   // Package.swift declares only when the xcframework exists: build its
-  // simulator slice when missing, and name it in EXPONENTIAL_UI_FFI so a
-  // SwiftPM manifest cached before it existed is evaluated again.
-  const ffiError = await ensureIosFfi(`Exponential UI FFI`)
+  // simulator slice when missing (or a link stub, #PERF-11), and name it in
+  // EXPONENTIAL_UI_FFI so a SwiftPM manifest cached before it existed is
+  // evaluated again.
+  const ffiError = await ensureIosUiFfi()
   if (ffiError) return void fail(ffiError)
   const build = await run({
     cmd: [
@@ -1022,7 +1026,7 @@ async function capturePackageIOS(views: string[], outcomes: LaneOutcome[], lane?
       `build`,
     ],
     cwd: root,
-    env: { EXPONENTIAL_UI_FFI: join(root, IOS_FFI[0].xcframework) },
+    env: { EXPONENTIAL_UI_FFI: join(root, IOS_UI_FFI.xcframework) },
     stream: true,
     label: `[ios:package]`,
     timeoutMs: 45 * 60_000,
@@ -1141,12 +1145,6 @@ const PACKAGE_ANDROID = {
   settleMs: 3_000,
 } as const
 
-/** EXP-1264: the FFI the Compose painter's AAR bundles, built per run for the device's ABI. */
-const ANDROID_FFI = {
-  script: `apps/desktop/crates/exponential-ui-ffi/build-android.sh`,
-  jniLibs: `apps/desktop/crates/exponential-ui-ffi/out/jniLibs`,
-} as const
-
 /** The app lanes' apk (fastlane `build_capture_apks`): it must carry the FFI too (EXP-1354). */
 const APP_ANDROID_APK = `apps/android/app/build/outputs/apk/production/debug/app-production-debug.apk`
 
@@ -1174,38 +1172,41 @@ async function adbDevices(): Promise<string[]> {
 }
 
 /**
- * EXP-1354: build the mobile FFI (`build-android.sh`, only the attached
- * device's ABI, the committed Kotlin binding kept) and check the `.so` landed
- * in the crate's `out/jniLibs/<abi>`. Every android lane needs it: the package
- * example's AAR and the app's `:ui-compose` (the plan card's inline surface)
- * both bundle that folder, and an apk without it paints an EMPTY surface frame
- * (or, for the example, dies in `dlopen`). ONCE per run: the lanes share the
- * device, so they share its ABI.
+ * EXP-1354: build an android lane's native library (`build-android.sh`, only
+ * the attached device's ABI) and check the `.so` landed in the crate's
+ * `out/jniLibs/<abi>`. Every android lane needs one, and an apk without it
+ * paints EMPTY genUI surfaces (or, for the example, dies in `dlopen`): the
+ * package example bundles the genUI facade, the app (#PERF-11, EXP-1842) the
+ * merged `libexponential_mobile_ffi.so`. ONCE per library per run: the lanes
+ * share the device, so they share its ABI.
  */
-let androidFfi: Promise<{ abi: FfiAbi } | { error: string }> | undefined
-function buildAndroidFfi(sdk: AndroidSdk): Promise<{ abi: FfiAbi } | { error: string }> {
-  androidFfi ??= (async () => {
+const androidFfis = new Map<string, Promise<{ abi: FfiAbi } | { error: string }>>()
+function buildAndroidFfi(sdk: AndroidSdk, ffi: AndroidFfi): Promise<{ abi: FfiAbi } | { error: string }> {
+  let built = androidFfis.get(ffi.lib)
+  if (built) return built
+  built = (async () => {
     const root = repoRoot()
     const adb = (args: string[]) => run({ cmd: [`adb`, ...args], cwd: root, timeoutMs: 120_000 })
     const abilist = await adb([`shell`, `getprop`, `ro.product.cpu.abilist`])
     const abi = deviceFfiAbi(abilist.stdout) ?? deviceFfiAbi((await adb([`shell`, `getprop`, `ro.product.cpu.abi`])).stdout)
     if (!abi) return { error: `the device's ABIs (${abilist.stdout.trim() || `unknown`}) are none of ${FFI_ABIS.join(`, `)}` }
-    const ffi = await run({
-      cmd: [`bash`, ANDROID_FFI.script],
+    const result = await run({
+      cmd: [`bash`, ffi.script],
       cwd: root,
       env: { ANDROID_HOME: sdk.path, ABIS: abi, SKIP_BINDINGS: `1` },
       stream: true,
       label: `[android:ffi]`,
       timeoutMs: 45 * 60_000,
     })
-    if (ffi.code !== 0) return { error: `mobile FFI build (${ANDROID_FFI.script}) exited ${ffi.code}` }
-    const so = join(root, ANDROID_FFI.jniLibs, abi, `libexponential_ui_ffi.so`)
+    if (result.code !== 0) return { error: `native library build (\`bash ${ffi.script}\`) exited ${result.code}` }
+    const so = join(root, ffi.jniLibs, abi, ffi.lib)
     if (!existsSync(so) || statSync(so).size === 0) {
-      return { error: `mobile FFI built, but ${ANDROID_FFI.jniLibs}/${abi}/libexponential_ui_ffi.so is missing` }
+      return { error: `${ffi.script} ran, but ${ffi.jniLibs}/${abi}/${ffi.lib} is missing` }
     }
     return { abi }
   })()
-  return androidFfi
+  androidFfis.set(ffi.lib, built)
+  return built
 }
 
 /**
@@ -1249,7 +1250,7 @@ async function capturePackageAndroid(views: string[], outcomes: LaneOutcome[], l
   }
   console.log(`  Android SDK: ${sdk.path} (${sdk.source})`)
 
-  const ffi = await buildAndroidFfi(sdk)
+  const ffi = await buildAndroidFfi(sdk, ANDROID_FFI.package)
   if (`error` in ffi) return void fail(ffi.error)
   const { abi } = ffi
 
@@ -1266,8 +1267,8 @@ async function capturePackageAndroid(views: string[], outcomes: LaneOutcome[], l
   const apk = join(root, PACKAGE_ANDROID.apk)
   if (!existsSync(apk)) return void fail(`package example built, but ${PACKAGE_ANDROID.apk} is missing`)
   const listing = await run({ cmd: [`unzip`, `-l`, apk], timeoutMs: 60_000 })
-  if (!apkListingHasFfi(listing.stdout, abi)) {
-    return void fail(`${PACKAGE_ANDROID.apk} carries no ${apkLibPath(abi)} — the app would crash on start`)
+  if (!apkListingHasFfi(listing.stdout, ANDROID_FFI.package, abi)) {
+    return void fail(`${PACKAGE_ANDROID.apk} carries no ${apkLibPath(ANDROID_FFI.package, abi)} — the app would crash on start`)
   }
 
   const installed = await adb([`install`, `-r`, apk], 5 * 60_000)
@@ -1516,107 +1517,94 @@ function laneViewIds(
 }
 
 /**
- * EXP-1558: the two gitignored xcframeworks the iOS app links only when they
- * exist (apps/ios/Project.swift `hasExponentialUi` / `hasEnetNode`). Without
- * the eUI one every Exponential UI surface draws its "Preview" placeholder;
- * without the eNet one ExpCore compiles with no `ENET_NODE` and every session
- * page reads "No live transcript". Neither fails a build, so the lane checks.
+ * The SDK's standalone genUI library, which the iOS `package` example links
+ * (the app links the mobile FFI's link stub at the same path instead).
  */
-const IOS_FFI = [
-  {
-    label: `Exponential UI FFI`,
-    xcframework: `packages/exponential-ui-swift/Binaries/ExponentialUIFFI.xcframework`,
-    script: `apps/desktop/crates/exponential-ui-ffi/build-ios.sh`,
-    targetsEnv: `EXPONENTIAL_UI_APPLE_TARGETS`,
-  },
-  {
-    label: `eNet FFI`,
-    xcframework: `apps/desktop/crates/exponential-net-ffi/out/ExponentialNetFFI.xcframework`,
-    script: `apps/desktop/crates/exponential-net-ffi/build-ios.sh`,
-    targetsEnv: `ENET_APPLE_TARGETS`,
-  },
-] as const
+const IOS_UI_FFI = {
+  xcframework: `packages/exponential-ui-swift/Binaries/ExponentialUIFFI.xcframework`,
+  script: `apps/desktop/crates/exponential-ui-ffi/build-ios.sh`,
+} as const
 
-/** The simulator slice this Mac runs (`ios-arm64-simulator`, or x86_64 on Intel). */
-function iosSimArch(): { rust: string; slice: string } {
-  return process.arch === `arm64`
-    ? { rust: `aarch64-apple-ios-sim`, slice: `arm64` }
-    : { rust: `x86_64-apple-ios`, slice: `x86_64` }
-}
+/**
+ * The package and app lanes want different libraries at
+ * `ExponentialUIFFI.xcframework` (standalone vs. link stub), so they never
+ * overlap: each claims this for its whole run and rebuilds what it needs.
+ */
+const IOS_UI_FFI_CLAIM: ResourceClaim = { key: `ios-ui-ffi`, mode: `exclusive` }
+
+const listDir = (path: string): string[] => (existsSync(path) ? readdirSync(path) : [])
 
 /** Does the xcframework carry a simulator slice for this Mac's arch? */
 function hasIosSimSlice(xcframework: string): boolean {
-  const dir = join(repoRoot(), xcframework)
-  if (!existsSync(dir)) return false
-  const arch = iosSimArch().slice
-  return readdirSync(dir).some((entry) => /^ios-.*-simulator$/.test(entry) && entry.includes(arch))
+  const slice = iosSimArch(process.arch).slice
+  return listDir(join(repoRoot(), xcframework)).some((entry) => /^ios-.*-simulator$/.test(entry) && entry.includes(slice))
 }
 
-let iosFfi: Promise<string | undefined> | undefined
+async function runIosFfiBuild(script: string, env: Record<string, string>, label: string): Promise<string | undefined> {
+  console.log(`\n── ios: ${label} ──`)
+  const result = await run({ cmd: [`bash`, script], cwd: repoRoot(), env, stream: true, label: `[ios:ffi]`, timeoutMs: 60 * 60_000 })
+  return result.code === 0 ? undefined : `\`bash ${script}\` exited ${result.code}`
+}
+
 /**
- * EXP-1558: build every missing FFI's simulator slice (only that one: the
- * device + macOS slices are the release build's), ONCE per run. Resolves an
- * error message when a build fails or leaves no slice; never degrades.
+ * EXP-1839: the app's ONE native library (#PERF-11, `ios.ts`): build its
+ * simulator slice (only that one: the device slice is the release build's)
+ * whenever the mobile FFI or one of its link stubs is missing, sliceless or
+ * overwritten by a standalone facade. Resolves an error line naming the
+ * command to run by hand; never degrades.
  */
-function ensureIosFfi(only?: (typeof IOS_FFI)[number][`label`]): Promise<string | undefined> {
-  const build = async (ffi: (typeof IOS_FFI)[number]): Promise<string | undefined> => {
-    if (hasIosSimSlice(ffi.xcframework)) return undefined
-    console.log(`\n── ios: ${ffi.label} — ${ffi.xcframework} has no simulator slice, building it ──`)
-    const result = await run({
-      cmd: [`bash`, ffi.script],
-      cwd: repoRoot(),
-      env: { [ffi.targetsEnv]: iosSimArch().rust },
-      stream: true,
-      label: `[ios:ffi]`,
-      timeoutMs: 60 * 60_000,
-    })
-    if (result.code !== 0) return `${ffi.label}: \`bash ${ffi.script}\` exited ${result.code}`
-    if (!hasIosSimSlice(ffi.xcframework)) return `${ffi.label}: ${ffi.script} ran, but ${ffi.xcframework} has no ${iosSimArch().slice} simulator slice`
-    return undefined
+async function ensureIosMobileFfi(): Promise<string | undefined> {
+  const inputs = { root: repoRoot(), arch: process.arch, exists: existsSync, list: listDir }
+  const before = iosFfiProblems(inputs)
+  if (before.length === 0) return undefined
+  const { script, targetsEnv } = IOS_MOBILE_FFI
+  const failed = await runIosFfiBuild(script, { [targetsEnv]: iosSimArch(process.arch).rust }, `mobile FFI: ${before.join(`; `)}, building it`)
+  const after = failed ? [failed] : iosFfiProblems(inputs)
+  return after.length === 0
+    ? undefined
+    : `mobile FFI: ${after.join(`; `)} — run \`${targetsEnv}=${iosSimArch(process.arch).rust} bash ${script}\``
+}
+
+/** The package example's standalone genUI library (a link stub there = an empty archive). */
+async function ensureIosUiFfi(): Promise<string | undefined> {
+  const stub = existsSync(join(repoRoot(), IOS_UI_FFI.xcframework, `LINK_STUB`))
+  if (hasIosSimSlice(IOS_UI_FFI.xcframework) && !stub) return undefined
+  const env = { EXPONENTIAL_UI_APPLE_TARGETS: iosSimArch(process.arch).rust }
+  const failed = await runIosFfiBuild(IOS_UI_FFI.script, env, `genUI FFI: ${IOS_UI_FFI.xcframework} ${stub ? `is a link stub` : `has no simulator slice`}, building it`)
+  if (failed) return `genUI FFI: ${failed}`
+  if (!hasIosSimSlice(IOS_UI_FFI.xcframework)) {
+    return `genUI FFI: ${IOS_UI_FFI.script} ran, but ${IOS_UI_FFI.xcframework} has no ${iosSimArch(process.arch).slice} simulator slice`
   }
-  if (only) return build(IOS_FFI.find((ffi) => ffi.label === only)!)
-  iosFfi ??= (async () => {
-    for (const ffi of IOS_FFI) {
-      const error = await build(ffi)
-      if (error) return error
-    }
-    return undefined
-  })()
-  return iosFfi
+  return undefined
 }
 
-let iosGenerated: Promise<void> | undefined
-
 /**
- * `tuist generate` ONCE for both iOS fastlane lanes (they skip their own).
- * EXP-1558: after the FFIs, `tuist clean manifests` first: Tuist caches the
- * evaluated Project.swift, whose `hasExponentialUi`/`hasEnetNode` read the
- * file system, so a project generated before an xcframework existed keeps
- * linking without it. Then the generated project must carry both, or the
- * lane fails here instead of shipping placeholder shots.
+ * The app as both iOS fastlane lanes build it (they skip their own `tuist
+ * generate`): the mobile FFI first, then tuist ONCE per run. EXP-1839: tuist
+ * caches the evaluated manifests, and `Tuist/Package.swift` declares the
+ * Engine package only once its xcframework exists, so a checkout resolved
+ * before the build (or a fresh one) has no `ExponentialEngine` while
+ * Project.swift now asks for it: clean the manifests, `tuist install`, then
+ * generate, every run. The generated project must then carry all three, or
+ * the lane fails here instead of shipping placeholder shots.
  */
-function generateIos(): Promise<void> {
+async function generateIos(): Promise<void> {
+  const ffi = await ensureIosMobileFfi()
+  if (ffi) throw new Error(`${ffi} (without it the app paints "Preview" boxes and "No live transcript")`)
   const ios = join(repoRoot(), `apps/ios`)
   const step = async (cmd: string[], label: string) => {
-    const result = await run({ cmd, cwd: ios, stream: true, label: `[ios:${label}]`, timeoutMs: 10 * 60_000 })
-    if (result.code !== 0) throw new Error(`${cmd.join(` `)} exited ${result.code}`)
+    const result = await run({ cmd, cwd: ios, stream: true, label: `[ios:${label}]`, timeoutMs: 15 * 60_000 })
+    if (result.code !== 0) throw new Error(`\`cd apps/ios && ${cmd.join(` `)}\` exited ${result.code}`)
   }
   iosGenerated ??= (async () => {
-    const ffi = await ensureIosFfi()
-    if (ffi) throw new Error(`iOS FFI: ${ffi} — the app would paint "Preview" boxes and "No live transcript"`)
-    // A fresh worktree has no resolved packages yet.
-    if (!existsSync(join(ios, `Tuist/.build`))) await step([`tuist`, `install`], `install`)
     await step([`tuist`, `clean`, `manifests`], `clean`)
+    await step([`tuist`, `install`], `install`)
     await step([`tuist`, `generate`, `--no-open`], `generate`)
     const pbxproj = join(ios, `Exponential.xcodeproj/project.pbxproj`)
-    const project = existsSync(pbxproj) ? readFileSync(pbxproj, `utf8`) : ``
-    const missing = [
-      project.includes(`ENET_NODE`) ? undefined : `ENET_NODE (ExpCore without the eNet node)`,
-      project.includes(`ExponentialUIWrapper`) ? undefined : `ExponentialUI (the app without the eUI painter)`,
-    ].filter(Boolean)
+    const missing = iosProjectMissing(existsSync(pbxproj) ? readFileSync(pbxproj, `utf8`) : ``)
     if (missing.length > 0) {
       throw new Error(
-        `tuist generated apps/ios without ${missing.join(` and `)} although both xcframeworks exist — ` +
+        `tuist generated apps/ios without ${missing.join(` and `)} although the mobile FFI exists — ` +
           `\`cd apps/ios && tuist clean manifests && tuist install && tuist generate --no-open\` and re-run`
       )
     }
@@ -1624,12 +1612,15 @@ function generateIos(): Promise<void> {
   return iosGenerated
 }
 
+let iosGenerated: Promise<void> | undefined
+
 async function captureFastlane(
   platform: `ios` | `android`,
   lane: `store` | `styleguide`,
   outcomes: LaneOutcome[],
   scope: Scope,
-  scoped: boolean
+  scoped: boolean,
+  extraEnv?: Record<string, string>
 ): Promise<void> {
   const dir = join(repoRoot(), platform === `android` ? `apps/android` : `apps/ios`)
   const fastlane = FASTLANE_LANES[lane]
@@ -1658,7 +1649,7 @@ async function captureFastlane(
     // looks nothing like an encoding issue (EXP-644).
     // SNAPSHOT_SKIP_GENERATE: `generateIos` already ran `tuist generate` once;
     // two lanes regenerating the same workspace side by side would race.
-    env: platform === `ios` ? { LC_ALL: `en_US.UTF-8`, LANG: `en_US.UTF-8`, SNAPSHOT_SKIP_GENERATE: `1` } : undefined,
+    env: platform === `ios` ? { LC_ALL: `en_US.UTF-8`, LANG: `en_US.UTF-8`, SNAPSHOT_SKIP_GENERATE: `1` } : extraEnv,
     stream: true,
     label: `[${platform}:${lane}]`,
     timeoutMs: 90 * 60_000,
@@ -2145,7 +2136,7 @@ function buildLanes(
   const iosPackage = options.platforms.includes(`ios`) ? packageViews(scope, `ios`) : []
   if (iosPackage.length > 0) {
     add(`ios:package`, count(iosPackage, `ios package example`), new Map([[`ios`, iosPackage]]),
-      [{ key: `ios-simulator`, mode: `exclusive` }], false,
+      [{ key: `ios-simulator`, mode: `exclusive` }, IOS_UI_FFI_CLAIM], false,
       (outcomes) => capturePackageIOS(iosPackage, outcomes))
   }
   const androidPackage = options.platforms.includes(`android`) ? packageViews(scope, `android`) : []
@@ -2229,7 +2220,7 @@ function buildLanes(
           served,
           views.filter((id) => scope.get(served)?.has(id) && captureFor(viewById(id)!, served) !== undefined),
         ])),
-        [device, ...fleetClaim(views)], true,
+        [device, ...(platform === `ios` ? [IOS_UI_FFI_CLAIM] : []), ...fleetClaim(views)], true,
         async (outcomes) => {
           if (platform === `ios`) {
             await generateIos()
@@ -2241,22 +2232,27 @@ function buildLanes(
             await waitForAndroidBoot()
             autofill = await disableAndroidAutofill()
             demoMode = await enableAndroidDemoMode()
-            // EXP-1354: the app links `:ui-compose`; without the FFI in its apk
-            // the plan card's inline surface paints an empty frame.
+            // EXP-1354 / EXP-1842: the app's genUI, Engine and P2P code is ONE
+            // library (#PERF-11); without it in the apk the plan card's inline
+            // surface paints an empty frame and the session feed stays off.
             const sdk = androidSdk()
-            const ffi = sdk ? await buildAndroidFfi(sdk) : { error: `no Android SDK — set sdk.dir in apps/android/local.properties or ANDROID_HOME` }
+            const ffi = sdk
+              ? await buildAndroidFfi(sdk, ANDROID_FFI.app)
+              : { error: `no Android SDK — set sdk.dir in apps/android/local.properties or ANDROID_HOME` }
             if (`error` in ffi) {
               outcomes.push({ platform, ok: false, detail: ffi.error, failedViews: views })
               return
             }
-            await captureFastlane(platform, lane, outcomes, scope, scoped)
+            // gradle's `buildMobileFfi` reruns before packaging: narrowed to the
+            // device's ABI it finds the library just built instead of three.
+            await captureFastlane(platform, lane, outcomes, scope, scoped, { ABIS: ffi.abi })
             const apk = join(repoRoot(), APP_ANDROID_APK)
             const listing = existsSync(apk) ? await run({ cmd: [`unzip`, `-l`, apk], timeoutMs: 60_000 }) : undefined
-            if (listing && !apkListingHasFfi(listing.stdout, ffi.abi)) {
+            if (listing && !apkListingHasFfi(listing.stdout, ANDROID_FFI.app, ffi.abi)) {
               outcomes.push({
                 platform,
                 ok: false,
-                detail: `${APP_ANDROID_APK} carries no ${apkLibPath(ffi.abi)} — its Exponential UI surfaces painted empty`,
+                detail: `${APP_ANDROID_APK} carries no ${apkLibPath(ANDROID_FFI.app, ffi.abi)} — its genUI surfaces painted empty`,
                 failedViews: views,
               })
             }
