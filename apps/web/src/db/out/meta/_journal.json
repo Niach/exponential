@@ -2003,6 +2003,13 @@
       "when": 1794833316477,
       "tag": "0285_feed257_stale_needs_input",
       "breakpoints": true
+    },
+    {
+      "idx": 286,
+      "version": "7",
+      "when": 1794841564195,
+      "tag": "0286_new49_session_watches",
+      "breakpoints": true
     }
   ]
 }
