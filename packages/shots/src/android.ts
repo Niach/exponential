@@ -69,6 +69,16 @@ export function resolveAndroidSdk(inputs: AndroidSdkInputs): AndroidSdk | undefi
   return undefined
 }
 
+/**
+ * The env the app lane's gradle runs (fastlane) get: the SDK the preflight
+ * resolved, exported, because a fresh clone has no `apps/android/local.properties`
+ * and a shell need not export `ANDROID_HOME` (EXP-1842 proof run: "SDK location
+ * not found" after the FFI built fine), and `ABIS` narrowed to the device's.
+ */
+export function androidLaneEnv(sdk: AndroidSdk, abi: FfiAbi): Record<string, string> {
+  return { ANDROID_HOME: sdk.path, ABIS: abi }
+}
+
 /* ----------------------------------------------------------------------- ABI */
 
 /** The ABIs `build-android.sh` (cargo-ndk) can build the FFI for. */

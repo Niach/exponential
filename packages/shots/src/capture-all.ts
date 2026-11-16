@@ -49,6 +49,7 @@ import {
   ANDROID_FFI,
   FFI_ABIS,
   apkLibPath,
+  androidLaneEnv,
   apkListingHasFfi,
   appOnScreen,
   deviceFfiAbi,
@@ -1280,7 +1281,7 @@ function buildAndroidFfi(sdk: AndroidSdk, ffi: AndroidFfi): Promise<{ abi: FfiAb
     const result = await run({
       cmd: [`bash`, ffi.script],
       cwd: root,
-      env: { ANDROID_HOME: sdk.path, ABIS: abi, SKIP_BINDINGS: `1` },
+      env: { ...androidLaneEnv(sdk, abi), SKIP_BINDINGS: `1` },
       stream: true,
       label: `[android:ffi]`,
       timeoutMs: 45 * 60_000,
@@ -2323,16 +2324,20 @@ function buildLanes(
             // library (#PERF-11); without it in the apk the plan card's inline
             // surface paints an empty frame and the session feed stays off.
             const sdk = androidSdk()
-            const ffi = sdk
-              ? await buildAndroidFfi(sdk, ANDROID_FFI.app)
-              : { error: `no Android SDK — set sdk.dir in apps/android/local.properties or ANDROID_HOME` }
+            if (!sdk) {
+              const detail = `no Android SDK — set sdk.dir in apps/android/local.properties or ANDROID_HOME`
+              outcomes.push({ platform, ok: false, detail, failedViews: views })
+              return
+            }
+            const ffi = await buildAndroidFfi(sdk, ANDROID_FFI.app)
             if (`error` in ffi) {
               outcomes.push({ platform, ok: false, detail: ffi.error, failedViews: views })
               return
             }
             // gradle's `buildMobileFfi` reruns before packaging: narrowed to the
-            // device's ABI it finds the library just built instead of three.
-            await captureFastlane(platform, lane, outcomes, scope, scoped, { ABIS: ffi.abi })
+            // device's ABI it finds the library just built instead of three;
+            // and gradle needs the SDK a fresh clone has no local.properties for.
+            await captureFastlane(platform, lane, outcomes, scope, scoped, androidLaneEnv(sdk, ffi.abi))
             const apk = join(repoRoot(), APP_ANDROID_APK)
             const listing = existsSync(apk) ? await run({ cmd: [`unzip`, `-l`, apk], timeoutMs: 60_000 }) : undefined
             if (listing && !apkListingHasFfi(listing.stdout, ANDROID_FFI.app, ffi.abi)) {

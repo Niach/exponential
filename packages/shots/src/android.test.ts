@@ -9,6 +9,7 @@ import { readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import {
   ANDROID_FFI,
+  androidLaneEnv,
   apkListingHasFfi,
   appOnScreen,
   deviceFfiAbi,
@@ -188,5 +189,14 @@ describe(`specimenState`, () => {
     const state = specimenState(`W ExponentialUI: specimen exponential-ui-eval-nope: not in eval-specimens.json`, `exponential-ui-eval-nope`)
     expect(state.ready).toBe(false)
     expect(state.error).toContain(`eval-specimens.json`)
+  })
+})
+
+describe(`androidLaneEnv`, () => {
+  test(`exports the resolved SDK to gradle: a fresh clone has no local.properties`, () => {
+    expect(androidLaneEnv({ path: `/h/Library/Android/sdk`, source: `default` }, `arm64-v8a`)).toEqual({
+      ANDROID_HOME: `/h/Library/Android/sdk`,
+      ABIS: `arm64-v8a`,
+    })
   })
 })
