@@ -20,7 +20,9 @@ describe(`buildRepoFixture`, () => {
       expect(root).toBe(join(base, `repos`))
       const clone = join(root, `acme/mobile-app`)
       const log = git(clone, `log`, `--format=%an|%cI|%s`, `main`).split(`\n`)
-      expect(log[0]).toBe(`Alex Carter|2026-11-01T10:00:00Z|Profile app launch end-to-end`)
+      // The instant, not git's spelling of it (2.43 prints +00:00, newer ones Z; #EXP-1886 item 5).
+      const [author, committed, subject] = log[0]!.split(`|`)
+      expect([author, Date.parse(committed!), subject]).toEqual([`Alex Carter`, Date.parse(`2026-11-01T10:00:00Z`), `Profile app launch end-to-end`])
       expect(log.some((line) => line.endsWith(`Merge pull request #12 from acme/offline-queue`))).toBe(true)
       expect(git(clone, `status`, `--porcelain`).split(`\n`).length).toBe(2)
       expect(git(clone, `rev-parse`, `main`)).toBe(git(clone, `rev-parse`, `origin/main`))
