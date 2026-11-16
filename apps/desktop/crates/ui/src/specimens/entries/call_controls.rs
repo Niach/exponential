@@ -19,7 +19,7 @@ pub(crate) const OWNER: &str = "S-3";
 
 /// A button set as a call view (the panel's 56 px buttons).
 fn view(activity: &'static str, buttons: Vec<CallButton>, muted: bool, speaker: bool, end: &str) -> CallView {
-    CallView { activity, status: None, caption: String::new(), muted, speaker, buttons, end: end.to_string() }
+    CallView { activity, status: None, via: None, caption: String::new(), muted, speaker, buttons, end: end.to_string() }
 }
 
 /// Web's `Labelled`: the specimen (at least 80 px tall, top-aligned) with

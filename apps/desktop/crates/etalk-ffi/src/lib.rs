@@ -206,6 +206,7 @@ impl From<TalkCallState> for CallState {
             muted: state.muted,
             speaker: state.speaker,
             device: state.device,
+            fallback: false,
             greeting: state.greeting,
             rang: state.rang,
             ready: state.ready,
@@ -245,7 +246,9 @@ pub enum TalkCallEvent {
 impl From<TalkCallEvent> for CallEvent {
     fn from(event: TalkCallEvent) -> Self {
         match event {
-            TalkCallEvent::Start { device, language } => CallEvent::Start { device, language },
+            // EXP-1857: the facade's start has no fallback (its hosts always
+            // speak on the agent's own device).
+            TalkCallEvent::Start { device, language } => CallEvent::Start { device, language, fallback: false },
             TalkCallEvent::Rang => CallEvent::Rang,
             TalkCallEvent::Ready => CallEvent::Ready,
             TalkCallEvent::NoSound => CallEvent::NoSound,
@@ -268,7 +271,7 @@ impl From<TalkCallEvent> for CallEvent {
 impl From<CallEvent> for TalkCallEvent {
     fn from(event: CallEvent) -> Self {
         match event {
-            CallEvent::Start { device, language } => TalkCallEvent::Start { device, language },
+            CallEvent::Start { device, language, .. } => TalkCallEvent::Start { device, language },
             CallEvent::Rang => TalkCallEvent::Rang,
             CallEvent::Ready => TalkCallEvent::Ready,
             CallEvent::NoSound => TalkCallEvent::NoSound,

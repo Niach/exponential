@@ -11,6 +11,7 @@ import {
   ChatList,
   ChatsHeader,
   conceptIcon,
+  FAB_FOOT_CLASS,
   NeedsYouEntryRow,
   useIsMobile,
 } from "@exp/ui"
@@ -273,7 +274,8 @@ function ChatsPage() {
         // The bar FLOATS bottom-centre like the issue list's: md+ over the
         // list's bottom edge (click-through strip), phones in the tab bar's
         // slot (the dock positions itself there).
-        <div className="pointer-events-none absolute inset-x-0 bottom-4 z-10 flex justify-center px-4">
+        // #EXP-1872: THE pinned foot: centred beside the Assistant FAB.
+        <div className={`pointer-events-none absolute inset-x-0 bottom-4 z-10 flex justify-center px-4 ${FAB_FOOT_CLASS}`}>
           <div className="pointer-events-auto">
             <ChatSelectionBar rows={selectionRows} view={view} onClear={clearSelection} />
           </div>

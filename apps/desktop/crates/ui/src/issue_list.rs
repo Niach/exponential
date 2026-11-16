@@ -825,7 +825,7 @@ impl IssueListView {
     /// projection `render` prunes `selected` with. Since REV-39 that read is
     /// the memoized [`Self::data`], so agreeing with the rows underneath no
     /// longer costs an extra board query per frame.
-    pub(crate) fn bulk_bar(&mut self, cx: &mut gpui::Context<Self>) -> Option<gpui::AnyElement> {
+    pub(crate) fn bulk_bar(&mut self, window: &Window, cx: &mut gpui::Context<Self>) -> Option<gpui::AnyElement> {
         if self.selected.is_empty() {
             return None;
         }
@@ -847,7 +847,10 @@ impl IssueListView {
         // team (see `render_bulk_bar`'s assignee menu), and then not counted
         // toward the label threshold either (EXP-827).
         let has_assignee = bulk_has_assignee(cx, &team_id);
-        let labels = self.measured_width.get() >= bulk_bar_label_min_width(has_assignee);
+        // #EXP-1872: the bar centres in what the Assistant FAB's corner
+        // leaves of the pane (THE pinned foot), so the labels need that much more.
+        let corner = crate::assistant_fab::page_end_height(window, cx);
+        let labels = self.measured_width.get() - corner >= bulk_bar_label_min_width(has_assignee);
         Some(render_bulk_bar(team_id, ids, self.bulk_busy, labels, false, cx))
     }
 }
@@ -1761,16 +1764,16 @@ pub(crate) fn select_cell(
 
 /// THE bulk bar's dock ×2 (the board's issue list, #EXP-1388's Chats page):
 /// floated over the bottom of the list pane, centred, content-sized — the
-/// rows under it never move (EXP-289).
-pub(crate) fn bulk_bar_dock(bar: gpui::AnyElement) -> gpui::Div {
-    h_flex()
+/// rows under it never move (EXP-289). #EXP-1872: THE pinned foot: centred
+/// in what the Assistant FAB leaves of the pane's foot, never under it.
+pub(crate) fn bulk_bar_dock(key: &'static str, bar: gpui::AnyElement, window: &Window, cx: &App) -> gpui::Div {
+    crate::assistant_fab::foot(key, px(16.), window, cx)
         .absolute()
         .bottom_4()
         .left_0()
         .right_0()
-        .justify_center()
-        .px_4()
-        .child(bar)
+        .pl_4()
+        .child(h_flex().w_full().justify_center().child(bar))
 }
 
 /// One bulk bar action button ×2 (the issue bar's Delete, every chat

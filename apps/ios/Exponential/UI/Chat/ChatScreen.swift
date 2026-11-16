@@ -449,7 +449,8 @@ struct ChatScreen: View {
                 AgentCallButton(
                     agentId: agentId, agentName: rows.agentName,
                     agentIcon: rows.agent?.isAssistant == true ? nil : BoardTypeDisplay.iconName(for: rows.agent?.icon),
-                    agentColor: rows.agent?.color
+                    agentColor: rows.agent?.color,
+                    agentDevice: rows.agent?.deviceId, agentLanguage: rows.agent?.voice.language
                 )
                 .buttonStyle(.plain)
             }
@@ -2085,7 +2086,8 @@ private struct AgentChatEmpty: View {
             } trailing: {
                 AgentCallButton(
                     agentId: agent.id, agentName: agent.name,
-                    agentIcon: agent.isAssistant ? nil : BoardTypeDisplay.iconName(for: agent.icon), agentColor: agent.color
+                    agentIcon: agent.isAssistant ? nil : BoardTypeDisplay.iconName(for: agent.icon), agentColor: agent.color,
+                    agentDevice: agent.deviceId, agentLanguage: agent.voice.language
                 )
                 .buttonStyle(.plain)
                 if !menuEntries.isEmpty {

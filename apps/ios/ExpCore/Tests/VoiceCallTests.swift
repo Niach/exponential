@@ -49,6 +49,7 @@ final class VoiceCallTests: XCTestCase {
             "cancel": VoiceCall.Copy.cancel,
             "minimize": VoiceCall.Copy.minimize,
             "queued": VoiceCall.Copy.queued,
+            "via": VoiceCall.Copy.via,
         ])
         XCTAssertEqual(greeting, VoiceCall.Copy.greeting)
         XCTAssertEqual(VoiceCall.callGreeting("de"), "Hallo?")
@@ -64,6 +65,7 @@ final class VoiceCallTests: XCTestCase {
             "noGpu": VoiceCall.Copy.Reasons.noGpu,
             "busy": VoiceCall.Copy.Reasons.busy,
             "meeting": VoiceCall.Copy.Reasons.meeting,
+            "noDesktop": VoiceCall.Copy.Reasons.noDesktop,
         ])
         XCTAssertEqual(failed, VoiceCall.Copy.failed)
         XCTAssertEqual(VoiceCall.Copy.call(agent: "Ada"), "Call Ada")
@@ -81,6 +83,7 @@ final class VoiceCallTests: XCTestCase {
             "pill": VoiceCall.TestIds.pill,
             "timer": VoiceCall.TestIds.timer,
             "minimize": VoiceCall.TestIds.minimize,
+            "via": VoiceCall.TestIds.via,
         ])
         XCTAssertEqual(try XCTUnwrap(fixture["icons"] as? [String: String]), [
             "call": VoiceCall.Icons.call,
@@ -119,6 +122,7 @@ final class VoiceCallTests: XCTestCase {
             "maxFramesPerSecond": VoiceCall.Constants.maxFramesPerSecond,
             "maxCallMs": VoiceCall.Constants.maxCallMs,
             "idleTimeoutMs": VoiceCall.Constants.idleTimeoutMs,
+            "serverIdleMs": VoiceCall.Constants.serverIdleMs,
         ])
         let wire = try XCTUnwrap(fixture["wire"] as? [String: Any])
         XCTAssertEqual(try XCTUnwrap(wire["kinds"] as? [String: Int]), [
@@ -172,6 +176,44 @@ final class VoiceCallTests: XCTestCase {
             XCTAssertEqual(availability, VoiceCall.Availability(
                 enabled: expected["enabled"] as? Bool ?? false,
                 reason: expected["reason"] as? String
+            ), name)
+        }
+    }
+
+    /// EXP-1857: where a call's speech runs (`targetCases`).
+    func testTargetCases() throws {
+        for row in try cases("targetCases") {
+            let name = row["name"] as? String ?? "?"
+            let input = try XCTUnwrap(row["input"] as? [String: Any], name)
+            let expected = try XCTUnwrap(row["expected"] as? [String: Any], name)
+            func devices(_ key: String) throws -> [VoiceCall.TargetDevice] {
+                try (input[key] as? [[String: Any]] ?? []).map { device in
+                    VoiceCall.TargetDevice(
+                        id: try XCTUnwrap(device["id"] as? String, name),
+                        name: try XCTUnwrap(device["name"] as? String, name),
+                        online: device["online"] as? Bool ?? false,
+                        speech: try (device["speech"] as? String).map { try XCTUnwrap(VoiceCall.Speech(rawValue: $0), name) },
+                        meeting: device["meeting"] as? Bool ?? false
+                    )
+                }
+            }
+            XCTAssertNotNil(input["desktops"] as? [[String: Any]], name)
+            let target = VoiceCall.callTarget(VoiceCall.TargetInput(
+                platform: try XCTUnwrap(VoiceCall.Platform(rawValue: input["platform"] as? String ?? ""), name),
+                here: input["here"] as? String,
+                agentDevice: input["agentDevice"] as? String,
+                desktops: try devices("desktops"),
+                // EXP-1858: the member's own servers.
+                servers: try devices("servers"),
+                busy: input["busy"] as? Bool ?? false
+            ))
+            XCTAssertEqual(target, VoiceCall.Target(
+                enabled: try XCTUnwrap(expected["enabled"] as? Bool, name),
+                reason: expected["reason"] as? String,
+                device: expected["device"] as? String,
+                name: expected["name"] as? String,
+                fallback: try XCTUnwrap(expected["fallback"] as? Bool, name),
+                local: try XCTUnwrap(expected["local"] as? Bool, name)
             ), name)
         }
     }
@@ -232,6 +274,7 @@ final class VoiceCallTests: XCTestCase {
         VoiceCall.View(
             activity: try XCTUnwrap(VoiceCall.Activity(rawValue: json["activity"] as? String ?? "")),
             status: json["status"] as? String,
+            via: json["via"] as? String,
             caption: try XCTUnwrap(json["caption"] as? String),
             muted: try XCTUnwrap(json["muted"] as? Bool),
             speaker: try XCTUnwrap(json["speaker"] as? Bool),
@@ -397,6 +440,10 @@ final class VoiceCallTests: XCTestCase {
         let data = Data(#"{"callId":"c1","ticket":"t1","url":"wss://relay/ws?ticket=t1","relayUrl":"wss://relay"}"#.utf8)
         XCTAssertEqual(try JSONDecoder().decode(VoiceCall.Ticket.self, from: data),
                        VoiceCall.Ticket(callId: "c1", ticket: "t1", url: "wss://relay/ws?ticket=t1"))
+        // EXP-1857: the target the server picked.
+        let picked = Data(#"{"callId":"c1","ticket":"t1","url":"u","relayUrl":"r","deviceId":"d-mac","device":"macbook","fallback":true}"#.utf8)
+        XCTAssertEqual(try JSONDecoder().decode(VoiceCall.Ticket.self, from: picked),
+                       VoiceCall.Ticket(callId: "c1", ticket: "t1", url: "u", deviceId: "d-mac", device: "macbook", fallback: true))
     }
 
     // #NEW-89: a late `wasSuspended` began never drops a running call.

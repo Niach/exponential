@@ -1,11 +1,11 @@
 // NEW-70 (voice V6, `fixtures/voice-call.json`): caller mode on web. THE
 // telephone in the agent chat's header (left of `…`, the header's ghost icon
 // button, icon concept `voice-call`), disabled with the reason as its
-// tooltip (`callAvailability` over the member's voice settings and the voice
-// device's synced row); and while a call runs, THE call surface
+// tooltip (EXP-1857: `callTarget` over the agent's device, the member's
+// synced desktops and their voice settings); and while a call runs, THE call surface
 // (`VoiceCallSurface`, the `voice-call` entry; S-3: phone-call style, a
 // full-height overlay over the chat, `callView(state, 'web')`). The call
-// streams to the voice device (lib/voice-call/call.ts), ringing first; leaving
+// streams to the target desktop (lib/voice-call/call.ts), ringing first; leaving
 // the chat (or the page) hangs up. Only the surface reads the microphone's
 // level and ticks the timer, so neither re-renders the chat.
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react"
@@ -17,6 +17,7 @@ import {
   VOICE_CALL_ICONS,
   VOICE_CALL_TEST_IDS,
   type CallAvailability,
+  type CallTarget,
 } from "@exp/etalk/voice-call"
 import { Button, cn, conceptIcon, IconTooltip, toast, VoiceCallSurface } from "@exp/ui"
 import { useNow } from "@/hooks/use-now"
@@ -25,7 +26,7 @@ import { SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { deviceCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import { openCallAudio, playRingTone } from "@/lib/voice-call/audio"
-import { webCallAvailability, type CallSettingsLike } from "@/lib/voice-call/availability"
+import { webCallTarget, type CallSettingsLike } from "@/lib/voice-call/availability"
 import { VoiceCall, type CallDeps } from "@/lib/voice-call/call"
 
 const CallIcon = conceptIcon(VOICE_CALL_ICONS.call as Parameters<typeof conceptIcon>[0])
@@ -37,17 +38,18 @@ const WEB_CALL_DEPS: CallDeps = {
   ring: playRingTone,
 }
 
-export interface VoiceCallAvailability extends CallAvailability {
-  /** The voice device's name (the toasts' `{device}`). */
+export interface VoiceCallAvailability extends CallTarget {
+  /** The target desktop's name (the toasts' `{device}`). */
   device: string
   /** The member's voice language (the greeting the caption shows). */
   language: string | undefined
 }
 
-/** The telephone's availability: the member's voice settings (re-read when
- *  the tab comes back, Settings → Voice may have changed them) and the
- *  voice device's synced row, its freshness on a 15 s beat. */
-export function useVoiceCallAvailability(): VoiceCallAvailability {
+/** The telephone's availability for an agent running on `agentDevice`:
+ *  the member's voice settings (re-read when the tab comes back, a meeting
+ *  may have started) and their synced desktop rows, freshness on a 15 s
+ *  beat (EXP-1857: `callTarget`, the agent's desktop or the fallback). */
+export function useVoiceCallAvailability(agentDevice: string | null, language?: string): VoiceCallAvailability {
   const { data: auth } = useSession()
   const userId = auth?.user?.id ?? null
   const [settings, setSettings] = useState<CallSettingsLike | null>(null)
@@ -66,20 +68,18 @@ export function useVoiceCallAvailability(): VoiceCallAvailability {
       document.removeEventListener(`visibilitychange`, onVisible)
     }
   }, [])
-  const voiceDeviceId = settings?.voiceDeviceId ?? null
   const { data: rows } = useLiveQuery(
     (query) =>
-      voiceDeviceId === null
+      userId === null
         ? undefined
-        : query.from({ d: deviceCollection }).where(({ d }) => eq(d.deviceId, voiceDeviceId)),
-    [voiceDeviceId]
+        : query.from({ d: deviceCollection }).where(({ d }) => eq(d.userId, userId)),
+    [userId]
   )
-  const device = (rows ?? []).find((row) => row.userId === userId) ?? null
   const now = useNow(15_000)
-  return useMemo(
-    () => ({ ...webCallAvailability(settings, device, now), device: device?.label ?? ``, language: settings?.language }),
-    [settings, device, now]
-  )
+  return useMemo(() => {
+    const target = webCallTarget(settings, agentDevice, rows ?? [], userId, now)
+    return { ...target, device: target.name ?? ``, language: language ?? settings?.language }
+  }, [settings, agentDevice, rows, userId, now, language])
 }
 
 /** One call per chat; the chat going away (another agent, or the page

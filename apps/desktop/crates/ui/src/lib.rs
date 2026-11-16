@@ -343,6 +343,7 @@ pub fn init(cx: &mut App) {
     eui_gpui::chrome::install(cx, controls::ide_chrome().clone());
     navigation::init(cx);
     navigation::start_dev_tour(cx);
+    navigation::start_dev_call(cx);
     // #FEED-237: the outbox's unacked entries go out again on start.
     session_outbox::init(cx);
     // EXP-105: quit-time sweep ending every `sessions` row this process

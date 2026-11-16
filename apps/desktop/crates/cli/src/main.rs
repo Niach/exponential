@@ -20,6 +20,7 @@ mod prefs;
 mod registry;
 mod session_host;
 mod term;
+mod voice_host;
 
 use std::process::ExitCode;
 
@@ -188,6 +189,11 @@ fn main() -> ExitCode {
     // child per `exec`): the engine and nothing else, killable by its host.
     if coding::codemode::worker::requested() {
         coding::codemode::worker::run_and_exit();
+    }
+    // #EXP-1858: the speech worker of a server's calls (`__speech-worker`,
+    // one child of the daemon, killable by it): the IDE's, headless.
+    if etalk::requested() {
+        etalk_engine::run_and_exit();
     }
     // The CLI is its own 426-gated platform: every request must say
     // `cli/<version>`, never ride the desktop's gate. Before any HTTP.

@@ -66,7 +66,7 @@ fn activity_key(session: &SessionRow) -> &str {
         .unwrap_or("")
 }
 
-fn signed_in_user(cx: &App) -> Option<String> {
+pub(crate) fn signed_in_user(cx: &App) -> Option<String> {
     crate::queries::active_account(cx).map(|account| account.user_id)
 }
 

@@ -57,7 +57,8 @@ struct VoiceCallCallee: Equatable {
 
 /// THE phone-call surface (web `voice-call` entry, the IDE's call panel,
 /// Android `VoiceCallSurface`): top to bottom the agent's avatar large with
-/// its activity ring, the name, the status line or the timer, the caption
+/// its activity ring, the name, the status line or the timer (EXP-1857:
+/// then the fallback's `via` line), the caption
 /// (≤ 4 lines), and the round call buttons at the bottom. The live screen
 /// and the styleguide specimens draw this one view.
 struct VoiceCallSurface: View {
@@ -99,6 +100,17 @@ struct VoiceCallSurface: View {
                 .font(.subheadline)
                 .foregroundStyle(DesignTokens.Palette.mutedForeground)
                 .padding(.top, 4)
+            // EXP-1857: the desktop that speaks while the call falls back,
+            // a second status line in the status style.
+            if let via = view.via {
+                Text(via)
+                    .font(.subheadline)
+                    .foregroundStyle(DesignTokens.Palette.mutedForeground)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .padding(.horizontal, 32)
+                    .accessibilityIdentifier(VoiceCall.TestIds.via)
+            }
             Text(view.caption)
                 .font(.body)
                 .foregroundStyle(DesignTokens.Palette.foreground)

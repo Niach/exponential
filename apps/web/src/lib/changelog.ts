@@ -25,6 +25,51 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-16-desktop-cli-0-14-165-voice-and-assistant`,
+    date: `2026-11-16`,
+    title: `Agent calls on every desktop and server, and a bigger Assistant`,
+    summary: `Desktop and CLI 0.14.165: calls ring the agent's own desktop or GPU server and fall back with "Voice on" another desktop, and the Assistant widget opens bigger, resizes and sits on the page's dark ground.`,
+    body: `- **Calls ring the agent's desktop**: a call to an agent speaks on the desktop it runs on; when that desktop can't, another of your desktops answers and the call shows "Voice on" with its name.
+- **Servers with a GPU answer too**: the \`exponential\` daemon on a server with a GPU takes its agents' calls, loading the voice only while a call needs it; a server without one says "No usable GPU" and hands the call to a desktop.
+- **A bigger Assistant**: the Assistant widget opens larger, sized to the window, sits on the page's dark ground, and you can drag its edge to resize it.`,
+  },
+  {
+    id: `2026-11-15-calls-ring-the-agents-server`,
+    date: `2026-11-15`,
+    title: `Call an agent on your server`,
+    summary: `An agent that runs on a server with a GPU now takes its calls itself. A server without one hands the call to one of your desktops, as before.`,
+    body: `- **The server speaks**: the \`exponential\` daemon on a server answers a call to an agent that runs there, in the agent's own voice, with no microphone or speakers of its own.
+- **Only while it's needed**: the voice is checked once, loads when a call rings and is unloaded after ten quiet minutes, so the GPU is free the rest of the time.
+- **A server without a GPU**: its device page says "No usable GPU", and calls go to the desktop you're at or your newest desktop that can speak, which the call shows as "Voice on" with its name.`,
+  },
+  {
+    id: `2026-11-15-phones-calls-ring-the-agents-desktop`,
+    date: `2026-11-15`,
+    title: `Calls from your phone ring the agent's desktop`,
+    summary: `Android 0.14.143 and iOS 0.14.132: a call to an agent rings the desktop it runs on, and when another desktop has to answer the call shows "Voice on" with its name.`,
+    body: `- **The agent's desktop answers**: calling an agent from your phone rings the desktop the agent runs on and speaks in its voice there.
+- **A fallback that says so**: when that desktop is offline, has no usable GPU or the agent runs on a server, your newest desktop that can speak takes the call, and the call shows "Voice on" with its name.
+- **A clear reason**: with no desktop that can speak, the call says so instead of waiting.`,
+  },
+  {
+    id: `2026-11-15-calls-ring-the-agents-desktop`,
+    date: `2026-11-15`,
+    title: `Calls ring the agent's own desktop`,
+    summary: `A call to an agent rings the desktop it runs on. When that desktop can't speak, another of your desktops answers and the call shows which one.`,
+    body: `- **The agent's desktop answers**: calling an agent from your phone, the web or the desktop app rings the desktop the agent runs on and speaks in its voice there.
+- **A fallback that says so**: when that desktop is offline, has no usable GPU or the agent runs on a server, the desktop you're at or your newest desktop that can speak takes the call, and the call shows "Voice on" with its name.
+- **Call from any desktop**: the desktop app calls an agent on another machine like your phone does, over the relay. Push to talk works on the desktop you're at.`,
+  },
+  {
+    id: `2026-11-15-desktop-assistant-button-clear`,
+    date: `2026-11-15`,
+    title: `Nothing under the Assistant button on the desktop`,
+    summary: `Desktop and CLI 0.14.164: the floating Assistant button no longer covers the plan tab's Next button, the board's bulk bar, the Chats selection bar or the last rows of a scrolled pane.`,
+    body: `- **Plan tab**: with a question waiting, Next sits beside the Assistant button instead of under it.
+- **Selection bars**: the board's bulk bar and the Chats selection bar keep clear of the button when you select issues or chats.
+- **Scroll ends**: scroll any long pane to the end and its last row stays clear of the button.`,
+  },
+  {
     id: `2026-11-15-desktop-voice-per-agent`,
     date: `2026-11-15`,
     title: `A voice for every agent on the desktop`,

@@ -8014,29 +8014,29 @@
         "file": "shots/voice-call/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 13776,
-        "sha256": "fddd56b77bb2f11e6a49444a12ecb30cf666df6273ba88e5d5d4cda4435cac71"
+        "bytes": 24002,
+        "sha256": "24a39da45209e871cfb141e5e24ac429259c39731ff74c04b59a343277e23096"
       },
       "desktop": {
         "file": "shots/voice-call/desktop.webp",
         "width": 1800,
-        "height": 1126,
-        "bytes": 57294,
-        "sha256": "6148764d6bfeb2882e87918b4a66f049712209beb2e565ea4a469c74c69569c0"
+        "height": 1125,
+        "bytes": 69218,
+        "sha256": "48b53e5fe5c2bbc60f7baf118ad4f8038f00f5945677bd83a83defbc6dd8547f"
       },
       "ios": {
         "file": "shots/voice-call/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 15206,
-        "sha256": "058dbf255f3598b499786788d328fa2853774e98b933b456f6992bd3d7853d3f"
+        "bytes": 23978,
+        "sha256": "ec2ef45bec4bdbe3798ff80c69857840649628ff7d66bc2d6c1904a8410055a6"
       },
       "web": {
         "file": "shots/voice-call/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 65200,
-        "sha256": "20e7c28d18e9c34a5974806c7fb0d20b46bfce632e9c1f8870d94f2f379aa8b8"
+        "bytes": 69230,
+        "sha256": "6ff634c327c8d3e845abd9172f12ba2b27269aaba369fa2024b4018421557eb9"
       },
       "web-mobile": {
         "file": "shots/voice-call/web-mobile.webp",

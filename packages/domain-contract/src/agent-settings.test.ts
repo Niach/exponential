@@ -10,6 +10,7 @@ import {
   coordinatorOptions,
   leadOptions,
   assistantFabVisible,
+  assistantWidgetSize,
   assistantModelValue,
   agentAccountValue,
   ASSISTANT_SCHEDULES,
@@ -95,6 +96,11 @@ describe(`agent-settings.json assistant`, () => {
   for (const c of fixture.assistant.fab.showCases) {
     it(`fab showCases: ${c.name}`, () => {
       expect(assistantFabVisible(c)).toBe(c.expected)
+    })
+  }
+  for (const c of fixture.assistant.fab.widget.sizeCases) {
+    it(`widget sizeCases: ${c.name}`, () => {
+      expect(assistantWidgetSize({ card: c.card, stored: c.stored })).toEqual(c.expected)
     })
   }
   for (const c of fixture.assistant.teamAgentsCases) {

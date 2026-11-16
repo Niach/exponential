@@ -30,6 +30,21 @@
 //! PILL (`push_to_talk::overlay`, [`Face::Call`]); both read [`face`]. The
 //! live level and the timer repaint only them ([`CallLive`]).
 //!
+//! EXP-1857 (voice per agent b): A CALL RINGS THE AGENT'S DEVICE. The
+//! telephone reads `etalk::call::call_target` ([`target`]): the agent's Runs
+//! on desktop when it is one of the member's own and it speaks, else this
+//! desktop, else the member's newest desktop that speaks. A LOCAL target
+//! runs the call here as above; ANOTHER desktop is DIALLED (caller mode,
+//! the web's and the phones' wire): `voice.startCall` → the relay's caller
+//! socket (the host's [`DialLink`], Exponential's `steer::call_caller`); the
+//! worker's `Dial` opens the microphone through its echo canceller (the
+//! played downlink is the reference) and rings on the call's one output
+//! stream until the host's `rang` + `ready` answer; the host's `call_event`s
+//! step this machine, its reply plays through the worker (`DialPlay`). The
+//! caller sees `Voice on {device}` (`view.via`) while the call falls back.
+//! Every member desktop that speaks answers a ring (`on_ring`), not only
+//! the voice device; a meeting refuses it only where it runs.
+//!
 //! [`speak_replies::speak_greeting`]: crate::speak_replies::speak_greeting
 
 use std::time::{Duration, Instant};
@@ -40,11 +55,11 @@ use gpui::{
 };
 
 use etalk::call::{
-    call_ring_ms, call_ring_random, call_speech_of, call_step, call_timer, call_unavailable, call_view, call_wire_event as wire_event, CallAvailabilityInput, CallEvent, CallPhase, CallPlatform, CallSpeech, CallState,
-    VOICE_CALL,
+    call_event_of_wire, call_ring_ms, call_ring_random, call_speech_of, call_step, call_target, call_timer, call_view, call_wire_event as wire_event, CallEvent,
+    CallPhase, CallPlatform, CallSpeech, CallState, CallTarget, CallTargetDevice, CallTargetInput, VOICE_CALL,
 };
 
-use crate::host::{self, CallLink, CallLinkEvent, Notice};
+use crate::host::{self, CallLink, CallLinkEvent, DialError, DialLink, DialLinkEvent, Notice, TalkDesktop, DIAL_DOWN_RATE};
 use crate::push_to_talk::overlay::{Face, Overlay};
 use crate::speak_replies::SpeechState;
 use crate::voice_overlay::{CallActions, CallFace, CallMark};
@@ -62,6 +77,11 @@ struct Active {
     agent_id: String,
     /// A streamed call's link (None = this device's own microphone).
     host: Option<Box<dyn CallLink>>,
+    /// EXP-1857: CALLER MODE: the call's speech runs on another desktop
+    /// (the worker's `Dial` holds the microphone and the output here).
+    dialled: bool,
+    /// EXP-1857: the dialled desktop's link, once connected.
+    dial: Option<Box<dyn DialLink>>,
     /// Utterances said while the agent's turn ran (the queue bar's share).
     queued: usize,
     /// The reply being spoken (its message id, or the greeting's).
@@ -140,9 +160,10 @@ pub fn active(cx: &App) -> bool {
     global(cx).is_some_and(|entity| entity.read(cx).active.is_some())
 }
 
-/// The agent of the running call (Speak replies speaks its conversation).
+/// The agent of the running call whose speech runs HERE (Speak replies
+/// speaks its conversation; EXP-1857: a dialled call's runs elsewhere).
 pub fn agent_id(cx: &App) -> Option<String> {
-    global(cx).and_then(|entity| entity.read(cx).active.as_ref().map(|active| active.agent_id.clone()))
+    global(cx).and_then(|entity| entity.read(cx).active.as_ref().filter(|active| !active.dialled).map(|active| active.agent_id.clone()))
 }
 
 /// S-3: THIS client runs a call with `agent_id` (its telephone shows the
@@ -197,55 +218,93 @@ fn answered_timer(answered_at: Option<Instant>) -> String {
     call_timer(answered_at.map_or(0, |at| at.elapsed().as_millis() as u64))
 }
 
-/// The member's voice device as THIS client sees it: its name, whether it
-/// is online and whether it is this machine.
-fn voice_device(cx: &App) -> (Option<String>, bool, bool) {
-    let settings = crate::speak_replies::settings(cx);
-    let Some(device_id) = settings.voice_device_id.clone() else { return (None, false, false) };
-    let Some(host) = host::host(cx) else { return (Some(device_id), false, false) };
+/// THIS machine's name as the member's devices know it (its id until synced).
+fn own_name(cx: &App) -> String {
+    let Some(host) = host::host(cx) else { return String::new() };
     let own = host.device_id();
-    let row = host.device(&device_id, cx);
-    let name = row.as_ref().and_then(|row| row.label.clone()).unwrap_or_else(|| device_id.clone());
-    let here = device_id == own;
-    // This machine is online by definition; another one by its presence.
-    let online = here || row.as_ref().is_some_and(|row| row.online);
-    (Some(name), online, here)
+    host.device(&own, cx).and_then(|row| row.label).unwrap_or(own)
 }
 
-/// NEW-99: the member has a voice Assistant (`voice.get` agentId).
-fn has_agent(cx: &App) -> bool {
-    crate::speak_replies::settings(cx).agent_id.is_some()
+/// EXP-1857: the member's own desktops as `callTarget` reads them, from
+/// THIS client: `here` is online by definition with its own `speech`
+/// (None = no row), and a list that does not hold it yet (not synced) gets
+/// it first; `meeting_on` = the voice device while a meeting runs.
+pub(crate) fn target_desktops(
+    here: Option<(&str, &str)>,
+    here_speech: Option<CallSpeech>,
+    desktops: &[TalkDesktop],
+    meeting_on: Option<&str>,
+) -> Vec<CallTargetDevice> {
+    let mut out: Vec<CallTargetDevice> = desktops
+        .iter()
+        .map(|desktop| {
+            let own = here.is_some_and(|(id, _)| id == desktop.id);
+            CallTargetDevice {
+                id: desktop.id.clone(),
+                name: desktop.name.clone(),
+                online: own || desktop.online,
+                speech: if own { here_speech } else { call_speech_of(desktop.speech.as_deref()) },
+                meeting: meeting_on == Some(desktop.id.as_str()),
+            }
+        })
+        .collect();
+    if let Some((id, name)) = here.filter(|(id, _)| !out.iter().any(|desktop| desktop.id == *id)) {
+        out.insert(
+            0,
+            CallTargetDevice { id: id.to_string(), name: name.to_string(), online: true, speech: here_speech, meeting: meeting_on == Some(id) },
+        );
+    }
+    out
 }
 
-/// None = the telephone is enabled; Some = disabled, with the reason
-/// (voice-call.json `availabilityCases`, the desktop's view). S-3: a voice
-/// still downloading rings until it is ready.
-pub fn unavailable(cx: &App) -> Option<String> {
-    let (device, online, here) = voice_device(cx);
-    // NEW-99: the voice device's doctor row `speech` (this machine's own,
-    // the only one a desktop call reads past `notHere`) through the one mapper.
+/// EXP-1857 (voice-call.json `callTarget`): where a call with `agent_id`
+/// runs, from this desktop: the agent's Runs on, this machine, the
+/// member's other desktops; `busy` = a call already runs on this client.
+pub fn target(agent_id: &str, cx: &App) -> CallTarget {
+    let settings = crate::speak_replies::settings(cx);
+    let here = host::device_id(cx);
+    let name = own_name(cx);
+    let desktops = host::host(cx).map(|host| host.desktops(cx)).unwrap_or_default();
+    // This machine's own `speech` row through the one mapper.
     let speech = call_speech_of(crate::speak_replies::speech_state(cx).map(SpeechState::doctor_state));
-    call_unavailable(&CallAvailabilityInput {
-        agent: has_agent(cx),
+    // #NEW-57: a meeting runs on the voice device only.
+    let meeting_on = settings.voice_device_id.as_deref().filter(|_| settings.meeting());
+    let desktops = target_desktops(here.as_deref().map(|id| (id, name.as_str())), speech, &desktops, meeting_on);
+    // EXP-1858: the member's own servers (only the agent's counts).
+    let servers = host::host(cx).map(|host| host.servers(cx)).unwrap_or_default();
+    let servers = target_desktops(None, None, &servers, None);
+    let agent_device = host::agent(agent_id, cx).and_then(|agent| agent.device_id);
+    call_target(&CallTargetInput {
         platform: CallPlatform::Desktop,
-        device: device.as_deref(),
-        online,
-        here,
-        speech,
+        here: here.as_deref(),
+        agent_device: agent_device.as_deref(),
+        desktops: &desktops,
+        servers: &servers,
         busy: active(cx),
-        // #NEW-57: a meeting runs on the voice device.
-        meeting: crate::speak_replies::settings(cx).meeting(),
     })
 }
 
-/// The telephone (header) or the tray's Call: call `agent_id` here.
+/// None = the telephone for `agent_id` is enabled; Some = disabled, with
+/// the reason (EXP-1857: [`target`]'s).
+pub fn unavailable(agent_id: &str, cx: &App) -> Option<String> {
+    target(agent_id, cx).reason
+}
+
+/// The telephone (header) or the tray's Call: call `agent_id`, here or, on
+/// another desktop, dialled.
 pub fn start(agent_id: String, cx: &mut App) {
-    if let Some(reason) = unavailable(cx) {
+    let target = target(&agent_id, cx);
+    if let Some(reason) = target.reason {
         host::notify(Notice::Error(reason), cx);
         return;
     }
     let Some(entity) = global(cx) else { return };
-    entity.update(cx, |this, cx| this.begin(agent_id, None, cx));
+    let device = target.name.unwrap_or_default();
+    if target.local {
+        entity.update(cx, |this, cx| this.begin(agent_id, None, device, target.fallback, cx));
+    } else {
+        entity.update(cx, |this, cx| this.dial(agent_id, device, target.fallback, cx));
+    }
 }
 
 /// The surfaces' mute button.
@@ -266,27 +325,47 @@ pub fn end(cx: &mut App) {
     }
 }
 
-/// The relay rang this device (`call_ring` on the control socket): a phone
-/// or web caller streams a call to `agent_id`. Busy or unable to speak =
-/// no answer (the relay tells the caller). S-3: a voice still downloading
-/// answers too (the call rings until it is ready).
-pub fn on_ring(call_id: String, agent_id: String, cx: &mut App) {
-    let (_, _, here) = voice_device(cx);
-    // #NEW-57: a call reaching the device mid-meeting fails with
-    // `failed.meeting` (the caller's telephone should have been off).
-    if here && !active(cx) && crate::speak_replies::settings(cx).meeting() {
-        refuse_for_meeting(call_id, cx);
-        return;
+/// What a ring (`call_ring`) gets on this desktop.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RingAnswer {
+    Answer,
+    /// #NEW-57: a meeting runs HERE: joined only to fail it `meeting`.
+    RefuseMeeting,
+    /// Busy or unable to speak: no answer (the relay tells the caller).
+    Ignore,
+}
+
+/// EXP-1857: ANY member desktop that speaks answers (`ready` or still
+/// downloading: the call rings until it is ready), whether or not it is the
+/// voice device; a meeting refuses only where it runs.
+pub(crate) fn ring_answer(meeting_here: bool, busy: bool, speech: Option<SpeechState>) -> RingAnswer {
+    if meeting_here && !busy {
+        return RingAnswer::RefuseMeeting;
     }
-    let speech = crate::speak_replies::speech_state(cx);
-    let can_speak = matches!(speech, Some(SpeechState::Ready | SpeechState::Downloading));
-    if !here || active(cx) || !can_speak {
-        log::info!("[voice] call {call_id}: not answered here");
-        return;
+    if busy || !matches!(speech, Some(SpeechState::Ready | SpeechState::Downloading)) {
+        return RingAnswer::Ignore;
+    }
+    RingAnswer::Answer
+}
+
+/// The relay rang this device (`call_ring` on the control socket): a phone,
+/// web or another desktop streams a call to `agent_id`.
+pub fn on_ring(call_id: String, agent_id: String, cx: &mut App) {
+    let settings = crate::speak_replies::settings(cx);
+    let here = host::device_id(cx);
+    let meeting_here = settings.meeting() && here.is_some() && settings.voice_device_id == here;
+    match ring_answer(meeting_here, active(cx), crate::speak_replies::speech_state(cx)) {
+        RingAnswer::RefuseMeeting => return refuse_for_meeting(call_id, cx),
+        RingAnswer::Ignore => {
+            log::info!("[voice] call {call_id}: not answered here");
+            return;
+        }
+        RingAnswer::Answer => {}
     }
     let Some(entity) = global(cx) else { return };
     let Some(connecting) = host::host(cx).and_then(|host| host.connect_call(&call_id, cx)) else { return };
     let weak = entity.downgrade();
+    let device = own_name(cx);
     cx.spawn(async move |cx| {
         let (host, rx) = match connecting.await {
             Ok(connection) => (connection.link, connection.events),
@@ -300,7 +379,7 @@ pub fn on_ring(call_id: String, agent_id: String, cx: &mut App) {
                 host.end();
                 return false;
             }
-            this.begin(agent_id, Some(host), cx);
+            this.begin(agent_id, Some(host), device, false, cx);
             true
         });
         if !matches!(started, Ok(true)) {
@@ -358,6 +437,7 @@ pub fn owns(event: &etalk::Event, cx: &App) -> bool {
         etalk::Event::Said { id, .. } | etalk::Event::SpeechStarted { id } | etalk::Event::CallListening { id } => *id == active.id,
         etalk::Event::Level { id, .. } | etalk::Event::Partial { id, .. } | etalk::Event::ListenFailed { id, .. } => *id == active.id,
         etalk::Event::SpeechAudio { .. } => active.host.is_some(),
+        etalk::Event::DialAudio { id, .. } => *id == active.id,
         _ => false,
     }
 }
@@ -368,26 +448,16 @@ pub fn on_worker_event(event: etalk::Event, cx: &mut App) {
     }
 }
 
-/// Settings changed or the account went away: a call that can no longer
-/// run here ends.
+/// Settings changed: a call that can no longer run here ends (#NEW-57: a
+/// meeting started on this desktop; a dialled call's microphone the worker
+/// refuses itself).
 pub fn settings_changed(cx: &mut App) {
-    if active(cx) && unavailable_ignoring_busy(cx).is_some() {
+    let settings = crate::speak_replies::settings(cx);
+    let here = host::device_id(cx);
+    let meeting_here = settings.meeting() && here.is_some() && settings.voice_device_id == here;
+    if meeting_here && active(cx) {
         end(cx);
     }
-}
-
-fn unavailable_ignoring_busy(cx: &App) -> Option<String> {
-    let (device, online, here) = voice_device(cx);
-    call_unavailable(&CallAvailabilityInput {
-        agent: has_agent(cx),
-        platform: CallPlatform::Desktop,
-        device: device.as_deref(),
-        online,
-        here,
-        speech: Some(CallSpeech::Ok),
-        busy: false,
-        meeting: crate::speak_replies::settings(cx).meeting(),
-    })
 }
 
 /// S-3: an IDE window of this device is focused (the pill hides then). A
@@ -406,6 +476,12 @@ impl VoiceCall {
         }
         let before = self.state.clone();
         self.state = call_step(&self.state, &event);
+        // EXP-1857: a dialled call's ring stops once the host answered.
+        if before.phase == CallPhase::Ringing && self.state.phase != CallPhase::Ringing && self.dialled() {
+            if let Some(client) = crate::speak_replies::client(cx) {
+                client.stop();
+            }
+        }
         // The telephones (busy) and the tray's Call follow a call's start
         // and end.
         if (before.phase == CallPhase::Hidden) != (self.state.phase == CallPhase::Hidden) {
@@ -416,9 +492,16 @@ impl VoiceCall {
             self.toasts.push(toast.clone());
             host::notify(Notice::Error(toast), cx);
         }
-        // S-3: rang and ready answered it: the device says its greeting.
+        // S-3: rang and ready answered it: the device says its greeting
+        // (EXP-1857: a dialled call's host says it; only the timer starts).
         if before.phase == CallPhase::Ringing && self.state.phase == CallPhase::Speaking {
-            self.answer(cx);
+            if self.dialled() {
+                if let Some(active) = self.active.as_mut() {
+                    active.answered_at = Some(Instant::now());
+                }
+            } else {
+                self.answer(cx);
+            }
         }
         if self.state != before {
             self.sync_pill(cx);
@@ -438,9 +521,15 @@ impl VoiceCall {
         }
     }
 
-    fn begin(&mut self, agent_id: String, host: Option<Box<dyn CallLink>>, cx: &mut Context<Self>) {
+    /// A dialled call runs (caller mode).
+    fn dialled(&self) -> bool {
+        self.active.as_ref().is_some_and(|active| active.dialled)
+    }
+
+    /// A call whose speech runs HERE: local (`host` None) or streamed in.
+    /// `device` = this desktop's name, `fallback` = not the agent's own.
+    fn begin(&mut self, agent_id: String, host: Option<Box<dyn CallLink>>, device: String, fallback: bool, cx: &mut Context<Self>) {
         let Some(client) = crate::speak_replies::client(cx) else { return };
-        let (device, _, _) = voice_device(cx);
         // A held push to talk and anything being said stop first.
         crate::push_to_talk::signed_out(cx);
         if crate::speak_replies::speaking(cx).is_some() {
@@ -452,13 +541,125 @@ impl VoiceCall {
         crate::speak_replies::use_voice_of(&agent_id, cx);
         let id = self.open(agent_id, host, cx);
         let remote = self.active.as_ref().is_some_and(|active| active.host.is_some());
-        self.step(CallEvent::Start { device: device.unwrap_or_default(), language: Some(language.clone()) }, cx);
+        self.step(CallEvent::Start { device, language: Some(language.clone()), fallback }, cx);
         // S-3: a LOCAL call rings on this device while the worker warms up;
         // a remote one rings on the caller (the host's `rang` follows).
         // EXP-1423: the worker rings until the greeting, at most `maxRingMs`.
         let ring_ms = VOICE_CALL.constants.max_ring_ms;
         client.call(id.clone(), language, remote, if remote { 0 } else { ring_ms as u32 });
         self.arm_timers(id, cx);
+    }
+
+    /// EXP-1857: CALLER MODE: call `agent_id` on the desktop `device`
+    /// (another of the member's), streamed over the relay like web and the
+    /// phones; the worker's `Dial` is the microphone (echo-cancelled) and the
+    /// speaker here, and rings until the host answers.
+    fn dial(&mut self, agent_id: String, device: String, fallback: bool, cx: &mut Context<Self>) {
+        let Some(client) = crate::speak_replies::client(cx) else { return };
+        crate::push_to_talk::signed_out(cx);
+        if crate::speak_replies::speaking(cx).is_some() {
+            crate::speak_replies::stop(cx);
+        }
+        // The greeting's language is the agent's (the host speaks it).
+        let language = crate::speak_replies::voice_of(&agent_id, cx).language;
+        let id = self.open(agent_id.clone(), None, cx);
+        if let Some(active) = self.active.as_mut() {
+            active.dialled = true;
+        }
+        self.step(CallEvent::Start { device, language: Some(language), fallback }, cx);
+        client.dial(id.clone(), VOICE_CALL.constants.max_ring_ms as u32);
+        self.arm_timers(id.clone(), cx);
+        let Some(connecting) = host::host(cx).and_then(|host| host.dial_call(&agent_id, cx)) else {
+            log::warn!("[voice] call {id}: no relay to dial through");
+            self.fail("dropped", cx);
+            return;
+        };
+        cx.spawn(async move |this, cx| {
+            let connection = match connecting.await {
+                Ok(connection) => connection,
+                Err(err) => {
+                    let _ = this.update(cx, |this, cx| this.dial_failed(&id, err, cx));
+                    return;
+                }
+            };
+            let (link, rx) = (connection.link, connection.events);
+            let kept = this.update(cx, |this, _| match this.active.as_mut().filter(|active| active.id == id) {
+                Some(active) => {
+                    active.dial = Some(link);
+                    true
+                }
+                None => {
+                    // Ended while it dialled.
+                    link.end();
+                    false
+                }
+            });
+            if !matches!(kept, Ok(true)) {
+                return;
+            }
+            while let Ok(event) = rx.recv_async().await {
+                if this.update(cx, |this, cx| this.on_dial(&id, event, cx)).is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// EXP-1857: `voice.startCall` refused: its own words when they are an
+    /// availability reason (the call ends with that toast), else `dropped`.
+    fn dial_failed(&mut self, id: &str, err: DialError, cx: &mut Context<Self>) {
+        if !self.is_call(id) {
+            return;
+        }
+        match err {
+            DialError::Refused(message) if is_reason(&message) => {
+                log::info!("[voice] call {id}: refused: {message}");
+                self.close_with(false, CallEvent::End, cx);
+                host::notify(Notice::Error(message), cx);
+            }
+            DialError::Refused(message) | DialError::Failed(message) => {
+                log::warn!("[voice] call {id}: the dial failed: {message}");
+                self.fail("dropped", cx);
+            }
+        }
+    }
+
+    /// EXP-1857: what the dialled desktop (or the relay) sent.
+    fn on_dial(&mut self, id: &str, event: DialLinkEvent, cx: &mut Context<Self>) {
+        if !self.is_call(id) {
+            return;
+        }
+        match event {
+            DialLinkEvent::Ready => log::info!("[voice] call {id}: the dialled desktop is on the line"),
+            DialLinkEvent::Event(value) => match call_event_of_wire(&value) {
+                // The host failed the call (its `call_end` follows): its toast.
+                Some(CallEvent::Failed(code)) => self.fail(&code, cx),
+                Some(event) => {
+                    // Barge-in: the reply still queued here stops.
+                    if event == CallEvent::SpeechStarted {
+                        if let Some(client) = crate::speak_replies::client(cx) {
+                            client.dial_flush(id);
+                        }
+                    }
+                    self.step(event, cx);
+                }
+                None => {}
+            },
+            DialLinkEvent::Audio(pcm) => {
+                if let Some(client) = crate::speak_replies::client(cx) {
+                    client.dial_play(id, &pcm, DIAL_DOWN_RATE);
+                }
+            }
+            // A reason-less hang-up is silent, the relay's `idle` /
+            // `max_length` toast `dropped` (voice-call.json `hangUpRules`).
+            DialLinkEvent::Ended { reason } => self.close_with(false, CallEvent::HungUp(reason), cx),
+            DialLinkEvent::Failed(code) => self.fail(&code, cx),
+            DialLinkEvent::Dropped(reason) => {
+                log::warn!("[voice] call {id}: the dialled call dropped: {reason}");
+                self.fail("dropped", cx);
+            }
+        }
     }
 
     /// The call's bookkeeping (the worker's id, the clocks).
@@ -469,6 +670,8 @@ impl VoiceCall {
             id: id.clone(),
             agent_id,
             host,
+            dialled: false,
+            dial: None,
             queued: 0,
             speaking: None,
             greeting_id: format!("{id}-greeting"),
@@ -515,7 +718,8 @@ impl VoiceCall {
     }
 
     fn on_rang(&mut self, id: &str, cx: &mut Context<Self>) {
-        if self.is_call(id) {
+        // EXP-1857: a dialled call's `rang` is the host's.
+        if self.is_call(id) && !self.dialled() {
             self.step(CallEvent::Rang, cx);
         }
     }
@@ -591,7 +795,16 @@ impl VoiceCall {
 
     fn set_muted(&mut self, muted: bool, cx: &mut Context<Self>) {
         let Some(active) = self.active.as_ref() else { return };
-        if let Some(client) = crate::speak_replies::client(cx) {
+        if active.dialled {
+            // EXP-1857: the host hears it; the frames go on as silence.
+            if let Some(dial) = active.dial.as_ref() {
+                dial.set_muted(muted);
+            }
+            self.live.update(cx, |live, cx| {
+                live.level = 0.;
+                cx.notify();
+            });
+        } else if let Some(client) = crate::speak_replies::client(cx) {
             client.call_mute(active.id.clone(), muted);
         }
         self.step(if muted { CallEvent::Mute } else { CallEvent::Unmute }, cx);
@@ -615,6 +828,9 @@ impl VoiceCall {
             if let Some(host) = active.host.as_ref() {
                 host.end();
             }
+            if let Some(dial) = active.dial.as_ref() {
+                dial.end();
+            }
         }
         self.step(event, cx);
     }
@@ -632,6 +848,10 @@ impl VoiceCall {
         if let Some(host) = active.host.as_ref() {
             host.send_event(host_failed_event(code));
             host.end();
+        }
+        // EXP-1857: a dialled call hangs up on its host.
+        if let Some(dial) = active.dial.as_ref() {
+            dial.end();
         }
         self.step(CallEvent::Failed(code.to_string()), cx);
     }
@@ -686,6 +906,22 @@ impl VoiceCall {
                 self.step(CallEvent::SpeechStarted, cx);
             }
             etalk::Event::Said { text, .. } => self.said(text, cx),
+            // EXP-1857: a dialled call's microphone, echo-cancelled: up to
+            // the host (silence while muted) and the wave.
+            etalk::Event::DialAudio { pcm, .. } => {
+                let Ok(samples) = etalk::decode_pcm(&pcm) else { return };
+                let level = if self.state.muted { 0. } else { mic_level(&samples) };
+                if let Some(dial) = self.active.as_ref().and_then(|active| active.dial.as_ref()) {
+                    dial.send_audio(samples);
+                }
+                self.live.update(cx, |live, cx| {
+                    if live.level != level {
+                        live.level = level;
+                        cx.notify();
+                    }
+                });
+                self.push_pill(cx);
+            }
             etalk::Event::SpeechAudio { pcm, rate, .. } => {
                 let Some(host) = self.active.as_ref().and_then(|active| active.host.as_ref()) else { return };
                 let Ok(samples) = etalk::decode_pcm(&pcm) else { return };
@@ -720,6 +956,13 @@ impl VoiceCall {
     fn said(&mut self, text: String, cx: &mut Context<Self>) {
         let Some(active) = self.active.as_mut() else { return };
         if text.trim().is_empty() {
+            return;
+        }
+        // S-3 (voice-call.json): words during the ring are not the call's.
+        // EXP-1857 real call test: a remote caller streams from `call_ready`
+        // on, so the host heard (and sent) them before the greeting.
+        if self.state.phase == CallPhase::Ringing {
+            log::info!("[voice] call: an utterance during the ring was dropped");
             return;
         }
         let busy = matches!(self.state.phase, CallPhase::Thinking | CallPhase::Speaking);
@@ -789,6 +1032,35 @@ impl VoiceCall {
             _ => {}
         }
     }
+}
+
+/// EXP-1857: a block's loudness for the wave (0..1, the peak with headroom).
+fn mic_level(samples: &[i16]) -> f32 {
+    let peak = samples.iter().map(|sample| i32::from(*sample).unsigned_abs()).max().unwrap_or(0);
+    (peak as f32 / 32768. * 2.).min(1.)
+}
+
+/// EXP-1857: `message` is one of voice-call.json's availability reasons
+/// (`{device}` = any name): the server refused the dial in its own words.
+fn is_reason(message: &str) -> bool {
+    let reasons = &VOICE_CALL.copy.reasons;
+    [
+        &reasons.meeting,
+        &reasons.no_agent,
+        &reasons.no_voice_device,
+        &reasons.offline,
+        &reasons.not_here,
+        &reasons.preparing,
+        &reasons.voice_failed,
+        &reasons.no_gpu,
+        &reasons.busy,
+        &reasons.no_desktop,
+    ]
+    .iter()
+    .any(|reason| match reason.split_once("{device}") {
+        Some((before, after)) => message.len() > before.len() + after.len() && message.starts_with(before) && message.ends_with(after),
+        None => message == reason.as_str(),
+    })
 }
 
 /// How long a ring may wait for the ticket before the relay gives up
@@ -866,7 +1138,7 @@ fn ring_for_test(agent_id: &str, cx: &mut App) -> String {
     let Some(entity) = global(cx) else { return String::new() };
     entity.update(cx, |this, cx| {
         let id = this.open(agent_id.into(), None, cx);
-        this.step(CallEvent::Start { device: "mint".into(), language: Some("en".into()) }, cx);
+        this.step(CallEvent::Start { device: "mint".into(), language: Some("en".into()), fallback: false }, cx);
         id
     })
 }
@@ -931,15 +1203,14 @@ mod tests {
         });
     }
 
-    /// A settings change that leaves no voice device here (another device
-    /// picked, or none) ends the call.
+    /// EXP-1857: there is no voice device to move away from any more: a
+    /// settings change without a meeting here keeps the call.
     #[gpui::test]
-    async fn a_voice_device_change_hangs_up(cx: &mut gpui::TestAppContext) {
+    async fn a_settings_change_keeps_the_call(cx: &mut gpui::TestAppContext) {
         running(cx);
         cx.update(|cx| {
-            assert!(unavailable_ignoring_busy(cx).is_some(), "no voice device in the test app");
             settings_changed(cx);
-            assert!(!active(cx));
+            assert!(active(cx));
         });
     }
 
@@ -975,6 +1246,20 @@ mod tests {
             assert_eq!(face.view.status, None, "answered: the timer");
             assert_eq!(face.timer.as_ref(), "00:00");
             assert_eq!(face.view.buttons, vec![etalk::call::CallButton::Mute, etalk::call::CallButton::End]);
+        });
+    }
+
+    /// EXP-1857 (the real call test): an utterance heard during the ring
+    /// is not the call's: dropped, the call still rings and shows nothing.
+    #[gpui::test]
+    async fn an_utterance_during_the_ring_is_dropped(cx: &mut gpui::TestAppContext) {
+        setup(cx);
+        cx.update(|cx| {
+            let id = ring_for_test("agent-1", cx);
+            on_worker_event(etalk::Event::Said { id: id.clone(), text: "status of the release".into() }, cx);
+            assert_eq!(phase(cx), CallPhase::Ringing);
+            assert_eq!(face(cx).unwrap().view.caption, "");
+            assert_eq!(global(cx).unwrap().read(cx).active.as_ref().unwrap().queued, 0);
         });
     }
 
@@ -1087,7 +1372,161 @@ mod tests {
         assert_eq!(wire_event(&CallEvent::NoSound).unwrap()["t"], "noSound");
         assert!(wire_event(&CallEvent::Mute).is_none());
         assert!(wire_event(&CallEvent::End).is_none());
-        assert!(wire_event(&CallEvent::Start { device: "mint".into(), language: None }).is_none());
+        assert!(wire_event(&CallEvent::Start { device: "mint".into(), language: None, fallback: true }).is_none());
+    }
+
+    /// EXP-1857: the member's desktops as this client reads them: this
+    /// machine online with its own speech (first when not synced yet), the
+    /// others by their doctor rows, the meeting on the voice device only.
+    #[test]
+    fn the_target_input_reads_this_machine_itself() {
+        let row = |id: &str, online: bool, speech: Option<&str>| TalkDesktop {
+            id: id.into(),
+            name: format!("{id}-name"),
+            online,
+            speech: speech.map(str::to_string),
+        };
+        let rows = [row("d-mint", true, Some("ok")), row("d-mac", false, None), row("d-old", true, Some("missing"))];
+        let desktops = target_desktops(Some(("d-mac", "macbook")), Some(CallSpeech::Preparing), &rows, Some("d-mint"));
+        assert_eq!(desktops.iter().map(|desktop| desktop.id.as_str()).collect::<Vec<_>>(), ["d-mint", "d-mac", "d-old"], "the synced order");
+        assert_eq!((desktops[1].online, desktops[1].speech), (true, Some(CallSpeech::Preparing)), "here: online, its own speech");
+        assert_eq!((desktops[0].speech, desktops[0].meeting), (Some(CallSpeech::Ok), true));
+        assert_eq!(desktops[2].speech, Some(CallSpeech::NoGpu));
+        let unsynced = target_desktops(Some(("d-new", "new")), Some(CallSpeech::Ok), &rows, None);
+        assert_eq!((unsynced[0].id.as_str(), unsynced[0].name.as_str(), unsynced[0].online), ("d-new", "new", true));
+        assert_eq!(unsynced.len(), 4);
+        // Danny's case: the Assistant runs on a server, this desktop speaks.
+        let target = call_target(&CallTargetInput {
+            platform: CallPlatform::Desktop,
+            here: Some("d-new"),
+            agent_device: Some("d-server"),
+            desktops: &unsynced,
+            servers: &[],
+            busy: false,
+        });
+        assert_eq!((target.name.as_deref(), target.local, target.fallback), (Some("new"), true, true));
+        // This desktop has no GPU: the call is dialled to mint.
+        let here_silent = target_desktops(Some(("d-mac", "macbook")), Some(CallSpeech::NoGpu), &rows, None);
+        let target = call_target(&CallTargetInput {
+            platform: CallPlatform::Desktop,
+            here: Some("d-mac"),
+            agent_device: Some("d-server"),
+            desktops: &here_silent,
+            servers: &[],
+            busy: false,
+        });
+        assert_eq!((target.device.as_deref(), target.local, target.fallback), (Some("d-mint"), false, true));
+        assert_eq!(call_view(&call_step(&CallState::default(), &CallEvent::Start { device: "mint-name".into(), language: None, fallback: true }), CallPlatform::Desktop).unwrap().via.as_deref(), Some("Voice on mint-name"));
+    }
+
+    /// EXP-1857: any member desktop that speaks answers a ring, the voice
+    /// device or not; a meeting refuses only where it runs.
+    #[test]
+    fn any_desktop_that_speaks_answers_a_ring() {
+        assert_eq!(ring_answer(false, false, Some(SpeechState::Ready)), RingAnswer::Answer, "not the voice device: answers");
+        assert_eq!(ring_answer(false, false, Some(SpeechState::Downloading)), RingAnswer::Answer, "rings until ready");
+        assert_eq!(ring_answer(false, true, Some(SpeechState::Ready)), RingAnswer::Ignore, "busy");
+        assert_eq!(ring_answer(false, false, Some(SpeechState::NoGpu)), RingAnswer::Ignore);
+        assert_eq!(ring_answer(false, false, Some(SpeechState::Failed)), RingAnswer::Ignore);
+        assert_eq!(ring_answer(false, false, None), RingAnswer::Ignore, "no speech row");
+        assert_eq!(ring_answer(true, false, Some(SpeechState::Ready)), RingAnswer::RefuseMeeting);
+        assert_eq!(ring_answer(true, true, Some(SpeechState::Ready)), RingAnswer::Ignore, "a running call keeps it");
+    }
+
+    /// EXP-1857: the server's refusals in the fixture's words are toasted
+    /// as they are; anything else is a dropped call.
+    #[test]
+    fn a_refusal_in_the_fixtures_words_is_a_reason() {
+        assert!(is_reason("mint is offline"));
+        assert!(is_reason("big desk can't speak: no usable GPU"));
+        assert!(is_reason(&VOICE_CALL.copy.reasons.no_desktop));
+        assert!(!is_reason(" is offline"), "no device");
+        assert!(!is_reason("This call runs on this desktop"));
+        assert!(!is_reason("Internal server error"));
+    }
+
+    /// A dialled desktop that records what the call did to it.
+    #[derive(Clone, Default)]
+    struct Recorder(std::rc::Rc<std::cell::RefCell<Vec<String>>>);
+
+    impl DialLink for Recorder {
+        fn send_audio(&self, pcm: Vec<i16>) {
+            self.0.borrow_mut().push(format!("audio {}", pcm.len()));
+        }
+        fn set_muted(&self, muted: bool) {
+            self.0.borrow_mut().push(format!("mute {muted}"));
+        }
+        fn end(&self) {
+            self.0.borrow_mut().push("end".into());
+        }
+    }
+
+    /// A dialled call, ringing, its link connected (no worker, no relay).
+    fn dialled(cx: &mut gpui::TestAppContext) -> (String, Recorder) {
+        let recorder = Recorder::default();
+        let id = cx.update(|cx| {
+            global(cx).unwrap().update(cx, |this, cx| {
+                let id = this.open("agent-1".into(), None, cx);
+                let active = this.active.as_mut().unwrap();
+                active.dialled = true;
+                active.dial = Some(Box::new(recorder.clone()));
+                this.step(CallEvent::Start { device: "mint".into(), language: Some("en".into()), fallback: true }, cx);
+                id
+            })
+        });
+        (id, recorder)
+    }
+
+    fn host_event(id: &str, event: serde_json::Value, cx: &mut App) {
+        global(cx).unwrap().update(cx, |this, cx| this.on_dial(id, DialLinkEvent::Event(event), cx));
+    }
+
+    /// EXP-1857: CALLER MODE: the host's `rang` + `ready` answer it (the
+    /// host greets; no greeting here), its flow events step this machine,
+    /// the microphone goes up, mute and End reach the host; the via line
+    /// names the desktop that speaks; Speak replies never speaks it here.
+    #[gpui::test]
+    async fn a_dialled_call_follows_its_host(cx: &mut gpui::TestAppContext) {
+        setup(cx);
+        let (id, recorder) = dialled(cx);
+        cx.update(|cx| {
+            assert_eq!(face(cx).unwrap().view.via.as_deref(), Some("Voice on mint"));
+            assert_eq!(agent_id(cx), None, "its speech runs on mint");
+            assert!(runs_for("agent-1", cx));
+            global(cx).unwrap().update(cx, |this, cx| this.on_rang(&id, cx));
+            assert_eq!(phase(cx), CallPhase::Ringing, "the ring is the host's");
+            host_event(&id, serde_json::json!({ "t": "rang" }), cx);
+            host_event(&id, serde_json::json!({ "t": "ready" }), cx);
+            assert_eq!(phase(cx), CallPhase::Speaking, "the host greets");
+            assert!(global(cx).unwrap().read(cx).active.as_ref().unwrap().answered_at.is_some(), "the timer runs");
+            host_event(&id, serde_json::json!({ "t": "replyFinished" }), cx);
+            assert_eq!(phase(cx), CallPhase::Listening);
+            on_worker_event(etalk::Event::DialAudio { id: id.clone(), pcm: etalk::encode_pcm(&[1000; 320]) }, cx);
+            toggle_mute(cx);
+            assert!(face(cx).unwrap().view.muted);
+            end(cx);
+            assert!(!active(cx));
+        });
+        assert_eq!(*recorder.0.borrow(), ["audio 320", "mute true", "end"]);
+    }
+
+    /// EXP-1857: the relay's `no_answer` (and the host's failed event)
+    /// toast through `copy.failed` with the device's name.
+    #[gpui::test]
+    async fn a_dialled_call_that_nobody_answers_toasts(cx: &mut gpui::TestAppContext) {
+        setup(cx);
+        let (id, recorder) = dialled(cx);
+        cx.update(|cx| {
+            global(cx).unwrap().update(cx, |this, cx| this.on_dial(&id, DialLinkEvent::Failed("no_answer".into()), cx));
+            assert!(!active(cx));
+            assert_eq!(global(cx).unwrap().read(cx).toasts, vec![VOICE_CALL.copy.failed["no_answer"].replace("{device}", "mint")]);
+        });
+        assert_eq!(*recorder.0.borrow(), ["end"]);
+        let (id, _) = dialled(cx);
+        cx.update(|cx| {
+            host_event(&id, serde_json::json!({ "t": "failed", "code": "unavailable" }), cx);
+            assert!(!active(cx));
+        });
     }
 
     /// F41: a host that fails the call names the code before `call_end`.

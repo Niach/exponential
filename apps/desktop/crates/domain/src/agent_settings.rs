@@ -551,7 +551,7 @@ pub fn visible_agent(role: Option<&str>, owner_id: Option<&str>, me: Option<&str
 #[serde(rename_all = "camelCase")]
 pub struct AssistantFabSpec {
     pub copy: AssistantFabCopy,
-    pub widget: AssistantWidgetSize,
+    pub widget: AssistantWidgetSpec,
     /// The FAB's distance from the content card's bottom-right corner.
     pub inset: f32,
     /// #EXP-1860: the card's bottom-right square the FAB owns (inset + 52 +
@@ -573,6 +573,39 @@ pub struct AssistantFabCopy {
 pub struct AssistantWidgetSize {
     pub width: f32,
     pub height: f32,
+}
+
+/// #EXP-1876 (`assistant.fab.widget`): the widget's responsive size and
+/// drag numbers.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct AssistantWidgetSpec {
+    pub min: AssistantWidgetSize,
+    pub ratio: AssistantWidgetSize,
+    pub max: AssistantWidgetSize,
+    pub margin: AssistantWidgetSize,
+    /// The invisible resize band along the top and left edges.
+    pub handle: f32,
+    pub radius: f32,
+}
+
+/// #EXP-1876 TS `assistantWidgetSize` (`widget.sizeCases`): the widget's
+/// size in a content card of `card` px. No `stored` = the responsive default
+/// (round(card × ratio) clamped to [min … max]); a dragged `stored` size
+/// clamps to [min … card − margin]. Either never exceeds card − margin.
+pub fn assistant_widget_size(card: AssistantWidgetSize, stored: Option<AssistantWidgetSize>) -> AssistantWidgetSize {
+    let w = &ASSISTANT_FAB.widget;
+    let axis = |card: f32, stored: Option<f32>, min: f32, ratio: f32, max: f32, margin: f32| {
+        let room = (card - margin).max(0.);
+        let wanted = match stored.filter(|v| v.is_finite()) {
+            Some(stored) => stored.round().max(min),
+            None => (card * ratio).round().clamp(min, max),
+        };
+        wanted.min(room)
+    };
+    AssistantWidgetSize {
+        width: axis(card.width, stored.map(|s| s.width), w.min.width, w.ratio.width, w.max.width, w.margin.width),
+        height: axis(card.height, stored.map(|s| s.height), w.min.height, w.ratio.height, w.max.height, w.margin.height),
+    }
 }
 
 pub static ASSISTANT_FAB: LazyLock<AssistantFabSpec> = LazyLock::new(|| {
@@ -1126,6 +1159,18 @@ mod tests {
     }
 
     #[test]
+    fn assistant_widget_size_cases_match_the_fixture() {
+        let fixture: Value = serde_json::from_str(AGENT_SETTINGS_JSON).unwrap();
+        let size = |v: &Value| AssistantWidgetSize { width: v["width"].as_f64().unwrap() as f32, height: v["height"].as_f64().unwrap() as f32 };
+        let cases = fixture["assistant"]["fab"]["widget"]["sizeCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let stored = (!case["stored"].is_null()).then(|| size(&case["stored"]));
+            assert_eq!(assistant_widget_size(size(&case["card"]), stored), size(&case["expected"]), "{}", case["name"]);
+        }
+    }
+
+    #[test]
     fn assistant_model_value_cases_match_the_fixture() {
         let fixture = fixture();
         let cases = fixture["assistant"]["modelValueCases"].as_array().unwrap();
@@ -1242,7 +1287,7 @@ mod tests {
         let fab = &*ASSISTANT_FAB;
         assert_eq!(fab.copy.maximize, "Open full chat");
         assert_eq!(fab.copy.minimize, "Minimize");
-        assert_eq!((fab.widget.width, fab.widget.height), (440., 560.));
+        assert_eq!((fab.widget.min.width, fab.widget.min.height, fab.widget.radius), (480., 560., 16.));
         assert_eq!((fab.inset, fab.toast_lift), (16., 76.));
         // #EXP-1860: the corner the FAB owns = inset + the 52px circle + inset.
         assert_eq!(fab.clearance, fab.inset * 2. + 52.);
