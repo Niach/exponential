@@ -14,6 +14,10 @@ import {
   appOnScreen,
   deviceFfiAbi,
   focusedPackage,
+  gradleVersionCode,
+  installedVersionCode,
+  installRefusedOverExisting,
+  mustUninstallFirst,
   resolveAndroidSdk,
   sdkDirFromLocalProperties,
   specimenState,
@@ -198,5 +202,30 @@ describe(`androidLaneEnv`, () => {
       ANDROID_HOME: `/h/Library/Android/sdk`,
       ABIS: `arm64-v8a`,
     })
+  })
+})
+
+describe(`a downgrade uninstalls first (EXP-1886)`, () => {
+  test(`reads the checkout's versionCode`, () => {
+    expect(gradleVersionCode(`    defaultConfig {\n        versionCode = 230\n        versionName = "0.14.147"\n`)).toBe(230)
+    expect(gradleVersionCode(`versionName = "1"`)).toBeUndefined()
+    const gradle = readFileSync(join(import.meta.dir, `../../../apps/android/app/build.gradle.kts`), `utf8`)
+    expect(gradleVersionCode(gradle)).toBeGreaterThan(0)
+  })
+  test(`reads the installed versionCode; none when the package is absent`, () => {
+    const dumpsys = `Packages:\n  Package [at.exponential] (abc):\n    versionCode=231 minSdk=28 targetSdk=36\n    versionName=0.14.150\n`
+    expect(installedVersionCode(dumpsys)).toBe(231)
+    expect(installedVersionCode(`Unable to find package: at.exponential\n`)).toBeUndefined()
+  })
+  test(`uninstalls only when the device holds a newer build`, () => {
+    expect(mustUninstallFirst(231, 230)).toBe(true)
+    expect(mustUninstallFirst(230, 230)).toBe(false)
+    expect(mustUninstallFirst(229, 230)).toBe(false)
+    expect(mustUninstallFirst(undefined, 230)).toBe(false)
+  })
+  test(`an install refused over the existing app is told apart from other failures`, () => {
+    expect(installRefusedOverExisting(`Failure [INSTALL_FAILED_VERSION_DOWNGRADE: Downgrade detected]`)).toBe(true)
+    expect(installRefusedOverExisting(`Failure [INSTALL_FAILED_UPDATE_INCOMPATIBLE: signatures do not match]`)).toBe(true)
+    expect(installRefusedOverExisting(`Failure [INSTALL_FAILED_INSUFFICIENT_STORAGE]`)).toBe(false)
   })
 })
