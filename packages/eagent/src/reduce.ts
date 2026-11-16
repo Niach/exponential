@@ -38,6 +38,7 @@ import type {
   PlanCard,
   QuestionCard,
   StepResult,
+  Watch,
 } from "./model"
 
 const MIN = 60_000
@@ -364,6 +365,68 @@ function watchSessions(ctx: Ctx, watcherId: string, ids: readonly string[]): str
   return live
 }
 
+/** #NEW-49: the things `row` waits on: its watched sessions plus its event watches (rules.watch.maxPerSession). */
+export const watchCount = (row: Pick<HubSession, `wakeOn` | `watches`>) => row.wakeOn.length + row.watches.length
+
+const sameWatch = (a: Watch, b: Watch) =>
+  a.kind === b.kind && a.subjectId === b.subjectId && (a.status ?? null) === (b.status ?? null) && (a.at ?? null) === (b.at ?? null)
+
+/** #NEW-49: `watcher` adds event watches (an equal one already held is kept, never doubled); past the cap = `limit`. */
+function watchEvents(ctx: Ctx, watcher: HubSession, watches: readonly Watch[]) {
+  const added: Watch[] = []
+  for (const watch of watches) {
+    if (watch.kind === `at` ? watch.at == null : !watch.subjectId) refuse(`invalid`, copy.watchInvalid)
+    const normal: Watch = {
+      id: watch.id,
+      kind: watch.kind,
+      subjectId: watch.kind === `at` ? null : watch.subjectId,
+      status: watch.kind === `issue_status` ? (watch.status ?? null) : null,
+      at: watch.kind === `at` ? watch.at : null,
+      label: watch.label,
+    }
+    if ([...watcher.watches, ...added].some((held) => sameWatch(held, normal))) continue
+    added.push(normal)
+  }
+  if (watchCount(watcher) + added.length > rules.watch.maxPerSession) {
+    refuse(`limit`, fill(copy.tooManyWatches, { max: rules.watch.maxPerSession }))
+  }
+  watcher.watches = [...watcher.watches, ...added]
+}
+
+/** #NEW-49: what a subject's event fires: CI settling fires `pr_checks`; a PR merging or closing fires every watch
+ *  on it; an issue's move fires `issue_status` when it waits for that status or any; `gone` fires every watch on it. */
+function fires(watch: Watch, kind: string, subjectId: string, status: string | null): boolean {
+  if (watch.kind === `at` || watch.subjectId !== subjectId) return false
+  if (kind === `gone`) return true
+  if (kind === `pr_closed`) return watch.kind === `pr_checks` || watch.kind === `pr_closed`
+  if (kind === `issue_status`) return watch.kind === `issue_status` && (watch.status === null || watch.status === status)
+  return watch.kind === kind
+}
+
+/** #NEW-49: a watch fired: ONE pending line into its live watcher (user-authored, the host's text), its host nudged
+ *  once per event; every watch it fired is gone. */
+function fireWatches(ctx: Ctx, match: (watch: Watch) => boolean, text: (fired: Watch) => string) {
+  const nudged = new Set<string>()
+  for (const row of Object.values(ctx.state.sessions).sort((a, b) => (a.id < b.id ? -1 : 1))) {
+    if (!isLive(row)) continue
+    const fired = row.watches.filter(match)
+    if (fired.length === 0) continue
+    row.watches = row.watches.filter((watch) => !fired.includes(watch))
+    post(ctx, row.id, {
+      authorKind: `user`,
+      authorSessionId: null,
+      body: text(fired[0]!),
+      card: { kind: `event`, event: `watch_fired`, sessionId: row.id, watchId: fired[0]!.id },
+      sealed: false,
+      waking: true,
+    })
+    if (!nudged.has(row.deviceId)) {
+      nudged.add(row.deviceId)
+      ctx.effects.push({ kind: `nudge`, deviceId: row.deviceId })
+    }
+  }
+}
+
 /** #FEED-206: a revived root is watched again, as at its start: by its starter (the live session carrying its
  *  `thread_started` card) and by the calling session outside its tree. */
 function rewatchRevived(ctx: Ctx, root: HubSession, caller: HubSession | null) {
@@ -400,6 +463,7 @@ function insertSession(ctx: Ctx, row: Pick<HubSession, `id` | `parentId` | `root
     needsInput: false,
     blocked: null,
     wakeOn: [],
+    watches: [],
     sealEpoch: null,
     scopeTeamIds: null,
     createdAt: ctx.now,
@@ -635,6 +699,8 @@ function endRows(ctx: Ctx, rows: HubSession[], named?: { id: string; summary: st
       needsInput: false,
       blocked: null,
       updatedAt: ctx.now,
+      // #NEW-49: an ended session waits on nothing.
+      watches: [],
     })
     for (const m of ctx.state.messages) {
       if (m.card?.kind === `ask` && m.card.sessionId === row.id && !m.answered) m.answered = true
@@ -1032,6 +1098,12 @@ function tick(ctx: Ctx): StepResult {
     const at = stampMs(row.blocked.resetsAt)
     if (Number.isFinite(at) && at <= now) clearBlocked(ctx, row, `rate_limit`)
   }
+  // #NEW-49: a time watch whose time came fires (one line per watcher, the earliest due one's label).
+  fireWatches(
+    ctx,
+    (watch) => watch.kind === `at` && watch.at !== null && watch.at <= now,
+    (fired) => fill(copy.watchAt, { label: fired.label })
+  )
   return {}
 }
 
@@ -1164,10 +1236,36 @@ export function reduce(state: HubState, event: HubEvent): Outcome {
       case `send.message`:
         result = sendMessage(ctx, data as SendData, caller())
         break
-      case `send.watch`:
+      case `send.watch`: {
         result = { sessionId: data.watcherId as string }
+        const watcher = ctx.state.sessions[data.watcherId as string]
+        // #NEW-49: event watches first (a refusal changes nothing), then the sessions; both count against one cap.
+        if (watcher && isLive(watcher)) watchEvents(ctx, watcher, (data.watches as Watch[] | undefined) ?? [])
+        const before = watcher ? [...watcher.wakeOn] : []
         watchSessions(ctx, data.watcherId as string, (data.ids as string[]) ?? [])
+        if (watcher && watchCount(watcher) > rules.watch.maxPerSession) {
+          watcher.wakeOn = before
+          refuse(`limit`, fill(copy.tooManyWatches, { max: rules.watch.maxPerSession }))
+        }
         break
+      }
+      case `send.unwatch`: {
+        // #NEW-49: a watch cancelled (by its id, or a watched session's id); unknown ids drop silently.
+        const row = session(ctx.state, data.sessionId as string)
+        const ids = new Set((data.ids as string[] | undefined) ?? [])
+        row.watches = row.watches.filter((watch) => !ids.has(watch.id))
+        row.wakeOn = row.wakeOn.filter((id) => !ids.has(id))
+        result = { sessionId: row.id }
+        break
+      }
+      case `watch.fire`: {
+        const kind = data.kind as string
+        const subjectId = data.subjectId as string
+        const status = (data.status as string | undefined) ?? null
+        fireWatches(ctx, (watch) => fires(watch, kind, subjectId, status), () => data.text as string)
+        result = {}
+        break
+      }
       case `session.end`: {
         const top = session(ctx.state, data.sessionId as string)
         // #FEED-192: ending never needs an encrypted body: a plaintext summary into a keyed tree is dropped, never stored.
@@ -1253,6 +1351,7 @@ export function hydrate(given: {
     const shared = row.shared ?? byId.get(placed.rootId)?.shared ?? d.session.shared
     state.sessions[row.id] = { ...(d.session as Omit<HubSession, `id` | `rootId` | `depth`>), ...placed, shared, ...row } as HubSession
     state.sessions[row.id]!.wakeOn = [...(row.wakeOn ?? [])]
+    state.sessions[row.id]!.watches = (row.watches ?? []).map((watch) => ({ ...watch }))
   }
   for (const m of given.messages ?? []) state.messages.push({ ...(d.message as Omit<HubMessage, `id` | `sessionId`>), ...m } as HubMessage)
   for (const device of given.devices ?? []) state.devices[device.id] = { ...d.device, ...device }
