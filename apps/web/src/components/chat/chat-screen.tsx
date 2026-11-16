@@ -67,6 +67,7 @@ import {
   type PullRequestRow,
   type SessionRow,
   type SessionChatView,
+  sessionWaitingOf,
 } from "@/lib/session-tree"
 import type { SessionChatRow } from "@exp/domain-contract/session-tree"
 import { PLAN_PAGE_COPY, planTabTarget } from "@exp/domain-contract/plan-page"
@@ -594,7 +595,9 @@ export function ChatScreen({
       busy: row.busy,
       needsInput: row.needsInput,
       root: row.id === root.id,
-    }))
+    })),
+    // #NEW-49: an idle tree reads what its root waits on.
+    sessionWaitingOf(root, rows, titles)
   )
   const subtitle = sessionScreenSubtitle({
     status,

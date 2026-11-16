@@ -31,7 +31,8 @@
     "sheet": "dock-sheet",
     "sheetBody": "dock-sheet-body",
     "sheetFooter": "dock-sheet-footer",
-    "close": "dock-sheet-close"
+    "close": "dock-sheet-close",
+    "watches": "dock-watches"
   },
   "stack": {
     "peek": 14,

@@ -1,4 +1,7 @@
 import { ASK_DOCK_COPY } from "@exp/domain-contract/ask-dock"
+import { DOCK_COPY, DOCK_TEST_IDS } from "@exp/domain-contract/dock"
+import { trpc } from "@/lib/trpc-client"
+import { sessionCollection } from "@/lib/collections"
 import { sendSessionMessage } from "@/lib/enet/send-sealed"
 import {
   AGENT_HINT_BANNER,
@@ -253,6 +256,7 @@ const CodingSubagentIcon = conceptIcon(`coding-subagent`)
 const EditorImageIcon = conceptIcon(`editor-image`)
 const UiEditIcon = conceptIcon(`ui-edit`)
 const UiLoadingIcon = conceptIcon(`ui-loading`)
+const UiCloseIcon = conceptIcon(`ui-close`)
 const UiPermissionIcon = conceptIcon(`ui-permission`)
 const UiRefreshIcon = conceptIcon(`ui-refresh`)
 const UiWarningIcon = conceptIcon(`ui-warning`)
@@ -2761,6 +2765,10 @@ export function useSessionDock(
     }
   }, [childSnapshots, session.id, sessionEnded, rootQueueModel, taskList, backgroundTasks, feed, tick])
   const [completedOpen, setCompletedOpen] = useState(false)
+  const watching = useMemo(
+    () => (!sessionEnded && Array.isArray(session.watching) ? session.watching : []),
+    [sessionEnded, session.watching]
+  )
   const limit = rateLimit ? rateLimitBanner(rateLimit, now) : null
   const agentHint = useAgentHintDock(session)
   const hintSource = agentHint.source
@@ -2834,8 +2842,10 @@ export function useSessionDock(
       })
     }
     if (hintSource) out.push(hintSource)
+    // #NEW-49 (dock.json `watches`): what the session waits on, each cancellable in the sheet.
+    if (watching.length > 0) out.push({ kind: `watches`, watches: watching.map((watch) => ({ id: watch.id, label: watch.label })) })
     return out
-  }, [queue, queueOwner, stateBanner, hostOffline, feed.length, phase, blockedLabel, sessionEnded, session.blocked, session.busy, compacting, limit, hintSource])
+  }, [queue, queueOwner, stateBanner, hostOffline, feed.length, phase, blockedLabel, sessionEnded, session.blocked, session.busy, compacting, limit, hintSource, watching])
   const renderSheet = (row: DockRow): ReactNode => {
     if (row.kind === `tasks`) {
       return (
@@ -2847,6 +2857,33 @@ export function useSessionDock(
             completedOpen={completedOpen}
             onCompletedOpenChange={setCompletedOpen}
           />
+        </DockSheetBody>
+      )
+    }
+    if (row.kind === `watches`) {
+      return (
+        <DockSheetBody>
+          <div className="flex flex-col" data-testid={DOCK_TEST_IDS.watches}>
+            {watching.map((watch) => (
+              <div key={watch.id} className="flex min-h-9 items-center gap-2 border-b border-glass-stroke last:border-b-0">
+                <span className="min-w-0 flex-1 truncate text-sm text-foreground">{watch.label}</span>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label={DOCK_COPY.cancelWatch}
+                  title={DOCK_COPY.cancelWatch}
+                  onClick={() => {
+                    trpc.sessions.unwatch
+                      .mutate({ sessionId: session.id, ids: [watch.id] }, SKIP_ERROR_TOAST)
+                      .then(({ txid }) => sessionCollection.utils.awaitTxId(txid, 3000).catch(() => undefined))
+                      .catch((error) => failedAction(`cancel`, `the watch`, error))
+                  }}
+                >
+                  <UiCloseIcon />
+                </Button>
+              </div>
+            ))}
+          </div>
         </DockSheetBody>
       )
     }
