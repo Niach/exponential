@@ -22,6 +22,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
@@ -139,6 +142,7 @@ class SteerConnectionTest {
         row: MutableStateFlow<SessionEntity?> = MutableStateFlow(null),
         dispatcher: CoroutineDispatcher = Dispatchers.Unconfined,
         foldDispatcher: CoroutineDispatcher? = null,
+        nowMs: () -> Long = { System.currentTimeMillis() },
     ): SteerConnection {
         if (row.value == null) row.value = runningRow()
         return SteerConnection(
@@ -147,11 +151,29 @@ class SteerConnectionTest {
             sessionFlow = row,
             json = json,
             dispatcher = dispatcher,
-            nowMs = { System.currentTimeMillis() },
+            nowMs = nowMs,
             timings = timings,
             foldDispatcher = foldDispatcher,
         )
     }
+
+    /**
+     * #EXP-1863: a connection on VIRTUAL time: its loop, timers and clock run
+     * on the test's scheduler, so a deadline is a number, never a race with
+     * a loaded machine (`waitUntil`'s and `awaitOpen`'s bounds are virtual
+     * too, under [runTest]).
+     */
+    private fun TestScope.virtualConnection(
+        transport: FakeTransport,
+        timings: SteerTimings,
+        row: MutableStateFlow<SessionEntity?> = MutableStateFlow(null),
+    ): SteerConnection = connection(
+        transport,
+        timings,
+        row,
+        dispatcher = StandardTestDispatcher(testScheduler),
+        nowMs = { testScheduler.currentTime },
+    )
 
     private suspend fun waitUntil(what: String, timeoutMs: Long = 5_000, check: () -> Boolean) {
         val settled = withTimeoutOrNull(timeoutMs) {
@@ -739,9 +761,9 @@ class SteerConnectionTest {
     }
 
     @Test
-    fun aNeverQuietReplayCommitsAtTheHardCap() = runBlocking {
+    fun aNeverQuietReplayCommitsAtTheHardCap() = runTest {
         val transport = FakeTransport()
-        val connection = connection(
+        val connection = virtualConnection(
             transport,
             // Quiet can never fire: something arrives every few ms.
             fastTimings.copy(replayQuietMs = 30_000, replayMaxMs = 150),
@@ -757,6 +779,8 @@ class SteerConnectionTest {
                 }
             }
             waitUntil("the capped commit") { connection.activity.value.feed.size > 1 }
+            // The cap, not the quiet window, committed it.
+            assertTrue(testScheduler.currentTime < 30_000)
             pump.cancel()
             // …and the stream keeps appending normally afterwards.
             val committed = connection.activity.value.feed.size
@@ -1432,20 +1456,23 @@ class SteerConnectionTest {
     }
 
     @Test
-    fun aRunBackWhoseFeedAnswersBeforeTheRowFlipsGoesLiveOnTheFlip() = runBlocking {
+    fun aRunBackWhoseFeedAnswersBeforeTheRowFlipsGoesLiveOnTheFlip() = runTest {
         val transport = FakeTransport().apply { noFeed = { it == 1 } }
         val row = endedRow()
-        val connection = connection(transport, stagingTimings.copy(offlineRedialMs = 50), row)
+        val connection = virtualConnection(transport, stagingTimings.copy(offlineRedialMs = 50), row)
         try {
             connection.connect()
             // VAPP-173: the feed answers while the row still reads ended.
             val socket = transport.awaitOpen()
             socket.emit("""{"t":"activity_reset"}""")
             socket.emit("""{"t":"activity_synced"}""")
-            waitUntil("the row-ended phase") {
-                connection.connected.value && connection.phase.value == AgentPhase.Ended(null)
+            // #EXP-1863: `connected` flips at the join, BEFORE the first frame
+            // clears the offline line, and the phase already read Ended from
+            // the row: wait for the frame itself (the old wait raced it).
+            waitUntil("the feed's first frame") {
+                connection.connected.value && connection.history.value == null
             }
-            assertNull(connection.history.value)
+            assertEquals(AgentPhase.Ended(null), connection.phase.value)
             // An idle run sends only keepalives: nothing re-evaluates but the row.
             socket.emit("""{"t":"keepalive"}""")
             row.value = runningRow()
