@@ -350,6 +350,12 @@ object TranscriptGrouping {
 
     /** #EXP-1873: the chat-transcript specimen's agent chat: a run of quiet
      *  check-ins, one that answered, a second run. */
+    /** #EXP-1873 `checkInSpecimenAgent`: the agent whose real bubble (avatar,
+     *  name, tail) answers in the specimen. */
+    data class CheckInSpecimenAgent(val name: String, val icon: String?, val color: String?)
+
+    val CHECK_IN_SPECIMEN_AGENT = CheckInSpecimenAgent("Assistant", "bot", "#6366f1")
+
     val CHECK_IN_SPECIMEN: List<CheckInSpecimenRow> = listOf(
         CheckInSpecimenRow(FeedRowRole.Schedule, "16:30", null),
         CheckInSpecimenRow(FeedRowRole.Quiet, null, null),

@@ -716,8 +716,15 @@ struct ChatTranscriptSpecimens: View {
                     } else if row.kind == .quiet {
                         TranscriptMarkerRow(label: TranscriptGrouping.traceNotice("exponential_session_self_quiet") ?? "")
                     } else {
-                        MessageBubble(side: .other, author: "Assistant", time: row.time) {
-                            AgentMarkdownText(text: row.text ?? "", context: context, hugsWidth: true)
+                        // A real agent bubble: its avatar, name and tail.
+                        let agent = TranscriptGrouping.checkInSpecimenAgent
+                        TranscriptRow(
+                            side: .other, gap: 0,
+                            avatar: .agent(UserAvatarAgent(icon: agent.icon, color: agent.color))
+                        ) {
+                            MessageBubble(side: .other, author: agent.name, time: row.time, tail: true) {
+                                AgentMarkdownText(text: row.text ?? "", context: context, hugsWidth: true)
+                            }
                         }
                     }
                 }

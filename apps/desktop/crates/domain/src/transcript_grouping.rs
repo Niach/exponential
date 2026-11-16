@@ -85,6 +85,7 @@ struct Fixture {
     /// #EXP-1873: the chat-transcript specimen's check-ins.
     #[serde(rename = "checkInSpecimen")]
     check_in_specimen: Vec<CheckInSpecimenRow>,
+    check_in_specimen_agent: CheckInSpecimenAgent,
 }
 
 /// #EXP-1873: one row of `checkInSpecimen` (an agent chat's feed).
@@ -98,6 +99,19 @@ pub struct CheckInSpecimenRow {
 /// #EXP-1873: the specimen ×4 draws these through [`feed_rows`].
 pub fn check_in_specimen() -> &'static [CheckInSpecimenRow] {
     &FIXTURE.check_in_specimen
+}
+
+/// #EXP-1873 `checkInSpecimenAgent`: the agent whose real bubble (avatar,
+/// name, tail) answers in the specimen.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CheckInSpecimenAgent {
+    pub name: String,
+    pub icon: Option<String>,
+    pub color: Option<String>,
+}
+
+pub fn check_in_specimen_agent() -> &'static CheckInSpecimenAgent {
+    &FIXTURE.check_in_specimen_agent
 }
 
 static FIXTURE: LazyLock<Fixture> = LazyLock::new(|| {
