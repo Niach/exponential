@@ -86,6 +86,19 @@ describe.skipIf(!ready.ok)(`conversation digest: sealed content (EXP-1458)`, () 
     })
   })
 
+  it(`#FEED-256: a blank body (a lone U+200B, NBSP + BOM) is never the preview, SQL = TS`, async () => {
+    await inRollback(async (tx) => {
+      const { userId, sessionId, insert } = await seedConversation(tx)
+      const row = (body: string, s: number, authorKind = `agent`): TreeMessage => ({
+        id: crypto.randomUUID(), sessionId, authorKind, authorId: authorKind === `user` ? userId : null, authorSessionId: null, body, card: null, answeredAt: null, consumedAt: null, createdAt: at(s),
+      })
+      const rows: TreeMessage[] = [row(`Ship it`, 1, `user`), row(`Done.`, 2), row(`\u200b`, 3), row(`\n\u00a0\ufeff\n`, 4)]
+      const sqlDigest = await insert(rows)
+      expect(sqlDigest).toEqual(conversationDigest(sessionId, rows))
+      expect(sqlDigest.preview?.body).toBe(`Done.`)
+    })
+  })
+
   it(`a plaintext body that only mentions the prefix stays plaintext (cut)`, async () => {
     await inRollback(async (tx) => {
       const { userId, sessionId, insert } = await seedConversation(tx)

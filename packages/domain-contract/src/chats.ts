@@ -730,7 +730,7 @@ export function conversationDigest(sessionId: string, messages: readonly TreeMes
       .sort(oldestFirst)[0] ?? null
   const candidates = own
     .filter((m) => m.authorKind === `user` || m.authorKind === `agent`)
-    .filter((m) => (m.card ? PREVIEW_CARDS.has(String(m.card.kind)) : m.body.trim() !== ``))
+    .filter((m) => (m.card ? PREVIEW_CARDS.has(String(m.card.kind)) : !isBlankText(m.body)))
     .sort((a, b) => oldestFirst(b, a))
   const waits = candidates.filter(
     (m) => m.answeredAt === null && (m.card?.kind === `question` || m.card?.kind === `plan` || m.card?.kind === `ask`)
