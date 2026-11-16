@@ -20,13 +20,13 @@ dotted `kind`), every id follows Core's id rule, every refusal is a
 | `rules.json` | thresholds (caps, reuse, watchdog, triggers), the hub's copy, fixture defaults |
 | `tree.json` | roots and children, the depth and live caps, claims and the first brief, revive and continue, End |
 | `bus.json` | who hears a transition, what wakes, privacy and sealed lines, reports |
-| `wakeups.json` | watchers, pending input, schedules (fold, re-arm, quiet ticks), event triggers |
+| `wakeups.json` | watchers and event watches (#NEW-49), pending input, schedules (fold, re-arm, quiet ticks), event triggers |
 | `watchdog.json` | unclaimed, nudges, stuck, offline, interruptions and their resume clock, usage walls, the heartbeat |
 | `reuse.json` | when an agent's message reuses a thread or forks a fresh one |
 | `subagents.json` | CLI subagents as child rows the device writes (#EXP-1731): their edges, no slot, no wake-up of the parent, sends go to the parent, strays swept |
 | `incidents.json` | the field failures of 2026-10-30/31 (#FEED-172, #EXP-1500, interrupted runs, #FEED-178) |
 
-Events: `send.start`, `send.message`, `send.watch`, `session.end`,
+Events: `send.start`, `send.message`, `send.watch`, `send.unwatch`, `watch.fire`, `session.end`,
 `session.pr_opened`, `device.claim`, `device.report`, `device.reply`,
 `device.consume`, `device.subagent`, `device.heartbeat`, `watchdog.tick`, `trigger.schedule`,
 `trigger.event`. Effects: `post`, `edit`, `brief`, `nudge`, `kill`.

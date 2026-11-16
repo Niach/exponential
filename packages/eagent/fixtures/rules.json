@@ -27,6 +27,10 @@
     "catchUpHours": 24,
     "caughtUpAfterMinutes": 2
   },
+  "watch": {
+    "$comment": "#NEW-49 (wakeups.json WATCH EVENTS): a session waits on at most maxPerSession things at once, its watched sessions and its event watches together; one more refuses with eCore `limit` (copy.tooManyWatches) and changes nothing.",
+    "maxPerSession": 20
+  },
   "report": {
     "$comment": "#FEED-251/#FEED-253: a device that ENDS a run itself says why (`device.report` data `endReason`); the report then carries that reason instead of the agent's last reply or the fallback, so the parent never reads a bare \"Ended without a summary.\" for a run that died. `stalled` = the engine's stall watchdog (no output mid-turn, an interrupt changed nothing).",
     "max": 4000,
@@ -104,7 +108,10 @@
     "subagentNoChildren": "A subagent starts no sessions: start it under its parent",
     "subagentNoKey": "A subagent names its key",
     "subagentFailed": "Failed: {summary}",
-    "subagentFailedBare": "Failed."
+    "subagentFailedBare": "Failed.",
+    "watchAt": "It is {label}, the time you asked to be woken at.",
+    "watchInvalid": "A watch names its pull request or issue, or a time (at).",
+    "tooManyWatches": "A session waits on at most {max} things at once; cancel one first (exponential_sessions_send {unwatch})."
   },
   "defaults": {
     "$comment": "What a fixture's `given` omits. rootId/depth follow parentId (a root is its own root at depth 0) and a child shares its root's `shared` unless it names its own. A device omitted from `given` is offline; a session's host is the device its deviceId names. A given session is claimed (startedAt 0) unless it says `startedAt: null`. `sealEpoch` (a ROOT's tree key epoch, EXP-1458): non-null = a keyed tree; a send whose text is plaintext (`sealed` false) into any of its sessions is refused (eCore `invalid`, copy.plainInSealedTree), whoever writes it, the tree's own agent included (#FEED-185).",
@@ -124,6 +131,7 @@
       "needsInput": false,
       "blocked": null,
       "wakeOn": [],
+      "watches": [],
       "sealEpoch": null,
       "scopeTeamIds": null,
       "createdAt": 0,
