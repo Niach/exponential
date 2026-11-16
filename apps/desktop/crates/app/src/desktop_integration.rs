@@ -35,13 +35,22 @@ fn scheme_entry() -> String {
 /// `exp://` claim around.
 const LEGACY_SCHEME_ENTRY: &str = "x-scheme-handler/exp";
 
-/// The executable the browser should launch for an `exponential://` callback:
-/// the AppImage path when packaged, otherwise this binary.
-fn launch_target() -> Option<PathBuf> {
-    if let Some(appimage) = std::env::var_os("APPIMAGE") {
-        return Some(PathBuf::from(appimage));
+/// The executable the browser should launch for an `exponential://` callback
+/// and whether it is the AppImage: only for the USER's install (#EXP-1875,
+/// [`updater::install::classify`]). A test instance (`EXP_DATA_DIR`), a debug
+/// build, a binary outside the installed paths or one that merely inherited
+/// `$APPIMAGE` registers nothing: it once took over the user's handler, and
+/// their links then opened a branch build on their real data dir.
+fn launch_target(install: updater::install::Install) -> Option<(PathBuf, bool)> {
+    use updater::install::Install;
+    match install {
+        Install::AppImage(appimage) => Some((appimage, true)),
+        Install::Binary(exe) => Some((exe, false)),
+        Install::NotTheUsers(why) => {
+            eprintln!("[exp-desktop] not registering exponential:// or the icon: {}", why.reason());
+            None
+        }
     }
-    std::env::current_exe().ok()
 }
 
 fn applications_dir() -> Option<PathBuf> {
@@ -127,7 +136,9 @@ fn ensure_icon_installed() {
 /// Install the `.desktop` handler and make it the default `exponential://`
 /// handler.
 pub fn ensure_scheme_registered() {
-    let Some(exec) = launch_target() else { return };
+    let Some((exec, packaged)) = launch_target(updater::install::classify(&updater::install::LaunchEnv::current())) else {
+        return;
+    };
     let Some(apps_dir) = applications_dir() else {
         return;
     };
@@ -141,7 +152,6 @@ pub fn ensure_scheme_registered() {
     // Packaged runs (AppImage) list a real launcher entry; bare dev binaries
     // stay `NoDisplay=true` so a `target/debug` path never lingers in app
     // grids (the icon/WM_CLASS matching works for NoDisplay entries too).
-    let packaged = std::env::var_os("APPIMAGE").is_some();
     let contents = format!(
         "[Desktop Entry]\n\
          Type=Application\n\
@@ -288,7 +298,25 @@ fn remove_default_application(contents: &str, key: &str) -> String {
 mod tests {
     use std::path::Path;
 
-    use super::{exec_escape, remove_default_application, upsert_default_application, ICON_SVG};
+    use super::{exec_escape, launch_target, remove_default_application, upsert_default_application, ICON_SVG};
+    use updater::install::{Install, NotTheUsers};
+
+    /// #EXP-1875: only the user's install registers the handler.
+    #[test]
+    fn only_the_users_install_registers_the_handler() {
+        let appimage = std::path::PathBuf::from("/home/u/Exponential.AppImage");
+        assert_eq!(launch_target(Install::AppImage(appimage.clone())), Some((appimage, true)));
+        let exe = std::path::PathBuf::from("/usr/bin/exp-desktop");
+        assert_eq!(launch_target(Install::Binary(exe.clone())), Some((exe, false)));
+        for why in [
+            NotTheUsers::DataDirOverride,
+            NotTheUsers::DebugBuild,
+            NotTheUsers::ForeignAppImage,
+            NotTheUsers::OutsideInstallPaths,
+        ] {
+            assert_eq!(launch_target(Install::NotTheUsers(why)), None, "{why:?}");
+        }
+    }
 
     /// EXP-151: `ICON_SVG` is installed VERBATIM as the hicolor theme icon, and
     /// GtkIconTheme loads it through gdk-pixbuf — which recognizes SVG only by
