@@ -98,6 +98,9 @@ struct ChatHeaderTitle: View {
     /// #EXP-1732 APP LEAD: what follows the name on its line (an app's
     /// version pill).
     var titleAccessory: AnyView?
+    /// #FEED-257: while the word is needs input, the subtitle line is ONE
+    /// press opening the waiting item (the same text, no new style).
+    var onSubtitle: (() -> Void)?
 
     /// EXP-1552: THE chat lead ×4 (web `ChatLeadDisc`, Android
     /// `chatLeadOf`, the Chats list's `ChatLeadMark`): the mark first, then
@@ -148,7 +151,14 @@ struct ChatHeaderTitle: View {
                     if let titleAccessory { titleAccessory }
                 }
                 if let subtitle {
-                    ChatHeaderSubtitle(text: subtitle, tone: subtitleTone)
+                    if let onSubtitle {
+                        Button(action: onSubtitle) {
+                            ChatHeaderSubtitle(text: subtitle, tone: subtitleTone)
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        ChatHeaderSubtitle(text: subtitle, tone: subtitleTone)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)

@@ -334,9 +334,11 @@ final class AppEditorModel {
     }
 
     /// #EXP-1729 (apps.json `editorHeader`): the header's `status · device`.
-    var header: Apps.EditorHeader {
+    /// #FEED-257: `needsInput` = the tree's word reads needs input (a stale
+    /// root flag with nothing to open never tints it).
+    func header(needsInput: Bool) -> Apps.EditorHeader {
         Apps.editorHeader(
-            root: root.map { (status: $0.status, busy: $0.busy, needsInput: $0.needsInput) },
+            root: root.map { (status: $0.status, busy: $0.busy, needsInput: needsInput) },
             device: headerDeviceInput
         )
     }

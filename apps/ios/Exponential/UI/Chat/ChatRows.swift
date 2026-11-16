@@ -35,8 +35,10 @@ enum ChatPage: Hashable {
 /// Versions bodies, the `…`'s settings page and (#FEED-239) the app's part
 /// of THE session screen menu (Publish, Export, Delete app).
 struct ChatEditorSlot {
-    /// The title block over the TREE's status word (`ChatHeaderTitle.status`).
-    let title: (String) -> AnyView
+    /// The title block over the TREE's status word (`ChatHeaderTitle.status`)
+    /// and (#FEED-257) the press opening the waiting item while it reads
+    /// needs input (nil = not pressable).
+    let title: (String, (() -> Void)?) -> AnyView
     let tab: Binding<SessionScreen.Tab>
     /// The app tab's body (preview, data, versions); nil = not the editor's.
     let pane: (SessionScreen.Tab) -> AnyView?
