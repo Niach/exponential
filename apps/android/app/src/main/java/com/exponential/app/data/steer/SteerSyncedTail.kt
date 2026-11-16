@@ -36,12 +36,15 @@ fun syncedTailItems(
     live: Boolean,
     messages: List<SyncedTailMessage>,
     exclude: Set<String> = emptySet(),
+    /** The live transcript cannot be loaded (the OFFLINE LINE's condition). */
+    unreachable: Boolean = false,
 ): List<AgentFeedItem> {
     if (live || messages.isEmpty()) return emptyList()
     val picked = steerSyncedTail(
         live = false,
         feed = feed.mapNotNull { it.tailFeedRow() },
         messages = messages.filter { it.id !in exclude },
+        unreachable = unreachable,
     ) { m ->
         SteerTailMessage(
             id = m.id,

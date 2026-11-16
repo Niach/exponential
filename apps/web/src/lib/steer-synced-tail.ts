@@ -42,6 +42,8 @@ export function syncedTailMessages<T extends SteerSyncedMessage>(input: {
   feed: readonly FeedItem[]
   messages: readonly T[]
   max?: number
+  /** The live transcript cannot be loaded (the OFFLINE LINE's condition). */
+  unreachable?: boolean
 }): T[] {
   if (input.live) return []
   return steerSyncedTail({
@@ -49,5 +51,6 @@ export function syncedTailMessages<T extends SteerSyncedMessage>(input: {
     feed: syncedTailFeedRows(input.feed),
     messages: input.messages,
     max: input.max,
+    unreachable: input.unreachable,
   })
 }

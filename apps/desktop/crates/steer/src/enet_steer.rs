@@ -171,16 +171,19 @@ pub struct SyncedTailRow<'a> {
 /// body, the agent's or a person's CONSUMED input, later than the feed's
 /// newest known row time, and not already held by the feed (an agent line
 /// equal to, a prefix of or prefixed by a narration; an input equal to a feed
-/// input). An empty feed takes the tail only when it holds an agent line
-/// (else SENT INPUTS keeps the placeholder). A live feed = none.
+/// input). An empty feed takes the tail only while its live transcript
+/// cannot be loaded (`unreachable`, the OFFLINE LINE's condition) and only
+/// when it holds an agent line (else SENT INPUTS keeps the placeholder). A
+/// live feed = none.
 pub fn synced_tail<'r, T>(
     live: bool,
     feed: &[TailFeedRow<'_>],
     rows: &'r [T],
     max: usize,
+    unreachable: bool,
     row: impl Fn(&'r T) -> SyncedTailRow<'r>,
 ) -> Vec<&'r T> {
-    if live {
+    if live || (feed.is_empty() && !unreachable) {
         return Vec::new();
     }
     let feed_at = feed.iter().filter_map(|r| r.at_ms).max();
@@ -1278,7 +1281,8 @@ mod tests {
                 .collect();
             let messages = case["messages"].as_array().unwrap();
             let max = case["max"].as_u64().map_or(SYNCED_TAIL_MAX, |max| max as usize);
-            let picked = synced_tail(case["live"].as_bool().unwrap(), &feed, messages, max, |m| SyncedTailRow {
+            let unreachable = case["unreachable"].as_bool().unwrap_or(false);
+            let picked = synced_tail(case["live"].as_bool().unwrap(), &feed, messages, max, unreachable, |m| SyncedTailRow {
                 id: m["id"].as_str().unwrap(),
                 author_kind: m["authorKind"].as_str().unwrap(),
                 has_card: !m["card"].is_null(),

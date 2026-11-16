@@ -275,6 +275,7 @@ class SteerEnetTest {
                 feed = feed,
                 messages = rows,
                 max = case["max"]!!.jsonPrimitive.long.toInt(),
+                unreachable = case["unreachable"]?.jsonPrimitive?.boolean ?: false,
             ) { m ->
                 SteerTailMessage(
                     id = m["id"]!!.jsonPrimitive.content,

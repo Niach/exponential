@@ -199,16 +199,20 @@ data class SteerTailMessage(
  * body, the agent's or a person's CONSUMED input, later than the feed's
  * newest known row time, not already held by the feed (an agent line equal
  * to, a prefix of or prefixed by a narration; an input equal to a feed
- * input). An empty feed takes the tail only when it holds an agent line.
+ * input). An empty feed takes the tail only while its live transcript
+ * cannot be loaded ([unreachable], the OFFLINE LINE's condition) and only
+ * when it holds an agent line.
  */
 fun <T> steerSyncedTail(
     live: Boolean,
     feed: List<SteerTailFeedRow>,
     messages: List<T>,
     max: Int = STEER_SYNCED_TAIL_MAX,
+    unreachable: Boolean = false,
     row: (T) -> SteerTailMessage,
 ): List<T> {
     if (live) return emptyList()
+    if (feed.isEmpty() && !unreachable) return emptyList()
     val feedAt = feed.mapNotNull { it.at }.maxOrNull()
     if (feed.isNotEmpty() && feedAt == null) return emptyList()
     val narrations = feed.filter { it.author == "agent" && !it.text.isNullOrEmpty() }.map { it.text!!.trim() }

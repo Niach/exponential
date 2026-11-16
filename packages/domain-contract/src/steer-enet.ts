@@ -208,16 +208,20 @@ function epochMs(iso: string | null): number | null {
  * CONSUMED input, later than the feed's newest known row time, and not
  * already held by the feed (an agent line equal to, a prefix of or prefixed
  * by a narration; an input equal to a feed input). An empty feed takes the
- * tail only when it holds an agent line (else SENT INPUTS keeps the
- * placeholder). A live feed = none.
+ * tail only while its live transcript cannot be loaded (`unreachable`, the
+ * OFFLINE LINE's condition) and only when it holds an agent line (else
+ * SENT INPUTS keeps the placeholder). A live feed = none.
  */
 export function steerSyncedTail<T extends SteerSyncedMessage>(input: {
   live: boolean
   feed: readonly SteerTailFeedRow[]
   messages: readonly T[]
   max?: number
+  /** The live transcript cannot be loaded (consulted for an empty feed). */
+  unreachable?: boolean
 }): T[] {
   if (input.live) return []
+  if (input.feed.length === 0 && input.unreachable !== true) return []
   const max = input.max ?? STEER_SYNCED_TAIL_MAX
   let feedAt: number | null = null
   for (const row of input.feed) {

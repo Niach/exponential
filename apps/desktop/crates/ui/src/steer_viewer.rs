@@ -744,7 +744,7 @@ pub(crate) struct SteerSessionView {
     /// #FEED-260 (steer-enet.json SYNCED TAIL): while the feed is not live,
     /// the session's synced messages after it ([`synced_tail_rows`]),
     /// synthetic rows right after the feed's last row; and the inputs they
-    /// were read at (rows, feed epoch, feed generation, live).
+    /// were read at (rows, feed epoch, feed generation, unreachable).
     synced_tail: Vec<SyncedTailRow>,
     synced_tail_key: Option<(usize, u64, u64, bool)>,
     /// #FEED-260 (OFFLINE LINE): THE inline marker that ends a not-live
@@ -6150,11 +6150,14 @@ impl SteerSessionView {
             return;
         }
         let rows = crate::session_data::messages_of_session(&self.session_id, cx);
-        let key = (Rc::as_ptr(&rows) as usize, self.feed_epoch, self.feed.generation(), live);
+        // The OFFLINE LINE's condition: an empty feed takes the tail only
+        // while its live transcript cannot be loaded.
+        let unreachable = if self.row_ended() { self.phase.is_device_offline() } else { self.host_away(cx) };
+        let key = (Rc::as_ptr(&rows) as usize, self.feed_epoch, self.feed.generation(), unreachable);
         if self.synced_tail_key == Some(key) {
             return;
         }
-        self.synced_tail = synced_tail_rows(live, self.feed.items(), &rows);
+        self.synced_tail = synced_tail_rows(live, unreachable, self.feed.items(), &rows);
         self.synced_tail_key = Some(key);
     }
 
@@ -10479,7 +10482,7 @@ fn no_feed_inputs(messages: &[domain::rows::MessageRow]) -> Vec<&domain::rows::M
 /// MAIN-lane rows (a narration's text + first fragment's `at`, an input's,
 /// a settled tool's time), each body opened (a sealed one it cannot open
 /// reads the sealed placeholder).
-fn synced_tail_rows(live: bool, feed: &[FeedItem], messages: &[domain::rows::MessageRow]) -> Vec<SyncedTailRow> {
+fn synced_tail_rows(live: bool, unreachable: bool, feed: &[FeedItem], messages: &[domain::rows::MessageRow]) -> Vec<SyncedTailRow> {
     use steer::enet_steer::{synced_tail, SyncedTailRow as Row, TailFeedRow, SYNCED_TAIL_MAX};
     if live {
         return Vec::new();
@@ -10507,7 +10510,7 @@ fn synced_tail_rows(live: bool, feed: &[FeedItem], messages: &[domain::rows::Mes
     };
     let bodies: Vec<String> = messages.iter().map(body).collect();
     let indexed: Vec<usize> = (0..messages.len()).collect();
-    synced_tail(live, &rows, &indexed, SYNCED_TAIL_MAX, |&i| {
+    synced_tail(live, &rows, &indexed, SYNCED_TAIL_MAX, unreachable, |&i| {
         let m = &messages[i];
         Row {
             id: &m.id,

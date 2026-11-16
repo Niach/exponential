@@ -546,28 +546,6 @@ export function AgentSessionView({
     [chatRows, sentInputIds, handoff.ids]
   )
   const sentRows = useMemo(() => chatRows.filter((row) => sentInputIds.has(row.id)), [chatRows, sentInputIds])
-  // #FEED-260 (steer-enet.json SYNCED TAIL): while the feed is not live, the
-  // session's synced messages after it (bodies opened) draw after its last
-  // row; a held own row (HANDOFF) draws once, as the handoff.
-  const syncedTailIds = useMemo(() => {
-    const ids = syncedTailMessages({ live, feed, messages: sessionMessages.map(toTreeMessage) })
-      .map((message) => message.id)
-      .filter((id) => !handoff.ids.has(id))
-    return ids.length === 0 ? NO_SENT_IDS : new Set(ids)
-  }, [live, feed, sessionMessages, handoff.ids])
-  const syncedTailRows = useMemo(
-    () =>
-      syncedTailIds.size === 0
-        ? NO_ROWS
-        : chatExtraRows(
-            session,
-            sessionMessages.filter((message) => syncedTailIds.has(message.id)),
-            tree ?? NO_TREE,
-            issues ?? NO_ISSUES,
-            syncedTailIds
-          ),
-    [session, sessionMessages, tree, issues, syncedTailIds]
-  )
   // #EXP-1756: a queued bubble's `HH:mm`, off its synced row.
   const messageTime = useCallback(
     (row: { id: string }) => {
@@ -784,6 +762,35 @@ export function AgentSessionView({
     deviceId: session.deviceId,
     userId: session.userId,
   })
+  // #FEED-260 (steer-enet.json SYNCED TAIL): while the feed is not live, the
+  // session's synced messages after it (bodies opened) draw after its last
+  // row; a held own row (HANDOFF) draws once, as the handoff.
+  const syncedTailIds = useMemo(() => {
+    const ids = syncedTailMessages({
+      live,
+      feed,
+      messages: sessionMessages.map(toTreeMessage),
+      // An EMPTY feed takes it only while the live transcript cannot be
+      // loaded (the OFFLINE LINE's condition).
+      unreachable: sessionEnded ? deviceOffline && phase.kind === `ended` : device.online === false,
+    })
+      .map((message) => message.id)
+      .filter((id) => !handoff.ids.has(id))
+    return ids.length === 0 ? NO_SENT_IDS : new Set(ids)
+  }, [live, feed, sessionMessages, handoff.ids, sessionEnded, deviceOffline, phase.kind, device.online])
+  const syncedTailRows = useMemo(
+    () =>
+      syncedTailIds.size === 0
+        ? NO_ROWS
+        : chatExtraRows(
+            session,
+            sessionMessages.filter((message) => syncedTailIds.has(message.id)),
+            tree ?? NO_TREE,
+            issues ?? NO_ISSUES,
+            syncedTailIds
+          ),
+    [session, sessionMessages, tree, issues, syncedTailIds]
+  )
   const deviceName = device.label || `Desktop`
   // EXP-773: the device-offline copy names the machine the transcript lives on.
   useEffect(

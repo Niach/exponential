@@ -75,7 +75,11 @@ describe(`#FEED-260 synced tail`, () => {
     expect(syncedTailMessages({ live: false, feed: held, messages })).toEqual([])
   })
 
-  it(`an empty feed takes the tail with its agent line`, () => {
-    expect(syncedTailMessages({ live: false, feed: [], messages }).map((m) => m.id)).toEqual([`u1`, `a1`])
+  it(`an empty feed of an unreachable device takes the tail with its agent line`, () => {
+    expect(syncedTailMessages({ live: false, feed: [], messages, unreachable: true }).map((m) => m.id)).toEqual([`u1`, `a1`])
+  })
+
+  it(`an empty feed of a reachable device keeps its placeholder`, () => {
+    expect(syncedTailMessages({ live: false, feed: [], messages })).toEqual([])
   })
 })

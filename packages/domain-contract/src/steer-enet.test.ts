@@ -80,6 +80,7 @@ describe(`steer over eNet (fixtures/steer-enet.json)`, () => {
         feed: c.feed as SteerTailFeedRow[],
         messages: c.messages as SteerSyncedMessage[],
         max: c.max,
+        unreachable: (c as { unreachable?: boolean }).unreachable,
       })
       expect(picked.map((m) => m.id)).toEqual(c.expected)
     })

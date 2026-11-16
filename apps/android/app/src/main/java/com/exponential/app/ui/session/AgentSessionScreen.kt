@@ -710,12 +710,17 @@ private fun RunFaceContent(
     // the authority (its replay holds the same lines).
     val tailMessages by viewModel.tailMessages.collectAsStateWithLifecycle()
     val feedLive = phase == AgentPhase.Live
-    val syncedTail = remember(activity.feed, feedLive, tailMessages, ownTail) {
+    // An EMPTY feed takes it only while the live transcript cannot be
+    // loaded (the OFFLINE LINE's condition): a reachable device's replay
+    // is on its way.
+    val tailUnreachable = if (session?.isEnded == true) history == HistoryState.DeviceOffline else hostDevice.offline
+    val syncedTail = remember(activity.feed, feedLive, tailMessages, ownTail, tailUnreachable) {
         com.exponential.app.data.steer.syncedTailItems(
             activity.feed,
             feedLive,
             tailMessages,
             ownTail.mapNotNullTo(HashSet()) { it.messageId },
+            unreachable = tailUnreachable,
         )
     }
     val feed = if (syncedTail.isEmpty()) activity.feed else activity.feed + syncedTail
