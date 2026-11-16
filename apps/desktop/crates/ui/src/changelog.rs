@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-16-phones-bubble-tails-and-server-calls",
+    date: "2026-11-16",
+    title: "Bubble tails on your phone, and calls a GPU server answers",
+    summary: "Android 0.14.144 and iOS 0.14.133: chat bubbles get a tail on the first message of each group, and a call to an agent on a GPU server is answered there or falls back with the reason.",
+    body: r##"- **Bubble tails**: the first bubble of each group gets a tail beside the sender's picture, and your own bubbles sit on the right with theirs on the left.
+- **Servers answer calls**: calling an agent that runs on a server with a GPU speaks there; a server without one says "No usable GPU" and another desktop takes the call."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_310: ChangelogEntry = ChangelogEntry {
     id: "2026-11-16-desktop-cli-0-14-165-voice-and-assistant",
     date: "2026-11-16",
     title: "Agent calls on every desktop and server, and a bigger Assistant",
