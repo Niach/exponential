@@ -36,6 +36,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -123,6 +124,30 @@ const CONFIG_DEFAULT_VALUE: &str = "default";
 /// before answering — so the budget is generous on purpose: a slow init is
 /// not a dead CLI.
 const CONTROL_TIMEOUT: Duration = Duration::from_secs(90);
+
+/// #FEED-253: how many times a CLI that answers NOTHING at startup is
+/// spawned before the start fails (the first plus one restart).
+const START_ATTEMPTS: u32 = 2;
+
+/// #FEED-253: the run-scoped override of the startup `initialize` wait
+/// (milliseconds, on the child's own spawn env); unset = [`CONTROL_TIMEOUT`].
+pub const START_TIMEOUT_ENV: &str = "EXP_CLAUDE_START_TIMEOUT_MS";
+
+fn start_timeout(env: &[(String, String)]) -> Duration {
+    env.iter()
+        .find(|(key, _)| key == START_TIMEOUT_ENV)
+        .and_then(|(_, value)| value.parse::<u64>().ok())
+        .filter(|ms| *ms > 0)
+        .map_or(CONTROL_TIMEOUT, Duration::from_millis)
+}
+
+/// #FEED-253: the failed start's reason (the parent reads it).
+fn silent_start_reason(timeout: Duration, attempts: u32) -> String {
+    format!(
+        "claude did not start: it answered nothing for {}s at startup, {attempts} times in a row",
+        timeout.as_secs()
+    )
+}
 
 /// How long a live background task may hold back the settlement of the turn
 /// that spawned it. The CLI drops `task_notification`s — 14 of 24 background
@@ -1400,40 +1425,94 @@ impl ClaudeSession {
         if self.lock().child.is_some() {
             return Ok(());
         }
-        let child = Arc::new(self.spawn_child(resume).map_err(|error| {
-            Error::internal_error()
-                .data(json!({ "reason": format!("could not start claude: {error}") }))
-        })?);
+        // #FEED-253: a CLI that answers NOTHING to `initialize` (not one
+        // stdout line in the whole control timeout) is wedged at startup:
+        // it never runs the prompt either, and the run used to sit silent
+        // until the stall watchdog ended it 45 minutes later with the
+        // parent told only "Ended without a summary.". It is stopped (its
+        // process group) and spawned once more; a second silent start
+        // fails the start with the reason (EXP-1669's `Could not start`).
+        let timeout = start_timeout(&self.spec.spawn.env);
+        let mut attempt = 1;
+        let child = loop {
+            let child = Arc::new(self.spawn_child(resume).map_err(|error| {
+                Error::internal_error()
+                    .data(json!({ "reason": format!("could not start claude: {error}") }))
+            })?);
+            {
+                let mut state = self.lock();
+                state.child = Some(child.clone());
+                state.closed = false;
+            }
+            let heard = Arc::new(AtomicBool::new(false));
+            let lines = child.lines.clone();
+            let pump_cx = cx.clone();
+            let pump = self.clone();
+            let pumped = (child.clone(), heard.clone());
+            cx.spawn(async move {
+                pump.pump(lines, pump_cx, pumped).await;
+                Ok(())
+            })?;
+
+            // The `initialize` response is the CLI's only report of its
+            // command catalog, model list and custom agents. A CLI that
+            // answers late (a slow MCP handshake) is not fatal: the session
+            // seeds from `system/init` instead. One that said nothing at
+            // all is the wedge above.
+            match self
+                .control_request_within(
+                    wire::initialize(wire::initialize_hooks_for(self.spec.confine_to.is_some())),
+                    timeout,
+                )
+                .await
+            {
+                Ok(response) => {
+                    let info: wire::InitializeInfo =
+                        serde_json::from_value(response.response.clone()).unwrap_or_default();
+                    self.apply_initialize_info(info);
+                    break child;
+                }
+                Err(error) if !heard.load(Ordering::SeqCst) && !child.stdout_drained() => {
+                    // Retired FIRST, so its pump's end reads as a stale
+                    // child's (no `closed`, no connection teardown).
+                    self.retire_child(&child);
+                    if attempt >= START_ATTEMPTS {
+                        log::warn!(
+                            "engine: claude answered nothing at startup ({}s, {attempt} attempts): {error}",
+                            timeout.as_secs()
+                        );
+                        return Err(Error::internal_error().data(json!({
+                            "reason": silent_start_reason(timeout, attempt)
+                        })));
+                    }
+                    log::warn!(
+                        "engine: claude answered nothing for {}s at startup ({error}) — restarting it",
+                        timeout.as_secs()
+                    );
+                    attempt += 1;
+                }
+                Err(error) => {
+                    log::warn!("engine: claude initialize did not answer: {error}");
+                    break child;
+                }
+            }
+        };
         child.forward_exit(&self.spec.exit);
+        Ok(())
+    }
+
+    /// #FEED-253: stop a child that never answered at startup, by its own
+    /// process group (never by name), so the next spawn starts clean.
+    fn retire_child(&self, child: &Arc<ChildLines>) {
         {
             let mut state = self.lock();
-            state.child = Some(child.clone());
-            state.closed = false;
-        }
-        let lines = child.lines.clone();
-        let pump_cx = cx.clone();
-        let pump = self.clone();
-        cx.spawn(async move {
-            pump.pump(lines, pump_cx).await;
-            Ok(())
-        })?;
-
-        // The `initialize` response is the CLI's only report of its command
-        // catalog, model list and custom agents. A CLI that never answers is
-        // not fatal: the session seeds from `system/init` instead.
-        match self
-            .control_request(wire::initialize(wire::initialize_hooks_for(
-                self.spec.confine_to.is_some(),
-            )))
-            .await {
-            Ok(response) => {
-                let info: wire::InitializeInfo =
-                    serde_json::from_value(response.response.clone()).unwrap_or_default();
-                self.apply_initialize_info(info);
+            if state.child.as_ref().is_some_and(|current| Arc::ptr_eq(current, child)) {
+                state.child = None;
             }
-            Err(error) => log::warn!("engine: claude initialize did not answer: {error}"),
         }
-        Ok(())
+        // Off this task: `terminate` waits out the child's grace.
+        let child = child.clone();
+        std::thread::spawn(move || child.terminate());
     }
 
     fn spawn_child(&self, resume: Option<&str>) -> std::io::Result<ChildLines> {
@@ -1608,6 +1687,12 @@ impl ClaudeSession {
     /// hook handler before that hook's own answer went out — the CLI
     /// serializes control traffic on one channel and would deadlock.
     async fn control_request(&self, request: Value) -> Result<wire::ControlResp, Error> {
+        self.control_request_within(request, CONTROL_TIMEOUT).await
+    }
+
+    /// [`Self::control_request`] with its own timeout (#FEED-253: the
+    /// startup `initialize`, [`start_timeout`]).
+    async fn control_request_within(&self, request: Value, timeout: Duration) -> Result<wire::ControlResp, Error> {
         let request_id = wire::new_request_id();
         let (tx, rx) = flume::bounded(1);
         self.lock().pending_control.insert(request_id.clone(), tx);
@@ -1615,7 +1700,7 @@ impl ClaudeSession {
             self.lock().pending_control.remove(&request_id);
             return Err(error);
         }
-        let response = match tokio::time::timeout(CONTROL_TIMEOUT, rx.recv_async()).await {
+        let response = match tokio::time::timeout(timeout, rx.recv_async()).await {
             Ok(Ok(response)) => response,
             Ok(Err(_)) | Err(_) => {
                 self.lock().pending_control.remove(&request_id);
@@ -2804,8 +2889,15 @@ impl ClaudeSession {
     // the pump
     // -----------------------------------------------------------------------
 
-    async fn pump(self: Arc<Self>, lines: flume::Receiver<String>, cx: ConnectionTo<Client>) {
+    async fn pump(
+        self: Arc<Self>,
+        lines: flume::Receiver<String>,
+        cx: ConnectionTo<Client>,
+        (child, heard): (Arc<ChildLines>, Arc<AtomicBool>),
+    ) {
         while let Ok(line) = lines.recv_async().await {
+            // #FEED-253: any line at all = the CLI is alive at startup.
+            heard.store(true, Ordering::SeqCst);
             let frame = ClaudeOut::parse(&line);
             self.on_frame(&cx, frame);
         }
@@ -2813,6 +2905,11 @@ impl ClaudeSession {
         // no `session/prompt` hangs on a dead process.
         {
             let mut state = self.lock();
+            // #FEED-253: a child retired at startup (`retire_child`) is not
+            // the run's: its end settles nothing and closes nothing.
+            if !state.child.as_ref().is_some_and(|current| Arc::ptr_eq(current, &child)) {
+                return;
+            }
             state.closed = true;
             let outcome =
                 if state.cancelled { TurnOutcome::Cancelled } else { TurnOutcome::EndTurn };

@@ -30,9 +30,22 @@
 #                          closes the whole connection within microseconds and
 #                          the client would see the transport go, not the
 #                          reason.
+#   EXP_FAKE_CLAUDE_HANGS  with EXP_FAKE_CLAUDE_SPAWNS (a counter file): the
+#                          first N spawns answer NOTHING, not even
+#                          `initialize` (#FEED-253: the CLI wedged at startup)
 set -u
 
 dir="${EXP_FAKE_CLAUDE_DIR:?EXP_FAKE_CLAUDE_DIR is required}"
+
+if [ -n "${EXP_FAKE_CLAUDE_HANGS:-}" ] && [ -n "${EXP_FAKE_CLAUDE_SPAWNS:-}" ]; then
+    echo spawn >> "$EXP_FAKE_CLAUDE_SPAWNS"
+    if [ "$(wc -l < "$EXP_FAKE_CLAUDE_SPAWNS")" -le "$EXP_FAKE_CLAUDE_HANGS" ]; then
+        # Swallow stdin, say nothing, until stopped.
+        while IFS= read -r _; do :; done
+        sleep 30
+        exit 0
+    fi
+fi
 
 if [ -n "${EXP_FAKE_CLAUDE_ARGV:-}" ]; then
     : > "$EXP_FAKE_CLAUDE_ARGV"
