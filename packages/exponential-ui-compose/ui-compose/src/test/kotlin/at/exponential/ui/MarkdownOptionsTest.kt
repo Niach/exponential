@@ -144,9 +144,9 @@ class MarkdownOptionsTest {
             }
         }
         compose.waitForIdle()
-        fun width(tag: String) = compose.onNodeWithTag(tag, useUnmergedTree = true).getUnclippedBoundsInRoot().width.value
-        assertTrue("short = ${width("short")}", width("short") in 1f..60f)
-        assertEquals(300f, width("long"), 0.5f)
-        assertEquals(300f, width("fill"), 0.5f)
+        fun widthOf(tag: String) = compose.onNodeWithTag(tag, useUnmergedTree = true).getUnclippedBoundsInRoot().width.value
+        assertTrue("short = ${widthOf("short")}", widthOf("short") in 1f..60f)
+        assertEquals(300f, widthOf("long"), 0.5f)
+        assertEquals(300f, widthOf("fill"), 0.5f)
     }
 }
