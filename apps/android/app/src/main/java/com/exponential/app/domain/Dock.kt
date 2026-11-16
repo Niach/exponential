@@ -19,6 +19,9 @@ object Dock {
         const val QUESTIONS_MANY = "{count} questions"
         const val CLOSE = "Close"
         const val SHOW_ALL = "Show all"
+        /** #NEW-49: the `watches` card's label and its sheet rows' cancel. */
+        const val WATCHES = "Waiting on"
+        const val CANCEL_WATCH = "Stop waiting"
     }
 
     /** Icon CONCEPT names (icons.json). */
@@ -30,6 +33,7 @@ object Dock {
         const val OPEN = "ui-chevron-right"
         const val CLOSE = "ui-close"
         const val SUGGESTIONS = "ui-checklist"
+        const val WATCHES = "ui-clock"
     }
 
     object TestIds {
@@ -40,6 +44,8 @@ object Dock {
         const val SHEET_BODY = "dock-sheet-body"
         const val SHEET_FOOTER = "dock-sheet-footer"
         const val CLOSE = "dock-sheet-close"
+        /** #NEW-49: the watches sheet's list. */
+        const val WATCHES = "dock-watches"
     }
 
     /** The pile's numbers (`stack`): the toast's peek/scale/visible, its own gap. */
@@ -50,15 +56,15 @@ object Dock {
     const val SHEET_RADIUS = 24
 
     enum class Kind(val wire: String) {
-        Plan("plan"), Question("question"), Tasks("tasks"), Queued("queued"), Suggestions("suggestions"), Banner("banner");
+        Plan("plan"), Question("question"), Tasks("tasks"), Queued("queued"), Watches("watches"), Suggestions("suggestions"), Banner("banner");
 
         val isAsk: Boolean get() = this == Plan || this == Question
     }
 
     enum class Tint(val wire: String) { Plan("plan"), Question("question"), Muted("muted"), Warning("warning") }
 
-    /** The `order`: queued, tasks, suggestions, banner, then the asks. */
-    val ORDER: List<String> = listOf("queued", "tasks", "suggestions", "banner", "ask")
+    /** The `order`: queued, tasks, watches, suggestions, banner, then the asks. */
+    val ORDER: List<String> = listOf("queued", "tasks", "watches", "suggestions", "banner", "ask")
 
     /** `autoOpenGraceMs`: how long after a host's data loads its cards still
      *  count as already waiting (auto-open seeds over it). */
@@ -84,6 +90,10 @@ object Dock {
         data class Tasks(val queue: TaskQueue?, val sessionName: String? = null) : Source
 
         data class Queued(val messages: List<QueuedMessage>) : Source
+
+        /** #NEW-49: what the session waits on (`sessions.watching`): each a
+         *  row of the sheet with its cancel glyph. */
+        data class Watches(val watches: List<Watch>) : Source
 
         /** EXP-1323's suggested-tasks row while any item is open. */
         data class Suggestions(
@@ -113,6 +123,9 @@ object Dock {
     }
 
     data class QueuedMessage(val id: String, val text: String)
+
+    /** #NEW-49: one cancellable watch ([SessionWatching.Watch] id + label). */
+    data class Watch(val id: String, val label: String)
 
     data class Row(
         val id: String,
@@ -183,6 +196,21 @@ object Dock {
                             .ifEmpty { null },
                         meta = first.description,
                         title = first.label,
+                        expandable = true,
+                        action = null,
+                    ) to 0L
+                }
+                is Source.Watches -> {
+                    if (source.watches.isEmpty()) continue
+                    rows += Row(
+                        id = "watches",
+                        kind = Kind.Watches,
+                        tint = Tint.Muted,
+                        icon = Icons.WATCHES,
+                        label = Copy.WATCHES,
+                        caption = null,
+                        meta = if (source.watches.size > 1) source.watches.size.toString() else null,
+                        title = source.watches.joinToString(", ") { it.label },
                         expandable = true,
                         action = null,
                     ) to 0L

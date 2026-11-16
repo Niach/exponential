@@ -428,6 +428,8 @@ internal fun ChatListRow(
     chatsTab: Boolean = false,
     word: SessionTree.ChatRowWord? = null,
     prLead: ChatRowPrLead? = null,
+    /** #NEW-49: the root's sessionWaiting (the `waiting` word's labels). */
+    waiting: String? = null,
 ) {
     val state = SessionTree.chatRowMarkState(row.needsYou, row.busy)
     Row(
@@ -459,7 +461,7 @@ internal fun ChatListRow(
         }
         // EXP-1339: no lock on a list row; `merged` has no text (its lead
         // alone turns pr-merged violet).
-        if (chatsTab && word?.text != null) QuietWord(word)
+        if (chatsTab && word != null) SessionTree.chatRowWordText(word, waiting)?.let { QuietWord(word, it) }
         // EXP-1318 ×4: the ROOT's device, last (after the word),
         // its icon as the Devices screen draws it; unknown device = none.
         meta?.device?.let { device ->
@@ -511,7 +513,7 @@ private fun ChatsTabLead(
 
 /** EXP-1309: a row's ONE quiet trailing word (`stack` wears its glyph). */
 @Composable
-private fun QuietWord(word: SessionTree.ChatRowWord) {
+private fun QuietWord(word: SessionTree.ChatRowWord, text: String) {
     val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -521,7 +523,7 @@ private fun QuietWord(word: SessionTree.ChatRowWord) {
         if (word == SessionTree.ChatRowWord.Stack) {
             Icon(ExpIcons.prStack, contentDescription = null, tint = muted, modifier = Modifier.size(12.dp))
         }
-        Text(word.text.orEmpty(), style = MaterialTheme.typography.labelSmall, color = muted, maxLines = 1)
+        Text(text, style = MaterialTheme.typography.labelSmall, color = muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 

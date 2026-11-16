@@ -360,6 +360,7 @@ impl gpui::Render for ChatRowsShot {
             needs_you,
             busy,
             word: None,
+            waiting: None,
             dim: false,
         };
         let rows = [

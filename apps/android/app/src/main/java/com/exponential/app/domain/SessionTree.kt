@@ -77,7 +77,75 @@ object SessionTree {
         /** EXP-1374: busy only because background tasks still run after the
          *  turn (absent = false). */
         val background: Boolean = false,
+        /** #NEW-49: what it waits on (`sessions.watching`, absent = nothing). */
+        val watching: List<Watching> = emptyList(),
     )
+
+    /** #NEW-49: one entry of `sessions.watching` (eagent wakeups.json WATCH
+     *  EVENTS): [kind] = session | pr_checks | pr_closed | issue_status | at
+     *  (an unknown kind is kept). */
+    data class Watching(
+        val id: String,
+        val kind: String,
+        val subjectId: String?,
+        val label: String,
+        val at: String? = null,
+    )
+
+    /** #NEW-49: a child as [sessionWaiting] names it (its card's name). */
+    data class WaitingChild(val id: String, val name: String)
+
+    /**
+     * #NEW-49 (session-card.json `waitingCases`, TS `sessionWaiting`): what an
+     * IDLE session waits on, as one label list: its live children's names
+     * (tree order), then its watches' labels (a watched session that is also
+     * a listed child once), each label once, the first `waitingMax` shown
+     * and ` +N` for the rest. null = nothing.
+     */
+    fun sessionWaiting(watching: List<Watching>?, children: List<WaitingChild> = emptyList()): String? {
+        val childIds = children.map { it.id }.toSet()
+        val labels = mutableListOf<String>()
+        for (child in children) labels += child.name
+        for (watch in watching.orEmpty()) {
+            if (watch.kind == "session" && watch.subjectId != null && watch.subjectId in childIds) continue
+            labels += watch.label
+        }
+        val unique = mutableListOf<String>()
+        for (label in labels) {
+            val trimmed = label.trim()
+            if (trimmed.isNotEmpty() && trimmed !in unique) unique += trimmed
+        }
+        if (unique.isEmpty()) return null
+        val shown = unique.take(CardCopy.WAITING_MAX)
+        val more = unique.size - shown.size
+        return shown.joinToString(", ") + (if (more > 0) CardCopy.WAITING_MORE.replace("{count}", more.toString()) else "")
+    }
+
+    /** #NEW-49: [sessionWaiting] of [session] inside its [tree]: its non-ended
+     *  CHILD sessions in tree order, each named by [nameOf] (its card's name). */
+    fun sessionWaitingIn(session: Session, tree: List<Session>, nameOf: (Session) -> String): String? {
+        val children = treeOrder(tree.filter { it.parentId == session.id && it.status != DomainContract.sessionStatusEnded })
+            .map { WaitingChild(it.id, nameOf(it)) }
+        return sessionWaiting(session.watching, children)
+    }
+
+    /** #NEW-49: `sessions.watching` raw jsonb TEXT → its entries; null,
+     *  absent or garbage = empty, an entry without an id is dropped. */
+    fun parseWatching(raw: String?): List<Watching> {
+        if (raw.isNullOrBlank()) return emptyList()
+        val array = runCatching { Json.parseToJsonElement(raw) }.getOrNull() as? JsonArray ?: return emptyList()
+        return array.mapNotNull { element ->
+            val obj = element as? JsonObject ?: return@mapNotNull null
+            val id = obj.str("id")?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+            Watching(
+                id = id,
+                kind = obj.str("kind").orEmpty(),
+                subjectId = obj.str("subjectId"),
+                label = obj.str("label").orEmpty(),
+                at = obj.str("at"),
+            )
+        }
+    }
 
     /** EXP-1323: the viewer's read marks (`session_reads`, already user-scoped). */
     data class SessionRead(
@@ -188,6 +256,10 @@ object SessionTree {
         val BANNER_ACTIONS: Map<String, String> = mapOf("offline" to "Move")
         /** #EXP-1703 `bannerDevice`. */
         const val BANNER_DEVICE = "Its device"
+        /** #NEW-49 `copy.waiting` / `copy.waitingMore` / `waitingMax`. */
+        const val WAITING = "Waiting on {labels}"
+        const val WAITING_MORE = " +{count}"
+        const val WAITING_MAX = 3
     }
 
     object ChatCopy {
@@ -216,6 +288,8 @@ object SessionTree {
             // EXP-1709: the merge train's line; #EXP-1710 reads it by
             // `mergeOutcome` (MergeTrain.eventTemplate), this = no outcome.
             "pr_merge" to "Auto-merge of PR {pr}",
+            // #NEW-49: a fired watch reads its own body.
+            "watch_fired" to "{body}",
         )
         /** #EXP-1772 `events.trigger_schedule`: a schedule firing's marker
          *  (a `trigger_fired` without a name). */
@@ -423,7 +497,13 @@ object SessionTree {
 
     /** S-3: elapsed only while working (not queued; startedAt → now) and once
      *  done (startedAt → endedAt, else updatedAt); idle / needs you = none. */
-    fun sessionCard(session: Session, title: String, now: String): SessionCard {
+    fun sessionCard(
+        session: Session,
+        title: String,
+        now: String,
+        /** #NEW-49: [sessionWaiting] of it; an idle card reads "Waiting on …". */
+        waiting: String? = null,
+    ): SessionCard {
         val state = sessionState(session)
         val start = ms(session.startedAt)
         val end = when {
@@ -436,7 +516,11 @@ object SessionTree {
             sessionId = session.id,
             icon = CardCopy.ICONS.getValue(state),
             name = title,
-            kindWord = sessionKindWord(session, state),
+            kindWord = if (state == SessionState.Idle && !waiting.isNullOrEmpty()) {
+                CardCopy.WAITING.replace("{labels}", waiting)
+            } else {
+                sessionKindWord(session, state)
+            },
             state = state,
             tone = CardCopy.TONES.getValue(state),
             elapsed = elapsed,
@@ -934,6 +1018,7 @@ object SessionTree {
         issues: Map<String, Issue>,
         prs: Map<String, PullRequest>,
         sessionName: (String) -> String? = { null },
+        body: String = "",
     ): String? {
         val event = card.text("event")
         // #EXP-1710: the merge train's `pr_merge` line reads by its
@@ -955,6 +1040,12 @@ object SessionTree {
             // NEW-1: a bus line about a session of the tree; an unsynced one drops.
             val name = card.str("sessionId")?.let(sessionName) ?: return null
             text = text.replaceFirst("{session}", name)
+        }
+        if (text.contains("{body}")) {
+            // #NEW-49: a fired watch reads its own line ('CI on #1130: success.').
+            val said = body.trim()
+            if (said.isEmpty()) return null
+            text = text.replaceFirst("{body}", said)
         }
         if (text.contains("{name}")) {
             // NEW-2 `trigger_fired`: the event name; a schedule firing has
@@ -1081,6 +1172,10 @@ object SessionTree {
         pullRequests: List<PullRequest>,
         now: String,
         focus: String? = null,
+        /** #NEW-49: a session row's idle card reads what it waits on
+         *  ([sessionWaitingIn] over [sessions]); off in the fixture replay
+         *  (TS `buildSessionChat` builds plain cards). */
+        waitingCards: Boolean = false,
     ): ChatView {
         val tree = treeOrder(sessions.filter { it.rootId == root.id || it.id == root.id }).toMutableList()
         if (tree.none { it.id == root.id }) tree.add(0, root)
@@ -1107,6 +1202,14 @@ object SessionTree {
         // the chips = its DIRECT children, every deeper session folded under
         // its top-level ancestor (the chip's dropdown).
         fun nameOf(s: Session) = sessionCard(s, titles[s.id] ?: "", now).name
+        // #NEW-49: the card a session row draws (see [waitingCards]).
+        val everySession = byId.values.toList()
+        fun rowCard(s: Session): SessionCard = sessionCard(
+            s,
+            titles[s.id] ?: "",
+            now,
+            if (waitingCards) sessionWaitingIn(s, everySession) { child -> titles[child.id] ?: "" } else null,
+        )
         val treeIds = tree.map { it.id }.toSet()
         // S-3: only the VISIBLE sessions get chips ([visibleTree]), the
         // focused one always; the rest stay reachable through their cards.
@@ -1188,7 +1291,7 @@ object SessionTree {
             when (card.str("kind")) {
                 DomainContract.messageCardKindSession, DomainContract.messageCardKindThreadStarted -> {
                     val target = card.str("sessionId")?.let { byId[it] } ?: continue
-                    rows.add(SessionChatRow.SessionRow(message.id, sessionCard(target, titles[target.id] ?: "", now)))
+                    rows.add(SessionChatRow.SessionRow(message.id, rowCard(target)))
                 }
                 DomainContract.messageCardKindQuestion, DomainContract.messageCardKindPlan ->
                     askRow(message)?.let(rows::add)
@@ -1237,9 +1340,9 @@ object SessionTree {
                         rows.add(SessionChatRow.Event(message.id, DomainContract.messageEventKindTriggerFired, text, null))
                         continue
                     }
-                    val text = eventText(card, issueMap, prMap) { id ->
+                    val text = eventText(card, issueMap, prMap, { id ->
                         byId[id]?.let { target -> sessionCard(target, titles[target.id] ?: "", now).name }
-                    }
+                    }, message.body)
                     if (text != null) {
                         val about = card.str("sessionId")?.takeIf { byId.containsKey(it) }
                         rows.add(SessionChatRow.Event(message.id, card.text("event"), text, about))
@@ -1263,7 +1366,7 @@ object SessionTree {
                     ) continue
                     if (!escalated.add(origin.id)) continue
                     val ask = askRow(origin) ?: continue
-                    rows.add(SessionChatRow.SessionRow(message.id, sessionCard(target, titles[target.id] ?: "", now)))
+                    rows.add(SessionChatRow.SessionRow(message.id, rowCard(target)))
                     rows.add(ask)
                 }
                 else -> Unit
@@ -1738,6 +1841,18 @@ object SessionTree {
 
         /** An agent row waiting on a person. */
         NeedsInput("needsInput", "needs input"),
+
+        /** #NEW-49: an idle root waiting on children/watches ([chatRowWordText] fills it). */
+        Waiting("waiting", "waiting on {labels}"),
+    }
+
+    /** #NEW-49 (`wordTextCases`, TS `chatRowWordText`): a row word's text;
+     *  [ChatRowWord.Waiting] names what it waits on ([waiting]); null = no text. */
+    fun chatRowWordText(word: ChatRowWord?, waiting: String? = null): String? {
+        if (word == null) return null
+        val text = word.text ?: return null
+        if (word == ChatRowWord.Waiting) return if (waiting.isNullOrEmpty()) null else text.replace("{labels}", waiting)
+        return text
     }
 
     /** A PR's stack edge (`chat-list.json` `stackCases`). */
@@ -1770,6 +1885,8 @@ object SessionTree {
         needsYou: Boolean,
         inStack: Boolean,
         offline: Boolean = false,
+        /** #NEW-49: the root's [sessionWaiting] while it is idle (null = none). */
+        waiting: String? = null,
     ): ChatRowWord? {
         if (states.any { it == DomainContract.prStateOpen }) {
             if (inStack) return ChatRowWord.Stack
@@ -1777,6 +1894,7 @@ object SessionTree {
         }
         if (states.any { it == DomainContract.prStateMerged }) return ChatRowWord.Merged
         if (needsYou) return if (offline) ChatRowWord.Offline else ChatRowWord.Question
+        if (!waiting.isNullOrEmpty()) return ChatRowWord.Waiting
         return null
     }
 
@@ -1797,12 +1915,14 @@ object SessionTree {
         prs: List<PullRequestEntity>,
         teamPrs: List<PullRequestEntity> = prs,
         offline: Boolean = false,
+        waiting: String? = null,
     ): ChatRowWord? = chatRowWord(
         states = prs.map { it.state },
         busy = busy,
         needsYou = needsYou,
         inStack = chatInStack(prs.map(::stackPr), teamPrs.map(::stackPr)),
         offline = offline,
+        waiting = waiting,
     )
 
     /**
@@ -1863,6 +1983,7 @@ object SessionTree {
         appId = row.appId,
         startedByAgentId = row.startedByAgentId,
         background = row.background,
+        watching = parseWatching(row.watching),
     )
 
     fun sessionIssue(row: SessionIssueEntity): SessionIssue =

@@ -76,6 +76,10 @@ pub struct SessionCardCopy {
     /// NEW-1: the word per `blocked.kind` of a session that needs you
     /// (`rate_limit` → `Usage limit`, `unclaimed`, `stuck`).
     pub blocked_kinds: BTreeMap<String, String>,
+    /// #NEW-49: an idle card's word while it waits (`Waiting on {labels}`).
+    pub waiting: String,
+    /// #NEW-49: the tail past `waitingMax` labels (` +{count}`).
+    pub waiting_more: String,
 }
 
 /// EXP-1374 / S-3: `session-card.json` `banner` (text), `bannerIcons`,
@@ -135,6 +139,8 @@ pub struct SessionCardSpec {
     pub banner_actions: SessionBannerActions,
     /// #EXP-1703: the `{device}` of an unknown device (`Its device`).
     pub banner_device: String,
+    /// #NEW-49: how many labels [`session_waiting`] names before ` +N`.
+    pub waiting_max: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -278,6 +284,8 @@ pub struct ChatRowWords {
     pub needs_input: String,
     /// #EXP-1703: on a person only because its device is away.
     pub offline: String,
+    /// #NEW-49: an idle root that waits (`waiting on {labels}`).
+    pub waiting: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -684,9 +692,72 @@ pub fn watchdog_blocked_word(session: &SessionRow) -> Option<String> {
     SESSION_CARD.copy.blocked_kinds.get(kind).cloned()
 }
 
+/// #NEW-49 (TS `sessionWaiting`, session-card.json `waitingCases`): what an
+/// IDLE session waits on, as one label list: its live children's names
+/// (`children` = `(id, name)` in tree order), then its watches' labels (a
+/// watched session that is also a listed child once), each trimmed label
+/// once, the first `waitingMax` shown and ` +N` for the rest. `None` =
+/// nothing.
+pub fn session_waiting<'a>(
+    watching: &[crate::rows::SessionWatch],
+    children: impl IntoIterator<Item = (&'a str, &'a str)>,
+) -> Option<String> {
+    let children: Vec<(&str, &str)> = children.into_iter().collect();
+    let child_ids: HashSet<&str> = children.iter().map(|(id, _)| *id).collect();
+    let mut labels: Vec<&str> = children.iter().map(|(_, name)| *name).collect();
+    for watch in watching {
+        let child = watch.kind == "session"
+            && watch.subject_id.as_deref().is_some_and(|subject| !subject.is_empty() && child_ids.contains(subject));
+        if !child {
+            labels.push(&watch.label);
+        }
+    }
+    let mut unique: Vec<&str> = Vec::new();
+    for label in labels {
+        let trimmed = label.trim();
+        if !trimmed.is_empty() && !unique.contains(&trimmed) {
+            unique.push(trimmed);
+        }
+    }
+    if unique.is_empty() {
+        return None;
+    }
+    let max = SESSION_CARD.waiting_max;
+    let shown = unique.len().min(max);
+    let mut text = unique[..shown].join(", ");
+    let more = unique.len() - shown;
+    if more > 0 {
+        text.push_str(&SESSION_CARD.copy.waiting_more.replace("{count}", &more.to_string()));
+    }
+    Some(text)
+}
+
+/// #NEW-49: [`session_waiting`] of `session` inside its synced tree: its
+/// non-ended CHILD sessions in tree order, each named by its card title
+/// (`title` = the caller's [`session_title`] lookup), then its watches.
+pub fn session_waiting_in<'a>(
+    session: &SessionRow,
+    sessions: impl IntoIterator<Item = &'a SessionRow>,
+    title: impl Fn(&SessionRow) -> String,
+) -> Option<String> {
+    let children: Vec<&SessionRow> = sessions
+        .into_iter()
+        .filter(|child| child.parent_id.as_deref() == Some(session.id.as_str()) && !child.is_ended())
+        .collect();
+    let children = tree_order(&children);
+    let named: Vec<(String, String)> = children.iter().map(|child| (child.id.clone(), title(child))).collect();
+    session_waiting(&session.watching, named.iter().map(|(id, name)| (id.as_str(), name.as_str())))
+}
+
 /// The card for `session`; `title` = its [`session_title`] (EXP-1341,
 /// `fixtures/session-title.json`; never `Session N`).
 pub fn session_card(session: &SessionRow, title: &str, now_ms: i64) -> SessionCard {
+    session_card_waiting(session, title, now_ms, None)
+}
+
+/// [`session_card`] with #NEW-49's `waiting` ([`session_waiting`]): an idle
+/// card's kind word reads `Waiting on …`.
+pub fn session_card_waiting(session: &SessionRow, title: &str, now_ms: i64, waiting: Option<&str>) -> SessionCard {
     let state = session_state(session);
     let start = ms(session.started_at.as_deref());
     // S-3: elapsed for working (not queued; to now) and done (to endedAt,
@@ -705,7 +776,10 @@ pub fn session_card(session: &SessionRow, title: &str, now_ms: i64) -> SessionCa
         session_id: session.id.clone(),
         icon: state.icon().to_string(),
         name,
-        kind_word: session_kind_word(session, state),
+        kind_word: match waiting.filter(|waiting| state == SessionState::Idle && !waiting.is_empty()) {
+            Some(waiting) => SESSION_CARD.copy.waiting.replacen("{labels}", waiting, 1),
+            None => session_kind_word(session, state),
+        },
         state,
         tone: state.tone().to_string(),
         elapsed,
@@ -1422,6 +1496,7 @@ fn event_text(
     issues: &HashMap<&str, &TreeIssue>,
     prs: &HashMap<&str, &PullRequestRow>,
     session_name: impl Fn(&str) -> Option<String>,
+    body: &str,
 ) -> Option<String> {
     let event = js_string(card.get("event"));
     // #EXP-1710: a `pr_merge` line reads by its `mergeOutcome`
@@ -1445,6 +1520,15 @@ fn event_text(
         // NEW-1: a bus line about a session of the tree; an unsynced one drops.
         let name = card_str(card, "sessionId").and_then(&session_name)?;
         text = text.replacen("{session}", &name, 1);
+    }
+    if text.contains("{body}") {
+        // #NEW-49: a fired watch reads its own line ('CI on #1130: success.');
+        // a blank body draws none.
+        let said = body.trim();
+        if said.is_empty() {
+            return None;
+        }
+        text = text.replacen("{body}", said, 1);
     }
     if text.contains("{name}") {
         // NEW-2: a trigger line names its event (an event trigger) and
@@ -1887,7 +1971,7 @@ pub fn build_session_chat(input: SessionChatInput<'_>, focus: Option<&str>) -> S
                 if card_str(card, "event") == Some("trigger_fired") {
                     let named = card_str(card, "name").is_some_and(|name| !name.trim().is_empty());
                     let text = if named {
-                        event_text(card, &issue_map, &pr_map, |_| None)
+                        event_text(card, &issue_map, &pr_map, |_| None, "")
                     } else {
                         SESSION_CHAT.copy.events.get("trigger_schedule").cloned()
                     };
@@ -1908,7 +1992,7 @@ pub fn build_session_chat(input: SessionChatInput<'_>, focus: Option<&str>) -> S
                         .get(id)
                         .map(|target| session_card(target, title_of(&titles, &target.id), now).name)
                 };
-                if let Some(text) = event_text(card, &issue_map, &pr_map, session_name) {
+                if let Some(text) = event_text(card, &issue_map, &pr_map, session_name, message.body_text()) {
                     let about = card_str(card, "sessionId")
                         .filter(|id| by_id.contains_key(id))
                         .map(str::to_string);
@@ -2060,6 +2144,12 @@ pub struct ChatsListRow {
     /// ([`tree_offline`]); serialized only when true (absent = false).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub offline: bool,
+    /// #NEW-49: what the IDLE root waits on ([`session_waiting`]: its live
+    /// children, then its watches); `None` otherwise. Not part of the
+    /// fixture's row (TS `partitionChats` leaves it to the row word), so it
+    /// never serializes.
+    #[serde(default, skip_serializing)]
+    pub waiting: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -2220,6 +2310,11 @@ pub fn chat_list_rows(input: ChatsListInput<'_>) -> Vec<(ChatsListKey, ChatsList
             unread: unread_at(newest_agent_in_tree.get(root.id.as_str()), &root.id),
             activity_at: activity,
             offline: needs_you && tree_offline(tree),
+            // #NEW-49: the root's own wait (its live children by title,
+            // then its watches) while the root itself is idle.
+            waiting: (session_state(root) == SessionState::Idle)
+                .then(|| session_waiting_in(root, tree.iter().copied(), |child| titles.title(child)))
+                .flatten(),
         };
         // #EXP-1461 (owner 2026-10-30: 'we don't wanna see all the nested
         // child sessions, only the root ones'): a row is a ROOT, never a
@@ -2297,9 +2392,17 @@ pub enum ChatRowWord {
     /// #EXP-1703: `device offline` (needs you only because its device is away).
     Offline,
     Question,
+    /// #NEW-49: an idle root that waits (`waiting on {labels}`; LAST: a PR
+    /// word or a question wins). Its text needs the labels
+    /// ([`chat_row_word_text`]).
+    Waiting,
 }
 
 impl ChatRowWord {
+    /// Every word (the fixture keys' order).
+    pub const ALL: [ChatRowWord; 6] =
+        [Self::Stack, Self::ReadyToMerge, Self::Merged, Self::Offline, Self::Question, Self::Waiting];
+
     /// The fixture key (`readyToMerge`, …).
     pub fn key(self) -> &'static str {
         match self {
@@ -2308,20 +2411,35 @@ impl ChatRowWord {
             Self::Merged => "merged",
             Self::Offline => "offline",
             Self::Question => "question",
+            Self::Waiting => "waiting",
         }
     }
 
     /// The copy (`ready to merge`, …); `None` for `Merged` (EXP-1339: the
-    /// violet pr-merged lead says it, no trailing text).
+    /// violet pr-merged lead says it, no trailing text) and for `Waiting`
+    /// (its labels: [`chat_row_word_text`]).
     pub fn text(self) -> Option<&'static str> {
         let words = &CHATS_LIST.copy.words;
         match self {
             Self::Stack => Some(&words.stack),
             Self::ReadyToMerge => Some(&words.ready_to_merge),
-            Self::Merged => None,
+            Self::Merged | Self::Waiting => None,
             Self::Offline => Some(&words.offline),
             Self::Question => Some(&words.question),
         }
+    }
+}
+
+/// #NEW-49 (TS `chatRowWordText`, chat-list.json `wordTextCases`): a row
+/// word's text; `waiting` names what it waits on (the root's
+/// [`session_waiting`]; none = no text). `None` = no word or no text.
+pub fn chat_row_word_text(word: Option<ChatRowWord>, waiting: Option<&str>) -> Option<String> {
+    match word? {
+        ChatRowWord::Waiting => {
+            let waiting = waiting.filter(|waiting| !waiting.is_empty())?;
+            Some(CHATS_LIST.copy.words.waiting.replacen("{labels}", waiting, 1))
+        }
+        word => word.text().map(str::to_string),
     }
 }
 
@@ -2383,6 +2501,20 @@ pub fn chat_row_word_on<'a>(
     in_stack: bool,
     offline: bool,
 ) -> Option<ChatRowWord> {
+    chat_row_word_waiting(states, busy, needs_you, in_stack, offline, false)
+}
+
+/// [`chat_row_word_on`] with #NEW-49's `waiting` (the root's
+/// [`session_waiting`] while it is idle, [`ChatsListRow::waiting`]): the
+/// LAST word, after the PR words and the question.
+pub fn chat_row_word_waiting<'a>(
+    states: impl IntoIterator<Item = &'a str>,
+    busy: bool,
+    needs_you: bool,
+    in_stack: bool,
+    offline: bool,
+    waiting: bool,
+) -> Option<ChatRowWord> {
     let states: Vec<&str> = states.into_iter().collect();
     if states.contains(&"open") {
         if in_stack {
@@ -2396,7 +2528,7 @@ pub fn chat_row_word_on<'a>(
     if needs_you {
         return Some(if offline { ChatRowWord::Offline } else { ChatRowWord::Question });
     }
-    None
+    waiting.then_some(ChatRowWord::Waiting)
 }
 
 /// #EXP-1703 (TS `treeOffline`): a tree on a person ONLY because its device
@@ -2686,7 +2818,7 @@ mod tests {
     fn a_trigger_line_names_its_event_and_a_schedule_draws_none() {
         let issues = HashMap::new();
         let prs = HashMap::new();
-        let line = |card: Value| event_text(&card, &issues, &prs, |_| None);
+        let line = |card: Value| event_text(&card, &issues, &prs, |_| None, "");
         assert_eq!(
             line(serde_json::json!({"kind": "event", "event": "trigger_fired", "name": "issue.created", "agentId": "a", "triggerId": "t"}))
                 .as_deref(),
@@ -2710,7 +2842,7 @@ mod tests {
         let pull: PullRequestRow = serde_json::from_value(json!({"id": "p1", "number": 12, "state": "open"})).unwrap();
         let mut prs = HashMap::new();
         prs.insert("p1", &pull);
-        let line = |card: Value| event_text(&card, &issues, &prs, |_| None);
+        let line = |card: Value| event_text(&card, &issues, &prs, |_| None, "");
         let train: Value =
             serde_json::from_str(include_str!("../../../../../packages/domain-contract/fixtures/merge-train.json")).unwrap();
         for (outcome, text) in train["copy"]["events"].as_object().unwrap() {
@@ -2849,8 +2981,59 @@ mod tests {
             let input = &case["input"];
             let session: SessionRow = row(&input["session"], "s");
             let title = input["title"].as_str().unwrap();
-            assert_whole(session_card(&session, title, now(&input["now"])), &case["expected"], name);
+            // #NEW-49: the card's 4th param (absent / null = none).
+            let waiting = input["waiting"].as_str();
+            assert_whole(session_card_waiting(&session, title, now(&input["now"]), waiting), &case["expected"], name);
         }
+    }
+
+    /// #NEW-49: `session-card.json` `waitingCases` (TS `sessionWaiting`).
+    #[test]
+    fn session_waiting_matches_the_fixture() {
+        let fixture = fixture(SESSION_CARD_JSON);
+        let cases = fixture["waitingCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let input = &case["input"];
+            let watching: Vec<crate::rows::SessionWatch> =
+                serde_json::from_value(if input["watching"].is_null() { serde_json::json!([]) } else { input["watching"].clone() })
+                    .unwrap();
+            let children: Vec<(&str, &str)> = input["children"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|child| (child["id"].as_str().unwrap(), child["name"].as_str().unwrap()))
+                .collect();
+            assert_eq!(
+                session_waiting(&watching, children).as_deref(),
+                case["expected"].as_str(),
+                "{}",
+                case["name"]
+            );
+        }
+    }
+
+    /// #NEW-49: the tree helper names live children by title in tree
+    /// order, skips ended ones and grandchildren, then the watches.
+    #[test]
+    fn session_waiting_in_reads_the_live_children() {
+        let root: SessionRow = serde_json::from_value(serde_json::json!({
+            "id": "r", "status": "idle",
+            "watching": [{"id": "w1", "kind": "session", "subjectId": "c2", "label": "old"}, {"id": "w2", "kind": "pr_checks", "subjectId": "p1", "label": "CI #1"}]
+        }))
+        .unwrap();
+        let child = |id: &str, parent: &str, status: &str, at: &str| -> SessionRow {
+            serde_json::from_value(serde_json::json!({"id": id, "parent_id": parent, "root_id": "r", "status": status, "created_at": at})).unwrap()
+        };
+        let sessions = [
+            root.clone(),
+            child("c2", "r", "running", "2026-10-13T10:02:00.000Z"),
+            child("c1", "r", "idle", "2026-10-13T10:01:00.000Z"),
+            child("c3", "r", "ended", "2026-10-13T10:03:00.000Z"),
+            child("g1", "c1", "running", "2026-10-13T10:04:00.000Z"),
+        ];
+        let got = session_waiting_in(&root, sessions.iter(), |session| session.id.to_uppercase());
+        assert_eq!(got.as_deref(), Some("C1, C2, CI #1"));
     }
 
     /// EXP-1374: `session-card.json` `bannerCases`, whole objects.
@@ -3044,15 +3227,31 @@ mod tests {
                 .iter()
                 .map(|pr| pr["state"].as_str().unwrap())
                 .collect();
-            let word = chat_row_word_on(
+            let word = chat_row_word_waiting(
                 states,
                 input["busy"].as_bool().unwrap(),
                 input["needsYou"].as_bool().unwrap(),
                 input["inStack"].as_bool().unwrap(),
                 // #EXP-1703: absent = false.
                 input["offline"].as_bool().unwrap_or(false),
+                // #NEW-49: the root's wait (absent / null = none).
+                input["waiting"].as_str().is_some_and(|waiting| !waiting.is_empty()),
             );
             assert_eq!(word.map(ChatRowWord::key), case["expected"].as_str(), "{}", case["name"]);
+        }
+        // #NEW-49: `wordTextCases` (TS `chatRowWordText`).
+        let text_cases = fixture["wordTextCases"].as_array().unwrap();
+        assert!(!text_cases.is_empty());
+        for case in text_cases {
+            let word = case["word"].as_str().map(|key| {
+                ChatRowWord::ALL.into_iter().find(|word| word.key() == key).expect("a known word")
+            });
+            assert_eq!(
+                chat_row_word_text(word, case["waiting"].as_str()).as_deref(),
+                case["expected"].as_str(),
+                "{}",
+                case["name"]
+            );
         }
         // #EXP-1703: `offlineCases` (treeOffline).
         let offline_cases = fixture["offlineCases"].as_array().unwrap();
@@ -3069,13 +3268,7 @@ mod tests {
             let groups: Vec<ChatsListGroup> = serde_json::from_value(input["groups"].clone()).unwrap();
             let words = &input["words"];
             let ids: Vec<String> = rail_chats(&groups, |row| {
-                [
-                    ChatRowWord::Stack,
-                    ChatRowWord::ReadyToMerge,
-                    ChatRowWord::Merged,
-                    ChatRowWord::Offline,
-                    ChatRowWord::Question,
-                ]
+                ChatRowWord::ALL
                     .into_iter()
                     .find(|word| words[row.session_id.as_str()].as_str() == Some(word.key()))
             })

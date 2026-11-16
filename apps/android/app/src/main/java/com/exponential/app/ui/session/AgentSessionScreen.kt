@@ -67,6 +67,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -391,6 +392,7 @@ import com.exponential.app.ui.steer.ActionRunState
 import com.exponential.app.ui.steer.SteerRunCaptionRow
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
+import com.exponential.app.ui.theme.fullBleed
 import com.exponential.app.ui.theme.LocalReduceMotion
 import com.exponential.app.ui.theme.Motion
 import com.exponential.app.ui.theme.TextEmphasis
@@ -3090,8 +3092,14 @@ internal fun rememberSessionDock(viewModel: AgentSessionViewModel, onOpenUsage: 
     val persistedBlock = AgentUsagePresentation.parseBlocked(session?.blocked)
     val blockedLabel = AgentUsagePresentation.blockedBadgeLabel(persistedBlock, nowMs)
     val rateLimit = activity.rateLimit
+    // #NEW-49 (dock.json `watches`): what the session waits on, each
+    // cancellable in the sheet; an ended session waits on nothing.
+    val watches = remember(session?.watching, sessionEnded) {
+        if (sessionEnded) emptyList() else SessionTree.parseWatching(session?.watching).map { Dock.Watch(it.id, it.label) }
+    }
     val sources = buildList<Dock.Source> {
         add(Dock.Source.Tasks(taskQueue))
+        if (watches.isNotEmpty()) add(Dock.Source.Watches(watches))
         if (sessionBanner != null) add(sessionBanner.source)
         val p = phase
         if (p is AgentPhase.Closed && !hostAway) {
@@ -3167,6 +3175,7 @@ internal fun rememberSessionDock(viewModel: AgentSessionViewModel, onOpenUsage: 
                         )
                     }
                 }
+                Dock.Kind.Watches -> DockWatchesSheet(watches, onCancel = viewModel::unwatch)
                 else -> Unit
             }
         },
@@ -5306,6 +5315,9 @@ internal fun SessionComposer(
     val replyPending by viewModel.replyPending.collectAsStateWithLifecycle()
     val replyError by viewModel.replyError.collectAsStateWithLifecycle()
     com.exponential.app.ui.components.FailedActionToast(replyError, onShown = viewModel::clearReplyError)
+    // #NEW-49: a refused Stop waiting (the Dock's watches sheet).
+    val watchError by viewModel.watchError.collectAsStateWithLifecycle()
+    com.exponential.app.ui.components.FailedActionToast(watchError, onShown = viewModel::clearWatchError)
     // FEED-79: a refused send / unqueue = `Couldn't send the message`.
     val sendError by viewModel.sendError.collectAsStateWithLifecycle()
     com.exponential.app.ui.components.FailedActionToast(
@@ -6746,4 +6758,44 @@ private fun CenteredState(content: @Composable androidx.compose.foundation.layou
         horizontalAlignment = Alignment.CenterHorizontally,
         content = content,
     )
+}
+
+/**
+ * #NEW-49 (dock.json `watches`): the watches card's sheet = one row per
+ * watch (its label, then the close glyph as a ghost button labelled
+ * `copy.cancelWatch`); a tap = `sessions.unwatch {sessionId, ids: [id]}`.
+ * The suggestions sheet's rows and hairlines.
+ */
+@Composable
+private fun ColumnScope.DockWatchesSheet(watches: List<Dock.Watch>, onCancel: (String) -> Unit) {
+    DockSheetBody {
+        Column(modifier = Modifier.fillMaxWidth().fullBleed(12.dp).testTag(Dock.TestIds.WATCHES)) {
+            watches.forEachIndexed { index, watch ->
+                if (index > 0) HorizontalDivider(thickness = GlassTokens.Hairline, color = GlassTokens.StrokeRow)
+                Row(
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 36.dp).padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        watch.label,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    CircleIconButton(
+                        ExpIcons.uiClose,
+                        Dock.Copy.CANCEL_WATCH,
+                        onClick = { onCancel(watch.id) },
+                        borderless = true,
+                        size = 24.dp,
+                        glyphSize = 14.dp,
+                        modifier = Modifier.testTag("dock-watch-cancel"),
+                    )
+                }
+            }
+        }
+    }
 }

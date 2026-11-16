@@ -443,3 +443,19 @@ val MIGRATION_128_129: Migration = object : Migration(128, 129) {
         )
     }
 }
+
+/**
+ * v130 (#NEW-49, session-card.json `waitingCases`): `sessions.watching`,
+ * what a session waits on (`[{id, kind, subjectId, label, at?}]`; NULL =
+ * nothing). Only the sessions shape refetches, so synced rows re-arrive
+ * carrying it.
+ */
+val MIGRATION_129_130: Migration = object : Migration(129, 130) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `sessions` ADD COLUMN `watching` TEXT")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'sessions'",
+        )
+    }
+}

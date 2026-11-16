@@ -454,9 +454,47 @@ class SessionTreeTest {
                 session(input.getValue("session").jsonObject),
                 input.str("title")!!,
                 input.str("now")!!,
+                // #NEW-49: the card's 4th param (absent = null).
+                input.str("waiting"),
             )
             assertEquals(case.str("name"), case.getValue("expected"), encode(actual))
         }
+    }
+
+    /** #NEW-49 (TS `sessionWaiting`): `waitingCases`. */
+    @Test
+    fun `every session-card waiting case matches the fixture`() {
+        val cases = cardFixture.list("waitingCases")
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val input = case.getValue("input").jsonObject
+            val watching = (input["watching"] as? JsonArray)?.map { entry ->
+                val obj = entry.jsonObject
+                SessionTree.Watching(obj.str("id")!!, obj.str("kind")!!, obj.str("subjectId"), obj.str("label")!!, obj.str("at"))
+            }
+            val children = input.list("children").map { SessionTree.WaitingChild(it.str("id")!!, it.str("name")!!) }
+            assertEquals(case.str("name"), case.str("expected"), SessionTree.sessionWaiting(watching, children))
+        }
+    }
+
+    /** #NEW-49: `sessions.watching` parses tolerantly (null/absent/garbage = empty; unknown kinds kept). */
+    @Test
+    fun `the synced watching column parses tolerantly`() {
+        assertEquals(emptyList<SessionTree.Watching>(), SessionTree.parseWatching(null))
+        assertEquals(emptyList<SessionTree.Watching>(), SessionTree.parseWatching("null"))
+        assertEquals(emptyList<SessionTree.Watching>(), SessionTree.parseWatching("{not json"))
+        assertEquals(emptyList<SessionTree.Watching>(), SessionTree.parseWatching("""{"id":"w1"}"""))
+        assertEquals(
+            listOf(
+                SessionTree.Watching("w1", "pr_checks", "p1", "CI #1130"),
+                SessionTree.Watching("w2", "someday", null, "Later", "2026-11-16T14:30:00.000Z"),
+            ),
+            SessionTree.parseWatching(
+                """[{"id":"w1","kind":"pr_checks","subjectId":"p1","label":"CI #1130"},""" +
+                    """{"id":"w2","kind":"someday","subjectId":null,"label":"Later","at":"2026-11-16T14:30:00.000Z"},""" +
+                    """{"kind":"at"},42]""",
+            ),
+        )
     }
 
     // EXP-1374 (TS `sessionBanner`): the Dock banner of an interrupted or
@@ -744,7 +782,11 @@ class SessionTreeTest {
         for ((key, value) in blockedKinds) {
             assertEquals(value.jsonPrimitive.content, SessionTree.CardCopy.BLOCKED_KINDS[key])
         }
-        assertEquals(setOf("states", "blockedKinds"), cardFixture.getValue("copy").jsonObject.keys)
+        assertEquals(setOf("states", "blockedKinds", "waiting", "waitingMore"), cardFixture.getValue("copy").jsonObject.keys)
+        // #NEW-49: the waiting word.
+        assertEquals(cardFixture.getValue("copy").jsonObject.str("waiting"), SessionTree.CardCopy.WAITING)
+        assertEquals(cardFixture.getValue("copy").jsonObject.str("waitingMore"), SessionTree.CardCopy.WAITING_MORE)
+        assertEquals(cardFixture.getValue("waitingMax").jsonPrimitive.int, SessionTree.CardCopy.WAITING_MAX)
         val banner = cardFixture.getValue("banner").jsonObject
         assertEquals(setOf("background", "queued", "offline"), banner.keys)
         // #EXP-1703: a device that stayed away, with Move.
@@ -832,6 +874,7 @@ class SessionTreeTest {
         val words = copy.getValue("words").jsonObject
         // EXP-1339: `merged` carries no text (it only turns the lead violet).
         assertEquals(words.keys, SessionTree.ChatRowWord.entries.filter { it.text != null }.map { it.wire }.toSet())
+        assertEquals(words.str("waiting"), SessionTree.ChatRowWord.Waiting.text)
         assertEquals(null, SessionTree.ChatRowWord.Merged.text)
         for (word in SessionTree.ChatRowWord.entries) assertEquals(words.str(word.wire), word.text)
         val groups = copy.getValue("groups").jsonObject

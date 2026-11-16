@@ -1076,7 +1076,7 @@ impl AppScreenView {
             .and_then(|chat| chat.read(cx).chat_view().map(|(_, view)| view.clone()));
         let cards = chat.as_ref().map(|view| view.read(cx).waiting_cards()).unwrap_or_default();
         let asks = crate::session_chat::chat_screen_asks(&cards);
-        let word = crate::session_chat::tree_status_word(root.as_ref(), &tree, &asks);
+        let word = crate::session_chat::tree_status_word(root.as_ref(), &tree, &asks, cx);
         let on_subtitle = crate::session_chat::tree_waiting(root.as_ref(), &tree, &asks).and_then(|item| {
             let chat = chat.as_ref()?.downgrade();
             let this = cx.entity().downgrade();

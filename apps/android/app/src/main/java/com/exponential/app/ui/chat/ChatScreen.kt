@@ -319,7 +319,11 @@ fun ChatScreen(
                 ?.let { com.exponential.app.domain.AgentSettings.triggerSummary(it) }
         }
     }
-    val stateWord = chatStateWord(viewModel.rootId, tree, view?.rows)
+    // #NEW-49: the root's live children by the names their chips show.
+    val tabNames = remember(view?.tabs) {
+        view?.tabs.orEmpty().filterIsInstance<SessionTree.ChatTab.SessionTab>().associate { it.sessionId to it.name }
+    }
+    val stateWord = chatStateWord(viewModel.rootId, tree, view?.rows) { tabNames[it] }
     val headerSubtitle = SessionScreen.subtitle(stateWord, deviceLabel, trigger)
     val headerSubtitleColor = chatStateTone(stateWord)
     // #EXP-1611: the Guide PR's CI checks (the `…`'s Checks submenu, the
@@ -832,12 +836,21 @@ internal fun chatWaiting(
 
 /** The chat header's state word ×4 (#EXP-1732 session-screen.json STATUS
  *  WORD, `statusCases`): THE TREE's lowercase word, never dropped;
- *  #FEED-257: needs input only while something waits ([chatWaiting]). */
+ *  #FEED-257: needs input only while something waits ([chatWaiting]).
+ *  #NEW-49 (`waitingStatusCases`): an idle tree reads what its root waits
+ *  on, its live children named by [nameOf] (the names their cards show). */
 internal fun chatStateWord(
     rootId: String,
     tree: List<com.exponential.app.data.db.SessionEntity>,
     rows: List<SessionTree.SessionChatRow>? = null,
-): String = SessionScreen.status(chatStatusInputs(rootId, tree), chatAsks(rows))
+    nameOf: (String) -> String? = { null },
+): String {
+    val sessions = tree.map(SessionTree::session)
+    val waiting = sessions.firstOrNull { it.id == rootId }?.let { root ->
+        SessionTree.sessionWaitingIn(root, sessions) { child -> nameOf(child.id) ?: child.title.orEmpty() }
+    }
+    return SessionScreen.status(chatStatusInputs(rootId, tree), chatAsks(rows), waiting)
+}
 
 /** session-screen.json TONE ×4: needs input = amber, working or queued =
  *  the foreground, else null (the muted default). */

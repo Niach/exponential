@@ -198,9 +198,10 @@ fun ChatRow(
                 Spacer(Modifier.height(3.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     ChatPreviewText(row.preview, Modifier.weight(1f))
-                    row.word?.takeIf { it.text != null }?.let { word ->
+                    // #NEW-49: `waiting` names what the root waits on.
+                    SessionTree.chatRowWordText(row.word, row.waiting)?.let { text ->
                         Spacer(Modifier.width(8.dp))
-                        ChatRowWord(word)
+                        ChatRowWord(row.word!!, text, Modifier.weight(1f, fill = false))
                     }
                     val badge = NavBadges.rowBadge(row.unreadCount, row.needsYou)
                     if (badge.count > 0) {
@@ -604,18 +605,19 @@ private fun ChatPreviewText(preview: Chats.ChatPreview, modifier: Modifier = Mod
 
 /** The row word (chatRowWord) with its glyph (`stack` wears the stack). */
 @Composable
-private fun ChatRowWord(word: SessionTree.ChatRowWord) {
+private fun ChatRowWord(word: SessionTree.ChatRowWord, text: String, modifier: Modifier = Modifier) {
     val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
-        modifier = Modifier.testTag("chat-row-word"),
+        modifier = modifier.testTag("chat-row-word"),
     ) {
         // #EXP-1469: only `stack` wears a glyph ×4 (web ChatRowText, iOS
         // ChatsView, desktop word_glyph); the lead disc already shows the PR.
         val icon = if (word == SessionTree.ChatRowWord.Stack) ExpIcons.prStack else null
         if (icon != null) Icon(icon, contentDescription = null, tint = muted, modifier = Modifier.size(14.dp))
-        Text(word.text.orEmpty(), style = MaterialTheme.typography.labelMedium, color = muted, maxLines = 1)
+        // #NEW-49: truncated by the row like any word.
+        Text(text, style = MaterialTheme.typography.labelMedium, color = muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 

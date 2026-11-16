@@ -481,6 +481,10 @@ pub const SHAPES: [ShapeSpec; 38] = [
             // #EXP-1730: the lists' digest (mirrored from the session's
             // conversation server-side; `conversations` is never read).
             "digest",
+            // #NEW-49: what it waits on ("Waiting on …"; jsonb, null = nothing),
+            // the projection of the server-only `session_watches`.
+            // `heal_missing_columns` ALTERs it onto existing store tables.
+            "watching",
             "created_at",
             "updated_at",
         ],
@@ -1486,9 +1490,10 @@ mod tests {
     fn the_session_tree_shapes_match_the_proxies() {
         let sessions = shape_by_name("sessions").unwrap();
         assert_eq!(sessions.path, "/api/shapes/sessions");
-        assert_eq!(sessions.columns.len(), 40);
-        // #EXP-1720: the Assistant conversation root's Teams pick.
-        for column in ["parent_id", "root_id", "agent_id", "status", "busy", "needs_input", "shared", "guide", "seal_public_key", "seal_epoch", "seal_rotate_epoch", "sealed_title", "scope_team_ids"] {
+        assert_eq!(sessions.columns.len(), 41);
+        // #EXP-1720: the Assistant conversation root's Teams pick; #NEW-49:
+        // what it waits on.
+        for column in ["parent_id", "root_id", "agent_id", "status", "busy", "needs_input", "shared", "guide", "seal_public_key", "seal_epoch", "seal_rotate_epoch", "sealed_title", "scope_team_ids", "watching"] {
             assert!(sessions.columns.contains(&column), "sessions needs {column}");
         }
         // NEW-8: the legacy columns are never read (the server drops them).
