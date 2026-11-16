@@ -1,0 +1,1 @@
+- An issue reference in a chat message keeps the full stop or comma right after it on the same line

@@ -25,6 +25,13 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-16-phones-issue-chip-punctuation`,
+    date: `2026-11-16`,
+    title: `An issue reference keeps its punctuation`,
+    summary: `Android 0.14.147 and iOS 0.14.136: an issue reference in a chat message or description no longer leaves the full stop or comma that follows it alone at the start of the next line.`,
+    body: `- **Punctuation stays with the chip**: when a line wraps right after an issue reference, the full stop, comma or closing bracket touching it moves with it instead of starting the next line.`,
+  },
+  {
     id: `2026-11-16-desktop-cli-0-14-167-quiet-check-ins-and-build-cache`,
     date: `2026-11-16`,
     title: `Quiet check-ins on one line, and a self-cleaning build cache`,
