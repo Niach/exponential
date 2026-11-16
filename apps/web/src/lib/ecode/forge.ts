@@ -142,7 +142,7 @@ export interface Forge {
   openPullRequest(
     repo: ForgeRepo,
     args: { head: string; base: string; title: string; body?: string; draft?: boolean }
-  ): Promise<{ number: number; url: string }>
+  ): Promise<{ number: number; url: string; /** The base the forge recorded (#FEED-252). */ base?: string }>
   /** The live PR on `head` (narrowed to `base` when given), null = none. */
   findOpenByHead(repo: ForgeRepo, head: string, base?: string): Promise<ForgePullRef | null>
   /** `pr.list_by_base`: the live PRs based on `base` (a stack parent's children). */

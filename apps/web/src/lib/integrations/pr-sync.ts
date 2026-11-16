@@ -1463,7 +1463,8 @@ export async function applyPullRequestBase(opts: {
  */
 export async function retargetChildrenOfMergedPr(
   pullRequestId: string,
-  opts: { trainLanding?: boolean } = {}
+  /** #FEED-252: only these PR numbers (the ones its landing stranded). */
+  opts: { trainLanding?: boolean; only?: ReadonlySet<number> } = {}
 ): Promise<void> {
   const merged = await loadPullRequest(pullRequestId)
   if (!merged) return
@@ -1500,6 +1501,7 @@ export async function retargetChildrenOfMergedPr(
   if (!target || target === merged.head) return
   const children = await forge.listOpenByBase(at, merged.head)
   for (const child of children) {
+    if (opts.only && !opts.only.has(child.number)) continue
     try {
       if (opts.trainLanding) await forge.leaveNativeStack(at, child.number)
       else if (await inNativeStack(forge, at, child.number)) continue

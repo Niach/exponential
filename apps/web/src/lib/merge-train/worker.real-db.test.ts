@@ -488,6 +488,37 @@ describe.skipIf(!ready.ok)(`EXP-1709: the merge train worker`, () => {
     expect((await prRow(free)).mergeState).toBe(`testing`)
   })
 
+  it(`#FEED-252: a PR opened on a branch AFTER that branch's PR landed keeps its base and lands there`, async () => {
+    // #2832 (head exp/session-bc03b473) landed at 05:16; the session kept
+    // working on its branch and its children opened #2855/#2859 on it hours
+    // later: the train moved them onto master 4 s after their open.
+    const w = await world()
+    fake.branch.set(`exp/550`, `live0`)
+    fake.history.add(`live0`)
+    const parent = await w.pr(550)
+    await db.update(pullRequests).set({ state: `merged`, mergeState: `merged`, mergedAt: new Date(Date.now() - 3_600_000) }).where(eq(pullRequests.id, parent))
+    const child = await w.pr(551, { base: `exp/550` })
+    await w.idle()
+    await pass(w.repoId)
+    expect(fake.dispatches.map((d) => d.inputs.base)).toEqual([`exp/550`])
+    expect((await prRow(child)).mergeState).toBe(`testing`)
+    await pass(w.repoId)
+    expect(await prRow(child)).toMatchObject({ mergeState: `merged`, base: `exp/550` })
+    expect(fake.branch.get(`exp/550`)).not.toBe(`live0`)
+  })
+
+  it(`#FEED-252: a PR opened BEFORE its base's PR landed is still stranded`, async () => {
+    const w = await world()
+    const child = await w.pr(561, { base: `exp/560` })
+    const parent = await w.pr(560)
+    await db.update(pullRequests).set({ state: `merged`, mergeState: `merged`, mergedAt: new Date() }).where(eq(pullRequests.id, parent))
+    await w.idle()
+    await pass(w.repoId)
+    expect(fake.dispatches).toEqual([])
+    expect((await prRow(child)).base).toBe(`exp/560`)
+    expect((await prRow(child)).mergeState).toBe(`queued`)
+  })
+
   it(`a run whose base landed meanwhile never fast-forwards it (#EXP-1711)`, async () => {
     const w = await world()
     fake.branch.set(`exp/530`, `dead0`)
