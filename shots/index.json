@@ -1645,8 +1645,8 @@
         "file": "shots/chat-transcript/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 58956,
-        "sha256": "0410065bd25ab44908051b2a9b966ed90eb585ed37f7238827996eb44ecd2523"
+        "bytes": 54974,
+        "sha256": "5a6c518bea32001aa5d51322a2041cc1456089dd48028feca792b76b6699f01f"
       },
       "desktop": {
         "file": "shots/chat-transcript/desktop.webp",
