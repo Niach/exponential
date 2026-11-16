@@ -183,6 +183,91 @@ export function steerNoFeedInputs<T extends SteerNoFeedInputRow>(
   return inputs.slice(Math.max(0, inputs.length - max))
 }
 
+/** #FEED-260: how many synced messages a not-live transcript appends. */
+export const STEER_SYNCED_TAIL_MAX = fixture.syncedTailMax
+
+/** One row of the viewer's feed as `steerSyncedTail` reads it: a main-lane
+ *  narration (`agent`), an input (`user`) or anything else (null), its text
+ *  and its known time (ISO; a narration's first fragment, an input, a
+ *  settled tool; null = unknown). */
+export type SteerTailFeedRow = { author: `agent` | `user` | null; text: string | null; at: string | null }
+
+/** One synced message of the session, as `steerSyncedTail` reads it. */
+export type SteerSyncedMessage = SteerNoFeedInputRow & { body: string }
+
+function epochMs(iso: string | null): number | null {
+  if (iso === null) return null
+  const ms = Date.parse(iso)
+  return Number.isNaN(ms) ? null : ms
+}
+
+/**
+ * #FEED-260 (steer-enet.json SYNCED TAIL): the synced messages a NOT-live
+ * transcript draws after its feed, oldest first (createdAt, then id), the
+ * newest [max]: card-less with a non-blank body, the agent's or a person's
+ * CONSUMED input, later than the feed's newest known row time, and not
+ * already held by the feed (an agent line equal to, a prefix of or prefixed
+ * by a narration; an input equal to a feed input). An empty feed takes the
+ * tail only while its live transcript cannot be loaded (`unreachable`, the
+ * OFFLINE LINE's condition) and only when it holds an agent line (else
+ * SENT INPUTS keeps the placeholder). A live feed = none.
+ */
+export function steerSyncedTail<T extends SteerSyncedMessage>(input: {
+  live: boolean
+  feed: readonly SteerTailFeedRow[]
+  messages: readonly T[]
+  max?: number
+  /** The live transcript cannot be loaded (consulted for an empty feed). */
+  unreachable?: boolean
+}): T[] {
+  if (input.live) return []
+  if (input.feed.length === 0 && input.unreachable !== true) return []
+  const max = input.max ?? STEER_SYNCED_TAIL_MAX
+  let feedAt: number | null = null
+  for (const row of input.feed) {
+    const at = epochMs(row.at)
+    if (at !== null && (feedAt === null || at > feedAt)) feedAt = at
+  }
+  if (input.feed.length > 0 && feedAt === null) return []
+  const narrations = input.feed.filter((row) => row.author === `agent` && row.text).map((row) => (row.text ?? ``).trim())
+  const inputs = new Set(input.feed.filter((row) => row.author === `user` && row.text).map((row) => (row.text ?? ``).trim()))
+  const tail = input.messages
+    .filter((m) => {
+      if (m.card !== null && m.card !== undefined) return false
+      const body = m.body.trim()
+      if (body === ``) return false
+      if (m.authorKind === `agent`) {
+        if (narrations.some((text) => text !== `` && (text.startsWith(body) || body.startsWith(text)))) return false
+      } else if (m.authorKind === `user`) {
+        if (m.consumedAt === null || inputs.has(body)) return false
+      } else {
+        return false
+      }
+      if (feedAt === null) return true
+      const created = epochMs(m.createdAt)
+      return created !== null && created > feedAt
+    })
+    .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+  if (input.feed.length === 0 && !tail.some((m) => m.authorKind === `agent`)) return []
+  return tail.slice(Math.max(0, tail.length - max))
+}
+
+/**
+ * #FEED-260 (steer-enet.json OFFLINE LINE): whether a not-live transcript
+ * showing rows ends with THE inline marker `noFeedAway.title`: an ended row
+ * whose last dial said NO FEED, a row not ended whose device is offline.
+ */
+export function steerOfflineLine(input: {
+  live: boolean
+  rows: number
+  ended: boolean
+  noFeed: boolean
+  deviceOffline: boolean
+}): boolean {
+  if (input.live || input.rows === 0) return false
+  return input.ended ? input.noFeed : input.deviceOffline
+}
+
 /** The synced row fields `steerRowWakes` reads. */
 export type SteerWakeRow = { status: string; busy: boolean; deviceId: string | null }
 

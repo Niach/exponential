@@ -254,6 +254,69 @@ class SteerEnetTest {
     }
 
     @Test
+    fun theSyncedTailCasesAreTheFixtures() {
+        // #FEED-260: fixtures/steer-enet.json SYNCED TAIL.
+        assertEquals(fixture["syncedTailMax"]!!.jsonPrimitive.long.toInt(), STEER_SYNCED_TAIL_MAX)
+        val cases = fixture["syncedTailCases"]!!.jsonArray
+        assertTrue(cases.isNotEmpty())
+        fun ms(value: kotlinx.serialization.json.JsonElement?): Long? =
+            (value as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
+                ?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull() }
+        fun str(value: kotlinx.serialization.json.JsonElement?): String? =
+            (value as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
+        cases.forEach { element ->
+            val case = element.jsonObject
+            val feed = case["feed"]!!.jsonArray.map { it.jsonObject }.map { r ->
+                SteerTailFeedRow(author = str(r["author"]), text = str(r["text"]), at = ms(r["at"]))
+            }
+            val rows = case["messages"]!!.jsonArray.map { it.jsonObject }
+            val picked = steerSyncedTail(
+                live = case["live"]!!.jsonPrimitive.boolean,
+                feed = feed,
+                messages = rows,
+                max = case["max"]!!.jsonPrimitive.long.toInt(),
+                unreachable = case["unreachable"]?.jsonPrimitive?.boolean ?: false,
+            ) { m ->
+                SteerTailMessage(
+                    id = m["id"]!!.jsonPrimitive.content,
+                    authorKind = m["authorKind"]!!.jsonPrimitive.content,
+                    hasCard = m["card"] !is kotlinx.serialization.json.JsonNull && m["card"] != null,
+                    consumedAt = str(m["consumedAt"]),
+                    createdAt = m["createdAt"]!!.jsonPrimitive.content,
+                    createdAtMs = ms(m["createdAt"]),
+                    body = m["body"]!!.jsonPrimitive.content,
+                )
+            }
+            assertEquals(
+                case["name"]!!.jsonPrimitive.content,
+                case["expected"]!!.jsonArray.map { it.jsonPrimitive.content },
+                picked.map { it["id"]!!.jsonPrimitive.content },
+            )
+        }
+    }
+
+    @Test
+    fun theOfflineLineCasesAreTheFixtures() {
+        // #FEED-260: fixtures/steer-enet.json OFFLINE LINE.
+        val cases = fixture["offlineLineCases"]!!.jsonArray
+        assertTrue(cases.isNotEmpty())
+        cases.forEach { element ->
+            val c = element.jsonObject
+            assertEquals(
+                c["name"]!!.jsonPrimitive.content,
+                c["line"]!!.jsonPrimitive.boolean,
+                steerOfflineLine(
+                    live = c["live"]!!.jsonPrimitive.boolean,
+                    rows = c["rows"]!!.jsonPrimitive.long.toInt(),
+                    ended = c["ended"]!!.jsonPrimitive.boolean,
+                    noFeed = c["noFeed"]!!.jsonPrimitive.boolean,
+                    deviceOffline = c["deviceOffline"]!!.jsonPrimitive.boolean,
+                ),
+            )
+        }
+    }
+
+    @Test
     fun theRowWakeCasesAreTheFixtures() {
         // Android 0.14.134: fixtures/steer-enet.json ROW WAKE.
         fun row(value: JsonElement?): SteerWakeRow? = (value as? JsonObject)?.let { o ->

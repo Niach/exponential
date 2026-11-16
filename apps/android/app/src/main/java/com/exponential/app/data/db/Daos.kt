@@ -667,6 +667,18 @@ abstract class MessageDao {
     fun observeConsumedInputs(sessionId: String, limit: Int): Flow<List<MessageEntity>> =
         rawObserveConsumedInputs(sessionId, limit).openedMessages()
 
+    // #FEED-260 (steer-enet.json SYNCED TAIL): a session's NEWEST [limit]
+    // card-less agent lines and person inputs, oldest first: what a
+    // not-live transcript appends after its feed.
+    @Query(
+        "SELECT * FROM (SELECT * FROM messages WHERE session_id = :sessionId AND author_kind IN ('user', 'agent') " +
+            "AND (card IS NULL OR card = 'null') " +
+            "ORDER BY created_at DESC, id DESC LIMIT :limit) ORDER BY created_at, id",
+    )
+    abstract fun rawObserveTailMessages(sessionId: String, limit: Int): Flow<List<MessageEntity>>
+    fun observeTailMessages(sessionId: String, limit: Int): Flow<List<MessageEntity>> =
+        rawObserveTailMessages(sessionId, limit).openedMessages()
+
     // EXP-1459: one message RAW (sealed as synced): the answer re-seals its card.
     @Query("SELECT * FROM messages WHERE id = :id LIMIT 1")
     abstract suspend fun getById(id: String): MessageEntity?
