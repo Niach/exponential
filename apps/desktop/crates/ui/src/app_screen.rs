@@ -1068,7 +1068,23 @@ impl AppScreenView {
         // device is online).
         let root = self.editor_root(cx);
         let tree = root.as_ref().map(|root| crate::session_data::tree_of_root(&root.id, cx)).unwrap_or_default();
-        let word = crate::session_chat::tree_status_word(root.as_ref(), &tree);
+        // #FEED-257: the editor chat's waiting cards feed the word; the
+        // needs-input line opens the waiting item in that chat.
+        let chat = self
+            .chat
+            .as_ref()
+            .and_then(|chat| chat.read(cx).chat_view().map(|(_, view)| view.clone()));
+        let cards = chat.as_ref().map(|view| view.read(cx).waiting_cards()).unwrap_or_default();
+        let asks = crate::session_chat::chat_screen_asks(&cards);
+        let word = crate::session_chat::tree_status_word(root.as_ref(), &tree, &asks);
+        let on_subtitle = crate::session_chat::tree_waiting(root.as_ref(), &tree, &asks).and_then(|item| {
+            let chat = chat.as_ref()?.downgrade();
+            let this = cx.entity().downgrade();
+            Some(Rc::new(move |window: &mut Window, cx: &mut App| {
+                let _ = this.update(cx, |this, cx| this.set_tab(SessionScreenTab::Chat, cx));
+                let _ = chat.update(cx, |chat, cx| chat.open_waiting_item(&item, &cards, window, cx));
+            }) as crate::session_chat::OnPress)
+        });
         let (subtitle, subtitle_color) = match self.editor_header.clone() {
             Some((_, device)) => {
                 let offline = device == domain::apps::APPS.editor_header.copy.no_device_online;
@@ -1077,7 +1093,7 @@ impl AppScreenView {
             }
             None => {
                 let tone = crate::session_chat::tone_color(domain::session_screen::session_screen_tone(&word, false), cx);
-                (crate::session_chat::screen_subtitle(root.as_ref(), &tree, None, cx), Some(tone))
+                (crate::session_chat::screen_subtitle(root.as_ref(), &tree, None, &asks, cx), Some(tone))
             }
         };
         screen_header(
@@ -1086,6 +1102,7 @@ impl AppScreenView {
                 title,
                 subtitle,
                 subtitle_color,
+                on_subtitle,
                 trailing: publish.into_iter().collect(),
                 menu: self.render_menu(app, show_publish, cx),
                 back: None,

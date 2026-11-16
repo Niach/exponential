@@ -1285,7 +1285,8 @@ impl SteerFeed {
                 subagent_id,
                 at,
             } => {
-                if text.trim().is_empty() {
+                // #FEED-256: a blank narration (a lone U+200B) is no reply.
+                if domain::transcript_grouping::is_blank_text(&text) {
                     return;
                 }
                 // EXP-483: prose from the withheld ask/plan entry flushes
@@ -1415,7 +1416,7 @@ impl SteerFeed {
             ActivityEvent::UserMessage {
                 text, subagent_id, at,
             } => {
-                if text.trim().is_empty() {
+                if domain::transcript_grouping::is_blank_text(&text) {
                     return;
                 }
                 // A message this client just sent was already echoed locally
