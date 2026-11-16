@@ -1,6 +1,7 @@
 package com.exponential.app.domain
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
@@ -64,6 +65,7 @@ class VoiceCallTest {
             "endCall" to c.END_CALL,
             "cancel" to c.CANCEL,
             "minimize" to c.MINIMIZE,
+            "via" to c.VIA,
             "queued" to c.QUEUED,
         )
         // A key added to the fixture must land here too.
@@ -80,6 +82,7 @@ class VoiceCallTest {
             "noGpu" to VoiceCall.Copy.Reasons.NO_GPU,
             "busy" to VoiceCall.Copy.Reasons.BUSY,
             "meeting" to VoiceCall.Copy.Reasons.MEETING,
+            "noDesktop" to VoiceCall.Copy.Reasons.NO_DESKTOP,
         )
         assertEquals(copy.getValue("reasons").jsonObject.strings(), reasons)
         assertEquals(copy.getValue("failed").jsonObject.strings(), VoiceCall.Copy.Failed.byCode)
@@ -98,6 +101,7 @@ class VoiceCallTest {
             "pill" to VoiceCall.TestIds.PILL,
             "timer" to VoiceCall.TestIds.TIMER,
             "minimize" to VoiceCall.TestIds.MINIMIZE,
+            "via" to VoiceCall.TestIds.VIA,
         )
         assertEquals(obj("testIds").strings(), ids)
         val i = VoiceCall.Icons
@@ -132,6 +136,7 @@ class VoiceCallTest {
             "maxFramesPerSecond" to k.MAX_FRAMES_PER_SECOND,
             "maxCallMs" to k.MAX_CALL_MS,
             "idleTimeoutMs" to k.IDLE_TIMEOUT_MS,
+            "serverIdleMs" to k.SERVER_IDLE_MS,
         )
         val fixtureConstants = obj("constants")
         assertEquals(fixtureConstants.keys, constants.keys)
@@ -192,6 +197,48 @@ class VoiceCallTest {
         }
     }
 
+    private fun devices(raw: JsonArray) = raw.map { entry ->
+        val d = entry.jsonObject
+        VoiceCall.TargetDevice(
+            id = d.str("id")!!,
+            name = d.str("name")!!,
+            online = d.getValue("online").jsonPrimitive.boolean,
+            speech = d.str("speech")?.let { s -> VoiceCall.Speech.entries.single { it.wire == s } },
+            meeting = d["meeting"]?.jsonPrimitive?.boolean ?: false,
+        )
+    }
+
+    @Test
+    fun `EXP-1857 every target case matches the fixture`() {
+        for (case in cases("targetCases")) {
+            val input = case.getValue("input").jsonObject
+            val got = VoiceCall.callTarget(
+                VoiceCall.TargetInput(
+                    platform = VoiceCall.Platform.entries.single { it.wire == input.str("platform") },
+                    here = input.str("here"),
+                    agentDevice = input.str("agentDevice"),
+                    desktops = devices(input.getValue("desktops").jsonArray),
+                    busy = input.getValue("busy").jsonPrimitive.boolean,
+                    // EXP-1858: the member's own servers.
+                    servers = devices(input["servers"]?.jsonArray ?: JsonArray(emptyList())),
+                ),
+            )
+            val e = case.getValue("expected").jsonObject
+            assertEquals(
+                case.str("name"),
+                VoiceCall.Target(
+                    enabled = e.getValue("enabled").jsonPrimitive.boolean,
+                    reason = e.str("reason"),
+                    device = e.str("device"),
+                    name = e.str("name"),
+                    fallback = e.getValue("fallback").jsonPrimitive.boolean,
+                    local = e.getValue("local").jsonPrimitive.boolean,
+                ),
+                got,
+            )
+        }
+    }
+
     @Test
     fun `every flow case matches the fixture`() {
         for (case in cases("flowCases")) {
@@ -217,6 +264,7 @@ class VoiceCallTest {
     private fun view(v: JsonObject) = VoiceCall.View(
         activity = VoiceCall.Activity.entries.single { it.wire == v.str("activity") },
         status = v.str("status"),
+        via = v.str("via"),
         caption = v.str("caption")!!,
         muted = v.getValue("muted").jsonPrimitive.boolean,
         speaker = v.getValue("speaker").jsonPrimitive.boolean,

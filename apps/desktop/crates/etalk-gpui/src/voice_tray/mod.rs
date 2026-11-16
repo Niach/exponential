@@ -705,7 +705,8 @@ impl VoiceTray {
             agent: agent.as_deref(),
             muted: self.muted,
             // NEW-55: Call shows while a call can start here.
-            call_available: crate::voice_call::unavailable(cx).is_none(),
+            // EXP-1857: the voice agent's own target.
+            call_available: settings.agent_id.as_deref().is_some_and(|agent_id| crate::voice_call::unavailable(agent_id, cx).is_none()),
             mic_available,
             device_is_voice_device,
             shortcut_unavailable: status.reason().is_some(),

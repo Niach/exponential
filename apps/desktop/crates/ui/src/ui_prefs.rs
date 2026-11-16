@@ -75,6 +75,12 @@ struct UiPrefs {
     /// Only folded ones are stored: no flag = open (sidebar-folders.json).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     sidebar_folders: BTreeMap<String, bool>,
+    /// #EXP-1876: the Assistant widget's dragged size (width, height) per
+    /// member on this device; stored UNCLAMPED, clamped at read time
+    /// (`domain::agent_settings::assistant_widget_size`). A reset (double-
+    /// click on the widget header) removes the member.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    assistant_widget: BTreeMap<String, (f32, f32)>,
 }
 
 /// EXP-1156: a hand-edited or future file must not cost the REST of the
@@ -92,6 +98,10 @@ where
 }
 
 fn prefs_file() -> Option<PathBuf> {
+    // Unit and live tests never read or write the machine's real prefs.
+    if cfg!(test) {
+        return None;
+    }
     Some(crate::window_size::app_data_dir()?.join("ui-prefs.json"))
 }
 
@@ -260,6 +270,35 @@ pub(crate) fn set_sidebar_folder_open(key: &str, open: bool) {
             return;
         };
         let changed = if open { prefs.sidebar_folders.remove(key).is_some() } else { prefs.sidebar_folders.insert(key.to_string(), false) != Some(false) };
+        if !changed {
+            return;
+        }
+    }
+    schedule_write();
+}
+
+/// #EXP-1876: the member's dragged Assistant widget size, `None` = never
+/// dragged here (the responsive default).
+pub(crate) fn assistant_widget_size(member: &str) -> Option<(f32, f32)> {
+    let prefs = prefs().lock().ok()?;
+    prefs
+        .assistant_widget
+        .get(member)
+        .copied()
+        .filter(|(w, h)| w.is_finite() && h.is_finite() && *w > 0. && *h > 0.)
+}
+
+/// #EXP-1876: remember the member's dragged widget size (debounced like the
+/// widths); `None` forgets it (the header's double-click).
+pub(crate) fn set_assistant_widget_size(member: &str, size: Option<(f32, f32)>) {
+    {
+        let Ok(mut prefs) = prefs().lock() else {
+            return;
+        };
+        let changed = match size {
+            Some(size) => prefs.assistant_widget.insert(member.to_string(), size) != Some(size),
+            None => prefs.assistant_widget.remove(member).is_some(),
+        };
         if !changed {
             return;
         }

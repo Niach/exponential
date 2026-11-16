@@ -72,6 +72,7 @@ async function dialed(
     openAudio?: () => Promise<CallAudio>
     device?: string
     language?: string
+    fallback?: boolean
   } = {}
 ) {
   const socket = new FakeSocket()
@@ -89,7 +90,7 @@ async function dialed(
     },
   })
   call.onToast = (message) => toasts.push(message)
-  await call.start(`agent-1`, options.device ?? `mint`, options.language)
+  await call.start(`agent-1`, options.device ?? `mint`, options.language, options.fallback)
   return { call, socket, audio, toasts, startCall, rings }
 }
 
@@ -123,7 +124,11 @@ describe(`a web call replays voice-call.json flowCases off the wire`, () => {
   it.each(webCases.map((c) => [c.name, c] as const))(`%s`, async (_name, c) => {
     const [start, ...events] = c.events as CallEvent[]
     if (start?.t !== `start`) throw new Error(`a flow case starts with start`)
-    const { call, socket, toasts } = await dialed({ device: start.device, language: start.language })
+    const { call, socket, toasts } = await dialed({
+      device: start.device,
+      language: start.language,
+      fallback: start.fallback,
+    })
     socket.text({ t: `call_ready` })
     for (const event of events) deliver(call, socket, event)
     expect(view(call, c.platform as CallPlatform)).toEqual(c.view)

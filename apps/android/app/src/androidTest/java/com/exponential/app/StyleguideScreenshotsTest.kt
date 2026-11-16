@@ -2059,6 +2059,11 @@ class StyleguideScreenshotsTest {
         // --- sg_voice-call (NEW-69 / S-3, voice-call.json): THE phone-call
         // screen the live call draws, once per `surfaceSpecimens` row.
         show(VoiceCallSpecimenTestId) { VoiceCallSpecimenScreen() }
+        // EXP-1857: the shot frames the newest row, "in call, falling back"
+        // (its `voice-call-via` line under the timer): scroll to its caption
+        // so the whole frame above it is on screen.
+        composeRule.onNode(hasText("in call, falling back")).performScrollTo()
+        flow.settle()
         flow.screenshot("sg_voice-call")
         // --- sg_call-controls (S-3): the round icon-only call buttons.
         show(CallControlsSpecimenTestId) { CallControlsSpecimenScreen() }

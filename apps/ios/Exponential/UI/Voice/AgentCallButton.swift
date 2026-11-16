@@ -13,6 +13,10 @@ struct AgentCallButton: View {
     /// The agent's own icon (nil = the Exponential logo) and colour.
     var agentIcon: String? = nil
     var agentColor: String? = nil
+    /// EXP-1857: the agent's Runs on device (the call rings it) and its own
+    /// voice language (the greeting; nil = the member's).
+    var agentDevice: String? = nil
+    var agentLanguage: String? = nil
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -20,15 +24,17 @@ struct AgentCallButton: View {
     @State private var model = AgentCallAvailability()
 
     var body: some View {
-        let availability = model.availability
+        let target = model.target(agentDevice: agentDevice)
+        let availability = target.availability
         Button {
-            guard availability.enabled else { return }
+            guard target.enabled else { return }
             VoiceCallClient.shared.start(
                 accountId: accountId,
                 agentId: agentId,
                 callee: VoiceCallCallee(name: agentName, icon: agentIcon, color: agentColor),
-                device: model.device?.label ?? "",
-                language: model.settings?.language,
+                device: target.name ?? "",
+                language: agentLanguage.flatMap { $0.isEmpty ? nil : $0 } ?? model.settings?.language,
+                fallback: target.fallback,
                 voiceApi: deps.voiceApi
             )
         } label: {
@@ -49,11 +55,12 @@ struct AgentCallButton: View {
     }
 }
 
-/// The telephone's inputs (`callAvailability` on a phone: never `here`,
+/// The telephone's inputs (EXP-1857 `callTarget` on a phone: never `here`,
 /// never `busy`): the member's voice settings (`voice.get`, fetched when the
-/// chat appears; its agentId = the member has an Assistant), the voice
-/// device's synced row (its name, liveness and doctor `speech`), and a clock so a device that stops beating reads
-/// offline without a sync.
+/// chat appears; a meeting runs on its voice device), the member's OWN
+/// synced desktop rows (newest `lastSeenAt` first: name, liveness and doctor
+/// `speech`), and a clock so a device that stops beating reads offline
+/// without a sync. Settings not loaded yet read as no desktop (like web).
 @MainActor
 @Observable
 final class AgentCallAvailability {
@@ -64,25 +71,36 @@ final class AgentCallAvailability {
 
     nonisolated init() {}
 
-    /// The voice device's row; nil = none picked, or its row is gone.
-    var device: DeviceEntity? {
-        guard let id = settings?.voiceDeviceId else { return nil }
-        return devices.first { $0.deviceId == id && (userId == nil || $0.userId == userId) }
+    /// The member's own desktops as `callTarget` reads them, newest first.
+    var desktops: [VoiceCall.TargetDevice] { own(kind: "desktop") }
+
+    /// EXP-1858: the member's own servers (only the agent's counts).
+    var servers: [VoiceCall.TargetDevice] { own(kind: "server") }
+
+    private func own(kind: String) -> [VoiceCall.TargetDevice] {
+        guard let settings else { return [] }
+        func seen(_ row: DeviceEntity) -> Date {
+            row.lastSeenAt.flatMap(WireTimestamps.parse) ?? .distantPast
+        }
+        return devices
+            .filter { $0.kind == kind && (userId == nil || $0.userId == userId) }
+            .sorted { seen($0) > seen($1) }
+            .map { row in
+                VoiceCall.TargetDevice(
+                    id: row.deviceId,
+                    name: row.label,
+                    online: DeviceLiveness.isOnline(lastSeenAt: row.lastSeenAt, now: now),
+                    speech: VoiceCall.callSpeech(ofJSON: row.doctor),
+                    // #NEW-57: a meeting runs on the voice device.
+                    meeting: settings.meetingOn && row.deviceId == settings.voiceDeviceId
+                )
+            }
     }
 
-    var availability: VoiceCall.Availability {
-        let device = device
-        return VoiceCall.callAvailability(VoiceCall.AvailabilityInput(
-            // NEW-99: no voice Assistant yet (`voice.get` agentId) names it first.
-            agent: settings?.agentId != nil,
-            platform: .phone,
-            device: device?.label,
-            online: DeviceLiveness.isOnline(lastSeenAt: device?.lastSeenAt, now: now),
-            here: false,
-            speech: VoiceCall.callSpeech(ofJSON: device?.doctor),
-            busy: false,
-            // #NEW-57: a meeting on the voice device disables the telephone.
-            meeting: settings?.meetingOn ?? false
+    /// Where a call to the agent running on `agentDevice` speaks.
+    func target(agentDevice: String?) -> VoiceCall.Target {
+        VoiceCall.callTarget(VoiceCall.TargetInput(
+            platform: .phone, here: nil, agentDevice: agentDevice, desktops: desktops, servers: servers, busy: false
         ))
     }
 
