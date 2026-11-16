@@ -83,6 +83,8 @@ data class CodingSessionBlocked(
     val window: String? = null,
     val resetsAt: String? = null,
     val since: String? = null,
+    /** #FEED-263: since when its device could continue it (null = never back). */
+    val resumeSince: String? = null,
 )
 
 object AgentUsagePresentation {
@@ -140,6 +142,7 @@ object AgentUsagePresentation {
             window = obj.string("window"),
             resetsAt = obj.string("resetsAt"),
             since = obj.string("since"),
+            resumeSince = obj.string("resumeSince"),
         )
     }
 

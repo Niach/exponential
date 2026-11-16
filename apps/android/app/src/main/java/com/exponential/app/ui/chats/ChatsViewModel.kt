@@ -253,11 +253,22 @@ class ChatsViewModel @Inject constructor(
                 needsYou = row.needsYou,
                 prs = byRoot[row.sessionId].orEmpty(),
                 teamPrs = byTeam[row.teamId].orEmpty(),
-                offline = row.offline,
+                wall = row.wall != null,
                 waiting = waits[row.sessionId],
             )?.let { row.sessionId to it }
         }.toMap()
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, LIST_SHARING, emptyMap())
+
+    /** #FEED-263: each listed row's wall (kind, its device's name) by root id. */
+    val walls: StateFlow<Map<String, Pair<String, String?>>> = combine(
+        groups,
+        dbFlow.scopedQuery(emptyList()) { it.deviceDao().observeAll() },
+    ) { g, devices ->
+        val names = devices.associate { it.deviceId to it.label.takeIf { label -> label.isNotBlank() } }
+        g.flatMap { it.rows }.mapNotNull { row ->
+            row.wall?.let { wall -> row.sessionId to (wall.kind to wall.deviceId?.let { names[it] }) }
+        }.toMap()
+    }.distinctUntilChanged().flowOn(Dispatchers.Default).stateIn(viewModelScope, LIST_SHARING, emptyMap())
 
     /**
      * NEW-41 (`chat-list.json`, web `rowLead`): each listed root's PR
@@ -405,10 +416,10 @@ class ChatsViewModel @Inject constructor(
     val chatList: StateFlow<Chats.ChatList> = combine(
         combine(groups, inputs) { g, i -> g to i },
         prStates,
-        combine(words, waiting) { w, waits -> w to waits },
+        combine(words, waiting, walls) { w, waits, ws -> Triple(w, waits, ws) },
         _view,
         minuteClock,
-    ) { (g, input), states, (w, waits), view, now ->
+    ) { (g, input), states, (w, waits, ws), view, now ->
         Chats.chatList(
             groups = g,
             messages = input.messages,
@@ -416,6 +427,7 @@ class ChatsViewModel @Inject constructor(
             prStates = states,
             words = w,
             waiting = waits,
+            walls = ws,
             view = view,
             now = SessionTree.nowIso(now),
             utcOffsetMinutes = Chats.deviceUtcOffsetMinutes(now),

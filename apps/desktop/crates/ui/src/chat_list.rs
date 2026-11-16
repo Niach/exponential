@@ -32,8 +32,8 @@ fn word_glyph(word: ChatRowWord) -> Option<crate::icons::ExpIcon> {
         ChatRowWord::Stack => Some(registry::PR_STACK),
         ChatRowWord::ReadyToMerge
         | ChatRowWord::Merged
-        | ChatRowWord::Offline
         | ChatRowWord::Question
+        | ChatRowWord::Wall
         | ChatRowWord::Waiting => None,
     }
 }
@@ -128,8 +128,17 @@ pub(crate) fn chat_row(row: &ChatRow, lead: AnyElement, cx: &App) -> Div {
         theme.muted_foreground
     };
     // #NEW-49: `waiting on …` names the root's labels (`chat_row_word_text`).
+    // #FEED-263: a wall names its session's device ('MacBook offline').
+    let wall_device = row
+        .wall
+        .as_ref()
+        .and_then(|wall| wall.device_id.as_deref())
+        .and_then(|id| crate::entity_preview::find_device(id, cx))
+        .and_then(|device| device.label);
+    let wall = row.wall.as_ref().map(|wall| (wall.kind.as_str(), wall_device.as_deref()));
     let word = row.word.and_then(|word| {
-        domain::session_tree::chat_row_word_text(Some(word), row.waiting.as_deref()).map(|text| (word_glyph(word), text))
+        domain::session_tree::chat_row_word_text_wall(Some(word), row.waiting.as_deref(), wall)
+            .map(|text| (word_glyph(word), text))
     });
     let shrinks = row.word == Some(ChatRowWord::Waiting);
     // #FEED-232: THE count badge (`row_badge`), attention while it needs you.
@@ -518,6 +527,7 @@ fn pinned_chat_row(
         busy,
         word: None,
         waiting: None,
+        wall: None,
         dim: false,
     };
     chat_row(&as_chat, lead, cx)
