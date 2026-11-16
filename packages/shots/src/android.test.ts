@@ -5,7 +5,11 @@
  * the example's gradle build needs.
  */
 import { describe, expect, test } from "bun:test"
+import { readFileSync } from "node:fs"
+import { dirname, join } from "node:path"
 import {
+  ANDROID_FFI,
+  androidLaneEnv,
   apkListingHasFfi,
   appOnScreen,
   deviceFfiAbi,
@@ -83,11 +87,31 @@ describe(`apkListingHasFfi`, () => {
     `   654321  01-01-1981 01:01   lib/arm64-v8a/libjnidispatch.so`,
   ].join(`\n`)
   test(`finds the ABI's library`, () => {
-    expect(apkListingHasFfi(listing, `arm64-v8a`)).toBe(true)
+    expect(apkListingHasFfi(listing, ANDROID_FFI.package, `arm64-v8a`)).toBe(true)
   })
   test(`an apk built without it (the crash on start) is refused`, () => {
-    expect(apkListingHasFfi(listing, `x86_64`)).toBe(false)
-    expect(apkListingHasFfi(listing.replace(`libexponential_ui_ffi`, `libother`), `arm64-v8a`)).toBe(false)
+    expect(apkListingHasFfi(listing, ANDROID_FFI.package, `x86_64`)).toBe(false)
+    expect(apkListingHasFfi(listing.replace(`libexponential_ui_ffi`, `libother`), ANDROID_FFI.package, `arm64-v8a`)).toBe(false)
+  })
+  // EXP-1842: the app ships genUI inside the merged library (#PERF-11) and
+  // excludes the standalone one; its lane checks for the merged one.
+  const app = [
+    `   9876543  01-01-1981 01:01   lib/arm64-v8a/libexponential_mobile_ffi.so`,
+    `    654321  01-01-1981 01:01   lib/arm64-v8a/libjnidispatch.so`,
+  ].join(`\n`)
+  test(`the app's apk carries the merged mobile library`, () => {
+    expect(apkListingHasFfi(app, ANDROID_FFI.app, `arm64-v8a`)).toBe(true)
+    expect(apkListingHasFfi(app, ANDROID_FFI.package, `arm64-v8a`)).toBe(false)
+  })
+  test(`an app apk built without it is refused`, () => {
+    expect(apkListingHasFfi(listing, ANDROID_FFI.app, `arm64-v8a`)).toBe(false)
+  })
+  test(`the app's library is the one apps/android builds and links`, () => {
+    const gradle = readFileSync(join(import.meta.dir, `../../../apps/android/app/build.gradle.kts`), `utf8`)
+    expect(gradle).toContain(`"${dirname(ANDROID_FFI.app.script)}"`)
+    expect(gradle).toContain(ANDROID_FFI.app.lib)
+    const kotlin = readFileSync(join(import.meta.dir, `../../../apps/android/app/src/main/java/com/exponential/app/MobileNativeLibrary.kt`), `utf8`)
+    expect(kotlin).toContain(`NAME = "${ANDROID_FFI.app.lib.replace(/^lib|\.so$/g, ``)}"`)
   })
 })
 
@@ -165,5 +189,14 @@ describe(`specimenState`, () => {
     const state = specimenState(`W ExponentialUI: specimen exponential-ui-eval-nope: not in eval-specimens.json`, `exponential-ui-eval-nope`)
     expect(state.ready).toBe(false)
     expect(state.error).toContain(`eval-specimens.json`)
+  })
+})
+
+describe(`androidLaneEnv`, () => {
+  test(`exports the resolved SDK to gradle: a fresh clone has no local.properties`, () => {
+    expect(androidLaneEnv({ path: `/h/Library/Android/sdk`, source: `default` }, `arm64-v8a`)).toEqual({
+      ANDROID_HOME: `/h/Library/Android/sdk`,
+      ABIS: `arm64-v8a`,
+    })
   })
 })

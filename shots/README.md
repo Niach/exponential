@@ -90,7 +90,9 @@ which is also how you find a rule that needs teaching (`IGNORED`, `BROAD`).
 - Backend stack: `docker compose --profile steer up -d` (postgres, electric,
   garage, caddy, steer-relay). **Caddy is load-bearing** — captures go through
   `https://localhost:3000` (h2), because Electric's long-polls starve Chromium's
-  HTTP/1.1 connection limit.
+  HTTP/1.1 connection limit. An isolated stack (`SHOTS_PROXY_URL`) skips the
+  compose checks; the preflight probes its proxy, dev server and relay
+  (`SHOTS_RELAY_URL` + `/healthz`, wherever it runs) instead.
 - The web app serving on `:5173`. Run it as `cd apps/web && bun run dev:capture`
   (EXP-1558): plain `bun dev` dies under capture load, first on 431 (the lanes'
   cookies + shape headers outgrow node's 16 KB header cap), then on an
@@ -186,6 +188,21 @@ which is also how you find a rule that needs teaching (`IGNORED`, `BROAD`).
   raw PNG is left behind, so nothing reaches the store. The fastlane app lane
   needs no such gate: its shots are taken by instrumentation, which fails on a
   dead app by itself.
+- The native libraries the APPS link are built by their lanes too, so a fresh
+  clone needs no manual step (EXP-1839, EXP-1842). #PERF-11 put genUI, the
+  Engine and P2P into ONE library, `exponential-mobile-ffi`: the android app
+  lane builds `libexponential_mobile_ffi.so` for the device's ABI (and runs
+  fastlane with the same `ABIS`), then checks the app apk carries it; the iOS
+  lanes build the `ExponentialMobileFFI.xcframework` simulator slice and its
+  `ExponentialUIFFI` / `ExponentialEngineFFI` link stubs whenever one is
+  missing, sliceless or replaced by a facade's standalone build, then run
+  `tuist clean manifests && tuist install && tuist generate` (the Engine
+  package resolves only once its xcframework exists). The iOS package example
+  links the STANDALONE genUI library at the same path, so it and the app
+  lanes never overlap and each rebuilds the one it links. The web lanes build
+  `apps/web/public/enet` (`scripts/build-enet-wasm.sh`; without it every
+  session page reads "No live transcript"); a failed build fails the lane
+  with the command to run.
 - Desktop: for the repo-backed views (`files`, `source-control`, `terminal`,
   `start-coding`, `settings-worktrees`) the machine needs the demo board's
   repository actually cloned, plus `git` and a signed-in agent CLI on PATH —
@@ -196,11 +213,15 @@ which is also how you find a rule that needs teaching (`IGNORED`, `BROAD`).
   (Tools, Worktrees) render that path verbatim — keep it username-free
   (`/Users/Shared/Exponential/repos`) so the committed store carries no
   developer's home directory.
-- Desktop: a release binary (`cd apps/desktop && cargo build --release -p app`;
-  found via `$CARGO_TARGET_DIR/release/exp-desktop` or the workspace target dir,
-  override with `--app-binary`), plus a one-time macOS **Screen Recording**
-  grant for the terminal running the capture (the preflight probes it and
-  prints instructions when missing).
+- Desktop: a release binary of THIS checkout (`$CARGO_TARGET_DIR/release/exp-desktop`
+  or the workspace target dir); a missing, foreign or stale one is rebuilt by
+  the lane (`cargo build --release -p app`), `--app-binary` names one that is
+  never rebuilt. Plus a one-time macOS **Screen Recording** grant for the
+  terminal running the capture (the preflight probes it and prints
+  instructions when missing). The lane photographs the WINDOW alone
+  (`screencapture -o -l<id>`, corners flattened onto black), so a macOS alert
+  over it stays out of the shot; `SHOTS_DESKTOP_CAPTURE=rect` photographs the
+  screen rect instead.
 
 ## A throwaway capture stack
 
@@ -240,7 +261,6 @@ The recipe the full ×5 refresh runs with, every lane against ONE stack:
 # emulator's http://10.0.2.2:<vite port> too: else every Android sign-in is a
 # 403 and the walks time out on `agent-home`/`tab-board`), then
 cd apps/web && bun run dev:capture --port 5174 --strictPort   # nohup it
-bash scripts/build-enet-wasm.sh          # public/enet: web's session feed
 bun run seed:screenshots                 # from apps/web, against the stack
 bun scripts/screenshot-desktop.ts        # from apps/web, nohup; the relay + P2P stub
 
