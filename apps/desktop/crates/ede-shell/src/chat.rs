@@ -44,6 +44,8 @@ pub fn demo_group(rows: &mut [uicore_model::chat::ChatRowInput], avatar: &str, a
             indent: inbound,
             link: None,
             gap: gap as u32,
+            // #EXP-1876: the group's first bubble wears THE tail.
+            tail: lead,
         });
         prev = Some(author.clone());
     }

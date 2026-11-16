@@ -161,6 +161,8 @@ export interface StyleProps {
   cursor?: `auto` | `default` | `pointer` | `text` | `not-allowed` | `grab` | `grabbing` | `move` | `col-resize` | `row-resize`
   /** Round 2: `$blur.<name>`; blurs what is behind the box. */
   backdropBlur?: `$blur.${string}`
+  /** #EXP-1876: a speech-bubble tail drawn with the box as one outline (paint-only). */
+  tail?: `none` | `start` | `end` | `down`
   /** Round 2: a keyframe set (style.json `animations`). */
   animation?: `pulse` | `spin` | `fade-in` | `slide-in-up` | `slide-in-down` | `slide-in-left` | `slide-in-right` | `shimmer`
   /** Round 2: `$motion.<name>` instead of the animation's own token. */

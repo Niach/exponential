@@ -36,6 +36,12 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
+import at.exponential.ui.primitives.BubbleTail
+import at.exponential.ui.primitives.bubbleTailPath
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
@@ -79,6 +85,8 @@ private val BubbleMuted: Color @Composable get() = MaterialTheme.colorScheme.onS
  * delivery mark [status] right after the `HH:mm` (the clock, one check, two
  * checks, the red mark; every other sender's has none); [onLongClick] opens
  * its menu, a failed mark is itself a press target ([onStatusClick]).
+ * #EXP-1876: [tail] (the group's first bubble, `RowLayout.tail`) = THE
+ * bubble tail, start for anyone else's, end for the viewer's.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -94,20 +102,39 @@ fun MessageBubble(
     status: MessageDelivery.State? = null,
     onLongClick: (() -> Unit)? = null,
     onStatusClick: (() -> Unit)? = null,
+    tail: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
         val max = maxWidth * if (own) TranscriptGrouping.Layout.MAX_WIDTH_OWN else TranscriptGrouping.Layout.MAX_WIDTH_PHONE_IN
-        val shape = RoundedCornerShape(TranscriptGrouping.Layout.RADIUS.dp)
+        val radius = TranscriptGrouping.Layout.RADIUS.dp
+        val fill = if (own) GlassTokens.OwnBubbleFill else GlassTokens.OpaqueCardFill
+        // #EXP-1876: the group's first bubble wears THE tail (start for
+        // anyone else's, end for the viewer's), its top corner square.
+        val side = if (tail) BubbleTail.of(if (own) "end" else "start", LocalLayoutDirection.current == LayoutDirection.Rtl) else null
+        val shape = when {
+            side == null -> RoundedCornerShape(radius)
+            own -> RoundedCornerShape(topStart = radius, topEnd = 0.dp, bottomEnd = radius, bottomStart = radius)
+            else -> RoundedCornerShape(topStart = 0.dp, topEnd = radius, bottomEnd = radius, bottomStart = radius)
+        }
         Column(
             modifier = Modifier
                 .align(if (own) Alignment.CenterEnd else Alignment.CenterStart)
                 .widthIn(max = max)
-                .clip(shape)
                 // #EXP-1864: one colour per side, both tokens: the own bubble
                 // `glass.fillOwn`, anyone else's THE opaque card; one hairline.
-                .background(if (own) GlassTokens.OwnBubbleFill else GlassTokens.OpaqueCardFill, shape)
-                .border(GlassTokens.Hairline, GlassTokens.StrokeCard, shape)
+                .then(
+                    if (side != null) {
+                        // #EXP-1876: ONE outline (box + tail), drawn before the clip:
+                        // the tail sits outside the frame, in the avatar gap.
+                        Modifier.bubbleTailOutline(side, radius, fill, GlassTokens.StrokeCard, GlassTokens.Hairline).clip(shape)
+                    } else {
+                        Modifier
+                            .clip(shape)
+                            .background(fill, shape)
+                            .border(GlassTokens.Hairline, GlassTokens.StrokeCard, shape)
+                    },
+                )
                 .then(
                     when {
                         onLongClick != null -> Modifier.combinedClickable(onClick = onClick ?: {}, onLongClick = onLongClick)
@@ -157,6 +184,27 @@ fun MessageBubble(
         }
     }
 }
+
+/**
+ * #EXP-1876: a bubble's fill + hairline as ONE outline with its [side]
+ * tail (genUI's shared `bubbleTailPath`, style.json's numbers): the fill
+ * behind the content, the hairline over it, inside the outline. Paint-only.
+ */
+private fun Modifier.bubbleTailOutline(side: BubbleTail, radius: Dp, fill: Color, stroke: Color, hairline: Dp): Modifier =
+    drawWithCache {
+        val w = size.width / density
+        val h = size.height / density
+        val r = minOf(radius.value, w / 2f, h / 2f)
+        val corners = listOf(r, r, r, r)
+        val fillPath = bubbleTailPath(w, h, corners, side, density)
+        val line = hairline.toPx()
+        val strokePath = bubbleTailPath(w, h, corners, side, density, inset = line / 2f)
+        onDrawWithContent {
+            drawPath(fillPath, fill)
+            drawContent()
+            drawPath(strokePath, stroke, style = Stroke(width = line))
+        }
+    }
 
 /** #FEED-237: genUI's `MessageStatus`: the state's concept icon at
  *  `markSize`, in its tone (muted = the time's ink, info = the read blue,
@@ -239,6 +287,7 @@ fun MessageBubble(
     queued: Boolean = false,
     onUnqueue: (() -> Unit)? = null,
     status: MessageDelivery.State? = null,
+    tail: Boolean = false,
 ) {
     MessageBubble(
         own = own,
@@ -249,6 +298,7 @@ fun MessageBubble(
         queued = queued,
         onUnqueue = onUnqueue,
         status = status,
+        tail = tail,
     ) {
         MessageFold(text) { MarkdownView(markdown = text, softBreaksAsNewlines = true) }
     }
@@ -258,6 +308,9 @@ fun MessageBubble(
  *  cross-session sender's ends with ` ›`. */
 fun TranscriptGrouping.RowLayout?.authorLine(): String? =
     this?.takeIf { it.name }?.sender?.label
+
+/** #EXP-1876: the row's bubble wears THE tail (a group's first message). */
+fun TranscriptGrouping.RowLayout?.hasTail(): Boolean = this?.tail == true
 
 /** #EXP-1772: a relay = a row whose sender is another session (it links). */
 fun TranscriptGrouping.RowLayout?.isRelay(): Boolean =
@@ -278,6 +331,7 @@ fun RelayBubble(
     onOpen: (() -> Unit)?,
     modifier: Modifier = Modifier,
     queued: Boolean = false,
+    tail: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
@@ -299,7 +353,7 @@ fun RelayBubble(
                     .testTag("message-relay-author"),
             )
         }
-        MessageBubble(own = false, time = time, queued = queued, content = content)
+        MessageBubble(own = false, time = time, queued = queued, tail = tail, content = content)
     }
 }
 

@@ -43,6 +43,8 @@ final class SnapshotTests: XCTestCase {
                 if let b = s.coreBorderWidth, b > 0 { row["border"] = .number(Double(b)) }
                 if s.radius > 0 { row["radius"] = .number(Double(s.radius)) }
                 if let o = s.opacity { row["opacity"] = .number(o) }
+                // #EXP-1876: a box's tail (only tailed nodes record one).
+                if let t = s.tail { row["tail"] = .string(t) }
                 if !n.partStates.isEmpty { row["states"] = .array(n.partStates.map { .string($0) }) }
                 rows.append(.object(row))
             }

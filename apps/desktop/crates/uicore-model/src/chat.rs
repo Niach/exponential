@@ -102,6 +102,9 @@ pub struct ChatGroup {
     pub indent: bool,
     pub link: Option<String>,
     pub gap: u32,
+    /// #EXP-1876: the group's first bubble wears THE tail
+    /// (transcript-grouping.json `tail`).
+    pub tail: bool,
 }
 
 /// What the host knows.
@@ -257,6 +260,10 @@ pub struct ChatRow {
     /// before).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub status: String,
+    /// #EXP-1876: the bubble's MessageBubble `tail`: `start` (in) or `end`
+    /// (out) on a group's first bubble, blank (left out) otherwise.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub tail: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -422,6 +429,7 @@ fn blank(id: &str, kind: ChatRowKind) -> ChatRow {
         link: None,
         gap: 0,
         status: String::new(),
+        tail: String::new(),
     }
 }
 
@@ -443,6 +451,7 @@ fn row(input: &ChatRowInput, bubbles: bool) -> ChatRow {
                     relay: if relay && !name.trim().is_empty() { format!("{} {}", name.trim(), copy("linkChevron")) } else { String::new() },
                     author: if relay { String::new() } else { name },
                     time: if bubbles { time.trim().to_string() } else { String::new() },
+                    tail: if bubbles && group.tail { if side == "in" { "start" } else { "end" }.to_string() } else { String::new() },
                     side: if bubbles { side } else { String::new() },
                     avatar: group.avatar.clone().unwrap_or_default(),
                     indent: group.indent,

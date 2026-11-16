@@ -99,6 +99,7 @@ class TranscriptGroupingTest {
         },
         avatar = o.getValue("avatar").jsonPrimitive.boolean,
         name = o.getValue("name").jsonPrimitive.boolean,
+        tail = o.getValue("tail").jsonPrimitive.boolean,
         gap = o.getValue("gap").jsonPrimitive.int,
     )
 

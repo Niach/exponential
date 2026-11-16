@@ -12796,6 +12796,62 @@
       }
     },
     {
+      "name": "MessageBubble/tail=none",
+      "node": {
+        "id": "message_bubble",
+        "component": "MessageBubble",
+        "props": {
+          "text": "Is the printer fixed?",
+          "side": "out",
+          "time": "18:00",
+          "status": "read",
+          "tail": "none"
+        }
+      }
+    },
+    {
+      "name": "MessageBubble/tail=start",
+      "node": {
+        "id": "message_bubble",
+        "component": "MessageBubble",
+        "props": {
+          "text": "Is the printer fixed?",
+          "side": "out",
+          "time": "18:00",
+          "status": "read",
+          "tail": "start"
+        }
+      }
+    },
+    {
+      "name": "MessageBubble/tail=end",
+      "node": {
+        "id": "message_bubble",
+        "component": "MessageBubble",
+        "props": {
+          "text": "Is the printer fixed?",
+          "side": "out",
+          "time": "18:00",
+          "status": "read",
+          "tail": "end"
+        }
+      }
+    },
+    {
+      "name": "MessageBubble/tail=down",
+      "node": {
+        "id": "message_bubble",
+        "component": "MessageBubble",
+        "props": {
+          "text": "Is the printer fixed?",
+          "side": "out",
+          "time": "18:00",
+          "status": "read",
+          "tail": "down"
+        }
+      }
+    },
+    {
       "name": "MessageBubble/status=sending",
       "node": {
         "id": "message_bubble",

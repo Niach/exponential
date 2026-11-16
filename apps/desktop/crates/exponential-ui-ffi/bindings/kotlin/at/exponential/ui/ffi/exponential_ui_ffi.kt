@@ -11138,6 +11138,12 @@ data class FfiVisual (
     var `backdropBlur`: kotlin.Float? = null 
     , 
     /**
+     * #EXP-1876: `start | end | down` (null = none): the speech-bubble tail
+     * painted with the box as ONE outline (style.json `tail`).
+     */
+    var `tail`: kotlin.String? = null 
+    , 
+    /**
      * Round 2: `{name, timing: {durationMs, easing, iterations}, reduced?}`;
      * sample it with `animationFrameJson`.
      */
@@ -11209,6 +11215,7 @@ public object FfiConverterTypeFfiVisual: FfiConverterRustBuffer<FfiVisual> {
             FfiConverterOptionalString.read(buf),
             FfiConverterOptionalFloat.read(buf),
             FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
             FfiConverterBoolean.read(buf),
             FfiConverterOptionalString.read(buf),
         )
@@ -11254,6 +11261,7 @@ public object FfiConverterTypeFfiVisual: FfiConverterRustBuffer<FfiVisual> {
             FfiConverterOptionalSequenceString.allocationSize(value.`seriesColors`) +
             FfiConverterOptionalString.allocationSize(value.`direction`) +
             FfiConverterOptionalFloat.allocationSize(value.`backdropBlur`) +
+            FfiConverterOptionalString.allocationSize(value.`tail`) +
             FfiConverterOptionalString.allocationSize(value.`animationJson`) +
             FfiConverterBoolean.allocationSize(value.`sticky`) +
             FfiConverterOptionalString.allocationSize(value.`backgroundClip`)
@@ -11299,6 +11307,7 @@ public object FfiConverterTypeFfiVisual: FfiConverterRustBuffer<FfiVisual> {
             FfiConverterOptionalSequenceString.write(value.`seriesColors`, buf)
             FfiConverterOptionalString.write(value.`direction`, buf)
             FfiConverterOptionalFloat.write(value.`backdropBlur`, buf)
+            FfiConverterOptionalString.write(value.`tail`, buf)
             FfiConverterOptionalString.write(value.`animationJson`, buf)
             FfiConverterBoolean.write(value.`sticky`, buf)
             FfiConverterOptionalString.write(value.`backgroundClip`, buf)

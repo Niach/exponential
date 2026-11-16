@@ -36,15 +36,18 @@ fun OwnTailBubbles(
     onAction: (MessageDelivery.Bubble, MessageDelivery.Action) -> Unit,
     modifier: Modifier = Modifier,
     clock: (wire: String) -> String? = ::clockTime,
+    /** #EXP-1876: these bubbles open a new own group (nothing own right
+     *  above them), so the first wears THE tail, as on iOS and the web. */
+    startsGroup: Boolean = true,
 ) {
     if (bubbles.isEmpty()) return
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        for (bubble in bubbles) {
+        bubbles.forEachIndexed { index, bubble ->
             androidx.compose.runtime.key(bubble.key) {
-                OwnTailBubble(bubble, onAction, clock)
+                OwnTailBubble(bubble, onAction, clock, tail = startsGroup && index == 0)
             }
         }
     }
@@ -55,6 +58,7 @@ private fun OwnTailBubble(
     bubble: MessageDelivery.Bubble,
     onAction: (MessageDelivery.Bubble, MessageDelivery.Action) -> Unit,
     clock: (wire: String) -> String?,
+    tail: Boolean,
 ) {
     val actions = bubble.actions
     var open by remember { mutableStateOf(false) }
@@ -73,6 +77,7 @@ private fun OwnTailBubble(
             onLongClick = if (actions.isNotEmpty()) ({ open = true }) else null,
             onStatusClick = if (bubble.state == MessageDelivery.State.Failed) ({ open = true }) else null,
             testTag = "chat-own-pending",
+            tail = tail,
         ) {
             if (bubble.text.isNotBlank()) MessageFold(bubble.text) { MarkdownView(markdown = bubble.text, softBreaksAsNewlines = true) }
         }

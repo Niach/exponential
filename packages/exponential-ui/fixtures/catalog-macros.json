@@ -40625,6 +40625,610 @@
       }
     },
     {
+      "name": "MessageBubble/tail=none",
+      "input": {
+        "id": "message_bubble",
+        "component": "MessageBubble",
+        "props": {
+          "text": "Is the printer fixed?",
+          "side": "out",
+          "time": "18:00",
+          "status": "read",
+          "tail": "none"
+        }
+      },
+      "expected": {
+        "id": "message_bubble",
+        "component": "Box",
+        "props": {
+          "pressable": false
+        },
+        "children": [
+          {
+            "id": "message_bubble.bubble",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "message_bubble.bubble.text",
+                "component": "Markdown",
+                "props": {
+                  "text": "Is the printer fixed?"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "MessageBubble",
+                  "part": "text",
+                  "props": {
+                    "side": "out",
+                    "status": "read"
+                  }
+                }
+              },
+              {
+                "id": "message_bubble.bubble.footer",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "message_bubble.bubble.footer.time",
+                    "component": "Text",
+                    "props": {
+                      "text": "18:00",
+                      "variant": "caption",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "MessageBubble",
+                      "part": "time",
+                      "props": {
+                        "side": "out",
+                        "status": "read"
+                      }
+                    }
+                  },
+                  {
+                    "id": "message_bubble.bubble.footer.status",
+                    "component": "Icon",
+                    "props": {
+                      "name": "ui-read",
+                      "size": "sm",
+                      "label": "$string.read"
+                    },
+                    "children": [],
+                    "style": {
+                      "width": 14,
+                      "height": 14,
+                      "flexShrink": 0
+                    },
+                    "recipe": {
+                      "macro": "MessageBubble",
+                      "part": "status",
+                      "props": {
+                        "side": "out",
+                        "status": "read"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "justifyContent": "flex-end",
+                  "alignSelf": "flex-end",
+                  "gap": "$spacing.xs"
+                },
+                "recipe": {
+                  "macro": "MessageBubble",
+                  "part": "footer",
+                  "props": {
+                    "side": "out",
+                    "status": "read"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xxs",
+              "maxWidth": "100%",
+              "minWidth": 0,
+              "paddingHorizontal": "$spacing.md",
+              "paddingVertical": "$spacing.sm",
+              "borderRadius": "$radius.xl",
+              "borderTopLeftRadius": "$radius.xl",
+              "tail": "none"
+            },
+            "recipe": {
+              "macro": "MessageBubble",
+              "part": "bubble",
+              "props": {
+                "side": "out",
+                "status": "read"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "flex-start",
+          "justifyContent": "flex-end",
+          "gap": "$spacing.sm",
+          "width": "100%",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "MessageBubble",
+          "part": "root",
+          "props": {
+            "side": "out",
+            "status": "read"
+          }
+        },
+        "accessibility": {
+          "role": "group",
+          "label": "18:00"
+        }
+      }
+    },
+    {
+      "name": "MessageBubble/tail=start",
+      "input": {
+        "id": "message_bubble",
+        "component": "MessageBubble",
+        "props": {
+          "text": "Is the printer fixed?",
+          "side": "out",
+          "time": "18:00",
+          "status": "read",
+          "tail": "start"
+        }
+      },
+      "expected": {
+        "id": "message_bubble",
+        "component": "Box",
+        "props": {
+          "pressable": false
+        },
+        "children": [
+          {
+            "id": "message_bubble.bubble",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "message_bubble.bubble.text",
+                "component": "Markdown",
+                "props": {
+                  "text": "Is the printer fixed?"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "MessageBubble",
+                  "part": "text",
+                  "props": {
+                    "side": "out",
+                    "status": "read"
+                  }
+                }
+              },
+              {
+                "id": "message_bubble.bubble.footer",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "message_bubble.bubble.footer.time",
+                    "component": "Text",
+                    "props": {
+                      "text": "18:00",
+                      "variant": "caption",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "MessageBubble",
+                      "part": "time",
+                      "props": {
+                        "side": "out",
+                        "status": "read"
+                      }
+                    }
+                  },
+                  {
+                    "id": "message_bubble.bubble.footer.status",
+                    "component": "Icon",
+                    "props": {
+                      "name": "ui-read",
+                      "size": "sm",
+                      "label": "$string.read"
+                    },
+                    "children": [],
+                    "style": {
+                      "width": 14,
+                      "height": 14,
+                      "flexShrink": 0
+                    },
+                    "recipe": {
+                      "macro": "MessageBubble",
+                      "part": "status",
+                      "props": {
+                        "side": "out",
+                        "status": "read"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "justifyContent": "flex-end",
+                  "alignSelf": "flex-end",
+                  "gap": "$spacing.xs"
+                },
+                "recipe": {
+                  "macro": "MessageBubble",
+                  "part": "footer",
+                  "props": {
+                    "side": "out",
+                    "status": "read"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xxs",
+              "maxWidth": "100%",
+              "minWidth": 0,
+              "paddingHorizontal": "$spacing.md",
+              "paddingVertical": "$spacing.sm",
+              "borderRadius": "$radius.xl",
+              "borderTopLeftRadius": "$radius.xl",
+              "tail": "start"
+            },
+            "recipe": {
+              "macro": "MessageBubble",
+              "part": "bubble",
+              "props": {
+                "side": "out",
+                "status": "read"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "flex-start",
+          "justifyContent": "flex-end",
+          "gap": "$spacing.sm",
+          "width": "100%",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "MessageBubble",
+          "part": "root",
+          "props": {
+            "side": "out",
+            "status": "read"
+          }
+        },
+        "accessibility": {
+          "role": "group",
+          "label": "18:00"
+        }
+      }
+    },
+    {
+      "name": "MessageBubble/tail=end",
+      "input": {
+        "id": "message_bubble",
+        "component": "MessageBubble",
+        "props": {
+          "text": "Is the printer fixed?",
+          "side": "out",
+          "time": "18:00",
+          "status": "read",
+          "tail": "end"
+        }
+      },
+      "expected": {
+        "id": "message_bubble",
+        "component": "Box",
+        "props": {
+          "pressable": false
+        },
+        "children": [
+          {
+            "id": "message_bubble.bubble",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "message_bubble.bubble.text",
+                "component": "Markdown",
+                "props": {
+                  "text": "Is the printer fixed?"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "MessageBubble",
+                  "part": "text",
+                  "props": {
+                    "side": "out",
+                    "status": "read"
+                  }
+                }
+              },
+              {
+                "id": "message_bubble.bubble.footer",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "message_bubble.bubble.footer.time",
+                    "component": "Text",
+                    "props": {
+                      "text": "18:00",
+                      "variant": "caption",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "MessageBubble",
+                      "part": "time",
+                      "props": {
+                        "side": "out",
+                        "status": "read"
+                      }
+                    }
+                  },
+                  {
+                    "id": "message_bubble.bubble.footer.status",
+                    "component": "Icon",
+                    "props": {
+                      "name": "ui-read",
+                      "size": "sm",
+                      "label": "$string.read"
+                    },
+                    "children": [],
+                    "style": {
+                      "width": 14,
+                      "height": 14,
+                      "flexShrink": 0
+                    },
+                    "recipe": {
+                      "macro": "MessageBubble",
+                      "part": "status",
+                      "props": {
+                        "side": "out",
+                        "status": "read"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "justifyContent": "flex-end",
+                  "alignSelf": "flex-end",
+                  "gap": "$spacing.xs"
+                },
+                "recipe": {
+                  "macro": "MessageBubble",
+                  "part": "footer",
+                  "props": {
+                    "side": "out",
+                    "status": "read"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xxs",
+              "maxWidth": "100%",
+              "minWidth": 0,
+              "paddingHorizontal": "$spacing.md",
+              "paddingVertical": "$spacing.sm",
+              "borderRadius": "$radius.xl",
+              "borderTopLeftRadius": "$radius.xl",
+              "tail": "end"
+            },
+            "recipe": {
+              "macro": "MessageBubble",
+              "part": "bubble",
+              "props": {
+                "side": "out",
+                "status": "read"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "flex-start",
+          "justifyContent": "flex-end",
+          "gap": "$spacing.sm",
+          "width": "100%",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "MessageBubble",
+          "part": "root",
+          "props": {
+            "side": "out",
+            "status": "read"
+          }
+        },
+        "accessibility": {
+          "role": "group",
+          "label": "18:00"
+        }
+      }
+    },
+    {
+      "name": "MessageBubble/tail=down",
+      "input": {
+        "id": "message_bubble",
+        "component": "MessageBubble",
+        "props": {
+          "text": "Is the printer fixed?",
+          "side": "out",
+          "time": "18:00",
+          "status": "read",
+          "tail": "down"
+        }
+      },
+      "expected": {
+        "id": "message_bubble",
+        "component": "Box",
+        "props": {
+          "pressable": false
+        },
+        "children": [
+          {
+            "id": "message_bubble.bubble",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "message_bubble.bubble.text",
+                "component": "Markdown",
+                "props": {
+                  "text": "Is the printer fixed?"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "MessageBubble",
+                  "part": "text",
+                  "props": {
+                    "side": "out",
+                    "status": "read"
+                  }
+                }
+              },
+              {
+                "id": "message_bubble.bubble.footer",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "message_bubble.bubble.footer.time",
+                    "component": "Text",
+                    "props": {
+                      "text": "18:00",
+                      "variant": "caption",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "MessageBubble",
+                      "part": "time",
+                      "props": {
+                        "side": "out",
+                        "status": "read"
+                      }
+                    }
+                  },
+                  {
+                    "id": "message_bubble.bubble.footer.status",
+                    "component": "Icon",
+                    "props": {
+                      "name": "ui-read",
+                      "size": "sm",
+                      "label": "$string.read"
+                    },
+                    "children": [],
+                    "style": {
+                      "width": 14,
+                      "height": 14,
+                      "flexShrink": 0
+                    },
+                    "recipe": {
+                      "macro": "MessageBubble",
+                      "part": "status",
+                      "props": {
+                        "side": "out",
+                        "status": "read"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "justifyContent": "flex-end",
+                  "alignSelf": "flex-end",
+                  "gap": "$spacing.xs"
+                },
+                "recipe": {
+                  "macro": "MessageBubble",
+                  "part": "footer",
+                  "props": {
+                    "side": "out",
+                    "status": "read"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xxs",
+              "maxWidth": "100%",
+              "minWidth": 0,
+              "paddingHorizontal": "$spacing.md",
+              "paddingVertical": "$spacing.sm",
+              "borderRadius": "$radius.xl",
+              "borderTopLeftRadius": "$radius.xl",
+              "tail": "down"
+            },
+            "recipe": {
+              "macro": "MessageBubble",
+              "part": "bubble",
+              "props": {
+                "side": "out",
+                "status": "read"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "flex-start",
+          "justifyContent": "flex-end",
+          "gap": "$spacing.sm",
+          "width": "100%",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "MessageBubble",
+          "part": "root",
+          "props": {
+            "side": "out",
+            "status": "read"
+          }
+        },
+        "accessibility": {
+          "role": "group",
+          "label": "18:00"
+        }
+      }
+    },
+    {
       "name": "MessageBubble/status=sending",
       "input": {
         "id": "message_bubble",
@@ -76291,6 +76895,161 @@
               "paddingVertical": "$spacing.sm",
               "borderRadius": "$radius.xl",
               "borderTopLeftRadius": "$radius.xl"
+            },
+            "recipe": {
+              "macro": "MessageBubble",
+              "part": "bubble",
+              "props": {
+                "side": "out",
+                "status": "read"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "flex-start",
+          "justifyContent": "flex-end",
+          "gap": "$spacing.sm",
+          "width": "100%",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "MessageBubble",
+          "part": "root",
+          "props": {
+            "side": "out",
+            "status": "read"
+          }
+        },
+        "accessibility": {
+          "role": "group",
+          "label": "18:00"
+        }
+      }
+    },
+    {
+      "name": "MessageBubble/bound:tail",
+      "input": {
+        "id": "message_bubble",
+        "component": "MessageBubble",
+        "props": {
+          "text": "Is the printer fixed?",
+          "side": "out",
+          "time": "18:00",
+          "status": "read",
+          "tail": {
+            "@path": "/tail"
+          }
+        }
+      },
+      "expected": {
+        "id": "message_bubble",
+        "component": "Box",
+        "props": {
+          "pressable": false
+        },
+        "children": [
+          {
+            "id": "message_bubble.bubble",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "message_bubble.bubble.text",
+                "component": "Markdown",
+                "props": {
+                  "text": "Is the printer fixed?"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "MessageBubble",
+                  "part": "text",
+                  "props": {
+                    "side": "out",
+                    "status": "read"
+                  }
+                }
+              },
+              {
+                "id": "message_bubble.bubble.footer",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "message_bubble.bubble.footer.time",
+                    "component": "Text",
+                    "props": {
+                      "text": "18:00",
+                      "variant": "caption",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "MessageBubble",
+                      "part": "time",
+                      "props": {
+                        "side": "out",
+                        "status": "read"
+                      }
+                    }
+                  },
+                  {
+                    "id": "message_bubble.bubble.footer.status",
+                    "component": "Icon",
+                    "props": {
+                      "name": "ui-read",
+                      "size": "sm",
+                      "label": "$string.read"
+                    },
+                    "children": [],
+                    "style": {
+                      "width": 14,
+                      "height": 14,
+                      "flexShrink": 0
+                    },
+                    "recipe": {
+                      "macro": "MessageBubble",
+                      "part": "status",
+                      "props": {
+                        "side": "out",
+                        "status": "read"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "justifyContent": "flex-end",
+                  "alignSelf": "flex-end",
+                  "gap": "$spacing.xs"
+                },
+                "recipe": {
+                  "macro": "MessageBubble",
+                  "part": "footer",
+                  "props": {
+                    "side": "out",
+                    "status": "read"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xxs",
+              "maxWidth": "100%",
+              "minWidth": 0,
+              "paddingHorizontal": "$spacing.md",
+              "paddingVertical": "$spacing.sm",
+              "borderRadius": "$radius.xl",
+              "borderTopLeftRadius": "$radius.xl",
+              "tail": {
+                "@path": "/tail"
+              }
             },
             "recipe": {
               "macro": "MessageBubble",

@@ -28,6 +28,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
+import at.exponential.ui.primitives.BubbleTail
+import at.exponential.ui.primitives.BubbleTailGeometry
+import at.exponential.ui.primitives.bubbleTailPath
 import at.exponential.ui.theme.GradientPaint
 import at.exponential.ui.theme.PaintStyle
 import at.exponential.ui.theme.ShadowLayer
@@ -96,6 +99,28 @@ internal class BoxShape(private val style: PaintStyle, private val sizeDp: Size)
         Outline.Rounded(boxRoundRect(style, sizeDp, size, density.density))
 }
 
+/** #EXP-1876: the PHYSICAL side of a box's tail (`start | end | down`; RTL mirrors). */
+internal fun physicalTail(tail: String?, rtl: Boolean): BubbleTail? = BubbleTail.of(tail, rtl)
+
+/**
+ * #EXP-1876: the style a box with a tail paints and clips with: the tail's
+ * top corner square (a `down` tail keeps every radius).
+ */
+internal fun PaintStyle.withTailCorner(rtl: Boolean): PaintStyle {
+    val side = physicalTail(tail, rtl) ?: return this
+    if (side.squaredCorner == null) return this
+    return copy(cornerRadii = BubbleTailGeometry.corners(corners, side))
+}
+
+/**
+ * #EXP-1876: the ONE outline (px) of a box of [sizeDp] with its tail on
+ * the physical [side] (style.json; the shared [bubbleTailPath]), its
+ * corners clamped like [boxRoundRect], inset by [inset] px. The tail lies
+ * OUTSIDE the frame: paint-only.
+ */
+internal fun tailOutline(style: PaintStyle, sizeDp: Size, density: Float, side: BubbleTail, inset: Float = 0f): Path =
+    bubbleTailPath(sizeDp.width, sizeDp.height, clampedCorners(style, sizeDp), side, density, inset)
+
 /** The 2D matrix of the node's `transform` ops about the box centre (px), source order like CSS. */
 internal fun transformMatrix(ops: List<TransformOp>, size: Size, density: Float): Matrix? {
     if (ops.isEmpty()) return null
@@ -147,7 +172,9 @@ internal fun gradientBrush(g: GradientPaint, size: Size): Brush {
  * the centre and `visibility: hidden` (nothing paints). `backdropBlur` paints
  * the translucent background alone (see the README).
  */
-fun Modifier.paintedBox(style: PaintStyle, size: Size, alphaScale: Float = 1f): Modifier {
+fun Modifier.paintedBox(boxStyle: PaintStyle, size: Size, alphaScale: Float = 1f, rtl: Boolean = false): Modifier {
+    val style = boxStyle.withTailCorner(rtl)
+    val tail = physicalTail(style.tail, rtl)
     var m: Modifier = this
     val opacity = (style.opacity ?: 1f) * alphaScale * (if (style.visibilityHidden) 0f else 1f)
     if (opacity < 1f) {
@@ -172,8 +199,13 @@ fun Modifier.paintedBox(style: PaintStyle, size: Size, alphaScale: Float = 1f): 
             for (layer in style.shadows) drawShadowLayer(layer, rr)
             // #EXP-1629: `padding-box`: the fill stops at the border, a
             // translucent border blends over what is behind the box.
-            val fill = if (style.clipToPadding && style.hasBorder) paddingRoundRect(style, size, this.size, density) else rr
-            val path = Path().apply { addRoundRect(fill) }
+            val padded = style.clipToPadding && style.hasBorder
+            // #EXP-1876: a tail = ONE outline, the box and its tail (outside the frame).
+            val path = if (tail != null) {
+                tailOutline(style, size, density, tail, inset = if (padded) style.sides[0] * density else 0f)
+            } else {
+                Path().apply { addRoundRect(if (padded) paddingRoundRect(style, size, this@drawBehind.size, density) else rr) }
+            }
             style.background?.let { bg -> drawPath(path, bg) }
             style.gradient?.let { g -> drawPath(path, gradientBrush(g, this.size)) }
         }
@@ -181,7 +213,7 @@ fun Modifier.paintedBox(style: PaintStyle, size: Size, alphaScale: Float = 1f): 
     if (style.hasBorder) {
         m = m.drawWithContent {
             drawContent()
-            drawBorder(style, size)
+            drawBorder(style, size, tail)
         }
     }
     return m
@@ -204,7 +236,7 @@ internal fun Modifier.paintedSurface(style: PaintStyle): Modifier = drawBehind {
 }
 
 /** The border inside the box: a uniform rounded stroke, else each side as a band (one colour). */
-private fun DrawScope.drawBorder(style: PaintStyle, sizeDp: Size) {
+private fun DrawScope.drawBorder(style: PaintStyle, sizeDp: Size, tail: BubbleTail? = null) {
     val color = style.borderColor ?: return
     val sides = style.sides.map { it * density }
     val dash = style.borderStyle
@@ -212,8 +244,12 @@ private fun DrawScope.drawBorder(style: PaintStyle, sizeDp: Size) {
     if (uniform) {
         val w = sides[0]
         if (w <= 0f) return
-        val rr = boxRoundRect(style, sizeDp, size, density, inset = w / 2f)
-        val path = Path().apply { addRoundRect(rr) }
+        // #EXP-1876: the border runs along the WHOLE outline (box + tail), inside it.
+        val path = if (tail != null) {
+            tailOutline(style, sizeDp, density, tail, inset = w / 2f)
+        } else {
+            Path().apply { addRoundRect(boxRoundRect(style, sizeDp, size, density, inset = w / 2f)) }
+        }
         drawPath(path, color, style = Stroke(width = w, pathEffect = dashEffect(dash, w), cap = if (dash == "dotted") StrokeCap.Round else StrokeCap.Butt))
         return
     }

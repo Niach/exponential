@@ -122,6 +122,8 @@ export function declarations(style: Record<string, unknown>, fonts: Record<strin
     if ((key === `backgroundGradient` || key === `backgroundClip`) && (`backgroundClip` in style ? style.backgroundClip : base?.backgroundClip) === `text`) continue
     // Round 2 §2: `backdropBlur` ($blur token), `animation` (a keyframe set
     // of style.json, timed by the motion tokens) + `animationDuration`.
+    // #EXP-1876: `tail` paints through pseudo-elements (box-css `tailRules`).
+    if (key === `tail`) continue
     if (key === `backdropBlur`) {
       const v = cssValue(key, value, fonts)
       if (v) out.push([`-webkit-backdrop-filter`, `blur(${v})`], [`backdrop-filter`, `blur(${v})`])

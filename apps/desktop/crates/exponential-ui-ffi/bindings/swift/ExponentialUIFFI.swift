@@ -7511,6 +7511,11 @@ public struct FfiVisual: Equatable, Hashable {
      */
     public var backdropBlur: Float?
     /**
+     * #EXP-1876: `start | end | down` (null = none): the speech-bubble tail
+     * painted with the box as ONE outline (style.json `tail`).
+     */
+    public var tail: String?
+    /**
      * Round 2: `{name, timing: {durationMs, easing, iterations}, reduced?}`;
      * sample it with `animationFrameJson`.
      */
@@ -7571,6 +7576,10 @@ public struct FfiVisual: Equatable, Hashable {
          * background alone).
          */backdropBlur: Float? = nil, 
         /**
+         * #EXP-1876: `start | end | down` (null = none): the speech-bubble tail
+         * painted with the box as ONE outline (style.json `tail`).
+         */tail: String? = nil, 
+        /**
          * Round 2: `{name, timing: {durationMs, easing, iterations}, reduced?}`;
          * sample it with `animationFrameJson`.
          */animationJson: String? = nil, 
@@ -7620,6 +7629,7 @@ public struct FfiVisual: Equatable, Hashable {
         self.seriesColors = seriesColors
         self.direction = direction
         self.backdropBlur = backdropBlur
+        self.tail = tail
         self.animationJson = animationJson
         self.sticky = sticky
         self.backgroundClip = backgroundClip
@@ -7680,6 +7690,7 @@ public struct FfiConverterTypeFfiVisual: FfiConverterRustBuffer {
                 seriesColors: FfiConverterOptionSequenceString.read(from: &buf), 
                 direction: FfiConverterOptionString.read(from: &buf), 
                 backdropBlur: FfiConverterOptionFloat.read(from: &buf), 
+                tail: FfiConverterOptionString.read(from: &buf), 
                 animationJson: FfiConverterOptionString.read(from: &buf), 
                 sticky: FfiConverterBool.read(from: &buf), 
                 backgroundClip: FfiConverterOptionString.read(from: &buf)
@@ -7726,6 +7737,7 @@ public struct FfiConverterTypeFfiVisual: FfiConverterRustBuffer {
         FfiConverterOptionSequenceString.write(value.seriesColors, into: &buf)
         FfiConverterOptionString.write(value.direction, into: &buf)
         FfiConverterOptionFloat.write(value.backdropBlur, into: &buf)
+        FfiConverterOptionString.write(value.tail, into: &buf)
         FfiConverterOptionString.write(value.animationJson, into: &buf)
         FfiConverterBool.write(value.sticky, into: &buf)
         FfiConverterOptionString.write(value.backgroundClip, into: &buf)

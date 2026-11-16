@@ -1002,8 +1002,7 @@ fn speech_bubble(bubble: &SpeechBubble, fab: gpui::WeakEntity<AssistantFab>, win
         .min_w_0()
         .children(kicker)
         .children((!bubble.text.is_empty()).then(|| div().text_ellipsis().line_clamp(spec.max_lines).child(SharedString::from(bubble.text.clone()))));
-    // TODO(tail-down): `tail: Down` (PR 1 of #EXP-1876) once THE message
-    // bubble takes it: the tail at the bottom, pointing at the FAB.
+    // #EXP-1876: THE bubble's `down` tail at the bottom, pointing at the FAB.
     let card = crate::session_chat::message_bubble(
         crate::session_chat::MessageBubble {
             id: "assistant-fab-bubble-card".into(),
@@ -1015,6 +1014,7 @@ fn speech_bubble(bubble: &SpeechBubble, fab: gpui::WeakEntity<AssistantFab>, win
             status: None,
             menu: None,
             width: Some(px(width)),
+            tail: crate::session_chat::BubbleTail::Down,
         },
         cx,
     );
