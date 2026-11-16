@@ -1104,6 +1104,10 @@ pub(crate) struct MessageBubble {
     /// A definite width (the raw session view's measured prompt), else
     /// content-sized up to `layout.maxWidth.wide` of the column.
     pub width: Option<gpui::Pixels>,
+    /// #EXP-1876 (transcript-grouping.json `tail`): the group's first bubble
+    /// wears THE tail at its top corner beside the avatar (start for others,
+    /// end for own), painted with the bubble as one outline.
+    pub tail: bool,
 }
 
 /// #FEED-237: an own bubble's menu: `bubbleActions` in order, each pick
@@ -1234,7 +1238,7 @@ pub(crate) fn message_bubble(bubble: MessageBubble, cx: &App) -> AnyElement {
     let theme = cx.theme();
     let muted = theme.muted_foreground;
     let sizes = transcript_sizes();
-    let MessageBubble { id, body, time, own, name, link, status, menu, width } = bubble;
+    let MessageBubble { id, body, time, own, name, link, status, menu, width, tail } = bubble;
     // #FEED-237: only the viewer's own bubble carries a mark or a menu.
     let (status, menu) = if own { (status, menu.filter(|menu| !menu.actions.is_empty())) } else { (None, None) };
     let group = SharedString::from(format!("{id}-group"));
@@ -1279,8 +1283,23 @@ pub(crate) fn message_bubble(bubble: MessageBubble, cx: &App) -> AnyElement {
         // #EXP-1864: one colour per sender side ×4: anyone else = THE opaque
         // card, the viewer's own = `glass.fillOwn`; both under the card
         // hairline.
-        .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-        .bg(if own { theme::tokens::glass::FILL_OWN.to_hsla() } else { crate::dock::card_fill() })
+        .map(|card| {
+            let fill = if own { theme::tokens::glass::FILL_OWN.to_hsla() } else { crate::dock::card_fill() };
+            let stroke = theme::tokens::glass::STROKE_CARD.to_hsla();
+            if !tail {
+                return card.border_color(stroke).bg(fill);
+            }
+            // #EXP-1876: fill + hairline as ONE outline with the tail (the
+            // genUI painter's `tail_canvas`); the box keeps its 1 px border
+            // (transparent) so nothing inside moves.
+            let shape = if own { eui_gpui::paint::tail::Tail::End } else { eui_gpui::paint::tail::Tail::Start };
+            let mut radii = [sizes.radius; 4];
+            radii[if own { 1 } else { 0 }] = 0.0;
+            card.relative()
+                .border_color(gpui::transparent_black())
+                .map(|card| if own { card.rounded_tr(px(0.)) } else { card.rounded_tl(px(0.)) })
+                .child(eui_gpui::paint::tail::tail_canvas(shape, false, radii, Some(fill), Some((1.0, stroke))))
+        })
         // The sender's name: the bubble's own `author` line, at its top.
         .when_some(inner_name, |card, name| {
             card.child(
@@ -1533,6 +1552,7 @@ pub(crate) fn transcript_message(
             status,
             menu: None,
             width: None,
+            tail: layout.map_or(false, |layout| layout.tail),
         },
         cx,
     ))

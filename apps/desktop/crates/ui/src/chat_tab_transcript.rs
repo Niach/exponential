@@ -172,6 +172,8 @@ pub(crate) fn chat_row(facts: &RowFacts) -> ChatRowInput {
             indent: other,
             link: sender.filter(|_| other).and_then(|sender| sender.link.clone()),
             gap: spacer(facts.gap),
+            // #EXP-1876: the group's first bubble wears THE tail.
+            tail: facts.layout.is_some_and(|layout| layout.tail),
         }),
     }
 }
