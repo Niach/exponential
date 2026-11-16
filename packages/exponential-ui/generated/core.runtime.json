@@ -4869,7 +4869,8 @@
         "tail": {
           "type": "enum",
           "enum": "messageTail",
-          "default": "none"
+          "default": "none",
+          "bindable": true
         },
         "time": {
           "type": "string",

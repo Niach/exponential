@@ -15634,11 +15634,21 @@
           "default": "in"
         },
         "tail": {
-          "enum": [
-            "none",
-            "start",
-            "end",
-            "down"
+          "oneOf": [
+            {
+              "enum": [
+                "none",
+                "start",
+                "end",
+                "down"
+              ]
+            },
+            {
+              "$ref": "common_types.json#/$defs/DataBinding"
+            },
+            {
+              "$ref": "common_types.json#/$defs/FunctionCall"
+            }
           ],
           "description": "Speech tail: start/end = top corner sideways (a group's first bubble), down = bottom edge near the end.",
           "default": "none"

@@ -163,6 +163,13 @@ describe(`tail (#EXP-1876)`, () => {
     expect(down).toContain(`inset-inline-end:20px;bottom:-10px;width:8px;height:11px`)
     expect(down.split(AUTHOR_SEP)[1]).toBe(``)
   })
+  it(`a bound tail emits each shape behind data-xui-tail (the renderer sets it)`, () => {
+    const t = node(`root`, undefined, [node(`v`, { borderWidth: 1, tail: { "@path": `/tail` } })])
+    const css = compileNodeSheet([t], `s`).chunks.get(`v`)!
+    expect(css).toContain(`.xui-s-s .xui-n-v[data-xui-tail="start"]::before,`)
+    expect(css).toContain(`.xui-s-s .xui-n-v[data-xui-tail="down"]::before,`)
+    expect(css.split(AUTHOR_SEP)[1]).toBe(`.xui-s-s .xui-n-v[data-xui-tail="start"]{border-start-start-radius:0}.xui-s-s .xui-n-v[data-xui-tail="end"]{border-start-end-radius:0}`)
+  })
   it(`none / unset = no tail rules`, () => {
     const t = node(`root`, undefined, [node(`n`, { borderWidth: 1, tail: `none` })])
     expect(compileNodeSheet([t], `s`).chunks.get(`n`)).toBe(`.xui-s-s .xui-n-n{border-width:1px;border-style:solid}`)

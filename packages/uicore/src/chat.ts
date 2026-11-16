@@ -38,6 +38,8 @@ export interface ChatGroup {
   link?: string | null
   /** The space above it in px (0, 3, 8, 12, 16); without a group a row sits 16 below the row before it. */
   gap?: number
+  /** #EXP-1876: the group's first bubble wears THE tail (transcript-grouping.json `tail`). */
+  tail?: boolean
 }
 
 /** A row without a group's gap: the document's old `lg` list gap. */
@@ -197,6 +199,8 @@ export interface ChatRow {
   /** #FEED-237: an `out` bubble's MessageBubble `status` (message-delivery.json);
    *  absent = no mark (rows without one read as before). */
   status?: string
+  /** #EXP-1876: MessageBubble `tail` (`start` in, `end` out) on a group's first bubble; absent otherwise. */
+  tail?: string
 }
 
 /** What the document binds. */
@@ -274,6 +278,7 @@ function row(input: ChatRowInput, bubbles: boolean): ChatRow {
         link: group.link ?? null,
         gap: group.gap ?? 0,
         ...(bubbles && side === `out` && input.status ? { status: input.status } : {}),
+        ...(bubbles && group.tail ? { tail: side === `in` ? `start` : `end` } : {}),
       })
       if (input.author === `user`) {
         return { ...grouped(`user`), bubble: bubbles, body: input.body, caption: bubbles ? caption(input.time) : caption(input.name, input.time), queued: input.queued }

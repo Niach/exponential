@@ -7982,7 +7982,7 @@
           "name": "tail",
           "type": "none | start | end | down",
           "required": false,
-          "bindable": false,
+          "bindable": true,
           "responsive": false,
           "default": "none",
           "description": "Speech tail: start/end = top corner sideways (a group's first bubble), down = bottom edge near the end."

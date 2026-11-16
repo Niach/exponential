@@ -19,7 +19,7 @@ import { ErrorBoundary, For, Show, createComputed, createEffect, createMemo, on,
 import { Dynamic } from "solid-js/web"
 import { UNKNOWN_COMPONENT, catalogView, instanceSegment, isResponsiveValue, nativeRecipeProps, responsiveAt, templateItemKeys, templateSiteKey, withOwnWrites } from "@exponential_app/eui"
 import type { ExtensionDef, UiNode } from "@exponential_app/eui"
-import { absolutePath, ariaAttributes, cssValue, dynamicStyleEntries, getPointer, isMacroComponent, nodeClass, partClass, propAttribute, queryToken, resolveAccessibility, resolveNodeProps, resolveValue, resolveVisible, styleDirection, type ResolveContext } from "@exponential_app/eui/web"
+import { absolutePath, ariaAttributes, cssValue, dynamicStyleEntries, getPointer, hasDynamic, isBubbleTail, isMacroComponent, nodeClass, partClass, propAttribute, queryToken, resolveAccessibility, resolveNodeProps, resolveValue, resolveVisible, styleDirection, type ResolveContext } from "@exponential_app/eui/web"
 import { InstanceContext, ScopeContext, SurfaceContext, deriveContext, resolveContextOf, useInstance, useScope, useSurfaceContext, type SurfaceContextValue } from "./context"
 import { extensionComponent, extensionMacroNames } from "./extensions"
 import type { ExtensionComponentProps, SurfaceActionEvent } from "./host"
@@ -89,6 +89,12 @@ export function createRootProps(node: Accessor<UiNode>, props: Accessor<Record<s
     if (n.accessibility) Object.assign(attrs, ariaAttributes(resolveAccessibility(n.accessibility, resolveContextOf(ctx, scope()))))
     const s = style?.()
     if (s) attrs.style = s
+    // #EXP-1876: a BOUND `tail` picks its node-sheet rules through this
+    // attribute (box-css `tailRules`).
+    if (hasDynamic(n.style?.tail)) {
+      const tail = resolveValue(n.style!.tail, resolveContextOf(ctx, scope()))
+      if (isBubbleTail(tail)) attrs[`data-xui-tail`] = tail
+    }
     const dir = ownDirection(n, ctx)
     if (dir) attrs.dir = dir
     return { class: classes.join(` `), "data-xui-id": domId(), "data-xui-c": n.component, ...attrs }

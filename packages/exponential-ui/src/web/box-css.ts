@@ -179,10 +179,15 @@ function nodeChunk(node: UiNode, style: Record<string, unknown>, scope: string, 
   }
   // #EXP-1876: the tail's pseudo-elements, its square corner in the author
   // layer (after the macro part's radius).
-  if (isBubbleTail(style.tail)) {
+  // A BOUND tail: each shape behind the `data-xui-tail` the renderer sets.
+  const tails = isBubbleTail(style.tail) ? [[style.tail, ``] as const] : hasDynamic(style.tail) ? ([`start`, `end`, `down`] as const).map((t) => [t, `[data-xui-tail="${t}"]`] as const) : []
+  if (tails.length) {
     const sel = fenced ? `${scope} .${cls}:not(${scope} .xui-surface .${cls})` : `${scope} .${cls}`
-    const tail = tailRules(sel, style.tail, tailBorder(node, style, theme), { positioned: true })
-    css = css.includes(AUTHOR_SEP) ? css.replace(AUTHOR_SEP, tail.pseudo + AUTHOR_SEP) + tail.corner : css + tail.pseudo + AUTHOR_SEP + tail.corner
+    const b = tailBorder(node, style, theme)
+    const rules = tails.map(([t, gate]) => tailRules(`${sel}${gate}`, t, b, { positioned: true }))
+    const pseudo = rules.map((r) => r.pseudo).join(``)
+    const corner = rules.map((r) => r.corner).join(``)
+    css = css.includes(AUTHOR_SEP) ? css.replace(AUTHOR_SEP, pseudo + AUTHOR_SEP) + corner : css + pseudo + AUTHOR_SEP + corner
   }
   const chunk = { css, queries: [...queries] }
   chunkCache.set(node, { scope, theme, fonts, fenced, chunk })
