@@ -1,14 +1,15 @@
 //! eCode's runner scheduling (`fixtures/runner.json` is the spec): jobs wait
-//! for their `needs`, a runner claims the first one its labels cover, and the
-//! clock times jobs out, fails the jobs of a lost runner and flags a job
-//! queued too long (once).
+//! for their `needs`, a runner claims the one its labels cover that is
+//! expected to finish first, and the clock times jobs out, fails the jobs of a
+//! lost runner, flags a job queued too long (once) and times out one no runner
+//! claims.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::{
     js, CheckConclusion, CheckStatus, ChecksState, Failure, ForgeReason, OpError, Outcome, Skip, QUEUED_FLAG_MINUTES,
-    RUNNER_LOST_MS,
+    QUEUED_LIMIT_MINUTES, RUNNER_LOST_MS,
 };
 
 /// One queued, running or completed job.
@@ -21,6 +22,9 @@ pub struct Job {
     /// Job ids.
     pub needs: Vec<String>,
     pub timeout_min: f64,
+    /// How long it is expected to run (ms): the check's last duration; claims prefer the shortest.
+    #[serde(default)]
+    pub expect_ms: Option<f64>,
     pub status: CheckStatus,
     pub conclusion: Option<CheckConclusion>,
     pub runner: Option<String>,
@@ -28,7 +32,7 @@ pub struct Job {
     pub started_at: Option<i64>,
     pub completed_at: Option<i64>,
     pub flagged: bool,
-    /// Why it completed without running (a contract skip, `needs`, `runner_lost`).
+    /// Why it completed without running (a contract skip, `needs`, `runner_lost`, `unclaimed`).
     pub reason: Option<String>,
 }
 
@@ -121,6 +125,25 @@ fn ready(state: &RunnerState, job: &Job) -> bool {
     job.needs.iter().all(|need| find(state, need).is_some_and(satisfied))
 }
 
+/// When a ready job became claimable: its `queued_at` or its last need's completion.
+fn ready_at(state: &RunnerState, job: &Job) -> i64 {
+    job.needs
+        .iter()
+        .filter_map(|need| find(state, need).and_then(|dep| dep.completed_at))
+        .fold(job.queued_at, i64::max)
+}
+
+/// The job's expected run time: its `expect_ms`, else its timeout.
+pub fn expected_ms(job: &Job) -> f64 {
+    job.expect_ms.unwrap_or(job.timeout_min * 60_000.0)
+}
+
+/// Claim order (#EXP-1862): a flagged job first, then the one expected to
+/// finish first; `Equal` = a tie (queue order decides).
+pub fn claim_order(a: &Job, b: &Job) -> std::cmp::Ordering {
+    b.flagged.cmp(&a.flagged).then(expected_ms(a).total_cmp(&expected_ms(b)))
+}
+
 fn strings(value: Option<&Value>) -> Vec<String> {
     value
         .and_then(Value::as_array)
@@ -148,6 +171,7 @@ fn apply(state: &mut RunnerState, op: &str, args: &Value, at: i64, events: &mut 
                     runs_on: strings(spec.get("runsOn")),
                     needs: strings(spec.get("needs")),
                     timeout_min,
+                    expect_ms: js::nullish(spec.get("expectMs")).map(|e| js::number(Some(e))),
                     status: CheckStatus::Queued,
                     conclusion: None,
                     runner: None,
@@ -188,11 +212,16 @@ fn apply(state: &mut RunnerState, op: &str, args: &Value, at: i64, events: &mut 
             if runner.running.len() as f64 >= runner.slots {
                 return Ok(json!({ "job": null }));
             }
-            let Some(index) = state.jobs.iter().position(|j| {
-                j.status == CheckStatus::Queued
+            let mut best: Option<usize> = None;
+            for (i, j) in state.jobs.iter().enumerate() {
+                let claimable = j.status == CheckStatus::Queued
                     && ready(state, j)
-                    && j.runs_on.iter().all(|label| runner.labels.contains(label))
-            }) else {
+                    && j.runs_on.iter().all(|label| runner.labels.contains(label));
+                if claimable && best.is_none_or(|b| claim_order(j, &state.jobs[b]).is_lt()) {
+                    best = Some(i);
+                }
+            }
+            let Some(index) = best else {
                 return Ok(json!({ "job": null }));
             };
             let runner_id = runner.id.clone();
@@ -262,6 +291,15 @@ fn apply(state: &mut RunnerState, op: &str, args: &Value, at: i64, events: &mut 
                 if job.status == CheckStatus::Queued && !job.flagged && at - job.queued_at >= QUEUED_FLAG_MINUTES * 60_000 {
                     job.flagged = true;
                     events.push(json!({ "kind": "queued_too_long", "job": job.id }));
+                }
+            }
+            for index in 0..state.jobs.len() {
+                let job = &state.jobs[index];
+                let unclaimed = job.status == CheckStatus::Queued
+                    && ready(state, job)
+                    && at - ready_at(state, job) >= QUEUED_LIMIT_MINUTES * 60_000;
+                if unclaimed {
+                    complete(state, index, CheckConclusion::TimedOut, at, events, Some("unclaimed"));
                 }
             }
             Ok(json!({}))
