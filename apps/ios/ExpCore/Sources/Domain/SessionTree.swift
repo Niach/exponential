@@ -1803,7 +1803,8 @@ public enum SessionTree {
                     ? message.authorKind
                     : "system"
                 let body = messageRowBody(message.body, message.attachmentIds)
-                if body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { continue }
+                // #FEED-256 (transcript-grouping.json `blank`): a blank body (a lone U+200B) draws nothing.
+                if TranscriptGrouping.isBlankText(body) { continue }
                 if author == "user", let divider = Chats.commandDivider(message.body) {
                     rows.append(.divider(id: message.id, kind: divider, at: message.createdAt))
                     continue

@@ -563,6 +563,14 @@ RETURNS text AS $$
 $$ LANGUAGE sql IMMUTABLE;
 
 -- JS `String.prototype.trim`'s whitespace (a line never holds a \n).
+-- #FEED-256 (transcript-grouping.json `blank.codePoints`): the characters a
+-- BLANK body is made of (whitespace + the invisible format characters); a
+-- body that btrims to '' with them is no message (never a preview).
+CREATE OR REPLACE FUNCTION conversation_digest_blank()
+RETURNS text AS $$
+  SELECT E'\t\n\x0B\f\r ' || U&'\0085\00A0\00AD\1680\180E\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\200B\200C\200D\200E\200F\2028\2029\202F\205F\2060\3000\FEFF'
+$$ LANGUAGE sql IMMUTABLE;
+
 CREATE OR REPLACE FUNCTION conversation_digest_ws()
 RETURNS text AS $$
   SELECT E' \t\r\f\x0B' || U&'\00A0\FEFF\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000'
@@ -647,7 +655,7 @@ RETURNS jsonb AS $$
     'preview', (
       SELECT conversation_digest_message(m) FROM messages m
       WHERE m.conversation_id = conv AND m.author_kind IN ('user', 'agent')
-        AND CASE WHEN m.card IS NULL OR jsonb_typeof(m.card) <> 'object' THEN m.body ~ '\S'
+        AND CASE WHEN m.card IS NULL OR jsonb_typeof(m.card) <> 'object' THEN btrim(m.body, conversation_digest_blank()) <> ''
           ELSE m.card->>'kind' IN ('question', 'plan', 'ask', 'picture', 'surface') END
       ORDER BY m.created_at DESC, m.id DESC LIMIT 1),
     'waiting', (
@@ -727,6 +735,12 @@ UPDATE conversations SET digest = conversation_digest(id) WHERE digest IS NULL;
 -- #FEED-191: digests from before `waits` gain it (idempotent: every digest
 -- written since carries the key).
 UPDATE conversations SET digest = conversation_digest(id) WHERE digest IS NOT NULL AND NOT digest ? 'waits';
+-- #FEED-256: a digest whose preview is a blank body (a lone U+200B turn
+-- stored before the fix) re-reads its preview (idempotent).
+UPDATE conversations SET digest = conversation_digest(id)
+WHERE digest->'preview' IS NOT NULL AND jsonb_typeof(digest->'preview') = 'object'
+  AND (digest->'preview'->'card') IS NOT DISTINCT FROM 'null'::jsonb
+  AND btrim(digest->'preview'->>'body', conversation_digest_blank()) = '';
 
 -- Review of #1218: the first prompt's body moved to its first usable line
 -- (and cuts count code points): recompute every digest ONCE (the marker

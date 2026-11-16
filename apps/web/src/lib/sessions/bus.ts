@@ -2,6 +2,7 @@ import { and, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm"
 import { ASSISTANT_SILENT_EVENTS, assistantAgentIds } from "@/lib/agents/assistant-chat"
 import type { CodingSessionBlocked, MessageCard, MessageEventKind } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
+import { isBlankText } from "@exp/domain-contract/transcript-grouping"
 import { sliceUnits } from "@exp/eagent/copy"
 import { treeTeams } from "@/lib/sessions/tree-teams"
 import {
@@ -317,7 +318,8 @@ export async function busRelayTurn(
   copies?: readonly ListenerCopy[]
 ): Promise<string[]> {
   const text = body.trim()
-  if (!text) return []
+  // #FEED-254: a blank turn (a lone U+200B) reaches no listener.
+  if (isBlankText(text)) return []
   return deliver(tx, child, {
     ...(isSealedBody(text) ? { sealed: { copies } } : {}),
     authorKind: `agent`,

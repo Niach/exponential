@@ -770,7 +770,7 @@ pub fn chat_preview(
         .filter(|m| m.session_id == root_id && (is_author(m, "user") || is_author(m, "agent")))
         .filter(|m| m.locked().is_some() || match m.card.as_ref() {
             Some(_) => card_kind(m).is_some_and(|kind| PREVIEW_CARDS.contains(&kind)),
-            None => !m.body.as_deref().unwrap_or_default().trim().is_empty(),
+            None => !crate::transcript_grouping::is_blank_text(m.body.as_deref().unwrap_or_default()),
         })
         .collect();
     own.sort_by(|a, b| {

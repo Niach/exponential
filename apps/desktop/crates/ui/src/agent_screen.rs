@@ -1385,13 +1385,14 @@ impl AgentScreenView {
         });
         let tabs = screen_tabs(&screen.tabs, screen.active, on_tab, cx);
         let title = crate::session_chat::title_row(&name, false, cx).into_any_element();
-        let subtitle = crate::session_chat::screen_subtitle(None, &[], agent, cx);
+        let subtitle = crate::session_chat::screen_subtitle(None, &[], agent, &[], cx);
         screen_header(
             ScreenHeader {
                 avatar: agent_header_disc(agent, cx),
                 title,
                 subtitle,
                 subtitle_color: None,
+                on_subtitle: None,
                 trailing: call.into_iter().collect(),
                 menu,
                 back,

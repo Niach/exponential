@@ -14,6 +14,7 @@ import {
 import { agents, issues, messages, pullRequestIssues, pullRequests, sessions } from "@/db/schema"
 import { inSession, insertMessage } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
+import { clearDrainedInTx } from "@/lib/sessions/watchdog"
 import { generateTxId } from "@/lib/trpc"
 
 type PrRow = Pick<typeof pullRequests.$inferSelect, `id` | `teamId` | `sessionId` | `rootSessionId`>
@@ -123,6 +124,9 @@ export async function supersedePrMerge(tx: Tx, sessionId: string, pullRequestId:
         sql`${messages.card}->>'pullRequestId' = ${pullRequestId}`
       )
     )
+  // #FEED-257: a superseded line was maybe the input its device never took
+  // (a held notice it did not pick up): with nothing left, the flag goes.
+  await clearDrainedInTx(tx, [sessionId])
 }
 
 /** The Assistant's stuck line for a PR held by the limits. */

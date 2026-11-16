@@ -1478,6 +1478,22 @@ fn tick(ctx: &mut Ctx) -> Step<StepResult> {
         let row = row.clone();
         bus_line(ctx, &row, "session_unclaimed", copy::undelivered_text(), true, None, true);
     }
+    // #FEED-257 Drained: a claimed session's `unclaimed` flag whose input is gone without a consume by its device
+    // (a newer pr_merge line superseded it, a person removed it): nothing left to deliver and its first Request
+    // answered (or none) = cleared, silent; needsInput re-derived from its open cards.
+    for id in watched.clone() {
+        let row = ctx.row(&id);
+        if !is_working(row) || blocked_kind(row) != Some(BlockedKind::Unclaimed) || row.started_at.is_none() {
+            continue;
+        }
+        let mine: Vec<&HubMessage> = ctx.state.messages.iter().filter(|m| m.session_id == id).collect();
+        let pending = mine.iter().any(|m| m.pending && is_pending_input(m));
+        let unstarted = mine.iter().any(|m| m.card.is_none() && is_pending_input(m))
+            && !mine.iter().any(|m| m.author_kind == AuthorKind::Agent && m.author_session_id.as_ref().is_none_or(|a| *a == id));
+        if !pending && !unstarted {
+            clear_blocked(ctx, &id, Some(BlockedKind::Unclaimed));
+        }
+    }
     // Stuck: busy with no sign of life, unless its online host lists it live.
     for id in watched.clone() {
         let row = ctx.row(&id);

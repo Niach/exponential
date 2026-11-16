@@ -87,6 +87,30 @@ struct Fixture {
     check_in_specimen: Vec<CheckInSpecimenRow>,
     #[serde(rename = "checkInSpecimenAgent")]
     check_in_specimen_agent: CheckInSpecimenAgent,
+    /// #FEED-256: the blank characters.
+    blank: BlankSpec,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BlankSpec {
+    code_points: Vec<String>,
+}
+
+static BLANK_CODE_POINTS: LazyLock<std::collections::HashSet<char>> = LazyLock::new(|| {
+    FIXTURE
+        .blank
+        .code_points
+        .iter()
+        .map(|hex| char::from_u32(u32::from_str_radix(hex, 16).expect("blank.codePoints are hex")).expect("a scalar"))
+        .collect()
+});
+
+/// #FEED-256 / #FEED-254 BLANK TEXT ×5 (`isBlankText`, `blankCases`): every
+/// character is one of `blank.codePoints` (the empty text too). Never
+/// `str::trim`: it keeps U+200B and U+FEFF.
+pub fn is_blank_text(text: &str) -> bool {
+    text.chars().all(|char| BLANK_CODE_POINTS.contains(&char))
 }
 
 /// #EXP-1873: one row of `checkInSpecimen` (an agent chat's feed).
@@ -896,6 +920,17 @@ mod tests {
             let expected: Vec<bool> =
                 case["expected"].as_array().unwrap().iter().map(|v| v.as_bool().unwrap()).collect();
             assert_eq!(markers_shown(&kinds), expected, "{name}");
+        }
+    }
+
+    #[test]
+    fn every_blank_case_matches() {
+        let fixture = fixture();
+        let cases = fixture["blankCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            assert_eq!(is_blank_text(case["text"].as_str().unwrap()), case["expected"].as_bool().unwrap(), "{name}");
         }
     }
 

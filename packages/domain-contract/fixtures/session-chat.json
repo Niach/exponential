@@ -5703,6 +5703,116 @@
         "mainSessionId": "a1",
         "origin": null
       }
+    },
+    {
+      "name": "#FEED-256: a card-less message whose body is blank (a lone zero-width space, a non-breaking space with newlines, a BOM; transcript-grouping.json `blank`) is no row; one with a letter is",
+      "input": {
+        "root": {
+          "teamId": "t-team-1",
+          "parentId": null,
+          "userId": "u-dana",
+          "status": "queued",
+          "busy": false,
+          "needsInput": false,
+          "blocked": null,
+          "shared": true,
+          "title": null,
+          "guide": null,
+          "startedAt": null,
+          "endedAt": null,
+          "createdAt": "2026-10-13T10:00:00.000Z",
+          "updatedAt": "2026-10-13T10:00:00.000Z",
+          "rootId": "r9",
+          "id": "r9"
+        },
+        "sessions": [],
+        "sessionIssues": [],
+        "issues": [],
+        "pullRequests": [],
+        "now": "2026-10-13T10:12:34.000Z",
+        "messages": [
+          {
+            "authorKind": "agent",
+            "authorId": null,
+            "body": "\u200b",
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-13T10:00:01.000Z",
+            "id": "z1",
+            "sessionId": "r9",
+            "createdAt": "2026-10-13T10:01:00.000Z"
+          },
+          {
+            "authorKind": "agent",
+            "authorId": null,
+            "body": "\n\u00a0\n",
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-13T10:00:01.000Z",
+            "id": "z2",
+            "sessionId": "r9",
+            "createdAt": "2026-10-13T10:02:00.000Z"
+          },
+          {
+            "authorKind": "agent",
+            "authorId": null,
+            "body": "\ufeff",
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-13T10:00:01.000Z",
+            "id": "z3",
+            "sessionId": "r9",
+            "createdAt": "2026-10-13T10:03:00.000Z"
+          },
+          {
+            "authorKind": "agent",
+            "authorId": null,
+            "body": "\u200bDone.",
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-13T10:00:01.000Z",
+            "id": "z4",
+            "sessionId": "r9",
+            "createdAt": "2026-10-13T10:04:00.000Z"
+          }
+        ]
+      },
+      "expected": {
+        "rootId": "r9",
+        "title": "Untitled",
+        "private": false,
+        "focusId": null,
+        "tabs": [
+          {
+            "kind": "add"
+          },
+          {
+            "kind": "conversation"
+          }
+        ],
+        "rows": [
+          {
+            "type": "message",
+            "id": "z4",
+            "author": "agent",
+            "authorId": null,
+            "body": "\u200bDone.",
+            "queued": false,
+            "authorSessionId": null,
+            "xref": null
+          }
+        ],
+        "composer": {
+          "sessionId": "r9",
+          "placeholder": "Type / for commands"
+        },
+        "live": true,
+        "liveSessionId": "r9",
+        "busy": false,
+        "needsYou": false,
+        "mainSessionId": "r9",
+        "origin": null
+      }
     }
   ],
   "guidePullRequestCases": [

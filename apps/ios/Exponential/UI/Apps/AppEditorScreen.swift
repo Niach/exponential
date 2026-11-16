@@ -240,7 +240,7 @@ struct AppEditorScreen: View {
 
     private func slot(_ app: AppListEntry) -> ChatEditorSlot {
         ChatEditorSlot(
-            title: { status in AnyView(title(app, status: status)) },
+            title: { status, open in AnyView(title(app, status: status, onSubtitle: open)) },
             tab: $tab,
             pane: { tab in pane(app, tab) },
             settings: AnyView(settingsPage),
@@ -316,8 +316,9 @@ struct AppEditorScreen: View {
     /// the version pill right after it, over ONE subtitle line = the TREE's
     /// word (`SessionScreen.status`, never dropped) · `editorHeader`'s device
     /// part, in its tone.
-    private func title(_ app: AppListEntry, status: String) -> some View {
-        let header = model.header
+    private func title(_ app: AppListEntry, status: String, onSubtitle: (() -> Void)? = nil) -> some View {
+        // #FEED-257: needs input only while something waits (the tree's word).
+        let header = model.header(needsInput: status == SessionScreen.Copy.Status.needsInput)
         let tone: ChatHeaderTitle.Tone = switch header.tone {
         case .attention: .needsYou
         case .active: .working
@@ -329,7 +330,8 @@ struct AppEditorScreen: View {
             subtitleTone: tone,
             agentIcon: BoardTypeDisplay.iconName(for: app.glyph) ?? SessionTree.ListCopy.agentDefaultIcon,
             agentColor: app.color ?? AppGlyph.neutralColor,
-            titleAccessory: AnyView(AppVersionPill(app: app))
+            titleAccessory: AnyView(AppVersionPill(app: app)),
+            onSubtitle: onSubtitle
         )
     }
 

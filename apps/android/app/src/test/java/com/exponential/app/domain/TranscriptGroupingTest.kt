@@ -220,6 +220,17 @@ class TranscriptGroupingTest {
     }
 
     @Test
+    fun `every blank case matches the fixture`() {
+        val points = fixture.getValue("blank").jsonObject.getValue("codePoints").jsonArray.map { it.jsonPrimitive.content.toInt(16) }
+        assertEquals(points, TranscriptGrouping.BLANK_CODE_POINTS)
+        val cases = fixture.getValue("blankCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            assertEquals(case.str("name"), case.getValue("expected").jsonPrimitive.boolean, TranscriptGrouping.isBlankText(case.str("text")))
+        }
+    }
+
+    @Test
     fun `the check-in specimen matches the fixture`() {
         val rows = fixture.getValue("checkInSpecimen").jsonArray.map { it.jsonObject }.map { o ->
             TranscriptGrouping.CheckInSpecimenRow(

@@ -1,5 +1,6 @@
 package com.exponential.app.ui.chat
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -109,6 +110,9 @@ fun ChatHeader(
     /** #EXP-1785 (waiting-cards.json `button`): the tree's waiting button,
      *  at the START of the trailing slot (before the Merge pill and `…`); null = nothing waits. */
     waiting: (@Composable () -> Unit)? = null,
+    /** #FEED-257 (session-screen.json): while the word is needs input the
+     *  subtitle line is ONE press opening the waiting item; null = text. */
+    onSubtitleClick: (() -> Unit)? = null,
 ) {
     HeaderEdgeChrome {
         Column(modifier = modifier.fillMaxWidth().statusBarsPadding().testTag("chat-header")) {
@@ -157,7 +161,9 @@ fun ChatHeader(
                             color = subtitleColor ?: MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.testTag("chat-subtitle"),
+                            modifier = Modifier.testTag("chat-subtitle").let { m ->
+                                if (onSubtitleClick != null) m.clickable(onClick = onSubtitleClick) else m
+                            },
                         )
                     }
                 }

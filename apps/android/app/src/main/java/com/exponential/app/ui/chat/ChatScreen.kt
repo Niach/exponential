@@ -284,7 +284,10 @@ fun ChatScreen(
     // ROOT, the whole tree; shown while the root is not ended; an agent
     // chat has none) and the `…` (the chat's / the agent's entries).
     val canSteer = rootRow != null && (rootRow.shared || rootRow.userId == me)
-    val chatLead = chatLeadOf(view, pullRequests)
+    // #FEED-257 (session-screen.json): needs input = something to open; the
+    // lead disc, the word and the subtitle's press all read it.
+    val headerWaiting = remember(view?.rows, tree, viewModel.rootId) { chatWaiting(viewModel.rootId, tree, view?.rows) }
+    val chatLead = chatLeadOf(view, pullRequests, needsYou = headerWaiting != null)
     val headerLead: @Composable () -> Unit = {
         if (agent != null) {
             Box(
@@ -316,7 +319,7 @@ fun ChatScreen(
                 ?.let { com.exponential.app.domain.AgentSettings.triggerSummary(it) }
         }
     }
-    val stateWord = chatStateWord(viewModel.rootId, tree)
+    val stateWord = chatStateWord(viewModel.rootId, tree, view?.rows)
     val headerSubtitle = SessionScreen.subtitle(stateWord, deviceLabel, trigger)
     val headerSubtitleColor = chatStateTone(stateWord)
     // #EXP-1611: the Guide PR's CI checks (the `…`'s Checks submenu, the
@@ -659,6 +662,7 @@ fun ChatScreen(
                 headerLead = headerLead,
                 headerSubtitle = headerSubtitle,
                 headerSubtitleColor = headerSubtitleColor,
+                headerWaiting = headerWaiting,
                 menu = chatMenu.firstOrNull().orEmpty(),
                 menuGroups = chatMenu.drop(1) + listOf(guideMenuItems),
                 // NEW-69: an agent's conversation carries the telephone.
@@ -780,9 +784,14 @@ fun ChatScreen(
 private fun Modifier.androidxClipCircle(): Modifier = this.then(Modifier.clip(androidx.compose.foundation.shape.CircleShape))
 
 /** The chat header's lead (chats.json `lead`, the list row's rule): needs
- *  you, working, else the root's PR glyph, else the bare mark. */
-internal fun chatLeadOf(view: SessionTree.ChatView?, pullRequests: List<PullRequestEntity>): com.exponential.app.domain.Chats.ChatLead {
-    val mark = SessionTree.chatRowMarkState(view?.needsYou == true, view?.busy == true)
+ *  you, working, else the root's PR glyph, else the bare mark. #FEED-257:
+ *  [needsYou] = the header's waiting item ([chatWaiting]) is there. */
+internal fun chatLeadOf(
+    view: SessionTree.ChatView?,
+    pullRequests: List<PullRequestEntity>,
+    needsYou: Boolean = view?.needsYou == true,
+): com.exponential.app.domain.Chats.ChatLead {
+    val mark = SessionTree.chatRowMarkState(needsYou, view?.busy == true)
     return when {
         mark == SessionTree.SessionState.NeedsYou -> com.exponential.app.domain.Chats.ChatLead.NeedsYou
         mark == SessionTree.SessionState.Working -> com.exponential.app.domain.Chats.ChatLead.Working
@@ -792,19 +801,43 @@ internal fun chatLeadOf(view: SessionTree.ChatView?, pullRequests: List<PullRequ
     }
 }
 
+/** session-screen.json `statusCases`' sessions: the tree's rows with their
+ *  id and `blocked.kind` (#FEED-257; a wall without a kind = `rate_limit`). */
+private fun chatStatusInputs(rootId: String, tree: List<com.exponential.app.data.db.SessionEntity>): List<SessionScreen.StatusInput> =
+    tree.map {
+        SessionScreen.StatusInput(
+            status = it.status,
+            busy = it.busy,
+            needsInput = it.needsInput,
+            root = it.id == rootId,
+            id = it.id,
+            blocked = com.exponential.app.domain.AgentUsagePresentation.parseBlocked(it.blocked)?.let { b -> b.kind ?: "rate_limit" },
+        )
+    }
+
+/** #FEED-257: the chat's waiting cards (ask-dock `chatPendingAsks`,
+ *  Conversation order) as [SessionScreen.Ask]s. */
+private fun chatAsks(rows: List<SessionTree.SessionChatRow>?): List<SessionScreen.Ask> =
+    AskDock.chatPendingAsks(rows.orEmpty()) { null }.map {
+        SessionScreen.Ask(it.id, it.sessionId.orEmpty(), if (it.kind == AskDock.Kind.Plan) "plan" else "question")
+    }
+
+/** #FEED-257 (session-screen.json `waitingCases`): what the header's
+ *  needs-input line opens; null = nothing waits. */
+internal fun chatWaiting(
+    rootId: String,
+    tree: List<com.exponential.app.data.db.SessionEntity>,
+    rows: List<SessionTree.SessionChatRow>? = null,
+): SessionScreen.Waiting? = SessionScreen.waiting(chatStatusInputs(rootId, tree), chatAsks(rows))
+
 /** The chat header's state word ×4 (#EXP-1732 session-screen.json STATUS
- *  WORD, `statusCases`): THE TREE's lowercase word, never dropped. */
-internal fun chatStateWord(rootId: String, tree: List<com.exponential.app.data.db.SessionEntity>): String =
-    SessionScreen.status(
-        tree.map {
-            SessionScreen.StatusInput(
-                status = it.status,
-                busy = it.busy,
-                needsInput = it.needsInput,
-                root = it.id == rootId,
-            )
-        },
-    )
+ *  WORD, `statusCases`): THE TREE's lowercase word, never dropped;
+ *  #FEED-257: needs input only while something waits ([chatWaiting]). */
+internal fun chatStateWord(
+    rootId: String,
+    tree: List<com.exponential.app.data.db.SessionEntity>,
+    rows: List<SessionTree.SessionChatRow>? = null,
+): String = SessionScreen.status(chatStatusInputs(rootId, tree), chatAsks(rows))
 
 /** session-screen.json TONE ×4: needs input = amber, working or queued =
  *  the foreground, else null (the muted default). */
@@ -874,6 +907,8 @@ fun ChatContent(
     headerLead: @Composable () -> Unit = {},
     headerSubtitle: String? = null,
     headerSubtitleColor: Color? = null,
+    /** #FEED-257: the waiting item the needs-input subtitle opens (null = text). */
+    headerWaiting: SessionScreen.Waiting? = null,
     menu: List<com.exponential.app.ui.components.ChatMenuItem> = emptyList(),
     menuGroups: List<List<com.exponential.app.ui.components.ChatMenuItem>> = emptyList(),
     /** An issue's title (the Issues rows). */
@@ -934,6 +969,22 @@ fun ChatContent(
             WaitingCards.Open.Session -> {
                 onOpen(SessionScreen.Open.Session, target.sessionId)
                 takeDeepLink(chip.id)
+            }
+        }
+    }
+    // #FEED-257: the needs-input line opens the waiting item the way its own
+    // row would: a card through its waiting chip, a session opened, the chat.
+    val openHeaderWaiting: (() -> Unit)? = headerWaiting?.let { waiting ->
+        {
+            when (waiting.open) {
+                SessionScreen.WaitingOpen.Plan -> onOpen(SessionScreen.Open.Plan, waiting.id)
+                SessionScreen.WaitingOpen.Card ->
+                    waitingChips.firstOrNull { it.id == waiting.id }?.let(pickWaitingChip) ?: pickWaiting(waiting.id)
+                SessionScreen.WaitingOpen.Session -> onOpen(SessionScreen.Open.Session, waiting.id)
+                SessionScreen.WaitingOpen.Chat -> {
+                    if (latestScreen.open != null) onCloseItem()
+                    if (latestScreen.active != SessionScreen.Tab.Chat) onSelectTab(SessionScreen.Tab.Chat)
+                }
             }
         }
     }
@@ -1032,6 +1083,7 @@ fun ChatContent(
                 title = agent?.name ?: view?.title ?: rootTitle.orEmpty(),
                 subtitle = headerSubtitle,
                 subtitleColor = headerSubtitleColor,
+                onSubtitleClick = openHeaderWaiting,
                 lead = headerLead,
                 onBack = onBack,
                 menu = menu,

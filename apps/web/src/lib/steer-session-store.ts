@@ -73,6 +73,7 @@ import { currentKeySource } from "@/lib/enet/current-key-holder"
 import { openSteerFeed, type FeedStats, type SteerFeedClose } from "@/lib/enet/steer-feed"
 import type { TunnelDeps, TunnelSocket, TunnelTicket } from "@/lib/enet/steer-tunnel"
 import { sessionCollection } from "@/lib/collections"
+import { isBlankText } from "@exp/domain-contract/transcript-grouping"
 
 // EXP-621: the viewer connection to the session's feed, lifted OUT of
 // AgentSessionView into a module-level per-session store (the pattern of
@@ -1191,7 +1192,8 @@ export function createSteerSessionStore(
     switch (event.kind) {
       case `narration`: {
         const trimmed = event.text.trim()
-        if (!trimmed) return
+        // #FEED-256: a blank narration (a lone U+200B) is no row.
+        if (isBlankText(trimmed)) return
         // EXP-483: prose from the withheld ask/plan entry flushes AFTER
         // its already-published card — splice it back above the card.
         const anchor = event.beforeQuestionId

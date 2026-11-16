@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import { isPersistent, linksIssues } from "@exp/domain-contract/session-kind"
+import { isBlankText } from "@exp/domain-contract/transcript-grouping"
 import { TRPCError } from "@trpc/server"
 import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm"
 import {
@@ -539,9 +540,10 @@ async function postSendMessage(
   // #EXP-1584/#EXP-1686: a bare forward still wakes the agent, in a sealed
   // tree too: a server line, legal plaintext there (the identifiers ride in
   // the clear `issue_brief` anyway).
-  const serverLine = !!issueBrief && !text.trim() && !input.attachmentIds?.length
+  const serverLine = !!issueBrief && isBlankText(text) && !input.attachmentIds?.length
   if (serverLine) text = issueBrief.line ?? ``
-  if (!text.trim() && !input.attachmentIds?.length) return null
+  // #FEED-254: a blank text (a lone U+200B) is no message.
+  if (isBlankText(text) && !input.attachmentIds?.length) return null
   if (isSealedBody(text)) await assertSealedForTree(tx, session.rootId, text)
   else if (text.trim() && !serverLine) await assertNotPlainInSealedTree(tx, session.rootId, from?.sessionId)
   if (input.refIssueIds?.length) await assertIssuesInTeam(tx, session.teamId, input.refIssueIds)

@@ -109,6 +109,7 @@ import {
   TRANSCRIPT_LAYOUT,
   checkInLabel,
   feedInput,
+  isBlankText,
   traceNotice,
   transcriptLayout,
   type TranscriptItem,
@@ -1985,7 +1986,11 @@ export const LaneRows = memo(function LaneRows({
   lane?: { id: string; name: string } | null
   viewer?: UserAvatarUser | null
 }) {
-  const rows = useMemo(() => groupLaneRows(items), [items])
+  // #FEED-256: a blank narration (a lone U+200B) draws no bubble.
+  const rows = useMemo(
+    () => groupLaneRows(items.filter((item) => item.kind !== `narration` || !isBlankText(item.text))),
+    [items]
+  )
   const liveRowId = live ? liveToolRowId(items) : undefined
   const layouts = useMemo(() => (lane ? laneTranscriptLayout(rows, lane) : null), [rows, lane?.id, lane?.name])
   return (

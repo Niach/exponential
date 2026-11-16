@@ -262,6 +262,18 @@ export function checkInLabel(count: number, time: string | null): string {
   return time ? `${label}${fixture.copy.checkInTimeSeparator}${time}` : label
 }
 
+const BLANK_CODE_POINTS = new Set(fixture.blank.codePoints.map((hex) => parseInt(hex, 16)))
+
+/** #FEED-256 / #FEED-254 (`blankCases`): a text whose every character is
+ *  whitespace or invisible (`blank.codePoints`) is no message: the driver
+ *  never posts it and no client draws it. Never `trim()`: it keeps U+200B. */
+export function isBlankText(text: string | null | undefined): boolean {
+  for (const char of text ?? ``) {
+    if (!BLANK_CODE_POINTS.has(char.codePointAt(0)!)) return false
+  }
+  return true
+}
+
 export const TRANSCRIPT_FOLD = fixture.fold
 
 /** #FEED-238 THE FOLD ×4 (`foldCases`): a message bubble longer than

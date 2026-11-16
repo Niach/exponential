@@ -22,7 +22,7 @@ import { postMeetingStopNote } from "@/lib/sessions/meeting-access"
 // the row (`blocked.kind`), lands under Needs you (`needs_input`) and is
 // said ONCE in the parent's conversation through the bus. Each flag has
 // exactly one clearer: a claim (`unclaimed`; #FEED-235: on a started session
-// also a consume or a busy report), the next device report
+// also a consume or a busy report; #FEED-257: or its input going away), the next device report
 // (`stuck`), the device's next heartbeat (`device_offline`). FEED-129: the
 // device-written usage wall (`rate_limit`) is the device's to clear, or
 // this watchdog's once its `resetsAt` passed. EXP-1374: an INTERRUPTION
@@ -43,6 +43,8 @@ export interface WatchdogRun {
   nudged: number
   /** #FEED-235: input no turn ran for, on a person. */
   undelivered: number
+  /** #FEED-257: undelivered flags whose input went away, cleared. */
+  drained: number
   stuck: number
   offline: number
   /** #FEED-211: parked runs that spoke again, busy again. */
@@ -294,6 +296,46 @@ async function flagUndelivered(now: Date): Promise<number> {
     }
     return rows.length
   })
+}
+
+/** #FEED-257 (eagent watchdog.json DRAINED): `sessionIds` (all when absent)
+ *  whose undelivered `unclaimed` flag lost its input without a consume by
+ *  their device (a newer pr_merge line superseded a hold notice, a person
+ *  removed it): no pending input left and no unanswered first Request =
+ *  the flag cleared, silent, `needs_input` re-derived from the open cards.
+ *  Every tick runs it, so it is also the repair of flags stored before. */
+export async function clearDrainedInTx(tx: Tx, sessionIds?: readonly string[]): Promise<number> {
+  if (sessionIds && sessionIds.length === 0) return 0
+  const mine = sql`${messages.conversationId} = ${sessionConversation(sessions.id)}`
+  const rows = await tx
+    .select({ id: sessions.id })
+    .from(sessions)
+    .where(
+      and(
+        ...(sessionIds ? [inArray(sessions.id, [...sessionIds])] : []),
+        inArray(sessions.status, [...LIVE]),
+        NOT_SUBAGENT,
+        isNotNull(sessions.startedAt),
+        sql`${sessions.blocked} ->> 'kind' = 'unclaimed'`,
+        // `pendingInput()` names the messages table itself: no alias here.
+        sql`NOT EXISTS (SELECT 1 FROM ${messages} WHERE ${mine} AND ${messages.consumedAt} IS NULL AND (${pendingInput()}))`,
+        or(
+          sql`NOT EXISTS (SELECT 1 FROM ${messages} WHERE ${mine} AND ${messages.card} IS NULL AND (${pendingInput()}))`,
+          sql`EXISTS (SELECT 1 FROM ${messages} WHERE ${mine} AND ${messages.authorKind} = 'agent' AND (${messages.authorSessionId} IS NULL OR ${messages.authorSessionId} = ${sessions.id}))`
+        )
+      )
+    )
+    .for(`update`, { skipLocked: true })
+  await clearBlockedInTx(
+    tx,
+    rows.map((row) => row.id),
+    `unclaimed`
+  )
+  return rows.length
+}
+
+function clearDrained(): Promise<number> {
+  return db.transaction((tx) => clearDrainedInTx(tx))
 }
 
 /** A busy session with NO SIGN OF LIFE for `stuckMinutes`: flagged once.
@@ -746,6 +788,7 @@ export async function runWatchdog(now: Date = new Date()): Promise<WatchdogRun> 
     unclaimed: await flagUnclaimed(now),
     nudged: await nudgeStalled(now),
     undelivered: await flagUndelivered(now),
+    drained: await clearDrained(),
     stuck: await flagStuck(now),
     spoke: await restoreSpoken(now),
     offline: await flagOffline(now),

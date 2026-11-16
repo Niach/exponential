@@ -3063,4 +3063,17 @@ describe(`shownFeedRows (#EXP-1772)`, () => {
       [4, 1],
     ])
   })
+  it(`a blank message after quiet (a lone U+200B) keeps the check-in one line; a blank relay draws nothing (#FEED-256, #FEED-254)`, () => {
+    const quiet = (id: number) => ({ kind: `single` as const, item: { id, kind: `tool`, text: ``, name: `mcp__exponential__exponential_session_self_quiet` } })
+    const rows = [
+      item(1, `user_message`, `[schedule] Schedule \`*/15 * * * *\` fired.`),
+      quiet(2),
+      item(3, `narration`, `\u200b`),
+      item(4, `user_message`, `[schedule] Schedule \`*/15 * * * *\` fired.`),
+      quiet(5),
+      item(6, `narration`, `\n\u00a0\ufeff`),
+      item(7, `user_message`, `Message from Fix the cart (session c1): \u200b`),
+    ]
+    expect(shownFeedRows(rows).map((row) => (row.kind === `single` ? [row.item.id, row.item.checkIns] : null))).toEqual([[4, 2]])
+  })
 })
