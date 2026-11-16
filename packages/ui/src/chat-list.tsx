@@ -12,6 +12,7 @@ import {
   type ChatSelectionAction,
 } from "@exp/domain-contract/chats"
 import { CHATS_LIST_COPY, chatRowWordText } from "@exp/domain-contract/session-tree"
+
 import { rowBadge } from "@exp/domain-contract/nav-badges"
 import { Badge } from "./badge"
 import { AgentWorkingMark, RUN_MARK_BADGE_CLASS } from "./agent-brand-mark"
@@ -25,6 +26,12 @@ import { PageHeader } from "./page-header"
 import { conceptIcon } from "./icons.generated"
 import { menuProps } from "./menu"
 import { SkeletonRows } from "./skeleton"
+
+/** #FEED-263: a row's wall as its word reads it (`chatRowWordText`). */
+export interface ChatWallWord {
+  kind: string
+  device: string | null
+}
 
 // Chat 58cb32df (#EXP-1373, fixture `chats.json` ×4): the PHONE Chats
 // screen's pieces, shared by the web-mobile page and the styleguide so they
@@ -209,6 +216,7 @@ function ChatRowText({
   preview,
   word: wordKey = null,
   waiting = null,
+  wall = null,
   className,
 }: {
   title: string
@@ -219,11 +227,13 @@ function ChatRowText({
   word?: ChatRowModel[`word`]
   /** #NEW-49: what the root waits on (`sessionWaiting`), the `waiting` word's labels. */
   waiting?: string | null
+  /** #FEED-263: the row's wall and its device's name (the `wall` word's text). */
+  wall?: ChatWallWord | null
   className?: string
 }) {
   const unread = unreadCount > 0
   const { prefix, rest } = previewParts(preview)
-  const word = chatRowWordText(wordKey, waiting)
+  const word = chatRowWordText(wordKey, waiting, wall)
   const row = { title, time, needsYou, unreadCount, preview, word: wordKey }
   const badge = rowBadge({ unreadCount, needsYou })
   return (
@@ -294,6 +304,7 @@ export function ChatRow({
   row,
   agent = null,
   waiting = null,
+  wall = null,
   onOpen,
   onRowClick,
   onSelectToggle,
@@ -306,6 +317,8 @@ export function ChatRow({
   agent?: string | null
   /** #NEW-49: the root's `sessionWaiting` (the `waiting` word's labels). */
   waiting?: string | null
+  /** #FEED-263: the row's wall (the `wall` word's text). */
+  wall?: ChatWallWord | null
   onOpen?: (sessionId: string) => void
   /** #EXP-1388: the click with its modifiers (cmd/ctrl toggles, shift
    *  ranges); wins over `onOpen`. */
@@ -397,6 +410,7 @@ export function ChatRow({
         preview={row.preview}
         word={row.word}
         waiting={waiting}
+        wall={wall}
         className={isSelected ? `max-md:border-transparent` : undefined}
       />
     </button>
@@ -584,6 +598,7 @@ export function ChatList({
   onOpenApp,
   agentOf,
   waitingOf,
+  wallOf,
   loading = false,
   entering,
   emptyTitle,
@@ -608,6 +623,8 @@ export function ChatList({
   agentOf?: (sessionId: string) => string | null
   /** #NEW-49: what a root waits on (`sessionWaiting`), else null. */
   waitingOf?: (sessionId: string) => string | null
+  /** #FEED-263: a root's wall and its device's name, else null. */
+  wallOf?: (sessionId: string) => ChatWallWord | null
   loading?: boolean
   /** The `motion-enter` class for a row that arrived after the first paint. */
   entering?: (sessionId: string) => string
@@ -637,6 +654,7 @@ export function ChatList({
       row={row}
       agent={agentOf?.(row.sessionId) ?? null}
       waiting={waitingOf?.(row.sessionId) ?? null}
+      wall={wallOf?.(row.sessionId) ?? null}
       className={entering?.(row.sessionId)}
       onOpen={onOpen}
       onRowClick={onRowClick}

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/session-screen.json" with { type: "json" }
-import { sessionScreen, sessionScreenKind, sessionScreenMenu, sessionScreenStatus, sessionScreenSubtitle, sessionScreenTone, sessionScreenWaiting, type SessionScreenAsk, type SessionScreenWaiting } from "./session-screen"
+import { sessionScreen, sessionScreenKind, sessionScreenMenu, sessionScreenStatus, sessionScreenSubtitle, sessionScreenTone, sessionScreenWaiting, sessionScreenWall, type SessionScreenAsk, type SessionScreenWaiting } from "./session-screen"
 
 describe(`session-screen.json`, () => {
   for (const c of fixture.cases) {
@@ -31,6 +31,11 @@ describe(`session-screen.json`, () => {
   for (const c of fixture.waitingCases) {
     test(`waiting: ${c.name}`, () => {
       expect(sessionScreenWaiting(c.sessions, c.asks as SessionScreenAsk[])).toEqual(c.expected as SessionScreenWaiting | null)
+    })
+  }
+  for (const c of fixture.wallStatusCases) {
+    test(`wall (#FEED-263): ${c.name}`, () => {
+      expect(sessionScreenWall(c.sessions as never)).toEqual(c.expected as never)
     })
   }
   for (const c of fixture.waitingStatusCases) {

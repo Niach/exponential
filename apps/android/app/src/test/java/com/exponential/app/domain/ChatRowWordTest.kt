@@ -47,8 +47,8 @@ class ChatRowWordTest {
                 busy = input.bool("busy"),
                 needsYou = input.bool("needsYou"),
                 inStack = input.bool("inStack"),
-                // #EXP-1703: `treeOffline` (absent = false).
-                offline = input.bool("offline"),
+                // #FEED-263: the row's wall (absent = false).
+                wall = input.bool("wall"),
                 // #NEW-49: the root's sessionWaiting (absent = null).
                 waiting = input.str("waiting"),
             )
@@ -63,7 +63,12 @@ class ChatRowWordTest {
         assertTrue(cases.isNotEmpty())
         for (case in cases) {
             val word = case.str("word")?.let { key -> SessionTree.ChatRowWord.entries.first { it.wire == key } }
-            assertEquals(case.str("name"), case.str("expected"), SessionTree.chatRowWordText(word, case.str("waiting")))
+            val wall = case["wall"]?.takeUnless { it is JsonNull }?.jsonObject
+            assertEquals(
+                case.str("name"),
+                case.str("expected"),
+                SessionTree.chatRowWordText(word, case.str("waiting"), wall?.str("kind"), wall?.str("device")),
+            )
         }
     }
 

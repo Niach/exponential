@@ -548,6 +548,41 @@ object SessionTree {
             get() = Dock.Source.Banner(id, icon, label, text, if (tone == "warning") Dock.Tint.Warning else Dock.Tint.Muted, action)
     }
 
+    /** #FEED-263 (chat-list.json `copy.walls`): the walls a row names by
+     *  `blocked.kind` (`{device}` = the walled session's device name, else
+     *  [WALL_DEVICE]). */
+    val WALLS: Map<String, String> = mapOf(
+        "device_offline" to "{device} offline",
+        "unclaimed" to "not picked up",
+        "start_failed" to "couldn't start",
+        "rate_limit" to "usage limit",
+        "stuck" to "stuck",
+    )
+    const val WALL_DEVICE = "device"
+
+    /** #FEED-263 (TS `sessionWall`): the WALL a live session sits behind that
+     *  no answer in the chat can lift: needsInput set and its `blocked.kind` a
+     *  key of [WALLS] (`device_offline` only while its device stays away). */
+    fun sessionWall(session: Session): String? {
+        if (session.status == DomainContract.sessionStatusEnded || !session.needsInput) return null
+        val kind = session.blocked?.kind?.takeIf { it.isNotEmpty() } ?: return null
+        if (kind !in WALLS) return null
+        if (kind == "device_offline" && !session.blocked.resumeSince.isNullOrEmpty()) return null
+        return kind
+    }
+
+    /** #FEED-263 (TS `sessionAsks`): a live session ASKS a person (needs
+     *  input ×4): needsInput set and no wall ([sessionWall]). */
+    fun sessionAsks(session: Session): Boolean =
+        session.status != DomainContract.sessionStatusEnded && session.needsInput && sessionWall(session) == null
+
+    /** #FEED-263 (TS `chatWallText`, `wallTextCases`): a wall's words;
+     *  null = no wall of that kind. */
+    fun chatWallText(kind: String, device: String? = null): String? {
+        val text = WALLS[kind] ?: return null
+        return text.replace("{device}", device?.trim()?.takeIf { it.isNotEmpty() } ?: WALL_DEVICE)
+    }
+
     /** #EXP-1703 (TS `sessionOffline`): on a person because its device stayed
      *  away: it needs you, its flag is `device_offline`, its device never came back. */
     fun sessionOffline(session: Session): Boolean =
@@ -1418,7 +1453,8 @@ object SessionTree {
             composer = Composer(root.id, ChatCopy.PLACEHOLDER),
             live = live.isNotEmpty(),
             busy = live.any { it.busy },
-            needsYou = live.any { it.needsInput },
+            // #FEED-263: a wall is not needs input.
+            needsYou = live.any(::sessionAsks),
             liveSessionId = if (root.status == DomainContract.sessionStatusEnded) null else root.id,
             mainSessionId = if (single) root.id else null,
             origin = origin,
@@ -1449,9 +1485,13 @@ object SessionTree {
         /** EXP-1323: bold title (the tree's newest agent message is newer
          *  than the viewer's read of the root). */
         val unread: Boolean = false,
-        /** #EXP-1703: [treeOffline] (the fixture sets it only when true). */
-        val offline: Boolean = false,
+        /** #FEED-263: [treeWall] (the fixture sets it only when one holds). */
+        val wall: TreeWall? = null,
     )
+
+    /** #FEED-263 (TS `TreeWall`): the wall a chat row names: its kind and the
+     *  walled session's device (the word's `{device}`). */
+    data class TreeWall(val sessionId: String, val kind: String, val deviceId: String?)
 
     data class ChatsListGroup(val key: ChatsGroupKey, val title: String, val rows: List<ChatsListRow>)
 
@@ -1506,7 +1546,8 @@ object SessionTree {
         for (root in roots) {
             val tree = byRoot[root.id] ?: listOf(root)
             val live = tree.filter { it.status != DomainContract.sessionStatusEnded }
-            val needsYou = live.any { it.needsInput }
+            // #FEED-263: needs you = something ASKS; a wall is named instead.
+            val needsYou = live.any(::sessionAsks)
             val running = live.any { it.status == DomainContract.sessionStatusQueued || it.busy }
             val activity = tree.fold(root.updatedAt) { latest, s ->
                 if ((ms(s.updatedAt) ?: 0L) > (ms(latest) ?: 0L)) s.updatedAt else latest
@@ -1524,7 +1565,7 @@ object SessionTree {
                 parentId = null,
                 rootId = root.id,
                 unread = unreadAt(newestAgentInTree[root.id], root.id),
-                offline = needsYou && treeOffline(tree),
+                wall = treeWall(tree),
             )
             // #EXP-1461 (owner 2026-10-30: 'we don't wanna see all the nested
             // child sessions, only the root ones'): a row is a ROOT, never a
@@ -1586,7 +1627,7 @@ object SessionTree {
             val tree = byRoot[root.id] ?: listOf(root)
             val live = tree.filter { it.status != DomainContract.sessionStatusEnded }
             when {
-                live.any { it.needsInput } -> needs += root.id
+                live.any(::sessionAsks) -> needs += root.id
                 live.any { it.status == DomainContract.sessionStatusQueued || it.busy } -> running += root.id
                 else -> recent += root
             }
@@ -1644,7 +1685,7 @@ object SessionTree {
     @Suppress("UNUSED_PARAMETER")
     fun treeState(tree: List<Session>, pullRequests: List<PullRequest>, now: String): SessionState {
         val live = tree.filter { it.status != DomainContract.sessionStatusEnded }
-        if (live.any { it.needsInput }) return SessionState.NeedsYou
+        if (live.any(::sessionAsks)) return SessionState.NeedsYou
         if (live.any { it.status == DomainContract.sessionStatusQueued || it.busy }) return SessionState.Working
         if (live.isEmpty()) return SessionState.Done
         if (pullRequests.isNotEmpty() && pullRequests.all { it.state == DomainContract.prStateMerged }) {
@@ -1834,10 +1875,10 @@ object SessionTree {
         Stack("stack", "stack"),
         ReadyToMerge("readyToMerge", "ready to merge"),
         Merged("merged", null),
-
-        /** #EXP-1703: on a person only because its device stayed away. */
-        Offline("offline", "device offline"),
         Question("question", "question"),
+
+        /** #FEED-263: the row's wall ([chatRowWordText] names it). */
+        Wall("wall", null),
 
         /** An agent row waiting on a person. */
         NeedsInput("needsInput", "needs input"),
@@ -1847,9 +1888,17 @@ object SessionTree {
     }
 
     /** #NEW-49 (`wordTextCases`, TS `chatRowWordText`): a row word's text;
-     *  [ChatRowWord.Waiting] names what it waits on ([waiting]); null = no text. */
-    fun chatRowWordText(word: ChatRowWord?, waiting: String? = null): String? {
+     *  [ChatRowWord.Waiting] names what it waits on ([waiting]); #FEED-263
+     *  [ChatRowWord.Wall] = [chatWallText] of [wallKind] on [wallDevice]
+     *  (no wall = no text); null = no text. */
+    fun chatRowWordText(
+        word: ChatRowWord?,
+        waiting: String? = null,
+        wallKind: String? = null,
+        wallDevice: String? = null,
+    ): String? {
         if (word == null) return null
+        if (word == ChatRowWord.Wall) return wallKind?.let { chatWallText(it, wallDevice) }
         val text = word.text ?: return null
         if (word == ChatRowWord.Waiting) return if (waiting.isNullOrEmpty()) null else text.replace("{labels}", waiting)
         return text
@@ -1875,16 +1924,16 @@ object SessionTree {
      * Word order (`wordCases`): an open PR in a stack → [ChatRowWord.Stack];
      * an open PR while nothing works → [ChatRowWord.ReadyToMerge] (working =
      * no word); no open PR but a merged one → [ChatRowWord.Merged]; else
-     * waiting on a person → [ChatRowWord.Question] (#EXP-1703: [offline] =
-     * [treeOffline] → [ChatRowWord.Offline]); else none. [states] = the
-     * root's PR states.
+     * waiting on a person → [ChatRowWord.Question]; else (#FEED-263) a
+     * [wall] → [ChatRowWord.Wall]; else waiting → [ChatRowWord.Waiting];
+     * else none. [states] = the root's PR states.
      */
     fun chatRowWord(
         states: List<String>,
         busy: Boolean,
         needsYou: Boolean,
         inStack: Boolean,
-        offline: Boolean = false,
+        wall: Boolean = false,
         /** #NEW-49: the root's [sessionWaiting] while it is idle (null = none). */
         waiting: String? = null,
     ): ChatRowWord? {
@@ -1893,17 +1942,28 @@ object SessionTree {
             return if (busy) null else ChatRowWord.ReadyToMerge
         }
         if (states.any { it == DomainContract.prStateMerged }) return ChatRowWord.Merged
-        if (needsYou) return if (offline) ChatRowWord.Offline else ChatRowWord.Question
+        if (needsYou) return ChatRowWord.Question
+        if (wall) return ChatRowWord.Wall
         if (!waiting.isNullOrEmpty()) return ChatRowWord.Waiting
         return null
     }
 
-    /** #EXP-1703 (TS `treeOffline`, `offlineCases`): a tree on a person ONLY
-     *  because its device stayed away: some live session needs you and every
-     *  one that does is [sessionOffline]. */
-    fun treeOffline(tree: List<Session>): Boolean {
-        val waiting = tree.filter { it.status != DomainContract.sessionStatusEnded && it.needsInput }
-        return waiting.isNotEmpty() && waiting.all(::sessionOffline)
+    /** #FEED-263 (TS `treeWall`, `wallCases`): the wall a tree's row names:
+     *  null while any session ASKS ([sessionAsks]), else the first walled
+     *  session ([sessionWall]) in tree order (the root first, then creation
+     *  order, ties by id). */
+    fun treeWall(tree: List<Session>): TreeWall? {
+        if (tree.any(::sessionAsks)) return null
+        val ordered = tree.sortedWith(
+            compareBy<Session> { if (it.parentId == null) 0 else 1 }
+                .thenBy { ms(it.createdAt) ?: 0L }
+                .thenBy { it.id }
+        )
+        for (session in ordered) {
+            val kind = sessionWall(session) ?: continue
+            return TreeWall(session.id, kind, session.deviceId)
+        }
+        return null
     }
 
     private fun stackPr(row: PullRequestEntity) = StackPr(row.id, row.state, row.basePullRequestId)
@@ -1914,28 +1974,28 @@ object SessionTree {
         needsYou: Boolean,
         prs: List<PullRequestEntity>,
         teamPrs: List<PullRequestEntity> = prs,
-        offline: Boolean = false,
+        wall: Boolean = false,
         waiting: String? = null,
     ): ChatRowWord? = chatRowWord(
         states = prs.map { it.state },
         busy = busy,
         needsYou = needsYou,
         inStack = chatInStack(prs.map(::stackPr), teamPrs.map(::stackPr)),
-        offline = offline,
+        wall = wall,
         waiting = waiting,
     )
 
     /**
      * EXP-1318 the rail's Active band (`railCases`): every Needs you row,
      * every Running row, then the Recent rows whose word still asks for a
-     * merge (ready to merge or stack), in group order.
+     * merge (ready to merge or stack) or (#FEED-263) names a wall, in group order.
      */
     fun railChats(groups: List<ChatsListGroup>, wordOf: (ChatsListRow) -> ChatRowWord?): List<ChatsListRow> =
         groups.flatMap { group ->
             if (group.key == ChatsGroupKey.Recent) {
                 group.rows.filter {
                     val word = wordOf(it)
-                    word == ChatRowWord.ReadyToMerge || word == ChatRowWord.Stack
+                    word == ChatRowWord.ReadyToMerge || word == ChatRowWord.Stack || word == ChatRowWord.Wall
                 }
             } else {
                 group.rows
