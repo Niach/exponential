@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-16-wake-phrases-per-agent",
+    date: "2026-11-16",
+    title: "Wake any agent by its phrase",
+    summary: "Every agent can have a wake phrase. Switch it on on the agent's page, and saying it opens one turn with that agent on its own device.",
+    body: r##"- **A phrase per agent**: every agent can have its own wake phrase, "Hey" and its name unless one is set on its page.
+- **Switch it on per agent**: turn on Wake word on an agent's page and your voice device listens for its phrase too, up to five agents at once. A phrase too short or too close to another one's says so under the switch.
+- **One turn with that agent**: saying an agent's phrase opens one turn with it, answered on the agent's own device.
+- **A short tone**: every wake plays a short tone, so you know it heard you."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_309: ChangelogEntry = ChangelogEntry {
     id: "2026-11-15-calls-ring-the-agents-server",
     date: "2026-11-15",
     title: "Call an agent on your server",

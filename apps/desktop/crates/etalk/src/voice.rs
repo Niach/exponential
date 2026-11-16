@@ -209,6 +209,10 @@ pub struct VoiceSettings {
     pub ptt_shortcut: String,
     pub wake_word: bool,
     pub wake_phrase: String,
+    /// EXP-1859: the team agents this member's voice device also listens
+    /// for (agent-settings.json `voice.wake`, in order; empty = only the
+    /// voice agent).
+    pub wake_agent_ids: Vec<String>,
     /// #NEW-73: a `languages` value; empty reads as English.
     pub language: String,
     /// A reference WAV's path on the voice device; empty = the built-in voice.
@@ -240,6 +244,7 @@ impl Default for VoiceSettings {
             ptt_shortcut: String::new(),
             wake_word: false,
             wake_phrase: String::new(),
+            wake_agent_ids: Vec::new(),
             language: String::new(),
             voice_file: String::new(),
             voice_transcript: String::new(),
@@ -586,6 +591,9 @@ pub struct TrayContext<'a> {
     pub pause: Option<bool>,
     /// S-3: a call runs on this device (Call reads End call).
     pub in_call: bool,
+    /// EXP-1859: the other phrases the voice device listens for, after the
+    /// voice agent's (`wakeLabelCases` `wakePhrases`; empty = none).
+    pub wake_phrases: &'a [&'a str],
 }
 
 /// #NEW-57: the tray's Meeting mode switch (`meeting` while `available`).
@@ -635,7 +643,7 @@ pub fn tray_menu(settings: &VoiceSettings, context: &TrayContext<'_>) -> Option<
             enabled: true,
         });
     }
-    menu.push(check(TrayItemId::WakeWord, format!("{} · {phrase}", copy.wake_word), settings.wake_word));
+    menu.push(check(TrayItemId::WakeWord, wake_label(&phrase, context.wake_phrases), settings.wake_word));
     if let Some(meeting) = context.meeting {
         let words = &crate::meeting::MEETING.copy.meeting;
         let label = if meeting.on { format!("{words} · {}", meeting.who) } else { words.clone() };
@@ -660,6 +668,23 @@ pub fn tray_menu(settings: &VoiceSettings, context: &TrayContext<'_>) -> Option<
         TrayItem::Action { id: TrayItemId::Quit, label: copy.tray_quit.clone(), enabled: true },
     ]);
     Some(menu)
+}
+
+/// EXP-1859: the tray's and the rail's Wake word item (`wakeLabelCases`):
+/// the voice agent's `phrase` first, then `wake_phrases`, through the
+/// shared picker summary ([`picker_summary`]).
+pub fn wake_label(phrase: &str, wake_phrases: &[&str]) -> String {
+    let phrases: Vec<&str> = std::iter::once(phrase).chain(wake_phrases.iter().copied()).collect();
+    format!("{} · {}", VOICE.copy.wake_word, picker_summary(&phrases))
+}
+
+/// The shared picker summary (`a`, `a, b`, `a, b +N`; the same rule as
+/// domain's `agent_skills_value`, without its `none`).
+pub fn picker_summary(names: &[&str]) -> String {
+    match names.len() {
+        0..=2 => names.join(", "),
+        n => format!("{} +{}", names[..2].join(", "), n - 2),
+    }
 }
 
 /// #NEW-97: the IDE rail's voice button (`railVoice`).
@@ -1876,6 +1901,7 @@ mod tests {
                     meeting: meeting_of(&context["meeting"]),
                     pause: pause_of(&context["pause"]),
                     in_call: context["inCall"].as_bool().unwrap_or(false),
+                    wake_phrases: &[],
                 },
             );
             let expected: Option<Vec<TrayItem>> = serde_json::from_value(case["menu"].clone()).unwrap();
@@ -1914,6 +1940,63 @@ mod tests {
         }
     }
 
+    /// EXP-1859: the Wake word item names every phrase (`wakeLabelCases`),
+    /// in the tray and, through it, the rail.
+    #[test]
+    fn wake_labels_match_the_fixture() {
+        let cases = fixture()["wakeLabelCases"].as_array().unwrap().clone();
+        assert!(cases.len() >= 4);
+        let settings = VoiceSettings {
+            voice_device_id: Some("d".into()),
+            agent_id: Some("a".into()),
+            wake_word: true,
+            ..Default::default()
+        };
+        for case in cases {
+            let phrase = case["phrase"].as_str().unwrap();
+            let others: Vec<&str> = case["wakePhrases"].as_array().unwrap().iter().map(|phrase| phrase.as_str().unwrap()).collect();
+            let label = case["label"].as_str().unwrap();
+            assert_eq!(wake_label(phrase, &others), label, "{case}");
+            let settings = VoiceSettings { wake_phrase: phrase.into(), ..settings.clone() };
+            let context = TrayContext {
+                agent: Some("Ops"),
+                muted: false,
+                call_available: false,
+                mic_available: true,
+                device_is_voice_device: true,
+                shortcut_unavailable: false,
+                shortcut_label: None,
+                screen_memory: None,
+                meeting: None,
+                pause: None,
+                in_call: false,
+                wake_phrases: &others,
+            };
+            let item = |menu: &[TrayItem]| {
+                menu.iter()
+                    .find_map(|item| match item {
+                        TrayItem::Check { id: TrayItemId::WakeWord, label, .. } => Some(label.clone()),
+                        _ => None,
+                    })
+                    .unwrap()
+            };
+            assert_eq!(item(&tray_menu(&settings, &context).unwrap()), label, "the tray: {case}");
+            let rail = rail_voice(&settings, &context, true, false, false).unwrap();
+            assert_eq!(item(&rail.menu), label, "the rail: {case}");
+        }
+        assert_eq!(picker_summary(&[]), "");
+    }
+
+    /// EXP-1859: `wakeAgentIds` reads and defaults to none.
+    #[test]
+    fn wake_agent_ids_default_to_none() {
+        let settings: VoiceSettings = serde_json::from_str(r#"{"wakeWord":true}"#).unwrap();
+        assert!(settings.wake_agent_ids.is_empty());
+        let settings: VoiceSettings = serde_json::from_str(r#"{"wakeAgentIds":["a-ops","a-tri"]}"#).unwrap();
+        assert_eq!(settings.wake_agent_ids, ["a-ops", "a-tri"]);
+        assert_eq!(serde_json::to_value(&settings).unwrap()["wakeAgentIds"], serde_json::json!(["a-ops", "a-tri"]));
+    }
+
     #[test]
     fn rail_voice_matches_the_fixture() {
         for case in fixture()["railVoiceCases"].as_array().unwrap() {
@@ -1933,6 +2016,7 @@ mod tests {
                     meeting: meeting_of(&context["meeting"]),
                     pause: pause_of(&context["pause"]),
                     in_call: context["inCall"].as_bool().unwrap_or(false),
+                    wake_phrases: &[],
                 },
                 context["wakeListening"].as_bool().unwrap(),
                 context["meetingListening"].as_bool().unwrap_or(false),

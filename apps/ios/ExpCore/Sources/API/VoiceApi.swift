@@ -20,6 +20,13 @@ public final class VoiceApi: Sendable {
         try await trpc.mutation(accountId: accountId, path: "voice.update", input: change)
     }
 
+    /// #EXP-1859 (agent-settings.json `voice.wake`): switch a team agent's
+    /// wake phrase on or off on the member's voice device; answers the new
+    /// settings. Refusals: BAD_REQUEST with the copy, NOT_FOUND.
+    public func wakeAgent(accountId: String, agentId: String, on: Bool) async throws -> Voice.Settings {
+        try await trpc.mutation(accountId: accountId, path: "voice.wakeAgent", input: WakeAgentInput(agentId: agentId, on: on))
+    }
+
     /// NEW-69: a phone's call with an agent (`platform: phone`); the server
     /// refuses with the availability reason, else answers the caller's relay
     /// ticket and the URL to dial as-is (EXP-1857: and the target it picked,
@@ -51,6 +58,11 @@ private struct StartMeetingInput: Encodable {
 }
 
 private struct EmptyInput: Encodable {}
+
+private struct WakeAgentInput: Encodable {
+    let agentId: String
+    let on: Bool
+}
 
 private struct StartCallInput: Encodable {
     let agentId: String

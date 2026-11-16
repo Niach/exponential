@@ -806,7 +806,18 @@ export class Hub {
     conn.callId = callId
     this.calls.set(callId, call)
     this.callsByDevice.set(key, callId)
-    control.sock.send(frame({ t: `call_ring`, callId, agentId }))
+    // EXP-1859: a TURN call (a wake phrase heard on the voice device) says
+    // its mode and phrase; an ordinary call's ring carries neither.
+    const { mode, phrase } = conn.claims
+    control.sock.send(
+      frame({
+        t: `call_ring`,
+        callId,
+        agentId,
+        ...(mode === `call` || mode === `turn` ? { mode } : {}),
+        ...(typeof phrase === `string` && phrase ? { phrase } : {}),
+      })
+    )
     this.callRings += 1
   }
 

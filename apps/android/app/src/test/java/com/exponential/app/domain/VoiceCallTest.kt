@@ -137,6 +137,8 @@ class VoiceCallTest {
             "maxCallMs" to k.MAX_CALL_MS,
             "idleTimeoutMs" to k.IDLE_TIMEOUT_MS,
             "serverIdleMs" to k.SERVER_IDLE_MS,
+            "turnDialMs" to k.TURN_DIAL_MS,
+            "turnReplyWaitMs" to k.TURN_REPLY_WAIT_MS,
         )
         val fixtureConstants = obj("constants")
         assertEquals(fixtureConstants.keys, constants.keys)

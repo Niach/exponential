@@ -1018,7 +1018,9 @@ export type ServerFrame =
   // NEW-55: relay → the voice device's CONTROL socket. A caller dialed it;
   // the device mints a `call_host` ticket for `callId` and joins within
   // CALL_RING_TIMEOUT_MS or the caller is told `no_answer`.
-  | { t: `call_ring`; callId: string; agentId: string }
+  // EXP-1859: `mode: 'turn'` = a one-turn call (a wake phrase heard),
+  // `phrase` = the wake phrase it drops; both absent = an ordinary call.
+  | { t: `call_ring`; callId: string; agentId: string; mode?: `call` | `turn`; phrase?: string }
   // NEW-55: relay → caller AND host once the host joined: the pair is up.
   | { t: `call_ready` }
   // NEW-55: forwarded between the pair (see the client frames above).
