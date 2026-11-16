@@ -1,0 +1,3 @@
+- Your own short messages hug their text instead of filling the column
+- Your own picture shows beside the offline placeholder
+- Tapping the greyed call button says why you can't call

@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-16-phones-bubbles-hug-and-call-reason`,
+    date: `2026-11-16`,
+    title: `Phone bubbles that hug their text, and a call button that says why`,
+    summary: `Android 0.14.145 and iOS 0.14.134: your own short messages hug their text, your picture shows beside the offline placeholder, and a tap on the greyed call button says why.`,
+    body: `- **Bubbles hug their text** (Android): your own short messages sit in a bubble as wide as their text, not the whole column.
+- **Your picture offline**: the placeholder shown while an agent's desktop is offline has your own picture beside it.
+- **The call button says why**: a tap on the greyed call button shows the reason you can't call right now.`,
+  },
+  {
     id: `2026-11-16-desktop-cli-0-14-166-assistant-button-and-bubble-tails`,
     date: `2026-11-16`,
     title: `A new Assistant button and chat bubble tails`,
