@@ -14,6 +14,7 @@ pub const PIPELINE_NAME_MAX: usize = 64;
 pub const MATRIX_ENV_PREFIX: &str = "MATRIX_";
 pub const RUNNER_LOST_MS: i64 = 120000;
 pub const QUEUED_FLAG_MINUTES: i64 = 30;
+pub const QUEUED_LIMIT_MINUTES: i64 = 60;
 pub const LABEL_MAX: usize = 32;
 pub const OS_LABELS: [&str; 3] = ["linux", "mac", "windows"];
 pub const ARCH_LABELS: [&str; 2] = ["x64", "arm64"];

@@ -12,6 +12,7 @@ export const PIPELINE_NAME_MAX = 64
 export const MATRIX_ENV_PREFIX = "MATRIX_"
 export const RUNNER_LOST_MS = 120000
 export const QUEUED_FLAG_MINUTES = 30
+export const QUEUED_LIMIT_MINUTES = 60
 export const LABEL_MAX = 32
 export const OS_LABELS = ["linux", "mac", "windows"] as const
 export const ARCH_LABELS = ["x64", "arm64"] as const
