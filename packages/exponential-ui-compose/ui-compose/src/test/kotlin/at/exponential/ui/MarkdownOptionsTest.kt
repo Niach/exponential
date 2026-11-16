@@ -144,7 +144,7 @@ class MarkdownOptionsTest {
             }
         }
         compose.waitForIdle()
-        fun widthOf(tag: String) = compose.onNodeWithTag(tag, useUnmergedTree = true).getUnclippedBoundsInRoot().width.value
+        fun widthOf(tag: String) = compose.onNodeWithTag(tag, useUnmergedTree = true).getUnclippedBoundsInRoot().let { (it.right - it.left).value }
         assertTrue("short = ${widthOf("short")}", widthOf("short") in 1f..60f)
         assertEquals(300f, widthOf("long"), 0.5f)
         assertEquals(300f, widthOf("fill"), 0.5f)
