@@ -55,7 +55,7 @@ export const DROPPED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   issue_relations: [`board_deleted_at`, `board_archived_at`],
   comments: [`email_delivery_id`, `board_deleted_at`, `board_archived_at`],
   attachments: [`draft_id`, `board_deleted_at`, `board_archived_at`],
-  sessions: [`repository_id`, `mcp_server_ids`, `skill_ids`, `wake_on`],
+  sessions: [`repository_id`, `mcp_server_ids`, `skill_ids`, `wake_on`, `watching`],
   agents: [`skill_ids`],
 }
 

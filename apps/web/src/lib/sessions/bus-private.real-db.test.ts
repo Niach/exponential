@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { watchedSessionIds } from "@/lib/sessions/watches"
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { and, asc, eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
@@ -122,7 +123,7 @@ async function managed(shared: boolean) {
   const childId = (await sendSession({ userId: owner, input: { parentId: chat, text: `child` } })).sessionId
   expect((await row(conversation)).shared).toBe(shared)
   expect((await row(chat)).shared).toBe(false)
-  expect((await row(conversation)).wakeOn).toContain(chat)
+  expect((await watchedSessionIds(conversation))).toContain(chat)
   return { owner, mate, teamId, deviceId, conversation, chat, childId, host: caller(owner) }
 }
 

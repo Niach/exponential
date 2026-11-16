@@ -4,7 +4,6 @@ import type { CodingSessionBlocked, MessageCard, MessageEventKind } from "@exp/d
 import { contract } from "@exp/domain-contract"
 import { isBlankText } from "@exp/domain-contract/transcript-grouping"
 import { sliceUnits } from "@exp/eagent/copy"
-import { treeTeams } from "@/lib/sessions/tree-teams"
 import {
   ASK_PLAN_LEAD,
   ASK_PRIVATE_PLAN_LEAD,
@@ -19,10 +18,11 @@ import { getTeamMember } from "@/lib/auth/membership"
 import { insertMessage, inSession } from "@/lib/sessions/messages"
 import { isSealedBody, isSealedCard } from "@/lib/sessions/sealed"
 import type { Tx } from "@/lib/sessions/tx"
+import { dropEventWatchesOf, forgetWatched, watchesSession, watchSessions } from "@/lib/sessions/watches"
 
 // NEW-1: THE server bus. Every transition of a session S is posted into
 // S's PARENT conversation and into every live session whose `wake_on`
-// names S (a watcher: `sessions.send({wakeOn})`, or the starter of a root
+// names S (#NEW-49: a `session` row of `session_watches`; a watcher: `sessions.send({wakeOn})`, or the starter of a root
 // started from inside a session, again once a message revives it:
 // `rewatchRevived`, #FEED-206). A row that must wake its reader is
 // authored BY S (`author_session_id` = S) with `consumed_at` NULL: that is
@@ -98,7 +98,7 @@ export async function busListeners(
   const watching = and(
     ne(sessions.status, `ended`),
     ne(sessions.id, child.id),
-    sql`${sessions.wakeOn} @> ${JSON.stringify([child.id])}::jsonb`
+    watchesSession(child.id)
   )!
   const parentRow = child.parentId
     ? and(
@@ -611,6 +611,7 @@ export async function busReport(
       lead: true,
     })
     await forgetWatched(tx, [child.id])
+    await dropEventWatchesOf(tx, [child.id])
     return ids
   }
   const text = await reportSummary(tx, child, summary)
@@ -626,54 +627,12 @@ export async function busReport(
     lead: true,
   })
   await forgetWatched(tx, [child.id])
+  await dropEventWatchesOf(tx, [child.id])
   return ids
 }
 
-/** The ended sessions leave every `wake_on`. */
-export async function forgetWatched(tx: Tx, endedIds: readonly string[]): Promise<void> {
-  for (const id of endedIds) {
-    await tx
-      .update(sessions)
-      .set({ wakeOn: sql`${sessions.wakeOn} - ${id}::text` })
-      .where(sql`${sessions.wakeOn} @> ${JSON.stringify([id])}::jsonb`)
-  }
-}
-
-/** `watcher` watches `ids` (live sessions other than itself; idempotent).
- *  #EXP-1399 review: only sessions of its team its own account may see
- *  (shared, or the watcher's user started them); others drop silently. */
-export async function watchSessions(
-  tx: Tx,
-  watcherId: string,
-  ids: readonly string[]
-): Promise<string[]> {
-  const wanted = [...new Set(ids)].filter((id) => id !== watcherId)
-  if (wanted.length === 0) return []
-  const [row] = await tx
-    .select({ wakeOn: sessions.wakeOn, rootId: sessions.rootId, userId: sessions.userId })
-    .from(sessions)
-    .where(eq(sessions.id, watcherId))
-    .limit(1)
-    .for(`update`)
-  if (!row) return []
-  // #EXP-1720: any team of the watcher's tree (the Assistant's: its scope).
-  const teams = await treeTeams(row.rootId, tx)
-  if (teams.length === 0) return []
-  const live = await tx
-    .select({ id: sessions.id })
-    .from(sessions)
-    .where(
-      and(
-        inArray(sessions.id, wanted),
-        ne(sessions.status, `ended`),
-        inArray(sessions.teamId, teams),
-        or(eq(sessions.shared, true), eq(sessions.userId, row.userId))
-      )
-    )
-  const next = [...new Set([...(row.wakeOn ?? []), ...live.map((entry) => entry.id)])]
-  await tx.update(sessions).set({ wakeOn: next }).where(eq(sessions.id, watcherId))
-  return live.map((entry) => entry.id)
-}
+// #NEW-49: the watches live in `session_watches` (lib/sessions/watches.ts).
+export { forgetWatched, watchSessions } from "@/lib/sessions/watches"
 
 /** #FEED-206: a revived chat root (`reviveRoot`) is WATCHED again, as at
  *  its start: its report had dropped every watch (`forgetWatched`), so

@@ -2546,7 +2546,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_send`,
     {
-      description: `One call for sessions. sessionId = message it (idle or ended resumes, an ended child as a sibling; answer = its open question/plan {answer|answers|decision|dismissed}, first wins; issueIds = forward; account/model/effort = set; deviceId = move; stop = interrupt its turn). agentId = a team agent; appId = an app's editor. parentId = start a child. Neither = a new root (needs deviceId; text, issueIds, promptId = a saved prompt, repositoryId); it and wakeOn sessions wake you. attachmentIds = upload/file ids (Image/File lines); forwardAttachments = your current message's. Never resend or wait.`,
+      description: `sessionId = message it (idle or ended resumes, an ended child as a sibling; answer = its open question/plan {answer|answers|decision|dismissed}, first wins; issueIds = forward; account/model/effort = set; deviceId = move; stop = interrupt its turn). agentId = a team agent; appId = an app's editor. parentId = start a child. Neither = a new root (needs deviceId; text, issueIds, promptId = a saved prompt, repositoryId); it and wakeOn (sessions, pr:N CI, pr:N:closed, issue:X[:status], at:<ISO>) wake you. attachmentIds = upload/file ids (Image/File lines); forwardAttachments = your message's. Never resend or wait.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         teamId: uuidString.optional(),
@@ -2574,7 +2574,8 @@ export function registerExponentialTools(
         repositoryId: uuidString.optional(),
         // Loose for the context budget; sessionsSendInputSchema validates all.
         answer: z.record(z.string(), z.unknown()).optional(),
-        wakeOn: z.array(uuidString).optional(),
+        // #NEW-49: a session id, an event watch or `-<id>` (sessionWatchSpecSchema validates each).
+        wakeOn: z.array(z.string()).optional(),
         // EXP-1458: a device's sealed send (sessionsSendInputSchema checks
         // them). #VAPP-293: typed, loosely (Claude's directory refuses an
         // untyped parameter); the strict schema still validates each.

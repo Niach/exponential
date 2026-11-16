@@ -60,6 +60,8 @@ export const SESSION_COLUMNS = [
   `via_app_id`,
   // #EXP-1731: non-null = a CLI subagent row the device writes (subagents.json).
   `subagent_key`,
+  // #NEW-49: what it waits on ("Waiting on …"), the projection of its server-only `session_watches`.
+  `watching`,
   `created_at`,
   `updated_at`,
 ]

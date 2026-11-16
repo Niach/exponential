@@ -8,6 +8,7 @@ import { insertMessage, inSession, messageWithSession } from "@/lib/sessions/mes
 import { loadSessionForUser } from "@/lib/sessions/access"
 import { parseSealedValue } from "@exp/domain-contract/sealed-content"
 import { isSealedCard, validSealedCard } from "@/lib/sessions/sealed"
+import { watchesSession } from "@/lib/sessions/watches"
 import type { Tx } from "@/lib/sessions/tx"
 
 // #EXP-1399: ESCALATE a waiting question / plan card into the team agent's
@@ -46,7 +47,7 @@ export async function managingConversation(
   const [watching] = await tx
     .select()
     .from(sessions)
-    .where(and(conversation, sql`${sessions.wakeOn} @> ${JSON.stringify([root.id])}::jsonb`))
+    .where(and(conversation, watchesSession(root.id)))
     .orderBy(
       desc(sql`${sessions.userId} = ${root.userId}`),
       desc(sql`${sessions.agentId} IS NOT DISTINCT FROM ${root.startedByAgentId}`),

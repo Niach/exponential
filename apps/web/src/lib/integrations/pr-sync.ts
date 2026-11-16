@@ -29,6 +29,7 @@ import { fireAndForgetPrNotify } from "@/lib/integrations/notifications"
 import { BUS_COPY, busLine } from "@/lib/sessions/bus"
 import { postSystemCard } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
+import { fireWatches, WATCH_COPY } from "@/lib/sessions/watches"
 import { forgeFor, type Forge, type ForgeRepo } from "@/lib/ecode/forge"
 import {
   isRepoDefaultBranch,
@@ -1345,6 +1346,8 @@ export async function applyPullRequestClosed(opts: {
         pullRequestId: claimed.id,
       })
     }
+    // #NEW-49: every watch on the PR fires (its CI can no longer settle).
+    await fireWatches(tx, { kind: `pr_closed`, subjectId: claimed.id, text: WATCH_COPY.prClosed(claimed.number) })
     return { applied: true, txid }
   })
 }

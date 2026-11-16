@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { insertSessionWatchRows, watchedSessionIds } from "@/lib/sessions/watches"
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { and, asc, eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
@@ -214,7 +215,7 @@ describe.skipIf(!ready.ok)(`#EXP-1409: a private listener owned by a different m
     const listener = (await sendSession({ userId: w.mate, input: { teamId: w.teamId, deviceId: w.mateDev, text: `watch` } }))
       .sessionId
     expect((await row(listener)).shared).toBe(false)
-    await db.execute(sql`UPDATE sessions SET wake_on = ${JSON.stringify([chat])}::jsonb WHERE id = ${listener}`)
+    await insertSessionWatchRows(db, [listener], [chat])
     const host = sessionsRouter.createCaller(ctx(w.owner))
     await host.claim({ sessionId: chat, deviceId: w.ownerDev })
     await host.reply({ sessionId: chat, body: SECRET })
@@ -280,7 +281,7 @@ describe.skipIf(!ready.ok)(`#FEED-194: turn replies and team agents`, () => {
     ).sessionId
     expect((await row(chat)).startedByAgentId).toBe(starter.id)
     await sendSession({ userId: w.owner, callerSessionId: watching, viaMcp: true, input: { wakeOn: [chat] } })
-    expect((await row(watching)).wakeOn).toContain(chat)
+    expect((await watchedSessionIds(watching))).toContain(chat)
 
     const host = sessionsRouter.createCaller(ctx(w.owner))
     await host.claim({ sessionId: chat, deviceId: w.ownerDev })
