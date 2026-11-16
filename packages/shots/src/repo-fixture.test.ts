@@ -19,8 +19,9 @@ describe(`buildRepoFixture`, () => {
       const root = buildRepoFixture(base, now)
       expect(root).toBe(join(base, `repos`))
       const clone = join(root, `acme/mobile-app`)
-      const log = git(clone, `log`, `--format=%an|%cI|%s`, `main`).split(`\n`)
-      expect(log[0]).toBe(`Alex Carter|2026-11-01T10:00:00Z|Profile app launch end-to-end`)
+      const log = git(clone, `log`, `--format=%an|%ct|%s`, `main`).split(`\n`)
+      // Epoch seconds: `%cI` prints UTC as `Z` from git 2.45 and `+00:00` before (EXP-1886).
+      expect(log[0]).toBe(`Alex Carter|${Date.parse(`2026-11-01T10:00:00Z`) / 1000}|Profile app launch end-to-end`)
       expect(log.some((line) => line.endsWith(`Merge pull request #12 from acme/offline-queue`))).toBe(true)
       expect(git(clone, `status`, `--porcelain`).split(`\n`).length).toBe(2)
       expect(git(clone, `rev-parse`, `main`)).toBe(git(clone, `rev-parse`, `origin/main`))
