@@ -53,6 +53,10 @@ import {
   apkListingHasFfi,
   appOnScreen,
   deviceFfiAbi,
+  gradleVersionCode,
+  installedVersionCode,
+  installRefusedOverExisting,
+  mustUninstallFirst,
   resolveAndroidSdk,
   specimenState,
   type AndroidFfi,
@@ -1243,6 +1247,25 @@ const PACKAGE_ANDROID = {
 
 /** The app lanes' apk (fastlane `build_capture_apks`): it must carry the FFI too (EXP-1354). */
 const APP_ANDROID_APK = `apps/android/app/build/outputs/apk/production/debug/app-production-debug.apk`
+const APP_ANDROID_ID = `at.exponential`
+
+/**
+ * EXP-1886: screengrab installs with `adb install -r` (no reinstall, so the
+ * suites keep their signed-in session), which Android refuses for a lower
+ * versionCode. An emulator that last ran a newer master build loses the app
+ * (and its test apk) first; every other run keeps them.
+ */
+async function uninstallNewerAndroidApp(): Promise<void> {
+  const gradle = join(repoRoot(), `apps/android/app/build.gradle.kts`)
+  const building = gradleVersionCode(existsSync(gradle) ? readFileSync(gradle, `utf8`) : ``)
+  const dumpsys = await run({ cmd: [`adb`, `shell`, `dumpsys`, `package`, APP_ANDROID_ID], timeoutMs: 60_000 })
+  const installed = installedVersionCode(dumpsys.stdout)
+  if (!mustUninstallFirst(installed, building)) return
+  console.log(`[android] the emulator holds ${APP_ANDROID_ID} versionCode ${installed}, newer than this checkout's ${building} — uninstalling it first`)
+  for (const id of [APP_ANDROID_ID, `${APP_ANDROID_ID}.test`]) {
+    await run({ cmd: [`adb`, `uninstall`, id], timeoutMs: 120_000 })
+  }
+}
 
 /** The Android SDK the app lane's gradle sees (`apps/android/local.properties` first). */
 function androidSdk(): AndroidSdk | undefined {
@@ -1367,7 +1390,13 @@ async function capturePackageAndroid(views: string[], outcomes: LaneOutcome[], l
     return void fail(`${PACKAGE_ANDROID.apk} carries no ${apkLibPath(ANDROID_FFI.package, abi)} — the app would crash on start`)
   }
 
-  const installed = await adb([`install`, `-r`, apk], 5 * 60_000)
+  let installed = await adb([`install`, `-r`, apk], 5 * 60_000)
+  if (installed.code !== 0 && installRefusedOverExisting(`${installed.stdout}${installed.stderr}`)) {
+    // EXP-1886: a newer or differently signed build is on the device.
+    console.log(`[android:package] the installed ${PACKAGE_ANDROID.appId} refuses the update — uninstalling it first`)
+    await adb([`uninstall`, PACKAGE_ANDROID.appId], 120_000)
+    installed = await adb([`install`, `-r`, apk], 5 * 60_000)
+  }
   if (installed.code !== 0) return void fail(`adb install exited ${installed.code}`)
 
   const onScreen = async () =>
@@ -2345,6 +2374,7 @@ function buildLanes(
             // gradle's `buildMobileFfi` reruns before packaging: narrowed to the
             // device's ABI it finds the library just built instead of three;
             // and gradle needs the SDK a fresh clone has no local.properties for.
+            await uninstallNewerAndroidApp()
             await captureFastlane(platform, lane, outcomes, scope, scoped, androidLaneEnv(sdk, ffi.abi))
             const apk = join(repoRoot(), APP_ANDROID_APK)
             const listing = existsSync(apk) ? await run({ cmd: [`unzip`, `-l`, apk], timeoutMs: 60_000 }) : undefined
