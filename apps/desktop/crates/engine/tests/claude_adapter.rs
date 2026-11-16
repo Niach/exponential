@@ -1525,6 +1525,54 @@ async fn a_second_quiet_without_a_new_message_ends_the_turn() {
     assert_eq!(interrupts[0]["request"]["cancel_queued"], serde_json::json!(false));
 }
 
+/// #FEED-246 regression: a worker said `quiet` after one step, kept working
+/// (a Bash call) and said `quiet` again. That is no loop: the turn runs to
+/// its own end and the CLI never sees an interrupt (it used to, and the
+/// agent then reported "I've stopped as you asked" mid-work).
+#[tokio::test]
+async fn work_between_two_quiets_never_interrupts_the_turn() {
+    let _session = one_session_at_a_time();
+    let work = workdir("quiet-then-work");
+    let adapter = ClaudeAgent::new(spec("quiet-then-work", &work.0, false)).expect("the adapter builds");
+    let stop_reason = Client
+        .v1()
+        .name("exp746-test-client")
+        .on_receive_notification(
+            async move |_notification: SessionNotification, _cx| Ok(()),
+            on_receive_notification!(),
+        )
+        .connect_with(adapter, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(engine::client_capabilities()),
+            )
+            .block_task()
+            .await?;
+            let session = cx
+                .send_request(NewSessionRequest::new(std::env::temp_dir()))
+                .block_task()
+                .await?;
+            let response = cx
+                .send_request(PromptRequest::new(
+                    session.session_id.clone(),
+                    vec![ContentBlock::Text(TextContent::new("Fix the failing test."))],
+                ))
+                .block_task()
+                .await?;
+            Ok::<_, Error>(response.stop_reason)
+        })
+        .await
+        .expect("the connection runs cleanly");
+    assert_eq!(stop_reason, StopReason::EndTurn);
+    let stdin = std::fs::read_to_string(work.0.join("stdin.jsonl")).expect("the fake logged stdin");
+    let interrupts = stdin
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter(|line| line["request"]["subtype"] == serde_json::json!("interrupt"))
+        .count();
+    assert_eq!(interrupts, 0, "work re-arms the quiet guard: no interrupt");
+}
+
 /// EXP-784: the stall watchdog's interrupt says `cancel_queued: false` on
 /// the notification, and that reaches the CLI's `interrupt` verbatim — the
 /// steers queued behind the wedged turn are what it is rescuing.

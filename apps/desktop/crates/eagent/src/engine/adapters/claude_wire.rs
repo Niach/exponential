@@ -1090,6 +1090,17 @@ pub const SILENT_TURN_REMINDER_ENV: &str = "CLAUDE_CODE_SILENT_TURN_REMINDER";
 /// #EXP-1828: whether a main-thread assistant frame calls
 /// `exponential_session_self {op: "quiet"}`: the agent's "nothing to say,
 /// this turn is over".
+/// #FEED-246: does this assistant message do real work (a tool call other
+/// than the terminal ones, `session_self` and `show`), which re-arms the
+/// [`QuietGuard`]? A card or a suggestion is still the agent's answer, not
+/// work, so a loop of card + quiet stays a loop.
+pub fn calls_work(blocks: &[Value]) -> bool {
+    blocks.iter().any(|block| {
+        block.get("type").and_then(Value::as_str) == Some("tool_use")
+            && block.get("name").and_then(Value::as_str).is_some_and(|name| !TERMINAL_MCP_TOOLS.contains(&name))
+    })
+}
+
 pub fn calls_quiet(blocks: &[Value]) -> bool {
     blocks.iter().any(|block| {
         block.get("type").and_then(Value::as_str) == Some("tool_use")
@@ -1101,9 +1112,12 @@ pub fn calls_quiet(blocks: &[Value]) -> bool {
 
 /// #EXP-1828: the guard against a turn that keeps going after `quiet` with
 /// no new inbound message. `quiet` ends the agent's answer; a SECOND one
-/// since the last prompt means something other than a person (a harness
-/// nudge, a self-started continuation) re-woke it, and the turn is stopped
-/// instead of looping. Only a prompt (a real message) re-arms it.
+/// with nothing in between means something other than a person (a harness
+/// nudge) re-woke it, and the turn is stopped instead of looping. A prompt
+/// (a real message) re-arms it, and so does real work (#FEED-246): a worker
+/// says `quiet` after a step, keeps working (a tool call) and says it
+/// again; interrupting THAT cut live runs mid-work ("I've stopped as you
+/// asked") on every device.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct QuietGuard {
     quiet_calls: u32,
@@ -1115,8 +1129,14 @@ impl QuietGuard {
         self.quiet_calls = 0;
     }
 
-    /// A `quiet` call; `true` = it repeats one since the last prompt, so the
-    /// running turn must be interrupted.
+    /// #FEED-246: the agent did real work (a tool call other than `quiet`):
+    /// a later `quiet` is an answer again, not a loop.
+    pub fn on_work(&mut self) {
+        self.quiet_calls = 0;
+    }
+
+    /// A `quiet` call; `true` = it repeats one with no prompt and no work in
+    /// between, so the running turn must be interrupted.
     pub fn on_quiet(&mut self) -> bool {
         self.quiet_calls = self.quiet_calls.saturating_add(1);
         self.quiet_calls > 1
@@ -1910,6 +1930,17 @@ mod tests {
         assert!(calls_quiet(&[text.clone(), quiet]));
         assert!(!calls_quiet(&[suggest, show, text]));
         assert!(!calls_quiet(&[]));
+        // #FEED-246: any non-terminal tool call is work; text, quiet, a
+        // suggestion or a card are not.
+        let quiet = json!({ "type": "tool_use", "id": "t1", "name": "mcp__exponential__exponential_session_self", "input": { "op": "quiet" } });
+        let suggest = json!({ "type": "tool_use", "id": "t2", "name": "mcp__exponential__exponential_session_self", "input": { "op": "suggest" } });
+        let show = json!({ "type": "tool_use", "id": "t3", "name": "mcp__exponential__exponential_show", "input": {} });
+        let bash = json!({ "type": "tool_use", "id": "t4", "name": "Bash", "input": { "command": "ls" } });
+        let send = json!({ "type": "tool_use", "id": "t5", "name": "mcp__exponential__exponential_pr_write", "input": { "op": "open" } });
+        assert!(calls_work(&[bash, quiet.clone()]));
+        assert!(calls_work(&[send]));
+        assert!(!calls_work(&[quiet, suggest, show, json!({ "type": "text", "text": "x" })]));
+        assert!(!calls_work(&[]));
     }
 
     /// #EXP-1828 regression: the FEED-240 loop. A routine event, the agent
@@ -1925,6 +1956,10 @@ mod tests {
         assert!(guard.on_quiet());
         guard.on_prompt();
         assert!(!guard.on_quiet(), "a new message gets its own quiet answer");
+        // #FEED-246: work between two quiets is no loop.
+        guard.on_work();
+        assert!(!guard.on_quiet(), "a quiet after real work is an answer");
+        assert!(guard.on_quiet(), "and a bare repeat after it is the loop again");
         // Back-to-back routine events, each answered quiet: never a stop.
         for _ in 0..17 {
             guard.on_prompt();

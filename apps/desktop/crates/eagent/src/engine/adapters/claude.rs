@@ -3671,6 +3671,10 @@ impl ClaudeSession {
         // means the turn was re-woken without a new message (Claude Code's
         // silent-turn reminder looped a team agent 17 times): stop the turn
         // (not a Stop: queued messages still flow, the turn ends normally).
+        // #FEED-246: real work in the same message (or before) re-arms it.
+        if parent.is_none() && wire::calls_work(&blocks) {
+            self.lock().quiet_guard.on_work();
+        }
         if parent.is_none() && wire::calls_quiet(&blocks) {
             let repeat = {
                 let mut state = self.lock();
