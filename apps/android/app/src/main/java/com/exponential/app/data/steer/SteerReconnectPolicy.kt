@@ -171,6 +171,78 @@ fun <T> steerNoFeedInputs(rows: List<T>, max: Int = STEER_NO_FEED_INPUTS_MAX, ro
     return inputs.takeLast(max.coerceAtLeast(0))
 }
 
+/** #FEED-260 (fixtures/steer-enet.json `syncedTailMax`, pinned by the fixture test). */
+internal const val STEER_SYNCED_TAIL_MAX = 50
+
+/** One feed row as [steerSyncedTail] reads it: a main-lane narration
+ *  (`agent`), an input (`user`) or anything else (null), its text, its
+ *  known time (epoch ms; null = unknown). */
+data class SteerTailFeedRow(val author: String?, val text: String?, val at: Long?)
+
+/** One synced message as [steerSyncedTail] reads it. */
+data class SteerTailMessage(
+    val id: String,
+    val authorKind: String,
+    val hasCard: Boolean,
+    val consumedAt: String?,
+    val createdAt: String,
+    /** Epoch ms of [createdAt]; null = unparseable. */
+    val createdAtMs: Long?,
+    /** The OPENED body. */
+    val body: String,
+)
+
+/**
+ * #FEED-260 (fixtures/steer-enet.json "SYNCED TAIL", TS `steerSyncedTail`):
+ * the synced messages a NOT-live transcript draws after its feed, oldest
+ * first (createdAt, then id), the newest [max]: card-less with a non-blank
+ * body, the agent's or a person's CONSUMED input, later than the feed's
+ * newest known row time, not already held by the feed (an agent line equal
+ * to, a prefix of or prefixed by a narration; an input equal to a feed
+ * input). An empty feed takes the tail only when it holds an agent line.
+ */
+fun <T> steerSyncedTail(
+    live: Boolean,
+    feed: List<SteerTailFeedRow>,
+    messages: List<T>,
+    max: Int = STEER_SYNCED_TAIL_MAX,
+    row: (T) -> SteerTailMessage,
+): List<T> {
+    if (live) return emptyList()
+    val feedAt = feed.mapNotNull { it.at }.maxOrNull()
+    if (feed.isNotEmpty() && feedAt == null) return emptyList()
+    val narrations = feed.filter { it.author == "agent" && !it.text.isNullOrEmpty() }.map { it.text!!.trim() }
+    val inputs = feed.filter { it.author == "user" && !it.text.isNullOrEmpty() }.mapTo(HashSet()) { it.text!!.trim() }
+    val tail = messages
+        .map { it to row(it) }
+        .filter { (_, m) ->
+            if (m.hasCard) return@filter false
+            val body = m.body.trim()
+            if (body.isEmpty()) return@filter false
+            when (m.authorKind) {
+                "agent" -> if (narrations.any { it.isNotEmpty() && (it.startsWith(body) || body.startsWith(it)) }) return@filter false
+                "user" -> if (m.consumedAt == null || body in inputs) return@filter false
+                else -> return@filter false
+            }
+            feedAt == null || (m.createdAtMs != null && m.createdAtMs > feedAt)
+        }
+        .sortedWith(compareBy<Pair<T, SteerTailMessage>>({ it.second.createdAt }, { it.second.id }))
+    if (feed.isEmpty() && tail.none { it.second.authorKind == "agent" }) return emptyList()
+    return tail.takeLast(max.coerceAtLeast(0)).map { it.first }
+}
+
+/**
+ * #FEED-260 (fixtures/steer-enet.json "OFFLINE LINE", TS `steerOfflineLine`):
+ * a not-live transcript showing rows ends with THE inline marker
+ * `noFeedAway.title`: an ended row whose last dial said NO FEED, a row not
+ * ended whose device is offline in presence.
+ */
+fun steerOfflineLine(live: Boolean, rows: Int, ended: Boolean, noFeed: Boolean, deviceOffline: Boolean): Boolean = when {
+    live || rows == 0 -> false
+    ended -> noFeed
+    else -> deviceOffline
+}
+
 /** The synced row fields [steerRowWakes] reads. */
 data class SteerWakeRow(val status: String, val busy: Boolean, val deviceId: String?)
 

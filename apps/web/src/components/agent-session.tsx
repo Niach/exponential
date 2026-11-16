@@ -247,7 +247,9 @@ import {
   steerNoFeedAway,
   steerNoFeedInputs,
   steerNoFeedState,
+  steerOfflineLine,
 } from "@exp/domain-contract/steer-enet"
+import { syncedTailMessages } from "@/lib/steer-synced-tail"
 
 // EXP-317: the session glyphs the native clients also draw resolve through
 // the shared registry (packages/icons/icons.json).
@@ -544,6 +546,28 @@ export function AgentSessionView({
     [chatRows, sentInputIds, handoff.ids]
   )
   const sentRows = useMemo(() => chatRows.filter((row) => sentInputIds.has(row.id)), [chatRows, sentInputIds])
+  // #FEED-260 (steer-enet.json SYNCED TAIL): while the feed is not live, the
+  // session's synced messages after it (bodies opened) draw after its last
+  // row; a held own row (HANDOFF) draws once, as the handoff.
+  const syncedTailIds = useMemo(() => {
+    const ids = syncedTailMessages({ live, feed, messages: sessionMessages.map(toTreeMessage) })
+      .map((message) => message.id)
+      .filter((id) => !handoff.ids.has(id))
+    return ids.length === 0 ? NO_SENT_IDS : new Set(ids)
+  }, [live, feed, sessionMessages, handoff.ids])
+  const syncedTailRows = useMemo(
+    () =>
+      syncedTailIds.size === 0
+        ? NO_ROWS
+        : chatExtraRows(
+            session,
+            sessionMessages.filter((message) => syncedTailIds.has(message.id)),
+            tree ?? NO_TREE,
+            issues ?? NO_ISSUES,
+            syncedTailIds
+          ),
+    [session, sessionMessages, tree, issues, syncedTailIds]
+  )
   // #EXP-1756: a queued bubble's `HH:mm`, off its synced row.
   const messageTime = useCallback(
     (row: { id: string }) => {
@@ -1085,7 +1109,8 @@ export function AgentSessionView({
     rowCache.current = nextRowCache
   })
 
-  const feedPlaceholder = feed.length === 0
+  // #FEED-260: an empty feed with a synced tail is a transcript, no placeholder.
+  const feedPlaceholder = feed.length === 0 && syncedTailRows.length === 0
   // NEW-6 (N-1): a session waiting on input with no live room shows no
   // endless placeholders: once the connect has waited long enough while the
   // row is not busy, the column says the transcript is not reachable.
@@ -1178,6 +1203,15 @@ export function AgentSessionView({
     (feedPlaceholder && live) ||
     (feedPlaceholder && deviceOffline && phase.kind === `ended`)
   const sentShown = placeholderShown && !sessionEnded && sentRows.length > 0
+  // #FEED-260 (steer-enet.json OFFLINE LINE): a not-live transcript showing
+  // rows ends with THE inline marker when the live one cannot be loaded.
+  const offlineLine = steerOfflineLine({
+    live,
+    rows: feed.length + syncedTailRows.length,
+    ended: sessionEnded,
+    noFeed: deviceOffline && phase.kind === `ended`,
+    deviceOffline: device.online === false,
+  })
   /** The transcript STREAMS: a live publisher mid-turn (`TranscriptStreamingContext`). */
   const streaming = live && !sessionEnded && turnState === `started`
 
@@ -1435,7 +1469,29 @@ export function AgentSessionView({
                     />
                   </div>
                 ))}
+                {/* #FEED-260: the synced messages after a not-live feed. */}
+                {syncedTailRows.length > 0 && (
+                  <div className={TRANSCRIPT_GAP_CLASS.gapBlock} data-testid="transcript-synced-tail">
+                    <ChatConversation
+                      rows={syncedTailRows}
+                      renderText={renderChatText}
+                      attachmentSrc={attachmentUrl}
+                      chat={{ sessionId: session.id, title: sessionCardModel?.name ?? session.title ?? ``, agentId: session.agentId ?? null }}
+                      viewerId={viewerId}
+                      viewer={viewerAvatar}
+                      messageTime={messageTime}
+                      deliveryOf={deliveryOf}
+                      onOpenSession={onOpenSession}
+                      renderIssueRef={renderIssueRef}
+                    />
+                  </div>
+                )}
                 {chatExtras}
+                {offlineLine && (
+                  <div className={TRANSCRIPT_GAP_CLASS.gapBlock} data-testid="transcript-offline-line">
+                    <TranscriptMarker label={steerNoFeedAway(device.label).title} />
+                  </div>
+                )}
                 {/* EXP-389: the agent-is-busy footer under the newest event. */}
                 {working && (
                   <div
@@ -1472,7 +1528,7 @@ export function AgentSessionView({
           </div>
           {/* EXP-1191: the arrow-only circle ×4, 12px above the composer. */}
           <JumpToBottomButton
-            visible={!atBottom && feed.length > 0}
+            visible={!atBottom && (feed.length > 0 || syncedTailRows.length > 0)}
             className="absolute left-1/2 z-30 -translate-x-1/2"
             style={{ bottom: dockHeight + JUMP_TO_BOTTOM_GAP }}
             onClick={() => {
