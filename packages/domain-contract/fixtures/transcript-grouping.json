@@ -1,5 +1,5 @@
 {
-  "$comment": "#EXP-1864 (Danny, 2026-11-14): ONE COLOUR PER SENDER SIDE ×4, every one a token: anyone else's bubble wears THE opaque card (the glass `fillCard` over the popover, dark #252525: web `bg-glass-card-opaque`, desktop `dock::card_fill()`, iOS/Android `OpaqueCardFill`); the viewer's OWN bubble wears `glass.fillOwn` (#132034, the info blue #3B82F6 at 18% over the dark ground, Danny's pick of the drafted variants: own text 15.7:1); both under the same `glass.strokeCard` hairline. The own bubble's translucent `fillActive` (it read #252527 over the zinc page gradient, #252525 elsewhere) is gone. genUI: the exponential theme paints MessageBubble/bubble `$color.popover` and side `out` the new colour token `$color.bubbleOwn` (dark #132034, light #e7f0fe; a theme chain that sets none takes `popover`), both under `$color.border`. TIMESTAMPS ×4: EVERY `message` bubble (own, a member's, the chat's agent, a relay, a child's report) carries its `HH:mm` bottom-right inside, the same footer and style as the own bubble's (genUI MessageBubble `time` on both sides): a synced row its `createdAt`, a feed narration the `at` of its FIRST fragment, a feed input its `at`; no known time = no footer. Only the own bubble adds the delivery mark. NOTICES ×4: a `trace` tool row whose Exponential tool row (`expToolDisplay`, the composed `<noun>_<op>` name) is a key of `notices` is no trace line: it is a `full` item drawn as THE inline marker (the `Context compacted` row: a centred muted label between two hairlines, full width, never grouped, never beside an avatar) labelled `notices[row]` (`traceNotice(name)`, `noticeCases`: the name must END in `expToolDisplay.prefix` + the row, whatever namespace sits before it, else null). It never joins a tool run or an Exponential tool run: it breaks the run like a card. `session_self_quiet` = `Ended turn quietly` (the contract row's `done`). #EXP-1736 (owner 2026-11-07, drafts approved 2026-11-08): ONE TRANSCRIPT ×4 for EVERY chat (a session, an agent, the Assistant, an app, a team agent): no 1:1 variant, no group variant, every chat reads like a group chat. ONE bubble ×4 = THE MessageBubble (web packages/ui `MessageBubble`, desktop crates/ui `message_bubble`, iOS ExpUI `MessageBubble`, Android `MessageBubble`; Exponential UI's `MessageBubble` macro carries the same `avatar` slot + press/href): the glass card bubble (16 px radius, its `HH:mm` bottom-right inside), `layout.maxWidth.phone` of the column on phones and `layout.maxWidth.wide` on web/desktop; on phones an `in` bubble (anyone but the viewer) takes `layout.maxWidth.phoneIn` of its column (the column right of the avatar), as wide as the trace cards beside it (owner 2026-11-13). A bubble from anyone but the viewer sits LEFT under its sender's AVATAR (THE Avatar at its default size `layout.avatar` px, `layout.avatarGap` px left of the column, top-aligned with the group's first row) and its NAME (the bubble's `author` line, 12 px medium muted, on the group's first BUBBLE only); the viewer's own bubbles sit RIGHT under the VIEWER's own AVATAR (#FEED-239, owner 2026-11-14, the mirror of the left: THE Avatar at `layout.avatar` px, `layout.avatarGap` px RIGHT of the column, top-aligned with the own group's first row; the viewer's image, else their initials in their hue) and no name; an own bubble has NO left inset: it may take `layout.maxWidth.own` of its column (the column left of the own avatar) on every width, the in bubbles keep theirs. SENDERS (`transcriptLayout(input)`, every mirror replays `cases` comparing the WHOLE expected array): an item is `message` (a card-less message row, a child's report, a pending input), `trace` (a tool, thought or subagent line of the agent's work, the raw session view's feed) or `full` (every card: a `Workflow` call's Work card (#EXP-1750), question, plan, to-do, suggestions, session card, picture, surface, event line, divider, locked pill; full width, never grouped). A `message` with `authorKind` `user`: `authorId == viewerId` = `own`; else the MEMBER (`kind member`, id = authorId, name = members[authorId].name, else `copy.formerMember`; the Avatar's initials in the member's hue). `authorKind` `system` = `full`. `authorKind` `agent` (or any message carrying `authorSessionId`): a CROSS-SESSION sender when `authorSessionId` names a KNOWN session other than `chat.sessionId` (a child's report, `sessions_send` from a session or an agent, the prompt a parent started this session with): `kind agent` when that session has an `agentId` (the agent's own avatar, id = agentId) else `kind session` (the muted session avatar with its glyph, id = the session), name = that session's `title`, `link` = its id. #EXP-1772 RELAYS (a cross-session bubble: another session's message, a child's report): its name sits ABOVE the bubble, outside it (the name line's size and colour, `copy.linkChevron` one space right of the name), on the group's first relay bubble; ONLY that name line is the press that opens the session on the back stack, the bubble itself is never a link; #FEED-238 (owner 2026-11-13) REVERSES the relay's no-fold: THE FOLD ×4 (`messageFolds`, `foldCases`) = every `message` bubble (own, member, the chat's agent, a relay, a child's report) whose text is longer than `fold.chars` characters or has more than `fold.lines` lines shows its first `fold.lines` lines and THE text button `copy.showMore` / `copy.showLess` under it (the existing one of the transcript's person turns); a long unbroken token (a base64 payload, a URL) wraps anywhere, never widening the bubble. The chat's own agent and a member keep the name inside the bubble. This REPLACES the `Started by` / `Report from` / `Message from` link rows and the `via MCP` card. Any other agent message = the chat's OWN agent: `chat.agentId` set = `kind agent` (id = agentId, name = agents[agentId].name, else `chat.title`), else `kind session` (id = `chat.sessionId`, name = `chat.title`; owner's answer: in a plain session the agent's bubbles wear the session title + the session avatar); `link` null. A `user` message carrying an `authorSessionId` of another known session (a session posting as its starter) is cross-session too. ORIGIN (one rule ×4, data first): `chat.originSessionId` = the session that STARTED the viewed one, from the synced rows (its `parentId`, else the agent conversation that started its root: session-chat.json `origin`), never from prompt text; `chat.fromStart` = the items begin at the conversation's very first message (no `Load earlier` above them). When both hold, the FIRST INPUT (a `message` item with `authorKind` `user`, or one carrying a known cross-session `authorSessionId`) reads as sent by the origin whoever the row names (in the raw session feed that first prompt is a typed turn), unless it carries that known cross-session `authorSessionId` itself (in a chat the prompt row names its sender, data wins); either way no later row takes the origin. The agent's own output is NEVER re-attributed: agent rows before the first input stay the chat's own. Parsing the prompt text (`inputCases`) is only the fallback for a session input the feed carries no author for. A `trace` item belongs to the chat's OWN agent sender (it never shows a name). An unknown `authorSessionId` falls back to the rule without it. GROUPING: consecutive non-full items with the same sender (kind + id + link; `own` = one sender) form one group; `avatar` = true on a group's FIRST item (#FEED-239: own groups too, the avatar on the right; #EXP-1854: the own TAIL (message-delivery.json: the no-feed placeholder's sent inputs, the unconsumed rows, the outbox) is own items after the transcript's last, so when no transcript row carries the own group's avatar its first bubble does, beside its tail); `name` = true on a group's first `message` item when it is not own; `tail` = true on a group's first `message` item, own or not (#EXP-1876, Danny's option A: THE bubble's tail sits on the group's FIRST bubble only, at its TOP corner beside the avatar, pointing LEFT for anyone else (genUI MessageBubble `tail: start`) and RIGHT for the viewer's own (`tail: end`); every follow-on bubble has none; the tail = 6 px out × 9 px down, a sharp top edge continuing the bubble's top, a straight hypotenuse back into the side, a ~2 px rounded tip, that corner's radius 0, the same fill + hairline as the bubble drawn as ONE outline, inside the `layout.avatarGap`: no layout change); `gap` (the space above the row) = 0 on the first item, `layout.gapInGroup` inside a group, else `layout.gapBetween`. The text of a session input on the device (`inputCases`, `crossSessionInput(text)`): the raw session view gets a parent's or child's message as a prompt line `Report from <name> (session <id>, ended): <summary>` or `Message from <name> (session <id>): <body>` (desktop `coding::pickup::input_text`); it parses to `{kind: report|message, name, sessionId, body}` (the pattern `^(Report|Message) from (.+?) \\(session ([^,)\\s]+)(, ended)?\\): ([\\s\\S]*)$`, the name the shortest prefix that matches) and draws as that session's cross-session bubble (`body` the bubble's text); anything else = null (a person's prompt). #EXP-1772 ONLY REAL MESSAGES ARE BUBBLES: a person's message and a real agent reply. A system input is THE inline MARKER ×4 (the feed's `Context compacted` row: a centred muted label between two hairlines, full width, never grouped): `feedInput(text)` (`feedInputCases`) reads a feed input as `{kind: marker, key, label}` when the device tagged it (`coding::pickup::input_text` leads a message carrying an `event` card with `[<key>] `: `schedule` = a schedule firing (`trigger_fired` without a name), `event` = an event firing or any other event, `pr_opened`, `pr_merged`, `pr_merge`, `pr_checks`, `session` = a session status line (`session_*`); the key must be one of `copy.markers`, label = `copy.markers[key]`), or, untagged (an older device), its body leads with the server's own firing text (`Schedule `…`` up to ` fired` = `schedule`; ``Event `<name>` (from `` = `event`); else `{kind: relay, …crossSessionInput}` for a cross-session input, else null (a person's prompt). A MARKER IS DRAWN ONLY ABOVE A REPLY (`markersShown(kinds)`, `markerCases`: kinds per feed row `marker` | `input` | `reply` (agent prose with text) | `other` (work, cards); a `marker` shows when a `reply` follows it before the next `input` or `marker`, every other row shows): a fire or event the agent answered silently draws nothing. A hidden marker is no transcript item at all (it never breaks a group). An agent turn whose text is blank draws nothing (no empty bubble).",
+  "$comment": "#EXP-1864 (Danny, 2026-11-14): ONE COLOUR PER SENDER SIDE ×4, every one a token: anyone else's bubble wears THE opaque card (the glass `fillCard` over the popover, dark #252525: web `bg-glass-card-opaque`, desktop `dock::card_fill()`, iOS/Android `OpaqueCardFill`); the viewer's OWN bubble wears `glass.fillOwn` (#132034, the info blue #3B82F6 at 18% over the dark ground, Danny's pick of the drafted variants: own text 15.7:1); both under the same `glass.strokeCard` hairline. The own bubble's translucent `fillActive` (it read #252527 over the zinc page gradient, #252525 elsewhere) is gone. genUI: the exponential theme paints MessageBubble/bubble `$color.popover` and side `out` the new colour token `$color.bubbleOwn` (dark #132034, light #e7f0fe; a theme chain that sets none takes `popover`), both under `$color.border`. TIMESTAMPS ×4: EVERY `message` bubble (own, a member's, the chat's agent, a relay, a child's report) carries its `HH:mm` bottom-right inside, the same footer and style as the own bubble's (genUI MessageBubble `time` on both sides): a synced row its `createdAt`, a feed narration the `at` of its FIRST fragment, a feed input its `at`; no known time = no footer. Only the own bubble adds the delivery mark. NOTICES ×4: a `trace` tool row whose Exponential tool row (`expToolDisplay`, the composed `<noun>_<op>` name) is a key of `notices` is no trace line: it is a `full` item drawn as THE inline marker (the `Context compacted` row: a centred muted label between two hairlines, full width, never grouped, never beside an avatar) labelled `notices[row]` (`traceNotice(name)`, `noticeCases`: the name must END in `expToolDisplay.prefix` + the row, whatever namespace sits before it, else null). It never joins a tool run or an Exponential tool run: it breaks the run like a card. `session_self_quiet` = `Ended turn quietly` (the contract row's `done`). #EXP-1736 (owner 2026-11-07, drafts approved 2026-11-08): ONE TRANSCRIPT ×4 for EVERY chat (a session, an agent, the Assistant, an app, a team agent): no 1:1 variant, no group variant, every chat reads like a group chat. ONE bubble ×4 = THE MessageBubble (web packages/ui `MessageBubble`, desktop crates/ui `message_bubble`, iOS ExpUI `MessageBubble`, Android `MessageBubble`; Exponential UI's `MessageBubble` macro carries the same `avatar` slot + press/href): the glass card bubble (16 px radius, its `HH:mm` bottom-right inside), `layout.maxWidth.phone` of the column on phones and `layout.maxWidth.wide` on web/desktop; on phones an `in` bubble (anyone but the viewer) takes `layout.maxWidth.phoneIn` of its column (the column right of the avatar), as wide as the trace cards beside it (owner 2026-11-13). A bubble from anyone but the viewer sits LEFT under its sender's AVATAR (THE Avatar at its default size `layout.avatar` px, `layout.avatarGap` px left of the column, top-aligned with the group's first row) and its NAME (the bubble's `author` line, 12 px medium muted, on the group's first BUBBLE only); the viewer's own bubbles sit RIGHT under the VIEWER's own AVATAR (#FEED-239, owner 2026-11-14, the mirror of the left: THE Avatar at `layout.avatar` px, `layout.avatarGap` px RIGHT of the column, top-aligned with the own group's first row; the viewer's image, else their initials in their hue) and no name; an own bubble has NO left inset: it may take `layout.maxWidth.own` of its column (the column left of the own avatar) on every width, the in bubbles keep theirs. SENDERS (`transcriptLayout(input)`, every mirror replays `cases` comparing the WHOLE expected array): an item is `message` (a card-less message row, a child's report, a pending input), `trace` (a tool, thought or subagent line of the agent's work, the raw session view's feed) or `full` (every card: a `Workflow` call's Work card (#EXP-1750), question, plan, to-do, suggestions, session card, picture, surface, event line, divider, locked pill; full width, never grouped). A `message` with `authorKind` `user`: `authorId == viewerId` = `own`; else the MEMBER (`kind member`, id = authorId, name = members[authorId].name, else `copy.formerMember`; the Avatar's initials in the member's hue). `authorKind` `system` = `full`. `authorKind` `agent` (or any message carrying `authorSessionId`): a CROSS-SESSION sender when `authorSessionId` names a KNOWN session other than `chat.sessionId` (a child's report, `sessions_send` from a session or an agent, the prompt a parent started this session with): `kind agent` when that session has an `agentId` (the agent's own avatar, id = agentId) else `kind session` (the muted session avatar with its glyph, id = the session), name = that session's `title`, `link` = its id. #EXP-1772 RELAYS (a cross-session bubble: another session's message, a child's report): its name sits ABOVE the bubble, outside it (the name line's size and colour, `copy.linkChevron` one space right of the name), on the group's first relay bubble; ONLY that name line is the press that opens the session on the back stack, the bubble itself is never a link; #FEED-238 (owner 2026-11-13) REVERSES the relay's no-fold: THE FOLD ×4 (`messageFolds`, `foldCases`) = every `message` bubble (own, member, the chat's agent, a relay, a child's report) whose text is longer than `fold.chars` characters or has more than `fold.lines` lines shows its first `fold.lines` lines and THE text button `copy.showMore` / `copy.showLess` under it (the existing one of the transcript's person turns); a long unbroken token (a base64 payload, a URL) wraps anywhere, never widening the bubble. The chat's own agent and a member keep the name inside the bubble. This REPLACES the `Started by` / `Report from` / `Message from` link rows and the `via MCP` card. Any other agent message = the chat's OWN agent: `chat.agentId` set = `kind agent` (id = agentId, name = agents[agentId].name, else `chat.title`), else `kind session` (id = `chat.sessionId`, name = `chat.title`; owner's answer: in a plain session the agent's bubbles wear the session title + the session avatar); `link` null. A `user` message carrying an `authorSessionId` of another known session (a session posting as its starter) is cross-session too. ORIGIN (one rule ×4, data first): `chat.originSessionId` = the session that STARTED the viewed one, from the synced rows (its `parentId`, else the agent conversation that started its root: session-chat.json `origin`), never from prompt text; `chat.fromStart` = the items begin at the conversation's very first message (no `Load earlier` above them). When both hold, the FIRST INPUT (a `message` item with `authorKind` `user`, or one carrying a known cross-session `authorSessionId`) reads as sent by the origin whoever the row names (in the raw session feed that first prompt is a typed turn), unless it carries that known cross-session `authorSessionId` itself (in a chat the prompt row names its sender, data wins); either way no later row takes the origin. The agent's own output is NEVER re-attributed: agent rows before the first input stay the chat's own. Parsing the prompt text (`inputCases`) is only the fallback for a session input the feed carries no author for. A `trace` item belongs to the chat's OWN agent sender (it never shows a name). An unknown `authorSessionId` falls back to the rule without it. GROUPING: consecutive non-full items with the same sender (kind + id + link; `own` = one sender) form one group; `avatar` = true on a group's FIRST item (#FEED-239: own groups too, the avatar on the right; #EXP-1854: the own TAIL (message-delivery.json: the no-feed placeholder's sent inputs, the unconsumed rows, the outbox) is own items after the transcript's last, so when no transcript row carries the own group's avatar its first bubble does, beside its tail); `name` = true on a group's first `message` item when it is not own; `tail` = true on a group's first `message` item, own or not (#EXP-1876, Danny's option A: THE bubble's tail sits on the group's FIRST bubble only, at its TOP corner beside the avatar, pointing LEFT for anyone else (genUI MessageBubble `tail: start`) and RIGHT for the viewer's own (`tail: end`); every follow-on bubble has none; the tail = 6 px out × 9 px down, a sharp top edge continuing the bubble's top, a straight hypotenuse back into the side, a ~2 px rounded tip, that corner's radius 0, the same fill + hairline as the bubble drawn as ONE outline, inside the `layout.avatarGap`: no layout change); `gap` (the space above the row) = 0 on the first item, `layout.gapInGroup` inside a group, else `layout.gapBetween`. The text of a session input on the device (`inputCases`, `crossSessionInput(text)`): the raw session view gets a parent's or child's message as a prompt line `Report from <name> (session <id>, ended): <summary>` or `Message from <name> (session <id>): <body>` (desktop `coding::pickup::input_text`); it parses to `{kind: report|message, name, sessionId, body}` (the pattern `^(Report|Message) from (.+?) \\(session ([^,)\\s]+)(, ended)?\\): ([\\s\\S]*)$`, the name the shortest prefix that matches) and draws as that session's cross-session bubble (`body` the bubble's text); anything else = null (a person's prompt). #EXP-1772 ONLY REAL MESSAGES ARE BUBBLES: a person's message and a real agent reply. A system input is THE inline MARKER ×4 (the feed's `Context compacted` row: a centred muted label between two hairlines, full width, never grouped): `feedInput(text)` (`feedInputCases`) reads a feed input as `{kind: marker, key, label}` when the device tagged it (`coding::pickup::input_text` leads a message carrying an `event` card with `[<key>] `: `schedule` = a schedule firing (`trigger_fired` without a name), `event` = an event firing or any other event, `pr_opened`, `pr_merged`, `pr_merge`, `pr_checks`, `session` = a session status line (`session_*`); the key must be one of `copy.markers`, label = `copy.markers[key]`), or, untagged (an older device), its body leads with the server's own firing text (`Schedule `…`` up to ` fired` = `schedule`; ``Event `<name>` (from `` = `event`); else `{kind: relay, …crossSessionInput}` for a cross-session input, else null (a person's prompt). A MARKER IS DRAWN ONLY ABOVE A REPLY (`markersShown(kinds)`, `markerCases`: kinds per feed row `marker` | `input` | `reply` (agent prose with text) | `other` (work, cards); a `marker` shows when a `reply` follows it before the next `input` or `marker`, every other row shows): a fire or event the agent answered silently draws nothing. A hidden marker is no transcript item at all (it never breaks a group). An agent turn whose text is blank draws nothing (no empty bubble). #EXP-1873 (Danny, 2026-11-15: \"it's not quiet at all. it should be one line only.\") A QUIET CHECK-IN IS ONE LINE ×4 (`feedRows(kinds)`, `checkInCases`; it wraps `markersShown`, every platform's main feed calls it instead): kinds per feed row `schedule` (a `schedule` marker: a schedule firing = a check-in) | `marker` (every other marker: an event, a PR or session line; event triggers do NOT count, an unanswered one stays hidden and its quiet turn keeps its own `Ended turn quietly`) | `input` | `reply` | `quiet` (the `session_self_quiet` notice row) | `blank` (an agent turn with blank text: never drawn) | `other` (work, cards, any shown tool line). A schedule row's TURN = the rows after it up to the next `schedule`, `marker` or `input` (or the end). It is a QUIET CHECK-IN when its turn has a `quiet` row and no `reply` or `other` row (Danny, 2026-11-16: nothing an agent says is ever hidden; a message written AFTER the quiet call, e.g. the CLI's forced `No change since my last update.`, makes it a normal turn: today's `Schedule` marker + the bubble, and it starts a new run). A quiet check-in draws ONE inline marker on the schedule row (THE `Context compacted` marker) and nothing else of its turn. CONSECUTIVE quiet check-ins (no drawn row between them; hidden rows never separate) collapse into ONE line on the LAST one's row, the earlier ones hidden. Per row the result is `false` (not drawn), `true` (drawn as itself, today's rule) or a number n (the check-in line covering n check-ins). Its label `checkInLabel(count, time)` (`checkInLabelCases`): count 1 = `copy.checkIn`, else `copy.checkIns` with `{count}`; a known time (the LAST check-in's firing, the schedule row's `at`, `HH:mm`) appends `copy.checkInTimeSeparator` + the time. A check-in that answered (a message before or after quiet, a card, a tool line) keeps today's rendering. The chat-transcript specimen ×4 draws `checkInSpecimen` (an agent chat's feed: kind, `HH:mm`, text) through `feedRows`: a run of quiet check-ins, one that answered (THE marker above the agent's bubble) and a second run.",
   "layout": {
     "avatar": 32,
     "avatarGap": 8,
@@ -27,7 +27,10 @@
       "pr_merge": "Merge",
       "pr_checks": "CI",
       "session": "Session update"
-    }
+    },
+    "checkIn": "Checked in, nothing to do",
+    "checkIns": "Checked in {count} times, nothing to do",
+    "checkInTimeSeparator": " · "
   },
   "notices": {
     "session_self_quiet": "Ended turn quietly"
@@ -1202,6 +1205,314 @@
       "name": "no rows",
       "kinds": [],
       "expected": []
+    }
+  ],
+  "checkInCases": [
+    {
+      "name": "a quiet check-in is one line",
+      "kinds": [
+        "schedule",
+        "quiet"
+      ],
+      "expected": [
+        1,
+        false
+      ]
+    },
+    {
+      "name": "a message after quiet is shown and makes it a normal turn (Danny's screenshot)",
+      "kinds": [
+        "reply",
+        "schedule",
+        "quiet",
+        "reply"
+      ],
+      "expected": [
+        true,
+        true,
+        true,
+        true
+      ]
+    },
+    {
+      "name": "a message after quiet splits the run",
+      "kinds": [
+        "schedule",
+        "quiet",
+        "schedule",
+        "quiet",
+        "reply",
+        "schedule",
+        "quiet"
+      ],
+      "expected": [
+        1,
+        false,
+        true,
+        true,
+        true,
+        1,
+        false
+      ]
+    },
+    {
+      "name": "six quiet check-ins collapse on the last one",
+      "kinds": [
+        "schedule",
+        "quiet",
+        "schedule",
+        "quiet",
+        "blank",
+        "schedule",
+        "quiet",
+        "schedule",
+        "quiet",
+        "schedule",
+        "quiet",
+        "schedule",
+        "quiet"
+      ],
+      "expected": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        6,
+        false
+      ]
+    },
+    {
+      "name": "a check-in that answered keeps today's rows and splits the run",
+      "kinds": [
+        "schedule",
+        "quiet",
+        "schedule",
+        "quiet",
+        "schedule",
+        "reply",
+        "quiet",
+        "schedule",
+        "quiet"
+      ],
+      "expected": [
+        false,
+        false,
+        2,
+        false,
+        true,
+        true,
+        true,
+        1,
+        false
+      ]
+    },
+    {
+      "name": "tool work in the turn keeps today's rows",
+      "kinds": [
+        "schedule",
+        "other",
+        "quiet"
+      ],
+      "expected": [
+        false,
+        true,
+        true
+      ]
+    },
+    {
+      "name": "a card answer keeps today's rows",
+      "kinds": [
+        "schedule",
+        "other"
+      ],
+      "expected": [
+        false,
+        true
+      ]
+    },
+    {
+      "name": "an event trigger is no check-in",
+      "kinds": [
+        "marker",
+        "quiet",
+        "schedule",
+        "quiet"
+      ],
+      "expected": [
+        false,
+        true,
+        1,
+        false
+      ]
+    },
+    {
+      "name": "an unanswered event between check-ins never separates them",
+      "kinds": [
+        "schedule",
+        "quiet",
+        "marker",
+        "schedule",
+        "quiet"
+      ],
+      "expected": [
+        false,
+        false,
+        false,
+        2,
+        false
+      ]
+    },
+    {
+      "name": "a person's message ends the turn and splits the run",
+      "kinds": [
+        "schedule",
+        "quiet",
+        "input",
+        "reply",
+        "schedule",
+        "quiet"
+      ],
+      "expected": [
+        1,
+        false,
+        true,
+        true,
+        1,
+        false
+      ]
+    },
+    {
+      "name": "a check-in still running is no check-in yet",
+      "kinds": [
+        "schedule",
+        "quiet",
+        "schedule"
+      ],
+      "expected": [
+        1,
+        false,
+        false
+      ]
+    },
+    {
+      "name": "quiet without a firing stays its own notice",
+      "kinds": [
+        "input",
+        "quiet"
+      ],
+      "expected": [
+        true,
+        true
+      ]
+    },
+    {
+      "name": "no rows",
+      "kinds": [],
+      "expected": []
+    }
+  ],
+  "checkInLabelCases": [
+    {
+      "name": "one check-in",
+      "count": 1,
+      "time": "17:45",
+      "expected": "Checked in, nothing to do · 17:45"
+    },
+    {
+      "name": "six check-ins",
+      "count": 6,
+      "time": "17:45",
+      "expected": "Checked in 6 times, nothing to do · 17:45"
+    },
+    {
+      "name": "no known time",
+      "count": 2,
+      "time": null,
+      "expected": "Checked in 2 times, nothing to do"
+    }
+  ],
+  "checkInSpecimen": [
+    {
+      "kind": "schedule",
+      "time": "16:30",
+      "text": null
+    },
+    {
+      "kind": "quiet",
+      "time": null,
+      "text": null
+    },
+    {
+      "kind": "schedule",
+      "time": "16:45",
+      "text": null
+    },
+    {
+      "kind": "quiet",
+      "time": null,
+      "text": null
+    },
+    {
+      "kind": "schedule",
+      "time": "17:00",
+      "text": null
+    },
+    {
+      "kind": "quiet",
+      "time": null,
+      "text": null
+    },
+    {
+      "kind": "schedule",
+      "time": "17:15",
+      "text": null
+    },
+    {
+      "kind": "quiet",
+      "time": null,
+      "text": null
+    },
+    {
+      "kind": "schedule",
+      "time": "17:30",
+      "text": null
+    },
+    {
+      "kind": "reply",
+      "time": "17:31",
+      "text": "Two PRs landed overnight: #412 and #415, both green."
+    },
+    {
+      "kind": "quiet",
+      "time": null,
+      "text": null
+    },
+    {
+      "kind": "schedule",
+      "time": "17:45",
+      "text": null
+    },
+    {
+      "kind": "quiet",
+      "time": null,
+      "text": null
+    },
+    {
+      "kind": "schedule",
+      "time": "18:00",
+      "text": null
+    },
+    {
+      "kind": "quiet",
+      "time": null,
+      "text": null
     }
   ],
   "fold": {

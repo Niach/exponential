@@ -195,7 +195,8 @@ export type ActivityEvent =
   // EXP-78 (member-only on the relay): a human turn from the transcript…
   // `subagentId` (EXP-773): a turn addressed to a subagent, shown in that
   // subagent's view only.
-  | { kind: `user_message`; text: string; subagentId?: string; at?: number }
+  // #EXP-1873: `checkIns` = THE check-in line's count (`shownFeedRows`).
+  | { kind: `user_message`; text: string; subagentId?: string; at?: number; checkIns?: number }
   // …and an interactive question (AskUserQuestion / plan approval).
   // `planMode` marks an ExitPlanMode plan-approval picker (EXP-97) — absent
   // on generic questions.

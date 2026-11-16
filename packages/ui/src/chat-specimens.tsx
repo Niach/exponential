@@ -11,7 +11,8 @@ import {
 } from "@exp/domain-contract/chats"
 import type { SessionChatRow } from "@exp/domain-contract/session-tree"
 import { SEALED_PLACEHOLDER } from "@exp/domain-contract/sealed-content"
-import { traceNotice } from "@exp/domain-contract/transcript-grouping"
+import { checkInLabel, feedRows, traceNotice } from "@exp/domain-contract/transcript-grouping"
+import transcriptGrouping from "@exp/domain-contract/fixtures/transcript-grouping.json"
 import { BoardGlyph } from "./board-glyph"
 import { BulkBarAction, BulkBarCapsule, BulkBarSeparator } from "./bulk-bar"
 import { Button } from "./button"
@@ -446,9 +447,31 @@ const DELIVERY_BUBBLES = [
   { id: `o3`, text: `Ping me when it's under a second.`, time: `09:05`, status: `failed` },
 ] as const
 
+/** #EXP-1873 (transcript-grouping.json `checkInSpecimen`): an agent chat's
+ *  check-ins through `feedRows`: quiet runs = ONE line each, the one that
+ *  answered keeps its marker above the bubble. */
+function CheckInSpecimen() {
+  const rows = transcriptGrouping.checkInSpecimen
+  const shown = feedRows(rows.map((row) => row.kind as never))
+  return (
+    <div data-testid="chat-check-in-specimen" className="mb-3 flex flex-col gap-3">
+      {rows.map((row, index) => {
+        const drawn = shown[index]
+        if (drawn === false) return null
+        if (typeof drawn === `number`) return <TranscriptMarker key={index} label={checkInLabel(drawn, row.time)} />
+        if (row.kind === `schedule`) return <TranscriptMarker key={index} label={transcriptGrouping.copy.markers.schedule} />
+        if (row.kind === `quiet`) return <TranscriptMarker key={index} label={traceNotice(`exponential_session_self_quiet`) ?? ``} />
+        return <MessageBubble key={index} side="in" author="Assistant" text={row.text ?? ``} renderText={paragraph} time={row.time} />
+      })}
+    </div>
+  )
+}
+
 function Transcript({ layout }: { layout: `transcript` | `bubbles` }) {
   return (
     <>
+    {/* #EXP-1873: on top, so the shot's first screen shows it. */}
+    <CheckInSpecimen />
     <ChatConversation
       rows={TRANSCRIPT_ROWS}
       layout={layout}

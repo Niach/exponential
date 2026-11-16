@@ -42,7 +42,10 @@ final class TranscriptGroupingTests: XCTestCase {
         XCTAssertEqual(try number(layout["radius"]), TranscriptGrouping.Layout.radius)
         XCTAssertEqual(try number(layout["nameSize"]), TranscriptGrouping.Layout.nameSize)
         let copy = try XCTUnwrap(fixture["copy"] as? [String: Any])
-        XCTAssertEqual(Set(copy.keys), ["formerMember", "linkChevron", "showMore", "showLess", "markers"])
+        XCTAssertEqual(Set(copy.keys), ["formerMember", "linkChevron", "showMore", "showLess", "markers", "checkIn", "checkIns", "checkInTimeSeparator"])
+        XCTAssertEqual(copy["checkIn"] as? String, TranscriptGrouping.Copy.checkIn)
+        XCTAssertEqual(copy["checkIns"] as? String, TranscriptGrouping.Copy.checkIns)
+        XCTAssertEqual(copy["checkInTimeSeparator"] as? String, TranscriptGrouping.Copy.checkInTimeSeparator)
         XCTAssertEqual(copy["showMore"] as? String, TranscriptGrouping.Copy.showMore)
         XCTAssertEqual(copy["showLess"] as? String, TranscriptGrouping.Copy.showLess)
         XCTAssertEqual(copy["formerMember"] as? String, TranscriptGrouping.Copy.formerMember)
@@ -189,6 +192,42 @@ final class TranscriptGroupingTests: XCTestCase {
             }
             XCTAssertEqual(TranscriptGrouping.markersShown(kinds), try XCTUnwrap(testCase["expected"] as? [Bool]), name)
         }
+    }
+    // #EXP-1873: a quiet check-in is one line.
+    func testReplaysEveryCheckInCase() throws {
+        let cases = try XCTUnwrap(try fixture()["checkInCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = testCase["name"] as? String ?? ""
+            let kinds = try XCTUnwrap(testCase["kinds"] as? [String]).map { kind in
+                try XCTUnwrap(TranscriptGrouping.FeedRowRole(rawValue: kind), name)
+            }
+            let expected = try XCTUnwrap(testCase["expected"] as? [Any], name).map { value -> TranscriptGrouping.FeedRowShown in
+                if let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() {
+                    return .checkIn(number.intValue)
+                }
+                return (value as? Bool) == true ? .row : .hidden
+            }
+            XCTAssertEqual(TranscriptGrouping.feedRows(kinds), expected, name)
+        }
+        let labels = try XCTUnwrap(try fixture()["checkInLabelCases"] as? [[String: Any]])
+        XCTAssertFalse(labels.isEmpty)
+        for testCase in labels {
+            let name = testCase["name"] as? String ?? ""
+            let count = try XCTUnwrap(testCase["count"] as? Int, name)
+            XCTAssertEqual(TranscriptGrouping.checkInLabel(count: count, time: string(testCase["time"])), testCase["expected"] as? String, name)
+        }
+    }
+    func testCheckInSpecimenMatchesFixture() throws {
+        let rows = try XCTUnwrap(try fixture()["checkInSpecimen"] as? [[String: Any]])
+        let want = try rows.map { row in
+            TranscriptGrouping.CheckInSpecimenRow(
+                kind: try XCTUnwrap(TranscriptGrouping.FeedRowRole(rawValue: try XCTUnwrap(row["kind"] as? String))),
+                time: string(row["time"]),
+                text: string(row["text"])
+            )
+        }
+        XCTAssertEqual(TranscriptGrouping.checkInSpecimen, want)
     }
     // #EXP-1864: a tool row named in `notices` is THE inline marker.
     func testReplaysEveryNoticeCase() throws {

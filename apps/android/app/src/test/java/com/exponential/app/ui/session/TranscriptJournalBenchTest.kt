@@ -162,7 +162,7 @@ internal fun measure(events: List<ReplayEvent>, label: String, window: Int, prin
 
 /** The screen's row projection (`ActivityFeed`'s `rows`). */
 internal fun projectRows(feed: List<AgentFeedItem>, from: Int): List<AgentFeedRow> =
-    dropHiddenFeedRows(splitWorkflowToolRows(groupFeedRows(feed, from, emptySet()), emptySet()))
+    dropHiddenFeedRows(splitWorkflowToolRows(groupFeedRows(feed, from, emptySet()), emptySet())).rows
 
 /**
  * The large-chat guard (fixtures/steer-enet.json REPLAY TAIL): a synthetic

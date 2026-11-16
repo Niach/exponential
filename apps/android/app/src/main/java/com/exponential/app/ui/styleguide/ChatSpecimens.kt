@@ -88,6 +88,8 @@ import com.exponential.app.ui.chat.ChatHeader
 import com.exponential.app.ui.chat.ChatHeaderButton
 import com.exponential.app.ui.chat.ChatConversation
 import com.exponential.app.ui.chat.ChatRowMeta
+import com.exponential.app.ui.chat.FeedMarkerRow
+import com.exponential.app.ui.chat.MessageBubble
 import com.exponential.app.ui.chats.ChatsContent
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -646,12 +648,39 @@ private fun specimenClock(wire: String): String? = runCatching {
         .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
 }.getOrNull()
 
+/** #EXP-1873 `checkInSpecimen` through `feedRows`: a run of quiet check-ins
+ *  = ONE marker line, the answered one keeps its marker + the agent's bubble. */
+@Composable
+private fun CheckInSpecimen(modifier: Modifier = Modifier) {
+    val rows = com.exponential.app.domain.TranscriptGrouping.CHECK_IN_SPECIMEN
+    val shown = remember { com.exponential.app.domain.TranscriptGrouping.feedRows(rows.map { it.kind }) }
+    Column(modifier.fillMaxWidth().testTag("chat-check-in-specimen"), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        rows.forEachIndexed { index, row ->
+            when (val drawn = shown[index]) {
+                com.exponential.app.domain.TranscriptGrouping.FeedRowShown.Hidden -> Unit
+                is com.exponential.app.domain.TranscriptGrouping.FeedRowShown.CheckIn ->
+                    FeedMarkerRow(com.exponential.app.domain.TranscriptGrouping.checkInLabel(drawn.count, row.time))
+                com.exponential.app.domain.TranscriptGrouping.FeedRowShown.Row -> when (row.kind) {
+                    com.exponential.app.domain.TranscriptGrouping.FeedRowRole.Schedule ->
+                        FeedMarkerRow(com.exponential.app.domain.TranscriptGrouping.Copy.MARKERS.getValue("schedule"))
+                    com.exponential.app.domain.TranscriptGrouping.FeedRowRole.Quiet ->
+                        FeedMarkerRow(com.exponential.app.domain.TranscriptGrouping.NOTICES.getValue("session_self_quiet"))
+                    else -> MessageBubble(text = row.text.orEmpty(), own = false, time = row.time, author = "Assistant")
+                }
+            }
+        }
+    }
+}
+
 /** A chat's transcript as phone bubbles, bare (no header: the web entry's
  *  picture; shot `sg_chat-transcript`). */
 @Composable
 fun ChatTranscriptSpecimenScreen() {
     AppBackground {
-        Box(Modifier.fillMaxSize().statusBarsPadding().testTag(ChatTranscriptSpecimenTestId)) {
+        Column(Modifier.fillMaxSize().statusBarsPadding().testTag(ChatTranscriptSpecimenTestId)) {
+            // #EXP-1873: an agent chat's quiet check-ins, one line per run
+            // (web's CheckInSpecimen); above the transcript so the shot shows it.
+            CheckInSpecimen(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp))
             ChatConversation(
                 rows = TRANSCRIPT,
                 rootId = "r",
@@ -661,7 +690,7 @@ fun ChatTranscriptSpecimenScreen() {
                 onDecidePlan = { _, _, _ -> },
                 canUnqueue = { false },
                 onUnqueue = {},
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxWidth().weight(1f),
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 24.dp),
                 onSurfaceReply = {},
                 onOpenXref = {},
