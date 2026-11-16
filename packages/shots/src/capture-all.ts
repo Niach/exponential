@@ -59,6 +59,7 @@ import {
   type FfiAbi,
 } from "./android.ts"
 import { IOS_MOBILE_FFI, iosFfiProblems, iosProjectMissing, iosSimArch } from "./ios.ts"
+import { isolatedStack, relayHealthUrl, relayUrl } from "./stack.ts"
 import { baselineSkipNote, scopeSince, storeBaseline, type AffectedScope } from "./affected.ts"
 import {
   captureDesktop,
@@ -525,6 +526,14 @@ async function reachable(url: string): Promise<boolean> {
   }
 }
 
+async function healthy(url: string): Promise<boolean> {
+  try {
+    return (await fetch(url, { signal: AbortSignal.timeout(8_000) })).ok
+  } catch {
+    return false
+  }
+}
+
 async function preflight(options: Options, scope: Scope): Promise<Check[]> {
   const checks: Check[] = []
   // VAPP-88: a package-only run (the SDK example apps) photographs nothing
@@ -535,7 +544,9 @@ async function preflight(options: Options, scope: Scope): Promise<Check[]> {
   const running = (name: string): boolean => (services.get(name) ?? ``).toLowerCase() === `running`
   if (compose.problem) checks.push({ label: `docker compose ps`, ok: false, detail: compose.problem })
 
-  for (const service of backendless ? [] : CORE_SERVICES) {
+  // An isolated stack runs its own services: the proxy, dev server and relay
+  // probes below are what this run talks to.
+  for (const service of backendless || isolatedStack(process.env) ? [] : CORE_SERVICES) {
     checks.push({
       label: `docker compose: ${service}`,
       ok: running(service),
@@ -545,12 +556,16 @@ async function preflight(options: Options, scope: Scope): Promise<Check[]> {
     })
   }
   if (needsRelay(options, scope) && !options.skipRelay) {
+    // Probed, not looked up in compose: an isolated stack's relay may run in
+    // another compose project or from source (`SHOTS_RELAY_URL`).
+    const health = relayHealthUrl(relayUrl(process.env))
+    const relayOk = await healthy(health)
     checks.push({
-      label: `docker compose: steer-relay`,
-      ok: running(`steer-relay`),
-      detail: running(`steer-relay`)
+      label: `steer relay: ${health}`,
+      ok: relayOk,
+      detail: relayOk
         ? undefined
-        : `not running — \`docker compose --profile steer up -d\` (needed by ${[...STEER_DEPENDENT_VIEWS].join(`, `)} and every native lane)`,
+        : `unreachable — \`docker compose --profile steer up -d\`, or SHOTS_RELAY_URL for an isolated stack's relay (needed by ${[...STEER_DEPENDENT_VIEWS].join(`, `)} and every native lane)`,
     })
   }
 
@@ -587,18 +602,14 @@ async function preflight(options: Options, scope: Scope): Promise<Check[]> {
       ok: allowed.ok,
       detail: allowed.ok ? undefined : allowed.message,
     })
-    let binaryDetail: string | undefined
+    // A missing or foreign binary is built by the lane (`ensureBinary`).
+    let binaryDetail: string
     try {
       binaryDetail = resolveBinary()
-    } catch (error) {
-      binaryDetail = undefined
-      checks.push({
-        label: `desktop app binary`,
-        ok: false,
-        detail: error instanceof Error ? error.message : String(error),
-      })
+    } catch {
+      binaryDetail = `not built yet — the desktop lane runs \`cargo build --release -p app\``
     }
-    if (binaryDetail) checks.push({ label: `desktop app binary`, ok: true, detail: binaryDetail })
+    checks.push({ label: `desktop app binary`, ok: true, detail: binaryDetail })
   }
 
   // One simulator lane serves both frames (`servedBy`).
@@ -727,6 +738,33 @@ interface LaneOutcome {
  * views wait for the desktop lane); passes never overlap, because both would
  * write the same `capture-views.json`.
  */
+/**
+ * The browser's P2P node (`apps/web/public/enet`, gitignored): without it
+ * every web session page reads "No live transcript". Built ONCE per run when
+ * missing; the dev server serves `public/` as it is on disk, so no restart.
+ */
+const WEB_ENET = {
+  wasm: `apps/web/public/enet/exponential_net_wasm_bg.wasm`,
+  script: `scripts/build-enet-wasm.sh`,
+} as const
+let webEnet: Promise<string | undefined> | undefined
+function ensureWebEnet(): Promise<string | undefined> {
+  webEnet ??= (async () => {
+    if (existsSync(join(repoRoot(), WEB_ENET.wasm))) return undefined
+    console.log(`\n── web: ${WEB_ENET.wasm} is missing, building it ──`)
+    const result = await run({
+      cmd: [`bash`, WEB_ENET.script],
+      cwd: repoRoot(),
+      stream: true,
+      label: `[web:enet]`,
+      timeoutMs: 45 * 60_000,
+    })
+    if (result.code === 0 && existsSync(join(repoRoot(), WEB_ENET.wasm))) return undefined
+    return `${WEB_ENET.wasm} is missing and \`bash ${WEB_ENET.script}\` exited ${result.code} (its log says what to install) — without it every session page reads "No live transcript"`
+  })()
+  return webEnet
+}
+
 async function captureWebPass(
   formFactors: Platform[],
   views: string[],
@@ -747,6 +785,15 @@ async function captureWebPass(
     rawDir(),
   ]
   if (explicit) cmd.push(`--views`, views.join(`,`))
+
+  const enet = await ensureWebEnet()
+  if (enet) {
+    for (const platform of formFactors) {
+      const owed = views.filter((id) => scope.get(platform)?.has(id))
+      if (owed.length > 0) outcomes.push({ platform, ok: false, detail: enet, failedViews: owed })
+    }
+    return
+  }
 
   // EXP-913: the lane is judged on the results file it is about to write, so
   // the PREVIOUS run's rows must not be sitting there — a crash before the
@@ -1715,14 +1762,14 @@ async function startRelayStub(skipSeed: boolean): Promise<Child | undefined> {
   // the browser and desktop lanes lost their steering shots and android had to
   // run in a pass of its own. An isolated stack on other ports names its own
   // relay (`SHOTS_RELAY_URL`, VAPP-170).
-  const relayUrl = process.env.SHOTS_RELAY_URL?.trim() || `ws://localhost:4002`
+  const relay = relayUrl(process.env)
 
-  console.log(`\n── steer relay stub (${relayUrl}) ─────────────────────`)
+  console.log(`\n── steer relay stub (${relay}) ─────────────────────`)
   // EXP-1558: a second stub on the same relay registers the demo machine
   // twice and its eNet node revokes the first one's install mid-capture, so a
   // `--skip-seed` run (parallel lanes, a rerun) REUSES the stub this checkout
   // already runs. A seeding run replaces it: the seed wipes the rows it wrote.
-  const running = runningStub(relayUrl)
+  const running = runningStub(relay)
   if (running && skipSeed) {
     console.log(`  reusing the running stub (pid ${running.pid}); it is left running afterwards`)
     return undefined
@@ -1743,7 +1790,7 @@ async function startRelayStub(skipSeed: boolean): Promise<Child | undefined> {
       env: {
         ...process.env,
         STEER_RELAY_SECRET: secret,
-        STEER_RELAY_URL: relayUrl,
+        STEER_RELAY_URL: relay,
       } as Record<string, string>,
       stdout: `pipe`,
       stderr: `pipe`,
@@ -1798,7 +1845,7 @@ async function startRelayStub(skipSeed: boolean): Promise<Child | undefined> {
  * The stub `screenshots:desktop` runs from THIS checkout, when it is alive and
  * on the same relay and database (its record: apps/web/scripts/screenshot-desktop.ts).
  */
-function runningStub(relayUrl: string): { pid: number } | undefined {
+function runningStub(relay: string): { pid: number } | undefined {
   const key = createHash(`sha1`).update(resolve(repoRoot())).digest(`hex`).slice(0, 12)
   const file = join(tmpdir(), `exp-screenshot-stub-${key}.json`)
   let record: { pid?: number; relayUrl?: string; databaseUrl?: string }
@@ -1808,7 +1855,7 @@ function runningStub(relayUrl: string): { pid: number } | undefined {
     return undefined
   }
   const databaseUrl = process.env.SHOTS_DATABASE_URL ?? process.env.DATABASE_URL
-  if (!record.pid || record.relayUrl !== relayUrl) return undefined
+  if (!record.pid || record.relayUrl !== relay) return undefined
   if (databaseUrl && record.databaseUrl && record.databaseUrl !== databaseUrl) return undefined
   try {
     process.kill(record.pid, 0)

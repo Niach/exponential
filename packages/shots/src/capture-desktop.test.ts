@@ -9,6 +9,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { latestChangelogEntry } from "../../../apps/web/src/lib/changelog.ts"
 import {
+  windowCapture,
   assertBinaryFromCheckout,
   binaryCheckout,
   desktopChangelogHeadId,
@@ -82,5 +83,15 @@ describe(`assertBinaryFromCheckout`, () => {
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
+  })
+})
+
+describe(`windowCapture`, () => {
+  // A macOS alert over the window must not land in the store: the window
+  // alone is the default, the screen rect an opt-in.
+  test(`the window alone unless SHOTS_DESKTOP_CAPTURE=rect`, () => {
+    expect(windowCapture({})).toBe(true)
+    expect(windowCapture({ SHOTS_DESKTOP_CAPTURE: `window` })).toBe(true)
+    expect(windowCapture({ SHOTS_DESKTOP_CAPTURE: ` RECT ` })).toBe(false)
   })
 })

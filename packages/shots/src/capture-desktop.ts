@@ -11,16 +11,18 @@
  *   1. mint a session token from the demo credentials (`EXP_DEV_TOKEN`),
  *   2. per view: the run's throwaway `EXP_DATA_DIR`, the drive vars, a pinned
  *      window size, a fresh `EXP_DEV_READY_FILE`, spawn the release binary,
- *   3. poll System Events (by pid) until the app has a window — CGWindowList
- *      via JXA is a dead end on current macOS: `deepUnwrap` hands back an empty
- *      object and the CFBridging route segfaults, while the Accessibility query
- *      is stable,
+ *   3. poll System Events (by pid) until the app has a window (its rect: the
+ *      Accessibility query is the stable one),
  *   4. wait for the app to WRITE its ready file (EXP-633): every shape Live,
  *      the session synced, the requested dialog settled. This replaced a fixed
  *      six-second sleep that was simultaneously too long for a settings pane
  *      and too short for a cold Electric — the app now says when it is ready,
  *      and `anchorDelayMs` is only the last frame of layout on top,
- *   5. raise the window and `screencapture -x -R<x,y,w,h>` its rect,
+ *   5. raise the window and photograph THE WINDOW (`screencapture -o -l<id>`,
+ *      the id from CGWindowList by pid, flattened onto black like the store's
+ *      corners): a macOS alert or dialog sitting over it stays out of the
+ *      shot. `SHOTS_DESKTOP_CAPTURE=rect` (or no window id) falls back to the
+ *      screen rect, `-R<x,y,w,h>`,
  *   6. gate on luminance variance: a flat dark rectangle means the window was
  *      caught before first paint, so retry once with more settle time,
  *   7. kill the app; the data dir is wiped once per RUN, not per view.
@@ -32,9 +34,10 @@
  * stable, so a full lane registers a single synced `devices` row instead of
  * twenty ghost machines named after the host.
  *
- * The app is never BUILT here: cargo builds take minutes and belong to the
- * developer's own loop, so a missing binary is a preflight failure with the
- * exact command to fix it.
+ * The app is built only when this checkout has no binary of its own (a fresh
+ * clone, an edit since the last build): `cargo build --release -p app`, which
+ * an up-to-date target dir answers in seconds. `--app-binary` names one and
+ * is never rebuilt.
  */
 import {
   existsSync,
@@ -60,6 +63,7 @@ import {
   STARTER_EMAIL,
   STARTER_PASSWORD,
 } from "../../../apps/web/scripts/screenshot-demo.ts"
+import sharp from "sharp"
 import { luminanceVariance } from "./encode.ts"
 import { missingPlaceholder, resolveDriveValue, type DemoIds } from "./ids.ts"
 import { killChild, run, sleep, track, type Child } from "./lib/proc.ts"
@@ -415,8 +419,7 @@ export async function captureDesktop(
 ): Promise<CaptureDesktopResult> {
   const baseUrl = options.baseUrl ?? DEFAULT_BASE_URL
   const processName = options.processName ?? DEFAULT_PROCESS_NAME
-  const binary = resolveBinary(options.binary)
-  if (!options.dryRun) assertBinaryFromCheckout(binary)
+  const binary = options.dryRun ? resolveBinary(options.binary) : await ensureBinary(options.binary)
   const wanted = options.viewIds ? new Set(options.viewIds) : undefined
   const shots: DesktopShotResult[] = []
 
@@ -734,18 +737,13 @@ async function captureOne(options: CaptureOneOptions): Promise<string> {
       // park it outside the window before the settle repaints.
       await parkPointer(rect)
       await sleep(options.anchorDelayMs + (attempt === 1 ? FLAT_RETRY_EXTRA_MS : 0))
-      // Raise the window right before the shutter: `-R` photographs a screen
-      // RECT, so anything overlapping it would end up in the store.
+      // Raise the window right before the shutter: the `-R` fallback
+      // photographs a screen RECT, so anything overlapping it would end up in
+      // the store.
       await raiseWindow(child.pid)
       await sleep(300)
 
-      const capture = await run({
-        cmd: [`screencapture`, `-x`, `-R${rect}`, out],
-        timeoutMs: 30_000,
-      })
-      if (capture.code !== 0 || !existsSync(out)) {
-        throw new Error(`screencapture exited ${capture.code}: ${capture.stderr.trim()}`)
-      }
+      await shootWindow(child.pid, rect, out)
 
       const variance = await luminanceVariance(readFileSync(out))
       if (variance < FLAT_IMAGE_STDEV) {
@@ -840,7 +838,53 @@ async function waitForWindowRect(pid: number): Promise<string | undefined> {
   return undefined
 }
 
-/** Bring the process's windows to the front so nothing overlaps the rect. */
+/**
+ * The CGWindowList number of `pid`'s first normal (layer 0) on-screen window,
+ * or undefined. JXA: `objectForKey` on each entry (a `deepUnwrap` of the whole
+ * list hands back empty objects).
+ */
+const WINDOW_ID_JXA = `ObjC.import("CoreGraphics")
+function run(argv) {
+  const list = ObjC.castRefToObject($.CGWindowListCopyWindowInfo($.kCGWindowListOptionOnScreenOnly | $.kCGWindowListExcludeDesktopElements, $.kCGNullWindowID))
+  for (let i = 0; i < list.count; i++) {
+    const w = list.objectAtIndex(i)
+    if (ObjC.unwrap(w.objectForKey("kCGWindowOwnerPID")) === Number(argv[0]) && ObjC.unwrap(w.objectForKey("kCGWindowLayer")) === 0) {
+      return String(ObjC.unwrap(w.objectForKey("kCGWindowNumber")))
+    }
+  }
+  return ""
+}`
+
+async function windowId(pid: number): Promise<number | undefined> {
+  const result = await run({ cmd: [`osascript`, `-l`, `JavaScript`, `-e`, WINDOW_ID_JXA, String(pid)], timeoutMs: 10_000 })
+  const id = Number.parseInt(result.stdout.trim(), 10)
+  return result.code === 0 && Number.isFinite(id) ? id : undefined
+}
+
+/** `SHOTS_DESKTOP_CAPTURE=rect` photographs the screen rect instead of the window. */
+export function windowCapture(env: Record<string, string | undefined> = process.env): boolean {
+  return env.SHOTS_DESKTOP_CAPTURE?.trim().toLowerCase() !== `rect`
+}
+
+/**
+ * Photograph `pid`'s window into `out`: the window alone (`-l`, no shadow),
+ * whatever sits on top of it, its transparent rounded corners flattened onto
+ * black as the rect shots always had them; else the screen rect.
+ */
+async function shootWindow(pid: number, rect: string, out: string): Promise<void> {
+  const id = windowCapture() ? await windowId(pid) : undefined
+  const capture = await run({
+    cmd: id === undefined ? [`screencapture`, `-x`, `-R${rect}`, out] : [`screencapture`, `-x`, `-o`, `-l${id}`, out],
+    timeoutMs: 30_000,
+  })
+  if (capture.code !== 0 || !existsSync(out)) {
+    throw new Error(`screencapture exited ${capture.code}: ${capture.stderr.trim()}`)
+  }
+  if (id !== undefined) {
+    writeFileSync(out, await sharp(readFileSync(out)).flatten({ background: `#000000` }).png().toBuffer())
+  }
+}
+
 /** Move the pointer just past the window's bottom-right corner (best-effort:
  *  `cliclick` is optional; without it the pointer stays where it is). */
 async function parkPointer(rect: string): Promise<void> {
@@ -849,6 +893,7 @@ async function parkPointer(rect: string): Promise<void> {
   await run({ cmd: [`cliclick`, `m:${x! + w! + 24},${y! + h! + 24}`], timeoutMs: 5_000 }).catch(() => undefined)
 }
 
+/** Bring the process's windows to the front so nothing overlaps the rect. */
 async function raiseWindow(pid: number): Promise<void> {
   await run({
     cmd: [
@@ -895,13 +940,7 @@ export async function captureManual(
 
   const out = rawShotPath(`desktop`, viewId)
   mkdirSync(dirname(out), { recursive: true })
-  const capture = await run({
-    cmd: [`screencapture`, `-x`, `-R${rect}`, out],
-    timeoutMs: 30_000,
-  })
-  if (capture.code !== 0 || !existsSync(out)) {
-    throw new Error(`screencapture exited ${capture.code}: ${capture.stderr.trim()}`)
-  }
+  await shootWindow(pid, rect, out)
   console.log(`[desktop] ${viewId}: captured from \`${owner}\` → ${out}`)
   return out
 }
@@ -933,6 +972,35 @@ export function resolveBinary(binary?: string): string {
       `  Build it first: cd apps/desktop && cargo build --release -p app`,
     ].join(`\n`)
   )
+}
+
+/**
+ * The binary to photograph. A named one (`--app-binary`) must already be this
+ * checkout's; otherwise a missing, foreign or stale one is rebuilt from this
+ * checkout first, so a fresh clone needs no manual step.
+ */
+export async function ensureBinary(binary?: string): Promise<string> {
+  const check = (): string => {
+    const found = resolveBinary(binary)
+    assertBinaryFromCheckout(found)
+    return found
+  }
+  if (binary) return check()
+  try {
+    return check()
+  } catch (error) {
+    const why = error instanceof Error ? error.message.split(`\n`)[0] : String(error)
+    console.log(`[desktop] ${why}\n[desktop] building it: cargo build --release -p app`)
+  }
+  const build = await run({
+    cmd: [`cargo`, `build`, `--release`, `-p`, `app`, `--manifest-path`, join(repoRoot(), `apps/desktop/Cargo.toml`)],
+    cwd: join(repoRoot(), `apps/desktop`),
+    stream: true,
+    label: `[desktop:build]`,
+    timeoutMs: 90 * 60_000,
+  })
+  if (build.code !== 0) throw new Error(`\`cargo build --release -p app\` (apps/desktop) exited ${build.code}`)
+  return check()
 }
 
 /** EXP-1558: the literal `crates/app/src/main.rs` links into every build (`BUILT_FROM`). */
