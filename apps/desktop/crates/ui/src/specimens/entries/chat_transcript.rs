@@ -238,6 +238,8 @@ fn check_in_rows(images: &Entity<ImageCache>, cx: &mut App) -> Vec<AnyElement> {
                         status: None,
                         menu: None,
                         width: None,
+                        // #EXP-1873: no tail, as web's specimen bubble.
+                        tail: false.into(),
                     },
                     cx,
                 )
