@@ -1652,8 +1652,8 @@
         "file": "shots/chat-transcript/desktop.webp",
         "width": 1800,
         "height": 1125,
-        "bytes": 59086,
-        "sha256": "56906d279c16d84d84d7da76550ca697ffe864c82dc936c50008126ea15b08de"
+        "bytes": 58464,
+        "sha256": "463e10a12b1b905a7632ba366edeb55f85c81747e7103b6dee7795c4c222cd69"
       },
       "ios": {
         "file": "shots/chat-transcript/ios.webp",
