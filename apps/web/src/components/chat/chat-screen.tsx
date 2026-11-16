@@ -588,6 +588,9 @@ export function ChatScreen({
     busy: row.busy,
     needsInput: row.needsInput,
     blocked: row.blocked?.kind ?? null,
+    // #FEED-263: a wall names its device; a device back is no wall.
+    resumed: Boolean(row.blocked?.resumeSince),
+    device: deviceGlyph(row.deviceId)?.name ?? null,
     root: row.id === root.id,
   }))
   const waiting = sessionScreenWaiting(statusSessions, waitingAsks)

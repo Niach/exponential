@@ -11,6 +11,7 @@ import {
 } from "@exp/domain-contract/chats"
 import { chatWordOf, useTeamPullRequestsByRoot } from "@/components/chat/chats-list"
 import { useApps } from "@/hooks/use-apps"
+import { useDeviceGlyphs } from "@/hooks/use-device-glyphs"
 import { useNow } from "@/hooks/use-now"
 import {
   useAgents,
@@ -51,6 +52,8 @@ export function useChatList(
   cliOf: (sessionId: string) => string | null
   /** #NEW-49: what a root waits on (the `waiting` word's labels), else null. */
   waitingOf: (sessionId: string) => string | null
+  /** #FEED-263: a root's wall and its device's name (the `wall` word's text), else null. */
+  wallOf: (sessionId: string) => { kind: string; device: string | null } | null
   isReady: boolean
 } {
   const { groups, isReady } = useChatsList(teamId)
@@ -129,6 +132,14 @@ export function useChatList(
     [apps, tree, messages, reads, me, view, nowIso, offset]
   )
 
+  // #FEED-263: each root's wall (`partitionChats` `wall`), its device named.
+  const deviceGlyph = useDeviceGlyphs()
+  const walls = useMemo(() => {
+    const out = new Map<string, { kind: string; deviceId: string | null }>()
+    for (const group of groups) for (const row of group.rows) if (row.wall) out.set(row.sessionId, row.wall)
+    return out
+  }, [groups])
+
   const cliByRoot = useMemo(() => new Map(rows.map((row) => [row.id, row.cli ?? null])), [rows])
   return {
     list,
@@ -136,6 +147,10 @@ export function useChatList(
     appRows,
     cliOf: (sessionId) => cliByRoot.get(sessionId) ?? null,
     waitingOf: (sessionId) => waiting.get(sessionId) ?? null,
+    wallOf: (sessionId) => {
+      const wall = walls.get(sessionId)
+      return wall ? { kind: wall.kind, device: deviceGlyph(wall.deviceId)?.name ?? null } : null
+    },
     isReady,
   }
 }

@@ -21,7 +21,8 @@ import {
   chatRowLeadPr,
   chatRowMarkState,
   chatRowWord,
-  treeOffline,
+  treeWall,
+  chatWallText,
   chatsListUnread,
   treeState,
   sessionWaiting,
@@ -140,14 +141,18 @@ describe(`session-tree fixtures (EXP-1291)`, () => {
   }
   for (const entry of list.wordTextCases) {
     test(`row word text (#NEW-49): ${entry.name}`, () => {
-      expect(chatRowWordText(entry.word as never, entry.waiting)).toBe(entry.expected as never)
+      expect(chatRowWordText(entry.word as never, entry.waiting, (entry as { wall?: never }).wall ?? null)).toBe(entry.expected as never)
     })
   }
-  for (const entry of list.offlineCases) {
-    test(`tree offline: ${entry.name}`, () => {
-      expect(treeOffline(entry.tree as never)).toBe(entry.expected)
+  for (const entry of list.wallCases) {
+    test(`tree wall (#FEED-263): ${entry.name}`, () => {
+      expect(treeWall(entry.tree as never)).toEqual(entry.expected as never)
     })
   }
+  test(`wall text (#FEED-263): every wall has words, an unknown kind none`, () => {
+    for (const kind of Object.keys(list.copy.walls)) expect(chatWallText(kind, `MacBook`)).toBeTruthy()
+    expect(chatWallText(`restarted`)).toBeNull()
+  })
   for (const entry of list.stackCases) {
     test(`in stack: ${entry.name}`, () => {
       expect(chatInStack(entry.input.pullRequests, entry.input.teamPrs)).toBe(entry.expected)

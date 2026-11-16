@@ -1,6 +1,7 @@
 import type { ComponentType, ReactNode } from "react"
 import {
   CHAT_ROW_WORDS,
+  chatRowWordText,
   CHATS_LIST_COPY,
   chatInStack,
   chatRowLeadPr,
@@ -129,7 +130,7 @@ export interface ChatsListDevice {
  *  `chatRowWord` + `chatInStack`, `chat-list.json` ×4). `teamPrs` =
  *  the team's PRs (a stack edge may cross chats). */
 export function chatWordOf(
-  row: Pick<ChatsListRow, `busy` | `needsYou` | `offline`>,
+  row: Pick<ChatsListRow, `busy` | `needsYou` | `wall`>,
   prs: readonly ChatsListPr[],
   teamPrs: readonly ChatsListPr[] = prs,
   /** #NEW-49: the root's `sessionWaiting`, else null. */
@@ -140,7 +141,7 @@ export function chatWordOf(
     busy: row.busy,
     needsYou: row.needsYou,
     inStack: chatInStack(prs, teamPrs),
-    offline: row.offline ?? false,
+    wall: Boolean(row.wall),
     waiting,
   })
 }
@@ -307,7 +308,11 @@ function GroupRows({
             title={row.title}
             unread={row.unread}
             className={enter}
-            word={word ? (CHAT_ROW_WORDS[word] ?? null) : null}
+            word={chatRowWordText(
+              word,
+              null,
+              row.wall ? { kind: row.wall.kind, device: deviceGlyph(row.wall.deviceId)?.name ?? null } : null
+            )}
             wordIcon={word === `stack` ? <PrStackIcon className="size-3 shrink-0" /> : undefined}
             device={deviceGlyph(row.deviceId)}
             active={row.sessionId === activeId}
