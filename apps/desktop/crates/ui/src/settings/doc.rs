@@ -528,13 +528,17 @@ pub(super) fn mount_with<S: 'static>(surface_id: &str, tree: Value, binding: &gp
     };
     #[cfg(debug_assertions)]
     let bound = bound_values(&tree);
-    // #EXP-1887: a twin id doubles its accessibility node; gpui's debug
-    // build panics on it whenever it builds the a11y tree (an AT-SPI bus on
-    // Linux), so refuse it at mount, a11y or not.
+    // #EXP-1887: a twin id doubles its accessibility node, and gpui's debug
+    // build panics on that whenever it builds the a11y tree (an AT-SPI bus on
+    // Linux). Said here on every mount, a11y or not; an error, not a panic:
+    // twins in mutually exclusive branches never paint together. The
+    // documents' tests refuse any twin (`bound_values`).
     #[cfg(debug_assertions)]
     {
         let twins = duplicate_ids(&tree);
-        debug_assert!(twins.is_empty(), "{surface_id}: node ids used twice: {twins:?}");
+        if !twins.is_empty() {
+            log::error!("{surface_id}: node ids used twice: {twins:?}");
+        }
     }
     let tree: eui_core::NestedNode = serde_json::from_value(tree).expect("a settings document parses");
     let view = cx.new(|cx| {
