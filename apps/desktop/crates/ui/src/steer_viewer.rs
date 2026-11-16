@@ -8916,20 +8916,25 @@ impl SteerSessionView {
         if watching.is_empty() {
             return None;
         }
-        let muted = cx.theme().muted_foreground;
+        // Same rows as web/iOS/Android: the label (foreground), a hairline
+        // between rows, the trailing close glyph; no per-row icon.
+        let foreground = cx.theme().foreground;
+        let hairline = cx.theme().border;
         let dock = &domain::dock::DOCK;
         let cancel_label = SharedString::from(dock.copy.cancel_watch.clone());
-        let clock = registry::concept_by_name(&dock.icons.watches).unwrap_or(registry::UI_CLOCK);
         let close = registry::concept_by_name(&dock.icons.close).unwrap_or(registry::UI_CLOSE);
-        let mut column = v_flex().id("steer-watches").w_full().min_w_0().gap_0p5();
-        for watch in watching {
-            let mut row = tool_text(h_flex())
+        let mut column = v_flex().id("steer-watches").w_full().min_w_0();
+        let count = watching.len();
+        for (index, watch) in watching.into_iter().enumerate() {
+            let mut row = h_flex()
                 .w_full()
                 .min_w_0()
-                .gap_1p5()
+                .min_h(px(36.))
+                .gap_2()
                 .items_center()
-                .text_color(muted)
-                .child(Icon::new(clock.clone()).xsmall().text_color(muted.opacity(0.7)))
+                .text_sm()
+                .text_color(foreground)
+                .when(index + 1 < count, |row| row.border_b_1().border_color(hairline))
                 .child(div().flex_1().min_w_0().truncate().child(SharedString::from(watch.label.clone())));
             if self.may_message {
                 let session_id = self.session_id.clone();
