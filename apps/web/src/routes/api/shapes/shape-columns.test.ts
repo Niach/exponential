@@ -108,6 +108,8 @@ describe(`sessions allowlist`, () => {
     expect(SESSION_COLUMNS).not.toContain(`mcp_server_ids`)
     expect(SESSION_COLUMNS).not.toContain(`skill_ids`)
     expect(SESSION_COLUMNS).toContain(`agent_id`)
+    // #NEW-49: the projection syncs, the watches themselves stay server-only.
+    expect(SESSION_COLUMNS).toContain(`watching`)
   })
   it(`the NEW-8 legacy columns are gone from the tables`, () => {
     const names = (table: Parameters<typeof getTableColumns>[0]) =>

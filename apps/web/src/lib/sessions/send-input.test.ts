@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { sessionsConfigureInputSchema, sessionsSendInputSchema } from "@exp/db-schema/domain"
+import { parseSessionWatchSpec, sessionsConfigureInputSchema, sessionsSendInputSchema } from "@exp/db-schema/domain"
 
 // EXP-849: `account` on a message (`sessionId`) is an account SWITCH and may
 // ride alone; every other message still needs text or attachments.
@@ -61,6 +61,20 @@ describe(`sessionsSendInputSchema — a message`, () => {
     expect(sessionsSendInputSchema.safeParse({ sessionId: SESSION, wakeOn: [SESSION] }).success).toBe(true)
     expect(sessionsSendInputSchema.safeParse({ wakeOn: [SESSION] }).success).toBe(true)
     expect(sessionsSendInputSchema.safeParse({ sessionId: SESSION, wakeOn: [] }).success).toBe(false)
+  })
+
+  it(`#NEW-49: wakeOn takes event watches and -<id> cancels; anything else is refused`, () => {
+    const ok = (entry: string) => sessionsSendInputSchema.safeParse({ wakeOn: [entry] }).success
+    for (const entry of [`pr:1130`, `pr:#1130`, `pr:org/repo#1130:closed`, `pr:1130:checks`, `issue:EXP-12`, `issue:EXP-12:In Review`, `at:2026-11-16T14:30:00Z`, `at:2026-11-16T14:30:00+01:00`, `-${SESSION}`]) {
+      expect(ok(entry), entry).toBe(true)
+    }
+    for (const entry of [`pr:`, `pr:abc`, `issue:`, `at:2026-11-16T14:30:00`, `at:soon`, `-nope`, `soon`, `EXP-12`]) {
+      expect(ok(entry), entry).toBe(false)
+    }
+    expect(parseSessionWatchSpec(`pr:org/repo#7:closed`)).toEqual({ kind: `pr`, ref: `org/repo#7`, on: `closed` })
+    expect(parseSessionWatchSpec(`issue:exp-12:Done`)).toEqual({ kind: `issue`, ref: `exp-12`, status: `Done` })
+    expect(parseSessionWatchSpec(`at:2026-11-16T15:30:00+01:00`)).toEqual({ kind: `at`, at: `2026-11-16T14:30:00.000Z` })
+    expect(parseSessionWatchSpec(SESSION.toUpperCase())).toEqual({ kind: `session`, id: SESSION })
   })
 
   it(`takes a device alone (EXP-1252: a move), with an account too`, () => {

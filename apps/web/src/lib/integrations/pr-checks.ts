@@ -29,6 +29,7 @@ import type { Tx } from "@/lib/sessions/tx"
 import { generateTxId } from "@/lib/trpc"
 import { TtlPromiseCache } from "@/lib/ttl-promise-cache"
 import { LIVE_PR_STATES } from "@/lib/pr-merge-guard"
+import { fireWatches } from "@/lib/sessions/watches"
 
 // EXP-1610 (fixtures/pr-checks.json): CI on a PR, provider-neutral. The ONE
 // writer of `pull_request_checks` + `pull_requests.checks_state`: GitHub's
@@ -295,13 +296,17 @@ export async function postChecksWake(args: {
       const failing = gated
         .filter((row) => isFailingCheck(row) && row.conclusion !== `cancelled`)
         .map((row) => ({ name: row.name, detailsUrl: row.detailsUrl }))
-      return postPrChecksLine(tx, {
+      const body = checksWakeText(pr.number, args.state, failing)
+      // #NEW-49: every session watching this PR's CI hears it too (once).
+      const watchers = await fireWatches(tx, { kind: `pr_checks`, subjectId: args.pullRequestId, text: body })
+      const posted = await postPrChecksLine(tx, {
         pullRequestId: args.pullRequestId,
-        body: checksWakeText(pr.number, args.state, failing),
+        body,
         checksState: args.state,
         headSha: args.headSha,
         dedupe: true,
       })
+      return posted || watchers.length > 0
     })
   } catch (err) {
     console.error(`[pr-checks] wake for ${args.pullRequestId} failed`, err)

@@ -51,6 +51,8 @@ export interface HubSession {
   subagentKey: string | null
   /** Sessions this one watches (the bus wakes it with their transitions). */
   wakeOn: string[]
+  /** #NEW-49: the EVENTS this one watches (wakeups.json WATCH EVENTS): each fires once, then it is gone. */
+  watches: Watch[]
   /** A ROOT's tree key epoch (EXP-1458): non-null = keyed, its tree takes sealed text only (#FEED-185). */
   sealEpoch: number | null
   /** #EXP-1720: a ROOT's OTHER teams its tree may work in besides its own (the Assistant's picked teams ∩ the
@@ -64,6 +66,23 @@ export interface HubSession {
   updatedAt: number
 }
 
+/** #NEW-49: what an event watch waits for. `pr_checks` = the PR's CI settled; `pr_closed` = the PR merged or
+ *  closed; `issue_status` = the issue moved (to `status` when set); `at` = a time. */
+export type WatchKind = `pr_checks` | `pr_closed` | `issue_status` | `at`
+
+export interface Watch {
+  id: string
+  kind: WatchKind
+  /** The PR or issue it watches (null for `at`). */
+  subjectId: string | null
+  /** `issue_status` only: the status it waits for (null = any move). */
+  status: string | null
+  /** `at` only: when it fires (unix ms). */
+  at: number | null
+  /** What the person reads ("CI #1130", "EXP-12", "14:30"): the host's, the core never derives it. */
+  label: string
+}
+
 export type QuestionCard = { kind: `question`; question: string; options?: string[]; multi?: boolean; custom?: boolean }
 export type PlanCard = {
   kind: `plan`
@@ -75,7 +94,7 @@ export type Card =
   | PlanCard
   | { kind: `ask`; sessionId: string; messageId: string }
   | { kind: `report`; sessionId: string; summary: string; final: true }
-  | { kind: `event`; event: string; sessionId: string; pullRequestId?: string }
+  | { kind: `event`; event: string; sessionId: string; pullRequestId?: string; watchId?: string }
   | {
       kind: `event`
       event: `trigger_fired`

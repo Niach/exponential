@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { insertSessionWatchRows, watchedSessionIds } from "@/lib/sessions/watches"
 import { readFileSync } from "node:fs"
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { and, asc, eq, sql } from "drizzle-orm"
@@ -313,12 +314,9 @@ describe.skipIf(!ready.ok)(`escalate review: a private card never reaches reader
     const theirConversation = (await sendSession({ userId: other, input: { agentId: theirs!.id, text: `hi` } })).sessionId
     // watchSessions refuses a private session the watcher's account cannot see.
     expect(await db.transaction((tx) => watchSessions(tx, theirConversation, [w.chat]))).toEqual([])
-    expect((await row(theirConversation)).wakeOn ?? []).not.toContain(w.chat)
+    expect((await watchedSessionIds(theirConversation))).not.toContain(w.chat)
     // Even a (legacy) watch row of theirs never wins, ordered first by id or not.
-    await db
-      .update(sessions)
-      .set({ wakeOn: sql`coalesce(${sessions.wakeOn}, '[]'::jsonb) || ${JSON.stringify([w.chat])}::jsonb` })
-      .where(eq(sessions.id, theirConversation))
+    await insertSessionWatchRows(db, [theirConversation], [w.chat])
     const asked = await postAskCard({
       userId: w.owner,
       sessionId: w.childId,

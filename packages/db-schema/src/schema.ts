@@ -2233,10 +2233,9 @@ export const sessions = pgTable(
     // an agent's defaults, or inherited from the parent) — the only ids
     // `skills.resolveForLaunch` hands bodies for.
     skillIds: jsonb(`skill_ids`).$type<string[]>(),
-    // SERVER-ONLY (NEW-1): the sessions this one WATCHES. The bus delivers
-    // every transition of a watched session here exactly as to its parent,
-    // until the watched session ends (`sessions.send({wakeOn})`; a root
-    // started from inside a session is watched by its starter).
+    // DEPRECATED (#NEW-49): read by nothing since `session_watches` took
+    // the watched sessions over (migrated there); dropped in a later release
+    // so an older image can still roll back onto this schema.
     wakeOn: jsonb(`wake_on`).$type<string[]>(),
     repositoryId: uuid(`repository_id`).references(() => repositories.id, {
       onDelete: `set null`,
@@ -2316,6 +2315,12 @@ export const sessions = pgTable(
     // device, worktree and branch, takes no messages (a send goes to its
     // parent) and holds no tree slot. Unique per parent.
     subagentKey: text(`subagent_key`),
+    // #NEW-49 (eagent wakeups.json WATCH EVENTS): what this session waits
+    // on, the PUBLIC projection of its `session_watches` rows (oldest
+    // first: {id, kind, label}), rewritten in the same transaction as every
+    // watch change (`lib/sessions/watches.ts syncWatching`). SYNCED: the
+    // row, the header and the Dock say "Waiting on …" from it.
+    watching: jsonb().$type<SessionWatchingJson[]>(),
     ...timestamps,
   },
   (table) => [
@@ -2342,7 +2347,7 @@ export const sessions = pgTable(
     index(`idx_sessions_parent`).on(table.parentId),
     index(`idx_sessions_root`).on(table.rootId),
     index(`idx_sessions_user`).on(table.userId),
-    // The bus's reverse lookup: who watches a session.
+    // The bus's reverse lookup of the deprecated `wake_on` (#NEW-49).
     index(`idx_sessions_wake_on`).using(`gin`, table.wakeOn),
     // The device pickup + the watchdog.
     index(`idx_sessions_device_live`)
@@ -2350,6 +2355,57 @@ export const sessions = pgTable(
       .where(sql`status <> 'ended'`),
   ]
 )
+
+// #NEW-49 (eagent wakeups.json WATCH EVENTS): what a session WAITS ON, one
+// row per watch. `session` = another session (the bus delivers its every
+// transition here as to its parent, until it ends: `sessions.send({wakeOn})`;
+// a root started from inside a session is watched by its starter);
+// `pr_checks` = a PR's CI settled; `pr_closed` = a PR merged or closed;
+// `issue_status` = an issue moved (to `status` when set); `at` = a time.
+// Every event watch fires ONCE (one pending line, then the row is gone); a
+// gone subject fires it too. `label` = what a person reads ("CI #1130",
+// "EXP-12", "14:30"), resolved when the watch is made. SERVER-ONLY: the
+// synced projection is `sessions.watching`.
+export const sessionWatches = pgTable(
+  `session_watches`,
+  {
+    id: uuidPk(),
+    sessionId: uuid(`session_id`)
+      .notNull()
+      .references(() => sessions.id, { onDelete: `cascade` }),
+    kind: varchar({ length: 16 }).$type<SessionWatchKind>().notNull(),
+    // The watched session, PR or issue (null for `at`). No FK: a gone
+    // subject fires its watches (`gone`), it never cascades them silently.
+    subjectId: uuid(`subject_id`),
+    status: varchar({ length: 32 }),
+    at: timestamp({ withTimezone: true }),
+    label: varchar({ length: 64 }).notNull(),
+    createdAt: timestamp(`created_at`, { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index(`idx_session_watches_session`).on(table.sessionId),
+    // The firing lookups: who watches this subject; which times are due.
+    index(`idx_session_watches_subject`).on(table.subjectId, table.kind),
+    index(`idx_session_watches_at`).on(table.at).where(sql`kind = 'at'`),
+    // An equal watch is held once (eagent `sameWatch`).
+    unique(`uniq_session_watches_same`)
+      .on(table.sessionId, table.kind, table.subjectId, table.status, table.at)
+      .nullsNotDistinct(),
+  ]
+)
+
+export type SessionWatchKind = `session` | `pr_checks` | `pr_closed` | `issue_status` | `at`
+
+/** #NEW-49: one entry of the synced `sessions.watching`. */
+export interface SessionWatchingJson {
+  id: string
+  kind: SessionWatchKind
+  /** The watched session, PR or issue (null for `at`). */
+  subjectId: string | null
+  label: string
+  /** `at` only (ISO). */
+  at?: string | null
+}
 
 // EXP-1458: a session tree's secret, wrapped (`push_seal`) for each reader
 // install, per epoch (fixtures/sealed-content.json). The readers rule and
@@ -4844,6 +4900,7 @@ export const selectSessionSchema = createSelectSchema(sessions, {
   guide: z.custom<GuideEntry[]>((value) => value === null || Array.isArray(value)),
   mcpServerIds: z.array(z.string()).nullable(),
   skillIds: z.array(z.string()).nullable(),
+  watching: z.custom<SessionWatchingJson[]>((value) => value === null || value === undefined || Array.isArray(value)),
 })
 export const selectSyncedSessionSchema = selectSessionSchema.omit({
   mcpServerIds: true,
@@ -5047,6 +5104,7 @@ export type SidebarLayoutRow = InferSelectModel<typeof sidebarLayout>
 export type IssueSubscriber = InferSelectModel<typeof issueSubscribers>
 export type IssueEvent = InferSelectModel<typeof issueEvents>
 export type Session = InferSelectModel<typeof sessions>
+export type SessionWatch = InferSelectModel<typeof sessionWatches>
 export type SessionIssue = InferSelectModel<typeof sessionIssues>
 export type Message = InferSelectModel<typeof messages>
 // NEW-3

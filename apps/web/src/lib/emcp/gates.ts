@@ -62,7 +62,7 @@ export async function resolveMcpToolGates(
       rootAgentId: root.agentId,
       // NEW-1: a live session watches this one (its spawner): nobody is
       // watching in person.
-      watched: sql<boolean>`EXISTS (SELECT 1 FROM sessions w WHERE w.status <> 'ended' AND w.wake_on @> jsonb_build_array(${sessions.id}::text))`,
+      watched: sql<boolean>`EXISTS (SELECT 1 FROM session_watches sw JOIN sessions w ON w.id = sw.session_id WHERE w.status <> 'ended' AND sw.kind = 'session' AND sw.subject_id = ${sessions.id})`,
     })
     .from(sessions)
     .leftJoin(root, eq(root.id, sessions.rootId))

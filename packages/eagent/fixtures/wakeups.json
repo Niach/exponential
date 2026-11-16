@@ -1,5 +1,5 @@
 {
-  "$comment": "WAKE-UPS (lib/sessions/bus.ts watchSessions, trpc sessions.consume, lib/agents/triggers.ts, lib/agents/assistant-chat.ts memberChatsChanged). A session wakes ONLY on pending input: a person's message, another session's message or bus line (bus.json), an answered card, a trigger firing. Its device delivers pending input and CONSUMES it (`device.consume`); the watchdog nudges the host again while input stays pending (watchdog.json). WATCH (`send.watch`, `sessions_send {wakeOn}`): the watcher adds LIVE sessions of its team its account may see (shared, or its own user's), never itself; unknown, ended, foreign or private-to-another ids drop silently; idempotent. SCHEDULES fire into the agent OWNER's conversation with it as a user-authored, pending `trigger_fired` card (triggerId set, eventId null). The host scheduler decides which minutes are due (cron + tz, a first-seen trigger armed not fired, the window capped at rules.trigger.catchUpHours) and sends `trigger.schedule {due}`; the hub then: (1) skips the tick when it already fired once (`firedAt`) and nothing moved since the latest firing (no session in the agent's trees, i.e. the root sessions it started plus its conversations' children, has lastActivityAt after it; an agent with no tree always counts as moved; an Assistant counts every session of its member in the team except its own conversation root); (2) folds every due schedule into ONE card body (one copy.schedule line each, `caught up` when fired more than caughtUpAfterMinutes after the due minute); (3) NEVER STACKS: an unread tick card takes the new text in place (edit, no nudge); a read one no person message came after is edited and re-armed (pending again, nudged); otherwise a new card (nudged); (4) records `firedAt` per due trigger. EVENTS (`trigger.event`, an `events` row landing): every enabled event trigger on that name in the team fires a user-authored pending `trigger_fired` card (triggerId, eventId = the envelope id, name) into its agent's root session (rootSessionId; phase A: the owner's conversation), agents by id, never the agent whose own tree emitted it; each firing nudges. #EXP-1720: a watcher's teams are its tree's (`treeTeams`, tree.json): the Assistant watches its children and root sessions in every scope team; an Assistant's quiet tick counts its member's sessions in its conversation's tree teams only; an event fires the agents of the team it was emitted in (the session's own team), whatever team the tree's root is in, never the tree's own agent. #EXP-1735: a team LEAD's quiet tick also counts every session that reports to it (bus.json `leadOf`) moving.",
+  "$comment": "WAKE-UPS (lib/sessions/bus.ts watchSessions, trpc sessions.consume, lib/agents/triggers.ts, lib/agents/assistant-chat.ts memberChatsChanged). A session wakes ONLY on pending input: a person's message, another session's message or bus line (bus.json), an answered card, a trigger firing. Its device delivers pending input and CONSUMES it (`device.consume`); the watchdog nudges the host again while input stays pending (watchdog.json). WATCH (`send.watch`, `sessions_send {wakeOn}`): the watcher adds LIVE sessions of its team its account may see (shared, or its own user's), never itself; unknown, ended, foreign or private-to-another ids drop silently; idempotent. SCHEDULES fire into the agent OWNER's conversation with it as a user-authored, pending `trigger_fired` card (triggerId set, eventId null). The host scheduler decides which minutes are due (cron + tz, a first-seen trigger armed not fired, the window capped at rules.trigger.catchUpHours) and sends `trigger.schedule {due}`; the hub then: (1) skips the tick when it already fired once (`firedAt`) and nothing moved since the latest firing (no session in the agent's trees, i.e. the root sessions it started plus its conversations' children, has lastActivityAt after it; an agent with no tree always counts as moved; an Assistant counts every session of its member in the team except its own conversation root); (2) folds every due schedule into ONE card body (one copy.schedule line each, `caught up` when fired more than caughtUpAfterMinutes after the due minute); (3) NEVER STACKS: an unread tick card takes the new text in place (edit, no nudge); a read one no person message came after is edited and re-armed (pending again, nudged); otherwise a new card (nudged); (4) records `firedAt` per due trigger. EVENTS (`trigger.event`, an `events` row landing): every enabled event trigger on that name in the team fires a user-authored pending `trigger_fired` card (triggerId, eventId = the envelope id, name) into its agent's root session (rootSessionId; phase A: the owner's conversation), agents by id, never the agent whose own tree emitted it; each firing nudges. #EXP-1720: a watcher's teams are its tree's (`treeTeams`, tree.json): the Assistant watches its children and root sessions in every scope team; an Assistant's quiet tick counts its member's sessions in its conversation's tree teams only; an event fires the agents of the team it was emitted in (the session's own team), whatever team the tree's root is in, never the tree's own agent. #EXP-1735: a team LEAD's quiet tick also counts every session that reports to it (bus.json `leadOf`) moving. WATCH EVENTS (#NEW-49, `send.watch {watches}`, `send.unwatch`, `watch.fire`, the watchdog's tick): besides sessions a session waits on EVENTS, each a watch {id, kind, subjectId, status, at, label}: `pr_checks` (a PR's CI settled), `pr_closed` (a PR merged or closed), `issue_status` (an issue moved; to `status` when set, else any move), `at` (a time). A watch names its PR or issue (`at`: its time), else eCore `invalid` (copy.watchInvalid); an equal watch already held (same kind, subject, status, at) is kept, never doubled; the watched sessions and the event watches TOGETHER count against rules.watch.maxPerSession, past it eCore `limit` (copy.tooManyWatches) and nothing changes. The host resolves the subject and writes `label` (\"CI #1130\", \"EXP-12\", \"14:30\"); the core never derives it. `watch.fire {kind, subjectId, status?, text}` = the host saw the event: CI settling fires `pr_checks`; a PR merging or closing fires every watch on it (its CI can no longer settle); an issue's move fires the `issue_status` watches waiting for that status or any; `gone` (the PR or issue was deleted) fires every watch on it. A due `at` fires on the watchdog's tick with copy.watchAt. FIRING: per live watcher (by id) ONE user-authored pending line, the host's `text`, card {kind event, event `watch_fired`, sessionId = the watcher, watchId = the first watch it fired}; every watch it fired is gone (a watch fires once); its host is nudged once per event. An ended session waits on nothing (its watches are gone with its End) and hears nothing. `send.unwatch {sessionId, ids}` cancels its watches by watch id or a watched session's id (unknown ids drop silently). Nothing of a watch lives on the device: it survives an app restart, and no agent polls.",
   "cases": [
     {
       "name": "watch: live, same team, visible sessions only; never itself; idempotent",
@@ -1528,6 +1528,696 @@
           }
         }
       ]
+    },
+    {
+      "name": "#NEW-49 event watches: an equal one is kept once; sessions and events share the cap; a watch names its subject",
+      "given": {
+        "sessions": [
+          {
+            "id": "w1",
+            "wakeOn": [
+              "x01",
+              "x02",
+              "x03",
+              "x04",
+              "x05",
+              "x06",
+              "x07",
+              "x08",
+              "x09",
+              "x10",
+              "x11",
+              "x12",
+              "x13",
+              "x14",
+              "x15"
+            ]
+          },
+          {
+            "id": "s1"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "send.watch",
+            "at": 60000,
+            "data": {
+              "watcherId": "w1",
+              "ids": [
+                "s1"
+              ],
+              "watches": [
+                {
+                  "id": "a1",
+                  "kind": "pr_checks",
+                  "subjectId": "p1",
+                  "status": null,
+                  "at": null,
+                  "label": "CI #1130"
+                },
+                {
+                  "id": "a2",
+                  "kind": "pr_checks",
+                  "subjectId": "p1",
+                  "status": null,
+                  "at": null,
+                  "label": "CI #1130"
+                },
+                {
+                  "id": "a3",
+                  "kind": "issue_status",
+                  "subjectId": "i1",
+                  "status": "done",
+                  "at": null,
+                  "label": "EXP-12"
+                },
+                {
+                  "id": "a4",
+                  "kind": "at",
+                  "subjectId": null,
+                  "status": null,
+                  "at": 600000,
+                  "label": "14:30"
+                }
+              ]
+            }
+          },
+          "effects": [],
+          "result": {
+            "sessionId": "w1"
+          }
+        },
+        {
+          "event": {
+            "kind": "send.watch",
+            "at": 61000,
+            "data": {
+              "watcherId": "w1",
+              "watches": [
+                {
+                  "id": "a5",
+                  "kind": "pr_closed",
+                  "subjectId": "p1",
+                  "status": null,
+                  "at": null,
+                  "label": "#1130"
+                }
+              ]
+            }
+          },
+          "effects": [],
+          "result": {
+            "sessionId": "w1"
+          }
+        },
+        {
+          "event": {
+            "kind": "send.watch",
+            "at": 62000,
+            "data": {
+              "watcherId": "w1",
+              "watches": [
+                {
+                  "id": "a6",
+                  "kind": "pr_closed",
+                  "subjectId": "p2",
+                  "status": null,
+                  "at": null,
+                  "label": "#1131"
+                }
+              ]
+            }
+          },
+          "failure": {
+            "code": "limit",
+            "message": "A session waits on at most 20 things at once; cancel one first (exponential_sessions_send {wakeOn: [\"-<id>\"]}).",
+            "retryable": false
+          }
+        },
+        {
+          "event": {
+            "kind": "send.watch",
+            "at": 63000,
+            "data": {
+              "watcherId": "w1",
+              "watches": [
+                {
+                  "id": "a7",
+                  "kind": "issue_status",
+                  "subjectId": null,
+                  "status": null,
+                  "at": null,
+                  "label": "?"
+                }
+              ]
+            }
+          },
+          "failure": {
+            "code": "invalid",
+            "message": "A watch names its pull request or issue, or a time (at).",
+            "retryable": false
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "w1": {
+            "wakeOn": [
+              "x01",
+              "x02",
+              "x03",
+              "x04",
+              "x05",
+              "x06",
+              "x07",
+              "x08",
+              "x09",
+              "x10",
+              "x11",
+              "x12",
+              "x13",
+              "x14",
+              "x15",
+              "s1"
+            ],
+            "watches": [
+              {
+                "id": "a1",
+                "kind": "pr_checks",
+                "subjectId": "p1",
+                "status": null,
+                "at": null,
+                "label": "CI #1130"
+              },
+              {
+                "id": "a3",
+                "kind": "issue_status",
+                "subjectId": "i1",
+                "status": "done",
+                "at": null,
+                "label": "EXP-12"
+              },
+              {
+                "id": "a4",
+                "kind": "at",
+                "subjectId": null,
+                "status": null,
+                "at": 600000,
+                "label": "14:30"
+              },
+              {
+                "id": "a5",
+                "kind": "pr_closed",
+                "subjectId": "p1",
+                "status": null,
+                "at": null,
+                "label": "#1130"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "#NEW-49 watch.fire: CI settling wakes each live watcher once; a PR closing fires its CI watches too; an ended watcher hears nothing",
+      "given": {
+        "sessions": [
+          {
+            "id": "w1",
+            "watches": [
+              {
+                "id": "a1",
+                "kind": "pr_checks",
+                "subjectId": "p1",
+                "status": null,
+                "at": null,
+                "label": "CI #1130"
+              },
+              {
+                "id": "a2",
+                "kind": "pr_closed",
+                "subjectId": "p1",
+                "status": null,
+                "at": null,
+                "label": "#1130"
+              }
+            ]
+          },
+          {
+            "id": "w2",
+            "deviceId": "d2",
+            "watches": [
+              {
+                "id": "b1",
+                "kind": "pr_checks",
+                "subjectId": "p1",
+                "status": null,
+                "at": null,
+                "label": "CI #1130"
+              },
+              {
+                "id": "b2",
+                "kind": "pr_checks",
+                "subjectId": "p2",
+                "status": null,
+                "at": null,
+                "label": "CI #1131"
+              }
+            ]
+          },
+          {
+            "id": "w3",
+            "status": "ended",
+            "endedAt": 0,
+            "watches": [
+              {
+                "id": "c1",
+                "kind": "pr_checks",
+                "subjectId": "p1",
+                "status": null,
+                "at": null,
+                "label": "CI #1130"
+              }
+            ]
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "watch.fire",
+            "at": 60000,
+            "data": {
+              "kind": "pr_checks",
+              "subjectId": "p1",
+              "text": "CI on #1130: success"
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "w1",
+              "authorKind": "user",
+              "authorSessionId": null,
+              "body": "CI on #1130: success",
+              "card": {
+                "kind": "event",
+                "event": "watch_fired",
+                "sessionId": "w1",
+                "watchId": "a1"
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "nudge",
+              "deviceId": "d1"
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "w2",
+              "authorKind": "user",
+              "authorSessionId": null,
+              "body": "CI on #1130: success",
+              "card": {
+                "kind": "event",
+                "event": "watch_fired",
+                "sessionId": "w2",
+                "watchId": "b1"
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "nudge",
+              "deviceId": "d2"
+            }
+          ],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "watch.fire",
+            "at": 61000,
+            "data": {
+              "kind": "pr_checks",
+              "subjectId": "p1",
+              "text": "CI on #1130: failure"
+            }
+          },
+          "effects": [],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "watch.fire",
+            "at": 62000,
+            "data": {
+              "kind": "pr_closed",
+              "subjectId": "p2",
+              "text": "#1131 was merged."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m3",
+              "to": "w2",
+              "authorKind": "user",
+              "authorSessionId": null,
+              "body": "#1131 was merged.",
+              "card": {
+                "kind": "event",
+                "event": "watch_fired",
+                "sessionId": "w2",
+                "watchId": "b2"
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "nudge",
+              "deviceId": "d2"
+            }
+          ],
+          "result": {}
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "w1": {
+            "watches": [
+              {
+                "id": "a2",
+                "kind": "pr_closed",
+                "subjectId": "p1",
+                "status": null,
+                "at": null,
+                "label": "#1130"
+              }
+            ]
+          },
+          "w2": {
+            "watches": []
+          },
+          "w3": {
+            "watches": [
+              {
+                "id": "c1",
+                "kind": "pr_checks",
+                "subjectId": "p1",
+                "status": null,
+                "at": null,
+                "label": "CI #1130"
+              }
+            ]
+          }
+        },
+        "messages": {
+          "m1": {
+            "pending": true,
+            "authorKind": "user"
+          }
+        }
+      }
+    },
+    {
+      "name": "#NEW-49 issue_status: a target status waits for it, a status-less watch takes any move; a deleted subject fires every watch on it",
+      "given": {
+        "sessions": [
+          {
+            "id": "w1",
+            "watches": [
+              {
+                "id": "a1",
+                "kind": "issue_status",
+                "subjectId": "i1",
+                "status": "done",
+                "at": null,
+                "label": "EXP-12"
+              },
+              {
+                "id": "a2",
+                "kind": "issue_status",
+                "subjectId": "i1",
+                "status": null,
+                "at": null,
+                "label": "EXP-12"
+              }
+            ]
+          },
+          {
+            "id": "w2",
+            "watches": [
+              {
+                "id": "b1",
+                "kind": "pr_checks",
+                "subjectId": "p9",
+                "status": null,
+                "at": null,
+                "label": "CI #9"
+              },
+              {
+                "id": "b2",
+                "kind": "pr_closed",
+                "subjectId": "p9",
+                "status": null,
+                "at": null,
+                "label": "#9"
+              }
+            ]
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "watch.fire",
+            "at": 60000,
+            "data": {
+              "kind": "issue_status",
+              "subjectId": "i1",
+              "status": "in_review",
+              "text": "EXP-12 moved to In Review."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "w1",
+              "authorKind": "user",
+              "authorSessionId": null,
+              "body": "EXP-12 moved to In Review.",
+              "card": {
+                "kind": "event",
+                "event": "watch_fired",
+                "sessionId": "w1",
+                "watchId": "a2"
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "nudge",
+              "deviceId": "d1"
+            }
+          ],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "watch.fire",
+            "at": 61000,
+            "data": {
+              "kind": "issue_status",
+              "subjectId": "i1",
+              "status": "done",
+              "text": "EXP-12 moved to Done."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "w1",
+              "authorKind": "user",
+              "authorSessionId": null,
+              "body": "EXP-12 moved to Done.",
+              "card": {
+                "kind": "event",
+                "event": "watch_fired",
+                "sessionId": "w1",
+                "watchId": "a1"
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "nudge",
+              "deviceId": "d1"
+            }
+          ],
+          "result": {}
+        },
+        {
+          "event": {
+            "kind": "watch.fire",
+            "at": 62000,
+            "data": {
+              "kind": "gone",
+              "subjectId": "p9",
+              "text": "#9 no longer exists; its watches are gone."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m3",
+              "to": "w2",
+              "authorKind": "user",
+              "authorSessionId": null,
+              "body": "#9 no longer exists; its watches are gone.",
+              "card": {
+                "kind": "event",
+                "event": "watch_fired",
+                "sessionId": "w2",
+                "watchId": "b1"
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "nudge",
+              "deviceId": "d1"
+            }
+          ],
+          "result": {}
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "w1": {
+            "watches": []
+          },
+          "w2": {
+            "watches": []
+          }
+        }
+      }
+    },
+    {
+      "name": "#NEW-49 send.unwatch cancels by watch id or a watched session's id; unknown ids drop; an End takes every watch",
+      "given": {
+        "sessions": [
+          {
+            "id": "w1",
+            "wakeOn": [
+              "s1",
+              "s2"
+            ],
+            "watches": [
+              {
+                "id": "a1",
+                "kind": "pr_checks",
+                "subjectId": "p1",
+                "status": null,
+                "at": null,
+                "label": "CI #1130"
+              },
+              {
+                "id": "a2",
+                "kind": "at",
+                "subjectId": null,
+                "status": null,
+                "at": 600000,
+                "label": "14:30"
+              }
+            ]
+          },
+          {
+            "id": "s1"
+          },
+          {
+            "id": "s2"
+          },
+          {
+            "id": "w2",
+            "watches": [
+              {
+                "id": "b1",
+                "kind": "at",
+                "subjectId": null,
+                "status": null,
+                "at": 600000,
+                "label": "14:30"
+              }
+            ]
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "send.unwatch",
+            "at": 60000,
+            "data": {
+              "sessionId": "w1",
+              "ids": [
+                "a1",
+                "s2",
+                "nope"
+              ]
+            }
+          },
+          "effects": [],
+          "result": {
+            "sessionId": "w1"
+          }
+        },
+        {
+          "event": {
+            "kind": "session.end",
+            "at": 61000,
+            "data": {
+              "sessionId": "w2",
+              "summary": "Done."
+            }
+          },
+          "result": {
+            "sessionId": "w2",
+            "endedIds": [
+              "w2"
+            ]
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "w1": {
+            "wakeOn": [
+              "s1"
+            ],
+            "watches": [
+              {
+                "id": "a2",
+                "kind": "at",
+                "subjectId": null,
+                "status": null,
+                "at": 600000,
+                "label": "14:30"
+              }
+            ]
+          },
+          "w2": {
+            "watches": []
+          }
+        }
+      }
     }
   ]
 }

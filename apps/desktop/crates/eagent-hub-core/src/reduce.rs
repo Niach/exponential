@@ -469,6 +469,93 @@ fn watch_sessions(ctx: &mut Ctx, watcher_id: &str, ids: &[String]) -> Vec<String
     live
 }
 
+/// #NEW-49: the things `row` waits on: its watched sessions plus its event watches (rules.watch.maxPerSession).
+pub fn watch_count(row: &HubSession) -> usize {
+    row.wake_on.len() + row.watches.len()
+}
+
+fn same_watch(a: &Watch, b: &Watch) -> bool {
+    a.kind == b.kind && a.subject_id == b.subject_id && a.status == b.status && a.at == b.at
+}
+
+/// #NEW-49: `watcher` adds event watches (an equal one already held is kept, never doubled); past the cap = `limit`.
+fn watch_events(ctx: &mut Ctx, watcher_id: &str, watches: &[Watch]) -> Step<()> {
+    let mut added: Vec<Watch> = vec![];
+    for watch in watches {
+        let invalid = match watch.kind {
+            WatchKind::At => watch.at.is_none(),
+            _ => watch.subject_id.as_deref().is_none_or(str::is_empty),
+        };
+        if invalid {
+            return refuse(ErrorCode::Invalid, text(&["watchInvalid"]));
+        }
+        let normal = Watch {
+            id: watch.id.clone(),
+            kind: watch.kind,
+            subject_id: if watch.kind == WatchKind::At { None } else { watch.subject_id.clone() },
+            status: if watch.kind == WatchKind::IssueStatus { watch.status.clone() } else { None },
+            at: if watch.kind == WatchKind::At { watch.at } else { None },
+            label: watch.label.clone(),
+        };
+        if ctx.row(watcher_id).watches.iter().chain(&added).any(|held| same_watch(held, &normal)) {
+            continue;
+        }
+        added.push(normal);
+    }
+    if watch_count(ctx.row(watcher_id)) + added.len() > rules().watch.max_per_session {
+        return refuse(ErrorCode::Limit, &copy::too_many_watches_text());
+    }
+    ctx.row_mut(watcher_id).watches.extend(added);
+    Ok(())
+}
+
+/// #NEW-49: what a subject's event fires: CI settling fires `pr_checks`; a PR merging or closing fires every watch
+/// on it; an issue's move fires `issue_status` when it waits for that status or any; `gone` fires every watch on it.
+fn fires(watch: &Watch, kind: &str, subject_id: &str, status: Option<&str>) -> bool {
+    if watch.kind == WatchKind::At || watch.subject_id.as_deref() != Some(subject_id) {
+        return false;
+    }
+    match kind {
+        "gone" => true,
+        "pr_closed" => matches!(watch.kind, WatchKind::PrChecks | WatchKind::PrClosed),
+        "issue_status" => watch.kind == WatchKind::IssueStatus && (watch.status.is_none() || watch.status.as_deref() == status),
+        "pr_checks" => watch.kind == WatchKind::PrChecks,
+        _ => false,
+    }
+}
+
+/// #NEW-49: a watch fired: ONE pending line into its live watcher (user-authored, the host's text), its host nudged
+/// once per event; every watch it fired is gone.
+fn fire_watches(ctx: &mut Ctx, matches: impl Fn(&Watch) -> bool, text_: impl Fn(&Watch) -> String) {
+    let mut nudged = HashSet::new();
+    // `sessions` is a BTreeMap: its keys already come by id.
+    let ids: Vec<String> = ctx.state.sessions.keys().cloned().collect();
+    for id in ids {
+        let row = ctx.row_mut(&id);
+        if !is_live(row) {
+            continue;
+        }
+        let Some(first) = row.watches.iter().find(|w| matches(w)).cloned() else { continue };
+        row.watches.retain(|w| !matches(w));
+        let device_id = row.device_id.clone();
+        post(
+            ctx,
+            &id,
+            Post {
+                author_kind: AuthorKind::User,
+                author_session_id: None,
+                body: text_(&first),
+                card: Some(Card::Event(EventCard { watch_id: Some(first.id.clone()), ..EventCard::session("watch_fired", &id) })),
+                sealed: false,
+                waking: true,
+            },
+        );
+        if nudged.insert(device_id.clone()) {
+            ctx.effects.push(Effect::Nudge { device_id });
+        }
+    }
+}
+
 /// #FEED-206: a revived root is watched again, as at its start: by its starter (the live session carrying its
 /// `thread_started` card) and by the calling session outside its tree.
 fn rewatch_revived(ctx: &mut Ctx, root_id: &str, caller: Option<&HubSession>) {
@@ -545,6 +632,7 @@ fn insert_session(ctx: &mut Ctx, row: NewSession) -> Step<HubSession> {
         needs_input: false,
         blocked: None,
         wake_on: vec![],
+        watches: vec![],
         seal_epoch: None,
         scope_team_ids: None,
         created_at: ctx.now,
@@ -879,6 +967,8 @@ fn end_rows(ctx: &mut Ctx, ids: &[String], named: Option<Named>) -> Vec<String> 
         row.needs_input = false;
         row.blocked = None;
         row.updated_at = now;
+        // #NEW-49: an ended session waits on nothing.
+        row.watches.clear();
         let row = row.clone();
         for m in &mut ctx.state.messages {
             if matches!(&m.card, Some(Card::Ask { session_id, .. }) if *session_id == row.id) {
@@ -1598,6 +1688,8 @@ fn tick(ctx: &mut Ctx) -> Step<StepResult> {
             clear_blocked(ctx, &id, Some(BlockedKind::RateLimit));
         }
     }
+    // #NEW-49: a time watch whose time came fires (one line per watcher, the earliest due one's label).
+    fire_watches(ctx, |watch| watch.kind == WatchKind::At && watch.at.is_some_and(|at| at <= now), |fired| copy::watch_at_text(&fired.label));
     Ok(StepResult::default())
 }
 
@@ -1692,6 +1784,7 @@ fn schedule(ctx: &mut Ctx, data: ScheduleData) -> Step<StepResult> {
                 trigger_id: Field::Value(due[0].trigger_id.clone()),
                 event_id: Field::Null,
                 name: Field::Null,
+                watch_id: None,
             };
             let id = post(
                 ctx,
@@ -1743,6 +1836,7 @@ fn emitted(ctx: &mut Ctx, data: EmittedData, event_id: &str) -> Step<StepResult>
                 trigger_id: Field::Value(trigger.id.clone()),
                 event_id: Field::Value(event_id.to_string()),
                 name: Field::Value(name.clone()),
+                watch_id: None,
             };
             post(
                 ctx,
@@ -1797,8 +1891,37 @@ fn step(ctx: &mut Ctx, event: &HubEvent, data: &Value) -> Step<StepResult> {
         "send.watch" => {
             let watcher = data_str(data, "watcherId").unwrap_or_default().to_string();
             let ids: Vec<String> = data.get("ids").and_then(|ids| serde_json::from_value(ids.clone()).ok()).unwrap_or_default();
+            let watches: Vec<Watch> = match data.get("watches").filter(|w| !w.is_null()) {
+                Some(watches) => parse(watches, &event.kind)?,
+                None => vec![],
+            };
+            // #NEW-49: event watches first (a refusal changes nothing), then the sessions; both count against one cap.
+            let known = ctx.state.sessions.get(&watcher).map(is_live);
+            if known == Some(true) {
+                watch_events(ctx, &watcher, &watches)?;
+            }
             watch_sessions(ctx, &watcher, &ids);
+            if known.is_some() && watch_count(ctx.row(&watcher)) > rules().watch.max_per_session {
+                return refuse(ErrorCode::Limit, &copy::too_many_watches_text());
+            }
             Ok(StepResult { session_id: data_str(data, "watcherId").map(str::to_string), ..StepResult::default() })
+        }
+        "send.unwatch" => {
+            // #NEW-49: a watch cancelled (by its id, or a watched session's id); unknown ids drop silently.
+            let row = session(&ctx.state, data_str(data, "sessionId"))?;
+            let ids: HashSet<String> = data.get("ids").and_then(|ids| serde_json::from_value(ids.clone()).ok()).unwrap_or_default();
+            let row = ctx.row_mut(&row.id);
+            row.watches.retain(|watch| !ids.contains(&watch.id));
+            row.wake_on.retain(|id| !ids.contains(id));
+            Ok(StepResult::session(&row.id))
+        }
+        "watch.fire" => {
+            let kind = data_str(data, "kind").unwrap_or_default();
+            let subject_id = data_str(data, "subjectId").unwrap_or_default();
+            let status = data_str(data, "status");
+            let body = data_str(data, "text").unwrap_or_default().to_string();
+            fire_watches(ctx, |watch| fires(watch, kind, subject_id, status), |_| body.clone());
+            Ok(StepResult::default())
         }
         "session.end" => {
             let top = session(&ctx.state, data_str(data, "sessionId"))?;

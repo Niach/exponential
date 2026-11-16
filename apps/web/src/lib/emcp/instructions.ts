@@ -60,12 +60,12 @@ export function mcpServerInstructions(gates: {
   // `_write` twin seals only `exponential_sessions` end summaries.
   if (gates.inSession && !gates.agent && gates.unattended) {
     paragraphs.push(
-      `This session is unattended (another session started it). Finish with exponential_sessions {op: "end", summary} LAST, worktree clean: the summary (finished, stopped for a human, or changed nothing) is your final message and your parent's report. Never wait or poll: end your turn, messages wake you.`
+      `This session is unattended (another session started it). Finish with exponential_sessions {op: "end", summary} LAST, worktree clean: the summary (finished, stopped for a human, or changed nothing) is your final message and your parent's report. Never wait or poll: end your turn, messages wake you (a PR's CI, an issue or a time: exponential_sessions_send {wakeOn}).`
     )
   }
   if (gates.inSession && !gates.agent && !gates.unattended) {
     paragraphs.push(
-      `exponential_sessions {op: "end"} ends this session; call it only when the person asks you to end the session. Never wait or poll: end your turn, messages wake you.`
+      `exponential_sessions {op: "end"} ends this session; call it only when the person asks you to end the session. Never wait or poll: end your turn, messages wake you (a PR's CI, an issue or a time: exponential_sessions_send {wakeOn}).`
     )
   }
   // S-3: plan mode is gone; results, questions and plans are ONE show card

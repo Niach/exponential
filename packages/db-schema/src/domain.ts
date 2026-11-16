@@ -1195,6 +1195,10 @@ export const messageEventKindValues = [
   // failing | held), posted to its opener while live, else the root, and
   // the batch line into the starter's Assistant.
   `pr_merge`,
+  // #NEW-49 (eagent wakeups.json WATCH EVENTS): an event a session watched
+  // fired (a PR's CI or close, an issue's move, a time): pending input into
+  // the watcher, the body says what fired.
+  `watch_fired`,
 ] as const
 export type MessageEventKind = (typeof messageEventKindValues)[number]
 
@@ -1418,6 +1422,8 @@ export type MessageCard =
       checksState?: string | null
       /** EXP-1709 `pr_merge`: merged | conflict | failing | held. */
       mergeOutcome?: string | null
+      /** #NEW-49 `watch_fired`: the (first) watch that fired. */
+      watchId?: string | null
       sessionId?: string | null
       /** NEW-2 `trigger_fired`: the agent, its trigger, the event row (an
        *  event trigger) and the event's name. */
@@ -1547,6 +1553,63 @@ const sendUuid = z.string().uuid()
 
 /** NEW-1: the sessions one session may watch at once. */
 export const SESSIONS_SEND_MAX_WAKE_ON = 20
+
+/** #NEW-49 (eagent wakeups.json WATCH EVENTS): one parsed `wakeOn` entry. */
+export type SessionWatchSpec =
+  | { kind: `session`; id: string }
+  | { kind: `pr`; ref: string; on: `checks` | `closed` }
+  | { kind: `issue`; ref: string; status: string | null }
+  | { kind: `at`; at: string }
+  | { kind: `cancel`; id: string }
+
+const WATCH_AT_OFFSET = /(?:[zZ]|[+-]\d{2}:?\d{2})$/
+
+/** One `wakeOn` string: a session id (its every transition until it ends);
+ *  `pr:<N | #N | owner/repo#N | id>` = the PR's CI settling, `…:closed` =
+ *  its merge or close; `issue:<EXP-12 | id>[:<status>]` = the issue moving
+ *  (to that status, anchor or name); `at:<ISO with offset>` = a time; each
+ *  event fires ONCE. `-<id>` cancels a watch (its `watching` id or a watched
+ *  session's id). null = not one of these. */
+export function parseSessionWatchSpec(raw: string): SessionWatchSpec | null {
+  const text = raw.trim()
+  if (UUID_RE.test(text)) return { kind: `session`, id: text.toLowerCase() }
+  if (text.startsWith(`-`)) {
+    const id = text.slice(1).trim()
+    return UUID_RE.test(id) ? { kind: `cancel`, id: id.toLowerCase() } : null
+  }
+  const colon = text.indexOf(`:`)
+  if (colon < 0) return null
+  const kind = text.slice(0, colon).trim().toLowerCase()
+  const rest = text.slice(colon + 1).trim()
+  if (!rest) return null
+  if (kind === `pr`) {
+    const m = /^(.+?)(?::(checks|closed))?$/i.exec(rest)!
+    const ref = m[1]!.trim()
+    if (!UUID_RE.test(ref) && !/^(?:[\w.-]+\/[\w.-]+)?#?\d+$/.test(ref)) return null
+    return { kind: `pr`, ref, on: m[2]?.toLowerCase() === `closed` ? `closed` : `checks` }
+  }
+  if (kind === `issue`) {
+    const split = rest.indexOf(`:`)
+    const ref = (split < 0 ? rest : rest.slice(0, split)).trim()
+    const status = split < 0 ? `` : rest.slice(split + 1).trim()
+    if (!ref || ref.length > 64 || status.length > 32) return null
+    return { kind: `issue`, ref, status: status || null }
+  }
+  if (kind === `at`) {
+    if (!WATCH_AT_OFFSET.test(rest) || Number.isNaN(Date.parse(rest))) return null
+    return { kind: `at`, at: new Date(rest).toISOString() }
+  }
+  return null
+}
+
+export const sessionWatchSpecSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(200)
+  .refine((value) => parseSessionWatchSpec(value) !== null, {
+    message: `wakeOn takes session ids, pr:<N>[:closed], issue:<EXP-12>[:<status>], at:<ISO time with offset> or -<id>`,
+  })
 
 /** NEW-1: `sessions.send({sessionId, answer})`: the answer to the target's
  *  OPEN question/plan card (its newest unanswered one, or `messageId`).
@@ -1685,9 +1748,11 @@ export const sessionsSendInputSchema = z
     // answer wins: a parent answering what it knows, a person the rest).
     answer: sessionAnswerSchema.optional(),
     // NEW-1: WATCH these sessions: the bus delivers their transitions to the
-    // caller exactly as to their parent, until they end. Needs a caller
-    // session (MCP); idempotent.
-    wakeOn: z.array(sendUuid).min(1).max(SESSIONS_SEND_MAX_WAKE_ON).optional(),
+    // caller exactly as to their parent, until they end. #NEW-49: or EVENTS
+    // (`parseSessionWatchSpec`: a PR's CI or close, an issue's move, a
+    // time), each firing once; `-<id>` cancels one. Needs a caller session
+    // (MCP); idempotent.
+    wakeOn: z.array(sessionWatchSpecSchema).min(1).max(SESSIONS_SEND_MAX_WAKE_ON).optional(),
     // #EXP-1720 (composer-menu.json `teams`): the teams this turn of the
     // member's Assistant may touch; null = every team they belong to. Only
     // into the Assistant's conversation (agentId / its root's sessionId).

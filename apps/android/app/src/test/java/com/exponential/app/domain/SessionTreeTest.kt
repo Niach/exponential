@@ -778,9 +778,10 @@ class SessionTreeTest {
         for ((key, value) in events) {
             if (key != "trigger_schedule") assertEquals(value.jsonPrimitive.content, SessionTree.ChatCopy.EVENTS[key])
         }
-        // S-3: device_offline and session_interrupted draw nothing.
+        // S-3: device_offline and session_interrupted draw nothing. #NEW-49: watch_fired's
+        // line (its body) lands with the clients' part 2; until then it draws nothing.
         assertEquals(
-            DomainContract.messageEventKindValues.toSet() - setOf("device_offline", "session_interrupted"),
+            DomainContract.messageEventKindValues.toSet() - setOf("device_offline", "session_interrupted", "watch_fired"),
             SessionTree.ChatCopy.EVENTS.keys,
         )
         val testIds = chatFixture.getValue("testIds").jsonObject
