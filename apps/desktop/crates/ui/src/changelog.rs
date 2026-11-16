@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-16-desktop-cli-0-14-166-assistant-button-and-bubble-tails",
+    date: "2026-11-16",
+    title: "A new Assistant button and chat bubble tails",
+    summary: "Desktop and CLI 0.14.166: the Assistant button is the 60 px Exponential mark with a soft shadow and sheen, greets you with a speech bubble, and chat bubbles get tails.",
+    body: r##"- **A new Assistant button**: the Assistant button is now the 60 px Exponential mark with a soft shadow and a glassy sheen; it slides in the first time it shows and speaks up in a speech bubble to welcome you or when an agent needs you.
+- **Chat bubble tails**: the first bubble of each group in a chat has a tail pointing at its sender, on the right for your own messages."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_310: ChangelogEntry = ChangelogEntry {
     id: "2026-11-16-desktop-cli-0-14-165-voice-and-assistant",
     date: "2026-11-16",
     title: "Agent calls on every desktop and server, and a bigger Assistant",

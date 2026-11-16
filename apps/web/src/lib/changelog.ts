@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-16-desktop-cli-0-14-166-assistant-button-and-bubble-tails`,
+    date: `2026-11-16`,
+    title: `A new Assistant button and chat bubble tails`,
+    summary: `Desktop and CLI 0.14.166: the Assistant button is the 60 px Exponential mark with a soft shadow and sheen, greets you with a speech bubble, and chat bubbles get tails.`,
+    body: `- **A new Assistant button**: the Assistant button is now the 60 px Exponential mark with a soft shadow and a glassy sheen; it slides in the first time it shows and speaks up in a speech bubble to welcome you or when an agent needs you.
+- **Chat bubble tails**: the first bubble of each group in a chat has a tail pointing at its sender, on the right for your own messages.`,
+  },
+  {
     id: `2026-11-16-desktop-cli-0-14-165-voice-and-assistant`,
     date: `2026-11-16`,
     title: `Agent calls on every desktop and server, and a bigger Assistant`,
