@@ -125,9 +125,8 @@ public struct ChatRowView<Lead: View>: View {
                                 .truncationMode(.tail)
                         }
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        // #NEW-49: whole before the preview, truncated only
-                        // by the row (a long `waiting on …`).
-                        .layoutPriority(1)
+                        // #NEW-49: a long `waiting on …` shares the row with
+                        // the preview and truncates (Android's weight(fill = false)).
                     }
                     CountBadge(NavBadges.rowBadge(unreadCount: unreadCount, needsYou: needsYou))
                 }
