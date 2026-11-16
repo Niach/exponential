@@ -22,9 +22,11 @@ import { and, asc, desc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-or
 import {
   PIPELINE_FILE,
   RUNNER_LOST_MS,
+  claimOrder,
   planPipeline,
   schedule,
   validatePipeline,
+  type Job as SpecJob,
   type PlannedJob,
   type RunnerState,
   type Trigger,
@@ -600,10 +602,46 @@ async function afterChange(runId: string, changed: readonly string[], teamId: st
 
 // ── dispatch ────────────────────────────────────────────────────────────
 
+/** Each check's last run duration (ms) per repository: the newest job of
+ *  that check that actually ran to an end (a cancelled or lost one says
+ *  nothing about how long it takes). Keyed `repositoryId` → `check`. */
+async function expectedDurations(teamId: string, repositoryIds: readonly string[], checks: readonly string[]): Promise<Map<string, Map<string, number>>> {
+  const out = new Map<string, Map<string, number>>()
+  if (repositoryIds.length === 0 || checks.length === 0) return out
+  const rows = await db
+    .selectDistinctOn([ciRuns.repositoryId, ciJobs.check], {
+      repositoryId: ciRuns.repositoryId,
+      check: ciJobs.check,
+      ms: sql<number>`(extract(epoch from (${ciJobs.completedAt} - ${ciJobs.startedAt})) * 1000)::float8`,
+    })
+    .from(ciJobs)
+    .innerJoin(ciRuns, eq(ciRuns.id, ciJobs.runId))
+    .where(
+      and(
+        eq(ciJobs.teamId, teamId),
+        inArray(ciRuns.repositoryId, [...repositoryIds]),
+        inArray(ciJobs.check, [...checks]),
+        eq(ciJobs.status, `completed`),
+        inArray(ciJobs.conclusion, [`success`, `failure`, `timed_out`]),
+        isNull(ciJobs.reason),
+        sql`${ciJobs.startedAt} IS NOT NULL AND ${ciJobs.completedAt} IS NOT NULL`
+      )
+    )
+    .orderBy(ciRuns.repositoryId, ciJobs.check, desc(ciJobs.completedAt))
+  for (const row of rows) {
+    const byCheck = out.get(row.repositoryId) ?? new Map<string, number>()
+    byCheck.set(row.check, Math.max(0, Number(row.ms)))
+    out.set(row.repositoryId, byCheck)
+  }
+  return out
+}
+
 /** Hand every ready queued job of the team (or of every team) to a runner:
  *  an online, enabled device of a team member with the `ci-runner` cap,
- *  whose labels cover the job's `runsOn` and with a free slot. The job is
- *  the scheduler's first claimable one for that runner (queue order). */
+ *  whose labels cover the job's `runsOn` and with a free slot. Across the
+ *  team's runs the runner gets the job expected to finish first (#EXP-1862,
+ *  the scheduler's `claimOrder`; ties = the older run), so a 5-second job
+ *  never waits behind a 30-minute typecheck on a one-slot runner. */
 export async function dispatchQueued(scope: { teamId?: string } = {}, now: Date = new Date()): Promise<number> {
   const staleBefore = new Date(now.getTime() - CI_DISPATCH_STALE_MS)
   const queued = await db
@@ -659,49 +697,70 @@ export async function dispatchQueued(scope: { teamId?: string } = {}, now: Date 
       .groupBy(sql`coalesce(${ciJobs.runnerDeviceId}, ${ciJobs.dispatchedDeviceId})`)
     const busy = new Map(busyRows.map((row) => [row.device, row.count]))
 
-    for (const runId of new Set(queued.filter((job) => job.teamId === teamId).map((job) => job.runId))) {
-      const rows = await db.select().from(ciJobs).where(eq(ciJobs.runId, runId)).orderBy(asc(ciJobs.position))
-      // Least loaded first, so parallel jobs spread over the runners.
-      const order = [...runners].sort((a, b) => (busy.get(a.id) ?? 0) - (busy.get(b.id) ?? 0))
-      const taken = new Set<string>()
-      for (const runner of order) {
-        const spec = runnerSpec(runner, null)
-        while ((busy.get(runner.id) ?? 0) < spec.slots) {
+    const runIds = [...new Set(queued.filter((job) => job.teamId === teamId).map((job) => job.runId))]
+    const rowsByRun = new Map<string, CiJob[]>()
+    for (const runId of runIds) {
+      rowsByRun.set(runId, await db.select().from(ciJobs).where(eq(ciJobs.runId, runId)).orderBy(asc(ciJobs.position)))
+    }
+    const runRepos = new Map(
+      (await db.select({ id: ciRuns.id, repositoryId: ciRuns.repositoryId }).from(ciRuns).where(inArray(ciRuns.id, runIds))).map(
+        (run) => [run.id, run.repositoryId]
+      )
+    )
+    const expected = await expectedDurations(
+      teamId,
+      [...new Set(runRepos.values())],
+      [...new Set([...rowsByRun.values()].flatMap((rows) => rows.filter((row) => row.status === `queued`).map((row) => row.check)))]
+    )
+    // Least loaded first, so parallel jobs spread over the runners.
+    const order = [...runners].sort((a, b) => (busy.get(a.id) ?? 0) - (busy.get(b.id) ?? 0))
+    const taken = new Set<string>()
+    for (const runner of order) {
+      const spec = runnerSpec(runner, null)
+      while ((busy.get(runner.id) ?? 0) < spec.slots) {
+        // Each run's claim for this runner; the best of them wins.
+        let best: SpecJob | null = null
+        for (const runId of runIds) {
+          const rows = rowsByRun.get(runId)!
           // Jobs dispatched to someone else (and not stale) are not claimable here.
           const claimable = rows.filter(
             (row) => !taken.has(row.id) && !(row.status === `queued` && row.dispatchedAt && row.dispatchedAt >= staleBefore)
           )
           const state = runState(
             rows.map((row) => (claimable.includes(row) || row.status !== `queued` ? row : { ...row, status: `in_progress` as const })),
-            [{ ...spec, slots: Number.MAX_SAFE_INTEGER }]
+            [{ ...spec, slots: Number.MAX_SAFE_INTEGER }],
+            expected.get(runRepos.get(runId) ?? ``)
           )
           const outcome = schedule(state, `claim`, { runner: runner.id }, now.getTime())
           const jobId = outcome.result?.job as string | null | undefined
-          if (!jobId) break
-          taken.add(jobId)
-          const [moved] = await db
-            .update(ciJobs)
-            .set({ dispatchedDeviceId: runner.id, dispatchedAt: now })
-            .where(
-              and(
-                eq(ciJobs.id, jobId),
-                eq(ciJobs.status, `queued`),
-                or(isNull(ciJobs.dispatchedAt), lt(ciJobs.dispatchedAt, staleBefore))
-              )
-            )
-            .returning({ id: ciJobs.id })
-          if (!moved) continue
-          await queueDeviceCommand(db, {
-            deviceRowId: runner.id,
-            userId: runner.userId,
-            deviceId: runner.deviceId,
-            kind: CI_JOB_COMMAND,
-            payload: { jobId },
-            onDuplicate: `reuse`,
-          })
-          busy.set(runner.id, (busy.get(runner.id) ?? 0) + 1)
-          dispatched++
+          const job = jobId ? state.jobs.find((j) => j.id === jobId) : undefined
+          if (job && (!best || claimOrder(job, best) < 0)) best = job
         }
+        if (!best) break
+        const jobId = best.id
+        taken.add(jobId)
+        const [moved] = await db
+          .update(ciJobs)
+          .set({ dispatchedDeviceId: runner.id, dispatchedAt: now })
+          .where(
+            and(
+              eq(ciJobs.id, jobId),
+              eq(ciJobs.status, `queued`),
+              or(isNull(ciJobs.dispatchedAt), lt(ciJobs.dispatchedAt, staleBefore))
+            )
+          )
+          .returning({ id: ciJobs.id })
+        if (!moved) continue
+        await queueDeviceCommand(db, {
+          deviceRowId: runner.id,
+          userId: runner.userId,
+          deviceId: runner.deviceId,
+          kind: CI_JOB_COMMAND,
+          payload: { jobId },
+          onDuplicate: `reuse`,
+        })
+        busy.set(runner.id, (busy.get(runner.id) ?? 0) + 1)
+        dispatched++
       }
     }
   }

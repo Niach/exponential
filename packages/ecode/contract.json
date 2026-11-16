@@ -237,9 +237,10 @@
     "matrixEnvPrefix": "MATRIX_"
   },
   "runner": {
-    "$comment": "Runner scheduling. A runner is lost after runnerLostMs without a beat (the daemon beats every 30 s); a job still queued after queuedFlagMinutes is flagged once (the same 30 min as domain-contract prChecks.queuedFlagMinutes). Labels: lowercase, `labelMax` at most; `os` and `arch` are the reserved ones a runner always reports.",
+    "$comment": "Runner scheduling. A runner is lost after runnerLostMs without a beat (the daemon beats every 30 s); a job still queued after queuedFlagMinutes is flagged once (the same 30 min as domain-contract prChecks.queuedFlagMinutes); a ready job no runner claimed within queuedLimitMinutes ends timed_out (`unclaimed`). Labels: lowercase, `labelMax` at most; `os` and `arch` are the reserved ones a runner always reports.",
     "runnerLostMs": 120000,
     "queuedFlagMinutes": 30,
+    "queuedLimitMinutes": 60,
     "labelMax": 32,
     "os": [
       "linux",

@@ -1,11 +1,12 @@
 // eCode's runner scheduling (fixtures/runner.json is the spec): jobs wait for
-// their `needs`, a runner claims the first one its labels cover, and the
-// clock times jobs out, fails the jobs of a lost runner and flags a job queued
-// too long (once). The server dispatches through it, and so does a server-free
+// their `needs`, a runner claims the one its labels cover that is expected to
+// finish first, and the clock times jobs out, fails the jobs of a lost runner,
+// flags a job queued too long (once) and times out one no runner claims. The server dispatches through it, and so does a server-free
 // host. ecode-core ports this file.
 
 import {
   QUEUED_FLAG_MINUTES,
+  QUEUED_LIMIT_MINUTES,
   RUNNER_LOST_MS,
   isFailingConclusion,
   reasonCode,
@@ -23,6 +24,8 @@ export interface Job {
   runsOn: string[]
   needs: string[]
   timeoutMin: number
+  /** How long it is expected to run (ms): the check's last duration; claims prefer the shortest. */
+  expectMs?: number | null
   status: CheckStatus
   conclusion: CheckConclusion | null
   runner: string | null
@@ -30,7 +33,7 @@ export interface Job {
   startedAt: number | null
   completedAt: number | null
   flagged: boolean
-  /** Why it completed without running (contract skip, `needs`, `runner_lost`). */
+  /** Why it completed without running (contract skip, `needs`, `runner_lost`, `unclaimed`). */
   reason: string | null
 }
 
@@ -115,6 +118,28 @@ function ready(state: RunnerState, job: Job): boolean {
   })
 }
 
+/** When a ready job became claimable: its queuedAt or its last need's completion. */
+function readyAt(state: RunnerState, job: Job): number {
+  let at = job.queuedAt
+  for (const need of job.needs) {
+    const done = state.jobs.find((j) => j.id === need)?.completedAt
+    if (done != null && done > at) at = done
+  }
+  return at
+}
+
+/** The job's expected run time: its expectMs, else its timeout. */
+export function expectedMs(job: Pick<Job, `expectMs` | `timeoutMin`>): number {
+  return job.expectMs ?? job.timeoutMin * 60_000
+}
+
+/** Claim order (#EXP-1862): a flagged job first, then the one expected to
+ *  finish first; 0 = a tie (queue order decides). */
+export function claimOrder(a: Pick<Job, `flagged` | `expectMs` | `timeoutMin`>, b: Pick<Job, `flagged` | `expectMs` | `timeoutMin`>): number {
+  if (a.flagged !== b.flagged) return a.flagged ? -1 : 1
+  return expectedMs(a) - expectedMs(b)
+}
+
 type Args = Record<string, unknown>
 
 function apply(state: RunnerState, op: string, args: Args, at: number, events: RunnerEventRow[]): Record<string, unknown> {
@@ -129,6 +154,7 @@ function apply(state: RunnerState, op: string, args: Args, at: number, events: R
           runsOn: (spec.runsOn as string[]) ?? [],
           needs: (spec.needs as string[]) ?? [],
           timeoutMin: Number(spec.timeoutMin ?? 60),
+          expectMs: spec.expectMs == null ? null : Number(spec.expectMs),
           status: `queued`,
           conclusion: null,
           runner: null,
@@ -158,9 +184,11 @@ function apply(state: RunnerState, op: string, args: Args, at: number, events: R
       if (!runner) throw new Refused(`runner`)
       runner.lastSeen = at
       if (runner.running.length >= runner.slots) return { job: null }
-      const job = state.jobs.find(
-        (j) => j.status === `queued` && ready(state, j) && j.runsOn.every((label) => runner.labels.includes(label))
-      )
+      let job: Job | undefined
+      for (const j of state.jobs) {
+        if (j.status !== `queued` || !ready(state, j) || !j.runsOn.every((label) => runner.labels.includes(label))) continue
+        if (!job || claimOrder(j, job) < 0) job = j
+      }
       if (!job) return { job: null }
       job.status = `in_progress`
       job.runner = runner.id
@@ -203,6 +231,11 @@ function apply(state: RunnerState, op: string, args: Args, at: number, events: R
         if (job.status === `queued` && !job.flagged && at - job.queuedAt >= QUEUED_FLAG_MINUTES * 60_000) {
           job.flagged = true
           events.push({ kind: `queued_too_long`, job: job.id })
+        }
+      }
+      for (const job of state.jobs) {
+        if (job.status === `queued` && ready(state, job) && at - readyAt(state, job) >= QUEUED_LIMIT_MINUTES * 60_000) {
+          complete(state, job, `timed_out`, at, events, `unclaimed`)
         }
       }
       return {}
