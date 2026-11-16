@@ -60,6 +60,7 @@ import {
   sessionScreen,
   sessionScreenMenu,
   sessionScreenStatus,
+  sessionScreenWaiting,
   sessionScreenSubtitle,
   sessionScreenTone,
   type SessionScreenOpen,
@@ -89,6 +90,7 @@ import { deviceIsOnline } from "@/lib/steer-devices"
 import type { SessionRow } from "@/lib/session-tree"
 import { trpc } from "@/lib/trpc-client"
 import { cn } from "@/lib/utils"
+import type { ConversationDigest } from "@exp/domain-contract/chats"
 
 // VAPP-110 (fixtures/apps.json): THE EDITOR. #FEED-239: leaving the editor
 // no longer ends the member's editor session (it stays as it is); leaving
@@ -854,14 +856,33 @@ export function AppEditor({
   // dropped) · apps.json `editorHeader`'s DEVICE part (the name, else `no
   // device online`).
   const statusRows = root && !tree.some((row) => row.id === root.id) ? [root, ...tree] : tree
-  const status = sessionScreenStatus(
-    statusRows.map((row) => ({
-      status: row.status,
-      busy: row.busy,
-      needsInput: row.needsInput,
-      root: row.id === root?.id,
-    }))
-  )
+  // #FEED-257: needs input = something to open: the tree's waiting cards
+  // (each session's digest `waits`, oldest first) or a flag.
+  const waitingAsks = statusRows
+    .flatMap((row) =>
+      ((row.digest as ConversationDigest | null)?.waits ?? []).flatMap((wait) =>
+        wait.answeredAt === null && (wait.card?.kind === `plan` || wait.card?.kind === `question`)
+          ? [{ id: wait.id, sessionId: row.id, kind: wait.card.kind as `plan` | `question`, createdAt: wait.createdAt }]
+          : []
+      )
+    )
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  const statusSessions = statusRows.map((row) => ({
+    id: row.id,
+    status: row.status,
+    busy: row.busy,
+    needsInput: row.needsInput,
+    blocked: row.blocked?.kind ?? null,
+    root: row.id === root?.id,
+  }))
+  const status = sessionScreenStatus(statusSessions, waitingAsks)
+  const waiting = sessionScreenWaiting(statusSessions, waitingAsks)
+  const openWaiting = () => {
+    if (!waiting) return
+    const session = waiting.open === `session` ? statusRows.find((row) => row.id === waiting.id) : null
+    if (session) openSession(session)
+    else setOpened(null)
+  }
   const subtitle = sessionScreenSubtitle({ status, device: headerDevice.subtitle, trigger: null })
   // session-screen.json TONE ×4: the word's tone, amber while no device is online.
   const tone = sessionScreenTone(status, headerDeviceInput?.online !== true)
@@ -876,6 +897,7 @@ export function AppEditor({
         titleTrailing={versionPill}
         subtitle={subtitle}
         subtitleClass={CHAT_HEADER_TONE_CLASS[tone]}
+        onSubtitlePress={waiting ? openWaiting : null}
         trailing={
           showPublish && !isMobile ? (
             <Button size="sm" onClick={() => void publish(head)} pending={publishing === head} disabled={publishing !== null} data-testid={APPS_TEST_IDS.publish}>

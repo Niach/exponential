@@ -58,6 +58,9 @@ export interface SessionScreenFrameProps {
   /** #EXP-1729: the subtitle's tone class (the app editor's `editorHeader`
    *  tone); absent = muted. */
   subtitleClass?: string
+  /** #FEED-257 (session-screen.json): while the word is needs input, the
+   *  line opens the waiting item (`sessionScreenWaiting`); absent = text. */
+  onSubtitlePress?: (() => void) | null
   /** Before the `…`: the merge pill, an app's Publish, the call button. */
   trailing?: ReactNode
   /** THE `…` (THE session screen menu); gets the header button class. */
@@ -160,6 +163,7 @@ export function SessionScreenFrame({
   titleTrailing,
   subtitle,
   subtitleClass = `text-muted-foreground`,
+  onSubtitlePress,
   trailing,
   menu,
   onBack,
@@ -240,7 +244,25 @@ export function SessionScreenFrame({
                   {titleTrailing}
                 </span>
               }
-              subtitle={subtitle ? <span className={subtitleClass}>{subtitle}</span> : null}
+              subtitle={
+                subtitle ? (
+                  onSubtitlePress ? (
+                    <button
+                      type="button"
+                      data-testid="chat-header-subtitle"
+                      className={cn(`max-w-full truncate text-left`, subtitleClass)}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        onSubtitlePress()
+                      }}
+                    >
+                      {subtitle}
+                    </button>
+                  ) : (
+                    <span className={subtitleClass}>{subtitle}</span>
+                  )
+                ) : null
+              }
             />
           }
           onBack={onBack}
@@ -271,11 +293,21 @@ export function SessionScreenFrame({
               </h1>
               {titleTrailing}
             </div>
-            {subtitle && (
-              <p data-testid="chat-header-subtitle" className={cn(`truncate text-xs`, subtitleClass)}>
-                {subtitle}
-              </p>
-            )}
+            {subtitle &&
+              (onSubtitlePress ? (
+                <button
+                  type="button"
+                  data-testid="chat-header-subtitle"
+                  className={cn(`block max-w-full cursor-pointer truncate text-left text-xs`, subtitleClass)}
+                  onClick={onSubtitlePress}
+                >
+                  {subtitle}
+                </button>
+              ) : (
+                <p data-testid="chat-header-subtitle" className={cn(`truncate text-xs`, subtitleClass)}>
+                  {subtitle}
+                </p>
+              ))}
           </div>
           {/* #EXP-1762: ONE header line on wide: the tabs sit on the title
               row, before the merge pill and the `…`. */}
