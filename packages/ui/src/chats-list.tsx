@@ -131,7 +131,9 @@ export interface ChatsListDevice {
 export function chatWordOf(
   row: Pick<ChatsListRow, `busy` | `needsYou` | `offline`>,
   prs: readonly ChatsListPr[],
-  teamPrs: readonly ChatsListPr[] = prs
+  teamPrs: readonly ChatsListPr[] = prs,
+  /** #NEW-49: the root's `sessionWaiting`, else null. */
+  waiting: string | null = null
 ): ChatRowWord | null {
   return chatRowWord({
     pullRequests: prs,
@@ -139,6 +141,7 @@ export function chatWordOf(
     needsYou: row.needsYou,
     inStack: chatInStack(prs, teamPrs),
     offline: row.offline ?? false,
+    waiting,
   })
 }
 

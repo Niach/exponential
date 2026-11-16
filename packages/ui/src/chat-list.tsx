@@ -11,7 +11,7 @@ import {
   type ChatRow as ChatRowModel,
   type ChatSelectionAction,
 } from "@exp/domain-contract/chats"
-import { CHAT_ROW_WORDS, CHATS_LIST_COPY } from "@exp/domain-contract/session-tree"
+import { CHATS_LIST_COPY, chatRowWordText } from "@exp/domain-contract/session-tree"
 import { rowBadge } from "@exp/domain-contract/nav-badges"
 import { Badge } from "./badge"
 import { AgentWorkingMark, RUN_MARK_BADGE_CLASS } from "./agent-brand-mark"
@@ -208,6 +208,7 @@ function ChatRowText({
   unreadCount,
   preview,
   word: wordKey = null,
+  waiting = null,
   className,
 }: {
   title: string
@@ -216,11 +217,13 @@ function ChatRowText({
   unreadCount: number
   preview: ChatRowModel[`preview`]
   word?: ChatRowModel[`word`]
+  /** #NEW-49: what the root waits on (`sessionWaiting`), the `waiting` word's labels. */
+  waiting?: string | null
   className?: string
 }) {
   const unread = unreadCount > 0
   const { prefix, rest } = previewParts(preview)
-  const word = wordKey ? (CHAT_ROW_WORDS[wordKey] ?? null) : null
+  const word = chatRowWordText(wordKey, waiting)
   const row = { title, time, needsYou, unreadCount, preview, word: wordKey }
   const badge = rowBadge({ unreadCount, needsYou })
   return (
@@ -289,6 +292,7 @@ const ROW_CLASS = `flex w-full items-center gap-4 text-left outline-none transit
 export function ChatRow({
   row,
   agent = null,
+  waiting = null,
   onOpen,
   onRowClick,
   onSelectToggle,
@@ -299,6 +303,8 @@ export function ChatRow({
 }: Omit<ComponentProps<`button`>, `onClick`> & {
   row: ChatRowModel
   agent?: string | null
+  /** #NEW-49: the root's `sessionWaiting` (the `waiting` word's labels). */
+  waiting?: string | null
   onOpen?: (sessionId: string) => void
   /** #EXP-1388: the click with its modifiers (cmd/ctrl toggles, shift
    *  ranges); wins over `onOpen`. */
@@ -389,6 +395,7 @@ export function ChatRow({
         unreadCount={row.unreadCount}
         preview={row.preview}
         word={row.word}
+        waiting={waiting}
         className={isSelected ? `max-md:border-transparent` : undefined}
       />
     </button>
@@ -575,6 +582,7 @@ export function ChatList({
   appRows = [],
   onOpenApp,
   agentOf,
+  waitingOf,
   loading = false,
   entering,
   emptyTitle,
@@ -597,6 +605,8 @@ export function ChatList({
   onOpenApp?: (slug: string) => void
   /** A root's agent CLI (its working mark). */
   agentOf?: (sessionId: string) => string | null
+  /** #NEW-49: what a root waits on (`sessionWaiting`), else null. */
+  waitingOf?: (sessionId: string) => string | null
   loading?: boolean
   /** The `motion-enter` class for a row that arrived after the first paint. */
   entering?: (sessionId: string) => string
@@ -625,6 +635,7 @@ export function ChatList({
       key={row.sessionId}
       row={row}
       agent={agentOf?.(row.sessionId) ?? null}
+      waiting={waitingOf?.(row.sessionId) ?? null}
       className={entering?.(row.sessionId)}
       onOpen={onOpen}
       onRowClick={onRowClick}

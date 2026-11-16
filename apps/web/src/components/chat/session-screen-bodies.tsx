@@ -22,6 +22,7 @@ import {
   treeOrder,
   type PullRequestRow,
   type SessionRow,
+  sessionWaitingOf,
 } from "@/lib/session-tree"
 import { cn } from "@/lib/utils"
 
@@ -101,7 +102,9 @@ export function useSessionTreeRows(
     return treeOrder(rows.map(toTreeSession))
       .filter((session) => session.id !== rootId)
       .map((session) => {
-        const card = sessionCard(session, titles.get(session.id) ?? ``, nowIso)
+        const own = byId.get(session.id)
+        // #NEW-49: an idle session reads what it waits on.
+        const card = sessionCard(session, titles.get(session.id) ?? ``, nowIso, own ? sessionWaitingOf(own, rows, titles) : null)
         return {
           sessionId: session.id,
           parentId: session.parentId === rootId ? null : session.parentId,
