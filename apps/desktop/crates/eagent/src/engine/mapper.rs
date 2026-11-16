@@ -1316,10 +1316,12 @@ impl Mapper {
         // EXP-1292: the turn's last top-level message is its reply in the
         // Conversation — redacted whole (a secret split across two chunks
         // is still one secret) and capped at the server's body limit.
+        // #FEED-256 / #FEED-254: a blank one (a lone U+200B after quiet) is
+        // none: nothing stored, nothing relayed to a person or a parent.
         let reply = std::mem::take(&mut self.turn_reply);
         self.turn_reply_id = None;
         let error = self.turn_error.take();
-        if self.turn_live && !reply.trim().is_empty() {
+        if self.turn_live && !wire::activity::is_blank_text(&reply) {
             out.replies.push(Reply::text(self.clean_marked(
                 reply.trim(),
                 REPLY_BODY_MAX,
@@ -7026,6 +7028,21 @@ mod conversation_tests {
         read_call(&mut mapper, "tc-2", &mut out);
         mapper.on_stop(StopReason::EndTurn, &mut out);
         assert!(texts(&out.replies).is_empty(), "{:?}", out.replies);
+    }
+
+    #[test]
+    fn a_blank_final_text_is_no_reply() {
+        // #FEED-256 / #FEED-254: a turn ending on a lone zero-width space
+        // (after the quiet call) or on invisible whitespace posts nothing, and
+        // it is no empty turn either (it said something).
+        for blank in ["\u{200B}", "\n\u{00A0}\u{FEFF}\n", " \u{200D} "] {
+            let mut mapper = live();
+            let mut out = MapOut::default();
+            mapper.set_turn(wire::frames::TurnState::Started, false, &mut out);
+            say(&mut mapper, blank, "m-1", &mut out);
+            mapper.on_stop(StopReason::EndTurn, &mut out);
+            assert!(out.replies.is_empty(), "{blank:?}: {:?}", out.replies);
+        }
     }
 
     #[test]
