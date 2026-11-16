@@ -107,7 +107,7 @@
     "subagentFailedBare": "Failed.",
     "watchAt": "It is {label}, the time you asked to be woken at.",
     "watchInvalid": "A watch names its pull request or issue, or a time (at).",
-    "tooManyWatches": "A session waits on at most {max} things at once; cancel one first (exponential_sessions_send {unwatch})."
+    "tooManyWatches": "A session waits on at most {max} things at once; cancel one first (exponential_sessions_send {wakeOn: [\"-<id>\"]})."
   },
   "defaults": {
     "$comment": "What a fixture's `given` omits. rootId/depth follow parentId (a root is its own root at depth 0) and a child shares its root's `shared` unless it names its own. A device omitted from `given` is offline; a session's host is the device its deviceId names. A given session is claimed (startedAt 0) unless it says `startedAt: null`. `sealEpoch` (a ROOT's tree key epoch, EXP-1458): non-null = a keyed tree; a send whose text is plaintext (`sealed` false) into any of its sessions is refused (eCore `invalid`, copy.plainInSealedTree), whoever writes it, the tree's own agent included (#FEED-185).",

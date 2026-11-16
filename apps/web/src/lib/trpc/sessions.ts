@@ -47,6 +47,7 @@ import {
 import { markConsumedLinesRead } from "@/lib/sessions/reads"
 import { fireAndForgetDismiss, markSessionNotificationsRead } from "@/lib/notification-dismiss"
 import { configureSession, mcpPicks, skillPicks } from "@/lib/sessions/configure"
+import { unwatch as unwatchSession } from "@/lib/sessions/watches"
 import { sessionSkillIds } from "@/lib/skills/builtin"
 import {
   cardAnswerInput,
@@ -407,6 +408,21 @@ export const sessionsRouter = router({
     .mutation(({ ctx, input }) =>
       stopSession({ userId: ctx.session.user.id, sessionId: input.sessionId })
     ),
+
+  /** #NEW-49: cancel watches of a session (the Dock's "Waiting on" sheet):
+   *  by `watching` id or a watched session's id. Whoever may steer it. */
+  unwatch: authedProcedure
+    .input(z.object({ sessionId: uuid, ids: z.array(uuid).min(1).max(SESSIONS_SEND_MAX_WAKE_ON) }))
+    .mutation(async ({ ctx, input }): Promise<{ txid: number }> => {
+      const userId = ctx.session.user.id
+      const session = await loadSessionForUser(userId, input.sessionId)
+      await assertCanSteer(userId, session)
+      return ctx.db.transaction(async (tx) => {
+        const txid = await generateTxId(tx)
+        await unwatchSession(tx, session.id, input.ids)
+        return { txid }
+      })
+    }),
 
   /** End a session explicitly (status `ended`; agents refuse). Ending a
    *  ROOT ends its whole tree. */

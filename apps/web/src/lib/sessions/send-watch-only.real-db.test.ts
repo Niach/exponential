@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { watchedSessionIds } from "@/lib/sessions/watches"
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
@@ -73,8 +74,7 @@ describe.skipIf(!ready.ok)(`#FEED-173/#FEED-174 sessions_send with no target`, (
     expect(result.sessionId).toBe(w.child.sessionId)
     expect(result.messageId).toBeNull()
     expect(await w.roots()).toBe(count)
-    const [row] = await db.select({ wakeOn: sessions.wakeOn }).from(sessions).where(eq(sessions.id, w.child.sessionId))
-    expect(row!.wakeOn).toContain(w.other.sessionId)
+    expect(await watchedSessionIds(w.child.sessionId)).toContain(w.other.sessionId)
   })
 
   it(`{wakeOn} with a name or a seal is no watch: refused, the caller untouched`, async () => {
@@ -88,8 +88,7 @@ describe.skipIf(!ready.ok)(`#FEED-173/#FEED-174 sessions_send with no target`, (
         input: { wakeOn: [w.other.sessionId], name: `Watch it` },
       })
     ).rejects.toThrow(START_NEEDS_WORK)
-    const [row] = await db.select({ wakeOn: sessions.wakeOn }).from(sessions).where(eq(sessions.id, w.child.sessionId))
-    expect(row!.wakeOn ?? []).not.toContain(w.other.sessionId)
+    expect(await watchedSessionIds(w.child.sessionId)).not.toContain(w.other.sessionId)
     expect(await w.roots()).toBe(count)
   })
 

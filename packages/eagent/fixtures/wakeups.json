@@ -1652,7 +1652,7 @@
           },
           "failure": {
             "code": "limit",
-            "message": "A session waits on at most 20 things at once; cancel one first (exponential_sessions_send {unwatch}).",
+            "message": "A session waits on at most 20 things at once; cancel one first (exponential_sessions_send {wakeOn: [\"-<id>\"]}).",
             "retryable": false
           }
         },

@@ -55,6 +55,7 @@ import {
   sessionDeviceOwner,
 } from "@/lib/sessions/access"
 import { closeAskMirrorsOf, rewatchRevived, watchSessions } from "@/lib/sessions/bus"
+import { handOverWatches, watch } from "@/lib/sessions/watches"
 import { clearBlockedInTx } from "@/lib/sessions/watchdog"
 import { SUBAGENT_NO_CHILDREN, subagentRedirectText } from "@/lib/sessions/subagent"
 import {
@@ -819,7 +820,8 @@ async function insertSession(tx: Tx, values: SessionInsert & { id: string }): Pr
   return row!
 }
 
-/** NEW-1: `wakeOn` = the CALLING session watches those sessions. */
+/** NEW-1: `wakeOn` = the CALLING session watches those sessions; #NEW-49:
+ *  or events (lib/sessions/watches.ts), and `-<id>` cancels one. */
 async function applyWakeOn(tx: Tx, caller: Session | null, input: SessionsSendInput) {
   if (!input.wakeOn?.length) return
   if (!caller) {
@@ -828,7 +830,7 @@ async function applyWakeOn(tx: Tx, caller: Session | null, input: SessionsSendIn
       message: `wakeOn needs a calling session (send it over your session's MCP key)`,
     })
   }
-  await watchSessions(tx, caller.id, input.wakeOn)
+  await watch(tx, caller, input.wakeOn)
 }
 
 /** #FEED-173/#FEED-174: a send naming no session (sessionId, agentId,
@@ -1779,13 +1781,8 @@ async function continueSession(
       .update(sessions)
       .set({ parentId: child.id, updatedAt: new Date() })
       .where(and(eq(sessions.parentId, ended.id), ne(sessions.status, `ended`)))
-    await tx
-      .update(sessions)
-      .set({ wakeOn: sql`(${sessions.wakeOn} - ${ended.id}::text) || ${JSON.stringify([child.id])}::jsonb` })
-      .where(sql`${sessions.wakeOn} @> ${JSON.stringify([ended.id])}::jsonb`)
-    if (ended.wakeOn?.length) {
-      await tx.update(sessions).set({ wakeOn: ended.wakeOn }).where(eq(sessions.id, child.id))
-    }
+    // #NEW-49: what `ended` waited on, and every watch on it, move to the continuation.
+    await handOverWatches(tx, ended.id, child.id)
   }
   if (input.issueIds?.length) {
     await assertIssuesInTeam(tx, root.teamId, input.issueIds)

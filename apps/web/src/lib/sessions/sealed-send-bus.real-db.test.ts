@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { insertSessionWatchRows } from "@/lib/sessions/watches"
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { and, asc, eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
@@ -249,7 +250,7 @@ describe.skipIf(!ready.ok)(`the bus with sealed content`, () => {
     // A watcher in ANOTHER tree (plaintext), and one with no copy.
     const watcher = await w.root(`watcher`)
     const silent = await w.root(`silent`)
-    await db.update(sessions).set({ wakeOn: [childId] }).where(sql`${sessions.id} IN (${watcher}, ${silent})`)
+    await insertSessionWatchRows(db, [watcher, silent], [childId])
     const body = sealBody(tree.publicKey, 1, `found it`)
     const copy = `exp-sealed:v1:1:${body.split(`:`)[3]}`
     const reply = await w.host.reply({ sessionId: childId, body, listenerCopies: [{ rootId: watcher, body: copy }] })
@@ -355,7 +356,7 @@ describe.skipIf(!ready.ok)(`the bus with sealed content`, () => {
     const w = await world()
     const { tree, rootId, childId } = await sealedTree(w)
     const watcher = await w.root(`watcher`)
-    await db.update(sessions).set({ wakeOn: [childId] }).where(eq(sessions.id, watcher))
+    await insertSessionWatchRows(db, [watcher], [childId])
     const report = { kind: `report`, sessionId: childId, status: `done`, final: true, summary: `x`.repeat(5000) }
     const sealedReport = sealCard(tree.publicKey, 1, report)
     const other = generateTreeKey()

@@ -7,6 +7,7 @@ import { db } from "@/db/connection"
 import { devices, messages, sessions, userVoiceSettings } from "@/db/schema"
 import { fireScheduledTriggers } from "@/lib/agents/triggers"
 import { pruneEvents } from "@/lib/events"
+import { fireDueTimeWatches } from "@/lib/sessions/watches"
 import { purgeOldAppRecordEvents, purgeTrashedAppRecords } from "@/lib/app-records-purge"
 import { BUS_COPY, busLine } from "@/lib/sessions/bus"
 import { hostRowCondition, hostedByCondition, resolveSessionHost } from "@/lib/sessions/host"
@@ -44,6 +45,8 @@ export interface WatchdogRun {
   /** #FEED-235: input no turn ran for, on a person. */
   undelivered: number
   stuck: number
+  /** #NEW-49: time watches that came due and fired. */
+  timeWatches: number
   offline: number
   /** #FEED-211: parked runs that spoke again, busy again. */
   spoke: number
@@ -752,6 +755,11 @@ export async function runWatchdog(now: Date = new Date()): Promise<WatchdogRun> 
     unresumed: await flagUnresumed(now),
     offlineLong: await flagOfflineTooLong(now),
     expired: await clearExpiredWalls(now),
+    // #NEW-49 (eagent watchdog.json TIME WATCHES): due `at` watches fire.
+    timeWatches: await fireDueTimeWatches(now).catch((err) => {
+      console.error(`[watchdog] time watches failed`, err)
+      return 0
+    }),
     // NEW-2: the same tick fires the agents' schedules (a missed tick is
     // caught up here) and sweeps the event stream.
     fired: await fireScheduledTriggers(now),

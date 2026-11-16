@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { insertSessionWatchRows, watchedSessionIds } from "@/lib/sessions/watches"
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { and, eq, inArray, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
@@ -929,7 +930,7 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
       agentId: null,
     })
     // NEW-1: the agent WATCHES its spawn (the bus reports back to it).
-    expect((await row(agent.sessionId)).wakeOn).toEqual([spawned.sessionId])
+    expect((await watchedSessionIds(agent.sessionId))).toEqual([spawned.sessionId])
     const cards = await db
       .select({ card: messages.card })
       .from(messages)
@@ -2329,7 +2330,7 @@ describe.skipIf(!ready.ok)(`NEW-1: moving a session to another device`, async ()
       viaMcp: true,
       input: { sessionId: watcher.sessionId, wakeOn: [moving.sessionId] },
     })
-    expect((await row(watcher.sessionId)).wakeOn).toEqual([moving.sessionId])
+    expect((await watchedSessionIds(watcher.sessionId))).toEqual([moving.sessionId])
 
     const sent = await sendSession({
       userId: w.owner,
@@ -2350,7 +2351,7 @@ describe.skipIf(!ready.ok)(`NEW-1: moving a session to another device`, async ()
     expect(pending).toMatchObject({ sessionId: sent.sessionId, body: `carry on there`, consumedAt: null })
     // Its live child re-parents, its watcher follows, its issue rows move.
     expect(await row(kid.sessionId)).toMatchObject({ parentId: sent.sessionId, status: `queued` })
-    expect((await row(watcher.sessionId)).wakeOn).toEqual([sent.sessionId])
+    expect((await watchedSessionIds(watcher.sessionId))).toEqual([sent.sessionId])
     const [link] = await db.select().from(sessionIssues).where(eq(sessionIssues.issueId, issueId))
     expect(link!.sessionId).toBe(sent.sessionId)
     // A moved child continues as its sibling.
@@ -2846,10 +2847,7 @@ describe.skipIf(!ready.ok)(`sessions.delete (Chats)`, async () => {
     await caller(w.mate).markRead({ sessionId: root.sessionId })
     // A watcher outside the tree forgets the deleted ids.
     const watcher = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `w` } })
-    await db
-      .update(sessions)
-      .set({ wakeOn: [child.sessionId] })
-      .where(eq(sessions.id, watcher.sessionId))
+    await insertSessionWatchRows(db, [watcher.sessionId], [child.sessionId])
 
     // Root chats only; a member who neither started it nor owns the team cannot.
     await expect(caller(w.mate).delete({ sessionId: child.sessionId })).rejects.toMatchObject({ code: `BAD_REQUEST` })
@@ -2875,7 +2873,7 @@ describe.skipIf(!ready.ok)(`sessions.delete (Chats)`, async () => {
       .from(events)
       .where(and(eq(events.teamId, w.teamId), eq(events.name, `session.ended`)))
     expect(ended.map((row) => (row.payload as { sessionId: string }).sessionId).sort()).toEqual([...ids].sort())
-    expect((await row(watcher.sessionId)).wakeOn).toEqual([])
+    expect((await watchedSessionIds(watcher.sessionId))).toEqual([])
     // A device that missed the kill: its late calls are no-ops, never NOT_FOUND.
     await expect(caller(w.mate).report({ sessionId: root.sessionId, status: `idle` })).resolves.toMatchObject({
       txid: expect.any(Number),

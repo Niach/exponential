@@ -280,7 +280,7 @@ export const NOUN_TOOLS: readonly NounSpec[] = [
     name: `sessions`,
     label: `sessions`,
     group: `sessions`,
-    blurb: `Sessions (roots, agents, children): get a tree (no id = yours), list, link/unlink issues, configure (model, account, effort; no message), escalate a waiting card to the managing agent's conversation, end one.`,
+    blurb: `Sessions (roots, agents, children): get a tree (no id = yours; each session's watching = what it waits on, exponential_sessions_send {wakeOn: ["-<id>"]} cancels one), list, link/unlink issues, configure (model, account, effort; no message), escalate a waiting card to the managing agent's conversation, end one.`,
     ops: {
       get: `sessions_get`,
       list: `sessions_list`,

@@ -5,6 +5,7 @@ import { db } from "@/db/connection"
 import { events, issues, type Event } from "@/db/schema"
 import { fireEventTriggersInTx, type EventPrivateDetail } from "@/lib/agents/triggers"
 import type { Tx } from "@/lib/sessions/tx"
+import { fireWatches, WATCH_COPY } from "@/lib/sessions/watches"
 
 // NEW-2: EVENTS, the team's event stream (synced `events` shape). A row =
 // a name + a payload + who emitted it. The server builtins (`issue.created`, `issue.assigned`,
@@ -47,7 +48,40 @@ export async function emitEventInTx(tx: Tx, args: EmitEventArgs): Promise<Event>
     })
     .returning()
   await fireEventTriggersInTx(tx, row!, args.privateDetail)
+  await fireWatchesOnEvent(tx, row!)
   return row!
+}
+
+const text = (value: unknown): string | null => (typeof value === `string` && value.trim() ? value : null)
+
+/** #NEW-49 (eagent wakeups.json WATCH EVENTS): the builtin events that fire
+ *  session watches: a merge fires every watch on the PR, an issue's move its
+ *  `issue_status` watches, a trashed or purged issue every watch on it. */
+async function fireWatchesOnEvent(tx: Tx, row: Event): Promise<void> {
+  const payload = (row.payload ?? {}) as Record<string, unknown>
+  if (row.name === `pr.merged` && text(payload.pullRequestId)) {
+    await fireWatches(tx, {
+      kind: `pr_closed`,
+      subjectId: payload.pullRequestId as string,
+      text: WATCH_COPY.prMerged(Number(payload.number)),
+    })
+    return
+  }
+  const issueId = text(payload.issueId)
+  if (!issueId) return
+  const identifier = text(payload.identifier) ?? `The issue`
+  if (row.name === `issue.status_changed`) {
+    const status = text(payload.status)
+    const name = text(payload.toName) ?? status ?? `a new status`
+    await fireWatches(tx, {
+      kind: `issue_status`,
+      subjectId: issueId,
+      status: [status, text(payload.toName)].filter((value): value is string => value !== null),
+      text: WATCH_COPY.issueMoved(identifier, name),
+    })
+  } else if (row.name === `issue.deleted` || row.name === `issue.purged`) {
+    await fireWatches(tx, { kind: `gone`, subjectId: issueId, text: WATCH_COPY.issueGone(identifier) })
+  }
 }
 
 /** Rows older than `events.retentionDays` go (the watchdog's sweep). */

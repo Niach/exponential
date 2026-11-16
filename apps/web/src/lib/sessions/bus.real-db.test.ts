@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { watchedSessionIds } from "@/lib/sessions/watches"
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { and, asc, eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
@@ -373,7 +374,7 @@ describe.skipIf(!ready.ok)(`the bus: watchers (wakeOn) and answers`, () => {
         input: { sessionId: watcher, wakeOn: [other, gone, watcher] },
       })
     }
-    expect((await row(watcher)).wakeOn).toEqual([other])
+    expect((await watchedSessionIds(watcher))).toEqual([other])
 
     // The watched root's turn wakes the watcher (it has no parent).
     await w.host.claim({ sessionId: other, deviceId: w.deviceId })
@@ -391,7 +392,7 @@ describe.skipIf(!ready.ok)(`the bus: watchers (wakeOn) and answers`, () => {
     await endSession({ userId: w.owner, sessionId: other, summary: `Done there.` })
     const [report] = (await fromChild(watcher, other)).filter((m) => cardKind(m) === `report`)
     expect(report).toMatchObject({ body: `Done there.`, consumedAt: null, card: { final: true } })
-    expect((await row(watcher)).wakeOn).toEqual([])
+    expect((await watchedSessionIds(watcher))).toEqual([])
   })
 
   it(`a root started from inside a session is watched by it`, async () => {
@@ -404,12 +405,12 @@ describe.skipIf(!ready.ok)(`the bus: watchers (wakeOn) and answers`, () => {
       input: { teamId: w.teamId, deviceId: w.deviceId, text: `look into it` },
     })
     expect(await row(spawned.sessionId)).toMatchObject({ parentId: null, rootId: spawned.sessionId })
-    expect((await row(starter)).wakeOn).toEqual([spawned.sessionId])
+    expect((await watchedSessionIds(starter))).toEqual([spawned.sessionId])
     const cards = (await db.select().from(messages).where(inSession(starter))).map((m) => m.card)
     expect(cards).toContainEqual({ kind: `thread_started`, sessionId: spawned.sessionId })
     await endSession({ userId: w.owner, sessionId: spawned.sessionId, summary: `Nothing there.` })
     expect((await fromChild(starter, spawned.sessionId)).filter((m) => cardKind(m) === `report`)).toHaveLength(1)
-    expect((await row(starter)).wakeOn).toEqual([])
+    expect((await watchedSessionIds(starter))).toEqual([])
   })
 
   it(`#FEED-206: a chat an agent started, revived after its end, reports to that agent again (explicit and automatic end)`, async () => {
@@ -432,12 +433,12 @@ describe.skipIf(!ready.ok)(`the bus: watchers (wakeOn) and answers`, () => {
     await w.host.claim({ sessionId: chat, deviceId: w.deviceId })
     await endSession({ userId: w.owner, sessionId: chat, summary: `Export fixed.` })
     expect(await reports()).toMatchObject([{ body: `Export fixed.`, consumedAt: null }])
-    expect((await row(conversation)).wakeOn).toEqual([])
+    expect((await watchedSessionIds(conversation))).toEqual([])
 
     // A PERSON revives it: the agent that started it watches it again.
     await sendSession({ userId: w.owner, input: { sessionId: chat, text: `Also the CSV path.` } })
     expect(await row(chat)).toMatchObject({ status: `idle`, endedAt: null })
-    expect((await row(conversation)).wakeOn).toEqual([chat])
+    expect((await watchedSessionIds(conversation))).toEqual([chat])
     // Its turns wake the agent (#FEED-194) ...
     await w.host.reply({ sessionId: chat, body: `CSV path covered.` })
     expect(await turns()).toMatchObject([{ body: `CSV path covered.`, consumedAt: null }])
@@ -447,7 +448,7 @@ describe.skipIf(!ready.ok)(`the bus: watchers (wakeOn) and answers`, () => {
       [`Export fixed.`, null],
       [`CSV path covered.`, null],
     ])
-    expect((await row(conversation)).wakeOn).toEqual([])
+    expect((await watchedSessionIds(conversation))).toEqual([])
 
     // The AGENT revives it (the incident): its explicit end reports again.
     await sendSession({
@@ -456,7 +457,7 @@ describe.skipIf(!ready.ok)(`the bus: watchers (wakeOn) and answers`, () => {
       viaMcp: true,
       input: { sessionId: chat, text: `One more: the docs.` },
     })
-    expect((await row(conversation)).wakeOn).toEqual([chat])
+    expect((await watchedSessionIds(conversation))).toEqual([chat])
     await w.host.reply({ sessionId: chat, body: `Docs drafted.` })
     await endSession({ userId: w.owner, sessionId: chat, summary: `Docs done.` })
     expect((await turns()).map((m) => [m.body, m.consumedAt])).toEqual([

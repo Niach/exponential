@@ -8,6 +8,7 @@
 // changes a row of B. A new op without a case fails the meta-test. Plus the
 // device rule: one of U's own machines shared only with B neither lists nor
 // runs (or receives) a session of A, for an agent caller and a person alike.
+import { watchedSessionIds } from "@/lib/sessions/watches"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
@@ -576,8 +577,7 @@ describe.skipIf(!ready.ok)(`an agent-tree caller of team A never reaches team B 
   it(`wakeOn never watches a session of B`, async () => {
     const result = await tools(`sessions_send`)({ sessionId: w.callerId, wakeOn: [w.b.sessionId] })
     expect(result.isError, result.content[0]?.text).toBeFalsy()
-    const [caller] = await db.select({ wakeOn: sessions.wakeOn }).from(sessions).where(eq(sessions.id, w.callerId))
-    expect(caller!.wakeOn ?? []).not.toContain(w.b.sessionId)
+    expect(await watchedSessionIds(w.callerId)).not.toContain(w.b.sessionId)
   })
 
   it(`the personal machine still starts a chat in A`, async () => {

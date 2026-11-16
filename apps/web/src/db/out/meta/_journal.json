@@ -1996,6 +1996,13 @@
       "when": 1794731539052,
       "tag": "0284_exp1847_agent_voice",
       "breakpoints": true
+    },
+    {
+      "idx": 285,
+      "version": "7",
+      "when": 1794836241550,
+      "tag": "0285_new49_session_watches",
+      "breakpoints": true
     }
   ]
 }
