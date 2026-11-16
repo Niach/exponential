@@ -233,6 +233,64 @@ describe.skipIf(!ready.ok)(`eCode CI`, { timeout: 30_000 }, () => {
     expect([timedOut.conclusion, timedOut.reason]).toEqual([`timed_out`, null])
   })
 
+  it(`a one-slot runner takes the job expected to finish first, across runs (#EXP-1862)`, async () => {
+    const f = await fixture()
+    const SLOW_FIRST = {
+      version: 1,
+      name: `ci`,
+      on: { push: { branches: [`main`] } },
+      jobs: {
+        typecheck: { runsOn: [`linux`], steps: [{ name: `tsc`, run: `tsc` }] },
+        contract: { runsOn: [`linux`], steps: [{ name: `replay`, run: `true` }] },
+      },
+    }
+    const plan = async (sha: string) =>
+      ((await runs.startRun({ repositoryId: f.repositoryId, sha, trigger: `push`, ref: `main`, file: SLOW_FIRST })) as { runId: string }).runId
+    const dispatchedTo = async () =>
+      (await db.select().from(deviceCommands).where(eq(deviceCommands.deviceRowId, f.deviceRowId))).map((c) => c.payload.jobId as string)
+    const run = async (jobId: string, at: Date, minutes: number) => {
+      const claimed = await runs.claimJob({ userId: f.userId, deviceId: f.deviceId, jobId, now: at })
+      expect(claimed).not.toBeNull()
+      await runs.finishJob({ jobId, token: claimed!.token, conclusion: `success`, now: new Date(at.getTime() + minutes * 60_000) })
+    }
+
+    // No history: equal timeouts, queue order.
+    const [typecheck1, contract1] = await jobsOf(await plan(`1`.repeat(40)))
+    expect(await dispatchedTo()).toEqual([typecheck1.id])
+    const t0 = new Date()
+    await run(typecheck1.id, t0, 30)
+    expect(await dispatchedTo()).toContain(contract1.id)
+    await run(contract1.id, t0, 0.1)
+
+    // With history: the 6-second check goes before the 30-minute one.
+    const [typecheck2, contract2] = await jobsOf(await plan(`2`.repeat(40)))
+    expect(await dispatchedTo()).toContain(contract2.id)
+    expect(await dispatchedTo()).not.toContain(typecheck2.id)
+    // A newer run's cheap job beats the older run's typecheck.
+    const [typecheck3, contract3] = await jobsOf(await plan(`3`.repeat(40)))
+    await run(contract2.id, new Date(), 0.1)
+    const after = await dispatchedTo()
+    expect(after).toContain(contract3.id)
+    expect(after).not.toContain(typecheck2.id)
+    expect(after).not.toContain(typecheck3.id)
+  })
+
+  it(`a job no runner claims within queuedLimitMinutes ends timed_out (unclaimed) on its check row (#EXP-1862)`, async () => {
+    const f = await fixture()
+    const runId = ((await runs.startRun({ repositoryId: f.repositoryId, sha: `f`.repeat(40), trigger: `push`, ref: `main`, file: PIPELINE })) as { runId: string }).runId
+    const mac = (await jobsOf(runId)).find((job) => job.check === `mac`)!
+    const macCheck = async () =>
+      (await db.select().from(commitChecks).where(and(eq(commitChecks.repositoryId, f.repositoryId), eq(commitChecks.name, `mac`))))[0]!
+    expect((await macCheck()).status).toBe(`queued`)
+    await runs.ciTick(new Date(Date.now() + 59 * 60_000))
+    expect((await db.select().from(ciJobs).where(eq(ciJobs.id, mac.id)))[0]!.status).toBe(`queued`)
+    await runs.ciTick(new Date(Date.now() + 61 * 60_000))
+    const [done] = await db.select().from(ciJobs).where(eq(ciJobs.id, mac.id))
+    expect([done.status, done.conclusion, done.reason]).toEqual([`completed`, `timed_out`, `unclaimed`])
+    const check = await macCheck()
+    expect([check.status, check.conclusion]).toEqual([`completed`, `timed_out`])
+  })
+
   it(`a fork PR never runs, and its checks land on the PR`, async () => {
     const f = await fixture()
     const [pr] = await db
