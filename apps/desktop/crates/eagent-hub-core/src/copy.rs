@@ -45,6 +45,13 @@ pub struct TriggerRules {
     pub caught_up_after_minutes: i64,
 }
 
+/// #NEW-49: a session waits on at most `max_per_session` things (watched sessions + event watches).
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WatchRules {
+    pub max_per_session: usize,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ReportRules {
     pub max: usize,
@@ -67,6 +74,7 @@ pub struct Rules {
     pub reuse: Reuse,
     pub watchdog: Watchdog,
     pub trigger: TriggerRules,
+    pub watch: WatchRules,
     pub report: ReportRules,
     pub ask: AskRules,
     pub assistant_silent_events: Vec<String>,
@@ -150,6 +158,14 @@ pub fn offline_text() -> String {
 
 pub fn pr_opened_text(number: &str, url: &str) -> String {
     fill(text(&["prOpened"]), &[("number", number), ("url", url)])
+}
+
+pub fn too_many_watches_text() -> String {
+    fill(text(&["tooManyWatches"]), &[("max", &rules().watch.max_per_session.to_string())])
+}
+
+pub fn watch_at_text(label: &str) -> String {
+    fill(text(&["watchAt"]), &[("label", label)])
 }
 
 pub fn private_text(id: &str, lead: &str) -> String {
