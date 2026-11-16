@@ -1666,15 +1666,15 @@
         "file": "shots/chat-transcript/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 57042,
-        "sha256": "491a65a1ed52e5162aaaac976f6b75b5539ec0a8ff2fb3b1e643449ce59d976c"
+        "bytes": 57248,
+        "sha256": "0b73bb3b62492ffcba63cbb6e39941d8a98364c7e69e247241219f6c1e6dd7f8"
       },
       "web-mobile": {
         "file": "shots/chat-transcript/web-mobile.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 52498,
-        "sha256": "1409f72e41bbb79d2acf847fd9bc42fbaec8e1834b2283c67615012c1d0e44c5"
+        "bytes": 50876,
+        "sha256": "aa3f86d699345c692fe3b8385e8816140d596ca326cf202e45a0896eac136c72"
       }
     },
     "chats": {
