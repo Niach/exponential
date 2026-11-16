@@ -129,12 +129,13 @@ export class VoiceCall {
     stop?.()
   }
 
-  /** Dial `agentId` on the voice device called `device`; `language` = the
-   *  member's voice language (the greeting the caption shows). */
-  async start(agentId: string, device: string, language?: string): Promise<void> {
+  /** Dial `agentId` on the desktop called `device`; `language` = the
+   *  agent's voice language (the greeting the caption shows); EXP-1857:
+   *  `fallback` = that desktop is not the agent's own (`via` shows it). */
+  async start(agentId: string, device: string, language?: string, fallback = false): Promise<void> {
     if (this.active) return
     const generation = ++this.generation
-    this.step({ t: `start`, device, language })
+    this.step({ t: `start`, device, language, fallback })
     this.stopRing = this.deps.ring?.(VOICE_CALL_CONSTANTS.maxRingMs) ?? null
     let audio: CallAudio
     try {

@@ -42,6 +42,7 @@ import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.flowOn
@@ -66,6 +67,8 @@ class AgentSettingsViewModel @Inject constructor(
     selection: TeamSelection,
     private val agentsApi: AgentsApi,
     private val mcpServersApi: com.exponential.app.data.api.McpServersApi,
+    private val uploads: com.exponential.app.data.api.IssueImagesApi,
+    @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
 ) : ViewModel() {
 
     /** S-3: the viewer (an Assistant is edited by its owner only). */
@@ -419,6 +422,98 @@ class AgentSettingsViewModel @Inject constructor(
         }
     }
 
+    private val _clipBusy = MutableStateFlow(false)
+    /** #EXP-1847: a voice clip upload or removal in flight. */
+    val clipBusy: StateFlow<Boolean> = _clipBusy
+
+    /**
+     * #EXP-1847 (agent-settings.json `voice`): one partial `agents.update
+     * {voice}` (Language, Transcript, Wake phrase); never blocked by [busy]
+     * (each key writes alone). A refusal toasts; the synced row stays.
+     */
+    fun saveVoice(patch: com.exponential.app.data.api.AgentVoicePatch, thing: String) {
+        val id = agentId ?: return
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            try {
+                agentsApi.update(accountId, id, UpdateAgentPatch(voice = patch))
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _failure.value = FailedAction("save", thing, trpcErrorMessage(t, ""), retry = { saveVoice(patch, thing) })
+            }
+        }
+    }
+
+    /**
+     * #EXP-1847 (`voice.clipUpload`): the picked file, refused up front when
+     * too large or not a WAV (`copy.errors`, a toast), else one part `file`
+     * to the clip route; the agents shape delivers `voice.clipId`.
+     */
+    fun uploadVoiceClip(uri: android.net.Uri) {
+        val id = agentId ?: return
+        if (_clipBusy.value) return
+        _clipBusy.value = true
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value
+            try {
+                if (accountId == null) return@launch
+                val (filename, type, size) = withContext(Dispatchers.IO) {
+                    Triple(
+                        com.exponential.app.ui.markdown.MarkdownMediaUtils.guessFilename(appContext, uri),
+                        appContext.contentResolver.getType(uri),
+                        com.exponential.app.ui.markdown.MarkdownMediaUtils.querySize(appContext, uri),
+                    )
+                }
+                val refusal = com.exponential.app.domain.AgentVoiceSection.clipRefusal(type, filename, size)
+                if (refusal != null) {
+                    _failure.value = FailedAction("upload", CLIP_THING, refusal)
+                    return@launch
+                }
+                val bytes = withContext(Dispatchers.IO) {
+                    com.exponential.app.ui.markdown.MarkdownMediaUtils.readBytes(appContext, uri)
+                }
+                if (bytes == null) {
+                    _failure.value = FailedAction("upload", CLIP_THING, "The file could not be read")
+                    return@launch
+                }
+                if (bytes.size > com.exponential.app.domain.AgentVoiceSection.ClipUpload.MAX_BYTES) {
+                    _failure.value = FailedAction("upload", CLIP_THING, com.exponential.app.domain.AgentVoiceSection.Copy.ERROR_CLIP_SIZE)
+                    return@launch
+                }
+                uploads.uploadAgentVoiceClip(
+                    accountId,
+                    id,
+                    bytes,
+                    filename,
+                    com.exponential.app.domain.AgentVoiceSection.clipContentType(type),
+                )
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _failure.value = FailedAction("upload", CLIP_THING, trpcErrorMessage(t, ""), retry = { uploadVoiceClip(uri) })
+            } finally {
+                _clipBusy.value = false
+            }
+        }
+    }
+
+    /** #EXP-1847: Remove clip (no confirm): DELETE on the clip route. */
+    fun removeVoiceClip() {
+        val id = agentId ?: return
+        if (_clipBusy.value) return
+        _clipBusy.value = true
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value
+            try {
+                if (accountId != null) uploads.deleteAgentVoiceClip(accountId, id)
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _failure.value = FailedAction("remove", CLIP_THING, trpcErrorMessage(t, ""), retry = { removeVoiceClip() })
+            } finally {
+                _clipBusy.value = false
+            }
+        }
+    }
+
     private fun write(verb: String, thing: String, call: suspend (accountId: String) -> Unit) {
         if (_busy.value) return
         _busy.value = true
@@ -458,3 +553,5 @@ data class AgentEventRow(
     val emitter: String,
     val createdAt: String,
 )
+
+private const val CLIP_THING = "the voice clip"

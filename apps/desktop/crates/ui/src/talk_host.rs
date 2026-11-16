@@ -6,13 +6,16 @@
 //! call host (`steer::call_host`), the device doctor, the toasts and the
 //! shell window.
 
-use std::path::PathBuf;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use etalk::meeting::{AudioApp, DesktopAudioCapability};
 use etalk::voice::{UtteranceTarget, VoiceMessage, VoiceSettings};
 use etalk_gpui::{
-    Brand, CallConnection, CallLink, CallLinkEvent, Notice, Outgoing, SendError, SendJob, Sent, SignedIn, Surface, TalkAgent, TalkDevice,
-    TalkHost, TalkIcon, TalkMessage, VoiceWrite,
+    AgentVoice, Brand, CallConnection, CallLink, CallLinkEvent, DialConnection, DialError, DialLink, DialLinkEvent, Notice, Outgoing, SendError,
+    SendJob, Sent, SignedIn, Surface, TalkAgent, TalkDesktop, TalkDevice, TalkHost, TalkIcon, TalkMessage, VoiceWrite,
 };
 use gpui::{App, Task};
 use gpui_component::Icon;
@@ -27,6 +30,100 @@ const TRAY_ICON_SVG: &[u8] = include_bytes!("../../../assets/icons/logo-white.sv
 
 struct ExponentialHost {
     data_dir: PathBuf,
+    /// #EXP-1847: the agents' voice clips, fetched once into the data dir.
+    clips: Rc<ClipCache>,
+}
+
+/// #EXP-1847 (agent-settings.json `voice`): an agent's uploaded clip is
+/// fetched ONCE from `/api/attachments/{clipId}` into
+/// `{data_dir}/voice-clips/{clipId}.wav` and spoken from there. A clip
+/// still on its way, or one that failed (logged once, not retried until a
+/// restart), is the built-in voice.
+struct ClipCache {
+    dir: PathBuf,
+    state: RefCell<HashMap<String, ClipState>>,
+    /// A landed clip's id (the voice re-resolves on the main thread).
+    landed: flume::Sender<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ClipState {
+    Fetching,
+    Failed,
+}
+
+/// `clip_id` as a file name (an attachment id is a uuid; anything else is
+/// never a path).
+fn clip_file(dir: &Path, clip_id: &str) -> Option<PathBuf> {
+    let safe = !clip_id.is_empty() && clip_id.len() <= 64 && clip_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
+    safe.then(|| dir.join(format!("{clip_id}.wav")))
+}
+
+impl ClipCache {
+    /// The clip's cached file, or None while it is not here (the first ask
+    /// starts its fetch).
+    fn path(&self, clip_id: &str, cx: &App) -> Option<PathBuf> {
+        let file = clip_file(&self.dir, clip_id)?;
+        if file.is_file() {
+            return Some(file);
+        }
+        if self.state.borrow().contains_key(clip_id) {
+            return None;
+        }
+        let Some(transport) = crate::queries::http_attachment_transport(cx) else { return None };
+        self.state.borrow_mut().insert(clip_id.to_string(), ClipState::Fetching);
+        let (id, dir, landed) = (clip_id.to_string(), self.dir.clone(), self.landed.clone());
+        let _ = std::thread::Builder::new().name("voice-clip".into()).spawn(move || {
+            use crate::markdown::AttachmentTransport as _;
+            let result = transport.fetch(&format!("/api/attachments/{id}")).and_then(|bytes| {
+                std::fs::create_dir_all(&dir)?;
+                let temp = dir.join(format!("{id}.wav.part"));
+                std::fs::write(&temp, &bytes)?;
+                std::fs::rename(&temp, &file)?;
+                Ok(())
+            });
+            match result {
+                Ok(()) => {
+                    let _ = landed.send(id);
+                }
+                Err(err) => {
+                    log::warn!("[ui] voice clip {id} could not be fetched; the built-in voice speaks: {err}");
+                    let _ = landed.send(format!("!{id}"));
+                }
+            }
+        });
+        None
+    }
+
+    /// A fetch ended (`!id` = it failed).
+    fn ended(&self, message: &str) {
+        match message.strip_prefix('!') {
+            Some(id) => {
+                self.state.borrow_mut().insert(id.to_string(), ClipState::Failed);
+            }
+            None => {
+                self.state.borrow_mut().remove(message);
+            }
+        }
+    }
+}
+
+/// #EXP-1847: what the worker is prepared with for a resolved agent voice:
+/// its language; a clip = its local file (an attachment once `cached` has
+/// it, the built-in voice until then) with its transcript; else the
+/// built-in voice.
+pub(crate) fn voice_inputs(resolved: &domain::agent_settings::ResolvedAgentVoice, cached: impl Fn(&str) -> Option<PathBuf>) -> AgentVoice {
+    use domain::agent_settings::AgentVoiceClip;
+    let file = match &resolved.clip {
+        Some(AgentVoiceClip::Attachment(id)) => cached(id).map(|path| path.to_string_lossy().into_owned()),
+        Some(AgentVoiceClip::Path(path)) => Some(path.clone()),
+        None => None,
+    };
+    let (file, transcript) = match file {
+        Some(file) => (file, resolved.transcript.clone()),
+        None => (String::new(), String::new()),
+    };
+    AgentVoice { voice: etalk::VoiceChoice { language: resolved.language.clone(), file, transcript }, wake_phrase: resolved.wake_phrase.clone() }
 }
 
 /// Install eTalk with Exponential as its host: ONCE, after `Store::open`, the
@@ -37,7 +134,17 @@ pub fn install(cx: &mut App) {
     let Some(data_dir) = cx.try_global::<crate::session::AuthContext>().map(|auth| auth.data_dir.clone()) else { return };
     let collections = store.collections();
     let (messages, agents, state) = (collections.messages.clone(), collections.agents.clone(), store.state());
-    etalk_gpui::init(cx, Box::new(ExponentialHost { data_dir }));
+    let (landed, clips_rx) = flume::unbounded::<String>();
+    let clips = Rc::new(ClipCache { dir: data_dir.join("voice-clips"), state: RefCell::default(), landed });
+    etalk_gpui::init(cx, Box::new(ExponentialHost { data_dir, clips: clips.clone() }));
+    // #EXP-1847: a clip that landed (or failed) re-resolves the voices.
+    cx.spawn(async move |cx| {
+        while let Ok(message) = clips_rx.recv_async().await {
+            clips.ended(&message);
+            let _ = cx.update(etalk_gpui::agents_changed);
+        }
+    })
+    .detach();
     cx.observe(&messages, |_, cx| etalk_gpui::messages_changed(cx)).detach();
     // A sign-out or another account ends the voice (and the worker).
     cx.observe(&state, |_, cx| etalk_gpui::session_changed(cx)).detach();
@@ -138,6 +245,88 @@ impl CallLink for SteerLink {
     }
 }
 
+/// EXP-1857: the relay's caller socket as eTalk's dial link.
+struct SteerDial(steer::call_caller::CallCaller);
+
+impl DialLink for SteerDial {
+    fn send_audio(&self, pcm: Vec<i16>) {
+        self.0.send_audio(pcm);
+    }
+
+    fn set_muted(&self, muted: bool) {
+        self.0.set_muted(muted);
+    }
+
+    fn end(&self) {
+        self.0.end();
+    }
+}
+
+fn dial_event(event: steer::call_caller::CallCallerEvent) -> DialLinkEvent {
+    use steer::call_caller::CallCallerEvent;
+    match event {
+        CallCallerEvent::Ready => DialLinkEvent::Ready,
+        CallCallerEvent::Event(event) => DialLinkEvent::Event(event),
+        CallCallerEvent::Audio(pcm) => DialLinkEvent::Audio(pcm),
+        CallCallerEvent::Ended { reason } => DialLinkEvent::Ended { reason },
+        CallCallerEvent::Failed(code) => DialLinkEvent::Failed(code),
+        CallCallerEvent::Dropped(reason) => DialLinkEvent::Dropped(reason),
+    }
+}
+
+/// EXP-1857: `voice.startCall`'s refusal: the server's own words for a
+/// precondition (an availability reason), anything else a failure.
+fn dial_error(err: api::ApiError) -> DialError {
+    match err {
+        api::ApiError::Http { status: 412, message } => DialError::Refused(message),
+        other => DialError::Failed(other.to_string()),
+    }
+}
+
+/// EXP-1857: a doctor's `speech` row state (group voice; None = no row).
+fn doctor_speech(doctor: Option<&serde_json::Value>) -> Option<String> {
+    doctor?
+        .get("items")?
+        .as_array()?
+        .iter()
+        .find(|item| item["key"] == coding::device_doctor::KEY_SPEECH && item["group"] == "voice")?
+        .get("state")?
+        .as_str()
+        .map(str::to_string)
+}
+
+/// EXP-1857: the member's OWN desktops (`user_id` = `me`), newest
+/// `lastSeenAt` first, as a call's target reads them.
+fn own_desktops(rows: &[&domain::rows::DeviceRow], me: &str, now_ms: i64) -> Vec<TalkDesktop> {
+    own_devices(rows, me, now_ms, |kind| kind.is_none_or(|kind| kind == "desktop"))
+}
+
+/// EXP-1858: the member's own servers (CLI daemons), newest first.
+fn own_servers(rows: &[&domain::rows::DeviceRow], me: &str, now_ms: i64) -> Vec<TalkDesktop> {
+    own_devices(rows, me, now_ms, |kind| kind == Some("server"))
+}
+
+fn own_devices(rows: &[&domain::rows::DeviceRow], me: &str, now_ms: i64, kind: impl Fn(Option<&str>) -> bool) -> Vec<TalkDesktop> {
+    let mut rows: Vec<&domain::rows::DeviceRow> = rows
+        .iter()
+        .copied()
+        .filter(|row| row.user_id.as_deref() == Some(me) && kind(row.kind.as_deref()) && row.device_id.is_some())
+        .collect();
+    let seen = |row: &domain::rows::DeviceRow| row.last_seen_at.as_deref().and_then(crate::comments::parse_epoch).unwrap_or(0);
+    rows.sort_by_key(|row| std::cmp::Reverse(seen(row)));
+    rows.into_iter()
+        .map(|row| {
+            let id = row.device_id.clone().unwrap_or_default();
+            TalkDesktop {
+                name: row.label.clone().filter(|label| !label.is_empty()).unwrap_or_else(|| id.clone()),
+                online: crate::device_settings::row_is_online(row.last_seen_at.as_deref(), now_ms),
+                speech: doctor_speech(row.doctor.as_ref()),
+                id,
+            }
+        })
+        .collect()
+}
+
 fn link_event(event: steer::call_host::CallHostEvent) -> CallLinkEvent {
     use steer::call_host::CallHostEvent;
     match event {
@@ -211,7 +400,22 @@ impl TalkHost for ExponentialHost {
             team_id: agent.team_id.clone().unwrap_or_default(),
             icon: agent.icon.clone(),
             color: agent.color.clone(),
+            device_id: agent.device_id.clone().filter(|id| !id.is_empty()),
         })
+    }
+
+    /// #EXP-1847: the agent's own voice (agent-settings.json `voice`
+    /// `agentVoiceOf`) against the member's settings.
+    fn agent_voice(&self, agent_id: &str, settings: &VoiceSettings, cx: &App) -> Option<AgentVoice> {
+        let agent = crate::session_data::agent_def(agent_id, cx)?;
+        let member = domain::agent_settings::MemberVoice {
+            language: settings.language(),
+            voice_file: &settings.voice_file,
+            voice_transcript: &settings.voice_transcript,
+            wake_phrase: &settings.wake_phrase,
+        };
+        let resolved = domain::agent_settings::agent_voice_of(Some(&agent.role), agent.name.as_deref().unwrap_or_default(), &agent.voice, &member);
+        Some(voice_inputs(&resolved, |clip_id| self.clips.path(clip_id, cx)))
     }
 
     fn conversation(&self, agent_id: &str, cx: &App) -> Option<String> {
@@ -288,10 +492,12 @@ impl TalkHost for ExponentialHost {
         let trpc = crate::queries::trpc_client(cx)?;
         let runtime = crate::steer_wiring::runtime(cx)?;
         let call_id = call_id.to_string();
+        // EXP-1857: the ticket names THIS desktop (any of the member's may be rung).
+        let device_id = self.device_id();
         Some(cx.spawn(async move |cx| {
             let ticket = cx
                 .background_executor()
-                .spawn(async move { api::voice::voice_call_host_ticket(&trpc, &call_id) })
+                .spawn(async move { api::voice::voice_call_host_ticket(&trpc, &call_id, Some(&device_id)) })
                 .await
                 .map_err(|err| err.to_string())?;
             let (tx, events) = flume::unbounded::<CallLinkEvent>();
@@ -300,6 +506,43 @@ impl TalkHost for ExponentialHost {
             });
             Ok(CallConnection { link: Box::new(SteerLink(host)), events })
         }))
+    }
+
+    /// EXP-1857: `voice.startCall` as a desktop (this one the first
+    /// fallback), then the relay's caller socket.
+    fn dial_call(&self, agent_id: &str, cx: &mut App) -> Option<Task<Result<DialConnection, DialError>>> {
+        let trpc = crate::queries::trpc_client(cx)?;
+        let runtime = crate::steer_wiring::runtime(cx)?;
+        let (agent_id, device_id) = (agent_id.to_string(), self.device_id());
+        Some(cx.spawn(async move |cx| {
+            let started = cx
+                .background_executor()
+                .spawn(async move { api::voice::voice_start_call(&trpc, &agent_id, &device_id) })
+                .await
+                .map_err(dial_error)?;
+            log::info!("[voice] call {}: dialling {} (fallback {})", started.call_id, started.device, started.fallback);
+            let (tx, events) = flume::unbounded::<DialLinkEvent>();
+            let caller = steer::call_caller::connect(&runtime, started.url, move |event| {
+                let _ = tx.send(dial_event(event));
+            });
+            Ok(DialConnection { link: Box::new(SteerDial(caller)), events })
+        }))
+    }
+
+    fn desktops(&self, cx: &App) -> Vec<TalkDesktop> {
+        let Some(store) = Store::try_global(cx) else { return Vec::new() };
+        let Some(me) = crate::queries::active_account(cx).map(|account| account.user_id) else { return Vec::new() };
+        let devices = store.collections().devices.read(cx);
+        let rows: Vec<&domain::rows::DeviceRow> = devices.iter().collect();
+        own_desktops(&rows, &me, chrono::Utc::now().timestamp_millis())
+    }
+
+    fn servers(&self, cx: &App) -> Vec<TalkDesktop> {
+        let Some(store) = Store::try_global(cx) else { return Vec::new() };
+        let Some(me) = crate::queries::active_account(cx).map(|account| account.user_id) else { return Vec::new() };
+        let devices = store.collections().devices.read(cx);
+        let rows: Vec<&domain::rows::DeviceRow> = devices.iter().collect();
+        own_servers(&rows, &me, chrono::Utc::now().timestamp_millis())
     }
 
     fn device(&self, device_id: &str, cx: &App) -> Option<TalkDevice> {
@@ -354,6 +597,63 @@ impl TalkHost for ExponentialHost {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #EXP-1847: a resolved voice → the worker's prepare inputs: the clip's
+    /// cached file with its transcript, the built-in voice while it is not
+    /// here, a member path as is.
+    #[test]
+    fn a_resolved_voice_prepares_its_clip_once_it_is_here() {
+        use domain::agent_settings::{agent_voice_of, AgentVoice as Stored, MemberVoice};
+        let member = MemberVoice { language: "de", voice_file: "/home/me/me.wav", voice_transcript: "Hallo.", wake_phrase: "Hey Jarvis" };
+        let own = Stored { language: Some("en".into()), clip_id: Some("c-1".into()), clip_name: Some("sloppy.wav".into()), transcript: Some("Hi.".into()), wake_phrase: Some("Hey Sloppy".into()) };
+        let resolved = agent_voice_of(Some("agent"), "Sloppy", &own, &member);
+        let here = voice_inputs(&resolved, |id| (id == "c-1").then(|| PathBuf::from("/data/voice-clips/c-1.wav")));
+        assert_eq!(here.voice, etalk::VoiceChoice { language: "en".into(), file: "/data/voice-clips/c-1.wav".into(), transcript: "Hi.".into() });
+        assert_eq!(here.wake_phrase, "Hey Sloppy");
+        let fetching = voice_inputs(&resolved, |_| None);
+        assert_eq!(fetching.voice, etalk::VoiceChoice { language: "en".into(), file: String::new(), transcript: String::new() });
+        let assistant = agent_voice_of(Some("assistant"), "Bro", &Stored::default(), &member);
+        let path = voice_inputs(&assistant, |_| None);
+        assert_eq!(path.voice, etalk::VoiceChoice { language: "de".into(), file: "/home/me/me.wav".into(), transcript: "Hallo.".into() });
+        assert_eq!(path.wake_phrase, "Hey Jarvis");
+        let team = agent_voice_of(Some("agent"), "Sloppy", &Stored::default(), &member);
+        assert_eq!(voice_inputs(&team, |_| None).voice, etalk::VoiceChoice { language: "de".into(), ..Default::default() });
+        assert_eq!(clip_file(Path::new("/d"), "c-1"), Some(PathBuf::from("/d/c-1.wav")));
+        assert_eq!(clip_file(Path::new("/d"), "../x"), None);
+    }
+
+    /// EXP-1857: the member's own desktops, newest first, with their
+    /// doctor's `speech` row; servers and other members' machines never.
+    #[test]
+    fn a_calls_desktops_are_the_members_own_newest_first() {
+        let now = chrono::Utc::now();
+        let at = |ago: i64| (now - chrono::Duration::seconds(ago)).to_rfc3339();
+        let row = |device: &str, user: &str, kind: &str, ago: i64, speech: Option<&str>| domain::rows::DeviceRow {
+            user_id: Some(user.into()),
+            device_id: Some(device.into()),
+            label: Some(format!("{device}-name")),
+            kind: Some(kind.into()),
+            last_seen_at: Some(at(ago)),
+            doctor: speech.map(|state| serde_json::json!({ "checkedAt": "x", "items": [{ "key": "speech", "group": "voice", "state": state }] })),
+            ..serde_json::from_value(serde_json::json!({ "id": device })).unwrap()
+        };
+        let rows = [
+            row("d-old", "me", "desktop", 9_000, Some("ok")),
+            row("d-server", "me", "server", 1, None),
+            row("d-mint", "me", "desktop", 5, Some("missing")),
+            row("d-theirs", "them", "desktop", 1, Some("ok")),
+        ];
+        let refs: Vec<&domain::rows::DeviceRow> = rows.iter().collect();
+        let desktops = own_desktops(&refs, "me", now.timestamp_millis());
+        assert_eq!(desktops.iter().map(|desktop| desktop.id.as_str()).collect::<Vec<_>>(), ["d-mint", "d-old"]);
+        assert_eq!((desktops[0].name.as_str(), desktops[0].online, desktops[0].speech.as_deref()), ("d-mint-name", true, Some("missing")));
+        assert!(!desktops[1].online, "seen long ago");
+        // EXP-1858: the member's own servers, apart (only the agent's counts).
+        let servers = own_servers(&refs, "me", now.timestamp_millis());
+        assert_eq!(servers.iter().map(|server| (server.id.as_str(), server.online)).collect::<Vec<_>>(), [("d-server", true)]);
+        assert_eq!(dial_error(api::ApiError::Http { status: 412, message: "mint is offline".into() }), DialError::Refused("mint is offline".into()));
+        assert!(matches!(dial_error(api::ApiError::Http { status: 500, message: "x".into() }), DialError::Failed(_)));
+    }
 
     /// meeting.json FLUSH: a refusal (4xx) drops the batch, never requeued;
     /// a transport error or 5xx retries.

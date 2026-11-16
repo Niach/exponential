@@ -840,7 +840,16 @@ data class AgentDefinitionEntity(
     // [mcpServerIdList] reads it).
     @ColumnInfo(name = "mcp_server_ids") @SerialName("mcp_server_ids") @JsonNames("mcpServerIds")
     @Serializable(with = JsonAsStringSerializer::class) val mcpServerIds: String? = null,
+    // #EXP-1847 (agent-settings.json `voice`, [MIGRATION_128_129]): the
+    // agent's own voice `{language?, clipId?, clipName?, transcript?,
+    // wakePhrase?}` (raw jsonb TEXT, `{}` = the member's; [agentVoice] reads it).
+    @ColumnInfo(name = "voice") @SerialName("voice")
+    @Serializable(with = JsonAsStringSerializer::class) val voice: String? = null,
 ) {
+    /** #EXP-1847: [voice] parsed (null / malformed = none of its own). */
+    val agentVoice: com.exponential.app.domain.AgentVoiceLike
+        get() = com.exponential.app.domain.AgentVoiceLike.parse(voice)
+
     /** #EXP-1661: [skillIds] as ids (null / malformed = none). */
     val skillIdList: List<String> get() = parseJsonStringList(skillIds)
 

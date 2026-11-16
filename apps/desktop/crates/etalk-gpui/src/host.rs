@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use etalk::meeting::{AudioApp, DesktopAudioCapability, MeetingStopReason};
-use etalk::voice::{UtteranceTarget, VoiceMessage};
+use etalk::voice::{UtteranceTarget, VoiceMessage, VoiceSettings};
 use gpui::{App, Global, Task};
 use gpui_component::Icon;
 
@@ -46,6 +46,48 @@ pub struct TalkAgent {
     /// Its icon and `#rrggbb` colour (the call's avatar).
     pub icon: Option<String>,
     pub color: Option<String>,
+    /// EXP-1857: its Runs on device (a call rings it when it is one of the
+    /// member's own desktops that speaks).
+    pub device_id: Option<String>,
+}
+
+/// EXP-1857: one of the member's OWN desktops as a call's target reads it
+/// (voice-call.json `callTarget` `desktops`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TalkDesktop {
+    pub id: String,
+    /// Its name (the id when it has none).
+    pub name: String,
+    /// Online by its presence.
+    pub online: bool,
+    /// Its doctor row `speech` state (`ok`, `off`, `missing`, `error`, ...;
+    /// None = no row), read through `etalk::call::call_speech_of`.
+    pub speech: Option<String>,
+}
+
+/// #EXP-1847 (agent-settings.json `voice`): the voice one agent speaks
+/// with on this device, resolved against the member's settings.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AgentVoice {
+    /// What the worker is prepared with: the language, a LOCAL clip path
+    /// (empty = the built-in voice) and its transcript.
+    pub voice: etalk::VoiceChoice,
+    /// The wake phrase (empty = `Hey {agent}`).
+    pub wake_phrase: String,
+}
+
+impl AgentVoice {
+    /// The member's own voice (a host without per-agent voices).
+    pub fn member(settings: &VoiceSettings) -> Self {
+        Self {
+            voice: etalk::VoiceChoice {
+                language: settings.language().to_string(),
+                file: settings.voice_file.clone(),
+                transcript: settings.voice_transcript.clone(),
+            },
+            wake_phrase: settings.wake_phrase.clone(),
+        }
+    }
 }
 
 /// One message row of the host's conversations, borrowed while talk reads it.
@@ -177,6 +219,52 @@ pub struct CallConnection {
     pub events: flume::Receiver<CallLinkEvent>,
 }
 
+/// EXP-1857: what the desktop a DIALLED call streams to sends back (the
+/// relay's caller socket).
+#[derive(Clone, Debug, PartialEq)]
+pub enum DialLinkEvent {
+    /// `call_ready`: the host joined.
+    Ready,
+    /// `call_event`: one flow event the host stepped (its JSON).
+    Event(serde_json::Value),
+    /// The host's reply: mono 16-bit PCM at [`DIAL_DOWN_RATE`], de-jittered.
+    Audio(Vec<i16>),
+    /// The host (or the relay) hung up, with its reason.
+    Ended { reason: Option<String> },
+    /// The relay refused or ended the call with a code (`no_answer`, `busy`).
+    Failed(String),
+    /// The link failed or closed without a hang-up.
+    Dropped(String),
+}
+
+/// EXP-1857: the rate of [`DialLinkEvent::Audio`] (voice-call.json `downRate`).
+pub const DIAL_DOWN_RATE: u32 = 24_000;
+
+/// EXP-1857: a dialled call's link to the desktop that speaks.
+pub trait DialLink: 'static {
+    /// The microphone: mono 16-bit PCM at 16 kHz (`etalk::CALL_RATE`).
+    fn send_audio(&self, pcm: Vec<i16>);
+    /// `call_mute` (the frames go on as silence).
+    fn set_muted(&self, muted: bool);
+    /// Hang up (`call_end`).
+    fn end(&self);
+}
+
+/// EXP-1857: a dialled call, connected.
+pub struct DialConnection {
+    pub link: Box<dyn DialLink>,
+    pub events: flume::Receiver<DialLinkEvent>,
+}
+
+/// EXP-1857: why a dial did not connect.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DialError {
+    /// The server refused it, in its own words (an availability reason).
+    Refused(String),
+    /// Anything else (the network, a 500).
+    Failed(String),
+}
+
 /// The app eTalk runs in. Installed once with [`crate::init`]; every method
 /// runs on the main thread except a [`SendJob`].
 pub trait TalkHost: 'static {
@@ -192,6 +280,15 @@ pub trait TalkHost: 'static {
     fn accounts(&self, cx: &App) -> SignedIn;
     /// An agent by id.
     fn agent(&self, agent_id: &str, cx: &App) -> Option<TalkAgent>;
+    /// #EXP-1847: the voice `agent_id` speaks with here, resolved against
+    /// the member's `settings` (None = the member's own: a host without
+    /// per-agent voices, or an unknown agent). A clip still on its way is
+    /// the built-in voice; the host calls [`crate::agents_changed`] once it
+    /// landed.
+    fn agent_voice(&self, agent_id: &str, settings: &VoiceSettings, cx: &App) -> Option<AgentVoice> {
+        let _ = (agent_id, settings, cx);
+        None
+    }
     /// The member's conversation with the agent (None = none yet).
     fn conversation(&self, agent_id: &str, cx: &App) -> Option<String>;
     /// Visit every message row the host holds; answers whether they have
@@ -221,10 +318,30 @@ pub trait TalkHost: 'static {
     /// False = not signed in (nothing happens, `done` never runs).
     fn write(&self, write: VoiceWrite, done: Box<dyn FnOnce(&mut App)>, cx: &mut App) -> bool;
     /// Answer a streamed call ringing here (None = no relay or not signed
-    /// in; Err = refused).
+    /// in; Err = refused). EXP-1857: the host names THIS device in its
+    /// ticket (any of the member's desktops may be rung).
     fn connect_call(&self, call_id: &str, cx: &mut App) -> Option<Task<Result<CallConnection, String>>>;
+    /// EXP-1857: dial `agent_id` on ANOTHER of the member's desktops (the
+    /// server picks the same target the telephone did): None = no relay,
+    /// no server or not signed in.
+    fn dial_call(&self, agent_id: &str, cx: &mut App) -> Option<Task<Result<DialConnection, DialError>>> {
+        let _ = (agent_id, cx);
+        None
+    }
     /// A device of the member's (None = unknown).
     fn device(&self, device_id: &str, cx: &App) -> Option<TalkDevice>;
+    /// EXP-1857: the member's OWN desktops, newest `lastSeenAt` first (a
+    /// host without other devices: none).
+    fn desktops(&self, cx: &App) -> Vec<TalkDesktop> {
+        let _ = cx;
+        Vec::new()
+    }
+    /// EXP-1858: the member's OWN servers (CLI daemons), newest first: a
+    /// call rings one only when the agent runs on it.
+    fn servers(&self, cx: &App) -> Vec<TalkDesktop> {
+        let _ = cx;
+        Vec::new()
+    }
     /// The device's desktop audio as it reports it (meeting mode's who).
     fn desktop_audio(&self, device_id: &str, cx: &App) -> (DesktopAudioCapability, Vec<AudioApp>);
     fn icon(&self, icon: TalkIcon<'_>) -> Icon;
@@ -262,6 +379,28 @@ pub(crate) fn account(cx: &App) -> Option<String> {
 
 pub(crate) fn agent(agent_id: &str, cx: &App) -> Option<TalkAgent> {
     host(cx)?.agent(agent_id, cx)
+}
+
+/// #EXP-1847: the voice `agent_id` speaks with here (the member's when the
+/// host has none for it, or no agent is named).
+pub(crate) fn agent_voice(agent_id: Option<&str>, settings: &VoiceSettings, cx: &App) -> AgentVoice {
+    agent_id
+        .and_then(|agent_id| host(cx)?.agent_voice(agent_id, settings, cx))
+        .unwrap_or_else(|| AgentVoice::member(settings))
+}
+
+/// #EXP-1847: the wake phrase `agent_id` listens for, from the member's
+/// stored phrase `stored` (the Assistant's own wins; empty = `Hey {agent}`).
+pub(crate) fn wake_phrase_of(agent_id: Option<&str>, stored: &str, cx: &App) -> String {
+    let member = VoiceSettings { wake_phrase: stored.to_string(), ..Default::default() };
+    agent_voice(agent_id, &member, cx).wake_phrase
+}
+
+/// #EXP-1847: the language `agent_id` is heard (and speaks) in, from the
+/// member's `member_language`: an English agent is never heard as German.
+pub(crate) fn language_of(agent_id: &str, member_language: &str, cx: &App) -> String {
+    let member = VoiceSettings { language: member_language.to_string(), ..Default::default() };
+    agent_voice(Some(agent_id), &member, cx).voice.language
 }
 
 pub(crate) fn conversation(agent_id: &str, cx: &App) -> Option<String> {

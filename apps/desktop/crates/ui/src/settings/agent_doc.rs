@@ -144,3 +144,69 @@ pub(super) fn instructions_caption(ink: &Ink) -> Value {
 pub(super) fn field_error(ink: &Ink, chrome: &Chrome, id: &str, text: Value, shown: Value) -> Value {
     json!({"id": id, "component": "Text", "visible": shown, "props": {"text": text}, "style": {"fontSize": crate::action_error::FIELD_ERROR_PX, "lineHeight": 20, "color": chrome.danger_text, "paddingHorizontal": ink.r(0.25)}})
 }
+
+/// #EXP-1847 (agent-settings.json `voice`): EVERY agent's Voice group, rows
+/// in the fixture's order: Language (THE single-select Picker row), Voice
+/// (the clip: its label, Built-in when none; a press picks a `.wav` and
+/// uploads, a set clip trails its Remove), Transcript and Wake phrase (THE
+/// input rows, saved on blur / Enter; members read them). The wake phrase's
+/// placeholder names the agent (`wake_placeholder`); its error follows the
+/// group, inline.
+pub(super) fn voice_rows(ink: &Ink, chrome: &Chrome, wake_placeholder: &str) -> Vec<Value> {
+    use domain::agent_settings::AGENT_VOICE;
+    let copy = &AGENT_VOICE.copy;
+    let mut language = select_row("voice_language", &copy.language, "voiceLanguage", "voiceLanguage", json!({"popupMinWidth": 170}));
+    language["props"]["disabled"] = path("/pane/member");
+    let mut rows = vec![language];
+    rows.extend(divided(ink, clip_row(ink, chrome)));
+    for (id, label, name, placeholder) in [
+        ("voice_transcript", copy.transcript.as_str(), "voiceTranscript", copy.transcript_placeholder.as_str()),
+        ("voice_wake_phrase", copy.wake_phrase.as_str(), "voiceWakePhrase", wake_placeholder),
+    ] {
+        let input = json!({"id": id, "component": "Input", "visible": path("/pane/owner"),
+            "props": {"variant": "row", "label": label, "name": name, "placeholder": placeholder, "value": path(&format!("/pane/fields/{name}"))}});
+        rows.extend(divided(ink, input));
+        let read = value_row(ink, &format!("{id}_read"), path("/pane/member"), label, path(&format!("/pane/voice/{name}/shown")), path(&format!("/pane/voice/{name}/empty")));
+        rows.extend(divided(ink, read));
+    }
+    rows
+}
+
+/// The clip row: the label and the clip's label (Built-in when none, in
+/// the row's usual value colour);
+/// for an editor the row's body is pressable (the file pick), and a set
+/// clip trails the Remove glyph (a sibling, never nested in the press).
+fn clip_row(ink: &Ink, chrome: &Chrome) -> Value {
+    use domain::agent_settings::AGENT_VOICE;
+    let copy = &AGENT_VOICE.copy;
+    let body = |id: &str, pressable: bool| {
+        let column = json!({"id": format!("{id}_text"), "component": "Box", "style": {"display": "flex", "flexDirection": "column", "flexShrink": 0}, "children": [ink.text(&format!("{id}_label"), json!(copy.clip), SM, &ink.foreground)]});
+        // The row's usual value colour, Built-in included (the spec tweak, as on iOS).
+        let plain = faded(ink.text(&format!("{id}_value"), path("/pane/voice/clip/label"), SM, &ink.value), VALUE_ALPHA);
+        // An editor's row opens the file pick: the picker rows' chevron (web,
+        // iOS and Android draw it too), then the Remove glyph beside it.
+        let mut value = vec![plain];
+        if pressable {
+            let glyph = ink.r(1.);
+            value.push(json!({"id": format!("{id}_chevron"), "component": "Icon", "props": {"name": "ui-chevron-right"}, "style": {"width": glyph, "height": glyph, "color": ink.value, "opacity": VALUE_ALPHA, "flexShrink": 0}}));
+        }
+        let control = json!({"id": format!("{id}_control"), "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "flex-end", "gap": ink.r(0.25), "flexGrow": 1, "minWidth": 0}, "children": value});
+        let mut node = json!({"id": id, "component": "Box", "visible": path(if pressable { "/pane/voice/clip/pick" } else { "/pane/voice/clip/read" }),
+            "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": ink.r(0.75), "flexGrow": 1, "minWidth": 0, "paddingVertical": ink.r(0.75)},
+            "children": [column, control]});
+        if pressable {
+            node["props"] = json!({"pressable": true});
+            node["accessibility"] = json!({"label": copy.clip_upload});
+            node["on"] = json!({"press": {"event": {"name": "voiceClip"}}});
+            node["style"]["cursor"] = json!("pointer");
+        }
+        node
+    };
+    let size = ink.r(SM);
+    let remove = json!({"id": "voice_clip_remove", "component": "Box", "visible": path("/pane/voice/clip/removable"), "props": {"pressable": true}, "accessibility": {"label": copy.clip_remove},
+        "on": {"press": {"event": {"name": "voiceClipRemove"}}},
+        "style": {"display": "flex", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "width": 28, "height": 28, "borderRadius": chrome.radius, "cursor": "pointer", ":hover": {"backgroundColor": chrome.list_hover}},
+        "children": [{"id": "voice_clip_remove_icon", "component": "Icon", "props": {"name": "ui-delete"}, "style": {"width": size, "height": size, "color": ink.muted, "flexShrink": 0}}]});
+    json!({"id": "voice_clip", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": ink.r(0.5), "paddingHorizontal": ink.r(1.)},
+        "children": [body("voice_clip_pick", true), body("voice_clip_read", false), remove]})
+}

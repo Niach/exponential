@@ -1244,6 +1244,8 @@ public struct AgentDefinitionEntity: FetchableRecord, PersistableRecord, Identif
     /// #EXP-1793: the team MCP servers the agent's runs start with (jsonb
     /// `mcp_server_ids`).
     public let mcpServerIds: [String]
+    /// #EXP-1847: the agent's own voice (jsonb `voice`, `{}` = the member's).
+    public let voice: AgentVoice
 
     /// S-3: the member's own Assistant (`agents.role = assistant`).
     public var isAssistant: Bool { role == DomainContract.agentRoleAssistant }
@@ -1272,8 +1274,10 @@ public struct AgentDefinitionEntity: FetchableRecord, PersistableRecord, Identif
         instructionsUpdatedAt: String? = nil,
         role: String = DomainContract.agentRoleAgent,
         skillIds: [String] = [],
-        mcpServerIds: [String] = []
+        mcpServerIds: [String] = [],
+        voice: AgentVoice = AgentVoice()
     ) {
+        self.voice = voice
         self.instructionsUpdatedAt = instructionsUpdatedAt
         self.role = role
         self.skillIds = skillIds
@@ -1301,6 +1305,7 @@ public struct AgentDefinitionEntity: FetchableRecord, PersistableRecord, Identif
         case instructionsUpdatedAt = "instructions_updated_at"
         case skillIds = "skill_ids"
         case mcpServerIds = "mcp_server_ids"
+        case voice
     }
 }
 
@@ -1332,6 +1337,9 @@ extension AgentDefinitionEntity: Codable {
         // #EXP-1793: skill_ids' twin.
         mcpServerIds = c.decodeWireJsonString(forKey: .mcpServerIds)
             .flatMap { try? JSONDecoder().decode([String].self, from: Data($0.utf8)) } ?? []
+        // #EXP-1847: the jsonb object (wire) or its JSON text (store);
+        // missing, null or garbage = `{}`.
+        voice = AgentVoice.parse(c.decodeWireJsonString(forKey: .voice))
     }
 }
 

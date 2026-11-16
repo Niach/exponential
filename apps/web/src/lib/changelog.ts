@@ -25,6 +25,89 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-16-desktop-cli-0-14-165-voice-and-assistant`,
+    date: `2026-11-16`,
+    title: `Agent calls on every desktop and server, and a bigger Assistant`,
+    summary: `Desktop and CLI 0.14.165: calls ring the agent's own desktop or GPU server and fall back with "Voice on" another desktop, and the Assistant widget opens bigger, resizes and sits on the page's dark ground.`,
+    body: `- **Calls ring the agent's desktop**: a call to an agent speaks on the desktop it runs on; when that desktop can't, another of your desktops answers and the call shows "Voice on" with its name.
+- **Servers with a GPU answer too**: the \`exponential\` daemon on a server with a GPU takes its agents' calls, loading the voice only while a call needs it; a server without one says "No usable GPU" and hands the call to a desktop.
+- **A bigger Assistant**: the Assistant widget opens larger, sized to the window, sits on the page's dark ground, and you can drag its edge to resize it.`,
+  },
+  {
+    id: `2026-11-15-calls-ring-the-agents-server`,
+    date: `2026-11-15`,
+    title: `Call an agent on your server`,
+    summary: `An agent that runs on a server with a GPU now takes its calls itself. A server without one hands the call to one of your desktops, as before.`,
+    body: `- **The server speaks**: the \`exponential\` daemon on a server answers a call to an agent that runs there, in the agent's own voice, with no microphone or speakers of its own.
+- **Only while it's needed**: the voice is checked once, loads when a call rings and is unloaded after ten quiet minutes, so the GPU is free the rest of the time.
+- **A server without a GPU**: its device page says "No usable GPU", and calls go to the desktop you're at or your newest desktop that can speak, which the call shows as "Voice on" with its name.`,
+  },
+  {
+    id: `2026-11-15-phones-calls-ring-the-agents-desktop`,
+    date: `2026-11-15`,
+    title: `Calls from your phone ring the agent's desktop`,
+    summary: `Android 0.14.143 and iOS 0.14.132: a call to an agent rings the desktop it runs on, and when another desktop has to answer the call shows "Voice on" with its name.`,
+    body: `- **The agent's desktop answers**: calling an agent from your phone rings the desktop the agent runs on and speaks in its voice there.
+- **A fallback that says so**: when that desktop is offline, has no usable GPU or the agent runs on a server, your newest desktop that can speak takes the call, and the call shows "Voice on" with its name.
+- **A clear reason**: with no desktop that can speak, the call says so instead of waiting.`,
+  },
+  {
+    id: `2026-11-15-calls-ring-the-agents-desktop`,
+    date: `2026-11-15`,
+    title: `Calls ring the agent's own desktop`,
+    summary: `A call to an agent rings the desktop it runs on. When that desktop can't speak, another of your desktops answers and the call shows which one.`,
+    body: `- **The agent's desktop answers**: calling an agent from your phone, the web or the desktop app rings the desktop the agent runs on and speaks in its voice there.
+- **A fallback that says so**: when that desktop is offline, has no usable GPU or the agent runs on a server, the desktop you're at or your newest desktop that can speak takes the call, and the call shows "Voice on" with its name.
+- **Call from any desktop**: the desktop app calls an agent on another machine like your phone does, over the relay. Push to talk works on the desktop you're at.`,
+  },
+  {
+    id: `2026-11-15-desktop-assistant-button-clear`,
+    date: `2026-11-15`,
+    title: `Nothing under the Assistant button on the desktop`,
+    summary: `Desktop and CLI 0.14.164: the floating Assistant button no longer covers the plan tab's Next button, the board's bulk bar, the Chats selection bar or the last rows of a scrolled pane.`,
+    body: `- **Plan tab**: with a question waiting, Next sits beside the Assistant button instead of under it.
+- **Selection bars**: the board's bulk bar and the Chats selection bar keep clear of the button when you select issues or chats.
+- **Scroll ends**: scroll any long pane to the end and its last row stays clear of the button.`,
+  },
+  {
+    id: `2026-11-15-desktop-voice-per-agent`,
+    date: `2026-11-15`,
+    title: `A voice for every agent on the desktop`,
+    summary: `Desktop and CLI 0.14.163 with eDE 0.2.26: every agent's settings page on the desktop has a Voice section, your voice device speaks each agent's replies in that agent's voice, and your own chat bubbles in eDE take the new bubble colour.`,
+    body: `- **Voice per agent**: open an agent's settings on the desktop, a team agent or the Assistant, and set its language, a voice clip, what the clip says and its wake phrase.
+- **Spoken in its voice**: the desktop's voice features read each agent's replies and calls in that agent's own voice; rows you leave empty use your own voice settings.
+- **eDE chat bubbles**: your own messages in eDE's chats use the same bubble colour as the desktop app.`,
+  },
+  {
+    id: `2026-11-15-phones-bubbles-app-chat-voice`,
+    date: `2026-11-15`,
+    title: `Chat bubbles, one chat per app and a voice per agent on your phone`,
+    summary: `Android 0.14.142 and iOS 0.14.131 bring chat bubbles with a time on each, one chat per app with its agent, a Voice section on every agent's settings page, and the / menu's notes above the card.`,
+    body: `- **Chat bubbles**: messages sit in bubbles of their own colour, every bubble shows its time, and a turn that ended quietly says so on its own line.
+- **One chat per app**: an app's chat is your own chat with the app's agent, and the app's settings pick where that agent runs.
+- **Voice per agent**: every agent's settings page has a Voice group with its language, a voice clip, the clip's transcript and the wake phrase.
+- **The / menu**: its notes and the Home menu draw above the card, as on the web.`,
+  },
+  {
+    id: `2026-11-15-voice-per-agent`,
+    date: `2026-11-15`,
+    title: `Every agent gets its own voice`,
+    summary: `Each agent's settings page has a Voice group: its language, a voice clip, the clip's transcript and its wake phrase. Your voice device speaks each agent's replies in that voice.`,
+    body: `- **Voice per agent**: every agent's settings page, team agents and the Assistant, has a Voice group with the language, a voice clip (a WAV upload you can remove again), what the clip says and the wake phrase.
+- **Spoken in its voice**: your voice device reads each agent's replies and calls in that agent's own voice. Rows you leave empty use your own voice settings.`,
+  },
+  {
+    id: `2026-11-15-desktop-events-tab-key-reseal`,
+    date: `2026-11-15`,
+    title: `The Events tab, one chat per app and sturdier agent chats on the desktop`,
+    summary: `Desktop and CLI 0.14.162: an app's Events tab and one chat per app on the desktop, clearer chat bubbles, messages to an agent or app that no longer fail on a chat the desktop had not caught up on, and nothing hidden under the Assistant button.`,
+    body: `- **Events tab**: open an app on the desktop and pick Events to see its agent's triggers, the app's webhooks and the last week's runs.
+- **One chat per app**: the chat in an app's editor is your own chat with the app's agent, and the app's settings pick where that agent runs.
+- **Chat bubbles**: every bubble shows its time, and a turn that ended quietly says so on its own line.
+- **Agent and app chats catch up**: when your chat with an agent or app moved on elsewhere (a new chat or new keys) before the desktop synced it, the desktop app asks the server, seals your message again and sends it once instead of failing.
+- **Nothing under the Assistant button**: the floating Assistant button no longer covers the last row or a page's buttons in the bottom-right corner.`,
+  },
+  {
     id: `2026-11-15-one-chat-per-app`,
     date: `2026-11-15`,
     title: `One chat per app, and where its agent runs`,

@@ -55,6 +55,13 @@
 //! download included) and opens the microphone. `CallListening` follows
 //! once both are settled ([`listener::Links::voice_ready`]). The ring stops
 //! at the first Speak (the greeting), a Stop, Hangup or the next call.
+//!
+//! EXP-1857: `Dial` is CALLER MODE (the IDE streams a call to ANOTHER
+//! desktop over the relay): the same one output stream rings and then plays
+//! the far end the host hands it (`DialPlay`, the canceller's reference),
+//! and the listener sends the microphone, echo-cancelled, as `DialAudio`
+//! ([`listener::Job::Dial`]). No recognizer and no voice, so nothing waits
+//! for a download.
 
 pub mod builtin;
 pub mod capture;
@@ -333,6 +340,29 @@ impl Shared {
         }
     }
 
+    /// EXP-1857: dialled call `id`'s far end on its output stream (the
+    /// canceller's reference, like a local call's reply).
+    fn dial_play(&self, id: &str, pcm: &[i16], rate: u32) {
+        let samples: Vec<f32> = pcm.iter().map(|sample| f32::from(*sample) / 32768.0).collect();
+        match self.call_out(rate) {
+            Some(Ok(stream)) => {
+                if let Err(err) = stream.push(&samples) {
+                    eprintln!("call {id}: the far end did not play: {err}");
+                }
+            }
+            Some(Err(err)) => eprintln!("call {id}: the audio output did not open: {err}"),
+            None => {}
+        }
+    }
+
+    /// EXP-1857: barge-in on dialled call `id`: what is queued goes.
+    fn dial_flush(&self, id: &str) {
+        let out = self.call_out.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(open) = out.as_ref().filter(|open| open.call == id) {
+            open.stream.flush();
+        }
+    }
+
     /// A call started: any stream but local call `keep`'s closes.
     fn keep_call_out(&self, keep: Option<&str>) {
         let mut out = self.call_out.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -580,6 +610,37 @@ fn serve<H: listener::Hearing>(input: impl BufRead, data_dir: PathBuf, hearing: 
             Request::MeetingPause { id, paused } => {
                 let _ = listen.send(listener::Job::MeetingPause { id, paused });
             }
+            Request::Dial { id, .. } if listening.meeting().is_some() => {
+                // NEW-57: a meeting owns the microphone.
+                (shared.emit)(&Event::ListenFailed {
+                    id,
+                    reason: etalk::ListenFailure::Meeting,
+                    detail: "a meeting holds the microphone".into(),
+                });
+            }
+            Request::Dial { id, ring_ms } => {
+                // EXP-1857: caller mode is a LOCAL call to the stream and the
+                // canceller (its far end plays here), without the recognizer:
+                // replaces a Listen or Call, and anything speaking stops.
+                listening.begin_call(&id, false);
+                shared.stop_ring(None);
+                shared.keep_call_out(Some(id.as_str()));
+                barge(&shared);
+                shared.ring(&id, ring_ms);
+                let _ = listen.send(listener::Job::Dial { id });
+            }
+            Request::DialPlay { id, pcm, rate } => {
+                if listening.local_call().as_deref() != Some(id.as_str()) {
+                    continue;
+                }
+                // The far end speaks: the ring is over.
+                shared.stop_ring(Some(&id));
+                match etalk::decode_pcm(&pcm) {
+                    Ok(pcm) => shared.dial_play(&id, &pcm, rate),
+                    Err(err) => eprintln!("unreadable dial audio ({err})"),
+                }
+            }
+            Request::DialFlush { id } => shared.dial_flush(&id),
         }
     }
     // EOF: the host is gone. Silence and let the engines wind down; the

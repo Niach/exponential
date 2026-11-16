@@ -58,6 +58,10 @@ pub struct Agent {
     /// S-3: contract `agentRole` (`assistant` | `agent`); absent = `agent`.
     #[serde(default)]
     pub role: Option<String>,
+    /// #EXP-1847 (agent-settings.json `voice`): the agent's own voice
+    /// (`agents.get` carries it; `agents.list` does not).
+    #[serde(default)]
+    pub voice: Option<serde_json::Value>,
 }
 
 /// `{txid}` of a plain mutation.
@@ -176,8 +180,25 @@ pub struct UpdateInput {
     /// #EXP-1793: the agent page's MCP servers pick (`Some(vec![])` = none).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mcp_server_ids: Option<Vec<String>>,
+    /// #EXP-1847 (agent-settings.json `voice`): the agent's own voice; the
+    /// clip is written only through its route.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub voice: Option<VoicePatch>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sort_order: Option<f64>,
+}
+
+/// #EXP-1847 `agents.update {voice}`: an unset key is kept, `Some(None)`
+/// (sent as null) clears it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoicePatch {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub language: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transcript: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wake_phrase: Option<Option<String>>,
 }
 
 impl UpdateInput {

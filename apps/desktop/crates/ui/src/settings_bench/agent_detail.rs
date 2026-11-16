@@ -214,7 +214,26 @@ fn settings_agent_assistant_voice() {
             wake_word: true,
             ..Default::default()
         };
+        // #EXP-1847: the page resolves the Assistant's voice against `voice.get`.
+        pane.seed_member_voice_for_shots(settings.clone(), cx);
         pane.show_voice(crate::settings::voice_prefs::VoiceShot { settings, capture: None }, window, cx);
         pane
     }, |_, _| {}, Some(std::time::Duration::from_millis(1200)), &[], |_, _, _| {});
+}
+
+/// #EXP-1847 (agent-settings.json `voice`): a team agent with its own voice
+/// (German, an uploaded clip, its own wake phrase).
+#[test]
+#[ignore]
+fn settings_agent_voice() {
+    let mut agent = agent("a1", "agent", "mint", triggers());
+    agent.name = Some("Sloppy".into());
+    agent.voice = domain::agent_settings::AgentVoice {
+        language: Some("de".into()),
+        clip_id: Some("c-1".into()),
+        clip_name: Some("sloppy.wav".into()),
+        transcript: Some("Hi, Sloppy here.".into()),
+        wake_phrase: Some("Hey Sloppy".into()),
+    };
+    page("agent-voice", agent, true, Some(Ok(INSTRUCTIONS.into())));
 }

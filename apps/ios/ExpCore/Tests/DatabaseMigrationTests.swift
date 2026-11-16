@@ -147,7 +147,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v100_app_record_share_name", "v101_merge_train",
              "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers",
              "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
-             "v108_sidebar_layout"]
+             "v108_sidebar_layout", "v109_agent_voice"]
         )
     }
 
@@ -216,7 +216,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v100_app_record_share_name", "v101_merge_train",
              "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers",
              "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
-             "v108_sidebar_layout"]
+             "v108_sidebar_layout", "v109_agent_voice"]
         )
     }
 
@@ -757,7 +757,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v100_app_record_share_name", "v101_merge_train",
              "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers",
              "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
-             "v108_sidebar_layout"]
+             "v108_sidebar_layout", "v109_agent_voice"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -874,7 +874,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v100_app_record_share_name", "v101_merge_train",
              "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers",
              "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
-             "v108_sidebar_layout"]
+             "v108_sidebar_layout", "v109_agent_voice"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1929,7 +1929,7 @@ final class DatabaseMigrationTests: XCTestCase {
             try columnNames(pool, "agents"),
             ["id", "team_id", "name", "icon", "color", "triggers", "device_id", "cli",
              "account", "model", "owner_id", "sort_order", "created_at", "updated_at",
-             "instructions_updated_at", "role", "skill_ids", "defaults", "mcp_server_ids"]
+             "instructions_updated_at", "role", "skill_ids", "defaults", "mcp_server_ids", "voice"]
         )
         // #EXP-1661: the skills shape allowlist (`body` never).
         XCTAssertEqual(
@@ -4006,6 +4006,46 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertEqual(
             try pool.read { db in try AgentDefinitionEntity.fetchOne(db, key: "ag2")?.mcpServerIds }, ["m1", "m2"]
         )
+    }
+
+    // #EXP-1847: v109 adds `agents.voice` (existing rows = {}), resetting
+    // ONLY the agents cursor; a wire row round-trips.
+    func testAgentVoiceAdded() throws {
+        let pool = try makePool("exp1847-agent-voice")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v108_sidebar_layout")
+        try pool.write { db in
+            try db.execute(sql: """
+                INSERT INTO "agents" ("id", "team_id", "name", "created_at", "updated_at")
+                VALUES ('ag1', 't', 'Triage', 'x', 'x')
+                """)
+            for shape in ["agents", "prompts"] {
+                try db.execute(sql: """
+                    INSERT INTO "electric_offsets"
+                        ("shape", "handle", "offset", "needs_refetch", "is_live")
+                    VALUES (?, 'h', '0_0', 0, 1)
+                    ON CONFLICT("shape") DO UPDATE SET "handle" = 'h', "offset" = '0_0',
+                        "needs_refetch" = 0, "is_live" = 1
+                    """, arguments: [shape])
+            }
+        }
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v109_agent_voice"))
+        try pool.read { db in
+            let reset = try String.fetchAll(
+                db,
+                sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
+            )
+            XCTAssertEqual(reset, ["agents"])
+            XCTAssertEqual(try AgentDefinitionEntity.fetchOne(db, key: "ag1")?.voice, AgentVoice())
+        }
+        let agent = try JSONDecoder().decode(AgentDefinitionEntity.self, from: Data("""
+            {"id":"ag2","team_id":"t","name":"Ops","voice":{"language":"de","clipId":"c-1","clipName":"ops.wav"},"created_at":"x","updated_at":"x"}
+            """.utf8))
+        let want = AgentVoice(language: "de", clipId: "c-1", clipName: "ops.wav")
+        XCTAssertEqual(agent.voice, want)
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+        try pool.write { db in try agent.save(db) }
+        XCTAssertEqual(try pool.read { db in try AgentDefinitionEntity.fetchOne(db, key: "ag2")?.voice }, want)
     }
 
     // eApps V1 (#VAPP-210): v93 adds `apps.published_version` (existing rows

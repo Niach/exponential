@@ -503,9 +503,11 @@ internal fun VoiceSettingsForm(
     onVoiceTranscriptDone: () -> Unit,
     modifier: Modifier = Modifier,
     /** S-3 (agent-settings.json `assistant`): the block MOVED onto the
-     *  Assistant page — its rows unchanged MINUS the Voice device and Agent
-     *  pickers (the device is Runs on's, the agent is the Assistant), laid
-     *  into the page's own scroll. */
+     *  Assistant page, laid into the page's own scroll: only the member rows
+     *  (push to talk, wake word, meetings). The Voice device and Agent
+     *  pickers go (the device is Runs on's, the agent is the Assistant), and
+     *  #EXP-1847: Language, Voice file, Transcript and Wake phrase are the
+     *  agent's own Voice section's rows. */
     assistantBlock: Boolean = false,
 ) {
     // voice.json: every switch is off and disabled while either is None.
@@ -521,8 +523,10 @@ internal fun VoiceSettingsForm(
                 .padding(vertical = 8.dp)
         },
     ) {
-        OptionGroup {
-          if (!assistantBlock) {
+        // #EXP-1847: on the Assistant page this group's rows (Language, Voice
+        // file, Transcript) are the agent's own Voice section's; only the
+        // member rows below (push to talk, wake word, meetings) stay.
+        if (!assistantBlock) OptionGroup {
             // THE device picker's rows (glyph + name), None first.
             val deviceItems = remember(vocabulary.deviceRows) {
                 listOf(PickerItem(value = NONE, label = Voice.Copy.VOICE_DEVICE_NONE)) +
@@ -549,7 +553,6 @@ internal fun VoiceSettingsForm(
                 testTag = Voice.TestIds.AGENT,
             )
             GroupDivider()
-          }
             // Every language carries its GPU note (#NEW-74), in the row and in the menu.
             val languageDevice = settings.voiceDeviceId?.let { vocabulary.deviceNames[it] ?: Voice.Copy.ELLIPSIS }
             ChoicePickerRow(
@@ -620,6 +623,8 @@ internal fun VoiceSettingsForm(
                     description = wakeDetail,
                     modifier = Modifier.testTag(Voice.TestIds.WAKE_WORD),
                 )
+              // #EXP-1847: the Assistant's wake phrase is its Voice section's row.
+              if (!assistantBlock) {
                 GroupDivider()
                 // The input row (label + trailing field, the board form's
                 // Prefix row): saved a beat after typing stops, on Done or on leaving it.
@@ -633,9 +638,10 @@ internal fun VoiceSettingsForm(
                     onFocusLost = onWakePhraseDone,
                     modifier = Modifier.testTag(Voice.TestIds.WAKE_PHRASE),
                 )
+              }
             }
             // #NEW-56: invalid input, inline under the field (never a toast).
-            FieldError(wakePhraseError, modifier = Modifier.padding(start = 20.dp, top = 6.dp))
+            if (!assistantBlock) FieldError(wakePhraseError, modifier = Modifier.padding(start = 20.dp, top = 6.dp))
             // NEW-57: the meeting rows, their own group with no header, right under the tray group.
             Spacer(Modifier.height(12.dp))
             MeetingRows(

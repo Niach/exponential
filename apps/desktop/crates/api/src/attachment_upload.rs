@@ -266,6 +266,37 @@ impl HttpAttachmentTransport {
         self.post_multipart_text(&url, "image", filename, content_type, bytes).map(|_| ())
     }
 
+    /// #EXP-1847 (agent-settings.json `voice.clipUpload`): the agent's voice
+    /// clip → `POST /api/agents/{agentId}/voice-clip`, one multipart `file`
+    /// (a WAV); answers `{clipId, clipName}` (the shape delivers it too).
+    pub fn upload_agent_voice_clip(
+        &self,
+        agent_id: &str,
+        filename: &str,
+        content_type: &str,
+        bytes: &[u8],
+    ) -> anyhow::Result<UploadedVoiceClip> {
+        let url = format!("{}{}", self.base_url, domain::agent_settings::agent_voice_clip_route(agent_id));
+        let text = self.post_multipart_text(&url, "voice clip", filename, content_type, bytes)?;
+        serde_json::from_str(&text).with_context(|| format!("decode voice clip response: {text}"))
+    }
+
+    /// #EXP-1847: `DELETE /api/agents/{agentId}/voice-clip` clears the clip.
+    pub fn delete_agent_voice_clip(&self, agent_id: &str) -> anyhow::Result<()> {
+        let url = format!("{}{}", self.base_url, domain::agent_settings::agent_voice_clip_route(agent_id));
+        let response = self
+            .authorize(crate::http::shared().delete(&url))
+            .header("Accept", "application/json")
+            .send()
+            .map_err(|e| anyhow!("voice clip removal failed: {e}"))?;
+        let status = response.status();
+        if !status.is_success() {
+            let text = response.text().unwrap_or_default();
+            return Err(anyhow!("voice clip removal failed: {}", upload_error_message(status, &text)));
+        }
+        Ok(())
+    }
+
     /// One multipart POST to the issue upload route. The user-facing error
     /// label follows the payload: an inline image is an "image", every other
     /// content type a "file".
@@ -322,6 +353,15 @@ impl HttpAttachmentTransport {
         }
         Ok(text)
     }
+}
+
+/// #EXP-1847: what the voice clip route answers.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UploadedVoiceClip {
+    pub clip_id: String,
+    #[serde(default)]
+    pub clip_name: String,
 }
 
 /// The server's own message beats a bare "HTTP 400" summary. The upload
@@ -851,6 +891,24 @@ mod tests {
         let transport = HttpAttachmentTransport::new(&base, Arc::new(NullToken));
         let error = transport.upload_team_image("t-1", "x.png", "image/png", b"x").unwrap_err();
         assert!(error.to_string().contains("That image could not be read"), "{error}");
+    }
+
+    /// #EXP-1847: the voice clip is one `file` part to the agent's route and
+    /// answers `{clipId, clipName}`; DELETE clears it.
+    #[test]
+    fn the_voice_clip_posts_one_file_part_and_deletes() {
+        let (base, rx) = one_shot_server(200, r#"{"clipId":"c-1","clipName":"sloppy.wav"}"#);
+        let transport = HttpAttachmentTransport::new(&base, Arc::new(NullToken));
+        let uploaded = transport.upload_agent_voice_clip("a-1", "sloppy.wav", "audio/wav", b"RIFF").unwrap();
+        assert_eq!(uploaded, UploadedVoiceClip { clip_id: "c-1".into(), clip_name: "sloppy.wav".into() });
+        let request = rx.recv().unwrap();
+        assert!(request.starts_with("POST /api/agents/a-1/voice-clip "), "{request}");
+        assert!(request.contains("name=\"file\"; filename=\"sloppy.wav\""), "{request}");
+
+        let (base, rx) = one_shot_server(200, r#"{"ok":true}"#);
+        let transport = HttpAttachmentTransport::new(&base, Arc::new(NullToken));
+        transport.delete_agent_voice_clip("a-1").unwrap();
+        assert!(rx.recv().unwrap().starts_with("DELETE /api/agents/a-1/voice-clip "));
     }
 
     /// One-shot canned HTTP server (same pattern as `api::trpc` tests).

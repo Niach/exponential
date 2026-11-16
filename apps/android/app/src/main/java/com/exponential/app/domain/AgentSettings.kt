@@ -588,3 +588,165 @@ fun agentMcpServersValue(names: List<String>): String = when {
     names.size <= 2 -> names.joinToString(", ")
     else -> "${names.take(2).joinToString(", ")} +${names.size - 2}"
 }
+
+/**
+ * #EXP-1847 (agent-settings.json `voice`, TS `AGENT_VOICE`): every agent's
+ * own Voice section (Language, Voice, Transcript, Wake phrase), its copy, the
+ * clip upload route and the limits; [agentVoiceOf] resolves the voice against
+ * the member's voice settings.
+ */
+object AgentVoiceSection {
+    const val ROW_LANGUAGE = "language"
+    const val ROW_CLIP = "clip"
+    const val ROW_TRANSCRIPT = "transcript"
+    const val ROW_WAKE_PHRASE = "wake-phrase"
+    val ROWS = listOf(ROW_LANGUAGE, ROW_CLIP, ROW_TRANSCRIPT, ROW_WAKE_PHRASE)
+
+    object Copy {
+        const val LABEL = "Voice"
+        const val LANGUAGE = "Language"
+        const val CLIP = "Voice"
+        const val CLIP_BUILT_IN = "Built-in"
+        const val CLIP_UPLOAD = "Upload a voice clip"
+        const val CLIP_REMOVE = "Remove clip"
+        const val TRANSCRIPT = "Transcript"
+        const val TRANSCRIPT_PLACEHOLDER = "What the clip says"
+        const val WAKE_PHRASE = "Wake phrase"
+        const val WAKE_PHRASE_PLACEHOLDER = "Hey {agent}"
+        const val ERROR_CLIP_TYPE = "Voice clips must be WAV files"
+        const val ERROR_CLIP_SIZE = "Voice clips must be 5 MB or smaller"
+    }
+
+    /** `clipUpload`: one multipart part `file`; DELETE clears the clip. */
+    object ClipUpload {
+        const val ROUTE = "/api/agents/{agentId}/voice-clip"
+        val ACCEPT = listOf("audio/wav", "audio/x-wav", "audio/wave")
+        const val MAX_BYTES = 5_242_880L
+    }
+
+    object Limits {
+        const val TRANSCRIPT = 500
+        const val WAKE_PHRASE = 64
+        const val WAKE_PHRASE_MIN_LETTERS = 6
+    }
+
+    object TestIds {
+        const val SECTION = "agent-voice"
+        const val LANGUAGE = "agent-voice-language"
+        const val CLIP = "agent-voice-clip"
+        const val CLIP_REMOVE = "agent-voice-clip-remove"
+        const val TRANSCRIPT = "agent-voice-transcript"
+        const val WAKE_PHRASE = "agent-voice-wake-phrase"
+    }
+
+    fun clipUploadPath(agentId: String): String = ClipUpload.ROUTE.replace("{agentId}", agentId)
+
+    fun wakePhrasePlaceholder(agentName: String): String = Copy.WAKE_PHRASE_PLACEHOLDER.replace("{agent}", agentName)
+
+    /**
+     * The picked file's refusal before any upload (null = send it): larger
+     * than `clipUpload.maxBytes`, or a declared type that is neither one of
+     * `clipUpload.accept` nor generic while the name is no `.wav` (the
+     * server sniffs the bytes: pickers often send no or a generic type).
+     */
+    fun clipRefusal(contentType: String?, filename: String?, sizeBytes: Long?): String? {
+        if (sizeBytes != null && sizeBytes > ClipUpload.MAX_BYTES) return Copy.ERROR_CLIP_SIZE
+        val type = contentType?.substringBefore(';')?.trim()?.lowercase().orEmpty()
+        val generic = type.isEmpty() || type == "application/octet-stream"
+        val wavName = filename?.lowercase()?.endsWith(".wav") == true
+        if (!generic && type !in ClipUpload.ACCEPT && !wavName) return Copy.ERROR_CLIP_TYPE
+        return null
+    }
+
+    /** The content type the upload declares: an accepted one as is, else `audio/wav`. */
+    fun clipContentType(contentType: String?): String {
+        val type = contentType?.substringBefore(';')?.trim()?.lowercase().orEmpty()
+        return if (type in ClipUpload.ACCEPT) type else ClipUpload.ACCEPT.first()
+    }
+}
+
+/** #EXP-1847: an agent's own voice (`agents.voice` jsonb; `{}` = the member's). */
+data class AgentVoiceLike(
+    val language: String? = null,
+    val clipId: String? = null,
+    val clipName: String? = null,
+    val transcript: String? = null,
+    val wakePhrase: String? = null,
+) {
+    companion object {
+        val NONE = AgentVoiceLike()
+
+        /** The synced jsonb TEXT (or an object); null / malformed = none. */
+        fun parse(raw: String?): AgentVoiceLike {
+            if (raw.isNullOrBlank()) return NONE
+            val element = runCatching { kotlinx.serialization.json.Json.parseToJsonElement(raw) }.getOrNull()
+            return of(element as? kotlinx.serialization.json.JsonObject ?: return NONE)
+        }
+
+        fun of(obj: kotlinx.serialization.json.JsonObject): AgentVoiceLike {
+            fun text(key: String): String? =
+                (obj[key] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
+            return AgentVoiceLike(
+                language = text("language"),
+                clipId = text("clipId"),
+                clipName = text("clipName"),
+                transcript = text("transcript"),
+                wakePhrase = text("wakePhrase"),
+            )
+        }
+    }
+}
+
+/** #EXP-1847: the member's voice settings the resolution falls back to (`voice.get`). */
+data class MemberVoiceLike(
+    val language: String,
+    val voiceFile: String,
+    val voiceTranscript: String,
+    val wakePhrase: String,
+)
+
+/** The clip an agent speaks with: its uploaded attachment or the member's file path. */
+sealed interface AgentVoiceClip {
+    data class Attachment(val attachmentId: String) : AgentVoiceClip
+    data class Path(val path: String) : AgentVoiceClip
+}
+
+data class ResolvedAgentVoice(
+    val language: String,
+    /** null = the built-in voice. */
+    val clip: AgentVoiceClip?,
+    val clipLabel: String,
+    val transcript: String,
+    val wakePhrase: String,
+)
+
+/** #EXP-1847 (`voiceOfCases`, TS `agentVoiceOf`): the voice an agent speaks
+ *  with ([name] = the TS signature's; the placeholder reads it, not this). */
+@Suppress("UNUSED_PARAMETER")
+fun agentVoiceOf(role: String?, name: String, voice: AgentVoiceLike?, member: MemberVoiceLike): ResolvedAgentVoice {
+    val own = voice ?: AgentVoiceLike.NONE
+    val assistant = role == DomainContract.agentRoleAssistant
+    val language = own.language?.takeIf { it.isNotEmpty() } ?: member.language
+    val ownPhrase = own.wakePhrase?.takeIf { it.isNotBlank() }
+    val wakePhrase = ownPhrase ?: if (assistant) member.wakePhrase else ""
+    if (!own.clipId.isNullOrEmpty()) {
+        return ResolvedAgentVoice(
+            language = language,
+            clip = AgentVoiceClip.Attachment(own.clipId),
+            clipLabel = own.clipName?.takeIf { it.isNotEmpty() } ?: AgentVoiceSection.Copy.CLIP_BUILT_IN,
+            transcript = own.transcript ?: "",
+            wakePhrase = wakePhrase,
+        )
+    }
+    if (assistant && member.voiceFile.isNotEmpty()) {
+        val last = member.voiceFile.split('/', '\\').last()
+        return ResolvedAgentVoice(
+            language = language,
+            clip = AgentVoiceClip.Path(member.voiceFile),
+            clipLabel = last.ifEmpty { member.voiceFile },
+            transcript = own.transcript ?: member.voiceTranscript,
+            wakePhrase = wakePhrase,
+        )
+    }
+    return ResolvedAgentVoice(language, null, AgentVoiceSection.Copy.CLIP_BUILT_IN, own.transcript ?: "", wakePhrase)
+}

@@ -559,6 +559,9 @@ public struct GlassTextField<Leading: View, Trailing: View>: View {
     /// Applied directly to the field so XCUITest `textFields[id]` queries keep
     /// resolving (an identifier on the container lands on the wrong element).
     var accessibilityIdentifier: String = ""
+    /// The typed text's colour; a Settings row's trailing value field passes
+    /// the value colour (an outer `.foregroundStyle` never reaches the field).
+    var foreground: Color = .white
     let leading: Leading
     let trailing: Trailing
 
@@ -574,6 +577,7 @@ public struct GlassTextField<Leading: View, Trailing: View>: View {
         verticalPadding: CGFloat = 12,
         minHeight: CGFloat? = nil,
         accessibilityIdentifier: String = "",
+        foreground: Color = .white,
         @ViewBuilder leading: () -> Leading,
         @ViewBuilder trailing: () -> Trailing
     ) {
@@ -586,6 +590,7 @@ public struct GlassTextField<Leading: View, Trailing: View>: View {
         self.verticalPadding = verticalPadding
         self.minHeight = minHeight
         self.accessibilityIdentifier = accessibilityIdentifier
+        self.foreground = foreground
         self.leading = leading()
         self.trailing = trailing()
     }
@@ -596,7 +601,7 @@ public struct GlassTextField<Leading: View, Trailing: View>: View {
             field
                 .accessibilityIdentifier(accessibilityIdentifier)
                 .textFieldStyle(.plain)
-                .foregroundStyle(.white)
+                .foregroundStyle(foreground)
                 .focused($focused)
             trailing
         }
@@ -673,7 +678,8 @@ extension GlassTextField where Leading == EmptyView, Trailing == EmptyView {
         horizontalPadding: CGFloat = 12,
         verticalPadding: CGFloat = 12,
         minHeight: CGFloat? = nil,
-        accessibilityIdentifier: String = ""
+        accessibilityIdentifier: String = "",
+        foreground: Color = .white
     ) {
         self.init(
             placeholder,
@@ -684,7 +690,8 @@ extension GlassTextField where Leading == EmptyView, Trailing == EmptyView {
             horizontalPadding: horizontalPadding,
             verticalPadding: verticalPadding,
             minHeight: minHeight,
-            accessibilityIdentifier: accessibilityIdentifier
+            accessibilityIdentifier: accessibilityIdentifier,
+            foreground: foreground
         ) { EmptyView() } trailing: { EmptyView() }
     }
 }

@@ -6575,8 +6575,8 @@
       },
       "notes": {
         "web": "`typeSlashInComposer` types `/` into the home composer.",
-        "ios": "NEW-7: the Home composer's `/` lists the team's prompts under the card (`agent-composer-slash-menu`), a pick = the prompt chip. EXP-1558: the live walk types `/` into the home composer right after sg_chat (the seed's team prompts). EXP-1654: on the clean composer (Assistant preselected, no chips); the keyboard stays up because the iOS menu shows only while the field edits (`slashMenuVisible`).",
-        "android": "EXP-1558: `/` typed into the Agent home composer: the team's prompts under the card (`agent-composer-slash-menu`, gated on the seed's Release train), keyboard down like web.",
+        "ios": "NEW-7: the Home composer's `/` lists the team's prompts above the card like web (`agent-composer-slash-menu`), a pick = the prompt chip. EXP-1558: the live walk types `/` into the home composer right after sg_chat (the seed's team prompts). EXP-1654: on the clean composer (Assistant preselected, no chips); the keyboard stays up because the iOS menu shows only while the field edits (`slashMenuVisible`).",
+        "android": "EXP-1558: `/` typed into the Agent home composer: the team's prompts above the card like web (`agent-composer-slash-menu`, gated on the seed's Release train), keyboard down like web.",
         "desktop": "EXP-1558: the Agent page (`EXP_DEV_SCREEN=chat`) with `EXP_DEV_COMPOSER_TEXT=/` typed into the home composer once its shapes are in: the team's prompts menu, web's `typeSlashInComposer`."
       },
       "desktop": {

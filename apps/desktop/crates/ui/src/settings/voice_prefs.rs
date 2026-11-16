@@ -216,7 +216,10 @@ pub(crate) struct Voice {
     /// S-3: the push-to-talk recorder while it records.
     capture: Option<CaptureState>,
     /// S-3: drawn as the Assistant page's Voice section (no Voice device /
-    /// Agent pickers).
+    /// Agent pickers). #EXP-1847: and only the MEMBER rows (push to talk,
+    /// wake word, meetings): Language, Voice file, Transcript and Wake
+    /// phrase are the Assistant's own rows on its page (agent-settings.json
+    /// `voice`).
     assistant_block: bool,
     /// The styleguide twin.
     fixed: Option<Fixed>,
@@ -245,6 +248,9 @@ struct Options {
     /// voice.json: while the voice downloads, the Language row's hint
     /// (`downloadProgress`; a Select's `description` is not bindable).
     language_detail: Option<String>,
+    /// #EXP-1847: the Assistant's block draws only the member rows (no
+    /// Language, Voice file, Transcript, Wake phrase).
+    member_rows_only: bool,
 }
 
 fn pairs(list: &[VoiceOption]) -> Vec<(String, String)> {
@@ -293,6 +299,7 @@ fn options(state: &Voice, cx: &App) -> Options {
         language_detail: (state.fixed.is_none() && settings.voice_device_id.is_some() && settings.agent_id.is_some())
             .then(|| etalk_gpui::speak_replies::download_detail(cx))
             .flatten(),
+        member_rows_only: state.assistant_block,
     }
 }
 
@@ -570,23 +577,30 @@ fn document(inks: &Inks, options: &Options) -> Value {
     let device = picker_rows("device", pickers.clone(), &copy.voice_device, "/pane/device", "device", &options.devices, None, None);
     let agent = picker_rows("agent", pickers.clone(), &copy.agent, "/pane/agent", "agent", &options.agents, None, None);
     let language = picker_rows("language", json!(true), &copy.language, "/pane/language", "language", &options.languages, None, options.language_detail.as_deref());
-    let first = group(ink, "first", path("/pane/ready"), vec![
-        (device, None),
-        (agent, Some(pickers.clone())),
-        (language, Some(pickers.clone())),
-        (vec![input_row("voice_file", tray.clone(), &copy.voice_file, "voiceFile", &copy.voice_file_placeholder)], Some(tray.clone())),
-        (vec![input_row("voice_transcript", tray.clone(), &copy.voice_transcript, "voiceTranscript", &copy.voice_transcript_placeholder)], Some(tray.clone())),
-    ]);
+    // #EXP-1847: the Assistant's block has none of the first group's rows
+    // (its pickers are the page's, its voice rows the agent's own).
+    let first = (!options.member_rows_only).then(|| {
+        group(ink, "first", path("/pane/ready"), vec![
+            (device, None),
+            (agent, Some(pickers.clone())),
+            (language, Some(pickers.clone())),
+            (vec![input_row("voice_file", tray.clone(), &copy.voice_file, "voiceFile", &copy.voice_file_placeholder)], Some(tray.clone())),
+            (vec![input_row("voice_transcript", tray.clone(), &copy.voice_transcript, "voiceTranscript", &copy.voice_transcript_placeholder)], Some(tray.clone())),
+        ])
+    });
 
     let mut header = ink.band("tray_header", "", None);
     header["children"][0]["props"]["text"] = path("/pane/tray/header");
     header["visible"] = tray.clone();
 
-    let tray_group = group(ink, "tray", tray.clone(), vec![
+    let mut tray_rows = vec![
         (vec![push_to_talk(inks)], None),
         (switch_rows(ink, "wake", &copy.wake_word, "/pane/tray/wake", "wake"), Some(json!(true))),
-        (vec![input_row("wake_phrase", json!(true), &copy.wake_phrase, "wakePhrase", &options.wake_placeholder)], Some(json!(true))),
-    ]);
+    ];
+    if !options.member_rows_only {
+        tray_rows.push((vec![input_row("wake_phrase", json!(true), &copy.wake_phrase, "wakePhrase", &options.wake_placeholder)], Some(json!(true))));
+    }
+    let tray_group = group(ink, "tray", tray.clone(), tray_rows);
 
     // #NEW-56: the too-short wake phrase's line, under the tray group (`px_1`).
     let invalid = field_error(inks, "wake_invalid", path("/pane/tray/wakeInvalid"), and(tray.clone(), path("/pane/tray/hasWakeInvalid")), (ink.r(0.25), 0.));
@@ -607,8 +621,9 @@ fn document(inks: &Inks, options: &Options) -> Value {
 
     // `settings::section`: `gap_2`; a failed load kept the skeleton.
     let skeleton = skeleton("skeleton", json!({"@call": "or", "args": {"values": [path("/pane/loading"), path("/pane/failed")]}}));
+    let children: Vec<Value> = [Some(skeleton), first, Some(header), Some(tray_group), Some(invalid), Some(meeting)].into_iter().flatten().collect();
     json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.5), "width": "100%"},
-        "children": [skeleton, first, header, tray_group, invalid, meeting]})
+        "children": children})
 }
 
 fn selected(event: &ActionEvent) -> Option<String> {
@@ -1222,6 +1237,59 @@ mod tests {
 
     #[test]
     fn the_document_parses() {
+        let tree: eui_core::NestedNode = serde_json::from_value(document(&test_inks(), &test_options(false))).expect("parses");
+        assert_eq!(tree.id, "root");
+    }
+
+    fn ids(node: &serde_json::Value, out: &mut Vec<String>) {
+        if let Some(id) = node.get("id").and_then(serde_json::Value::as_str) {
+            out.push(id.to_string());
+        }
+        for child in node.get("children").and_then(serde_json::Value::as_array).into_iter().flatten() {
+            ids(child, out);
+        }
+    }
+
+    /// #EXP-1847: the Assistant's block no longer draws Language, Voice
+    /// file, Transcript or Wake phrase (its page's own Voice rows do); push
+    /// to talk, the wake word, the tray header and meetings stay. The
+    /// member's Settings → Voice keeps all of them.
+    #[test]
+    fn the_assistant_block_keeps_only_the_member_rows() {
+        let four = ["language", "voice_file", "voice_transcript", "wake_phrase"];
+        let member_rows = ["tray_header", "ptt", "wake", "meeting", "auto_stop", "desktop_audio"];
+        let mut assistant = Vec::new();
+        ids(&document(&test_inks(), &test_options(true)), &mut assistant);
+        for id in four {
+            assert!(!assistant.iter().any(|found| found == id), "{id} is the agent's row now");
+        }
+        for id in member_rows {
+            assert!(assistant.iter().any(|found| found == id), "{id} stays");
+        }
+        let mut full = Vec::new();
+        ids(&document(&test_inks(), &test_options(false)), &mut full);
+        for id in four.iter().chain(member_rows.iter()) {
+            assert!(full.iter().any(|found| found == id), "{id} on Settings > Voice");
+        }
+        let tree: eui_core::NestedNode = serde_json::from_value(document(&test_inks(), &test_options(true))).expect("parses");
+        assert_eq!(tree.id, "root");
+    }
+
+    fn test_options(member_rows_only: bool) -> Options {
+        Options {
+            devices: vec![(String::new(), "None".into()), ("d-mint".into(), "mint".into())],
+            agents: vec![(String::new(), "None".into())],
+            languages: vec![("en".into(), "English".into())],
+            auto_stop: vec![("4".into(), "4 hours".into())],
+            desktop_audio: vec![("off".into(), "Off".into())],
+            apps: vec![("us.zoom.xos".into(), "Zoom".into())],
+            wake_placeholder: "Hey Studio".into(),
+            language_detail: Some("Downloading the voice · 40%".into()),
+            member_rows_only,
+        }
+    }
+
+    fn test_inks() -> Inks {
         let ink = super::super::doc::Ink {
             rem: 14.,
             primary: "#fafafaff".into(),
@@ -1247,17 +1315,6 @@ mod tests {
             primary_button_fill_disabled: "#f4f4f580".into(),
             primary_button_fg: "#18181bff".into(),
         };
-        let options = Options {
-            devices: vec![(String::new(), "None".into()), ("d-mint".into(), "mint".into())],
-            agents: vec![(String::new(), "None".into())],
-            languages: vec![("en".into(), "English".into())],
-            auto_stop: vec![("4".into(), "4 hours".into())],
-            desktop_audio: vec![("off".into(), "Off".into())],
-            apps: vec![("us.zoom.xos".into(), "Zoom".into())],
-            wake_placeholder: "Hey Studio".into(),
-            language_detail: Some("Downloading the voice · 40%".into()),
-        };
-        let tree: eui_core::NestedNode = serde_json::from_value(document(&Inks { ink, danger: "#ff6467ff".into() }, &options)).expect("parses");
-        assert_eq!(tree.id, "root");
+        Inks { ink, danger: "#ff6467ff".into() }
     }
 }

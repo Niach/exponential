@@ -57,21 +57,22 @@ struct Armed {
 
 fn armed_for(settings: &VoiceSettings, device_id: &str) -> Option<Armed> {
     let settings = settings.clone().clear_on_none();
-    if settings.voice_device_id.as_deref() != Some(device_id) {
-        return None;
-    }
-    // S-3: push to talk is on iff a key is bound.
+    // S-3: push to talk is on iff a key is bound. EXP-1857: it listens on
+    // the desktop you're at (every desktop of the member's).
     let shortcut = settings.push_to_talk().then(|| settings.ptt_shortcut.clone());
-    let wake_phrase = settings.wake_word.then(|| settings.wake_phrase.clone());
+    // The wake word keeps `clearOnNone` and the voice device.
+    let voice_device = settings.voice_device_id.as_deref() == Some(device_id);
+    let wake_phrase = (settings.wake_word && voice_device).then(|| settings.wake_phrase.clone());
     if shortcut.is_none() && wake_phrase.is_none() {
         return None;
     }
     Some(Armed { shortcut, agent_id: settings.agent_id.clone()?, language: settings.language().to_string(), wake_phrase })
 }
 
-/// NEW-78 / S-3: THIS device listens: it is the member's voice device with
-/// an agent and a bound key or the wake word (after voice.json
-/// `clearOnNone`). Mute shows then, and the doctor carries `microphone`.
+/// NEW-78 / S-3: THIS device listens: an agent and a bound key (EXP-1857:
+/// on any desktop of the member's) or the wake word on the voice device
+/// (after voice.json `clearOnNone`). Mute shows then, and the doctor
+/// carries `microphone`.
 pub fn listens_here(settings: &VoiceSettings, device_id: &str) -> bool {
     armed_for(settings, device_id).is_some()
 }
@@ -475,9 +476,12 @@ impl PushToTalk {
     fn sync_wake(&mut self, cx: &mut Context<Self>) {
         let wanted = match self.armed.as_ref() {
             Some(armed) if self.worker_ready && !self.muted => armed.wake_phrase.as_ref().and_then(|phrase| {
-                let settings = VoiceSettings { wake_phrase: phrase.clone(), ..Default::default() };
+                // #EXP-1847: the voice agent's own phrase (the Assistant's) wins.
+                let phrase = host::wake_phrase_of(Some(&armed.agent_id), phrase, cx);
+                let settings = VoiceSettings { wake_phrase: phrase, ..Default::default() };
                 let phrase = etalk::voice::wake_phrase(&settings, self.agent_label(cx).as_deref())?;
-                Some((phrase, armed.language.clone()))
+                // #EXP-1847: the wake turn is heard in the voice agent's language.
+                Some((phrase, host::language_of(&armed.agent_id, &armed.language, cx)))
             }),
             _ => None,
         };
@@ -563,7 +567,8 @@ impl PushToTalk {
         }
         self.counter += 1;
         let id = format!("ptt-{}", self.counter);
-        client.listen(id.clone(), armed.language);
+        // #EXP-1847: the turn is heard in the voice agent's own language.
+        client.listen(id.clone(), host::language_of(&armed.agent_id, &armed.language, cx));
         self.utterance = Some(id);
         self.level = 0.;
         self.bands.clear();
@@ -859,12 +864,15 @@ mod tests {
     }
 
     #[test]
-    fn only_the_voice_device_with_push_to_talk_is_armed() {
+    fn push_to_talk_is_armed_on_every_desktop_the_wake_word_on_the_voice_device() {
         assert_eq!(
             armed_for(&settings(), "d-mint"),
             Some(Armed { shortcut: Some("ctrl+space".into()), agent_id: "a1".into(), language: "en".into(), wake_phrase: None })
         );
-        assert_eq!(armed_for(&settings(), "d-mac"), None, "another device");
+        // EXP-1857: push to talk listens on the desktop you're at.
+        assert_eq!(armed_for(&settings(), "d-mac").unwrap().shortcut.as_deref(), Some("ctrl+space"), "another desktop");
+        let nowhere = VoiceSettings { voice_device_id: None, ..settings() };
+        assert!(armed_for(&nowhere, "d-mac").is_some(), "no voice device at all (an Assistant on a server)");
         // S-3: no key bound = push to talk off.
         assert_eq!(armed_for(&VoiceSettings { ptt_shortcut: String::new(), ..settings() }, "d-mint"), None);
         assert_eq!(armed_for(&VoiceSettings { agent_id: None, ..settings() }, "d-mint"), None, "clearOnNone");
@@ -872,6 +880,9 @@ mod tests {
         let wake = VoiceSettings { ptt_shortcut: String::new(), wake_word: true, wake_phrase: "Computer".into(), ..settings() };
         let armed = armed_for(&wake, "d-mint").unwrap();
         assert_eq!((armed.shortcut, armed.wake_phrase.as_deref()), (None, Some("Computer")));
+        assert_eq!(armed_for(&wake, "d-mac"), None, "the wake word stays on the voice device");
+        let both = VoiceSettings { wake_word: true, wake_phrase: "Computer".into(), ..settings() };
+        assert_eq!(armed_for(&both, "d-mac").unwrap().wake_phrase, None);
         assert_eq!(armed_for(&VoiceSettings { agent_id: None, ..wake }, "d-mint"), None, "clearOnNone");
         let german = VoiceSettings { language: "de".into(), ..settings() };
         assert_eq!(armed_for(&german, "d-mint").unwrap().language, "de");

@@ -78,7 +78,7 @@
     "handsOff": "Hands off to {agent}"
   },
   "page": {
-    "$comment": "#EXP-1846 (owner 2026-11-14, #EXP-1835 plan option B): ONE AGENT PAGE ×4 for the Assistant AND every team agent, SUPERSEDING `fields` order and `assistant.sections`. `sections` top to bottom, each a header (`copy[label]`) over one grouped card: `identity` (the board form's icon picker + colour swatch + name; the Assistant: its brand mark + name, never icon/colour), `runs-on` (rows in order: device, account, model, skills, mcp-servers: the MODEL row is every agent's now, value = `assistantModelValue({model, cli})` for any agent; mcp-servers keeps `mcpRow`'s visibility; the Assistant's device picker keeps NEW-99's desktops-only list, a team agent lists every team device), `triggers` (header `copy.triggers` with the `+ Add` pill on its trailing edge for editors; first row = `check-in`: THE single-select Picker in its row trigger over `assistant.schedules` (Off · Every 15 minutes · Every 30 minutes · Every hour · Every day), value `checkInOf(triggers)`; a pick writes `withCheckIn(triggers, id, tz)` whole; then one row per `listedTriggers(triggers)` (triggerSummary · Switch · ⋯ Edit/Delete, the row opens the editor; a PAUSED trigger's row = its sentence WITHOUT the ` · Paused` suffix in the muted text colour, the switch off: the same row ×4); no empty-state row (Check in `Off` says it); `+ Add` opens THE trigger editor (schedule or event), for the Assistant too), `voice` (the Assistant only, as before: voice.json's Settings group; per-agent voice = #EXP-1847), `instructions` (team agents only; the Assistant's prompt is built in), `delete` (team agents only, owners). EDITORS: a team agent's rows are its team's OWNERS' (members read every row, no `+ Add`, no ⋯, no Delete); the Assistant's are its member's. THE TRIGGER LIST is ONE reusable piece per platform taking an agent id (web AgentTriggers, desktop settings::agent_triggers, iOS AgentTriggersSection, Android AgentTriggersSection) so the app screen's Events tab (#EXP-1829) mounts the same rows.",
+    "$comment": "#EXP-1846 (owner 2026-11-14, #EXP-1835 plan option B): ONE AGENT PAGE ×4 for the Assistant AND every team agent, SUPERSEDING `fields` order and `assistant.sections`. `sections` top to bottom, each a header (`copy[label]`) over one grouped card: `identity` (the board form's icon picker + colour swatch + name; the Assistant: its brand mark + name, never icon/colour), `runs-on` (rows in order: device, account, model, skills, mcp-servers: the MODEL row is every agent's now, value = `assistantModelValue({model, cli})` for any agent; mcp-servers keeps `mcpRow`'s visibility; the Assistant's device picker keeps NEW-99's desktops-only list, a team agent lists every team device), `triggers` (header `copy.triggers` with the `+ Add` pill on its trailing edge for editors; first row = `check-in`: THE single-select Picker in its row trigger over `assistant.schedules` (Off · Every 15 minutes · Every 30 minutes · Every hour · Every day), value `checkInOf(triggers)`; a pick writes `withCheckIn(triggers, id, tz)` whole; then one row per `listedTriggers(triggers)` (triggerSummary · Switch · ⋯ Edit/Delete, the row opens the editor); a PAUSED trigger's row = its sentence WITHOUT the ` · Paused` suffix in the muted text colour, the switch off: the same row ×4; no empty-state row (Check in `Off` says it); `+ Add` opens THE trigger editor (schedule or event), for the Assistant too), `voice` (#EXP-1847: every agent, `voice` below; the Assistant adds its member rows), `instructions` (team agents only; the Assistant's prompt is built in), `delete` (team agents only, owners). EDITORS: a team agent's rows are its team's OWNERS' (members read every row, no `+ Add`, no ⋯, no Delete); the Assistant's are its member's. THE TRIGGER LIST is ONE reusable piece per platform taking an agent id (web AgentTriggers, desktop settings::agent_triggers, iOS AgentTriggersSection, Android AgentTriggersSection) so the app screen's Events tab (#EXP-1829) mounts the same rows.",
     "sections": [
       {
         "id": "identity"
@@ -105,7 +105,12 @@
       {
         "id": "voice",
         "label": "voice",
-        "assistantOnly": true
+        "rows": [
+          "language",
+          "clip",
+          "transcript",
+          "wake-phrase"
+        ]
       },
       {
         "id": "instructions",
@@ -360,6 +365,193 @@
           }
         ],
         "expected": null
+      }
+    ]
+  },
+  "voice": {
+    "$comment": "#EXP-1847 phase a (owner 2026-11-14, plan approved: fall back to the member's voice device; the clip is UPLOADED as the agent's file; phases a→b→c→d). EVERY agent's page gets the `voice` section (agent-settings.json `page`, no longer Assistant-only): rows in order `rows` under header `copy.label`, the same Picker/input rows ×4. DATA: `agents.voice` (SYNCED jsonb, `{}` = the member's): `language` (etalk voice.json `languages`), `clipId` + `clipName` (an `attachments` row uploaded through POST `clipUpload.route` (multipart part `file`, `clipUpload.accept`, at most `clipUpload.maxBytes`; answers {clipId, clipName}; DELETE clears it), never swept while an agent names it), `transcript` (at most `limits.transcript`), `wakePhrase` (at most `limits.wakePhrase`; a non-empty phrase needs `limits.wakePhraseMinLetters` letters, voice.json `wakePhraseError`). Written with `agents.update {voice: {language?, transcript?, wakePhrase?}}` (a key set to null clears it); the clip only through the route. Editors as `page`: a team agent's owners, the Assistant's member. ROWS: `language` = THE single-select Picker row over voice.json `languages`, value = `agentVoiceOf(...).language`; `clip` = the row's value `agentVoiceOf(...).clipLabel` (`copy.clipBuiltIn` when none, in the row's usual value colour), a press opens the platform's file picker (accept `clipUpload.accept`) and uploads; a set clip offers `copy.clipRemove` (the row's ⋯ / trailing action); failures toast (`copy.errors`); `transcript` and `wakePhrase` = THE input rows (placeholder `copy.transcriptPlaceholder` / `copy.wakePhrasePlaceholder` with {agent} = the agent's name), saved on blur/enter, the wake phrase's error inline. THE ASSISTANT: these four rows REPLACE voice.json's Language / Voice file / Transcript / Wake phrase rows on its page; its member rows (push to talk, wake word on/off, meetings) stay below them, unchanged. RESOLUTION `agentVoiceOf({role, name, voice}, member)` (`voiceOfCases`; member = the member's voice.get settings): language = voice.language else member.language; clip = {attachmentId: clipId} when set, else for an Assistant a member `voiceFile` path {path}, else null (the built-in voice); clipLabel = clipName, else the path's last segment, else copy.clipBuiltIn; transcript = voice.transcript when set (with or without a clip, so a typed transcript reads back before its clip is uploaded), else the member's voiceTranscript with the path, else ''; wakePhrase = voice.wakePhrase when not blank, else an Assistant's member wakePhrase, else '' (the detector and the placeholder read `Hey {name}`). SPEAKING (phase a): the member's voice device speaks every reply and call of an agent with that agent's resolved voice (language, clip fetched once from /api/attachments/{clipId} into its cache, transcript); the Assistant's wake phrase is its resolved one. Calls still ring the member's voice device (phase b moves them to the agent's device, falling back to the voice device when that one cannot speak).",
+    "rows": [
+      "language",
+      "clip",
+      "transcript",
+      "wake-phrase"
+    ],
+    "copy": {
+      "label": "Voice",
+      "language": "Language",
+      "clip": "Voice",
+      "clipBuiltIn": "Built-in",
+      "clipUpload": "Upload a voice clip",
+      "clipRemove": "Remove clip",
+      "transcript": "Transcript",
+      "transcriptPlaceholder": "What the clip says",
+      "wakePhrase": "Wake phrase",
+      "wakePhrasePlaceholder": "Hey {agent}",
+      "errors": {
+        "clipType": "Voice clips must be WAV files",
+        "clipSize": "Voice clips must be 5 MB or smaller"
+      }
+    },
+    "clipUpload": {
+      "route": "/api/agents/{agentId}/voice-clip",
+      "accept": [
+        "audio/wav",
+        "audio/x-wav",
+        "audio/wave"
+      ],
+      "maxBytes": 5242880
+    },
+    "limits": {
+      "transcript": 500,
+      "wakePhrase": 64,
+      "wakePhraseMinLetters": 6
+    },
+    "voiceOfCases": [
+      {
+        "name": "a typed transcript reads back before its clip is uploaded",
+        "agent": {
+          "role": "agent",
+          "name": "Sloppy",
+          "voice": {
+            "transcript": "Hi, Sloppy here."
+          }
+        },
+        "member": {
+          "language": "en",
+          "voiceFile": "",
+          "voiceTranscript": "",
+          "wakePhrase": ""
+        },
+        "expected": {
+          "language": "en",
+          "clip": null,
+          "clipLabel": "Built-in",
+          "transcript": "Hi, Sloppy here.",
+          "wakePhrase": ""
+        }
+      },
+      {
+        "name": "a team agent without its own voice speaks the member language, built-in voice",
+        "agent": {
+          "role": "agent",
+          "name": "Sloppy",
+          "voice": {}
+        },
+        "member": {
+          "language": "de",
+          "voiceFile": "/home/me/voices/me.wav",
+          "voiceTranscript": "Hallo, das bin ich.",
+          "wakePhrase": "Hey Jarvis"
+        },
+        "expected": {
+          "language": "de",
+          "clip": null,
+          "clipLabel": "Built-in",
+          "transcript": "",
+          "wakePhrase": ""
+        }
+      },
+      {
+        "name": "a team agent with its own clip and language",
+        "agent": {
+          "role": "agent",
+          "name": "Sloppy",
+          "voice": {
+            "language": "en",
+            "clipId": "c-1",
+            "clipName": "sloppy.wav",
+            "transcript": "Hi, Sloppy here.",
+            "wakePhrase": "Hey Sloppy"
+          }
+        },
+        "member": {
+          "language": "de",
+          "voiceFile": "/home/me/voices/me.wav",
+          "voiceTranscript": "Hallo, das bin ich.",
+          "wakePhrase": "Hey Jarvis"
+        },
+        "expected": {
+          "language": "en",
+          "clip": {
+            "attachmentId": "c-1"
+          },
+          "clipLabel": "sloppy.wav",
+          "transcript": "Hi, Sloppy here.",
+          "wakePhrase": "Hey Sloppy"
+        }
+      },
+      {
+        "name": "the Assistant without its own voice keeps the member's file and phrase",
+        "agent": {
+          "role": "assistant",
+          "name": "Bro",
+          "voice": {}
+        },
+        "member": {
+          "language": "de",
+          "voiceFile": "/home/me/voices/me.wav",
+          "voiceTranscript": "Hallo, das bin ich.",
+          "wakePhrase": "Hey Jarvis"
+        },
+        "expected": {
+          "language": "de",
+          "clip": {
+            "path": "/home/me/voices/me.wav"
+          },
+          "clipLabel": "me.wav",
+          "transcript": "Hallo, das bin ich.",
+          "wakePhrase": "Hey Jarvis"
+        }
+      },
+      {
+        "name": "the Assistant's own clip and phrase win",
+        "agent": {
+          "role": "assistant",
+          "name": "Bro",
+          "voice": {
+            "clipId": "c-2",
+            "clipName": "bro.wav",
+            "wakePhrase": "Hey Bro"
+          }
+        },
+        "member": {
+          "language": "de",
+          "voiceFile": "/home/me/voices/me.wav",
+          "voiceTranscript": "Hallo, das bin ich.",
+          "wakePhrase": "Hey Jarvis"
+        },
+        "expected": {
+          "language": "de",
+          "clip": {
+            "attachmentId": "c-2"
+          },
+          "clipLabel": "bro.wav",
+          "transcript": "",
+          "wakePhrase": "Hey Bro"
+        }
+      },
+      {
+        "name": "a blank phrase falls back",
+        "agent": {
+          "role": "assistant",
+          "name": "Bro",
+          "voice": {
+            "wakePhrase": "  "
+          }
+        },
+        "member": {
+          "language": "en",
+          "voiceFile": "",
+          "voiceTranscript": "",
+          "wakePhrase": ""
+        },
+        "expected": {
+          "language": "en",
+          "clip": null,
+          "clipLabel": "Built-in",
+          "transcript": "",
+          "wakePhrase": ""
+        }
       }
     ]
   },
@@ -1098,15 +1290,30 @@
       ]
     },
     "fab": {
-      "$comment": "#EXP-1837 (owner 2026-11-14, part of #EXP-1833): THE ASSISTANT FAB on the IDE (desktop) and wide web; phones are unchanged (their Assistant stays the first row in Chats). There the viewer's Assistant leaves the sidebar: no row in the Agents group (chats.json `sidebarAgentCases`) and no bottom-left corner entry (#EXP-1741). Instead a FAB sits bottom-right of the content card (`inset` px in): THE 52px glass circle (genUI Button variant `fab`, the phones' tab-bar FAB), glyph = the Assistant mark (the Exponential brand mark), badge = THE CountBadge `rowBadge` of the viewer's conversation with their Assistant (nav-badges.json: yellow while it needs you, grey for unread), what its sidebar row carried. A press opens a `widget.width`×`widget.height` popover anchored to the FAB (side top, align end) holding the REAL Assistant chat (its root's transcript + THE composer, the Chat tab's body, at its compact width; no tabs). The widget header: ⇱ maximize (icon `ui-maximize`, ghost icon button, `copy.maximize`) leading, then the mark + the Assistant's name, and — minimize (icon `ui-minimize`, ghost icon button, `copy.minimize`) trailing. Maximize navigates to the Assistant's chat page (web /t/$teamSlug/agents/$agentId, desktop Screen::Agent) and closes the widget; minimize closes it and the FAB stays; Esc and an outside click close it too. The FAB (and the widget) is HIDDEN on the Assistant's own chat page and while the viewer has no Assistant yet. Toasts lift above the FAB: the bottom-right toast stack's bottom offset grows by `toastLift` while the FAB shows. `showCases` replay `assistantFabVisible({wide, assistantId, activeAgentId})` (web and desktop). #EXP-1860 NOTHING HIDES UNDER IT: the FAB owns a bottom-right corner of the card `clearance` px square (inset + 52 + inset), reserved once by the layout, never per page: every page's scroll content ends with a `clearance` px spacer while the FAB shows (the last row always scrolls clear of it), and THE Dock band (the cards + THE composer at a chat's foot) keeps its right edge `clearance` px in, so the FAB sits beside the composer, never on its send button. Nothing else pins to that corner: toasts lift by `toastLift`.",
+      "$comment": "#EXP-1837 (owner 2026-11-14, part of #EXP-1833): THE ASSISTANT FAB on the IDE (desktop) and wide web; phones are unchanged (their Assistant stays the first row in Chats). There the viewer's Assistant leaves the sidebar: no row in the Agents group (chats.json `sidebarAgentCases`) and no bottom-left corner entry (#EXP-1741). Instead a FAB sits bottom-right of the content card (`inset` px in): THE 52px glass circle (genUI Button variant `fab`, the phones' tab-bar FAB), glyph = the Assistant mark (the Exponential brand mark), badge = THE CountBadge `rowBadge` of the viewer's conversation with their Assistant (nav-badges.json: yellow while it needs you, grey for unread), what its sidebar row carried. A press opens a `widget.width`×`widget.height` popover anchored to the FAB (side top, align end) holding the REAL Assistant chat (its root's transcript + THE composer, the Chat tab's body, at its compact width; no tabs). The widget header: ⇱ maximize (icon `ui-maximize`, ghost icon button, `copy.maximize`) leading, then the mark + the Assistant's name, and — minimize (icon `ui-minimize`, ghost icon button, `copy.minimize`) trailing. Maximize navigates to the Assistant's chat page (web /t/$teamSlug/agents/$agentId, desktop Screen::Agent) and closes the widget; minimize closes it and the FAB stays; Esc and an outside click close it too. The FAB (and the widget) is HIDDEN on the Assistant's own chat page and while the viewer has no Assistant yet. Toasts lift above the FAB: the bottom-right toast stack's bottom offset grows by `toastLift` while the FAB shows. `showCases` replay `assistantFabVisible({wide, assistantId, activeAgentId})` (web and desktop). #EXP-1860 NOTHING HIDES UNDER IT: the FAB owns a bottom-right corner of the card `clearance` px square (inset + 52 + inset), reserved once by the layout, never per page: every page's scroll content ends with a `clearance` px spacer while the FAB shows (the last row always scrolls clear of it), and THE Dock band (the cards + THE composer at a chat's foot) keeps its right edge `clearance` px in, so the FAB sits beside the composer, never on its send button. Nothing else pins to that corner: toasts lift by `toastLift`. #EXP-1872 THE PINNED FOOT: every row of controls a pane pins under its own scroll (the plan rail's and the plan's floating panel's Back / Next, the decision and its feedback field; a side pane's footer) is THE pinned foot (web `.fab-foot` + the pane's `--fab-foot-inset`, desktop `assistant_fab::foot`): wherever it runs into the corner its content ends `clearance` px in from the card's edge (= `inset` px left of the circle), so Next sits beside the FAB, never under it; elsewhere it is a plain full-width row.",
       "copy": {
         "label": "Assistant",
         "maximize": "Open full chat",
         "minimize": "Minimize"
       },
       "widget": {
-        "width": 440,
-        "height": 560
+        "$comment": "#EXP-1876 THE WIDGET (supersedes the fixed size in the `$comment` above): its size follows the CONTENT CARD it floats in, re-clamped whenever the card resizes. Default per axis = round(card \u00d7 `ratio`) clamped to [`min` \u2026 `max`]; a size the person dragged (`stored`) is clamped to [`min` \u2026 card \u2212 `margin`] instead (it may grow past `max`); both then never exceed card \u2212 `margin` (the room wins over the floor on a tiny card). `sizeCases` replay `assistantWidgetSize({card, stored})` (web and desktop). RESIZABLE: drag the widget's top edge (height), left edge (width) or top-left corner (both); it stays anchored to the FAB (bottom-right); no visible grip, only the resize cursor over a `handle` px band (like the sidebar and card edges). The dragged size is remembered PER DEVICE (web localStorage keyed by the member, desktop ui-prefs.json keyed by the member), always read back through the clamp; a double-click on the widget header resets it (forgets it) to the responsive default. THE GROUND: the widget's frame + header paint the CONTENT CARD's own ground (the page gradient under the card's panel fill: web `bg-glass-card-ground`, desktop `assistant_fab::card_ground`), never the menu surface (that is the fill of the `in` bubble and the composer card, which melted into it), with the card hairline (`strokeCard`), the popover shadow and a `radius` px corner. The body stays the shared chat (web `InPlaceSession`, desktop `AgentScreenView::for_widget`).",
+        "min": { "width": 480, "height": 560 },
+        "ratio": { "width": 0.44, "height": 0.72 },
+        "max": { "width": 760, "height": 860 },
+        "margin": { "width": 32, "height": 100 },
+        "handle": 6,
+        "radius": 16,
+        "sizeCases": [
+          {"name": "1280x800 window (card 1015x740): the floor", "card": {"width": 1015, "height": 740}, "stored": null, "expected": {"width": 480, "height": 560}},
+          {"name": "1920x1080 window (card 1675x1030): 44% x 72%", "card": {"width": 1675, "height": 1030}, "stored": null, "expected": {"width": 737, "height": 742}},
+          {"name": "2560x1440 window (card 2290x1380): the cap", "card": {"width": 2290, "height": 1380}, "stored": null, "expected": {"width": 760, "height": 860}},
+          {"name": "a card too short for the floor: the room wins", "card": {"width": 600, "height": 500}, "stored": null, "expected": {"width": 480, "height": 400}},
+          {"name": "a dragged size is kept", "card": {"width": 1675, "height": 1030}, "stored": {"width": 900, "height": 700}, "expected": {"width": 900, "height": 700}},
+          {"name": "a dragged size grows up to the card's room, past the default cap", "card": {"width": 1675, "height": 1030}, "stored": {"width": 2000, "height": 2000}, "expected": {"width": 1643, "height": 930}},
+          {"name": "a dragged size never drops under the floor", "card": {"width": 1675, "height": 1030}, "stored": {"width": 300, "height": 300}, "expected": {"width": 480, "height": 560}},
+          {"name": "a shrunk window re-clamps a dragged size", "card": {"width": 600, "height": 500}, "stored": {"width": 900, "height": 700}, "expected": {"width": 568, "height": 400}}
+        ]
       },
       "inset": 16,
       "clearance": 84,

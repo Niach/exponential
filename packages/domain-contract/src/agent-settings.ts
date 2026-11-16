@@ -230,7 +230,27 @@ export function isAssistant(agent: { role?: string | null }): boolean {
 // wide web (phones keep the Assistant in Chats).
 export const ASSISTANT_FAB = fixture.assistant.fab
 export const ASSISTANT_FAB_COPY = fixture.assistant.fab.copy
-export const ASSISTANT_WIDGET_SIZE = fixture.assistant.fab.widget
+export const ASSISTANT_WIDGET = fixture.assistant.fab.widget
+
+export type WidgetSize = { width: number; height: number }
+
+/** #EXP-1876 `widget.sizeCases`: the widget's size in a content card of
+ *  `card` px. No `stored` = the responsive default (round(card × ratio)
+ *  clamped to [min … max]); a dragged `stored` size clamps to [min … card −
+ *  margin]. Either never exceeds card − margin (the room beats the floor). */
+export function assistantWidgetSize(input: { card: WidgetSize; stored?: WidgetSize | null }): WidgetSize {
+  const axis = (key: keyof WidgetSize) => {
+    const { min, ratio, max, margin } = ASSISTANT_WIDGET
+    const room = Math.max(0, input.card[key] - margin[key])
+    const stored = input.stored?.[key]
+    const wanted =
+      stored != null && Number.isFinite(stored)
+        ? Math.max(Math.round(stored), min[key])
+        : Math.min(Math.max(Math.round(input.card[key] * ratio[key]), min[key]), max[key])
+    return Math.min(wanted, room)
+  }
+  return { width: axis(`width`), height: axis(`height`) }
+}
 
 /** `showCases`: the FAB shows on wide surfaces while the viewer has an
  *  Assistant, except on its own chat page. */
@@ -400,4 +420,64 @@ export function checkInProblem(triggers: readonly AgentTriggerLike[]): string | 
     return `The Check in runs on its preset's schedule`
   }
   return null
+}
+
+// #EXP-1847 (`voice`): every agent's own voice, resolved against the
+// member's voice settings (`voiceOfCases`).
+export const AGENT_VOICE = fixture.voice
+export const AGENT_VOICE_COPY = fixture.voice.copy
+
+export interface AgentVoiceLike {
+  language?: string | null
+  clipId?: string | null
+  clipName?: string | null
+  transcript?: string | null
+  wakePhrase?: string | null
+}
+
+export interface MemberVoiceLike {
+  language: string
+  voiceFile: string
+  voiceTranscript: string
+  wakePhrase: string
+}
+
+export interface ResolvedAgentVoice {
+  language: string
+  clip: { attachmentId: string } | { path: string } | null
+  clipLabel: string
+  transcript: string
+  wakePhrase: string
+}
+
+/** The voice an agent speaks with (`voiceOfCases`). */
+export function agentVoiceOf(
+  agent: { role?: string | null; name: string; voice?: AgentVoiceLike | null },
+  member: MemberVoiceLike
+): ResolvedAgentVoice {
+  const voice = agent.voice ?? {}
+  const assistant = agent.role === `assistant`
+  const language = voice.language || member.language
+  const ownPhrase = voice.wakePhrase?.trim() ? voice.wakePhrase : null
+  const wakePhrase = ownPhrase ?? (assistant ? member.wakePhrase : ``)
+  if (voice.clipId) {
+    return {
+      language,
+      clip: { attachmentId: voice.clipId },
+      clipLabel: voice.clipName || AGENT_VOICE_COPY.clipBuiltIn,
+      transcript: voice.transcript ?? ``,
+      wakePhrase,
+    }
+  }
+  if (assistant && member.voiceFile) {
+    const segments = member.voiceFile.split(/[\\/]/)
+    return {
+      language,
+      clip: { path: member.voiceFile },
+      clipLabel: segments[segments.length - 1] || member.voiceFile,
+      transcript: voice.transcript ?? member.voiceTranscript,
+      wakePhrase,
+    }
+  }
+  return { language, clip: null, clipLabel: AGENT_VOICE_COPY.clipBuiltIn, transcript: voice.transcript ?? ``, wakePhrase }
 }

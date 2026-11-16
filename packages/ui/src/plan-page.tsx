@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react"
 import {
   PLAN_PAGE_COPY,
   PLAN_PAGE_LAYOUT,
@@ -13,6 +13,7 @@ import { askDockTitle } from "@exp/domain-contract/ask-dock"
 import type { SessionChatRow } from "@exp/domain-contract/session-tree"
 import { Button } from "./button"
 import { cn } from "./cn"
+import { FAB_FOOT_INSET_VAR } from "./fab-chrome"
 import { conceptIcon } from "./icons.generated"
 import { ImagePreviewDialog } from "./image-preview-dialog"
 import { Outline } from "./outline"
@@ -263,7 +264,10 @@ export function PlanPage({
               maxHeight: `${PLAN_PAGE_PANEL.maxHeightFraction * 100}%`,
               padding: PLAN_PAGE_PANEL.padding,
               borderRadius: PLAN_PAGE_PANEL.radius,
-            }}
+              // #EXP-1872: the panel spans the narrow pane, its foot
+              // `gap` + `padding` in from the card's edge.
+              [FAB_FOOT_INSET_VAR]: `${PLAN_PAGE_PANEL.gap + PLAN_PAGE_PANEL.padding}px`,
+            } as CSSProperties}
           >
             <PlanRail
               row={row}
@@ -295,7 +299,14 @@ export function PlanPage({
         <div
           data-slot="plan-questions-rail"
           className="flex min-h-0 shrink-0 flex-col border-l border-border bg-sidebar"
-          style={{ width: PLAN_PAGE_LAYOUT.railWidth, padding: PLAN_PAGE_PANEL.padding }}
+          style={
+            {
+              width: PLAN_PAGE_LAYOUT.railWidth,
+              padding: PLAN_PAGE_PANEL.padding,
+              // #EXP-1872: the rail's foot sits `padding` in from the card's edge.
+              [FAB_FOOT_INSET_VAR]: `${PLAN_PAGE_PANEL.padding}px`,
+            } as CSSProperties
+          }
         >
           <PlanRail
             row={row}

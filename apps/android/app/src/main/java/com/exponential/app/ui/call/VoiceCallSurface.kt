@@ -72,7 +72,9 @@ import com.exponential.app.data.call.VoiceCallController
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.data.db.DeviceEntity
 import com.exponential.app.domain.DeviceLiveness
+import com.exponential.app.domain.WireTimestamps
 import com.exponential.app.domain.Voice
 import com.exponential.app.domain.VoiceCall
 import com.exponential.app.domain.parseDeviceDoctor
@@ -90,6 +92,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
@@ -179,6 +183,19 @@ fun VoiceCallScreen(
             textAlign = TextAlign.Center,
             modifier = if (status == null) Modifier.testTag(VoiceCall.TestIds.TIMER) else Modifier,
         )
+        // EXP-1857: the device that speaks while the call falls back, a
+        // second status line in the status style.
+        view.via?.let { via ->
+            Text(
+                via,
+                style = MaterialTheme.typography.bodyMedium,
+                color = DesignTokens.Palette.MutedForeground,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.testTag(VoiceCall.TestIds.VIA),
+            )
+        }
         Spacer(Modifier.height(32.dp))
         Text(
             view.caption,
@@ -461,9 +478,12 @@ fun VoiceCallHost(viewModel: VoiceCallHostViewModel = hiltViewModel()) {
 }
 
 /**
- * The telephone's availability for THIS member on a phone: `voice.get`
- * (fetched whenever the chat appears), the synced devices row of the voice
- * device (its name, `last_seen_at` freshness, its doctor's `speech` row).
+ * The telephone's availability for THIS member on a phone (EXP-1857,
+ * `fixtures/voice-call.json` `callTarget`): the called agent's Runs on
+ * device (its synced `agents` row), the member's OWN synced desktops (newest
+ * `last_seen_at` first, online by freshness, their doctor's `speech` row) and
+ * `voice.get` (fetched whenever the chat appears: the running meeting). The
+ * server's `voice.startCall` picks the same target.
  */
 @HiltViewModel
 class AgentCallViewModel @Inject constructor(
@@ -473,32 +493,35 @@ class AgentCallViewModel @Inject constructor(
     private val controller: VoiceCallController,
 ) : ViewModel() {
 
-    data class Target(val availability: VoiceCall.Availability, val device: String?)
+    data class Target(val target: VoiceCall.Target, val language: String?) {
+        val availability: VoiceCall.Availability get() = target.availability
+    }
 
     private val settings = MutableStateFlow<Voice.Settings?>(null)
 
-    private val devices = accountDatabaseFlow(auth, holder).scopedQuery(emptyList()) { it.deviceDao().observeAll() }
+    private val agentId = MutableStateFlow<String?>(null)
 
-    val target: StateFlow<Target> = combine(settings, devices, auth.userId, DeviceLiveness.ticker()) { s, rows, me, now ->
-        val id = s?.voiceDeviceId
-        val row = id?.let { rows.firstOrNull { r -> r.deviceId == it && (me == null || r.userId == me) } }
-        val device = row?.let { it.label.ifBlank { it.deviceId } }
+    private val db = accountDatabaseFlow(auth, holder)
+
+    private val devices = db.scopedQuery(emptyList()) { it.deviceDao().observeAll() }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val agent = agentId.flatMapLatest { id ->
+        if (id == null) flowOf(null) else db.scopedQuery(null) { it.agentDefinitionDao().observeById(id) }
+    }
+
+    val target: StateFlow<Target> = combine(settings, agent, devices, auth.userId, DeviceLiveness.ticker()) { s, a, rows, me, now ->
+        val agentDevice = a?.let { it.runnerDefaults.deviceId ?: it.deviceId }?.ifEmpty { null }
         Target(
-            availability = VoiceCall.callAvailability(
-                VoiceCall.AvailabilityInput(
-                    agent = s?.agentId != null,
-                    platform = VoiceCall.Platform.Phone,
-                    device = device,
-                    online = row != null && DeviceLiveness.isOnline(row.lastSeenAt, now),
-                    here = false,
-                    speech = VoiceCall.callSpeech(parseDeviceDoctor(row?.doctor)),
-                    busy = false,
-                    meeting = s?.meetingStartedAt != null,
-                ),
-            ),
-            device = device,
+            target = VoiceCall.callTarget(phoneCallInput(s, agentDevice, rows, me, now)),
+            language = a?.agentVoice?.language?.ifEmpty { null } ?: s?.language,
         )
-    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Target(VoiceCall.callAvailability(OFF), null))
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Target(VoiceCall.callTarget(OFF), null))
+
+    /** The agent the chat calls (its definition id). */
+    fun bind(agentId: String?) {
+        this.agentId.value = agentId
+    }
 
     fun refresh() {
         val accountId = auth.activeAccountId.value ?: return
@@ -510,15 +533,50 @@ class AgentCallViewModel @Inject constructor(
     fun hasMicPermission(): Boolean = controller.hasMicPermission()
 
     fun start(agentId: String, agentName: String, agentIcon: String?, agentColor: String?) {
-        controller.start(agentId, agentName, target.value.device.orEmpty(), settings.value?.language, agentIcon, agentColor)
+        val t = target.value
+        controller.start(agentId, agentName, t.target.name.orEmpty(), t.language, agentIcon, agentColor, t.target.fallback)
     }
 
     fun permissionDenied() {
-        controller.permissionDenied(target.value.device.orEmpty(), settings.value?.language)
+        val t = target.value
+        controller.permissionDenied(t.target.name.orEmpty(), t.language)
     }
 
-    private companion object {
-        val OFF = VoiceCall.AvailabilityInput(agent = false, platform = VoiceCall.Platform.Phone, device = null, online = false, here = false, speech = null, busy = false)
+    companion object {
+        private val OFF = VoiceCall.TargetInput(VoiceCall.Platform.Phone, here = null, agentDevice = null, desktops = emptyList(), busy = false)
+
+        /**
+         * EXP-1857: a phone's `callTarget` input: never a desktop itself
+         * (`here` null), `busy` is the relay's to say. Only the member's OWN
+         * desktops count, newest first; settings not loaded yet = none.
+         */
+        internal fun phoneCallInput(
+            settings: Voice.Settings?,
+            agentDevice: String?,
+            rows: List<DeviceEntity>,
+            me: String?,
+            now: Long,
+        ): VoiceCall.TargetInput {
+            fun own(kind: String) = if (settings == null || me == null) {
+                emptyList()
+            } else {
+                rows.filter { it.kind == kind && it.userId == me }
+                    .sortedByDescending { it.lastSeenAt?.let(WireTimestamps::parseEpochMs) ?: Long.MIN_VALUE }
+                    .map { row ->
+                        VoiceCall.TargetDevice(
+                            id = row.deviceId,
+                            name = row.label.ifBlank { row.deviceId },
+                            online = DeviceLiveness.isOnline(row.lastSeenAt, now),
+                            speech = VoiceCall.callSpeech(parseDeviceDoctor(row.doctor)),
+                            meeting = settings.meetingStartedAt != null && row.deviceId == settings.voiceDeviceId,
+                        )
+                    }
+            }
+            val desktops = own("desktop")
+            // EXP-1858: the member's own servers (only the agent's counts).
+            val servers = own("server")
+            return VoiceCall.TargetInput(VoiceCall.Platform.Phone, here = null, agentDevice = agentDevice, desktops = desktops, busy = false, servers = servers)
+        }
     }
 }
 
@@ -537,6 +595,7 @@ fun AgentCallButton(
     viewModel: AgentCallViewModel = hiltViewModel(),
 ) {
     LaunchedEffect(Unit) { viewModel.refresh() }
+    LaunchedEffect(agentId) { viewModel.bind(agentId) }
     val target by viewModel.target.collectAsStateWithLifecycle()
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (agentId == null) return@rememberLauncherForActivityResult

@@ -347,6 +347,10 @@ struct VoiceSettingsBlock: View {
     @Bindable var model: VoiceSettingsModel
     var pickers = false
     var header: String? = nil
+    /// #EXP-1847: false on the Assistant page, whose agent Voice rows
+    /// (`AgentVoiceSection`) replace Language, Voice file, Transcript and
+    /// Wake phrase; the member rows stay.
+    var agentRows = true
 
     @FocusState private var focusedInput: VoiceTextInput?
 
@@ -388,6 +392,58 @@ struct VoiceSettingsBlock: View {
     private func sections(_ settings: Voice.Settings) -> some View {
         // voice.json: every switch is off and disabled while either is None.
         let armed = settings.voiceDeviceId != nil && settings.agentId != nil
+        if agentRows {
+            agentRowsSection(settings)
+        }
+
+        if let deviceId = settings.voiceDeviceId {
+            Section {
+                // S-3: read-only; the voice device's IDE records the key.
+                HStack(spacing: 8) {
+                    Text(Voice.Copy.pushToTalk)
+                        .foregroundStyle(.white.opacity(TextOpacity.primary))
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                    Spacer(minLength: 8)
+                    ShortcutKeys(settings.pttShortcut)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier(Voice.TestIds.shortcut)
+                GlassToggleRow(
+                    Voice.Copy.wakeWord,
+                    description: wakeDetail(settings, armed: armed),
+                    isOn: Binding(get: { armed && settings.wakeWord }, set: { model.save(Voice.Change(wakeWord: $0)) })
+                )
+                .disabled(!armed)
+                .accessibilityIdentifier(Voice.TestIds.wakeWord)
+                if agentRows { textRow(.wakePhrase) }
+            } header: {
+                GlassSectionHeader(Voice.trayHeader(model.deviceName(deviceId)))
+            } footer: {
+                // #NEW-56: the wake phrase's invalid-input line (FEED-79,
+                // 13pt rose) under the group, like web's and Android's
+                // FieldError; the bare field itself draws no border.
+                if agentRows, let wakePhraseError = model.wakePhraseError {
+                    Text(wakePhraseError)
+                        .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+                        .foregroundStyle(DesignTokens.Semantic.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("\(Voice.TestIds.wakePhrase)-error")
+                }
+            }
+            .listRowBackground(glassFormRowFill)
+            // #NEW-57: the meeting rows, their OWN group without a header,
+            // right under the tray group (Wake phrase stays its last row).
+            Section {
+                meetingRows(settings, armed: armed)
+            }
+            .listRowBackground(glassFormRowFill)
+        }
+    }
+
+    /// voice.json's group: the pickers, Language, Voice file + Transcript.
+    @ViewBuilder
+    private func agentRowsSection(_ settings: Voice.Settings) -> some View {
         Section {
             if pickers {
                 GlassPickerRow(
@@ -432,50 +488,6 @@ struct VoiceSettingsBlock: View {
             headerView
         }
         .listRowBackground(glassFormRowFill)
-
-        if let deviceId = settings.voiceDeviceId {
-            Section {
-                // S-3: read-only; the voice device's IDE records the key.
-                HStack(spacing: 8) {
-                    Text(Voice.Copy.pushToTalk)
-                        .foregroundStyle(.white.opacity(TextOpacity.primary))
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                    Spacer(minLength: 8)
-                    ShortcutKeys(settings.pttShortcut)
-                }
-                .accessibilityElement(children: .combine)
-                .accessibilityIdentifier(Voice.TestIds.shortcut)
-                GlassToggleRow(
-                    Voice.Copy.wakeWord,
-                    description: wakeDetail(settings, armed: armed),
-                    isOn: Binding(get: { armed && settings.wakeWord }, set: { model.save(Voice.Change(wakeWord: $0)) })
-                )
-                .disabled(!armed)
-                .accessibilityIdentifier(Voice.TestIds.wakeWord)
-                textRow(.wakePhrase)
-            } header: {
-                GlassSectionHeader(Voice.trayHeader(model.deviceName(deviceId)))
-            } footer: {
-                // #NEW-56: the wake phrase's invalid-input line (FEED-79,
-                // 13pt rose) under the group, like web's and Android's
-                // FieldError; the bare field itself draws no border.
-                if let wakePhraseError = model.wakePhraseError {
-                    Text(wakePhraseError)
-                        .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
-                        .foregroundStyle(DesignTokens.Semantic.red)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityIdentifier("\(Voice.TestIds.wakePhrase)-error")
-                }
-            }
-            .listRowBackground(glassFormRowFill)
-            // #NEW-57: the meeting rows, their OWN group without a header,
-            // right under the tray group (Wake phrase stays its last row).
-            Section {
-                meetingRows(settings, armed: armed)
-            }
-            .listRowBackground(glassFormRowFill)
-        }
     }
 
     /// S-3: the Wake word row's detail: the voice device's doctor row

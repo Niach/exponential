@@ -706,7 +706,7 @@ describe(`fail-safe`, () => {
     const manual = viewsFor(`desktop`)
       .filter((view) => view.desktop?.drive.kind === `manual`)
       .map((view) => view.id)
-    expect(manual.sort()).toEqual([`app-csv-import`, `app-record-form`, `app-record-history`, `app-record-undo`, `app-settings-automations`, `app-version-preview`])
+    expect(manual.sort()).toEqual([`app-csv-import`, `app-events`, `app-record-form`, `app-record-history`, `app-record-undo`, `app-settings-automations`, `app-version-preview`])
     expect(viewById(`chat`)?.desktop?.drive).toEqual({ kind: `screen`, value: `chat` })
     // A diff that names it attributes to it like any other view.
     const named = affectedScope({

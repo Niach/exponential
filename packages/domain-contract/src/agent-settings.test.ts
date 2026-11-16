@@ -10,11 +10,13 @@ import {
   coordinatorOptions,
   leadOptions,
   assistantFabVisible,
+  assistantWidgetSize,
   assistantModelValue,
   agentAccountValue,
   ASSISTANT_SCHEDULES,
   assigneeOptions,
   assistantScheduleOf,
+  agentVoiceOf,
   checkInOf,
   checkInProblem,
   legacyCheckIn,
@@ -96,6 +98,11 @@ describe(`agent-settings.json assistant`, () => {
       expect(assistantFabVisible(c)).toBe(c.expected)
     })
   }
+  for (const c of fixture.assistant.fab.widget.sizeCases) {
+    it(`widget sizeCases: ${c.name}`, () => {
+      expect(assistantWidgetSize({ card: c.card, stored: c.stored })).toEqual(c.expected)
+    })
+  }
   for (const c of fixture.assistant.teamAgentsCases) {
     it(`teamAgentsCases: ${c.name}`, () => {
       expect(agentsInTeam(c.agents, c.teamId, c.teamIds, c.me).map((agent) => agent.id)).toEqual(c.expected)
@@ -145,6 +152,14 @@ describe(`agent-settings.json checkIn (#EXP-1846)`, () => {
     expect(checkInProblem([{ kind: `schedule`, cron: `0 * * * *`, preset: `1h` }, { kind: `schedule`, cron: `0 9 * * *`, preset: `daily` }])).not.toBeNull()
     expect(checkInProblem([{ kind: `schedule`, cron: `*/10 * * * *`, preset: `1h` }])).not.toBeNull()
   })
+})
+
+describe(`agent-settings.json voice (#EXP-1847)`, () => {
+  for (const c of fixture.voice.voiceOfCases) {
+    it(`voiceOfCases: ${c.name}`, () => {
+      expect(agentVoiceOf(c.agent, c.member)).toEqual(c.expected as never)
+    })
+  }
 })
 
 describe(`coordinator (#EXP-1717)`, () => {

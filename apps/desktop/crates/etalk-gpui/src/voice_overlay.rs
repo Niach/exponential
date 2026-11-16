@@ -200,6 +200,7 @@ pub fn specimen_face(row: &SurfaceSpecimen) -> CallFace {
         view: CallView {
             activity,
             status: row.status.clone(),
+            via: row.via.clone(),
             caption: row.caption.clone(),
             muted: row.muted,
             speaker: row.speaker,
@@ -412,6 +413,20 @@ pub fn call_panel(id: impl Into<ElementId>, face: &CallFace, actions: &CallActio
                 .text_color(theme.muted_foreground)
                 .child(face.status()),
         )
+        // EXP-1857: the device that speaks while the call falls back
+        // (`Voice on {device}`): a second status line, one line, truncated.
+        .when_some(face.view.via.clone(), |panel, via| {
+            panel.child(
+                div()
+                    .id(ElementId::from(SharedString::from(VOICE_CALL.test_ids.via.clone())))
+                    .flex_none()
+                    .max_w_full()
+                    .truncate()
+                    .text_sm()
+                    .text_color(theme.muted_foreground)
+                    .child(SharedString::from(via)),
+            )
+        })
         .child(
             div()
                 // Centred, at most `CAPTION_LINES` lines (voice-call.json
@@ -439,10 +454,11 @@ const PANEL_TOP: f32 = 72.;
 pub const CAPTION_LINES: usize = 4;
 const CAPTION_LINE_H: f32 = 24.;
 /// The height the panel needs to show every part at full size with a
-/// 4-line caption: inset, avatar, name, status, caption, the round buttons
-/// (`CallSize::Lg`), bottom inset (the styleguide frame's floor).
+/// 4-line caption: inset, avatar, name, status, the via line (EXP-1857),
+/// caption, the round buttons (`CallSize::Lg`), bottom inset (the
+/// styleguide frame's floor).
 pub const PANEL_FULL_H: f32 =
-    PANEL_TOP + AVATAR_LG + 16. + 32. + 4. + 20. + 32. + CAPTION_LINES as f32 * CAPTION_LINE_H + 16. + 56. + 48.;
+    PANEL_TOP + AVATAR_LG + 16. + 32. + 4. + 20. + 20. + 32. + CAPTION_LINES as f32 * CAPTION_LINE_H + 16. + 56. + 48.;
 /// The pill's avatar.
 const AVATAR_SM: f32 = 28.;
 

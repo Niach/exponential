@@ -7,9 +7,10 @@ import SwiftUI
 // ONE agent page (`AgentSettingsForm assistant:`): identity (the name beside
 // the Exponential brand mark), Runs on (its device IS the member's voice
 // device, the server mirrors it; desktops only, NEW-99), Triggers (Check in
-// + the trigger list, like every agent), Voice (the Voice settings block,
-// minus its Voice device + Agent pickers: the server derives both from this
-// Assistant). No Instructions (#EXP-1439: the prompt is built in; never
+// + the trigger list, like every agent), Voice (#EXP-1847: the agent Voice
+// rows every agent has, then the Voice settings block's member rows, minus
+// its Voice device + Agent pickers (the server derives both from this
+// Assistant) and its Language / Voice file / Transcript / Wake phrase). No Instructions (#EXP-1439: the prompt is built in; never
 // loaded, so Save never sends them) and no Delete. Only its member ever
 // reaches it (`visibleAgent`) and edits it.
 
@@ -110,7 +111,8 @@ private struct AssistantSettingsContent: View {
                     teamId: teamId,
                     agentId: agentId,
                     skillIds: agent?.skillIds ?? [],
-                    mcpServerIds: agent?.mcpServerIds ?? []
+                    mcpServerIds: agent?.mcpServerIds ?? [],
+                    agentVoice: agent?.voice ?? AgentVoice()
                 )
             }
         }

@@ -62,6 +62,7 @@ import {
 import { Dock, DockSheetBody, DockSheetFooter, useDockSheetMeta } from "./dock"
 import { Button } from "./button"
 import { cn } from "./cn"
+import { FAB_FOOT_CLASS } from "./fab-chrome"
 import { ListRow } from "./glass-rows"
 import { Menu, type MenuEntry, type MenuIcon, type MenuTargetProps } from "./menu"
 import { SessionRow, SessionRowDevice } from "./session-row"
@@ -1649,7 +1650,8 @@ export function PlanRail({
         </div>
       </div>
       {!form.decided && (
-        <div className="flex shrink-0 flex-col gap-2">
+        // #EXP-1872: THE pinned foot: beside the Assistant FAB.
+        <div className={`flex shrink-0 flex-col gap-2 ${FAB_FOOT_CLASS}`}>
           <PlanCardFooter
             onBack={page > 0 ? () => setStep(page - 1) : undefined}
             onNext={!last ? () => setStep(page + 1) : undefined}

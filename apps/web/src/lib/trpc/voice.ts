@@ -27,7 +27,7 @@ import { TRPCError } from "@trpc/server"
 import { and, eq, inArray, isNotNull, sql } from "drizzle-orm"
 
 import { VOICE_DEFAULTS, VOICE_LANGUAGES, VOICE_LIMITS, VOICE_SHORTCUT_GRAMMAR, shortcutCanonical, wakePhraseError } from "@exp/etalk/voice"
-import { callAvailability } from "@exp/etalk/voice-call"
+import { callTarget, type CallTargetDevice } from "@exp/etalk/voice-call"
 import {
   autoStopHours,
   DESKTOP_AUDIO_VALUES,
@@ -246,19 +246,48 @@ export async function stopMeetingUnlessPrivate(database: Db, userId: string): Pr
 }
 
 /** The agent, when it is one of the member's teams' (#NEW-64 folded in):
- *  the agents a member can talk to. S-3: another member's Assistant is
- *  theirs alone (`loadAgentForUser`'s rule). */
-async function memberAgentExists(database: Db, userId: string, agentId: string): Promise<boolean> {
+ *  the agents a member can talk to, with its Runs on device. S-3: another
+ *  member's Assistant is theirs alone (`loadAgentForUser`'s rule). */
+async function memberAgent(database: Db, userId: string, agentId: string): Promise<{ deviceId: string | null } | null> {
   const memberTeams = database
     .select({ teamId: teamMembers.teamId })
     .from(teamMembers)
     .where(eq(teamMembers.userId, userId))
   const [agent] = await database
-    .select({ role: agents.role, ownerId: agents.ownerId })
+    .select({ role: agents.role, ownerId: agents.ownerId, deviceId: agents.deviceId })
     .from(agents)
     .where(and(eq(agents.id, agentId), inArray(agents.teamId, memberTeams)))
     .limit(1)
-  return agent !== undefined && (agent.role !== `assistant` || agent.ownerId === userId)
+  if (agent === undefined || (agent.role === `assistant` && agent.ownerId !== userId)) return null
+  return { deviceId: agent.deviceId ?? null }
+}
+
+/** EXP-1857 (voice-call.json `callTarget`): the member's OWN desktops,
+ *  newest first, as a call's possible speech devices (EXP-1858: and their
+ *  own servers, a candidate only as the agent's device). A meeting runs on
+ *  the voice device only. */
+export async function callDevicesOf(
+  database: Db,
+  userId: string,
+  settings: Pick<VoiceSettings, `voiceDeviceId` | `meetingStartedAt`>,
+  now: Date
+): Promise<{ desktops: CallTargetDevice[]; servers: CallTargetDevice[] }> {
+  const rows = await database
+    .select({ deviceId: devices.deviceId, kind: devices.kind, label: devices.label, lastSeenAt: devices.lastSeenAt, doctor: devices.doctor })
+    .from(devices)
+    .where(and(eq(devices.userId, userId), inArray(devices.kind, [`desktop`, `server`])))
+  const sorted = [...rows].sort((a, b) => new Date(b.lastSeenAt ?? 0).getTime() - new Date(a.lastSeenAt ?? 0).getTime())
+  const of = (kind: string) =>
+    sorted
+      .filter((row) => row.kind === kind)
+      .map((row) => ({
+        id: row.deviceId,
+        name: row.label ?? row.deviceId,
+        online: deviceRowIsOnline(row.lastSeenAt, now),
+        speech: callSpeechOf(row.doctor),
+        meeting: Boolean(settings.meetingStartedAt) && row.deviceId === settings.voiceDeviceId,
+      }))
+  return { desktops: of(`desktop`), servers: of(`server`) }
 }
 
 // NEW-55: `callSpeechOf` lives beside the web caller's availability
@@ -408,48 +437,45 @@ export const voiceRouter = router({
       return voiceSettingsOf(ctx.db, userId)
     }),
 
-  // NEW-55: start a STREAMED call with one agent (phones V5, web V6). Refused
-  // with the availability reason (voice-call.json `copy.reasons`) unless the
-  // member's voice device is picked, the device is online and has reported
-  // its `speech` doctor row (S-3: a downloading voice rings until ready); `busy` is the relay's to say
-  // (it alone knows a running call). Answers the CALLER's relay ticket.
-  // (`call` is a reserved word in tRPC routers, hence `startCall`.)
+  // NEW-55: start a STREAMED call with one agent (phones V5, web V6).
+  // EXP-1857: the call rings the AGENT's device when it is one of the
+  // member's desktops and can speak, else falls back (`callTarget`: the
+  // desktop the caller is at, then the newest that speaks); refused with
+  // the target's reason (voice-call.json `copy.reasons`). `busy` is the
+  // relay's to say (it alone knows a running call). Answers the CALLER's
+  // relay ticket and the target it rings. A desktop whose target is itself
+  // runs the call locally and never asks. (`call` is a reserved word in
+  // tRPC routers, hence `startCall`.)
   startCall: authedProcedure
     .input(
       z.object({
         agentId: z.string().uuid(),
         platform: z.enum([`phone`, `web`, `desktop`]),
-        /** The calling client's own steer deviceId (desktops): whether it
-         *  IS the voice device (`notHere` otherwise). */
+        /** The calling client's own steer deviceId (desktops): the desktop
+         *  you're at, the first fallback. */
         deviceId: z.string().min(1).max(128).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id
       const db = ctx.db
-      if (!(await memberAgentExists(db, userId, input.agentId))) {
+      const agent = await memberAgent(db, userId, input.agentId)
+      if (!agent) {
         throw new TRPCError({ code: `NOT_FOUND`, message: `That agent isn't in your teams` })
       }
       const settings = await voiceSettingsOf(db, userId)
-      const [device] = settings.voiceDeviceId
-        ? await db
-            .select({ label: devices.label, lastSeenAt: devices.lastSeenAt, doctor: devices.doctor })
-            .from(devices)
-            .where(and(eq(devices.userId, userId), eq(devices.deviceId, settings.voiceDeviceId)))
-            .limit(1)
-        : []
-      const availability = callAvailability({
-        agent: settings.agentId !== null,
+      const target = callTarget({
         platform: input.platform,
-        // A voice device whose row is gone reads as none picked.
-        device: device ? device.label : null,
-        online: device ? deviceRowIsOnline(device.lastSeenAt, new Date()) : false,
-        here: input.deviceId !== undefined && input.deviceId === settings.voiceDeviceId,
-        speech: device ? callSpeechOf(device.doctor) : null,
+        here: input.platform === `desktop` ? (input.deviceId ?? null) : null,
+        agentDevice: agent.deviceId,
+        ...(await callDevicesOf(db, userId, settings, new Date())),
         busy: false,
       })
-      if (!availability.enabled) {
-        throw new TRPCError({ code: `PRECONDITION_FAILED`, message: availability.reason ?? `` })
+      if (!target.enabled || !target.device) {
+        throw new TRPCError({ code: `PRECONDITION_FAILED`, message: target.reason ?? `` })
+      }
+      if (target.local) {
+        throw new TRPCError({ code: `BAD_REQUEST`, message: `This call runs on this desktop` })
       }
       const config = getSteerRelayConfig()
       if (!config) {
@@ -461,35 +487,58 @@ export const voiceRouter = router({
         userId,
         callId,
         agentId: input.agentId,
-        deviceId: settings.voiceDeviceId!,
+        deviceId: target.device,
       })
       if (`disabled` in minted) {
         throw new TRPCError({ code: `PRECONDITION_FAILED`, message: `Calls need the steer relay` })
       }
-      return { callId, ticket: minted.ticket, url: minted.url, relayUrl: config.url }
+      return {
+        callId,
+        ticket: minted.ticket,
+        url: minted.url,
+        relayUrl: config.url,
+        deviceId: target.device,
+        device: target.name ?? target.device,
+        fallback: target.fallback,
+      }
     }),
 
   // NEW-55: the voice device answers a `call_ring`. Minted for the member
   // alone; the relay admits it only into a ringing call on a device this
-  // account owns, so the callId is not a grant of anything.
+  // account owns, so the callId is not a grant of anything. EXP-1857: any
+  // of the member's desktops may be rung; it names itself (`deviceId`, one
+  // of the member's own devices); an old IDE without it = the voice device.
   callHostTicket: authedProcedure
-    .input(z.object({ callId: z.string().uuid() }))
+    .input(z.object({ callId: z.string().uuid(), deviceId: z.string().min(1).max(128).optional() }))
     .mutation(async ({ ctx, input }) => {
       const config = getSteerRelayConfig()
       if (!config) {
         throw new TRPCError({ code: `PRECONDITION_FAILED`, message: `Calls need the steer relay` })
       }
-      // NEW-55 review: the ticket names the member's voice device; the relay
-      // admits it only into that device's call room.
-      const settings = await voiceSettingsOf(ctx.db, ctx.session.user.id)
-      if (!settings.voiceDeviceId) {
-        throw new TRPCError({ code: `PRECONDITION_FAILED`, message: `No voice device` })
+      const userId = ctx.session.user.id
+      let deviceId: string
+      if (input.deviceId !== undefined) {
+        const [own] = await ctx.db
+          .select({ deviceId: devices.deviceId })
+          .from(devices)
+          .where(and(eq(devices.userId, userId), eq(devices.deviceId, input.deviceId)))
+          .limit(1)
+        if (!own) throw new TRPCError({ code: `NOT_FOUND`, message: `That device isn't yours` })
+        deviceId = own.deviceId
+      } else {
+        // NEW-55 review: the ticket names the member's voice device; the
+        // relay admits it only into that device's call room.
+        const settings = await voiceSettingsOf(ctx.db, userId)
+        if (!settings.voiceDeviceId) {
+          throw new TRPCError({ code: `PRECONDITION_FAILED`, message: `No voice device` })
+        }
+        deviceId = settings.voiceDeviceId
       }
       const minted = mintSteerTicket(config, {
         kind: `call_host`,
-        userId: ctx.session.user.id,
+        userId,
         callId: input.callId,
-        deviceId: settings.voiceDeviceId,
+        deviceId,
       })
       if (`disabled` in minted) {
         throw new TRPCError({ code: `PRECONDITION_FAILED`, message: `Calls need the steer relay` })

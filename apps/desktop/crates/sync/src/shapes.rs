@@ -867,6 +867,9 @@ pub const SHAPES: [ShapeSpec; 38] = [
             "skill_ids",
             // #EXP-1793: the MCP servers every run of the agent starts with.
             "mcp_server_ids",
+            // #EXP-1847: the agent's own voice (language, clip, transcript,
+            // wake phrase).
+            "voice",
             "owner_id",
             "sort_order",
             // S-3: assistant | agent (an Assistant lists for its owner only).
@@ -1264,7 +1267,7 @@ mod tests {
     fn the_new2_shapes_match_the_proxies() {
         assert_eq!(
             shape_by_name("agents").unwrap().columns,
-            &["id", "team_id", "name", "icon", "color", "triggers", "device_id", "cli", "account", "model", "defaults", "skill_ids", "mcp_server_ids", "owner_id", "sort_order", "role", "instructions_updated_at", "created_at", "updated_at"]
+            &["id", "team_id", "name", "icon", "color", "triggers", "device_id", "cli", "account", "model", "defaults", "skill_ids", "mcp_server_ids", "voice", "owner_id", "sort_order", "role", "instructions_updated_at", "created_at", "updated_at"]
         );
         assert_eq!(
             shape_by_name("events").unwrap().columns,

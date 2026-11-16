@@ -428,3 +428,18 @@ val MIGRATION_127_128: Migration = object : Migration(127, 128) {
         )
     }
 }
+
+/**
+ * v129 (#EXP-1847, agent-settings.json `voice`): `agents.voice`, the agent's
+ * own voice (language, clip, transcript, wake phrase). Only the agents shape
+ * refetches, so synced rows re-arrive carrying it.
+ */
+val MIGRATION_128_129: Migration = object : Migration(128, 129) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `agents` ADD COLUMN `voice` TEXT")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'agents'",
+        )
+    }
+}

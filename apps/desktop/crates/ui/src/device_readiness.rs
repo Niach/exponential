@@ -251,7 +251,8 @@ pub(crate) fn voice_rows(cx: &gpui::App) -> VoiceRows {
     let wake_word = settings.clone().clear_on_none().wake_word;
     VoiceRows {
         listening: device_id.as_deref().is_some_and(|id| etalk_gpui::push_to_talk::listens_here(&settings, id)),
-        speech: crate::talk_host::speech_state(cx).filter(|_| voice_device),
+        // EXP-1857: every desktop of the member's reports its own speech.
+        speech: crate::talk_host::speech_state(cx),
         wake: (voice_device && settings.wake_word).then(|| WakeRow {
             agent: settings.agent_id.is_some(),
             state: if wake_word { etalk_gpui::push_to_talk::wake_state(cx) } else { None },

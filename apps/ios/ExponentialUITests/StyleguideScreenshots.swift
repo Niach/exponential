@@ -965,7 +965,15 @@ final class StyleguideScreenshots: XCTestCase {
             // The editor mounts only once `sessions.getAgent` answered
             // (a failure draws a retry instead), so it IS the content gate.
             let instructions = anyElement(app, identified: "agent-instructions")
+            // #EXP-1847: the Voice section pushed the card below the fold and
+            // the List builds a row only once scrolled near: scroll down to
+            // it, gate, then back to the page's top for the shot.
+            for _ in 0..<6 where !instructions.exists {
+                app.swipeUp()
+                _ = instructions.waitForExistence(timeout: 1)
+            }
             expect(instructions, within: Wait.network, "\(Self.agentName)'s instructions never loaded (sessions.getAgent)")
+            for _ in 0..<6 { app.swipeDown() }
             snapshot("sg_settings-team-agent", settle: 2)
             goBack(app)
             expect(agentRow, within: Wait.nav, "Did not return to the Agents page")
@@ -1321,7 +1329,22 @@ final class StyleguideScreenshots: XCTestCase {
             case "chat-menus": snapshot("sg_chat-menus", settle: 2)
             case "chat-selection": snapshot("sg_chat-selection", settle: 2)
             case "mention-pill": snapshot("sg_mention-pill", settle: 2)
-            case "voice-call": snapshot("sg_voice-call", settle: 2)
+            case "voice-call":
+                // EXP-1857: the shot shows the last specimen, "in call,
+                // falling back" (its `voice-call-via` line under the timer):
+                // slow drags without momentum bring its frame to the top.
+                let via = anyElement(app, identified: "voice-call-via")
+                expect(via, within: Wait.nav, "The voice-call specimens drew no via line")
+                let viaTop: CGFloat = 420
+                for _ in 0..<12 where via.frame.minY > viaTop + 4 {
+                    let step = min(via.frame.minY - viaTop, app.frame.height * 0.6)
+                    let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85))
+                    from.press(
+                        forDuration: 0.05, thenDragTo: from.withOffset(CGVector(dx: 0, dy: -step)),
+                        withVelocity: .slow, thenHoldForDuration: 0.3
+                    )
+                }
+                snapshot("sg_voice-call", settle: 2)
             case "call-controls": snapshot("sg_call-controls", settle: 2)
             case "call-pill": snapshot("sg_call-pill", settle: 2)
             case "device-readiness": snapshot("sg_device-readiness", settle: 2)
