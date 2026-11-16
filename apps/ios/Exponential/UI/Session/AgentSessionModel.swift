@@ -3697,7 +3697,7 @@ final class TranscriptEntry: Identifiable, Equatable {
                 }
                 return .input
             case let .narration(_, text, _, _, _):
-                return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .blank : .reply
+                return TranscriptGrouping.isBlankText(text) ? .blank : .reply
             case let .tool(_, name, _, _, _, _, _, _, _, _, _, _, _) where TranscriptGrouping.traceNotice(name) != nil:
                 return .quiet
             default:
