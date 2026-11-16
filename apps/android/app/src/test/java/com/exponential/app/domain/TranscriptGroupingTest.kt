@@ -229,6 +229,11 @@ class TranscriptGroupingTest {
             )
         }
         assertEquals(rows, TranscriptGrouping.CHECK_IN_SPECIMEN)
+        val agent = fixture.getValue("checkInSpecimenAgent").jsonObject
+        assertEquals(
+            TranscriptGrouping.CheckInSpecimenAgent(agent.str("name")!!, agent.str("icon"), agent.str("color")),
+            TranscriptGrouping.CHECK_IN_SPECIMEN_AGENT,
+        )
     }
 
     @Test

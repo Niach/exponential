@@ -17,7 +17,7 @@
 use std::collections::BTreeMap;
 
 use gpui::{div, px, AnyElement, App, Div, Entity, IntoElement as _, ParentElement as _, SharedString, Styled as _, Window};
-use gpui_component::v_flex;
+use gpui_component::{h_flex, v_flex};
 use serde_json::json;
 
 use domain::chats::{DividerKind, CHATS};
@@ -213,6 +213,7 @@ pub(crate) fn paint(row: &SessionChatRow, time: &str, images: &Entity<ImageCache
 fn check_in_rows(images: &Entity<ImageCache>, cx: &mut App) -> Vec<AnyElement> {
     use domain::transcript_grouping::{check_in_label, check_in_specimen, copy, feed_rows, trace_notice, FeedRowRole, FeedRowShown};
     let rows = check_in_specimen();
+    let agent = domain::transcript_grouping::check_in_specimen_agent();
     let kinds: Vec<FeedRowRole> = rows.iter().map(|row| FeedRowRole::parse(&row.kind).unwrap_or(FeedRowRole::Other)).collect();
     let text = ChatText::default();
     let mut out = Vec::new();
@@ -227,30 +228,43 @@ fn check_in_rows(images: &Entity<ImageCache>, cx: &mut App) -> Vec<AnyElement> {
             _ => {
                 let body = row.text.clone().unwrap_or_default();
                 let markdown = message_markdown(SharedString::from(format!("sg-chat-check-in-text-{index}")), &body, &text, images);
-                message_bubble(
+                let bubble = message_bubble(
                     MessageBubble {
                         id: SharedString::from(format!("sg-chat-check-in-bubble-{index}")),
                         body: markdown.into_any_element(),
                         time: row.time.clone().unwrap_or_default(),
                         own: false,
-                        name: Some(CHECK_IN_AUTHOR.to_string()),
+                        name: Some(agent.name.clone()),
                         link: None,
                         status: None,
                         menu: None,
                         width: None,
-                        // #EXP-1873: no tail, as web's specimen bubble.
-                        tail: false.into(),
+                        // #EXP-1873: a real agent bubble: its group's first, the tail.
+                        tail: true.into(),
                     },
                     cx,
-                )
+                );
+                // ... under the agent's own avatar (`sender_row`'s column).
+                let sizes = crate::session_chat::transcript_sizes();
+                let avatar = crate::user_avatar::agent_avatar(
+                    agent.icon.as_deref(),
+                    agent.color.as_deref(),
+                    gpui_component::Size::Size(px(sizes.avatar)),
+                    cx,
+                );
+                h_flex()
+                    .w_full()
+                    .min_w_0()
+                    .items_start()
+                    .gap(px(sizes.avatar_gap))
+                    .child(div().flex_shrink_0().w(px(sizes.avatar)).child(avatar))
+                    .child(v_flex().flex_1().min_w_0().child(bubble))
+                    .into_any_element()
             }
         });
     }
     out
 }
-
-/// #EXP-1873: the specimen agent's name (web `author="Assistant"`).
-const CHECK_IN_AUTHOR: &str = "Assistant";
 
 fn rows_list() -> Vec<(SessionChatRow, &'static str)> {
     rows()

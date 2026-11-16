@@ -1,4 +1,4 @@
-import { MessageBubble } from "./user-message-bubble"
+import { MessageBubble, SenderAvatar, TranscriptRow } from "./user-message-bubble"
 import { useState, type ComponentProps, type ReactNode } from "react"
 import chats from "@exp/domain-contract/fixtures/chats.json"
 import {
@@ -452,6 +452,7 @@ const DELIVERY_BUBBLES = [
  *  answered keeps its marker above the bubble. */
 function CheckInSpecimen() {
   const rows = transcriptGrouping.checkInSpecimen
+  const agent = transcriptGrouping.checkInSpecimenAgent
   const shown = feedRows(rows.map((row) => row.kind as never))
   return (
     <div data-testid="chat-check-in-specimen" className="mb-3 flex flex-col gap-3">
@@ -461,7 +462,16 @@ function CheckInSpecimen() {
         if (typeof drawn === `number`) return <TranscriptMarker key={index} label={checkInLabel(drawn, row.time)} />
         if (row.kind === `schedule`) return <TranscriptMarker key={index} label={transcriptGrouping.copy.markers.schedule} />
         if (row.kind === `quiet`) return <TranscriptMarker key={index} label={traceNotice(`exponential_session_self_quiet`) ?? ``} />
-        return <MessageBubble key={index} side="in" author="Assistant" text={row.text ?? ``} renderText={paragraph} time={row.time} />
+        // The answer = a real agent bubble: its avatar, name and tail.
+        return (
+          <TranscriptRow
+            key={index}
+            layout={{ side: `other`, avatar: true, gap: 0 }}
+            avatar={<SenderAvatar sender={{ kind: `agent`, id: `assistant`, name: agent.name, link: null }} agent={agent} />}
+          >
+            <MessageBubble side="in" author={agent.name} text={row.text ?? ``} renderText={paragraph} time={row.time} tail />
+          </TranscriptRow>
+        )
       })}
     </div>
   )

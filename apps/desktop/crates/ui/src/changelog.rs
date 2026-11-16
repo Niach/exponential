@@ -57,6 +57,17 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
+const PREVIOUS_314: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-16-phones-quiet-check-ins",
+    date: "2026-11-16",
+    title: "A quiet check-in is one line",
+    summary: "Android 0.14.146 and iOS 0.14.135: when a scheduled agent checks in with nothing to do, the chat shows one line, \"Checked in, nothing to do\", and consecutive ones group together.",
+    body: r##"- **Quiet check-ins are one line**: a scheduled check-in where the agent had nothing to do reads "Checked in, nothing to do" instead of a full turn.
+- **Grouped**: several quiet check-ins in a row collapse into one line; a check-in where the agent wrote something still shows its schedule line and the message."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
 const PREVIOUS_313: ChangelogEntry = ChangelogEntry {
     id: "2026-11-16-phones-bubbles-hug-and-call-reason",
     date: "2026-11-16",

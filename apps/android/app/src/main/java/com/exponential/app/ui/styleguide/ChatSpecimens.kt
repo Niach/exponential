@@ -90,6 +90,7 @@ import com.exponential.app.ui.chat.ChatConversation
 import com.exponential.app.ui.chat.ChatRowMeta
 import com.exponential.app.ui.chat.FeedMarkerRow
 import com.exponential.app.ui.chat.MessageBubble
+import com.exponential.app.ui.chat.TranscriptBubbleRow
 import com.exponential.app.ui.chats.ChatsContent
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -653,6 +654,7 @@ private fun specimenClock(wire: String): String? = runCatching {
 @Composable
 private fun CheckInSpecimen(modifier: Modifier = Modifier) {
     val rows = com.exponential.app.domain.TranscriptGrouping.CHECK_IN_SPECIMEN
+    val agent = com.exponential.app.domain.TranscriptGrouping.CHECK_IN_SPECIMEN_AGENT
     val shown = remember { com.exponential.app.domain.TranscriptGrouping.feedRows(rows.map { it.kind }) }
     Column(modifier.fillMaxWidth().testTag("chat-check-in-specimen"), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         rows.forEachIndexed { index, row ->
@@ -665,7 +667,27 @@ private fun CheckInSpecimen(modifier: Modifier = Modifier) {
                         FeedMarkerRow(com.exponential.app.domain.TranscriptGrouping.Copy.MARKERS.getValue("schedule"))
                     com.exponential.app.domain.TranscriptGrouping.FeedRowRole.Quiet ->
                         FeedMarkerRow(com.exponential.app.domain.TranscriptGrouping.NOTICES.getValue("session_self_quiet"))
-                    else -> MessageBubble(text = row.text.orEmpty(), own = false, time = row.time, author = "Assistant")
+                    // A real agent bubble: its avatar, name and tail.
+                    else -> TranscriptBubbleRow(
+                        layout = com.exponential.app.domain.TranscriptGrouping.RowLayout(
+                            id = "check-in-$index",
+                            side = com.exponential.app.domain.TranscriptGrouping.Side.Other,
+                            sender = null,
+                            avatar = true,
+                            name = true,
+                            tail = true,
+                            gap = 0,
+                        ),
+                        avatar = {
+                            com.exponential.app.ui.components.AgentAvatar(
+                                icon = agent.icon,
+                                color = agent.color,
+                                size = com.exponential.app.domain.TranscriptGrouping.Layout.AVATAR.dp,
+                            )
+                        },
+                    ) {
+                        MessageBubble(text = row.text.orEmpty(), own = false, time = row.time, author = agent.name, tail = true)
+                    }
                 }
             }
         }

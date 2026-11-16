@@ -524,6 +524,16 @@ public enum TranscriptGrouping {
         public let text: String?
     }
 
+    /// #EXP-1873 fixture `checkInSpecimenAgent`: the agent whose real
+    /// bubble (avatar, name, tail) answers in the specimen.
+    public struct CheckInSpecimenAgent: Equatable, Sendable {
+        public let name: String
+        public let icon: String?
+        public let color: String?
+    }
+
+    public static let checkInSpecimenAgent = CheckInSpecimenAgent(name: "Assistant", icon: "bot", color: "#6366f1")
+
     public static let checkInSpecimen: [CheckInSpecimenRow] = [
         CheckInSpecimenRow(kind: .schedule, time: "16:30", text: nil),
         CheckInSpecimenRow(kind: .quiet, time: nil, text: nil),

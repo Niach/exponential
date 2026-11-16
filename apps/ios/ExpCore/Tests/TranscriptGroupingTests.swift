@@ -228,6 +228,13 @@ final class TranscriptGroupingTests: XCTestCase {
             )
         }
         XCTAssertEqual(TranscriptGrouping.checkInSpecimen, want)
+        let agent = try XCTUnwrap(try fixture()["checkInSpecimenAgent"] as? [String: Any])
+        XCTAssertEqual(
+            TranscriptGrouping.checkInSpecimenAgent,
+            TranscriptGrouping.CheckInSpecimenAgent(
+                name: try XCTUnwrap(agent["name"] as? String), icon: string(agent["icon"]), color: string(agent["color"])
+            )
+        )
     }
     // #EXP-1864: a tool row named in `notices` is THE inline marker.
     func testReplaysEveryNoticeCase() throws {
