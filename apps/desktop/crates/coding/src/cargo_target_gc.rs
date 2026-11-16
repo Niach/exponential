@@ -1059,16 +1059,24 @@ mod tests {
     }
 
     /// Manual run against a COPY of a real target:
-    /// `EXP_GC_TARGET=/copy [EXP_GC_DRY=1] cargo test -p coding gc_live -- --ignored --nocapture`.
+    /// `EXP_GC_TARGET=/copy [EXP_GC_DRY=1] [EXP_GC_HOLD=<secs>] cargo test -p coding gc_live -- --ignored --nocapture`.
+    /// `EXP_GC_HOLD` keeps each profile's locks that long before deleting,
+    /// so a build started meanwhile provably lands mid-sweep.
     #[test]
     #[ignore]
     fn gc_live() {
         let target = fs::canonicalize(std::env::var("EXP_GC_TARGET").unwrap()).unwrap();
         let dry_run = std::env::var("EXP_GC_DRY").is_ok();
+        let hold = std::env::var("EXP_GC_HOLD").ok().and_then(|secs| secs.parse().ok()).map(Duration::from_secs);
         let started = Instant::now();
         let open = open_files_under(&target).expect("probe");
         println!("open under target: {}", open.len());
-        let report = sweep_with(&target, &Options::new(dry_run), &open);
+        let report = sweep_inner(&target, &Options::new(dry_run), &open, &mut |profile| {
+            if let Some(hold) = hold {
+                println!("{:?} holding {}", started.elapsed(), profile.display());
+                std::thread::sleep(hold);
+            }
+        });
         println!("{}", report.summary());
         println!("took {:?}, after: {} bytes", started.elapsed(), tree_size(&target));
     }
