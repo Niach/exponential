@@ -151,14 +151,35 @@ class SessionScreenTest {
     fun `every status case matches the fixture`() {
         for (case in cases("statusCases")) {
             val input = case.getValue("input").jsonArray.map { it.jsonObject }.map { session ->
-                SessionScreen.StatusInput(
-                    status = session.str("status") ?: "",
-                    busy = session.getValue("busy").jsonPrimitive.boolean,
-                    needsInput = session.getValue("needsInput").jsonPrimitive.boolean,
-                    root = session.getValue("root").jsonPrimitive.boolean,
-                )
+                statusInput(session)
             }
-            assertEquals(case.str("name"), case.str("expected"), SessionScreen.status(input))
+            assertEquals(case.str("name"), case.str("expected"), SessionScreen.status(input, asks(case)))
+        }
+    }
+
+    private fun statusInput(session: JsonObject) = SessionScreen.StatusInput(
+        status = session.str("status") ?: "",
+        busy = session["busy"]?.jsonPrimitive?.boolean ?: false,
+        needsInput = session.getValue("needsInput").jsonPrimitive.boolean,
+        root = session.getValue("root").jsonPrimitive.boolean,
+        id = session.str("id") ?: "",
+        blocked = session.str("blocked"),
+    )
+
+    // #FEED-257: a case's `asks` (absent = none).
+    private fun asks(case: JsonObject): List<SessionScreen.Ask> =
+        (case["asks"] as? JsonArray).orEmpty().map { it.jsonObject }.map {
+            SessionScreen.Ask(it.str("id")!!, it.str("sessionId")!!, it.str("kind")!!)
+        }
+
+    @Test
+    fun `every waiting case matches the fixture`() {
+        for (case in cases("waitingCases")) {
+            val sessions = case.getValue("sessions").jsonArray.map { statusInput(it.jsonObject) }
+            val expected = (case["expected"] as? JsonObject)?.let { o ->
+                SessionScreen.Waiting(SessionScreen.WaitingOpen.entries.first { it.wire == o.str("open") }, o.str("id")!!)
+            }
+            assertEquals(case.str("name"), expected, SessionScreen.waiting(sessions, asks(case)))
         }
     }
 
