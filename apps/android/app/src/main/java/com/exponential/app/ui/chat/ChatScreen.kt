@@ -150,7 +150,7 @@ fun ChatScreen(
     val pullRequests by viewModel.pullRequests.collectAsStateWithLifecycle()
     val teamPullRequests by viewModel.teamPullRequests.collectAsStateWithLifecycle()
     val pullRequestIssues by viewModel.pullRequestIssues.collectAsStateWithLifecycle()
-    val syncedIssues by viewModel.syncedIssues.collectAsStateWithLifecycle()
+    val syncedIssues by viewModel.syncedIssues.collectAsStateWithLifecycle(emptyList())
     val isMember by viewModel.isMember.collectAsStateWithLifecycle()
     val startDevices by viewModel.startDevices.collectAsStateWithLifecycle()
     val suggestionPending by viewModel.suggestionPending.collectAsStateWithLifecycle()

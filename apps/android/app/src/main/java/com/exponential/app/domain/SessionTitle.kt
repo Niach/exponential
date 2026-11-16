@@ -95,12 +95,36 @@ object SessionTitle {
         links: List<TitleLink>,
         issues: List<TitleIssue>,
         messages: List<TitleMessage>,
-    ): String {
+    ): String = title(session, { sessionIssues(session, links, issues) }, messages)
+
+    private fun title(session: TitleSession, own: () -> List<TitleIssue>, messages: List<TitleMessage>): String {
         val named = session.title?.trim()?.takeIf { it.isNotEmpty() }
         if (named != null) return named
-        val own = sessionIssues(session, links, issues)
-        if (own.isNotEmpty()) return issueLabel(own)
+        val issues = own()
+        if (issues.isNotEmpty()) return issueLabel(issues)
         return firstPrompt(session.id, messages)?.let { clip(it, TITLE_MAX) } ?: UNTITLED
+    }
+
+    /**
+     * #ERR-28: [sessionTitle] for many sessions over ONE set of rows: the
+     * issues, links and messages are indexed once (by id, by session), never
+     * re-scanned per session (a chat list titles hundreds of roots over
+     * tens of thousands of digest rows).
+     */
+    class Titler(links: List<TitleLink>, issues: List<TitleIssue>, messages: List<TitleMessage>) {
+        private val issuesById = issues.associateBy { it.id }
+        private val linksBySession = links.groupBy { it.sessionId }
+        private val messagesBySession = messages.groupBy { it.sessionId }
+
+        fun title(session: TitleSession): String = title(
+            session,
+            {
+                linksBySession[session.id].orEmpty()
+                    .sortedWith(compareBy<TitleLink>({ it.sortOrder }, { it.issueId }))
+                    .mapNotNull { issuesById[it.issueId] }
+            },
+            messagesBySession[session.id].orEmpty(),
+        )
     }
 
     /** Every given session's title, keyed by id (the tree's card names). */
@@ -110,9 +134,7 @@ object SessionTitle {
         issues: List<TitleIssue>,
         messages: List<TitleMessage>,
     ): Map<String, String> {
-        // Large chats: the rows grouped by session ONCE ([firstPrompt] reads
-        // only its own session's), never every row per session.
-        val bySession = messages.groupBy { it.sessionId }
-        return sessions.associate { it.id to sessionTitle(it, links, issues, bySession[it.id].orEmpty()) }
+        val titler = Titler(links, issues, messages)
+        return sessions.associate { it.id to titler.title(it) }
     }
 }

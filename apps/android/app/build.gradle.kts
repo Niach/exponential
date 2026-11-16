@@ -371,6 +371,9 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.ktor.client.mock)
     testImplementation(libs.jna.aar)
+    // #ERR-27: the back-stack budget test drives the real NavController.
+    testImplementation(libs.robolectric)
+    testImplementation(libs.navigation.testing)
     androidTestImplementation(libs.androidx.test.junit)
     androidTestImplementation(libs.androidx.test.rules)
     androidTestImplementation(libs.espresso.core)

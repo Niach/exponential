@@ -129,13 +129,13 @@ fun NavHostController.launchOnAgentRoot(route: String, marker: TabSwitchMarker?)
 )
 
 /** [launchOnAgentRoot] for an issue (its optional `comment` compared by argument). */
-fun NavHostController.launchIssueOnAgentRoot(issueId: String, marker: TabSwitchMarker?): Unit = launchOnAgentRoot(
+fun NavHostController.launchIssueOnAgentRoot(issueId: String, marker: TabSwitchMarker?, commentId: String? = null): Unit = launchOnAgentRoot(
     marker,
     isTarget = { top ->
         top.destination.route == ISSUE_ROUTE && top.arguments?.getString("issueId") == issueId &&
-            top.arguments?.getString("comment") == null
+            top.arguments?.getString("comment") == commentId
     },
-    push = { navigate(issueRoute(issueId)) },
+    push = { navigate(issueRoute(issueId, commentId)) },
 )
 
 /** The issue screen's route pattern — (EXP-1241) `comment` is an OPTIONAL
