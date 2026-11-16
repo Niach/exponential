@@ -3673,7 +3673,19 @@ pub fn set_session_end_observer(observer: SessionEndObserver) {
 /// the host's registry sees each outcome exactly where it happens. A team
 /// agent never ends — its host calls [`idle_session`] instead.
 pub fn end_session(trpc: &TrpcClient, session_id: &str) -> Result<(), ApiError> {
-    let result = session_device::report(trpc, session_id, &end_report());
+    end_session_because(trpc, session_id, None)
+}
+
+/// #FEED-253: [`end_session`] saying WHY this device ended the run
+/// (`endReason`), so the parent's report is the reason, never "Ended
+/// without a summary.". Through the same [`SessionEndObserver`].
+pub fn end_session_because(
+    trpc: &TrpcClient,
+    session_id: &str,
+    reason: Option<session_device::EndReason>,
+) -> Result<(), ApiError> {
+    let report = SessionReport { end_reason: reason, ..end_report() };
+    let result = session_device::report(trpc, session_id, &report);
     if let Some(observer) = SESSION_END_OBSERVER.get() {
         observer(session_id, &result);
     }
@@ -3860,6 +3872,21 @@ mod tests {
         assert_eq!(await_hand_off(&trpc, "s-new", &old, ms(5_000), ms(10)).handed_off, None);
         assert!(started.elapsed() < ms(1_000));
         assert!(requests.lock().unwrap().is_empty());
+    }
+
+    /// #FEED-253: a run this device ended itself (the stall watchdog) says
+    /// WHY in its end report, so the parent never reads a bare "Ended
+    /// without a summary."; a plain end sends no reason.
+    #[test]
+    fn a_stalled_end_reports_its_reason() {
+        let (base, requests) = canned_server_recording(vec![(200, REPORT_OK.to_string()), (200, REPORT_OK.to_string())]);
+        let trpc = TrpcClient::new(&base, Arc::new(api::StaticToken("t".into())));
+        end_session_because(&trpc, "s-stalled", Some(session_device::EndReason::Stalled)).unwrap();
+        end_session(&trpc, "s-plain").unwrap();
+        let requests = requests.lock().unwrap().clone();
+        assert!(requests[0].contains("sessions.report"), "{}", requests[0]);
+        assert!(requests[0].contains(r#""status":"ended""#) && requests[0].contains(r#""endReason":"stalled""#), "{}", requests[0]);
+        assert!(requests[1].contains(r#""status":"ended""#) && !requests[1].contains("endReason"), "{}", requests[1]);
     }
 
     const BRIEF: &str = "Work on EXP-42: Fix login flicker.\n\n## Request\n\nThe login page flickers.";

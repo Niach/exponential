@@ -10,7 +10,7 @@ import watchdog from "@exp/eagent/fixtures/watchdog.json"
 import { ASSISTANT_SILENT_EVENTS } from "@/lib/agents/assistant-chat"
 import { TRIGGER_COPY } from "@/lib/agents/triggers"
 import { agentReuseRefusal } from "./agent-reuse"
-import { askHiddenText, askText, BUS_COPY, privateText, REPORT_FALLBACK } from "./bus"
+import { askHiddenText, askText, BUS_COPY, privateText, REPORT_FALLBACK, REPORT_REASONS } from "./bus"
 import { BACKGROUND_STUCK_MINUTES, silentMinutes } from "./watchdog"
 import { PLAIN_IN_SEALED_TREE_MESSAGE, START_NEEDS_WORK } from "./send"
 import {
@@ -60,6 +60,7 @@ describe(`eagent spec: the server's thresholds`, () => {
   it(`triggers, reports, silent events`, () => {
     expect(rules.trigger.catchUpHours).toBe(contract.agentTrigger.catchUpHours)
     expect(rules.report.fallback).toBe(REPORT_FALLBACK)
+    expect(rules.report.reasons).toEqual(REPORT_REASONS)
     expect([...rules.assistantSilentEvents].sort()).toEqual([...ASSISTANT_SILENT_EVENTS].sort())
   })
 })

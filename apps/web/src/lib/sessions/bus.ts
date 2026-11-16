@@ -542,6 +542,13 @@ export async function busLine(
 }
 
 export const REPORT_FALLBACK = `Ended without a summary.`
+/** #FEED-251/#FEED-253 (eagent rules.json `report.reasons`): why a device
+ *  ended a run itself (`sessions.report` `endReason`). The report says it
+ *  instead of a stale mid-work reply or the fallback. */
+export const REPORT_REASONS = {
+  stalled: `Stopped responding mid-turn (no output, and an interrupt changed nothing), so its device ended the run. A message to it resumes the work.`,
+} as const
+export type ReportEndReason = keyof typeof REPORT_REASONS
 const REPORT_MAX = 4000
 
 /** The child's closing summary, else its last turn reply, else the

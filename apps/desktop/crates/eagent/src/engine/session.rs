@@ -554,6 +554,7 @@ fn build_ctx(spec: SessionSpec) -> Arc<SessionCtx> {
         busy_at_shutdown: std::sync::atomic::AtomicBool::new(false),
         api_retry: Mutex::new(super::api_retry::ApiRetry::new()),
         failure: Mutex::new(None),
+        stalled: std::sync::atomic::AtomicBool::new(false),
         exit: ExitState::default(),
         outcome: Mutex::new(None),
         child_exit: spec.child_exit,

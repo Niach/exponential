@@ -1525,6 +1525,129 @@ async fn a_second_quiet_without_a_new_message_ends_the_turn() {
     assert_eq!(interrupts[0]["request"]["cancel_queued"], serde_json::json!(false));
 }
 
+/// #FEED-253 regression: the CLI wedged at startup (no answer to
+/// `initialize`, not one stdout line). The adapter used to keep it and write
+/// the prompt into it, so the run sat silent until the stall watchdog ended
+/// it 45 minutes later. It now stops that child and spawns a fresh one,
+/// which runs the turn.
+#[tokio::test]
+async fn a_cli_silent_at_startup_is_restarted_and_runs_the_turn() {
+    let _session = one_session_at_a_time();
+    let work = workdir("silent-start");
+    let spawns = work.0.join("spawns.txt");
+    let spawns_env = spawns.display().to_string();
+    let run = drive_env(
+        &Path::new(FIXTURES).join("basic"),
+        &work.0,
+        "Reply with the single word ok.",
+        false,
+        &[
+            ("EXP_FAKE_CLAUDE_HANGS", "1"),
+            ("EXP_FAKE_CLAUDE_SPAWNS", spawns_env.as_str()),
+            (engine::adapters::claude::START_TIMEOUT_ENV, "1500"),
+        ],
+        reject_all(),
+        cancel_elicitations(),
+    )
+    .await;
+    assert_eq!(run.stop_reason, StopReason::EndTurn);
+    let count = std::fs::read_to_string(&spawns).expect("the fake counted its spawns").lines().count();
+    assert_eq!(count, 2, "the silent child was replaced once");
+}
+
+/// #FEED-253: a CLI that stays silent at startup on the retry too fails the
+/// START with the reason (EXP-1669's `Could not start` path tells the
+/// parent), never a run that hangs for 45 minutes and ends unexplained.
+#[tokio::test]
+async fn a_cli_silent_twice_fails_the_start_with_the_reason() {
+    let _session = one_session_at_a_time();
+    let work = workdir("silent-twice");
+    let spawns = work.0.join("spawns.txt");
+    let spawns_env = spawns.display().to_string();
+    let spec = spec_env(
+        &Path::new(FIXTURES).join("basic"),
+        &work.0,
+        false,
+        &[
+            ("EXP_FAKE_CLAUDE_HANGS", "5"),
+            ("EXP_FAKE_CLAUDE_SPAWNS", spawns_env.as_str()),
+            (engine::adapters::claude::START_TIMEOUT_ENV, "1000"),
+        ],
+    );
+    let adapter = ClaudeAgent::new(spec).expect("the adapter builds");
+    let error = Client
+        .v1()
+        .name("exp746-test-client")
+        .on_receive_notification(
+            async move |_notification: SessionNotification, _cx| Ok(()),
+            on_receive_notification!(),
+        )
+        .connect_with(adapter, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(engine::client_capabilities()),
+            )
+            .block_task()
+            .await?;
+            let started = cx.send_request(NewSessionRequest::new(std::env::temp_dir())).block_task().await;
+            Ok::<_, Error>(started.err().map(|error| format!("{error:?}")))
+        })
+        .await
+        .expect("the connection runs cleanly")
+        .expect("the start fails");
+    assert!(error.contains("claude did not start"), "{error}");
+    let count = std::fs::read_to_string(&spawns).expect("the fake counted its spawns").lines().count();
+    assert_eq!(count, 2, "one restart, then the failure");
+}
+
+/// #FEED-246 regression: a worker said `quiet` after one step, kept working
+/// (a Bash call) and said `quiet` again. That is no loop: the turn runs to
+/// its own end and the CLI never sees an interrupt (it used to, and the
+/// agent then reported "I've stopped as you asked" mid-work).
+#[tokio::test]
+async fn work_between_two_quiets_never_interrupts_the_turn() {
+    let _session = one_session_at_a_time();
+    let work = workdir("quiet-then-work");
+    let adapter = ClaudeAgent::new(spec("quiet-then-work", &work.0, false)).expect("the adapter builds");
+    let stop_reason = Client
+        .v1()
+        .name("exp746-test-client")
+        .on_receive_notification(
+            async move |_notification: SessionNotification, _cx| Ok(()),
+            on_receive_notification!(),
+        )
+        .connect_with(adapter, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(engine::client_capabilities()),
+            )
+            .block_task()
+            .await?;
+            let session = cx
+                .send_request(NewSessionRequest::new(std::env::temp_dir()))
+                .block_task()
+                .await?;
+            let response = cx
+                .send_request(PromptRequest::new(
+                    session.session_id.clone(),
+                    vec![ContentBlock::Text(TextContent::new("Fix the failing test."))],
+                ))
+                .block_task()
+                .await?;
+            Ok::<_, Error>(response.stop_reason)
+        })
+        .await
+        .expect("the connection runs cleanly");
+    assert_eq!(stop_reason, StopReason::EndTurn);
+    let stdin = std::fs::read_to_string(work.0.join("stdin.jsonl")).expect("the fake logged stdin");
+    let interrupts = stdin
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter(|line| line["request"]["subtype"] == serde_json::json!("interrupt"))
+        .count();
+    assert_eq!(interrupts, 0, "work re-arms the quiet guard: no interrupt");
+}
+
 /// EXP-784: the stall watchdog's interrupt says `cancel_queued: false` on
 /// the notification, and that reaches the CLI's `interrupt` verbatim — the
 /// steers queued behind the wedged turn are what it is rescuing.

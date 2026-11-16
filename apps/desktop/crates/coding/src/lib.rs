@@ -155,7 +155,7 @@ pub use launch_gate::LaunchHold;
 pub use launcher::{apply_account_env, set_session_end_observer};
 pub use launcher::{
     claude_projects_root, claude_transcript_exists, context_layers_for, default_device_label,
-    end_session, end_session_best_effort, end_session_lost, idle_session, idle_session_on, locate_claude_transcript, prepare,
+    end_session, end_session_because, end_session_best_effort, end_session_lost, idle_session, idle_session_on, locate_claude_transcript, prepare,
     prepare_agent_shell, record_last_used, session_branch, session_label, session_launch_options, SteerAudience,
     AcpLaunch, ACP_TRANSPORT, AgentShellLaunch, AgentShellRequest, CodingDeps, CodingError,
     DisabledReason, GitWorktrees, LaunchOutcome, Prepared, PreparedAgentShell, PrepareRequest,
