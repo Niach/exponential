@@ -1407,8 +1407,8 @@ struct AgentSessionView: View {
             // #EXP-1876: the group's first bubble wears THE tail.
             tail: layout?.tail == true
         ) {
-            // #FEED-238: every bubble folds, a relay's too.
-            MessageFold(text: text) {
+            // #EXP-1888: every bubble whole, a relay's too.
+            Group {
                 AgentMarkdownText(text: text, context: markdownContext, streaming: streaming, hugsWidth: true)
             }
         }
@@ -2989,48 +2989,10 @@ struct NarrationBubble: View {
     }
 }
 
-/// #FEED-238 THE FOLD ×4 (transcript-grouping.json `fold`): a message
-/// bubble's text past `TranscriptGrouping.messageFolds` shows its first
-/// `fold.lines` lines (a block render has no `lineLimit`, so a clipped
-/// height cap, QuestionCard's approach), then THE transcript's Show more /
-/// Show less text button under it. Every bubble: own, a member's, the
-/// chat's agent, a relay, a child's report.
-struct MessageFold<Content: View>: View {
-    /// The text `messageFolds` measures (a steer's PROSE, never its embeds).
-    let text: String
-    @ViewBuilder let content: () -> Content
-
-    @State private var expanded = false
-
-    /// `fold.lines` lines of the body text.
-    static var foldHeight: CGFloat {
-        UIFont.preferredFont(forTextStyle: .body).lineHeight * CGFloat(TranscriptGrouping.Fold.lines)
-    }
-
-    var body: some View {
-        if TranscriptGrouping.messageFolds(text) {
-            VStack(alignment: .leading, spacing: 4) {
-                content()
-                    .frame(maxHeight: expanded ? nil : Self.foldHeight, alignment: .top)
-                    .clipped()
-                Button(expanded ? TranscriptGrouping.Copy.showLess : TranscriptGrouping.Copy.showMore) {
-                    expanded.toggle()
-                }
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("message-fold-toggle")
-            }
-        } else {
-            content()
-        }
-    }
-}
-
 /// A human turn (EXP-78): the initial prompt or a steered message — the
 /// viewer's own side of THE message bubble (#EXP-1736 `MessageBubble`
 /// `.own`: right; #FEED-239 the whole column left of the viewer's avatar),
-/// long text folded (#FEED-238 `MessageFold`).
+/// always whole (#EXP-1888: a bubble never folds).
 struct UserMessageBubble: View {
     let text: String
     let context: AgentMarkdownContext
@@ -3059,13 +3021,10 @@ struct UserMessageBubble: View {
         let parsed = parsed
         // Wave D: trailing file lines split off exactly like the embeds.
         let hasImages = !parsed.attachmentIds.isEmpty || !parsed.files.isEmpty
-        // Fold the PROSE, never the wire message: four embed lines are four
-        // more "lines" of nothing, and they used to push a two-line steer into
-        // the fold — which then hid the images the fold was measuring.
         let hasCaption = (caption?.isEmpty == false) || status != nil
         return MessageBubble(side: .own, hasFooter: hasCaption, tail: tail) {
             VStack(alignment: .leading, spacing: 4) {
-                MessageFold(text: hasImages ? parsed.text : text) {
+                Group {
                     if !hasImages {
                         AgentMarkdownText(
                             text: text,
@@ -3087,8 +3046,6 @@ struct UserMessageBubble: View {
                         }
                     }
                 }
-                // OUTSIDE the fold: the images are the point of the message,
-                // and a long prose clamp must never be what hides them.
                 if !parsed.attachmentIds.isEmpty {
                     AgentMarkdownText(
                         text: SteerImageMessage.build(
@@ -4676,7 +4633,7 @@ struct SubagentItemRow: View {
             } else {
                 // #EXP-1736: the subagent's own tab = THE message bubble.
                 MessageBubble(side: .other, author: author, time: at.map { GlassTimeRow.formatted(Date(timeIntervalSince1970: Double($0) / 1000)) }, tail: tail) {
-                    MessageFold(text: text) {
+                    Group {
                         AgentMarkdownText(text: text, context: context, streaming: false, hugsWidth: true)
                     }
                 }

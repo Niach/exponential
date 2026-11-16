@@ -579,7 +579,7 @@ fun ChatConversation(
                                         onOpen = if (link != null && open != null) ({ open(link) }) else null,
                                         queued = row.queued,
                                         tail = layout.hasTail(),
-                                    ) { MessageFold(row.body) { MarkdownView(markdown = row.body, softBreaksAsNewlines = true) } }
+                                    ) { MarkdownView(markdown = row.body, softBreaksAsNewlines = true) }
                                 } else {
                                     MessageBubble(
                                         text = row.body,
@@ -693,7 +693,7 @@ fun ChatConversation(
                             onOpen = open?.let { { it(row.sessionId) } },
                         ) {
                             val text = row.summary.ifEmpty { row.text }
-                            MessageFold(text) { MarkdownView(markdown = text, softBreaksAsNewlines = true) }
+                            MarkdownView(markdown = text, softBreaksAsNewlines = true)
                         }
                     }
                     is SessionTree.SessionChatRow.Suggestions -> ChatSuggestionsCard(

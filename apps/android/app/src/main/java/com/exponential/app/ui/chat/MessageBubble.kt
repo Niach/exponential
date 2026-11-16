@@ -24,14 +24,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.layout.layout
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -231,52 +223,8 @@ fun MessageStatusMark(state: MessageDelivery.State, modifier: Modifier = Modifie
     )
 }
 
-/** #FEED-238: the transcript body's line height (MarkdownView's chat body). */
-private const val TRANSCRIPT_LINE_SP = 22f
-
-/** #FEED-238 THE FOLD's clip: `fold.lines` lines of the transcript body. */
-@Composable
-fun messageFoldHeight(): Dp = with(LocalDensity.current) { (TRANSCRIPT_LINE_SP * TranscriptGrouping.Fold.LINES).sp.toDp() }
-
-/**
- * #FEED-238 THE FOLD ×4 (`messageFolds`): a message bubble's body whose
- * [text] folds shows its first `fold.lines` lines, then THE transcript's
- * Show more / Show less text button ([MessageFoldToggle]). Every message
- * bubble: own, member, agent, a relay, a child's report.
- */
-@Composable
-fun MessageFold(text: String, content: @Composable () -> Unit) {
-    val folds = remember(text) { TranscriptGrouping.messageFolds(text) }
-    var expanded by remember(text) { mutableStateOf(false) }
-    val clip = messageFoldHeight()
-    Column(if (folds && !expanded) Modifier.clipFoldTo(clip) else Modifier) { content() }
-    if (folds) MessageFoldToggle(expanded) { expanded = !expanded }
-}
-
-/** THE transcript's Show more / Show less text button (`copy.showMore`). */
-@Composable
-fun MessageFoldToggle(expanded: Boolean, onToggle: () -> Unit) {
-    Text(
-        if (expanded) TranscriptGrouping.Copy.SHOW_LESS else TranscriptGrouping.Copy.SHOW_MORE,
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        modifier = Modifier
-            .clickable(onClick = onToggle)
-            .padding(top = 2.dp)
-            .testTag("message-fold-toggle"),
-    )
-}
-
-/** The fold CLIPS the naturally laid-out body (never squeezes its measure). */
-fun Modifier.clipFoldTo(clampHeight: Dp): Modifier =
-    clipToBounds().layout { measurable, constraints ->
-        val placeable = measurable.measure(constraints.copy(minHeight = 0, maxHeight = Constraints.Infinity))
-        val height = minOf(placeable.height, clampHeight.roundToPx())
-        layout(placeable.width, height) { placeable.placeRelative(0, 0) }
-    }
-
-/** [MessageBubble] over markdown text (the conversation's rows), folded
- *  (#FEED-238). */
+/** [MessageBubble] over markdown text (the conversation's rows), whole
+ *  (#EXP-1888: a bubble never folds). */
 @Composable
 fun MessageBubble(
     text: String,
@@ -301,7 +249,7 @@ fun MessageBubble(
         status = status,
         tail = tail,
     ) {
-        MessageFold(text) { MarkdownView(markdown = text, softBreaksAsNewlines = true) }
+        MarkdownView(markdown = text, softBreaksAsNewlines = true)
     }
 }
 
@@ -322,8 +270,8 @@ fun TranscriptGrouping.RowLayout?.isRelay(): Boolean =
  * Its name line ([author], `<name> ›`; the group's first relay bubble only)
  * sits ABOVE the bubble, outside it, in the in-bubble name line's style;
  * ONLY that line is the press ([onOpen]: the session on the back stack).
- * The bubble itself is never a link; #FEED-238: its body folds like every
- * bubble's (the caller wraps it in [MessageFold]).
+ * The bubble itself is never a link; #EXP-1888: its body shows whole, like
+ * every bubble's.
  */
 @Composable
 fun RelayBubble(

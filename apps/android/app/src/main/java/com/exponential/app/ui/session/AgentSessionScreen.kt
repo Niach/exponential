@@ -342,7 +342,6 @@ import com.exponential.app.ui.components.DockSheetScope
 import com.exponential.app.ui.chat.PlanAskCard
 import com.exponential.app.domain.TranscriptGrouping
 import com.exponential.app.ui.chat.MessageBubble
-import com.exponential.app.ui.chat.MessageFold
 import com.exponential.app.ui.chat.SenderAvatar
 import com.exponential.app.ui.chat.TranscriptBubbleRow
 import com.exponential.app.ui.chat.authorLine
@@ -2216,14 +2215,12 @@ private fun ActivityFeed(
                                     testTag = "session-agent-narration",
                                     tail = layout.hasTail(),
                                 ) {
-                                    // #FEED-238: THE FOLD, every bubble.
-                                    MessageFold(item.text) {
-                                        MarkdownView(
-                                            item.text,
-                                            softBreaksAsNewlines = true,
-                                            streaming = working && index == rows.lastIndex,
-                                        )
-                                    }
+                                    // #EXP-1888: the whole reply, never folded.
+                                    MarkdownView(
+                                        item.text,
+                                        softBreaksAsNewlines = true,
+                                        streaming = working && index == rows.lastIndex,
+                                    )
                                 }
                             } else {
                                 Unit
@@ -2896,8 +2893,7 @@ private fun NarrationBubble(
         testTag = "session-agent-narration",
         tail = tail,
     ) {
-        // #FEED-238: THE FOLD, every bubble.
-        MessageFold(text) { MarkdownView(text, softBreaksAsNewlines = true) }
+        MarkdownView(text, softBreaksAsNewlines = true)
     }
 }
 
@@ -3413,9 +3409,19 @@ private const val CLAMP_CHARS = 600
 private fun clampable(text: String): Boolean =
     text.length > CLAMP_CHARS || text.count { it == '\n' } >= CLAMP_LINES
 
+/** A card body's Show more / Show less text button. */
 @Composable
-private fun ShowMoreToggle(expanded: Boolean, onToggle: () -> Unit) =
-    com.exponential.app.ui.chat.MessageFoldToggle(expanded, onToggle)
+private fun ShowMoreToggle(expanded: Boolean, onToggle: () -> Unit) {
+    Text(
+        if (expanded) "Show less" else "Show more",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+        modifier = Modifier
+            .clickable(onClick = onToggle)
+            .padding(top = 2.dp)
+            .testTag("show-more-toggle"),
+    )
+}
 
 /** Markdown body folded behind Show more (EXP-440): maxLines can't clamp a block
  *  Column, so the fold is a height clamp + clip at [FOLD_HEIGHT]; the fold
@@ -3459,16 +3465,11 @@ private fun Modifier.foldedTo(clampHeight: Dp): Modifier =
     }
 
 // A human turn (EXP-78): the initial prompt or a steered message — rendered
-// end-aligned like the sender's own chat bubble, long text folded.
+// end-aligned like the sender's own chat bubble, whole (#EXP-1888).
 //
 // EXP-698: a steered message WITH images (EXP-511) splits into its prose —
 // whose `[Image #N]` references render as pills inline with the words — and
-// the embeds, which sit below it. The fold then clamps the PROSE only: four
-// embed lines are four more "lines" of nothing, and clamping the wire message
-// pushed a two-line steer into a fold that then hid the very images it was
-// measuring. The embeds render OUTSIDE the fold for the same reason — they
-// are the point of the message, and a long prose clamp must never be what
-// hides them.
+// the embeds, which sit below it.
 @Composable
 private fun UserMessageBubble(text: String, nested: Boolean = false, at: Long? = null, tail: Boolean = false) {
     // #EXP-1736: THE message bubble, the viewer's side; EXP-787: inside a
@@ -3482,23 +3483,16 @@ private fun UserMessageBubble(text: String, nested: Boolean = false, at: Long? =
     ) { UserMessageBody(text) }
 }
 
-/** A human turn's body inside its bubble: the prose (folded when long, its
- *  `[Image #N]` markers as pills), the images, the file tiles. */
+/** A human turn's body inside its bubble: the prose (its `[Image #N]`
+ *  markers as pills), the images, the file tiles. */
 @Composable
 private fun UserMessageBody(text: String) {
-    var expanded by remember(text) { mutableStateOf(false) }
     val parsed = remember(text) { parseSteerMessage(text) }
     val hasImages = parsed.attachmentIds.isNotEmpty()
     // Wave D: file lines peel off too — rendered as file tiles below.
     val hasFiles = parsed.files.isNotEmpty()
     val prose = if (hasImages || hasFiles) parsed.text else text
-    // #FEED-238 THE FOLD (`messageFolds`, relays too): the first
-    // `fold.lines` lines.
-    val folds = remember(prose) { TranscriptGrouping.messageFolds(prose) }
-    val foldHeight = com.exponential.app.ui.chat.messageFoldHeight()
-    Column(
-        modifier = if (folds && !expanded) Modifier.foldedTo(foldHeight) else Modifier,
-    ) {
+    Column {
         when {
             // Markers are only meaningful against embeds that exist —
             // an `[Image #2]` typed into an image-less message is
@@ -3509,9 +3503,6 @@ private fun UserMessageBody(text: String) {
             prose.isNotEmpty() ->
                 MarkdownView(prose, softBreaksAsNewlines = true)
         }
-    }
-    if (folds) {
-        ShowMoreToggle(expanded) { expanded = !expanded }
     }
     if (hasImages) {
         MarkdownView(
