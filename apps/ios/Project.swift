@@ -266,8 +266,8 @@ let shareExtensionConditions = "$(inherited) SHARE_EXTENSION" + (hasEnetPush ? "
 
 // Single source of truth for app + extension version; keep these in lockstep so
 // the extension's CFBundleVersion never drifts from the parent app.
-let appMarketingVersion = "0.14.134"
-let appBuildVersion = "337"
+let appMarketingVersion = "0.14.135"
+let appBuildVersion = "338"
 // Staging always runs one build AHEAD of prod (EXP-405): the staging apps have
 // their own store namespaces, so an equal number silently uploads and then
 // masquerades as prod's build in ASC. Derived, so one bump covers all targets.
