@@ -552,14 +552,83 @@ pub fn visible_agent(role: Option<&str>, owner_id: Option<&str>, me: Option<&str
 pub struct AssistantFabSpec {
     pub copy: AssistantFabCopy,
     pub widget: AssistantWidgetSpec,
+    /// #EXP-1876: the FAB circle (the mark fills it, no padding).
+    pub size: f32,
     /// The FAB's distance from the content card's bottom-right corner.
     pub inset: f32,
-    /// #EXP-1860: the card's bottom-right square the FAB owns (inset + 52 +
+    /// #EXP-1860: the card's bottom-right square the FAB owns (inset + size +
     /// inset): page scroll content ends this far clear of it, the Dock
     /// band keeps its right edge this far in.
     pub clearance: f32,
     /// How far the bottom-right toast stack rises while the FAB shows.
     pub toast_lift: f32,
+    /// #EXP-1876 THE entrance: the first show on a device.
+    pub entrance: AssistantFabEntrance,
+    /// #EXP-1876 THE speech bubble above the FAB.
+    pub bubble: AssistantFabBubbleSpec,
+}
+
+/// #EXP-1876 `assistant.fab.entrance`.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantFabEntrance {
+    pub duration_ms: u64,
+    pub rise_y: f32,
+    /// from → overshoot → rest.
+    pub scale: [f32; 3],
+    /// Where each `scale` stop lands on the 0..1 timeline.
+    pub scale_times: [f32; 3],
+    pub ripple: AssistantFabRipple,
+    pub reduced_motion: AssistantFabReducedMotion,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantFabRipple {
+    pub count: u32,
+    pub start_ms: u64,
+    pub duration_ms: u64,
+    pub spread_px: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantFabReducedMotion {
+    pub fade_ms: u64,
+}
+
+/// #EXP-1876 `assistant.fab.bubble`.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantFabBubbleSpec {
+    pub max_width: f32,
+    pub max_lines: usize,
+    pub gap: f32,
+    pub pop_in_ms: u64,
+    pub pop_from_scale: f32,
+    pub stay_ms: AssistantFabStay,
+    pub kicker_icon: String,
+    pub copy: AssistantFabKickerCopy,
+    pub welcome: Vec<AssistantFabWelcomeLine>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantFabStay {
+    pub welcome: u64,
+    pub needs_you: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct AssistantFabKickerCopy {
+    pub plan: String,
+    pub question: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct AssistantFabWelcomeLine {
+    pub en: String,
+    pub de: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -618,6 +687,52 @@ pub static ASSISTANT_FAB: LazyLock<AssistantFabSpec> = LazyLock::new(|| {
 /// Assistant, except on its own chat page.
 pub fn assistant_fab_visible(wide: bool, assistant_id: Option<&str>, active_agent_id: Option<&str>) -> bool {
     wide && assistant_id.is_some() && active_agent_id != assistant_id
+}
+
+/// #EXP-1876 a waiting card of the Assistant conversation's tree (TS
+/// `AssistantFabWaitingCard`): an unanswered plan / question / ask card.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FabWaitingCard<'a> {
+    pub message_id: &'a str,
+    pub session_id: &'a str,
+    pub created_at: &'a str,
+}
+
+/// #EXP-1876 TS `AssistantFabBubble`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FabBubble {
+    Welcome,
+    NeedsYou { message_id: String },
+}
+
+/// #EXP-1876 TS `assistantFabBubble` (`assistant.fab.bubble.cases`): which
+/// speech bubble the FAB shows now. `reads` = (session id, readAt).
+#[allow(clippy::too_many_arguments)]
+pub fn assistant_fab_bubble(
+    welcome_seen: bool,
+    cards: &[FabWaitingCard<'_>],
+    reads: &[(&str, &str)],
+    bubbled: &[&str],
+    widget_open: bool,
+    on_assistant_page: bool,
+    focused: bool,
+) -> Option<FabBubble> {
+    if widget_open || on_assistant_page || !focused {
+        return None;
+    }
+    let at = |iso: &str| crate::session_tree::iso_ms(iso).unwrap_or(0);
+    let covered = |card: &FabWaitingCard<'_>| {
+        reads.iter().any(|(session, read_at)| *session == card.session_id && at(read_at) >= at(card.created_at))
+    };
+    let newest = cards
+        .iter()
+        .filter(|card| !bubbled.contains(&card.message_id) && !covered(card))
+        .max_by(|a, b| at(a.created_at).cmp(&at(b.created_at)).then_with(|| a.message_id.cmp(b.message_id)));
+    match newest {
+        Some(card) => Some(FabBubble::NeedsYou { message_id: card.message_id.to_string() }),
+        None if !welcome_seen => Some(FabBubble::Welcome),
+        None => None,
+    }
 }
 
 /// TS `orderedAgents` over synced rows: the viewer's Assistant first, then
@@ -1288,9 +1403,59 @@ mod tests {
         assert_eq!(fab.copy.maximize, "Open full chat");
         assert_eq!(fab.copy.minimize, "Minimize");
         assert_eq!((fab.widget.min.width, fab.widget.min.height, fab.widget.radius), (480., 560., 16.));
-        assert_eq!((fab.inset, fab.toast_lift), (16., 76.));
-        // #EXP-1860: the corner the FAB owns = inset + the 52px circle + inset.
-        assert_eq!(fab.clearance, fab.inset * 2. + 52.);
+        assert_eq!((fab.inset, fab.size, fab.toast_lift), (16., 60., 84.));
+        // #EXP-1860: the corner the FAB owns = inset + the circle + inset.
+        assert_eq!(fab.clearance, fab.inset * 2. + fab.size);
+        assert_eq!((fab.entrance.duration_ms, fab.entrance.rise_y, fab.entrance.reduced_motion.fade_ms), (700, 12., 150));
+        assert_eq!(fab.entrance.scale, [0.6, 1.06, 1.]);
+        assert_eq!((fab.bubble.max_width, fab.bubble.max_lines, fab.bubble.pop_in_ms), (270., 2, 180));
+        assert_eq!((fab.bubble.stay_ms.welcome, fab.bubble.stay_ms.needs_you), (6000, 10000));
+        assert_eq!(fab.bubble.welcome.len(), 8);
+        assert_eq!(fab.bubble.welcome[0].en, "Hi! I'm your Assistant. Ask me anything.");
+        assert_eq!((fab.bubble.copy.plan.as_str(), fab.bubble.copy.question.as_str()), ("Plan ready", "Question"));
+    }
+
+    #[test]
+    fn assistant_fab_bubble_cases_match_the_fixture() {
+        let fixture = fixture();
+        let cases = fixture["assistant"]["fab"]["bubble"]["cases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let cards: Vec<FabWaitingCard> = case["cards"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|c| FabWaitingCard {
+                    message_id: c["messageId"].as_str().unwrap(),
+                    session_id: c["sessionId"].as_str().unwrap(),
+                    created_at: c["createdAt"].as_str().unwrap(),
+                })
+                .collect();
+            let reads: Vec<(&str, &str)> = case["reads"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|r| (r["sessionId"].as_str().unwrap(), r["readAt"].as_str().unwrap()))
+                .collect();
+            let bubbled: Vec<&str> = case["bubbled"].as_array().unwrap().iter().map(|b| b.as_str().unwrap()).collect();
+            let actual = assistant_fab_bubble(
+                case["welcomeSeen"].as_bool().unwrap(),
+                &cards,
+                &reads,
+                &bubbled,
+                case["widgetOpen"].as_bool().unwrap(),
+                case["onAssistantPage"].as_bool().unwrap(),
+                case["focused"].as_bool().unwrap(),
+            );
+            let expected = match case["expected"]["kind"].as_str() {
+                Some("welcome") => Some(FabBubble::Welcome),
+                Some("needsYou") => Some(FabBubble::NeedsYou {
+                    message_id: case["expected"]["messageId"].as_str().unwrap().to_string(),
+                }),
+                _ => None,
+            };
+            assert_eq!(actual, expected, "{}", case["name"]);
+        }
     }
 
     #[test]

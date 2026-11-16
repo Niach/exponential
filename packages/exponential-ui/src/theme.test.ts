@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test"
 import { CORE_CATALOG_ID } from "./catalog"
 import { reduceNested } from "./reducer"
 import { RECIPE_KEYS, RECIPE_STATES, recipeParts } from "./recipes"
-import { THEME_SCHEMA_ID, ThemeError, isFontText, loadTheme, nodeRecipeQuery, resolveNodeStyle, resolveRecipe, resolveToken, tryLoadTheme, validateTheme } from "./theme"
+import { THEME_SCHEMA_ID, ThemeError, glyphGradient, isFontText, loadTheme, nodeRecipeQuery, resolveNodeStyle, resolveRecipe, resolveToken, tryLoadTheme, validateTheme } from "./theme"
 import { BUILTIN_THEMES, BUILTIN_THEME_IDS, builtinTheme, builtinThemes } from "./themes"
 import { STYLE_VISUAL_KEYS } from "./style"
 import kitchenSink from "../fixtures/kitchen-sink.json" with { type: "json" }
@@ -337,5 +337,35 @@ describe(`#EDE-65 the IDE's chat bubble`, () => {
     expect(issues({ maxWidth: `$spacing.xl` })).toEqual([])
     for (const bad of [`120%`, `62`, `wide`, `.5%`, `62 %`]) expect(issues({ maxWidth: bad })[0]).toMatch(/expected a number, a percentage/)
     expect(issues({ borderTopLeftRadius: `16%` })[0]).toMatch(/expected a number or a \$radius\|\$spacing token/)
+  })
+
+  test(`#EXP-1876: the fab lg mark button = a 60 px circle, its glyph the sheen`, () => {
+    for (const id of [`neutral`, `exponential`]) {
+      const theme = builtinTheme(id)
+      const q = (part: string, states: string[] = []) => resolveRecipe(theme, { component: `Button`, part, props: { variant: `fab`, size: `lg` }, states }, `dark`)
+      expect(q(`root`)).toMatchObject({ width: 60, height: 60, borderWidth: 0, borderRadius: 9999, backgroundColor: theme.modes.dark.color.background, color: theme.modes.dark.color.foreground, boxShadow: theme.modes.dark.shadow.lg })
+      expect(q(`icon`)).toMatchObject({ width: 72, height: 72, backgroundClip: `text` })
+      const dark = glyphGradient(q(`icon`))
+      expect(dark).toEqual({ x1: 0.5, y1: 0, x2: 0.5, y2: 1, stops: [{ color: `#ffffff`, offset: 0 }, { color: `#c4c4cc`, offset: 1 }] })
+      const light = glyphGradient(resolveRecipe(theme, { component: `Button`, part: `icon`, props: { variant: `fab`, size: `lg` } }, `light`))
+      expect(light?.stops.map((s) => s.color)).toEqual([`#52525b`, `#0a0a0a`])
+      // The plain fab keeps its glass circle and a flat glyph.
+      expect(glyphGradient(resolveRecipe(theme, { component: `Button`, part: `icon`, props: { variant: `fab`, size: `default` } }, `dark`))).toBeNull()
+    }
+    // A theme extending neutral inherits its sheen.
+    expect(builtinTheme(`playful`).modes.dark.color.sheenTo).toBe(`#c4c4cc`)
+  })
+
+  test(`#EXP-1876: backgroundGradient + backgroundClip text on a recipe`, () => {
+    const theme = (style: Record<string, unknown>) => ({ $schema: THEME_SCHEMA_ID, id: `t`, name: `T`, extends: `neutral`, recipes: { Button: { icon: [{ style }] } } })
+    const issues = (style: Record<string, unknown>) => validateTheme(theme(style), { themes: BUILTIN_THEMES }).map((i) => i.message)
+    const stops = [{ color: `$color.sheenFrom`, offset: 0 }, { color: `#0a0a0a`, offset: 1 }]
+    expect(issues({ backgroundGradient: { angle: 180, stops }, backgroundClip: `text` })).toEqual([])
+    expect(issues({ backgroundGradient: { angle: 180, stops: stops.slice(1) } })[0]).toMatch(/two or more stops/)
+    expect(issues({ backgroundGradient: { angle: 180, stops: [{ color: `$color.nope`, offset: 0 }, stops[1]] } })[0]).toMatch(/two or more stops/)
+    expect(issues({ backgroundGradient: { angle: 180, stops: [{ color: `red`, offset: 2 }, stops[1]] } })[0]).toMatch(/two or more stops/)
+    // 90deg = left → right.
+    expect(glyphGradient({ backgroundClip: `text`, backgroundGradient: { angle: 90, stops } })).toMatchObject({ x1: 0, y1: 0.5, x2: 1, y2: 0.5 })
+    expect(glyphGradient({ backgroundGradient: { angle: 90, stops } })).toBeNull()
   })
 })

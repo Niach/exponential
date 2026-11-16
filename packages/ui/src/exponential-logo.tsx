@@ -4,17 +4,22 @@ interface ExponentialLogoProps {
   variant?: `dark` | `light`
   size?: number
   className?: string
+  /** #EXP-1876: the disc wears the glassy sheen (`--sheen-from` →
+   *  `--sheen-to`, top → bottom), THE mark button's look (`.fab-mark`). */
+  sheen?: boolean
 }
 
 export function ExponentialLogo({
   variant = `dark`,
   size = 24,
   className,
+  sheen = false,
 }: ExponentialLogoProps) {
   const id = useId()
   const clipId = `clip-${id}`
   const maskId = `mask-${id}`
-  const fill = variant === `dark` ? `#222326` : `currentColor`
+  const sheenId = `sheen-${id}`
+  const fill = sheen ? `url(#${sheenId})` : variant === `dark` ? `#222326` : `currentColor`
 
   return (
     <svg
@@ -25,6 +30,12 @@ export function ExponentialLogo({
       className={className}
     >
       <defs>
+        {sheen && (
+          <linearGradient id={sheenId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" style={{ stopColor: `var(--sheen-from)` }} />
+            <stop offset="1" style={{ stopColor: `var(--sheen-to)` }} />
+          </linearGradient>
+        )}
         <clipPath id={clipId}>
           <circle cx="50" cy="50" r="50" />
         </clipPath>

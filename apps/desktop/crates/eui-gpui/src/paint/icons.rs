@@ -230,6 +230,64 @@ pub fn concept_mirrored(host: &dyn HostPlugin, name: &str, size: f32, color: Hsl
     }
 }
 
+/// #EXP-1876: [`concept_mirrored`] painted with a glyph part's sheen
+/// (`backgroundClip: text` + `backgroundGradient`, the Button `fab` `lg`
+/// mark). gpui tints an SVG with ONE colour, so the glyph is laid
+/// `SHEEN_BAND_PX` thin bands across the gradient's axis, each clipped to its
+/// band and tinted with the gradient at its middle: the same glyph, the
+/// gradient sampled every band (a 72 px glyph = 36 bands, one atlas sprite).
+/// The angle snaps to its nearest axis (0/180 = vertical, 90/270 =
+/// horizontal), what the square glyph box needs.
+pub fn concept_gradient(host: &dyn HostPlugin, name: &str, size: f32, gradient: &crate::paint::GradientPaint, rtl: bool) -> AnyElement {
+    sheen_bands(size, gradient, |color| concept_mirrored(host, name, size, color, rtl))
+}
+
+/// The bands of [`concept_gradient`] around any `size` px square glyph
+/// `glyph(colour)` paints (the IDE's Assistant mark, an SVG asset).
+pub fn sheen_bands(size: f32, gradient: &crate::paint::GradientPaint, glyph: impl Fn(Hsla) -> AnyElement) -> AnyElement {
+    let angle = gradient.angle.rem_euclid(360.0);
+    let horizontal = (45.0..135.0).contains(&angle) || (225.0..315.0).contains(&angle);
+    let reversed = !(45.0..225.0).contains(&angle);
+    let bands = (size / SHEEN_BAND_PX).ceil().max(1.0) as usize;
+    let band = size / bands as f32;
+    let mut out = div().relative().size(px(size)).flex_none();
+    for i in 0..bands {
+        let mid = (i as f32 + 0.5) / bands as f32;
+        let color = sheen_at(&gradient.stops, if reversed { 1.0 - mid } else { mid });
+        let at = i as f32 * band;
+        let painted = div().absolute().size(px(size)).child(glyph(color));
+        let slice = div().absolute().overflow_hidden();
+        out = out.child(if horizontal {
+            slice.top_0().h(px(size)).left(px(at)).w(px(band)).child(painted.top_0().left(px(-at)))
+        } else {
+            slice.left_0().w(px(size)).top(px(at)).h(px(band)).child(painted.left_0().top(px(-at)))
+        });
+    }
+    out.into_any_element()
+}
+
+/// The band thickness of [`concept_gradient`].
+pub const SHEEN_BAND_PX: f32 = 2.0;
+
+/// The gradient's colour at `t` (0..1 along its line), interpolated in sRGB
+/// like CSS.
+pub fn sheen_at(stops: &[(Hsla, f32)], t: f32) -> Hsla {
+    let Some(first) = stops.first() else { return gpui::transparent_black() };
+    if t <= first.1 {
+        return first.0;
+    }
+    for pair in stops.windows(2) {
+        let ((c0, o0), (c1, o1)) = (pair[0], pair[1]);
+        if t <= o1 {
+            let f = if o1 > o0 { (t - o0) / (o1 - o0) } else { 1.0 };
+            let (a, b) = (gpui::Rgba::from(c0), gpui::Rgba::from(c1));
+            let mix = |x: f32, y: f32| x + (y - x) * f;
+            return gpui::Rgba { r: mix(a.r, b.r), g: mix(a.g, b.g), b: mix(a.b, b.b), a: mix(a.a, b.a) }.into();
+        }
+    }
+    stops.last().map(|s| s.0).unwrap_or(first.0)
+}
+
 /// [`concept`] turned by `radians` (a style `transform: rotate(…)`).
 pub fn concept_rotated(host: &dyn HostPlugin, name: &str, size: f32, color: Hsla, radians: f32) -> AnyElement {
     if let Some(path) = host.icon(name) {
@@ -262,5 +320,19 @@ mod tests {
             assert!(Glyph::for_concept(name).is_some(), "{slot} → {name} has no built-in glyph");
         }
         assert_eq!(Glyph::ChevronLeft.mirrored(), Glyph::ChevronRight);
+    }
+
+    /// #EXP-1876: the sheen bands sample the gradient in sRGB, ends clamped.
+    #[test]
+    fn sheen_samples_the_gradient() {
+        let white: Hsla = gpui::rgb(0xffffff).into();
+        let grey: Hsla = gpui::rgb(0xc4c4cc).into();
+        let stops = [(white, 0.0), (grey, 1.0)];
+        let rgba = |t: f32| gpui::Rgba::from(super::sheen_at(&stops, t));
+        assert!((rgba(0.0).r - 1.0).abs() < 1e-3);
+        assert!((rgba(1.0).b - 0xcc as f32 / 255.0).abs() < 1e-3);
+        assert!((rgba(0.5).r - (1.0 + 0xc4 as f32 / 255.0) / 2.0).abs() < 1e-3);
+        assert!((rgba(2.0).g - 0xc4 as f32 / 255.0).abs() < 1e-3);
+        assert_eq!((72.0 / super::SHEEN_BAND_PX).ceil(), 36.0);
     }
 }

@@ -422,6 +422,8 @@ const KEY_GROUPS: &[(&str, &[&str])] = &[
     ("borderTopRightRadius", &["radius", "spacing"]),
     ("borderBottomRightRadius", &["radius", "spacing"]),
     ("borderBottomLeftRadius", &["radius", "spacing"]),
+    // #EXP-1876: a glyph part's sheen (with `backgroundClip: text`, the mark button).
+    ("backgroundGradient", &["color"]),
 ];
 /// #EDE-65: the recipe keys that also take a percentage of the parent (`"62%"`).
 const PERCENT_KEYS: [&str; 1] = ["maxWidth"];
@@ -432,8 +434,9 @@ fn is_percent(value: &Value) -> bool {
     let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
     digits(int) && digits(frac) && n.parse::<f64>().is_ok_and(|v| v <= 100.0)
 }
-/// #EXP-1629: the values of the recipe-only `backgroundClip`.
-pub const BACKGROUND_CLIPS: [&str; 2] = ["border-box", "padding-box"];
+/// #EXP-1629: the values of the recipe-only `backgroundClip` (#EXP-1876
+/// `text` = on a glyph part the `backgroundGradient` paints the glyph).
+pub const BACKGROUND_CLIPS: [&str; 3] = ["border-box", "padding-box", "text"];
 const COLOR_KEYS: [&str; 3] = ["backgroundColor", "color", "borderColor"];
 const TOKEN_ONLY_KEYS: [&str; 5] = ["fontFamily", "boxShadow", "transition", "transitionEasing", "backdropBlur"];
 const ENUM_KEYS: [&str; 6] = ["borderStyle", "textDecoration", "textTransform", "fontStyle", "animation", "textAlign"];
@@ -681,6 +684,26 @@ fn check_fonts(value: &Value, path: &str, issues: &mut Vec<ThemeIssue>) {
     }
 }
 
+/// #EXP-1876: a recipe gradient: style.json's shape, a stop colour a
+/// literal hex (themes keep literals) or a known `$color.*` token.
+fn is_theme_gradient(value: &Value) -> bool {
+    let Some(g) = value.as_object() else { return false };
+    if !g.get("angle").and_then(Value::as_f64).is_some_and(f64::is_finite) || g.keys().any(|k| k != "angle" && k != "stops") {
+        return false;
+    }
+    let Some(stops) = g.get("stops").and_then(Value::as_array) else { return false };
+    stops.len() >= 2
+        && stops.iter().all(|stop| {
+            let offset_ok = stop.get("offset").and_then(Value::as_f64).is_some_and(|o| (0.0..=1.0).contains(&o));
+            let color = stop.get("color").cloned().unwrap_or(Value::Null);
+            let color_ok = match parse_token_ref(&color) {
+                Some((group, name)) => group == "color" && token_names("color").is_some_and(|names| names_include(names, &name)),
+                None => is_theme_hex(&color),
+            };
+            offset_ok && color_ok
+        })
+}
+
 fn check_recipe_value(key: &str, value: &Value, path: &str, issues: &mut Vec<ThemeIssue>) {
     if key == "native" {
         if !value.is_boolean() {
@@ -691,6 +714,12 @@ fn check_recipe_value(key: &str, value: &Value, path: &str, issues: &mut Vec<The
     if key == "backgroundClip" {
         if !value.as_str().is_some_and(|v| BACKGROUND_CLIPS.contains(&v)) {
             issues.push(issue(path, format!("expected {}", known(&BACKGROUND_CLIPS))));
+        }
+        return;
+    }
+    if key == "backgroundGradient" {
+        if !is_theme_gradient(value) {
+            issues.push(issue(path, "expected {angle, stops: [{color, offset 0..1}, …]} with two or more stops, each colour #rrggbb, #rrggbbaa or $color.<name>"));
         }
         return;
     }
@@ -1115,7 +1144,7 @@ fn derive_colors(theme: &mut ResolvedTheme) {
                 m.color.insert("destructiveHover".to_string(), with_alpha(&value, factor));
             }
         }
-        for (name, from) in [("link", "primary"), ("borderStrong", "border"), ("ghostHover", "accent"), ("strokeActive", "ring"), ("bubbleOwn", "popover")] {
+        for (name, from) in [("link", "primary"), ("borderStrong", "border"), ("ghostHover", "accent"), ("strokeActive", "ring"), ("bubbleOwn", "popover"), ("sheenFrom", "foreground"), ("sheenTo", "foreground")] {
             if !m.color.contains_key(name) {
                 if let Some(value) = m.color.get(from).cloned() {
                     m.color.insert(name.to_string(), value);

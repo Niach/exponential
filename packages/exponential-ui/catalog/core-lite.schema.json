@@ -17098,7 +17098,9 @@
               "ghostHover",
               "strokeActive",
               "destructiveHover",
-              "bubbleOwn"
+              "bubbleOwn",
+              "sheenFrom",
+              "sheenTo"
             ]
           }
         },

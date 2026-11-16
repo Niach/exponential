@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Button fab lg (#EXP-1876): the glyph sheen of an icon part with `backgroundClip: text` (`PaintStyle.backgroundClipText`; the part's `backgroundGradient` masked by the glyph, `glyphSheen`, Compose's `glyphSheen` / React's `GradientGlyph`), the glyph at the part's own size (72 in the 60 circle, unclipped).
 - List `reorderable` drag (#EXP-1832, `fixtures/list-reorder.json`): a reorderable List's row drags after a long press (`tabLongPressMs`) through the core (`Surface.listDrag` start / move / end / cancel in the unscrolled frame space; `ListReorderDragModifier`, wired like `TabStripDragModifier`); the release fires `move {id, before | after | into}` and its press is swallowed. `ListDragOverlayModifier` paints the core's `listDragPaint` over the List: the dragged row at `dim`, the lifted copy (popover colour, `$radius.md`, shadow 0 8 24 black 35%, `liftOpacity`), the drop line + ring or the into highlight (`listDragStyle()`). `ListReorderTests`; the components.json snapshot gains the List reorderable cases.
 - Button `variant: "fab"` (#EXP-1837): icon-only in the leaf and the measurer; + the `Button/variant=fab` snapshot.
 - Markdown tables fit their columns (#FEED-224): `MarkdownTableFit` (`fixtures/table-fit.json`, `MarkdownTableFitTests`) replaces the equal shares; `MarkdownBlockBox.cols` carries each column's content width; a short table hugs its content, one wider than the box scrolls horizontally.

@@ -10579,6 +10579,35 @@
                 ]
               }
             ]
+          },
+          {
+            "id": "specimen_button_case_11",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen_button_case_11_label",
+                "component": "Text",
+                "props": {
+                  "text": "variant · fab, size · lg",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c11_mark",
+                "component": "Button",
+                "props": {
+                  "label": "Assistant",
+                  "icon": "brand-exponential",
+                  "variant": "fab",
+                  "size": "lg"
+                }
+              }
+            ]
           }
         ]
       }

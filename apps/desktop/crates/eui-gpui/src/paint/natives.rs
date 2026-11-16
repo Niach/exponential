@@ -521,12 +521,20 @@ fn button_face(cx: &LeafCx, component: &str, window: &Window, loading: bool) -> 
     let icon_only = matches!(cx.str("size"), "icon" | "icon-xs") || cx.str("variant") == "fab"; // #EXP-1837
     // The icon recipe for the BUTTON's own props (as the measurer reads
     // it): a part button (a FileUpload remove) is not sized by its owner's.
-    let icon_size = px_prop(&part_props(cx.theme, cx.mode, component, "icon", &cx.node.props, &[]), "width").unwrap_or_else(|| control(cx.theme, "iconSm", 16.0));
+    let icon_props = part_props(cx.theme, cx.mode, component, "icon", &cx.node.props, &[]);
+    let icon_size = px_prop(&icon_props, "width").unwrap_or_else(|| control(cx.theme, "iconSm", 16.0));
+    // #EXP-1876: the icon part's sheen (`backgroundClip: text`, the `fab` `lg` mark).
+    let sheen = (icon_props.get("backgroundClip").and_then(serde_json::Value::as_str) == Some("text"))
+        .then(|| crate::paint::PaintStyle::from_visual(&eui_core::style::visual(&icon_props, eui_core::style::BoxKind::Leaf)).gradient)
+        .flatten();
     let mut row = cx.row(cx.content()).items_center().justify_center().gap(px(cx.style.gap)).whitespace_nowrap();
     if loading {
         row = row.child(spinner_glyph(SharedString::from(format!("{}.spinner", cx.node.id)), icon_size, cx.ink));
     } else if !icon.is_empty() {
-        row = row.child(icons::concept_mirrored(cx.host, icon, icon_size, cx.ink, cx.rtl));
+        row = row.child(match &sheen {
+            Some(gradient) => icons::concept_gradient(cx.host, icon, icon_size, gradient, cx.rtl),
+            None => icons::concept_mirrored(cx.host, icon, icon_size, cx.ink, cx.rtl),
+        });
     } else if icon_only {
         row = row.child(icons::placeholder(icon_size, cx.ink));
     }
