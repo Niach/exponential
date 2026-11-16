@@ -92,6 +92,9 @@ if [ -n "$SHOT" ]; then
   runtime="$(xcrun simctl list runtimes -j | python3 -c 'import json,sys; r=[x for x in json.load(sys.stdin)["runtimes"] if x["isAvailable"] and x["platform"]=="iOS"]; print(r[-1]["identifier"])')"
   dtype="$(xcrun simctl list devicetypes -j | python3 -c 'import json,sys; d=[x for x in json.load(sys.stdin)["devicetypes"] if x["name"].startswith("iPhone") and "Pro" in x["name"]]; print(d[-1]["identifier"])')"
   udid="$(xcrun simctl create "runner-bundle-check" "$dtype" "$runtime")"
+# #EXP-1868: listed in the session's manifest, so a run killed before its
+# trap still loses the simulator when the session ends.
+sh "$(git -C "$(dirname "$0")" rev-parse --show-toplevel)/scripts/lanes/session-manifest.sh" add sim "$udid" || true
   trap 'xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true; xcrun simctl delete "$udid" >/dev/null 2>&1 || true' EXIT
   xcrun simctl boot "$udid"
   xcrun simctl bootstatus "$udid" >/dev/null

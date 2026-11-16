@@ -27,7 +27,9 @@
 //!   stacks; the main checkout never matches (it is not inside a session
 //!   worktree).
 //! - An idle session (suspended, released) keeps everything: only an END
-//!   tears down. The daemon's sweep ([`ended_with_scopes`]) catches a session
+//!   tears down. Whatever the session created OUTSIDE its scope and listed in
+//!   its manifest (simulators, AVDs, build dirs, compose projects) goes too
+//!   ([`crate::session_manifest`]). The daemon's sweep ([`ended_with_scopes`]) catches a session
 //!   that ended while no run of it was live here (it idled first, or the host
 //!   restarted).
 
@@ -53,6 +55,11 @@ const COMPOSE_FORMAT: &str = "{{.Label \"com.docker.compose.project\"}}\t{{.Labe
 /// Returns the compose projects it brought down.
 pub fn end_session_processes(data_dir: &Path, session_id: &str, worktree: Option<&Path>) -> Vec<String> {
     eagent::run_scope::stop_session_scopes(session_id);
+    // What it created outside its scope (simulators, AVDs, build dirs,
+    // compose projects it listed): its manifest, same on macOS and Linux.
+    if let Some(manifests) = crate::session_manifest::manifest_dir() {
+        crate::session_manifest::clean(&manifests, session_id, worktree);
+    }
     let Some(worktree) = worktree.filter(|worktree| is_session_worktree(worktree)) else {
         return Vec::new();
     };
@@ -179,7 +186,13 @@ fn run_bounded(program: &str, args: &[&str], timeout: Duration) -> Option<(bool,
 /// idled before its end, or its host restarted). Blocking. Returns the
 /// sessions it tore down.
 pub fn sweep_ended(data_dir: &Path, rows: &[SessionRow], live: &HashSet<String>) -> Vec<String> {
-    let scoped = eagent::run_scope::sessions_with_scopes();
+    // A session leaves a scope (Linux) or a manifest (any OS), or both.
+    let mut scoped = eagent::run_scope::sessions_with_scopes();
+    if let Some(manifests) = crate::session_manifest::manifest_dir() {
+        scoped.extend(crate::session_manifest::sessions_with_manifests(&manifests));
+    }
+    scoped.sort();
+    scoped.dedup();
     let ended = ended_with_scopes(rows, &scoped, live);
     for session_id in &ended {
         let worktree = crate::run_registry::get(data_dir, session_id).map(|record| record.cwd);

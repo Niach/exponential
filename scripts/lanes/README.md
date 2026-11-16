@@ -63,3 +63,34 @@ The first own-target build is a full one. Delete the directory when the work is
 done (`rm -rf apps/desktop/target`) to give the disk back. The desktop capture
 (`packages/shots`) already refuses a binary that another checkout linked
 (EXP-1558).
+
+## Session manifest: what a session leaves outside its cgroup
+
+When a session ends, the daemon stops its cgroup scope, which takes every
+process it started (#EXP-1868). Things a session creates **outside** that scope
+survive it unless they are listed: iOS simulators (~30 GB each), Android AVDs,
+DerivedData and `/tmp` build dirs, compose projects and their volumes. Whoever
+creates one lists it in the session's manifest:
+
+```sh
+scripts/lanes/session-manifest.sh add sim "$(xcrun simctl create exp-s339 …)"
+scripts/lanes/session-manifest.sh add avd exp_s339_pixel
+scripts/lanes/session-manifest.sh add dir /tmp/s339-dd
+scripts/lanes/session-manifest.sh add compose cap9122
+```
+
+The manifest lives at `~/.local/state/exponential/session-manifests/<session>`.
+When the session ends, the daemon deletes exactly what it lists and nothing
+else. That covers `simctl delete`, `avdmanager delete avd`, `rm -rf`, and
+`docker compose -p … down --volumes`. A `dir` must sit under a temp dir,
+Xcode's DerivedData, fastlane's caches or the session's worktree. If the daemon
+crashed, its sweep reaps the manifest the same way. This works the same on
+macOS and Linux.
+
+These already list what they create:
+- the Fastfile: a non-`store` lane tag's simulators and caches, and a
+  `SNAPSHOT_DERIVED_DATA` override
+- `apps/runner/ios` checks: their simulators
+- the desktop capture: its temp dirs
+
+Outside a session (your own shell, CI) `add` records nothing.
