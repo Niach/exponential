@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, lte, ne, or, sql } from "drizzle-orm"
+import { and, desc, eq, gt, inArray, isNull, lt, lte, ne, or, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   boards,
@@ -426,49 +426,112 @@ export function subIssueReached(
   return (STAGE_RANK[child.status] ?? 0) >= EVENT_RANK[event]
 }
 
-type PrChainRow = Pick<PullRequestRow, `id` | `state` | `basePullRequestId`> & { mergedAt?: Date | null }
+type PrChainRow = Pick<PullRequestRow, `id` | `state` | `basePullRequestId` | `base` | `repositoryId` | `teamId`> & {
+  mergedAt?: Date | null
+}
 
-/** A merged PR is IN the default branch when its base is no PR (the
- *  default or a branch nobody stacks on), or the PR it was stacked on is
- *  merged and in it (a stack landing bottom-up). #FEED-207: a PR merged
- *  into its parent's branch AFTER the parent landed never reached the
- *  default branch (the branch was already squashed away): not landed. */
+const chainCols = {
+  id: pullRequests.id,
+  state: pullRequests.state,
+  basePullRequestId: pullRequests.basePullRequestId,
+  base: pullRequests.base,
+  repositoryId: pullRequests.repositoryId,
+  teamId: pullRequests.teamId,
+  mergedAt: pullRequests.mergedAt,
+}
+
+/** #FEED-249: is `base` a branch the repo is developed on (the repo's
+ *  default, the team's pin, a board pin)? An unknown base (an adopted PR
+ *  whose base was never read) or a repo without a row keeps the old answer:
+ *  yes. */
+async function landsOnDefaultInTx(tx: Tx, pr: Pick<PullRequestRow, `base` | `repositoryId`>): Promise<boolean> {
+  if (!pr.base) return true
+  const [repo] = await tx
+    .select({ teamId: repositories.teamId, fullName: repositories.fullName })
+    .from(repositories)
+    .where(eq(repositories.id, pr.repositoryId))
+    .limit(1)
+  if (!repo) return true
+  const branches = await loadRepoDefaultBranches(tx, { teamId: repo.teamId, repoFullName: repo.fullName })
+  return !branches || isRepoDefaultBranch(branches, pr.base)
+}
+
+/** A merged PR is IN the default branch when the bottom of its chain merged
+ *  into a branch the repo is developed on, and every PR it was stacked on is
+ *  merged and in it (a stack landing bottom-up). #FEED-249: a merge into
+ *  any other branch with no PR below (a session branch whose own PR is not
+ *  open yet) is held, never landed: `heldMergedAboveInTx` releases it when a
+ *  PR of that branch lands. #FEED-207: a PR merged into its parent's branch
+ *  AFTER the parent landed never reached the default branch (the branch was
+ *  already squashed away): not landed. */
 async function prLandedInTx(tx: Tx, pr: PrChainRow): Promise<boolean> {
   let current: PrChainRow | undefined = pr
   for (let depth = 0; current && depth <= MAX_TREE_WALK; depth++) {
     if (current.state !== `merged`) return false
-    if (!current.basePullRequestId) return true
+    if (!current.basePullRequestId) return landsOnDefaultInTx(tx, current)
     const parentId: string = current.basePullRequestId
-    const childMergedAt: Date | null | undefined = current.mergedAt
-    ;[current] = await tx
-      .select({
-        id: pullRequests.id,
-        state: pullRequests.state,
-        basePullRequestId: pullRequests.basePullRequestId,
-        mergedAt: pullRequests.mergedAt,
-      })
-      .from(pullRequests)
-      .where(eq(pullRequests.id, parentId))
-      .limit(1)
-    // The PR below is gone: nothing holds this one back.
-    if (!current) return true
-    if (current.state === `merged` && childMergedAt && current.mergedAt && childMergedAt > current.mergedAt) return false
+    const child: PrChainRow = current
+    ;[current] = await tx.select(chainCols).from(pullRequests).where(eq(pullRequests.id, parentId)).limit(1)
+    // The PR below is gone: its branch decides.
+    if (!current) return landsOnDefaultInTx(tx, child)
+    if (current.state === `merged` && child.mergedAt && current.mergedAt && child.mergedAt > current.mergedAt) return false
   }
   return false
 }
 
 /** The merged PRs stacked (transitively) on `pullRequestId` that were held
- *  back until it landed. A live PR in between ends the walk. */
+ *  back until it landed. A live PR in between ends the walk. #FEED-249: a
+ *  PR merged into this PR's HEAD branch with no PR below it (merged before
+ *  this PR existed, or never linked to it) is held by it too, unless an
+ *  earlier landing of that branch already carried it. */
 async function heldMergedAboveInTx(tx: Tx, pullRequestId: string): Promise<PullRequestRow[]> {
   const found: PullRequestRow[] = []
-  let frontier = [pullRequestId]
+  const [start] = await tx.select().from(pullRequests).where(eq(pullRequests.id, pullRequestId)).limit(1)
+  if (!start) return found
+  let frontier: PullRequestRow[] = [start]
   for (let depth = 0; frontier.length > 0 && depth < MAX_TREE_WALK; depth++) {
-    const rows = await tx
-      .select()
-      .from(pullRequests)
-      .where(and(inArray(pullRequests.basePullRequestId, frontier), eq(pullRequests.state, `merged`)))
-    found.push(...rows)
-    frontier = rows.map((row) => row.id)
+    const next: PullRequestRow[] = []
+    for (const below of frontier) {
+      const stacked = await tx
+        .select()
+        .from(pullRequests)
+        .where(and(eq(pullRequests.basePullRequestId, below.id), eq(pullRequests.state, `merged`)))
+      next.push(...stacked)
+      if (!below.head) continue
+      // The branch's previous landing (another PR with the same head)
+      // already carried what merged into it before.
+      const [previous] = await tx
+        .select({ mergedAt: pullRequests.mergedAt })
+        .from(pullRequests)
+        .where(
+          and(
+            eq(pullRequests.repositoryId, below.repositoryId),
+            eq(pullRequests.head, below.head),
+            eq(pullRequests.state, `merged`),
+            ne(pullRequests.id, below.id),
+            below.mergedAt ? lt(pullRequests.mergedAt, below.mergedAt) : sql`true`
+          )
+        )
+        .orderBy(desc(pullRequests.mergedAt))
+        .limit(1)
+      const byBranch = await tx
+        .select()
+        .from(pullRequests)
+        .where(
+          and(
+            eq(pullRequests.repositoryId, below.repositoryId),
+            eq(pullRequests.base, below.head),
+            isNull(pullRequests.basePullRequestId),
+            eq(pullRequests.state, `merged`),
+            ...(below.mergedAt ? [lte(pullRequests.mergedAt, below.mergedAt)] : []),
+            ...(previous?.mergedAt ? [gt(pullRequests.mergedAt, previous.mergedAt)] : [])
+          )
+        )
+      next.push(...byBranch.filter((row) => row.id !== below.id))
+    }
+    const seen = new Set(found.map((row) => row.id))
+    frontier = next.filter((row, i) => !seen.has(row.id) && next.findIndex((other) => other.id === row.id) === i)
+    found.push(...frontier)
   }
   return found
 }
@@ -532,13 +595,7 @@ export function carrierOutranksPerson(
  *  (#FEED-236): only then may it roll up. */
 async function parentCarriedInTx(tx: Tx, parentId: string, event: PrAutomationEvent): Promise<boolean> {
   const prs = await tx
-    .select({
-      id: pullRequests.id,
-      state: pullRequests.state,
-      basePullRequestId: pullRequests.basePullRequestId,
-      mergedAt: pullRequests.mergedAt,
-      linkedAt: pullRequestIssues.updatedAt,
-    })
+    .select({ ...chainCols, linkedAt: pullRequestIssues.updatedAt })
     .from(pullRequestIssues)
     .innerJoin(pullRequests, eq(pullRequests.id, pullRequestIssues.pullRequestId))
     .where(and(eq(pullRequestIssues.issueId, parentId), eq(pullRequestIssues.closes, true)))
@@ -846,7 +903,7 @@ type IssueLinkRow = { id: string; teamId: string; status: string }
  */
 export async function linkPullRequestIssuesInTx(
   tx: Tx,
-  pr: Pick<PullRequestRow, `id` | `teamId` | `url` | `number` | `head` | `state` | `basePullRequestId`>,
+  pr: Pick<PullRequestRow, `id` | `teamId` | `url` | `number` | `head` | `state` | `basePullRequestId` | `base` | `repositoryId` | `mergedAt`>,
   issueIds: string[],
   actor: { userId: string | null; origin?: IssueEventOrigin },
   /** EXP-1706: ids the opener NAMED: a reference row (`pr unlink`) among
@@ -1388,7 +1445,7 @@ export async function applyPullRequestBase(opts: {
       .limit(1)
     if (!row || row.base === opts.base) return { txid }
     const basePullRequestId = await writeBaseInTx(tx, row, opts.base)
-    if (row.state === `merged` && (await prLandedInTx(tx, { ...row, basePullRequestId }))) {
+    if (row.state === `merged` && (await prLandedInTx(tx, { ...row, base: opts.base, basePullRequestId }))) {
       await applyLandedInTx(tx, row, null)
     }
     return { txid }

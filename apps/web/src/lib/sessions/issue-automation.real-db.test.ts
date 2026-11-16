@@ -322,6 +322,55 @@ describe.skipIf(!ready.ok)(`EXP-1334 status automation`, () => {
     expect(await w.status(topIssue.id)).toMatchObject({ status: `in_review` })
   })
 
+  it(`#FEED-249: a PR merged into a session branch with no PR of its own is held until that branch lands`, async () => {
+    // #2831 → exp/session-58841b59 merged at 04:23; the parent's PR on that
+    // branch opened only at 14:19. Nothing below = NOT the default branch.
+    const w = await world()
+    const childIssue = await w.issue(`Child`)
+    const parentIssue = await w.issue(`Parent`)
+    const rootId = await w.worker([childIssue.id, parentIssue.id])
+    const child = await w.openPr({ rootId, head: `exp/child`, base: `exp/parent`, issueIds: [childIssue.id] })
+    expect(child.basePullRequestId).toBeNull()
+
+    await applyPullRequestMerged({ pullRequestId: child.id, mergedAt: new Date(Date.now() - 120_000), actorUserId: w.owner })
+    expect(await loadPullRequest(child.id)).toMatchObject({ state: `merged`, base: `exp/parent` })
+    expect(await w.status(childIssue.id)).toMatchObject({ status: `in_review` })
+
+    // The parent opens its PR on the branch later, and it lands: both go.
+    const parent = await w.openPr({ rootId, head: `exp/parent`, issueIds: [parentIssue.id] })
+    await applyPullRequestMerged({ pullRequestId: parent.id, actorUserId: w.owner })
+    expect(await w.status(parentIssue.id)).toMatchObject({ status: `done`, builtinKey: `done` })
+    expect(await w.status(childIssue.id)).toMatchObject({ status: `done`, builtinKey: `done` })
+  })
+
+  it(`#FEED-249: a branch's later landing never releases a merge an earlier landing of that branch already carried`, async () => {
+    const w = await world()
+    const oldIssue = await w.issue(`Old child`)
+    const firstIssue = await w.issue(`First landing`)
+    const secondIssue = await w.issue(`Second landing`)
+    const rootId = await w.worker([oldIssue.id, firstIssue.id, secondIssue.id])
+    const old = await w.openPr({ rootId, head: `exp/old-child`, base: `exp/parent`, issueIds: [oldIssue.id] })
+    await applyPullRequestMerged({ pullRequestId: old.id, mergedAt: new Date(Date.now() - 300_000), actorUserId: w.owner })
+    const first = await w.openPr({ rootId, head: `exp/parent`, issueIds: [firstIssue.id] })
+    await applyPullRequestMerged({ pullRequestId: first.id, mergedAt: new Date(Date.now() - 200_000), actorUserId: w.owner })
+    expect(await w.status(oldIssue.id)).toMatchObject({ status: `done` })
+    // A person reopens the old child's issue; the branch lands again later.
+    await db.update(issues).set({ status: `in_progress` }).where(eq(issues.id, oldIssue.id))
+    const second = await w.openPr({ rootId, head: `exp/parent`, issueIds: [secondIssue.id] })
+    await applyPullRequestMerged({ pullRequestId: second.id, actorUserId: w.owner })
+    expect(await w.status(secondIssue.id)).toMatchObject({ status: `done` })
+    expect(await w.status(oldIssue.id)).toMatchObject({ status: `in_progress` })
+  })
+
+  it(`#FEED-249: a lone PR merged into the default branch (or a board's pinned one) lands`, async () => {
+    const w = await world()
+    const onMain = await w.issue(`On main`)
+    const rootId = await w.worker([onMain.id])
+    const pr = await w.openPr({ rootId, head: `exp/lone`, issueIds: [onMain.id] })
+    await applyPullRequestMerged({ pullRequestId: pr.id, actorUserId: w.owner })
+    expect(await w.status(onMain.id)).toMatchObject({ status: `done` })
+  })
+
   it(`a merge delivered with its base lands a PR retargeted onto the default branch`, async () => {
     // The `edited` (base change) delivery never arrived: the stored base
     // still names the live bottom PR, but the merge carries `main`.
