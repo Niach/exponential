@@ -70,6 +70,7 @@ import { baselineSkipNote, scopeSince, storeBaseline, type AffectedScope } from 
 import {
   captureDesktop,
   DEFAULT_BASE_URL,
+  desktopWaitsForFeed,
   mintSessionToken,
   resolveBinary,
   screenRecordingAllowed,
@@ -401,7 +402,7 @@ async function gateSignIn(scope: Scope): Promise<void> {
  */
 function gateRelay(options: Options, scope: Scope): void {
   if (!options.skipRelay) return
-  const dropped = laneViews(scope, `desktop`).filter((id) => STEER_DEPENDENT_VIEWS.has(id))
+  const dropped = laneViews(scope, `desktop`).filter((id) => desktopNeedsRelay(id))
   if (dropped.length === 0) return
   for (const id of dropped) scope.get(`desktop`)?.delete(id)
   console.log(
@@ -481,7 +482,19 @@ function needsRelay(options: Options, scope: Scope): boolean {
   ) {
     return true
   }
-  return laneViews(scope, ...options.platforms).some((id) => STEER_DEPENDENT_VIEWS.has(id))
+  return (
+    laneViews(scope, ...options.platforms).some((id) => STEER_DEPENDENT_VIEWS.has(id)) ||
+    (options.platforms.includes(`desktop`) && laneViews(scope, `desktop`).some((id) => desktopNeedsRelay(id)))
+  )
+}
+
+/**
+ * A desktop view that only exists with the stub online: the steering views,
+ * plus (#EXP-1886) every view whose capture waits for the steer feed.
+ */
+function desktopNeedsRelay(id: string): boolean {
+  const desktop = viewById(id)?.desktop
+  return STEER_DEPENDENT_VIEWS.has(id) || (desktop !== undefined && desktopWaitsForFeed(desktop))
 }
 
 async function composeServices(): Promise<{ states: Map<string, string>; problem?: string }> {
