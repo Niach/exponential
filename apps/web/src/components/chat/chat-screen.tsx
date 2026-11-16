@@ -6,6 +6,7 @@ import {
   sessionScreen,
   sessionScreenKind,
   sessionScreenStatus,
+  sessionScreenWaiting,
   sessionScreenSubtitle,
   sessionScreenTone,
   type SessionScreenOpen,
@@ -579,8 +580,23 @@ export function ChatScreen({
       />
     )
 
-  const needsYou =
-    rows.some((row) => row.needsInput && row.status !== `ended`) || chatPendingAsks(view.rows, () => null).length > 0
+  // #FEED-257 (session-screen.json): needs input = something to open.
+  const statusSessions = (rows.some((row) => row.id === root.id) ? rows : [root, ...rows]).map((row) => ({
+    id: row.id,
+    status: row.status,
+    busy: row.busy,
+    needsInput: row.needsInput,
+    blocked: row.blocked?.kind ?? null,
+    root: row.id === root.id,
+  }))
+  const waiting = sessionScreenWaiting(statusSessions, waitingAsks)
+  const openWaiting = () => {
+    if (!waiting) return
+    if (waiting.open === `session`) openSession(waiting.id)
+    else if (waiting.open === `chat`) pickTab(`chat`)
+    else selectWaiting(waiting.id)
+  }
+  const needsYou = waiting !== null
   const lead: ChatLead = needsYou
     ? `needs_you`
     : rows.some((row) => row.busy)
@@ -588,14 +604,7 @@ export function ChatScreen({
       : (chatLeadPrState(pullRequests) ?? `waiting`)
   const avatar = agent ? agent.avatar : <ChatLeadDisc lead={lead} agent={root.cli ?? null} className={HEADER_DISC_CLASS} />
   // session-screen.json STATUS WORD: THE tree's word, never dropped.
-  const status = sessionScreenStatus(
-    (rows.some((row) => row.id === root.id) ? rows : [root, ...rows]).map((row) => ({
-      status: row.status,
-      busy: row.busy,
-      needsInput: row.needsInput,
-      root: row.id === root.id,
-    }))
-  )
+  const status = sessionScreenStatus(statusSessions, waitingAsks)
   const subtitle = sessionScreenSubtitle({
     status,
     device: deviceGlyph(root.deviceId)?.name ?? null,
@@ -647,6 +656,7 @@ export function ChatScreen({
             }
             subtitle={subtitle}
             subtitleClass={CHAT_HEADER_TONE_CLASS[sessionScreenTone(status)]}
+            onSubtitlePress={waiting ? openWaiting : null}
             trailing={
               <>
                 {/* #EXP-1785: the waiting chips lead the trailing slot. */}

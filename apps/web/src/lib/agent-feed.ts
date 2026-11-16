@@ -6,7 +6,7 @@
 // EXP-746: the two chip labels live in steer-commands.ts (the ×4 copy home);
 // the import is one-way — steer-commands only takes TYPES from here, so the
 // merged `/` catalog and the chips never form a runtime cycle.
-import { feedInput, feedRows, traceNotice, type FeedRowRole } from "@exp/domain-contract/transcript-grouping"
+import { feedInput, feedRows, isBlankText, traceNotice, type FeedRowRole } from "@exp/domain-contract/transcript-grouping"
 import {
   CONFIG_DEFAULT_VALUE_LABEL,
   CONFIG_MODE_LABEL,
@@ -2765,10 +2765,12 @@ export function shownFeedRows<T extends { id: number; kind: string; text?: strin
     const item = row.item
     if (item.kind === `user_message`) {
       const input = feedInput(item.text ?? ``)
+      // #FEED-254: another session's relayed line with a blank body draws nothing.
+      if (input?.kind === `relay` && isBlankText(input.body)) return `blank`
       if (input?.kind !== `marker`) return `input`
       return input.key === `schedule` ? `schedule` : `marker`
     }
-    if (item.kind === `narration`) return (item.text ?? ``).trim() ? `reply` : `blank`
+    if (item.kind === `narration`) return isBlankText(item.text) ? `blank` : `reply`
     if (item.kind === `tool` && traceNotice(item.name)) return `quiet`
     return `other`
   })
