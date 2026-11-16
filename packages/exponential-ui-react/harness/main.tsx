@@ -9,7 +9,7 @@
 //   ?view=hosted                                        (VAPP-281: popups hosted outside a panel surface)
 //   ?view=catalog                                        (every fixture case)
 //   ?view=conditions&case=<n>&ctx=<n>                    (style-conditions.json)
-//   ?view=tree&tree=<json>&data=<json>&width=&height=&viewportHeight=&locale=&dir=  (any tree)
+//   ?view=tree&tree=<json>&data=<json>&width=&height=&viewportHeight=&locale=&dir=&chips=1  (any tree)
 //     &gen=<key>:<n>  adds data[key] = n rows {id: "r<i>", title: "Item <i>"} (long lists without a long URL)
 //   ?view=controls&theme=<id>                            (control-geometry.json, VAPP-91 conformance)
 //   ?view=specimen&id=<id>&theme=<id>&mode=&width=&rtl=1 (one specimens.json entry, VAPP-93)
@@ -236,6 +236,16 @@ function Conditions() {
   return <ExponentialSurface id="cond" root={root} theme={theme as never} mode="light" width={ctx.width} viewportHeight={ctx.height} style={ctx.height === undefined ? undefined : { height: ctx.height }} states={ctx.states?.map((s) => s)} formFactor={ctx.formFactor} />
 }
 
+/** `&chips=1` (#EXP-1882): every `#ABC-1` in a Markdown is an issue chip,
+ *  every `#LONG-1` one wider than a phone's line. */
+const HARNESS_CHIPS: Record<string, string> = { "#ABC-1": `ABC-1 Fix login`, "#LONG-1": `LONG-1 Agents narrate issue identifiers in their replies and the chips wrap` }
+
+function harnessChips(text: string) {
+  const parts = text.split(/(#ABC-1|#LONG-1)/)
+  if (parts.length === 1) return null
+  return parts.filter(Boolean).map((t) => (HARNESS_CHIPS[t] ? { text: t, href: `https://app.example/i/${t.slice(1)}`, chip: { kind: `issue` as const, label: HARNESS_CHIPS[t], icon: `ui-issue` } } : { text: t }))
+}
+
 /** Any nested tree from the query (keyboard + overlay suites). */
 function Tree() {
   const nested = JSON.parse(params.get(`tree`) ?? `{}`) as NestedNode
@@ -244,7 +254,7 @@ function Tree() {
   if (gen?.length === 2) data[gen[0]] = Array.from({ length: Number(gen[1]) }, (_, i) => ({ id: `r${i}`, title: `Item ${i}` }))
   const surface = useSurface({ surfaceId: `tree`, initial: nested, data })
   window.__xuiData = () => surface.data
-  const plugin = useMemo<HostPlugin>(() => ({ icons: harnessIcons, onAction: (e) => void window.__xuiLog.push({ action: e.name, event: e.event, componentId: e.componentId, context: e.context }) }), [])
+  const plugin = useMemo<HostPlugin>(() => ({ icons: harnessIcons, onAction: (e) => void window.__xuiLog.push({ action: e.name, event: e.event, componentId: e.componentId, context: e.context }), ...(params.get(`chips`) === `1` ? { textLinks: harnessChips } : {}) }), [])
   const h = params.get(`height`)
   const vh = params.get(`viewportHeight`)
   const dir = params.get(`dir`)

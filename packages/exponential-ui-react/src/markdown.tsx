@@ -18,7 +18,7 @@
 // classifies is the Video / AudioPlayer native or the FileUpload file row.
 
 import { Fragment, createContext, createElement, memo, useContext, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from "react"
-import { MARKDOWN_CELL_TEXT, watchMarkdownTable, linkedMarkdown, linkHref, markdownChipOverlay, markdownPartAttrs, markdownProfileHost, loadedImageSize, markdownCodeLines, markdownImageCap, markdownImageSizeOf, markdownImageStyle, mediaRequestOf, rememberImageSize, parseMarkdown, partClass, propAttribute, type MarkdownBlock, type MarkdownChip, type MarkdownInline, type MarkdownList } from "@exponential_app/eui/web"
+import { MARKDOWN_CELL_TEXT, watchMarkdownTable, glueChips, glueWidth, linkedMarkdown, linkHref, markdownChipOverlay, markdownPartAttrs, markdownProfileHost, loadedImageSize, markdownCodeLines, markdownImageCap, markdownImageSizeOf, markdownImageStyle, mediaRequestOf, rememberImageSize, parseMarkdown, partClass, propAttribute, type MarkdownBlock, type MarkdownChip, type MarkdownInline, type MarkdownList } from "@exponential_app/eui/web"
 import type { MarkdownVariant } from "@exponential_app/eui/web"
 import type { ResolvedTheme, UiNode } from "@exponential_app/eui"
 import { SurfaceContext } from "./context"
@@ -177,26 +177,29 @@ function MarkdownLink({ host, href, scope, children }: { host: HostPlugin; href:
 }
 
 function inline(nodes: readonly MarkdownInline[], host: HostPlugin, scope = ``): ReactNode[] {
-  return nodes.map((n, k) => {
-    // #VAPP-258: a hard line break is a newline in the run.
-    if (typeof n === `string`) return n.includes(`\n`) ? <Fragment key={k}>{n.split(`\n`).flatMap((line, i) => (i ? [<br key={i} />, line] : [line]))}</Fragment> : n
-    switch (n.type) {
-      case `code`:
-        return <code key={k} {...mdPart(host, scope, `code`)}>{n.text}</code>
-      case `strong`:
-        return <strong key={k}>{inline(n.children, host, scope)}</strong>
-      case `em`:
-        return <em key={k}>{inline(n.children, host, scope)}</em>
-      case `del`:
-        return <del key={k}>{n.children ? inline(n.children, host, scope) : n.text}</del>
-      case `link`: {
-        const href = linkHref(host, n.dest)
-        if (href && n.chip) return <MarkdownChipLink key={k} host={host} href={href} chip={n.chip} scope={scope} />
-        const label = inline(n.children, host, scope)
-        return href ? <MarkdownLink key={k} host={host} href={href} scope={scope}>{label}</MarkdownLink> : <span key={k} {...mdPart(host, scope, `link`)} data-denied="">{label}</span>
-      }
+  // #EXP-1882: a chip and the text it touches wrap as one.
+  return glueChips(nodes).map((n, k) => (typeof n !== `string` && n.type === `glue` ? <span key={k} className="xui-md-glue" style={{ "--xui-md-glue": glueWidth(n.children) } as CSSProperties}>{n.children.map((c, j) => inlineNode(c, j, host, scope))}</span> : inlineNode(n, k, host, scope)))
+}
+
+function inlineNode(n: MarkdownInline, k: number, host: HostPlugin, scope: string): ReactNode {
+  // #VAPP-258: a hard line break is a newline in the run.
+  if (typeof n === `string`) return n.includes(`\n`) ? <Fragment key={k}>{n.split(`\n`).flatMap((line, i) => (i ? [<br key={i} />, line] : [line]))}</Fragment> : n
+  switch (n.type) {
+    case `code`:
+      return <code key={k} {...mdPart(host, scope, `code`)}>{n.text}</code>
+    case `strong`:
+      return <strong key={k}>{inline(n.children, host, scope)}</strong>
+    case `em`:
+      return <em key={k}>{inline(n.children, host, scope)}</em>
+    case `del`:
+      return <del key={k}>{n.children ? inline(n.children, host, scope) : n.text}</del>
+    case `link`: {
+      const href = linkHref(host, n.dest)
+      if (href && n.chip) return <MarkdownChipLink key={k} host={host} href={href} chip={n.chip} scope={scope} />
+      const label = inline(n.children, host, scope)
+      return href ? <MarkdownLink key={k} host={host} href={href} scope={scope}>{label}</MarkdownLink> : <span key={k} {...mdPart(host, scope, `link`)} data-denied="">{label}</span>
     }
-  })
+  }
 }
 
 function renderList(list: MarkdownList, host: HostPlugin, key: number, scope: string): ReactNode {

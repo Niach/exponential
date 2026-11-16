@@ -223,6 +223,37 @@ final class MarkdownHostTests: XCTestCase {
         XCTAssertGreaterThan(wrapped, try measured(m, Array(repeating: "#XYZ-1", count: 6).joined(separator: " "), width: 200))
     }
 
+    /// #EXP-1882: a chip keeps the text it touches on its line: chip + ")",
+    /// chip + ".", chip + "," and "(" + chip never wrap apart (the chip's
+    /// object replacement character breaks before and after itself), and a
+    /// chip capped at the line leaves its punctuation room there.
+    func testAChipKeepsItsPunctuationOnItsLine() throws {
+        guard Fixtures.available() else { return }
+        let (f, _) = try fixture()
+        let long = "ABC-1 Agents narrate issue identifiers in their replies and the chips wrap"
+        let longHost = FakeHost(JSONValue.parse(##"{"links": {"#ABC-1": {"href": "https://app.example/i/ABC-1", "chip": {"kind": "issue", "label": "\##(long)", "icon": "ui-issue"}}}}"##))
+        let cases: [(String, String)] = [("merged it (#ABC-1) ok", ")"), ("linked it to #ABC-1.", "."), ("see #ABC-1, merged it.", ","), ("open (#ABC-1 now", "(")]
+        for host in [FakeHost(f), longHost] {
+            let m = try model(host)
+            for (text, glyph) in cases {
+                _ = try measured(m, text)
+                let (_, styles, blocks, _) = try laidOut(m, text)
+                let chip = try XCTUnwrap(blocks[0].inlines.first { $0.chip != nil }?.chip)
+                let natural = TextShaper.chipWidth(chip, style: styles.chip, wrap: nil)
+                let widest = MarkdownShaper(mono: nil, chip: styles.chip).width(blocks[0].inlines, styles.body)
+                for w in stride(from: min(natural, 160), through: widest + 2, by: 1) {
+                    let runs = TextShaper.runs(blocks[0].inlines, styles.body, mono: nil, ink: .black, link: .black, codeBackground: nil, chip: styles.chip, wrap: w)
+                    let lines = TextLines(runs, wrap: w).ranges.map { (runs.string as NSString).substring(with: $0).replacingOccurrences(of: "\u{2060}", with: "") }
+                    let line = try XCTUnwrap(lines.firstIndex { $0.contains("\u{FFFC}") })
+                    let at = glyph == "(" ? lines[line].hasPrefix("(") || lines[line].contains(" (") : lines[line].contains("\u{FFFC}\(glyph)")
+                    XCTAssertTrue(at, "\(text) at \(w): \(lines)")
+                    // The measurer agrees: the chip's runs lay out in as many lines.
+                    XCTAssertEqual(MarkdownShaper(mono: nil, chip: styles.chip).height(blocks[0].inlines, styles.body, width: w), CGFloat(lines.count) * styles.body.lineHeight, accuracy: 0.5)
+                }
+            }
+        }
+    }
+
     func testImageSizeChangesTheMeasuredHeight() throws {
         guard Fixtures.available() else { return }
         let (f, _) = try fixture()

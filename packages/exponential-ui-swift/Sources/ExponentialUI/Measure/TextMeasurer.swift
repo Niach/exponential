@@ -588,13 +588,25 @@ public enum TextShaper {
     public static func runs(_ inlines: [MarkdownInline], _ spec: MarkdownTextSpec, mono: String?, ink: PlatformColor, link: PlatformColor, codeBackground: PlatformColor?, align: NSTextAlignment = .natural, chip chipStyle: MarkdownChipStyle? = nil, wrap: CGFloat? = nil) -> NSAttributedString {
         let out = NSMutableAttributedString()
         let base = TextStyle(fontSize: spec.size, fontWeight: spec.weight, lineHeight: spec.lineHeight, fontFamily: spec.family)
-        for span in inlines where !span.text.isEmpty {
+        // #EXP-1882: a chip's object replacement character breaks before and
+        // after itself (UAX #14 CB): a word joiner glues it to the text it
+        // touches, and a capped chip leaves that text room on its line, so
+        // "(#A-1)." wraps as one word.
+        let spans = inlines.filter { !$0.text.isEmpty }
+        let isChip = { (span: MarkdownInline) in span.chip != nil && chipStyle != nil && span.link != nil }
+        let joiner = attributes(base, italic: false, family: spec.family, align: align)
+        for (i, span) in spans.enumerated() {
             var ts = base
             if span.bold { ts.fontWeight = max(ts.fontWeight, 600) }
             let family = span.code ? (mono ?? "ui-monospace") : spec.family
             var attrs = attributes(ts, italic: span.italic, family: family, align: align)
+            if i > 0, isChip(span) || isChip(spans[i - 1]),
+               let edge = isChip(span) ? out.string.unicodeScalars.last : span.text.unicodeScalars.first,
+               !CharacterSet.whitespacesAndNewlines.contains(edge) {
+                out.append(NSAttributedString(string: "\u{2060}", attributes: joiner))
+            }
             if let chip = span.chip, let chipStyle, let href = span.link {
-                out.append(chipRun(chip, href: href, style: chipStyle, lineHeight: spec.lineHeight, wrap: wrap, attrs: attrs))
+                out.append(chipRun(chip, href: href, style: chipStyle, lineHeight: spec.lineHeight, wrap: wrap.map { $0 - glued(out, after: spans.dropFirst(i + 1).first, base) }, attrs: attrs))
                 continue
             }
             // Round 9: inline code = its type between its side padding (the
@@ -635,6 +647,24 @@ public enum TextShaper {
             out.append(NSAttributedString(string: span.text, attributes: attrs))
         }
         return out
+    }
+}
+
+extension TextShaper {
+    /// #EXP-1882: how wide the text glued to a chip is: the end of `before`
+    /// back to a space and the start of `next` up to one.
+    static func glued(_ before: NSAttributedString, after next: MarkdownInline?, _ base: TextStyle) -> CGFloat {
+        let text = before.string as NSString
+        var at = text.length
+        while at > 0, let u = UnicodeScalar(text.character(at: at - 1)), !CharacterSet.whitespacesAndNewlines.contains(u) { at -= 1 }
+        var w = at < text.length ? lineWidth(before.attributedSubstring(from: NSRange(location: at, length: text.length - at))) : 0
+        if let next, next.chip == nil {
+            var ts = base
+            if next.bold { ts.fontWeight = max(ts.fontWeight, 600) }
+            let tail = String(next.text.prefix { !$0.isWhitespace })
+            if !tail.isEmpty { w += width(tail, ts, italic: next.italic) }
+        }
+        return w
     }
 }
 

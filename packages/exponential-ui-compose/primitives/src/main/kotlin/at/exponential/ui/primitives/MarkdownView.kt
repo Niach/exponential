@@ -380,7 +380,7 @@ fun markdownChipPlaceholders(
 ): List<AnnotatedString.Range<Placeholder>> {
     val out = ArrayList<AnnotatedString.Range<Placeholder>>()
     var at = 0
-    for (span in inlines) {
+    for ((i, span) in inlines.withIndex()) {
         if (span.text.isEmpty()) continue
         val chip = span.chip
         if (chip == null) {
@@ -395,11 +395,24 @@ fun markdownChipPlaceholders(
             }
             continue
         }
-        val w = markdownChipWidth(chip, chips, cap, labelWidth)
+        val w = markdownChipWidth(chip, chips, markdownChipCap(inlines, i, spec, cap, labelWidth), labelWidth)
         out.add(AnnotatedString.Range(Placeholder(w.sp, chips.height(spec.lineHeight).sp, PlaceholderVerticalAlign.Center), at, at + chip.label.length))
         at += chip.label.length
     }
     return out
+}
+
+/**
+ * #EXP-1882: the cap of the chip at [index]: [cap] less the text it touches
+ * (the non-space text right before and after it, which never wraps away from
+ * it), so a chip capped at the line leaves its punctuation room there.
+ */
+fun markdownChipCap(inlines: List<MarkdownInline>, index: Int, spec: MarkdownTextSpec, cap: Float?, labelWidth: (String, MarkdownTextSpec) -> Float): Float? {
+    if (cap == null) return null
+    val before = inlines.subList(0, index).lastOrNull { it.text.isNotEmpty() }?.takeIf { it.chip == null }?.text?.takeLastWhile { !it.isWhitespace() }.orEmpty()
+    val after = inlines.subList(index + 1, inlines.size).firstOrNull { it.text.isNotEmpty() }?.takeIf { it.chip == null }?.text?.takeWhile { !it.isWhitespace() }.orEmpty()
+    val glued = before + after
+    return if (glued.isEmpty()) cap else cap - labelWidth(glued, spec)
 }
 
 /** #VAPP-258: a chip's box width (capped at [cap]): its kind's style, the label and the ident each shaped in its own type. */
@@ -763,11 +776,12 @@ private fun markdownChipContent(
     // Round 9: nothing to compose, only the side padding the line reserves (the fill = [MarkdownPills]).
     if (inlines.any { it.code }) out[MARKDOWN_CODE_PAD_ID] = InlineTextContent(Placeholder(chips.code.padH(spec).sp, 1.sp, PlaceholderVerticalAlign.Center)) {}
     var n = 0
-    for (span in inlines) {
+    val labelWidth = { t: String, sp: MarkdownTextSpec -> shaper.labelWidth(t, sp, chips) }
+    for ((i, span) in inlines.withIndex()) {
         if (span.text.isEmpty()) continue
         val chip = span.chip ?: continue
         val href = span.link
-        val w = markdownChipWidth(chip, chips, cap) { t, sp -> shaper.labelWidth(t, sp, chips) }
+        val w = markdownChipWidth(chip, chips, markdownChipCap(inlines, i, spec, cap, labelWidth), labelWidth)
         val h = chips.height(spec.lineHeight)
         val k = chips.resolved(chip.kind)
         val look = colors.chipLooks[chip.kind]

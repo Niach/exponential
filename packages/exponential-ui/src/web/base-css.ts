@@ -417,6 +417,8 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Markdown-imageAlt{color:var(--xui-color-mutedForeground)}
 .xui-Markdown-image[data-pressable]{cursor:pointer}
 .xui-md-chip{display:inline-flex;align-items:center;gap:var(--xui-spacing-xs);box-sizing:border-box;height:min(var(--xui-control-badge),1lh);max-width:100%;padding:0 var(--xui-spacing-sm);border-radius:var(--xui-radius-full);border-style:solid;border-width:0;vertical-align:middle;white-space:nowrap;text-decoration:none;color:inherit;cursor:pointer}
+.xui-md-glue{white-space:nowrap}
+.xui-md-glue>.xui-md-chip{max-width:calc(100% - var(--xui-md-glue,0ch))}
 .xui-md-chip>svg{flex-shrink:0;width:var(--xui-control-iconSm);height:var(--xui-control-iconSm)}
 .xui-md-chip>.xui-Markdown-chipIdent{display:block;flex-shrink:0;font-family:var(--xui-font-mono);white-space:nowrap}
 .xui-md-chip>.xui-Chip-label{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis}

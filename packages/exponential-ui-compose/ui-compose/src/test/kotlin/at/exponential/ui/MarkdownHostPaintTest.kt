@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import at.exponential.ui.compose.ExponentialSurface
 import at.exponential.ui.measure.FontResolver
 import at.exponential.ui.measure.MarkdownShaper
+import at.exponential.ui.json.JsonValue
 import at.exponential.ui.model.SurfaceModel
 import at.exponential.ui.model.SurfaceOptions
 import at.exponential.ui.paint.MarkdownPainter
@@ -109,6 +110,33 @@ class MarkdownHostPaintTest {
             val chipW = md.labelWidth("ABC-1 Fix login", k.label, styles.chip).let { k.padH * 2 + it + k.iconSize + k.gap }
             val rect = r.placeholderRects.filterNotNull().first()
             assertEquals("width $w: the chip's painted width", minOf(chipW, w), rect.width / density, 1f)
+        }
+    }
+
+    /**
+     * #EXP-1882: a chip keeps the text it touches on its line: chip + ")",
+     * chip + ".", chip + "," and "(" + chip never wrap apart, and a chip
+     * capped at the line leaves its punctuation room there (measure = paint).
+     */
+    @Test
+    fun aChipKeepsItsPunctuationOnItsLine() {
+        Fixtures.require()
+        val long = "ABC-1 Agents narrate issue identifiers in their replies and the chips wrap"
+        val longHost = { FakeMarkdownHost(JsonValue.parse(Fixtures.text("markdown-host.json").replace("\"ABC-1 Fix login\"", "\"$long\""))) }
+        val cases = listOf("merged it (#ABC-1) ok" to ')', "linked it to #ABC-1." to '.', "see #ABC-1, merged it." to ',', "open (#ABC-1 now" to '(')
+        for ((label, host) in listOf("ABC-1 Fix login" to { FakeMarkdownHost(Fixtures.json("markdown-host.json")) }, long to longHost)) {
+            for ((text, glyph) in cases) {
+                for (w in listOf(130f, 150f, 170f, 190f, 210f, 230f, 250f, 270f, 300f)) {
+                    val (m, _) = render(text, width = w, host = host())
+                    val r = painted(label)
+                    val shown = r.layoutInput.text.text
+                    val chipAt = shown.indexOf(label)
+                    val at = if (glyph == '(') shown.lastIndexOf('(', chipAt) else shown.indexOf(glyph, chipAt + label.length)
+                    assertEquals("$text at $w: \"$glyph\" on the chip's line", r.getLineForOffset(chipAt), r.getLineForOffset(at))
+                    assertTrue("$text at $w: \"$glyph\" inside the line", r.getBoundingBox(at).right <= r.size.width + 0.5f)
+                    assertEquals("$text at $w: measure = paint", measured(m), r.size.height / density, 0.5f)
+                }
+            }
         }
     }
 
