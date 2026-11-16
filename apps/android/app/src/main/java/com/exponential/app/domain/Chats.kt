@@ -722,7 +722,7 @@ object Chats {
                 it.sessionId == rootId &&
                     (it.authorKind == DomainContract.messageAuthorKindUser || it.authorKind == DomainContract.messageAuthorKindAgent)
             }
-            .filter { m -> m.locked != null || (m.card?.let { it.kind() in PREVIEW_CARDS } ?: m.body.isNotBlank()) }
+            .filter { m -> m.locked != null || (m.card?.let { it.kind() in PREVIEW_CARDS } ?: !TranscriptGrouping.isBlankText(m.body)) }
             .sortedByEpoch(descending = true, tie = compareByDescending { it.id }) { ms(it.createdAt) ?: 0L }
         if (needsYou) {
             val waiting = own.firstOrNull { m ->

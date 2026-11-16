@@ -1163,7 +1163,8 @@ object SessionTree {
                     else -> DomainContract.messageAuthorKindSystem
                 }
                 val body = messageRowBody(message.body, message.attachmentIds)
-                if (body.isBlank()) continue
+                // #FEED-256 (transcript-grouping.json `blank`): a blank body (a lone U+200B) draws nothing.
+                if (TranscriptGrouping.isBlankText(body)) continue
                 val divider = if (author == DomainContract.messageAuthorKindUser) Chats.commandDivider(message.body) else null
                 if (divider != null) {
                     rows.add(SessionChatRow.Divider(message.id, divider, message.createdAt))
