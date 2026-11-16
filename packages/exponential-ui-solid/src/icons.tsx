@@ -13,7 +13,7 @@
 // painted by `LucideSvg`, which writes lucide-react's attribute set. A host
 // icon that is not a Lucide glyph is rendered as it is.
 
-import { For, createRoot, splitProps, type JSX } from "solid-js"
+import { For, createRoot, createUniqueId, splitProps, type JSX } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import {
   ArrowLeft,
@@ -65,7 +65,9 @@ import {
 } from "lucide-solid"
 import type { IconNode, LucideProps } from "lucide-solid"
 import { CUSTOM_ICON_NODES, lookupIcon } from "@exponential_app/eui/web"
+import type { GlyphGradient } from "@exponential_app/eui"
 import type { IconComponent, IconMap } from "./host"
+import { css } from "./style"
 
 /** The renderer's own chrome glyphs that are NOT catalog part glyphs. */
 export const CHROME = {
@@ -244,5 +246,32 @@ export function IconGlyph(props: { icons?: IconMap; name: string; size?: number;
       class={local.class}
       {...rest}
     />
+  )
+}
+
+// Through `css()` (runtime styles): a literal object compiles to a static
+// `display:block;…` string, unlike React's serialised `display: block; …;`.
+const GLYPH_SVG_STYLE = css({ display: `block`, overflow: `visible` })
+const GLYPH_MASK_STYLE = css({ color: `#ffffff` })
+
+/** #EXP-1876: React's `GradientGlyph`: a glyph painted with a recipe's
+ *  sheen (`backgroundClip: text`, `glyphGradient`), the glyph as an SVG mask
+ *  over a rect filled with the gradient. Fills its part box. */
+export function GradientGlyph(props: { icons?: IconMap; name: string; gradient: GlyphGradient }) {
+  const id = createUniqueId().replace(/[^a-zA-Z0-9_-]/g, ``)
+  return (
+    <svg aria-hidden="true" data-icon={props.name} data-glyph-gradient="" width="100%" height="100%" style={GLYPH_SVG_STYLE}>
+      <defs>
+        <linearGradient id={`${id}g`} x1={props.gradient.x1} y1={props.gradient.y1} x2={props.gradient.x2} y2={props.gradient.y2}>
+          <For each={props.gradient.stops}>{(stop) => <stop offset={stop.offset} stop-color={stop.color} />}</For>
+        </linearGradient>
+        <mask id={`${id}m`} maskUnits="userSpaceOnUse" x="0" y="0" width="100%" height="100%">
+          <g style={GLYPH_MASK_STYLE}>
+            <IconGlyph icons={props.icons} name={props.name} width="100%" height="100%" />
+          </g>
+        </mask>
+      </defs>
+      <rect width="100%" height="100%" fill={`url(#${id}g)`} mask={`url(#${id}m)`} />
+    </svg>
   )
 }

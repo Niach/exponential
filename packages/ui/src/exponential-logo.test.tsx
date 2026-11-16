@@ -24,6 +24,15 @@ describe(`ExponentialLogo`, () => {
       .toBe(`currentColor`)
   })
 
+  it(`#EXP-1876: wears the sheen (--sheen-from → --sheen-to, top → bottom)`, () => {
+    const { container } = render(<ExponentialLogo variant="light" sheen />)
+    const svg = svgOf(container)
+    const gradient = svg.querySelector(`linearGradient`)!
+    expect(svg.querySelector(`circle[mask]`)!.getAttribute(`fill`)).toBe(`url(#${gradient.id})`)
+    expect([gradient.getAttribute(`y1`), gradient.getAttribute(`y2`)]).toEqual([`0`, `1`])
+    expect([...gradient.querySelectorAll(`stop`)].map((s) => (s as SVGStopElement).style.stopColor)).toEqual([`var(--sheen-from)`, `var(--sheen-to)`])
+  })
+
   it(`keeps its clip and mask ids unique across two instances`, () => {
     const { container } = render(
       <>

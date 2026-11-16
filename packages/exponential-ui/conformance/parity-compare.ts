@@ -15,6 +15,11 @@ export const ID_ATTRIBUTES = new Set([`id`, `for`, `name`, `aria-controls`, `ari
  *  Radix derives (`radix-…`), Solid / Kobalte `createUniqueId` (`cl-12…`). */
 export const GENERATED_ID_PATTERNS: readonly RegExp[] = [/radix-/, /:r[0-9a-z]+:/, /«r[0-9a-z]+»/, /(^|[^0-9A-Za-z])_r_[0-9a-z]+_/, /(^|[^0-9A-Za-z])cl-\d+/]
 
+/** SVG paint/reference attributes whose `url(#id)` points at an element id
+ *  (#EXP-1879: the glyph sheen's gradient + mask): the id inside is
+ *  normalised like the target's own `id`. */
+export const URL_REF_ATTRIBUTES = new Set([`fill`, `stroke`, `mask`, `clip-path`, `filter`, `marker-start`, `marker-mid`, `marker-end`])
+
 export const isGeneratedId = (token: string): boolean => GENERATED_ID_PATTERNS.some((re) => re.test(token))
 
 /** A copy of the tree with every generated id token in an id attribute
@@ -31,7 +36,14 @@ export function normalizeIds(roots: DomNode[]): DomNode[] {
   }
   const walk = (n: DomNode): DomNode => {
     if (`x` in n) return n
-    return { t: n.t, a: n.a.map(([k, v]) => [k, ID_ATTRIBUTES.has(k) ? v.split(/(\s+)/).map((p) => (p.trim() ? map(p) : p)).join(``) : v]), c: n.c.map(walk) }
+    return {
+      t: n.t,
+      a: n.a.map(([k, v]) => [
+        k,
+        ID_ATTRIBUTES.has(k) ? v.split(/(\s+)/).map((p) => (p.trim() ? map(p) : p)).join(``) : URL_REF_ATTRIBUTES.has(k) ? v.replace(/url\(#([^)]+)\)/g, (ref: string, id: string) => (isGeneratedId(id) ? `url(${map(id)})` : ref)) : v,
+      ]),
+      c: n.c.map(walk),
+    }
   }
   return roots.map(walk)
 }

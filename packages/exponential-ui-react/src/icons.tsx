@@ -8,7 +8,7 @@
 // matching controls. An unknown name paints the placeholder glyph and names
 // itself in `data-icon`.
 
-import type { ComponentType, SVGProps } from "react"
+import { useId, type ComponentType, type SVGProps } from "react"
 import {
   ArrowLeft,
   AudioLines,
@@ -59,6 +59,7 @@ import {
 } from "lucide-react"
 import type { IconNode } from "lucide-react"
 import { CUSTOM_ICON_NODES, lookupIcon } from "@exponential_app/eui/web"
+import type { GlyphGradient } from "@exponential_app/eui"
 import type { IconComponent, IconMap } from "./host"
 
 /** The renderer's own chrome glyphs that are NOT catalog part glyphs (the
@@ -145,4 +146,29 @@ export function IconGlyph({ icons, name, size, className, ...rest }: { icons?: I
   const resolved = resolveIcon(icons, name)
   const Comp: ComponentType<SVGProps<SVGSVGElement> & { size?: number | string }> = resolved ?? CircleDashed
   return <Comp aria-hidden="true" data-icon={name} data-icon-missing={resolved ? undefined : `true`} size={size} className={className} {...rest} />
+}
+
+/** #EXP-1876: a glyph painted with a recipe's sheen (`backgroundClip:
+ *  text`, `glyphGradient`): the glyph as an SVG mask over a rect filled with
+ *  the gradient, so any registry icon (fill or stroke, `currentColor`) takes
+ *  it. Fills its part box. */
+export function GradientGlyph({ icons, name, gradient }: { icons?: IconMap; name: string; gradient: GlyphGradient }) {
+  const id = useId().replace(/:/g, ``)
+  return (
+    <svg aria-hidden="true" data-icon={name} data-glyph-gradient="" width="100%" height="100%" style={{ display: `block`, overflow: `visible` }}>
+      <defs>
+        <linearGradient id={`${id}g`} x1={gradient.x1} y1={gradient.y1} x2={gradient.x2} y2={gradient.y2}>
+          {gradient.stops.map((stop, i) => (
+            <stop key={i} offset={stop.offset} stopColor={stop.color} />
+          ))}
+        </linearGradient>
+        <mask id={`${id}m`} maskUnits="userSpaceOnUse" x="0" y="0" width="100%" height="100%">
+          <g style={{ color: `#ffffff` }}>
+            <IconGlyph icons={icons} name={name} width="100%" height="100%" />
+          </g>
+        </mask>
+      </defs>
+      <rect width="100%" height="100%" fill={`url(#${id}g)`} mask={`url(#${id}m)`} />
+    </svg>
+  )
 }

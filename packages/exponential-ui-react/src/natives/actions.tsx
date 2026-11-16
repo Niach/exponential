@@ -8,12 +8,12 @@
 // flashes): then the icon slot is the spinner and the label `pendingLabel`,
 // at no less than the idle width.
 
-import { useContext, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react"
-import { PENDING_DELAY_MS, forcedStatesOf } from "@exponential_app/eui"
+import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react"
+import { PENDING_DELAY_MS, forcedStatesOf, glyphGradient, nativeRecipeProps, resolveRecipe } from "@exponential_app/eui"
 import { Toggle as TogglePrimitive } from "radix-ui"
 import { useSurfaceContext } from "../context"
 import { ClosePickerContext, useForm } from "../form"
-import { CHROME, IconGlyph } from "../icons"
+import { CHROME, GradientGlyph, IconGlyph } from "../icons"
 import { useBoundState } from "./bound"
 import { ButtonHold, isPickerPick, linkHref } from "@exponential_app/eui/web"
 import type { NativeProps } from "../node-view"
@@ -56,6 +56,11 @@ export function ButtonNative({ node, props, rootProps, emit, children, domId }: 
   const disabled = bool(props.disabled) || failingChecks(props.checks).length > 0
   const inert = disabled || loading
   const iconOnly = props.size === `icon` || props.size === `icon-xs` || props.variant === `fab` // #EXP-1837: a fab is icon-only
+  // #EXP-1876: the icon part's sheen (the `fab` `lg` mark), else `color`.
+  const sheen = useMemo(
+    () => (icon ? glyphGradient(resolveRecipe(ctx.theme, { component: `Button`, part: `icon`, props: nativeRecipeProps(`Button`, props, ctx.extensionDefs) }, ctx.mode)) : null),
+    [ctx.theme, ctx.mode, ctx.extensionDefs, icon, props.variant, props.size, props.tone, props.disabled, props.loading]
+  )
   const Spinner = CHROME.spinner
   const hasChild = node.children.length > 0
   const shown = usePendingShown(loading)
@@ -109,7 +114,7 @@ export function ButtonNative({ node, props, rootProps, emit, children, domId }: 
         </span>
       ) : icon ? (
         <span {...(part(`icon`) as Record<string, string>)}>
-          <IconGlyph icons={ctx.host.icons} name={icon} />
+          {sheen ? <GradientGlyph icons={ctx.host.icons} name={icon} gradient={sheen} /> : <IconGlyph icons={ctx.host.icons} name={icon} />}
         </span>
       ) : null}
       {hasChild ? children : !iconOnly && paintedLabel ? <span {...(part(`label`) as Record<string, string>)}>{paintedLabel}</span> : null}

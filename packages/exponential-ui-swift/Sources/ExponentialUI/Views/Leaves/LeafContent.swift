@@ -386,10 +386,19 @@ struct ButtonLeaf: View {
         let icon = cx.props.str("icon")
         let iconOnly = ["icon", "icon-xs"].contains(cx.props.str("size")) || cx.props.str("variant") == "fab" // #EXP-1837
         // Web: a CodeBlock's copy glyph is 12 px (`.xui-CodeBlock-copy>svg`).
-        let iconSize = cx.node.recipeComponent == "CodeBlock" && cx.node.part == "copy" ? 12 : (cx.part(cx.node.component, "icon").width ?? cx.control("iconSm", 16))
+        let iconPart = cx.part(cx.node.component, "icon")
+        let iconSize = cx.node.recipeComponent == "CodeBlock" && cx.node.part == "copy" ? 12 : (iconPart.width ?? cx.control("iconSm", 16))
+        // #EXP-1876: the icon part's sheen (`backgroundClip: text`, the `fab`
+        // `lg` mark), its glyph at its own size even past the circle (72 in 60).
+        let sheen = iconPart.style.backgroundClipText ? iconPart.style.gradient : nil
         HStack(spacing: cx.style.gap) {
             if loading {
                 SpinnerView(size: iconSize, color: cx.ink)
+            } else if !icon.isEmpty, let sheen {
+                ConceptIcon(name: icon, size: iconSize, color: .white, model: cx.model)
+                    .glyphSheen(sheen, size: iconSize)
+                    .frame(width: iconSize, height: iconSize)
+                    .fixedSize()
             } else if !icon.isEmpty {
                 ConceptIcon(name: icon, size: iconSize, color: cx.ink, model: cx.model)
             } else if iconOnly {

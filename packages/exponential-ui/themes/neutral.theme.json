@@ -37,7 +37,9 @@
         "chart5": "#fe9a00",
         "chart6": "#7c3aed",
         "chart7": "#db2777",
-        "chart8": "#0891b2"
+        "chart8": "#0891b2",
+        "sheenFrom": "#52525b",
+        "sheenTo": "#0a0a0a"
       },
       "shadow": {
         "none": [],
@@ -150,7 +152,9 @@
         "chart5": "#ff2056",
         "chart6": "#a78bfa",
         "chart7": "#f472b6",
-        "chart8": "#22d3ee"
+        "chart8": "#22d3ee",
+        "sheenFrom": "#ffffff",
+        "sheenTo": "#c4c4cc"
       },
       "shadow": {
         "none": [],
@@ -1271,6 +1275,33 @@
         },
         {
           "when": {
+            "variant": "fab",
+            "size": "lg"
+          },
+          "style": {
+            "height": 60,
+            "width": 60,
+            "paddingHorizontal": "$spacing.none",
+            "borderRadius": "$radius.full",
+            "borderWidth": "$border.none",
+            "backgroundColor": "$color.background",
+            "color": "$color.foreground",
+            "boxShadow": "$shadow.lg"
+          }
+        },
+        {
+          "when": {
+            "variant": "fab",
+            "size": "lg",
+            "state": "pressed"
+          },
+          "style": {
+            "backgroundColor": "$color.background",
+            "opacity": 0.85
+          }
+        },
+        {
+          "when": {
             "state": "focus"
           },
           "style": {
@@ -1310,6 +1341,30 @@
           "style": {
             "width": "$control.iconMd",
             "height": "$control.iconMd"
+          }
+        },
+        {
+          "when": {
+            "variant": "fab",
+            "size": "lg"
+          },
+          "style": {
+            "width": 72,
+            "height": 72,
+            "backgroundGradient": {
+              "angle": 180,
+              "stops": [
+                {
+                  "color": "$color.sheenFrom",
+                  "offset": 0
+                },
+                {
+                  "color": "$color.sheenTo",
+                  "offset": 1
+                }
+              ]
+            },
+            "backgroundClip": "text"
           }
         }
       ],
