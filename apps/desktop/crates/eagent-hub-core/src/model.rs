@@ -135,6 +135,9 @@ pub struct HubSession {
     pub subagent_key: Option<String>,
     /// Sessions this one watches (the bus wakes it with their transitions).
     pub wake_on: Vec<String>,
+    /// #NEW-49: the EVENTS this one watches (wakeups.json WATCH EVENTS): each fires once, then it is gone.
+    #[serde(default)]
+    pub watches: Vec<Watch>,
     /// A ROOT's tree key epoch (EXP-1458): `Some` = keyed, its tree takes sealed text only (#FEED-185).
     #[serde(default)]
     pub seal_epoch: Option<i64>,
@@ -150,6 +153,36 @@ pub struct HubSession {
     pub updated_at: i64,
 }
 
+/// #NEW-49: what an event watch waits for. `pr_checks` = the PR's CI settled; `pr_closed` = the PR merged or
+/// closed; `issue_status` = the issue moved (to `status` when set); `at` = a time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WatchKind {
+    PrChecks,
+    PrClosed,
+    IssueStatus,
+    At,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Watch {
+    pub id: String,
+    pub kind: WatchKind,
+    /// The PR or issue it watches (null for `at`).
+    #[serde(default)]
+    pub subject_id: Option<String>,
+    /// `issue_status` only: the status it waits for (null = any move).
+    #[serde(default)]
+    pub status: Option<String>,
+    /// `at` only: when it fires (unix ms).
+    #[serde(default)]
+    pub at: Option<i64>,
+    /// What the person reads ("CI #1130", "EXP-12", "14:30"): the host's, the core never derives it.
+    #[serde(default)]
+    pub label: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PlanOption {
     pub label: String,
@@ -163,7 +196,7 @@ pub struct PlanQuestion {
 }
 
 /// A `kind: "event"` card: a session transition (`sessionId`, maybe
-/// `pullRequestId`) or a `trigger_fired` (`agentId`, `triggerId`, `eventId`, `name`).
+/// `pullRequestId`), a `watch_fired` (`sessionId`, `watchId`) or a `trigger_fired` (`agentId`, `triggerId`, `eventId`, `name`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EventCard {
@@ -180,6 +213,9 @@ pub struct EventCard {
     pub event_id: Field<String>,
     #[serde(default, skip_serializing_if = "Field::is_missing")]
     pub name: Field<String>,
+    /// #NEW-49: a `watch_fired` card's watch (the first one it fired).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub watch_id: Option<String>,
 }
 
 impl EventCard {
@@ -192,6 +228,7 @@ impl EventCard {
             trigger_id: Field::Missing,
             event_id: Field::Missing,
             name: Field::Missing,
+            watch_id: None,
         }
     }
 }
