@@ -97,3 +97,27 @@ export function iosProjectMissing(pbxproj: string): string[] {
     pbxproj.includes(`ExponentialEngine`) ? undefined : `ExponentialEngine (the app without the Engine)`,
   ].filter((line): line is string => line !== undefined)
 }
+
+/**
+ * #EXP-1886: the path tuist must be handed for a checkout behind macOS's
+ * `/tmp` → `/private/tmp` link (also `/var`, `/etc`). Tuist (4.215) keys the
+ * local Swift packages (`exponential-ui-swift`, `eengine-ffi`) by Foundation's
+ * STANDARDIZED path (`/private` stripped) but the app project by the process's
+ * real cwd (`/private/tmp/...`), so the workspace reached each FFI xcframework
+ * by both spellings and the build stopped at "Multiple commands produce".
+ * Handing it the standardized spelling (`--path`) puts both on one.
+ * `sameDir` says whether two paths name one directory.
+ */
+export function tuistPath(path: string, sameDir: (a: string, b: string) => boolean): string {
+  const match = /^\/private(\/(?:tmp|var|etc)(?:\/.*)?)$/.exec(path)
+  return match && sameDir(path, match[1]!) ? match[1]! : path
+}
+
+/**
+ * Does the generated workspace reach the checkout by two spellings (a
+ * `private` group beside a lexical `../tmp` one)? Then the build fails with
+ * "Multiple commands produce" on the FFI xcframeworks.
+ */
+export function iosWorkspaceSplit(xcworkspacedata: string): boolean {
+  return /name = "private"/.test(xcworkspacedata) && /location = "group:(?:\.\.\/)+(?:tmp|var|etc)"/.test(xcworkspacedata)
+}

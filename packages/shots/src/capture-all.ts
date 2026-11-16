@@ -32,7 +32,7 @@
  * Everything long-lived is tracked and killed in a `finally`, so a Ctrl-C leaves
  * no orphan relay stub or desktop window behind.
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import {
@@ -62,7 +62,7 @@ import {
   type AndroidSdk,
   type FfiAbi,
 } from "./android.ts"
-import { IOS_MOBILE_FFI, iosFfiProblems, iosProjectMissing, iosSimArch } from "./ios.ts"
+import { IOS_MOBILE_FFI, iosFfiProblems, iosProjectMissing, iosSimArch, iosWorkspaceSplit, tuistPath } from "./ios.ts"
 import { isolatedStack, relayHealthUrl, relayUrl, stubState } from "./stack.ts"
 import { processAlive, readStubRecord, stubRecordPath } from "../../../apps/web/scripts/lib/stub-record.ts"
 import { ENET_RUSTUP_STEPS, wasmBindgenCliVersion, wasmBindgenLockVersion, wasmBindgenToolRoot } from "./enet.ts"
@@ -1730,14 +1730,27 @@ async function generateIos(): Promise<void> {
   const ffi = await ensureIosMobileFfi()
   if (ffi) throw new Error(`${ffi} (without it the app paints "Preview" boxes and "No live transcript")`)
   const ios = join(repoRoot(), `apps/ios`)
+  // #EXP-1886: one spelling of a checkout under /tmp for the app project and
+  // its local packages (ios.ts `tuistPath`).
+  const path = tuistPath(ios, (a, b) => {
+    try {
+      return realpathSync(a) === realpathSync(b)
+    } catch {
+      return false
+    }
+  })
   const step = async (cmd: string[], label: string) => {
-    const result = await run({ cmd, cwd: ios, stream: true, label: `[ios:${label}]`, timeoutMs: 15 * 60_000 })
+    const result = await run({ cmd: [...cmd, `--path`, path], cwd: ios, stream: true, label: `[ios:${label}]`, timeoutMs: 15 * 60_000 })
     if (result.code !== 0) throw new Error(`\`cd apps/ios && ${cmd.join(` `)}\` exited ${result.code}`)
   }
   iosGenerated ??= (async () => {
     await step([`tuist`, `clean`, `manifests`], `clean`)
     await step([`tuist`, `install`], `install`)
     await step([`tuist`, `generate`, `--no-open`], `generate`)
+    const workspace = join(ios, `Exponential.xcworkspace/contents.xcworkspacedata`)
+    if (existsSync(workspace) && iosWorkspaceSplit(readFileSync(workspace, `utf8`))) {
+      throw new Error(`tuist generated apps/ios reaching the checkout by two paths (${ios} and a /private-less one): the build would fail with "Multiple commands produce"`)
+    }
     const pbxproj = join(ios, `Exponential.xcodeproj/project.pbxproj`)
     const missing = iosProjectMissing(existsSync(pbxproj) ? readFileSync(pbxproj, `utf8`) : ``)
     if (missing.length > 0) {

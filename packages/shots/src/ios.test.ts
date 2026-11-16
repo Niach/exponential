@@ -7,7 +7,7 @@
 import { describe, expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
-import { IOS_MOBILE_FFI, iosFfiProblems, iosProjectMissing, iosSimArch } from "./ios.ts"
+import { IOS_MOBILE_FFI, iosFfiProblems, iosProjectMissing, iosSimArch, iosWorkspaceSplit, tuistPath } from "./ios.ts"
 
 const ROOT = `/repo`
 const [mobile, ui, engine] = IOS_MOBILE_FFI.frameworks.map((framework) => `${ROOT}/${framework.xcframework}`)
@@ -82,5 +82,36 @@ describe(`the paths the app links`, () => {
     for (const framework of IOS_MOBILE_FFI.frameworks.slice(1)) {
       expect(script).toContain(framework.xcframework.replace(/^packages\//, `$REPO/packages/`).replace(/^apps\/desktop\/crates\//, `$CRATES/`))
     }
+  })
+})
+
+/**
+ * #EXP-1886: a checkout under /tmp (= /private/tmp) failed the build with
+ * "Multiple commands produce" on the FFI xcframeworks: tuist 4.215 put the
+ * app project at the real path and the local packages at the standardized one.
+ */
+describe(`a checkout behind macOS's /tmp link`, () => {
+  const same = (a: string, b: string) => a.replace(/^\/private/, ``) === b.replace(/^\/private/, ``)
+  test(`tuist gets the /private-less spelling, the one it gives the local packages`, () => {
+    expect(tuistPath(`/private/tmp/feed256-master/apps/ios`, same)).toBe(`/tmp/feed256-master/apps/ios`)
+    expect(tuistPath(`/private/var/folders/x/apps/ios`, same)).toBe(`/var/folders/x/apps/ios`)
+    expect(tuistPath(`/Users/me/repo/apps/ios`, same)).toBe(`/Users/me/repo/apps/ios`)
+    // A real /private/tmp that /tmp does not name stays as it is.
+    expect(tuistPath(`/private/tmp/x`, () => false)).toBe(`/private/tmp/x`)
+    expect(tuistPath(`/private/tmpfoo/x`, same)).toBe(`/private/tmpfoo/x`)
+  })
+  test(`a workspace that reaches the checkout by both spellings is caught`, () => {
+    // The workspace `tuist generate` wrote from /private/tmp/c3-ios/apps/ios.
+    const split = `<Workspace version = "1.0">
+   <Group location = "group:../../../.." name = "private">
+      <Group location = "group:tmp" name = "tmp"></Group>
+   </Group>
+   <Group location = "group:../../../../../tmp" name = "tmp">
+      <FileRef location = "group:exponential-ui-swift/ExponentialUI.xcodeproj"></FileRef>
+   </Group>
+</Workspace>`
+    expect(iosWorkspaceSplit(split)).toBe(true)
+    // …and with `--path /tmp/c3-ios/apps/ios`.
+    expect(iosWorkspaceSplit(`<Workspace><Group location = "group:../../packages" name = "packages"></Group></Workspace>`)).toBe(false)
   })
 })
