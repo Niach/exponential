@@ -1,0 +1,1 @@
+- A quiet check-in by a scheduled agent shows as one line, "Checked in, nothing to do", and consecutive ones group together
