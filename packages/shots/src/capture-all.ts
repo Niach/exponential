@@ -33,7 +33,6 @@
  * no orphan relay stub or desktop window behind.
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
-import { createHash } from "node:crypto"
 import { homedir, tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import {
@@ -64,7 +63,8 @@ import {
   type FfiAbi,
 } from "./android.ts"
 import { IOS_MOBILE_FFI, iosFfiProblems, iosProjectMissing, iosSimArch } from "./ios.ts"
-import { isolatedStack, relayHealthUrl, relayUrl } from "./stack.ts"
+import { isolatedStack, relayHealthUrl, relayUrl, stubState } from "./stack.ts"
+import { processAlive, readStubRecord, stubRecordPath } from "../../../apps/web/scripts/lib/stub-record.ts"
 import { ENET_RUSTUP_STEPS, wasmBindgenCliVersion, wasmBindgenLockVersion, wasmBindgenToolRoot } from "./enet.ts"
 import { baselineSkipNote, scopeSince, storeBaseline, type AffectedScope } from "./affected.ts"
 import {
@@ -1860,19 +1860,32 @@ async function startRelayStub(skipSeed: boolean): Promise<Child | undefined> {
   // twice and its eNet node revokes the first one's install mid-capture, so a
   // `--skip-seed` run (parallel lanes, a rerun) REUSES the stub this checkout
   // already runs. A seeding run replaces it: the seed wipes the rows it wrote.
-  const running = runningStub(relay)
-  if (running && skipSeed) {
+  let running = runningStub(relay)
+  if (running?.state === `starting` && skipSeed) {
+    // #EXP-1886: another lane's stub is still compiling and announcing its
+    // eNet node. A second stub now exits(1) and used to take the first one's
+    // record with it, so every later lane started a stub of its own.
+    console.log(`  waiting for the stub another lane is starting (pid ${running.pid})`)
+    const deadline = Date.now() + RELAY_TIMEOUT_MS
+    while (running?.state === `starting` && Date.now() < deadline) {
+      await sleep(1_000)
+      running = runningStub(relay)
+    }
+  }
+  if (running?.state === `online` && skipSeed) {
     console.log(`  reusing the running stub (pid ${running.pid}); it is left running afterwards`)
     return undefined
   }
   if (running) {
-    console.log(`  stopping the running stub (pid ${running.pid}): this run reseeds`)
+    console.log(`  stopping the running stub (pid ${running.pid}): ${skipSeed ? `it never came online` : `this run reseeds`}`)
     try {
       process.kill(running.pid, `SIGTERM`)
     } catch {
       /* already gone */
     }
-    await sleep(1_000)
+    // A new stub refuses to start beside a live one's record.
+    const gone = Date.now() + 15_000
+    while (processAlive(running.pid) && Date.now() < gone) await sleep(250)
   }
   const child = track(
     Bun.spawn({
@@ -1933,27 +1946,18 @@ async function startRelayStub(skipSeed: boolean): Promise<Child | undefined> {
 }
 
 /**
- * The stub `screenshots:desktop` runs from THIS checkout, when it is alive and
- * on the same relay and database (its record: apps/web/scripts/screenshot-desktop.ts).
+ * The stub `screenshots:desktop` runs from THIS checkout on the same relay and
+ * database, and whether it is online yet (its record:
+ * apps/web/scripts/lib/stub-record.ts).
  */
-function runningStub(relay: string): { pid: number } | undefined {
-  const key = createHash(`sha1`).update(resolve(repoRoot())).digest(`hex`).slice(0, 12)
-  const file = join(tmpdir(), `exp-screenshot-stub-${key}.json`)
-  let record: { pid?: number; relayUrl?: string; databaseUrl?: string }
-  try {
-    record = JSON.parse(readFileSync(file, `utf8`))
-  } catch {
-    return undefined
-  }
-  const databaseUrl = process.env.SHOTS_DATABASE_URL ?? process.env.DATABASE_URL
-  if (!record.pid || record.relayUrl !== relay) return undefined
-  if (databaseUrl && record.databaseUrl && record.databaseUrl !== databaseUrl) return undefined
-  try {
-    process.kill(record.pid, 0)
-  } catch {
-    return undefined
-  }
-  return { pid: record.pid }
+function runningStub(relay: string): { pid: number; state: `starting` | `online` } | undefined {
+  const record = readStubRecord(stubRecordPath(resolve(repoRoot())))
+  const state = stubState(record, {
+    relayUrl: relay,
+    databaseUrl: process.env.SHOTS_DATABASE_URL ?? process.env.DATABASE_URL,
+    alive: processAlive,
+  })
+  return record && state !== `none` ? { pid: record.pid, state } : undefined
 }
 
 /** Minimal `.env` reader — only ever consulted for STEER_RELAY_SECRET. */
