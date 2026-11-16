@@ -2128,6 +2128,7 @@ mod tests {
                     unread: false,
                     activity_at: String::new(),
                     offline: false,
+                    waiting: None,
                 })
                 .collect(),
         };
