@@ -67,6 +67,7 @@ import sharp from "sharp"
 import { luminanceVariance } from "./encode.ts"
 import { missingPlaceholder, resolveDriveValue, type DemoIds } from "./ids.ts"
 import { killChild, run, sleep, track, type Child } from "./lib/proc.ts"
+import { sessionManifestAdd } from "./lib/session-manifest.ts"
 import { captureDbEnv, sharedDevDbArgs } from "./capture-db.ts"
 import { rawShotPath, repoRoot } from "./paths.ts"
 import { buildRepoFixture } from "./repo-fixture.ts"
@@ -578,6 +579,8 @@ export async function captureDesktop(
  */
 export function makeDataDir(reposRoot?: string): string {
   const dir = mkdtempSync(join(tmpdir(), `exp-shots-desktop-`))
+  // #EXP-1868: a run killed before its `finally` still loses it at session end.
+  sessionManifestAdd(`dir`, dir)
   const settings = {
     ...(reposRoot ? { reposRoot } : {}),
     changelogSeenId: desktopChangelogHeadId(),
@@ -610,6 +613,7 @@ export function desktopChangelogHeadId(): string {
  */
 function makeShellRcDir(): string {
   const dir = mkdtempSync(join(tmpdir(), `exp-shots-zdotdir-`))
+  sessionManifestAdd(`dir`, dir)
   writeFileSync(
     join(dir, `.zshrc`),
     [

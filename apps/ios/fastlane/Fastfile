@@ -83,9 +83,30 @@ module ::ExpSnapshotLanes
   # #EXP-1654: an override is suffixed with the lane tag too: one exported
   # path shared by the parallel store and styleguide lanes made both build
   # into one DerivedData ("database is locked").
+  # #EXP-1868: an override (a session's /tmp DerivedData) is the session's
+  # own: its manifest lists it, and the session's end deletes it.
   def derived_data(tag)
     override = ENV["SNAPSHOT_DERIVED_DATA"].to_s.strip
-    override.empty? ? File.join(snapshot_root, "build", "shots-dd-#{tag}") : "#{File.expand_path(override)}-#{tag}"
+    return File.join(snapshot_root, "build", "shots-dd-#{tag}") if override.empty?
+    path = "#{File.expand_path(override)}-#{tag}"
+    session_manifest_add("dir", path)
+    path
+  end
+
+  # #EXP-1868: a lane tag other than the shared default ("store") is ONE
+  # session's: the simulators, caches and DerivedData it creates under that
+  # tag (~30 GB per simulator) go when the session ends.
+  def session_owned?(tag)
+    tag != "store"
+  end
+
+  # Appends to this session's manifest (scripts/lanes/session-manifest.sh).
+  # Outside a session it records nothing; never a lane failure.
+  def session_manifest_add(kind, value)
+    script = File.expand_path("../../../scripts/lanes/session-manifest.sh", __dir__)
+    system("sh", script, "add", kind, value.to_s) if File.exist?(script)
+  rescue StandardError => e
+    UI.important("session manifest: #{e.message}")
   end
 
   # The GRDB "Copy Module Map" phase dies on read-only products left behind
@@ -128,6 +149,8 @@ module ::ExpSnapshotLanes
     UI.message("Creating lane simulator '#{name}' (#{runtime['name']})")
     output = `xcrun simctl create #{name.shellescape} #{type['identifier'].shellescape} #{runtime['identifier'].shellescape} 2>&1`
     UI.user_error!("simctl create '#{name}' failed: #{output}") unless $?.success?
+    udid = output.to_s.lines.map(&:strip).reverse.find { |line| line.match?(/\A[0-9A-F-]{36}\z/i) }
+    session_manifest_add("sim", udid) if udid && session_owned?(tag)
     name
   end
 
@@ -381,7 +404,9 @@ platform :ios do
       # explicitly: values given to the action win over the config file, so the
       # run stays correct even if the Snapfile selection above ever regresses
       # and the store Snapfile gets loaded instead.
-      ExpSnapshotLanes.with_cache_dir(File.expand_path("~/Library/Caches/tools.fastlane/exp-#{tag}-sg")) do
+      sg_cache = File.expand_path("~/Library/Caches/tools.fastlane/exp-#{tag}-sg")
+      ExpSnapshotLanes.session_manifest_add("dir", sg_cache) if ExpSnapshotLanes.session_owned?(tag)
+      ExpSnapshotLanes.with_cache_dir(sg_cache) do
         snapshot(
           devices: STYLEGUIDE_DEVICES.map { |model| ExpSnapshotLanes.simulator(model, tag, runtime) },
           output_directory: "fastlane/screenshots-styleguide",

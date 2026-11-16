@@ -35,6 +35,9 @@ trap cleanup EXIT
 runtime="$(xcrun simctl list runtimes -j | python3 -c 'import json,sys; r=[x for x in json.load(sys.stdin)["runtimes"] if x["isAvailable"] and x["platform"]=="iOS"]; print(r[-1]["identifier"])')"
 dtype="$(xcrun simctl list devicetypes -j | python3 -c 'import json,sys; import re; d=[x for x in json.load(sys.stdin)["devicetypes"] if re.fullmatch(r"iPhone \d+ Pro", x["name"])]; print(max(d, key=lambda x: int(x["name"].split()[1]))["identifier"])')"
 udid="$(xcrun simctl create "runner-flow-$OWNER" "$dtype" "$runtime")"
+# #EXP-1868: listed in the session's manifest, so a run killed before its
+# trap still loses the simulator when the session ends.
+sh "$(git -C "$(dirname "$0")" rev-parse --show-toplevel)/scripts/lanes/session-manifest.sh" add sim "$udid" || true
 xcrun simctl boot "$udid"
 xcrun simctl bootstatus "$udid" >/dev/null
 xcrun simctl install "$udid" "$APP"
