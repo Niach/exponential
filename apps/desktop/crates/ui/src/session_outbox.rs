@@ -601,7 +601,7 @@ pub(crate) fn own_tail(viewer_id: &str, rows: &[MessageRow], held: &[String], ke
     let mut pending: Vec<&MessageRow> = rows
         .iter()
         .filter(|row| row.card.is_none() && row.is_queued() && row.author_id.as_deref() == Some(viewer_id))
-        .filter(|row| !row.body_text().trim().is_empty() || !row.attachment_ids.is_empty())
+        .filter(|row| !domain::transcript_grouping::is_blank_text(row.body_text()) || !row.attachment_ids.is_empty())
         .collect();
     let at = |row: &MessageRow| row.created_at.as_deref().and_then(domain::instant::parse_instant).unwrap_or(0);
     pending.sort_by(|a, b| at(a).cmp(&at(b)).then_with(|| a.id.cmp(&b.id)));

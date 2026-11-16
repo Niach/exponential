@@ -490,23 +490,92 @@ pub fn session_screen_menu_icon(entry: SessionScreenMenuEntry) -> &'static str {
 }
 
 /// One session of the tree for `session_screen_status`.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionScreenStatusInput {
+    /// #FEED-257: the session's id (absent = "").
+    #[serde(default)]
+    pub id: String,
     pub status: String,
+    #[serde(default)]
     pub busy: bool,
     pub needs_input: bool,
+    /// #FEED-257: its `blocked.kind` (a wall or a watchdog flag; None = none).
+    #[serde(default)]
+    pub blocked: Option<String>,
     /// The tree's root.
     pub root: bool,
 }
 
+/// #FEED-257: one waiting card of the chat (`chatPendingAsks`, Conversation order).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionScreenAsk {
+    pub id: String,
+    pub session_id: String,
+    pub kind: SessionScreenAskKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SessionScreenAskKind {
+    Plan,
+    Question,
+}
+
+/// #FEED-257: what the needs-input line opens.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SessionScreenWaitingOpen {
+    Plan,
+    Card,
+    Session,
+    Chat,
+}
+
+/// #FEED-257: THE waiting item (`{open, id}`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SessionScreenWaiting {
+    pub open: SessionScreenWaitingOpen,
+    pub id: String,
+}
+
+/// #FEED-257 (`sessionScreenWaiting`, `waitingCases`): THE waiting item: the
+/// first ask, else the first flagged non-root session that waits, else the
+/// root's own flag, else None (a stale `needsInput` with nothing to open is
+/// nothing).
+pub fn session_screen_waiting(
+    sessions: &[SessionScreenStatusInput],
+    asks: &[SessionScreenAsk],
+) -> Option<SessionScreenWaiting> {
+    if let Some(ask) = asks.first() {
+        let open = match ask.kind {
+            SessionScreenAskKind::Plan => SessionScreenWaitingOpen::Plan,
+            SessionScreenAskKind::Question => SessionScreenWaitingOpen::Card,
+        };
+        return Some(SessionScreenWaiting { open, id: ask.id.clone() });
+    }
+    let flagged: Vec<&SessionScreenStatusInput> = sessions
+        .iter()
+        .filter(|session| session.status != "ended" && session.needs_input && session.blocked.is_some())
+        .collect();
+    if let Some(child) = flagged.iter().find(|session| !session.root) {
+        return Some(SessionScreenWaiting { open: SessionScreenWaitingOpen::Session, id: child.id.clone() });
+    }
+    flagged
+        .iter()
+        .find(|session| session.root)
+        .map(|root| SessionScreenWaiting { open: SessionScreenWaitingOpen::Chat, id: root.id.clone() })
+}
+
 /// THE tree's status word (`sessionScreenStatus`, `statusCases`): needs
-/// input > working > queued (the root) > done (the root ended) > idle.
-pub fn session_screen_status(sessions: &[SessionScreenStatusInput]) -> String {
+/// input (#FEED-257: only while something waits, [`session_screen_waiting`])
+/// > working > queued (the root) > done (the root ended) > idle.
+pub fn session_screen_status(sessions: &[SessionScreenStatusInput], asks: &[SessionScreenAsk]) -> String {
     let words = &SESSION_SCREEN.copy.status;
     let live: Vec<&SessionScreenStatusInput> = sessions.iter().filter(|session| session.status != "ended").collect();
     let root = sessions.iter().find(|session| session.root);
-    if live.iter().any(|session| session.needs_input) {
+    if session_screen_waiting(sessions, asks).is_some() {
         return words.needs_input.clone();
     }
     if live.iter().any(|session| session.busy) {
@@ -636,7 +705,21 @@ mod tests {
         assert!(!cases.is_empty());
         for case in cases {
             let input: Vec<SessionScreenStatusInput> = serde_json::from_value(case["input"].clone()).unwrap();
-            assert_eq!(session_screen_status(&input), case["expected"].as_str().unwrap(), "{}", case["name"]);
+            let asks: Vec<SessionScreenAsk> =
+                serde_json::from_value(case.get("asks").cloned().unwrap_or(Value::Array(vec![]))).unwrap();
+            assert_eq!(session_screen_status(&input, &asks), case["expected"].as_str().unwrap(), "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn waiting_cases_match_the_fixture() {
+        let cases = fixture()["waitingCases"].as_array().unwrap().clone();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let sessions: Vec<SessionScreenStatusInput> = serde_json::from_value(case["sessions"].clone()).unwrap();
+            let asks: Vec<SessionScreenAsk> = serde_json::from_value(case["asks"].clone()).unwrap();
+            let actual = session_screen_waiting(&sessions, &asks);
+            assert_eq!(serde_json::to_value(&actual).unwrap(), case["expected"], "{}", case["name"]);
         }
     }
 

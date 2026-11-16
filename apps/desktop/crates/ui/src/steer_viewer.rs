@@ -5846,7 +5846,7 @@ impl SteerSessionView {
                 };
                 // #FEED-237: the time the bubble wears (message-delivery.json).
                 let time = crate::session_chat::clock(message.created_at.as_deref());
-                (!text.trim().is_empty()).then(|| (message.id.clone(), text, time))
+                (!domain::transcript_grouping::is_blank_text(&text)).then(|| (message.id.clone(), text, time))
             })
             .collect();
         if inputs.is_empty() {
@@ -6206,7 +6206,7 @@ impl SteerSessionView {
     /// its name over a group's first bubble.
     fn render_narration(&self, id: FeedItemId, text: String, at: Option<i64>, streaming: bool, cx: &mut gpui::Context<Self>) -> AnyElement {
         // #EXP-1772: a blank agent turn draws nothing (no empty bubble).
-        if text.trim().is_empty() {
+        if domain::transcript_grouping::is_blank_text(&text) {
             return div().into_any_element();
         }
         // #FEED-238 THE FOLD: the agent's bubble folds too (never while it
@@ -9610,11 +9610,13 @@ pub(crate) fn drop_silent_rows(rows: &mut Vec<FeedRowSpec>, items: &[steer::feed
                 Some(item) if item.is_notice() => FeedRowRole::Quiet,
                 Some(item) => match &item.kind {
                     FeedKind::UserMessage { text, .. } => match feed_input(text) {
+                        // #FEED-254: another session's relayed line with a blank body draws nothing.
+                        Some(FeedInput::Relay { body, .. }) if domain::transcript_grouping::is_blank_text(&body) => FeedRowRole::Blank,
                         Some(FeedInput::Marker { key, .. }) if key == "schedule" => FeedRowRole::Schedule,
                         Some(FeedInput::Marker { .. }) => FeedRowRole::Marker,
                         _ => FeedRowRole::Input,
                     },
-                    FeedKind::Narration { text, .. } if text.trim().is_empty() => FeedRowRole::Blank,
+                    FeedKind::Narration { text, .. } if domain::transcript_grouping::is_blank_text(text) => FeedRowRole::Blank,
                     FeedKind::Narration { .. } => FeedRowRole::Reply,
                     _ => FeedRowRole::Other,
                 },

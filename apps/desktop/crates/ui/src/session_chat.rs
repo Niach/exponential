@@ -1545,12 +1545,12 @@ pub(crate) fn transcript_message(
             return Some(crate::surface_card::transcript_marker(SharedString::from(format!("{key}-marker-{id}")), body, None, cx));
         }
         // #EXP-1772: a blank agent turn draws nothing (no empty bubble).
-        SessionChatRow::Message { body, .. } if body.trim().is_empty() => return Some(div().into_any_element()),
+        SessionChatRow::Message { body, .. } if domain::transcript_grouping::is_blank_text(body) => return Some(div().into_any_element()),
         SessionChatRow::Message { id, body, queued, .. } => (id, body.as_str(), *queued),
         // A child's end report = its session's bubble: the summary (else
         // the line itself).
         SessionChatRow::Report { id, text, summary, .. } => {
-            (id, if summary.trim().is_empty() { text.as_str() } else { summary.as_str() }, false)
+            (id, if domain::transcript_grouping::is_blank_text(summary) { text.as_str() } else { summary.as_str() }, false)
         }
         _ => return None,
     };
@@ -2598,6 +2598,9 @@ pub(crate) struct ScreenHeader {
     /// #EXP-1729: the subtitle's tone (the app editor's `editorHeader`:
     /// amber / foreground); `None` = muted.
     pub(crate) subtitle_color: Option<gpui::Hsla>,
+    /// #FEED-257 THE LINE LEADS TO IT: while the word is needs input the
+    /// subtitle is ONE press opening the waiting item (no new style).
+    pub(crate) on_subtitle: Option<OnPress>,
     /// Before the `…`: the merge status pill, an app's Publish, an agent's
     /// telephone.
     pub(crate) trailing: Vec<AnyElement>,
@@ -2616,13 +2619,19 @@ pub(crate) struct ScreenHeader {
 pub(crate) fn screen_header(header: ScreenHeader, cx: &App) -> AnyElement {
     let theme = cx.theme();
     let subtitle_color = header.subtitle_color.unwrap_or(theme.muted_foreground);
+    let on_subtitle = header.on_subtitle;
     let subtitle = (!header.subtitle.is_empty()).then(|| {
-        div()
+        let line = div()
+            .id("session-subtitle")
             .min_w_0()
             .truncate()
             .text_sm()
             .text_color(subtitle_color)
-            .child(SharedString::from(header.subtitle))
+            .child(SharedString::from(header.subtitle));
+        match on_subtitle {
+            Some(on_press) => line.cursor_pointer().on_click(move |_: &ClickEvent, window, cx| on_press(window, cx)),
+            None => line,
+        }
     });
     v_flex()
         .w_full()
@@ -2792,13 +2801,39 @@ pub(crate) fn session_pane(view: &Entity<crate::session_screen::SessionScreenVie
 
 /// session-screen.json STATUS WORD (`session_screen_status`): THE tree's
 /// lowercase word (needs input > working > queued > done > idle), never
-/// dropped; `tree` may or may not carry the root.
-pub(crate) fn tree_status_word(root: Option<&SessionRow>, tree: &[SessionRow]) -> String {
-    use domain::session_screen::{session_screen_status, SessionScreenStatusInput};
+/// dropped; `tree` may or may not carry the root. #FEED-257: `asks` = the
+/// chat's waiting cards ([`chat_screen_asks`]).
+pub(crate) fn tree_status_word(
+    root: Option<&SessionRow>,
+    tree: &[SessionRow],
+    asks: &[domain::session_screen::SessionScreenAsk],
+) -> String {
+    domain::session_screen::session_screen_status(&tree_status_input(root, tree), asks)
+}
+
+/// #FEED-257 (`session_screen_waiting`): THE waiting item the needs-input
+/// line opens; `None` = nothing waits.
+pub(crate) fn tree_waiting(
+    root: Option<&SessionRow>,
+    tree: &[SessionRow],
+    asks: &[domain::session_screen::SessionScreenAsk],
+) -> Option<domain::session_screen::SessionScreenWaiting> {
+    domain::session_screen::session_screen_waiting(&tree_status_input(root, tree), asks)
+}
+
+fn tree_status_input(root: Option<&SessionRow>, tree: &[SessionRow]) -> Vec<domain::session_screen::SessionScreenStatusInput> {
+    use domain::session_screen::SessionScreenStatusInput;
     let input = |row: &SessionRow, is_root: bool| SessionScreenStatusInput {
+        id: row.id.clone(),
         status: row.status.clone().unwrap_or_default(),
         busy: row.busy,
         needs_input: row.needs_input,
+        blocked: row
+            .blocked
+            .as_ref()
+            .and_then(|blocked| blocked.get("kind"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string),
         root: is_root,
     };
     let root_id = root.map(|root| root.id.as_str());
@@ -2807,7 +2842,24 @@ pub(crate) fn tree_status_word(root: Option<&SessionRow>, tree: &[SessionRow]) -
         rows.push(input(root, true));
     }
     rows.extend(tree.iter().map(|row| input(row, Some(row.id.as_str()) == root_id)));
-    session_screen_status(&rows)
+    rows
+}
+
+/// #FEED-257: the chat's waiting cards (`chat_pending_asks`, Conversation
+/// order) as the status word's `asks`.
+pub(crate) fn chat_screen_asks(cards: &[domain::waiting_cards::WaitingCardInput]) -> Vec<domain::session_screen::SessionScreenAsk> {
+    use domain::session_screen::{SessionScreenAsk, SessionScreenAskKind};
+    cards
+        .iter()
+        .map(|card| SessionScreenAsk {
+            id: card.id.clone(),
+            session_id: card.session_id.clone(),
+            kind: match card.kind {
+                domain::ask_dock::AskDockKind::Plan => SessionScreenAskKind::Plan,
+                domain::ask_dock::AskDockKind::Question => SessionScreenAskKind::Question,
+            },
+        })
+        .collect()
 }
 
 /// session-screen.json TONE ×4: the subtitle's colour (attention = the
@@ -2827,9 +2879,10 @@ pub(crate) fn screen_subtitle(
     root: Option<&SessionRow>,
     tree: &[SessionRow],
     agent: Option<&domain::rows::AgentDefRow>,
+    asks: &[domain::session_screen::SessionScreenAsk],
     cx: &App,
 ) -> String {
-    let status = tree_status_word(root, tree);
+    let status = tree_status_word(root, tree, asks);
     let device_id = root
         .and_then(|root| root.device_id.clone())
         .or_else(|| agent.and_then(|agent| agent.device_id.clone()));
@@ -3234,9 +3287,11 @@ fn screen_issue_items(model: &ChatModel, cx: &App) -> Vec<(TreeItem, usize)> {
 
 /// #EXP-1732: a chat's header avatar: THE chat lead disc (needs you, then
 /// working, then the PR's glyph, else the chat glyph).
-fn chat_header_lead(model: &ChatModel, cx: &App) -> AnyElement {
+/// #FEED-257: `needs_you` = something waits ([`tree_waiting`]), never a
+/// stale flag.
+fn chat_header_lead(model: &ChatModel, needs_you: bool, cx: &App) -> AnyElement {
     use domain::chats::ChatLead;
-    let lead = if model.view.needs_you {
+    let lead = if needs_you {
         ChatLead::NeedsYou
     } else if model.view.busy {
         ChatLead::Working
@@ -3790,6 +3845,29 @@ impl SessionChatScreenView {
         }
     }
 
+    /// #FEED-257 THE LINE LEADS TO IT: a plan or a question opens as its
+    /// chip would ([`Self::pick_waiting`]: the plan page, the Conversation
+    /// scrolled to the card), a flagged session opens in place, the root's
+    /// own flag shows the Conversation.
+    pub(crate) fn open_waiting_item(
+        &mut self,
+        item: &domain::session_screen::SessionScreenWaiting,
+        cards: &[domain::waiting_cards::WaitingCardInput],
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        use domain::session_screen::SessionScreenWaitingOpen;
+        match item.open {
+            SessionScreenWaitingOpen::Plan | SessionScreenWaitingOpen::Card => {
+                if let Some(card) = cards.iter().find(|card| card.id == item.id) {
+                    self.pick_waiting(card, window, cx);
+                }
+            }
+            SessionScreenWaitingOpen::Session => self.open_session_here(item.id.clone(), window, cx),
+            SessionScreenWaitingOpen::Chat => self.set_tab(SessionScreenTab::Chat, window, cx),
+        }
+    }
+
     /// #EXP-1785: the pending reveal in the session opened in place: once
     /// that session's view is the focus it takes the deep link
     /// (waiting-cards.json DEEP LINKS: it pages, waits and rings itself).
@@ -3867,9 +3945,14 @@ impl SessionChatScreenView {
         let on_waiting: crate::waiting_cards::OnWaitingPick = Rc::new(move |card, window, cx| {
             let _ = this.update(cx, |this, cx| this.pick_waiting(card, window, cx));
         });
+        let cards = crate::waiting_cards::chat_waiting_cards(&model.view.rows);
+        // #FEED-257: the status word reads `needsInput` only through what
+        // waits: the cards, else a flagged session.
+        let asks = chat_screen_asks(&cards);
+        let waiting_item = tree_waiting(Some(&model.root), &model.tree, &asks);
         let waiting = {
             let _span = tracing::trace_span!("header.waiting").entered();
-            crate::waiting_cards::header_chips(&crate::waiting_cards::chat_waiting_cards(&model.view.rows), on_waiting, cx)
+            crate::waiting_cards::header_chips(&cards, on_waiting, cx)
         };
         let lead_span = tracing::trace_span!("header.lead").entered();
         let (avatar, title, trailing, menu, agent) = match conversation_agent(model) {
@@ -3889,18 +3972,26 @@ impl SessionChatScreenView {
             // EXP-1316: a chat's title is derived, plain text (no rename).
             None => {
                 let title = title_row(&model.view.title, model.view.private, cx).id("chat-title").into_any_element();
-                (chat_header_lead(model, cx), title, merge.into_iter().collect::<Vec<_>>(), guide_menu(model, self.menu_target(None), cx), None)
+                (chat_header_lead(model, waiting_item.is_some(), cx), title, merge.into_iter().collect::<Vec<_>>(), guide_menu(model, self.menu_target(None), cx), None)
             }
         };
         drop(lead_span);
         let subtitle_span = tracing::trace_span!("header.subtitle").entered();
-        let subtitle = screen_subtitle(Some(&model.root), &model.tree, agent.as_ref(), cx);
-        let tone = domain::session_screen::session_screen_tone(&tree_status_word(Some(&model.root), &model.tree), false);
+        let subtitle = screen_subtitle(Some(&model.root), &model.tree, agent.as_ref(), &asks, cx);
+        let tone = domain::session_screen::session_screen_tone(&tree_status_word(Some(&model.root), &model.tree, &asks), false);
+        // #FEED-257 THE LINE LEADS TO IT: the needs-input line opens the
+        // waiting item the way its own row would.
+        let on_subtitle = waiting_item.map(|item| {
+            let this = cx.entity().downgrade();
+            Rc::new(move |window: &mut Window, cx: &mut App| {
+                let _ = this.update(cx, |this, cx| this.open_waiting_item(&item, &cards, window, cx));
+            }) as OnPress
+        });
         drop(subtitle_span);
         let _span = tracing::trace_span!("header.build").entered();
         let subtitle_color = Some(tone_color(tone, cx));
         let trailing = waiting.into_iter().chain(trailing).collect();
-        screen_header(ScreenHeader { avatar, title, subtitle, subtitle_color, trailing, menu, back, tabs }, cx)
+        screen_header(ScreenHeader { avatar, title, subtitle, subtitle_color, on_subtitle, trailing, menu, back, tabs }, cx)
     }
 
     /// #EXP-1545 + #EXP-1678 (dock.json ONE CHILD STREAM): keep a viewer
@@ -4379,6 +4470,12 @@ impl Focusable for SessionChatScreenView {
 }
 
 impl SessionChatScreenView {
+    /// #FEED-257: the tree's waiting cards (Conversation order), for a
+    /// header that hosts this chat (the app editor's).
+    pub(crate) fn waiting_cards(&self) -> Vec<domain::waiting_cards::WaitingCardInput> {
+        self.model.as_ref().map(|model| crate::waiting_cards::chat_waiting_cards(&model.view.rows)).unwrap_or_default()
+    }
+
     /// The root's session view (benches).
     #[cfg(test)]
     pub(crate) fn inner_for_bench(&self, cx: &App) -> Entity<crate::steer_viewer::SteerSessionView> {

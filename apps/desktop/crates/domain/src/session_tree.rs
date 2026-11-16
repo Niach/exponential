@@ -383,7 +383,8 @@ pub fn plain_message_row(message: &MessageRow, xref: Option<SessionXref>) -> Opt
         _ => crate::contract::MESSAGE_AUTHOR_KIND_SYSTEM,
     };
     let body = message_row_body(message.body_text(), &message.attachment_ids);
-    if body.trim().is_empty() {
+    // #FEED-256 (transcript-grouping.json `blank`): a blank body (a lone U+200B) draws nothing.
+    if crate::transcript_grouping::is_blank_text(&body) {
         return None;
     }
     let divider = (author == MESSAGE_AUTHOR_KIND_USER)
