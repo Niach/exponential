@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 
 import contract from "../contract.json" with { type: "json" }
 import fixture from "../fixtures/transcript-grouping.json" with { type: "json" }
-import { TRANSCRIPT_LAYOUT, crossSessionInput, feedInput, markersShown, messageFolds, traceNotice, transcriptLayout } from "./transcript-grouping"
+import { TRANSCRIPT_LAYOUT, checkInLabel, crossSessionInput, feedInput, feedRows, markersShown, messageFolds, traceNotice, transcriptLayout } from "./transcript-grouping"
 
 describe(`transcript grouping (EXP-1736)`, () => {
   test(`layout comes from the fixture`, () => {
@@ -30,6 +30,14 @@ describe(`transcript grouping (EXP-1736)`, () => {
     test(`markers: ${entry.name}`, () => {
       expect(markersShown(entry.kinds as never)).toEqual(entry.expected)
     })
+  }
+  for (const entry of fixture.checkInCases) {
+    test(`check-ins: ${entry.name}`, () => {
+      expect(feedRows(entry.kinds as never)).toEqual(entry.expected)
+    })
+  }
+  for (const entry of fixture.checkInLabelCases) {
+    test(`check-in label: ${entry.name}`, () => expect(checkInLabel(entry.count, entry.time)).toBe(entry.expected))
   }
   for (const entry of fixture.noticeCases) {
     test(`notice: ${entry.name}`, () => expect(traceNotice(entry.toolName)).toBe(entry.expected))
