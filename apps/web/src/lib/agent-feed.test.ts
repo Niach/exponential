@@ -3046,7 +3046,7 @@ describe(`shownFeedRows (#EXP-1772)`, () => {
     ]
     expect(shownFeedRows(rows).map((row) => (row.kind === `single` ? row.item.id : null))).toEqual([3, 4, 5, 7, 8])
   })
-  it(`draws quiet check-ins as one line on the last one (#EXP-1873)`, () => {
+  it(`draws a quiet check-in as one line, a message after quiet as a normal turn (#EXP-1873)`, () => {
     const quiet = (id: number) => ({ kind: `single` as const, item: { id, kind: `tool`, text: ``, name: `mcp__exponential__exponential_session_self_quiet` } })
     const rows = [
       item(1, `user_message`, `[schedule] Schedule \`*/15 * * * *\` fired.`),
@@ -3055,6 +3055,12 @@ describe(`shownFeedRows (#EXP-1772)`, () => {
       item(4, `user_message`, `[schedule] Schedule \`*/15 * * * *\` fired.`),
       quiet(5),
     ]
-    expect(shownFeedRows(rows).map((row) => (row.kind === `single` ? [row.item.id, row.item.checkIns] : null))).toEqual([[4, 2]])
+    // A message after quiet is shown: that check-in is a normal turn.
+    expect(shownFeedRows(rows).map((row) => (row.kind === `single` ? [row.item.id, row.item.checkIns] : null))).toEqual([
+      [1, undefined],
+      [2, undefined],
+      [3, undefined],
+      [4, 1],
+    ])
   })
 })

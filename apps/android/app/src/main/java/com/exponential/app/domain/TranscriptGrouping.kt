@@ -282,7 +282,7 @@ object TranscriptGrouping {
     }
 
     /** #EXP-1873 (`checkInCases`): a quiet check-in (a schedule firing whose
-     *  turn only called quiet, the forced filler after it aside) is one line;
+     *  turn only called quiet, nothing else) is one line;
      *  consecutive ones collapse onto the last. */
     fun feedRows(kinds: List<FeedRowRole>): List<FeedRowShown> {
         val drawn = markersShown(
@@ -306,7 +306,7 @@ object TranscriptGrouping {
             var quiet = false
             for (index in start + 1 until end) {
                 val row = kinds[index]
-                if (row == FeedRowRole.Other || (row == FeedRowRole.Reply && !quiet)) return@forEachIndexed
+                if (row == FeedRowRole.Other || row == FeedRowRole.Reply) return@forEachIndexed
                 if (row == FeedRowRole.Quiet) quiet = true
             }
             if (!quiet) return@forEachIndexed
@@ -346,7 +346,6 @@ object TranscriptGrouping {
         CheckInSpecimenRow(FeedRowRole.Quiet, null, null),
         CheckInSpecimenRow(FeedRowRole.Schedule, "16:45", null),
         CheckInSpecimenRow(FeedRowRole.Quiet, null, null),
-        CheckInSpecimenRow(FeedRowRole.Reply, "16:45", "No change since my last update."),
         CheckInSpecimenRow(FeedRowRole.Schedule, "17:00", null),
         CheckInSpecimenRow(FeedRowRole.Quiet, null, null),
         CheckInSpecimenRow(FeedRowRole.Schedule, "17:15", null),

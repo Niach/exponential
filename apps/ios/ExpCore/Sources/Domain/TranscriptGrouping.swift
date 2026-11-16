@@ -453,7 +453,7 @@ public enum TranscriptGrouping {
     }
 
     /// #EXP-1873 (`checkInCases`): a quiet check-in (a schedule firing whose
-    /// turn only called quiet, the forced filler after it aside) is one line;
+    /// turn only called quiet, nothing else) is one line;
     /// consecutive ones collapse onto the last.
     public static func feedRows(_ kinds: [FeedRowRole]) -> [FeedRowShown] {
         let base = markersShown(kinds.map { kind -> FeedRowKind in
@@ -473,7 +473,7 @@ public enum TranscriptGrouping {
             var quiet = false
             var answered = false
             for row in kinds[(start + 1)..<end] {
-                if row == .other || (row == .reply && !quiet) { answered = true; break }
+                if row == .other || row == .reply { answered = true; break }
                 if row == .quiet { quiet = true }
             }
             guard quiet, !answered else { continue }
@@ -518,7 +518,6 @@ public enum TranscriptGrouping {
         CheckInSpecimenRow(kind: .quiet, time: nil, text: nil),
         CheckInSpecimenRow(kind: .schedule, time: "16:45", text: nil),
         CheckInSpecimenRow(kind: .quiet, time: nil, text: nil),
-        CheckInSpecimenRow(kind: .reply, time: "16:45", text: "No change since my last update."),
         CheckInSpecimenRow(kind: .schedule, time: "17:00", text: nil),
         CheckInSpecimenRow(kind: .quiet, time: nil, text: nil),
         CheckInSpecimenRow(kind: .schedule, time: "17:15", text: nil),

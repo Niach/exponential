@@ -635,7 +635,7 @@ pub enum FeedRowShown {
 }
 
 /// #EXP-1873 (`checkInCases`): a quiet check-in (a schedule firing whose
-/// turn only called quiet, the forced filler after it aside) is one line;
+/// turn only called quiet, nothing else) is one line;
 /// consecutive ones collapse onto the last.
 pub fn feed_rows(kinds: &[FeedRowRole]) -> Vec<FeedRowShown> {
     let marker_kinds: Vec<FeedRowKind> = kinds
@@ -663,8 +663,7 @@ pub fn feed_rows(kinds: &[FeedRowRole]) -> Vec<FeedRowShown> {
         let mut answered = false;
         for row in &kinds[start + 1..end] {
             match row {
-                FeedRowRole::Other => answered = true,
-                FeedRowRole::Reply if !quiet => answered = true,
+                FeedRowRole::Other | FeedRowRole::Reply => answered = true,
                 FeedRowRole::Quiet => quiet = true,
                 _ => {}
             }

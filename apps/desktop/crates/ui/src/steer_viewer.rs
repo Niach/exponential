@@ -10204,8 +10204,9 @@ fn may_seed_from_journal(row: &domain::rows::SessionRow, device_id: &str) -> boo
 
 #[cfg(test)]
 mod tests {
-    /// #EXP-1873: quiet check-ins (the schedule firing, the quiet call, the
-    /// forced filler) leave ONE row, the last firing's, covering the run.
+    /// #EXP-1873: quiet check-ins (the schedule firing, the quiet call) leave
+    /// ONE row, the last firing's, covering the run; a message after quiet
+    /// is shown and makes its check-in a normal turn.
     #[test]
     fn quiet_check_ins_collapse_onto_the_last_firing() {
         use steer::feed::{FeedItem, FeedKind, FeedRowSpec};
@@ -10232,11 +10233,11 @@ mod tests {
             )
         };
         let reply = |id| item(id, FeedKind::Narration { text: "No change since my last update.".into(), message_id: None, subagent_id: None, at: None });
-        let items = vec![reply(1), fire(2), quiet(3), reply(4), fire(5), quiet(6)];
+        let items = vec![reply(1), fire(2), quiet(3), fire(4), quiet(5), fire(6), quiet(7), reply(8)];
         let mut rows: Vec<FeedRowSpec> = items.iter().enumerate().map(|(ix, item)| FeedRowSpec::Single { id: item.id, item: ix }).collect();
         let check_ins = super::drop_silent_rows(&mut rows, &items);
-        assert_eq!(rows.iter().map(FeedRowSpec::id).collect::<Vec<_>>(), vec![1, 5]);
-        assert_eq!(check_ins.get(&5), Some(&2));
+        assert_eq!(rows.iter().map(FeedRowSpec::id).collect::<Vec<_>>(), vec![1, 4, 6, 7, 8]);
+        assert_eq!(check_ins.get(&4), Some(&2));
         assert_eq!(check_ins.len(), 1);
     }
 

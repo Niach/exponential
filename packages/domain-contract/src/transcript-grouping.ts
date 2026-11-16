@@ -211,7 +211,7 @@ export type FeedRowRole = FeedRowKind | `schedule` | `quiet` | `blank`
 export type FeedRowShown = boolean | number
 
 /** #EXP-1873 (`checkInCases`): a quiet check-in (a schedule firing whose
- *  turn only called quiet, the forced filler after it aside) is one line;
+ *  turn only called quiet, nothing else) is one line;
  *  consecutive ones collapse onto the last. */
 export function feedRows(kinds: readonly FeedRowRole[]): FeedRowShown[] {
   const shown: FeedRowShown[] = markersShown(
@@ -224,7 +224,7 @@ export function feedRows(kinds: readonly FeedRowRole[]): FeedRowShown[] {
     let quiet = false
     for (let index = start + 1; index < end; index += 1) {
       const row = kinds[index]
-      if (row === `other` || (row === `reply` && !quiet)) return
+      if (row === `other` || row === `reply`) return
       if (row === `quiet`) quiet = true
     }
     if (!quiet) return
