@@ -96,8 +96,8 @@ export function MessageFold({ text, children }: { text: string; children: ReactN
 
 /** #EXP-1876: THE tail's classes and their one stylesheet (the genUI web
  *  renderers' `tailRules`, the bubble's 1 px border). */
-const BUBBLE_TAIL_CLASS = { start: `exp-bubble-tail-start`, end: `exp-bubble-tail-end` } as const
-const BUBBLE_TAIL_CSS = ([`start`, `end`] as const)
+const BUBBLE_TAIL_CLASS = { start: `exp-bubble-tail-start`, end: `exp-bubble-tail-end`, down: `exp-bubble-tail-down` } as const
+const BUBBLE_TAIL_CSS = ([`start`, `end`, `down`] as const)
   .map((side) => {
     const rules = tailRules(`.${BUBBLE_TAIL_CLASS[side]}`, side, 1, { positioned: true })
     return rules.pseudo + rules.corner
@@ -164,8 +164,10 @@ export function MessageBubble({
   variant?: `transcript` | `chat`
   /** #EXP-1876 (transcript-grouping.json `tail`): the group's first bubble
    *  wears THE tail at its top corner beside the avatar (start for `in`,
-   *  end for `out`), drawn like genUI MessageBubble `tail`. */
-  tail?: boolean
+   *  end for `out`), drawn like genUI MessageBubble `tail`; `down` = the
+   *  bottom-edge tail pointing at what the bubble speaks for (the Assistant
+   *  button's speech bubble). */
+  tail?: boolean | `down`
   className?: string
 }) {
   void variant
@@ -279,7 +281,7 @@ export function MessageBubble({
     // read #252527 over the page gradient, the card #252525): the own
     // bubble `glass.fillOwn`, everyone else the opaque card.
     out ? `border-glass-stroke-card bg-glass-own text-foreground` : `border-glass-stroke-card bg-glass-card-opaque text-foreground`,
-    tail && cn(`relative`, out ? BUBBLE_TAIL_CLASS.end : BUBBLE_TAIL_CLASS.start)
+    tail && cn(`relative`, tail === `down` ? BUBBLE_TAIL_CLASS.down : out ? BUBBLE_TAIL_CLASS.end : BUBBLE_TAIL_CLASS.start)
   )
   return (
     <div

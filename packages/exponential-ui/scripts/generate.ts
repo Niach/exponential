@@ -1510,6 +1510,11 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
     // or a trigger slot keeps its own width (every other case here).
     label: `in a stretch column`,
     node: { id: `stretch`, component: `Stack`, props: { direction: `vertical`, gap: `xs` }, style: { alignSelf: `stretch` }, children: [{ id: `add`, component: `Button`, props: { label: `Add secret`, variant: `outline`, size: `sm` } }] },
+  }, {
+    // #EXP-1876: THE mark button (the IDE's and wide web's Assistant): a
+    // 60 px circle that IS its glyph, the glassy sheen, a soft lift.
+    label: `variant · fab, size · lg`,
+    node: { id: `mark`, component: `Button`, props: { label: `Assistant`, icon: `brand-exponential`, variant: `fab`, size: `lg` } },
   }],
   // VAPP-162: a conversation (in, out, the three delivery states).
   MessageBubble: [{

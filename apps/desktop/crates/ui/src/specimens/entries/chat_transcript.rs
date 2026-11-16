@@ -161,7 +161,7 @@ fn paint_own(id: &str, body: &str, time: &str, state: DeliveryState, stored: boo
             menu: (!actions.is_empty()).then(|| BubbleMenu { actions, on_pick: std::rc::Rc::new(|_, _, _| {}) }),
             width: None,
             // #EXP-1876: they follow m1 in its own group.
-            tail: false,
+            tail: false.into(),
         },
         cx,
     )
@@ -195,7 +195,7 @@ pub(crate) fn paint(row: &SessionChatRow, time: &str, images: &Entity<ImageCache
                     width: None,
                     // #EXP-1876: every message here starts its group (a
                     // side change or a card/marker between them).
-                    tail: true,
+                    tail: true.into(),
                 },
                 cx,
             )

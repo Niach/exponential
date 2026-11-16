@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.background
@@ -73,11 +74,16 @@ internal fun ButtonLeaf(cx: LeafContext) {
     val icon = cx.props.str("icon")
     val iconOnly = cx.props.str("size").let { it == "icon" || it == "icon-xs" } || cx.props.str("variant") == "fab" // #EXP-1837
     // A CodeBlock's copy glyph is 12 inside its 24 box (the web's `.xui-CodeBlock-copy>svg`).
-    val iconSize = if (cx.node.ownerComponent == "CodeBlock" && cx.node.part == "copy") CODE_COPY_ICON else cx.part(cx.node.component, "icon").width ?: cx.control("iconSm", 16f)
+    val iconPart = cx.part(cx.node.component, "icon")
+    val iconSize = if (cx.node.ownerComponent == "CodeBlock" && cx.node.part == "copy") CODE_COPY_ICON else iconPart.width ?: cx.control("iconSm", 16f)
+    // #EXP-1876: the icon part's sheen (`backgroundClip: text`, the `fab`
+    // `lg` mark), its glyph at its own size even past the circle (72 in 60).
+    val sheen = iconPart.style.gradient?.takeIf { iconPart.props.str("backgroundClip") == "text" }
     InnerBox(cx, Alignment.Center) {
         Row(horizontalArrangement = Arrangement.spacedBy(cx.style.gap.dp), verticalAlignment = Alignment.CenterVertically) {
             when {
                 loading -> SpinnerView(iconSize, cx.ink)
+                icon.isNotEmpty() && sheen != null -> IconView(icon, iconSize, cx.ink, cx.model, Modifier.requiredSize(iconSize.dp).glyphSheen(sheen))
                 icon.isNotEmpty() -> IconView(icon, iconSize, cx.ink, cx.model)
                 iconOnly -> IconView("", iconSize, cx.ink, cx.model)
             }

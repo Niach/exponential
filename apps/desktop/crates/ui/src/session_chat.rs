@@ -1106,8 +1106,25 @@ pub(crate) struct MessageBubble {
     pub width: Option<gpui::Pixels>,
     /// #EXP-1876 (transcript-grouping.json `tail`): the group's first bubble
     /// wears THE tail at its top corner beside the avatar (start for others,
-    /// end for own), painted with the bubble as one outline.
-    pub tail: bool,
+    /// end for own), painted with the bubble as one outline; `Down` = the
+    /// bottom-edge tail (the Assistant button's speech bubble).
+    pub tail: BubbleTail,
+}
+
+/// #EXP-1876: which tail THE bubble wears.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BubbleTail {
+    None,
+    /// A group's first bubble: start for others, end for own.
+    Group,
+    /// At the bottom edge, pointing down (genUI `tail: down`).
+    Down,
+}
+
+impl From<bool> for BubbleTail {
+    fn from(group: bool) -> Self {
+        if group { BubbleTail::Group } else { BubbleTail::None }
+    }
 }
 
 /// #FEED-237: an own bubble's menu: `bubbleActions` in order, each pick
@@ -1286,18 +1303,29 @@ pub(crate) fn message_bubble(bubble: MessageBubble, cx: &App) -> AnyElement {
         .map(|card| {
             let fill = if own { theme::tokens::glass::FILL_OWN.to_hsla() } else { crate::dock::card_fill() };
             let stroke = theme::tokens::glass::STROKE_CARD.to_hsla();
-            if !tail {
+            if tail == BubbleTail::None {
                 return card.border_color(stroke).bg(fill);
             }
             // #EXP-1876: fill + hairline as ONE outline with the tail (the
             // genUI painter's `tail_canvas`); the box keeps its 1 px border
             // (transparent) so nothing inside moves.
-            let shape = if own { eui_gpui::paint::tail::Tail::End } else { eui_gpui::paint::tail::Tail::Start };
+            use eui_gpui::paint::tail::Tail;
+            let shape = match (tail, own) {
+                (BubbleTail::Down, _) => Tail::Down,
+                (_, true) => Tail::End,
+                _ => Tail::Start,
+            };
             let mut radii = [sizes.radius; 4];
-            radii[if own { 1 } else { 0 }] = 0.0;
+            if let Some(corner) = shape.square_corner(false) {
+                radii[corner] = 0.0;
+            }
             card.relative()
                 .border_color(gpui::transparent_black())
-                .map(|card| if own { card.rounded_tr(px(0.)) } else { card.rounded_tl(px(0.)) })
+                .map(|card| match shape {
+                    Tail::Start => card.rounded_tl(px(0.)),
+                    Tail::End => card.rounded_tr(px(0.)),
+                    Tail::Down => card,
+                })
                 .child(eui_gpui::paint::tail::tail_canvas(shape, false, radii, Some(fill), Some((1.0, stroke))))
         })
         // The sender's name: the bubble's own `author` line, at its top.
@@ -1552,7 +1580,7 @@ pub(crate) fn transcript_message(
             status,
             menu: None,
             width: None,
-            tail: layout.map_or(false, |layout| layout.tail),
+            tail: layout.map_or(false, |layout| layout.tail).into(),
         },
         cx,
     ))

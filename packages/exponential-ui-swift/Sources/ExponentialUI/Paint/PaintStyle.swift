@@ -131,6 +131,9 @@ public struct PaintStyle: Equatable, Sendable {
     /// (and gradient) paint inside the border, so a translucent border
     /// blends over what is behind the box.
     public var backgroundClipPadding: Bool = false
+    /// #EXP-1876: `backgroundClip: text` on a glyph part: the `gradient`
+    /// paints the glyph itself (the `fab` `lg` mark's sheen).
+    public var backgroundClipText: Bool = false
     /// The uniform radius (the largest corner).
     public var radius: CGFloat = 0
     /// `[topLeft, topRight, bottomRight, bottomLeft]`.
@@ -207,6 +210,7 @@ public struct PaintStyle: Equatable, Sendable {
         borderColor = v.borderColor.flatMap { Color(hex: $0) }
         borderStyle = v.borderStyle ?? "solid"
         backgroundClipPadding = v.backgroundClip == "padding-box"
+        backgroundClipText = v.backgroundClip == "text"
         let r = CGFloat(max(0, v.borderRadius ?? 0))
         radii = v.cornerRadii.map { $0.map { CGFloat(max(0, $0)) } }.flatMap { $0.count == 4 ? $0 : nil } ?? [r, r, r, r]
         radius = radii.max() ?? 0
@@ -390,6 +394,18 @@ extension View {
                 .modifier(ShadowsModifier(shadows: s.shadows, shape: AnyShape(shape)))
                 .modifier(GroupOpacity(opacity: s.opacity ?? 1, group: group))
         }
+    }
+}
+
+extension View {
+    /// #EXP-1876: a glyph painted with a recipe's sheen (`backgroundClip:
+    /// text` + `backgroundGradient`): the gradient masked by the glyph (its
+    /// coverage, the gradient's colour), over the glyph's `size` square.
+    func glyphSheen(_ g: GradientPaint, size: CGFloat) -> some View {
+        let p = g.points(in: CGSize(width: size, height: size))
+        return LinearGradient(stops: g.stops, startPoint: p.start, endPoint: p.end)
+            .frame(width: size, height: size)
+            .mask { self }
     }
 }
 

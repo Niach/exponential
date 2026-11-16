@@ -117,6 +117,9 @@ export function declarations(style: Record<string, unknown>, fonts: Record<strin
   for (const [key, value] of Object.entries(style)) {
     if (key === `native` || key.startsWith(`@`) || key.startsWith(`:`)) continue
     if (typeof value === `object` && value !== null && !Array.isArray(value) && key !== `backgroundGradient`) continue
+    // #EXP-1876: a glyph part's sheen is painted by the renderer (the glyph
+    // as a mask over the gradient, `glyphGradient`), never as the box's background.
+    if ((key === `backgroundGradient` || key === `backgroundClip`) && (`backgroundClip` in style ? style.backgroundClip : base?.backgroundClip) === `text`) continue
     // Round 2 §2: `backdropBlur` ($blur token), `animation` (a keyframe set
     // of style.json, timed by the motion tokens) + `animationDuration`.
     // #EXP-1876: `tail` paints through pseudo-elements (box-css `tailRules`).

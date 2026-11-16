@@ -8,6 +8,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
@@ -135,6 +136,17 @@ internal fun transformMatrix(ops: List<TransformOp>, size: Size, density: Float)
     m.translate(-cx, -cy)
     return m
 }
+
+/**
+ * #EXP-1876: a glyph painted with a recipe's sheen (`backgroundClip: text`
+ * + `backgroundGradient`): the glyph drawn offscreen, the gradient composited
+ * SrcIn over it (the glyph's coverage, the gradient's colour).
+ */
+internal fun Modifier.glyphSheen(g: GradientPaint): Modifier =
+    graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen).drawWithContent {
+        drawContent()
+        drawRect(gradientBrush(g, size), blendMode = BlendMode.SrcIn)
+    }
 
 /** The gradient brush over a box of [size] px for a CSS angle (0 = up, 90 = right). */
 internal fun gradientBrush(g: GradientPaint, size: Size): Brush {

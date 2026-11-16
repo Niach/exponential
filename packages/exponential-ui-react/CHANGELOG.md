@@ -6,6 +6,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - Box style key `tail` (#EXP-1876, MessageBubble `tail`): the shared node sheet (`web/bubble-tail.ts`) draws the speech-bubble tail as two pseudo-elements over the box's edge, the outer shape in the box's border colour and the same shape inset by the border in its background, so box + tail read as one outline; the tail's corner squares in the author layer; logical insets + `:dir(rtl)` mirror it.
+- Button fab lg (#EXP-1876): an icon part with `backgroundClip: text` paints its glyph with the part's `backgroundGradient` (`GradientGlyph`: the glyph as an SVG mask over a gradient rect, any registry icon).
 - List `reorderable` (#EXP-1832): items carry the drag contract (`data-reorder-key|depth|group|indent`, indent = the TreeGuides column per depth), a press on an own row runs `startListDrag`, a drop emits `move`; `list-reorder.test.tsx` replays `fixtures/list-reorder.json` through the DOM.
 - Button `variant: "fab"` (#EXP-1837): icon-only like `size: "icon"` (no label part, the label is the `aria-label`); + the `Button/variant=fab` snapshot.
 - Markdown tables fit their columns (#FEED-224): a `.xui-Markdown-tableScroll` around the table, each cell's text in a `.xui-Markdown-cellText` sized by `watchMarkdownTable` (`fixtures/table-fit.json`).

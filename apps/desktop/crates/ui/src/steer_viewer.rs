@@ -5863,7 +5863,7 @@ impl SteerSessionView {
                     status: Some(domain::message_delivery::DeliveryState::Read),
                     menu: None,
                     width: Some(width),
-                    tail: index == 0,
+                    tail: (index == 0).into(),
                 },
                 cx,
             );
@@ -6067,7 +6067,7 @@ impl SteerSessionView {
                 status: Some(bubble.state),
                 menu,
                 width: Some(width),
-                tail: avatar,
+                tail: avatar.into(),
             },
             cx,
         );
@@ -6220,7 +6220,7 @@ impl SteerSessionView {
                 status: None,
                 menu: None,
                 width: None,
-                tail: layout.is_some_and(|layout| layout.tail),
+                tail: layout.is_some_and(|layout| layout.tail).into(),
             },
             cx,
         )
@@ -6345,7 +6345,7 @@ impl SteerSessionView {
                         status: own.then_some(domain::message_delivery::DeliveryState::Read),
                         menu: None,
                         width: Some(width),
-                        tail: layout.is_some_and(|layout| layout.tail),
+                        tail: layout.is_some_and(|layout| layout.tail).into(),
                     },
                     cx,
                 )
