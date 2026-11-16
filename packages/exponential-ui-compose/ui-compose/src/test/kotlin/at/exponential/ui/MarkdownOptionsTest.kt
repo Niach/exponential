@@ -3,7 +3,10 @@ package at.exponential.ui
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
 import at.exponential.ui.compose.ExponentialSurface
@@ -16,6 +19,7 @@ import at.exponential.ui.paint.MarkdownPainter
 import at.exponential.ui.primitives.MARKDOWN_BLOCK_TAG
 import at.exponential.ui.primitives.Markdown
 import at.exponential.ui.primitives.MarkdownOptions
+import at.exponential.ui.primitives.MarkdownView
 import at.exponential.ui.theme.Mode
 import at.exponential.ui.theme.ThemeHandle
 import kotlinx.coroutines.CoroutineScope
@@ -126,5 +130,23 @@ class MarkdownOptionsTest {
         val composed = compose.onAllNodes(hasTestTag(MARKDOWN_BLOCK_TAG), useUnmergedTree = true).fetchSemanticsNodes().size
         assertTrue("$composed of 80 blocks composed", composed in 1 until 40)
         assertEquals(laidOut(m, text), measured(m), 0.5f)
+    }
+
+    /** #EXP-1881: a hugging view (a chat bubble's body) is as wide as its text, at most the offered width. */
+    @Test
+    fun huggingTakesItsTextsWidthAtMostTheOffered() {
+        val long = "A message long enough to wrap onto a second line at three hundred dp of width."
+        compose.setContent {
+            androidx.compose.foundation.layout.Column {
+                Box(Modifier.width(300.dp)) { MarkdownView("Hi", Modifier.testTag("short"), hug = true) }
+                Box(Modifier.width(300.dp)) { MarkdownView(long, Modifier.testTag("long"), hug = true) }
+                Box(Modifier.width(300.dp)) { MarkdownView("Hi", Modifier.testTag("fill")) }
+            }
+        }
+        compose.waitForIdle()
+        fun widthOf(tag: String) = compose.onNodeWithTag(tag, useUnmergedTree = true).getUnclippedBoundsInRoot().let { (it.right - it.left).value }
+        assertTrue("short = ${widthOf("short")}", widthOf("short") in 1f..60f)
+        assertEquals(300f, widthOf("long"), 0.5f)
+        assertEquals(300f, widthOf("fill"), 0.5f)
     }
 }

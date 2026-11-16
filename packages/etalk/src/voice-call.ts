@@ -68,6 +68,19 @@ export function callAvailability(input: CallAvailabilityInput): CallAvailability
   return { enabled: true, reason: null }
 }
 
+/** #EXP-1878 (`tapCases`): what a press on the telephone does: call, or
+ *  (a phone's tap on a disabled one) toast the reason; web and desktop show
+ *  it as the disabled control's tooltip, their click does nothing. */
+export interface CallTap {
+  call: boolean
+  toast: string | null
+}
+
+export function callTap(platform: CallPlatform, availability: CallAvailability): CallTap {
+  if (availability.enabled) return { call: true, toast: null }
+  return { call: false, toast: platform === `phone` ? availability.reason : null }
+}
+
 /** EXP-1857: one of the member's own desktops as `callTarget` reads it. */
 export interface CallTargetDevice {
   id: string

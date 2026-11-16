@@ -74,8 +74,8 @@ private val BubbleMuted: Color @Composable get() = MaterialTheme.colorScheme.onS
 /**
  * THE message bubble: the glass card bubble (16dp radius, its `HH:mm`
  * bottom-right inside), at most `layout.maxWidth.phoneIn` of its column;
- * #FEED-239: an [own] bubble `maxWidth.own` (the whole column left of the
- * viewer's avatar). #EXP-1864: the own bubble wears `glass.fillOwn`, anyone
+ * #FEED-239: an [own] bubble at most `maxWidth.own` (the whole column left
+ * of the viewer's avatar); #EXP-1881: every bubble hugs its text below that. #EXP-1864: the own bubble wears `glass.fillOwn`, anyone
  * else's THE opaque card, both under the card hairline; every bubble shows
  * its [time] footer whoever sent it. [own]
  * = the viewer's (right, no name); else anyone else's (left) with the sender's name
@@ -159,7 +159,8 @@ fun MessageBubble(
                     modifier = Modifier.padding(bottom = 2.dp).testTag("message-bubble-author"),
                 )
             }
-            content()
+            // #EXP-1881: the body hugs its text (the bubble with it, at most `max`).
+            androidx.compose.runtime.CompositionLocalProvider(com.exponential.app.ui.markdown.LocalMarkdownHug provides true) { content() }
             val mark = status?.takeIf { own }
             val caption = listOfNotNull(
                 time?.takeIf { it.isNotEmpty() },

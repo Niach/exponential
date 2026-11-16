@@ -173,6 +173,20 @@ class VoiceCallTest {
     }
 
     @Test
+    fun `every tap case matches the fixture`() {
+        for (case in cases("tapCases")) {
+            val input = case.getValue("input").jsonObject
+            val availability = input.getValue("availability").jsonObject
+            val got = VoiceCall.callTap(
+                VoiceCall.Platform.entries.single { it.wire == input.str("platform") },
+                VoiceCall.Availability(availability.getValue("enabled").jsonPrimitive.boolean, availability.str("reason")),
+            )
+            val expected = case.getValue("expected").jsonObject
+            assertEquals(case.str("name"), VoiceCall.Tap(expected.getValue("call").jsonPrimitive.boolean, expected.str("toast")), got)
+        }
+    }
+
+    @Test
     fun `every availability case matches the fixture`() {
         for (case in cases("availabilityCases")) {
             val input = case.getValue("input").jsonObject

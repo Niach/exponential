@@ -36,13 +36,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Text
-import androidx.compose.material3.TooltipBox
-import androidx.compose.material3.TooltipDefaults
-import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -582,10 +577,10 @@ class AgentCallViewModel @Inject constructor(
 
 /**
  * THE telephone in the agent chat's header, left of `…`: the header's ghost
- * button ([com.exponential.app.ui.chat.ChatHeaderButton], like the menu). Disabled = dimmed, its reason on long
- * press (the app's tooltip). A tap asks for the microphone once, then calls.
+ * button ([com.exponential.app.ui.chat.ChatHeaderButton], like the menu). Disabled = dimmed;
+ * #EXP-1878: a tap toasts the reason (`callTap`, voice-call.json `tapCases`).
+ * An enabled tap asks for the microphone once, then calls.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AgentCallButton(
     agentId: String?,
@@ -601,29 +596,21 @@ fun AgentCallButton(
         if (agentId == null) return@rememberLauncherForActivityResult
         if (granted) viewModel.start(agentId, agentName, agentIcon, agentColor) else viewModel.permissionDenied()
     }
-    val enabled = target.availability.enabled && agentId != null
-    val button: @Composable () -> Unit = {
-        com.exponential.app.ui.chat.ChatHeaderButton(
-            ExpIcons.voiceCall,
-            VoiceCall.Copy.call(agentName),
-            onClick = {
-                if (agentId == null) return@ChatHeaderButton
-                if (viewModel.hasMicPermission()) viewModel.start(agentId, agentName, agentIcon, agentColor) else permission.launch(Manifest.permission.RECORD_AUDIO)
-            },
-            enabled = enabled,
-            modifier = Modifier.testTag(VoiceCall.TestIds.CALL),
-        )
-    }
-    val reason = target.availability.reason
-    if (!enabled && reason != null) {
-        TooltipBox(
-            positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
-            tooltip = { PlainTooltip { Text(reason) } },
-            state = rememberTooltipState(),
-        ) { button() }
-    } else {
-        button()
-    }
+    val toaster = com.exponential.app.ui.components.LocalToaster.current
+    val availability = target.availability
+    com.exponential.app.ui.chat.ChatHeaderButton(
+        ExpIcons.voiceCall,
+        VoiceCall.Copy.call(agentName),
+        onClick = {
+            val tap = VoiceCall.callTap(VoiceCall.Platform.Phone, availability)
+            tap.toast?.let { toaster.info(it) }
+            if (!tap.call || agentId == null) return@ChatHeaderButton
+            if (viewModel.hasMicPermission()) viewModel.start(agentId, agentName, agentIcon, agentColor) else permission.launch(Manifest.permission.RECORD_AUDIO)
+        },
+        enabled = agentId != null,
+        dimmed = !availability.enabled,
+        modifier = Modifier.testTag(VoiceCall.TestIds.CALL),
+    )
 }
 
 /** The phone-call screen for one `surfaceSpecimens` row (the styleguide's static frame). */

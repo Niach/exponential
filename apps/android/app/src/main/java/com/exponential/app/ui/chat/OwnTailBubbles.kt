@@ -3,8 +3,10 @@ package com.exponential.app.ui.chat
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -37,7 +39,8 @@ fun OwnTailBubbles(
     modifier: Modifier = Modifier,
     clock: (wire: String) -> String? = ::clockTime,
     /** #EXP-1876: these bubbles open a new own group (nothing own right
-     *  above them), so the first wears THE tail, as on iOS and the web. */
+     *  above them), so the first wears THE tail, as on iOS and the web;
+     *  #EXP-1854: and the viewer's avatar (no transcript row carries it). */
     startsGroup: Boolean = true,
 ) {
     if (bubbles.isEmpty()) return
@@ -62,44 +65,47 @@ private fun OwnTailBubble(
 ) {
     val actions = bubble.actions
     var open by remember { mutableStateOf(false) }
-    // #FEED-239: aligned with the transcript's own bubbles (the viewer's
-    // avatar column on the right stays clear: the group's avatar sits on
-    // its first transcript row).
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(end = (TranscriptGrouping.Layout.AVATAR + TranscriptGrouping.Layout.AVATAR_GAP).dp),
-    ) {
-        MessageBubble(
-            own = true,
-            time = clock(bubble.createdAt),
-            status = bubble.state,
-            onLongClick = if (actions.isNotEmpty()) ({ open = true }) else null,
-            onStatusClick = if (bubble.state == MessageDelivery.State.Failed) ({ open = true }) else null,
-            testTag = "chat-own-pending",
-            tail = tail,
-        ) {
-            if (bubble.text.isNotBlank()) MessageFold(bubble.text) { MarkdownView(markdown = bubble.text, softBreaksAsNewlines = true) }
-        }
-        // The menu anchors at the bubble's bottom-right corner.
-        Box(Modifier.align(Alignment.BottomEnd)) {
-            GlassDropdownMenu(
-                expanded = open && actions.isNotEmpty(),
-                onDismissRequest = { open = false },
-                modifier = Modifier.testTag(MessageDelivery.TestIds.MENU),
+    // #FEED-239: aligned with the transcript's own bubbles, the viewer's
+    // avatar column on the right; #EXP-1854: a bubble that opens the own
+    // group ([tail]) wears the viewer's avatar there, as on iOS, the web and
+    // the desktop (the no-feed placeholder has no transcript row to carry it).
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+        Box(Modifier.weight(1f)) {
+            MessageBubble(
+                own = true,
+                time = clock(bubble.createdAt),
+                status = bubble.state,
+                onLongClick = if (actions.isNotEmpty()) ({ open = true }) else null,
+                onStatusClick = if (bubble.state == MessageDelivery.State.Failed) ({ open = true }) else null,
+                testTag = "chat-own-pending",
+                tail = tail,
             ) {
-                for (action in actions) {
-                    GlassMenuItem(
-                        text = { Text(action.label) },
-                        onClick = {
-                            open = false
-                            onAction(bubble, action)
-                        },
-                        destructive = action == MessageDelivery.Action.Delete,
-                        modifier = Modifier.testTag("message-menu-${action.wire}"),
-                    )
+                if (bubble.text.isNotBlank()) MessageFold(bubble.text) { MarkdownView(markdown = bubble.text, softBreaksAsNewlines = true) }
+            }
+            // The menu anchors at the bubble's bottom-right corner.
+            Box(Modifier.align(Alignment.BottomEnd)) {
+                GlassDropdownMenu(
+                    expanded = open && actions.isNotEmpty(),
+                    onDismissRequest = { open = false },
+                    modifier = Modifier.testTag(MessageDelivery.TestIds.MENU),
+                ) {
+                    for (action in actions) {
+                        GlassMenuItem(
+                            text = { Text(action.label) },
+                            onClick = {
+                                open = false
+                                onAction(bubble, action)
+                            },
+                            destructive = action == MessageDelivery.Action.Delete,
+                            modifier = Modifier.testTag("message-menu-${action.wire}"),
+                        )
+                    }
                 }
             }
+        }
+        Spacer(Modifier.width(TranscriptGrouping.Layout.AVATAR_GAP.dp))
+        Box(Modifier.width(TranscriptGrouping.Layout.AVATAR.dp)) {
+            if (tail) ViewerAvatar()
         }
     }
 }
