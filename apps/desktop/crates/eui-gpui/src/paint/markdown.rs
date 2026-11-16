@@ -1690,6 +1690,27 @@ fn chip_fill(target: f32, cap: f32, wide: f32, narrow: f32) -> (String, f32) {
     (out, a as f32 * wide + b as f32 * narrow)
 }
 
+/// #EXP-1882: how wide the text glued to the host chip at `i` is: the end
+/// of the run before it back to a space and the start of the one after it
+/// up to one (0 for anything else).
+fn chip_glue(list: &[Inline], i: usize, spec: &TextSpec, text: &mut dyn MdText) -> f32 {
+    if list[i].chip.as_ref().is_none_or(|c| c.kind == CODE_CHIP) {
+        return 0.0;
+    }
+    let plain = |s: &&Inline| !s.text.is_empty();
+    let before = list[..i].iter().rev().find(plain).filter(|s| s.chip.is_none() && !s.code);
+    let after = list[i + 1..].iter().find(plain).filter(|s| s.chip.is_none() && !s.code);
+    let lead = before.map_or(0.0, |s| {
+        let t = &s.text[s.text.trim_end_matches(|c: char| !c.is_whitespace()).len()..];
+        if t.is_empty() { 0.0 } else { text.run_width(t, spec, s.bold, s.italic) }
+    });
+    let tail = after.map_or(0.0, |s| {
+        let t = &s.text[..s.text.len() - s.text.trim_start_matches(|c: char| !c.is_whitespace()).len()];
+        if t.is_empty() { 0.0 } else { text.run_width(t, spec, s.bold, s.italic) }
+    });
+    lead + tail
+}
+
 /// The text width each block's runs wrap at `width` wide (`None` = no
 /// wrap), as [`layout`] lays them out; a table's cells get their own.
 fn wrap_of(kind: &BlockKind, s: &MdStyles, width: Option<f32>) -> Option<f32> {
@@ -1756,7 +1777,11 @@ pub fn size_chips(blocks: &[Block], s: &MdStyles, width: Option<f32>, text: &mut
         return None;
     }
     fn size(list: &mut [Inline], spec: &TextSpec, cap: f32, s: &MdStyles, text: &mut dyn MdText) {
-        for span in list.iter_mut() {
+        // #EXP-1882: the text a chip touches never wraps away from it (the
+        // placeholder's non-breaking spaces glue), so a capped chip leaves
+        // it room on the line.
+        let glued: Vec<f32> = (0..list.len()).map(|i| chip_glue(list, i, spec, text)).collect();
+        for (span, glued) in list.iter_mut().zip(glued) {
             let (bold, italic) = (span.bold, span.italic);
             if span.code {
                 let (type_, pad) = (s.inline_code.spec(spec, s.code.family.clone()), s.inline_code.pad_h(spec));
@@ -1779,6 +1804,7 @@ pub fn size_chips(blocks: &[Block], s: &MdStyles, width: Option<f32>, text: &mut
             let label = text.run_width(&chip.label, &m.caption, false, false);
             let ident = chip.ident.as_ref().map(|i| text.run_width(i, &m.ident_spec(s.code.family.clone()), false, false));
             let want = m.width(label, chip.icon.is_some(), ident);
+            let cap = if cap.is_finite() { (cap - glued).max(1.0) } else { cap };
             chip.capped = want > cap;
             chip.width = want.min(cap);
             let wide = text.run_width(&CHIP_FILL[0].to_string(), spec, bold, italic);
@@ -3108,6 +3134,26 @@ mod tests {
         assert!(w(&chip_fill(50.0, 40.0, 3.9, 2.4).0) <= 40.0, "never past the cap");
         assert_eq!(chip_fill(16.0, 400.0, 8.0, 8.0).0.chars().count(), 2, "one width: whole spaces");
         assert!(chip_fill(1.0, 0.5, 8.0, 8.0).0.chars().count() == 1, "never empty");
+    }
+
+    /// #EXP-1882: a chip's placeholder glues to the text it touches (chip +
+    /// ")", chip + ".", chip + ",", "(" + chip), so a chip capped at the line
+    /// leaves that text room there; a chip between spaces takes the line.
+    #[test]
+    fn a_capped_chip_leaves_its_punctuation_room() {
+        let s = MdStyles::plain(body());
+        let host = FakeHost::load();
+        let width = |text: &str| {
+            let sized = size_chips(&host.blocks(text), &s, Some(60.0), &mut Fixed).expect("a chip");
+            let chip = sized[0].inlines.iter().find_map(|i| i.chip.clone()).expect("chip");
+            assert!(chip.capped, "{text}");
+            chip.width
+        };
+        assert_eq!(width("see #ABC-1 now"), 60.0);
+        assert_eq!(width("merged it (#ABC-1) ok"), 60.0 - 2.0 * 8.0);
+        assert_eq!(width("linked it to #ABC-1."), 60.0 - 8.0);
+        assert_eq!(width("see #ABC-1, merged it."), 60.0 - 8.0);
+        assert_eq!(width("open (#ABC-1 now"), 60.0 - 8.0);
     }
 
     /// #VAPP-258: a host-sized chip through gpui's text system: a chip that
