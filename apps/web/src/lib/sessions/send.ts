@@ -97,7 +97,7 @@ import { buildAttachmentUrl } from "@/lib/storage/issue-attachments"
 import { attachmentLine } from "@/lib/sessions/attachment-lines"
 import { parseBodyEnvelope } from "@exp/domain-contract/sealed-content"
 import { composeIssueBrief } from "@exp/domain-contract/session-brief"
-import { isSealedBody, validSealedBody } from "@/lib/sessions/sealed"
+import { isSealedBody, startsClearTree, validSealedBody } from "@/lib/sessions/sealed"
 import { forwardMessageFiles, retargetBody } from "@/lib/sessions/forward-attachments"
 import { parseVersionTuple } from "@/lib/client-version"
 import { createTreeKeyInTx, dropNonReaderKeysInTx } from "@/lib/sessions/tree-keys"
@@ -467,14 +467,6 @@ export function writerSeals(version: string | null | undefined): boolean {
   if (!have) return false
   for (let i = 0; i < 3; i++) if (have[i] !== need[i]) return have[i]! > need[i]!
   return true
-}
-
-/** #EDE-97 (sealed-content.json `clearTree.startCases`): a new root stays in
- *  clear for life only when an OUTSIDE MCP client starts it: over MCP, with
- *  no calling session (no device gateway) and no inline key. Every other
- *  root is sealed (by its writer, else by its device at the claim). */
-export function startsClearTree(args: { viaMcp: boolean; caller: unknown; seal: boolean }): boolean {
-  return args.viaMcp && !args.caller && !args.seal
 }
 
 /** The tree has a key (`seal_epoch`). A tree started in clear has none until
@@ -2059,7 +2051,8 @@ async function startRoot(
       ...(title ? { title: title.slice(0, 255) } : {}),
       ...(input.sealedName ? { sealedTitle: input.sealedName } : {}),
       // #EDE-97: an outside MCP client's chat stays in clear for life.
-      ...(startsClearTree({ viaMcp, caller, seal: !!input.seal }) ? { clearTree: true } : {}),
+      // An app's tool (the broker, `viaAppId`) is the server, never outside.
+      ...(startsClearTree({ viaMcp: viaMcp && !sendViaApp.getStore(), caller, seal: !!input.seal }) ? { clearTree: true } : {}),
     })
 
     if (input.issueIds?.length) {

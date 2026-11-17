@@ -7,7 +7,7 @@
 
 import { parseBodyEnvelope } from "@exp/domain-contract/sealed-content"
 import { TRPCError } from "@trpc/server"
-import { and, asc, eq, ne, sql } from "drizzle-orm"
+import { and, asc, eq, isNull, ne, or, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { messages, sessions, type Session } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
@@ -56,7 +56,8 @@ async function firstPlainMessage(database: Reader, sessionId: string): Promise<{
       and(
         eq(messages.sessionId, sessionId),
         eq(messages.authorKind, `agent`),
-        eq(messages.authorSessionId, sessionId),
+        // Its agent's replies carry no author session (or its own).
+        or(isNull(messages.authorSessionId), eq(messages.authorSessionId, sessionId)),
         ne(messages.id, first.id)
       )
     )
