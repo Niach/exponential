@@ -263,6 +263,23 @@ impl Listening {
         true
     }
 
+    /// EXP-1937: the wake word woke (the listening thread): only while
+    /// nothing else is set. A push-to-talk Listen the reader set meanwhile
+    /// keeps the gate (its queued Start opens the microphone); overwriting
+    /// it would let the turn's end clear the gate under the held key.
+    #[must_use]
+    pub fn begin_wake(&self, id: &str) -> bool {
+        if self.meeting().is_some() {
+            return false;
+        }
+        let mut current = self.lock();
+        if current.is_some() {
+            return false;
+        }
+        *current = Some((id.to_string(), Mode::Listen));
+        true
+    }
+
     /// NEW-55: the reader sent `Call { id, remote }`.
     pub fn begin_call(&self, id: &str, remote: bool) {
         *self.lock() = Some((id.to_string(), Mode::Call { remote }));
@@ -881,11 +898,15 @@ pub struct Ears {
     fetch: Fetch,
     /// EXP-1424: the wake word's models.
     wake: crate::wake_model::WakeModels,
+    /// EXP-1937: failed loads in a row and when the next may run: the wake
+    /// word asks every [`WAKE_RETRY`], and a load re-hashes the runtime and
+    /// the model before it can fail.
+    load_failed: Option<(u32, Instant)>,
 }
 
 impl Ears {
     pub fn new(data_dir: PathBuf) -> Self {
-        Ears { data_dir, engines: None, fetch: Fetch::Idle { failures: 0, retry_at: None }, wake: Default::default() }
+        Ears { data_dir, engines: None, fetch: Fetch::Idle { failures: 0, retry_at: None }, wake: Default::default(), load_failed: None }
     }
 
     fn start_download(&mut self) -> Result<(), String> {
@@ -924,6 +945,8 @@ impl Ears {
         match result {
             Ok(()) => {
                 self.fetch = Fetch::Idle { failures: 0, retry_at: None };
+                // New files: a load that failed may work now.
+                self.load_failed = None;
                 emit(&Event::ModelReady);
             }
             Err(err) => {
@@ -932,6 +955,32 @@ impl Ears {
                 eprintln!("speech model unavailable (attempt {failures}, next in {}s): {err}", wait.as_secs());
                 emit(&Event::DownloadFailed { error: err });
                 self.fetch = Fetch::Idle { failures, retry_at: Some(Instant::now() + wait) };
+            }
+        }
+    }
+}
+
+impl Ears {
+    /// Load the engines with `load` (the files are ready). EXP-1937: a
+    /// failed load is remembered like a failed download: until its retry
+    /// time (`retry_after`) the answer is `unavailable` without touching
+    /// the disk.
+    fn load(&mut self, load: impl FnOnce(&Path) -> Result<Engines, String>) -> Result<(), (ListenFailure, String)> {
+        if self.load_failed.is_some_and(|(_, at)| Instant::now() < at) {
+            return Err((ListenFailure::Unavailable, "the speech model failed to load; retrying later".into()));
+        }
+        match load(&self.data_dir) {
+            Ok(loaded) => {
+                self.engines = Some(loaded);
+                self.load_failed = None;
+                Ok(())
+            }
+            Err(err) => {
+                let failures = self.load_failed.map_or(0, |(failures, _)| failures) + 1;
+                let wait = retry_after(failures);
+                eprintln!("speech model failed to load (attempt {failures}, next in {}s): {err}", wait.as_secs());
+                self.load_failed = Some((failures, Instant::now() + wait));
+                Err((ListenFailure::Unavailable, err))
             }
         }
     }
@@ -964,16 +1013,7 @@ impl Hearing for Ears {
         }
         // Loaded before the microphone opens: the first Listen never holds
         // it through the re-hash and the model load.
-        match Engines::load(&self.data_dir, false) {
-            Ok(loaded) => {
-                self.engines = Some(loaded);
-                Ok(())
-            }
-            Err(err) => {
-                eprintln!("speech model failed to load: {err}");
-                Err((ListenFailure::Unavailable, err))
-            }
-        }
+        self.load(|data_dir| Engines::load(data_dir, false))
     }
 
     fn microphone(&mut self) -> Result<(), (ListenFailure, String)> {
@@ -1377,9 +1417,10 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
                             continue;
                         }
                     };
-                    if !links.listening.begin(&id) {
-                        // A call was asked for meanwhile: it takes the
-                        // microphone (the turn and its scan close here).
+                    if !links.listening.begin_wake(&id) {
+                        // A call or a Listen was asked for meanwhile: it
+                        // takes the microphone (the turn and its scan close
+                        // here).
                         continue;
                     }
                     // Like a Listen: the voice stops for the person.
@@ -1850,6 +1891,59 @@ mod tests {
         ears.running(result);
         ears.downloaded(Ok(()));
         assert_eq!(ears.failures(), 0, "a success resets the count");
+    }
+
+    /// EXP-1937: a recognizer that fails to load is not loaded (and its
+    /// files not hashed) again on every wake-word retry: the verdict holds
+    /// until its retry time, and a finished download clears it.
+    #[test]
+    fn a_failed_model_load_is_not_repeated_before_its_retry_time() {
+        let mut ears = Ears::new(std::env::temp_dir().join("voice-listen-load-backoff"));
+        let mut loads = 0;
+        for _ in 0..3 {
+            let result = ears.load(|_| {
+                loads += 1;
+                Err("the runtime does not load".into())
+            });
+            assert_eq!(result.unwrap_err().0, ListenFailure::Unavailable);
+        }
+        assert_eq!(loads, 1, "the retries inside the backoff never touch the disk");
+        let Some((failures, at)) = ears.load_failed else { panic!("the verdict is kept") };
+        assert!(failures == 1 && at > Instant::now() + retry_after(1) - Duration::from_secs(5));
+        let (_keep, result) = mpsc::channel();
+        ears.running(result);
+        ears.downloaded(Ok(()));
+        assert!(ears.load(|_| { loads += 1; Err("still".into()) }).is_err());
+        assert_eq!(loads, 2, "new files are tried at once");
+        assert_eq!(ears.load_failed.map(|(failures, _)| failures), Some(1));
+    }
+
+    /// EXP-1937: the wake word never takes the gate from a push-to-talk
+    /// Listen: the Listen's gate stays set while the key is held.
+    #[test]
+    fn a_wake_match_never_takes_the_gate_from_a_listen() {
+        let listening = Listening::default();
+        assert!(listening.begin_wake("wake-1"));
+        listening.end("wake-1");
+        assert!(listening.begin("u1"), "the reader: key down");
+        assert!(!listening.begin_wake("wake-2"), "the wake match loses");
+        listening.end("wake-2");
+        assert!(listening.refuses_speech(), "u1 is held: replies stay refused");
+        // The loop: the phrase matches after the reader set the gate and
+        // before its Start is read: no turn, the Listen runs.
+        let harness = Harness::new();
+        harness.send(Job::Wake { phrase: "Clip1".into(), language: "en".into() });
+        harness.opened.recv_timeout(Duration::from_secs(10)).expect("opened");
+        assert!(harness.listening.begin("u1"));
+        say_the_phrase(&harness);
+        wait("the match closed the scan, which opened again", || harness.probe.opened.lock().unwrap().len() == 2);
+        harness.send(Job::Start { id: "u1".into(), language: "en".into() });
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(harness.listening.refuses_speech(), "the gate is u1's");
+        assert_eq!(open_mics(&harness), 1);
+        harness.send(Job::End { id: "u1".into() });
+        let events = harness.close();
+        assert!(woke(&events).is_empty(), "{:?}", without_levels(&events));
     }
 
     #[test]
