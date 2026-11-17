@@ -886,3 +886,69 @@ fn the_frame_minimizes_and_a_window_above_it_keeps_its_own_presses() {
     });
     assert_eq!(restored, Some(geo));
 }
+
+/// #EDE-103: a press on a server-side bar's button is the frame's: the
+/// other app's window under the bar never sees it.
+#[test]
+fn a_press_on_a_title_bar_button_never_reaches_the_window_under_the_bar() {
+    use wayland_protocols::xdg::decoration::zv1::client::zxdg_toplevel_decoration_v1::Mode;
+    let h = harness(&[(800, 600)]);
+    let mut under = Session::connect(h.connect());
+    let _pointer = under.pointer();
+    let b = under.toplevel("Browser");
+    under.draw(&b, 700, 500, RED);
+    wait_for(&mut under, |_| windows(&h).len() == 1);
+    let mut app = Session::connect(h.connect());
+    let t = app.toplevel("Terminal");
+    app.decorate(&t, None);
+    app.draw(&t, 300, 200, BLUE);
+    wait_for(&mut app, |c| c.state.decoration_modes.get(&t.index) == Some(&(Mode::ServerSide as u32)));
+    wait_for(&mut app, |_| windows(&h).len() == 2);
+    // The terminal in front (another app's window opens behind, #EDE-82).
+    let (geo, browser) = h.with(|ede| {
+        let terminal = ede.space.elements().find(|w| ede.is_decorated(w)).cloned().unwrap();
+        let browser = ede.space.elements().find(|w| !ede.is_decorated(w)).cloned().unwrap();
+        ede.focus(Some(terminal.clone()));
+        (ede.space.element_geometry(&terminal).unwrap(), ede.space.element_geometry(&browser).unwrap())
+    });
+    let close = ((geo.loc.x + geo.size.w - 18) as f64, (geo.loc.y - 18) as f64);
+    assert!(browser.to_f64().contains(close), "the bar's close button lies over the browser");
+    h.with(move |ede| {
+        ede.pointer_motion_to(close.into(), 0);
+        ede.pointer_button(BTN_LEFT, ButtonState::Pressed, 1);
+        ede.pointer_button(BTN_LEFT, ButtonState::Released, 2);
+    });
+    wait_for(&mut app, |c| c.state.toplevels[t.index].closed);
+    under.roundtrip();
+    assert_eq!(under.state.press_serial, None, "the browser under the bar got the press");
+}
+
+/// #EDE-103: a fullscreen window is all its output draws, so it alone
+/// takes the pointer: a click where the hidden panel lies is the window's.
+#[test]
+fn a_fullscreen_window_takes_the_click_where_the_hidden_panel_lies() {
+    let h = harness(&[(1280, 800)]);
+    let mut shell = Session::connect(h.connect());
+    let _shell_pointer = shell.pointer();
+    let panel = shell.layer("panel", Anchor::Bottom | Anchor::Left | Anchor::Right, (0, 40), 40);
+    shell.draw_layer(&panel, GREEN);
+    let mut c = Session::connect(h.connect());
+    let _pointer = c.pointer();
+    let t = c.toplevel("video");
+    c.draw(&t, 400, 300, RED);
+    wait_for(&mut c, |_| windows(&h).len() == 1);
+    t.toplevel.set_fullscreen(None);
+    c.roundtrip();
+    wait_for(&mut c, |c| c.state.toplevels[0].states.contains(&XdgState::Fullscreen));
+    c.draw_configured(&t, 0, 0, RED);
+    wait_for(&mut c, |_| h.capture(0).at(640, 790) == RED);
+    h.with(|ede| {
+        ede.pointer_motion_to((640.0, 790.0).into(), 0);
+        ede.pointer_button(BTN_LEFT, ButtonState::Pressed, 1);
+        ede.pointer_button(BTN_LEFT, ButtonState::Released, 2);
+    });
+    c.roundtrip();
+    shell.roundtrip();
+    assert_eq!(shell.state.press_serial, None, "the hidden panel took the click");
+    assert!(c.state.press_serial.is_some(), "the fullscreen window did not get the click");
+}

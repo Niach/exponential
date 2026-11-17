@@ -448,3 +448,45 @@ fn an_x11_window_takes_the_keyboard_only_from_its_own_app() {
     let dialog = open(Some(first));
     until("the X11 dialog of the focused window did not take the keyboard", &|| focused_x11() == Some(dialog));
 }
+
+/// #EDE-103: the pointer's focus follows the stack under a still pointer:
+/// after a raise the click is the raised window's, after a close it is the
+/// one now under it.
+#[test]
+fn a_click_under_a_still_pointer_reaches_the_window_now_on_top() {
+    let h = harness();
+    let (mut app, _a) = focused_app(&h, "editor", RED);
+    let _app_pointer = app.pointer();
+    let (mut other, _b) = other_app(&h, "player", BLUE);
+    let _other_pointer = other.pointer();
+    let at = h.with(|ede| {
+        let geos: Vec<_> = ede.space.elements().map(|w| ede.space.element_geometry(w).unwrap()).collect();
+        let both = geos[0].intersection(geos[1]).expect("the windows overlap");
+        both.loc.to_f64() + (10.0, 10.0).into()
+    });
+    // The editor on top has the pointer.
+    h.with(move |ede| ede.pointer_motion_to(at, 0));
+    // The player comes to the front (Alt+Tab): no motion.
+    h.with(|ede| {
+        let player = ede.space.elements().next().cloned();
+        ede.focus(player);
+    });
+    h.with(|ede| {
+        ede.pointer_button(0x110, ButtonState::Pressed, 1);
+        ede.pointer_button(0x110, ButtonState::Released, 2);
+    });
+    other.roundtrip();
+    app.roundtrip();
+    assert!(other.state.press_serial.is_some(), "the raised window did not get the click");
+    assert_eq!(app.state.press_serial, None, "the window behind got the click");
+
+    // The player goes away under the still pointer: the editor is under it.
+    drop(other);
+    wait_for(&mut app, |_| stack(&h).len() == 1);
+    h.with(|ede| {
+        ede.pointer_button(0x110, ButtonState::Pressed, 3);
+        ede.pointer_button(0x110, ButtonState::Released, 4);
+    });
+    app.roundtrip();
+    assert!(app.state.press_serial.is_some(), "the click went to the closed window");
+}

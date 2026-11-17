@@ -223,6 +223,17 @@ mod tests {
         let _ = draw_bar("", 1, false, false, 1.0);
     }
 
+    /// #EDE-103: a client's absurd width (a viewport's destination) never
+    /// sizes the bar's canvas past what can be shown.
+    #[test]
+    fn an_absurd_window_width_draws_a_bounded_bar() {
+        for width in [5_000_000, 29_826_162, i32::MAX] {
+            let c = draw_bar("", width, false, false, 2.0);
+            assert!(c.width as usize * c.height as usize * 4 == c.data.len() && c.data.len() <= 64 << 20, "{width}: {}x{}", c.width, c.height);
+        }
+        assert!(Canvas::new(u32::MAX, u32::MAX).data.is_empty(), "a size past the address space is an empty canvas");
+    }
+
     #[test]
     fn the_controls_read_close_maximize_minimize_from_the_right() {
         assert_eq!(bar_hit(0), Hit::Close);
