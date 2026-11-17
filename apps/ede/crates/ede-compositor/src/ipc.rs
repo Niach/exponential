@@ -654,6 +654,13 @@ impl Ede {
                 self.ipc.grants.retain(|g| g.token != token);
                 json(serde_json::Value::Null)
             }
+            Request::LaunchToken => {
+                // #EDE-76: only the shell says what the person launched.
+                if grant.session_id.as_str() != ROOT_SESSION {
+                    return Err(fail(ErrorCode::Forbidden, "only the shell's grant marks a launch as the person's"));
+                }
+                json(serde_json::to_value(ede_protocol::LaunchToken { token: self.mint_launch_token() }).unwrap())
+            }
         }
     }
 

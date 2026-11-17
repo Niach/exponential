@@ -122,6 +122,15 @@ pub fn power(action: &str) -> bool {
     })
 }
 
+fn launch_command(command: &str, token: Option<&str>) -> Command {
+    let mut sh = Command::new("sh");
+    sh.arg("-c").arg(command).env_remove("XDG_ACTIVATION_TOKEN").env_remove("DESKTOP_STARTUP_ID");
+    if let Some(token) = token {
+        sh.env("XDG_ACTIVATION_TOKEN", token).env("DESKTOP_STARTUP_ID", token);
+    }
+    sh
+}
+
 /// The person's terminal: the alternatives link, else the first installed.
 pub fn terminal_command() -> Option<&'static str> {
     ["x-terminal-emulator", "gnome-terminal", "foot", "alacritty", "kitty", "xterm"].into_iter().find(|t| {
@@ -130,7 +139,14 @@ pub fn terminal_command() -> Option<&'static str> {
 }
 
 pub fn launch(command: &str) {
-    match Command::new("sh").arg("-c").arg(command).spawn() {
+    launch_with(command, None);
+}
+
+/// [`launch`]; `token` = the compositor's launch token for a launch the
+/// person made (#EDE-76). Never the shell's own: a stale one is not passed on.
+pub fn launch_with(command: &str, token: Option<&str>) {
+    let mut sh = launch_command(command, token);
+    match sh.spawn() {
         Ok(mut child) => {
             tracing::info!(command, "launched");
             // #EDE-64: reaped when it ends, never left a zombie of the shell.
@@ -210,6 +226,18 @@ mod tests {
         assert_eq!(parse_wpctl_volume("nothing"), None);
         assert_eq!(Level { icon: "x", percent: 30, muted: true }.label(), "muted");
         assert_eq!(Level { icon: "x", percent: 30, muted: false }.label(), "30%");
+    }
+
+    /// #EDE-76: only a launch the person made carries the compositor's
+    /// token; the shell's own never leaks into anything it starts.
+    #[test]
+    fn a_person_launch_carries_the_token_and_any_other_launch_none() {
+        let env = |c: &Command, name: &str| c.get_envs().find(|(k, _)| *k == name).map(|(_, v)| v.map(|v| v.to_string_lossy().into_owned()));
+        let person = launch_command("true", Some("t1"));
+        assert_eq!(env(&person, "XDG_ACTIVATION_TOKEN"), Some(Some("t1".into())));
+        assert_eq!(env(&person, "DESKTOP_STARTUP_ID"), Some(Some("t1".into())));
+        let other = launch_command("true", None);
+        assert_eq!((env(&other, "XDG_ACTIVATION_TOKEN"), env(&other, "DESKTOP_STARTUP_ID")), (Some(None), Some(None)));
     }
 
     #[test]
