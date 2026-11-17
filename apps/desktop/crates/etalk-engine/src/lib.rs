@@ -741,6 +741,18 @@ enum State {
     Ready(Loaded),
 }
 
+/// EXP-1930: what a worker whose voice is not up says: `VoiceRetry` while
+/// it will be tried again (a slow warm-up, a failed load), never for no GPU;
+/// then the empty `Voices`.
+fn not_up(state: &State, now: Instant) -> Vec<Event> {
+    let mut events = Vec::new();
+    if let State::Idle { retry_at: Some(at), .. } = state {
+        events.push(Event::VoiceRetry { in_ms: at.saturating_duration_since(now).as_millis() as u64 });
+    }
+    events.push(Event::Voices { voices: Vec::new() });
+    events
+}
+
 fn engine_loop(data_dir: &Path, rx: Receiver<Job>, shared: &Arc<Shared>) {
     let mut state = State::Idle { failures: 0, retry_at: None };
     let mut choice = VoiceChoice { language: "en".into(), ..Default::default() };
@@ -787,7 +799,9 @@ fn engine_loop(data_dir: &Path, rx: Receiver<Job>, shared: &Arc<Shared>) {
                 // Backing off: the voice is not tried again yet (settled:
                 // a call need not wait for it).
                 shared.voice_settled.store(true, Ordering::SeqCst);
-                emit(&Event::Voices { voices: Vec::new() });
+                for event in not_up(&state, Instant::now()) {
+                    emit(&event);
+                }
                 if let Job::Speak { id, .. } = job {
                     emit(&Event::Failed { id, error: "the voice is unavailable for now".into() });
                 }
@@ -821,7 +835,9 @@ fn engine_loop(data_dir: &Path, rx: Receiver<Job>, shared: &Arc<Shared>) {
         let State::Ready(loaded) = &mut state else {
             // Unavailable (no GPU, or backing off): settled all the same.
             shared.voice_settled.store(true, Ordering::SeqCst);
-            emit(&Event::Voices { voices: Vec::new() });
+            for event in not_up(&state, Instant::now()) {
+                emit(&event);
+            }
             if let Job::Speak { id, .. } = job {
                 emit(&Event::Failed { id, error: "no usable GPU for the voice".into() });
             }
@@ -1554,6 +1570,17 @@ mod tests {
         stream.finish();
         assert_eq!(clock.now(), before, "a stopped stream waits for nothing");
         assert_eq!(events.lock().unwrap().len(), 10);
+    }
+
+    /// EXP-1930 (voice-engine-speak-2): a voice that will be tried again
+    /// (a slow warm-up, a failed load) says so before its empty `Voices`; no
+    /// GPU says only the empty `Voices`.
+    #[test]
+    fn a_voice_not_up_yet_is_told_apart_from_no_gpu() {
+        let now = Instant::now();
+        let slow = State::Idle { failures: 1, retry_at: Some(now + Duration::from_secs(60)) };
+        assert_eq!(not_up(&slow, now), vec![Event::VoiceRetry { in_ms: 60_000 }, Event::Voices { voices: Vec::new() }]);
+        assert_eq!(not_up(&State::NoGpu, now), vec![Event::Voices { voices: Vec::new() }]);
     }
 
     /// NEW-55: the first clause of a reply is synthesized on its own.
