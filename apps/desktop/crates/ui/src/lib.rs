@@ -323,7 +323,7 @@ pub use session::{
 };
 pub use session_registry::install_end_observer as install_session_end_observer;
 pub use shell::Shell;
-pub use window_hooks::{resident_device, set_open_shell_window_hook, set_resident_device, set_window_opened_hook};
+pub use window_hooks::{resident_device, set_open_shell_window_hook, set_resident_device, set_window_opened_hook, QUIT_MODE};
 
 use gpui::{App, AppContext as _};
 use gpui_component::dock::{panel_handle, register_panel};
@@ -343,6 +343,8 @@ pub fn init(cx: &mut App) {
     theme::motion::set_reduce_motion_probe(macos_reduce_motion);
     // VAPP-90: the SDK's generic controls read the IDE's token values.
     eui_gpui::chrome::install(cx, controls::ide_chrome().clone());
+    // #EXP-1938: the quit is ours, never gpui's (`window_hooks::QUIT_MODE`).
+    window_hooks::init(cx);
     navigation::init(cx);
     navigation::start_dev_tour(cx);
     navigation::start_dev_call(cx);
