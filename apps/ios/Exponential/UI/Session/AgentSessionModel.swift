@@ -83,6 +83,7 @@ final class AgentSessionModel {
             // FEED-26: the fallback "last activity" — a run that goes quiet
             // the moment it comes live still needs a clock to count from.
             if phase == .live { markActivity() }
+            refreshSyncedTail()
         }
     }
     /// The feed stays visible while disconnected (closed/ended states) and is
@@ -112,6 +113,18 @@ final class AgentSessionModel {
     /// rows moved. The view diffs these by id and gates each row on its own
     /// inputs, so nothing in the body walks or copies the feed.
     private(set) var transcript: [TranscriptEntry] = []
+    /// #FEED-260 (steer-enet.json SYNCED TAIL): the session's synced messages
+    /// a NOT-live feed is followed by (the agent's narration bubble, the
+    /// person's input bubble), so the agent's answer shows whether or not
+    /// its device is reachable. A live feed is the authority (none).
+    @ObservationIgnored private var syncedTail: [AgentFeedItem] = []
+    /// The session's newest card-less agent lines and person inputs, OPENED,
+    /// oldest first (`SessionQueries.tailMessageRows`).
+    @ObservationIgnored private var tailMessages: [SteerNoFeed.TailMessage] = []
+    @ObservationIgnored private var tailObservationTask: Task<Void, Never>?
+    /// #FEED-260 (steer-enet.json OFFLINE LINE): the transcript ends with THE
+    /// inline marker `SteerNoFeed.away(deviceName:).title`.
+    private(set) var offlineLine = false
     /// #EXP-1625: the feed's length, for the follow pin (reading `feed` in
     /// the body tracked every feed write and copied the array per frame).
     private(set) var feedCount = 0
@@ -180,7 +193,9 @@ final class AgentSessionModel {
         case deviceOffline
     }
 
-    private(set) var history: HistoryState?
+    private(set) var history: HistoryState? {
+        didSet { if oldValue != history { refreshSyncedTail() } }
+    }
     /// EXP-724: a context compaction is running on the host agent — the
     /// composer grows an indeterminate strip for as long as this is non-nil,
     /// so the 10–170s of silence reads as work instead of a hang. Set by the
@@ -256,7 +271,9 @@ final class AgentSessionModel {
     /// #FEED-237 (message-delivery.json): the viewer's own bubbles at the
     /// transcript's bottom: their synced rows the device has not consumed,
     /// then the outbox entries, each with its delivery mark.
-    private(set) var ownPending: [OwnPendingBubble] = []
+    private(set) var ownPending: [OwnPendingBubble] = [] {
+        didSet { refreshSyncedTail() }
+    }
     /// #FEED-237 HANDOFF (message-delivery.json `handoffCases`): the viewer's
     /// consumed own rows whose transcript echo has not arrived yet, oldest
     /// first, each still its own `read` bubble so it never vanishes between
@@ -323,7 +340,9 @@ final class AgentSessionModel {
     private(set) var chatTitle: String?
     /// EXP-549/550: the host machine as it presents right now — the LIVE
     /// `devices` row's label and whether that machine stopped heartbeating.
-    private(set) var hostDevice = SessionHostDevice(label: nil, online: nil)
+    private(set) var hostDevice = SessionHostDevice(label: nil, online: nil) {
+        didSet { if oldValue != hostDevice { refreshSyncedTail() } }
+    }
     /// EXP-484: how much of its rate-limit window the agent running THIS
     /// session has used, off the host machine's synced report. Nil whenever
     /// there is nothing honest to draw (`AgentUsagePresentation.sessionUsage`).
@@ -803,20 +822,35 @@ final class AgentSessionModel {
         if canLoad != canLoadEarlier { canLoadEarlier = canLoad }
         let fromStart = start == 0 && (!historyTruncated || historyReachedStart) && !feedHeadTrimmed
         if fromStart != transcriptFromStart { transcriptFromStart = fromStart }
+        // #FEED-260: the synced tail after a not-live feed, and its last line.
+        let live = phase == .live
+        let nextTail = live ? [] : syncedTailItems()
+        if nextTail != syncedTail {
+            syncedTail = nextTail
+            tailVersion &+= 1
+        }
+        let line = SteerNoFeed.offlineLine(
+            live: live, rows: feed.count + syncedTail.count, ended: sessionEnded,
+            noFeed: history == .deviceOffline, deviceOffline: hostDevice.offline
+        )
+        if line != offlineLine { offlineLine = line }
         let workflowIds = Set(workflows.map(\.id))
-        let key = ProjectionKey(feedVersion: feedVersion, windowStart: start, workflowIds: workflowIds)
+        let key = ProjectionKey(
+            feedVersion: feedVersion, tailVersion: tailVersion, windowStart: start, workflowIds: workflowIds
+        )
         guard key != projectedKey else { return }
         projectedKey = key
-        if hasFeed == feed.isEmpty { hasFeed = !feed.isEmpty }
+        let shown = syncedTail.isEmpty ? feed : feed + syncedTail
+        if hasFeed == shown.isEmpty { hasFeed = !shown.isEmpty }
         // EXP-850 §3: a workflow's tool row never collapses into a "N tool
         // calls" run (the card renders in its place) and its agents' runs are
         // nested INSIDE the card, so the transcript projection drops them.
-        let nextRows = AgentFeed.rows(feed, from: start, workflowIds: workflowIds)
+        let nextRows = AgentFeed.rows(shown, from: start, workflowIds: workflowIds)
         if nextRows != rows {
             rows = nextRows
             transcript = TranscriptEntry.entries(TranscriptEntry.shownRows(nextRows), previous: transcript)
         }
-        if feed.count != feedCount { feedCount = feed.count }
+        if shown.count != feedCount { feedCount = shown.count }
         let openTool = AgentFeed.liveToolRowId(feed)
         if openTool != openToolRowId { openToolRowId = openTool }
         let calls = AskDock.feedCalls(feed)
@@ -849,6 +883,7 @@ final class AgentSessionModel {
     /// #EXP-1623: what the O(feed) half of `reproject` is a function of.
     private struct ProjectionKey: Equatable {
         let feedVersion: Int
+        let tailVersion: Int
         let windowStart: Int
         let workflowIds: Set<String>
     }
@@ -857,6 +892,64 @@ final class AgentSessionModel {
     /// #EXP-1623: bumped by every feed write, so a flush that wrote none (a
     /// live tick) skips the projections' walk.
     @ObservationIgnored private var feedVersion = 0
+    /// #FEED-260: bumped when the synced tail moved.
+    @ObservationIgnored private var tailVersion = 0
+
+    /// #FEED-260: an input of the synced tail moved (the phase, the host's
+    /// presence, the history fetch, the own bubbles, the synced messages).
+    private func refreshSyncedTail() {
+        if !applyingBatch { reproject() }
+    }
+
+    /// The feed's MAIN-lane row as `SteerNoFeed.syncedTail` reads it; nil = a
+    /// subagent's row (it renders inside its run, never the main lane).
+    private static func tailFeedRow(_ item: AgentFeedItem) -> SteerNoFeed.TailFeedRow? {
+        switch item {
+        case let .narration(_, text, _, subagentId, at):
+            return subagentId == nil ? SteerNoFeed.TailFeedRow(author: "agent", text: text, at: at) : nil
+        case let .userMessage(_, text, subagentId, at):
+            return subagentId == nil ? SteerNoFeed.TailFeedRow(author: "user", text: text, at: at) : nil
+        case let .tool(_, _, _, subagentId, _, _, settled, _, _, _, _, _, settledAt):
+            return subagentId == nil ? SteerNoFeed.TailFeedRow(author: nil, text: nil, at: settled ? settledAt : nil) : nil
+        case let .apiError(_, _, _, subagentId):
+            return subagentId == nil ? SteerNoFeed.TailFeedRow(author: nil, text: nil, at: nil) : nil
+        default:
+            return SteerNoFeed.TailFeedRow(author: nil, text: nil, at: nil)
+        }
+    }
+
+    /// Synthetic row ids of the synced tail: far above any feed id, stable
+    /// per message (FNV-1a of its id).
+    private static func syncedTailId(_ messageId: String) -> Int {
+        var hash: UInt32 = 2_166_136_261
+        for byte in messageId.utf8 { hash = (hash ^ UInt32(byte)) &* 16_777_619 }
+        return (1 << 52) + Int(hash)
+    }
+
+    /// #FEED-260 (steer-enet.json SYNCED TAIL): the synced messages a
+    /// NOT-live feed draws after its last row, as ordinary transcript rows
+    /// (each at its `createdAt`); the own bubbles' rows never repeat here.
+    private func syncedTailItems() -> [AgentFeedItem] {
+        guard !tailMessages.isEmpty else { return [] }
+        let own = Set(ownBubbles.compactMap(\.messageId))
+        // An EMPTY feed takes it only while the live transcript cannot be
+        // loaded (the OFFLINE LINE's condition): a reachable device's replay
+        // is on its way.
+        let unreachable = sessionEnded ? history == .deviceOffline : hostDevice.offline
+        let picked = SteerNoFeed.syncedTail(
+            live: false,
+            feed: feed.compactMap(Self.tailFeedRow),
+            messages: tailMessages.filter { !own.contains($0.id) },
+            unreachable: unreachable
+        ) { $0 }
+        return picked.map { m in
+            let id = Self.syncedTailId(m.id)
+            let text = m.body.trimmingCharacters(in: .whitespacesAndNewlines)
+            return m.authorKind == "agent"
+                ? .narration(id: id, text: text, messageId: "synced:\(m.id)", at: m.createdAtMs)
+                : .userMessage(id: id, text: text, at: m.createdAtMs)
+        }
+    }
 
     /// #EXP-1623: whether the feed holds a row, observed apart from the feed
     /// itself, so the Dock and the empty states never re-render per row.
@@ -1249,6 +1342,7 @@ final class AgentSessionModel {
     func start() {
         startObservingSession()
         startObservingOwnMessages()
+        startObservingTailMessages()
         SessionOutbox.shared.resume(accountId: accountId, db: db, api: sessionsApi)
         startObservingHostDevice()
         startObservingMentionMembers()
@@ -1357,6 +1451,7 @@ final class AgentSessionModel {
         guard stopped else { return }
         startObservingSession()
         startObservingOwnMessages()
+        startObservingTailMessages()
         startObservingHostDevice()
         startActivityClock()
         openViewStats()
@@ -1383,6 +1478,8 @@ final class AgentSessionModel {
         sessionObservationTask = nil
         ownObservationTask?.cancel()
         ownObservationTask = nil
+        tailObservationTask?.cancel()
+        tailObservationTask = nil
         handoffTimerTask?.cancel()
         handoffTimerTask = nil
         deviceObservationTask?.cancel()
@@ -1713,6 +1810,45 @@ final class AgentSessionModel {
         return true
     }
 
+    /// #FEED-260 (steer-enet.json SYNCED TAIL): the session's newest card-less
+    /// agent lines and person inputs, opened off main, oldest first; a locked
+    /// body reads the sealed placeholder copy.
+    private func startObservingTailMessages() {
+        guard tailObservationTask == nil, let pool = try? db.pool(forAccountId: accountId) else { return }
+        let id = sessionId
+        let observation = ValueObservation.tracking { db -> [SteerNoFeed.TailMessage] in
+            try SessionQueries.tailMessageRows(db: db, sessionId: id, limit: SteerNoFeed.syncedTailMax)
+                .map(TreeMessage.init(messageRow:))
+                .reversed()
+                .map { m in
+                    SteerNoFeed.TailMessage(
+                        id: m.id, authorKind: m.authorKind, hasCard: m.card != nil,
+                        consumedAt: m.consumedAt, createdAt: m.createdAt,
+                        createdAtMs: WireTimestamps.parse(m.createdAt).map { Int(($0.timeIntervalSince1970 * 1000).rounded()) },
+                        body: m.locked.map(SealedPlaceholder.copy) ?? m.body
+                    )
+                }
+        }
+        tailObservationTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    for try await rows in observation.values(in: pool) {
+                        guard let self else { return }
+                        if rows != self.tailMessages {
+                            self.tailMessages = rows
+                            self.refreshSyncedTail()
+                        }
+                    }
+                    return
+                } catch is CancellationError {
+                    return
+                } catch {
+                    try? await Task.sleep(for: .seconds(1))
+                }
+            }
+        }
+    }
+
     /// The viewer's own rows of this session (the newest ones: the outbox
     /// dedupe and the unconsumed bubbles) and the session's outbox entries.
     private func startObservingOwnMessages() {
@@ -1844,7 +1980,11 @@ final class AgentSessionModel {
                         // never report.
                         // #EXP-1623: only what moved is written; an equal
                         // write still re-renders every view that reads it.
-                        if row != self.session { self.session = row }
+                        if row != self.session {
+                            self.session = row
+                            // #FEED-260: an ending moves the synced tail's rule.
+                            self.refreshSyncedTail()
+                        }
                         if let row { self.observeRowWake(row) }
                         if root != self.root { self.root = root }
                         if hasSubSessions != self.hasSubSessions { self.hasSubSessions = hasSubSessions }

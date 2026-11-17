@@ -632,6 +632,108 @@ public enum SteerNoFeed {
         return Array(picked.suffix(Swift.max(0, max)))
     }
 
+    /// SYNCED TAIL (#FEED-260, the fixture's `syncedTailMax`).
+    public static let syncedTailMax = 50
+
+    /// One feed row as `syncedTail` reads it: a main-lane narration
+    /// (`agent`), an input (`user`) or anything else (nil), its text, its
+    /// known time (epoch ms; nil = unknown).
+    public struct TailFeedRow: Equatable, Sendable {
+        public let author: String?
+        public let text: String?
+        public let at: Int?
+
+        public init(author: String?, text: String?, at: Int?) {
+            self.author = author
+            self.text = text
+            self.at = at
+        }
+    }
+
+    /// One synced message as `syncedTail` reads it.
+    public struct TailMessage: Equatable, Sendable {
+        public let id: String
+        public let authorKind: String
+        /// The row carries a card (set and not JSON null).
+        public let hasCard: Bool
+        public let consumedAt: String?
+        public let createdAt: String
+        /// Epoch ms of `createdAt`; nil = unparseable.
+        public let createdAtMs: Int?
+        /// The OPENED body.
+        public let body: String
+
+        public init(
+            id: String, authorKind: String, hasCard: Bool, consumedAt: String?, createdAt: String,
+            createdAtMs: Int?, body: String
+        ) {
+            self.id = id
+            self.authorKind = authorKind
+            self.hasCard = hasCard
+            self.consumedAt = consumedAt
+            self.createdAt = createdAt
+            self.createdAtMs = createdAtMs
+            self.body = body
+        }
+    }
+
+    /// SYNCED TAIL (#FEED-260, TS `steerSyncedTail`, `syncedTailCases`): the
+    /// synced messages a NOT-live transcript draws after its feed, oldest
+    /// first (createdAt, then id), the newest `max`: card-less with a
+    /// non-blank body, the agent's or a person's CONSUMED input, later than
+    /// the feed's newest known row time, not already held by the feed (an
+    /// agent line equal to, a prefix of or prefixed by a narration; an input
+    /// equal to a feed input). An empty feed takes the tail only while its
+    /// live transcript cannot be loaded (`unreachable`, the OFFLINE LINE's
+    /// condition) and only when it holds an agent line.
+    public static func syncedTail<T>(
+        live: Bool, feed: [TailFeedRow], messages: [T], max: Int = syncedTailMax, unreachable: Bool = false,
+        row: (T) -> TailMessage
+    ) -> [T] {
+        if live { return [] }
+        if feed.isEmpty, !unreachable { return [] }
+        let feedAt = feed.compactMap(\.at).max()
+        if !feed.isEmpty, feedAt == nil { return [] }
+        func trimmed(_ text: String) -> String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let narrations = feed.filter { $0.author == "agent" && !($0.text ?? "").isEmpty }.map { trimmed($0.text ?? "") }
+        let inputs = Set(feed.filter { $0.author == "user" && !($0.text ?? "").isEmpty }.map { trimmed($0.text ?? "") })
+        var tail: [(item: T, row: TailMessage)] = []
+        for item in messages {
+            let m = row(item)
+            if m.hasCard { continue }
+            let body = trimmed(m.body)
+            if body.isEmpty { continue }
+            switch m.authorKind {
+            case "agent":
+                if narrations.contains(where: { !$0.isEmpty && ($0.hasPrefix(body) || body.hasPrefix($0)) }) { continue }
+            case "user":
+                if m.consumedAt == nil || inputs.contains(body) { continue }
+            default:
+                continue
+            }
+            if let feedAt {
+                guard let created = m.createdAtMs, created > feedAt else { continue }
+            }
+            tail.append((item, m))
+        }
+        tail.sort { (a: (item: T, row: TailMessage), b: (item: T, row: TailMessage)) -> Bool in
+            if a.row.createdAt != b.row.createdAt { return a.row.createdAt < b.row.createdAt }
+            return a.row.id < b.row.id
+        }
+        if feed.isEmpty, !tail.contains(where: { $0.row.authorKind == "agent" }) { return [] }
+        let picked: [T] = tail.map { $0.item }
+        return Array(picked.suffix(Swift.max(0, max)))
+    }
+
+    /// OFFLINE LINE (#FEED-260, TS `steerOfflineLine`, `offlineLineCases`):
+    /// a not-live transcript showing rows ends with THE inline marker
+    /// `awayTitle`: an ended row whose last dial said NO FEED, a row not
+    /// ended whose device is offline in presence.
+    public static func offlineLine(live: Bool, rows: Int, ended: Bool, noFeed: Bool, deviceOffline: Bool) -> Bool {
+        if live || rows == 0 { return false }
+        return ended ? noFeed : deviceOffline
+    }
+
     /// The synced row fields `rowWakes` reads.
     public struct WakeRow: Equatable, Sendable {
         public let status: String
