@@ -392,7 +392,15 @@ fn build_row(
         label: device_doctor::item_label(item).to_string(),
         state: item.state,
         glyph: (!is_switch).then(|| state_glyph(item.state)),
-        detail: if is_switch { None } else { item.detail.clone() },
+        // #EXP-1899: the switch row's only detail is the device's reason
+        // while it cannot drive, drawn as the row's second line.
+        detail: match (is_switch, item.state) {
+            (false, _) => item.detail.clone(),
+            (true, DoctorState::Missing) => {
+                Some(item.detail.clone().unwrap_or_else(|| device_doctor::UNAVAILABLE.to_string()))
+            }
+            (true, _) => None,
+        },
         detail_tone: detail_tone(item.state),
         switch: is_switch.then(|| switch_on.unwrap_or(item.state != DoctorState::Off)),
         indent: item.parent.is_some(),
@@ -903,9 +911,11 @@ mod tests {
                     assert_eq!(row.label, label, "{name}");
                     assert_eq!(row.indent, item.get("parent").is_some(), "{name}: {}", row.key);
                     if row.key == KEY_COMPUTER_USE {
-                        // The switch row: no glyph, no detail, no pill.
+                        // The switch row: no glyph, no pill, no detail but
+                        // the device's reason while it cannot drive (#EXP-1899).
                         assert_eq!(row.switch, Some(state != "off"), "{name}");
-                        assert!(row.glyph.is_none() && row.detail.is_none() && row.pill.is_none());
+                        assert!(row.glyph.is_none() && row.pill.is_none());
+                        assert_eq!(row.detail.as_deref(), case["switchDescription"].as_str(), "{name}");
                         continue;
                     }
                     assert_eq!(row.switch, None);

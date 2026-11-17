@@ -1088,9 +1088,10 @@ pub(crate) struct LaunchDevice {
     pub(crate) is_own: bool,
     /// EXP-622: the caller's default machine (never a teammate's flag).
     pub(crate) is_default: bool,
-    /// composer-menu.json `conditions.computerUse`: the machine advertises
-    /// the per-run cap, so the "+" menu offers Computer use for it.
-    pub(crate) computer_use_run: bool,
+    /// composer-menu.json `conditions.computerUse`: the machine takes the
+    /// per-run pick, its switch is on and it can drive (#EXP-1899), so the
+    /// "+" menu offers Computer use for it.
+    pub(crate) computer_use_offered: bool,
 }
 
 /// The picker line for a candidate machine — web `launch-options-pane`
@@ -1193,6 +1194,7 @@ pub(crate) fn remote_launch_devices<'a>(
             let owner = (!owned)
                 .then(|| row.user_id.as_deref().and_then(owner_name))
                 .flatten();
+            let defaults = device_launch_settings(row.launch_defaults.as_ref());
             Some(LaunchDevice {
                 label: launch_device_label(
                     row.label.as_deref().unwrap_or_default(),
@@ -1203,11 +1205,15 @@ pub(crate) fn remote_launch_devices<'a>(
                 row_id: row.id.clone(),
                 agents,
                 acp_agents,
-                defaults: device_launch_settings(row.launch_defaults.as_ref()),
                 is_own: false,
                 // EXP-622: a teammate's flag is THEIR preference, never ours.
                 is_default: owned && row.is_default.unwrap_or(false),
-                computer_use_run: row.has_cap(coding::doctor::COMPUTER_USE_RUN_CAP),
+                computer_use_offered: crate::launch_options::computer_use_offered(
+                    row.has_cap(coding::doctor::COMPUTER_USE_RUN_CAP),
+                    crate::device_readiness::parse(row.doctor.as_ref()).as_ref(),
+                    defaults.computer_use,
+                ),
+                defaults,
                 device_id,
             })
         })
@@ -1417,9 +1423,9 @@ pub(crate) fn remote_start_enabled(cx: &mut App) -> bool {
 pub(crate) fn launch_devices(team_id: Option<&str>, cx: &mut App) -> Vec<LaunchDevice> {
     let own_device_id = own_device_id(cx);
     let hub = crate::coding_flow::CodingHub::global(cx);
-    let (settings, report) = {
+    let (settings, report, own_doctor) = {
         let hub = hub.read(cx);
-        (hub.settings.clone(), hub.doctor.report.clone())
+        (hub.settings.clone(), hub.doctor.report.clone(), hub.doctor.device.clone())
     };
     let mut agents = report
         .as_ref()
@@ -1468,14 +1474,18 @@ pub(crate) fn launch_devices(team_id: Option<&str>, cx: &mut App) -> Vec<LaunchD
         row_id: own_row.as_ref().map(|row| row.id.clone()).unwrap_or_default(),
         agents,
         acp_agents: own_acp_agents,
-        defaults: settings,
         is_own: true,
         is_default: own_row
             .as_ref()
             .and_then(|row| row.is_default)
             .unwrap_or(false),
-        // This build honours it (coding::doctor::RUN_CAPS).
-        computer_use_run: true,
+        // This build takes the pick (coding::doctor::RUN_CAPS).
+        computer_use_offered: crate::launch_options::computer_use_offered(
+            true,
+            own_doctor.as_ref(),
+            settings.computer_use,
+        ),
+        defaults: settings,
         device_id: own_device_id.clone(),
     };
     let me = active_account(cx).map(|account| account.user_id).unwrap_or_default();
@@ -2034,7 +2044,7 @@ mod tests {
             defaults: coding::Settings::default(),
             is_own,
             is_default,
-            computer_use_run: true,
+            computer_use_offered: true,
         }
     }
 

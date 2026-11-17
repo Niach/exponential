@@ -300,6 +300,22 @@
       "composerWarning": null
     },
     {
+      "name": "#EXP-1899: computer use on, a Wayland session: the switch row carries the device's reason",
+      "doctor": {
+        "checkedAt": "2026-11-17T09:00:00.000Z",
+        "items": [
+          { "key": "git", "group": "required", "state": "ok", "detail": "2.55.0" },
+          { "key": "claude", "group": "agents", "state": "ok", "detail": "2.1.289" },
+          { "key": "codex", "group": "agents", "state": "missing", "detail": "Signed out", "action": "sign_in" },
+          { "key": "computer_use", "group": "computer_use", "state": "missing", "detail": "This is a Wayland session; computer use needs an X11 session for now (sign in with the \"on Xorg\" session)." }
+        ]
+      },
+      "runnable": ["claude"],
+      "localPrimary": null,
+      "remotePills": { "codex": "sign_in" },
+      "switchDescription": "This is a Wayland session; computer use needs an X11 session for now (sign in with the \"on Xorg\" session)."
+    },
+    {
       "name": "EXP-1375: low disk with two kept worktrees: a warning, never a blocker",
       "doctor": {
         "checkedAt": "2026-10-28T09:00:00.000Z",
@@ -318,22 +334,7 @@
       "localPrimary": null,
       "remotePills": { "codex": "sign_in" },
       "composerWarning": "disk"
-    },
-    {
-      "name": "#EXP-1899: computer use on, a Wayland session: the switch row carries the device's reason",
-      "doctor": {
-        "checkedAt": "2026-11-17T09:00:00.000Z",
-        "items": [
-          { "key": "git", "group": "required", "state": "ok", "detail": "2.55.0" },
-          { "key": "claude", "group": "agents", "state": "ok", "detail": "2.1.289" },
-          { "key": "codex", "group": "agents", "state": "missing", "detail": "Signed out", "action": "sign_in" },
-          { "key": "computer_use", "group": "computer_use", "state": "missing", "detail": "This is a Wayland session; computer use needs an X11 session for now (sign in with the \"on Xorg\" session)." }
-        ]
-      },
-      "runnable": ["claude"],
-      "localPrimary": null,
-      "remotePills": { "codex": "sign_in" },
-      "switchDescription": "This is a Wayland session; computer use needs an X11 session for now (sign in with the \"on Xorg\" session)."
     }
+
   ]
 }
