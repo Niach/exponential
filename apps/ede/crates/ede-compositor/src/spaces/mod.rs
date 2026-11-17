@@ -10,6 +10,7 @@
 //! on the person's side.
 
 mod close;
+pub mod frames;
 mod windows;
 pub use close::DIR_RETRIES;
 pub mod scope;
@@ -18,6 +19,7 @@ use std::{os::unix::fs::DirBuilderExt, path::PathBuf, sync::Arc};
 
 use ede_protocol::{ErrorCode, Failure, SessionId, SpaceId};
 use smithay::{
+    backend::renderer::damage::OutputDamageTracker,
     desktop::Space,
     input::{keyboard::XkbConfig, pointer::CursorImageStatus, Seat},
     output::{Mode, Output, PhysicalProperties, Scale, Subpixel},
@@ -55,11 +57,13 @@ pub struct Spaces {
     /// Removes a space's directory with all in it; a test puts one in
     /// that fails.
     pub remove_dir: fn(&std::path::Path) -> std::io::Result<()>,
+    /// Software, for the damage check and the captures ([`frames`]).
+    renderer: Option<smithay::backend::renderer::pixman::PixmanRenderer>,
 }
 
 impl Default for Spaces {
     fn default() -> Self {
-        Self { list: Vec::new(), next: 0, dir: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: |dir| std::fs::remove_dir_all(dir) }
+        Self { list: Vec::new(), next: 0, dir: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: |dir| std::fs::remove_dir_all(dir), renderer: None }
     }
 }
 
@@ -78,6 +82,16 @@ pub struct AgentSpace {
     pub(crate) listener: RegistrationToken,
     /// What connected to its socket and may still live.
     pub(crate) clients: Vec<Client>,
+    /// Its frame clock ([`frames`]): whether a tick is due, how long the
+    /// last one was armed for, how many ran.
+    pub(crate) tracker: OutputDamageTracker,
+    pub scheduled: bool,
+    pub pace: std::time::Duration,
+    pub ticks: u64,
+    /// Counts the ticks and captures that found its scene changed.
+    pub serial: u64,
+    /// When it was last driven or captured.
+    pub(crate) last_use: Option<std::time::Instant>,
 }
 
 impl AgentSpace {
@@ -94,6 +108,10 @@ impl Spaces {
 
     pub fn get(&self, desk: DeskId) -> Option<&AgentSpace> {
         self.list.iter().find(|s| s.desk.id == desk)
+    }
+
+    pub(crate) fn get_mut(&mut self, desk: DeskId) -> Option<&mut AgentSpace> {
+        self.list.iter_mut().find(|s| s.desk.id == desk)
     }
 }
 
@@ -206,6 +224,7 @@ impl Ede {
         }
         seat.add_pointer();
         let output_global = output.create_global_with_filter::<Ede, _>(&dh, on_desk(id));
+        let tracker = OutputDamageTracker::from_output(&output);
 
         let desk = Desk {
             id,
@@ -228,7 +247,7 @@ impl Ede {
             title_click: None,
         };
         tracing::info!("{name}: {width}x{height} for {}", owner.as_str());
-        self.spaces.list.push(AgentSpace { id: SpaceId::new(&name).expect("space-n is a space id"), desk, owner, output, output_global, dir, listener, clients: Vec::new() });
+        self.spaces.list.push(AgentSpace { id: SpaceId::new(&name).expect("space-n is a space id"), desk, owner, output, output_global, dir, listener, clients: Vec::new(), tracker, scheduled: false, pace: frames::SLOW, ticks: 0, serial: 0, last_use: None });
         Ok(id)
     }
 }
