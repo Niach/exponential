@@ -186,7 +186,7 @@ mod tests {
                 while let Ok(frame) = read_frame(&mut theirs) {
                     let call: Call = serde_json::from_slice(&frame).unwrap();
                     let result = match call.request {
-                        Request::Hello { .. } => serde_json::to_value(Hello { version: 1, capabilities: vec![EdeCapability::Ui], session_id: SessionId::new("apps").unwrap() }).unwrap(),
+                        Request::Hello { .. } => serde_json::to_value(Hello { version: 1, capabilities: vec![EdeCapability::Ui], session_id: SessionId::new("apps").unwrap(), features: vec![] }).unwrap(),
                         Request::ListWindows => serde_json::to_value(&windows).unwrap(),
                         Request::FocusWindow { window } => {
                             if windows.iter().any(|w| w.id == window) {
