@@ -269,6 +269,17 @@ pub(crate) fn call(backend: &dyn Backend, name: &str, args: &Value, ctx: &mut Ca
     if let Err(text) = (ctx.engage)() {
         return error(text);
     }
+    // #EXP-1895: the gate read the focus before the hold was taken, and it
+    // may have moved since: the keys go where the focus is NOW.
+    if work_screen::is_key(name) {
+        let now = match Screen::read(backend, name, ctx.picked.as_deref()) {
+            Ok(now) => now,
+            Err(text) => return error(text),
+        };
+        if let Err(refused) = work_screen::gate(&now.state, work_screen::Call { tool: name, ..Default::default() }) {
+            return refusal(refused, &now.work);
+        }
+    }
     match dispatch(backend, name, args, ctx, &screen, current) {
         Ok(result) => result,
         Err(text) => error(text),
@@ -362,20 +373,19 @@ fn dispatch(
             };
             backend.mouse_move(x, y)?;
             std::thread::sleep(MOVE_SETTLE);
+            let mut pressed = Held::new(backend);
             for modifier in &held {
-                backend.key(Key::Named(*modifier), true)?;
+                pressed.key(Key::Named(*modifier))?;
             }
             for click in 0..clicks {
                 if click > 0 {
                     std::thread::sleep(CLICK_GAP);
                 }
-                backend.mouse_button(button, true)?;
+                pressed.button(button)?;
                 std::thread::sleep(CLICK_GAP);
-                backend.mouse_button(button, false)?;
+                pressed.up()?;
             }
-            for modifier in held.iter().rev() {
-                backend.key(Key::Named(*modifier), false)?;
-            }
+            pressed.release()?;
             Ok(ok("Clicked.", json!({})))
         }
         "drag" => {
@@ -383,7 +393,8 @@ fn dispatch(
             let to = point(args, frame, "to_x", "to_y")?;
             backend.mouse_move(from.0, from.1)?;
             std::thread::sleep(MOVE_SETTLE);
-            backend.mouse_button(Button::Left, true)?;
+            let mut pressed = Held::new(backend);
+            pressed.button(Button::Left)?;
             std::thread::sleep(CLICK_GAP);
             // A few intermediate points so drag-and-drop targets see motion.
             for step in 1..=8 {
@@ -393,7 +404,7 @@ fn dispatch(
                 backend.mouse_move(x.round() as i32, y.round() as i32)?;
                 std::thread::sleep(Duration::from_millis(15));
             }
-            backend.mouse_button(Button::Left, false)?;
+            pressed.release()?;
             Ok(ok("Dragged.", json!({})))
         }
         "scroll" => {
@@ -475,14 +486,80 @@ const DEFAULT_COPY: &str = if cfg!(target_os = "macos") { "cmd+c" } else { "ctrl
 
 const READ_REFUSED: &str = "read_clipboard reads only what your own last click or key copied (an app's Copy button, a copy shortcut), never the person's clipboard. Copy first, or use copy_selection.";
 
+/// One thing a tool holds down.
+#[derive(Clone, Copy)]
+enum Press {
+    Key(Key),
+    Button(Button),
+}
+
+/// What a tool holds down on the person's seat (#EXP-1895): released in
+/// reverse on EVERY exit path, a failed step's early return included, so
+/// no button or modifier stays pressed. A release that fails is tried once
+/// more.
+struct Held<'a> {
+    backend: &'a dyn Backend,
+    pressed: Vec<Press>,
+}
+
+impl<'a> Held<'a> {
+    fn new(backend: &'a dyn Backend) -> Self {
+        Held { backend, pressed: Vec::new() }
+    }
+
+    fn key(&mut self, key: Key) -> Result<(), String> {
+        self.backend.key(key, true)?;
+        self.pressed.push(Press::Key(key));
+        Ok(())
+    }
+
+    fn button(&mut self, button: Button) -> Result<(), String> {
+        self.backend.mouse_button(button, true)?;
+        self.pressed.push(Press::Button(button));
+        Ok(())
+    }
+
+    /// Release the last press.
+    fn up(&mut self) -> Result<(), String> {
+        let Some(press) = self.pressed.pop() else {
+            return Ok(());
+        };
+        let release = || match press {
+            Press::Key(key) => self.backend.key(key, false),
+            Press::Button(button) => self.backend.mouse_button(button, false),
+        };
+        release().or_else(|_| release())
+    }
+
+    /// Release everything, last press first; the first failure is the answer.
+    fn release_all(&mut self) -> Result<(), String> {
+        let mut result = Ok(());
+        while !self.pressed.is_empty() {
+            result = result.and(self.up());
+        }
+        result
+    }
+
+    fn release(mut self) -> Result<(), String> {
+        self.release_all()
+    }
+}
+
+impl Drop for Held<'_> {
+    fn drop(&mut self) {
+        if let Err(err) = self.release_all() {
+            log::warn!("[computer] a release failed after a failed step ({err})");
+        }
+    }
+}
+
 fn press_combo(backend: &dyn Backend, combo: &crate::keys::Combo) -> Result<(), String> {
+    let mut held = Held::new(backend);
     for modifier in &combo.modifiers {
-        backend.key(Key::Named(*modifier), true)?;
+        held.key(Key::Named(*modifier))?;
     }
     let pressed = press(backend, combo.key);
-    for modifier in combo.modifiers.iter().rev() {
-        backend.key(Key::Named(*modifier), false)?;
-    }
+    held.release()?;
     pressed
 }
 
@@ -495,13 +572,34 @@ fn clipboard_mark(backend: &dyn Backend) -> Option<u64> {
     backend.clipboard().and_then(|clipboard| clipboard.change_count()).ok()
 }
 
+/// `paste_text`'s `file` (#EXP-1895): its size is checked before a byte is
+/// read, and the read itself stops just past the limit (a path whose size
+/// reads 0, a file that grows).
+fn read_paste_file(path: &str) -> Result<String, String> {
+    use std::io::Read;
+    let unreadable = |err: std::io::Error| format!("Could not read `file` ({err}).");
+    let too_large = || format!("`file` is over the limit of {PASTE_MAX_CHARS} characters.");
+    // A character is at most 4 bytes; one trailing line end is dropped.
+    let limit = (PASTE_MAX_CHARS * 4 + 2) as u64;
+    let file = std::fs::File::open(path).map_err(unreadable)?;
+    if file.metadata().map_err(unreadable)?.len() > limit {
+        return Err(too_large());
+    }
+    let mut bytes = Vec::new();
+    file.take(limit + 1).read_to_end(&mut bytes).map_err(unreadable)?;
+    if bytes.len() as u64 > limit {
+        return Err(too_large());
+    }
+    String::from_utf8(bytes).map_err(|err| format!("Could not read `file` ({err})."))
+}
+
 /// `paste_text`'s text: `text`, or `file`'s contents less one trailing
 /// newline. Never logged or echoed.
 fn paste_source(args: &Value) -> Result<String, String> {
     let text = match (args.get("text").and_then(Value::as_str), args.get("file").and_then(Value::as_str)) {
         (Some(text), None) => text.to_string(),
         (None, Some(path)) => {
-            let mut text = std::fs::read_to_string(path).map_err(|err| format!("Could not read `file` ({err})."))?;
+            let mut text = read_paste_file(path)?;
             if text.ends_with('\n') {
                 text.pop();
                 if text.ends_with('\r') {
@@ -583,9 +681,10 @@ fn copy(backend: &dyn Backend, combo: &crate::keys::Combo, interrupted: &dyn Fn(
 pub(crate) const ABORTED: &str = "The person pressed Esc: computer use is aborted. Stop driving the screen and say so in your reply; drive again only when they ask.";
 
 fn press(backend: &dyn Backend, key: Key) -> Result<(), String> {
-    backend.key(key, true)?;
+    let mut held = Held::new(backend);
+    held.key(key)?;
     std::thread::sleep(TYPE_GAP);
-    backend.key(key, false)
+    held.release()
 }
 
 fn window_json(w: &WindowInfo, frame: Frame, displays: &[DisplayInfo]) -> Value {
@@ -645,6 +744,7 @@ pub(crate) fn base64(bytes: &[u8]) -> String {
 pub(crate) mod tests {
     use super::*;
     use crate::backend::Clipboard;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Mutex;
 
     /// A backend that records what it was asked: a 2000x1000 primary display
@@ -658,6 +758,23 @@ pub(crate) mod tests {
         /// The window list fails (#1295 review: input fails closed).
         pub no_windows: bool,
         pub clip: Mutex<FakeClip>,
+        /// The input step (a move, a button, a key, a scroll, a typed
+        /// character; 0-based) that fails, once (#EXP-1895).
+        pub fail_step: Option<usize>,
+        pub steps: AtomicUsize,
+        /// The person's fullscreen game took the focus mid-call.
+        pub focus_moved: AtomicBool,
+    }
+
+    impl FakeBackend {
+        /// One input step: logged, or failed when it is `fail_step`.
+        fn step(&self, line: String) -> Result<(), String> {
+            if self.fail_step == Some(self.steps.fetch_add(1, Ordering::SeqCst)) {
+                return Err(format!("the compositor refused `{line}`"));
+            }
+            self.log.lock().unwrap().push(line);
+            Ok(())
+        }
     }
 
     /// The fake clipboard: its text, change count, what the focused app
@@ -731,8 +848,9 @@ pub(crate) mod tests {
             if self.no_windows {
                 return Err("no window list".into());
             }
-            let brave = WindowInfo { id: 7, title: "Brave".into(), app: "brave".into(), pid: Some(42), x: 200, y: 100, width: 1000, height: 500, active: !self.gaming, fullscreen: false };
-            if !self.gaming {
+            let gaming = self.gaming || self.focus_moved.load(Ordering::SeqCst);
+            let brave = WindowInfo { id: 7, title: "Brave".into(), app: "brave".into(), pid: Some(42), x: 200, y: 100, width: 1000, height: 500, active: !gaming, fullscreen: false };
+            if !gaming {
                 return Ok(vec![brave]);
             }
             // The person's game, fullscreen and focused on display B.
@@ -744,19 +862,16 @@ pub(crate) mod tests {
             Ok(())
         }
         fn mouse_move(&self, x: i32, y: i32) -> Result<(), String> {
-            self.log.lock().unwrap().push(format!("move {x},{y}"));
-            Ok(())
+            self.step(format!("move {x},{y}"))
         }
         fn mouse_button(&self, button: Button, down: bool) -> Result<(), String> {
-            self.log.lock().unwrap().push(format!("{button:?} {}", if down { "down" } else { "up" }));
-            Ok(())
+            self.step(format!("{button:?} {}", if down { "down" } else { "up" }))
         }
         fn scroll(&self, dx: i32, dy: i32) -> Result<(), String> {
-            self.log.lock().unwrap().push(format!("scroll {dx},{dy}"));
-            Ok(())
+            self.step(format!("scroll {dx},{dy}"))
         }
         fn key(&self, key: Key, down: bool) -> Result<(), String> {
-            self.log.lock().unwrap().push(format!("key {key:?} {}", if down { "down" } else { "up" }));
+            self.step(format!("key {key:?} {}", if down { "down" } else { "up" }))?;
             let mut clip = self.clip.lock().unwrap();
             if key == Key::Char('c') && down {
                 if let Some(copied) = clip.copies.clone() {
@@ -770,8 +885,7 @@ pub(crate) mod tests {
             Ok(Box::new(FakeClipboard(self)))
         }
         fn type_char(&self, ch: char) -> Result<(), String> {
-            self.log.lock().unwrap().push(format!("type {ch}"));
-            Ok(())
+            self.step(format!("type {ch}"))
         }
         fn lock(&self, _on_esc: Box<dyn Fn() + Send + Sync>) -> Result<Box<dyn crate::backend::LockGuard>, String> {
             if self.fail_lock {
@@ -893,6 +1007,98 @@ pub(crate) mod tests {
         assert_eq!(one(&backend, "scroll", json!({ "x": 10, "y": 10, "direction": "sideways" }))["isError"], true);
         assert_eq!(one(&backend, "nope", json!({}))["isError"], true);
         assert_eq!(one(&backend, "left_click", json!({ "x": "ten" }))["isError"], true);
+    }
+
+    /// What the log left pressed: every `down` without a later `up`.
+    fn still_pressed(backend: &FakeBackend) -> Vec<String> {
+        let mut pressed: Vec<String> = Vec::new();
+        for line in backend.log.lock().unwrap().iter() {
+            if let Some(what) = line.strip_suffix(" down") {
+                pressed.push(what.to_string());
+            } else if let Some(what) = line.strip_suffix(" up") {
+                if let Some(index) = pressed.iter().rposition(|held| held == what) {
+                    pressed.remove(index);
+                }
+            }
+        }
+        pressed
+    }
+
+    /// #EXP-1895: `name` with the backend failing at each of its steps in
+    /// turn: whatever step fails, every press has its release.
+    fn fails_at_every_step(name: &str, args: Value) {
+        for fail in 0.. {
+            let backend = FakeBackend { fail_step: Some(fail), ..Default::default() };
+            backend.clip.lock().unwrap().copies = Some("copied".to_string());
+            one(&backend, name, args.clone());
+            assert_eq!(still_pressed(&backend), Vec::<String>::new(), "{name} failing at step {fail}: {:?}", backend.log.lock().unwrap());
+            if backend.steps.load(Ordering::SeqCst) <= fail {
+                assert!(fail > 0, "{name} never reached the backend");
+                return;
+            }
+        }
+    }
+
+    #[test]
+    fn a_failed_step_in_a_drag_releases_the_button() {
+        fails_at_every_step("drag", json!({ "from_x": 10, "from_y": 10, "to_x": 90, "to_y": 50 }));
+    }
+
+    #[test]
+    fn a_failed_step_in_a_modifier_click_releases_the_button_and_the_modifiers() {
+        fails_at_every_step("left_click", json!({ "x": 10, "y": 10, "modifiers": "ctrl+shift" }));
+        fails_at_every_step("double_click", json!({ "x": 10, "y": 10, "modifiers": "shift" }));
+        fails_at_every_step("right_click", json!({ "x": 10, "y": 10 }));
+    }
+
+    #[test]
+    fn a_failed_step_in_a_key_combo_releases_the_modifiers() {
+        fails_at_every_step("key", json!({ "combo": "ctrl+shift+s" }));
+        fails_at_every_step("paste_text", json!({ "text": "hello" }));
+        fails_at_every_step("copy_selection", json!({}));
+    }
+
+    /// #EXP-1895: the gate read the focus before the hold was taken; the
+    /// person's game took it meanwhile, so the keys would land in it.
+    #[test]
+    fn a_key_tool_checks_the_focus_again_once_the_hold_is_taken() {
+        for (name, args) in [
+            ("key", json!({ "combo": "ctrl+s" })),
+            ("type", json!({ "text": "a" })),
+            ("paste_text", json!({ "text": "a" })),
+            ("copy_selection", json!({})),
+        ] {
+            let backend = FakeBackend::default();
+            let engage = || {
+                backend.focus_moved.store(true, Ordering::SeqCst);
+                Ok(())
+            };
+            let mut display = None;
+            let reply = call(&backend, name, &args, &mut CallContext { interrupted: &never, display: &mut display, copy_mark: &mut None, picked: None, engage: &engage });
+            assert_eq!(reply["structuredContent"]["refusal"], "wrong_display", "{name}: {reply}");
+            assert_eq!(reply["structuredContent"]["kind"], "gaming");
+            assert!(backend.log.lock().unwrap().is_empty(), "{name}: {:?}", backend.log.lock().unwrap());
+        }
+    }
+
+    /// #EXP-1895: a `file` over the limit is refused by its size, unread.
+    #[test]
+    fn paste_text_stats_a_file_before_reading_it() {
+        let dir = std::env::temp_dir().join(format!("epilot-paste-size-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let huge = dir.join("huge");
+        // Sparse: 64 MiB that take no disk.
+        std::fs::File::create(&huge).unwrap().set_len(64 << 20).unwrap();
+        let refused = paste_source(&json!({ "file": huge.to_str().unwrap() }));
+        let small = dir.join("small");
+        std::fs::write(&small, "secret\r\n").unwrap();
+        let read = paste_source(&json!({ "file": small.to_str().unwrap() }));
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(refused, Err(format!("`file` is over the limit of {PASTE_MAX_CHARS} characters.")));
+        assert_eq!(read.as_deref(), Ok("secret"));
+        // A path whose size reads 0 and never ends: the read is bounded too.
+        #[cfg(unix)]
+        assert_eq!(paste_source(&json!({ "file": "/dev/zero" })), Err(format!("`file` is over the limit of {PASTE_MAX_CHARS} characters.")));
     }
 
     #[test]
