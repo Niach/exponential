@@ -1024,6 +1024,15 @@ struct AgentSessionView: View {
                             // viewer's own messages the device has not
                             // consumed, then the outbox, each with its mark.
                             ownPendingBubbles(model)
+                            // #FEED-260 (steer-enet.json OFFLINE LINE): a
+                            // transcript the live feed cannot reach ENDS with
+                            // THE inline marker saying so, never silently
+                            // after its last row.
+                            if model.offlineLine {
+                                TranscriptMarkerRow(label: SteerNoFeed.away(deviceName: model.hostDevice.label).title)
+                                    .padding(.top, Self.gapPoints(.turn))
+                                    .accessibilityIdentifier("transcript-offline-line")
+                            }
                         }
                         // N-12: THE Queue left the transcript for THE Dock
                         // (`SessionDock`).
