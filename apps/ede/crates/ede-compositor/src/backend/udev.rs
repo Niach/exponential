@@ -337,6 +337,15 @@ pub fn run(config: Config, config_path: Option<std::path::PathBuf>, autostart: V
         let primary = u.primary_gpu;
         u.gpus.single_renderer(&primary).is_ok_and(|mut r| r.import_dmabuf(dmabuf, None).is_ok())
     }));
+    // Captures on the primary GPU's GLES renderer, which reads the GPU
+    // clients' dmabufs (#EDE-100).
+    let capturer = udev.clone();
+    state.capture_renderer = Some(Box::new(move |state, what| {
+        let mut u = capturer.borrow_mut();
+        let primary = u.primary_gpu;
+        let mut renderer = u.gpus.single_renderer(&primary).map_err(|e| e.to_string())?;
+        super::capture_on_gles(renderer.as_mut(), state, what)
+    }));
     let u = udev.clone();
     event_loop.handle().insert_source(udev_backend, move |event, _, state| match event {
         UdevEvent::Added { device_id, path } => {

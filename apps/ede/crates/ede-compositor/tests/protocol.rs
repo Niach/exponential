@@ -903,3 +903,36 @@ fn a_since_capture_is_unchanged_until_something_is_drawn() {
     assert_eq!(next.at(400, 300), BLUE);
     assert!(next.info.serial > first.info.serial);
 }
+
+/// #EDE-100: without a backend renderer (headless) an agent's screenshot
+/// is the software frame, pixel for pixel; with one (udev, winit) output
+/// and window captures go through it.
+#[test]
+fn captures_draw_on_the_backends_renderer_and_fall_back_to_software() {
+    let h = harness();
+    let mut app = Session::connect(h.connect());
+    let t = app.toplevel("app");
+    app.draw(&t, 300, 200, RED);
+    wait_for(&mut app, |_| h.with(|e| e.space.elements().count()) == 1);
+    let mut ipc = h.ipc();
+    let output = CaptureTarget::Output { name: "HEADLESS-1".into() };
+    let shot = ipc.capture(output.clone()).unwrap();
+    let software = h.capture_shared(0);
+    assert_eq!((shot.info.width, shot.info.height), (software.width, software.height));
+    assert!(shot.pixels == software.pixels.iter().flat_map(|p| p.to_le_bytes()).collect::<Vec<u8>>(), "the software frame, unchanged");
+
+    h.with(|e| {
+        e.capture_renderer = Some(Box::new(|_, what| {
+            let marker = match what {
+                ede_compositor::backend::CaptureOf::Output(_) => BLUE,
+                ede_compositor::backend::CaptureOf::Window(_) => BLACK,
+            };
+            Ok(ede_compositor::backend::headless::Frame { width: 2, height: 1, pixels: vec![marker; 2] })
+        }))
+    });
+    let shot = ipc.capture(output).unwrap();
+    assert_eq!((shot.info.width, shot.at(1, 0)), (2, BLUE), "the output on the backend's renderer");
+    let id = ipc.windows().unwrap()[0].id.clone();
+    let shot = ipc.capture(CaptureTarget::Window { window: id }).unwrap();
+    assert_eq!((shot.info.width, shot.at(1, 0)), (2, BLACK), "the window on the backend's renderer");
+}

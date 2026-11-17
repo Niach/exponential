@@ -491,6 +491,49 @@ fn hidden_windows_get_frame_callbacks_at_most_once_a_second() {
     assert!(locked <= 2, "behind the lock: {locked} in 1.5 s");
 }
 
+/// #EDE-100: a capture on GLES (what udev and winit capture on, so GPU
+/// clients' dmabufs are in it) is the software capture, pixel for pixel:
+/// same scene, same orientation, same colours. Runs on Mesa's software EGL
+/// device (llvmpipe); skipped where there is none.
+#[test]
+fn a_gles_capture_is_the_software_capture() {
+    use ede_compositor::backend::{capture_on_gles, capture_output, capture_window, CaptureOf};
+    use smithay::backend::{
+        egl::{EGLContext, EGLDevice, EGLDisplay},
+        renderer::gles::GlesRenderer,
+    };
+    let h = harness(&[(1280, 800)]);
+    let mut c = Session::connect(h.connect());
+    // Not symmetric top to bottom: a flipped readback cannot pass.
+    let panel = c.layer("panel", Anchor::Bottom | Anchor::Left | Anchor::Right, (0, 40), 40);
+    c.draw_layer(&panel, GREEN);
+    let t = c.toplevel("app");
+    c.draw(&t, 400, 300, RED);
+    wait_for(&mut c, |_| windows(&h).len() == 1);
+    let frames = h.with_backend(|state, headless| {
+        let device = EGLDevice::enumerate().ok()?.find(|d| d.is_software())?;
+        let display = unsafe { EGLDisplay::new(device) }.ok()?;
+        let mut gles = unsafe { GlesRenderer::new(EGLContext::new(&display).ok()?) }.ok()?;
+        let output = headless.outputs[0].clone();
+        let window = state.space.elements().next().cloned().unwrap();
+        Some((
+            capture_on_gles(&mut gles, state, CaptureOf::Output(&output)).unwrap(),
+            capture_output(state, &output).unwrap(),
+            capture_on_gles(&mut gles, state, CaptureOf::Window(&window)).unwrap(),
+            capture_window(state, &window).unwrap(),
+        ))
+    });
+    let Some((gles, software, gles_window, software_window)) = frames else {
+        eprintln!("no software EGL device: skipped");
+        return;
+    };
+    assert_eq!((software.at(640, 790), software.at(640, 400)), (GREEN, RED));
+    assert_eq!((gles.width, gles.height), (software.width, software.height));
+    assert!(gles.pixels == software.pixels, "output: GLES {:#x} {:#x}, software {:#x} {:#x} (bottom, centre)", gles.at(640, 790), gles.at(640, 400), software.at(640, 790), software.at(640, 400));
+    assert_eq!((gles_window.width, gles_window.height), (software_window.width, software_window.height));
+    assert!(gles_window.pixels == software_window.pixels, "window: GLES {:#x}, software {:#x}", gles_window.at(10, 10), software_window.at(10, 10));
+}
+
 /// Xwayland must be installed (CI installs it); skipped otherwise.
 ///
 /// #EXP-1806: with `EDE_XWAYLAND_VERDICT=<file>` a missing Xwayland fails
