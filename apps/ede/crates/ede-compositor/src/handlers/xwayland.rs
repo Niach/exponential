@@ -234,7 +234,13 @@ impl XwmHandler for Ede {
     fn unminimize_request(&mut self, _xwm: XwmId, surface: X11Surface) {
         if let Some(w) = self.minimized.iter().find(|w| w.x11_surface() == Some(&surface)).cloned() {
             self.restore_window(&w);
-            self.focus(Some(w));
+            // #EDE-82: a client's own request brings it in front only when
+            // its app is the one typed into.
+            if self.takes_keyboard(&w) {
+                self.focus(Some(w));
+            } else {
+                self.keep_behind(&w);
+            }
         }
     }
 
