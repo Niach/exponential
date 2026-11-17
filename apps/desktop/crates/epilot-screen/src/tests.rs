@@ -445,6 +445,32 @@ fn a_frame_delivered_while_paused_is_never_stored_after_the_resume() {
     rig.memory.stop(true);
 }
 
+/// STALE for a capturer that reads live (the X11 root reader, Windows' live
+/// read): it cannot tell the screen of before the resume, which may still
+/// show the vault that just closed, so it is not asked at all until the
+/// interval after the resume is over; neither by the tick nor by a
+/// focus-change grab (#EXP-1908).
+#[test]
+fn a_live_capturer_is_not_asked_within_the_interval_after_a_resume() {
+    const INTERVAL_MS: u64 = 300;
+    let dir = TempDir::new();
+    let rig = rig(&dir, INTERVAL_MS);
+    wait_until(|| count(&rig.memory) > 0);
+    rig.focus(Some(window("1Password", "Vault")));
+    wait_until(|| rig.statuses.lock().unwrap().len() >= 2);
+    wait_until(|| !rig.memory.encoding());
+    let paused_at = count(&rig.memory);
+    let resumed = engine::now_ms();
+    rig.focus(Some(window("Zed", "main.rs")));
+    wait_until(|| rig.statuses.lock().unwrap().len() >= 3);
+    // A title change within the interval: no focus-change grab either.
+    rig.focus(Some(window("Zed", "lib.rs")));
+    wait_until(|| count(&rig.memory) > paused_at);
+    let early: Vec<i64> = rig.rows().iter().map(|row| row.at - resumed).filter(|after| (0..INTERVAL_MS as i64).contains(after)).collect();
+    assert!(early.is_empty(), "read live {early:?} ms after the resume");
+    rig.memory.stop(true);
+}
+
 /// PAUSE fails closed: no window list (`None`) or no focused window holds
 /// capture paused; RETENTION still sweeps while paused.
 #[test]

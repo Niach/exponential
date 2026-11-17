@@ -194,12 +194,37 @@ pub fn sweep_ended(data_dir: &Path, rows: &[SessionRow], live: &HashSet<String>)
     scoped.sort();
     scoped.dedup();
     let ended = ended_with_scopes(rows, &scoped, live);
-    for session_id in &ended {
+    sweep_each(data_dir, &ended, |session_id| {
         let worktree = crate::run_registry::get(data_dir, session_id).map(|record| record.cwd);
         log::info!("session teardown [{session_id}]: ended with leftovers on this host");
         end_session_processes(data_dir, session_id, worktree.as_deref());
+    })
+}
+
+/// The sweep's loop: one `teardown` per session of `ended`, in order.
+/// Returns the sessions it tore down.
+///
+/// #EXP-1911: a session with a live run in the HOST-WIDE run registry is
+/// never swept, whatever the caller's rows and its own live set say: the
+/// desktop app and the daemon share a machine and a data dir, and one's
+/// stale rows must not stop a run the other drives.
+fn sweep_each(data_dir: &Path, ended: &[String], mut teardown: impl FnMut(&str)) -> Vec<String> {
+    let mut swept = Vec::new();
+    for session_id in ended {
+        if live_on_host(data_dir, session_id) {
+            log::info!("session teardown [{session_id}]: a host process here drives a run of it, it keeps everything");
+            continue;
+        }
+        teardown(session_id);
+        swept.push(session_id.clone());
     }
-    ended
+    swept
+}
+
+/// Does a live host process on this machine (this one, the desktop app, the
+/// daemon) drive a run of `session_id`? The run registry's word.
+fn live_on_host(data_dir: &Path, session_id: &str) -> bool {
+    crate::run_registry::live_host_runs(data_dir).into_iter().any(|(session, _)| session == session_id)
 }
 
 /// The daemon's sweep (pure): the sessions with a scope on this host whose
@@ -251,6 +276,25 @@ sibling\t/repos/acme.worktrees/exp-session-c026c74a2\t/repos/acme.worktrees/exp-
         let session = "00000000-0000-4000-8000-00000000e868";
         assert!(end_session_processes(&dir, session, Some(&dir)).is_empty());
         assert!(end_session_processes(&dir, session, None).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #EXP-1911: the app and the daemon share a machine. A session that
+    /// reads ended in THIS host's rows (stale: its sync is behind) while the
+    /// other host process drives a run of it keeps everything.
+    #[test]
+    fn a_session_live_in_the_host_registry_is_never_swept() {
+        let dir = std::env::temp_dir().join(format!("exp-teardown-live-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let live = "00000000-0000-4000-8000-0000000a1911".to_string();
+        let mut record = crate::run_registry::sample_record(&live);
+        record.host_pid = Some(std::process::id());
+        crate::run_registry::record(&dir, record);
+        let ended = vec!["00000000-0000-4000-8000-00000000e911".to_string(), live.clone()];
+        let mut torn = Vec::new();
+        let swept = sweep_each(&dir, &ended, |session| torn.push(session.to_string()));
+        assert_eq!(torn, vec![ended[0].clone()], "ended in the rows, live on the host: untouched");
+        assert_eq!(swept, torn);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

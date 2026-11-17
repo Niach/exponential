@@ -249,3 +249,69 @@ fn a_holds_start_fires_none_of_the_persons_bindings() {
     person_key(&h, KEY_LEFTALT, KeyState::Released);
     assert_eq!(hotkeys(&mut shell), Vec::<String>::new());
 }
+
+const KEY_V: u32 = 47;
+const KEY_Z: u32 = 44;
+const KEY_CAPSLOCK: u32 = 58;
+
+fn layouts(layout: &str) -> Harness {
+    let keyboard = ede_compositor::config::Keyboard { layout: layout.into(), ..Default::default() };
+    Harness::start(Config { keyboard, ..Config::default() }, &[(800, 600)])
+}
+
+fn active_layout(h: &Harness) -> u32 {
+    h.with(|ede| {
+        let keyboard = ede.seat.get_keyboard().unwrap();
+        keyboard.with_xkb_state(ede, |ctx| ctx.xkb().lock().unwrap().active_layout().0)
+    })
+}
+
+/// The key a keysym resolves to: (evdev code, modifiers' evdev codes, the
+/// other layout it is in).
+fn key_for(h: &Harness, keysym: u32) -> Option<(u32, Vec<u32>, Option<u32>)> {
+    h.with(move |ede| ede.key_for_keysym(keysym)).map(|(key, mods, layout)| (key.raw() - 8, mods.iter().map(|m| m.raw() - 8).collect(), layout.map(|l| l.0)))
+}
+
+/// #EXP-1907: with the Russian layout active no key of it makes `v`: the
+/// US layout's does, in the US layout for the length of the stroke, so
+/// ctrl+v pastes and Latin text is typed as Latin.
+#[test]
+fn a_keysym_of_another_layout_is_pressed_in_that_layout() {
+    let h = layouts("us,ru");
+    h.with(|ede| ede.swap_layout(smithay::input::keyboard::Layout(1)));
+    assert_eq!(key_for(&h, 0x6cd), Some((KEY_V, vec![], None)), "Cyrillic em is the active layout's");
+    assert_eq!(key_for(&h, 0x76), Some((KEY_V, vec![], Some(0))));
+    assert_eq!(key_for(&h, 0x56), Some((KEY_V, vec![KEY_LEFTSHIFT], Some(0))));
+    assert_eq!(key_for(&h, 0x0100_2603), None, "no layout has a snowman");
+
+    let mut ipc = h.ipc();
+    ipc.input(InputEvent::Keysym { keysym: 0x76, pressed: true }).unwrap();
+    assert_eq!((down(&h).0, active_layout(&h)), (vec![KEY_V], 0));
+    ipc.input(InputEvent::Keysym { keysym: 0x76, pressed: false }).unwrap();
+    assert_eq!((down(&h).0, active_layout(&h)), (vec![], 1), "the person's layout is back");
+
+    // A connection that closes mid-stroke gives the layout back too.
+    ipc.input(InputEvent::Keysym { keysym: 0x76, pressed: true }).unwrap();
+    assert_eq!(active_layout(&h), 0);
+    drop(ipc);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while (down(&h).0, active_layout(&h)) != (vec![], 1) {
+        assert!(Instant::now() < deadline, "the layout stayed switched after the connection closed");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// #EXP-1907: under Caps Lock a typed `a` needs Shift and `A` none; under
+/// a held Ctrl the key is a shortcut's and is pressed as the person would.
+#[test]
+fn a_keysym_is_resolved_under_the_seats_caps_lock() {
+    let h = layouts("us");
+    assert_eq!(key_for(&h, 0x61), Some((KEY_A, vec![], None)));
+    person_key(&h, KEY_CAPSLOCK, KeyState::Pressed);
+    person_key(&h, KEY_CAPSLOCK, KeyState::Released);
+    assert_eq!(key_for(&h, 0x61), Some((KEY_A, vec![KEY_LEFTSHIFT], None)));
+    assert_eq!(key_for(&h, 0x41), Some((KEY_A, vec![], None)));
+    person_key(&h, KEY_LEFTCTRL, KeyState::Pressed);
+    assert_eq!(key_for(&h, 0x7a), Some((KEY_Z, vec![], None)));
+    person_key(&h, KEY_LEFTCTRL, KeyState::Released);
+}

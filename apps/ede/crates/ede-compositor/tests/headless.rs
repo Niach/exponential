@@ -747,7 +747,8 @@ fn the_frame_minimizes_and_a_window_above_it_keeps_its_own_presses() {
     wait_for(&mut other, |_| windows(&h).len() == 2);
     let over = (geo.loc.x - 50, geo.loc.y - 100);
     h.with(move |ede| {
-        let w = ede.space.elements().last().cloned().unwrap();
+        // Another app's window opens behind (#EDE-82): bring it in front.
+        let w = ede.space.elements().next().cloned().unwrap();
         ede.space.map_element(w, over, true);
     });
     other.state.press_serial = None;

@@ -119,6 +119,8 @@ pub struct Ede {
     pub set_mode: Option<Box<dyn FnMut(&Output, smithay::output::Mode) -> Result<(), String>>>,
     /// xdg-decoration: who draws a window's frame ([`crate::frames`]).
     pub xdg_decoration_state: smithay::wayland::shell::xdg::decoration::XdgDecorationState,
+    /// xdg-activation and the person's launch tokens ([`crate::launch`]).
+    pub xdg_activation_state: smithay::wayland::xdg_activation::XdgActivationState,
     /// The recovery screen's state ([`crate::recovery`]).
     pub recovery: crate::recovery::Recovery,
     /// Why the backend stopped the loop (#EDE-40: the outputs never drew);
@@ -247,6 +249,7 @@ impl Ede {
             viewporter_state: smithay::wayland::viewporter::ViewporterState::new::<Self>(&dh),
             set_mode: None,
             xdg_decoration_state: smithay::wayland::shell::xdg::decoration::XdgDecorationState::new::<Self>(&dh),
+            xdg_activation_state: smithay::wayland::xdg_activation::XdgActivationState::new::<Self>(&dh),
             recovery: crate::recovery::Recovery::default(),
             fatal: None,
             title_click: None,
@@ -468,6 +471,11 @@ impl Ede {
             // the lock screen.
             return;
         }
+        if self.exclusive_prompt().is_some() {
+            // Nor from an Exclusive prompt (#EDE-82): what had the keyboard
+            // before it gets it back when the prompt closes.
+            return;
+        }
         let serial = SERIAL_COUNTER.next_serial();
         let keyboard = self.seat.get_keyboard().unwrap();
         if let Some(window) = &window {
@@ -533,10 +541,18 @@ impl Ede {
             }
             None => (0, fh).into(),
         };
-        self.move_window(&window, loc, true);
+        // #EDE-82, #EDE-76: only a window of the focused app, or one the
+        // person launched, takes the keyboard; never from a prompt.
+        let person = self.person_started(&window);
+        let takes = self.takes_keyboard(&window) || (person && self.exclusive_prompt().is_none());
+        self.move_window(&window, loc, takes);
         self.send_preferred_scale(&window);
         self.window_event(ede_protocol::events::WINDOW_OPENED, &window);
-        self.focus(Some(window));
+        if takes {
+            self.focus(Some(window));
+        } else {
+            self.keep_behind(&window);
+        }
     }
 
     /// Tells a window's surface the fractional scale of the output under
@@ -602,7 +618,7 @@ impl Ede {
         set_window_state(window, st);
         let rect = self.without_frame(window, tile.rect(area));
         self.configure_window(window, Some(rect), Some(tile), false);
-        self.space.map_element(window.clone(), rect.loc, true);
+        self.remap(window, rect.loc);
     }
 
     /// `rect` minus the title bar at its top (what the window itself gets).
@@ -624,7 +640,7 @@ impl Ede {
         let rect = restore.map(|r| Rectangle::new(loc.unwrap_or(r.loc), r.size));
         self.configure_window(window, rect, None, false);
         if let Some(loc) = loc {
-            self.space.map_element(window.clone(), loc, true);
+            self.remap(window, loc);
         }
     }
 
@@ -647,8 +663,13 @@ impl Ede {
             st.fullscreen = Some(geo);
             set_window_state(window, st);
             self.configure_window(window, Some(out), None, true);
-            self.space.map_element(window.clone(), out.loc, true);
-            self.focus(Some(window.clone()));
+            // #EDE-82: a window in the background goes fullscreen where it
+            // is, behind the one being typed into.
+            let takes = self.takes_keyboard(window);
+            self.remap(window, out.loc);
+            if takes {
+                self.focus(Some(window.clone()));
+            }
         } else {
             let back = st.fullscreen.take();
             set_window_state(window, st);
@@ -658,12 +679,12 @@ impl Ede {
                     if let Some(area) = self.output_at(center).and_then(|o| self.work_area(&o)) {
                         let rect = self.without_frame(window, tile.rect(area));
                         self.configure_window(window, Some(rect), Some(tile), false);
-                        self.space.map_element(window.clone(), rect.loc, true);
+                        self.remap(window, rect.loc);
                     }
                 }
                 (None, Some(back)) => {
                     self.configure_window(window, Some(back), None, false);
-                    self.space.map_element(window.clone(), back.loc, true);
+                    self.remap(window, back.loc);
                 }
                 (None, None) => {}
             }
@@ -679,14 +700,19 @@ impl Ede {
         self.config.background_rgba().unwrap_or([0.04, 0.04, 0.04, 1.0])
     }
 
-    /// The window filling `output` fullscreen, if any (topmost wins).
+    /// The window filling `output` fullscreen: the topmost window on it,
+    /// when that one is fullscreen (#EDE-82: one behind another window
+    /// never hides what is typed into). X11 menus and tooltips do not count.
     pub fn fullscreen_on(&self, output: &Output) -> Option<Window> {
         let out = self.space.output_geometry(output)?;
-        self.space
-            .elements()
-            .rev()
-            .find(|w| window_state(w).fullscreen.is_some() && self.space.element_location(w) == Some(out.loc))
-            .cloned()
+        let top = self.space.elements().rev().find(|w| {
+            #[cfg(feature = "xwayland")]
+            if w.x11_surface().is_some_and(|x| x.is_override_redirect()) {
+                return false;
+            }
+            self.space.element_geometry(w).is_some_and(|g| g.overlaps(out))
+        })?;
+        (window_state(top).fullscreen.is_some() && self.space.element_location(top) == Some(out.loc)).then(|| top.clone())
     }
 
     /// The floating size a window returns to, if it is tiled.

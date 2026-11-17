@@ -211,7 +211,9 @@ impl Ede {
         for (_, key) in keys.iter().rev().filter(|(_, k)| down.contains(k)) {
             self.key(*key, KeyState::Released, time, false);
         }
-        self.ipc.keysyms.forget(&keys);
+        if let Some(layout) = self.ipc.keysyms.forget(&keys) {
+            self.swap_layout(layout);
+        }
         for (_, button) in buttons {
             self.pointer_button(button, ButtonState::Released, time);
         }

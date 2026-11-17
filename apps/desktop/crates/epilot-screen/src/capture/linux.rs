@@ -176,7 +176,8 @@ impl RootReader {
     }
 }
 
-/// Reads live, so STALE's `since` never holds anything back.
+/// Reads live: STALE's `since` is the engine's to keep (it asks for no
+/// frame of a display before its `since`).
 impl Capturer for RootReader {
     fn grab_all(&mut self, wanted: &[Want]) -> Result<Vec<Frame>, String> {
         let rects: Vec<Rect> = self.rects()?.into_iter().filter(|rect| wanted.iter().any(|want| want.display == rect.0)).collect();
@@ -319,6 +320,18 @@ fn number_streams(streams: &[StreamRect], displays: &[epilot::Display]) -> Vec<u
     numbers.into_iter().map(|number| number.unwrap_or(0)).collect()
 }
 
+/// Whether a `width` x `height` frame can be display `number`'s: it has
+/// that display's pixel size (`sizes`: each display the streams were
+/// numbered against). #EXP-1908: the streams keep the rects of session
+/// start, so after a layout change a stream may carry another display's
+/// number; its frames are then not that display's size and are refused
+/// (they would be labelled and masked by the wrong display's windows). A
+/// number past the displays (pure Wayland) has no size to differ from.
+#[cfg_attr(not(feature = "portal"), allow(dead_code))]
+fn frame_fits(sizes: &[(u32, (u32, u32))], number: u32, width: u32, height: u32) -> bool {
+    sizes.iter().find(|(display, _)| *display == number).is_none_or(|(_, size)| *size == (width, height))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -349,6 +362,20 @@ mod tests {
         let streams = [stream(0, 0, 3840, 2160), stream(9000, 0, 10, 10), stream(3840, 0, 1920, 1080)];
         let three = [display(1, 0, 0, 3840, 2160)];
         assert_eq!(number_streams(&streams, &three), vec![1, 3, 2]);
+    }
+
+    /// #EXP-1908: one session shares the laptop panel; docking moves it.
+    #[test]
+    fn a_stream_numbered_by_its_rect_of_session_start_is_refused_after_the_layout_moved() {
+        let streams = [stream(0, 0, 1920, 1080)];
+        // The external monitor takes (0,0), the panel moves to its right.
+        let displays = [display(1, 0, 0, 2560, 1440), display(2, 2560, 0, 1920, 1080)];
+        let numbers = number_streams(&streams, &displays);
+        assert_eq!(numbers, vec![1], "the rect of session start lies on the external monitor now");
+        let sizes: Vec<(u32, (u32, u32))> = displays.iter().map(|display| (display.number, (display.width, display.height))).collect();
+        assert!(!frame_fits(&sizes, numbers[0], 1920, 1080), "the panel's frame under the external monitor's number");
+        assert!(frame_fits(&sizes, 2, 1920, 1080));
+        assert!(frame_fits(&[], 1, 1920, 1080), "no displays (pure Wayland): nothing to differ from");
     }
 
     #[test]

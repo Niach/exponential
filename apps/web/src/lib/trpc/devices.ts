@@ -73,6 +73,7 @@ import { stopMeetingUnlessPrivate, voiceSettingsOf } from "@/lib/trpc/voice"
 import { parseVersionTuple, versionPayload } from "@/lib/client-version"
 import { endHostedSessions, foreignHostedSessionIds, pauseDeviceAgents } from "@/lib/sessions/lifecycle"
 import { firstSharerTeams, lockDeviceShares, otherShareRows } from "@/lib/sessions/host"
+import { COMPUTER_USE_SWITCH_CAP, dropComputerUseOnDevice } from "@/lib/sessions/computer-use"
 import { checkDeviceKeyProof, deviceKeyRejectionLog, pinDeviceKeyInTx, shareKeyRefusal, type SquatRow } from "@/lib/device-keys"
 import { hostedIds, withdrawShareInTx, type HostedByTeam } from "@/lib/device-shares"
 import { notifyAgentSignOuts, notifyDeviceShareRemoved } from "@/lib/integrations/notifications"
@@ -1254,6 +1255,7 @@ export const devicesRouter = router({
       const [row] = await ctx.db
         .select({
           id: devices.id,
+          caps: devices.caps,
           launchDefaults: devices.launchDefaults,
           launchDefaultsUpdatedAt: devices.launchDefaultsUpdatedAt,
         })
@@ -1315,6 +1317,11 @@ export const devicesRouter = router({
             updatedAt: now,
           })
           .where(eq(devices.id, row.id))
+        // #EXP-1899: a build without the gate lets a session's row win over
+        // its switch, so switching off clears its live sessions.
+        if (clamped.computerUse === false && !(row.caps ?? []).includes(COMPUTER_USE_SWITCH_CAP)) {
+          await dropComputerUseOnDevice(tx, input.deviceId)
+        }
         return id
       })
       nudgeDevice(ctx.session.user.id, input.deviceId)

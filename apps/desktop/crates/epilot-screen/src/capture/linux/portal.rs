@@ -74,6 +74,8 @@ pub(super) struct Portal {
     session: Session<Screencast>,
     rects: Vec<StreamRect>,
     numbers: Vec<u32>,
+    /// The pixel size of each display the streams were numbered against.
+    sizes: Vec<(u32, (u32, u32))>,
     mapped_from: Option<Vec<epilot::Display>>,
     displays: DisplayCache,
     /// Per stream: the seq `grab_all` last handed out.
@@ -120,6 +122,7 @@ impl Portal {
             session,
             rects,
             numbers: Vec::new(),
+            sizes: Vec::new(),
             mapped_from: None,
             displays: DisplayCache::default(),
             seen: vec![0; count],
@@ -133,6 +136,7 @@ impl Portal {
         let displays = self.displays.get();
         if self.mapped_from.as_deref() != Some(displays) {
             self.numbers = super::number_streams(&self.rects, displays);
+            self.sizes = displays.iter().map(|display| (display.number, epilot::pixel_size(display))).collect();
             self.mapped_from = Some(displays.to_vec());
         }
     }
@@ -167,6 +171,10 @@ impl Capturer for Portal {
         for (index, answer) in answers.into_iter().enumerate() {
             let Some((width, height, rgba)) = answer.image else { continue };
             self.seen[index] = answer.seq;
+            if !super::frame_fits(&self.sizes, self.numbers[index], width, height) {
+                log::debug!("[screen] a {width}x{height} frame is not display {}'s: dropped", self.numbers[index]);
+                continue;
+            }
             frames.push(Frame::rgba(self.numbers[index], width, height, rgba).stamped(answer.at));
         }
         Ok(frames)
@@ -183,6 +191,9 @@ impl Capturer for Portal {
             return if answer.ended { Err(ENDED.to_string()) } else { Ok(None) };
         };
         self.seen[index] = answer.seq;
+        if !super::frame_fits(&self.sizes, wanted.display, width, height) {
+            return Ok(None);
+        }
         Ok(Some(Frame::rgba(wanted.display, width, height, rgba).stamped(answer.at)))
     }
 
@@ -402,10 +413,15 @@ fn run(
             })
             .register()
             .map_err(failed("stream listener"))?;
-        let values = format_pod(size)?;
-        let pod = Pod::from_bytes(&values).ok_or("PipeWire format: not a pod")?;
+        // #EXP-1908: first the offer that caps the producer at one frame per
+        // capture interval; the uncapped one stays for a producer that
+        // cannot go that slow.
+        let capped = format_pod(size, Some(capture_rate(crate::fixture::interval_ms())))?;
+        let plain = format_pod(size, None)?;
+        let capped = Pod::from_bytes(&capped).ok_or("PipeWire format: not a pod")?;
+        let plain = Pod::from_bytes(&plain).ok_or("PipeWire format: not a pod")?;
         stream
-            .connect(spa::utils::Direction::Input, Some(node), StreamFlags::AUTOCONNECT | StreamFlags::MAP_BUFFERS, &mut [pod])
+            .connect(spa::utils::Direction::Input, Some(node), StreamFlags::AUTOCONNECT | StreamFlags::MAP_BUFFERS, &mut [capped, plain])
             .map_err(failed("stream connection"))?;
         // The listener first: it unhooks from the stream before the stream goes.
         streams.push((listener, stream, slot));
@@ -443,10 +459,12 @@ fn run(
 }
 
 /// The EnumFormat we accept: raw video in every packed 8-bit RGB layout
-/// [`layout`] converts, any size (the portal's as the default), any rate.
-fn format_pod(size: Option<(i32, i32)>) -> Result<Vec<u8>, String> {
+/// [`layout`] converts, any size (the portal's as the default), any rate;
+/// with `max_rate` the producer may deliver no more often than that (a
+/// compositor that captures in software renders once per delivery).
+fn format_pod(size: Option<(i32, i32)>, max_rate: Option<pw::spa::utils::Fraction>) -> Result<Vec<u8>, String> {
     let (width, height) = size.filter(|&(width, height)| width > 0 && height > 0).unwrap_or((1920, 1080));
-    let object = pw::spa::pod::object!(
+    let mut object = pw::spa::pod::object!(
         pw::spa::utils::SpaTypes::ObjectParamFormat,
         pw::spa::param::ParamType::EnumFormat,
         pw::spa::pod::property!(FormatProperties::MediaType, Id, MediaType::Video),
@@ -487,9 +505,26 @@ fn format_pod(size: Option<(i32, i32)>) -> Result<Vec<u8>, String> {
             pw::spa::utils::Fraction { num: 1000, denom: 1 }
         ),
     );
+    if let Some(max_rate) = max_rate {
+        object.properties.push(pw::spa::pod::property!(FormatProperties::VideoMaxFramerate, Fraction, max_rate));
+    }
     let (cursor, _) = pw::spa::pod::serialize::PodSerializer::serialize(std::io::Cursor::new(Vec::new()), &pw::spa::pod::Value::Object(object))
         .map_err(|error| format!("PipeWire format: {error:?}"))?;
     Ok(cursor.into_inner())
+}
+
+/// One frame per `interval_ms` as a framerate in lowest terms (1000 ms =
+/// 1/1).
+fn capture_rate(interval_ms: u64) -> pw::spa::utils::Fraction {
+    let interval = interval_ms.clamp(1, 1_000_000) as u32;
+    let gcd = |mut a: u32, mut b: u32| {
+        while b != 0 {
+            (a, b) = (b, a % b);
+        }
+        a
+    };
+    let common = gcd(1000, interval);
+    pw::spa::utils::Fraction { num: 1000 / common, denom: interval / common }
 }
 
 /// The first data plane of a dequeued buffer when it carries pixels.
@@ -608,6 +643,29 @@ mod tests {
             assert_eq!(to_rgba(pixel, layout, 1, 1, 0, 0), Some(vec![1, 2, 3, 255]), "{format:?}");
         }
         assert_eq!(layout(VideoFormat::I420), None);
+    }
+
+    /// The VideoMaxFramerate an EnumFormat pod asks for, as (num, denom).
+    fn max_framerate(pod: &[u8]) -> Option<(u32, u32)> {
+        use pw::spa::pod::{deserialize::PodDeserializer, Value};
+        let (_, value) = PodDeserializer::deserialize_from::<Value>(pod).unwrap();
+        let Value::Object(object) = value else { panic!("not an object") };
+        object.properties.iter().find(|property| property.key == FormatProperties::VideoMaxFramerate.as_raw()).map(|property| match &property.value {
+            Value::Fraction(rate) => (rate.num, rate.denom),
+            other => panic!("not a fixed fraction: {other:?}"),
+        })
+    }
+
+    /// #EXP-1908: the producer is asked for no more than one frame per
+    /// capture interval.
+    #[test]
+    fn the_offer_caps_the_producer_at_the_capture_interval() {
+        let rate = capture_rate(crate::fixture::interval_ms());
+        assert_eq!((rate.num, rate.denom), (1, 1), "capture.intervalMs = 1000");
+        assert_eq!(max_framerate(&format_pod(Some((1920, 1080)), Some(rate)).unwrap()), Some((1, 1)));
+        assert_eq!(max_framerate(&format_pod(Some((1920, 1080)), None).unwrap()), None, "the fallback offer");
+        let slow = capture_rate(2500);
+        assert_eq!((slow.num, slow.denom), (2, 5));
     }
 
     #[test]

@@ -412,6 +412,15 @@ fn window_arg(args: &Value) -> Option<ede_protocol::WindowId> {
 
 /// Mint's click on the focused window's button: the compositor's minimize
 /// (#EDE-48); a `focus` restores it.
+/// A launch the person made (the menu, the taskbar, a hotkey; #EDE-76):
+/// the compositor's one-shot launch token goes into the app's environment,
+/// so its window takes the keyboard. Anything else the shell starts (an
+/// Engine app's `launch`, its own tools) opens without it.
+fn person_launch(shell: &SharedShell, command: &str) {
+    let token = with_ede(shell, |ede| ede.launch_token());
+    system::launch_with(command, token.as_deref());
+}
+
 fn minimize(ede: &mut ede_protocol::Client, id: ede_protocol::WindowId) -> Result<(), ede_protocol::Error> {
     ede.minimize(id)
 }
@@ -586,9 +595,9 @@ impl HostPlugin for Host {
         match name {
             "ede_launch" => {
                 if args.get("new").and_then(Value::as_str) == Some("issue") {
-                    new_issue(&self.shell.borrow());
+                    new_issue(&self.shell);
                 } else if let Some(command) = args.get("command").and_then(Value::as_str) {
-                    system::launch(command);
+                    person_launch(&self.shell, command);
                 } else if let Some(app) = args.get("app").and_then(Value::as_str) {
                     let engine_app = self.shell.borrow().engine.as_ref().is_some_and(|e| e.borrow().has(app));
                     if engine_app {
@@ -1356,7 +1365,7 @@ fn ide_open(shell: &SharedShell, link: Option<&str>) {
     // single-instance boot feeds command-line `exponential://` args in).
     let command = app_entry(&shell.borrow(), "at.exponential").map(|a| ide_command(a, link));
     match command {
-        Some(command) => system::launch(&command),
+        Some(command) => person_launch(shell, &command),
         None => tracing::warn!("no at.exponential desktop entry to launch"),
     }
 }
@@ -1394,7 +1403,7 @@ fn launch_app(shell: &SharedShell, app: &str) {
         return;
     };
     if shell.borrow_mut().launches.admit(wanted, Instant::now()) {
-        system::launch(&exec);
+        person_launch(shell, &exec);
     } else {
         tracing::info!(app, "already starting");
     }
@@ -1924,7 +1933,7 @@ fn rail_chat_open(shell: &SharedShell, id: &str, cx: &mut App) {
     let local = on_local(shell);
     let team_has_session = if local || demo() { None } else { team_chat(shell).map(|(_, rows)| rows.account.sessions.iter().any(|s| s.id == id)) };
     if !demo() && rail_chat_route(local, team_has_session) == RailChat::HandOff {
-        hand_off(&shell.borrow(), &accounts::session_deep_link(id));
+        hand_off(shell, &accounts::session_deep_link(id));
         return;
     }
     if !demo() {
@@ -1937,15 +1946,15 @@ fn rail_chat_open(shell: &SharedShell, id: &str, cx: &mut App) {
 
 /// #EDE-65: the new-issue button: the Exponential app's new issue (on the
 /// current team), until issues come into eDE.
-fn new_issue(shell: &Shell) {
+fn new_issue(shell: &SharedShell) {
     // #EDE-65 J3: a Local desktop's team id IS its desktop id, so the app opens the new issue there.
-    let current = &shell.model.switcher.current;
-    hand_off(shell, &accounts::new_issue_deep_link(Some(current.id.as_str()).filter(|id| !id.is_empty())));
+    let link = accounts::new_issue_deep_link(Some(shell.borrow().model.switcher.current.id.as_str()).filter(|id| !id.is_empty()));
+    hand_off(shell, &link);
 }
 
 /// A deep link to the Exponential app: the running one, else a new one
 /// started with it (its single-instance guard reads the link off argv).
-fn hand_off(shell: &Shell, url: &str) {
+fn hand_off(shell: &SharedShell, url: &str) {
     if demo() {
         tracing::info!(url, "hand-off (demo: not sent)");
         return;
@@ -1954,8 +1963,9 @@ fn hand_off(shell: &Shell, url: &str) {
         tracing::info!(url, "handed to the Exponential app");
         return;
     }
-    match EXPONENTIAL_APPS.iter().find_map(|id| app_entry(shell, id)) {
-        Some(app) => system::launch(&format!("{} '{url}'", app.exec)),
+    let command = EXPONENTIAL_APPS.iter().find_map(|id| app_entry(&shell.borrow(), id).map(|app| format!("{} '{url}'", app.exec)));
+    match command {
+        Some(command) => person_launch(shell, &command),
         None => tracing::warn!(url, "no Exponential app to hand off to"),
     }
 }
@@ -2659,7 +2669,7 @@ fn hotkey(shell: &SharedShell, name: &str, cx: &mut App) {
         "brightness.up" | "brightness.down" => osd_show(shell, system::brightness_step(name == "brightness.up"), cx),
         "media.play" | "media.next" | "media.prev" => system::media(name),
         "terminal" => match system::terminal_command() {
-            Some(t) => system::launch(t),
+            Some(t) => person_launch(shell, t),
             None => tracing::warn!("no terminal emulator installed"),
         },
         "screenshot" => screenshot(shell),
