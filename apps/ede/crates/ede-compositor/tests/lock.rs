@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 use common::Session;
 use ede_compositor::{
     backend::headless::Harness,
+    desk::DeskId,
     lock::LockState,
     logind::{self, Held, Listener, Signal},
     protected::Refused,
@@ -218,11 +219,11 @@ fn protected_windows_are_never_captured_or_driven() {
         // It has keyboard focus (it mapped last): agent keys are refused,
         // the person's go through.
         wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&secret.surface));
-        let refused = h.with(|ede| ede.drive_key((KEY_A + 8).into(), KeyState::Pressed, 0, false));
+        let refused = h.with(|ede| ede.drive_key(DeskId::PERSON, (KEY_A + 8).into(), KeyState::Pressed, 0, false));
         assert_eq!(refused, Err(Refused::Protected));
-        let refused = h.with(move |ede| ede.drive_pointer_motion((sx as f64, sy as f64).into(), 0));
+        let refused = h.with(move |ede| ede.drive_pointer_motion(DeskId::PERSON, (sx as f64, sy as f64).into(), 0));
         assert_eq!(refused, Err(Refused::Protected));
-        assert_eq!(h.with(move |ede| ede.drive_pointer_motion((nx as f64, ny as f64).into(), 0)), Ok(()));
+        assert_eq!(h.with(move |ede| ede.drive_pointer_motion(DeskId::PERSON, (nx as f64, ny as f64).into(), 0)), Ok(()));
         let lendable = h.with(|ede| ede.desk.space.elements().map(|w| ede.may_lend(w)).collect::<Vec<_>>());
         assert_eq!(lendable.iter().filter(|l| !**l).count(), 1);
 
@@ -236,17 +237,17 @@ fn protected_windows_are_never_captured_or_driven() {
     // A normal focused window may be driven.
     h.with(|ede| {
         let w = ede.desk.space.elements().last().cloned();
-        ede.focus(w);
+        ede.focus(DeskId::PERSON, w);
     });
     app.roundtrip();
-    assert_eq!(h.with(|ede| ede.drive_key((KEY_A + 8).into(), KeyState::Pressed, 0, false)), Ok(()));
+    assert_eq!(h.with(|ede| ede.drive_key(DeskId::PERSON, (KEY_A + 8).into(), KeyState::Pressed, 0, false)), Ok(()));
     app.roundtrip();
     assert_eq!(app.state.keys.last(), Some(&KEY_A));
 
     // Locked: nothing may be driven.
     let mut locker = Session::connect(h.connect());
     let _lock = locker.lock();
-    assert_eq!(h.with(|ede| ede.drive_key((KEY_A + 8).into(), KeyState::Pressed, 0, false)), Err(Refused::Locked));
+    assert_eq!(h.with(|ede| ede.drive_key(DeskId::PERSON, (KEY_A + 8).into(), KeyState::Pressed, 0, false)), Err(Refused::Locked));
 }
 
 #[test]

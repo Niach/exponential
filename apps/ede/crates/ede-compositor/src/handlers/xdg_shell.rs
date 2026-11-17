@@ -51,13 +51,14 @@ impl XdgShellHandler for Ede {
         }
         let gone = self.desk.space.elements().find(|w| w.toplevel().is_some_and(|t| t.wl_surface() == &wl)).cloned();
         if let Some(window) = gone {
-            let had_focus = self.focused_window().as_ref() == Some(&window);
+            let desk = self.desk_of_window(&window);
+            let had_focus = self.focused_window(desk).as_ref() == Some(&window);
             self.window_event(ede_protocol::events::WINDOW_CLOSED, &window);
             self.desk.space.unmap_elem(&window);
             if had_focus {
                 // Focus falls to the window now on top, as on Cinnamon.
                 let next = self.desk.space.elements().last().cloned();
-                self.focus(next);
+                self.focus(desk, next);
             }
         }
     }
@@ -230,7 +231,7 @@ pub fn handle_commit(state: &mut Ede, surface: &WlSurface) {
                 s.states.unset(xdg_toplevel::State::Fullscreen);
                 (s.states.contains(xdg_toplevel::State::Maximized), full)
             });
-            state.place_new_window(window.clone());
+            state.place_new_window(state.desk_of_window(&window), window.clone());
             if wants_max {
                 state.tile(&window, Tile::Maximized);
             }

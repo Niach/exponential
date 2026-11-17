@@ -31,6 +31,7 @@ use smithay::{
 
 use crate::{
     config::Config,
+    desk::DeskId,
     layout::{self, Rect, Tile},
 };
 
@@ -203,6 +204,7 @@ impl Ede {
             seat_state,
             data_device_state,
             desk: crate::desk::Desk {
+                id: crate::desk::DeskId::PERSON,
                 seat,
                 cursor_status: CursorImageStatus::default_named(),
                 virtual_keymap: None,
@@ -469,8 +471,8 @@ impl Ede {
     }
 
     /// Raises `window` and gives it keyboard focus; `None` clears focus.
-    pub fn focus(&mut self, window: Option<Window>) {
-        if self.is_locked() {
+    pub fn focus(&mut self, desk: DeskId, window: Option<Window>) {
+        if self.desk_locked(desk) {
             // Windows (a new one mapping, a click) never take focus from
             // the lock screen.
             return;
@@ -481,15 +483,15 @@ impl Ede {
             return;
         }
         let serial = SERIAL_COUNTER.next_serial();
-        let keyboard = self.desk.seat.get_keyboard().unwrap();
+        let keyboard = self.desk(desk).seat.get_keyboard().unwrap();
         if let Some(window) = &window {
-            self.desk.space.raise_element(window, true);
+            self.desk_mut(desk).space.raise_element(window, true);
             #[cfg(feature = "xwayland")]
             if let (Some(xwm), Some(x11)) = (self.xwm.as_mut(), window.x11_surface()) {
                 let _ = xwm.raise_window(x11);
             }
         } else {
-            for w in self.desk.space.elements() {
+            for w in self.desk(desk).space.elements() {
                 w.set_activated(false);
             }
         }
@@ -498,21 +500,21 @@ impl Ede {
         // one; focus follows then (see the xwayland shell handler).
         #[cfg(feature = "xwayland")]
         {
-            self.desk.pending_x11_focus = window.as_ref().filter(|_| surface.is_none()).and_then(|w| w.x11_surface().cloned());
+            self.desk_mut(desk).pending_x11_focus = window.as_ref().filter(|_| surface.is_none()).and_then(|w| w.x11_surface().cloned());
         }
         keyboard.set_focus(self, surface, serial);
         if let Some(w) = &window {
             self.window_event(ede_protocol::events::WINDOW_FOCUSED, w);
         }
-        for w in self.desk.space.elements() {
+        for w in self.desk(desk).space.elements() {
             if let Some(t) = w.toplevel() {
                 t.send_pending_configure();
             }
         }
     }
 
-    pub fn focused_window(&self) -> Option<Window> {
-        let focus = self.desk.seat.get_keyboard()?.current_focus()?;
+    pub fn focused_window(&self, desk: DeskId) -> Option<Window> {
+        let focus = self.desk(desk).seat.get_keyboard()?.current_focus()?;
         self.window_for_surface(&focus)
     }
 
@@ -527,16 +529,16 @@ impl Ede {
     }
 
     /// First buffer arrived: pick a spot on the pointer's output and map.
-    pub fn place_new_window(&mut self, window: Window) {
-        self.desk.unmapped.retain(|w| w != &window);
-        let pointer = self.desk.seat.get_pointer().unwrap().current_location();
+    pub fn place_new_window(&mut self, desk: DeskId, window: Window) {
+        self.desk_mut(desk).unmapped.retain(|w| w != &window);
+        let pointer = self.desk(desk).seat.get_pointer().unwrap().current_location();
         let mut st = window_state(&window);
-        st.workspace = self.desk.workspaces.active;
+        st.workspace = self.desk(desk).workspaces.active;
         set_window_state(&window, st);
         let fh = self.frame_height(&window);
         let loc = match self.output_at(pointer).and_then(|o| self.work_area(&o)) {
             Some(area) => {
-                let taken: Vec<_> = self.desk.space.elements().filter_map(|w| self.desk.space.element_location(w)).collect();
+                let taken: Vec<_> = self.desk(desk).space.elements().filter_map(|w| self.desk(desk).space.element_location(w)).collect();
                 let mut size = window.geometry().size;
                 size.h += fh;
                 let mut at = layout::place_new(size, area, &taken, 32);
@@ -553,7 +555,7 @@ impl Ede {
         self.send_preferred_scale(&window);
         self.window_event(ede_protocol::events::WINDOW_OPENED, &window);
         if takes {
-            self.focus(Some(window));
+            self.focus(desk, Some(window));
         } else {
             self.keep_behind(&window);
         }
@@ -672,7 +674,7 @@ impl Ede {
             let takes = self.takes_keyboard(window);
             self.remap(window, out.loc);
             if takes {
-                self.focus(Some(window.clone()));
+                self.focus(self.desk_of_window(window), Some(window.clone()));
             }
         } else {
             let back = st.fullscreen.take();
@@ -726,7 +728,7 @@ impl Ede {
 
     /// Asks the focused window to close (Alt+F4).
     pub fn close_focused(&mut self) {
-        let Some(w) = self.focused_window() else { return };
+        let Some(w) = self.focused_window(DeskId::PERSON) else { return };
         self.close_window(&w);
     }
 

@@ -20,6 +20,7 @@ use smithay::{
 };
 
 use crate::{
+    desk::DeskId,
     grabs::{MoveSurfaceGrab, BTN_LEFT},
     layout::Tile,
     state::{window_state, Ede},
@@ -159,7 +160,7 @@ impl Ede {
             let on_layer = under.as_ref().is_some_and(|s| self.is_layer_surface(s));
             let window = under.as_ref().and_then(|s| self.window_for_surface(s)).or_else(|| if on_layer { None } else { self.desk.space.element_under(location).map(|(w, _)| w.clone()) });
             match (&window, under) {
-                (Some(_), _) => self.focus(window.clone()),
+                (Some(_), _) => self.focus(DeskId::PERSON, window.clone()),
                 // A layer surface that takes the keyboard (the shell's menu,
                 // a search) gets it on a click; the panel and a wallpaper
                 // leave the app's focus alone (as on Cinnamon).
@@ -168,7 +169,7 @@ impl Ede {
                         self.focus_layer(surface, serial);
                     }
                 }
-                (None, None) => self.focus(None),
+                (None, None) => self.focus(DeskId::PERSON, None),
             }
             let alt = self.desk.seat.get_keyboard().unwrap().modifier_state().alt;
             if let (Some(window), true, BTN_LEFT) = (window, alt, button) {
@@ -236,7 +237,7 @@ impl Ede {
             }
             match binding(mods, sym) {
                 Some(action) => FilterResult::Intercept(action),
-                None if ede.keyboard_focus_protected() => FilterResult::Forward,
+                None if ede.keyboard_focus_protected(DeskId::PERSON) => FilterResult::Forward,
                 None => match ede.ipc.shortcuts.lookup(mods, handle.modified_sym()).map(|b| (b.owner.clone(), b.id.clone())) {
                     Some((owner, id)) => {
                         ede.ipc.shortcuts.active.push((code, owner, id));
@@ -277,12 +278,12 @@ impl Ede {
                 self.switch_workspace(next as usize);
             }
             Action::MoveToWorkspace(i) => {
-                if let Some(w) = self.focused_window() {
+                if let Some(w) = self.focused_window(DeskId::PERSON) {
                     self.move_to_workspace(&w, i, true);
                 }
             }
             Action::MoveToWorkspaceStep(d) => {
-                if let Some(w) = self.focused_window() {
+                if let Some(w) = self.focused_window(DeskId::PERSON) {
                     let n = self.workspace_count() as i32;
                     let next = (self.active_workspace() as i32 + d).rem_euclid(n.max(1));
                     self.move_to_workspace(&w, next as usize, true);
@@ -292,12 +293,12 @@ impl Ede {
             Action::Shortcut(..) => {}
             Action::Close => self.close_focused(),
             Action::Tile(tile) => {
-                if let Some(w) = self.focused_window() {
+                if let Some(w) = self.focused_window(DeskId::PERSON) {
                     self.tile(&w, tile);
                 }
             }
             Action::Restore => {
-                if let Some(w) = self.focused_window() {
+                if let Some(w) = self.focused_window(DeskId::PERSON) {
                     if window_state(&w).tile.is_some() {
                         self.untile(&w, None);
                     }
@@ -321,7 +322,7 @@ impl Ede {
         let pointer = self.desk.seat.get_pointer().unwrap();
         let location = pointer.current_location();
         let Some((window, hit)) = self.frame_under(location) else { return false };
-        self.focus(Some(window.clone()));
+        self.focus(DeskId::PERSON, Some(window.clone()));
         if button != BTN_LEFT {
             return true;
         }

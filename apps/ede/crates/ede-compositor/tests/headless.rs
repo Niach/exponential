@@ -6,7 +6,7 @@ mod common;
 use std::time::{Duration, Instant};
 
 use common::Session;
-use ede_compositor::{backend::headless::Harness, layout::Tile, state::window_state, Config};
+use ede_compositor::{backend::headless::Harness, desk::DeskId, layout::Tile, state::window_state, Config};
 use smithay::{
     backend::input::{ButtonState, KeyState},
     utils::Rectangle,
@@ -601,7 +601,7 @@ fn an_x11_window_through_xwayland_opens_centred_takes_focus_and_is_drawn() {
     // The focus follows the map asynchronously (the X11 WM handshake), so
     // wait for it instead of racing it: CI runners lost the race.
     let deadline = Instant::now() + Duration::from_secs(30);
-    while !h.with(|ede| ede.focused_window().is_some_and(|w| w.x11_surface().is_some())) {
+    while !h.with(|ede| ede.focused_window(DeskId::PERSON).is_some_and(|w| w.x11_surface().is_some())) {
         assert!(Instant::now() < deadline, "it has keyboard focus");
         std::thread::sleep(Duration::from_millis(20));
     }
@@ -680,7 +680,7 @@ fn the_first_x11_window_takes_keys_without_a_click() {
     h.with(|ede| ede.pointer_motion_to((2500.0, 5.0).into(), 0));
     let win = map_x11(&h, &conn, None);
     let deadline = Instant::now() + Duration::from_secs(30);
-    while !h.with(|ede| ede.focused_window().is_some_and(|w| w.x11_surface().is_some())) {
+    while !h.with(|ede| ede.focused_window(DeskId::PERSON).is_some_and(|w| w.x11_surface().is_some())) {
         assert!(Instant::now() < deadline, "it has keyboard focus");
         std::thread::sleep(Duration::from_millis(20));
     }
@@ -984,7 +984,7 @@ fn a_press_on_a_title_bar_button_never_reaches_the_window_under_the_bar() {
     let (geo, browser) = h.with(|ede| {
         let terminal = ede.desk.space.elements().find(|w| ede.is_decorated(w)).cloned().unwrap();
         let browser = ede.desk.space.elements().find(|w| !ede.is_decorated(w)).cloned().unwrap();
-        ede.focus(Some(terminal.clone()));
+        ede.focus(DeskId::PERSON, Some(terminal.clone()));
         (ede.desk.space.element_geometry(&terminal).unwrap(), ede.desk.space.element_geometry(&browser).unwrap())
     });
     let close = ((geo.loc.x + geo.size.w - 18) as f64, (geo.loc.y - 18) as f64);

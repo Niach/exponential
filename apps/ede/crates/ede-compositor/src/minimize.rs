@@ -27,7 +27,8 @@ impl Ede {
         }
         st.minimized = true;
         set_window_state(window, st);
-        let had_focus = self.focused_window().as_ref() == Some(window);
+        let desk = self.desk_of_window(window);
+        let had_focus = self.focused_window(desk).as_ref() == Some(window);
         self.desk.space.unmap_elem(window);
         self.desk.workspaces.parked.retain(|w| w != window);
         self.desk.minimized.push(window.clone());
@@ -44,7 +45,7 @@ impl Ede {
         if had_focus {
             // Focus falls to the window now on top, as on Cinnamon.
             let next = self.desk.space.elements().last().cloned();
-            self.focus(next);
+            self.focus(desk, next);
         }
     }
 

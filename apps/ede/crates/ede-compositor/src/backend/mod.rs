@@ -24,7 +24,7 @@ use smithay::{
     output::Output,
 };
 
-use crate::state::Ede;
+use crate::{desk::DeskId, state::Ede};
 
 /// What `output` shows, front to back: the lock surface while the session
 /// is locked, a fullscreen window alone, else the layers and windows.
@@ -75,7 +75,7 @@ where
     let mut elements = Vec::new();
     // The recovery screen (#EDE-16) sits above everything but the cursor.
     elements.extend(state.recovery_elements(renderer, output).into_iter().map(OutputElements::Texture));
-    let focused = state.focused_window();
+    let focused = state.focused_window(DeskId::PERSON);
     let state = &*state;
     let window = |renderer: &mut R, elements: &mut Vec<_>, w: &smithay::desktop::Window| {
         let Some(loc) = state.desk.space.element_location(w) else { return };

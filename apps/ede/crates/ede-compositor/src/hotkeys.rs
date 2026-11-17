@@ -16,7 +16,7 @@
 use serde_json::json;
 use smithay::{backend::input::KeyState, input::keyboard::{keysyms, ModifiersState}};
 
-use crate::state::Ede;
+use crate::{desk::DeskId, state::Ede};
 
 /// `name` of every `hotkey` event the compositor sends.
 pub mod names {
@@ -223,7 +223,7 @@ impl Ede {
         }
         let target = if reverse { windows.first().cloned() } else { windows.iter().rev().nth(1).cloned() };
         self.hotkeys.fallback_steps += 1;
-        self.focus(target);
+        self.focus(DeskId::PERSON, target);
     }
 
     /// A hold released the person's keys (#EDE-80): a Super that was down
