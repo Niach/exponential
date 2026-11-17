@@ -261,6 +261,11 @@ fn resolve(writer: &dyn Writer, input: &SendInput, target: &SealTarget, fresh: b
         Ok(found) => {
             let key = found.epoch.zip(found.public_key.as_deref().and_then(|key| sealing::public_key_from_b64(key).ok()));
             match (found.root_id, key) {
+                // #EDE-97: a clear conversation this app has not synced yet.
+                (Some(root_id), _) if found.clear_tree => {
+                    sealing::note_clear_tree(&root_id);
+                    SealTarget::Root(root_id)
+                }
                 (Some(root_id), Some((epoch, public))) => {
                     writer.note_key(&root_id, epoch, public);
                     SealTarget::Keyed { root_id, epoch, public }
@@ -726,6 +731,7 @@ mod tests {
                 root_id,
                 epoch: keyed.then_some(1),
                 public_key: keyed.then(|| self.key.public_key()),
+                clear_tree: false,
             })
         }
         fn note_key(&self, _root_id: &str, _epoch: u32, _public: [u8; 32]) {}

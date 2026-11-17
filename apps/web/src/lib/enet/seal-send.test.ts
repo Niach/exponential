@@ -160,6 +160,12 @@ describe(`sealSendInput`, () => {
       expect(sealed.input.seal).toBeUndefined()
     }
     expect(api.create).not.toHaveBeenCalled()
+    // A clear conversation the store has not synced yet: the server says so.
+    const unsynced = { ...deps(holder), sendTarget: async () => ({ rootId: `r1`, epoch: null, publicKey: null, clearTree: true }) }
+    const sealed = await sealSendInput({ agentId: `a1`, teamId: `t1`, text: `hi` }, unsynced)
+    expect(sealed.input.text).toBe(`hi`)
+    expect(sealed.input.seal).toBeUndefined()
+    expect(api.create).not.toHaveBeenCalled()
   })
 })
 

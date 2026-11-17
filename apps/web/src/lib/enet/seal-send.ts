@@ -87,7 +87,13 @@ export type SealDeps = {
 }
 
 export type TreePublicKey = { epoch: number; publicKey: string }
-export type ServerTarget = { rootId: string | null; epoch: number | null; publicKey: string | null }
+export type ServerTarget = {
+  rootId: string | null
+  epoch: number | null
+  publicKey: string | null
+  /** #EDE-97: an outside MCP client's conversation (absent on an older server = not). */
+  clearTree?: boolean
+}
 
 export type SealedSendInput = SessionsSendInput & {
   seal?: { installId: string; publicKey: string; epoch: 1; wraps: Array<{ installId: string; wrapped: string }> }
@@ -227,6 +233,8 @@ export async function sealSendInput(
     conversation && (!root || fresh)
       ? await deps.sendTarget({ agentId: input.agentId, appId: input.appId }).catch(() => undefined)
       : undefined
+  // #EDE-97: a clear conversation the store does not know as one yet.
+  if (target?.clearTree) return plain
   /** A keyless root this install keys first; refused = the server's key,
    *  else (not a reader) the key its device's claim makes, waited for. */
   const keyFirst = async (rootId: string, readers: Parameters<typeof readersFor>[0]) => {

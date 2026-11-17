@@ -291,8 +291,14 @@ impl SealingTransform {
                 query.insert(key.into(), id.clone());
             }
         }
-        trpc.query_with_input::<_, SendTarget>("sessions.sendTarget", &Value::Object(query))
-            .map_err(|err| SealError::NoKey(format!("sessions.sendTarget failed: {err}")))
+        let target = trpc
+            .query_with_input::<_, SendTarget>("sessions.sendTarget", &Value::Object(query))
+            .map_err(|err| SealError::NoKey(format!("sessions.sendTarget failed: {err}")))?;
+        // #EDE-97: a clear conversation this device has not synced yet.
+        if let Some(root) = target.root_id.as_deref().filter(|_| target.clear_tree) {
+            sealing::note_clear_tree(root);
+        }
+        Ok(target)
     }
 
     /// A fresh tree key for a new chat, wrapped for this install and
@@ -776,6 +782,9 @@ struct SendTarget {
     epoch: Option<u32>,
     public_key: Option<String>,
     brief: Option<String>,
+    /// #EDE-97: an outside MCP client's conversation (absent = not).
+    #[serde(default)]
+    clear_tree: bool,
 }
 
 impl SendTarget {
