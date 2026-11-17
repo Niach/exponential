@@ -122,6 +122,8 @@ vi.mock(`@/lib/sessions/lifecycle`, () => ({
   foreignHostedSessionIds: vi.fn(async (..._args: unknown[]) => [] as string[]),
   endHostedSessions: vi.fn(async (..._args: unknown[]) => [] as string[]),
 }))
+// #EXP-1935: the removed member's voice mirror is re-derived after commit.
+vi.mock(`@/lib/agents/assistant`, () => ({ syncVoiceMirror: vi.fn(async () => {}) }))
 vi.mock(`@/lib/sessions/host`, () => ({
   lockDeviceShares: vi.fn(async () => {}),
 }))
@@ -140,6 +142,7 @@ import {
 import { addPlaceholderToRoster } from "@/lib/placeholder-members"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
 import { endHostedSessions, foreignHostedSessionIds } from "@/lib/sessions/lifecycle"
+import { syncVoiceMirror } from "@/lib/agents/assistant"
 import { lockDeviceShares } from "@/lib/sessions/host"
 import {
   devices,
@@ -177,6 +180,7 @@ beforeEach(() => {
   assertTeamMember.mockClear()
   vi.mocked(invalidateMembershipCaches).mockClear()
   vi.mocked(endHostedSessions).mockClear()
+  vi.mocked(syncVoiceMirror).mockClear()
   vi.mocked(foreignHostedSessionIds).mockClear()
   vi.mocked(lockDeviceShares).mockClear()
 })
@@ -221,6 +225,7 @@ describe(`teamMembers.remove — offboarding cleanup (REV-8)`, () => {
     // No machine shared into the team: nothing locked, nothing to end.
     expect(lockDeviceShares).not.toHaveBeenCalled()
     expect(endHostedSessions).toHaveBeenCalledWith([])
+    expect(syncVoiceMirror).toHaveBeenCalledWith(expect.anything(), `user-b`)
     // REV2-7: membership caches cleared post-commit.
     expect(invalidateMembershipCaches).toHaveBeenCalledTimes(1)
   })

@@ -1,7 +1,6 @@
 import { TRPCError } from "@trpc/server"
-import { eq } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { AGENT_VOICE } from "@exp/domain-contract/agent-settings"
-import type { AgentVoice } from "@exp/db-schema/domain"
 import { db } from "@/db/connection"
 import { agents, attachments } from "@/db/schema"
 import { resolveSession } from "@/lib/auth/resolve-bearer"
@@ -54,7 +53,10 @@ export async function handleAgentVoiceClipUpload({ params, request }: { params: 
     { filename: file.name || `voice.wav`, contentType: `audio/wav`, body },
     scope
   )
-  const voice: AgentVoice = { ...(agent.voice ?? {}), clipId: prepared.attachmentId, clipName: prepared.filename }
+  // #EXP-1935: merged in SQL, never written whole from the row read before
+  // the body arrived: a transcript saved meanwhile stays.
+  const clip = JSON.stringify({ clipId: prepared.attachmentId, clipName: prepared.filename })
+  const voice = sql`coalesce(${agents.voice}, '{}'::jsonb) || ${clip}::jsonb`
   try {
     await db.transaction(async (tx) => {
       await tx.insert(attachments).values(sessionAttachmentValues(prepared, scope, userId))
@@ -70,7 +72,7 @@ export async function handleAgentVoiceClipUpload({ params, request }: { params: 
 /** DELETE: the agent speaks with the built-in (or the member's) voice again. */
 export async function handleAgentVoiceClipDelete({ params, request }: { params: { agentId: string }; request: Request }) {
   const { agent } = await editableAgent(request, params.agentId)
-  const { clipId: _clip, clipName: _name, ...rest } = agent.voice ?? {}
-  await db.update(agents).set({ voice: rest, updatedAt: new Date() }).where(eq(agents.id, agent.id))
+  const voice = sql`coalesce(${agents.voice}, '{}'::jsonb) - 'clipId' - 'clipName'`
+  await db.update(agents).set({ voice, updatedAt: new Date() }).where(eq(agents.id, agent.id))
   return Response.json({ ok: true })
 }

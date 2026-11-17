@@ -852,6 +852,30 @@ describe(`voice calls (NEW-55)`, () => {
     hub.destroy()
   })
 
+  // #EXP-1935: the ticket rides in the URL; once its call rang, the same
+  // ticket never rings the device again, live (busy) or ended.
+  test(`a caller ticket whose call already rang is refused after the call ended`, () => {
+    const hub = new Hub()
+    const device = onlineDevice(hub)
+    const caller = dial(hub)
+    caller.close(1000, `hung up`)
+    hub.onClose(caller)
+    expect(hub.stats().calls).toBe(0)
+    const replay = dial(hub)
+    expect(replay.frames()).toEqual([
+      { t: `error`, code: `no_such_call` },
+      { t: `bye`, outcome: `no_such_call` },
+    ])
+    expect(replay.closed?.code).toBe(CLOSE_SESSION_ENDED)
+    expect(device.framesOf(`call_ring`)).toHaveLength(1)
+    expect(hub.stats().calls).toBe(0)
+    // A new call (its own callId) rings as ever.
+    const next = dial(hub, { callId: `call-2` })
+    expect(next.closed).toBeNull()
+    expect(device.framesOf(`call_ring`)).toHaveLength(2)
+    hub.destroy()
+  })
+
   test(`a host on another account is refused and the call keeps ringing`, () => {
     const hub = new Hub()
     onlineDevice(hub)

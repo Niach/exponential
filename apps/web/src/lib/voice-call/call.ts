@@ -44,7 +44,9 @@ export interface CallSocket {
 }
 
 export interface CallDeps {
-  startCall(agentId: string): Promise<{ url: string }>
+  /** EXP-1857: the server picks the target itself; `device` + `fallback`
+   *  name the desktop that speaks (an older server answers neither). */
+  startCall(agentId: string): Promise<{ url: string; device?: string; fallback?: boolean }>
   openSocket(url: string): CallSocket
   openAudio(): Promise<CallAudio>
   /** S-3: play the ring tone, at most `ms`; answers a stop (none = silent). */
@@ -165,7 +167,16 @@ export class VoiceCall {
     }
     let url: string
     try {
-      url = (await this.deps.startCall(agentId)).url
+      const answer = await this.deps.startCall(agentId)
+      url = answer.url
+      // #EXP-1935: the answer names the device that speaks, as on the phones.
+      if (generation === this.generation && (answer.device !== undefined || answer.fallback !== undefined)) {
+        const state = this.snapshot.state
+        this.snapshot = {
+          state: { ...state, device: answer.device ?? state.device, fallback: answer.fallback ?? state.fallback },
+        }
+        for (const listener of this.listeners) listener()
+      }
     } catch (error) {
       if (generation !== this.generation) return
       this.teardown()
