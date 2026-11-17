@@ -721,6 +721,8 @@ final class AgentSessionModel {
     /// replay TAIL (`truncated` on `activity_synced` is how it knows), and the
     /// pages below it exist only in the device's journal.
     private func requestOlderPage() -> Bool {
+        // #EDE-114: older events come from the chat store first.
+        if requestStorePage() { return true }
         guard historyRequest == nil, !historyExhausted, historyTruncated else { return false }
         guard let before = oldestSeq, before > 0 else {
             historyExhausted = true
@@ -740,6 +742,36 @@ final class AgentSessionModel {
             "limit": AgentFeed.historyPageLimit,
         ])
         historyRequest = requestId
+        return true
+    }
+
+    /// #EDE-114: the page below what is on screen off the chat store (read
+    /// off main), PREPENDED like a device's page. False = the store has
+    /// nothing there (or a read is in flight): the device is asked.
+    private func requestStorePage() -> Bool {
+        guard !storeExhausted, historyRequest == nil, let before = oldestSeq, before > 0,
+              let deviceId = session?.deviceId, !deviceId.isEmpty else { return false }
+        guard !storePageInFlight else { return true }
+        storePageInFlight = true
+        let accountId = accountId, sessionId = sessionId
+        Task { [weak self] in
+            let chunk = await Task.detached(priority: .userInitiated) {
+                ChatStoreHub.shared.page(
+                    accountId: accountId, sessionId: sessionId, deviceId: deviceId,
+                    beforeSeq: before, limit: AgentFeed.historyPageLimit
+                ).flatMap(SteerWireFrame.parse)
+            }.value
+            guard let self, !self.stopped else { return }
+            self.storePageInFlight = false
+            guard self.oldestSeq == before else { return }
+            guard let chunk, !chunk.page.isEmpty else {
+                // Nothing below in the store: the device's journal is next.
+                self.storeExhausted = true
+                if !self.requestOlderPage() { self.reproject() }
+                return
+            }
+            self.prependPage(chunk.page, seqs: chunk.pageSeqs)
+        }
         return true
     }
 
@@ -843,9 +875,11 @@ final class AgentSessionModel {
         // `turn` tick's included, and a projection re-assigned to an EQUAL
         // value still invalidates every view that reads it (the transcript,
         // the Dock, the composer). Each one is written only when it moved.
+        // #EDE-114: the chat store may hold older events (paged in first).
+        let storeOlder = !storeExhausted && (storeTruncated || historyTruncated) && ChatStoreHub.shared.isAvailable
         let canLoad = AgentFeed.canLoadEarlier(
-            windowStart: start, historyTruncated: historyTruncated,
-            historyExhausted: historyExhausted, connected: connected
+            windowStart: start, historyTruncated: historyTruncated || storeOlder,
+            historyExhausted: historyExhausted && !storeOlder, connected: connected || storeOlder
         )
         if canLoad != canLoadEarlier { canLoadEarlier = canLoad }
         let fromStart = start == 0 && (!historyTruncated || historyReachedStart) && !feedHeadTrimmed
@@ -1285,23 +1319,26 @@ final class AgentSessionModel {
     /// Messages this client sent WHILE a replay was staging: the replay
     /// predates them, so the commit re-appends whatever it didn't carry back.
     @ObservationIgnored private var stagedLocalEchoes: [String] = []
-    /// #PERF-9 STORED TAIL (steer-enet.json): the newest `activity` frames
-    /// this viewer applied (the wire texts, seqs inside) plus the latest of
-    /// each slot kind, what is written to disk, debounced and off main, for
-    /// the next open to paint at once.
-    @ObservationIgnored private var tail = SteerStoredTail.Ring()
-    @ObservationIgnored private var tailWriteTask: Task<Void, Never>?
+    /// #EDE-114 (chat-store.json S3): every feed event this viewer applies
+    /// (the replay's, the live ones, the pages) goes to the CHAT STORE
+    /// (`ChatStoreHub`, batched and written off main); the next open paints
+    /// from it at once.
     @ObservationIgnored private var tailRestoreStarted = false
     /// The store's generation for this account when the model started: a
     /// sign-out since then drops this model's writes.
-    @ObservationIgnored private var tailGeneration: Int?
+    @ObservationIgnored private var storeGeneration: Int?
+    /// #EDE-114: an older page is being read off the store; the store had
+    /// nothing below what is on screen (ask the device from then on).
+    @ObservationIgnored private var storePageInFlight = false
+    @ObservationIgnored private var storeExhausted = false
+    /// The stored tail was cut (the store holds older events to page in).
+    @ObservationIgnored private var storeTruncated = false
     /// The feed on screen is the stored tail, not yet replaced by a replay.
     @ObservationIgnored private var showingStoredTail = false
     /// The stored tail's numbered rows: the replay that replaces it gives
     /// the rows both hold (matched by seq) the tail's ids, so they keep
     /// their identity and the reader's anchor holds.
     @ObservationIgnored private var storedTailRows: [(item: AgentFeedItem, seq: Int)] = []
-    private static let tailWriteDebounce: Duration = .seconds(1)
 
     /// How long an optimistic answer lock holds without an `answer_ack` or a
     /// `question_resolved` — long enough to cover a slow desktop injection,
@@ -1494,7 +1531,6 @@ final class AgentSessionModel {
     /// merely goes off-view (EXP-621).
     func shutdown() {
         logger.info("shutdown")
-        if tailWriteTask != nil { writeTail() }
         endViewStats()
         stopped = true
         retryTask?.cancel()
@@ -2654,7 +2690,7 @@ final class AgentSessionModel {
                 currentSeq = frame.seq
                 handleActivityEvent(frame.activity)
                 currentSeq = nil
-                if t == "activity", let event = frame.activity.event, let text { noteTail(text, event: event) }
+                if t == "activity", frame.activity.event != nil, let text { recordToStore([text]) }
             case .commit:
                 // `activity_synced` is the device's end-of-replay marker; a
                 // `keepalive` (its own beat) proves the burst is over for
@@ -2682,6 +2718,7 @@ final class AgentSessionModel {
             guard let requestId = frame.requestId,
                   requestId == historyRequest else { return }
             if frame.done { historyRequest = nil }
+            if let text { recordToStore([text]) }
             prependPage(frame.page, seqs: frame.pageSeqs)
         // #EDE-96: the answer to this viewer's `search`, to it only.
         case "search_result":
@@ -2831,21 +2868,22 @@ final class AgentSessionModel {
         }
     }
 
-    // MARK: - Stored tail (#PERF-9)
+    // MARK: - Stored tail (#PERF-9 → #EDE-114 the chat store)
 
-    /// STORED TAIL: paint what this viewer last held of the session at once,
-    /// while discovery and the join run (read, opened and parsed off main,
-    /// usually already under way since the chat screen opened). A tail that
-    /// does not open is not shown.
+    /// OPEN: paint what the chat store holds of the session (through the
+    /// REPLAY TAIL) at once, while discovery and the join run (read and
+    /// parsed off main, usually already under way since the chat screen
+    /// opened).
     private func restoreStoredTail() {
-        if tailGeneration == nil { tailGeneration = SteerStoredTailStore.shared.generation(accountId: accountId) }
+        if storeGeneration == nil { storeGeneration = ChatStoreHub.shared.generation(accountId: accountId) }
         guard !tailRestoreStarted, feed.isEmpty, !replayed else { return }
         tailRestoreStarted = true
         let read = StoredTailReads.take(accountId: accountId, sessionId: sessionId)
             ?? StoredTailReads.read(accountId: accountId, sessionId: sessionId, db: db)
         Task { [weak self] in
             let restored = await read.value
-            self?.applyStoredTail(restored)
+            self?.storeTruncated = restored.truncated
+            self?.applyStoredTail(restored.frames)
         }
     }
 
@@ -2883,11 +2921,6 @@ final class AgentSessionModel {
         guard !feed.isEmpty else { return }
         showingStoredTail = true
         storedTailRows = feed.compactMap { item in seqById[item.id].map { (item, $0) } }
-        if tail.isEmpty {
-            for entry in restored {
-                tail.append(entry.text, slotKind: entry.frame.activity.event.flatMap(SteerStoredTail.slotKind))
-            }
-        }
         if !nested { reproject() }
         logger.info("stored tail shown items=\(self.feed.count)")
     }
@@ -2945,53 +2978,15 @@ final class AgentSessionModel {
         Mirror(reflecting: a).children.first?.label == Mirror(reflecting: b).children.first?.label
     }
 
-    private func noteTail(_ text: String, event: AgentActivityEvent) {
-        tail.append(text, slotKind: SteerStoredTail.slotKind(event))
-        scheduleTailWrite()
-    }
-
-    private func replaceTail(_ staged: [(activity: SteerWireFrame.Activity, seq: Int?, text: String?)]) {
-        var next = SteerStoredTail.Ring()
-        for frame in staged {
-            guard let text = frame.text, let event = frame.activity.event else { continue }
-            next.append(text, slotKind: SteerStoredTail.slotKind(event))
-        }
-        guard !next.isEmpty else { return }
-        tail = next
-        scheduleTailWrite()
-    }
-
-    private func scheduleTailWrite() {
-        tailWriteTask?.cancel()
-        tailWriteTask = Task { [weak self] in
-            try? await Task.sleep(for: Self.tailWriteDebounce)
-            guard let self, !Task.isCancelled else { return }
-            self.writeTail()
-        }
-    }
-
-    /// Hands the tail to the store, which seals (a keyed tree) and writes it
-    /// off main. It is sealed for the tree's root and its current key (nil =
-    /// keyless); an unknown root stores nothing.
-    private func writeTail() {
-        tailWriteTask?.cancel()
-        tailWriteTask = nil
-        guard !tail.isEmpty, let generation = tailGeneration else { return }
-        let rootId = session?.rootId ?? root?.id ?? sessionId
-        let frames = tail.frames, accountId = accountId, sessionId = sessionId
-        let write = { (key: TreeSealKey?) in
-            SteerStoredTailStore.shared.write(
-                accountId: accountId, sessionId: sessionId, frames: frames,
-                key: key, crypto: SealedOpener.shared.crypto, generation: generation
-            )
-        }
-        if let root, root.id == rootId { return write(root.sealKey) }
-        // #PERF-5: a root not held here reads off main.
-        guard let pool = try? db.pool(forAccountId: accountId) else { return }
-        Task {
-            guard let row = (try? await pool.read { try SessionEntity.fetchOne($0, key: rootId) }) ?? nil else { return }
-            write(row.sealKey)
-        }
+    /// #EDE-114: frames this viewer received (`activity`, `history_chunk`)
+    /// into the chat store, as the device the session is on sent them.
+    private func recordToStore(_ frames: [String]) {
+        guard !frames.isEmpty, let generation = storeGeneration, let session else { return }
+        let rootId = session.rootId.isEmpty ? session.id : session.rootId
+        ChatStoreHub.shared.recordFeed(
+            accountId: accountId, rootId: rootId, sessionId: sessionId, deviceId: session.deviceId,
+            frames: frames, generation: generation
+        )
     }
 
     // MARK: - Staged join replay (EXP-656)
@@ -3125,7 +3120,7 @@ final class AgentSessionModel {
             showingStoredTail = false
             alignToStoredTail()
         }
-        replaceTail(staged)
+        recordToStore(staged.compactMap(\.text))
         for text in echoes where !tailCarriesEcho(text) {
             // Not in the replay: re-show it, and re-arm the dedupe so its
             // transcript-derived twin doesn't render a second copy (EXP-78).
@@ -3917,15 +3912,18 @@ final class TranscriptEntry: Identifiable, Equatable {
     }
 }
 
-/// #PERF-9 STORED TAIL: one session's stored tail, read, opened and parsed
-/// off main. The chat screen starts it as it opens (`start`), beside its own
-/// snapshot read; the session model that paints it takes it (`take`).
+/// #EDE-114 OPEN (chat-store.json): one session's stored events off the chat
+/// store (through the REPLAY TAIL, on the device the session is on now), read
+/// and parsed off main. The chat screen starts it as it opens (`start`),
+/// beside its own snapshot read; the session model that paints it takes it
+/// (`take`). An old #PERF-9 tail file of the session is read into the store
+/// first, then deleted.
 @MainActor
 enum StoredTailReads {
-    typealias Restored = [(frame: SteerWireFrame, text: String)]
+    typealias Restored = (frames: [(frame: SteerWireFrame, text: String)], truncated: Bool)
 
     private static var started: [String: (task: Task<Restored, Never>, at: Date)] = [:]
-    /// A read older than this may predate the tail on disk: read again.
+    /// A read older than this may predate what the store holds: read again.
     private static let fresh: TimeInterval = 5
 
     static func start(accountId: String, sessionId: String, db: DatabaseManager) {
@@ -3941,26 +3939,18 @@ enum StoredTailReads {
         return read.task
     }
 
-    /// The tree is read off main too: the session's root and its current
-    /// key (a keyed or unknown tree opens only a sealed tail).
+    /// The session's row is read off main too: the device it is on now.
     static func read(accountId: String, sessionId: String, db: DatabaseManager) -> Task<Restored, Never> {
-        let opener = SealedOpener.shared
-        return Task.detached(priority: .userInitiated) {
-            var rootId = sessionId, key: TreeSealKey?, known = false
-            if let pool = try? db.pool(forAccountId: accountId),
-               let row = (try? pool.read { try SessionEntity.fetchOne($0, key: sessionId) }) ?? nil {
-                rootId = row.rootId.isEmpty ? row.id : row.rootId
-                let root = rootId == row.id ? row : (try? pool.read { try SessionEntity.fetchOne($0, key: rootId) }) ?? nil
-                if let root { key = root.sealKey; known = true }
-            }
-            guard let body = SteerStoredTailStore.shared.read(accountId: accountId, sessionId: sessionId),
-                  let texts = SteerStoredTail.open(
-                      body, keyed: !known || key != nil, keys: opener.ring.keys(rootId: rootId), crypto: opener.crypto
-                  ) else { return [] }
-            return texts.compactMap { text in
+        Task.detached(priority: .userInitiated) {
+            guard let pool = try? db.pool(forAccountId: accountId),
+                  let row = (try? pool.read { try SessionEntity.fetchOne($0, key: sessionId) }) ?? nil,
+                  let stored = ChatStoreHub.shared.openTail(accountId: accountId, sessionId: sessionId, deviceId: row.deviceId)
+            else { return ([], false) }
+            let frames: [(frame: SteerWireFrame, text: String)] = stored.frames.compactMap { text in
                 guard let frame = SteerWireFrame.parse(text), frame.t == "activity" else { return nil }
                 return (frame, text)
             }
+            return (frames, stored.truncated)
         }
     }
 }

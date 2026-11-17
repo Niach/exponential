@@ -112,9 +112,30 @@ NET="$CRATES/exponential-net-ffi/bindings/swift"
 mkdir -p "$WORK/headers/mobile/ExponentialNetFFIFFI"
 cp "$NET/ExponentialNetFFIFFI.h" "$NET/module.modulemap" "$WORK/headers/mobile/ExponentialNetFFIFFI/"
 # #EDE-114: the chat store's C module (`ExponentialChatStoreFFIFFI`) beside it.
+# Both bindings compile into ONE Swift module (ExpCore), and UniFFI's shared
+# types (RustBuffer, RustCallStatus, ForeignBytes…) sit behind one include
+# guard: the chat store's module therefore takes them FROM the P2P module
+# (its umbrella includes that header first, so the guard skips its own copy)
+# and re-exports it (`export *`). Otherwise clang merges the two copies into
+# one owner and ExpCore's MemberImportVisibility refuses them in the other
+# binding.
 CHAT="$CRATES/chat-store-ffi/bindings/swift"
 mkdir -p "$WORK/headers/mobile/ExponentialChatStoreFFIFFI"
-cp "$CHAT/ExponentialChatStoreFFIFFI.h" "$CHAT/module.modulemap" "$WORK/headers/mobile/ExponentialChatStoreFFIFFI/"
+cp "$CHAT/ExponentialChatStoreFFIFFI.h" "$WORK/headers/mobile/ExponentialChatStoreFFIFFI/"
+cat >"$WORK/headers/mobile/ExponentialChatStoreFFIFFI/ExponentialChatStoreFFIFFI-umbrella.h" <<'H'
+#include <ExponentialNetFFIFFI/ExponentialNetFFIFFI.h>
+#include "ExponentialChatStoreFFIFFI.h"
+H
+cat >"$WORK/headers/mobile/ExponentialChatStoreFFIFFI/module.modulemap" <<'M'
+module ExponentialChatStoreFFIFFI {
+    header "ExponentialChatStoreFFIFFI-umbrella.h"
+    export *
+    use "Darwin"
+    use "_Builtin_stdbool"
+    use "_Builtin_stdint"
+    use "ExponentialNetFFIFFI"
+}
+M
 mobile_lib() { echo "$THIN/$1/libexponential_mobile_ffi.a"; }
 xcframework "$HERE/out/ExponentialMobileFFI.xcframework" libexponential_mobile_ffi.a "$WORK/headers/mobile" mobile_lib
 
