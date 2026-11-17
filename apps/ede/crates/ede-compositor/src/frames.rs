@@ -80,7 +80,18 @@ impl Ede {
     }
 
     /// The decorated window and the frame part under `pos`, topmost first.
+    /// `None` where the shell draws a layer above the windows: a press on
+    /// a toast or the start menu is never the bar's under it (#EDE-119).
     pub fn frame_under(&self, pos: Point<f64, Logical>) -> Option<(Window, Hit)> {
+        if self.layer_above_windows(pos) {
+            return None;
+        }
+        self.window_frame_under(pos)
+    }
+
+    /// As [`Ede::frame_under`] among the windows alone, for a caller that
+    /// has looked at the layers above them itself (and may hold their map).
+    pub(crate) fn window_frame_under(&self, pos: Point<f64, Logical>) -> Option<(Window, Hit)> {
         if self.is_locked() {
             return None;
         }

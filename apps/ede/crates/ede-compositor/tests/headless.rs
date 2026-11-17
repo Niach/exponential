@@ -1028,3 +1028,100 @@ fn a_fullscreen_window_takes_the_click_where_the_hidden_panel_lies() {
     assert_eq!(shell.state.press_serial, None, "the hidden panel took the click");
     assert!(c.state.press_serial.is_some(), "the fullscreen window did not get the click");
 }
+
+/// #EDE-119: a press on a shell layer drawn above the windows (a toast)
+/// is the layer's: the title bar under it neither closes nor moves its
+/// window.
+#[test]
+fn a_press_on_a_layer_over_a_title_bar_is_the_layers() {
+    use wayland_protocols::xdg::decoration::zv1::client::zxdg_toplevel_decoration_v1::Mode;
+    let h = harness(&[(800, 600)]);
+    let mut app = Session::connect(h.connect());
+    let t = app.toplevel("Terminal");
+    app.decorate(&t, None);
+    app.draw(&t, 300, 200, BLUE);
+    wait_for(&mut app, |c| c.state.decoration_modes.get(&t.index) == Some(&(Mode::ServerSide as u32)));
+    wait_for(&mut app, |_| windows(&h).len() == 1);
+    let geo = windows(&h)[0].1;
+    let bar_y = geo.loc.y - 18;
+    let close = (geo.loc.x + geo.size.w - 18, bar_y);
+    let title = (geo.loc.x + 20, bar_y);
+
+    // A toast: a top layer over the whole bar.
+    let mut shell = Session::connect(h.connect());
+    let _pointer = shell.pointer();
+    let toast = shell.layer("toast", Anchor::empty(), (700, 500), 0);
+    shell.draw_layer(&toast, GREEN);
+    wait_for(&mut shell, |_| h.capture(0).at(close.0, close.1) == GREEN);
+    assert_eq!(h.capture(0).at(title.0, title.1), GREEN, "the layer covers the bar's title too");
+
+    // The bar's close button lies under the layer.
+    h.with(move |ede| {
+        ede.pointer_motion_to((close.0 as f64, close.1 as f64).into(), 0);
+        ede.pointer_button(BTN_LEFT, ButtonState::Pressed, 1);
+        ede.pointer_button(BTN_LEFT, ButtonState::Released, 2);
+    });
+    app.roundtrip();
+    assert!(!app.state.toplevels[t.index].closed, "the bar under the layer closed its window");
+    wait_for(&mut shell, |c| c.state.press_serial.is_some());
+
+    // So does its title: no move starts.
+    shell.state.press_serial = None;
+    h.with(move |ede| {
+        ede.pointer_motion_to((title.0 as f64, title.1 as f64).into(), 3);
+        ede.pointer_button(BTN_LEFT, ButtonState::Pressed, 4);
+        ede.pointer_motion_to((title.0 as f64 + 60.0, title.1 as f64 + 40.0).into(), 5);
+        ede.pointer_button(BTN_LEFT, ButtonState::Released, 6);
+    });
+    wait_for(&mut shell, |c| c.state.press_serial.is_some());
+    assert_eq!(windows(&h)[0].1, geo, "the bar under the layer moved its window");
+}
+
+/// A decorated window whose bar's close button lies at (100, 450), under a
+/// popup of the bottom panel (the start menu under the taskbar); a click
+/// there. Returns whether the window was closed and whether the popup's
+/// client got the press.
+fn click_a_panel_popup_over_a_close_button(grab: bool) -> (bool, bool) {
+    use wayland_protocols::xdg::decoration::zv1::client::zxdg_toplevel_decoration_v1::Mode;
+    let h = harness(&[(800, 600)]);
+    let mut app = Session::connect(h.connect());
+    let t = app.toplevel("Terminal");
+    app.decorate(&t, None);
+    app.draw(&t, 300, 200, BLUE);
+    wait_for(&mut app, |c| c.state.decoration_modes.get(&t.index) == Some(&(Mode::ServerSide as u32)));
+    wait_for(&mut app, |_| windows(&h).len() == 1);
+    h.with(|ede| {
+        let w = ede.desk.space.elements().next().cloned().unwrap();
+        ede.desk.space.map_element(w, (100 + 18 - 300, 450 + 18), true);
+    });
+    let geo = windows(&h)[0].1;
+    assert_eq!((geo.loc.x + geo.size.w - 18, geo.loc.y - 18), (100, 450), "the bar's close button");
+
+    let mut shell = Session::connect(h.connect());
+    let _pointer = shell.pointer();
+    let panel = shell.layer("panel", Anchor::Bottom | Anchor::Left | Anchor::Right, (0, 40), 40);
+    shell.draw_layer(&panel, GREEN);
+    let _menu = shell.layer_popup(&panel, (300, 300), grab, RED);
+    wait_for(&mut shell, |_| h.capture(0).at(100, 450) == RED);
+
+    h.with(|ede| {
+        ede.pointer_motion_to((100.0, 450.0).into(), 0);
+        ede.pointer_button(BTN_LEFT, ButtonState::Pressed, 1);
+        ede.pointer_button(BTN_LEFT, ButtonState::Released, 2);
+    });
+    app.roundtrip();
+    shell.roundtrip();
+    (app.state.toplevels[t.index].closed, shell.state.press_serial.is_some())
+}
+
+/// #EDE-119: the same for a popup of a layer above the windows.
+#[test]
+fn a_press_on_a_layer_popup_over_a_title_bar_is_the_popups() {
+    assert_eq!(click_a_panel_popup_over_a_close_button(false), (false, true), "(window closed, popup got the press)");
+}
+
+/// #EDE-119: and for one that holds the keyboard grab, as the start menu does.
+#[test]
+fn a_press_on_a_grabbing_layer_popup_over_a_title_bar_is_the_popups() {
+    assert_eq!(click_a_panel_popup_over_a_close_button(true), (false, true), "(window closed, popup got the press)");
+}
