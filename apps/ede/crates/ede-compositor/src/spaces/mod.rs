@@ -9,6 +9,8 @@
 //! after the space closed. Nothing of a space is listed, emitted or drawn
 //! on the person's side.
 
+mod close;
+pub use close::DIR_RETRIES;
 pub mod scope;
 
 use std::{os::unix::fs::DirBuilderExt, path::PathBuf, sync::Arc};
@@ -20,7 +22,7 @@ use smithay::{
     output::{Mode, Output, PhysicalProperties, Scale, Subpixel},
     reexports::{
         calloop::{generic::Generic, Interest, Mode as LoopMode, PostAction, RegistrationToken},
-        wayland_server::{backend::GlobalId, protocol::wl_surface::WlSurface, ListeningSocket, Resource},
+        wayland_server::{backend::GlobalId, protocol::wl_surface::WlSurface, Client, ListeningSocket, Resource},
     },
     utils::Transform,
     wayland::compositor::with_states,
@@ -37,7 +39,6 @@ use crate::{
 pub const MIN_SIZE: (i32, i32) = (320, 240);
 pub const MAX_SIZE: (i32, i32) = (1920, 1200);
 
-#[derive(Default)]
 pub struct Spaces {
     list: Vec<AgentSpace>,
     /// The last number given out; they count from 1 and are never reused.
@@ -46,6 +47,19 @@ pub struct Spaces {
     /// (`<runtime>/exponential-desktop/<wayland-N>.spaces`); `None` = no
     /// space can be made.
     pub dir: Option<PathBuf>,
+    /// The seats of closed spaces, until they can go ([`close`]).
+    closing: Vec<close::Closing>,
+    /// The directories of closed spaces that could not be removed yet.
+    leftovers: Vec<close::Leftover>,
+    /// Removes a space's directory with all in it; a test puts one in
+    /// that fails.
+    pub remove_dir: fn(&std::path::Path) -> std::io::Result<()>,
+}
+
+impl Default for Spaces {
+    fn default() -> Self {
+        Self { list: Vec::new(), next: 0, dir: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: |dir| std::fs::remove_dir_all(dir) }
+    }
 }
 
 pub struct AgentSpace {
@@ -57,13 +71,12 @@ pub struct AgentSpace {
     /// Its virtual output `space-n`, at (0, 0) of its desk's own space and
     /// in nothing of the person's: no layout, no pointer clamp, no list.
     pub output: Output,
-    // Both are read when a space closes; nothing closes one yet.
-    #[allow(dead_code)]
     pub(crate) output_global: GlobalId,
     /// Its own directory (0700), holding its socket `wayland-0`.
     pub(crate) dir: PathBuf,
-    #[allow(dead_code)]
     pub(crate) listener: RegistrationToken,
+    /// What connected to its socket and may still live.
+    pub(crate) clients: Vec<Client>,
 }
 
 impl AgentSpace {
@@ -121,6 +134,16 @@ impl Ede {
         self.spaces.list.iter_mut().find(|s| s.desk.id == id).map(|s| &mut s.desk)
     }
 
+    /// Remembers a client of space `id` for its close, forgetting those
+    /// that left.
+    fn space_client(&mut self, id: DeskId, client: Client) {
+        let backend = self.display_handle.backend_handle();
+        if let Some(space) = self.spaces.list.iter_mut().find(|s| s.desk.id == id) {
+            space.clients.retain(|c| backend.get_client_data(c.id()).is_ok());
+            space.clients.push(client);
+        }
+    }
+
     /// A new space of `width`×`height` for `owner`: its directory and
     /// socket, its desk, its output and its seat. What can fail comes
     /// first and the globals last, so a failure never has to take a global
@@ -145,8 +168,9 @@ impl Ede {
                 .insert_source(Generic::new(socket, Interest::READ, LoopMode::Level), move |_, socket, state| {
                     while let Some(stream) = socket.accept()? {
                         let client = ClientState { desk: id, ..Default::default() };
-                        if let Err(e) = state.display_handle.insert_client(stream, Arc::new(client)) {
-                            tracing::warn!("space client refused: {e}");
+                        match state.display_handle.insert_client(stream, Arc::new(client)) {
+                            Ok(client) => state.space_client(id, client),
+                            Err(e) => tracing::warn!("space client refused: {e}"),
                         }
                     }
                     Ok(PostAction::Continue)
@@ -203,7 +227,7 @@ impl Ede {
             title_click: None,
         };
         tracing::info!("{name}: {width}x{height} for {}", owner.as_str());
-        self.spaces.list.push(AgentSpace { id: SpaceId::new(&name).expect("space-n is a space id"), desk, owner, output, output_global, dir, listener });
+        self.spaces.list.push(AgentSpace { id: SpaceId::new(&name).expect("space-n is a space id"), desk, owner, output, output_global, dir, listener, clients: Vec::new() });
         Ok(id)
     }
 }
