@@ -113,6 +113,9 @@ fun ChatHeader(
     /** #FEED-257 (session-screen.json): while the word is needs input the
      *  subtitle line is ONE press opening the waiting item; null = text. */
     onSubtitleClick: (() -> Unit)? = null,
+    /** #EDE-98 (chats.json CHAT MARKS): the root's [Chats.chatMarks], drawn
+     *  right after the title ([ChatMarks]); empty = none. */
+    marks: List<String> = emptyList(),
 ) {
     HeaderEdgeChrome {
         Column(modifier = modifier.fillMaxWidth().statusBarsPadding().testTag("chat-header")) {
@@ -145,6 +148,7 @@ fun ChatHeader(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.testTag("chat-title").weight(1f, fill = false),
                     )
+                    ChatMarks(marks)
                     if (titleTrailing != null) {
                         Spacer(Modifier.width(6.dp))
                         titleTrailing()

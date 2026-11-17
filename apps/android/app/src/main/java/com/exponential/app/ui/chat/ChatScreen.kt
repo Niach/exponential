@@ -624,6 +624,8 @@ fun ChatScreen(
                 view = view,
                 rootLoaded = rootRow != null,
                 rootTitle = rootRow?.title?.trim()?.takeIf { it.isNotEmpty() },
+                // #EDE-98: the root's marks after the header's title.
+                marks = rootRow?.let { com.exponential.app.domain.Chats.chatMarks(it.shared, it.sealEpoch) }.orEmpty(),
                 agent = agent,
                 screen = screen,
                 items = items,
@@ -901,6 +903,8 @@ fun ChatContent(
      *  [view]'s title is when it is set): the header's title until [view]
      *  lands. Null = unnamed (the title derives, so it waits for [view]). */
     rootTitle: String? = null,
+    /** #EDE-98: the root's chat marks ([Chats.chatMarks]) after the title. */
+    marks: List<String> = emptyList(),
     agent: ChatAgent?,
     /** session-screen.json `sessionScreen` (narrow). */
     screen: SessionScreen.Screen,
@@ -1108,6 +1112,7 @@ fun ChatContent(
                 subtitle = headerSubtitle,
                 subtitleColor = headerSubtitleColor,
                 onSubtitleClick = openHeaderWaiting,
+                marks = marks,
                 lead = headerLead,
                 onBack = onBack,
                 menu = menu,

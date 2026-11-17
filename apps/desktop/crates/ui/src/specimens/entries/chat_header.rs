@@ -30,7 +30,7 @@ fn button(icon: ExpIcon, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-fn header(lead: AnyElement, title: &str, subtitle: &str, tone: Hsla, call: bool, cx: &App) -> AnyElement {
+fn header(lead: AnyElement, title: &str, marks: &[domain::chats::ChatMark], subtitle: &str, tone: Hsla, call: bool, cx: &App) -> AnyElement {
     let spec = &CHATS.shell.chat_header;
     let mut row = h_flex()
         .w_full()
@@ -45,12 +45,21 @@ fn header(lead: AnyElement, title: &str, subtitle: &str, tone: Hsla, call: bool,
                     .flex_1()
                     .min_w_0()
                     .child(
-                        div()
-                            .truncate()
-                            .text_size(px(spec.title))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(cx.theme().foreground)
-                            .child(SharedString::from(title.to_string())),
+                        // #EDE-98: the title's marks right after it.
+                        h_flex()
+                            .min_w_0()
+                            .items_center()
+                            .gap(px(CHATS.shell.mark_gap))
+                            .child(
+                                div()
+                                    .min_w_0()
+                                    .truncate()
+                                    .text_size(px(spec.title))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(cx.theme().foreground)
+                                    .child(SharedString::from(title.to_string())),
+                            )
+                            .children(crate::chat_list::chat_mark_glyphs(title, marks, cx)),
                     )
                     .child(div().truncate().text_size(px(spec.subtitle)).text_color(tone).child(SharedString::from(subtitle.to_string()))),
             ),
@@ -80,6 +89,7 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
         .child(header(
             disc(ChatLead::NeedsYou, cx),
             "Reduce cold start",
+            &crate::chat_list::specimen_marks(3),
             "needs input · Alex's MacBook",
             theme::tokens::YELLOW.to_hsla(),
             false,
@@ -89,13 +99,14 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
         .child(header(
             disc(ChatLead::Working, cx),
             "A title long enough that it truncates on one line",
+            &crate::chat_list::specimen_marks(1),
             &CHATS.copy.preview.working,
             foreground,
             false,
             cx,
         ))
         .child(caption("An agent chat (the telephone)"))
-        .child(header(disc(ChatLead::Waiting, cx), "Triage", "Agent", muted, true, cx))
+        .child(header(disc(ChatLead::Waiting, cx), "Triage", &[], "Agent", muted, true, cx))
 }
 
 #[cfg(test)]

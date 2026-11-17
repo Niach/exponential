@@ -133,6 +133,19 @@ pub struct ChatInput {
     /// The host paints the context ring beside Send (an Embed it claims).
     #[serde(default)]
     pub ring: bool,
+    /// #EDE-98: the chat's marks after the title (chats.json chatMarks, the
+    /// host resolved them), in order; absent = none.
+    #[serde(default)]
+    pub marks: Vec<ChatMark>,
+}
+
+/// #EDE-98: one chat mark: its concept icon, accessible label and test id.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatMark {
+    pub icon: String,
+    pub label: String,
+    pub test_id: String,
 }
 
 /// #EDE-65 lane O: one row of the composer's "+" menu as the host resolved
@@ -277,6 +290,8 @@ pub enum ChatFace {
 pub struct ChatHeader {
     pub title: String,
     pub icon: String,
+    /// #EDE-98: the host's chat marks, passed through.
+    pub marks: Vec<ChatMark>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -529,7 +544,7 @@ pub fn chat_view(input: &ChatInput) -> ChatView {
     let rows: Vec<ChatRow> = if home { Vec::new() } else { input.rows.iter().enumerate().map(|(i, r)| ChatRow { gap: gap(r, i), ..row(r, input.bubbles) }).collect() };
     ChatView {
         face: if home { ChatFace::Home } else { ChatFace::Conversation },
-        header: ChatHeader { title: input.title.clone(), icon: input.icon.clone() },
+        header: ChatHeader { title: input.title.clone(), icon: input.icon.clone(), marks: input.marks.clone() },
         agent_row: ChatAgentRow {
             label: picked.map(|a| copy("to").replace("{name}", &a.name)).unwrap_or_default(),
             agents: input

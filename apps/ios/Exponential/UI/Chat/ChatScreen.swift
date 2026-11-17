@@ -426,7 +426,7 @@ struct ChatScreen: View {
                     title: rows.isAgent && !rows.agentName.isEmpty ? rows.agentName : view.title,
                     subtitle: ChatHeaderTitle.subtitle(rows: rows, asks: asks),
                     subtitleTone: ChatHeaderTitle.tone(rows: rows, asks: asks),
-                    isPrivate: view.isPrivate,
+                    marks: Chats.chatMarks(shared: rows.root.shared, sealEpoch: rows.root.sealEpoch),
                     agentIcon: rows.isAgent ? rows.agentIcon : nil,
                     agentColor: rows.isAgent ? rows.agentColor : nil,
                     assistant: rows.isAgent && rows.app == nil && rows.agent?.isAssistant == true,

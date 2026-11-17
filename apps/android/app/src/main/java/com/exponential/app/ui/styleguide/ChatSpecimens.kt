@@ -223,6 +223,19 @@ object ChatListSpecimen {
 }
 
 private val ROWS get() = ChatListSpecimen.LIST.rows
+
+/** #EDE-98 (chats.json): row i of `listCases[0]` wears `marksCases[i % length]`. */
+private val SPECIMEN_MARKS: List<List<String>> = listOf(
+    emptyList(),
+    listOf(Chats.MARK_TEAM),
+    listOf(Chats.MARK_UNENCRYPTED),
+    listOf(Chats.MARK_TEAM, Chats.MARK_UNENCRYPTED),
+    listOf(Chats.MARK_UNENCRYPTED),
+)
+private fun specimenMarks(rootId: String): List<String> {
+    val index = ROWS.indexOfFirst { it.sessionId == rootId }
+    return if (index < 0) emptyList() else SPECIMEN_MARKS[index % SPECIMEN_MARKS.size]
+}
 private val LIST get() = ChatListSpecimen.LIST
 
 /** THE phone Chats screen over the bottom bar (shot `sg_chat-list`, #FEED-191:
@@ -238,6 +251,7 @@ fun ChatListSpecimenScreen() {
                     agentRows = ChatListSpecimen.AGENT_ROWS,
                     appRows = ChatListSpecimen.APP_ROWS,
                     agentOf = { "claude" },
+                    marksOf = ::specimenMarks,
                     onOpenChat = {},
                     onLongPressChat = {},
                     onLongPressAgent = {},
@@ -288,6 +302,7 @@ fun ChatSelectionSpecimenScreen() {
                     // (agents are never selectable).
                     agentRows = ChatListSpecimen.AGENT_ROWS,
                     agentOf = { "claude" },
+                    marksOf = ::specimenMarks,
                     onOpenChat = {},
                     onLongPressChat = {},
                     onLongPressAgent = {},
@@ -516,6 +531,7 @@ fun ChatHeaderSpecimenScreen() {
                 title = "Reduce cold start",
                 subtitle = "${SessionTree.ChatRowWord.NeedsInput.text} · Alex's MacBook",
                 subtitleColor = NeedsInputAmber,
+                marks = SPECIMEN_MARKS[3],
                 lead = { ChatLeadDisc(Chats.ChatLead.NeedsYou, agent = "claude", size = discSize) },
                 onBack = {},
                 menu = more,
@@ -525,6 +541,7 @@ fun ChatHeaderSpecimenScreen() {
                 title = "A title long enough that it truncates on one line",
                 subtitle = Chats.Copy.PREVIEW_WORKING,
                 subtitleColor = MaterialTheme.colorScheme.onSurface,
+                marks = SPECIMEN_MARKS[1],
                 lead = { ChatLeadDisc(Chats.ChatLead.Working, agent = "claude", size = discSize) },
                 onBack = {},
                 menu = more,

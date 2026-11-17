@@ -15,7 +15,7 @@ use gpui::{
 };
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 
-use domain::chats::{chat_selection_count, ChatSelectionAction, ChatLead, ChatPreviewKind, ChatRow, CHATS};
+use domain::chats::{chat_marks, chat_selection_count, ChatMark, ChatSelectionAction, ChatLead, ChatPreviewKind, ChatRow, CHATS};
 use domain::session_tree::ChatRowWord;
 
 use crate::icons::registry;
@@ -117,7 +117,27 @@ fn preview_parts(row: &ChatRow) -> (Option<String>, String) {
 
 /// One chat (a ROOT session) as the flat list row: `lead` = its
 /// [`chat_lead_disc`]. The caller makes it clickable and hangs the menu.
-pub(crate) fn chat_row(row: &ChatRow, lead: AnyElement, cx: &App) -> Div {
+/// #EDE-98: a root's chat marks off the synced session (none when the row
+/// is not synced).
+pub(crate) fn root_marks(session_id: &str, cx: &App) -> Vec<ChatMark> {
+    crate::session_data::session(session_id, cx)
+        .map(|root| chat_marks(root.shared, root.seal_epoch))
+        .unwrap_or_default()
+}
+
+/// #EDE-98: the specimens' marks (chats.json: row i wears `marksCases[i % length]`).
+pub(crate) fn specimen_marks(index: usize) -> Vec<ChatMark> {
+    const CASES: [&[ChatMark]; 5] = [
+        &[],
+        &[ChatMark::Team],
+        &[ChatMark::Unencrypted],
+        &[ChatMark::Team, ChatMark::Unencrypted],
+        &[ChatMark::Unencrypted],
+    ];
+    CASES[index % CASES.len()].to_vec()
+}
+
+pub(crate) fn chat_row(row: &ChatRow, lead: AnyElement, marks: &[ChatMark], cx: &App) -> Div {
     let theme = cx.theme();
     let unread = row.unread_count > 0;
     let time_color = if row.needs_you {
@@ -178,16 +198,55 @@ pub(crate) fn chat_row(row: &ChatRow, lead: AnyElement, cx: &App) -> Div {
                 .child(div().min_w_0().truncate().child(text))
         }))
         .children(badge);
+    // #EDE-98: the title's glyphs (`chat_marks`).
+    let marks = chat_mark_glyphs(&row.session_id, marks, cx);
     // S-3: a DONE chat stays in the list, the whole row dimmed.
-    chat_row_frame(lead, row.title.clone(), unread, row.time.clone(), time_color, Some(second), cx)
+    chat_row_frame(lead, row.title.clone(), marks, unread, row.time.clone(), time_color, Some(second), cx)
         .when(row.dim, |this| this.opacity(CHATS.shell.dim_opacity))
 }
 
-/// THE row's frame: the lead, then the text column (title + the trailing
-/// time slot on line 1, `second` under it) over the row hairline.
+/// #EDE-98 (chats.json `chatMarks`): a chat's title glyphs, the team icon
+/// when shared, the open lock when its tree has no key; each
+/// `shell.markGlyph` at the muted colour, `shell.markGap` apart, its label
+/// as the tooltip. None = nothing to draw.
+pub(crate) fn chat_mark_glyphs(key: &str, marks: &[ChatMark], cx: &App) -> Option<AnyElement> {
+    if marks.is_empty() {
+        return None;
+    }
+    let color = cx.theme().muted_foreground;
+    Some(
+        h_flex()
+            .flex_shrink_0()
+            .items_center()
+            .gap(px(CHATS.shell.mark_gap))
+            .children(marks.iter().map(|&mark| {
+                let label = SharedString::from(mark.label());
+                div()
+                    .id(ElementId::Name(format!("{}-{key}", mark.test_id()).into()))
+                    .flex()
+                    .items_center()
+                    .child(
+                        Icon::new(match mark {
+                            ChatMark::Team => registry::UI_TEAM,
+                            ChatMark::Unencrypted => registry::UI_UNENCRYPTED,
+                        })
+                        .with_size(px(CHATS.shell.mark_glyph))
+                        .text_color(color),
+                    )
+                    .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(label.clone()).build(window, cx))
+            }))
+            .into_any_element(),
+    )
+}
+
+/// THE row's frame: the lead, then the text column (title + its marks +
+/// the trailing time slot on line 1, `second` under it) over the row
+/// hairline.
+#[allow(clippy::too_many_arguments)]
 fn chat_row_frame(
     lead: AnyElement,
     title: String,
+    marks: Option<AnyElement>,
     strong: bool,
     time: String,
     time_color: gpui::Hsla,
@@ -214,14 +273,21 @@ fn chat_row_frame(
                         .gap_2()
                         .items_baseline()
                         .child(
-                            div()
+                            h_flex()
                                 .flex_1()
                                 .min_w_0()
-                                .truncate()
-                                .text_size(px(15.))
-                                .font_weight(if strong { FontWeight::SEMIBOLD } else { FontWeight::MEDIUM })
-                                .text_color(theme.foreground)
-                                .child(SharedString::from(title)),
+                                .gap(px(CHATS.shell.mark_gap))
+                                .items_center()
+                                .child(
+                                    div()
+                                        .min_w_0()
+                                        .truncate()
+                                        .text_size(px(15.))
+                                        .font_weight(if strong { FontWeight::SEMIBOLD } else { FontWeight::MEDIUM })
+                                        .text_color(theme.foreground)
+                                        .child(SharedString::from(title)),
+                                )
+                                .children(marks),
                         )
                         .child(
                             div()
@@ -258,6 +324,7 @@ pub(crate) fn chat_archived_row(count: usize, cx: &App) -> Div {
     chat_row_frame(
         lead,
         CHATS.copy.archived.entry.clone(),
+        None,
         false,
         count.to_string(),
         theme.muted_foreground,
@@ -530,7 +597,7 @@ fn pinned_chat_row(
         wall: None,
         dim: false,
     };
-    chat_row(&as_chat, lead, cx)
+    chat_row(&as_chat, lead, &[], cx)
 }
 
 /// A Chats list section header (`copy.sections`).

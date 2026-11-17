@@ -157,7 +157,6 @@ internal object ChatUiCopy {
     const val REMOVE_FROM_QUEUE = "Remove from queue"
     const val SEND = "Send"
     const val ADD = "Add"
-    const val PRIVATE = "Private"
 
     fun unlink(identifier: String) = "Unlink $identifier"
 }
@@ -176,27 +175,26 @@ private val Secondary: Color @Composable get() = MaterialTheme.colorScheme.onSur
 
 // ── Header ──────────────────────────────────────────────────────────────────
 
-/** The header band's title (EXP-1316): ONE line, the lock after it when
- *  private. Derived, never renamed, not tappable. */
+/** #EDE-98 (chats.json CHAT MARKS): a chat's marks ([Chats.chatMarks]) right
+ *  after its title, in the chat header and on every chat list row: each
+ *  glyph `shell.markGlyph` at the tertiary text colour, `shell.markGap`
+ *  after the title and between marks, never tappable, labelled
+ *  `copy.marks.<kind>`. Nothing at all for no marks. */
 @Composable
-fun ChatTitle(title: String, private: Boolean, modifier: Modifier = Modifier) {
-    Row(modifier = modifier.testTag("chat-header"), verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            title,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false).testTag("chat-title"),
-        )
-        if (private) {
-            Spacer(Modifier.width(6.dp))
+fun ChatMarks(marks: List<String>, modifier: Modifier = Modifier) {
+    if (marks.isEmpty()) return
+    val gap = Chats.Shell.MARK_GAP.dp
+    Row(
+        modifier = modifier.padding(start = gap),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(gap),
+    ) {
+        for (mark in marks) {
             Icon(
-                ExpIcons.uiPrivate,
-                contentDescription = ChatUiCopy.PRIVATE,
+                if (mark == Chats.MARK_TEAM) ExpIcons.uiTeam else ExpIcons.uiUnencrypted,
+                contentDescription = Chats.chatMarkLabel(mark),
                 tint = Muted,
-                modifier = Modifier.size(14.dp).testTag("chat-private"),
+                modifier = Modifier.size(Chats.Shell.MARK_GLYPH.dp).testTag(Chats.chatMarkTestId(mark)),
             )
         }
     }

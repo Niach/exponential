@@ -322,7 +322,7 @@ fn chats_page_row(
         &row.session_id,
         Some((selected, selecting)),
         move |_: &ClickEvent, window: &mut Window, cx: &mut App| on_toggle(&toggle_id, true, window, cx),
-        crate::chat_list::chat_row(row, lead, cx),
+        crate::chat_list::chat_row(row, lead, &crate::chat_list::root_marks(&row.session_id, cx), cx),
         cx,
     )
     .on_click(move |event: &ClickEvent, window: &mut Window, cx: &mut App| on_click(&session_id, event, window, cx))

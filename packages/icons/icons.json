@@ -406,6 +406,7 @@
     "media-volume-off": "volume-off",
     "ui-favorite-off": "heart-off",
     "ui-unlock": "lock-open",
+    "ui-unencrypted": "lock-open",
 
     "ede-lock": "lock",
     "ede-suspend": "moon",
