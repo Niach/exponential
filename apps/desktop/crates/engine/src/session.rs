@@ -461,6 +461,10 @@ impl coding::pickup::LiveEngine for EngineSession {
         self.0.deliver(message_id, text);
     }
 
+    fn deliver_wake(&self, message_id: String, text: String) {
+        self.0.deliver_wake(message_id, text);
+    }
+
     fn unqueue(&self, message_id: &str) {
         self.0.unqueue(message_id);
     }

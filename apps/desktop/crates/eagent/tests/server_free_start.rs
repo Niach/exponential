@@ -43,7 +43,7 @@ use eagent::agent::CodingAgent;
 use eagent::engine::local::{EnginePhase, LocalFeedEvent};
 use eagent::engine::{
     start_with, ChildExitLink, EngineExit, EngineHost, EngineSession, EventSink, NoBackend,
-    RecordingSink, ResumeHandle, SessionSpec,
+    RecordingSink, ResumeHandle, RunBackend, SessionCtx, SessionSpec,
 };
 use eagent::wire::RemoteAnswer;
 
@@ -689,6 +689,14 @@ struct Harness {
 }
 
 fn start_fake(name: &str, resume: Option<ResumeHandle>) -> Harness {
+    start_fake_with(name, resume, |host| Arc::new(NoBackend::with_host(host)))
+}
+
+fn start_fake_with(
+    name: &str,
+    resume: Option<ResumeHandle>,
+    backend: impl FnOnce(Arc<TestHost>) -> Arc<dyn RunBackend>,
+) -> Harness {
     let worktree = std::env::temp_dir().join(format!(
         "exp1426-core-{name}-{}-{}",
         std::process::id(),
@@ -731,8 +739,7 @@ fn start_fake(name: &str, resume: Option<ResumeHandle>) -> Harness {
         host_tools: Arc::new(eagent::engine::NoHostTools),
         sink: Some(sink.clone() as Arc<dyn EventSink>),
     };
-    let session = start_with(session, adapter, Arc::new(NoBackend::with_host(host.clone())))
-        .expect("the engine starts");
+    let session = start_with(session, adapter, backend(host.clone())).expect("the engine starts");
     Harness {
         session,
         sink,
@@ -828,6 +835,59 @@ fn a_server_free_resume_reloads_the_session() {
     assert_eq!(harness.session.acp_session_id().as_deref(), Some("fake-session"));
     harness.session.send_prompt("stream".to_string());
     until("the tool event", || !events_of(&harness.sink, "tool").is_empty());
+    harness.session.kill("killed");
+    assert!(harness.session.wait_timeout(BUDGET).is_some());
+}
+
+/// EXP-1896: [`NoBackend`] that counts the Esc answers
+/// ([`RunBackend::turn_started`]: Exponential's clears the run's computer-use
+/// abort there).
+struct EscAnswers {
+    inner: NoBackend,
+    answers: Arc<AtomicUsize>,
+}
+
+impl RunBackend for EscAnswers {
+    fn end(&self, ctx: &SessionCtx, outcome: &str, child: Option<eagent::spawn::ChildExit>, error: Option<String>) {
+        self.inner.end(ctx, outcome, child, error);
+    }
+
+    fn turn_started(&self, _session_id: &str) {
+        self.answers.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+/// EXP-1896: a turn opened by a row no person wrote (a child's report, a CI
+/// wake, another session's message) does not answer an Esc that aborted the
+/// run's computer use; the person's next message does.
+#[test]
+fn only_the_persons_message_answers_an_esc() {
+    let answers = Arc::new(AtomicUsize::new(0));
+    let counted = answers.clone();
+    let harness = start_fake_with("esc-answer", None, move |host| {
+        Arc::new(EscAnswers { inner: NoBackend::with_host(host), answers: counted })
+    });
+    let turns = |count: usize| {
+        until("the turn's prompt", || harness.state.prompts.lock().unwrap().len() == count);
+        until("the turn's end", || harness.session.turn_signal().is_idle());
+    };
+
+    // The person presses Esc (the abort lives in the backend), then says
+    // nothing: a child's report arrives and runs a turn.
+    harness.session.deliver_wake("r-1".to_string(), "stream".to_string());
+    turns(1);
+    assert_eq!(answers.load(Ordering::SeqCst), 0, "a report answers no Esc");
+
+    // The person's own message is the answer.
+    harness.session.deliver("m-1".to_string(), "stream".to_string());
+    turns(2);
+    assert_eq!(answers.load(Ordering::SeqCst), 1, "the person spoke");
+
+    // And the next report leaves it alone again.
+    harness.session.deliver_wake("r-2".to_string(), "stream".to_string());
+    turns(3);
+    assert_eq!(answers.load(Ordering::SeqCst), 1);
+
     harness.session.kill("killed");
     assert!(harness.session.wait_timeout(BUDGET).is_some());
 }
