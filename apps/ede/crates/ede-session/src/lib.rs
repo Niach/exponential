@@ -114,6 +114,18 @@ impl Policy {
             }
         }
     }
+
+    /// The running compositor has lasted `ran`: once that is past
+    /// [`QUICK_CRASH`] it held, and the streak carried into this login
+    /// ends, however the run ends later (shutdown, reboot, power loss).
+    /// True when the count changed (store it).
+    pub fn running_for(&mut self, ran: Duration) -> bool {
+        if ran >= QUICK_CRASH && self.quick_crashes_in_a_row != 0 {
+            self.quick_crashes_in_a_row = 0;
+            return true;
+        }
+        false
+    }
 }
 
 /// What `exponential-session --device` runs (exponential-device.service) so
@@ -414,6 +426,22 @@ mod tests {
         assert_eq!(p.after(LATE), Next::Restart { safe_mode: false });
         assert_eq!(p.quick_crashes_in_a_row, 1);
         assert_eq!(p.after(QUICK), Next::Restart { safe_mode: false });
+    }
+
+    /// #EDE-109: a safe-mode login that held for hours and ended by
+    /// shutdown (never `Exit::Clean`) ends the streak: the next login
+    /// starts normally.
+    #[test]
+    fn a_run_that_held_ends_the_streak_before_the_session_ends() {
+        let mut p = Policy { quick_crashes_in_a_row: CRASHES_FOR_SAFE_MODE, safe_mode: true, ..Default::default() };
+        assert!(!p.running_for(Duration::from_secs(5)), "still quick");
+        assert_eq!(p.quick_crashes_in_a_row, CRASHES_FOR_SAFE_MODE);
+        assert!(p.running_for(QUICK_CRASH), "it held: store the end of the streak");
+        assert_eq!(p.quick_crashes_in_a_row, 0);
+        assert!(!p.running_for(Duration::from_secs(3600)), "stored once");
+        assert!(p.safe_mode, "safe mode stays for the rest of this login");
+        assert_eq!(p.after(QUICK), Next::Restart { safe_mode: true });
+        assert_eq!(p.quick_crashes_in_a_row, 1, "a later crash starts a new streak");
     }
 
     #[test]

@@ -229,19 +229,27 @@ pub fn run(config: Config, config_path: Option<std::path::PathBuf>, autostart: V
                 // memory while asleep (#EDE-59; the doctor's "NVIDIA
                 // sleep" row), so nothing cached before is trusted.
                 udev.cursor_buffers.clear();
-                for device in udev.devices.values_mut() {
-                    if let Err(e) = device.manager.lock().activate(false) {
+                let mut nodes = Vec::new();
+                for (node, device) in udev.devices.iter_mut() {
+                    let activated = device.manager.lock().activate(false);
+                    if let Err(e) = &activated {
                         tracing::error!("DRM resume failed: {e}");
                     }
                     for s in device.surfaces.values_mut() {
                         s.drm_output.reset_buffers();
                         s.queued = false;
                     }
+                    nodes.push((*node, activated.is_ok()));
                 }
-                udev.devices.keys().copied().collect()
+                nodes
             };
-            for node in nodes {
-                render_device(&u, state, node);
+            for (node, activated) in nodes {
+                for step in super::on_resume(activated) {
+                    match step {
+                        super::Resume::Scan => scan_connectors(&u, state, node),
+                        super::Resume::Render => render_device(&u, state, node),
+                    }
+                }
             }
         }
     })?;
@@ -487,7 +495,11 @@ fn schedule_scan(udev: &Shared, state: &mut Ede, node: DrmNode) {
             if let Some(d) = ud.borrow_mut().devices.get_mut(&node) {
                 d.rescan_timer = None;
             }
-            scan_connectors(&ud, state, node);
+            // #EDE-109: a paused device cannot take a new output or mode;
+            // the scan on resume picks the change up.
+            if ud.borrow().session.is_active() {
+                scan_connectors(&ud, state, node);
+            }
             TimeoutAction::Drop
         })
         .ok();
@@ -793,7 +805,6 @@ fn render_surface(udev: &Shared, state: &mut Ede, node: DrmNode, crtc: crtc::Han
     drop(renderer);
     match result {
         Ok(frame) if !frame.is_empty => {
-            u.health.drew();
             // #EDE-65: what each frame did, for a flicker only a real display
             // shows (RUST_LOG=ede_frames=debug in the session's environment).
             if tracing::enabled!(target: "ede_frames", tracing::Level::DEBUG) {
@@ -819,7 +830,8 @@ fn render_surface(udev: &Shared, state: &mut Ede, node: DrmNode, crtc: crtc::Han
                 use smithay::backend::renderer::element::utils::select_dmabuf_feedback;
                 w.send_dmabuf_feedback(&output, |_, _| Some(output.clone()), |s, _| select_dmabuf_feedback(s, &frame.states, render_fb, scanout_fb));
             }
-            match surface.drm_output.queue_frame(()) {
+            let queued = surface.drm_output.queue_frame(()).map_err(|e| format!("{}: queue_frame: {e:?}", output.name()));
+            match u.health.flipped(queued) {
             Ok(()) => {
                 surface.queued = true;
                 if let Some(t) = surface.idle_timer.take() {
@@ -828,38 +840,48 @@ fn render_surface(udev: &Shared, state: &mut Ede, node: DrmNode, crtc: crtc::Han
                 super::frame_done(state, &output, true);
                 ede_observability::record_frame(&output.name(), frame_started.elapsed());
             }
-            Err(e) => {
+            Err((failure, error)) => {
                 // #EDE-65: smithay counted this frame as shown (the slot's
                 // age, the elements' damage) though it never reached the
                 // screen; vmwgfx copies only the next frames' damage clips to
                 // the host, so what changed in it stayed stale on screen.
                 // The next frame redraws the whole output instead.
                 surface.drm_output.reset_buffers();
-                tracing::warn!("{}: queue_frame: {e:?}; the next frame redraws the whole output", output.name());
+                // #EDE-109: a refused flip is a failed frame (it counts
+                // toward the stop when nothing was ever shown), retried a
+                // refresh later instead of on every loop turn; clients still
+                // get their frame callbacks.
+                idle_refresh(udev, state, surface, &output, node, crtc);
+                on_failure(state, &output, failure, format!("{error}; the next frame redraws the whole output"));
             }
             }
         }
-        Ok(_) => {
-            // Nothing changed. Clients still waiting on a frame callback get
-            // one a refresh later, so they never stall.
-            if surface.idle_timer.is_none() {
-                let refresh = output.current_mode().map(|m| m.refresh).filter(|r| *r > 0).unwrap_or(60_000);
-                let ud = udev.clone();
-                let o = output.clone();
-                surface.idle_timer = state
-                    .loop_handle
-                    .insert_source(Timer::from_duration(Duration::from_micros(1_000_000_000 / refresh as u64)), move |_, _, state| {
-                        if let Some(s) = ud.borrow_mut().devices.get_mut(&node).and_then(|d| d.surfaces.get_mut(&crtc)) {
-                            s.idle_timer = None;
-                        }
-                        super::frame_done(state, &o, false);
-                        TimeoutAction::Drop
-                    })
-                    .ok();
-            }
-        }
+        // Nothing changed. Clients still waiting on a frame callback get
+        // one a refresh later, so they never stall.
+        Ok(_) => idle_refresh(udev, state, surface, &output, node, crtc),
         Err(e) => frame_failed(u, state, &output, format!("{}: render failed: {e:?}", output.name())),
     }
+}
+
+/// Arms `surface`'s idle timer: its frame callbacks go out a refresh later,
+/// and it renders again then ([`wants_render`]).
+fn idle_refresh(udev: &Shared, state: &mut Ede, surface: &mut Surface, output: &Output, node: DrmNode, crtc: crtc::Handle) {
+    if surface.idle_timer.is_some() {
+        return;
+    }
+    let refresh = output.current_mode().map(|m| m.refresh).filter(|r| *r > 0).unwrap_or(60_000);
+    let ud = udev.clone();
+    let o = output.clone();
+    surface.idle_timer = state
+        .loop_handle
+        .insert_source(Timer::from_duration(Duration::from_micros(1_000_000_000 / refresh as u64)), move |_, _, state| {
+            if let Some(s) = ud.borrow_mut().devices.get_mut(&node).and_then(|d| d.surfaces.get_mut(&crtc)) {
+                s.idle_timer = None;
+            }
+            super::frame_done(state, &o, false);
+            TimeoutAction::Drop
+        })
+        .ok();
 }
 
 /// Gives the cursor `planes` the image's `hotspot` (physical pixels from
@@ -891,7 +913,12 @@ fn set_cursor_hotspot(drm: &DrmDevice, planes: &[smithay::reexports::drm::contro
 /// session stops with the reason instead of staying black (#EDE-40);
 /// exponential-session shows it and falls back.
 fn frame_failed(u: &mut Udev, state: &mut Ede, output: &Output, error: String) {
-    match u.health.failed(&error) {
+    let failure = u.health.failed(&error);
+    on_failure(state, output, failure, error);
+}
+
+fn on_failure(state: &mut Ede, output: &Output, failure: super::Failure, error: String) {
+    match failure {
         super::Failure::Log => tracing::error!("{error}"),
         super::Failure::Quiet => {}
         super::Failure::Fatal => {
