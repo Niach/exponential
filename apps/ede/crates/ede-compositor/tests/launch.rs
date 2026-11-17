@@ -112,7 +112,7 @@ fn shell_launch(socket: &str, title: &str, token: Option<&str>) -> std::process:
 
 fn close_all(h: &Harness, children: Vec<std::process::Child>) {
     h.with(|ede| {
-        for w in ede.space.elements().cloned().collect::<Vec<_>>() {
+        for w in ede.desk.space.elements().cloned().collect::<Vec<_>>() {
             ede.close_window(&w);
         }
     });

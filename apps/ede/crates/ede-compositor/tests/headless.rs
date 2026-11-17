@@ -41,7 +41,7 @@ fn harness(outputs: &[(i32, i32)]) -> Harness {
 /// Window geometries in the space, back to front, with their titles.
 fn windows(h: &Harness) -> Vec<(String, Rectangle<i32, smithay::utils::Logical>)> {
     h.with(|ede| {
-        ede.space
+        ede.desk.space
             .elements()
             .map(|w| {
                 let title = smithay::wayland::compositor::with_states(w.toplevel().unwrap().wl_surface(), |s| {
@@ -54,7 +54,7 @@ fn windows(h: &Harness) -> Vec<(String, Rectangle<i32, smithay::utils::Logical>)
                         .clone()
                         .unwrap_or_default()
                 });
-                (title, ede.space.element_geometry(w).unwrap())
+                (title, ede.desk.space.element_geometry(w).unwrap())
             })
             .collect()
     })
@@ -144,7 +144,7 @@ fn dropping_a_window_on_the_left_edge_tiles_it_and_dragging_it_off_restores_it()
     alt_drag(&h, (640.0, 400.0), (0.0, 400.0));
     wait_for(&mut c, |c| c.state.toplevels[0].size == (640, 800));
     assert!(c.state.toplevels[0].states.contains(&XdgState::TiledLeft));
-    assert_eq!(h.with(|ede| window_state(ede.space.elements().next().unwrap()).tile), Some(Tile::Left));
+    assert_eq!(h.with(|ede| window_state(ede.desk.space.elements().next().unwrap()).tile), Some(Tile::Left));
     c.draw_configured(&t, 0, 0, RED);
     wait_for(&mut c, |_| windows(&h)[0].1 == Rectangle::new((0, 0).into(), (640, 800).into()));
     let frame = h.capture(0);
@@ -154,7 +154,7 @@ fn dropping_a_window_on_the_left_edge_tiles_it_and_dragging_it_off_restores_it()
     alt_drag(&h, (320.0, 10.0), (700.0, 300.0));
     wait_for(&mut c, |c| c.state.toplevels[0].size == (400, 300));
     assert!(!c.state.toplevels[0].states.contains(&XdgState::TiledLeft));
-    assert_eq!(h.with(|ede| window_state(ede.space.elements().next().unwrap()).tile), None);
+    assert_eq!(h.with(|ede| window_state(ede.desk.space.elements().next().unwrap()).tile), None);
 }
 
 #[test]
@@ -307,7 +307,7 @@ fn an_alt_click_on_a_layer_over_a_window_leaves_the_window_alone() {
     let focused = c.toplevel("focused");
     c.draw(&focused, 300, 200, BLUE);
     wait_for(&mut c, |_| windows(&h).len() == 2);
-    let focus_title = || h.with(|ede| ede.space.elements().find(|w| w.toplevel().is_some_and(|t| t.with_pending_state(|s| s.states.contains(smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::Activated)))).and_then(|w| smithay::wayland::compositor::with_states(w.toplevel().unwrap().wl_surface(), |s| s.data_map.get::<smithay::wayland::shell::xdg::XdgToplevelSurfaceData>().unwrap().lock().unwrap().title.clone())));
+    let focus_title = || h.with(|ede| ede.desk.space.elements().find(|w| w.toplevel().is_some_and(|t| t.with_pending_state(|s| s.states.contains(smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::Activated)))).and_then(|w| smithay::wayland::compositor::with_states(w.toplevel().unwrap().wl_surface(), |s| s.data_map.get::<smithay::wayland::shell::xdg::XdgToplevelSurfaceData>().unwrap().lock().unwrap().title.clone())));
     assert_eq!(focus_title().as_deref(), Some("focused"));
     let before = windows(&h);
 
@@ -337,7 +337,7 @@ fn the_panel_margin_keeps_windows_off_the_frame() {
     let mut c = Session::connect(h.connect());
     let panel = c.layer("panel", Anchor::Bottom | Anchor::Left | Anchor::Right, (0, 40), 40);
     c.draw_layer(&panel, GREEN);
-    wait_for(&mut c, |_| h.with(|ede| ede.work_area(ede.space.outputs().next().unwrap()).unwrap()) == Rectangle::new((10, 10).into(), (1260, 740).into()));
+    wait_for(&mut c, |_| h.with(|ede| ede.work_area(ede.desk.space.outputs().next().unwrap()).unwrap()) == Rectangle::new((10, 10).into(), (1260, 740).into()));
 
     let t = c.toplevel("w");
     c.draw(&t, 400, 300, RED);
@@ -367,7 +367,7 @@ fn a_panel_layer_reserves_its_zone_and_windows_place_and_tile_around_it() {
     let panel = c.layer("panel", Anchor::Bottom | Anchor::Left | Anchor::Right, (0, 40), 40);
     assert_eq!(c.state.layers[0].size, (1280, 40), "stretched across the output");
     c.draw_layer(&panel, GREEN);
-    wait_for(&mut c, |_| h.with(|ede| ede.work_area(ede.space.outputs().next().unwrap()).unwrap().size.h) == 760);
+    wait_for(&mut c, |_| h.with(|ede| ede.work_area(ede.desk.space.outputs().next().unwrap()).unwrap().size.h) == 760);
 
     let t = c.toplevel("w");
     // The initial configure bounds it to the work area.
@@ -389,7 +389,7 @@ fn a_panel_layer_reserves_its_zone_and_windows_place_and_tile_around_it() {
 #[test]
 fn outputs_line_up_left_to_right_and_windows_open_on_the_pointers_output() {
     let h = harness(&[(1280, 800), (1920, 1080)]);
-    let geos = h.with(|ede| ede.space.outputs().map(|o| ede.space.output_geometry(o).unwrap()).collect::<Vec<_>>());
+    let geos = h.with(|ede| ede.desk.space.outputs().map(|o| ede.desk.space.output_geometry(o).unwrap()).collect::<Vec<_>>());
     assert_eq!(geos, vec![Rectangle::new((0, 0).into(), (1280, 800).into()), Rectangle::new((1280, 0).into(), (1920, 1080).into())]);
 
     let mut c = Session::connect(h.connect());
@@ -420,7 +420,7 @@ fn unplugging_an_output_moves_its_windows_onto_the_remaining_one() {
     assert_eq!(windows(&h)[0].1.loc, (2040, 390).into());
 
     h.with_backend(|ede, headless| headless.remove_output(ede, 1));
-    let geos = h.with(|ede| ede.space.outputs().map(|o| ede.space.output_geometry(o).unwrap()).collect::<Vec<_>>());
+    let geos = h.with(|ede| ede.desk.space.outputs().map(|o| ede.desk.space.output_geometry(o).unwrap()).collect::<Vec<_>>());
     assert_eq!(geos, vec![Rectangle::new((0, 0).into(), (1280, 800).into()), Rectangle::new((1280, 0).into(), (1280, 800).into())], "no gap left");
     assert_eq!(windows(&h)[0].1.loc, (440, 250).into(), "rescued onto the first output");
     assert_eq!(h.capture(0).at(640, 400), BLUE);
@@ -515,7 +515,7 @@ fn a_gles_capture_is_the_software_capture() {
         let display = unsafe { EGLDisplay::new(device) }.ok()?;
         let mut gles = unsafe { GlesRenderer::new(EGLContext::new(&display).ok()?) }.ok()?;
         let output = headless.outputs[0].clone();
-        let window = state.space.elements().next().cloned().unwrap();
+        let window = state.desk.space.elements().next().cloned().unwrap();
         Some((
             capture_on_gles(&mut gles, state, CaptureOf::Output(&output)).unwrap(),
             capture_output(state, &output).unwrap(),
@@ -589,7 +589,7 @@ fn an_x11_window_through_xwayland_opens_centred_takes_focus_and_is_drawn() {
 
     let deadline = Instant::now() + Duration::from_secs(30);
     let geo = loop {
-        let w = h.with(|ede| ede.space.elements().find(|w| w.x11_surface().is_some()).and_then(|w| ede.space.element_geometry(w)));
+        let w = h.with(|ede| ede.desk.space.elements().find(|w| w.x11_surface().is_some()).and_then(|w| ede.desk.space.element_geometry(w)));
         if let Some(g) = w.filter(|g| g.size.w > 0) {
             break g;
         }
@@ -658,7 +658,7 @@ fn map_x11(h: &Harness, conn: &x11rb::rust_connection::RustConnection, motif: Op
     conn.map_window(win).unwrap();
     conn.flush().unwrap();
     let deadline = Instant::now() + Duration::from_secs(30);
-    while !h.with(move |ede| ede.space.elements().any(|w| w.x11_surface().is_some_and(|x| x.window_id() == win) && smithay::wayland::seat::WaylandFocus::wl_surface(w).is_some())) {
+    while !h.with(move |ede| ede.desk.space.elements().any(|w| w.x11_surface().is_some_and(|x| x.window_id() == win) && smithay::wayland::seat::WaylandFocus::wl_surface(w).is_some())) {
         assert!(Instant::now() < deadline, "the X11 window never mapped");
         std::thread::sleep(Duration::from_millis(20));
     }
@@ -717,8 +717,8 @@ fn x11_windows_get_the_title_bar_unless_motif_hints_say_none() {
     let bare = map_x11(&h, &conn, Some([2, 0, 0, 0, 0]));
     let framed = move |id: u32| {
         h.with(move |ede| {
-            let w = ede.space.elements().find(|w| w.x11_surface().is_some_and(|x| x.window_id() == id)).cloned().unwrap();
-            ede.frame_rect(&w).map(|r| (r, ede.space.element_geometry(&w).unwrap()))
+            let w = ede.desk.space.elements().find(|w| w.x11_surface().is_some_and(|x| x.window_id() == id)).cloned().unwrap();
+            ede.frame_rect(&w).map(|r| (r, ede.desk.space.element_geometry(&w).unwrap()))
         })
     };
     let (bar, geo) = framed(plain).expect("a plain X11 window has the title bar");
@@ -740,8 +740,8 @@ fn server_side_frames_sit_above_the_window_and_their_buttons_work() {
     app.draw(&t, 300, 200, BLUE);
     wait_for(&mut app, |c| c.state.decoration_modes.get(&t.index) == Some(&(Mode::ServerSide as u32)));
     let (geo, framed) = h.with(|ede| {
-        let w = ede.space.elements().next().cloned().unwrap();
-        (ede.space.element_geometry(&w).unwrap(), ede.framed_geometry(&w).unwrap())
+        let w = ede.desk.space.elements().next().cloned().unwrap();
+        (ede.desk.space.element_geometry(&w).unwrap(), ede.framed_geometry(&w).unwrap())
     });
     assert_eq!(framed.size.h, geo.size.h + ede_compositor::frames::HEIGHT);
     assert_eq!(framed.loc.y + ede_compositor::frames::HEIGHT, geo.loc.y);
@@ -761,8 +761,8 @@ fn server_side_frames_sit_above_the_window_and_their_buttons_work() {
     });
     wait_for(&mut app, |c| c.state.toplevels[t.index].size.1 > 0 && c.state.toplevels[t.index].size.1 < 600);
     let (max_geo, tile) = h.with(|ede| {
-        let w = ede.space.elements().next().cloned().unwrap();
-        (ede.space.element_geometry(&w).unwrap(), window_state(&w).tile)
+        let w = ede.desk.space.elements().next().cloned().unwrap();
+        (ede.desk.space.element_geometry(&w).unwrap(), window_state(&w).tile)
     });
     assert_eq!(tile, Some(Tile::Maximized));
     assert_eq!(max_geo.loc.y, ede_compositor::frames::HEIGHT, "the bar sits at the top of the work area");
@@ -782,7 +782,7 @@ fn server_side_frames_sit_above_the_window_and_their_buttons_work() {
     app.draw(&csd, 300, 200, RED);
     wait_for(&mut app, |c| c.state.decoration_modes.get(&csd.index) == Some(&(Mode::ClientSide as u32)));
     assert!(h.with(|ede| {
-        let w = ede.space.elements().last().cloned().unwrap();
+        let w = ede.desk.space.elements().last().cloned().unwrap();
         ede.frame_height(&w) == 0
     }));
 }
@@ -844,7 +844,7 @@ fn a_client_side_title_bar_moves_resizes_and_unmaximizes_its_window() {
     c.draw(&t, 400, 300, RED);
     wait_for(&mut c, |_| !windows(&h).is_empty());
     let start = windows(&h)[0].1;
-    assert_eq!(h.with(|ede| ede.frame_height(ede.space.elements().next().unwrap())), 0, "no xdg-decoration: the client draws its own bar");
+    assert_eq!(h.with(|ede| ede.frame_height(ede.desk.space.elements().next().unwrap())), 0, "no xdg-decoration: the client draws its own bar");
 
     // Move: the header drag.
     let grab = ((start.loc.x + 150) as f64, (start.loc.y + 10) as f64);
@@ -904,7 +904,7 @@ fn a_client_side_title_bar_moves_resizes_and_unmaximizes_its_window() {
     wait_for(&mut c, |c| c.state.toplevels[0].size == (200, 150) && !c.state.toplevels[0].states.contains(&XdgState::Maximized));
     c.draw_configured(&t, 0, 0, RED);
     let floating = windows(&h)[0].1;
-    assert_eq!(h.with(|ede| window_state(ede.space.elements().next().unwrap()).tile), None);
+    assert_eq!(h.with(|ede| window_state(ede.desk.space.elements().next().unwrap()).tile), None);
     assert_eq!(300 - floating.loc.y, 10, "the pointer holds the header where it grabbed it: {floating:?}");
     assert!(floating.to_f64().contains((700.0, 300.0)), "{floating:?}");
 }
@@ -933,8 +933,8 @@ fn the_frame_minimizes_and_a_window_above_it_keeps_its_own_presses() {
     let over = (geo.loc.x - 50, geo.loc.y - 100);
     h.with(move |ede| {
         // Another app's window opens behind (#EDE-82): bring it in front.
-        let w = ede.space.elements().next().cloned().unwrap();
-        ede.space.map_element(w, over, true);
+        let w = ede.desk.space.elements().next().cloned().unwrap();
+        ede.desk.space.map_element(w, over, true);
     });
     other.state.press_serial = None;
     let title = ((geo.loc.x + 20) as f64, bar_y);
@@ -954,11 +954,11 @@ fn the_frame_minimizes_and_a_window_above_it_keeps_its_own_presses() {
         ede.pointer_button(BTN_LEFT, ButtonState::Pressed, 4);
         ede.pointer_button(BTN_LEFT, ButtonState::Released, 5);
     });
-    assert!(h.with(|ede| ede.space.elements().count() == 1 && ede.minimized.len() == 1));
+    assert!(h.with(|ede| ede.desk.space.elements().count() == 1 && ede.desk.minimized.len() == 1));
     let restored = h.with(|ede| {
-        let w = ede.minimized[0].clone();
+        let w = ede.desk.minimized[0].clone();
         ede.restore_window(&w);
-        ede.space.element_geometry(&w)
+        ede.desk.space.element_geometry(&w)
     });
     assert_eq!(restored, Some(geo));
 }
@@ -982,10 +982,10 @@ fn a_press_on_a_title_bar_button_never_reaches_the_window_under_the_bar() {
     wait_for(&mut app, |_| windows(&h).len() == 2);
     // The terminal in front (another app's window opens behind, #EDE-82).
     let (geo, browser) = h.with(|ede| {
-        let terminal = ede.space.elements().find(|w| ede.is_decorated(w)).cloned().unwrap();
-        let browser = ede.space.elements().find(|w| !ede.is_decorated(w)).cloned().unwrap();
+        let terminal = ede.desk.space.elements().find(|w| ede.is_decorated(w)).cloned().unwrap();
+        let browser = ede.desk.space.elements().find(|w| !ede.is_decorated(w)).cloned().unwrap();
         ede.focus(Some(terminal.clone()));
-        (ede.space.element_geometry(&terminal).unwrap(), ede.space.element_geometry(&browser).unwrap())
+        (ede.desk.space.element_geometry(&terminal).unwrap(), ede.desk.space.element_geometry(&browser).unwrap())
     });
     let close = ((geo.loc.x + geo.size.w - 18) as f64, (geo.loc.y - 18) as f64);
     assert!(browser.to_f64().contains(close), "the bar's close button lies over the browser");

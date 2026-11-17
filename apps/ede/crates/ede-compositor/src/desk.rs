@@ -1,10 +1,16 @@
 //! #EDE-90: a desk is what belongs to one person (or, later, one agent
-//! space): the seat and what it holds down, the clipboard, the cursor.
+//! space): the seat and what it holds down, the windows and their
+//! workspaces, the clipboard, the cursor.
 //! [`crate::state::Ede`] holds exactly one, the person's ([`Ede::desk`]).
 //!
 //! [`Ede::desk`]: crate::state::Ede::desk
 
-use smithay::input::{pointer::CursorImageStatus, Seat};
+use std::time::Instant;
+
+use smithay::{
+    desktop::{Space, Window},
+    input::{pointer::CursorImageStatus, Seat},
+};
 
 use crate::state::Ede;
 
@@ -34,4 +40,16 @@ pub struct Desk {
     pub driven: crate::protected::Driven,
     /// The seat's CLIPBOARD serial, owner and reads ([`crate::clipboard`]).
     pub clipboard: crate::clipboard::Clipboard,
+    /// Mapped windows, back to front.
+    pub space: Space<Window>,
+    /// Toplevels that exist but have not committed a buffer yet: they are
+    /// placed when their first frame arrives, so the size is known.
+    pub unmapped: Vec<Window>,
+    /// Windows in the taskbar only (#EDE-48, [`crate::minimize`]): out of
+    /// the space, their place and workspace remembered.
+    pub minimized: Vec<Window>,
+    /// The active workspace and the parked windows ([`crate::workspaces`]).
+    pub workspaces: crate::workspaces::Workspaces,
+    /// The last press on a title bar, for the double-click.
+    pub title_click: Option<(Window, Instant)>,
 }

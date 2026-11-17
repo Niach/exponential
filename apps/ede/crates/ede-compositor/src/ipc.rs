@@ -482,7 +482,7 @@ impl Ede {
                 }
                 let frame = match target {
                     CaptureTarget::Output { name } => {
-                        let output = self.space.outputs().find(|o| o.name() == name).cloned().ok_or_else(|| fail(ErrorCode::NotFound, "no such output"))?;
+                        let output = self.desk.space.outputs().find(|o| o.name() == name).cloned().ok_or_else(|| fail(ErrorCode::NotFound, "no such output"))?;
                         crate::backend::capture_output(self, &output)
                     }
                     CaptureTarget::Window { window } => {
@@ -662,7 +662,7 @@ impl Ede {
     }
 
     fn window_by_id(&self, id: &WindowId) -> Result<Window, Failure> {
-        self.space.elements().find(|w| &window_id(w) == id).cloned().ok_or_else(|| fail(ErrorCode::NotFound, "no such window"))
+        self.desk.space.elements().find(|w| &window_id(w) == id).cloned().ok_or_else(|| fail(ErrorCode::NotFound, "no such window"))
     }
 
     /// On screen or parked on another workspace.
@@ -677,7 +677,7 @@ impl Ede {
             .filter(|w| w.x11_surface().is_none_or(|x| !x.is_override_redirect()))
             .filter_map(|w| {
                 let st = crate::state::window_state(w);
-                let g = self.space.element_geometry(w).or_else(|| st.parked_at.map(|at| smithay::utils::Rectangle::new(at, w.geometry().size)))?;
+                let g = self.desk.space.element_geometry(w).or_else(|| st.parked_at.map(|at| smithay::utils::Rectangle::new(at, w.geometry().size)))?;
                 let protected = self.is_protected_window(w);
                 let (title, app_id) = window_title(w);
                 Some(WindowInfo {
@@ -702,10 +702,10 @@ impl Ede {
     }
 
     pub fn output_infos(&self) -> Vec<OutputInfo> {
-        self.space
+        self.desk.space
             .outputs()
             .filter_map(|o| {
-                let g = self.space.output_geometry(o)?;
+                let g = self.desk.space.output_geometry(o)?;
                 let current = o.current_mode();
                 let preferred = o.preferred_mode();
                 let modes = o

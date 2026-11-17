@@ -68,13 +68,13 @@ impl Ede {
         if !self.is_decorated(window) {
             return None;
         }
-        let geo = self.space.element_geometry(window)?;
+        let geo = self.desk.space.element_geometry(window)?;
         Some(Rectangle::new((geo.loc.x, geo.loc.y - HEIGHT).into(), (geo.size.w, HEIGHT).into()))
     }
 
     /// The window's rectangle with its frame (what tiling fills).
     pub fn framed_geometry(&self, window: &Window) -> Option<Rectangle<i32, Logical>> {
-        let geo = self.space.element_geometry(window)?;
+        let geo = self.desk.space.element_geometry(window)?;
         let fh = self.frame_height(window);
         Some(Rectangle::new((geo.loc.x, geo.loc.y - fh).into(), (geo.size.w, geo.size.h + fh).into()))
     }
@@ -85,11 +85,11 @@ impl Ede {
             return None;
         }
         let p: Point<i32, Logical> = (pos.x.floor() as i32, pos.y.floor() as i32).into();
-        for w in self.space.elements().rev() {
+        for w in self.desk.space.elements().rev() {
             if !self.is_decorated(w) {
                 // A window without our frame above a decorated one takes
                 // the press itself.
-                if self.space.element_geometry(w).is_some_and(|g| g.contains(p)) {
+                if self.desk.space.element_geometry(w).is_some_and(|g| g.contains(p)) {
                     return None;
                 }
                 continue;

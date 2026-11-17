@@ -59,7 +59,7 @@ where
         backend::renderer::utils::CommitCounter,
         wayland::shell::wlr_layer::Layer,
     };
-    let Some(out) = state.space.output_geometry(output) else { return vec![] };
+    let Some(out) = state.desk.space.output_geometry(output) else { return vec![] };
     let scale = output.current_scale().fractional_scale();
     if state.is_locked() {
         if redact {
@@ -78,7 +78,7 @@ where
     let focused = state.focused_window();
     let state = &*state;
     let window = |renderer: &mut R, elements: &mut Vec<_>, w: &smithay::desktop::Window| {
-        let Some(loc) = state.space.element_location(w) else { return };
+        let Some(loc) = state.desk.space.element_location(w) else { return };
         let loc = loc - w.geometry().loc - out.loc;
         if redact && state.is_protected_window(w) {
             let mut bbox = w.bbox();
@@ -127,8 +127,8 @@ where
         }
     };
     layer(renderer, &mut elements, true);
-    for w in state.space.elements().rev() {
-        let Some(bbox) = state.space.element_bbox(w) else { continue };
+    for w in state.desk.space.elements().rev() {
+        let Some(bbox) = state.desk.space.element_bbox(w) else { continue };
         if out.overlaps(bbox) {
             window(renderer, &mut elements, w);
         }
@@ -352,7 +352,7 @@ pub fn frame_done(state: &mut Ede, output: &Output, presented: bool) {
     let now = state.start_time.elapsed();
     let locked = state.is_locked();
     let fullscreen = state.fullscreen_on(output);
-    for window in state.space.elements() {
+    for window in state.desk.space.elements() {
         let shown = !locked && fullscreen.as_ref().is_none_or(|f| f == window) && primary_output(state, window).as_ref() == Some(output);
         let primary = shown.then(|| output.clone());
         window.send_frame(output, now, Some(HIDDEN_FRAME_INTERVAL), |_, _| primary.clone());
@@ -362,7 +362,7 @@ pub fn frame_done(state: &mut Ede, output: &Output, presented: bool) {
         layer.send_frame(output, now, Some(HIDDEN_FRAME_INTERVAL), |_, _| layers.clone());
     }
     state.lock_frame_done(output, now);
-    state.space.refresh();
+    state.desk.space.refresh();
     state.popups.cleanup();
     layer_map_for_output(output).cleanup();
     let _ = state.display_handle.flush_clients();
@@ -370,12 +370,12 @@ pub fn frame_done(state: &mut Ede, output: &Output, presented: bool) {
 
 /// The output most of `window` is on (`None` = on none).
 fn primary_output(state: &Ede, window: &smithay::desktop::Window) -> Option<Output> {
-    let bbox = state.space.element_bbox(window)?;
+    let bbox = state.desk.space.element_bbox(window)?;
     state
-        .space
+        .desk.space
         .outputs()
         .filter_map(|o| {
-            let overlap = state.space.output_geometry(o)?.intersection(bbox)?;
+            let overlap = state.desk.space.output_geometry(o)?.intersection(bbox)?;
             Some((overlap.size.w as i64 * overlap.size.h as i64, o))
         })
         .filter(|(area, _)| *area > 0)

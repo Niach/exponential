@@ -367,7 +367,7 @@ fn a_background_window_that_asks_for_fullscreen_stays_behind() {
 
     // Once the person switches to it, it is the output's fullscreen window.
     h.with(|ede| {
-        let player = ede.space.elements().next().cloned();
+        let player = ede.desk.space.elements().next().cloned();
         ede.focus(player);
     });
     wait_for(&mut other, |_| h.capture(0).at(600, 400) == BLUE);
@@ -430,7 +430,7 @@ fn an_x11_window_takes_the_keyboard_only_from_its_own_app() {
         conn.flush().unwrap();
         win
     };
-    let x11_windows = || h.with(|ede| ede.space.elements().filter(|w| w.x11_surface().is_some()).count());
+    let x11_windows = || h.with(|ede| ede.desk.space.elements().filter(|w| w.x11_surface().is_some()).count());
     let focused_x11 = || h.with(|ede| ede.focused_window().and_then(|w| w.x11_surface().map(|x| x.window_id())));
 
     let first = open(None);
@@ -441,7 +441,7 @@ fn an_x11_window_takes_the_keyboard_only_from_its_own_app() {
 
     // The person switches to it; its own dialog then takes the keyboard.
     h.with(|ede| {
-        let x11 = ede.space.elements().find(|w| w.x11_surface().is_some()).cloned();
+        let x11 = ede.desk.space.elements().find(|w| w.x11_surface().is_some()).cloned();
         ede.focus(x11);
     });
     until("the X11 window never took the keyboard", &|| focused_x11() == Some(first));
@@ -460,7 +460,7 @@ fn a_click_under_a_still_pointer_reaches_the_window_now_on_top() {
     let (mut other, _b) = other_app(&h, "player", BLUE);
     let _other_pointer = other.pointer();
     let at = h.with(|ede| {
-        let geos: Vec<_> = ede.space.elements().map(|w| ede.space.element_geometry(w).unwrap()).collect();
+        let geos: Vec<_> = ede.desk.space.elements().map(|w| ede.desk.space.element_geometry(w).unwrap()).collect();
         let both = geos[0].intersection(geos[1]).expect("the windows overlap");
         smithay::utils::Point::<f64, smithay::utils::Logical>::from(((both.loc.x + 10) as f64, (both.loc.y + 10) as f64))
     });
@@ -468,7 +468,7 @@ fn a_click_under_a_still_pointer_reaches_the_window_now_on_top() {
     h.with(move |ede| ede.pointer_motion_to(at, 0));
     // The player comes to the front (Alt+Tab): no motion.
     h.with(|ede| {
-        let player = ede.space.elements().next().cloned();
+        let player = ede.desk.space.elements().next().cloned();
         ede.focus(player);
     });
     h.with(|ede| {

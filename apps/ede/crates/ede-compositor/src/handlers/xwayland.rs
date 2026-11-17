@@ -86,7 +86,7 @@ impl Ede {
     /// keyboard takes X's focus too, and the one that lost it gives it up.
     pub(crate) fn sync_x11_focus(&mut self, focused: Option<&WlSurface>) {
         let x11 = focused.and_then(|f| {
-            self.space.elements().find_map(|w| w.x11_surface().filter(|x| x.wl_surface().as_ref() == Some(f)).cloned())
+            self.desk.space.elements().find_map(|w| w.x11_surface().filter(|x| x.wl_surface().as_ref() == Some(f)).cloned())
         });
         if self.desk.x11_focus.1 == x11 {
             return;
@@ -102,7 +102,7 @@ impl Ede {
     }
 
     fn x11_window(&self, surface: &X11Surface) -> Option<Window> {
-        self.space.elements().find(|w| w.x11_surface() == Some(surface)).cloned()
+        self.desk.space.elements().find(|w| w.x11_surface() == Some(surface)).cloned()
     }
 }
 
@@ -154,16 +154,16 @@ impl XwmHandler for Ede {
 
     fn mapped_override_redirect_window(&mut self, _xwm: XwmId, surface: X11Surface) {
         let loc = surface.last_configure().loc;
-        self.space.map_element(Window::new_x11_window(surface), loc, true);
+        self.desk.space.map_element(Window::new_x11_window(surface), loc, true);
     }
 
     fn unmapped_window(&mut self, _xwm: XwmId, surface: X11Surface) {
         // Parked on another workspace: forget it there.
-        if let Some(parked) = self.workspaces.parked.iter().find(|w| w.x11_surface() == Some(&surface)).cloned() {
+        if let Some(parked) = self.desk.workspaces.parked.iter().find(|w| w.x11_surface() == Some(&surface)).cloned() {
             self.window_event(ede_protocol::events::WINDOW_CLOSED, &parked);
             self.forget_parked(&parked);
         }
-        if let Some(minimized) = self.minimized.iter().find(|w| w.x11_surface() == Some(&surface)).cloned() {
+        if let Some(minimized) = self.desk.minimized.iter().find(|w| w.x11_surface() == Some(&surface)).cloned() {
             self.window_event(ede_protocol::events::WINDOW_CLOSED, &minimized);
             self.forget_minimized(&minimized);
         }
@@ -172,9 +172,9 @@ impl XwmHandler for Ede {
             if !surface.is_override_redirect() {
                 self.window_event(ede_protocol::events::WINDOW_CLOSED, &window);
             }
-            self.space.unmap_elem(&window);
+            self.desk.space.unmap_elem(&window);
             if had_focus {
-                let next = self.space.elements().rev().find(|w| w.x11_surface().is_none_or(|x| !x.is_override_redirect())).cloned();
+                let next = self.desk.space.elements().rev().find(|w| w.x11_surface().is_none_or(|x| !x.is_override_redirect())).cloned();
                 self.focus(next);
             }
         }
@@ -201,7 +201,7 @@ impl XwmHandler for Ede {
         if let Some(window) = &mapped {
             let st = window_state(window);
             if st.tile.is_some() || st.fullscreen.is_some() {
-                let _ = surface.configure(self.space.element_geometry(window));
+                let _ = surface.configure(self.desk.space.element_geometry(window));
                 return;
             }
         }
@@ -221,7 +221,7 @@ impl XwmHandler for Ede {
     fn configure_notify(&mut self, _xwm: XwmId, surface: X11Surface, geometry: Rectangle<i32, Logical>, _above: Option<u32>) {
         if let Some(window) = self.x11_window(&surface) {
             if surface.is_override_redirect() {
-                self.space.map_element(window, geometry.loc, false);
+                self.desk.space.map_element(window, geometry.loc, false);
             }
         }
     }
@@ -259,7 +259,7 @@ impl XwmHandler for Ede {
     }
 
     fn unminimize_request(&mut self, _xwm: XwmId, surface: X11Surface) {
-        if let Some(w) = self.minimized.iter().find(|w| w.x11_surface() == Some(&surface)).cloned() {
+        if let Some(w) = self.desk.minimized.iter().find(|w| w.x11_surface() == Some(&surface)).cloned() {
             self.restore_window(&w);
             // #EDE-82: a client's own request brings it in front only when
             // its app is the one typed into.
@@ -278,7 +278,7 @@ impl XwmHandler for Ede {
 
     fn move_request(&mut self, _xwm: XwmId, surface: X11Surface, _button: u32) {
         let Some(window) = self.x11_window(&surface) else { return };
-        let Some(loc) = self.space.element_location(&window) else { return };
+        let Some(loc) = self.desk.space.element_location(&window) else { return };
         let pointer = self.desk.seat.get_pointer().unwrap();
         let start = pointer
             .grab_start_data()
