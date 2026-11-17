@@ -1294,7 +1294,7 @@ fn tick_api_retry(ctx: &SessionCtx, commands: &flume::Sender<EngineCommand>) {
                 ctx.session_id,
                 crate::api_retry::BACKOFF.len()
             );
-            let _ = commands.send(EngineCommand::Steer(crate::api_retry::retry_message(attempt)));
+            let _ = commands.send(EngineCommand::HostSteer(crate::api_retry::retry_message(attempt)));
         }
         crate::api_retry::RetryAction::GiveUp => {
             log::warn!(

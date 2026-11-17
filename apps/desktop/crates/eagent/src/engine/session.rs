@@ -22,7 +22,7 @@ use agent_client_protocol::{Client, ConnectTo};
 
 use super::adapters::{Adapter, AdapterKind, LaunchSpec};
 use super::host::{
-    thread_name, ChildExitLink, EngineCommand, EngineExit, ExitState, LocalFeed, LocalSink,
+    thread_name, ChildExitLink, EngineCommand, EngineExit, PromptAuthor, ExitState, LocalFeed, LocalSink,
     PendingAsks, PromptLocalizer, RunBackend, RunFacts, SessionCtx, SessionIds,
 };
 use super::host_tools::{HostTools, NoHostTools};
@@ -116,7 +116,15 @@ impl EngineSession {
     /// ([`EngineSession::unqueue`] revokes it) and the engine reports it
     /// consumed (`sessions.consume`) once the agent has it.
     pub fn deliver(&self, message_id: String, text: String) {
-        self.send(EngineCommand::Deliver { message_id, text, fresh: false });
+        self.send(EngineCommand::Deliver { message_id, text, fresh: false, author: PromptAuthor::Person });
+    }
+
+    /// EXP-1896: [`Self::deliver`] for a row NO person wrote: a child's
+    /// report, a CI wake, another session's message. Queued, sent and
+    /// consumed the same way; it answers no Esc (the run's computer use
+    /// stays aborted until the person speaks).
+    pub fn deliver_wake(&self, message_id: String, text: String) {
+        self.send(EngineCommand::Deliver { message_id, text, fresh: false, author: PromptAuthor::Other });
     }
 
     /// EXP-1280: [`Self::deliver`] in a FRESH context — a plan approved "in
@@ -125,7 +133,7 @@ impl EngineSession {
     /// prompt; codex, which has no such reset, takes it in the running one.
     /// The row is consumed like any delivery.
     pub fn deliver_fresh(&self, message_id: String, text: String) {
-        self.send(EngineCommand::Deliver { message_id, text, fresh: true });
+        self.send(EngineCommand::Deliver { message_id, text, fresh: true, author: PromptAuthor::Person });
     }
 
     /// EXP-1292: a question/plan card answered IN the Conversation (the
