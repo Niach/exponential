@@ -87,6 +87,14 @@ pub struct Ede {
     /// An X11 window that was focused before it had a wl_surface.
     #[cfg(feature = "xwayland")]
     pub pending_x11_focus: Option<smithay::xwayland::X11Surface>,
+    /// #EDE-88: the X side of the keyboard focus. X delivers keys to its
+    /// own input focus, not to the surface Wayland focused, so the X11
+    /// window holding the keyboard is entered as an X11 keyboard target
+    /// (SetInputFocus or WM_TAKE_FOCUS, then `_NET_ACTIVE_WINDOW`)
+    /// through this seat, which no client binds: the Wayland enter itself
+    /// stays with `seat` ([`Ede::sync_x11_focus`]).
+    #[cfg(feature = "xwayland")]
+    pub x11_focus: (Seat<Ede>, Option<smithay::xwayland::X11Surface>),
 
     /// ext-session-lock: while locked only the lock client is shown and
     /// gets input ([`crate::lock`]).
@@ -179,6 +187,12 @@ impl Ede {
         let mut seat_state = SeatState::new();
 
         let mut seat: Seat<Self> = seat_state.new_wl_seat(&dh, "seat0");
+        #[cfg(feature = "xwayland")]
+        let mut x11_focus_seat = seat_state.new_seat("x11-focus");
+        // smithay's Wayland enter wants a keyboard on the seat; no client
+        // ever binds this one (no wl_seat global), so it sends nothing.
+        #[cfg(feature = "xwayland")]
+        x11_focus_seat.add_keyboard(XkbConfig::default(), 600, 25).expect("default xkb keymap");
         let kb = &config.keyboard;
         let xkb = XkbConfig { layout: &kb.layout, variant: &kb.variant, options: Some(kb.options.clone()).filter(|o| !o.is_empty()), ..Default::default() };
         if let Err(e) = seat.add_keyboard(xkb, kb.repeat_delay, kb.repeat_rate) {
@@ -232,6 +246,8 @@ impl Ede {
             xdisplay: None,
             #[cfg(feature = "xwayland")]
             pending_x11_focus: None,
+            #[cfg(feature = "xwayland")]
+            x11_focus: (x11_focus_seat, None),
             session_lock_state: smithay::wayland::session_lock::SessionLockManagerState::new::<Self, _>(&dh, |_| true),
             lock: crate::lock::LockState::default(),
             idle_notifier,
