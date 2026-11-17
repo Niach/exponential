@@ -168,6 +168,20 @@ impl Session {
         Toplevel { index, surface, xdg_surface, toplevel }
     }
 
+    /// A toplevel that names `parent` before its first commit (a dialog).
+    pub fn child_toplevel(&mut self, parent: &Toplevel, title: &str) -> Toplevel {
+        let surface = self.state.compositor.as_ref().unwrap().create_surface(&self.qh, ());
+        let index = self.state.toplevels.len();
+        self.state.toplevels.push(ToplevelState::default());
+        let xdg_surface = self.state.wm_base.as_ref().unwrap().get_xdg_surface(&surface, &self.qh, index);
+        let toplevel = xdg_surface.get_toplevel(&self.qh, index);
+        toplevel.set_parent(Some(&parent.toplevel));
+        toplevel.set_title(title.into());
+        surface.commit();
+        self.roundtrip();
+        Toplevel { index, surface, xdg_surface, toplevel }
+    }
+
     /// Acks the last configure and commits a `w`×`h` buffer of `argb`.
     pub fn draw(&mut self, t: &Toplevel, w: i32, h: i32, argb: u32) {
         if let Some(serial) = self.state.toplevels[t.index].pending_serial.take() {

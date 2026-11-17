@@ -6,7 +6,7 @@ mod common;
 use std::os::unix::{fs::PermissionsExt, net::UnixStream};
 
 use common::{
-    space::{person_key, spaces_settled, start_with_spaces, wait_for},
+    space::{assert_person_untouched, events_until_mark, person_key, person_snapshot, spaces_settled, start_with_spaces, wait_for},
     Session,
 };
 use ede_compositor::{backend::headless::Harness, desk::DeskId, Config};
@@ -54,8 +54,34 @@ const SPACE_GLOBALS: [&str; 14] = [
     "wl_output",
 ];
 
+const RED: u32 = 0xffff_0000;
 const BLUE: u32 = 0xff00_00ff;
 const KEY_A: u32 = 30;
+const KEY_B: u32 = 48;
+
+/// A client of the person with one focused window, its keyboard bound.
+fn person_with_a_window(h: &Harness) -> Session {
+    let mut a = Session::connect(h.connect());
+    let window = a.toplevel("a");
+    a.draw(&window, 200, 150, BLUE);
+    a.keyboard();
+    h.with(|state| {
+        let window = state.desk.space.elements().next().cloned();
+        state.focus(DeskId::PERSON, window);
+    });
+    wait_for(&mut a, |a| a.state.keyboard_focus.is_some());
+    a
+}
+
+/// A space of 640x480 for `run-1` and a client connected to it.
+fn space_with_a_client(h: &Harness) -> (DeskId, std::path::PathBuf, Session) {
+    let (desk, socket) = h.with(|state| {
+        let desk = state.create_space(owner("run-1"), 640, 480).expect("a space");
+        (desk, state.spaces.get(desk).unwrap().socket())
+    });
+    let b = Session::connect(UnixStream::connect(&socket).expect("the space's socket"));
+    (desk, socket, b)
+}
 
 fn owner(name: &str) -> SessionId {
     SessionId::new(name).unwrap()
@@ -135,21 +161,14 @@ fn no_space_no_difference() {
 #[test]
 fn a_closed_space_leaves_nothing() {
     let (h, dir) = start_with_spaces(&[(800, 600)]);
-    let mut a = Session::connect(h.connect());
-    let window = a.toplevel("a");
-    a.draw(&window, 200, 150, BLUE);
-    let _keyboard = a.keyboard();
-    h.with(|state| {
-        let window = state.desk.space.elements().next().cloned();
-        state.focus(DeskId::PERSON, window);
-    });
-    wait_for(&mut a, |a| a.state.keyboard_focus.is_some());
-
-    let (desk, socket) = h.with(|state| {
-        let desk = state.create_space(owner("run-1"), 640, 480).expect("a space");
-        (desk, state.spaces.get(desk).unwrap().socket())
-    });
-    let mut b = Session::connect(UnixStream::connect(&socket).expect("the space's socket"));
+    let mut a = person_with_a_window(&h);
+    let before = person_snapshot(&h);
+    let (desk, socket, mut b) = space_with_a_client(&h);
+    // It closes with a window that has its keyboard.
+    b.keyboard();
+    let window = b.toplevel("b");
+    b.draw_configured(&window, 64, 64, RED);
+    wait_for(&mut b, |b| b.state.keyboard_focus.is_some());
 
     assert!(h.with(move |state| state.close_space(desk)));
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
@@ -165,6 +184,7 @@ fn a_closed_space_leaves_nothing() {
         assert!(!state.close_space(DeskId::PERSON), "the person's desk never closes");
     });
     spaces_settled(&h);
+    assert_person_untouched(&h, &before);
 
     // The person's client heard two removals, of names it was never told.
     a.roundtrip();
@@ -193,4 +213,76 @@ fn what_an_earlier_compositor_left_is_swept() {
     let spaces = stale.clone();
     h.with(move |state| state.spaces.open(spaces));
     assert!(!stale.exists());
+}
+
+/// A space's window fills the space's output and takes the space's
+/// keyboard, a dialog is centred on it; the person types meanwhile, and
+/// their focus, cursor and window list stay as they were. The shell hears
+/// of no window.
+#[test]
+fn a_window_fills_its_space_and_takes_its_keyboard() {
+    use smithay::input::{pointer::CursorImageStatus, SeatHandler};
+    use wayland_protocols::xdg::shell::client::xdg_toplevel::State;
+
+    let (h, _dir) = start_with_spaces(&[(800, 600)]);
+    let mut shell = h.ipc();
+    shell.subscribe().unwrap();
+    shell.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+    let mut a = person_with_a_window(&h);
+    events_until_mark(&h, &mut shell, "test.start");
+    let before = person_snapshot(&h);
+
+    let (desk, _socket, mut b) = space_with_a_client(&h);
+    b.keyboard();
+    person_key(&h, KEY_A);
+    let window = b.toplevel("b");
+    assert_eq!(b.state.toplevels[window.index].size, (640, 480));
+    assert!(b.state.toplevels[window.index].states.contains(&State::Maximized));
+    b.draw_configured(&window, 64, 64, RED);
+    wait_for(&mut b, |b| b.state.keyboard_focus.as_ref() == Some(&window.surface));
+    wait_for(&mut b, |b| b.state.toplevels[window.index].states.contains(&State::Activated));
+    person_key(&h, KEY_B);
+
+    // A dialog keeps its own size, sits in the middle and takes the keyboard;
+    // when it goes the window under it has the keyboard again.
+    let dialog = b.child_toplevel(&window, "d");
+    assert_eq!(b.state.toplevels[dialog.index].size, (0, 0));
+    b.draw(&dialog, 100, 80, BLUE);
+    wait_for(&mut b, |b| b.state.keyboard_focus.as_ref() == Some(&dialog.surface));
+    let places = h.with(move |state| {
+        let space = &state.desk(desk).space;
+        space.elements().map(|w| space.element_geometry(w).unwrap()).map(|g| (g.loc.x, g.loc.y, g.size.w, g.size.h)).collect::<Vec<_>>()
+    });
+    assert_eq!(places, [(0, 0, 640, 480), (270, 200, 100, 80)]);
+    dialog.toplevel.destroy();
+    dialog.xdg_surface.destroy();
+    dialog.surface.destroy();
+    wait_for(&mut b, |b| b.state.keyboard_focus.as_ref() == Some(&window.surface));
+
+    // It is as large as it gets and never fullscreen: each request is
+    // answered with the state it has.
+    let configures = b.state.toplevels[window.index].configures;
+    window.toplevel.set_fullscreen(None);
+    b.roundtrip();
+    window.toplevel.set_maximized();
+    b.roundtrip();
+    window.toplevel.unset_fullscreen();
+    b.roundtrip();
+    let now = b.state.toplevels[window.index].clone();
+    assert_eq!((now.configures, now.size), (configures + 3, (640, 480)));
+    assert!(now.states.contains(&State::Maximized) && !now.states.contains(&State::Fullscreen));
+
+    // The space's seat changes the space's cursor.
+    h.with(move |state| {
+        let seat = state.desk(desk).seat.clone();
+        SeatHandler::cursor_image(state, &seat, CursorImageStatus::Hidden);
+        assert_eq!(state.desk(desk).cursor_status, CursorImageStatus::Hidden);
+    });
+
+    // The person typed all along: their client has both keys, the space's none.
+    wait_for(&mut a, |a| a.state.keys == [KEY_A, KEY_B]);
+    assert!(b.state.keys.is_empty());
+    assert_person_untouched(&h, &before);
+    assert_eq!(shell.windows().unwrap().len(), 1);
+    assert_eq!(events_until_mark(&h, &mut shell, "test.end"), Vec::<String>::new());
 }
