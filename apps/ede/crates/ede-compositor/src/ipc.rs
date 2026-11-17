@@ -1,6 +1,9 @@
 //! The compositor's end of `ede-protocol` (#NEW-104): the socket, the
 //! grants, and every op. Calls are served on the event loop, one frame at a
-//! time; a client that stops reading for 2 s is dropped.
+//! time. Nothing written to a client blocks the loop (#EDE-74): what its
+//! socket does not take waits in the connection's own queue, its next call
+//! is served once that queue is empty, and a client that lets [`OUT_MAX`]
+//! writes pile up (it stopped reading its events) is dropped.
 
 use std::{
     io::{Read, Write},
@@ -9,12 +12,12 @@ use std::{
         net::{UnixListener, UnixStream},
     },
     path::{Path, PathBuf},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use ede_protocol::{
-    events, take_frames, write_frame, Call, Capability, CaptureInfo, CaptureTarget, Envelope, ErrorCode, Failure, Grant, Hello, InputEvent, Message,
-    OutputInfo, PointerInfo, Request, SessionId, Token, WindowId, WindowInfo, EVENT_SOURCE, PROTOCOL_VERSION,
+    events, take_frames, Call, Capability, CaptureInfo, CaptureTarget, Envelope, ErrorCode, Failure, Grant, Hello, InputEvent, Message,
+    OutputInfo, PointerInfo, Request, SessionId, Token, WindowId, WindowInfo, EVENT_SOURCE, MAX_FRAME, PROTOCOL_VERSION,
 };
 use smithay::{
     backend::input::{ButtonState, KeyState},
@@ -23,6 +26,11 @@ use smithay::{
 };
 
 use crate::state::Ede;
+
+/// The writes (a frame's length, its bytes) one connection may have
+/// waiting. Replies never pile up (a call waits for an empty queue, however
+/// large the capture in it), so only unread events reach this.
+const OUT_MAX: usize = 1024;
 
 /// The root grant's session: the shell.
 pub const ROOT_SESSION: &str = "exponential-shell";
@@ -58,6 +66,37 @@ struct Conn {
     token: Option<Token>,
     subscribed: bool,
     dead: bool,
+    /// What the socket did not take yet; the first one is sent up to `out_at`.
+    out: std::collections::VecDeque<Vec<u8>>,
+    out_at: usize,
+    /// A writable source drains `out`.
+    flushing: bool,
+}
+
+impl Conn {
+    fn kill(&mut self) {
+        self.dead = true;
+        self.out.clear();
+        let _ = self.writer.shutdown(std::net::Shutdown::Both);
+    }
+
+    /// Writes what the socket takes now. `Ok(true)` = nothing is left.
+    fn write_out(&mut self) -> std::io::Result<bool> {
+        while let Some(front) = self.out.front() {
+            match (&self.writer).write(&front[self.out_at..]) {
+                Ok(0) => return Err(std::io::ErrorKind::WriteZero.into()),
+                Ok(n) if self.out_at + n == front.len() => {
+                    self.out.pop_front();
+                    self.out_at = 0;
+                }
+                Ok(n) => self.out_at += n,
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => return Ok(false),
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(true)
+    }
 }
 
 impl Drop for Ipc {
@@ -157,17 +196,18 @@ impl Ede {
 
     /// Serves one connection (the socket's, or a test's socketpair).
     pub fn ipc_insert(&mut self, stream: UnixStream) {
-        let _ = stream.set_nonblocking(false);
-        let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
+        if stream.set_nonblocking(true).is_err() {
+            return;
+        }
         let Ok(reader) = stream.try_clone() else { return };
         let id = self.ipc.next_client;
         self.ipc.next_client += 1;
-        self.ipc.clients.push(Conn { id, writer: stream, inbuf: Vec::new(), queued: Default::default(), busy: None, token: None, subscribed: false, dead: false });
+        self.ipc.clients.push(Conn { id, writer: stream, inbuf: Vec::new(), queued: Default::default(), busy: None, token: None, subscribed: false, dead: false, out: Default::default(), out_at: 0, flushing: false });
         let inserted = self.loop_handle.insert_source(Generic::new(reader, Interest::READ, Mode::Level), move |_, reader, state| {
             let mut buf = [0u8; 65536];
-            // Level-triggered and readable: one read never blocks.
             let mut r: &UnixStream = reader;
             let n = match r.read(&mut buf) {
+                Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted) => return Ok(PostAction::Continue),
                 Ok(0) | Err(_) => 0,
                 Ok(n) => n,
             };
@@ -208,13 +248,13 @@ impl Ede {
         self.ipc_serve(id)
     }
 
-    /// Serves the queued frames until one defers its reply. `false` = drop
-    /// the connection.
+    /// Serves the queued frames until one defers its reply or the socket
+    /// is behind on the last one. `false` = drop the connection.
     fn ipc_serve(&mut self, id: u64) -> bool {
         loop {
             let frame = {
                 let Some(conn) = self.ipc.clients.iter_mut().find(|c| c.id == id) else { return false };
-                if conn.busy.is_some() {
+                if conn.busy.is_some() || !conn.out.is_empty() {
                     break;
                 }
                 match conn.queued.pop_front() {
@@ -223,20 +263,26 @@ impl Ede {
                 }
             };
             let (call_id, outcome) = match serde_json::from_slice::<Call>(&frame) {
-                Ok(call) => (call.id, self.ipc_call(id, call.id, call.request)),
+                Ok(call) => {
+                    // Busy before the call runs (#EDE-74): a deferred read
+                    // that finishes inside it (the selection's owner is
+                    // gone) answers through `ipc_reply_later` all the same.
+                    if let Some(conn) = self.ipc.clients.iter_mut().find(|c| c.id == id) {
+                        conn.busy = Some(call.id);
+                    }
+                    (call.id, self.ipc_call(id, call.id, call.request))
+                }
                 Err(e) => (0, Err(fail(ErrorCode::Invalid, &e.to_string()))),
             };
             let (message, extra) = match outcome {
+                Ok(None) => continue,
                 Ok(Some((result, extra))) => (Message::Reply { id: call_id, result }, extra),
-                Ok(None) => {
-                    if let Some(conn) = self.ipc.clients.iter_mut().find(|c| c.id == id) {
-                        conn.busy = Some(call_id);
-                    }
-                    continue;
-                }
                 Err(error) => (Message::Error { id: call_id, error }, None),
             };
-            if !self.ipc_send(id, &message, extra.as_deref()) {
+            if let Some(conn) = self.ipc.clients.iter_mut().find(|c| c.id == id) {
+                conn.busy = None;
+            }
+            if !self.ipc_send(id, &message, extra) {
                 return false;
             }
         }
@@ -257,21 +303,64 @@ impl Ede {
         };
         if !self.ipc_send(id, &message, None) || !self.ipc_serve(id) {
             if let Some(conn) = self.ipc.clients.iter_mut().find(|c| c.id == id) {
-                conn.dead = true;
-                let _ = conn.writer.shutdown(std::net::Shutdown::Both);
+                conn.kill();
             }
         }
     }
 
-    pub(crate) fn ipc_send(&mut self, id: u64, message: &Message, extra: Option<&[u8]>) -> bool {
-        let Some(conn) = self.ipc.clients.iter_mut().find(|c| c.id == id) else { return false };
+    /// Queues `message` (and a capture's pixels) and writes what the socket
+    /// takes now; the rest goes out as it drains. `false` = the connection
+    /// is gone (or was dropped: [`OUT_MAX`]).
+    pub(crate) fn ipc_send(&mut self, id: u64, message: &Message, extra: Option<Vec<u8>>) -> bool {
+        let Some(conn) = self.ipc.clients.iter_mut().find(|c| c.id == id && !c.dead) else { return false };
         let json = serde_json::to_vec(message).expect("messages serialize");
-        let ok = write_frame(&mut conn.writer, &json).and_then(|_| extra.map_or(Ok(()), |b| write_frame(&mut conn.writer, b))).is_ok();
-        if !ok {
-            conn.dead = true;
-            let _ = conn.writer.shutdown(std::net::Shutdown::Both);
+        if conn.out.len() >= OUT_MAX || json.len() > MAX_FRAME || extra.as_ref().is_some_and(|b| b.len() > MAX_FRAME) {
+            conn.kill();
+            return false;
         }
-        ok
+        for bytes in std::iter::once(json).chain(extra) {
+            conn.out.push_back((bytes.len() as u32).to_le_bytes().to_vec());
+            if !bytes.is_empty() {
+                conn.out.push_back(bytes);
+            }
+        }
+        match conn.write_out() {
+            Ok(true) => return true,
+            Ok(false) if conn.flushing => return true,
+            Ok(false) => {}
+            Err(_) => {
+                conn.kill();
+                return false;
+            }
+        }
+        let writable = conn.writer.try_clone().map_err(|_| ()).and_then(|writer| {
+            self.loop_handle.insert_source(Generic::new(writer, Interest::WRITE, Mode::Level), move |_, _, state| Ok(state.ipc_writable(id))).map_err(|_| ())
+        });
+        match writable {
+            Ok(_) => conn.flushing = true,
+            Err(()) => conn.kill(),
+        }
+        writable.is_ok()
+    }
+
+    /// The socket takes more: the queue goes on, and once it is empty the
+    /// calls that waited behind it are served.
+    fn ipc_writable(&mut self, id: u64) -> PostAction {
+        let Some(conn) = self.ipc.clients.iter_mut().find(|c| c.id == id && !c.dead) else { return PostAction::Remove };
+        match conn.write_out() {
+            Ok(false) => return PostAction::Continue,
+            Ok(true) => conn.flushing = false,
+            Err(_) => {
+                conn.kill();
+                return PostAction::Remove;
+            }
+        }
+        if !self.ipc_serve(id) {
+            if let Some(conn) = self.ipc.clients.iter_mut().find(|c| c.id == id) {
+                conn.kill();
+            }
+        }
+        PostAction::Remove
     }
 
     /// Sends an event to every subscribed connection whose grant is still
