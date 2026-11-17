@@ -39,12 +39,15 @@ public struct SteerWireFrame: Equatable, Sendable {
     public let outcome: String?
     public let code: String?
     public let message: String?
+    /// #EDE-96: `search_result`'s answer (its request is `requestId`).
+    public let searchResult: SteerSearchResult?
 
     public init(
         t: String, seq: Int? = nil, activity: Activity = Activity(event: nil),
         firstSeq: Int? = nil, truncated: Bool = false, requestId: String? = nil,
         done: Bool = false, page: [Activity] = [], pageSeqs: [Int] = [],
-        outcome: String? = nil, code: String? = nil, message: String? = nil
+        outcome: String? = nil, code: String? = nil, message: String? = nil,
+        searchResult: SteerSearchResult? = nil
     ) {
         self.t = t
         self.seq = seq
@@ -58,6 +61,7 @@ public struct SteerWireFrame: Equatable, Sendable {
         self.outcome = outcome
         self.code = code
         self.message = message
+        self.searchResult = searchResult
     }
 
     /// nil = not JSON, or no `t`.
@@ -78,7 +82,8 @@ public struct SteerWireFrame: Equatable, Sendable {
             pageSeqs: isChunk ? ((obj["seqs"] as? [Int]) ?? []) : [],
             outcome: obj["outcome"] as? String,
             code: obj["code"] as? String,
-            message: obj["message"] as? String
+            message: obj["message"] as? String,
+            searchResult: t == "search_result" ? SteerSearch.parseResult(obj) : nil
         )
     }
 

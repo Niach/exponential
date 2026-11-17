@@ -293,11 +293,11 @@ pub const SEND_TIMEOUT: Duration = Duration::from_millis(20_000);
 
 /// The frames a viewer sends.
 pub const VIEWER_FRAMES: &[&str] = &[
-    "join", "leave", "input", "answer", "interrupt", "unqueue", "set_config", "set_mode", "kill", "history_page",
+    "join", "leave", "input", "answer", "interrupt", "unqueue", "set_config", "set_mode", "kill", "history_page", "search",
 ];
 /// The frames a device sends.
 pub const DEVICE_FRAMES: &[&str] =
-    &["activity_reset", "activity", "activity_synced", "history_chunk", "keepalive", "bye", "error"];
+    &["activity_reset", "activity", "activity_synced", "history_chunk", "search_result", "keepalive", "bye", "error"];
 /// This install neither runs the session live nor holds its journal.
 pub const ERROR_NO_SUCH_SESSION: &str = "no_such_session";
 /// The access rule refused the sender.
@@ -909,7 +909,8 @@ pub fn has_stored_viewer(session_id: &str, endpoint: &EndpointId) -> bool {
 }
 
 /// One allowed envelope for a session served from its journal: `join`,
-/// `leave` and `history_page` apply; a stored run cannot be steered.
+/// `leave`, `history_page` and `search` apply; a stored run cannot be
+/// steered.
 fn serve_stored(peer: FeedPeer, envelope: Envelope, stored: &StoredJournals, ended: bool) {
     let session_id = envelope.session_id;
     let from = peer.id();
@@ -928,6 +929,20 @@ fn serve_stored(peer: FeedPeer, envelope: Envelope, stored: &StoredJournals, end
                     (request_id, page("beforeSeq"), page("limit"))
                 {
                     stored_page(&session_id, &from, stored.data_dir.clone(), request_id.to_string(), before_seq, limit);
+                }
+            }
+            Some("search") => {
+                let request_id = frame.get("requestId").and_then(Value::as_str);
+                let query = frame.get("query").and_then(Value::as_str);
+                let limit = frame.get("limit").and_then(Value::as_u64);
+                if let (Some(request_id), Some(query), Some(limit)) = (request_id, query, limit) {
+                    let ask = StoredSearch {
+                        request_id: request_id.to_string(),
+                        query: query.to_string(),
+                        before_seq: frame.get("beforeSeq").and_then(Value::as_u64),
+                        limit,
+                    };
+                    stored_search(&peer, &session_id, stored.data_dir.clone(), ask);
                 }
             }
             _ => {}
@@ -1002,6 +1017,46 @@ fn stored_page(session_id: &str, from: &PeerId, data_dir: PathBuf, request_id: S
         .await
         .unwrap_or_default();
         let _ = tx.send(crate::history::history_chunk_frame(&request_id, page));
+    });
+}
+
+/// #EDE-96: one `search` ask on a stored journal.
+struct StoredSearch {
+    request_id: String,
+    query: String,
+    before_seq: Option<u64>,
+    limit: u64,
+}
+
+/// A `search` on a stored journal (steer-enet.json SEARCH), answered off the
+/// file to the asker only: through its stored feed when it is joined (in
+/// order with that feed), else on its own (an ended row's viewer was dropped
+/// at `bye`; a search needs no join).
+fn stored_search(peer: &FeedPeer, session_id: &str, data_dir: PathBuf, ask: StoredSearch) {
+    let feed = lock(stored_viewers())
+        .get(session_id)
+        .and_then(|viewers| viewers.get(&peer.id()))
+        .map(|(_, tx)| tx.clone())
+        .filter(|tx| !tx.is_disconnected());
+    let peer = peer.clone();
+    let id = session_id.to_string();
+    tokio::spawn(async move {
+        let read_id = id.clone();
+        let frame = tokio::task::spawn_blocking(move || {
+            crate::search::answer(Some(&data_dir), &read_id, &ask.request_id, &ask.query, ask.before_seq, ask.limit)
+        })
+        .await;
+        let Ok(frame) = frame else { return };
+        match feed {
+            Some(tx) => {
+                let _ = tx.send(frame);
+            }
+            None => {
+                if let Err(err) = peer.send(&id, &[frame]).await {
+                    log::debug!("enet steer: search answer to {} failed: {err}", peer.label());
+                }
+            }
+        }
     });
 }
 

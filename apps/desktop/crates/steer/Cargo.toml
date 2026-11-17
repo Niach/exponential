@@ -49,6 +49,9 @@ log = "0.4"
 # in-memory blob store is enough until blobs carry anything.
 enet-core = { path = "../enet-core" }
 data-encoding = "2"
+# #EDE-96: the transcript search folds diacritics (NFD, marks dropped);
+# already in the lockfile.
+unicode-normalization = "0.1"
 # VAPP-239: device-routed upstream calls run through the eMCP client
 # (`emcp::device_call`); api already depends on it.
 emcp = { path = "../emcp" }
