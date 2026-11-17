@@ -1834,6 +1834,15 @@ impl PlatformWindow for X11Window {
         self.send_moveresize(MOVERESIZE_MOVE).log_err();
     }
 
+    // Exponential patch (#EXP-1912): the window's input shape; an empty
+    // region makes it click-through (upstream: a no-op on X11).
+    fn set_input_region(&self, region: Option<&[Bounds<Pixels>]>) {
+        let scale_factor = self.0.state.borrow().scale_factor;
+        let rectangles = region.map(|region| super::input_shape::rectangles(region, scale_factor));
+        super::input_shape::set(&*self.0.xcb, self.0.x_window, rectangles.as_deref()).log_err();
+        xcb_flush(&self.0.xcb);
+    }
+
     fn start_window_resize(&self, edge: ResizeEdge) {
         self.send_moveresize(resize_edge_to_moveresize(edge))
             .log_err();

@@ -39,6 +39,20 @@ Each is marked `Exponential patch (#ERR-4)` in the source.
   tests only.
 - **`src/linux.rs`:** declares `mod uri_list` (x11 or wayland builds).
 
+## Input shape on X11 (#EXP-1912)
+
+Each is marked `Exponential patch (#EXP-1912)` in the source.
+
+- **`src/linux/x11/input_shape.rs` (new):** `rectangles` (a logical region
+  as device-pixel rectangles) and `set` (the X Shape extension's Input shape
+  of a window: `None` = the whole window, an empty list = no input).
+- **`src/linux/x11/window.rs`:** `PlatformWindow::set_input_region` sets
+  that shape. Upstream implements it on Wayland only, so on X11 a window
+  could not be made click-through: the computer-use banner (override-redirect,
+  above everything) took the clicks meant for the app under it.
+- **`src/linux/x11.rs`:** declares `mod input_shape`.
+- **`Cargo.toml`:** x11rb's `shape` feature.
+
 Dropped plain text is NOT delivered to the app. gpui has no text-drop input
 event (`FileDropEvent` carries paths only), and delivering dropped text would
 need a new gpui API, which this patch does not add.
@@ -47,5 +61,6 @@ need a new gpui API, which this patch does not add.
 
 `Cargo.toml` stays the crates.io-normalised manifest. Dropped from the
 published crate: `Cargo.lock`, `Cargo.toml.orig`, `.cargo_vcs_info.json`,
-`.cargo-ok`. Tests: `cargo test -p gpui-pre-linux --lib uri_list` from
-`apps/desktop`.
+`.cargo-ok`. Tests: `cargo test -p gpui-pre-linux --lib -- uri_list input_shape`
+from `apps/desktop` (the input shape test starts a private Xvfb and is
+skipped without one).
