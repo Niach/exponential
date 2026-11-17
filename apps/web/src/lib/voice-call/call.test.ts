@@ -356,6 +356,34 @@ describe(`the web caller's wire`, () => {
     }
   })
 
+  // EXP-1929 (voice-phones-2): once the relay beats, a path that carries
+  // nothing for idleTimeoutMs is dead; an older relay never beats.
+  it(`a path gone silent after the relay's beat ends dropped; without a beat it never does`, async () => {
+    vi.useFakeTimers()
+    try {
+      const { idleTimeoutMs } = fixture.constants
+      const beating = await dialed()
+      beating.socket.text({ t: `call_ready` })
+      beating.socket.text({ t: `call_alive` })
+      vi.advanceTimersByTime(idleTimeoutMs - 1_000)
+      expect(beating.call.active).toBe(true)
+      beating.socket.binary(audioFrame(KIND_DOWN, 0, new Uint8Array([1])))
+      vi.advanceTimersByTime(idleTimeoutMs - 1_000)
+      expect(beating.call.active).toBe(true)
+      vi.advanceTimersByTime(2_000)
+      expect(beating.call.active).toBe(false)
+      expect(beating.audio.closed).toBe(true)
+      expect(beating.toasts).toEqual([fixture.copy.failed.dropped])
+      const older = await dialed()
+      older.socket.text({ t: `call_ready` })
+      vi.advanceTimersByTime(3 * idleTimeoutMs)
+      expect(older.call.active).toBe(true)
+      older.call.end()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it(`a socket that simply goes away closes the audio and toasts dropped`, async () => {
     const { call, socket, audio, toasts } = await dialed()
     socket.text({ t: `call_ready` })

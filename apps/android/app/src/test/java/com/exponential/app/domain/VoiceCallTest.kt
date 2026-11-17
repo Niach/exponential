@@ -307,6 +307,11 @@ class VoiceCallTest {
             val ready = case.str("readyMs")?.toInt()
             assertEquals(case.str("name"), case.str("answeredMs")?.toInt(), VoiceCall.callAnswerMs(random, ready))
         }
+        for (case in cases("livenessCases")) {
+            val input = case.getValue("input").jsonObject
+            val dead = VoiceCall.callPathDead(input.getValue("alive").jsonPrimitive.boolean, input.getValue("silentMs").jsonPrimitive.long)
+            assertEquals(case.str("name"), case.getValue("expected").jsonObject.getValue("dead").jsonPrimitive.boolean, dead)
+        }
         for (case in cases("ringToneCases")) {
             val ms = case.getValue("ms").jsonPrimitive.long
             assertEquals("$ms", case.getValue("on").jsonPrimitive.boolean, VoiceCall.callRingToneOn(ms))

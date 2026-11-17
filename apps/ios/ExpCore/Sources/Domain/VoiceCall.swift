@@ -791,6 +791,14 @@ public enum VoiceCall {
         ms >= 0 && ms % (Constants.ringToneMs + Constants.ringGapMs) < Constants.ringToneMs
     }
 
+    /// EXP-1929 (`livenessCases`): an end of a call that got a `call_alive`
+    /// (`alive`) and has heard nothing from the relay for `silentMs` treats
+    /// the path as dead (the call ends as dropped); before the first beat (an
+    /// older relay) there is no deadline.
+    public static func callPathDead(alive: Bool, silentMs: Int) -> Bool {
+        alive && silentMs >= Constants.idleTimeoutMs
+    }
+
     /// The call's timer since it was answered: mm:ss, h:mm:ss from an hour.
     public static func callTimer(ms: Int) -> String {
         let total = max(0, ms / 1000)

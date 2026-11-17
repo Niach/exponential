@@ -624,6 +624,14 @@ object VoiceCall {
     fun callRingToneOn(ms: Long): Boolean =
         ms >= 0 && ms % (Constants.RING_TONE_MS + Constants.RING_GAP_MS) < Constants.RING_TONE_MS
 
+    /**
+     * EXP-1929 (`livenessCases`): an end of a call that got a `call_alive`
+     * ([alive]) and has heard nothing from the relay for [silentMs] treats the
+     * path as dead (the call ends as dropped); before the first beat (an older
+     * relay) there is no deadline.
+     */
+    fun callPathDead(alive: Boolean, silentMs: Long): Boolean = alive && silentMs >= Constants.IDLE_TIMEOUT_MS
+
     /** The call's timer since it was answered: mm:ss, h:mm:ss from an hour. */
     fun callTimer(ms: Long): String {
         val total = maxOf(0L, ms / 1000)
