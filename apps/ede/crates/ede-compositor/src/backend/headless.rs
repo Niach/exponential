@@ -31,6 +31,8 @@ use crate::{
 pub struct Headless {
     pub renderer: PixmanRenderer,
     pub outputs: Vec<Output>,
+    /// The `wl_output` global of each output, in the same order.
+    pub globals: Vec<smithay::reexports::wayland_server::backend::GlobalId>,
 }
 
 /// One rendered output: `pixels` are `0xAARRGGBB`, row-major.
@@ -58,7 +60,7 @@ impl Headless {
             PhysicalProperties { size: (0, 0).into(), subpixel: Subpixel::Unknown, make: "Exponential".into(), model: "Desktop (headless)".into(), serial_number: "Unknown".into() },
         );
         let mode = Mode { size: size.into(), refresh: 60_000 };
-        let _global = output.create_global::<Ede>(&state.display_handle);
+        let global = output.create_global::<Ede>(&state.display_handle);
         output.change_current_state(Some(mode), Some(Transform::Normal), None, None);
         output.set_preferred(mode);
         // Like a VM's virtual GPU, a few more sizes to switch to (#EDE-65:
@@ -70,6 +72,7 @@ impl Headless {
         }
         state.add_output(&output);
         self.outputs.push(output.clone());
+        self.globals.push(global);
         output
     }
 
@@ -77,6 +80,8 @@ impl Headless {
     pub fn remove_output(&mut self, state: &mut Ede, index: usize) {
         let output = self.outputs.remove(index);
         state.remove_output(&output);
+        // Clients see it go, as they do when a monitor is unplugged.
+        state.display_handle.remove_global::<Ede>(self.globals.remove(index));
     }
 
     /// A full repaint of output `index`, as the monitor shows it.
@@ -117,7 +122,7 @@ impl Harness {
                 let mut event_loop: EventLoop<'static, Ede> = EventLoop::try_new().expect("event loop");
                 let display: Display<Ede> = Display::new().expect("display");
                 let mut state = Ede::new(display, event_loop.handle(), event_loop.get_signal(), config);
-                let mut headless = Headless { renderer: PixmanRenderer::new().expect("pixman"), outputs: Vec::new() };
+                let mut headless = Headless { renderer: PixmanRenderer::new().expect("pixman"), outputs: Vec::new(), globals: Vec::new() };
                 for (i, size) in outputs.into_iter().enumerate() {
                     headless.add_output(&mut state, &format!("HEADLESS-{}", i + 1), size);
                 }

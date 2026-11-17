@@ -3,8 +3,10 @@
 //! agent-editable; only the theme's accent is anyone's), each a
 //! full-screen overlay layer surface with the keyboard to itself:
 //!
-//! - `exponential-sealed lock`: the lock screen. The compositor starts it (no
-//!   `[lock] command`), shows nothing but this process's surfaces while
+//! - `exponential-sealed lock`: the lock screen, one surface per output
+//!   (it follows outputs coming, going and changing size). The compositor
+//!   starts it (no `[lock] command`), shows nothing but this process's
+//!   surfaces while
 //!   locked, and takes `unlock` only with the grant it minted for this
 //!   process, handed over the descriptor `EDE_TOKEN_FD` names (never the
 //!   environment, which `/proc` shows). The password goes to PAM in this
@@ -38,7 +40,7 @@ use std::{
 use eui_core::{surface::{SurfaceCommand, SurfaceSettings}, theme::{Mode, ModeSetting}, NestedNode};
 use eui_gpui::host::{FunctionCallEvent, HostPlugin, InputEvent};
 use eui_gpui::view::{SurfaceView, SurfaceViewOptions};
-use gpui::{div, layer_shell::{Anchor, KeyboardInteractivity, Layer, LayerShellOptions}, point, prelude::*, px, size, App, Bounds, Entity, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions};
+use gpui::{div, layer_shell::{Anchor, KeyboardInteractivity, Layer, LayerShellOptions}, point, prelude::*, px, size, App, Bounds, DisplayId, Entity, Pixels, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions};
 use serde_json::{json, Value};
 
 const LOCK: &str = include_str!("../../../../../../ede/sealed/lock.json");
@@ -86,16 +88,22 @@ struct Open {
     view: Entity<SurfaceView>,
 }
 
-/// A sealed document as a full-screen overlay with the keyboard.
+/// A sealed document as a full-screen overlay with the keyboard, on the
+/// first output.
 fn open(doc: &str, data: Value, acts: mpsc::Sender<Act>, cx: &mut App) -> Option<Open> {
-    let mut parsed: Value = serde_json::from_str(doc).expect("a sealed document");
-    // The first output's logical size: the root fills it in px (a layer
-    // window takes its content's size otherwise) and the surface asks for it.
     let (w, h) = ede_protocol::Client::connect_env()
         .ok()
         .and_then(|mut c| c.outputs().ok())
         .and_then(|o| o.first().map(|o| (o.width as f32, o.height as f32)))
         .unwrap_or((1280.0, 720.0));
+    open_on(doc, data, acts, None, (w, h), cx)
+}
+
+/// [`open`] on `display` (`None` = the compositor's choice), whose logical
+/// size is `w`×`h`: the root fills it in px (a layer window takes its
+/// content's size otherwise) and the surface asks for it.
+fn open_on(doc: &str, data: Value, acts: mpsc::Sender<Act>, display: Option<DisplayId>, (w, h): (f32, f32), cx: &mut App) -> Option<Open> {
+    let mut parsed: Value = serde_json::from_str(doc).expect("a sealed document");
     if let Some(style) = parsed["root"].get_mut("style").and_then(Value::as_object_mut) {
         style.insert("width".into(), json!(w));
         style.insert("height".into(), json!(h));
@@ -125,6 +133,7 @@ fn open(doc: &str, data: Value, acts: mpsc::Sender<Act>, cx: &mut App) -> Option
             kind,
             window_bounds: Some(WindowBounds::Windowed(Bounds { origin: point(px(0.0), px(0.0)), size: size(px(w), px(h)) })),
             titlebar: None,
+            display_id: display,
             app_id: Some("at.exponential.ede.sealed".into()),
             focus: true,
             is_resizable: false,
@@ -232,6 +241,60 @@ fn grant_from(fd: std::os::fd::RawFd) -> Option<ede_protocol::Token> {
     ede_protocol::Token::new(text.trim()).ok()
 }
 
+/// A lock surface and the output it covers.
+struct Shown {
+    display: DisplayId,
+    size: (i32, i32),
+    open: Open,
+}
+
+/// The outputs to cover: gpui's displays, each with the logical size the
+/// compositor reports for the output of that name (gpui's own bounds
+/// round a fractional scale up).
+fn lock_outputs(cx: &App) -> Vec<(DisplayId, (i32, i32))> {
+    let outputs = ede_protocol::Client::connect_env().ok().and_then(|mut c| c.outputs().ok()).unwrap_or_default();
+    cx.displays()
+        .into_iter()
+        .map(|d| {
+            let named = d.uuid().ok().and_then(|id| outputs.iter().find(|o| uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_DNS, o.name.as_bytes()).as_bytes() == id.as_bytes()));
+            let bounds = d.bounds().size;
+            (d.id(), named.map_or((f32::from(bounds.width) as i32, f32::from(bounds.height) as i32), |o| (o.width, o.height)))
+        })
+        .collect()
+}
+
+/// One lock surface per output: opens the missing ones and closes those
+/// whose output went or changed size. `seen` is what the outputs were at
+/// the last look. A surface the compositor closed under us while its
+/// output is still there ends the process: the compositor starts the lock
+/// client again.
+fn cover_outputs(shown: &mut Vec<Shown>, seen: &mut Vec<(DisplayId, Bounds<Pixels>)>, data: Value, acts: &mpsc::Sender<Act>, cx: &mut App) {
+    let now: Vec<(DisplayId, Bounds<Pixels>)> = cx.displays().iter().map(|d| (d.id(), d.bounds())).collect();
+    if shown.iter().any(|s| now.iter().any(|(id, _)| *id == s.display) && s.open.handle.update(cx, |_, _, _| ()).is_err()) {
+        tracing::error!("a lock surface was closed");
+        std::process::exit(1);
+    }
+    if now == *seen {
+        return;
+    }
+    *seen = now;
+    let want = lock_outputs(cx);
+    let (keep, gone): (Vec<Shown>, Vec<Shown>) = std::mem::take(shown).into_iter().partition(|s| want.contains(&(s.display, s.size)));
+    *shown = keep;
+    for s in gone {
+        close(s.open, cx);
+    }
+    for (display, size) in want.iter().copied() {
+        if shown.iter().any(|s| s.display == display) {
+            continue;
+        }
+        match open_on(LOCK, data.clone(), acts.clone(), Some(display), (size.0 as f32, size.1 as f32), cx) {
+            Some(open) => shown.push(Shown { display, size, open }),
+            None => std::process::exit(1),
+        }
+    }
+}
+
 /// The lock screen: PAM, then the compositor's `unlock`.
 fn lock() {
     let user = user_name();
@@ -239,26 +302,24 @@ fn lock() {
     run_app(move |cx| {
         let (acts_tx, acts_rx) = mpsc::channel::<Act>();
         let (auth_tx, auth_rx) = mpsc::channel::<Result<(), String>>();
-        let open = Rc::new(RefCell::new(open(LOCK, json!({"time": clock(), "user": user.clone()}), acts_tx, cx)));
-        if open.borrow().is_none() {
-            std::process::exit(1);
-        }
-        let o = open.clone();
         cx.spawn(async move |cx| {
+            let mut shown: Vec<Shown> = Vec::new();
+            let mut seen = Vec::new();
             let mut minute = clock();
             let mut password = String::new();
             loop {
+                cx.update(|cx| cover_outputs(&mut shown, &mut seen, json!({"time": clock(), "user": user.clone()}), &acts_tx, cx));
                 while let Ok(act) = acts_rx.try_recv() {
                     match act {
                         Act::Input { path, value } if path == "/password" => password = value.as_str().unwrap_or_default().to_string(),
                         Act::Call { name, args } if name == "sealed_unlock" => {
                             let typed = args.get("password").and_then(Value::as_str).map(String::from).unwrap_or_else(|| password.clone());
-                            if let Some(open) = o.borrow().as_ref() {
-                                cx.update(|cx| {
-                                    set(open, "/busy", json!(true), cx);
-                                    set(open, "/error", json!(""), cx);
-                                });
-                            }
+                            cx.update(|cx| {
+                                for s in &shown {
+                                    set(&s.open, "/busy", json!(true), cx);
+                                    set(&s.open, "/error", json!(""), cx);
+                                }
+                            });
                             let (tx, user) = (auth_tx.clone(), user.clone());
                             std::thread::spawn(move || {
                                 let _ = tx.send(pam::authenticate(&user, &typed));
@@ -277,34 +338,36 @@ fn lock() {
                             }
                             Err(e) => {
                                 tracing::error!("unlock refused: {e}");
-                                if let Some(open) = o.borrow().as_ref() {
-                                    cx.update(|cx| {
-                                        set(open, "/busy", json!(false), cx);
-                                        set(open, "/error", json!(format!("The session could not be unlocked: {e}")), cx);
-                                    });
-                                }
+                                cx.update(|cx| {
+                                    for s in &shown {
+                                        set(&s.open, "/busy", json!(false), cx);
+                                        set(&s.open, "/error", json!(format!("The session could not be unlocked: {e}")), cx);
+                                    }
+                                });
                             }
                         },
                         Err(e) => {
                             tracing::info!("authentication failed: {e}");
                             password.clear();
-                            if let Some(open) = o.borrow().as_ref() {
-                                cx.update(|cx| {
-                                    set(open, "/busy", json!(false), cx);
-                                    set(open, "/password", json!(""), cx);
-                                    set(open, "/error", json!("Wrong password"), cx);
-                                    focus(open, "password", cx);
-                                });
-                            }
+                            cx.update(|cx| {
+                                for s in &shown {
+                                    set(&s.open, "/busy", json!(false), cx);
+                                    set(&s.open, "/password", json!(""), cx);
+                                    set(&s.open, "/error", json!("Wrong password"), cx);
+                                    focus(&s.open, "password", cx);
+                                }
+                            });
                         }
                     }
                 }
                 let now = clock();
                 if now != minute {
                     minute = now.clone();
-                    if let Some(open) = o.borrow().as_ref() {
-                        cx.update(|cx| set(open, "/time", json!(now), cx));
-                    }
+                    cx.update(|cx| {
+                        for s in &shown {
+                            set(&s.open, "/time", json!(now), cx);
+                        }
+                    });
                 }
                 cx.background_executor().timer(Duration::from_millis(100)).await;
             }
