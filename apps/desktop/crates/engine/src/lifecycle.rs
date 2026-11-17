@@ -319,6 +319,16 @@ impl Attached {
         //    we read our own end as a remote kill (EXP-283). Dropping the
         //    feed calls `unwatch`.
         drop(self.kill.take());
+        // #EXP-1910: power goes FIRST, the reports after. All three revokes
+        // are local; behind the outbox flush and the row write (up to 35 s
+        // on a bad network) a code-mode script and the input hold outlived
+        // the dead agent.
+        // EXP-1196: the run's computer-use token dies with it.
+        coding::computer::revoke(&ctx.session_id);
+        // EXP-1236: so does its code-mode grant (a script still running ends).
+        coding::codemode::revoke(&ctx.session_id);
+        // NEW-58: and its screen-memory grant (the voice conversation's).
+        coding::screen::revoke(&ctx.session_id);
         // 2. `bye {outcome}` and stop reconnecting.
         if let Some(publisher) = &self.publisher {
             publisher.shutdown(Some(outcome.to_string()));
@@ -408,12 +418,6 @@ impl Attached {
             error,
             end,
         };
-        // EXP-1196: the run's computer-use token dies with it.
-        coding::computer::revoke(&ctx.session_id);
-        // EXP-1236: so does its code-mode grant (a script still running ends).
-        coding::codemode::revoke(&ctx.session_id);
-        // NEW-58: and its screen-memory grant (the voice conversation's).
-        coding::screen::revoke(&ctx.session_id);
         // #EXP-1868: a session that ENDED takes what it started with it
         // (its scopes: vite, gradle/kotlin daemons, emulators; the compose
         // stacks of its worktree). An idle, suspended or released run keeps

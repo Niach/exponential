@@ -2166,7 +2166,31 @@ where
                 Ok::<_, Error>(opened)
             };
             let deadline = handshake_deadline(ctx.resume.is_some());
-            let (session_id, modes, options, meta) = match tokio::time::timeout(deadline, handshake).await {
+            // EXP-1910: the inbox is read DURING the handshake. A kill, a
+            // suspend or a release sent while it is open (a long
+            // `session/load`, a wedged CLI) ends the run at once: it used to
+            // wait out the deadline, and the seed prompt went out first.
+            // Everything else is kept, in order, for the loop below.
+            let mut early = std::collections::VecDeque::new();
+            let opened = {
+                let timed = tokio::time::timeout(deadline, handshake);
+                tokio::pin!(timed);
+                let mut inbox_open = true;
+                loop {
+                    tokio::select! {
+                        opened = &mut timed => break opened,
+                        command = commands.recv_async(), if inbox_open => match command {
+                            Ok(EngineCommand::Shutdown { outcome }) => {
+                                ctx.set_outcome(outcome);
+                                return Ok(());
+                            }
+                            Ok(command) => early.push_back(command),
+                            Err(_) => inbox_open = false,
+                        },
+                    }
+                }
+            };
+            let (session_id, modes, options, meta) = match opened {
                 Ok(opened) => opened?,
                 Err(_) => {
                     log::warn!(
@@ -2264,7 +2288,7 @@ where
             }
             loop {
                 tokio::select! {
-                    command = commands.recv_async() => {
+                    command = next_command(&mut early, &commands) => {
                         let Ok(command) = command else { break };
                         if !handle_command(&cx, &ctx, &session_id, &turns, command) {
                             break;
@@ -2342,6 +2366,19 @@ fn mirror_mode(mapper: &mut Mapper, mode_id: &str, out: &mut MapOut) {
 }
 
 /// Returns `false` when the loop must stop.
+/// EXP-1910: the loop's next command: what arrived during the handshake
+/// first, in order, then the inbox. A kept command is handed out on the
+/// first poll, so a `select!` that drops this future loses nothing.
+async fn next_command(
+    early: &mut std::collections::VecDeque<EngineCommand>,
+    commands: &flume::Receiver<EngineCommand>,
+) -> Result<EngineCommand, flume::RecvError> {
+    match early.pop_front() {
+        Some(command) => Ok(command),
+        None => commands.recv_async().await,
+    }
+}
+
 fn handle_command(
     cx: &agent_client_protocol::v1::ConnectionTo<agent_client_protocol::Agent>,
     ctx: &Arc<SessionCtx>,
