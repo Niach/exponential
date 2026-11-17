@@ -637,6 +637,49 @@ mod tests {
         assert_eq!(seen, [serde_json::json!({"op": "clipboard_set", "items": []})]);
     }
 
+    /// #EXP-1897: `activate_window` is `focus_window`, which the compositor
+    /// admits only with `ui`: the grant ePilot mints has to hold it.
+    #[test]
+    fn the_grant_admits_focus_window() {
+        let needs = Request::FocusWindow { window: WindowId::new("w1").unwrap() }.capability().unwrap();
+        assert!(CAPABILITIES.contains(&needs), "the grant lacks {}", needs.as_str());
+    }
+
+    /// #EXP-1897: a window parked on another workspace is not on screen: a
+    /// fullscreen one there must not make its display a gaming display.
+    #[test]
+    fn parked_windows_are_not_on_screen() {
+        use serde_json::json;
+        let window = |id: &str, workspace: usize, focused: bool, fullscreen: bool, minimized: bool| {
+            json!({"id": id, "title": id, "app_id": "app", "x": 0, "y": 0, "width": 640, "height": 480, "focused": focused, "fullscreen": fullscreen, "protected": false, "x11": false, "workspace": workspace, "minimized": minimized})
+        };
+        let (ede, _server) = fake_compositor(vec![
+            Ok(json!([window("w1", 0, false, false, false), window("w2", 0, true, false, false), window("w3", 1, false, true, false), window("w4", 0, false, false, true)])),
+            Ok(json!([{"index": 0, "active": true, "windows": ["w1", "w2", "w4"]}, {"index": 1, "active": false, "windows": ["w3"]}])),
+        ]);
+        let listed: Vec<(u64, bool, bool)> = ede.list_windows().unwrap().into_iter().map(|window| (window.id, window.active, window.fullscreen)).collect();
+        assert_eq!(listed, [(2, true, false), (1, false, false)], "top first, the active workspace only");
+    }
+
+    /// The displays cache [`pixel_size`] reads is one per process.
+    static OUTPUTS: Mutex<()> = Mutex::new(());
+
+    /// #EXP-1897: eDE speaks logical units (like macOS points); the pixel
+    /// size is the output's mode, which is what a capture carries.
+    #[test]
+    fn a_scaled_output_reports_physical_pixels() {
+        use serde_json::json;
+        let _one = OUTPUTS.lock().unwrap_or_else(|p| p.into_inner());
+        let (ede, _server) = fake_compositor(vec![Ok(json!([
+            {"name": "DP-1", "x": 0, "y": 0, "width": 1707, "height": 960, "scale": 1.5, "modes": [{"width": 1920, "height": 1080, "refresh": 60000, "preferred": false, "current": false}, {"width": 2560, "height": 1440, "refresh": 60000, "preferred": true, "current": true}]},
+            {"name": "DP-2", "x": 1707, "y": 0, "width": 1280, "height": 800, "scale": 1.25},
+        ]))]);
+        let displays = ede.displays().unwrap();
+        let pixels: Vec<(u32, u32)> = displays.iter().map(|display| crate::backend::pixel_size(display.x, display.y, display.width, display.height)).collect();
+        assert_eq!((displays[0].width, displays[0].height), (1707, 960), "the pointer's units stay logical");
+        assert_eq!(pixels, [(2560, 1440), (1600, 1000)], "the current mode, else the scaled size");
+    }
+
     /// #EDE-23 against a real headless `exponential-compositor` (pixman, no
     /// seat, no GPU): `EDE_COMPOSITOR=<path to the binary> cargo test -p
     /// epilot headless_ede`. Skipped without it (the desktop CI builds no
@@ -694,6 +737,9 @@ mod tests {
         let ede = open(&session).unwrap();
         let held = session.connect().unwrap().hello.capabilities;
         assert_eq!(held, CAPABILITIES.to_vec(), "a grant of its own, not the root token");
+        // #EXP-1897: focusing is admitted (there is no such window here).
+        let refused = ede.activate_window(999).unwrap_err();
+        assert!(refused.contains("no such window"), "{refused}");
 
         let displays = ede.displays().unwrap();
         assert_eq!(displays.len(), 1);
@@ -733,5 +779,18 @@ mod tests {
         assert_eq!(clipboard.wait_pasted(Duration::from_millis(100)), Pasted::Missed);
         clipboard.restore(saved).unwrap();
         assert_eq!(clipboard.text().unwrap(), None);
+        drop(clipboard);
+
+        // #EXP-1897: at scale 1.5 the display is logical (what the pointer
+        // speaks) and its pixel size is the frame's.
+        let _one = OUTPUTS.lock().unwrap_or_else(|p| p.into_inner());
+        let mut root = session.connect_token(session.root_token().unwrap()).unwrap();
+        root.set_output("HEADLESS-1", None, Some(1.5), None).unwrap();
+        let displays = ede.displays().unwrap();
+        let screen = &displays[0];
+        assert_eq!((screen.width, screen.height), (427, 320));
+        let pixels = crate::backend::pixel_size(screen.x, screen.y, screen.width, screen.height);
+        let shot = ede.screenshot(screen).unwrap();
+        assert_eq!((pixels, (shot.width, shot.height)), ((640, 480), (640, 480)));
     }
 }
