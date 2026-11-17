@@ -747,6 +747,9 @@ struct Harness {
 }
 
 fn prepared(session_id: &str, worktree: PathBuf) -> coding::PreparedLaunch {
+    // #EDE-97: these runs have no key holder; their sessions are clear trees
+    // (plaintext is their legal wire), the tests are about the engine.
+    coding::sealing::note_clear_tree(session_id);
     coding::PreparedLaunch {
         session_id: session_id.to_string(),
         issue_identifier: "EXP-746".to_string(),

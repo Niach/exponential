@@ -372,7 +372,8 @@ pub fn send_blocking(trpc: &api::TrpcClient, input: &SendInput, plan: &SendPlan)
     if plan.clear || plan.target == SealTarget::None {
         return api::sessions::send(trpc, &input);
     }
-    if sealing::service().is_none() {
+    // A key holder still coming up is waited for (`clearTree.holderWaitMs`).
+    if sealing::sealer().is_err() {
         log::warn!("[sealing] not sent: no key holder runs");
         return Err(no_key(sealing::NO_KEY_REFUSAL.to_string()));
     }
