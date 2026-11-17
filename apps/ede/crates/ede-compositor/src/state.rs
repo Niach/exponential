@@ -32,6 +32,7 @@ use smithay::{
 use crate::{
     config::Config,
     desk::{on_person, DeskId},
+    handlers::layer_shell::is_sealed_prompt,
     layout::{self, Rect, Tile},
 };
 
@@ -117,6 +118,10 @@ pub struct Ede {
     pub fatal: Option<String>,
     /// `--debug-captures` (headless and nested only): captures are not redacted.
     pub debug_captures: bool,
+    /// A test's own process standing in for `exponential-sealed` (as
+    /// [`Ede::begin_sealed_lock_as`] does for the lock): a layer surface it
+    /// maps meanwhile is a sealed one ([`crate::sealed::origin_of`]).
+    pub sealed_stand_in: Option<u32>,
     /// Counts presented frames ([`crate::backend::frame_done`]); a capture
     /// with `since` equal to it carries no pixels.
     pub frame_serial: u64,
@@ -258,6 +263,7 @@ impl Ede {
             recovery: crate::recovery::Recovery::default(),
             fatal: None,
             debug_captures: false,
+            sealed_stand_in: None,
             frame_serial: 0,
             config_path: None,
         }
@@ -449,7 +455,12 @@ impl Ede {
         }
         if let Some(window) = self.fullscreen_on(output) {
             // #EDE-103: the output draws only that window (and its popups):
-            // nothing hidden behind it takes the pointer.
+            // nothing hidden behind it takes the pointer. #EDE-107: but a
+            // sealed prompt, drawn above it.
+            let prompt = sealed_prompt_under(&layer_map_for_output(output), output_geo.loc, pos);
+            if prompt.is_some() {
+                return prompt;
+            }
             let location = self.desk.space.element_location(&window)? - window.geometry().loc;
             return window.surface_under(pos - location.to_f64(), WindowSurfaceType::ALL).map(|(s, p)| (s, (p + location).to_f64()));
         }
@@ -771,6 +782,15 @@ impl Ede {
 /// the output's place in the space.
 fn layer_surface_under(layers: &LayerMap, origin: Point<i32, Logical>, layer: WlrLayer, pos: Point<f64, Logical>) -> Option<(WlSurface, Point<f64, Logical>)> {
     layers.layer_under(layer, pos - origin.to_f64()).and_then(|l| {
+        let loc = layers.layer_geometry(l)?.loc + origin;
+        l.surface_under(pos - loc.to_f64(), WindowSurfaceType::ALL).map(|(s, p)| (s, (p + loc).to_f64()))
+    })
+}
+
+/// The topmost sealed prompt ([`is_sealed_prompt`]) under `pos`, or its
+/// popup: what a fullscreen window does not hide (#EDE-107).
+fn sealed_prompt_under(layers: &LayerMap, origin: Point<i32, Logical>, pos: Point<f64, Logical>) -> Option<(WlSurface, Point<f64, Logical>)> {
+    layers.layers().rev().filter(|l| is_sealed_prompt(l)).find_map(|l| {
         let loc = layers.layer_geometry(l)?.loc + origin;
         l.surface_under(pos - loc.to_f64(), WindowSurfaceType::ALL).map(|(s, p)| (s, (p + loc).to_f64()))
     })

@@ -24,7 +24,7 @@ use smithay::{
     output::Output,
 };
 
-use crate::{desk::DeskId, state::Ede};
+use crate::{desk::DeskId, handlers::layer_shell::is_sealed_prompt, state::Ede};
 
 /// What `output` shows, front to back: the lock surface while the session
 /// is locked, a fullscreen window alone, else the layers and windows.
@@ -99,6 +99,27 @@ where
         );
     };
     if let Some(w) = state.fullscreen_on(output) {
+        // #EDE-107: a sealed prompt holds the keyboard, so it is the one
+        // layer drawn above a fullscreen window; black in a capture.
+        let layers = layer_map_for_output(output);
+        for l in layers.layers().rev().filter(|l| is_sealed_prompt(l)) {
+            let Some(geo) = layers.layer_geometry(l) else { continue };
+            if redact {
+                let geo = geo.to_physical_precise_round(scale);
+                elements.push(OutputElements::Solid(SolidColorRenderElement::new(Id::new(), geo, CommitCounter::default(), [0.0, 0.0, 0.0, 1.0], Kind::Unspecified)));
+                continue;
+            }
+            for (popup, location) in smithay::desktop::PopupManager::popups_for_surface(l.wl_surface()) {
+                let offset = (geo.loc + location - popup.geometry().loc).to_physical_precise_round(scale);
+                elements.extend(render_elements_from_surface_tree(renderer, popup.wl_surface(), offset, scale, 1.0, Kind::Unspecified).into_iter().map(OutputElements::Surface));
+            }
+            elements.extend(
+                render_elements_from_surface_tree(renderer, l.wl_surface(), geo.loc.to_physical_precise_round(scale), scale, 1.0, Kind::Unspecified)
+                    .into_iter()
+                    .map(OutputElements::Surface),
+            );
+        }
+        drop(layers);
         window(renderer, &mut elements, &w);
         return elements;
     }
@@ -357,9 +378,11 @@ pub fn frame_done(state: &mut Ede, output: &Output, presented: bool) {
         let primary = shown.then(|| output.clone());
         window.send_frame(output, now, Some(HIDDEN_FRAME_INTERVAL), |_, _| primary.clone());
     }
-    let layers = (!locked && fullscreen.is_none()).then(|| output.clone());
     for layer in layer_map_for_output(output).layers() {
-        layer.send_frame(output, now, Some(HIDDEN_FRAME_INTERVAL), |_, _| layers.clone());
+        // #EDE-107: above a fullscreen window only a sealed prompt shows.
+        let shown = !locked && (fullscreen.is_none() || is_sealed_prompt(layer));
+        let primary = shown.then(|| output.clone());
+        layer.send_frame(output, now, Some(HIDDEN_FRAME_INTERVAL), |_, _| primary.clone());
     }
     state.lock_frame_done(output, now);
     state.desk.space.refresh();
