@@ -5,7 +5,7 @@
 use std::{cell::RefCell, ffi::OsString, sync::Arc, time::Instant};
 
 use smithay::{
-    desktop::{layer_map_for_output, PopupManager, Space, Window, WindowSurfaceType},
+    desktop::{layer_map_for_output, LayerMap, PopupManager, Space, Window, WindowSurfaceType},
     wayland::seat::WaylandFocus,
     input::{keyboard::XkbConfig, pointer::CursorImageStatus, Seat, SeatState},
     output::Output,
@@ -23,7 +23,7 @@ use smithay::{
         compositor::{CompositorClientState, CompositorState},
         output::OutputManagerState,
         selection::data_device::DataDeviceState,
-        shell::{wlr_layer::WlrLayerShellState, xdg::XdgShellState},
+        shell::{wlr_layer::{Layer as WlrLayer, WlrLayerShellState}, xdg::XdgShellState},
         shm::ShmState,
         socket::ListeningSocketSource,
     },
@@ -425,7 +425,6 @@ impl Ede {
     /// The topmost surface under `pos`: overlay/top layers, then windows, then
     /// bottom/background layers, with that surface's origin.
     pub fn surface_under(&self, pos: Point<f64, Logical>) -> Option<(WlSurface, Point<f64, Logical>)> {
-        use smithay::wayland::shell::wlr_layer::Layer;
         let output = self.desk.space.output_under(pos).next()?;
         let output_geo = self.desk.space.output_geometry(output)?;
         if self.is_locked() {
@@ -440,34 +439,33 @@ impl Ede {
             return window.surface_under(pos - location.to_f64(), WindowSurfaceType::ALL).map(|(s, p)| (s, (p + location).to_f64()));
         }
         let layers = layer_map_for_output(output);
-        let layer_hit = |layer| {
-            layers.layer_under(layer, pos - output_geo.loc.to_f64()).and_then(|l| {
-                let loc = layers.layer_geometry(l)?.loc + output_geo.loc;
-                l.surface_under(pos - loc.to_f64(), WindowSurfaceType::ALL).map(|(s, p)| (s, (p + loc).to_f64()))
-            })
-        };
-        // A layer's popups are drawn above the whole layer (the scene), so
-        // they take the hit first.
-        let popup_hit = |layer| {
-            layers.layers_on(layer).rev().find_map(|l| {
-                let loc = layers.layer_geometry(l)?.loc + output_geo.loc;
-                l.surface_under(pos - loc.to_f64(), WindowSurfaceType::POPUP | WindowSurfaceType::SUBSURFACE).map(|(s, p)| (s, (p + loc).to_f64()))
-            })
-        };
-        let above = popup_hit(Layer::Overlay).or_else(|| popup_hit(Layer::Top)).or_else(|| layer_hit(Layer::Overlay)).or_else(|| layer_hit(Layer::Top));
+        let above = layers_above_windows(&layers, output_geo.loc, pos);
         if above.is_some() {
             return above;
         }
         // #EDE-103: a server-side bar (or its resize band) is the
         // compositor's: the window drawn under it takes neither press nor hover.
-        if self.frame_under(pos).is_some() {
+        if self.window_frame_under(pos).is_some() {
             return None;
         }
         self.desk.space
             .element_under(pos)
             .and_then(|(window, location)| window.surface_under(pos - location.to_f64(), WindowSurfaceType::ALL).map(|(s, p)| (s, (p + location).to_f64())))
-            .or_else(|| layer_hit(Layer::Bottom))
-            .or_else(|| layer_hit(Layer::Background))
+            .or_else(|| layer_surface_under(&layers, output_geo.loc, WlrLayer::Bottom, pos))
+            .or_else(|| layer_surface_under(&layers, output_geo.loc, WlrLayer::Background, pos))
+    }
+
+    /// Whether the shell draws a layer surface, or a popup of one, above
+    /// the windows at `pos` (a toast, the start menu). A press there is the
+    /// shell's, never a title bar's under it (#EDE-119). A fullscreen window
+    /// hides those layers (#EDE-103).
+    pub fn layer_above_windows(&self, pos: Point<f64, Logical>) -> bool {
+        let Some(output) = self.desk.space.output_under(pos).next() else { return false };
+        let Some(output_geo) = self.desk.space.output_geometry(output) else { return false };
+        if self.is_locked() || self.fullscreen_on(output).is_some() {
+            return false;
+        }
+        layers_above_windows(&layer_map_for_output(output), output_geo.loc, pos).is_some()
     }
 
     /// Raises `window` and gives it keyboard focus; `None` clears focus.
@@ -742,6 +740,31 @@ impl Ede {
             let _ = x11.close();
         }
     }
+}
+
+/// The topmost surface of `layer` under `pos`, with its origin. `origin` is
+/// the output's place in the space.
+fn layer_surface_under(layers: &LayerMap, origin: Point<i32, Logical>, layer: WlrLayer, pos: Point<f64, Logical>) -> Option<(WlSurface, Point<f64, Logical>)> {
+    layers.layer_under(layer, pos - origin.to_f64()).and_then(|l| {
+        let loc = layers.layer_geometry(l)?.loc + origin;
+        l.surface_under(pos - loc.to_f64(), WindowSurfaceType::ALL).map(|(s, p)| (s, (p + loc).to_f64()))
+    })
+}
+
+/// What the shell draws above every window at `pos`: a popup of an overlay
+/// or top layer (the scene draws a layer's popups above the whole layer, so
+/// they take the hit first), then those layers themselves.
+fn layers_above_windows(layers: &LayerMap, origin: Point<i32, Logical>, pos: Point<f64, Logical>) -> Option<(WlSurface, Point<f64, Logical>)> {
+    let popup = |layer| {
+        layers.layers_on(layer).rev().find_map(|l| {
+            let loc = layers.layer_geometry(l)?.loc + origin;
+            l.surface_under(pos - loc.to_f64(), WindowSurfaceType::POPUP | WindowSurfaceType::SUBSURFACE).map(|(s, p)| (s, (p + loc).to_f64()))
+        })
+    };
+    popup(WlrLayer::Overlay)
+        .or_else(|| popup(WlrLayer::Top))
+        .or_else(|| layer_surface_under(layers, origin, WlrLayer::Overlay, pos))
+        .or_else(|| layer_surface_under(layers, origin, WlrLayer::Top, pos))
 }
 
 const TILE_STATES: [xdg_toplevel::State; 4] =
