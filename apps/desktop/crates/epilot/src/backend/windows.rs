@@ -6,7 +6,8 @@
 //! `dwExtraInfo`, which is how the lock tells ours from theirs. Keys go
 //! through the foreground window's keyboard layout (`VkKeyScanExW`); a
 //! character the layout has no plain or Shift key for (AltGr, another
-//! script) is a `KEYEVENTF_UNICODE` stroke instead. The process is per-monitor
+//! script) is a `KEYEVENTF_UNICODE` stroke instead, except a letter or digit
+//! of a shortcut, which is its own VK (#EXP-1922). The process is per-monitor
 //! DPI aware (v2), so every rect and point here is physical pixels of the
 //! virtual screen. The screen is a GDI blit of the desktop; the windows are
 //! `EnumWindows` cut down to what a person can see and switch to.
@@ -61,7 +62,7 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP,
     MOUSEEVENTF_VIRTUALDESK, MOUSEEVENTF_WHEEL, MOUSEINPUT, MOUSE_EVENT_FLAGS, VIRTUAL_KEY, VK_BACK, VK_CONTROL,
     VK_DELETE, VK_DOWN, VK_END, VK_ESCAPE, VK_F1, VK_HOME, VK_INSERT, VK_LEFT, VK_LWIN, VK_MENU, VK_NEXT, VK_PRIOR,
-    VK_RETURN, VK_RIGHT, VK_SHIFT, VK_SPACE, VK_TAB, VK_UP,
+    VK_RETURN, VK_RIGHT, VK_RWIN, VK_SHIFT, VK_SPACE, VK_TAB, VK_UP,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, EDD_GET_DEVICE_INTERFACE_NAME, EnumWindows, GetClassNameW, GetCursorPos, GetForegroundWindow, GetMessageW, GetSystemMetrics, GetWindowLongW,
@@ -203,6 +204,20 @@ fn char_stroke(scan: i16) -> Option<(VIRTUAL_KEY, bool)> {
         return None;
     }
     Some((VIRTUAL_KEY::from(vk), state & 1 != 0))
+}
+
+/// #EXP-1922: the key for `ch` when the layout has none. Under Ctrl, Alt
+/// or Win (`modified`) a letter or digit is a shortcut, which apps bind to
+/// its layout-independent VK ('A'..'Z' and '0'..'9' are their own VK codes),
+/// never to a Unicode packet; anything else is typed as Unicode (`None`).
+fn shortcut_vk(ch: char, modified: bool) -> Option<VIRTUAL_KEY> {
+    (modified && ch.is_ascii_alphanumeric()).then(|| VIRTUAL_KEY::from(ch.to_ascii_uppercase() as u8))
+}
+
+/// Whether `vk` is down now.
+fn pressed(vk: VIRTUAL_KEY) -> bool {
+    // SAFETY: no pointers. The high bit = down.
+    unsafe { GetAsyncKeyState(i32::from(vk)) < 0 }
 }
 
 /// `ch` on the keyboard layout of the window that gets the keys.
@@ -660,7 +675,15 @@ impl Backend for Win32 {
                     }
                     send(&inputs)
                 }
-                None => send(&unicode_inputs(ch, !down)),
+                None => {
+                    // A release follows its press: the VK, if that is down.
+                    let modified = [VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN].into_iter().any(pressed);
+                    let held = |vk: VIRTUAL_KEY| !down && pressed(vk);
+                    match shortcut_vk(ch, modified).or_else(|| shortcut_vk(ch, true).filter(|&vk| held(vk))) {
+                        Some(vk) => send(&[vk_input(vk, false, !down)]),
+                        None => send(&unicode_inputs(ch, !down)),
+                    }
+                }
             },
         }
     }
@@ -1195,6 +1218,18 @@ mod tests {
         assert_eq!(char_stroke(-1), None);
         // Ctrl+Alt (AltGr) goes the Unicode way.
         assert_eq!(char_stroke(0x0651), None);
+    }
+
+    /// #EXP-1922: a layout without the letter (Russian) still gets Ctrl+V
+    /// as the V key; text stays Unicode.
+    #[test]
+    fn a_shortcut_letter_off_the_layout_is_its_own_vk() {
+        assert_eq!(shortcut_vk('v', true), Some(0x56));
+        assert_eq!(shortcut_vk('V', true), Some(0x56));
+        assert_eq!(shortcut_vk('7', true), Some(0x37));
+        assert_eq!(shortcut_vk('v', false), None);
+        assert_eq!(shortcut_vk('ж', true), None);
+        assert_eq!(shortcut_vk('-', true), None);
     }
 
     #[test]
