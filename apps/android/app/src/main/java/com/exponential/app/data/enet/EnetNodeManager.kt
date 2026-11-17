@@ -156,6 +156,18 @@ class EnetNodeManager @Inject constructor(
     fun installId(accountId: String): String? = installIds[accountId]
 
     /**
+     * #EDE-97 (sealed-content.json `clearTree`, holder `late`): this install's
+     * id once its node registered, waiting up to [timeoutMs] for a node still
+     * coming up (a pass runs now: it registers the install when it has none).
+     * Null = no key holder within the wait (signed out, eNet off, refused).
+     */
+    suspend fun awaitInstallId(accountId: String, timeoutMs: Long): String? {
+        installIds[accountId]?.let { return it }
+        wake.trySend(Unit)
+        return com.exponential.app.data.sealed.awaitWithin(timeoutMs, HOLDER_POLL_MS) { installIds[accountId] }
+    }
+
+    /**
      * [accountId]'s eNet node once it is [ready] (VAPP-33: the steer viewer's
      * carrier). EXP-1524: a node that only just started is not handed out: a
      * notification cold start dialed the device through it with an empty
@@ -349,6 +361,8 @@ class EnetNodeManager @Inject constructor(
         const val REFRESH_MS = 10 * 60 * 1000L
         /** The tree-key holder cadence (sealed-content.json: on start + every minute while online). */
         const val HOLDER_MS = 60 * 1000L
+        /** #EDE-97: how often a writer waiting for its key holder looks again. */
+        private const val HOLDER_POLL_MS = 250L
         private const val CALL_TIMEOUT_MS = 20_000L
         /** EXP-1590: register / list on the node's start path: a hung call gives
          *  way to a fast retry ([EnetRetry]) instead of holding the node down. */

@@ -87,12 +87,13 @@ class StaleTreeFixtureTest {
                         },
                     )
                     when {
-                        key == null -> "plaintext"
+                        key == null -> "failed"
                         created -> "create"
                         else -> "sealed"
                     }
                 }
-                TreeWire.Unknown -> "plaintext"
+                is TreeWire.Clear -> "plain"
+                TreeWire.Unknown -> "unknown"
             }
             assertEquals(name, case.getValue("asks").jsonArray.map { it.jsonPrimitive.content }, asks)
             assertEquals(name, case.str("wire"), sent)
