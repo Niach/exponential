@@ -165,22 +165,21 @@ final class SessionListsModel {
         guard boundAccountId != accountId || task == nil else { return }
         stop()
         boundAccountId = accountId
-        guard let pool = try? db.pool(forAccountId: accountId) else { return }
-        // EXP-1358: `derive` runs inside the observation's `map` — on GRDB's
-        // reader, never the main actor (this model is `@MainActor`, so the
-        // loop below is) — and an emission equal to the last one is dropped
-        // before it can re-render the Chats tab, the tab bar and Home.
-        let observation = ValueObservation.tracking { db in
-            try Self.read(db)
-        }.map { rows in
-            Self.derive(rows, userId: userId)
-        }.removeDuplicates()
+        guard let reads = try? db.sharedReads(forAccountId: accountId) else { return }
+        // EXP-1358: `derive` runs off the main actor (this model is
+        // `@MainActor`, so the loop below is), and an emission equal to the
+        // last one is dropped (by the shared read) before it can re-render
+        // the Chats tab, the tab bar and Home. #ERR-26: the account's ONE
+        // shared read (every navigator's model shares it), re-read at most
+        // once a second while the sync writes; the raw rows (every session's
+        // digest) live only for the derive.
+        let read = reads.shared("sessionLists:\(userId ?? "")", tables: Self.tables) { writer in
+            Self.derive(try await writer.read { try Self.read($0) }, userId: userId)
+        }
         task = Task { [weak self] in
-            do {
-                for try await derived in observation.values(in: pool) {
-                    self?.apply(derived)
-                }
-            } catch {}
+            for await derived in read.values() {
+                self?.apply(derived)
+            }
         }
     }
 
@@ -274,6 +273,12 @@ final class SessionListsModel {
         viewerId = derived.viewerId
         loaded = true
     }
+
+    /// What `read` reads (a change to any re-reads).
+    nonisolated private static let tables = [
+        "sessions", "session_issues", "issues", "session_reads", "pull_requests", "devices",
+        "agents", "apps", "teams", "team_members",
+    ]
 
     /// The whole session table (the shape already scopes it to what I may
     /// read), the root links, their issues, and every conversation's digest
