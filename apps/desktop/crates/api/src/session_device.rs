@@ -228,6 +228,45 @@ pub fn claim(
     Ok(())
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ResealTargetInput<'a> {
+    session_id: &'a str,
+    device_id: &'a str,
+}
+
+/// #EDE-97 (`sealed-content.json` `clearTree`): the session's first message
+/// while it is still plaintext and the server would take its re-sealing.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResealTarget {
+    pub message_id: String,
+    pub body: String,
+}
+
+/// #EDE-97 `sessions.resealTarget` — query (the claiming device only):
+/// `None` = nothing to re-seal.
+pub fn reseal_target(trpc: &TrpcClient, session_id: &str, device_id: &str) -> Result<Option<ResealTarget>, ApiError> {
+    trpc.query_with_input("sessions.resealTarget", &ResealTargetInput { session_id, device_id })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ResealInput<'a> {
+    session_id: &'a str,
+    device_id: &'a str,
+    message_id: &'a str,
+    body: &'a str,
+}
+
+/// #EDE-97 `sessions.reseal` — mutation: replaces the first message's
+/// plaintext body with `body`, the same text sealed to the tree's current
+/// key (a body envelope). Refused unless the server's `resealCases` hold.
+pub fn reseal(trpc: &TrpcClient, session_id: &str, device_id: &str, message_id: &str, body: &str) -> Result<(), ApiError> {
+    let _: serde::de::IgnoredAny =
+        trpc.mutation("sessions.reseal", &ResealInput { session_id, device_id, message_id, body })?;
+    Ok(())
+}
 
 /// The status a device may report (`sessionStatusSchema` minus `queued`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]

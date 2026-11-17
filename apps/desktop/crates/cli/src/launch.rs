@@ -453,13 +453,14 @@ fn foreground_pass(
                         log::info!(
                             "foreground pickup: session {session_id} keeps its login — a foreground run cannot switch to {account}"
                         );
-                        if let Err(err) = api::session_device::reply(
-                            &deps.coding.trpc,
-                            session_id,
-                            &coding::sealing::seal_body_or_plain(session_id, coding::pickup::REASON_FOREGROUND_SWITCH),
-                            None,
-                        ) {
-                            log::warn!("foreground pickup: switch refusal not replied: {err}");
+                        // #EDE-97: never in clear: an unsealable refusal stays in the log.
+                        match coding::sealing::seal_body_for_session(session_id, coding::pickup::REASON_FOREGROUND_SWITCH) {
+                            Ok(body) => {
+                                if let Err(err) = api::session_device::reply(&deps.coding.trpc, session_id, &body, None) {
+                                    log::warn!("foreground pickup: switch refusal not replied: {err}");
+                                }
+                            }
+                            Err(err) => log::warn!("foreground pickup: switch refusal not replied: it could not be encrypted ({err})"),
                         }
                     }
                     if !messages.is_empty() {

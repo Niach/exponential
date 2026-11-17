@@ -790,6 +790,11 @@ data class SessionEntity(
     // through [com.exponential.app.domain.SessionTree.parseWatching].
     @ColumnInfo(name = "watching") @SerialName("watching")
     @Serializable(with = JsonAsStringSerializer::class) val watching: String? = null,
+    // #EDE-97 ([MIGRATION_130_131], sealed-content.json `clearTree`): ROOT
+    // rows only, never changes: an outside MCP client started the tree, so it
+    // stays in clear for life (writers send plaintext, nobody keys it).
+    @ColumnInfo(name = "clear_tree", defaultValue = "0") @SerialName("clear_tree") @JsonNames("clearTree")
+    val clearTree: PgBool = false,
 ) {
     /** #EXP-1715: [scopeTeamIds] as ids; null (or empty) = every team. */
     val scopeTeamIdList: List<String>? get() = scopeTeamIds?.let(PgUuidArraySerializer::parseText)?.takeIf { it.isNotEmpty() }

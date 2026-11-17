@@ -50,3 +50,29 @@ export function subscribeKeyChange(listener: () => void): () => void {
   listeners.add(listener)
   return () => listeners.delete(listener)
 }
+
+let kick: (() => void) | undefined
+
+/** use-key-holder.ts: looks for this browser's install again at once. */
+export function setHolderKick(next: (() => void) | undefined) {
+  kick = next
+}
+
+/** #EDE-97 (sealed-content.json `clearTree`, `holder: late`): a writer
+ *  without a holder waits for one (asking for the install at once) up to
+ *  `ms`; undefined = none came, the send fails rather than go in clear. */
+export function awaitKeyHolder(ms: number): Promise<KeyHolder | undefined> {
+  if (holder) return Promise.resolve(holder)
+  kick?.()
+  return new Promise((resolve) => {
+    const done = (value: KeyHolder | undefined) => {
+      clearTimeout(timer)
+      unsubscribe()
+      resolve(value)
+    }
+    const timer = setTimeout(() => done(holder), ms)
+    const unsubscribe = subscribeKeyChange(() => {
+      if (holder) done(holder)
+    })
+  })
+}

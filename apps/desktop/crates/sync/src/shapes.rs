@@ -470,6 +470,10 @@ pub const SHAPES: [ShapeSpec; 38] = [
             // #FEED-177: a private turn's rotation flag.
             "seal_rotate_epoch",
             "sealed_title",
+            // #EDE-97: an outside MCP client's root stays in clear for life
+            // (roots only). `heal_missing_columns` ALTERs it onto existing
+            // store tables.
+            "clear_tree",
             "guide",
             // #EXP-1720: the Assistant conversation root's Teams pick (null =
             // every team). `heal_missing_columns` ALTERs it on.
@@ -1490,10 +1494,10 @@ mod tests {
     fn the_session_tree_shapes_match_the_proxies() {
         let sessions = shape_by_name("sessions").unwrap();
         assert_eq!(sessions.path, "/api/shapes/sessions");
-        assert_eq!(sessions.columns.len(), 41);
+        assert_eq!(sessions.columns.len(), 42);
         // #EXP-1720: the Assistant conversation root's Teams pick; #NEW-49:
         // what it waits on.
-        for column in ["parent_id", "root_id", "agent_id", "status", "busy", "needs_input", "shared", "guide", "seal_public_key", "seal_epoch", "seal_rotate_epoch", "sealed_title", "scope_team_ids", "watching"] {
+        for column in ["parent_id", "root_id", "agent_id", "status", "busy", "needs_input", "shared", "guide", "seal_public_key", "seal_epoch", "seal_rotate_epoch", "sealed_title", "clear_tree", "scope_team_ids", "watching"] {
             assert!(sessions.columns.contains(&column), "sessions needs {column}");
         }
         // NEW-8: the legacy columns are never read (the server drops them).

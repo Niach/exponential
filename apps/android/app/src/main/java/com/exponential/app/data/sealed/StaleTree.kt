@@ -19,11 +19,11 @@ fun isStaleTreeRefusal(message: String?): Boolean =
 /** A tree's current public key. */
 internal data class PublicTreeKey(val publicKey: String, val epoch: Int)
 
-/** The root Room has for a send (its key, when Room synced one). */
-internal data class LocalRoot(val rootId: String, val key: PublicTreeKey?)
+/** The root Room has for a send (its key, when Room synced one; [clear] = `clear_tree`, #EDE-97). */
+internal data class LocalRoot(val rootId: String, val key: PublicTreeKey?, val clear: Boolean = false)
 
-/** `sessions.sendTarget`: the caller's conversation root with an agent / app (null = none yet) and its key. */
-internal data class ServerTree(val rootId: String?, val key: PublicTreeKey?)
+/** `sessions.sendTarget`: the caller's conversation root with an agent / app (null = none yet), its key and `clearTree`. */
+internal data class ServerTree(val rootId: String?, val key: PublicTreeKey?, val clear: Boolean = false)
 
 /** How a send's text reaches its tree. */
 internal sealed interface TreeWire {
@@ -36,7 +36,10 @@ internal sealed interface TreeWire {
     /** A root the send creates: its first key rides inline (`seal`, epoch 1). */
     data object Inline : TreeWire
 
-    /** The tree cannot be told: the plaintext send of before. */
+    /** #EDE-97: a `clear_tree` root (an outside MCP client's): plaintext, never keyed. */
+    data class Clear(val rootId: String) : TreeWire
+
+    /** The tree cannot be told yet: the writer waits for it, else the send fails (#EDE-97, never plaintext). */
     data object Unknown : TreeWire
 }
 
@@ -60,8 +63,10 @@ internal object StaleTree {
         publicKey: suspend (rootId: String) -> PublicTreeKey?,
     ): TreeWire {
         val target = if (conversation && (local == null || fresh)) quietly { sendTarget() } else null
+        if (target?.rootId != null && target.clear) return TreeWire.Clear(target.rootId)
         if (target?.rootId != null) return target.key?.let { TreeWire.Sealed(target.rootId, it) } ?: TreeWire.Create(target.rootId)
         if (local != null && !(target != null && fresh)) {
+            if (local.clear) return TreeWire.Clear(local.rootId)
             val key = if (fresh) quietly { publicKey(local.rootId) } ?: local.key else local.key
             return key?.let { TreeWire.Sealed(local.rootId, it) } ?: TreeWire.Create(local.rootId)
         }
@@ -76,7 +81,7 @@ internal object StaleTree {
     /**
      * A keyless root keyed by this install ([create]: null = it cannot make
      * the key); refused (keyed meanwhile) = the server's key, else null
-     * (plaintext stays legal).
+     * (#EDE-97: the writer then waits for the key, never plaintext).
      */
     suspend fun keyFirst(rootId: String, create: suspend () -> PublicTreeKey?, publicKey: suspend (rootId: String) -> PublicTreeKey?): PublicTreeKey? =
         quietly { create() } ?: quietly { publicKey(rootId) }

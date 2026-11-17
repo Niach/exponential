@@ -724,7 +724,7 @@ interface SessionReadDao {
 // write (a message's digest update): a digest-less reader no longer re-reads
 // them all per write.
 private const val SESSION_COLUMNS_NO_DIGEST =
-    "id, team_id, parent_id, root_id, user_id, device_id, cli, account, model, effort, plan_mode, computer_use, ultracode, repository_id, branch, status, busy, background, needs_input, blocked, started_at, last_turn_at, ended_at, shared, title, guide, created_at, updated_at, agent_id, app_id, agent_instructions_at, started_by_agent_id, seal_public_key, seal_epoch, sealed_title, via_app_id, scope_team_ids, watching, NULL AS digest"
+    "id, team_id, parent_id, root_id, user_id, device_id, cli, account, model, effort, plan_mode, computer_use, ultracode, repository_id, branch, status, busy, background, needs_input, blocked, started_at, last_turn_at, ended_at, shared, title, guide, created_at, updated_at, agent_id, app_id, agent_instructions_at, started_by_agent_id, seal_public_key, seal_epoch, sealed_title, via_app_id, scope_team_ids, watching, clear_tree, NULL AS digest"
 
 // session-title.json `firstPrompt`: a row a session title can read.
 private const val TITLE_ROW = "(card IS NULL OR card = 'null') AND (author_kind = 'user' OR " +

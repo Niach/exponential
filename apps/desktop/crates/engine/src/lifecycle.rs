@@ -461,20 +461,19 @@ pub fn keeps_workspace(outcome: &str) -> bool {
 /// whose process went away unasked, or a host stopping under a live turn,
 /// says so (`lost`) — never a silent end or idle.
 /// EXP-905 / EXP-1458: the agent's conversation name as a report: SEALED
-/// to the session's tree (`sealedTitle`, no plaintext `title`) when it can
-/// be, else the plaintext title as ever. BLOCKING (a first seal may create
-/// the tree key): the ticker thread calls it.
-pub(crate) fn title_report(session_id: &str, title: &str) -> api::session_device::SessionReport {
-    let sealed = coding::sealing::root_of(session_id)
-        .ok_or(coding::sealing::SealError::UnknownRoot)
-        .and_then(|root| coding::sealing::seal_body(&root, title));
-    match sealed {
-        Ok(sealed) => api::session_device::SessionReport { sealed_title: Some(sealed), ..Default::default() },
+/// to the session's tree (`sealedTitle`, no plaintext `title`); #EDE-97:
+/// the plaintext `title` only for a clear tree, and `None` (no report, the
+/// neutral title stays) when it cannot be sealed. BLOCKING (a first seal
+/// may create the tree key): the ticker thread calls it.
+pub(crate) fn title_report(session_id: &str, title: &str) -> Option<api::session_device::SessionReport> {
+    match coding::sealing::seal_body_for_session(session_id, title) {
+        Ok(sealed) if sealed.starts_with(coding::sealing::SEALED_BODY_PREFIX) => {
+            Some(api::session_device::SessionReport { sealed_title: Some(sealed), ..Default::default() })
+        }
+        Ok(plain) => Some(api::session_device::SessionReport { title: Some(plain), ..Default::default() }),
         Err(err) => {
-            if err != coding::sealing::SealError::NoService {
-                log::debug!("engine: title of {session_id} goes out plaintext: {err}");
-            }
-            api::session_device::SessionReport { title: Some(title.to_string()), ..Default::default() }
+            log::warn!("engine: title of {session_id} not reported: it could not be encrypted ({err})");
+            None
         }
     }
 }
@@ -536,9 +535,14 @@ pub(crate) fn failed_start_reason(error: Option<&str>, outcome: &str) -> String 
 fn report_failed_start(ctx: &SessionCtx, trpc: &api::TrpcClient, reason: &str) -> Result<(), api::ApiError> {
     log::warn!("engine: session {} failed to start: {reason}", ctx.session_id);
     let text = coding::pickup::start_failure(reason);
-    let body = coding::sealing::seal_body_or_plain(&ctx.session_id, &text);
-    if let Err(err) = api::session_device::reply(trpc, &ctx.session_id, &body, None) {
-        log::warn!("engine: failed start of {} not replied: {err}", ctx.session_id);
+    // #EDE-97: never in clear: an unsealable reason stays in the log.
+    match coding::sealing::seal_body_for_session(&ctx.session_id, &text) {
+        Ok(body) => {
+            if let Err(err) = api::session_device::reply(trpc, &ctx.session_id, &body, None) {
+                log::warn!("engine: failed start of {} not replied: {err}", ctx.session_id);
+            }
+        }
+        Err(err) => log::warn!("engine: failed start of {} not replied: it could not be encrypted ({err})", ctx.session_id),
     }
     let report = coding::pickup::start_failed_report(None, &coding::agent_accounts::now_iso());
     api::session_device::report(trpc, &ctx.session_id, &report)
@@ -1052,7 +1056,8 @@ fn spawn_tickers(
             let title_hook: Option<steer::AgentTitleHook> = {
                 let report = report.clone();
                 let session_id = ctx.session_id.clone();
-                Some(Arc::new(move |title: &str| report(title_report(&session_id, title))))
+                // #EDE-97: an unsealable title is not reported (false).
+                Some(Arc::new(move |title: &str| title_report(&session_id, title).is_some_and(|title| report(title))))
             };
             let status_hook: Option<steer::StatusHook> = {
                 let report = report.clone();
@@ -1323,16 +1328,19 @@ mod tests {
     use super::*;
 
     /// EXP-1458: with the root known and a key holder, the title rides
-    /// `sealedTitle` only; without a holder it stays plaintext.
+    /// `sealedTitle` only; #EDE-97: without a holder there is no report
+    /// (never a plaintext title), a clear tree's title goes plaintext.
     #[test]
     fn the_title_report_seals_when_it_can() {
         let _serial = crate::outbox::fake_seal::serial();
         coding::sealing::uninstall();
-        let plain = serde_json::to_value(title_report("titled-child", "Fix the login")).unwrap();
+        assert!(title_report("titled-child", "Fix the login").is_none());
+        coding::sealing::note_clear_tree("titled-clear-root");
+        let plain = serde_json::to_value(title_report("titled-clear-root", "Fix the login").unwrap()).unwrap();
         assert_eq!(plain, serde_json::json!({"title": "Fix the login"}));
         let fake = crate::outbox::fake_seal::install();
         fake.keyring.note_root("titled-child", "titled-root");
-        let report = title_report("titled-child", "Fix the login");
+        let report = title_report("titled-child", "Fix the login").unwrap();
         let opened = report.sealed_title.as_deref().and_then(|t| coding::sealing::open_body_text("titled-root", t));
         coding::sealing::uninstall();
         assert_eq!(report.title, None);

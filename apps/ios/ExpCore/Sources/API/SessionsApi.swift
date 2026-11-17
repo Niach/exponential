@@ -224,7 +224,7 @@ public final class SessionsApi: Sendable {
         // #FEED-250: a tree that moved on behind this store is re-resolved
         // and re-sealed once, the first refusal never surfaced.
         return try await StaleTreeResend.send { fresh in
-            var prepared = await sealer.prepare(accountId: accountId, input, fresh: fresh)
+            var prepared = try await sealer.prepare(accountId: accountId, input, fresh: fresh)
             if let clientMessageId { prepared.input.clientMessageId = clientMessageId }
             let result: SessionsSendResult = try await trpc.mutation(accountId: accountId, path: "sessions.send", input: prepared.input)
             await sealer.completed(prepared, result: result)

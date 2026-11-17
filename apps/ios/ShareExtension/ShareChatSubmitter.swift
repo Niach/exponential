@@ -112,7 +112,7 @@ final class ShareChatSubmitter {
         // #FEED-250: a tree that moved on behind the mirror is re-resolved
         // and re-sealed once (sealed-content.json `staleTree`).
         try await StaleTreeResend.send { fresh in
-            var prepared = await deps.sealing.prepare(
+            var prepared = try await deps.sealing.prepare(
                 accountId: accountId,
                 input,
                 root: root,

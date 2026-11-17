@@ -92,7 +92,7 @@ final class StaleTreeFixtureTests: XCTestCase {
             let input: SessionsSendInput = c["send"] as? String == "agent"
                 ? .agent(agentId: "a1", text: "hi")
                 : .message(sessionId: "r1", text: "hi")
-            let prepared = await sealing(server).prepare(accountId: "acc", input, root: root, mentions: nil, deviceIds: { _ in [] })
+            let prepared = try await sealing(server).prepare(accountId: "acc", input, root: root, mentions: nil, deviceIds: { _ in [] })
             XCTAssertEqual(server.asks.value, c["asks"] as? [String], name)
             switch c["wire"] as? String {
             case "inline":
@@ -119,7 +119,7 @@ final class StaleTreeFixtureTests: XCTestCase {
             var outcome = "sent"
             do {
                 _ = try await StaleTreeResend.send { fresh in
-                    let prepared = await sealing.prepare(
+                    let prepared = try await sealing.prepare(
                         accountId: "acc", .agent(agentId: "a1", text: "hi"), root: nil, mentions: nil, deviceIds: { _ in [] }, fresh: fresh
                     )
                     sent.append(prepared.input)
@@ -144,7 +144,7 @@ final class StaleTreeFixtureTests: XCTestCase {
     func testAFreshResolveAsksTheServerAndOtherFailuresAreNotRetried() async throws {
         let server = Server("keyed")
         let local = SealRoot(id: "r1", teamId: "t1", deviceId: "d", shared: false, key: TreeSealKey(publicKey: "stale", epoch: 1))
-        let prepared = await sealing(server).prepare(
+        let prepared = try await sealing(server).prepare(
             accountId: "acc", .agent(agentId: "a1", text: "hi"), root: local, mentions: nil, deviceIds: { _ in [] }, fresh: true
         )
         XCTAssertEqual(server.asks.value, ["sendTarget"])

@@ -88,18 +88,18 @@ final class SendSealingTests: XCTestCase {
         id: "r", teamId: "t", deviceId: "d", shared: false, key: TreeSealKey(publicKey: "tree", epoch: 3)
     )
 
-    func testAKnownRootSealsToItsKeyWithNoInlineSeal() async {
-        let prepared = await sealing(crypto: StubCrypto()).prepare(
+    func testAKnownRootSealsToItsKeyWithNoInlineSeal() async throws {
+        let prepared = try await sealing(crypto: StubCrypto()).prepare(
             accountId: "a", .agent(agentId: "g", text: "hi"), root: root, mentions: nil, deviceIds: { _ in [] }
         )
         XCTAssertEqual(prepared.input.input.text, "exp-sealed:tree:3:hi")
         XCTAssertNil(prepared.input.seal)
     }
 
-    func testANewRootCarriesItsSealAndTheAnswerAdoptsTheKey() async {
+    func testANewRootCarriesItsSealAndTheAnswerAdoptsTheKey() async throws {
         let ring = SealedKeyRing(persistence: .memory)
         let sealing = sealing(crypto: StubCrypto(), ring: ring)
-        let prepared = await sealing.prepare(
+        let prepared = try await sealing.prepare(
             accountId: "a", .agent(agentId: "g", text: "hi"), root: nil, mentions: nil, deviceIds: { _ in [] }
         )
         XCTAssertEqual(prepared.input.input.text, "exp-sealed:new-tree:1:hi")
@@ -109,9 +109,20 @@ final class SendSealingTests: XCTestCase {
         XCTAssertEqual(ring.keys(rootId: "new-root"), [1: Data(repeating: 2, count: 32)])
     }
 
-    func testNoCryptoSendsThePlaintextAndKeepsTheMentions() async {
-        let prepared = await sealing(crypto: UnavailableSealedCrypto()).prepare(
-            accountId: "a", .agent(agentId: "g", text: "hi"), root: root, mentions: ["u1"], deviceIds: { _ in [] }
+    // #EDE-97 (sealed-content.json `clearTree`): no silent plaintext.
+    func testNoCryptoRefusesTheSendButAClearTreeTakesThePlaintext() async throws {
+        let sealing = sealing(crypto: UnavailableSealedCrypto())
+        do {
+            _ = try await sealing.prepare(
+                accountId: "a", .agent(agentId: "g", text: "hi"), root: root, mentions: ["u1"], deviceIds: { _ in [] }
+            )
+            XCTFail("expected the refusal")
+        } catch {
+            XCTAssertEqual(error.localizedDescription, noKeyRefusal)
+        }
+        let clear = SealRoot(id: "r", teamId: "t", deviceId: "d", shared: false, key: nil, clearTree: true)
+        let prepared = try await sealing.prepare(
+            accountId: "a", .agent(agentId: "g", text: "hi"), root: clear, mentions: ["u1"], deviceIds: { _ in [] }
         )
         XCTAssertEqual(prepared.input.input.text, "hi")
         XCTAssertEqual(prepared.input.mentionUserIds, ["u1"])

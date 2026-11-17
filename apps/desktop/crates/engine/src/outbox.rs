@@ -26,8 +26,10 @@
 //!
 //! EXP-1458: a reply's body and card are SEALED to the session's tree
 //! (`coding::sealing`, the root as the host's synced rows name it) before
-//! they post — once, ahead of the retries; with no key holder or no root
-//! known they go out plaintext (still legal). The open-card map reads the
+//! they post — once, ahead of the retries. #EDE-97: plaintext only into a
+//! clear tree; a seal that fails (no key holder, no key yet, no root known)
+//! is retried on the same ladder as a failed post (nothing behind it
+//! overtakes it) and then dropped, logged: never posted in clear. The open-card map reads the
 //! unsealed card. A sealed question card carries its `askText` (what a
 //! listener's agent reads, sealed to the own tree), and a sealed line its
 //! `listenerCopies`: the text re-sealed for every listening tree outside
@@ -134,10 +136,14 @@ fn card_question_id(card: Option<&ReplyCard>) -> Option<&str> {
     }
 }
 
+/// The sealed form of a reply: body, card as posted, the card's plain JSON.
+type SealedReply = (String, Option<serde_json::Value>, Option<serde_json::Value>);
+
 /// EXP-1458: what a reply posts as: its body and card sealed to the
-/// session's tree (or plaintext when sealing is impossible), plus the card's
-/// unsealed JSON. BLOCKING (a first seal may create the tree key).
-fn sealed_reply(session_id: &str, reply: &Reply) -> (String, Option<serde_json::Value>, Option<serde_json::Value>) {
+/// session's tree (#EDE-97: plaintext only into a clear tree, an `Err`
+/// otherwise), plus the card's unsealed JSON. BLOCKING (a first seal may
+/// create the tree key or wait for a coming key holder).
+fn sealed_reply(session_id: &str, reply: &Reply) -> Result<SealedReply, sealing::SealError> {
     let plain_card = reply.card.as_ref().and_then(|card| match serde_json::to_value(card) {
         Ok(value) => Some(value),
         Err(err) => {
@@ -145,9 +151,32 @@ fn sealed_reply(session_id: &str, reply: &Reply) -> (String, Option<serde_json::
             None
         }
     });
-    let body = sealing::seal_body_or_plain(session_id, &reply.body);
-    let card = plain_card.as_ref().map(|card| sealing::seal_card_or_plain(session_id, card));
-    (body, card, plain_card)
+    let body = sealing::seal_body_for_session(session_id, &reply.body)?;
+    let card = plain_card.as_ref().map(|card| sealing::seal_card_for_session(session_id, card)).transpose()?;
+    Ok((body, card, plain_card))
+}
+
+/// #EDE-97: [`sealed_reply`] on the retry ladder (a key holder still
+/// registering, a key its device's claim is about to create); `None` = it
+/// could not be sealed: the reply is dropped (logged), never sent in clear.
+fn sealed_reply_retrying(closing: &AtomicBool, session_id: &str, reply: &Reply) -> Option<SealedReply> {
+    let mut waits = RETRY_BACKOFF.iter();
+    loop {
+        match sealed_reply(session_id, reply) {
+            Ok(sealed) => return Some(sealed),
+            Err(err) => {
+                let wait = match waits.next() {
+                    Some(wait) if !matches!(err, sealing::SealError::Invalid(_)) && !closing.load(Ordering::SeqCst) => wait,
+                    _ => {
+                        log::warn!("engine: a reply of {session_id} was not posted: it could not be encrypted ({err})");
+                        return None;
+                    }
+                };
+                log::debug!("engine: a reply of {session_id} could not be sealed yet, retrying in {wait:?}: {err}");
+                sleep_unless_closing(*wait, closing);
+            }
+        }
+    }
 }
 
 /// EXP-1458: a sealed reply's extras: a question/plan card's ask text
@@ -163,7 +192,7 @@ fn reply_extras(
     let asks = plain_card.filter(|card| matches!(card.get("kind").and_then(Value::as_str), Some("question" | "plan")));
     let ask = asks.and_then(|card| ask_text(session_id, card));
     let ask_text = ask.as_deref().and_then(|text| {
-        let sealed = sealing::seal_body_or_plain(session_id, text);
+        let sealed = sealing::seal_body_for_session(session_id, text).ok()?;
         sealed.starts_with(sealing::SEALED_BODY_PREFIX).then_some(sealed)
     });
     // What reaches a listener: the ask, or a turn's text (a subagent /
@@ -352,7 +381,9 @@ impl Outbox {
                             continue;
                         }
                     };
-                    let (body, card, plain_card) = sealed_reply(&session_id, &reply);
+                    let Some((body, card, plain_card)) = sealed_reply_retrying(&shared.closing, &session_id, &reply) else {
+                        continue;
+                    };
                     let sealed = body.starts_with(sealing::SEALED_BODY_PREFIX)
                         || card.as_ref().is_some_and(|card| card.get("sealed").is_some());
                     let mut extras = if sealed {
@@ -732,6 +763,13 @@ mod tests {
         }
     }
 
+    /// #EDE-97: a session of a clear tree (plaintext is its legal wire):
+    /// the tests about the queue, not about sealing, write into one.
+    fn clear(id: &'static str) -> &'static str {
+        sealing::note_clear_tree(id);
+        id
+    }
+
     fn question(id: &str) -> ReplyCard {
         ReplyCard::Question {
             question: "Which?".into(),
@@ -743,7 +781,7 @@ mod tests {
     #[test]
     fn replies_post_in_order_and_cards_stay_open_until_resolved() {
         let fake = Arc::new(Fake::default());
-        let outbox = Outbox::spawn(fake.clone(), "sess-1");
+        let outbox = Outbox::spawn(fake.clone(), clear("sess-1"));
         outbox.post(vec![
             Reply { body: "first".into(), card: None },
             Reply { body: String::new(), card: Some(question("q-1")) },
@@ -771,7 +809,7 @@ mod tests {
     #[test]
     fn subagent_edges_post_in_order_with_the_replies() {
         let fake = Arc::new(Fake::default());
-        let outbox = Outbox::spawn(fake.clone(), "sess-1");
+        let outbox = Outbox::spawn(fake.clone(), clear("sess-1"));
         let row = |status| SubagentRow {
             key: "task-1".into(),
             status,
@@ -798,7 +836,7 @@ mod tests {
     fn a_failed_reply_is_retried_before_the_next_one_posts() {
         let fake = Arc::new(Fake::default());
         *fake.fail_replies.lock().unwrap() = 1;
-        let outbox = Outbox::spawn(fake.clone(), "sess-1");
+        let outbox = Outbox::spawn(fake.clone(), clear("sess-1"));
         outbox.post(vec![
             Reply { body: "one".into(), card: None },
             Reply { body: "two".into(), card: None },
@@ -818,7 +856,7 @@ mod tests {
     #[test]
     fn a_card_resolved_before_it_posted_is_not_open() {
         let fake = Arc::new(Fake::default());
-        let outbox = Outbox::spawn(fake.clone(), "sess-1");
+        let outbox = Outbox::spawn(fake.clone(), clear("sess-1"));
         outbox.resolve_question("q-9");
         outbox.post(vec![Reply { body: String::new(), card: Some(question("q-9")) }]);
         outbox.close(Duration::from_secs(5));
@@ -831,7 +869,7 @@ mod tests {
             stale: Some("m-gone".into()),
             ..Fake::default()
         });
-        let outbox = Outbox::spawn(fake.clone(), "sess-1");
+        let outbox = Outbox::spawn(fake.clone(), clear("sess-1"));
         outbox.consume(["m-1".to_string(), "m-gone".to_string(), "m-2".to_string()]);
         outbox.close(Duration::from_secs(5));
         let consumed: Vec<String> = fake
@@ -860,13 +898,13 @@ mod tests {
                 Err(ApiError::transport("offline"))
             }
         }
-        let outbox = Outbox::spawn(Arc::new(Down), "sess-1");
+        let outbox = Outbox::spawn(Arc::new(Down), clear("sess-1"));
         outbox.consume(["m-2".to_string(), "m-1".to_string()]);
         outbox.close(Duration::from_secs(5));
         assert_eq!(outbox.unconsumed(), vec!["m-1".to_string(), "m-2".to_string()]);
 
         let fake = Arc::new(Fake { stale: Some("m-gone".into()), ..Fake::default() });
-        let outbox = Outbox::spawn(fake, "sess-1");
+        let outbox = Outbox::spawn(fake, clear("sess-1"));
         outbox.consume(["m-1".to_string(), "m-gone".to_string()]);
         outbox.close(Duration::from_secs(5));
         assert!(outbox.unconsumed().is_empty());
@@ -949,7 +987,7 @@ mod tests {
             ("u-bob".to_string(), "Bob@Team.test".to_string()),
         ]);
         let api = Arc::new(Fake::default());
-        let outbox = Outbox::spawn(api.clone(), "plain-child");
+        let outbox = Outbox::spawn(api.clone(), clear("plain-child"));
         outbox.post(vec![
             Reply { body: "ping @bob@team.test and @ada@team.test (again @ada@team.test), not @eve@team.test".into(), card: None },
             Reply { body: "no one".into(), card: None },
@@ -968,5 +1006,33 @@ mod tests {
         assert!(retryable(&ApiError::Http { status: 429, message: String::new() }));
         assert!(!retryable(&ApiError::Http { status: 400, message: String::new() }));
         assert!(!retryable(&ApiError::Unauthorized));
+    }
+
+    /// #EDE-97: no silent plaintext. A reply that cannot be sealed yet (no
+    /// key holder) is held and retried, so it posts SEALED once a holder
+    /// runs; one still unsealable when the run ends is dropped, never
+    /// posted in clear.
+    #[test]
+    fn an_unsealable_reply_waits_for_a_holder_and_never_posts_in_clear() {
+        let _serial = fake_seal::serial();
+        sealing::uninstall();
+        let api = Arc::new(Fake::default());
+        let outbox = Outbox::spawn(api.clone(), "late-child");
+        outbox.post(vec![Reply { body: "the late secret".into(), card: None }]);
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(api.calls.lock().unwrap().is_empty(), "nothing leaves without a key holder");
+        let fake = fake_seal::install();
+        fake.keyring.note_root("late-child", "late-root");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while api.calls.lock().unwrap().is_empty() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        sealing::uninstall();
+        outbox.post(vec![Reply { body: "never in clear".into(), card: None }]);
+        outbox.close(Duration::from_secs(5));
+        let calls = api.calls.lock().unwrap().clone();
+        let [Call::Reply(body, None)] = calls.as_slice() else { panic!("{calls:?}") };
+        assert!(body.starts_with(sealing::SEALED_BODY_PREFIX), "{body}");
+        assert!(!calls.iter().any(|call| matches!(call, Call::Reply(body, _) if body.contains("clear"))));
     }
 }

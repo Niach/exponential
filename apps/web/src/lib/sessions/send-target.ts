@@ -15,6 +15,9 @@ export interface SendTarget {
   epoch: number | null
   publicKey: string | null
   brief: string | null
+  /** #EDE-97: the root is an outside MCP client's tree (in clear for life):
+   *  the writer sends plaintext, never a key. */
+  clearTree: boolean
 }
 
 export async function sendTarget(userId: string, input: { agentId?: string; appId?: string }): Promise<SendTarget> {
@@ -29,9 +32,14 @@ export async function sendTarget(userId: string, input: { agentId?: string; appI
 }
 
 function keyOf(
-  root: { id: string; sealEpoch: number | null; sealPublicKey: string | null } | null
+  root: { id: string; sealEpoch: number | null; sealPublicKey: string | null; clearTree: boolean } | null
 ): Omit<SendTarget, `brief`> {
-  if (!root) return { rootId: null, epoch: null, publicKey: null }
+  if (!root) return { rootId: null, epoch: null, publicKey: null, clearTree: false }
   const keyed = root.sealEpoch != null && root.sealPublicKey != null
-  return { rootId: root.id, epoch: keyed ? root.sealEpoch : null, publicKey: keyed ? root.sealPublicKey : null }
+  return {
+    rootId: root.id,
+    epoch: keyed ? root.sealEpoch : null,
+    publicKey: keyed ? root.sealPublicKey : null,
+    clearTree: root.clearTree,
+  }
 }
