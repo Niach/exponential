@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest"
 import {
   CLIENT_VERSION_HEADER,
+  DEVICE_SEALING_FLOOR,
   checkClientVersion,
   parseClientVersionHeader,
   parseVersionTuple,
   versionPayload,
 } from "./client-version"
+import sealedFixture from "@exp/domain-contract/fixtures/sealed-content.json"
 
 // The min-version gate must fail OPEN on every ambiguity: clients shipped
 // before the header existed never send it, and a bad env var must never
@@ -97,8 +99,8 @@ describe(`checkClientVersion`, () => {
   })
 
   it(`allows a version above the minimum`, () => {
-    process.env.CLIENT_MIN_VERSION_DESKTOP = `0.8.0`
-    expect(checkClientVersion(req(`desktop/0.9.0`))).toBeNull()
+    process.env.CLIENT_MIN_VERSION_DESKTOP = `0.15.0`
+    expect(checkClientVersion(req(`desktop/0.15.1`))).toBeNull()
   })
 
   it(`compares numerically, not lexicographically`, () => {
@@ -107,11 +109,27 @@ describe(`checkClientVersion`, () => {
   })
 
   it(`gates the cli platform (EXP-403)`, async () => {
-    process.env.CLIENT_MIN_VERSION_CLI = `0.9.0`
-    expect(checkClientVersion(req(`cli/0.9.0`))).toBeNull()
-    const res = checkClientVersion(req(`cli/0.8.52`))
+    process.env.CLIENT_MIN_VERSION_CLI = `0.15.0`
+    expect(checkClientVersion(req(`cli/0.15.0`))).toBeNull()
+    const res = checkClientVersion(req(`cli/0.14.200`))
     expect(res?.status).toBe(426)
-    expect(await res?.json()).toMatchObject({ platform: `cli`, min: `0.9.0` })
+    expect(await res?.json()).toMatchObject({ platform: `cli`, min: `0.15.0` })
+  })
+
+  it(`raises a configured desktop/CLI minimum below the sealing floor (EDE-97)`, async () => {
+    expect(DEVICE_SEALING_FLOOR).toBe(sealedFixture.clearTree.deviceMinVersion)
+    process.env.CLIENT_MIN_VERSION_DESKTOP = `0.14.89`
+    process.env.CLIENT_MIN_VERSION_CLI = `0.14.88`
+    const res = checkClientVersion(req(`desktop/0.14.95`))
+    expect(res?.status).toBe(426)
+    expect(await res?.json()).toMatchObject({ platform: `desktop`, min: `0.14.96` })
+    expect(checkClientVersion(req(`cli/0.14.95`))?.status).toBe(426)
+    expect(checkClientVersion(req(`desktop/0.14.96`))).toBeNull()
+    // Phones are not floored; an unset minimum still fails open.
+    process.env.CLIENT_MIN_VERSION_ANDROID = `0.14.0`
+    expect(checkClientVersion(req(`android/0.14.1`))).toBeNull()
+    delete process.env.CLIENT_MIN_VERSION_DESKTOP
+    expect(checkClientVersion(req(`desktop/0.1.0`))).toBeNull()
   })
 
   it(`ignores a -staging suffix on the client version`, () => {

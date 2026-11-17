@@ -469,6 +469,14 @@ export function writerSeals(version: string | null | undefined): boolean {
   return true
 }
 
+/** #EDE-97 (sealed-content.json `clearTree.startCases`): a new root stays in
+ *  clear for life only when an OUTSIDE MCP client starts it: over MCP, with
+ *  no calling session (no device gateway) and no inline key. Every other
+ *  root is sealed (by its writer, else by its device at the claim). */
+export function startsClearTree(args: { viaMcp: boolean; caller: unknown; seal: boolean }): boolean {
+  return args.viaMcp && !args.caller && !args.seal
+}
+
 /** The tree has a key (`seal_epoch`). A tree started in clear has none until
  *  a client keys it: it is sealed from then on, and only then. */
 export async function treeIsKeyed(tx: Pick<Db, `select`>, rootId: string): Promise<boolean> {
@@ -2050,6 +2058,8 @@ async function startRoot(
       shared: device.shared,
       ...(title ? { title: title.slice(0, 255) } : {}),
       ...(input.sealedName ? { sealedTitle: input.sealedName } : {}),
+      // #EDE-97: an outside MCP client's chat stays in clear for life.
+      ...(startsClearTree({ viaMcp, caller, seal: !!input.seal }) ? { clearTree: true } : {}),
     })
 
     if (input.issueIds?.length) {
