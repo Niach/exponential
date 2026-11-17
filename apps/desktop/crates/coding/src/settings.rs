@@ -196,6 +196,12 @@ pub struct Settings {
     /// pushed on the converge ([`crate::remote_admin::display_push_pending`]).
     /// Local bookkeeping, never on the wire.
     pub computer_use_display_id_pushed: bool,
+    /// #EXP-1919 SAME MONITOR: the `base@connector` form of the display
+    /// last seen carrying `computer_use_display_id`, so the pick follows
+    /// its monitor when a twin connects or goes
+    /// ([`crate::remote_admin::upgrade_display_pick`]). Local bookkeeping,
+    /// never on the wire.
+    pub computer_use_display_seen: Option<String>,
     /// EXP-288: program name or absolute path of the shell new terminal tabs
     /// spawn (launched as a login shell on unix). Not a launcher knob — it
     /// lives here because this file is the app's ONE merge-preserving
@@ -296,6 +302,7 @@ impl Default for Settings {
             computer_use_model: DEFAULT_COMPUTER_USE_MODEL.to_string(),
             computer_use_display_id: None,
             computer_use_display_id_pushed: false,
+            computer_use_display_seen: None,
             terminal_shell: None,
             changelog_seen_id: None,
             tools_setup_seen: false,
@@ -938,6 +945,7 @@ mod tests {
             computer_use_model: "sonnet".to_string(),
             computer_use_display_id: Some("37D8832A-2D66-02CA-B9F7-8F30A301B230".to_string()),
             computer_use_display_id_pushed: true,
+            computer_use_display_seen: Some("37D8832A-2D66-02CA-B9F7-8F30A301B230@1".to_string()),
             terminal_shell: Some("/opt/homebrew/bin/fish".to_string()),
             changelog_seen_id: Some("2026-09-relations-and-design-refresh".to_string()),
             tools_setup_seen: true,

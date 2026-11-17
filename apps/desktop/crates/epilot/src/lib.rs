@@ -210,6 +210,26 @@ pub fn work_display() -> Option<String> {
     work_screen::picked()
 }
 
+/// #EXP-1919 SAME MONITOR (`work-screen.json` `pickCases`): the display a
+/// stored Work screen pick names now.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PickedDisplay {
+    /// The id it carries now: the pick to store.
+    pub id: String,
+    /// Its `base@connector` form, to hand back as `seen` next time; `None`
+    /// = no connector tells it from a twin.
+    pub seen: Option<String>,
+}
+
+/// #EXP-1919 SAME MONITOR: the connected display the stored pick names,
+/// `seen` = the [`PickedDisplay::seen`] kept from the last call for this
+/// pick. A display's id changes form when its twin connects or goes; this
+/// follows the monitor (its connector), never the order. `None` = not
+/// connected (or no display to read).
+pub fn picked_display(stored: &str, seen: Option<&str>) -> Option<PickedDisplay> {
+    work_screen::pick_now(stored, seen)
+}
+
 /// #FEED-164 TWINS UPGRADE (`work-screen.json` `legacyIdCases`): the id
 /// among `ids` (the reported displays, in order) a stored Work screen pick
 /// names: itself, or for an id stored before twins carried their connector
@@ -273,14 +293,10 @@ pub struct ScreenView {
 
 /// NEW-58: the screen as screen memory reads it now; `None` without a
 /// display or a window list (Wayland, a refused list). One window-list read
-/// (a few ms, the display set cached): polled every `capture.focusPollMs`.
+/// (a few ms; [`visible::screen_look`]'s, the ONE display cache, dropped
+/// when the monitor set changes).
 pub fn screen_view() -> Option<ScreenView> {
-    work_screen::screen_view()
-}
-
-/// NEW-58: the focused window now ([`screen_view`]'s).
-pub fn focused_window() -> Option<FocusedWindow> {
-    screen_view()?.focused
+    visible::screen_look().map(|look| look.view)
 }
 
 /// NEW-59: the displays, their fullscreen windows and the work displays now;

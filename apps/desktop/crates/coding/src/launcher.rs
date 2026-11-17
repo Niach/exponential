@@ -1728,9 +1728,6 @@ fn attach_computer_use(
     if !options.computer_use_on(deps.settings.computer_use) {
         return false;
     }
-    // NEW-59: the run drives the device's Work screen as of its start (the
-    // hosts also set it whenever the converged value moves).
-    epilot::set_work_display(deps.settings.computer_use_display_id.clone());
     match epilot::grant(session_id, label) {
         Ok(grant) => {
             crate::mcp_servers::attach_computer(team_mcp, &grant);
@@ -4434,6 +4431,26 @@ mod tests {
         assert_eq!(opted_out.computer_use, Some(false));
         assert!(!attach_computer_use(&deps, &opted_out, &mut mcp, "s-2", "EXP-2"));
         assert_eq!(mcp, ResolvedMcp::default());
+    }
+
+    /// #EXP-1919: a launch never puts its settings snapshot's Work screen
+    /// back over the pick the hosts keep current: the person may have
+    /// changed it while the launch prepared.
+    #[test]
+    fn a_launch_leaves_the_work_screen_pick_alone() {
+        let dir = temp_dir("computer-use-pick");
+        let mut deps = make_deps("http://127.0.0.1:1", &dir.0, fake_worktrees(&dir.0.join("wt")));
+        deps.settings.computer_use = true;
+        deps.settings.computer_use_display_id = Some("display-1".to_string());
+        let mut on = row("s-pick", None);
+        on.computer_use = true;
+        let options = session_launch_options(&on, &base_options(), &deps.settings);
+        // Saved while the launch prepared (the hosts' `set_work_display`).
+        epilot::set_work_display(Some("display-2".to_string()));
+        let mut mcp = ResolvedMcp::default();
+        attach_computer_use(&deps, &options, &mut mcp, "s-pick", "EXP-1");
+        epilot::revoke("s-pick");
+        assert_eq!(epilot::work_display().as_deref(), Some("display-2"));
     }
 
     /// The row's pickers win over the host's defaults, normalized against the

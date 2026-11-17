@@ -853,8 +853,8 @@ pub(crate) mod tests {
     impl Backend for FakeBackend {
         fn displays(&self) -> Result<Vec<DisplayInfo>, String> {
             Ok(vec![
-                DisplayInfo { id: "uuid-A".into(), x: 0, y: 0, width: 2000, height: 1000, primary: true, name: "A".into() },
-                DisplayInfo { id: "uuid-B".into(), x: 2000, y: 0, width: 1000, height: 1000, primary: false, name: "B".into() },
+                DisplayInfo { id: "uuid-A".into(), x: 0, y: 0, width: 2000, height: 1000, primary: true, name: "A".into(), connector: None },
+                DisplayInfo { id: "uuid-B".into(), x: 2000, y: 0, width: 1000, height: 1000, primary: false, name: "B".into(), connector: None },
             ])
         }
         fn screenshot(&self, display: &DisplayInfo) -> Result<Image, String> {
@@ -934,7 +934,7 @@ pub(crate) mod tests {
 
     #[test]
     fn the_frame_fits_1280x800_and_maps_both_ways() {
-        let display = |x, y, width, height| DisplayInfo { id: String::new(), x, y, width, height, primary: true, name: String::new() };
+        let display = |x, y, width, height| DisplayInfo { id: String::new(), x, y, width, height, primary: true, name: String::new(), connector: None };
         let frame = Frame::fit(&display(0, 0, 2560, 1440));
         assert_eq!(frame.image, (1280, 720));
         assert_eq!(frame.to_screen(640.0, 360.0), (1280, 720));

@@ -429,6 +429,7 @@ impl Backend for Win32 {
                 height,
                 primary: info.monitorInfo.dwFlags & 1 != 0,
                 name,
+                connector: None,
             });
         }
         if displays.is_empty() {
