@@ -164,6 +164,7 @@ impl EngineSession {
                 args: Vec::new(),
                 cwd: Some(cwd.clone()),
                 env: Vec::new(),
+                env_remove: Vec::new(),
             },
             options: coding::LaunchOptions {
                 agent,

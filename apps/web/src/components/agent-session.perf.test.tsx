@@ -5,9 +5,30 @@ import type { SessionRow } from "@/lib/session-tree"
 
 // Large chats: what opening one costs the web's main thread — the real store
 // folds the device's join replay, then the real session view renders it
-// (markdown included). Guards the painted rows (≤ one window) and the render
-// time over a synthetic 20k-event journal; `STEER_REAL_JOURNAL=<file.jsonl>`
-// swaps in a real one and prints the numbers.
+// (markdown included). Guards the WORK over a synthetic 20k-event journal:
+// the painted rows (≤ one window) and how many message bubbles a stream or a
+// page re-renders. #EXP-1886 (6): no wall-clock bound, since a loaded runner
+// timed the old 5 s one out; `STEER_REAL_JOURNAL=<file.jsonl>` swaps in a
+// real journal and prints the timings.
+
+/** A hang guard only (a laptop runs each case in ~2 s). */
+const HANG_GUARD_MS = 120_000
+
+// The transcript's row renders: a row that MOUNTS (new to the window) and a
+// row that RE-renders (already painted; the work #PERF-9 keeps away).
+const rows = vi.hoisted(() => ({ renders: 0, mounts: 0 }))
+vi.mock(`@exp/ui`, async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@exp/ui")>()
+  const { useEffect } = await import(`react`)
+  const TranscriptRow = (props: Parameters<typeof actual.TranscriptRow>[0]) => {
+    rows.renders++
+    useEffect(() => {
+      rows.mounts++
+    }, [])
+    return <actual.TranscriptRow {...props} />
+  }
+  return { ...actual, TranscriptRow }
+})
 
 let snapshot: SteerSessionSnapshot
 const relayAnswer = vi.fn()
@@ -108,8 +129,15 @@ const session = {
 
 
 
+/** The agent message bubbles painted (each one's `FeedText`). */
+const agentBubbles = (root: HTMLElement) => root.querySelectorAll(`[aria-label="Agent message"]`).length
+
 describe(`large chat render`, () => {
-  beforeEach(() => vi.useFakeTimers({ toFake: [`setTimeout`, `clearTimeout`, `setInterval`, `clearInterval`, `Date`] }))
+  beforeEach(() => {
+    rows.renders = 0
+    rows.mounts = 0
+    vi.useFakeTimers({ toFake: [`setTimeout`, `clearTimeout`, `setInterval`, `clearInterval`, `Date`] })
+  })
   afterEach(() => vi.useRealTimers())
 
   it(`renders one window of the newest tail`, async () => {
@@ -126,11 +154,14 @@ describe(`large chat render`, () => {
     const renderMs = performance.now() - started
     const nodes = view.container.querySelectorAll(`*`).length
     expect(opened.rows).toBeLessThanOrEqual(FEED_WINDOW)
-    // Generous for CI; a laptop renders this window in well under a second.
-    expect(renderMs).toBeLessThan(5_000)
+    // The window's rows render once each, never the journal's (~4k).
+    expect(agentBubbles(view.container)).toBeGreaterThan(0)
+    expect(rows.mounts).toBeGreaterThan(0)
+    expect(rows.mounts).toBeLessThanOrEqual(FEED_WINDOW)
+    expect(rows.renders).toBe(rows.mounts)
     if (path) process.stderr.write(`${JSON.stringify({ events: events.length, items: opened.items, rows: opened.rows, storeMs: opened.ms, renderMs, nodes })}\n`)
     view.unmount()
-  })
+  }, HANG_GUARD_MS)
 
   // #PERF-9: the two re-renders a reader feels: a `Load earlier` page (one
   // more window mounts over the rows already there) and a streamed event
@@ -145,29 +176,44 @@ describe(`large chat render`, () => {
         <AgentSessionView session={session} />
       </TooltipProvider>
     )
-    const timeIt = (step: () => void) => {
+    // The work a step does: its wall time (printed only), the rows it
+    // mounted and the painted rows it re-rendered (asserted).
+    const measure = (step: () => void) => {
+      const { renders, mounts } = rows
       const started = performance.now()
       act(step)
-      return performance.now() - started
+      const mounted = rows.mounts - mounts
+      return { ms: performance.now() - started, mounted, rerendered: rows.renders - renders - mounted }
     }
-    const streamed: number[] = []
+    const streamed: { ms: number; mounted: number; rerendered: number }[] = []
+    // A streamed bubble: the newest narration again, as a new event.
+    const narration = [...snapshot.feed].reverse().find((item) => item.kind === `narration`)!
     for (let n = 0; n < 5; n++) {
-      const last = snapshot.feed[snapshot.feed.length - 1]!
-      snapshot = { ...snapshot, feed: [...snapshot.feed, { ...last, id: last.id + 1_000_000 + n }] }
-      streamed.push(
-        timeIt(() =>
-          view.rerender(
-            <TooltipProvider>
-              <AgentSessionView session={{ ...session }} />
-            </TooltipProvider>
-          )
+      snapshot = { ...snapshot, feed: [...snapshot.feed, { ...narration, id: snapshot.feed.at(-1)!.id + 1_000_000 + n }] }
+      const step = measure(() =>
+        view.rerender(
+          <TooltipProvider>
+            <AgentSessionView session={{ ...session }} />
+          </TooltipProvider>
         )
       )
+      streamed.push(step)
     }
-    const button = screen.queryByRole(`button`, { name: /load earlier/i })
-    const loadEarlierMs = button ? timeIt(() => fireEvent.click(button)) : null
-    expect(view.container.querySelectorAll(`*`).length).toBeGreaterThan(0)
-    if (path) process.stderr.write(`${JSON.stringify({ streamedMs: streamed.map((ms) => Math.round(ms)), loadEarlierMs: loadEarlierMs && Math.round(loadEarlierMs) })}\n`)
+    // The new row mounts; of the painted ones only the few at its seam and
+    // at the window's sliding top re-render (all of them = ~200).
+    for (const step of streamed) {
+      expect(step.mounted).toBe(1)
+      expect(step.rerendered).toBeLessThanOrEqual(4)
+    }
+
+    const button = screen.getByRole(`button`, { name: /load earlier/i })
+    const page = measure(() => fireEvent.click(button))
+    // One more window mounts; the rows already there keep their element
+    // but the seam's (re-rendering every row = ~200).
+    expect(page.mounted).toBeGreaterThan(0)
+    expect(page.mounted).toBeLessThanOrEqual(FEED_WINDOW)
+    expect(page.rerendered).toBeLessThanOrEqual(4)
+    if (path) process.stderr.write(`${JSON.stringify({ streamedMs: streamed.map((step) => Math.round(step.ms)), loadEarlierMs: Math.round(page.ms) })}\n`)
     view.unmount()
-  })
+  }, HANG_GUARD_MS)
 })

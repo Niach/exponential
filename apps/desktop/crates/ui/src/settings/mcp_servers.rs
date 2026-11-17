@@ -1325,7 +1325,8 @@ fn action_slot(ink: &Ink, tints: &Tints) -> Value {
     let reconnect = ink.pill_button_with("reconnect", PillPaint::Glass, Some(json!("ui-warning")), Some(&tints.warning), json!("Reconnect"), path("pending"), Some(path("pending")), connect_event.clone());
     let reconnect = json!({"id": "reconnect_tip", "component": "Tooltip", "visible": is("reconnect"), "props": {"content": path("reason")}, "children": reconnect});
     let connect = ink.pill_button_with("connect", PillPaint::Primary, Some(path("connectIcon")), None, path("connectLabel"), path("pending"), Some(path("pending")), connect_event);
-    let connect = row("connect", is("connect"), connect.to_vec());
+    // #EXP-1887: the wrapper is not the pill's own "connect" node id.
+    let connect = row("connect_row", is("connect"), connect.to_vec());
     json!({"id": "action", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "flexShrink": 0},
         "children": [row("waiting_pair", is("waiting"), vec![waiting, cancel]), none, connected, reconnect, connect]})
 }

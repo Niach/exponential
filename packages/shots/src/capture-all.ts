@@ -33,7 +33,6 @@
  * no orphan relay stub or desktop window behind.
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
-import { createHash } from "node:crypto"
 import { homedir, tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import {
@@ -53,6 +52,10 @@ import {
   apkListingHasFfi,
   appOnScreen,
   deviceFfiAbi,
+  gradleVersionCode,
+  installedVersionCode,
+  installRefusedOverExisting,
+  mustUninstallFirst,
   resolveAndroidSdk,
   specimenState,
   type AndroidFfi,
@@ -60,12 +63,14 @@ import {
   type FfiAbi,
 } from "./android.ts"
 import { IOS_MOBILE_FFI, iosFfiProblems, iosProjectMissing, iosSimArch } from "./ios.ts"
-import { isolatedStack, relayHealthUrl, relayUrl } from "./stack.ts"
+import { isolatedStack, relayHealthUrl, relayUrl, stubState } from "./stack.ts"
+import { processAlive, readStubRecord, stubRecordPath } from "../../../apps/web/scripts/lib/stub-record.ts"
 import { ENET_RUSTUP_STEPS, wasmBindgenCliVersion, wasmBindgenLockVersion, wasmBindgenToolRoot } from "./enet.ts"
 import { baselineSkipNote, scopeSince, storeBaseline, type AffectedScope } from "./affected.ts"
 import {
   captureDesktop,
   DEFAULT_BASE_URL,
+  desktopWaitsForFeed,
   mintSessionToken,
   resolveBinary,
   screenRecordingAllowed,
@@ -182,6 +187,12 @@ interface Options {
   skipSeed: boolean
   skipRelay: boolean
   force: boolean
+  /**
+   * #EXP-1870: a golden check (the PR gate's `ede-goldens-lite`): `--views`
+   * keeps the views' tolerance, as a full-catalog run does, so only a drift
+   * beyond it rewrites the store and fails `git diff --exit-code`.
+   */
+  golden: boolean
   dryRun: boolean
   prune: boolean
   up: boolean
@@ -235,6 +246,7 @@ function parseArgs(argv: string[]): Options {
     skipSeed: argv.includes(`--skip-seed`),
     skipRelay: argv.includes(`--skip-relay`),
     force: argv.includes(`--force`),
+    golden: argv.includes(`--golden`),
     dryRun: argv.includes(`--dry-run`),
     prune: argv.includes(`--prune`),
     up: argv.includes(`--up`),
@@ -397,7 +409,7 @@ async function gateSignIn(scope: Scope): Promise<void> {
  */
 function gateRelay(options: Options, scope: Scope): void {
   if (!options.skipRelay) return
-  const dropped = laneViews(scope, `desktop`).filter((id) => STEER_DEPENDENT_VIEWS.has(id))
+  const dropped = laneViews(scope, `desktop`).filter((id) => desktopNeedsRelay(id))
   if (dropped.length === 0) return
   for (const id of dropped) scope.get(`desktop`)?.delete(id)
   console.log(
@@ -437,7 +449,7 @@ function gateRelay(options: Options, scope: Scope): void {
  * unconditionally, so it does not need this.
  */
 function writesAnyChange(options: Options): boolean {
-  return Boolean(options.viewIds) && !options.force
+  return Boolean(options.viewIds) && !options.force && !options.golden
 }
 
 function isScoped(options: Options, scope: Scope): boolean {
@@ -477,7 +489,19 @@ function needsRelay(options: Options, scope: Scope): boolean {
   ) {
     return true
   }
-  return laneViews(scope, ...options.platforms).some((id) => STEER_DEPENDENT_VIEWS.has(id))
+  return (
+    laneViews(scope, ...options.platforms).some((id) => STEER_DEPENDENT_VIEWS.has(id)) ||
+    (options.platforms.includes(`desktop`) && laneViews(scope, `desktop`).some((id) => desktopNeedsRelay(id)))
+  )
+}
+
+/**
+ * A desktop view that only exists with the stub online: the steering views,
+ * plus (#EXP-1886) every view whose capture waits for the steer feed.
+ */
+function desktopNeedsRelay(id: string): boolean {
+  const desktop = viewById(id)?.desktop
+  return STEER_DEPENDENT_VIEWS.has(id) || (desktop !== undefined && desktopWaitsForFeed(desktop))
 }
 
 async function composeServices(): Promise<{ states: Map<string, string>; problem?: string }> {
@@ -1243,6 +1267,25 @@ const PACKAGE_ANDROID = {
 
 /** The app lanes' apk (fastlane `build_capture_apks`): it must carry the FFI too (EXP-1354). */
 const APP_ANDROID_APK = `apps/android/app/build/outputs/apk/production/debug/app-production-debug.apk`
+const APP_ANDROID_ID = `at.exponential`
+
+/**
+ * EXP-1886: screengrab installs with `adb install -r` (no reinstall, so the
+ * suites keep their signed-in session), which Android refuses for a lower
+ * versionCode. An emulator that last ran a newer master build loses the app
+ * (and its test apk) first; every other run keeps them.
+ */
+async function uninstallNewerAndroidApp(): Promise<void> {
+  const gradle = join(repoRoot(), `apps/android/app/build.gradle.kts`)
+  const building = gradleVersionCode(existsSync(gradle) ? readFileSync(gradle, `utf8`) : ``)
+  const dumpsys = await run({ cmd: [`adb`, `shell`, `dumpsys`, `package`, APP_ANDROID_ID], timeoutMs: 60_000 })
+  const installed = installedVersionCode(dumpsys.stdout)
+  if (!mustUninstallFirst(installed, building)) return
+  console.log(`[android] the emulator holds ${APP_ANDROID_ID} versionCode ${installed}, newer than this checkout's ${building} — uninstalling it first`)
+  for (const id of [APP_ANDROID_ID, `${APP_ANDROID_ID}.test`]) {
+    await run({ cmd: [`adb`, `uninstall`, id], timeoutMs: 120_000 })
+  }
+}
 
 /** The Android SDK the app lane's gradle sees (`apps/android/local.properties` first). */
 function androidSdk(): AndroidSdk | undefined {
@@ -1367,7 +1410,13 @@ async function capturePackageAndroid(views: string[], outcomes: LaneOutcome[], l
     return void fail(`${PACKAGE_ANDROID.apk} carries no ${apkLibPath(ANDROID_FFI.package, abi)} — the app would crash on start`)
   }
 
-  const installed = await adb([`install`, `-r`, apk], 5 * 60_000)
+  let installed = await adb([`install`, `-r`, apk], 5 * 60_000)
+  if (installed.code !== 0 && installRefusedOverExisting(`${installed.stdout}${installed.stderr}`)) {
+    // EXP-1886: a newer or differently signed build is on the device.
+    console.log(`[android:package] the installed ${PACKAGE_ANDROID.appId} refuses the update — uninstalling it first`)
+    await adb([`uninstall`, PACKAGE_ANDROID.appId], 120_000)
+    installed = await adb([`install`, `-r`, apk], 5 * 60_000)
+  }
   if (installed.code !== 0) return void fail(`adb install exited ${installed.code}`)
 
   const onScreen = async () =>
@@ -1818,19 +1867,32 @@ async function startRelayStub(skipSeed: boolean): Promise<Child | undefined> {
   // twice and its eNet node revokes the first one's install mid-capture, so a
   // `--skip-seed` run (parallel lanes, a rerun) REUSES the stub this checkout
   // already runs. A seeding run replaces it: the seed wipes the rows it wrote.
-  const running = runningStub(relay)
-  if (running && skipSeed) {
+  let running = runningStub(relay)
+  if (running?.state === `starting` && skipSeed) {
+    // #EXP-1886: another lane's stub is still compiling and announcing its
+    // eNet node. A second stub now exits(1) and used to take the first one's
+    // record with it, so every later lane started a stub of its own.
+    console.log(`  waiting for the stub another lane is starting (pid ${running.pid})`)
+    const deadline = Date.now() + RELAY_TIMEOUT_MS
+    while (running?.state === `starting` && Date.now() < deadline) {
+      await sleep(1_000)
+      running = runningStub(relay)
+    }
+  }
+  if (running?.state === `online` && skipSeed) {
     console.log(`  reusing the running stub (pid ${running.pid}); it is left running afterwards`)
     return undefined
   }
   if (running) {
-    console.log(`  stopping the running stub (pid ${running.pid}): this run reseeds`)
+    console.log(`  stopping the running stub (pid ${running.pid}): ${skipSeed ? `it never came online` : `this run reseeds`}`)
     try {
       process.kill(running.pid, `SIGTERM`)
     } catch {
       /* already gone */
     }
-    await sleep(1_000)
+    // A new stub refuses to start beside a live one's record.
+    const gone = Date.now() + 15_000
+    while (processAlive(running.pid) && Date.now() < gone) await sleep(250)
   }
   const child = track(
     Bun.spawn({
@@ -1891,27 +1953,18 @@ async function startRelayStub(skipSeed: boolean): Promise<Child | undefined> {
 }
 
 /**
- * The stub `screenshots:desktop` runs from THIS checkout, when it is alive and
- * on the same relay and database (its record: apps/web/scripts/screenshot-desktop.ts).
+ * The stub `screenshots:desktop` runs from THIS checkout on the same relay and
+ * database, and whether it is online yet (its record:
+ * apps/web/scripts/lib/stub-record.ts).
  */
-function runningStub(relay: string): { pid: number } | undefined {
-  const key = createHash(`sha1`).update(resolve(repoRoot())).digest(`hex`).slice(0, 12)
-  const file = join(tmpdir(), `exp-screenshot-stub-${key}.json`)
-  let record: { pid?: number; relayUrl?: string; databaseUrl?: string }
-  try {
-    record = JSON.parse(readFileSync(file, `utf8`))
-  } catch {
-    return undefined
-  }
-  const databaseUrl = process.env.SHOTS_DATABASE_URL ?? process.env.DATABASE_URL
-  if (!record.pid || record.relayUrl !== relay) return undefined
-  if (databaseUrl && record.databaseUrl && record.databaseUrl !== databaseUrl) return undefined
-  try {
-    process.kill(record.pid, 0)
-  } catch {
-    return undefined
-  }
-  return { pid: record.pid }
+function runningStub(relay: string): { pid: number; state: `starting` | `online` } | undefined {
+  const record = readStubRecord(stubRecordPath(resolve(repoRoot())))
+  const state = stubState(record, {
+    relayUrl: relay,
+    databaseUrl: process.env.SHOTS_DATABASE_URL ?? process.env.DATABASE_URL,
+    alive: processAlive,
+  })
+  return record && state !== `none` ? { pid: record.pid, state } : undefined
 }
 
 /** Minimal `.env` reader — only ever consulted for STEER_RELAY_SECRET. */
@@ -2345,6 +2398,7 @@ function buildLanes(
             // gradle's `buildMobileFfi` reruns before packaging: narrowed to the
             // device's ABI it finds the library just built instead of three;
             // and gradle needs the SDK a fresh clone has no local.properties for.
+            await uninstallNewerAndroidApp()
             await captureFastlane(platform, lane, outcomes, scope, scoped, androidLaneEnv(sdk, ffi.abi))
             const apk = join(repoRoot(), APP_ANDROID_APK)
             const listing = existsSync(apk) ? await run({ cmd: [`unzip`, `-l`, apk], timeoutMs: 60_000 }) : undefined

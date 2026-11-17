@@ -1240,7 +1240,7 @@ fn status_block(ink: &Ink, tints: &Tints) -> Vec<Value> {
     let github = |id: &str| icon(id, json!("ui-github"), glyph, &ink.muted);
     let primary = |id: &str, icon: &str, label: &str, disabled: Value| ink.pill_button_with(id, PillPaint::Primary, Some(json!(icon)), None, json!(label), disabled, None, json!({"name": "connect"})).to_vec();
     let failed = {
-        let mut children = vec![github("failed_icon"), grow(xs("failed_text", json!(copy::STATUS_FAILED), &ink.muted))];
+        let mut children = vec![github("status_failed_icon"), grow(xs("status_failed_text", json!(copy::STATUS_FAILED), &ink.muted))];
         children.push(live(ink.pill_button("status_retry", Some("ui-refresh"), json!(copy::RETRY), json!(false), json!({"name": "status_retry"})), json!(true)));
         wrap_row(ink, "status_failed", 0., is("failed"), children)
     };
@@ -1445,4 +1445,20 @@ fn document(ink: &Ink, tints: &Tints) -> Value {
 /// dialog's Configure) — rendered after the label.
 pub(super) fn external_glyph() -> Icon {
     Icon::new(registry::UI_EXTERNAL_LINK).with_size(px(crate::surface::PillSize::Sm.glyph()))
+}
+
+#[cfg(test)]
+mod twin_tests {
+    use super::*;
+
+    /// #EXP-1887: no node id twice in the Repositories document (the GitHub
+    /// status block's failed row and the list's failed state both said
+    /// `failed_icon`; the debug mount check found it).
+    #[test]
+    fn the_document_has_one_node_per_id() {
+        let c = || "#a1a1aaff".to_string();
+        let tints = Tints { skeleton: c(), danger: c(), warning: c(), live: c(), link: c(), list_hover: c() };
+        let tree = document(&super::super::readiness::tests::test_ink(), &tints);
+        assert_eq!(super::super::doc::duplicate_ids(&tree), Vec::<String>::new());
+    }
 }

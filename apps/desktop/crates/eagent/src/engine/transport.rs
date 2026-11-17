@@ -299,6 +299,9 @@ pub fn spawn_lines(spec: &SpawnSpec, stderr: StderrPolicy) -> std::io::Result<Ch
     let argv = mode.wrap_for(&spec.program, &spec.args, session);
     let mut cmd = background_command(&argv[0]);
     cmd.env("PATH", login_path());
+    for key in &spec.env_remove {
+        cmd.env_remove(key);
+    }
     for (key, value) in &spec.env {
         cmd.env(key, value);
     }
