@@ -59,6 +59,10 @@ pub struct LiveView {
     /// [`HANDED_IDLE_REDELIVER`] or longer — a delivery its agent never ran a
     /// turn for. [`plan`] revokes and re-delivers them.
     pub stranded: HashSet<String>,
+    /// #EXP-1909: the engine was asked to stop (a Kill, a Release) and is
+    /// not done yet ([`LiveRegistry::end`]): [`plan`] starts nothing for the
+    /// session and hands this engine nothing more.
+    pub ending: bool,
 }
 
 /// #FEED-229: how long an idle engine may hold a handed, unread message
@@ -642,10 +646,13 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
         open_plan_cards.entry(message.session_id.as_str()).or_default().push(message);
     }
 
+    // #EXP-1909: an engine already asked to stop gets no second kill and no
+    // delivery; it still counts as live (nothing starts beside it).
     let mut live_ids: Vec<&str> = input
         .live
-        .keys()
-        .map(String::as_str)
+        .iter()
+        .filter(|(_, view)| !view.ending)
+        .map(|(id, _)| id.as_str())
         .filter(|id| !input.in_flight.contains(*id))
         .collect();
     live_ids.sort_unstable();
@@ -1607,6 +1614,8 @@ struct LiveEntry {
     /// #FEED-229: since when the engine has been idle holding an unread
     /// handed message ([`LiveView::stranded`]).
     idle_holding_since: Option<std::time::Instant>,
+    /// [`LiveView::ending`].
+    ending: bool,
 }
 
 impl LiveRegistry {
@@ -1645,6 +1654,7 @@ impl LiveRegistry {
                 running_account: None,
                 options: None,
                 idle_holding_since: None,
+                ending: false,
             },
         );
         self.refused
@@ -1729,6 +1739,27 @@ impl LiveRegistry {
         self.lock().remove(session_id).map(|entry| entry.engine)
     }
 
+    /// #EXP-1909: ask the session's engine to stop with `outcome` (a Kill, a
+    /// Release), once. The entry and its claim STAY until the engine is done
+    /// (a live turn gets `steer::STOP_GRACE` first): dropped at the ask, a row
+    /// revived in that window got a second engine beside the first, whose end
+    /// then tore the new run down. [`Self::prune`] drops it once done.
+    pub fn end(&self, session_id: &str, outcome: &'static str) -> bool {
+        let engine = {
+            let mut entries = self.lock();
+            let Some(entry) = entries.get_mut(session_id).filter(|entry| !entry.ending) else {
+                return false;
+            };
+            entry.ending = true;
+            std::sync::Arc::clone(&entry.engine)
+        };
+        engine.kill(outcome);
+        if engine.is_done() {
+            self.lock().remove(session_id);
+        }
+        true
+    }
+
     /// S-4: suspend every engine that sat quiescent ([`LiveEngine::quiescent`],
     /// nothing handed, no `/new` restart in flight) for `after` — the
     /// process goes, the row idles, nothing ends and the workspace stays;
@@ -1742,6 +1773,7 @@ impl LiveRegistry {
         let mut released = Vec::new();
         for (id, entry) in entries.iter() {
             let quiet = !entry.engine.is_done()
+                && !entry.ending
                 && entry.handed.is_empty()
                 && !restarting.contains(id)
                 && entry.engine.quiescent();
@@ -1850,6 +1882,7 @@ impl LiveRegistry {
                         options: entry.options.clone(),
                         agent_model,
                         stranded,
+                        ending: entry.ending,
                     },
                 )
             })
@@ -3171,9 +3204,7 @@ pub fn execute(action: &PickupAction, deps: &PickupDeps) -> Result<(), String> {
             Ok(())
         }
         PickupAction::Kill { session_id } => {
-            if let Some(engine) = deps.live.remove(session_id) {
-                engine.kill(KILL_OUTCOME);
-            }
+            deps.live.end(session_id, KILL_OUTCOME);
             Ok(())
         }
         PickupAction::Switch { session, account, messages } => {
@@ -3321,9 +3352,8 @@ pub fn hand_off(session_id: &str, live: bool, move_id: Option<&str>, deps: &Pick
 /// EXP-1252: stop a live engine whose row names another device, writing
 /// nothing to the row ([`RELEASED_OUTCOME`]).
 pub fn release(session_id: &str, deps: &PickupDeps) {
-    if let Some(engine) = deps.live.remove(session_id) {
+    if deps.live.end(session_id, RELEASED_OUTCOME) {
         log::info!("pickup: session {session_id} runs on another device now: releasing its engine");
-        engine.kill(RELEASED_OUTCOME);
     }
 }
 
@@ -5276,6 +5306,7 @@ mod tests {
                 options: None,
                 agent_model: None,
                 stranded: HashSet::new(),
+                ending: false,
             },
         )
         .live("l2", LiveView::default())
@@ -5351,6 +5382,11 @@ mod tests {
         activity: Mutex<Option<std::time::Instant>>,
         /// #FEED-229: handed ids the agent has not read yet.
         unread: Mutex<HashSet<String>>,
+        /// #EXP-1909: a kill does not finish the run at once (a live turn's
+        /// stop grace): `done` stays false until the test sets it.
+        lingers: AtomicBool,
+        /// #EXP-1909: how many kills reached the engine.
+        kills: std::sync::atomic::AtomicUsize,
     }
 
     impl FakeEngine {
@@ -5378,7 +5414,10 @@ mod tests {
         }
         fn kill(&self, outcome: &'static str) {
             *self.killed.lock().unwrap() = Some(outcome);
-            self.done.store(true, Ordering::SeqCst);
+            self.kills.fetch_add(1, Ordering::SeqCst);
+            if !self.lingers.load(Ordering::SeqCst) {
+                self.done.store(true, Ordering::SeqCst);
+            }
         }
         fn is_done(&self) -> bool {
             self.done.load(Ordering::SeqCst)
@@ -5473,6 +5512,7 @@ mod tests {
             options: None,
             agent_model: None,
             stranded: HashSet::new(),
+            ending: false,
         });
         assert!(registry.contains_live("s1"));
         assert!(!registry.contains_live("s2"));
@@ -8021,6 +8061,54 @@ mod tests {
                 PickupAction::Release { session_id: "s2".to_string() },
             ]
         );
+    }
+
+    /// #EXP-1909: a Kill or a Release whose engine is still running (a live
+    /// turn gets `steer::STOP_GRACE`) keeps the entry and its claim until the
+    /// engine is done. A row revived meanwhile starts nothing and hands the
+    /// dying engine nothing: no second engine beside the first.
+    #[test]
+    fn a_killed_engine_keeps_its_entry_and_claim_until_it_is_done() {
+        for (action, outcome) in [
+            (PickupAction::Kill { session_id: "s1".to_string() }, KILL_OUTCOME),
+            (PickupAction::Release { session_id: "s1".to_string() }, RELEASED_OUTCOME),
+        ] {
+            let dir = temp_dir("pickup-ending");
+            let host = host("http://127.0.0.1:9", &dir.0, |_| {});
+            let engine = Arc::new(FakeEngine::default());
+            engine.lingers.store(true, Ordering::SeqCst);
+            let claim = ClaimLock::try_acquire(&dir.0, "s1").unwrap();
+            assert!(claim.is_some());
+            host.deps.live.insert("s1", engine.clone(), claim);
+            execute(&action, &host.deps).unwrap();
+            execute(&action, &host.deps).unwrap();
+            assert_eq!(*engine.killed.lock().unwrap(), Some(outcome));
+            assert_eq!(engine.kills.load(Ordering::SeqCst), 1, "asked once");
+            assert!(host.deps.live.contains_live("s1"), "the engine still runs: its entry stays");
+            assert!(ClaimLock::try_acquire(&dir.0, "s1").unwrap().is_none(), "and so does its claim");
+
+            // The row is revived in place with a new message.
+            let sessions = vec![session("s1", "idle", DEV, "2026-10-01T00:00:00Z")];
+            let messages = vec![message("m1", "s1", "2026-10-02T00:00:00Z")];
+            let run = |live: &HashMap<String, LiveView>| {
+                plan(PickupInput {
+                    device_id: DEV,
+                    sessions: &sessions,
+                    messages: &messages,
+                    live,
+                    in_flight: &HashSet::new(),
+                    revive_held: &HashSet::new(),
+                    moves: &[],
+                })
+            };
+            assert_eq!(run(&host.deps.live.live_views()), Vec::new(), "nothing while it ends");
+            assert!(host.deps.live.release_idle(std::time::Instant::now(), std::time::Duration::ZERO).is_empty());
+
+            engine.done.store(true, Ordering::SeqCst);
+            assert_eq!(host.deps.live.prune(), vec!["s1".to_string()]);
+            assert!(ClaimLock::try_acquire(&dir.0, "s1").unwrap().is_some());
+            assert!(matches!(run(&host.deps.live.live_views()).as_slice(), [PickupAction::Resume { .. }]));
+        }
     }
 
     #[test]

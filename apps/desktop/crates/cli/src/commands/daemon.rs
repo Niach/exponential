@@ -832,10 +832,10 @@ fn run_daemon(args: &[String]) -> CommandResult {
             // #EXP-1868: the sessions that ended while no run of them was
             // live here (idle first, or this host restarted) still hold
             // their scopes and compose stacks: the sweep takes them.
-            let synced_sessions = pickup
-                .store()
-                .filter(|_| synced.ready(SWEEP_SHAPES))
-                .map(|store| read_shape_rows::<SessionRow>(&store, "sessions"));
+            let sweep_store = pickup.store().filter(|_| synced.ready(SWEEP_SHAPES));
+            let synced_sessions =
+                sweep_store.as_ref().map(|store| read_shape_rows::<SessionRow>(store, "sessions"));
+            let sweep_live = Arc::clone(&sessions);
             let live_ids: std::collections::HashSet<String> = lock_sessions(&sessions)
                 .iter()
                 .filter(|live| !live.session.is_done())
@@ -845,8 +845,18 @@ fn run_daemon(args: &[String]) -> CommandResult {
             let trpc = Arc::clone(&ctx.trpc);
             let running = Arc::clone(&cargo_gc_running);
             std::thread::spawn(move || {
-                if let Some(rows) = synced_sessions {
-                    coding::session_teardown::sweep_ended(&data_dir, &rows, &live_ids);
+                if let (Some(rows), Some(store)) = (synced_sessions, sweep_store) {
+                    // #EXP-1909: one teardown can take minutes; each next one
+                    // reads its row and the live runs again (a revived
+                    // session keeps everything).
+                    let still_ended = |session_id: &str| {
+                        let row = read_shape_rows_where::<SessionRow>(&store, "sessions", "id", &[session_id]);
+                        row.iter().any(|row| row.is_ended())
+                            && !lock_sessions(&sweep_live)
+                                .iter()
+                                .any(|live| live.session.session_id == session_id && !live.session.is_done())
+                    };
+                    coding::session_teardown::sweep_ended(&data_dir, &rows, &live_ids, &still_ended);
                 }
                 sweep_cargo_targets(&repos_root, &data_dir);
                 if let Some(open) = open {

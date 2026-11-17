@@ -149,26 +149,114 @@ pub(crate) fn install(cx: &mut App) {
     // process back (the row idles, the worktree stays, the next message
     // resumes it). Off the UI thread; a release re-plans.
     let live = Arc::clone(&cx.global::<PickupHost>().live);
-    cx.spawn(async move |cx| loop {
-        cx.background_executor().timer(IDLE_RELEASE_BEAT).await;
-        let live = Arc::clone(&live);
-        let released = cx
-            .background_executor()
-            .spawn(async move { live.release_idle(std::time::Instant::now(), pickup::IDLE_RELEASE) })
-            .await;
-        if released.is_empty() {
-            continue;
+    // #EXP-1909: the sweep's re-check before each teardown, answered here
+    // (the synced rows live on the foreground).
+    let (ask_ended, asked_ended) = flume::unbounded::<(String, flume::Sender<bool>)>();
+    cx.spawn(async move |cx| {
+        while let Ok((session_id, reply)) = asked_ended.recv_async().await {
+            let _ = reply.send(cx.update(|cx| still_ended(&session_id, cx)));
         }
-        for session_id in &released {
-            log::info!("[pickup] released session {session_id}'s agent process (idle)");
+    })
+    .detach();
+    cx.spawn(async move |cx| {
+        let mut last_sweep: Option<std::time::Instant> = None;
+        let sweeping = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        loop {
+            cx.background_executor().timer(IDLE_RELEASE_BEAT).await;
+            let idle = Arc::clone(&live);
+            let released = cx
+                .background_executor()
+                .spawn(async move { idle.release_idle(std::time::Instant::now(), pickup::IDLE_RELEASE) })
+                .await;
+            for session_id in &released {
+                log::info!("[pickup] released session {session_id}'s agent process (idle)");
+            }
+            if !released.is_empty() {
+                cx.update(schedule);
+            }
+            // #EXP-1909: the daemon's sweep, here too: a session that ended
+            // while no engine of it was live here (it idled first, the app
+            // restarted) still holds its scopes, manifest and compose stacks.
+            if last_sweep.is_some_and(|at| at.elapsed() < ENDED_SWEEP_BEAT)
+                || sweeping.swap(true, std::sync::atomic::Ordering::SeqCst)
+            {
+                continue;
+            }
+            let Some((data_dir, rows, live_ids)) = cx.update(sweep_snapshot) else {
+                sweeping.store(false, std::sync::atomic::Ordering::SeqCst);
+                continue;
+            };
+            last_sweep = Some(std::time::Instant::now());
+            let ask = ask_ended.clone();
+            // Blocking for minutes at worst (docker): a thread of its own.
+            let done = Arc::clone(&sweeping);
+            let spawned = std::thread::Builder::new().name("exp-ended-sweep".to_string()).spawn(move || {
+                let still_ended = |session_id: &str| {
+                    let (reply, answer) = flume::bounded(1);
+                    ask.send((session_id.to_string(), reply)).is_ok()
+                        && answer.recv_timeout(ENDED_ASK_WAIT).unwrap_or(false)
+                };
+                coding::session_teardown::sweep_ended(&data_dir, &rows, &live_ids, &still_ended);
+                done.store(false, std::sync::atomic::Ordering::SeqCst);
+            });
+            if spawned.is_err() {
+                sweeping.store(false, std::sync::atomic::Ordering::SeqCst);
+            }
         }
-        cx.update(schedule);
     })
     .detach();
 }
 
 /// S-4: how often the IDE checks for quiescent chats to release.
 const IDLE_RELEASE_BEAT: Duration = Duration::from_secs(60);
+/// #EXP-1909: how often the IDE sweeps ended sessions' leftovers (the
+/// daemon's beat).
+const ENDED_SWEEP_BEAT: Duration = Duration::from_secs(5 * 60);
+/// #EXP-1909: how long the sweep waits for the foreground's word on one
+/// session; no answer = it stays.
+const ENDED_ASK_WAIT: Duration = Duration::from_secs(10);
+
+/// #EXP-1909: what `coding::session_teardown::sweep_ended` reads: the data
+/// dir, every synced session row and the sessions with a running engine
+/// here. `None` = no account, or rows that are not in sync
+/// ([`sessions_in_sync`]): no sweep this beat.
+fn sweep_snapshot(cx: &mut App) -> Option<(std::path::PathBuf, Vec<SessionRow>, HashSet<String>)> {
+    queries::active_account(cx)?;
+    if !sessions_in_sync(cx) {
+        return None;
+    }
+    let collections = Store::try_global(cx)?.collections().clone();
+    let live = Arc::clone(&cx.try_global::<PickupHost>()?.live);
+    let live_ids = live.session_ids().into_iter().filter(|id| live.contains_live(id)).collect();
+    let rows = collections.sessions.read(cx).iter().cloned().collect();
+    Some((coding_flow::coding_data_dir(cx), rows, live_ids))
+}
+
+/// #EXP-1909: are the session rows the server's, right now? Hydrated, caught
+/// up to the server's head in this app run (never the cache's rows alone),
+/// with the pipeline neither offline nor catching up after a restart. The
+/// sweep stops processes on these rows' word: stale ones sweep nothing.
+fn sessions_in_sync(cx: &App) -> bool {
+    let Some(store) = Store::try_global(cx) else {
+        return false;
+    };
+    let status = store.sync_status(cx);
+    let collections = store.collections();
+    collections.is_hydrated("sessions")
+        && collections.sessions.read(cx).is_caught_up()
+        && matches!(status.health, sync::SyncHealth::Ok)
+        && !status.catching_up
+}
+
+/// #EXP-1909: is the session's synced row still ended, with no engine of it
+/// running here, RIGHT NOW? (A person's message revives a row in place.)
+fn still_ended(session_id: &str, cx: &mut App) -> bool {
+    let Some(store) = Store::try_global(cx).filter(|_| sessions_in_sync(cx)) else {
+        return false;
+    };
+    let ended = store.collections().sessions.read(cx).iter().any(|row| row.id == session_id && row.is_ended());
+    ended && cx.try_global::<PickupHost>().is_some_and(|host| !host.live.contains_live(session_id))
+}
 
 /// EXP-1316: a card answered in the session view (relay → this engine)
 /// closes its synced `messages` card on every client: the publisher's tap

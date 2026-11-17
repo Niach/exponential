@@ -29,9 +29,12 @@
 //! - An idle session (suspended, released) keeps everything: only an END
 //!   tears down. Whatever the session created OUTSIDE its scope and listed in
 //!   its manifest (simulators, AVDs, build dirs, compose projects) goes too
-//!   ([`crate::session_manifest`]). The daemon's sweep ([`ended_with_scopes`]) catches a session
-//!   that ended while no run of it was live here (it idled first, or the host
-//!   restarted).
+//!   ([`crate::session_manifest`]). Each host's sweep ([`sweep_ended`]: the
+//!   daemon and the desktop app) catches a session that ended while no run
+//!   of it was live here (it idled first, or the host restarted), and every
+//!   end the engine's own end sequence leaves to the row (#EXP-1909: a lost
+//!   run, a failed start, a root chat whose CLI exited stay alive on the
+//!   server).
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -54,6 +57,14 @@ const COMPOSE_FORMAT: &str = "{{.Label \"com.docker.compose.project\"}}\t{{.Labe
 /// issue worktree). Blocking (systemctl, docker): call it off any UI thread.
 /// Returns the compose projects it brought down.
 pub fn end_session_processes(data_dir: &Path, session_id: &str, worktree: Option<&Path>) -> Vec<String> {
+    teardown(data_dir, session_id, worktree, Some(session_id))
+}
+
+/// [`end_session_processes`]. `own` = the session whose run record does not
+/// count as a live holder of `worktree`: the ending run's own (its host
+/// clears its pid only at the end); `None` on the sweep, where a live run of
+/// the session itself means it was revived.
+fn teardown(data_dir: &Path, session_id: &str, worktree: Option<&Path>, own: Option<&str>) -> Vec<String> {
     eagent::run_scope::stop_session_scopes(session_id);
     // What it created outside its scope (simulators, AVDs, build dirs,
     // compose projects it listed): its manifest, same on macOS and Linux.
@@ -63,8 +74,7 @@ pub fn end_session_processes(data_dir: &Path, session_id: &str, worktree: Option
     let Some(worktree) = worktree.filter(|worktree| is_session_worktree(worktree)) else {
         return Vec::new();
     };
-    let held = crate::run_cleanup::LiveHolders::default().with_registry(data_dir, session_id);
-    if held.worktrees.iter().any(|other| same_dir(other, worktree)) {
+    if held_by_live_run(data_dir, own, worktree) {
         log::info!(
             "session teardown [{session_id}]: {} is shared with a live run, its compose stacks stay",
             worktree.display()
@@ -96,6 +106,20 @@ pub fn is_session_worktree(dir: &Path) -> bool {
         .and_then(|name| name.to_str())
         .is_some_and(|name| name.ends_with(".worktrees"))
         && dir.file_name().is_some()
+}
+
+/// Does a run a live host process drives work in `worktree`? `own`'s record
+/// does not count ([`teardown`]).
+fn held_by_live_run(data_dir: &Path, own: Option<&str>, worktree: &Path) -> bool {
+    crate::run_registry::live_host_runs(data_dir)
+        .into_iter()
+        .any(|(session, cwd)| own != Some(session.as_str()) && same_dir(&cwd, worktree))
+}
+
+/// Does a live host process on this machine (this one, the desktop app, the
+/// daemon) drive a run of `session_id`? The run registry's word.
+fn live_on_host(data_dir: &Path, session_id: &str) -> bool {
+    crate::run_registry::live_host_runs(data_dir).into_iter().any(|(session, _)| session == session_id)
 }
 
 fn same_dir(a: &Path, b: &Path) -> bool {
@@ -181,11 +205,19 @@ fn run_bounded(program: &str, args: &[&str], timeout: Duration) -> Option<(bool,
     Some((status.success(), reader.join().unwrap_or_default()))
 }
 
-/// The daemon's sweep: tears down every session with a scope on this host
-/// whose synced row (`rows`) is ended and that no run in `live` drives (it
-/// idled before its end, or its host restarted). Blocking. Returns the
-/// sessions it tore down.
-pub fn sweep_ended(data_dir: &Path, rows: &[SessionRow], live: &HashSet<String>) -> Vec<String> {
+/// The hosts' sweep (the daemon's and the desktop app's, #EXP-1909): tears
+/// down every session with a scope or a manifest on this host whose synced
+/// row (`rows`) is ended and that no run in `live` drives (it idled before
+/// its end, or its host restarted). `still_ended` reads the session's row
+/// and the live runs AGAIN right before its teardown, and a session another
+/// host process here drives is never touched ([`sweep_each`]). Blocking.
+/// Returns the sessions it tore down.
+pub fn sweep_ended(
+    data_dir: &Path,
+    rows: &[SessionRow],
+    live: &HashSet<String>,
+    still_ended: &dyn Fn(&str) -> bool,
+) -> Vec<String> {
     // A session leaves a scope (Linux) or a manifest (any OS), or both.
     let mut scoped = eagent::run_scope::sessions_with_scopes();
     if let Some(manifests) = crate::session_manifest::manifest_dir() {
@@ -194,25 +226,36 @@ pub fn sweep_ended(data_dir: &Path, rows: &[SessionRow], live: &HashSet<String>)
     scoped.sort();
     scoped.dedup();
     let ended = ended_with_scopes(rows, &scoped, live);
-    sweep_each(data_dir, &ended, |session_id| {
+    sweep_each(data_dir, &ended, still_ended, |session_id| {
         let worktree = crate::run_registry::get(data_dir, session_id).map(|record| record.cwd);
         log::info!("session teardown [{session_id}]: ended with leftovers on this host");
-        end_session_processes(data_dir, session_id, worktree.as_deref());
+        teardown(data_dir, session_id, worktree.as_deref(), None);
     })
 }
 
-/// The sweep's loop: one `teardown` per session of `ended`, in order.
-/// Returns the sessions it tore down.
+/// The sweep's loop: one `teardown` per session of `ended`, in order, each
+/// only if `still_ended` says so right before it (#EXP-1909: `ended` is a
+/// snapshot, and one teardown can block for minutes on docker). Returns the
+/// sessions it tore down.
 ///
-/// #EXP-1911: a session with a live run in the HOST-WIDE run registry is
-/// never swept, whatever the caller's rows and its own live set say: the
-/// desktop app and the daemon share a machine and a data dir, and one's
-/// stale rows must not stop a run the other drives.
-fn sweep_each(data_dir: &Path, ended: &[String], mut teardown: impl FnMut(&str)) -> Vec<String> {
+/// #EXP-1911: a session with a live run in the HOST-WIDE run registry is never swept,
+/// whatever the caller's rows say: the desktop app and the daemon share a
+/// machine and a data dir, and one's stale rows must not stop a run the
+/// other drives.
+fn sweep_each(
+    data_dir: &Path,
+    ended: &[String],
+    still_ended: &dyn Fn(&str) -> bool,
+    mut teardown: impl FnMut(&str),
+) -> Vec<String> {
     let mut swept = Vec::new();
     for session_id in ended {
         if live_on_host(data_dir, session_id) {
             log::info!("session teardown [{session_id}]: a host process here drives a run of it, it keeps everything");
+            continue;
+        }
+        if !still_ended(session_id) {
+            log::info!("session teardown [{session_id}]: not ended any more (or live here again), it keeps everything");
             continue;
         }
         teardown(session_id);
@@ -221,13 +264,7 @@ fn sweep_each(data_dir: &Path, ended: &[String], mut teardown: impl FnMut(&str))
     swept
 }
 
-/// Does a live host process on this machine (this one, the desktop app, the
-/// daemon) drive a run of `session_id`? The run registry's word.
-fn live_on_host(data_dir: &Path, session_id: &str) -> bool {
-    crate::run_registry::live_host_runs(data_dir).into_iter().any(|(session, _)| session == session_id)
-}
-
-/// The daemon's sweep (pure): the sessions with a scope on this host whose
+/// The sweep (pure): the sessions with a scope on this host whose
 /// synced row is ENDED and that no run here drives right now. A row this
 /// host cannot see (another team, not synced yet) is never swept.
 pub fn ended_with_scopes(rows: &[SessionRow], scoped: &[String], live: &HashSet<String>) -> Vec<String> {
@@ -279,6 +316,30 @@ sibling\t/repos/acme.worktrees/exp-session-c026c74a2\t/repos/acme.worktrees/exp-
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// #EXP-1909: one teardown can take minutes (docker); a session revived
+    /// meanwhile is asked about again right before its turn and stays.
+    #[test]
+    fn the_sweep_asks_again_before_each_teardown() {
+        let dir = std::env::temp_dir().join(format!("exp-teardown-ask-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let ended = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        let revived = std::cell::Cell::new(false);
+        let mut torn = Vec::new();
+        let swept = sweep_each(
+            &dir,
+            &ended,
+            &|session| !(session == "b" && revived.get()),
+            |session| {
+                // While `a` comes down, a person messages `b`.
+                revived.set(true);
+                torn.push(session.to_string());
+            },
+        );
+        assert_eq!(torn, vec!["a".to_string(), "c".to_string()]);
+        assert_eq!(swept, torn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// #EXP-1911: the app and the daemon share a machine. A session that
     /// reads ended in THIS host's rows (stale: its sync is behind) while the
     /// other host process drives a run of it keeps everything.
@@ -292,9 +353,27 @@ sibling\t/repos/acme.worktrees/exp-session-c026c74a2\t/repos/acme.worktrees/exp-
         crate::run_registry::record(&dir, record);
         let ended = vec!["00000000-0000-4000-8000-00000000e911".to_string(), live.clone()];
         let mut torn = Vec::new();
-        let swept = sweep_each(&dir, &ended, |session| torn.push(session.to_string()));
+        let swept = sweep_each(&dir, &ended, &|_| true, |session| torn.push(session.to_string()));
         assert_eq!(torn, vec![ended[0].clone()], "ended in the rows, live on the host: untouched");
         assert_eq!(swept, torn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #EXP-1909: the ending run's own record never holds its worktree; on
+    /// the sweep a live run of the session itself does (it was revived).
+    #[test]
+    fn on_the_sweep_the_sessions_own_live_run_holds_its_worktree() {
+        let dir = std::env::temp_dir().join(format!("exp-teardown-held-{}", std::process::id()));
+        let worktree = dir.join("acme.worktrees").join("exp-session-0000e909");
+        std::fs::create_dir_all(&worktree).unwrap();
+        let session = "00000000-0000-4000-8000-00000000e909";
+        let mut record = crate::run_registry::sample_record(session);
+        record.cwd = worktree.clone();
+        record.host_pid = Some(std::process::id());
+        crate::run_registry::record(&dir, record);
+        assert!(!held_by_live_run(&dir, Some(session), &worktree), "the end: its own record");
+        assert!(held_by_live_run(&dir, None, &worktree), "the sweep: a run of it is live again");
+        assert!(held_by_live_run(&dir, Some("another"), &worktree));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
