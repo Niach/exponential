@@ -46,9 +46,15 @@ impl Ede {
         matches!(self.lock, LockState::Locked(_) | LockState::Sealed(_))
     }
 
-    /// The lock was confirmed to the client (every output showed it).
+    /// The lock was confirmed to the client (every output showed it); the
+    /// sealed lock has no client to tell, so: every output showed a locked
+    /// frame.
     pub fn lock_confirmed(&self) -> bool {
-        matches!(&self.lock, LockState::Locked(l) if l.pending.is_none())
+        match &self.lock {
+            LockState::Locked(l) => l.pending.is_none(),
+            LockState::Sealed(s) => self.space.outputs().all(|o| s.shown_on.contains(o)),
+            LockState::Unlocked => false,
+        }
     }
 
     /// The surface the lock shows on `output`: the ext-session-lock
@@ -87,6 +93,12 @@ impl Ede {
     /// A frame of `output` went out: lock surfaces draw on, and once every
     /// output showed a locked frame the client hears `locked`.
     pub fn lock_frame_done(&mut self, output: &Output, now: std::time::Duration) {
+        if let LockState::Sealed(s) = &mut self.lock {
+            if !s.shown_on.contains(output) {
+                s.shown_on.push(output.clone());
+            }
+            return;
+        }
         let LockState::Locked(l) = &mut self.lock else { return };
         for (o, s) in &l.surfaces {
             if o == output {
@@ -116,6 +128,9 @@ impl Ede {
         if let LockState::Locked(l) = &mut self.lock {
             l.surfaces.retain(|(o, _)| o != output);
             l.shown_on.retain(|o| o != output);
+        }
+        if let LockState::Sealed(s) = &mut self.lock {
+            s.shown_on.retain(|o| o != output);
         }
         self.confirm_lock_if_shown();
     }

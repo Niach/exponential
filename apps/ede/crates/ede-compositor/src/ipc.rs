@@ -525,9 +525,6 @@ impl Ede {
                 json(serde_json::Value::Null)
             }
             Request::Lock => {
-                if self.config.lock.command.is_empty() {
-                    return Err(fail(ErrorCode::Unavailable, "no [lock] command is configured"));
-                }
                 self.request_lock();
                 json(serde_json::Value::Null)
             }

@@ -6,7 +6,12 @@ mod common;
 use std::time::{Duration, Instant};
 
 use common::Session;
-use ede_compositor::{backend::headless::Harness, protected::Refused, Config};
+use ede_compositor::{
+    backend::headless::Harness,
+    logind::{self, Held, Listener, Signal},
+    protected::Refused,
+    Config,
+};
 use ede_protocol::{Error, ErrorCode};
 use smithay::backend::input::{ButtonState, KeyState};
 
@@ -459,4 +464,73 @@ fn a_prompt_over_a_focused_layer_gives_the_keyboard_back_to_that_layer() {
     wait_for(&mut shell, |c| c.state.keys == [KEY_A]);
     app.roundtrip();
     assert!(app.state.keys.is_empty());
+}
+
+/// Stands in for `exponential-sealed` where the compositor looks first (next
+/// to the running binary), so the default config's lock client starts. It
+/// ends at once, which keeps the session locked.
+fn sealed_stand_in() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let path = std::env::current_exe().unwrap().parent().unwrap().join("exponential-sealed");
+        match std::os::unix::fs::symlink("/bin/true", &path) {
+            Err(e) if e.kind() != std::io::ErrorKind::AlreadyExists => panic!("{}: {e}", path.display()),
+            _ => {}
+        }
+    });
+}
+
+/// #EDE-70: the default config (the sealed lock, `on_suspend`) listens to
+/// logind, and both of its signals lock.
+#[test]
+fn the_default_config_locks_on_logind_lock_and_before_suspend() {
+    sealed_stand_in();
+    let config = Config::default();
+    assert!(config.lock.command.is_empty() && config.lock.on_suspend);
+    assert!(logind::listens(&config), "the default config does not listen to logind");
+    let mut off = Config::default();
+    off.lock.on_suspend = false;
+    assert!(!logind::listens(&off));
+    for signal in [Signal::Lock, Signal::PrepareForSleep(true)] {
+        let h = harness(Config::default());
+        h.with(move |ede| Listener::new(|| None).handle(ede, signal));
+        assert!(is_locked(&h), "{signal:?} did not lock");
+    }
+}
+
+/// #EDE-70: `lock` over ede-protocol (Lock in the start menu) locks with
+/// the default config.
+#[test]
+fn lock_over_the_protocol_locks_with_the_default_config() {
+    sealed_stand_in();
+    let h = harness(Config::default());
+    let mut ipc = h.ipc();
+    ipc.lock().unwrap();
+    assert!(is_locked(&h));
+}
+
+/// #EDE-70: the sealed lock counts as confirmed once every output showed a
+/// locked frame, so suspend is held for that long and not for the full 2 s.
+#[test]
+fn suspend_is_held_only_until_the_sealed_lock_showed() {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static INHIBITOR: AtomicU32 = AtomicU32::new(0);
+    fn take() -> Option<Held> {
+        let held = Held::spawn(std::process::Command::new("sleep").arg("30")).ok()?;
+        INHIBITOR.store(held.0.id(), Ordering::SeqCst);
+        Some(held)
+    }
+    sealed_stand_in();
+    let h = harness(Config::default());
+    assert!(!h.with(|ede| ede.lock_confirmed()));
+    h.with(|ede| Listener::new(take).handle(ede, Signal::PrepareForSleep(true)));
+    assert!(is_locked(&h));
+    let pid = INHIBITOR.load(Ordering::SeqCst);
+    assert_ne!(pid, 0, "no inhibitor was taken");
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while std::path::Path::new(&format!("/proc/{pid}")).exists() {
+        assert!(Instant::now() < deadline, "the inhibitor was still held 1 s after the lock");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(h.with(|ede| ede.lock_confirmed()));
 }
