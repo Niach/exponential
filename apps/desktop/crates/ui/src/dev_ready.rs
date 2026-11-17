@@ -47,14 +47,34 @@ const LOG_INTERVAL: Duration = Duration::from_secs(5);
 /// One probe per process, however many windows open.
 static INSTALLED: AtomicBool = AtomicBool::new(false);
 
-/// Whether a steer session view has painted a non-empty feed (#EXP-1654).
-static FEED_PAINTED: AtomicBool = AtomicBool::new(false);
+/// The sessions whose steer view has painted a non-empty feed (#EXP-1654).
+static FEED_PAINTED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
-/// A steer session view painted transcript rows: the `session:` drives'
+/// The steer view of `session_id` painted transcript rows: the feed drives'
 /// last readiness condition. Cheap enough to call every frame.
-pub(crate) fn note_feed_painted() {
-    if !FEED_PAINTED.load(Ordering::Relaxed) {
-        FEED_PAINTED.store(true, Ordering::SeqCst);
+pub(crate) fn note_feed_painted(session_id: &str) {
+    let Ok(mut painted) = FEED_PAINTED.lock() else { return };
+    if !painted.iter().any(|id| id == session_id) {
+        painted.push(session_id.to_string());
+    }
+}
+
+/// The session whose feed a `session:<id>` / `chat:<id>` screen waits for
+/// (`None` = an agent's or an app's screen: any feed).
+fn feed_target(screen: &str) -> Option<String> {
+    let rest = screen.trim().strip_prefix("session:").or_else(|| screen.trim().strip_prefix("chat:"))?;
+    let id = rest.split(':').next().unwrap_or_default();
+    (!id.is_empty()).then(|| id.to_string())
+}
+
+/// #EXP-1886: has the feed this capture waits for painted? The shell opens
+/// other session views too (the active rows, a restored tab); one of THEIR
+/// feeds painting first wrote the ready file while the pictured chat still
+/// read "Connecting…".
+fn feed_ready(target: Option<&str>, painted: &[String]) -> bool {
+    match target {
+        Some(target) => painted.iter().any(|id| id == target),
+        None => !painted.is_empty(),
     }
 }
 
@@ -84,15 +104,15 @@ pub fn install_dev_ready_probe(cx: &mut App) {
     // (the login/onboarding views).
     let signed_in_lane = env_set("EXP_DEV_SERVER") && env_set("EXP_DEV_TOKEN");
     let dialog = std::env::var("EXP_DEV_DIALOG").unwrap_or_default();
-    let wants_feed = std::env::var("EXP_DEV_SCREEN")
-        .is_ok_and(|screen| screen.trim().starts_with("session:"))
-        || env_set("EXP_DEV_WAIT_FEED");
+    let screen = std::env::var("EXP_DEV_SCREEN").unwrap_or_default();
+    let wants_feed = screen.trim().starts_with("session:") || env_set("EXP_DEV_WAIT_FEED");
+    let target = feed_target(&screen);
 
     cx.spawn(async move |cx| {
         let started = Instant::now();
         let mut last_logged: Option<(String, Instant)> = None;
         loop {
-            let progress = cx.update(|cx| evaluate(signed_in_lane, wants_feed, cx));
+            let progress = cx.update(|cx| evaluate(signed_in_lane, wants_feed, target.as_deref(), cx));
             match progress.blocked_on {
                 None => {
                     let elapsed = started.elapsed().as_millis();
@@ -137,7 +157,7 @@ fn env_set(name: &str) -> bool {
 }
 
 /// One readiness evaluation against the CURRENT app state.
-fn evaluate(signed_in_lane: bool, wants_feed: bool, cx: &App) -> Progress {
+fn evaluate(signed_in_lane: bool, wants_feed: bool, target: Option<&str>, cx: &App) -> Progress {
     let blocked = |reason: String| Progress {
         blocked_on: Some(reason),
         shapes_ready: 0,
@@ -173,8 +193,11 @@ fn evaluate(signed_in_lane: bool, wants_feed: bool, cx: &App) -> Progress {
     if !crate::screens::dev_dialog_settled() {
         return blocked("dialog: EXP_DEV_DIALOG has not opened yet".to_string());
     }
-    if wants_feed && !FEED_PAINTED.load(Ordering::SeqCst) {
-        return blocked("feed: the steer feed has not replayed yet".to_string());
+    if wants_feed && !FEED_PAINTED.lock().is_ok_and(|painted| feed_ready(target, &painted)) {
+        return blocked(match target {
+            Some(target) => format!("feed: session {target}'s steer feed has not replayed yet"),
+            None => "feed: the steer feed has not replayed yet".to_string(),
+        });
     }
     Progress {
         blocked_on: None,
@@ -188,4 +211,26 @@ fn write_atomically(path: &str, payload: &str) -> std::io::Result<()> {
     let tmp = format!("{path}.tmp");
     std::fs::write(&tmp, payload)?;
     std::fs::rename(&tmp, path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{feed_ready, feed_target};
+
+    /// #EXP-1886: a `chat:` / `session:` capture is ready only once ITS
+    /// session's feed painted; another session's feed never counts.
+    #[test]
+    fn the_ready_feed_is_the_pictured_sessions() {
+        assert_eq!(feed_target("chat:5d7a2c90").as_deref(), Some("5d7a2c90"));
+        assert_eq!(feed_target(" session:abc:plan ").as_deref(), Some("abc"));
+        assert_eq!(feed_target("agent:triage"), None);
+        assert_eq!(feed_target("chat"), None);
+
+        let other = vec!["5c2d8a1e".to_string()];
+        assert!(!feed_ready(Some("5d7a2c90"), &other));
+        assert!(feed_ready(Some("5d7a2c90"), &["5c2d8a1e".to_string(), "5d7a2c90".to_string()]));
+        // An agent's or an app's screen names no session: any feed.
+        assert!(feed_ready(None, &other));
+        assert!(!feed_ready(None, &[]));
+    }
 }
