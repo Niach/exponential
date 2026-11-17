@@ -369,6 +369,7 @@ dependencies = [
  "terminal",
  "theme",
  "ui",
+ "updater",
  "x11rb",
 ]
 

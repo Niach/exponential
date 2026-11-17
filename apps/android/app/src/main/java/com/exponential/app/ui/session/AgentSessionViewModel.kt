@@ -1003,6 +1003,28 @@ class AgentSessionViewModel @AssistedInject constructor(
         }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
+     * #FEED-260 (fixtures/steer-enet.json SYNCED TAIL): the session's newest
+     * card-less agent lines and person inputs, OPENED, oldest first. The
+     * screen picks the ones after its not-live feed ([steerSyncedTail]).
+     */
+    val tailMessages: StateFlow<List<com.exponential.app.data.steer.SyncedTailMessage>> =
+        dbFlow.scopedQuery(emptyList<MessageEntity>()) {
+            it.messageDao().observeTailMessages(codingSessionId, com.exponential.app.data.steer.STEER_SYNCED_TAIL_MAX)
+        }.map { rows ->
+            rows.map { row ->
+                val opened = com.exponential.app.data.sealed.SealedContent.openMessage(row)
+                com.exponential.app.data.steer.SyncedTailMessage(
+                    id = row.id,
+                    authorKind = row.authorKind,
+                    consumedAt = row.consumedAt,
+                    createdAt = row.createdAt,
+                    createdAtMs = com.exponential.app.domain.WireTimestamps.parseEpochMs(row.createdAt),
+                    body = opened.locked?.let(com.exponential.app.domain.SealedPlaceholder::copy) ?: opened.body,
+                )
+            }
+        }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
      * #FEED-237 (message-delivery.json): the viewer's OWN bubbles at the
      * transcript's bottom: the consumed rows whose echo has not reached the
      * transcript yet (HANDOFF, reading `read`: no flicker between the row

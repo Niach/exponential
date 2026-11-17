@@ -612,6 +612,7 @@ fn document(inks: &Inks, options: &Options) -> Value {
     // The IDE's multi picker filters its apps.
     apps["props"]["searchable"] = json!(true);
     apps["props"]["placeholder"] = json!(apps_value(&[]));
+    // #EXP-1887: the group is not its own first row's `meeting` node id.
     let meeting = group(ink, "meeting_group", tray.clone(), vec![
         (switch_rows(ink, "meeting", &words.meeting, "/pane/tray/meeting", "meeting"), None),
         (picker_rows("auto_stop", json!(true), &words.auto_stop_after, "/pane/tray/autoStop", "autoStop", &options.auto_stop, Some(path("/pane/tray/autoStop/disabled")), None), Some(json!(true))),
@@ -1235,16 +1236,6 @@ mod tests {
         assert_eq!(Field::WakePhrase.normalized(&raw).len(), Field::WakePhrase.limit());
     }
 
-    /// #EXP-1887: no node id twice (the Meeting group shared its first
-    /// switch row's id).
-    #[test]
-    fn the_document_has_one_node_per_id() {
-        for member_rows_only in [false, true] {
-            let tree = document(&test_inks(), &test_options(member_rows_only));
-            assert_eq!(super::super::doc::duplicate_ids(&tree), Vec::<String>::new());
-        }
-    }
-
     #[test]
     fn the_document_parses() {
         let tree: eui_core::NestedNode = serde_json::from_value(document(&test_inks(), &test_options(false))).expect("parses");
@@ -1280,6 +1271,11 @@ mod tests {
         ids(&document(&test_inks(), &test_options(false)), &mut full);
         for id in four.iter().chain(member_rows.iter()) {
             assert!(full.iter().any(|found| found == id), "{id} on Settings > Voice");
+        }
+        // #EXP-1887: no node id twice (the Meetings group was `meeting`, as
+        // its first row is).
+        for member_rows_only in [true, false] {
+            assert_eq!(super::super::doc::duplicate_ids(&document(&test_inks(), &test_options(member_rows_only))), Vec::<String>::new());
         }
         let tree: eui_core::NestedNode = serde_json::from_value(document(&test_inks(), &test_options(true))).expect("parses");
         assert_eq!(tree.id, "root");

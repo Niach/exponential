@@ -632,6 +632,8 @@ struct Worker {
     /// exit was asked for, so no `Exited` goes out (a quick off/on never
     /// counts the old worker's end as a crash of the new setting).
     ended: Arc<AtomicBool>,
+    /// The `talk-events` reader; only the tests join it (#EXP-1885).
+    reader: Option<std::thread::JoinHandle<()>>,
 }
 
 /// The host's handle on the speech worker. Cheap to clone; every clone
@@ -804,13 +806,19 @@ impl SpeechClient {
 
     /// Kill the worker (the switch turned off, the app quits).
     pub fn shutdown(&self) {
-        if let Ok(mut guard) = self.worker.lock() {
-            if let Some(mut worker) = guard.take() {
-                worker.ended.store(true, Ordering::SeqCst);
-                let _ = worker.child.kill();
-                let _ = worker.child.wait();
-            }
-        }
+        let _ = self.shut_down();
+    }
+
+    /// [`Self::shutdown`], answering the ended worker's reader thread
+    /// (#EXP-1885: a test joins it to know no `Exited` can follow).
+    fn shut_down(&self) -> Option<std::thread::JoinHandle<()>> {
+        let mut guard = self.worker.lock().ok()?;
+        let mut worker = guard.take()?;
+        // Set before the kill: the reader only sees EOF after it.
+        worker.ended.store(true, Ordering::SeqCst);
+        let _ = worker.child.kill();
+        let _ = worker.child.wait();
+        worker.reader.take()
     }
 
     /// #NEW-63 / #1278 review: free the speech data, on the worker's own
@@ -906,7 +914,7 @@ impl SpeechClient {
         let on_event = self.on_event.clone();
         let ended = Arc::new(AtomicBool::new(false));
         let asked = ended.clone();
-        std::thread::Builder::new().name("talk-events".into()).spawn(move || {
+        let reader = std::thread::Builder::new().name("talk-events".into()).spawn(move || {
             for line in BufReader::new(stdout).lines() {
                 let Ok(line) = line else { break };
                 match serde_json::from_str::<Event>(&line) {
@@ -928,7 +936,7 @@ impl SpeechClient {
             }
         })?;
         log::info!("talk: speech worker started (pid {})", child.id());
-        Ok(Worker { child, stdin, ended })
+        Ok(Worker { child, stdin, ended, reader: Some(reader) })
     }
 }
 
@@ -1284,39 +1292,54 @@ mod tests {
         let _ = std::fs::remove_dir_all(&data);
     }
 
+    /// #EXP-1885: a fake worker script, written by a child process. Written
+    /// here, its write fd could leak into a sibling test's fork (open until
+    /// that child execs), and spawning the script then fails with ETXTBSY:
+    /// a failed start, reported as `Exited`, under load.
+    #[cfg(unix)]
+    fn fake_worker(path: &std::path::Path, body: &str) {
+        let status = Command::new("/bin/sh")
+            .arg("-c")
+            .arg(r#"printf '#!/bin/sh\n%s\n' "$1" > "$2" && chmod 755 "$2""#)
+            .arg("sh")
+            .arg(body)
+            .arg(path)
+            .status()
+            .unwrap();
+        assert!(status.success());
+    }
+
     #[cfg(unix)]
     #[test]
     fn a_shutdown_is_no_crash_but_a_death_is() {
-        use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("talk-exit-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let script = |name: &str, body: &str| {
             let path = dir.join(name);
-            std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            fake_worker(&path, body);
             path
         };
         let exits = |exe: PathBuf| {
-            let seen = Arc::new(Mutex::new(0usize));
-            let counter = seen.clone();
+            let (tx, rx) = std::sync::mpsc::channel();
+            let tx = Mutex::new(tx);
             let client = SpeechClient::new(exe, dir.clone(), move |event| {
                 if event == Event::Exited {
-                    *counter.lock().unwrap() += 1;
+                    let _ = tx.lock().unwrap().send(());
                 }
             });
-            (client, seen)
+            (client, rx)
         };
-        let (client, seen) = exits(script("lives", "exec sleep 30"));
+        let (client, exited) = exits(script("lives", "exec sleep 30"));
         client.start();
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        client.shutdown();
-        std::thread::sleep(std::time::Duration::from_millis(300));
-        assert_eq!(*seen.lock().unwrap(), 0, "an asked-for exit sends no Exited");
+        // The reader has seen EOF and decided once it is joined.
+        client.shut_down().expect("a worker ran").join().unwrap();
+        assert!(exited.try_recv().is_err(), "an asked-for exit sends no Exited");
 
-        let (client, seen) = exits(script("dies", "exit 1"));
+        let (client, exited) = exits(script("dies", "exit 1"));
         client.start();
-        std::thread::sleep(std::time::Duration::from_millis(500));
-        assert_eq!(*seen.lock().unwrap(), 1, "a worker that dies on its own is reported");
+        exited.recv_timeout(std::time::Duration::from_secs(60)).expect("a worker that dies on its own is reported");
+        client.shutdown();
+        assert!(exited.try_recv().is_err(), "reported once");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1385,15 +1408,13 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn the_cleanup_waits_for_the_worker_and_a_new_one_starts_fresh() {
-        use std::os::unix::fs::PermissionsExt;
         let data = std::env::temp_dir().join(format!("talk-order-{}", std::process::id()));
         let talk = voice_data_dir(&data);
         std::fs::create_dir_all(talk.join("models")).unwrap();
         std::fs::write(talk.join("models").join("qwen3-tts.gguf"), "model").unwrap();
         std::fs::write(talk.join("models").join("qwen3-tts.part"), "downloading").unwrap();
         let exe = data.join("worker");
-        std::fs::write(&exe, "#!/bin/sh\nexec sleep 30\n").unwrap();
-        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+        fake_worker(&exe, "exec sleep 30");
         let client = SpeechClient::new(exe, data.clone(), |_| {});
 
         client.start();
@@ -1410,7 +1431,8 @@ mod tests {
         client.start();
         std::fs::create_dir_all(talk.join("models")).unwrap();
         std::fs::write(talk.join("models").join("qwen3-tts.part"), "again").unwrap();
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        // A bound only for a hang; the delete thread may start late under load.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
         while std::fs::read_dir(&data).unwrap().flatten().any(|e| e.file_name().to_string_lossy().starts_with(ASIDE_PREFIX)) {
             assert!(std::time::Instant::now() < deadline, "the set-aside tree is deleted");
             std::thread::sleep(std::time::Duration::from_millis(20));

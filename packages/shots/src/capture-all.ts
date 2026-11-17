@@ -187,6 +187,12 @@ interface Options {
   skipSeed: boolean
   skipRelay: boolean
   force: boolean
+  /**
+   * #EXP-1870: a golden check (the PR gate's `ede-goldens-lite`): `--views`
+   * keeps the views' tolerance, as a full-catalog run does, so only a drift
+   * beyond it rewrites the store and fails `git diff --exit-code`.
+   */
+  golden: boolean
   dryRun: boolean
   prune: boolean
   up: boolean
@@ -240,6 +246,7 @@ function parseArgs(argv: string[]): Options {
     skipSeed: argv.includes(`--skip-seed`),
     skipRelay: argv.includes(`--skip-relay`),
     force: argv.includes(`--force`),
+    golden: argv.includes(`--golden`),
     dryRun: argv.includes(`--dry-run`),
     prune: argv.includes(`--prune`),
     up: argv.includes(`--up`),
@@ -442,7 +449,7 @@ function gateRelay(options: Options, scope: Scope): void {
  * unconditionally, so it does not need this.
  */
 function writesAnyChange(options: Options): boolean {
-  return Boolean(options.viewIds) && !options.force
+  return Boolean(options.viewIds) && !options.force && !options.golden
 }
 
 function isScoped(options: Options, scope: Scope): boolean {

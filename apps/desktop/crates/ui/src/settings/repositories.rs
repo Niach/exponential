@@ -1448,15 +1448,16 @@ pub(super) fn external_glyph() -> Icon {
 }
 
 #[cfg(test)]
-mod document_tests {
+mod twin_tests {
     use super::*;
 
-    /// #EXP-1887: no node id twice (the GitHub status row's glyph shared the
-    /// failed state's `failed_icon`), and no issue a debug mount refuses.
+    /// #EXP-1887: no node id twice in the Repositories document (the GitHub
+    /// status block's failed row and the list's failed state both said
+    /// `failed_icon`; the debug mount check found it).
     #[test]
     fn the_document_has_one_node_per_id() {
-        let c = "#a1a1aaff".to_string();
-        let tints = Tints { skeleton: c.clone(), danger: c.clone(), warning: c.clone(), live: c.clone(), link: c.clone(), list_hover: c };
+        let c = || "#a1a1aaff".to_string();
+        let tints = Tints { skeleton: c(), danger: c(), warning: c(), live: c(), link: c(), list_hover: c() };
         let tree = document(&super::super::readiness::tests::test_ink(), &tints);
         assert_eq!(super::super::doc::duplicate_ids(&tree), Vec::<String>::new());
     }

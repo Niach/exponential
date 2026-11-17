@@ -463,12 +463,9 @@ pub(super) fn unexpected_issues(bound: &std::collections::HashSet<(String, Strin
 
 /// The `(node id, "/components/<id>/[style/]<key>")` of every style value
 /// and prop in `tree` that is a binding (`{"@path"}` / `{"@call"}`), for the
-/// mount's debug check. In tests it also refuses a document with a twin node
-/// id, so every pane's document test checks that too (#EXP-1887).
+/// mount's debug check.
 #[cfg(any(test, debug_assertions))]
 pub(super) fn bound_values(tree: &Value) -> std::collections::HashSet<(String, String)> {
-    #[cfg(test)]
-    assert_eq!(duplicate_ids(tree), Vec::<String>::new(), "node ids used twice");
     fn walk(node: &Value, out: &mut std::collections::HashSet<(String, String)>) {
         let Some(map) = node.as_object() else { return };
         let bound = |value: &Value| value.as_object().is_some_and(|v| v.contains_key("@path") || v.contains_key("@call"));
@@ -493,6 +490,10 @@ pub(super) fn bound_values(tree: &Value) -> std::collections::HashSet<(String, S
             walk(slot, out);
         }
     }
+    // #EXP-1887: every test that checks a document's mount also checks it
+    // has no twin ids (the debug mount refuses one).
+    #[cfg(test)]
+    assert_eq!(duplicate_ids(tree), Vec::<String>::new(), "node ids used twice");
     let mut out = std::collections::HashSet::new();
     walk(tree, &mut out);
     out
@@ -527,12 +528,17 @@ pub(super) fn mount_with<S: 'static>(surface_id: &str, tree: Value, binding: &gp
     };
     #[cfg(debug_assertions)]
     let bound = bound_values(&tree);
-    // #EXP-1887: a twin id doubles its accessibility node, which a debug
-    // build only noticed (and panicked on) once a screen reader was on.
+    // #EXP-1887: a twin id doubles its accessibility node, and gpui's debug
+    // build panics on that whenever it builds the a11y tree (an AT-SPI bus on
+    // Linux). Said here on every mount, a11y or not; an error, not a panic:
+    // twins in mutually exclusive branches never paint together. The
+    // documents' tests refuse any twin (`bound_values`).
     #[cfg(debug_assertions)]
     {
         let twins = duplicate_ids(&tree);
-        debug_assert!(twins.is_empty(), "{surface_id}: node ids used twice: {twins:?}");
+        if !twins.is_empty() {
+            log::error!("{surface_id}: node ids used twice: {twins:?}");
+        }
     }
     let tree: eui_core::NestedNode = serde_json::from_value(tree).expect("a settings document parses");
     let view = cx.new(|cx| {
@@ -593,6 +599,9 @@ pub(super) fn duplicate_ids(tree: &Value) -> Vec<String> {
         }
         for child in node.get("children").and_then(Value::as_array).into_iter().flatten() {
             walk(child, seen, twins);
+        }
+        for slot in node.get("slots").and_then(Value::as_object).into_iter().flat_map(|slots| slots.values()) {
+            walk(slot, seen, twins);
         }
     }
     let mut twins = Vec::new();
