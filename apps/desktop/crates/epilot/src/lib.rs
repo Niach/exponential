@@ -416,7 +416,7 @@ pub fn readiness() -> Readiness {
 pub fn prepare() -> Readiness {
     let readiness = readiness_of(&backend::request_permissions());
     if readiness == Readiness::Ready {
-        match backend::open(backend::Target::Person) {
+        match backend::open(backend::Target::Person, None) {
             Ok(backend) => match backend.displays() {
                 Ok(displays) => log::info!("[computer] computer use is ready on {} ({} display(s))", backend::name(), displays.len()),
                 Err(reason) => log::warn!("[computer] the screen does not answer: {reason}"),

@@ -339,6 +339,8 @@ impl Host {
     /// user.
     pub(crate) fn end(&self, session_id: &str) {
         self.stop_calls(Some(session_id));
+        // #EXP-1925: the run's own desktop grant goes with it.
+        backend::end_run(self.target, session_id);
         self.runs.lock().unwrap().remove(session_id);
         let taken = {
             let mut lock = self.lock.lock().unwrap();
@@ -517,7 +519,7 @@ impl ToolHost for Host {
         if !self.in_flight.lock().unwrap().granted.contains(session_id) {
             return tools::error(ENDED);
         }
-        let backend = match backend::open(self.target) {
+        let backend = match backend::open(self.target, Some(session_id)) {
             Ok(backend) => backend,
             Err(reason) => return tools::error(reason),
         };
