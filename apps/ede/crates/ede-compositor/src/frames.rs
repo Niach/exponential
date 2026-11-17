@@ -29,6 +29,10 @@ use crate::{
 pub const HEIGHT: i32 = 36;
 /// The invisible resize band around a decorated window.
 pub const EDGE: i32 = 6;
+/// The widest bar drawn, in logical px (#EDE-103): a client's absurd
+/// width never sizes the canvas; a wider window's bar ends here, and its
+/// buttons with it ([`Ede::frame_under`] reads the same width).
+pub const MAX_WIDTH: i32 = 8192;
 const BUTTON: i32 = 28;
 const RADIUS: f32 = 10.0;
 const TITLE_SIZE: f32 = 14.0;
@@ -91,9 +95,9 @@ impl Ede {
                 continue;
             }
             let Some(framed) = self.framed_geometry(w) else { continue };
-            let bar = Rectangle::new(framed.loc, (framed.size.w, HEIGHT).into());
+            let bar = Rectangle::new(framed.loc, (framed.size.w.min(MAX_WIDTH), HEIGHT).into());
             if bar.contains(p) {
-                return Some((w.clone(), bar_hit(framed.loc.x + framed.size.w - p.x)));
+                return Some((w.clone(), bar_hit(bar.loc.x + bar.size.w - p.x)));
             }
             let mut band = framed;
             band.loc -= (EDGE, EDGE).into();
@@ -131,7 +135,7 @@ impl Ede {
         if !self.is_decorated(window) {
             return vec![];
         }
-        let width = window.geometry().size.w;
+        let width = window.geometry().size.w.min(MAX_WIDTH);
         if width <= 0 {
             return vec![];
         }
@@ -162,6 +166,7 @@ fn bar_hit(from_right: i32) -> Hit {
 /// maximized), minimize.
 fn draw_bar(title: &str, width: i32, focused: bool, maximized: bool, scale: f64) -> Canvas {
     let s = scale.max(0.5) as f32;
+    let width = width.min(MAX_WIDTH);
     let (w, h) = (((width as f32) * s).round() as u32, ((HEIGHT as f32) * s).round() as u32);
     let mut c = Canvas::new(w.max(1), h.max(1));
     c.fill_rounded_top(w as i32, h as i32, RADIUS * s, colour::CARD);
@@ -221,6 +226,17 @@ mod tests {
             }
         }
         let _ = draw_bar("", 1, false, false, 1.0);
+    }
+
+    /// #EDE-103: a client's absurd width (a viewport's destination) never
+    /// sizes the bar's canvas past what can be shown.
+    #[test]
+    fn an_absurd_window_width_draws_a_bounded_bar() {
+        for width in [5_000_000, 29_826_162, i32::MAX] {
+            let c = draw_bar("", width, false, false, 2.0);
+            assert!(c.width as usize * c.height as usize * 4 == c.data.len() && c.data.len() <= 64 << 20, "{width}: {}x{}", c.width, c.height);
+        }
+        assert!(Canvas::new(u32::MAX, u32::MAX).data.is_empty(), "a size past the address space is an empty canvas");
     }
 
     #[test]
