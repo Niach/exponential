@@ -405,7 +405,7 @@ fn outputs_line_up_left_to_right_and_windows_open_on_the_pointers_output() {
 
     // The pointer can't leave the outputs.
     h.with(|ede| ede.pointer_motion_to((9000.0, -50.0).into(), 1));
-    let p = h.with(|ede| ede.seat.get_pointer().unwrap().current_location());
+    let p = h.with(|ede| ede.desk.seat.get_pointer().unwrap().current_location());
     assert_eq!((p.x, p.y), (3199.0, 0.0));
 }
 

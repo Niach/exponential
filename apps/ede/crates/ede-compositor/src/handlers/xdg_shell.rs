@@ -175,7 +175,7 @@ impl XdgShellHandler for Ede {
     fn popup_destroyed(&mut self, surface: PopupSurface) {
         // The shell's menu closed while it held the keyboard: the top window
         // gets it back, then an Exclusive prompt that is still up (#EDE-86).
-        let keyboard = self.seat.get_keyboard().unwrap();
+        let keyboard = self.desk.seat.get_keyboard().unwrap();
         if keyboard.current_focus().as_ref() == Some(surface.wl_surface()) {
             self.focus_after_unlock(None);
         }
@@ -220,7 +220,7 @@ pub fn handle_commit(state: &mut Ede, surface: &WlSurface) {
         if !initial_configure_sent {
             // Bounds = the work area of the pointer's output, so the client
             // never opens bigger than the screen.
-            let pointer = state.seat.get_pointer().unwrap().current_location();
+            let pointer = state.desk.seat.get_pointer().unwrap().current_location();
             let bounds = state.output_at(pointer).and_then(|o| state.work_area(&o)).map(|a| a.size);
             toplevel.with_pending_state(|s| s.bounds = bounds);
             toplevel.send_configure();
@@ -252,7 +252,7 @@ pub fn handle_commit(state: &mut Ede, surface: &WlSurface) {
             // popup keeps its window's focus.
             let (first, grabs) = with_states(surface, |states| (states.data_map.insert_if_missing(|| PopupFocused), states.data_map.get::<PopupGrab>().is_some()));
             if first && state.layer_root_takes_keyboard(&PopupKind::Xdg(xdg.clone()), grabs) {
-                let keyboard = state.seat.get_keyboard().unwrap();
+                let keyboard = state.desk.seat.get_keyboard().unwrap();
                 keyboard.set_focus(state, Some(surface.clone()), smithay::utils::SERIAL_COUNTER.next_serial());
             }
         }

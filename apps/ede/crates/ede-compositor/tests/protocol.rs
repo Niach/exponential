@@ -548,9 +548,9 @@ fn a_hold_locks_the_person_out_until_their_esc() {
     assert!(h.with(|ede| ede.person_input_held()));
 
     person_key(&h, KEY_A);
-    let before = h.with(|ede| ede.seat.get_pointer().unwrap().current_location());
+    let before = h.with(|ede| ede.desk.seat.get_pointer().unwrap().current_location());
     assert!(!h.with(|ede| ede.person_pointer_motion_to((400.0, 400.0).into(), 0)));
-    assert_eq!(h.with(|ede| ede.seat.get_pointer().unwrap().current_location()), before);
+    assert_eq!(h.with(|ede| ede.desk.seat.get_pointer().unwrap().current_location()), before);
     agent.input(InputEvent::Key { key: KEY_LEFTSHIFT, pressed: true }).unwrap();
     agent.input(InputEvent::Key { key: KEY_LEFTSHIFT, pressed: false }).unwrap();
     wait_for(&mut app, |c| c.state.keys == [KEY_LEFTSHIFT]);
@@ -594,7 +594,7 @@ fn keysyms_find_their_key_and_level_on_the_layout() {
         ipc.input(InputEvent::Keysym { keysym, pressed }).unwrap();
     }
     wait_for(&mut app, |c| c.state.keys == [KEY_A, KEY_LEFTSHIFT, KEY_A]);
-    assert!(h.with(|ede| ede.seat.get_keyboard().unwrap().pressed_keys().is_empty()), "Shift is let go with the key");
+    assert!(h.with(|ede| ede.desk.seat.get_keyboard().unwrap().pressed_keys().is_empty()), "Shift is let go with the key");
     let snowman = InputEvent::Keysym { keysym: 0x0100_2603, pressed: true };
     assert_eq!(code(ipc.input(snowman).unwrap_err()), ErrorCode::NotFound);
 
@@ -609,7 +609,7 @@ fn relative_motion_and_scrolling() {
     let mut ipc = h.ipc();
     ipc.input(InputEvent::PointerMotion { x: 100.0, y: 100.0 }).unwrap();
     ipc.input(InputEvent::PointerMotionRelative { dx: 25.0, dy: -10.0 }).unwrap();
-    let at = h.with(|ede| ede.seat.get_pointer().unwrap().current_location());
+    let at = h.with(|ede| ede.desk.seat.get_pointer().unwrap().current_location());
     assert_eq!((at.x, at.y), (125.0, 90.0));
     ipc.input(InputEvent::PointerAxis { dx: 0.0, dy: 30.0 }).unwrap();
     ipc.input(InputEvent::PointerAxisDiscrete { dx: 0, dy: -2 }).unwrap();

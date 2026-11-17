@@ -64,11 +64,11 @@ impl Ede {
         match event {
             InputEvent::Keyboard { event, .. } => self.keyboard_key(event.key_code(), event.state(), event.time().millis()),
             InputEvent::PointerMotion { event, .. } => {
-                let pos = self.seat.get_pointer().unwrap().current_location() + event.delta();
+                let pos = self.desk.seat.get_pointer().unwrap().current_location() + event.delta();
                 if !self.person_pointer_motion_to(pos, event.time().millis()) {
                     return;
                 }
-                let pointer = self.seat.get_pointer().unwrap();
+                let pointer = self.desk.seat.get_pointer().unwrap();
                 let under = self.surface_under(pointer.current_location());
                 pointer.relative_motion(
                     self,
@@ -103,7 +103,7 @@ impl Ede {
                     }
                 }
                 self.refresh_pointer_focus(event.time().millis());
-                let pointer = self.seat.get_pointer().unwrap();
+                let pointer = self.desk.seat.get_pointer().unwrap();
                 pointer.axis(self, frame);
                 pointer.frame(self);
             }
@@ -114,7 +114,7 @@ impl Ede {
     /// Moves the pointer to `pos` (clamped onto the outputs) and updates focus.
     pub fn pointer_motion_to(&mut self, pos: Point<f64, Logical>, time: u32) {
         let pos = self.clamp_to_outputs(pos);
-        let pointer = self.seat.get_pointer().unwrap();
+        let pointer = self.desk.seat.get_pointer().unwrap();
         let under = self.surface_under(pos);
         pointer.motion(self, under, &MotionEvent { location: pos, serial: SERIAL_COUNTER.next_serial(), time: smithay::backend::input::InputTime::from_millis(time) });
         pointer.frame(self);
@@ -124,7 +124,7 @@ impl Ede {
     /// pointer; a press or the wheel goes to what is there now, not to the
     /// surface the last motion found.
     pub fn refresh_pointer_focus(&mut self, time: u32) {
-        let pointer = self.seat.get_pointer().unwrap();
+        let pointer = self.desk.seat.get_pointer().unwrap();
         if pointer.is_grabbed() || self.is_locked() {
             return;
         }
@@ -138,7 +138,7 @@ impl Ede {
     }
 
     pub fn pointer_button(&mut self, button: u32, state: ButtonState, time: u32) {
-        let pointer = self.seat.get_pointer().unwrap();
+        let pointer = self.desk.seat.get_pointer().unwrap();
         let serial = SERIAL_COUNTER.next_serial();
 
         if state == ButtonState::Pressed {
@@ -170,7 +170,7 @@ impl Ede {
                 }
                 (None, None) => self.focus(None),
             }
-            let alt = self.seat.get_keyboard().unwrap().modifier_state().alt;
+            let alt = self.desk.seat.get_keyboard().unwrap().modifier_state().alt;
             if let (Some(window), true, BTN_LEFT) = (window, alt, button) {
                 // Alt+drag: move from anywhere in the window.
                 if let Some(loc) = self.space.element_location(&window) {
@@ -197,7 +197,7 @@ impl Ede {
         self.restore_seat_keymap();
         self.release_ime_grab_if_protected();
         let serial = SERIAL_COUNTER.next_serial();
-        let keyboard = self.seat.get_keyboard().unwrap();
+        let keyboard = self.desk.seat.get_keyboard().unwrap();
         let locked = self.is_locked();
         let listening = self.shell_listening();
         let popup_focused = keyboard.current_focus().is_some_and(|f| self.popups.find_popup(&f).is_some());
@@ -318,7 +318,7 @@ impl Ede {
     /// double-click maximizes), a resize from the band around the window.
     /// `true` = handled.
     fn frame_press(&mut self, button: u32, serial: smithay::utils::Serial) -> bool {
-        let pointer = self.seat.get_pointer().unwrap();
+        let pointer = self.desk.seat.get_pointer().unwrap();
         let location = pointer.current_location();
         let Some((window, hit)) = self.frame_under(location) else { return false };
         self.focus(Some(window.clone()));

@@ -60,7 +60,7 @@ impl Ede {
     /// The Exclusive prompt that holds the keyboard, if one does (#EDE-82:
     /// no window takes it then). A prompt's popup is the prompt's.
     pub(crate) fn exclusive_prompt(&self) -> Option<LayerSurface> {
-        let focus = self.seat.get_keyboard()?.current_focus().filter(|f| f.alive())?;
+        let focus = self.desk.seat.get_keyboard()?.current_focus().filter(|f| f.alive())?;
         let root = self.popups.find_popup(&focus).and_then(|p| smithay::desktop::find_popup_root_surface(&p).ok()).unwrap_or(focus);
         self.layer_for(&root).filter(shows_exclusive)
     }
@@ -74,7 +74,7 @@ impl Ede {
     /// The keyboard goes to `surface`; when it is a layer's, the layer
     /// remembers what had the keyboard and gives it back as it closes.
     pub(crate) fn focus_layer(&mut self, surface: WlSurface, serial: Serial) {
-        let keyboard = self.seat.get_keyboard().unwrap();
+        let keyboard = self.desk.seat.get_keyboard().unwrap();
         if let Some(layer) = self.layer_for(&surface) {
             let previous = keyboard.current_focus().filter(|p| p.alive());
             let own = previous.as_ref().is_some_and(|p| self.layer_for(p).as_ref() == Some(&layer));
@@ -110,7 +110,7 @@ impl Ede {
         if self.is_locked() {
             return;
         }
-        let keyboard = self.seat.get_keyboard().unwrap();
+        let keyboard = self.desk.seat.get_keyboard().unwrap();
         let held = keyboard.current_focus().is_some_and(|f| !f.alive() || root_of(&f) == *layer.wl_surface());
         if !held {
             return;

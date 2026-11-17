@@ -106,7 +106,7 @@ fn the_password_typed_into_the_real_lock_client_unlocks() {
     h.with(|ede| ede.listen().map(|_| ())).unwrap();
     h.with(move |ede| ede.begin_sealed_lock_with(vec![bin, "lock".into()]));
     wait("the lock client never took the keyboard", || {
-        h.with(|ede| ede.seat.get_keyboard().unwrap().current_focus().is_some_and(|f| ede.is_lock_surface(&f)))
+        h.with(|ede| ede.desk.seat.get_keyboard().unwrap().current_focus().is_some_and(|f| ede.is_lock_surface(&f)))
     });
     wait("the prompt never showed", || h.capture(0).pixels.iter().any(|p| p & 0x00ff_ffff != 0));
     assert!(!shows_an_error(&h));

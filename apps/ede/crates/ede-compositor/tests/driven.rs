@@ -49,9 +49,9 @@ fn notes(h: &Harness) -> (Session, (f64, f64)) {
 /// is (the pointer's click grab lasts as long as one is down).
 fn down(h: &Harness) -> (Vec<u32>, bool) {
     h.with(|ede| {
-        let mut keys: Vec<u32> = ede.seat.get_keyboard().unwrap().pressed_keys().iter().map(|k| k.raw() - 8).collect();
+        let mut keys: Vec<u32> = ede.desk.seat.get_keyboard().unwrap().pressed_keys().iter().map(|k| k.raw() - 8).collect();
         keys.sort();
-        (keys, ede.seat.get_pointer().unwrap().is_grabbed())
+        (keys, ede.desk.seat.get_pointer().unwrap().is_grabbed())
     })
 }
 
@@ -261,7 +261,7 @@ fn layouts(layout: &str) -> Harness {
 
 fn active_layout(h: &Harness) -> u32 {
     h.with(|ede| {
-        let keyboard = ede.seat.get_keyboard().unwrap();
+        let keyboard = ede.desk.seat.get_keyboard().unwrap();
         keyboard.with_xkb_state(ede, |ctx| ctx.xkb().lock().unwrap().active_layout().0)
     })
 }

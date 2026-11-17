@@ -58,7 +58,7 @@ impl Ede {
     /// Real input from the person (never synthetic or agent input).
     pub fn note_activity(&mut self) {
         self.idle.activity();
-        let seat = self.seat.clone();
+        let seat = self.desk.seat.clone();
         self.idle_notifier.notify_activity(&seat);
     }
 

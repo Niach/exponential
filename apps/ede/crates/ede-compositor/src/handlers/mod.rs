@@ -38,7 +38,7 @@ impl SeatHandler for Ede {
     }
 
     fn cursor_image(&mut self, _seat: &Seat<Self>, image: smithay::input::pointer::CursorImageStatus) {
-        self.cursor_status = image;
+        self.desk.cursor_status = image;
     }
 
     fn focus_changed(&mut self, seat: &Seat<Self>, focused: Option<&WlSurface>) {
@@ -62,7 +62,7 @@ impl SelectionHandler for Ede {
             return;
         }
         let mimes = source.map(|s| s.mime_types());
-        self.clipboard.changed(mimes.clone().map_or(crate::clipboard::Owner::Empty, crate::clipboard::Owner::Client));
+        self.desk.clipboard.changed(mimes.clone().map_or(crate::clipboard::Owner::Empty, crate::clipboard::Owner::Client));
         self.xwm_selection(mimes);
     }
 

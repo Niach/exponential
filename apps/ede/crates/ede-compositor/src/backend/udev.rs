@@ -770,7 +770,7 @@ fn render_surface(udev: &Shared, state: &mut Ede, node: DrmNode, crtc: crtc::Han
 
     // The cursor: the client's surface if it set one, else the theme's
     // arrow at this output's scale.
-    let pointer = state.seat.get_pointer().unwrap().current_location();
+    let pointer = state.desk.seat.get_pointer().unwrap().current_location();
     let scale = output.current_scale().fractional_scale();
     let mut elements: Vec<OutputElements<UdevRenderer<'_>>> = Vec::new();
     if output_geo.to_f64().contains(pointer) {

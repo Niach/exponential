@@ -439,7 +439,7 @@ where
         input::pointer::{CursorImageAttributes, CursorImageStatus},
         wayland::compositor::with_states,
     };
-    match &state.cursor_status {
+    match &state.desk.cursor_status {
         CursorImageStatus::Hidden => (vec![], None),
         CursorImageStatus::Surface(surface) => {
             let hotspot = with_states(surface, |s| {

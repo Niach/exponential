@@ -45,12 +45,6 @@ pub struct Ipc {
     pub paths: Vec<PathBuf>,
     /// The portal's global shortcuts (#EDE-15).
     pub shortcuts: crate::shortcuts::Shortcuts,
-    /// The modifiers held for `InputEvent::Keysym` (#EDE-22).
-    pub keysyms: crate::keysym::Keysyms,
-    /// `hold_input` (#EDE-23).
-    pub hold: crate::hold::Hold,
-    /// The keys and buttons each connection drove down (#EDE-73).
-    pub driven: crate::protected::Driven,
 }
 
 #[derive(Debug)]
@@ -513,7 +507,7 @@ impl Ede {
                 // `bindings` = the person's own input (the harness): it
                 // reaches the lock screen and protected surfaces like a
                 // real keyboard; the agent path refuses those.
-                let before = (!bindings).then(|| self.seat.get_keyboard().unwrap().pressed_keys());
+                let before = (!bindings).then(|| self.desk.seat.get_keyboard().unwrap().pressed_keys());
                 let refused = match (event, bindings) {
                     (InputEvent::Key { key, pressed }, true) => {
                         self.keyboard_key((key + 8).into(), if pressed { KeyState::Pressed } else { KeyState::Released }, now as u32);
@@ -531,7 +525,7 @@ impl Ede {
                         self.drive_key((key + 8).into(), if pressed { KeyState::Pressed } else { KeyState::Released }, now as u32, false)
                     }
                     (InputEvent::PointerMotionRelative { dx, dy }, bindings) => {
-                        let pos = self.seat.get_pointer().unwrap().current_location() + smithay::utils::Point::<f64, smithay::utils::Logical>::from((dx, dy));
+                        let pos = self.desk.seat.get_pointer().unwrap().current_location() + smithay::utils::Point::<f64, smithay::utils::Logical>::from((dx, dy));
                         if bindings {
                             self.person_pointer_motion_to(pos, now as u32);
                             Ok(())
@@ -549,9 +543,9 @@ impl Ede {
                     (InputEvent::PointerButton { button, pressed }, false) => {
                         let driven = self.drive_pointer_button(button, if pressed { ButtonState::Pressed } else { ButtonState::Released }, now as u32);
                         if driven.is_ok() {
-                            self.ipc.driven.buttons.retain(|(_, b)| *b != button);
+                            self.desk.driven.buttons.retain(|(_, b)| *b != button);
                             if pressed {
-                                self.ipc.driven.buttons.push((id, button));
+                                self.desk.driven.buttons.push((id, button));
                             }
                         }
                         driven
@@ -564,7 +558,7 @@ impl Ede {
                 json(serde_json::Value::Null)
             }
             Request::PointerPosition => {
-                let at = self.seat.get_pointer().unwrap().current_location();
+                let at = self.desk.seat.get_pointer().unwrap().current_location();
                 json(serde_json::to_value(PointerInfo { x: at.x, y: at.y }).unwrap())
             }
             Request::HoldInput => {
@@ -612,7 +606,7 @@ impl Ede {
                 self.ipc.shortcuts.unbind(&owner);
                 json(serde_json::Value::Null)
             }
-            Request::ClipboardSerial => json(serde_json::to_value(ede_protocol::ClipboardSerial { serial: self.clipboard.serial }).unwrap()),
+            Request::ClipboardSerial => json(serde_json::to_value(ede_protocol::ClipboardSerial { serial: self.desk.clipboard.serial }).unwrap()),
             Request::ClipboardSet { items, sensitive } => {
                 let serial = self.clipboard_set(items, sensitive)?;
                 json(serde_json::to_value(ede_protocol::ClipboardSerial { serial }).unwrap())
@@ -751,9 +745,9 @@ impl Ede {
         config.xwayland = self.config.xwayland;
         let kb = config.keyboard.clone();
         self.config = config;
-        let keyboard = self.seat.get_keyboard().unwrap();
+        let keyboard = self.desk.seat.get_keyboard().unwrap();
         let xkb = smithay::input::keyboard::XkbConfig { layout: &kb.layout, variant: &kb.variant, options: Some(kb.options.clone()).filter(|o| !o.is_empty()), ..Default::default() };
-        self.virtual_keymap = None;
+        self.desk.virtual_keymap = None;
         if let Err(e) = keyboard.set_xkb_config(self, xkb) {
             tracing::warn!("keyboard layout {:?} rejected on reload: {e:?}", kb.layout);
         }
