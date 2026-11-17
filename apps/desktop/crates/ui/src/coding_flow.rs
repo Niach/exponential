@@ -651,6 +651,10 @@ pub fn install_quit_hook(cx: &mut App) {
         if reaped > 0 {
             log::info!("[ui] quit: reaped {reaped} orphaned acp child process(es)");
         }
+        // #EXP-1920: on X11 a clipboard put back after an agent's paste
+        // lives in this process; the desktop's clipboard manager takes it
+        // first (a second at most, and only when there is one to hand over).
+        coding::computer::before_exit();
         async {}
     })
     .detach();

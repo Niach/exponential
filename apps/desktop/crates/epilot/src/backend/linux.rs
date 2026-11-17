@@ -73,6 +73,12 @@ pub(crate) fn open() -> Result<Box<dyn Backend>, String> {
     Ok(Box::new(X11::connect(None)?))
 }
 
+/// [`crate::before_exit`]: the person's restored clipboard goes to the
+/// desktop's clipboard manager.
+pub(crate) fn before_exit() {
+    clipboard::hand_over();
+}
+
 /// The screen as the window manager lays it out, in physical pixels: the
 /// root (every monitor side by side), the primary monitor (RandR) and the
 /// work area the panels leave (`_NET_WORKAREA`, the first desktop's).
@@ -268,6 +274,9 @@ pub(crate) struct X11 {
     /// Keysyms no key makes, on the spare keycodes they borrowed for this
     /// call (unbound on drop).
     borrowed: std::cell::RefCell<Vec<(u32, u8)>>,
+    /// The display this connection is on (`None`: `DISPLAY`); the clipboard
+    /// keeper serves the same one.
+    display: Option<String>,
     /// The XTEST slave devices our input rides on (XI1 ids), for the
     /// release read-back; `None` when the server does not name them.
     xtest_keyboard: Option<u8>,
@@ -299,7 +308,8 @@ impl X11 {
         };
         let (xtest_keyboard, xtest_pointer) = xtest_devices(&conn);
         let borrowed = std::cell::RefCell::new(Vec::new());
-        Ok(X11 { conn, screen, root, atoms, keymap, group, locked, borrowed, xtest_keyboard, xtest_pointer })
+        let display = display.map(str::to_string);
+        Ok(X11 { conn, screen, root, atoms, keymap, group, locked, borrowed, display, xtest_keyboard, xtest_pointer })
     }
 
     fn flush(&self) -> Result<(), String> {
@@ -1027,14 +1037,14 @@ mod tests {
     /// A private Xvfb for the tests that need a server. It picks a free
     /// display number itself (`-displayfd`), so it is never the person's,
     /// and it dies with this value.
-    struct Xvfb {
+    pub(in crate::backend::linux) struct Xvfb {
         server: std::process::Child,
-        display: String,
+        pub(in crate::backend::linux) display: String,
     }
 
     impl Xvfb {
         /// `None` (the test is skipped) where no Xvfb is installed.
-        fn start() -> Option<Xvfb> {
+        pub(in crate::backend::linux) fn start() -> Option<Xvfb> {
             use std::io::BufRead as _;
             use std::process::Stdio;
             let server = std::process::Command::new("Xvfb")

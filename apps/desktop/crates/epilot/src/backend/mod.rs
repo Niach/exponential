@@ -274,6 +274,14 @@ pub(crate) fn pixel_size(x: i32, y: i32, width: u32, height: u32) -> (u32, u32) 
     }
 }
 
+/// [`crate::before_exit`].
+pub(crate) fn before_exit() {
+    #[cfg(target_os = "linux")]
+    if ede::session().is_none() {
+        linux::before_exit();
+    }
+}
+
 /// The switch turned off: a grant minted at the desktop ends (eDE).
 pub(crate) fn revoke_grant() {
     #[cfg(target_os = "linux")]
