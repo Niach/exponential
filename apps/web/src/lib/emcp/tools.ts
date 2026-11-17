@@ -2794,7 +2794,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_configure`,
     {
-      description: `Change a session's model, account (its login), effort, computer use or ultracode, no message (sessionId omitted = your own). Applies on a blocked session too: a new account, or a new model on a model wall, unblocks it and runs its queued messages; a pick that cannot lift the wall errors.`,
+      description: `Change a session's model, account (its login), effort, ultracode or computer use (only off), no message (no sessionId = your own). Also on a blocked session: a new account, or a new model on a model wall, unblocks it and runs its queued messages; a pick that cannot lift the wall errors.`,
       inputSchema: strictInput({
         sessionId: uuidString.optional(),
         model: z.string().min(1).max(64).optional(),
