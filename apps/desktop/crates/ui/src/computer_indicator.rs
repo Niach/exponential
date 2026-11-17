@@ -8,7 +8,9 @@
 //!
 //! The banner: while a session drives the screen the person's keyboard and
 //! pointer are held (`computer::set_presence_observer` says when); a small
-//! top-most window floating over the bottom of the primary display shows
+//! top-most window floating over the bottom of the run's current display
+//! (the work screen, EXP-1916: it follows the run to another one; the
+//! primary without one) shows
 //! the bar ([`banner_bar`], the bulk bar's capsule) for exactly that long.
 //! The window is exactly the bar's size (EXP-1372: a fixed 560 x 64 cut a
 //! long label off on both sides and showed a strip above the bar): the
@@ -212,6 +214,13 @@ fn banner_kind(wayland: bool) -> WindowKind {
     etalk_gpui::push_to_talk::overlay::overlay_kind(wayland, BANNER_NAMESPACE, BANNER_BOTTOM)
 }
 
+/// EXP-1916: whether the open banner (its label, the display it opened
+/// for) is still the one to show: another label is another size, and a run
+/// that went on to another display takes its banner along.
+fn banner_is_current(shown: (&Option<SharedString>, Option<usize>), label: &Option<SharedString>, display: Option<usize>) -> bool {
+    shown.0 == label && shown.1 == display
+}
+
 fn banner_options(kind: WindowKind, label: Option<&str>, cx: &App) -> WindowOptions {
     // NEW-59: the banner floats on the run's work screen (its current
     // display), else the primary as before.
@@ -295,6 +304,10 @@ pub(crate) fn init(cx: &mut App) {
     cx.spawn(async move |cx| {
         let mut switch_on = false;
         let mut banner: Option<gpui::WindowHandle<Banner>> = None;
+        // EXP-1916: the hold's last word and the display the banner opened
+        // for (`banner_index`).
+        let mut engaged: Option<String> = None;
+        let mut shown_on: Option<usize> = None;
         loop {
             cx.background_executor().timer(TICK).await;
             let on = cx.update(|cx| {
@@ -318,18 +331,24 @@ pub(crate) fn init(cx: &mut App) {
                     }
                 }
             }
-            let Some(presence) = latest else { continue };
+            // EXP-1916: the hold goes on and the run works on another
+            // display now: the banner opens again there.
+            let display = coding::computer::banner_index();
+            let moved = banner.is_some() && display.is_some() && display != shown_on;
+            let Some(presence) = latest.or_else(|| moved.then(|| engaged.clone())) else { continue };
+            engaged = presence.clone();
             let _ = cx.update(|cx| match presence {
                 Some(label) => {
                     let label = (!label.is_empty()).then(|| SharedString::from(label));
                     // The window is the bar's size, so another label is
                     // another window (no move in the toolkit).
                     let same = banner.as_ref().is_some_and(|handle| {
-                        handle.read_with(cx, |view, _| view.label == label).unwrap_or(false)
+                        handle.read_with(cx, |view, _| banner_is_current((&view.label, shown_on), &label, display)).unwrap_or(false)
                     });
                     if same {
                         return;
                     }
+                    shown_on = display;
                     if let Some(handle) = banner.take() {
                         let _ = handle.update(cx, |_, window, _| window.remove_window());
                     }
@@ -414,6 +433,18 @@ mod tests {
         assert_eq!(layer.margin, Some((px(0.), px(0.), px(BANNER_BOTTOM), px(0.))));
         assert_eq!(layer.namespace, "exponential-overlay:computer-use-banner");
         assert_eq!(banner_kind(false), WindowKind::PopUp);
+    }
+
+    /// EXP-1916: the banner opens again when the run goes on to another
+    /// display under the same label (it stayed on the first one), and for
+    /// another label; never while both stand.
+    #[test]
+    fn the_banner_follows_the_run_to_another_display() {
+        let label = Some(SharedString::from("EXP-1916"));
+        assert!(banner_is_current((&label, Some(0)), &label, Some(0)));
+        assert!(!banner_is_current((&label, Some(0)), &label, Some(1)), "the banner stayed on the display the run left");
+        assert!(!banner_is_current((&label, Some(0)), &Some(SharedString::from("EXP-1")), Some(0)));
+        assert!(!banner_is_current((&label, None), &label, Some(0)));
     }
 
     /// The banner's view with a probe on the bar: the drawn bar's size.

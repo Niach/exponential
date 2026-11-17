@@ -7,7 +7,7 @@
   },
   "layout": {
     "bar": "THE bulk bar's capsule (opaque popover fill, strong stroke, radius xl3, 8/10 padding, 4 gap): one item = nav-computer glyph (16) + the title in the muted foreground, the session label as the bold value, one item = the key as a kbd chip (20 tall, hairline, radius md, 12 px) + the abort words",
-    "window": "a top-most, unfocused, click-through window floating at the bottom centre of the primary display's visible area, 16 px above it (where the bulk bar floats over a list), exactly the bar's size over a transparent ground; no title bar, no shadow of its own"
+    "window": "a top-most, unfocused, click-through window floating at the bottom centre of the visible area of the run's current display (the work screen, work-screen.json BANNER; the primary without one: #EXP-1916, it follows the run to another display while the hold lasts), 16 px above it (where the bulk bar floats over a list), exactly the bar's size over a transparent ground; no title bar, no shadow of its own"
   },
   "rules": [
     "The banner shows while the hold lasts and not a frame longer: it appears with the session's first INPUT action and goes with the release (Esc, the session's end, the switch turning off, or 30 s without an input action). #EXP-1898: only what drives takes the hold: clicks, the pointer, keys, typing, `activate_window` and the clipboard tools (work-screen.json `inputTools`, plus `read_clipboard`). Looking and waiting (`screenshot`, `list_windows`, `cursor_position`, `wait`) never take it and never renew it, so the person's game or typing goes on while the agent only looks; they do not queue with the driving calls either (a `wait` never stalls another session's click).",

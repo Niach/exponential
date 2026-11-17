@@ -281,16 +281,24 @@ impl Overlay {
             self.window = None;
         }
         let pill = size(px(VOICE_CALL.pill.width), px(VOICE_CALL.pill.height));
+        // EXP-1916 (work-screen.json OVERLAY): read once per call, like the
+        // capsule's place; hidden stays hidden until the face closes.
+        let place = match self.place.clone() {
+            Some(place) => place,
+            None => {
+                let place = placement(cx);
+                self.place = Some(place.clone());
+                place
+            }
+        };
         let remembered = load_pill_origin(cx).filter(|origin| on_a_display(*origin, pill, cx));
+        let free = remembered.is_none_or(|origin| remembered_is_free(origin, pill, cx));
+        let Some((display, area, remembered)) = pill_place(place, remembered, free) else {
+            return;
+        };
         let (display, origin) = match remembered {
             Some(origin) => (None, origin),
-            None => {
-                let (display, area) = match placement(cx) {
-                    Place::At(display, area) => (display, area),
-                    Place::Hidden => (None, None),
-                };
-                (display, area.map(|area| pill_default(area, pill)).unwrap_or_else(|| point(px(0.), px(0.))))
-            }
+            None => (display, area.map(|area| pill_default(area, pill)).unwrap_or_else(|| point(px(0.), px(0.)))),
         };
         // EXP-1912: on Wayland the pill floats inside a layer surface over
         // its display: the remembered one's, else the placement's.
@@ -378,6 +386,46 @@ fn pill_default(area: Bounds<Pixels>, pill: Size<Pixels>) -> Point<Pixels> {
         area.origin.x + (area.size.width - pill.width) / 2.,
         area.origin.y + area.size.height - pill.height - px(VOICE_CALL.pill.margin_px),
     )
+}
+
+/// EXP-1916 (work-screen.json OVERLAY): where the pill opens. Nowhere
+/// (`None`) when every display holds a fullscreen app; at the remembered
+/// place only when that display is `free` of one; else at the default
+/// place on the display the rule picked.
+#[allow(clippy::type_complexity)]
+fn pill_place(
+    place: Place,
+    remembered: Option<Point<Pixels>>,
+    free: bool,
+) -> Option<(Option<gpui::DisplayId>, Option<Bounds<Pixels>>, Option<Point<Pixels>>)> {
+    let Place::At(display, area) = place else { return None };
+    Some((display, area, remembered.filter(|_| free)))
+}
+
+/// EXP-1916: whether the display holding the remembered place has no
+/// fullscreen app (unknown = free, as before).
+fn remembered_is_free(origin: Point<Pixels>, pill: Size<Pixels>, cx: &App) -> bool {
+    // A test never asks the machine's real screen.
+    if cfg!(test) {
+        return true;
+    }
+    let Some(state) = epilot::screen_state().filter(|state| !state.fullscreen.is_empty()) else { return true };
+    let centre = point(origin.x + pill.width / 2., origin.y + pill.height / 2.);
+    // X11: the toolkit's one display is the whole screen; the computer
+    // crate's are physical root pixels.
+    #[cfg(target_os = "linux")]
+    if super::hotkey::session() == Some(etalk::voice::VoiceSession::X11) {
+        let Some((_, scale)) = x11_pointer(cx) else { return true };
+        let (x, y) = (f32::from(centre.x) * scale, f32::from(centre.y) * scale);
+        let holds = |display: &epilot::Display| {
+            x >= display.x as f32 && x < display.x as f32 + display.width as f32 && y >= display.y as f32 && y < display.y as f32 + display.height as f32
+        };
+        return !state.displays.iter().enumerate().any(|(index, display)| holds(display) && state.fullscreen.contains(&index));
+    }
+    let displays = cx.displays();
+    let map = display_map(&displays, &state.displays);
+    let screen = displays.iter().position(|display| display.bounds().contains(&centre)).and_then(|index| map.get(index).copied().flatten());
+    screen.is_none_or(|screen| !state.fullscreen.contains(&screen))
 }
 
 /// S-3: a remembered position still shows the whole pill's centre on one
@@ -994,6 +1042,22 @@ mod tests {
         // Dropped past an edge (or remembered from a larger display).
         assert_eq!(float_origin(Some(point(px(-40.), px(9000.))), room, pill), point(px(0.), px(752. - VOICE_CALL.pill.height)));
         assert_eq!(float_origin(Some(point(px(5000.), px(-3.))), room, pill), point(px(1280. - VOICE_CALL.pill.width), px(0.)));
+    }
+
+    /// EXP-1916 (work-screen.json OVERLAY): the pill never opens when no
+    /// display is free, a remembered place on a display with a fullscreen
+    /// app gives way to the default place on the display the rule picked,
+    /// and a remembered place on a free display still wins.
+    #[test]
+    fn the_pill_obeys_the_overlay_rule() {
+        let remembered = Some(point(px(100.), px(200.)));
+        let area = Bounds { origin: point(px(1920.), px(0.)), size: size(px(1920.), px(1080.)) };
+        let picked = Place::At(None, Some(area));
+        assert_eq!(pill_place(Place::Hidden, remembered, true), None, "the pill opened over a fullscreen app");
+        assert_eq!(pill_place(Place::Hidden, None, true), None);
+        assert_eq!(pill_place(picked.clone(), remembered, false), Some((None, Some(area), None)), "a remembered place won over a fullscreen app");
+        assert_eq!(pill_place(picked.clone(), remembered, true), Some((None, Some(area), remembered)));
+        assert_eq!(pill_place(picked, None, true), Some((None, Some(area), None)));
     }
 
     #[test]

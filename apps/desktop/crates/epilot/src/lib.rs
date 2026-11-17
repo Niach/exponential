@@ -291,6 +291,13 @@ pub fn banner_display() -> Option<Display> {
     work_screen::banner_display()
 }
 
+/// #EXP-1916: that display's 0-based index, or `None`; a plain read (no OS
+/// call), so the banner's owner can watch it for the run moving to another
+/// display while the hold lasts.
+pub fn banner_index() -> Option<usize> {
+    work_screen::banner_index()
+}
+
 /// Admit the run `session_id`; a grant it held before stops working.
 /// `label` is what the banner shows for the run (the issue's identifier,
 /// the action's name).
