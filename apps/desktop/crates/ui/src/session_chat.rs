@@ -2822,7 +2822,9 @@ pub(crate) fn tree_status_word(
             crate::session_data::session_title_of(&child.id, cx).unwrap_or_default()
         })
     });
-    domain::session_screen::session_screen_status_waiting(&tree_status_input(root, tree), asks, waiting.as_deref())
+    // #FEED-263: a wall names its session's device ('MacBook offline').
+    let device = |id: &str| crate::entity_preview::find_device(id, cx).and_then(|device| device.label);
+    domain::session_screen::session_screen_status_waiting(&tree_status_input(root, tree, device), asks, waiting.as_deref())
 }
 
 /// #FEED-257 (`session_screen_waiting`): THE waiting item the needs-input
@@ -2832,10 +2834,14 @@ pub(crate) fn tree_waiting(
     tree: &[SessionRow],
     asks: &[domain::session_screen::SessionScreenAsk],
 ) -> Option<domain::session_screen::SessionScreenWaiting> {
-    domain::session_screen::session_screen_waiting(&tree_status_input(root, tree), asks)
+    domain::session_screen::session_screen_waiting(&tree_status_input(root, tree, |_| None), asks)
 }
 
-fn tree_status_input(root: Option<&SessionRow>, tree: &[SessionRow]) -> Vec<domain::session_screen::SessionScreenStatusInput> {
+fn tree_status_input(
+    root: Option<&SessionRow>,
+    tree: &[SessionRow],
+    device: impl Fn(&str) -> Option<String>,
+) -> Vec<domain::session_screen::SessionScreenStatusInput> {
     use domain::session_screen::SessionScreenStatusInput;
     let input = |row: &SessionRow, is_root: bool| SessionScreenStatusInput {
         id: row.id.clone(),
@@ -2848,6 +2854,9 @@ fn tree_status_input(root: Option<&SessionRow>, tree: &[SessionRow]) -> Vec<doma
             .and_then(|blocked| blocked.get("kind"))
             .and_then(serde_json::Value::as_str)
             .map(str::to_string),
+        // #FEED-263: a device back is no wall; a wall names its device.
+        resumed: domain::session_tree::blocked_resume_since(row).is_some(),
+        device: row.device_id.as_deref().and_then(&device),
         root: is_root,
     };
     let root_id = root.map(|root| root.id.as_str());

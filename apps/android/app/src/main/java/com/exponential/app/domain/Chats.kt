@@ -455,6 +455,10 @@ object Chats {
         /** #NEW-49: the root's [SessionTree.sessionWaiting] (the `waiting`
          *  word's labels, [SessionTree.chatRowWordText]); null = none. */
         val waiting: String? = null,
+        /** #FEED-263: the row's wall kind and its device's name (the `wall`
+         *  word, [SessionTree.chatRowWordText]); null = none. */
+        val wallKind: String? = null,
+        val wallDevice: String? = null,
         /** S-3: the chat is DONE (every PR of the root merged and nothing
          *  works or needs you): it stays, dimmed ([Shell.DIM_OPACITY]). */
         val dim: Boolean = false,
@@ -845,6 +849,8 @@ object Chats {
         words: Map<String, SessionTree.ChatRowWord?> = emptyMap(),
         /** #NEW-49: the root's sessionWaiting by session id (absent = none). */
         waiting: Map<String, String> = emptyMap(),
+        /** #FEED-263: the row's wall (kind, device name) by session id (absent = none). */
+        walls: Map<String, Pair<String, String?>> = emptyMap(),
         /** #EXP-1388: the chats, or the Archived page. */
         view: ChatListView = ChatListView.List,
         now: String,
@@ -886,6 +892,8 @@ object Chats {
                     busy = row.busy,
                     word = words[row.sessionId],
                     waiting = waiting[row.sessionId],
+                    wallKind = walls[row.sessionId]?.first,
+                    wallDevice = walls[row.sessionId]?.second,
                     dim = mark == SessionTree.SessionState.Idle &&
                         states.isNotEmpty() && states.all { it == DomainContract.prStateMerged },
                 )

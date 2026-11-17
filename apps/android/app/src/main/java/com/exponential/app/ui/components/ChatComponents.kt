@@ -198,8 +198,9 @@ fun ChatRow(
                 Spacer(Modifier.height(3.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     ChatPreviewText(row.preview, Modifier.weight(1f))
-                    // #NEW-49: `waiting` names what the root waits on.
-                    SessionTree.chatRowWordText(row.word, row.waiting)?.let { text ->
+                    // #NEW-49: `waiting` names what the root waits on;
+                    // #FEED-263: `wall` names the wall ('MacBook offline').
+                    SessionTree.chatRowWordText(row.word, row.waiting, row.wallKind, row.wallDevice)?.let { text ->
                         Spacer(Modifier.width(8.dp))
                         ChatRowWord(row.word!!, text, Modifier.weight(1f, fill = false))
                     }

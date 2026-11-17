@@ -5,6 +5,7 @@
 // ExpCore `SessionScreen.swift`, Android `domain/SessionScreen.kt`.
 
 import fixture from "../fixtures/session-screen.json" with { type: "json" }
+import { chatWallText, sessionWall } from "./session-tree"
 
 export const SESSION_SCREEN_COPY = fixture.copy
 export const SESSION_SCREEN_TEST_IDS = fixture.testIds
@@ -139,8 +140,35 @@ export interface SessionScreenStatusInput {
   needsInput: boolean
   /** #FEED-257: its `blocked.kind` (a wall or a watchdog flag; absent = none). */
   blocked?: string | null
+  /** #FEED-263: its `blocked.resumeSince` is set (its device came back; absent = false). */
+  resumed?: boolean | null
+  /** #FEED-263: its device's name (a wall's `{device}`; absent = none). */
+  device?: string | null
   /** The tree's root. */
   root: boolean
+}
+
+/** #FEED-263: the chat-list.json wall of one status input (`sessionWall`). */
+function inputWall(session: Omit<SessionScreenStatusInput, `busy`>): string | null {
+  return sessionWall({
+    status: session.status,
+    needsInput: session.needsInput,
+    blocked: session.blocked
+      ? { kind: session.blocked, resumeSince: session.resumed ? `resumed` : null }
+      : null,
+  })
+}
+
+/** #FEED-263 (`wallStatusCases`): the first walled session (a child first,
+ *  then the root, like the waiting item) and its words; null = none. */
+export function sessionScreenWall(
+  sessions: readonly Omit<SessionScreenStatusInput, `busy`>[]
+): { id: string; kind: string; text: string } | null {
+  const walled = sessions.filter((session) => inputWall(session) !== null)
+  const session = walled.find((s) => !s.root) ?? walled.find((s) => s.root)
+  if (!session) return null
+  const kind = inputWall(session)!
+  return { id: session.id ?? ``, kind, text: chatWallText(kind, session.device ?? null) ?? kind }
 }
 
 /** #FEED-257: one waiting card of the chat (`chatPendingAsks`, Conversation order). */
@@ -158,14 +186,18 @@ export interface SessionScreenWaiting {
 
 /** #FEED-257 (`waitingCases`): THE waiting item: the first ask, else the
  *  first flagged non-root session that waits, else the root's own flag,
- *  else null (a stale `needsInput` with nothing to open is nothing). */
+ *  else null (a stale `needsInput` with nothing to open is nothing).
+ *  #FEED-263: a WALL (`sessionWall`, chat-list.json `copy.walls`) never
+ *  waits: no answer in the chat lifts it. */
 export function sessionScreenWaiting(
   sessions: readonly Omit<SessionScreenStatusInput, `busy`>[],
   asks: readonly SessionScreenAsk[] = []
 ): SessionScreenWaiting | null {
   const ask = asks[0]
   if (ask) return { open: ask.kind === `plan` ? `plan` : `card`, id: ask.id }
-  const flagged = sessions.filter((session) => session.status !== `ended` && session.needsInput && !!session.blocked)
+  const flagged = sessions.filter(
+    (session) => session.status !== `ended` && session.needsInput && !!session.blocked && inputWall(session) === null
+  )
   const child = flagged.find((session) => !session.root)
   if (child) return { open: `session`, id: child.id ?? `` }
   const root = flagged.find((session) => session.root)
@@ -173,8 +205,9 @@ export function sessionScreenWaiting(
 }
 
 /** THE tree's status word (`statusCases`): needs input (#FEED-257: only
- *  while something waits, `sessionScreenWaiting`) > working > queued (the
- *  root) > done (the root ended) > idle. */
+ *  while something waits, `sessionScreenWaiting`) > working > the wall's
+ *  words (#FEED-263 `sessionScreenWall`) > queued (the root) > done (the
+ *  root ended) > waiting on … > idle. */
 export function sessionScreenStatus(
   sessions: readonly SessionScreenStatusInput[],
   asks: readonly SessionScreenAsk[] = [],
@@ -186,6 +219,8 @@ export function sessionScreenStatus(
   const root = sessions.find((session) => session.root) ?? null
   if (sessionScreenWaiting(sessions, asks)) return words.needsInput
   if (live.some((session) => session.busy)) return words.working
+  const wall = sessionScreenWall(sessions)
+  if (wall) return wall.text
   if (root?.status === `queued`) return words.queued
   if (root?.status === `ended`) return words.done
   if (waiting) return fixture.copy.waiting.replace(`{labels}`, () => waiting)

@@ -873,6 +873,8 @@ export function AppEditor({
     busy: row.busy,
     needsInput: row.needsInput,
     blocked: row.blocked?.kind ?? null,
+    // #FEED-263: a wall names its device; a device back is no wall.
+    resumed: Boolean(row.blocked?.resumeSince),
     root: row.id === root?.id,
   }))
   const status = sessionScreenStatus(statusSessions, waitingAsks)

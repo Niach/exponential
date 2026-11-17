@@ -84,7 +84,7 @@ function ChatsPage() {
   const team = useTeamBySlug(teamSlug)
   const { data: authSession } = useSession()
   const me = authSession?.user?.id ?? null
-  const { list, agentRows, appRows, cliOf, waitingOf, isReady } = useChatList(team?.id, me, view)
+  const { list, agentRows, appRows, cliOf, waitingOf, wallOf, isReady } = useChatList(team?.id, me, view)
   const needsYou = useNeedsYou(team?.id, me)
   // S-3: the viewer's Assistant exists once the list mounts (first use).
   useEnsureAssistant(team?.id)
@@ -248,6 +248,7 @@ function ChatsPage() {
               onOpenApp={openApp}
               agentOf={cliOf}
               waitingOf={waitingOf}
+              wallOf={wallOf}
               loading={!team || !isReady}
               entering={entering}
               emptyTitle={archivedView ? COPY.archived.empty : undefined}

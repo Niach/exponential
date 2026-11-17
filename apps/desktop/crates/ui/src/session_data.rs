@@ -1589,7 +1589,7 @@ fn derive_chats_model(team_id: &str, groups: &[ChatsListGroup], cx: &App) -> Cha
         .filter(|row| row.depth == 0)
         .filter_map(|row| {
             chat_words
-                .word_waiting(&row.session_id, row.busy, row.needs_you, row.offline, row.waiting.is_some())
+                .word_waiting(&row.session_id, row.busy, row.needs_you, row.wall.is_some(), row.waiting.is_some())
                 .map(|word| (row.session_id.clone(), word))
         })
         .collect();
@@ -1874,7 +1874,7 @@ pub(crate) fn live_roots_from(
 
 /// [`live_roots_from`] over the team's words read once.
 fn live_roots_with(groups: &[ChatsListGroup], sessions: &[&SessionRow], words: &crate::chats_view::ChatWords) -> Vec<LiveRootRow> {
-    let rows = domain::session_tree::rail_chats(groups, |row| words.word(&row.session_id, row.busy, row.needs_you, row.offline));
+    let rows = domain::session_tree::rail_chats(groups, |row| words.word(&row.session_id, row.busy, row.needs_you, row.wall.is_some()));
     // #LOGS-11 / #PERF-3: the trees of the rail's rows only, in one pass.
     let wanted: HashSet<&str> = rows.iter().map(|row| row.session_id.as_str()).collect();
     let mut trees: HashMap<&str, Vec<&SessionRow>> = HashMap::new();
@@ -2127,7 +2127,7 @@ mod tests {
                     needs_you: false,
                     unread: false,
                     activity_at: String::new(),
-                    offline: false,
+                    wall: None,
                     waiting: None,
                 })
                 .collect(),

@@ -181,9 +181,14 @@ struct ChatHeaderTitle: View {
 
     private static func statusInputs(rows: ChatRows) -> [SessionScreen.StatusInput] {
         func input(_ session: SessionEntity) -> SessionScreen.StatusInput {
-            SessionScreen.StatusInput(
+            let blocked = TreeSessionBlocked.parse(session.blocked)
+            return SessionScreen.StatusInput(
                 id: session.id, status: session.status, busy: session.busy, needsInput: session.needsInput,
-                blocked: TreeSessionBlocked.parse(session.blocked)?.kind, root: session.id == rows.root.id
+                blocked: blocked?.kind,
+                // #FEED-263: a device back is no wall; a wall names its device.
+                resumed: !(blocked?.resumeSince ?? "").isEmpty,
+                device: rows.deviceLabels[session.deviceId],
+                root: session.id == rows.root.id
             )
         }
         let tree = rows.sessions.filter { $0.rootId == rows.root.id || $0.id == rows.root.id }

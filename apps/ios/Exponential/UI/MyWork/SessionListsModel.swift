@@ -40,6 +40,9 @@ final class SessionListsModel {
     /// its live children's titles, then its watches), by root id; the
     /// `waiting` word's labels (`SessionTree.chatRowWordText`).
     private(set) var waiting: [String: String] = [:]
+    /// #FEED-263: each listed row's wall (kind, its device's name) by root
+    /// id (the `wall` word, `SessionTree.chatRowWordText`).
+    private(set) var walls: [String: ChatRowWall] = [:]
     /// NEW-41: each root's pull-request states (the Chats tab's lead glyph).
     private(set) var prStates: [String: [String]] = [:]
     /// EXP-1316: a chat row's device glyph (the ROOT's `device_id` against
@@ -196,6 +199,7 @@ final class SessionListsModel {
         clis = [:]
         words = [:]
         waiting = [:]
+        walls = [:]
         prStates = [:]
         devices = [:]
         chatMessages = []
@@ -238,6 +242,7 @@ final class SessionListsModel {
         var clis: [String: String]
         var words: [String: ChatRowWord]
         var waiting: [String: String]
+        var walls: [String: ChatRowWall]
         var prStates: [String: [String]]
         var devices: [String: ChatRowDevice]
         var chatMessages: [TreeMessage]
@@ -261,6 +266,7 @@ final class SessionListsModel {
         clis = derived.clis
         words = derived.words
         waiting = derived.waiting
+        walls = derived.walls
         prStates = derived.prStates
         devices = derived.devices
         chatMessages = derived.chatMessages
@@ -360,7 +366,11 @@ final class SessionListsModel {
         }
         var words: [String: ChatRowWord] = [:]
         var waiting: [String: String] = [:]
+        var walls: [String: ChatRowWall] = [:]
         var prStates: [String: [String]] = [:]
+        let deviceNames = Dictionary(
+            rows.deviceRows.filter { !$0.label.isEmpty }.map { ($0.deviceId, $0.label) }, uniquingKeysWith: { a, _ in a }
+        )
         let sessionsById = Dictionary(rows.sessions.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         let liveChildren = Dictionary(
             grouping: rows.sessions.filter { $0.parentId != nil && $0.status != DomainContract.sessionStatusEnded },
@@ -385,10 +395,13 @@ final class SessionListsModel {
                 needsYou: row.needsYou,
                 prs: prs,
                 teamPrs: prsByTeam[row.teamId] ?? [],
-                // #EXP-1703: on a person only because its device stayed away.
-                offline: row.offline,
+                // #FEED-263: the row names its wall.
+                wall: row.wall != nil,
                 waiting: rootWaiting
             )
+            if let wall = row.wall {
+                walls[row.sessionId] = ChatRowWall(kind: wall.kind, device: wall.deviceId.flatMap { deviceNames[$0] })
+            }
             // NEW-41: the lead's PR glyph follows the root's PRs, not the word.
             prStates[row.sessionId] = prs.map(\.state)
         }
@@ -432,6 +445,7 @@ final class SessionListsModel {
             clis: rows.clis,
             words: words,
             waiting: waiting,
+            walls: walls,
             prStates: prStates,
             devices: devices,
             chatMessages: rows.messages,
@@ -552,4 +566,11 @@ struct NeedsYouInput: Equatable, Sendable {
 struct ChatRowDevice: Equatable, Sendable {
     let icon: String
     let name: String
+}
+
+/// #FEED-263: a chat row's wall: its kind and its device's name (the
+/// `wall` word's `{device}`; nil = none).
+struct ChatRowWall: Equatable, Sendable {
+    let kind: String
+    let device: String?
 }

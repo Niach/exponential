@@ -361,6 +361,7 @@ impl gpui::Render for ChatRowsShot {
             busy,
             word: None,
             waiting: None,
+            wall: None,
             dim: false,
         };
         let rows = [

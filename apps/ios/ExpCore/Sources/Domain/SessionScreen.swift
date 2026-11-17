@@ -280,17 +280,55 @@ public enum SessionScreen {
         public var needsInput: Bool
         /// #FEED-257: its `blocked.kind` (a wall or a watchdog flag; nil = none).
         public var blocked: String?
+        /// #FEED-263: its `blocked.resumeSince` is set (its device came back).
+        public var resumed: Bool
+        /// #FEED-263: its device's name (a wall's `{device}`; nil = none).
+        public var device: String?
         /// The tree's root.
         public var root: Bool
 
-        public init(id: String = "", status: String, busy: Bool, needsInput: Bool, blocked: String? = nil, root: Bool) {
+        public init(
+            id: String = "", status: String, busy: Bool, needsInput: Bool, blocked: String? = nil,
+            resumed: Bool = false, device: String? = nil, root: Bool
+        ) {
             self.id = id
             self.status = status
             self.busy = busy
             self.needsInput = needsInput
             self.blocked = blocked
+            self.resumed = resumed
+            self.device = device
             self.root = root
         }
+    }
+
+    /// #FEED-263 (web `sessionWall` over a status input): its wall, else nil.
+    private static func inputWall(_ session: StatusInput) -> String? {
+        SessionTree.wall(
+            status: session.status, needsInput: session.needsInput, kind: session.blocked, resumed: session.resumed
+        )
+    }
+
+    /// #FEED-263 (`wallStatusCases`): the first walled session (a child
+    /// first, then the root) and its words.
+    public struct Wall: Equatable, Sendable {
+        public var id: String
+        public var kind: String
+        public var text: String
+
+        public init(id: String, kind: String, text: String) {
+            self.id = id
+            self.kind = kind
+            self.text = text
+        }
+    }
+
+    public static func wall(_ sessions: [StatusInput]) -> Wall? {
+        let walled = sessions.filter { inputWall($0) != nil }
+        guard let session = walled.first(where: { !$0.root }) ?? walled.first(where: \.root),
+              let kind = inputWall(session)
+        else { return nil }
+        return Wall(id: session.id, kind: kind, text: SessionTree.chatWallText(kind, device: session.device) ?? kind)
     }
 
     /// #FEED-257: one waiting card of the chat (`chatPendingAsks`,
@@ -323,9 +361,10 @@ public enum SessionScreen {
     /// #FEED-257 (`waitingCases`): THE waiting item: the first ask, else the
     /// first flagged non-root session that waits, else the root's own flag,
     /// else nil (a stale `needsInput` with nothing to open is nothing).
+    /// #FEED-263: a wall never waits (no answer in the chat lifts it).
     public static func waiting(_ sessions: [StatusInput], asks: [Ask] = []) -> Waiting? {
         if let ask = asks.first { return Waiting(open: ask.kind == .plan ? .plan : .card, id: ask.id) }
-        let flagged = sessions.filter { $0.status != "ended" && $0.needsInput && $0.blocked != nil }
+        let flagged = sessions.filter { $0.status != "ended" && $0.needsInput && $0.blocked != nil && inputWall($0) == nil }
         if let child = flagged.first(where: { !$0.root }) { return Waiting(open: .session, id: child.id) }
         if let root = flagged.first(where: \.root) { return Waiting(open: .chat, id: root.id) }
         return nil
@@ -333,7 +372,8 @@ public enum SessionScreen {
 
     /// THE tree's status word (`statusCases`, lowercase, never dropped):
     /// needs input (#FEED-257: only while something waits, `waiting`) >
-    /// working > queued (the root) > done (the root ended) > idle.
+    /// working > the wall's words (#FEED-263 `wall`) > queued (the root) >
+    /// done (the root ended) > idle.
     /// #NEW-49 (`waitingStatusCases`): `waitingOn` = the root's
     /// `SessionTree.sessionWaiting`; an idle tree reads "waiting on …".
     public static func status(_ sessions: [StatusInput], asks: [Ask] = [], waitingOn: String? = nil) -> String {
@@ -341,6 +381,7 @@ public enum SessionScreen {
         let root = sessions.first { $0.root }
         if waiting(sessions, asks: asks) != nil { return Copy.Status.needsInput }
         if live.contains(where: \.busy) { return Copy.Status.working }
+        if let wall = wall(sessions) { return wall.text }
         if root?.status == "queued" { return Copy.Status.queued }
         if root?.status == "ended" { return Copy.Status.done }
         if let waitingOn, !waitingOn.isEmpty { return Copy.waiting.replacingOccurrences(of: "{labels}", with: waitingOn) }

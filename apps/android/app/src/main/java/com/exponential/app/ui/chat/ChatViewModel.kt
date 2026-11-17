@@ -818,6 +818,13 @@ class ChatViewModel @Inject constructor(
         deviceId?.let { id -> devices.firstOrNull { it.deviceId == id }?.label?.takeIf { label -> label.isNotBlank() } }
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    /** #FEED-263: every synced device's name by its logical id (a wall's `{device}`). */
+    val deviceLabels: StateFlow<Map<String, String>> =
+        dbFlow.scopedQuery(emptyList()) { it.deviceDao().observeAll() }
+            .map { devices -> devices.mapNotNull { d -> d.label.takeIf { it.isNotBlank() }?.let { d.deviceId to it } }.toMap() }
+            .flowOn(Dispatchers.Default)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
     /** The header "+": link issues to the chat. */
     fun linkIssues(issueIds: List<String>) {
         if (issueIds.isEmpty()) return

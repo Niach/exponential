@@ -169,6 +169,9 @@ export const SESSION_CARD_ICONS = cardFixture.icons
 export const CHAT_COPY = chatFixture.copy
 export const CHAT_TEST_IDS = chatFixture.testIds
 export const CHATS_LIST_COPY = listFixture.copy
+/** #FEED-263: the walls a chat row names (`copy.walls`, `{device}` = the
+ *  walled session's device name, else `copy.wallDevice`). */
+export const CHAT_WALLS: Readonly<Record<string, string>> = listFixture.copy.walls
 
 const ms = (iso: string | null | undefined): number | null => {
   if (!iso) return null
@@ -319,6 +322,28 @@ export function sessionOffline(
     session.blocked?.kind === `device_offline` &&
     !session.blocked.resumeSince
   )
+}
+
+/** #FEED-263 (chat-list.json `copy.walls`): the WALL a live session sits
+ *  behind that no answer in the chat can lift: its `needsInput` is set and
+ *  its `blocked.kind` is a key of `copy.walls` (`device_offline` only while
+ *  its device stays away, no `blocked.resumeSince`). Null otherwise. */
+export function sessionWall(
+  session: Pick<TreeSession, `status` | `needsInput` | `blocked`>
+): string | null {
+  if (session.status === `ended` || !session.needsInput) return null
+  const kind = session.blocked?.kind
+  if (!kind || !(kind in CHAT_WALLS)) return null
+  if (kind === `device_offline` && session.blocked?.resumeSince) return null
+  return kind
+}
+
+/** #FEED-263: a live session ASKS a person (needs input ×4): its
+ *  `needsInput` is set and it sits behind no wall (`sessionWall`). */
+export function sessionAsks(
+  session: Pick<TreeSession, `status` | `needsInput` | `blocked`>
+): boolean {
+  return session.status !== `ended` && session.needsInput && sessionWall(session) === null
 }
 
 /** EXP-1374: the Dock card of a background session, (#EXP-1405) of a
@@ -1259,7 +1284,7 @@ export function buildSessionChat(input: {
     live: live.length > 0,
     liveSessionId: root.status === `ended` ? null : root.id,
     busy: live.some((s) => s.busy),
-    needsYou: live.some((s) => s.needsInput),
+    needsYou: live.some(sessionAsks),
     mainSessionId: single ? root.id : null,
     origin,
   }
@@ -1283,8 +1308,17 @@ export interface ChatsListRow {
    *  the viewer's read of the root). */
   unread: boolean
   activityAt: string
-  /** #EXP-1703: `treeOffline` (set only when true; absent = false). */
-  offline?: boolean
+  /** #FEED-263: `treeWall` (set only when nothing asks and a wall holds;
+   *  absent = none). */
+  wall?: TreeWall
+}
+
+/** #FEED-263: the wall a chat row names: its kind and the walled session's
+ *  device (the row word's `{device}`). */
+export interface TreeWall {
+  sessionId: string
+  kind: string
+  deviceId: string | null
 }
 
 /** EXP-1312: a chat row's lead outside the Chats tab (home Running band,
@@ -1331,7 +1365,7 @@ export function treeState(
   _now: string
 ): TreeState {
   const live = tree.filter((s) => s.status !== `ended`)
-  if (live.some((s) => s.needsInput)) return `needs_you`
+  if (live.some(sessionAsks)) return `needs_you`
   if (live.some((s) => s.status === `queued` || s.busy)) return `working`
   if (live.length === 0) return `done`
   if (pullRequests.length > 0 && pullRequests.every((pr) => pr.state === `merged`)) return `done`
@@ -1391,8 +1425,9 @@ export function partitionChats(input: {
   for (const root of roots) {
     const tree = byRoot.get(root.id) ?? [root]
     const live = tree.filter((s) => s.status !== `ended`)
-    const needsYou = live.some((s) => s.needsInput)
+    const needsYou = live.some(sessionAsks)
     const running = live.some((s) => s.status === `queued` || s.busy)
+    const wall = treeWall(tree)
     const activity = tree.reduce(
       (latest, s) => ((ms(s.updatedAt) ?? 0) > (ms(latest) ?? 0) ? s.updatedAt : latest),
       root.updatedAt
@@ -1410,7 +1445,7 @@ export function partitionChats(input: {
       needsYou,
       unread: unreadAt(newestAgentInTree.get(root.id), root.id),
       activityAt: activity,
-      ...(needsYou && treeOffline(tree) ? { offline: true } : {}),
+      ...(wall ? { wall } : {}),
     }
     // #EXP-1461 (owner 2026-10-30: 'we don't wanna see all the nested
     // child sessions, only the root ones'): a row is a ROOT, never a child;
@@ -1520,7 +1555,7 @@ export function listAgents(
 /** EXP-1309/1318: the ONE quiet trailing word of a chat row ×4. Keys;
  *  `CHAT_ROW_WORDS` = the copy (EXP-1339: `merged` has none, it only
  *  turns the lead violet). */
-export type ChatRowWord = `stack` | `readyToMerge` | `merged` | `offline` | `question` | `waiting`
+export type ChatRowWord = `stack` | `readyToMerge` | `merged` | `question` | `wall` | `waiting`
 
 export const CHAT_ROW_WORDS: Partial<Record<ChatRowWord | `needsInput`, string>> =
   listFixture.copy.words
@@ -1550,14 +1585,15 @@ export function chatInStack(
 
 /** Word order: an open PR in a stack → `stack`; an open PR while nothing
  *  works → `readyToMerge` (working = no word); no open PR but a merged one
- *  → `merged`; else waiting on a person → `question`; else none. */
+ *  → `merged`; else waiting on a person → `question`; else (#FEED-263) a
+ *  wall → `wall`; else (#NEW-49) waiting on something → `waiting`; else none. */
 export function chatRowWord(input: {
   pullRequests: readonly { state: string }[]
   busy: boolean
   needsYou: boolean
   inStack: boolean
-  /** #EXP-1703: `treeOffline` (absent = false). */
-  offline?: boolean
+  /** #FEED-263: the row's `wall` holds (absent = false). */
+  wall?: boolean
   /** #NEW-49: the root's `sessionWaiting` while it is idle (absent = null). */
   waiting?: string | null
 }): ChatRowWord | null {
@@ -1566,32 +1602,59 @@ export function chatRowWord(input: {
     return input.busy ? null : `readyToMerge`
   }
   if (input.pullRequests.some((pr) => pr.state === `merged`)) return `merged`
-  if (input.needsYou) return input.offline ? `offline` : `question`
+  if (input.needsYou) return `question`
+  if (input.wall) return `wall`
   if (input.waiting) return `waiting`
   return null
 }
 
 /** #NEW-49: a row word's text (`copy.words`; `waiting` names what it
- *  waits on); null = the word draws no text (`merged`) or none. */
-export function chatRowWordText(word: ChatRowWord | null, waiting: string | null = null): string | null {
+ *  waits on; #FEED-263 `wall` = `chatWallText(wall)`); null = the word
+ *  draws no text (`merged`) or none. */
+export function chatRowWordText(
+  word: ChatRowWord | null,
+  waiting: string | null = null,
+  wall: { kind: string; device: string | null } | null = null
+): string | null {
   if (!word) return null
+  if (word === `wall`) return wall ? chatWallText(wall.kind, wall.device) : null
   const text = (CHAT_ROW_WORDS as Record<string, string | undefined>)[word] ?? null
   if (word === `waiting`) return waiting && text ? text.replace(`{labels}`, () => waiting) : null
   return text
 }
 
-/** #EXP-1703: a tree on a person ONLY because its device stayed away: some
- *  live session needs you and every one that does is `sessionOffline`. */
-export function treeOffline(
-  tree: readonly Pick<TreeSession, `status` | `needsInput` | `blocked`>[]
-): boolean {
-  const waiting = tree.filter((session) => session.status !== `ended` && session.needsInput)
-  return waiting.length > 0 && waiting.every(sessionOffline)
+/** #FEED-263 (`wallTextCases`): a wall's words (`copy.walls[kind]`,
+ *  `{device}` = the device's name, else `copy.wallDevice`); null = no wall. */
+export function chatWallText(kind: string, device: string | null = null): string | null {
+  const text = CHAT_WALLS[kind]
+  if (!text) return null
+  return text.replace(`{device}`, () => (device && device.trim()) || listFixture.copy.wallDevice)
+}
+
+/** #FEED-263 (`wallCases`): the wall a tree's row names: null while any
+ *  live session ASKS (`sessionAsks`: needs input wins), else the first
+ *  walled session (`sessionWall`) in tree order (the root first, then
+ *  creation order), else null. */
+export function treeWall(
+  tree: readonly Pick<TreeSession, `id` | `parentId` | `deviceId` | `status` | `needsInput` | `blocked` | `createdAt`>[]
+): TreeWall | null {
+  if (tree.some(sessionAsks)) return null
+  const ordered = [...tree].sort(
+    (a, b) =>
+      Number(a.parentId !== null) - Number(b.parentId !== null) ||
+      (ms(a.createdAt) ?? 0) - (ms(b.createdAt) ?? 0) ||
+      (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+  )
+  for (const session of ordered) {
+    const kind = sessionWall(session)
+    if (kind) return { sessionId: session.id, kind, deviceId: session.deviceId ?? null }
+  }
+  return null
 }
 
 /** The rail's Active band ×web+IDE (`copy.rail`): every Needs you row, every
  *  Running row, then the Recent rows whose word still asks for a merge
- *  (`readyToMerge` or `stack`), in group order. */
+ *  (`readyToMerge` or `stack`) or (#FEED-263) names a wall, in group order. */
 export function railChats(
   groups: readonly ChatsListGroup[],
   wordOf: (row: ChatsListRow) => ChatRowWord | null
@@ -1600,7 +1663,7 @@ export function railChats(
     group.key === `recent`
       ? group.rows.filter((row) => {
           const word = wordOf(row)
-          return word === `readyToMerge` || word === `stack`
+          return word === `readyToMerge` || word === `stack` || word === `wall`
         })
       : group.rows
   )

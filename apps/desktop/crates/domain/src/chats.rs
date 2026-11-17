@@ -662,6 +662,11 @@ pub struct ChatRow {
     /// row leaves it to the word).
     #[serde(default, skip_serializing)]
     pub waiting: Option<String>,
+    /// #FEED-263: the row's wall (the `Wall` word's kind and device,
+    /// `session_tree::chat_row_word_text_wall`); never serialized (the
+    /// fixture's row leaves it to the word).
+    #[serde(default, skip_serializing)]
+    pub wall: Option<crate::session_tree::TreeWall>,
     /// S-3: the chat is DONE (every PR of the root merged and nothing works
     /// or needs you): it stays in the list, dimmed (`shell.dimOpacity`).
     pub dim: bool,
@@ -976,6 +981,7 @@ pub fn chat_list(input: ChatListInput<'_>) -> ChatList {
                 busy: row.busy,
                 word: input.words.get(&row.session_id).copied(),
                 waiting: row.waiting.clone(),
+                wall: row.wall.clone(),
                 dim,
             }
         })
@@ -1935,6 +1941,7 @@ mod tests {
                     busy: false,
                     word: None,
                     waiting: None,
+                    wall: None,
                     dim: false,
                 })
                 .collect();
