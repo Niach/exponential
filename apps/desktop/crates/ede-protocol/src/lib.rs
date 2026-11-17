@@ -563,7 +563,13 @@ pub struct Client {
     events: VecDeque<Envelope>,
     token: Token,
     pub hello: Hello,
+    call_timeout: std::time::Duration,
 }
+
+/// How long a call waits for the compositor to take it and to answer
+/// (#EDE-74); a deferred clipboard read answers within 3 s.
+#[cfg(unix)]
+pub const CALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 #[cfg(unix)]
 impl Client {
@@ -574,7 +580,12 @@ impl Client {
 
     /// Hello over an already connected stream.
     pub fn over(stream: UnixStream, token: Token) -> Result<Self, Error> {
-        let mut client = Self { stream, next_id: 1, events: VecDeque::new(), token: token.clone(), hello: Hello { version: 0, capabilities: vec![], session_id: SessionId::new("pending").unwrap() } };
+        Self::over_within(stream, token, CALL_TIMEOUT)
+    }
+
+    fn over_within(stream: UnixStream, token: Token, call_timeout: std::time::Duration) -> Result<Self, Error> {
+        stream.set_write_timeout(Some(call_timeout))?;
+        let mut client = Self { stream, next_id: 1, events: VecDeque::new(), token: token.clone(), hello: Hello { version: 0, capabilities: vec![], session_id: SessionId::new("pending").unwrap() }, call_timeout };
         let hello = client.call(Request::Hello { version: PROTOCOL_VERSION, token })?;
         client.hello = serde_json::from_value(hello).map_err(|e| Error::Protocol(e.to_string()))?;
         Ok(client)
@@ -629,18 +640,39 @@ impl Client {
         let id = self.next_id;
         self.next_id += 1;
         let bytes = serde_json::to_vec(&Call { id, request }).map_err(|e| Error::Protocol(e.to_string()))?;
-        write_frame(&mut self.stream, &bytes)?;
-        loop {
-            match self.read_message()? {
-                Message::Event { event } => self.events.push_back(event),
-                Message::Reply { id: rid, result } if rid == id => return Ok(result),
-                Message::Error { id: rid, error } if rid == id => return Err(Error::Failed(error)),
-                // A call the compositor could not parse (an op it does not
-                // know: an older compositor) comes back without its id.
-                Message::Error { id: 0, error } => return Err(Error::Failed(error)),
-                other => return Err(Error::Protocol(format!("unexpected {other:?}"))),
+        self.within(|client, deadline| {
+            write_frame(&mut client.stream, &bytes)?;
+            loop {
+                match client.read_message()? {
+                    Message::Event { event } => client.events.push_back(event),
+                    Message::Reply { id: rid, result } if rid == id => return Ok(result),
+                    Message::Error { id: rid, error } if rid == id => return Err(Error::Failed(error)),
+                    // A call the compositor could not parse (an op it does not
+                    // know: an older compositor) comes back without its id.
+                    Message::Error { id: 0, error } => return Err(Error::Failed(error)),
+                    other => return Err(Error::Protocol(format!("unexpected {other:?}"))),
+                }
+                if std::time::Instant::now() >= deadline {
+                    return Err(Error::Io(std::io::ErrorKind::TimedOut.into()));
+                }
             }
+        })
+    }
+
+    /// One exchange under the call timeout (#EDE-74): a compositor that
+    /// does not answer fails the call instead of blocking it for good. The
+    /// stream is out of step then, so it is closed (the compositor lets go
+    /// of what this connection held). Waiting for events keeps its own
+    /// timeout ([`Client::set_read_timeout`]).
+    fn within<T>(&mut self, exchange: impl FnOnce(&mut Self, std::time::Instant) -> Result<T, Error>) -> Result<T, Error> {
+        let events = self.stream.read_timeout().ok().flatten();
+        let _ = self.stream.set_read_timeout(Some(self.call_timeout));
+        let out = exchange(self, std::time::Instant::now() + self.call_timeout);
+        let _ = self.stream.set_read_timeout(events);
+        if matches!(out, Err(Error::Io(_))) {
+            let _ = self.stream.shutdown(std::net::Shutdown::Both);
         }
+        out
     }
 
     fn call_as<T: serde::de::DeserializeOwned>(&mut self, request: Request) -> Result<T, Error> {
@@ -670,7 +702,7 @@ impl Client {
         if info.unchanged {
             return Ok(None);
         }
-        let pixels = read_frame(&mut self.stream)?;
+        let pixels = self.within(|client, _| Ok(read_frame(&mut client.stream)?))?;
         if pixels.len() != (info.stride * info.height) as usize {
             return Err(Error::Protocol("capture size mismatch".into()));
         }
@@ -883,6 +915,60 @@ mod tests {
         assert!(!w.minimized && w.workspace == 0);
         let call = Call { id: 1, request: Request::MinimizeWindow { window: w.id } };
         assert_eq!(serde_json::to_value(&call).unwrap(), serde_json::json!({"id": 1, "op": "minimize_window", "window": "w1"}));
+    }
+
+    /// A peer that answers hello and then nothing, and never reads again.
+    #[cfg(unix)]
+    fn silent_after_hello() -> (UnixStream, UnixStream, Token) {
+        let (ours, mut theirs) = UnixStream::pair().unwrap();
+        let token = Token::new("0".repeat(64)).unwrap();
+        let hello = Hello { version: PROTOCOL_VERSION, capabilities: vec![], session_id: SessionId::new("test").unwrap() };
+        let reply = Message::Reply { id: 1, result: serde_json::to_value(hello).unwrap() };
+        write_frame(&mut theirs, &serde_json::to_vec(&reply).unwrap()).unwrap();
+        (ours, theirs, token)
+    }
+
+    #[cfg(unix)]
+    const SHORT: std::time::Duration = std::time::Duration::from_millis(200);
+
+    #[cfg(unix)]
+    fn finishes<R: Send + 'static>(what: &str, call: impl FnOnce() -> R + Send + 'static) -> R {
+        let handle = std::thread::spawn(call);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while !handle.is_finished() {
+            assert!(std::time::Instant::now() < deadline, "{what} blocked");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        handle.join().unwrap()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_call_nobody_answers_fails_instead_of_blocking() {
+        // No hello back at all (a compositor that hangs before it accepts).
+        let (ours, _theirs) = UnixStream::pair().unwrap();
+        let token = Token::new("0".repeat(64)).unwrap();
+        assert!(finishes("hello", move || Client::over_within(ours, token, SHORT).is_err()));
+        // Hello answered, the next call never.
+        let (ours, _theirs, token) = silent_after_hello();
+        let failed = finishes("a call", move || {
+            let mut client = Client::over_within(ours, token, SHORT).unwrap();
+            let first = client.windows().is_err();
+            // The stream is out of step after a timeout: it stays failed.
+            first && client.windows().is_err()
+        });
+        assert!(failed);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_call_nobody_reads_fails_instead_of_blocking() {
+        let (ours, _theirs, token) = silent_after_hello();
+        let failed = finishes("a write", move || {
+            let mut client = Client::over_within(ours, token, SHORT).unwrap();
+            client.clipboard_set(vec![ClipboardItem { mime: "a".into(), data: vec![0; 4 << 20] }], false).is_err()
+        });
+        assert!(failed);
     }
 
     #[test]
