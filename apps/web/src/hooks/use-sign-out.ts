@@ -4,6 +4,7 @@ import { authClient, invalidateSessionCache } from "@/lib/auth/client"
 import { disposeAllSteerSessions } from "@/lib/steer-session-store"
 import { signOutWebInstall } from "@/lib/enet/use-web-install"
 import { clearPendingShare } from "@/lib/share/pending-share"
+import { signOutChatStore } from "@/lib/chat-store/client"
 
 /** Sign out and return to the login page. Shared by the sidebar and mobile topbar menus.
  *  EXP-1275: behind the blocking overlay ("Signing out") until the login page
@@ -21,6 +22,9 @@ export function useSignOut() {
       // (revoked server-side, forgotten locally). Best-effort: a failure
       // never blocks signing out.
       await signOutWebInstall().catch(() => {})
+      // #EDE-120: the chat store holds chats decrypted: a deliberate sign-out
+      // stops it in every tab and deletes this account's files.
+      await signOutChatStore().catch(() => {})
       await authClient.signOut()
       // SPA navigation keeps the module alive — without this,
       // fetchSessionOnce's 30s cache would let the signed-out user back

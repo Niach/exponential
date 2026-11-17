@@ -439,3 +439,33 @@ export function catchUpBucket(ops: ({ at: number; spend: number } | { at: number
   }
   return waits
 }
+
+// ---------------------------------------------------------------------------
+// #EDE-120 SIGN-OUT (`signOut` in the fixture): only a deliberate sign-out
+// deletes the account's store files (the store holds chats decrypted), after
+// stopping the store. An expiry / lost token or an account switch keeps them.
+// ---------------------------------------------------------------------------
+
+/** Why the account is left. */
+export type ChatStoreLeaveReason = `sign_out` | `expired` | `switch`
+
+/** An account id the store may name a path by. */
+const SAFE_ACCOUNT = /^[A-Za-z0-9_-]{1,128}$/
+
+/** The desktop store's own file names (beside the account's sync store). */
+const DESKTOP_STORE_FILES = new Set([`chat-store.sqlite`, `chat-store.sqlite-wal`, `chat-store.sqlite-shm`, `chat-store.sqlite-journal`])
+
+/** Whether `path` (relative to the data dir or the OPFS root) is one of
+ *  `account`'s chat store files. */
+export function isChatStoreFile(account: string, path: string): boolean {
+  if (!SAFE_ACCOUNT.test(account)) return false
+  const parts = path.split(`/`)
+  if (parts.length !== 3 || parts[1] !== account || parts[2] === ``) return false
+  if (parts[0] === `accounts`) return DESKTOP_STORE_FILES.has(parts[2]!)
+  return parts[0] === `chat-store`
+}
+
+/** SIGN-OUT: the files leaving `account` deletes, given the files there are. */
+export function chatStoreOnLeave(reason: ChatStoreLeaveReason, account: string, files: string[]): { delete: string[] } {
+  return { delete: reason === `sign_out` ? files.filter((path) => isChatStoreFile(account, path)) : [] }
+}

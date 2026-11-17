@@ -30,6 +30,12 @@ pub fn logout(args: &[String]) -> CommandResult {
         }
     }
     ctx.auth.sign_out(&ctx.account.id);
+    // #EDE-120 (`chat-store.json` SIGN-OUT): a deliberate sign-out deletes
+    // the account's chat store (it holds chats decrypted), never another
+    // account's; the daemon holds none.
+    if let Err((_, err)) = chat_store::sqlite::delete_account_store(&ctx.data_dir, &ctx.account.id) {
+        log::warn!("deleting the account's chat store failed: {err}");
+    }
     println!("Signed out {}.", ctx.account.email);
     Ok(ExitCode::SUCCESS)
 }

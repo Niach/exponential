@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub mod catchup;
+pub mod leave;
 pub mod open;
 pub mod text;
 #[cfg(feature = "sqlite")]
