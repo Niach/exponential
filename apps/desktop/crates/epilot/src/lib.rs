@@ -429,6 +429,18 @@ pub fn prepare_in_background() {
     });
 }
 
+/// #EXP-1920: the host process is about to exit (the IDE quits or restarts
+/// for an update, the daemon stops). On X11 a selection lives in its
+/// owner's process: a clipboard `paste_text` or `copy_selection` put back
+/// for the person would go with us, so it is handed to the desktop's
+/// clipboard manager first (the ICCCM `SAVE_TARGETS` request every toolkit
+/// sends on exit); waits for the manager, about a second at most. Without
+/// a clipboard manager nothing can keep it: it goes with the process, as
+/// any app's does. A no-op elsewhere and when nothing was restored.
+pub fn before_exit() {
+    backend::before_exit();
+}
+
 /// The switch turned off: every run's grant ends, a call in flight stops
 /// and the person's input is theirs again. Grants after this work again.
 pub fn shutdown() {

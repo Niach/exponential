@@ -1327,6 +1327,9 @@ fn run_daemon(args: &[String]) -> CommandResult {
     if orphans > 0 {
         log::info!("reaped {orphans} agent process(es) that outlived their session");
     }
+    // #EXP-1920: on X11 a clipboard put back after an agent's paste lives
+    // in this process; the desktop's clipboard manager takes it first.
+    coding::computer::before_exit();
     // EXP-781: the same scratch reclaim startup does (EXP-757), now that the
     // reaps are through and nothing this daemon owns is live. Without it a
     // repo-less run stayed resumable — its record and scratch dir outliving
