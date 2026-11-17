@@ -830,6 +830,8 @@ describe.skipIf(!ready.ok)(`FEED-165: 0213 makes the earliest evidence first-see
       .onConflictDoUpdate({ target: deviceFirstSeen.deviceId, set: { userId: out.after0213 as string } })
     return out
   }
+  /** 0206's journal `when`: 0213 recomputes only rows written before it. */
+  const BEFORE_0206 = 1793190174891
   /** 0213 alone on the world as it stands (rolled back). */
   async function only0213(deviceId: string) {
     let after: unknown
@@ -918,11 +920,13 @@ describe.skipIf(!ready.ok)(`FEED-165: 0213 makes the earliest evidence first-see
     // the box (the hard delete takes its row, the removal stays).
     await db
       .update(deviceFirstSeen)
-      .set({ userId: m.owner, firstSeenAt: new Date(Date.now() - 20 * 86_400_000) })
+      // Anchored to 0213's guard (a 0206 row predates 0206's journal `when`),
+      // not to now: a relative date crossed that instant on 2026-11-17.
+      .set({ userId: m.owner, firstSeenAt: new Date(BEFORE_0206 - 20 * 86_400_000) })
       .where(eq(deviceFirstSeen.deviceId, m.deviceId))
     await db
       .update(devices)
-      .set({ createdAt: new Date(Date.now() - 30 * 86_400_000) })
+      .set({ createdAt: new Date(BEFORE_0206 - 30 * 86_400_000) })
       .where(and(eq(devices.userId, m.squat), eq(devices.deviceId, m.deviceId)))
     await devicesAs(m.owner).remove({ deviceId: m.deviceId })
     expect(await only0213(m.deviceId)).toBe(m.owner)
