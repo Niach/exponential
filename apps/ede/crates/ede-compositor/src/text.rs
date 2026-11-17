@@ -39,7 +39,11 @@ pub struct Canvas {
 
 impl Canvas {
     pub fn new(width: u32, height: u32) -> Self {
-        Self { width, height, data: vec![0; (width * height * 4) as usize] }
+        // #EDE-103: sized in usize; a size past the address space is empty.
+        match (width as usize).checked_mul(height as usize).and_then(|n| n.checked_mul(4)) {
+            Some(len) => Self { width, height, data: vec![0; len] },
+            None => Self { width: 0, height: 0, data: Vec::new() },
+        }
     }
 
     pub fn fill(&mut self, colour: [u8; 4]) {
@@ -53,7 +57,7 @@ impl Canvas {
         if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 || alpha == 0 {
             return;
         }
-        let i = ((y as u32 * self.width + x as u32) * 4) as usize;
+        let i = (y as usize * self.width as usize + x as usize) * 4;
         let a = (alpha as u32 * colour[3] as u32) / 255;
         let dst = &mut self.data[i..i + 4];
         let da = dst[3] as u32;
@@ -140,18 +144,28 @@ impl Default for TextureCache {
 
 impl TextureCache {
     /// The element for `draw()`'s canvas (drawn only when `key` or the
-    /// renderer changed) at `at` (physical px) with `scale`.
-    pub fn element<R>(&mut self, renderer: &mut R, key: u64, scale: i32, at: smithay::utils::Point<f64, smithay::utils::Physical>, draw: impl FnOnce() -> Canvas) -> Option<smithay::backend::renderer::element::texture::TextureRenderElement<R::TextureId>>
+    /// renderer changed) at `at` (physical px), `size` logical px whatever
+    /// resolution the canvas was drawn at (#EDE-109: a fractional output
+    /// scale draws it at a size no whole buffer scale divides back).
+    pub fn element<R>(&mut self, renderer: &mut R, key: u64, size: smithay::utils::Size<i32, smithay::utils::Logical>, at: smithay::utils::Point<f64, smithay::utils::Physical>, draw: impl FnOnce() -> Canvas) -> Option<smithay::backend::renderer::element::texture::TextureRenderElement<R::TextureId>>
     where
         R: smithay::backend::renderer::Renderer + smithay::backend::renderer::ImportMem,
         R::TextureId: Clone + 'static,
     {
         use smithay::backend::renderer::element::{texture::TextureRenderElement, Id, Kind};
         let context = format!("{:?}", renderer.context_id());
-        let fresh = self.key != key || self.context.as_deref() != Some(&context) || self.texture.as_ref().and_then(|t| t.downcast_ref::<R::TextureId>()).is_none();
+        // A key whose import failed (#EDE-103: too big for the renderer)
+        // stays without a texture until the key or the renderer changes,
+        // instead of being drawn and refused again every frame.
+        let fresh = self.key != key || self.context.as_deref() != Some(&context) || self.texture.as_ref().is_some_and(|t| t.downcast_ref::<R::TextureId>().is_none());
         if fresh {
             let canvas = draw();
-            let texture = renderer.import_memory(&canvas.premultiplied(), smithay::backend::allocator::Fourcc::Abgr8888, (canvas.width as i32, canvas.height as i32).into(), false).ok()?;
+            let Ok(texture) = renderer.import_memory(&canvas.premultiplied(), smithay::backend::allocator::Fourcc::Abgr8888, (canvas.width as i32, canvas.height as i32).into(), false) else {
+                self.key = key;
+                self.context = Some(context);
+                self.texture = None;
+                return None;
+            };
             if self.key != key {
                 self.id = Id::new();
             }
@@ -161,7 +175,9 @@ impl TextureCache {
             self.texture = Some(Box::new(texture));
         }
         let texture = self.texture.as_ref()?.downcast_ref::<R::TextureId>()?.clone();
-        Some(TextureRenderElement::from_static_texture(self.id.clone(), renderer.context_id(), at, texture, scale, smithay::utils::Transform::Normal, None, None, None, None, Kind::Unspecified))
+        // The whole canvas (at buffer scale 1, its pixels) shown at `size`.
+        let src = smithay::utils::Rectangle::from_size((self.size.0 as f64, self.size.1 as f64).into());
+        Some(TextureRenderElement::from_static_texture(self.id.clone(), renderer.context_id(), at, texture, 1, smithay::utils::Transform::Normal, None, Some(src), Some(size), None, Kind::Unspecified))
     }
 }
 
@@ -248,6 +264,23 @@ pub fn ascent(size: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #EDE-109: a canvas drawn at a fractional scale is shown at its
+    /// logical size, not at a size divided by the rounded scale.
+    #[test]
+    fn a_canvas_is_its_logical_size_at_every_scale() {
+        use smithay::backend::renderer::{element::Element, pixman::PixmanRenderer};
+        let mut renderer = PixmanRenderer::new().unwrap();
+        for scale in [1.0f64, 1.25, 1.5, 2.0] {
+            let mut cache = TextureCache::default();
+            let (w, h) = ((520.0 * scale).round() as u32, (150.0 * scale).round() as u32);
+            let at = smithay::utils::Point::<i32, smithay::utils::Logical>::from((140, 225)).to_f64().to_physical(scale);
+            let element = cache.element(&mut renderer, 1, (520, 150).into(), at, || Canvas::new(w, h)).unwrap();
+            let geometry = element.geometry(scale.into());
+            assert_eq!((geometry.loc.x, geometry.loc.y), ((140.0 * scale) as i32, (225.0 * scale).round() as i32), "scale {scale}");
+            assert_eq!((geometry.size.w, geometry.size.h), (w as i32, h as i32), "scale {scale}: the whole canvas, pixel for pixel");
+        }
+    }
 
     #[test]
     fn text_draws_and_measures() {

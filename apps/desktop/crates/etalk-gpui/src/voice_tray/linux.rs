@@ -415,7 +415,8 @@ impl Item {
     }
 }
 
-/// `com.canonical.dbusmenu`: id 0 = the root, row `n` of the menu = id `n + 1`.
+/// `com.canonical.dbusmenu`: id 0 = the root, every row its own id
+/// ([`rows`]).
 struct DbusMenu {
     state: Arc<Mutex<MenuState>>,
     clicks: flume::Sender<TrayEvent>,
@@ -460,6 +461,30 @@ fn root_props() -> Props {
     props
 }
 
+/// The first separator's id is one above this; the items' ids stay below.
+const SEPARATOR_IDS: i32 = 100;
+
+/// #EXP-1938: each row with its dbusmenu id. The id is the row's own, never
+/// its position: rows come and go with the state (Call, Pause, Mute) while
+/// a host still shows the menu it drew, and its click must land on the row
+/// it drew or on none (a position would turn Voice settings into Quit). An
+/// item's id is its [`etalk::voice::TrayItemId`], the k-th separator's is
+/// `SEPARATOR_IDS + k`.
+fn rows(items: &[TrayItem]) -> impl Iterator<Item = (i32, &TrayItem)> {
+    let mut separators = 0;
+    items.iter().map(move |item| match item {
+        TrayItem::Separator => {
+            separators += 1;
+            (SEPARATOR_IDS + separators, item)
+        }
+        TrayItem::Action { id, .. } | TrayItem::Check { id, .. } => (*id as i32 + 1, item),
+    })
+}
+
+fn row(id: i32, items: &[TrayItem]) -> Option<&TrayItem> {
+    rows(items).find(|(row, _)| *row == id).map(|(_, item)| item)
+}
+
 impl DbusMenu {
     fn items(&self) -> (Vec<TrayItem>, u32) {
         let state = self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -470,12 +495,12 @@ impl DbusMenu {
         if id == 0 {
             return Some(root_props());
         }
-        items.get(usize::try_from(id - 1).ok()?).map(item_props)
+        row(id, items).map(item_props)
     }
 
     fn clicked(&self, id: i32, event_id: &str) -> bool {
         let (items, _) = self.items();
-        let Some(item) = usize::try_from(id - 1).ok().and_then(|index| items.get(index)) else { return false };
+        let Some(item) = row(id, &items) else { return false };
         if event_id == "clicked" {
             match item {
                 TrayItem::Action { id, enabled: true, .. } | TrayItem::Check { id, enabled: true, .. } => {
@@ -497,11 +522,7 @@ impl DbusMenu {
             return Err(zbus::fdo::Error::InvalidArgs(format!("no menu item {parent_id}")));
         };
         let children = if parent_id == 0 {
-            items
-                .iter()
-                .enumerate()
-                .map(|(index, item)| owned((index as i32 + 1, item_props(item), Vec::<OwnedValue>::new())))
-                .collect()
+            rows(&items).map(|(id, item)| owned((id, item_props(item), Vec::<OwnedValue>::new()))).collect()
         } else {
             Vec::new()
         };
@@ -510,7 +531,7 @@ impl DbusMenu {
 
     fn get_group_properties(&self, ids: Vec<i32>, _property_names: Vec<String>) -> Vec<(i32, Props)> {
         let (items, _) = self.items();
-        let ids = if ids.is_empty() { (0..=items.len() as i32).collect() } else { ids };
+        let ids = if ids.is_empty() { std::iter::once(0).chain(rows(&items).map(|(id, _)| id)).collect() } else { ids };
         ids.into_iter().filter_map(|id| self.props_of(id, &items).map(|props| (id, props))).collect()
     }
 
@@ -597,6 +618,18 @@ mod tests {
         assert_eq!(item_props(&TrayItem::Separator)["type"], owned("separator"));
     }
 
+    /// The ids of the rows as a host draws them (`GetLayout` under the root).
+    fn drawn(menu: &DbusMenu) -> Vec<i32> {
+        let (_, (_, _, children)) = menu.get_layout(0, -1, Vec::new()).unwrap();
+        children
+            .iter()
+            .map(|child| {
+                let Value::Structure(row) = &**child else { panic!("a row is (ia{{sv}}av)") };
+                i32::try_from(&row.fields()[0]).unwrap()
+            })
+            .collect()
+    }
+
     #[test]
     fn clicks_route_enabled_rows_only() {
         let (menu, rx) = menu(vec![
@@ -604,13 +637,48 @@ mod tests {
             TrayItem::Separator,
             TrayItem::Action { id: TrayItemId::Quit, label: "Quit".into(), enabled: true },
         ]);
-        assert!(menu.clicked(1, "clicked"));
+        let ids = drawn(&menu);
+        assert!(menu.clicked(ids[0], "clicked"));
         assert!(rx.try_recv().is_err(), "a disabled row does nothing");
-        assert!(menu.clicked(3, "clicked"));
+        assert!(menu.clicked(ids[2], "clicked"));
         assert_eq!(rx.try_recv().ok(), Some(TrayEvent::Item(TrayItemId::Quit)));
-        assert!(menu.clicked(3, "hovered"));
+        assert!(menu.clicked(ids[2], "hovered"));
         assert!(rx.try_recv().is_err(), "only clicks act");
-        assert!(!menu.clicked(9, "clicked"), "unknown id");
+        assert!(menu.clicked(ids[1], "clicked"), "a separator is a row");
+        assert!(rx.try_recv().is_err(), "that does nothing");
+        assert!(!menu.clicked(99, "clicked"), "unknown id");
+    }
+
+    /// #EXP-1938: a host clicks the menu it drew. A row that went since
+    /// (Mute with the worker, Pause with the meeting) must not move the
+    /// click to the next row: Voice settings never becomes Quit.
+    #[test]
+    fn a_click_on_a_menu_drawn_before_a_row_vanished_lands_on_its_own_row() {
+        let rows = |mute: bool| {
+            let mut rows = vec![TrayItem::Action { id: TrayItemId::Open, label: "Open".into(), enabled: true }, TrayItem::Separator];
+            if mute {
+                rows.push(TrayItem::Check { id: TrayItemId::Mute, label: "Mute microphone".into(), checked: false, enabled: true });
+                rows.push(TrayItem::Separator);
+            }
+            rows.push(TrayItem::Action { id: TrayItemId::Settings, label: "Voice settings".into(), enabled: true });
+            rows.push(TrayItem::Action { id: TrayItemId::Quit, label: "Quit".into(), enabled: true });
+            rows
+        };
+        let (menu, rx) = menu(rows(true));
+        let before = drawn(&menu);
+        let (mute, settings, quit) = (before[2], before[4], before[5]);
+        menu.state.lock().unwrap().items = rows(false);
+        assert!(menu.clicked(settings, "clicked"));
+        assert_eq!(rx.try_recv().ok(), Some(TrayEvent::Item(TrayItemId::Settings)), "Voice settings stays Voice settings");
+        assert!(menu.clicked(quit, "clicked"));
+        assert_eq!(rx.try_recv().ok(), Some(TrayEvent::Item(TrayItemId::Quit)));
+        assert!(!menu.clicked(mute, "clicked"), "the row that went is no row");
+        assert!(rx.try_recv().is_err());
+        assert_eq!(menu.get_property(settings, "label".into()).unwrap(), owned("Voice settings"));
+        let after = drawn(&menu);
+        assert_eq!(after, [before[0], before[1], settings, quit], "the rows that stayed keep their ids");
+        let listed: Vec<i32> = menu.get_group_properties(Vec::new(), Vec::new()).into_iter().map(|(id, _)| id).collect();
+        assert_eq!(listed, [vec![0], after].concat(), "no ids = the root and every row");
     }
 
     #[test]
@@ -619,6 +687,6 @@ mod tests {
         let (revision, (id, props, children)) = menu.get_layout(0, -1, Vec::new()).unwrap();
         assert_eq!((revision, id, children.len()), (7, 0, 2));
         assert_eq!(props["children-display"], owned("submenu"));
-        assert!(menu.get_layout(5, -1, Vec::new()).is_err());
+        assert!(menu.get_layout(99, -1, Vec::new()).is_err());
     }
 }

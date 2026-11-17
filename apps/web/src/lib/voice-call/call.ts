@@ -20,6 +20,7 @@
 
 import {
   CALL_IDLE,
+  callPathDead,
   callStep,
   VOICE_CALL_CONSTANTS,
   VOICE_CALL_COPY,
@@ -43,7 +44,9 @@ export interface CallSocket {
 }
 
 export interface CallDeps {
-  startCall(agentId: string): Promise<{ url: string }>
+  /** EXP-1857: the server picks the target itself; `device` + `fallback`
+   *  name the desktop that speaks (an older server answers neither). */
+  startCall(agentId: string): Promise<{ url: string; device?: string; fallback?: boolean }>
   openSocket(url: string): CallSocket
   openAudio(): Promise<CallAudio>
   /** S-3: play the ring tone, at most `ms`; answers a stop (none = silent). */
@@ -84,6 +87,11 @@ export class VoiceCall {
   private lastDown: number | null = null
   private generation = 0
   private stopRing: (() => void) | null = null
+  /** EXP-1929: the relay beats (`call_alive`), when it last sent anything,
+   *  and the check that ends a path gone silent. */
+  private alive = false
+  private heardAt = 0
+  private liveness: ReturnType<typeof setInterval> | null = null
   /** A failure's toast: the fixture's (`failed`), or a refusal the server
    *  worded itself (an availability reason). */
   onToast: ((message: string) => void) | null = null
@@ -159,7 +167,16 @@ export class VoiceCall {
     }
     let url: string
     try {
-      url = (await this.deps.startCall(agentId)).url
+      const answer = await this.deps.startCall(agentId)
+      url = answer.url
+      // #EXP-1935: the answer names the device that speaks, as on the phones.
+      if (generation === this.generation && (answer.device !== undefined || answer.fallback !== undefined)) {
+        const state = this.snapshot.state
+        this.snapshot = {
+          state: { ...state, device: answer.device ?? state.device, fallback: answer.fallback ?? state.fallback },
+        }
+        for (const listener of this.listeners) listener()
+      }
     } catch (error) {
       if (generation !== this.generation) return
       this.teardown()
@@ -179,8 +196,13 @@ export class VoiceCall {
     const socket = this.deps.openSocket(url)
     socket.binaryType = `arraybuffer`
     this.socket = socket
+    this.heardAt = Date.now()
+    this.liveness = setInterval(() => {
+      if (generation === this.generation && callPathDead(this.alive, Date.now() - this.heardAt)) this.fail(`dropped`)
+    }, 1_000)
     socket.onmessage = (message) => {
       if (generation !== this.generation) return
+      this.heardAt = Date.now()
       if (typeof message.data === `string`) return this.control(message.data)
       const frame = parseAudioFrame(message.data as ArrayBuffer)
       if (!frame || frame.kind !== KIND_DOWN) return
@@ -220,6 +242,9 @@ export class VoiceCall {
         return this.fail(frame.code)
       case `bye`:
         return this.fail(frame.outcome ?? `dropped`)
+      case `call_alive`:
+        this.alive = true
+        return
     }
   }
 
@@ -267,5 +292,8 @@ export class VoiceCall {
     this.ready = false
     this.seq = 0
     this.lastDown = null
+    if (this.liveness) clearInterval(this.liveness)
+    this.liveness = null
+    this.alive = false
   }
 }

@@ -209,6 +209,10 @@ pub struct SendTarget {
     pub epoch: Option<u32>,
     #[serde(default)]
     pub public_key: Option<String>,
+    /// #EDE-97: the root is an outside MCP client's tree (in clear for
+    /// life); absent on an older server = not.
+    #[serde(default)]
+    pub clear_tree: bool,
 }
 
 #[derive(Serialize)]

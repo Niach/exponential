@@ -162,8 +162,13 @@ pub fn active(cx: &App) -> bool {
 
 /// The agent of the running call whose speech runs HERE (Speak replies
 /// speaks its conversation; EXP-1857: a dialled call's runs elsewhere).
+/// #EXP-1936: none while it still rings: replies are the call's from the
+/// greeting on (a Speak during the ring would end the ring tone).
 pub fn agent_id(cx: &App) -> Option<String> {
-    global(cx).and_then(|entity| entity.read(cx).active.as_ref().filter(|active| !active.dialled).map(|active| active.agent_id.clone()))
+    let entity = global(cx)?;
+    let this = entity.read(cx);
+    let active = this.active.as_ref().filter(|active| !active.dialled && this.state.phase != CallPhase::Ringing)?;
+    Some(active.agent_id.clone())
 }
 
 /// S-3: THIS client runs a call with `agent_id` (its telephone shows the
@@ -331,7 +336,10 @@ pub(crate) enum RingAnswer {
     Answer,
     /// #NEW-57: a meeting runs HERE: joined only to fail it `meeting`.
     RefuseMeeting,
-    /// Busy or unable to speak: no answer (the relay tells the caller).
+    /// #EXP-1936: a call the relay does not know runs here: joined only to
+    /// fail it `busy`.
+    RefuseBusy,
+    /// Unable to speak: no answer (the relay tells the caller `no_answer`).
     Ignore,
 }
 
@@ -339,10 +347,13 @@ pub(crate) enum RingAnswer {
 /// downloading: the call rings until it is ready), whether or not it is the
 /// voice device; a meeting refuses only where it runs.
 pub(crate) fn ring_answer(meeting_here: bool, busy: bool, speech: Option<SpeechState>) -> RingAnswer {
-    if meeting_here && !busy {
+    if busy {
+        return RingAnswer::RefuseBusy;
+    }
+    if meeting_here {
         return RingAnswer::RefuseMeeting;
     }
-    if busy || !matches!(speech, Some(SpeechState::Ready | SpeechState::Downloading)) {
+    if !matches!(speech, Some(SpeechState::Ready | SpeechState::Downloading)) {
         return RingAnswer::Ignore;
     }
     RingAnswer::Answer
@@ -355,7 +366,8 @@ pub fn on_ring(call_id: String, agent_id: String, cx: &mut App) {
     let here = host::device_id(cx);
     let meeting_here = settings.meeting() && here.is_some() && settings.voice_device_id == here;
     match ring_answer(meeting_here, active(cx), crate::speak_replies::speech_state(cx)) {
-        RingAnswer::RefuseMeeting => return refuse_for_meeting(call_id, cx),
+        RingAnswer::RefuseMeeting => return refuse(call_id, "meeting", cx),
+        RingAnswer::RefuseBusy => return refuse(call_id, "busy", cx),
         RingAnswer::Ignore => {
             log::info!("[voice] call {call_id}: not answered here");
             return;
@@ -374,6 +386,11 @@ pub fn on_ring(call_id: String, agent_id: String, cx: &mut App) {
                 return;
             }
         };
+        if !admitted(&rx).await {
+            log::info!("[voice] call {call_id}: the ring ended before the relay admitted this device");
+            host.end();
+            return;
+        }
         let started = weak.update(cx, |this, cx| {
             if this.active.is_some() {
                 host.end();
@@ -394,16 +411,30 @@ pub fn on_ring(call_id: String, agent_id: String, cx: &mut App) {
     .detach();
 }
 
+/// EXP-1929: the call starts here only once the relay admitted this
+/// device (`call_ready`); a ring cancelled before (the caller hung up, the
+/// ring timed out: the relay answers `no_such_call`) ends without a call,
+/// silently, as the fixture ends a cancelled ring.
+async fn admitted(events: &flume::Receiver<CallLinkEvent>) -> bool {
+    loop {
+        match events.recv_async().await {
+            Ok(CallLinkEvent::Ready) => return true,
+            Ok(CallLinkEvent::Ended { .. } | CallLinkEvent::Dropped(_)) | Err(_) => return false,
+            Ok(_) => {}
+        }
+    }
+}
+
 /// The `call_event` a host sends before hanging up on a call it failed
 /// (voice-call.json `wire.control`): the caller steps it as `failed`.
 fn host_failed_event(code: &str) -> serde_json::Value {
     serde_json::json!({ "t": "failed", "code": code })
 }
 
-/// #NEW-57: join the call only to fail it as `meeting` (a `failed` flow
-/// event the caller steps), then hang up.
-fn refuse_for_meeting(call_id: String, cx: &mut App) {
-    log::info!("[voice] call {call_id}: refused, a meeting runs");
+/// #NEW-57: join the call only to fail it as `code` (a `failed` flow event
+/// the caller steps: `meeting`, #EXP-1936 `busy`), then hang up.
+fn refuse(call_id: String, code: &'static str, cx: &mut App) {
+    log::info!("[voice] call {call_id}: refused ({code})");
     let Some(connecting) = host::host(cx).and_then(|host| host.connect_call(&call_id, cx)) else { return };
     cx.spawn(async move |cx| {
         let Ok(connection) = connecting.await else { return };
@@ -412,7 +443,7 @@ fn refuse_for_meeting(call_id: String, cx: &mut App) {
         while started.elapsed() < ring_timeout() {
             match rx.try_recv() {
                 Ok(CallLinkEvent::Ready) => {
-                    host.send_event(host_failed_event("meeting"));
+                    host.send_event(host_failed_event(code));
                     break;
                 }
                 Ok(CallLinkEvent::Ended { .. } | CallLinkEvent::Dropped(_))
@@ -457,6 +488,15 @@ pub fn settings_changed(cx: &mut App) {
     let meeting_here = settings.meeting() && here.is_some() && settings.voice_device_id == here;
     if meeting_here && active(cx) {
         end(cx);
+    }
+    // #EXP-1936: the worker is no longer wanted here (the Assistant is
+    // gone) and was shut down, which sends no `Exited`: the call ends as it
+    // does when the worker dies, a streamed caller told why.
+    let unwanted = here.is_some_and(|here| !crate::speak_replies::voice_here(&settings, &here).active());
+    if unwanted && active(cx) {
+        if let Some(entity) = global(cx) {
+            entity.update(cx, |this, cx| this.fail("dropped", cx));
+        }
     }
 }
 
@@ -531,7 +571,7 @@ impl VoiceCall {
     fn begin(&mut self, agent_id: String, host: Option<Box<dyn CallLink>>, device: String, fallback: bool, cx: &mut Context<Self>) {
         let Some(client) = crate::speak_replies::client(cx) else { return };
         // A held push to talk and anything being said stop first.
-        crate::push_to_talk::signed_out(cx);
+        crate::push_to_talk::cancel_for_call(cx);
         if crate::speak_replies::speaking(cx).is_some() {
             crate::speak_replies::stop(cx);
         }
@@ -556,7 +596,7 @@ impl VoiceCall {
     /// speaker here, and rings until the host answers.
     fn dial(&mut self, agent_id: String, device: String, fallback: bool, cx: &mut Context<Self>) {
         let Some(client) = crate::speak_replies::client(cx) else { return };
-        crate::push_to_talk::signed_out(cx);
+        crate::push_to_talk::cancel_for_call(cx);
         if crate::speak_replies::speaking(cx).is_some() {
             crate::speak_replies::stop(cx);
         }
@@ -635,7 +675,13 @@ impl VoiceCall {
             DialLinkEvent::Event(value) => match call_event_of_wire(&value) {
                 // The host failed the call (its `call_end` follows): its toast.
                 Some(CallEvent::Failed(code)) => self.fail(&code, cx),
-                Some(event) => {
+                // #EXP-1936: a host forwards flow events only (voice-call.json
+                // `wire.control.call_event`). Its `end` / `hungUp` end the
+                // call for real (a step alone would hide a call whose
+                // microphone stays open); `start`, `mute`, `unmute` and
+                // `speaker` are this side's own.
+                Some(event @ (CallEvent::End | CallEvent::HungUp(_))) => self.close_with(true, event, cx),
+                Some(event) if wire_event(&event).is_some() => {
                     // Barge-in: the reply still queued here stops.
                     if event == CallEvent::SpeechStarted {
                         if let Some(client) = crate::speak_replies::client(cx) {
@@ -644,7 +690,7 @@ impl VoiceCall {
                     }
                     self.step(event, cx);
                 }
-                None => {}
+                _ => {}
             },
             DialLinkEvent::Audio(pcm) => {
                 if let Some(client) = crate::speak_replies::client(cx) {
@@ -1381,6 +1427,25 @@ mod tests {
         assert_eq!(host_ended(Some("max_length"), cx), vec![dropped]);
     }
 
+    /// EXP-1929: a ring cancelled before the relay admitted this device
+    /// (`no_such_call`, a hang-up, a link gone) starts no call; only
+    /// `call_ready` does.
+    #[gpui::test]
+    async fn a_call_starts_only_on_the_relays_admit() {
+        async fn outcome(events: Vec<CallLinkEvent>) -> bool {
+            let (tx, rx) = flume::unbounded();
+            for event in events {
+                tx.send(event).unwrap();
+            }
+            drop(tx);
+            admitted(&rx).await
+        }
+        assert!(!outcome(vec![CallLinkEvent::Dropped("no_such_call".into())]).await);
+        assert!(!outcome(vec![CallLinkEvent::Ended { reason: None }]).await);
+        assert!(!outcome(vec![]).await, "the link went away");
+        assert!(outcome(vec![CallLinkEvent::Ready, CallLinkEvent::Dropped("later".into())]).await);
+    }
+
     /// The caller pressing End call (no reason) ends it silently.
     #[gpui::test]
     async fn the_caller_hanging_up_is_silent(cx: &mut gpui::TestAppContext) {
@@ -1450,12 +1515,13 @@ mod tests {
     fn any_desktop_that_speaks_answers_a_ring() {
         assert_eq!(ring_answer(false, false, Some(SpeechState::Ready)), RingAnswer::Answer, "not the voice device: answers");
         assert_eq!(ring_answer(false, false, Some(SpeechState::Downloading)), RingAnswer::Answer, "rings until ready");
-        assert_eq!(ring_answer(false, true, Some(SpeechState::Ready)), RingAnswer::Ignore, "busy");
+        assert_eq!(ring_answer(false, true, Some(SpeechState::Ready)), RingAnswer::RefuseBusy, "#EXP-1936: in a call the relay does not know");
+        assert_eq!(ring_answer(false, true, None), RingAnswer::RefuseBusy);
         assert_eq!(ring_answer(false, false, Some(SpeechState::NoGpu)), RingAnswer::Ignore);
         assert_eq!(ring_answer(false, false, Some(SpeechState::Failed)), RingAnswer::Ignore);
         assert_eq!(ring_answer(false, false, None), RingAnswer::Ignore, "no speech row");
         assert_eq!(ring_answer(true, false, Some(SpeechState::Ready)), RingAnswer::RefuseMeeting);
-        assert_eq!(ring_answer(true, true, Some(SpeechState::Ready)), RingAnswer::Ignore, "a running call keeps it");
+        assert_eq!(ring_answer(true, true, Some(SpeechState::Ready)), RingAnswer::RefuseBusy, "a running call keeps it");
     }
 
     /// EXP-1857: the server's refusals in the fixture's words are toasted
@@ -1552,6 +1618,139 @@ mod tests {
             host_event(&id, serde_json::json!({ "t": "failed", "code": "unavailable" }), cx);
             assert!(!active(cx));
         });
+    }
+
+    use crate::test_support::{settings, Rig, AGENT};
+
+    /// A local call through the real `start`, still ringing: its worker id.
+    fn rung(cx: &mut gpui::TestAppContext) -> String {
+        cx.update(|cx| {
+            start(AGENT.into(), cx);
+            assert_eq!(phase(cx), CallPhase::Ringing);
+            global(cx).unwrap().read(cx).active.as_ref().unwrap().id.clone()
+        })
+    }
+
+    /// The worker listens and the longest drawn ring passed: answered.
+    fn answered(rig: &Rig, id: &str, cx: &mut gpui::TestAppContext) {
+        rig.worker(etalk::Event::CallListening { id: id.into() }, cx);
+        let constants = &VOICE_CALL.constants;
+        cx.executor().advance_clock(Duration::from_millis(constants.min_ring_ms + constants.ring_jitter_ms));
+        cx.run_until_parked();
+    }
+
+    fn finished(rig: &Rig, id: &str, cx: &mut gpui::TestAppContext) {
+        rig.worker(etalk::Event::Finished { id: id.into(), stopped: false }, cx);
+    }
+
+    /// #EXP-1936: the call and the speaker together: the greeting is said
+    /// and its end listens; an utterance goes out and waits; the agent's
+    /// reply is spoken and the call follows it; a card-only row is not.
+    #[gpui::test]
+    async fn a_call_speaks_its_greeting_and_its_replies(cx: &mut gpui::TestAppContext) {
+        let rig = Rig::install(settings(), cx);
+        let id = rung(cx);
+        assert!(matches!(rig.requests().last(), Some(etalk::Request::Call { remote: false, .. })));
+        answered(&rig, &id, cx);
+        let greeting = format!("{id}-greeting");
+        assert_eq!(rig.spoken(), [greeting.clone()]);
+        assert_eq!(cx.update(|cx| phase(cx)), CallPhase::Speaking);
+        finished(&rig, &greeting, cx);
+        assert_eq!(cx.update(|cx| phase(cx)), CallPhase::Listening);
+        rig.worker(etalk::Event::Said { id: id.clone(), text: "status of the release".into() }, cx);
+        assert_eq!(cx.update(|cx| phase(cx)), CallPhase::Thinking);
+        rig.row(crate::test_support::Row { id: "card".into(), author_kind: "agent", body: "A plan.".into(), has_card: true, created_at: "2026-11-17T10:00:04.000Z".into() }, cx);
+        assert!(rig.spoken().is_empty(), "a card is shown, never spoken");
+        rig.message("r1", "agent", "All green. Ship it.", 5, cx);
+        assert_eq!(rig.spoken(), ["r1"]);
+        assert_eq!(cx.update(|cx| (phase(cx), face(cx).unwrap().view.caption)), (CallPhase::Speaking, "All green.".to_string()));
+        finished(&rig, "r1", cx);
+        assert_eq!(cx.update(|cx| phase(cx)), CallPhase::Listening);
+        assert!(rig.notices().is_empty());
+    }
+
+    /// #EXP-1936: while the call still rings no reply is the call's: the
+    /// answer to a message typed before it is not read aloud (a Speak would
+    /// end the ring tone, and the greeting would cut it off).
+    #[gpui::test]
+    async fn a_reply_during_the_ring_is_not_the_calls(cx: &mut gpui::TestAppContext) {
+        let rig = Rig::install(settings(), cx);
+        let id = rung(cx);
+        rig.message("typed", "agent", "The answer to what you typed.", 5, cx);
+        assert!(rig.spoken().is_empty(), "nothing is said during the ring");
+        assert_eq!(cx.update(|cx| (agent_id(cx), crate::speak_replies::speaking(cx))), (None, None));
+        assert_eq!(cx.update(|cx| phase(cx)), CallPhase::Ringing);
+        answered(&rig, &id, cx);
+        assert_eq!(rig.spoken(), [format!("{id}-greeting")]);
+        assert_eq!(cx.update(|cx| agent_id(cx)).as_deref(), Some(AGENT), "answered: its replies are the call's");
+    }
+
+    /// #EXP-1936: a settings change that takes the worker away (the
+    /// Assistant removed on another client) ends the call like a worker
+    /// that died: a requested shutdown sends no `Exited`.
+    #[gpui::test]
+    async fn a_settings_change_that_takes_the_worker_ends_the_call(cx: &mut gpui::TestAppContext) {
+        let rig = Rig::install(settings(), cx);
+        let id = rung(cx);
+        answered(&rig, &id, cx);
+        cx.update(|cx| crate::set_settings(etalk::voice::VoiceSettings { agent_id: None, ..settings() }, cx));
+        cx.run_until_parked();
+        cx.update(|cx| {
+            assert!(!active(cx), "no call without a worker");
+            assert_eq!(global(cx).unwrap().read(cx).toasts, vec![VOICE_CALL.copy.failed["dropped"].clone()]);
+        });
+    }
+
+    /// #EXP-1936: a ring that reaches a desktop already in a call (a local
+    /// one, which the relay does not know) is answered `busy`: joined, the
+    /// `failed` event once the caller is on, then hung up. The running call
+    /// goes on.
+    #[gpui::test]
+    async fn a_ring_during_a_call_is_refused_as_busy(cx: &mut gpui::TestAppContext) {
+        let rig = Rig::install(settings(), cx);
+        rung(cx);
+        let (caller, link) = rig.incoming_call();
+        caller.send(CallLinkEvent::Ready).unwrap();
+        cx.update(|cx| on_ring("c-2".into(), AGENT.into(), cx));
+        cx.run_until_parked();
+        assert_eq!(*link.borrow(), [format!("event {}", host_failed_event("busy")), "end".to_string()]);
+        cx.update(|cx| assert!(active(cx) && phase(cx) == CallPhase::Ringing, "the call here goes on"));
+    }
+
+    /// #EXP-1936 (voice-call.json `wire.control.call_event`): the dialling
+    /// desktop steps only what a host forwards. `start`, `mute`, `unmute`
+    /// and `speaker` are this side's own; `end` and `hungUp` end the call
+    /// for real (never a hidden call with an open microphone).
+    #[gpui::test]
+    async fn a_dialling_desktop_steps_only_what_a_host_forwards(cx: &mut gpui::TestAppContext) {
+        setup(cx);
+        let (id, recorder) = dialled(cx);
+        cx.update(|cx| {
+            host_event(&id, serde_json::json!({ "t": "rang" }), cx);
+            host_event(&id, serde_json::json!({ "t": "ready" }), cx);
+            let before = global(cx).unwrap().read(cx).state.clone();
+            assert_eq!(before.phase, CallPhase::Speaking);
+            for foreign in [
+                serde_json::json!({ "t": "start", "device": "elsewhere" }),
+                serde_json::json!({ "t": "mute" }),
+                serde_json::json!({ "t": "unmute" }),
+                serde_json::json!({ "t": "speaker", "on": true }),
+            ] {
+                host_event(&id, foreign.clone(), cx);
+                assert_eq!(global(cx).unwrap().read(cx).state, before, "{foreign} is not the host's to send");
+            }
+            host_event(&id, serde_json::json!({ "t": "end" }), cx);
+            assert!(!active(cx), "`end` ends the call");
+            assert_eq!(phase(cx), CallPhase::Hidden);
+        });
+        assert_eq!(*recorder.0.borrow(), ["end"], "and hangs up on the host");
+        let (id, recorder) = dialled(cx);
+        cx.update(|cx| {
+            host_event(&id, serde_json::json!({ "t": "hungUp", "reason": "idle" }), cx);
+            assert!(!active(cx), "`hungUp` ends the call");
+            assert_eq!(global(cx).unwrap().read(cx).toasts, vec![VOICE_CALL.copy.failed["dropped"].clone()]);
+        });
+        assert_eq!(*recorder.0.borrow(), ["end"]);
     }
 
     /// F41: a host that fails the call names the code before `call_end`.

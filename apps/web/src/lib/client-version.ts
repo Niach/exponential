@@ -45,6 +45,21 @@ function envVersion(kind: `MIN` | `LATEST`, platform: ClientPlatform) {
   return trimmed ? trimmed : null
 }
 
+/** #EDE-97 (sealed-content.json `clearTree.deviceMinVersion`): desktop and
+ *  CLI builds below it never key a chat tree, so a CONFIGURED minimum below
+ *  it counts as it (unset still fails open). */
+export const DEVICE_SEALING_FLOOR = `0.14.96`
+const FLOORED: readonly ClientPlatform[] = [`desktop`, `cli`]
+
+/** The configured minimum, raised to the sealing floor for devices. */
+function minVersion(platform: ClientPlatform): string | null {
+  const min = envVersion(`MIN`, platform)
+  if (!min || !FLOORED.includes(platform)) return min
+  const tuple = parseVersionTuple(min)
+  if (!tuple) return min
+  return isBelow(tuple, parseVersionTuple(DEVICE_SEALING_FLOOR)!) ? DEVICE_SEALING_FLOOR : min
+}
+
 function isBelow(
   version: [number, number, number],
   min: [number, number, number]
@@ -63,7 +78,7 @@ export function checkClientVersion(request: Request): Response | null {
   )
   if (!parsed) return null
 
-  const min = envVersion(`MIN`, parsed.platform)
+  const min = minVersion(parsed.platform)
   if (!min) return null
   const minTuple = parseVersionTuple(min)
   const versionTuple = parseVersionTuple(parsed.version)
@@ -87,7 +102,7 @@ export function versionPayload() {
   return Object.fromEntries(
     PLATFORMS.map((platform) => [
       platform,
-      { min: envVersion(`MIN`, platform), latest: envVersion(`LATEST`, platform) },
+      { min: minVersion(platform), latest: envVersion(`LATEST`, platform) },
     ])
   )
 }

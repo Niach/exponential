@@ -131,15 +131,21 @@ struct SealRoot: Equatable, Sendable {
     let deviceId: String
     let shared: Bool
     let key: TreeSealKey?
+    /// #EDE-97: an outside MCP client's tree: plaintext, never keyed.
+    var clearTree: Bool = false
 }
 
 public struct SendSealing: Sendable {
     private let holder: TreeKeyHolder
     private let crypto: SealedCrypto
+    private let holderWait: Duration
+    private let keyWait: Duration
 
-    public init(holder: TreeKeyHolder, crypto: SealedCrypto) {
+    public init(holder: TreeKeyHolder, crypto: SealedCrypto, holderWait: Duration = sealHolderWait, keyWait: Duration = sealKeyWait) {
         self.holder = holder
         self.crypto = crypto
+        self.holderWait = holderWait
+        self.keyWait = keyWait
     }
 
     /// Seals the text of a send (and keys the root when it has no key).
@@ -151,6 +157,12 @@ public struct SendSealing: Sendable {
     /// (`sessions.sendTarget`) before a key rides inline; `fresh` = the server
     /// refused this send's key write once: the tree is resolved from the
     /// server alone.
+    /// #EDE-97 (sealed-content.json `clearTree`, `sendWire`): NO SILENT
+    /// PLAINTEXT. Only a clear tree takes the text in clear; a holder still
+    /// coming up is waited for (`holderWait`), a keyless tree this install
+    /// may not key waits for its device's key (`keyWait`); anything else
+    /// throws `SealRefusal` and nothing leaves. An attachment-only send is not
+    /// sealed and never refused.
     func prepare(
         accountId: String,
         _ input: SessionsSendInput,
@@ -158,9 +170,8 @@ public struct SendSealing: Sendable {
         mentions: [String]?,
         deviceIds: @Sendable (String?) -> [String],
         fresh: Bool = false
-    ) async -> PreparedSend {
+    ) async throws -> PreparedSend {
         let plain = PreparedSend(input: SealedSendInput(input: input, mentionUserIds: mentions), newKey: nil)
-        guard crypto.isAvailable else { return plain }
         var teamId: String?
         var steerDevice: String?
         var conversation: (agentId: String?, appId: String?)?
@@ -179,17 +190,29 @@ public struct SendSealing: Sendable {
         case let .message(id, _, _, _), let .child(id, _, _, _):
             sessionId = id
         }
-        let sealed = { (key: TreeSealKey) in
-            PreparedSend(input: SealedSendInput(input: self.seal(input, to: key), mentionUserIds: mentions), newKey: nil)
+        // A clear tree takes plaintext and is never keyed.
+        if root?.clearTree == true { return plain }
+        let hasText = !(input.text ?? "").isEmpty
+        let refuse = { () throws -> PreparedSend in
+            guard hasText else { return plain }
+            logger.error("No key to seal this send to: refused, nothing sent")
+            throw SealRefusal()
+        }
+        guard await holder.readyInstall(accountId: accountId, wait: hasText ? holderWait : .zero) != nil else {
+            return try refuse()
+        }
+        let sealed = { (key: TreeSealKey) throws in
+            PreparedSend(input: SealedSendInput(input: try self.seal(input, to: key), mentionUserIds: mentions), newKey: nil)
         }
         let target: ServerSendTarget? = if let conversation, root == nil || fresh {
             await holder.sendTarget(accountId: accountId, agentId: conversation.agentId, appId: conversation.appId)
         } else {
             nil
         }
+        if target?.clearTree == true { return plain }
         if let target, let rootId = target.rootId {
             // The server's root: sealed to its key, a keyless one keyed first.
-            guard let key = await holder.sealKey(
+            if let key = await holder.sealKey(
                 accountId: accountId,
                 rootId: rootId,
                 known: target.key,
@@ -197,15 +220,18 @@ public struct SendSealing: Sendable {
                 deviceIds: deviceIds(root?.deviceId ?? steerDevice),
                 shared: false,
                 lookup: false
-            ) else { return plain }
-            return sealed(key)
+            ) {
+                return try sealed(key)
+            }
+            guard hasText, let key = await arrivingKey(accountId: accountId, rootId: rootId) else { return try refuse() }
+            return try sealed(key)
         }
         if let root, !(target != nil && fresh) {
             let synced = root.key
             let known = fresh ? (await holder.serverKey(accountId: accountId, rootId: root.id) ?? synced) : synced
             // A store-keyless root is keyed first; a refused create asks the
-            // server's key before the plaintext goes.
-            guard let key = await holder.sealKey(
+            // server's key, then waits for its device's claim to key it.
+            if let key = await holder.sealKey(
                 accountId: accountId,
                 rootId: root.id,
                 known: known,
@@ -213,13 +239,17 @@ public struct SendSealing: Sendable {
                 deviceIds: deviceIds(root.deviceId),
                 shared: root.shared,
                 lookup: false
-            ) else { return plain }
-            return sealed(key)
+            ) {
+                return try sealed(key)
+            }
+            guard hasText, let key = await arrivingKey(accountId: accountId, rootId: root.id) else { return try refuse() }
+            return try sealed(key)
         }
         if fresh, conversation == nil, let sessionId {
-            // A session the store does not have: its key, when it is a keyed root.
-            guard let key = await holder.serverKey(accountId: accountId, rootId: sessionId) else { return plain }
-            return sealed(key)
+            // A session the store does not have: its key, when it is keyed
+            // (or keyed by its device's claim within the wait).
+            guard let key = await arrivingKey(accountId: accountId, rootId: sessionId) else { return try refuse() }
+            return try sealed(key)
         }
         // A root that does not exist yet: it starts with our key, inline.
         do {
@@ -229,13 +259,29 @@ public struct SendSealing: Sendable {
                 deviceIds: deviceIds(steerDevice),
                 shared: false
             )
-            let sealed = self.seal(input, to: TreeSealKey(publicKey: key.publicKey, epoch: 1))
+            let sealed = try self.seal(input, to: TreeSealKey(publicKey: key.publicKey, epoch: 1))
             return PreparedSend(input: SealedSendInput(input: sealed, seal: seal, mentionUserIds: mentions), newKey: key)
+        } catch let refusal as SealRefusal {
+            throw refusal
         } catch {
-            logger.error("No key for a new root (\(String(describing: error), privacy: .public)): sending plaintext")
-            return plain
+            logger.error("No key for a new root (\(String(describing: error), privacy: .public))")
+            return try refuse()
         }
     }
+
+    /// The server's key of a keyless tree this install may not key, polled
+    /// until its device's claim keys it (`keyWait`); nil = none came.
+    private func arrivingKey(accountId: String, rootId: String) async -> TreeSealKey? {
+        let clock = ContinuousClock()
+        let deadline = clock.now + keyWait
+        while true {
+            if let key = await holder.serverKey(accountId: accountId, rootId: rootId) { return key }
+            if clock.now >= deadline || Task.isCancelled { return nil }
+            try? await Task.sleep(for: min(Self.keyPoll, deadline - clock.now))
+        }
+    }
+
+    static let keyPoll: Duration = .seconds(1)
 
     /// The server answered a send: a root started with our key holds it now.
     public func completed(_ prepared: PreparedSend, result: SessionsSendResult) async {
@@ -244,14 +290,15 @@ public struct SendSealing: Sendable {
         await holder.adopt(rootId: result.sessionId, key: key)
     }
 
-    private func seal(_ input: SessionsSendInput, to key: TreeSealKey?) -> SessionsSendInput {
-        guard let key, let text = input.text, !text.isEmpty else { return input }
+    /// The text sealed to `key`; a seal that fails throws, never plaintext.
+    private func seal(_ input: SessionsSendInput, to key: TreeSealKey) throws -> SessionsSendInput {
+        guard let text = input.text, !text.isEmpty else { return input }
         do {
             let body = SealedAttachmentLines.withEmbeds(text, attachmentIds: input.attachmentIds, uploadOf: SealedAttachmentLines.upload)
             return input.with(text: try crypto.sealBody(treePublicKey: key.publicKey, epoch: key.epoch, text: body))
         } catch {
             logger.error("Sealing failed: \(String(describing: error), privacy: .public)")
-            return input
+            throw SealRefusal()
         }
     }
 }

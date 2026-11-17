@@ -15,6 +15,7 @@ import {
   keyVersion,
   setCachedKeys,
   setCurrentKeyHolder,
+  setHolderKick,
   subscribeKeyChange,
 } from "./current-key-holder"
 import { loadIdentity } from "./identity-store"
@@ -90,7 +91,10 @@ export function useKeyHolder(userId: string | undefined) {
       const found = await resolveInstall(userId).catch(() => undefined)
       if (stopped) return
       if (!found) {
-        retry = setTimeout(() => void attempt(), RESOLVE_RETRY_MS)
+        retry = setTimeout(() => {
+          retry = undefined
+          void attempt()
+        }, RESOLVE_RETRY_MS)
         return
       }
       own = new KeyHolder(userId, found.installId, found.secret, { api, store: indexedDbTreeKeyStore })
@@ -109,8 +113,16 @@ export function useKeyHolder(userId: string | undefined) {
       cache = undefined
     }
     void attempt()
+    // #EDE-97: a send waiting for the holder asks for the install now.
+    setHolderKick(() => {
+      if (stopped || own || retry === undefined) return
+      clearTimeout(retry)
+      retry = undefined
+      void attempt()
+    })
     return () => {
       stopped = true
+      setHolderKick(undefined)
       clearTimeout(retry)
       dropCache()
       if (own && currentKeyHolder() === own) {

@@ -8,6 +8,7 @@ import {
   callAvailability,
   callSpeechOf,
   callRingMs,
+  callPathDead,
   callRingToneOn,
   callStep,
   callTap,
@@ -84,6 +85,14 @@ describe(`EXP-1423: the ring`, () => {
   for (const entry of fixture.ringToneCases) {
     test(`tone at ${entry.ms} ms`, () => {
       expect(callRingToneOn(entry.ms)).toBe(entry.on)
+    })
+  }
+})
+
+describe(`livenessCases`, () => {
+  for (const entry of fixture.livenessCases) {
+    test(entry.name, () => {
+      expect(callPathDead(entry.input.alive, entry.input.silentMs)).toBe(entry.expected.dead)
     })
   }
 })

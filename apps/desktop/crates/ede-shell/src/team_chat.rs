@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 
 use domain::rows::{AgentDefRow, MessageRow, SessionRow, User};
-use uicore_model::chat::{ChatAgentInput, ChatInput};
+use uicore_model::chat::{ChatAgentInput, ChatInput, ChatMark};
 
 use crate::inbox::AccountRows;
 
@@ -140,6 +140,7 @@ pub fn input(rows: &TeamRows, chat: &TeamChat, now_ms: i64) -> ChatInput {
     input.bubbles = domain::session_tree::chat_mode(root.agent_id.as_deref()) == domain::session_tree::ChatMode::Bubbles;
     input.busy = view.busy;
     input.session_id = Some(root.id.clone());
+    input.marks = marks(&rows.account, root);
     input.rows = crate::chat::rows(&view.rows, &by_id, |id| Some(author_label(id.and_then(|id| users.get(id).copied()))));
     // #EDE-65 lane O: the IDE transcript's grouping (avatars, names, gaps).
     let transcript = domain::transcript_grouping::TranscriptInput {
@@ -152,6 +153,20 @@ pub fn input(rows: &TeamRows, chat: &TeamChat, now_ms: i64) -> ChatInput {
     let icons: HashMap<String, String> = input.agents.iter().map(|a| (a.id.clone(), a.icon.clone())).collect();
     crate::chat::group(&mut input.rows, &view.rows, transcript, |sender| Some(avatar_icon(sender, &icons)));
     input
+}
+
+/// #EDE-98: the chat's marks after the title (chats.json chatMarks), read
+/// off the tree's root: `ui-team` when shared, `ui-unencrypted` without a key.
+fn marks(rows: &AccountRows, session: &SessionRow) -> Vec<ChatMark> {
+    chat_marks(rows.sessions.iter().find(|s| s.id == session.root_id_or_self()).unwrap_or(session))
+}
+
+/// #EDE-98: a root's marks as the chat model takes them.
+pub fn chat_marks(root: &SessionRow) -> Vec<ChatMark> {
+    domain::chats::chat_marks(root.shared, root.seal_epoch)
+        .into_iter()
+        .map(|mark| ChatMark { icon: mark.concept().into(), label: mark.label().into(), test_id: mark.test_id().into() })
+        .collect()
 }
 
 /// #EDE-65 lane O: a sender's avatar as the chat document names it (the
@@ -418,6 +433,23 @@ mod tests {
         let keyed: SessionRow = serde_json::from_value(json!({"id": "s1", "seal_public_key": public, "seal_epoch": 2})).unwrap();
         let sealed = seal(&keyed, "hi").expect("sealed");
         assert!(sealed.starts_with("exp-sealed:v1:2:"), "{sealed}");
+    }
+
+    /// #EDE-98: the header's marks come off the tree's root (chats.json marksCases).
+    #[test]
+    fn the_marks_read_the_root_s_shared_and_key() {
+        let marks = |r: &TeamRows| input(r, &chat(Some("s1")), 0).marks.iter().map(|m| (m.icon.clone(), m.label.clone(), m.test_id.clone())).collect::<Vec<_>>();
+        let team = ("ui-team".to_string(), "Shared with the team".to_string(), "chat-mark-team".to_string());
+        let open = ("ui-unencrypted".to_string(), "Not encrypted".to_string(), "chat-mark-unencrypted".to_string());
+        let mut r = rows();
+        assert_eq!(marks(&r), [open.clone()], "a private chat without a key");
+        r.account.sessions[0].shared = true;
+        assert_eq!(marks(&r), [team.clone(), open], "a shared chat without a key: the team first");
+        r.account.sessions[0].seal_epoch = Some(1);
+        assert_eq!(marks(&r), [team], "a shared encrypted chat");
+        r.account.sessions[0].shared = false;
+        assert!(marks(&r).is_empty(), "a private encrypted chat draws nothing");
+        assert!(input(&r, &chat(None), 0).marks.is_empty(), "the home has none");
     }
 
     #[test]

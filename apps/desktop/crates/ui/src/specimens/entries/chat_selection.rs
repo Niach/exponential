@@ -89,7 +89,13 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
                     &row.session_id,
                     Some((is_selected, true)),
                     |_, _, _| {},
-                    chat_row(row, chat_lead_disc(row.lead, None, is_selected, cx), cx),
+                    chat_row(
+                        row,
+                        chat_lead_disc(row.lead, None, is_selected, cx),
+                        // #EDE-98: row i of listCases[0] wears marksCases[i % length].
+                        &crate::chat_list::specimen_marks(list.rows.iter().position(|r| r.session_id == row.session_id).unwrap_or(0)),
+                        cx,
+                    ),
                     cx,
                 )
                 .into_any_element(),

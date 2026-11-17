@@ -289,6 +289,9 @@ struct Shell {
     thumbs_tx: mpsc::Sender<(String, String)>,
     /// The OSD closes when this passes.
     osd_until: Option<Instant>,
+    /// #EDE-89: when each popup document last opened (epoch ms, the clock of
+    /// the compositor's event stamps).
+    popups_opened: HashMap<String, i64>,
     /// Bumped by every fresh Alt+Tab: a delay timer of an earlier one shows nothing.
     switcher_generation: u64,
     notifications: Notifications,
@@ -1662,6 +1665,7 @@ fn toggle_popup(shell: &SharedShell, name: &str, cx: &mut App) {
     }
     let Some(doc) = document(&shell.borrow(), name) else { return };
     let feed = shell.borrow().feed.clone();
+    shell.borrow_mut().popups_opened.insert(name.to_string(), now_ms());
     shell.borrow_mut().surfaces.open_popup(&doc, &feed, cx);
 }
 
@@ -1684,15 +1688,28 @@ fn apply_change(shell: &SharedShell, change: Change, cx: &mut App) {
                     shell.borrow_mut().surfaces.redraw(&doc, &feed, cx);
                     tracing::info!(document = %name, "redrawn");
                 }
-                // An on-demand surface (the switcher, the OSD) waits for its hotkey.
                 (false, SurfaceHeader::Layer { on_demand: false, .. }) => open_layer(shell, &doc, cx),
-                (false, SurfaceHeader::Layer { on_demand: true, .. }) | (false, SurfaceHeader::Popup { .. }) => {}
+                // An on-demand surface (the switcher, the OSD) waits for its hotkey, a popup for its anchor.
+                (false, SurfaceHeader::Layer { on_demand: true, .. }) | (false, SurfaceHeader::Popup { .. }) => {
+                    if let Some(line) = loaded_frame(false, &doc) {
+                        println!("{line}");
+                    }
+                }
             }
         }
         Change::Removed { name, .. } => close(shell, &name, cx),
         Change::Rejected { name, issues, .. } => tracing::warn!(document = %name, ?issues, "refused; the last good version stays"),
         Change::ThemeApplied { .. } | Change::ThemeRejected { .. } => {}
     }
+}
+
+/// The frame line a change owes the supervisor without drawing (#EDE-110):
+/// a closed popup or on-demand layer is loaded, not drawn, and loading it
+/// proves the edit (one that breaks once opened crashes the shell, and
+/// three crashes revert it). An open or opening surface reports its frame.
+fn loaded_frame(open: bool, doc: &Document) -> Option<String> {
+    let closed = !open && matches!(doc.surface, SurfaceHeader::Layer { on_demand: true, .. } | SurfaceHeader::Popup { .. });
+    closed.then(|| FrameLine::line_for_digest(&doc.name, &doc.digest))
 }
 
 /// Pushes the feed into every open view.
@@ -2649,8 +2666,17 @@ fn open_on_demand(shell: &SharedShell, name: &str, cx: &mut App) {
     }
 }
 
-/// A key the compositor kept for the shell (#EDE-12).
-fn hotkey(shell: &SharedShell, name: &str, cx: &mut App) {
+/// The popup documents a press outside them closes (`popups.dismiss`):
+/// those open when it was pressed (`pressed_at`, the event's stamp). One the
+/// press itself opened (the start menu from its button) stays: its press
+/// reaches the shell before the event does, or after (#EDE-89).
+fn popups_to_dismiss(open: &[(String, Option<i64>)], pressed_at: i64) -> Vec<String> {
+    open.iter().filter(|(_, opened)| opened.is_none_or(|at| at < pressed_at)).map(|(name, _)| name.clone()).collect()
+}
+
+/// A key the compositor kept for the shell (#EDE-12), at the compositor's
+/// stamp `at` (epoch ms).
+fn hotkey(shell: &SharedShell, name: &str, at: i64, cx: &mut App) {
     tracing::info!(name, "hotkey");
     match name {
         "switcher.next" => switcher_step(shell, ShellEvent::AltTabNext, cx),
@@ -2674,10 +2700,13 @@ fn hotkey(shell: &SharedShell, name: &str, cx: &mut App) {
         },
         "screenshot" => screenshot(shell),
         "popups.dismiss" => {
-            let names: Vec<String> = {
+            let (names, menu_stays) = {
                 let s = shell.borrow();
                 let ui = s.ui.lock().unwrap_or_else(|p| p.into_inner());
-                s.surfaces.open_names().filter(|n| ui.document(n).is_some_and(|d| matches!(d.surface, SurfaceHeader::Popup { .. }))).map(String::from).collect()
+                let open: Vec<(String, Option<i64>)> = s.surfaces.open_names().filter(|n| ui.document(n).is_some_and(|d| matches!(d.surface, SurfaceHeader::Popup { .. }))).map(|n| (n.to_string(), s.popups_opened.get(n).copied())).collect();
+                let names = popups_to_dismiss(&open, at);
+                let menu_stays = open.iter().any(|(n, _)| (n == "start-menu" || n == "menu") && !names.contains(n));
+                (names, menu_stays)
             };
             for n in &names {
                 close(shell, n, cx);
@@ -2690,7 +2719,9 @@ fn hotkey(shell: &SharedShell, name: &str, cx: &mut App) {
                 (s.model.taskbar.previews.is_some(), s.model.start_menu.open)
             };
             if !names.is_empty() || previews || menu_open {
-                dispatch(shell, ShellEvent::StartMenuClose, cx);
+                if !menu_stays {
+                    dispatch(shell, ShellEvent::StartMenuClose, cx);
+                }
                 previews_set(shell, None, cx);
             }
         }
@@ -2935,7 +2966,7 @@ fn screenshot(shell: &SharedShell) {
     let path = system::screenshot_path();
     let saved = with_ede(shell, |ede| {
         let outputs = ede.outputs()?;
-        let Some(first) = outputs.first() else { return Ok(false) };
+        let Some(first) = outputs.iter().find(|o| o.is_persons()) else { return Ok(false) };
         let capture = ede.capture(ede_protocol::CaptureTarget::Output { name: first.name.clone() })?;
         Ok(thumbs::write_png(&path, &capture).is_ok())
     });
@@ -3042,7 +3073,7 @@ fn needs_you_open(shell: &SharedShell, key: &str, cx: &mut App) {
 /// The outputs as the Displays page binds them (#EDE-14).
 fn outputs_refresh(shell: &SharedShell) {
     let outputs = with_ede(shell, |ede| ede.outputs()).unwrap_or_default();
-    shell.borrow_mut().feed.set("/outputs", Value::Array(outputs.iter().map(settings::output_json).collect()));
+    shell.borrow_mut().feed.set("/outputs", Value::Array(settings::outputs_json(&outputs)));
 }
 
 /// Reads the tray items again (a short blocking round on the bus).
@@ -3090,16 +3121,17 @@ fn pins_persist(shell: &SharedShell) {
     settings::persist_shell(json!({"pinned": pinned}));
 }
 
-/// The compositor's window and workspace lists (one round trip each).
+/// The compositor's window and workspace lists (one round trip each); the
+/// person's windows only (#EDE-91).
 fn lists(calls: &mut ede_protocol::Client) -> Option<(Vec<ede_protocol::WindowInfo>, Vec<ede_protocol::WorkspaceInfo>)> {
-    let windows = calls.windows().ok()?;
+    let windows = ede_protocol::persons(calls.windows().ok()?);
     let workspaces = calls.workspaces().unwrap_or_default();
     Some((windows, workspaces))
 }
 
 /// The sample windows of the goldens (`EDE_SHELL_DEMO=1`): three apps, one grouped.
 fn demo_windows() -> Vec<ede_protocol::WindowInfo> {
-    let w = |id: &str, app: &str, title: &str, focused: bool| ede_protocol::WindowInfo { id: ede_protocol::WindowId::new(id).unwrap(), title: Some(title.into()), app_id: Some(app.into()), x: 0, y: 0, width: 800, height: 600, focused, fullscreen: false, protected: false, x11: false, workspace: 0, minimized: false };
+    let w = |id: &str, app: &str, title: &str, focused: bool| ede_protocol::WindowInfo { id: ede_protocol::WindowId::new(id).unwrap(), title: Some(title.into()), app_id: Some(app.into()), x: 0, y: 0, width: 800, height: 600, focused, fullscreen: false, protected: false, x11: false, workspace: 0, minimized: false, space: None };
     vec![w("w1", "firefox", "Firefox", false), w("w2", "terminal", "Terminal", true), w("w3", "nemo", "Files", false), w("w4", "firefox", "Exponential — Firefox", false)]
 }
 
@@ -3129,7 +3161,7 @@ fn main() {
 
     // Window events and hotkeys from the compositor on their own connection.
     let (windows_tx, windows_rx) = mpsc::channel::<(Vec<ede_protocol::WindowInfo>, Vec<ede_protocol::WorkspaceInfo>)>();
-    let (hotkeys_tx, hotkeys_rx) = mpsc::channel::<String>();
+    let (hotkeys_tx, hotkeys_rx) = mpsc::channel::<(String, i64)>();
     let (outputs_tx, outputs_rx) = mpsc::channel::<()>();
     std::thread::Builder::new()
         .name("ede-shell-events".into())
@@ -3148,9 +3180,13 @@ fn main() {
                 return;
             }
             while let Ok(event) = events.next_event() {
+                // #EDE-91: an agent space's windows and outputs are not the person's.
+                if !ede_protocol::is_persons_event(&event) {
+                    continue;
+                }
                 if event.kind == ede_protocol::events::HOTKEY {
                     if let Some(name) = event.data.get("name").and_then(Value::as_str) {
-                        if hotkeys_tx.send(name.to_string()).is_err() {
+                        if hotkeys_tx.send((name.to_string(), event.at)).is_err() {
                             return;
                         }
                     }
@@ -3379,6 +3415,7 @@ fn main() {
             capturing: thumbs::Captures::default(),
             thumbs_tx,
             osd_until: None,
+            popups_opened: HashMap::new(),
             switcher_generation: 0,
             notifications: Notifications {
                 // The goldens: two desktop notifications (the first toasting) between the demo inbox's entries.
@@ -3499,8 +3536,8 @@ fn main() {
                 while let Ok((windows, workspaces)) = windows_rx.try_recv() {
                     cx.update(|cx| windows_changed(&s, windows, workspaces, cx));
                 }
-                while let Ok(name) = hotkeys_rx.try_recv() {
-                    cx.update(|cx| hotkey(&s, &name, cx));
+                while let Ok((name, at)) = hotkeys_rx.try_recv() {
+                    cx.update(|cx| hotkey(&s, &name, at, cx));
                 }
                 while let Ok((id, url)) = thumbs_rx.try_recv() {
                     thumbnail_arrived(&s, id, url);
@@ -3935,7 +3972,22 @@ mod layer_sizes {
 
 #[cfg(test)]
 mod previews {
-    use super::previews_after;
+    use super::{popups_to_dismiss, previews_after};
+
+    /// #EDE-89: a press on Start while a preview is open: the compositor's
+    /// `popups.dismiss` for that press reaches the shell after the press
+    /// opened the start menu (the main loop drains it up to 100 ms later).
+    /// The menu opened after the press and stays; a popup open before it goes.
+    #[test]
+    fn a_press_that_opens_the_start_menu_does_not_dismiss_it() {
+        let pressed_at = 1_000;
+        let open = vec![("start-menu".to_string(), Some(pressed_at + 12)), ("tray-menu".to_string(), Some(pressed_at - 4_000))];
+        assert_eq!(popups_to_dismiss(&open, pressed_at), vec!["tray-menu".to_string()]);
+        // Escape in the open menu (or a press outside it) still closes it.
+        assert_eq!(popups_to_dismiss(&open, pressed_at + 500), vec!["start-menu".to_string(), "tray-menu".to_string()]);
+        // A popup the shell has no stamp for goes, as before.
+        assert_eq!(popups_to_dismiss(&[("menu".to_string(), None)], pressed_at), vec!["menu".to_string()]);
+    }
 
     /// #EDE-75: leaving a taskbar button closes its previews (the capture
     /// thread stops with them); the next button's stay when its open came first.
@@ -3954,6 +4006,27 @@ mod previews {
         let doc = uicore_docs::doc("taskbar").unwrap().source;
         assert!(doc.contains(r#""name": "ede_previews""#), "the event");
         assert!(!doc.contains(r#""@call": "ede_previews""#), "no function call: its args never get `open`");
+    }
+}
+
+#[cfg(test)]
+mod loaded_frame {
+    use super::*;
+
+    fn factory(name: &str) -> Document {
+        uicore_gpui::inline::document(uicore_docs::DOCS.iter().find(|d| d.name == name).expect(name))
+    }
+
+    /// #EDE-110: an edit to a closed popup or on-demand layer is proven by
+    /// loading it; the supervisor rolled it back after 2 s for want of a frame.
+    #[test]
+    fn a_closed_popup_or_on_demand_layer_reports_the_document_loaded() {
+        for name in ["start-menu", "switcher", "settings"] {
+            let doc = factory(name);
+            assert_eq!(loaded_frame(false, &doc), Some(FrameLine::line_for_digest(name, &doc.digest)), "{name}");
+            assert_eq!(loaded_frame(true, &doc), None, "{name}: an open surface reports its drawn frame");
+        }
+        assert_eq!(loaded_frame(false, &factory("taskbar")), None, "a layer that opens reports its drawn frame");
     }
 }
 

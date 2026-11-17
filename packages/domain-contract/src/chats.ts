@@ -21,6 +21,17 @@ import { isBlankText } from "./transcript-grouping"
 
 export const CHATS_COPY = fixture.copy
 
+/** #EDE-98: a chat's title glyphs (`marksCases`): `ui-team` when the root
+ *  is shared, then `ui-unencrypted` when the tree has no key (the root's
+ *  `sealEpoch` null). Private + encrypted = none. */
+export type ChatMark = `ui-team` | `ui-unencrypted`
+export function chatMarks(root: { shared: boolean; sealEpoch?: number | null }): ChatMark[] {
+  const marks: ChatMark[] = []
+  if (root.shared) marks.push(`ui-team`)
+  if (root.sealEpoch == null) marks.push(`ui-unencrypted`)
+  return marks
+}
+
 /** The Team tab's `copy.team.meta` (`teamMetaCases`): singular at exactly 1. */
 export function teamMeta(members: number, boards: number): string {
   const { team } = fixture.copy

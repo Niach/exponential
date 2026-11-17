@@ -22,7 +22,10 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.put
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonPrimitive
@@ -130,6 +133,45 @@ class SteerEnetTest {
             assertEquals(name, case["sessionId"]!!.jsonPrimitive.content, parsed!!.sessionId)
             assertEquals(name, case["types"]!!.jsonArray.map { it.jsonPrimitive.content }, parsed.types)
         }
+    }
+
+    /** #EDE-96 (SEARCH): the ask's shape, the answer's parse, the constants. */
+    @Test
+    fun searchFramesFollowTheFixture() {
+        val search = fixture["search"]!!.jsonObject
+        assertEquals(search["hitsMax"]!!.jsonPrimitive.long.toInt(), STEER_SEARCH_HITS_MAX)
+        assertEquals(fixture["sendTimeoutMs"]!!.jsonPrimitive.long, STEER_SEARCH_TIMEOUT_MS)
+        val viewerFrames = fixture["viewerFrames"]!!.jsonArray.map { it.jsonPrimitive.content }
+        val deviceFrames = fixture["deviceFrames"]!!.jsonArray.map { it.jsonPrimitive.content }
+        assertTrue("search" in viewerFrames && "search_result" in deviceFrames)
+        assertEquals(
+            frame("""{"t":"search","requestId":"s1","query":"login","beforeSeq":40,"limit":50}"""),
+            steerSearchFrame("s1", "login", 40),
+        )
+        assertEquals(
+            frame("""{"t":"search","requestId":"s2","query":"x","limit":50}"""),
+            steerSearchFrame("s2", "x", null),
+        )
+        // Every case's expected answer parses back to itself.
+        for (case in search["cases"]!!.jsonArray.map { it.jsonObject }) {
+            val expect = case["expect"]!!.jsonObject
+            val body = buildJsonObject {
+                put("t", "search_result")
+                put("requestId", "r")
+                expect.forEach { (key, value) -> put(key, value) }
+            }
+            val parsed = parseSteerSearchResult(body)!!
+            assertEquals(expect["hits"]!!.jsonArray.size, parsed.hits.size)
+            assertEquals(expect["done"]!!.jsonPrimitive.boolean, parsed.done)
+            assertEquals(expect["scannedToSeq"]!!.jsonPrimitive.long, parsed.scannedToSeq)
+            assertEquals(expect["total"]?.jsonPrimitive?.int, parsed.total)
+        }
+        val future = parseSteerSearchResult(
+            frame(
+                """{"t":"search_result","requestId":"r","hits":[{"seq":3,"kind":"tool","snippet":"Bash","matchStart":0,"matchLen":4},{"seq":2,"kind":"later","snippet":"x","matchStart":0,"matchLen":1}],"done":true,"scannedToSeq":2}"""
+            )
+        )!!
+        assertEquals(listOf(SteerSearchHit(3, "tool", "Bash", 0, 4)), future.hits)
     }
 
     @Test

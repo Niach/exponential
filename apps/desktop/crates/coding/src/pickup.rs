@@ -1176,7 +1176,9 @@ fn sealed_answer(input: &api::sessions::AnswerInput) -> Option<serde_json::Value
     }
     let (session_id, card) = sealed_card_of(&input.message_id)?;
     let answered = answered_card(&card, input)?;
-    let sealed = crate::sealing::seal_card_or_plain(&session_id, &answered);
+    let sealed = crate::sealing::seal_card_for_session(&session_id, &answered)
+        .map_err(|err| log::warn!("pickup: the answer to {} could not be sealed: {err}", input.message_id))
+        .ok()?;
     sealed.get("sealed").is_some().then_some(sealed)
 }
 
@@ -1360,9 +1362,52 @@ fn opened_launch_row(row: &SessionRow) -> SessionRow {
 }
 
 /// A device-written reply (a refusal, a failed start) sealed to the
-/// session's tree when it can be.
-fn device_reply(trpc: &api::TrpcClient, session_id: &str, text: &str) -> Result<String, ApiError> {
-    session_device::reply(trpc, session_id, &crate::sealing::seal_body_or_plain(session_id, text), None)
+/// session's tree; #EDE-97: plaintext only into a clear tree, otherwise a
+/// reply that cannot be sealed is not sent (the `Err` says why; callers log).
+fn device_reply(trpc: &api::TrpcClient, session_id: &str, text: &str) -> Result<String, String> {
+    let body = crate::sealing::seal_body_for_session(session_id, text)
+        .map_err(|err| format!("it could not be encrypted ({err})"))?;
+    session_device::reply(trpc, session_id, &body, None).map_err(|err| err.to_string())
+}
+
+/// #EDE-97 (`clearTree.claimCases`): after its claim the device keys a root
+/// claimed without a key, unless it is a clear tree, then (the tree keyed,
+/// not clear) re-seals the session's first message the server wrote in
+/// clear (`sessions.resealTarget` -> `sessions.reseal`). Best-effort: a
+/// failure is logged, the launch goes on. A no-op without a key holder
+/// (never waits for one).
+fn key_and_reseal_at_claim(trpc: &api::TrpcClient, row: &SessionRow, device_id: &str) {
+    let root = row.root_id_or_self().to_string();
+    let clear = (row.is_root() && row.clear_tree) || crate::sealing::tree_clear(&root);
+    if crate::sealing::service().is_none() || clear {
+        return;
+    }
+    if row.is_root() && crate::sealing::claim_keys(clear, row.seal_epoch.is_some() || crate::sealing::tree_keyed(&root)) {
+        crate::sealing::ensure_tree_key(&row.id);
+    }
+    if !crate::sealing::tree_keyed(&root) {
+        return;
+    }
+    let target = match session_device::reseal_target(trpc, &row.id, device_id) {
+        Ok(Some(target)) => target,
+        Ok(None) => return,
+        Err(err) => {
+            log::info!("pickup: sessions.resealTarget of {} failed: {err}", row.id);
+            return;
+        }
+    };
+    let first_plain = !matches!(crate::sealing::parse_body_envelope(&target.body), crate::sealing::BodyEnvelope::Value(_));
+    if !crate::sealing::claim_reseals(clear, first_plain) || target.body.is_empty() {
+        return;
+    }
+    match crate::sealing::seal_body(&root, &target.body) {
+        Ok(body) => {
+            if let Err(err) = session_device::reseal(trpc, &row.id, device_id, &target.message_id, &body) {
+                log::warn!("pickup: the first message of {} was not re-sealed: {err}", row.id);
+            }
+        }
+        Err(err) => log::warn!("pickup: the first message of {} could not be sealed: {err}", row.id),
+    }
 }
 
 /// A per-session lockfile under `{data_dir}/session-claims/` held for the
@@ -2372,10 +2417,10 @@ pub fn launch_queued(row: &SessionRow, deps: &PickupDeps) -> Result<LaunchQueued
         }
     }
     // EXP-1472: a root claimed without a key (a raw tRPC/MCP start) is keyed
-    // now, not at its first output, so a send into it never waits long.
-    if row.is_root() && row.seal_epoch.is_none() {
-        crate::sealing::ensure_tree_key(&row.id);
-    }
+    // now, not at its first output, so a send into it never waits long;
+    // #EDE-97: never a clear root, and the server's plaintext first message
+    // is re-sealed.
+    key_and_reseal_at_claim(&deps.coding.trpc, row, &deps.device_id);
     let brief = match fetch_brief_waiting(&deps.coding.trpc, &row.id, SEALED_REQUEST_WAIT) {
         Ok(brief) => brief,
         Err(err) if transient(&err) => {
@@ -4512,14 +4557,14 @@ mod tests {
         };
         fake.keyring.note_sessions(&[parent.clone(), child.clone()]);
         child.sealed_title = Some(sealing::seal_body("sp", "Fix the cart").unwrap());
-        let sealed = |text: &str| sealing::seal_body_or_plain("sp", text);
+        let sealed = |text: &str| sealing::seal_body_for_session("sp", text).unwrap();
         let person = MessageRow { body: Some(sealed("hello sealed")), ..message("sm1", "sp", "2026-10-02T00:00:01Z") };
         let report = MessageRow {
             body: Some(sealed("Opened PR #12.")),
-            card: Some(sealing::seal_card_or_plain(
+            card: Some(sealing::seal_card_for_session(
                 "sp",
                 &serde_json::json!({"kind": "report", "sessionId": "sc", "summary": "Opened PR #12."}),
-            )),
+            ).unwrap()),
             ..report("sr1", "sp", "sc", "")
         };
         assert!(report.card.as_ref().unwrap().get("summary").is_none());
@@ -4694,7 +4739,7 @@ mod tests {
         let answered = serde_json::json!({
             "kind": "question", "question": "Which?", "options": ["a", "b"], "questionId": "q-1", "answer": "a",
         });
-        let card_row = MessageRow { card: Some(sealing::seal_card_or_plain("sa", &answered)), ..card("sq", "sa", true) };
+        let card_row = MessageRow { card: Some(sealing::seal_card_for_session("sa", &answered).unwrap()), ..card("sq", "sa", true) };
         let view = LiveView { open_cards: HashMap::from([("sq".to_string(), "q-1".to_string())]), ..LiveView::default() };
         let actions = Pass::new(vec![row], vec![card_row]).live("sa", view).run();
 
@@ -5627,6 +5672,9 @@ mod tests {
         /// Claims key roots and replies seal through the process-global
         /// seal service: serialised with the tests that install one, so a
         /// host never keys its roots in another test's fake. Last = dropped last.
+        /// #EDE-97: these tests are about the pickup's flow, not sealing:
+        /// their device replies go as into a clear tree.
+        _plain: crate::sealing::test_support::PlainGuard,
         _serial: crate::sealing::test_support::Serial,
     }
 
@@ -5675,6 +5723,7 @@ mod tests {
             spawned,
             launched,
             acks,
+            _plain: crate::sealing::test_support::allow_plain(),
             _serial: serial,
         }
     }
@@ -5850,6 +5899,7 @@ mod tests {
     fn a_failed_start_replies_consumes_the_tried_messages_and_idles() {
         // A key holder another test installs would seal the reply.
         let _serial = crate::sealing::test_support::serial();
+        let _plain = crate::sealing::test_support::allow_plain();
         let dir = temp_dir("pickup-failed-start");
         let (base, requests) = canned_server_recording(vec![
             (200, REPLY_OK.to_string()),
@@ -5934,6 +5984,7 @@ mod tests {
     #[test]
     fn an_unstarted_session_reports_start_failed_never_plain_idle() {
         let _serial = crate::sealing::test_support::serial();
+        let _plain = crate::sealing::test_support::allow_plain();
         let (base, requests) =
             canned_server_recording(vec![(200, REPLY_OK.to_string()), (200, REPORT_OK.to_string())]);
         let dir = temp_dir("pickup-unstarted");
@@ -5954,6 +6005,7 @@ mod tests {
     #[test]
     fn a_failed_resume_replies_and_reports_start_failed() {
         let _serial = crate::sealing::test_support::serial();
+        let _plain = crate::sealing::test_support::allow_plain();
         let dir = temp_dir("pickup-failed-wake");
         let (base, requests) =
             canned_server_recording(vec![(200, REPLY_OK.to_string()), (200, REPORT_OK.to_string())]);
@@ -5977,6 +6029,7 @@ mod tests {
     #[test]
     fn a_failed_resume_falls_back_to_plain_idle_when_the_flag_is_rejected() {
         let _serial = crate::sealing::test_support::serial();
+        let _plain = crate::sealing::test_support::allow_plain();
         let dir = temp_dir("pickup-failed-wake-fallback");
         let (base, requests) = canned_server_recording(vec![
             (200, REPLY_OK.to_string()),
@@ -6002,6 +6055,7 @@ mod tests {
     #[test]
     fn a_failed_switch_resume_replies_once() {
         let _serial = crate::sealing::test_support::serial();
+        let _plain = crate::sealing::test_support::allow_plain();
         let dir = temp_dir("pickup-switch-fails");
         let (base, requests) = canned_server_recording(vec![
             (200, BRIEF_OK.to_string()),
@@ -6038,6 +6092,7 @@ mod tests {
     #[test]
     fn a_failed_resume_never_idles_over_a_report_that_may_have_landed() {
         let _serial = crate::sealing::test_support::serial();
+        let _plain = crate::sealing::test_support::allow_plain();
         let dir = temp_dir("pickup-failed-wake-landed");
         // A 5xx.
         let (base, requests) = canned_server_recording(vec![
@@ -6062,6 +6117,7 @@ mod tests {
     fn a_disabled_launch_replies_the_reason_and_ends_the_chat() {
         // Serialised with the tests that install a seal service, so the reply stays plain.
         let _serial = crate::sealing::test_support::serial();
+        let _plain = crate::sealing::test_support::allow_plain();
         let dir = temp_dir("pickup-disabled");
         let (base, requests) = canned_server_recording(vec![
             (200, CLAIM_OK.to_string()),
@@ -6486,6 +6542,7 @@ mod tests {
     #[test]
     fn a_refused_wake_is_explained_once_and_retried_on_a_new_message() {
         let _serial = crate::sealing::test_support::serial();
+        let _plain = crate::sealing::test_support::allow_plain();
         let dir = temp_dir("pickup-resume-refused");
         let (base, requests) = canned_server_recording(vec![
             (200, BRIEF_OK.to_string()),
@@ -6630,6 +6687,7 @@ mod tests {
     #[test]
     fn a_claim_refused_for_a_limit_is_explained_once() {
         let _serial = crate::sealing::test_support::serial();
+        let _plain = crate::sealing::test_support::allow_plain();
         let dir = temp_dir("pickup-claim-limit");
         let (base, requests) = canned_server_recording(vec![
             (
@@ -6872,6 +6930,7 @@ mod tests {
     #[test]
     fn a_switch_it_need_not_or_cannot_make_leaves_the_engine_running() {
         let _serial = crate::sealing::test_support::serial();
+        let _plain = crate::sealing::test_support::allow_plain();
         let dir = temp_dir("pickup-switch-noop");
         let (base, requests) = canned_server_recording(vec![
             (200, REPLY_OK.to_string()),
@@ -6918,6 +6977,7 @@ mod tests {
     #[test]
     fn a_wake_refuses_a_switch_it_cannot_make_once_and_runs_on() {
         let _serial = crate::sealing::test_support::serial();
+        let _plain = crate::sealing::test_support::allow_plain();
         let dir = temp_dir("pickup-wake-refused");
         let (base, requests) = canned_server_recording(vec![
             (200, BRIEF_OK.to_string()),
@@ -7090,6 +7150,7 @@ mod tests {
     #[test]
     fn a_switch_whose_resume_fails_is_explained_once() {
         let _serial = crate::sealing::test_support::serial();
+        let _plain = crate::sealing::test_support::allow_plain();
         let dir = temp_dir("pickup-switch-prepare-fails");
         let (base, requests) = canned_server_recording(vec![
             (200, REPORT_OK.to_string()),
@@ -8120,5 +8181,46 @@ mod tests {
         execute(&PickupAction::Release { session_id: "s1".to_string() }, &host.deps).unwrap();
         assert_eq!(*engine.killed.lock().unwrap(), Some(RELEASED_OUTCOME));
         assert!(host.deps.live.get("s1").is_none());
+    }
+
+    /// #EDE-97 (`clearTree.claimCases`): at its claim the device keys a
+    /// keyless root and re-seals the session's plaintext first message
+    /// (`sessions.resealTarget` -> `sessions.reseal`, the body sealed to the
+    /// tree's key); a clear root is never keyed nor re-sealed.
+    #[test]
+    fn a_claim_keys_the_root_and_reseals_its_plaintext_first_message() {
+        use crate::sealing::{self, test_support};
+        let _serial = test_support::serial();
+        let fake = test_support::install_fake();
+        let (base, requests) = canned_server_recording(vec![
+            (200, r#"{"result":{"data":{"messageId":"m-first","body":"Review the login page."}}}"#.to_string()),
+            (200, r#"{"result":{"data":{"txid":"3"}}}"#.to_string()),
+        ]);
+        let trpc = api::trpc::TrpcClient::new(&base, Arc::new(api::StaticToken("t".into())));
+        let row = SessionRow { root_id: Some("rs-root".into()), ..session("rs-root", "queued", DEV, "2026-10-01T00:00:00Z") };
+        key_and_reseal_at_claim(&trpc, &row, DEV);
+        assert_eq!(fake.created.lock().unwrap().as_slice(), ["rs-root"]);
+        assert_eq!(procedures(&requests), vec!["sessions.resealTarget", "sessions.reseal"]);
+        let reseal = requests.lock().unwrap()[1].clone();
+        assert!(reseal.contains(r#""messageId":"m-first""#) && reseal.contains(r#""deviceId":"dev-1""#), "{reseal}");
+        assert!(!reseal.contains("Review the login page."), "{reseal}");
+        let start = reseal.find("exp-sealed:").expect("a body envelope");
+        let body = &reseal[start..start + reseal[start..].find('"').unwrap()];
+        assert_eq!(sealing::open_body_text("rs-root", body).as_deref(), Some("Review the login page."));
+
+        // A clear root (an outside MCP client's): no key, no re-seal, no call.
+        let (base, requests) = canned_server_recording(vec![]);
+        let trpc = api::trpc::TrpcClient::new(&base, Arc::new(api::StaticToken("t".into())));
+        let clear = SessionRow { root_id: Some("rs-clear".into()), clear_tree: true, ..session("rs-clear", "queued", DEV, "2026-10-01T00:00:00Z") };
+        key_and_reseal_at_claim(&trpc, &clear, DEV);
+        assert_eq!(fake.created.lock().unwrap().as_slice(), ["rs-root"]);
+        assert!(requests.lock().unwrap().is_empty());
+
+        // Nothing to re-seal: one query, no write.
+        let (base, requests) = canned_server_recording(vec![(200, r#"{"result":{"data":null}}"#.to_string())]);
+        let trpc = api::trpc::TrpcClient::new(&base, Arc::new(api::StaticToken("t".into())));
+        key_and_reseal_at_claim(&trpc, &row, DEV);
+        assert_eq!(procedures(&requests), vec!["sessions.resealTarget"]);
+        sealing::uninstall();
     }
 }

@@ -106,7 +106,8 @@ enum class DoctorTone { Success, Warning, Muted, Destructive }
 data class DoctorRow(
     val key: String,
     val label: String,
-    /** The device-written detail; always null on the switch row. */
+    /** The device-written detail; on the switch row only the device's reason
+     *  while it cannot drive (#EXP-1899: the row's second line). */
     val detail: String?,
     val state: String,
     val glyph: DoctorGlyph,
@@ -189,6 +190,10 @@ object DeviceReadiness {
         ACTION_GRANT to Action("Open System Settings", remote = false),
     )
 
+    /** Fixture `copy.unavailable`: the switch row's second line while the
+     *  machine cannot drive and gave no reason of its own (#EXP-1899). */
+    const val UNAVAILABLE = "Not available here"
+
     /** Fixture `copy`: the duplicate sign-in toast. */
     fun alreadyAdded(email: String): String = AgentAccountsRows.alreadyAddedToast(email)
 
@@ -250,7 +255,7 @@ object DeviceReadiness {
                     DoctorRow(
                         key = item.key,
                         label = label(item.key),
-                        detail = null,
+                        detail = if (state == STATE_MISSING) item.detail ?: UNAVAILABLE else null,
                         state = state,
                         glyph = DoctorGlyph.None,
                         tone = DoctorTone.Muted,

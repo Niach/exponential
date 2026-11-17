@@ -202,7 +202,7 @@ pub(crate) fn remote_defaults(device: &queries::LaunchDevice, cx: &App) -> Optio
         settings: device.defaults.clone(),
         accounts,
         usage,
-        computer_use_run: device.computer_use_run,
+        computer_use_offered: device.computer_use_offered,
     })
 }
 

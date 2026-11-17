@@ -127,14 +127,6 @@ export function deviceAgentLaunchDefaults(
   return device?.launchDefaults?.agents?.[agent] ?? null
 }
 
-/** EXP-1196/EXP-1249: the device's own computer-use switch — what a run
- * gets when its start carries no `computerUse` (absent = off). */
-export function deviceComputerUseDefault(
-  device: Pick<SteerDevice, `launchDefaults`> | undefined
-): boolean {
-  return device?.launchDefaults?.computerUse === true
-}
-
 /** EXP-622: the caller's default machine among `devices`, or `null` when
  * none of them is flagged. Callers pass an already capability-filtered
  * CANDIDATE list, so an offline or incapable default simply drops out and

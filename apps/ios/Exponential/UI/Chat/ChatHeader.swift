@@ -85,7 +85,8 @@ struct ChatHeaderTitle: View {
     let title: String
     var subtitle: String?
     var subtitleTone: Tone = .muted
-    var isPrivate = false
+    /// #EDE-98 (chats.json `chatMarks`): the glyphs after the title.
+    var marks: [Chats.ChatMark] = []
     var agentIcon: String?
     var agentColor: String?
     /// #EXP-1448: the viewer's Assistant wears the brand mark (chats.json),
@@ -135,18 +136,15 @@ struct ChatHeaderTitle: View {
             .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(title)
-                        .font(.system(size: CGFloat(Measures.title), weight: .semibold))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .accessibilityAddTraits(.isHeader)
-                        .accessibilityIdentifier("chat-title")
-                    if isPrivate {
-                        AppIcon(AppIcons.uiPrivate, size: 11)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                            .accessibilityLabel("Private")
-                            .accessibilityIdentifier("chat-private")
+                    HStack(spacing: CGFloat(Chats.Shell.markGap)) {
+                        Text(title)
+                            .font(.system(size: CGFloat(Measures.title), weight: .semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .accessibilityAddTraits(.isHeader)
+                            .accessibilityIdentifier("chat-title")
+                        ChatMarksView(marks: marks)
                     }
                     if let titleAccessory { titleAccessory }
                 }

@@ -84,7 +84,7 @@ impl Capability for Windows {
         }
         let mut client = self.0.client().map_err(unreachable)?;
         let windows = client.windows().map_err(|e| unreachable(e.to_string()))?;
-        Ok(mcp_result(json!({"windows": windows.iter().filter(|w| !w.protected).map(window_json).collect::<Vec<_>>()})))
+        Ok(mcp_result(json!({"windows": windows.iter().filter(|w| !w.protected && w.is_persons()).map(window_json).collect::<Vec<_>>()})))
     }
 }
 
@@ -209,7 +209,7 @@ mod tests {
     }
 
     fn info(id: &str, app: &str, title: Option<&str>, protected: bool) -> WindowInfo {
-        WindowInfo { id: WindowId::new(id).unwrap(), title: title.map(String::from), app_id: Some(app.into()), x: 0, y: 0, width: 10, height: 10, focused: id == "w1", fullscreen: false, protected, x11: false, workspace: 0, minimized: false }
+        WindowInfo { id: WindowId::new(id).unwrap(), title: title.map(String::from), app_id: Some(app.into()), x: 0, y: 0, width: 10, height: 10, focused: id == "w1", fullscreen: false, protected, x11: false, workspace: 0, minimized: false, space: None }
     }
 
     fn fake() -> (Arc<Fake>, Arc<Mutex<Vec<String>>>) {
@@ -232,6 +232,17 @@ mod tests {
         assert!(eengine::tools::validate_schema(def.native_output_schema.as_ref().unwrap(), &structured).is_ok());
         assert_eq!(structured["windows"].as_array().unwrap().len(), 1);
         assert_eq!(structured["windows"][0], json!({"id": "w1", "title": "Firefox", "app": "firefox", "workspace": 0, "focused": true, "minimized": false}));
+    }
+
+    /// #EDE-91: an app asking for the windows gets the person's, never an agent space's.
+    #[test]
+    fn windows_list_leaves_a_space_out() {
+        let mut agents = info("w3", "firefox", Some("Agent"), false);
+        agents.space = Some(ede_protocol::SpaceId::new("sp1").unwrap());
+        let connect = Arc::new(Fake { windows: vec![info("w1", "firefox", Some("Firefox"), false), agents], focused: Arc::new(Mutex::new(Vec::new())) });
+        let out = Windows(connect).call("list", &json!({})).unwrap();
+        let ids: Vec<Value> = out["structuredContent"]["windows"].as_array().unwrap().iter().map(|w| w["id"].clone()).collect();
+        assert_eq!(ids, [json!("w1")]);
     }
 
     #[test]

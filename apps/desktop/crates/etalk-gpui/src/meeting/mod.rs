@@ -459,10 +459,7 @@ pub fn sync_pause_hotkey(wanted: bool, cx: &mut App) {
     cx.spawn(async move |cx| {
         while let Ok(event) = rx.recv_async().await {
             match event {
-                HotkeyEvent::Down => cx.update(|cx| {
-                    let paused = state(cx).paused;
-                    set_paused(!paused, cx);
-                }),
+                HotkeyEvent::Down => cx.update(pause_key),
                 HotkeyEvent::Status(status) => {
                     if let Some(reason) = status.reason() {
                         ::log::info!("[meeting] the pause hotkey is not held system-wide: {reason:?}");
@@ -473,6 +470,17 @@ pub fn sync_pause_hotkey(wanted: bool, cx: &mut App) {
         }
     })
     .detach();
+}
+
+/// A press of the pause hotkey toggles Pause listening. #EXP-1938: not
+/// while computer use holds the person's input: the chord is an agent's
+/// synthetic keystroke then, never the person's.
+fn pause_key(cx: &mut App) {
+    if host::input_held(cx) {
+        return;
+    }
+    let paused = state(cx).paused;
+    set_paused(!paused, cx);
 }
 
 /// The running meeting.
@@ -1143,6 +1151,21 @@ impl MeetingHost {
 mod tests {
     use super::*;
     use etalk::meeting::AudioApp;
+
+    /// #EXP-1938: the pause chord typed by an agent (computer use holds the
+    /// person's input) toggles nothing; the person's own press does.
+    #[gpui::test]
+    async fn an_agents_keystroke_never_toggles_pause(cx: &mut gpui::TestAppContext) {
+        let rig = crate::test_support::Rig::install(crate::test_support::settings(), cx);
+        rig.hold_input(true);
+        cx.update(pause_key);
+        assert!(!cx.update(|cx| state(cx).paused));
+        rig.hold_input(false);
+        cx.update(pause_key);
+        assert!(cx.update(|cx| state(cx).paused));
+        cx.update(pause_key);
+        assert!(!cx.update(|cx| state(cx).paused));
+    }
 
     fn settings() -> VoiceSettings {
         VoiceSettings {

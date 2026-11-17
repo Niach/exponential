@@ -34,6 +34,7 @@ import { isAssistantConversation, statusCardTarget } from "@/lib/agents/assistan
 import { notifySessionAsk } from "@/lib/integrations/notifications"
 import { insertMessage, postOwnAskCard, inSession, messageSessionId } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
+import { assertNotPlainInSealedTree } from "@/lib/sessions/send"
 import { mintGuideUploadToken } from "@/lib/storage/guide-upload-token"
 import {
   rollbackSessionImage,
@@ -173,9 +174,12 @@ export function buildSealedShowCard(card: Record<string, unknown>, kind?: string
   return card as unknown as ShowCard
 }
 
-/** EXP-1458: a sealed card names an epoch its tree holds. */
-async function assertSealedCardForTree(tx: Tx, rootId: string, card: MessageCard): Promise<void> {
-  if (!isSealedCard(card)) return
+/** EXP-1458: a sealed card names an epoch its tree holds. #EDE-97
+ *  (sealed-content.json `clearTree.cardCases`): a plaintext plan, question or
+ *  show card into a KEYED tree is refused like a plaintext send (a keyless or
+ *  clear tree takes it). */
+async function assertSealedCardForTree(tx: Tx, rootId: string, card: MessageCard, writerSessionId: string): Promise<void> {
+  if (!isSealedCard(card)) return assertNotPlainInSealedTree(tx, rootId, writerSessionId)
   const value = parseSealedValue((card as unknown as { sealed: string }).sealed)
   if (value.kind !== `sealed`) return
   const [root] = await tx.select({ sealEpoch: sessions.sealEpoch }).from(sessions).where(eq(sessions.id, rootId)).limit(1)
@@ -453,7 +457,7 @@ export async function postSealedSuggestionCard(args: {
     throw new TRPCError({ code: `FORBIDDEN`, message: `Suggest only on your own session` })
   }
   const messageId = await db.transaction(async (tx) => {
-    await assertSealedCardForTree(tx, session.rootId, card as unknown as MessageCard)
+    await assertSealedCardForTree(tx, session.rootId, card as unknown as MessageCard, session.id)
     await generateTxId(tx)
     return insertMessage(tx, session, {
       authorKind: `agent`,
@@ -492,7 +496,7 @@ export async function postSurfaceCard(args: {
     if (session.status === `ended`) {
       throw new TRPCError({ code: `PRECONDITION_FAILED`, message: `This session has ended` })
     }
-    await assertSealedCardForTree(tx, session.rootId, args.card)
+    await assertSealedCardForTree(tx, session.rootId, args.card, session.id)
     await generateTxId(tx)
     const messageId = await insertMessage(tx, session, { authorKind: `agent`, authorSessionId: session.id, card: args.card })
     if (isSealedCard(args.card)) {
@@ -619,7 +623,7 @@ export async function postShowCard(args: {
         }
         const target = status ? await statusCardTarget(tx, session.id) : await replaceTarget(tx, session.id, args.card)
         if (!target) return null
-        await assertSealedCardForTree(tx, session.rootId, args.card)
+        await assertSealedCardForTree(tx, session.rootId, args.card, session.id)
         await generateTxId(tx)
         const now = new Date()
         const card = carryPictures(target.card, args.card)
@@ -824,7 +828,7 @@ export async function postAskCard(args: {
     if (session.status === `ended`) {
       throw new TRPCError({ code: `PRECONDITION_FAILED`, message: `This session has ended` })
     }
-    await assertSealedCardForTree(tx, session.rootId, args.card)
+    await assertSealedCardForTree(tx, session.rootId, args.card, session.id)
     await generateTxId(tx)
     if (args.card.kind === `plan`) await supersedeWaitingPlans(tx, session.id)
     const messageId = await postOwnAskCard(tx, session, args.card)

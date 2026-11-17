@@ -106,6 +106,8 @@ pub struct CallConstants {
     pub max_frames_per_second: u32,
     pub max_call_ms: u64,
     pub idle_timeout_ms: u64,
+    /// EXP-1929: the relay's beat (`call_alive` + a ping) once paired.
+    pub alive_ms: u64,
     pub min_silence_ms: u64,
     pub barge_in_ms: u64,
     pub frame_ms: u32,
@@ -665,6 +667,14 @@ pub fn call_ring_tone_on(ms: i64) -> bool {
     ms >= 0 && (ms as u64) % (constants.ring_tone_ms + constants.ring_gap_ms) < constants.ring_tone_ms
 }
 
+/// EXP-1929 (`livenessCases`): an end of a call that got a `call_alive`
+/// (`alive`) and has heard nothing from the relay for `silent_ms` treats the
+/// path as dead (the call ends as dropped); before the first beat (an older
+/// relay) there is no deadline.
+pub fn call_path_dead(alive: bool, silent_ms: u64) -> bool {
+    alive && silent_ms >= VOICE_CALL.constants.idle_timeout_ms
+}
+
 /// EXP-1423: a fresh random in [0, 1) for [`call_ring_ms`] (the standard
 /// library's per-process random hasher keys; no dependency).
 pub fn call_ring_random() -> f64 {
@@ -722,6 +732,11 @@ mod tests {
         }
         for case in fixture["ringToneCases"].as_array().unwrap() {
             assert_eq!(call_ring_tone_on(case["ms"].as_i64().unwrap()), case["on"].as_bool().unwrap(), "{case}");
+        }
+        for case in fixture["livenessCases"].as_array().unwrap() {
+            let input = &case["input"];
+            let dead = call_path_dead(input["alive"].as_bool().unwrap(), input["silentMs"].as_u64().unwrap());
+            assert_eq!(dead, case["expected"]["dead"].as_bool().unwrap(), "{case}");
         }
     }
 

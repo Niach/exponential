@@ -428,11 +428,7 @@ pub(crate) fn install(cx: &mut App) {
             let _ = tx.send(event);
         })
     });
-    // #NEW-66: the account signed in now, so the first state notification
-    // of an already-synced store is no account change (it would end a
-    // worker that is still preparing, a download included).
-    let account = session_account(cx);
-    let cleanup = Cleanup::load(&data_dir);
+    let entity = install_with(client, &data_dir, cx);
     // #NEW-96: what a crash mid-delete left aside (GBs) goes now, on a
     // thread of its own, not on the next delete.
     let sweep_dir = data_dir.clone();
@@ -442,6 +438,26 @@ pub(crate) fn install(cx: &mut App) {
             log::info!("[ui] speak replies: removed {removed} leftover speech data tree(s)");
         }
     });
+    let weak = entity.downgrade();
+    cx.spawn(async move |cx| {
+        while let Ok(event) = rx.recv_async().await {
+            if weak.upgrade().is_none() {
+                break;
+            }
+            let _ = cx.update(|cx| dispatch(event, cx));
+        }
+    })
+    .detach();
+}
+
+/// The watcher and its global over `client` (#EXP-1936: [`install`] without
+/// the worker's executable, so a gpui test hands in a recording client).
+pub(crate) fn install_with(client: Option<etalk::SpeechClient>, data_dir: &std::path::Path, cx: &mut App) -> Entity<SpeakReplies> {
+    // #NEW-66: the account signed in now, so the first state notification
+    // of an already-synced store is no account change (it would end a
+    // worker that is still preparing, a download included).
+    let account = session_account(cx);
+    let cleanup = Cleanup::load(data_dir);
     // The host's messages and its sign-ins arrive through
     // `crate::messages_changed` and `crate::session_changed`.
     let entity = cx.new(|_: &mut Context<SpeakReplies>| {
@@ -464,41 +480,38 @@ pub(crate) fn install(cx: &mut App) {
         }
     });
     cx.set_global(SpeakRepliesGlobal(entity.clone()));
-    let weak = entity.downgrade();
-    cx.spawn(async move |cx| {
-        while let Ok(event) = rx.recv_async().await {
-            let Some(entity) = weak.upgrade() else { break };
-            let _ = cx.update(|cx| {
-                // NEW-55 review: a worker crash ends a running call too
-                // (Speak replies then restarts the worker as before).
-                if matches!(event, etalk::Event::Exited) {
-                    crate::voice_call::on_worker_event(etalk::Event::Exited, cx);
-                }
-                // NEW-55: a running call's events (its microphone, its
-                // streamed reply audio) go to the call first.
-                // S-3: the call repaints only its own surfaces.
-                if crate::voice_call::owns(&event, cx) {
-                    crate::voice_call::on_worker_event(event, cx);
-                    return;
-                }
-                // NEW-57: what a meeting heard goes to the meeting host.
-                if crate::meeting::is_meeting_event(&event) {
-                    crate::meeting::on_worker_event(event, cx);
-                    return;
-                }
-                // #NEW-54: what the microphone heard goes to push to talk.
-                if crate::push_to_talk::is_listen_event(&event) {
-                    crate::push_to_talk::on_worker_event(event, cx);
-                    return;
-                }
-                // S-3: what the windows draw of it (the Speaking banner,
-                // the download detail) repaints in `on_event`, only when it
-                // changed: never every window for every worker event.
-                entity.update(cx, |this, cx| this.on_event(event, cx));
-            });
-        }
-    })
-    .detach();
+    entity
+}
+
+/// One event of the speech worker, to whoever owns it.
+pub(crate) fn dispatch(event: etalk::Event, cx: &mut App) {
+    let Some(entity) = global(cx) else { return };
+    // NEW-55 review: a worker crash ends a running call too
+    // (Speak replies then restarts the worker as before).
+    if matches!(event, etalk::Event::Exited) {
+        crate::voice_call::on_worker_event(etalk::Event::Exited, cx);
+    }
+    // NEW-55: a running call's events (its microphone, its
+    // streamed reply audio) go to the call first.
+    // S-3: the call repaints only its own surfaces.
+    if crate::voice_call::owns(&event, cx) {
+        crate::voice_call::on_worker_event(event, cx);
+        return;
+    }
+    // NEW-57: what a meeting heard goes to the meeting host.
+    if crate::meeting::is_meeting_event(&event) {
+        crate::meeting::on_worker_event(event, cx);
+        return;
+    }
+    // #NEW-54: what the microphone heard goes to push to talk.
+    if crate::push_to_talk::is_listen_event(&event) {
+        crate::push_to_talk::on_worker_event(event, cx);
+        return;
+    }
+    // S-3: what the windows draw of it (the Speaking banner,
+    // the download detail) repaints in `on_event`, only when it
+    // changed: never every window for every worker event.
+    entity.update(cx, |this, cx| this.on_event(event, cx));
 }
 
 fn global(cx: &App) -> Option<Entity<SpeakReplies>> {
@@ -602,11 +615,16 @@ pub(crate) fn on_agents(cx: &mut App) {
 /// The banner's Stop.
 pub fn stop(cx: &mut App) {
     if let Some(entity) = global(cx) {
-        entity.update(cx, |this, _| {
+        entity.update(cx, |this, cx| {
             if let Some(client) = this.client.as_ref() {
                 client.stop();
             }
-            this.speaking = None;
+            // #EXP-1936: the capsule, the call and the tray follow the
+            // speaker as its observers; the worker's `Finished` finds
+            // nothing left to clear and would never tell them.
+            if this.speaking.take().is_some() {
+                cx.notify();
+            }
         });
         cx.refresh_windows();
     }
@@ -880,8 +898,10 @@ impl SpeakReplies {
             language: &language,
             voices: &voices,
             armed_at: self.gate.armed_at(),
-            // #NEW-57: nothing is read aloud mid-meeting.
-            meeting: self.settings.meeting(),
+            // #NEW-57: nothing is read aloud mid-meeting. #EXP-1936: a
+            // meeting HERE (on the voice device); a call that fell back to
+            // this desktop because of it speaks.
+            meeting: self.settings.meeting() && self.settings.voice_device_id == host::device_id(cx),
         };
         // A burst (a reconnect) speaks only its newest reply.
         let Some(row) = fresh
@@ -1150,6 +1170,29 @@ mod tests {
         assert_eq!(speech_row(true, &Download::Idle, true, false), Some(SpeechState::Ready));
         let states = [SpeechState::Ready, SpeechState::Downloading, SpeechState::NoGpu, SpeechState::Failed];
         assert_eq!(states.map(SpeechState::doctor_state), ["ok", "off", "missing", "error"]);
+    }
+
+    /// #EXP-1936: the meeting gate is this desktop's: a meeting on the
+    /// voice device does not silence a voice turn (a call that fell back)
+    /// on another desktop; a meeting HERE does.
+    #[gpui::test]
+    async fn only_a_meeting_here_silences_a_voice_turn(cx: &mut gpui::TestAppContext) {
+        use crate::test_support::{settings, Rig, CONVERSATION, HERE};
+        let meeting_on = |device: &str| etalk::voice::VoiceSettings {
+            voice_device_id: Some(device.into()),
+            meeting_started_at: Some("2026-11-17T09:00:00.000Z".into()),
+            ..settings()
+        };
+        let rig = Rig::install(meeting_on("d-other"), cx);
+        cx.update(|cx| voice_turn(CONVERSATION, cx));
+        rig.message("r1", "agent", "All green.", 5, cx);
+        assert_eq!(rig.spoken(), ["r1"], "the meeting runs on another desktop");
+        cx.update(|cx| {
+            set_settings(meeting_on(HERE), cx);
+            voice_turn(CONVERSATION, cx);
+        });
+        rig.message("r2", "agent", "Shipped.", 6, cx);
+        assert!(rig.spoken().is_empty(), "nothing is read aloud mid-meeting here");
     }
 
     #[test]

@@ -547,6 +547,10 @@ fn run_daemon(args: &[String]) -> CommandResult {
                 let store = rows.store()?;
                 steer::StoredSession::of(&session_row(&store, session_id)?)
             }),
+            // #EDE-108: a reader's catch-up page for a run of this machine
+            // is answered off its journal (the daemon keeps no chat store).
+            device_id: Some(device_id.clone()),
+            chat_store: None,
         });
         node
     });
@@ -573,9 +577,18 @@ fn run_daemon(args: &[String]) -> CommandResult {
             data_dir: ctx.data_dir.clone(),
             device_id: device_id.clone(),
             teams: Arc::new(move || synced_team_ids(&teams)),
-            messages: Arc::new(move |session_id| {
+            messages: Arc::new(move |session_id, since| {
                 let Some(store) = rows.store() else { return Vec::new() };
-                let messages = read_shape_rows_where::<domain::rows::MessageRow>(&store, "messages", "session_id", &[session_id]);
+                let messages = match since {
+                    // EXP-1930: a call's reply watch reads only its own rows.
+                    Some(since) => store
+                        .read_session_messages_since(session_id, since)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter_map(|row| serde_json::from_value(serde_json::Value::Object(row)).ok())
+                        .collect(),
+                    None => read_shape_rows_where::<domain::rows::MessageRow>(&store, "messages", "session_id", &[session_id]),
+                };
                 coding::sealing::open_messages(&messages)
             }),
             beat_soon: Arc::clone(&check_in),

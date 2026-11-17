@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm"
+import { and, asc, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm"
 import {
   AGENT_INSTRUCTIONS_MAX_BYTES,
   MAX_AGENT_TRIGGERS,
@@ -83,6 +83,20 @@ export function mergeAgentVoice(current: AgentVoice, patch: z.infer<typeof agent
     else next[key] = value
   }
   return next as AgentVoice
+}
+
+/** #EXP-1935: `mergeAgentVoice`'s rule as ONE SQL expression over the stored column
+ *  (`(voice - removed keys) || set keys`), so a clip the upload route wrote
+ *  since this save read the agent is kept. */
+export function agentVoicePatchSql(patch: z.infer<typeof agentVoicePatchSchema>): SQL {
+  const set: Record<string, unknown> = {}
+  let stored = sql`coalesce(${agents.voice}, '{}'::jsonb)`
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue
+    if (value === null || value === ``) stored = sql`${stored} - ${key}::text`
+    else set[key] = value
+  }
+  return sql`(${stored}) || ${JSON.stringify(set)}::jsonb`
 }
 
 /** Agent triggers as stored: every trigger carries an id (minted here). */
@@ -403,7 +417,7 @@ export const agentsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id
       const agent = await loadOwnedAgent(userId, input.id)
-      const voice = input.voice === undefined ? undefined : mergeAgentVoice(agent.voice ?? {}, input.voice)
+      const voice = input.voice === undefined ? undefined : agentVoicePatchSql(input.voice)
       // #EXP-1835: the Check in rule (an old Assistant write is tagged).
       // #EXP-1829: a kept trigger keeps its prompt/run/preset unless the
       // write names them; kinds the writer does not show are kept; app kinds

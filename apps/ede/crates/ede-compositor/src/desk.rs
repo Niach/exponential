@@ -1,0 +1,95 @@
+//! #EDE-90: a desk is what belongs to one person (or, later, one agent
+//! space): the seat and what it holds down, the windows and their
+//! workspaces, the clipboard, the cursor.
+//! [`crate::state::Ede`] holds exactly one, the person's ([`Ede::desk`]).
+//! What acts on a desk takes its [`DeskId`] (focus, the `drive_*` paths,
+//! the clipboard, placement, the hold, the protected and lock checks) and
+//! finds the desk with [`Ede::desk`]; today every id is [`DeskId::PERSON`].
+//!
+//! [`Ede::desk`]: crate::state::Ede::desk
+
+use std::time::Instant;
+
+use smithay::{
+    desktop::{Space, Window},
+    input::{pointer::CursorImageStatus, Seat},
+};
+
+use crate::state::Ede;
+
+/// Which desk: the person's, the only one so far (#EDE-90).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DeskId(u32);
+
+impl DeskId {
+    pub const PERSON: DeskId = DeskId(0);
+}
+
+pub struct Desk {
+    pub id: DeskId,
+    pub seat: Seat<Ede>,
+    /// What the pointer looks like (a client's cursor surface, hidden, or
+    /// the default arrow); backends that draw their own cursor read it.
+    pub cursor_status: CursorImageStatus,
+    /// The virtual keyboard whose keymap the seat holds (until a real key).
+    pub virtual_keymap: Option<smithay::input::keyboard::KeyboardSource>,
+    /// An X11 window that was focused before it had a wl_surface.
+    #[cfg(feature = "xwayland")]
+    pub pending_x11_focus: Option<smithay::xwayland::X11Surface>,
+    /// #EDE-88: the X side of the keyboard focus. X delivers keys to its
+    /// own input focus, not to the surface Wayland focused, so the X11
+    /// window holding the keyboard is entered as an X11 keyboard target
+    /// (SetInputFocus or WM_TAKE_FOCUS, then `_NET_ACTIVE_WINDOW`)
+    /// through this seat, which no client binds: the Wayland enter itself
+    /// stays with `seat` ([`Ede::sync_x11_focus`]).
+    #[cfg(feature = "xwayland")]
+    pub x11_focus: (Seat<Ede>, Option<smithay::xwayland::X11Surface>),
+    /// The modifiers held for `InputEvent::Keysym` (#EDE-22).
+    pub keysyms: crate::keysym::Keysyms,
+    /// `hold_input` (#EDE-23).
+    pub hold: crate::hold::Hold,
+    /// The keys and buttons each connection drove down (#EDE-73).
+    pub driven: crate::protected::Driven,
+    /// The seat's CLIPBOARD serial, owner and reads ([`crate::clipboard`]).
+    pub clipboard: crate::clipboard::Clipboard,
+    /// Mapped windows, back to front.
+    pub space: Space<Window>,
+    /// Toplevels that exist but have not committed a buffer yet: they are
+    /// placed when their first frame arrives, so the size is known.
+    pub unmapped: Vec<Window>,
+    /// Windows in the taskbar only (#EDE-48, [`crate::minimize`]): out of
+    /// the space, their place and workspace remembered.
+    pub minimized: Vec<Window>,
+    /// The active workspace and the parked windows ([`crate::workspaces`]).
+    pub workspaces: crate::workspaces::Workspaces,
+    /// The last press on a title bar, for the double-click.
+    pub title_click: Option<(Window, Instant)>,
+}
+
+impl Ede {
+    /// The desk `id` names.
+    pub fn desk(&self, id: DeskId) -> &Desk {
+        debug_assert_eq!(id, self.desk.id, "one desk: the person's");
+        &self.desk
+    }
+
+    pub fn desk_mut(&mut self, id: DeskId) -> &mut Desk {
+        debug_assert_eq!(id, self.desk.id, "one desk: the person's");
+        &mut self.desk
+    }
+
+    /// The desk a window lives on: the person's, the only one.
+    pub fn desk_of_window(&self, _window: &smithay::desktop::Window) -> DeskId {
+        self.desk.id
+    }
+
+    /// The desk an ede-protocol connection drives: the person's, the only one.
+    pub(crate) fn desk_of_conn(&self, _conn: u64) -> DeskId {
+        self.desk.id
+    }
+
+    /// The session lock covers the person's desk.
+    pub fn desk_locked(&self, id: DeskId) -> bool {
+        id == DeskId::PERSON && self.is_locked()
+    }
+}

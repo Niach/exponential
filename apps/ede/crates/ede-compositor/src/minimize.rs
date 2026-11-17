@@ -18,8 +18,8 @@ impl Ede {
         if st.minimized {
             return;
         }
-        let in_space = self.space.element_location(window);
-        if in_space.is_none() && !self.workspaces.parked.contains(window) {
+        let in_space = self.desk.space.element_location(window);
+        if in_space.is_none() && !self.desk.workspaces.parked.contains(window) {
             return;
         }
         if let Some(at) = in_space {
@@ -27,10 +27,11 @@ impl Ede {
         }
         st.minimized = true;
         set_window_state(window, st);
-        let had_focus = self.focused_window().as_ref() == Some(window);
-        self.space.unmap_elem(window);
-        self.workspaces.parked.retain(|w| w != window);
-        self.minimized.push(window.clone());
+        let desk = self.desk_of_window(window);
+        let had_focus = self.focused_window(desk).as_ref() == Some(window);
+        self.desk.space.unmap_elem(window);
+        self.desk.workspaces.parked.retain(|w| w != window);
+        self.desk.minimized.push(window.clone());
         window.set_activated(false);
         if let Some(t) = window.toplevel() {
             t.send_pending_configure();
@@ -43,8 +44,8 @@ impl Ede {
         self.window_event(ede_protocol::events::WINDOW_MINIMIZED, window);
         if had_focus {
             // Focus falls to the window now on top, as on Cinnamon.
-            let next = self.space.elements().last().cloned();
-            self.focus(next);
+            let next = self.desk.space.elements().last().cloned();
+            self.focus(desk, next);
         }
     }
 
@@ -58,23 +59,23 @@ impl Ede {
         }
         st.minimized = false;
         set_window_state(window, st);
-        self.minimized.retain(|w| w != window);
+        self.desk.minimized.retain(|w| w != window);
         #[cfg(feature = "xwayland")]
         if let Some(x11) = window.x11_surface() {
             let _ = x11.set_mapped(true);
         }
-        if st.workspace != self.workspaces.active {
-            self.workspaces.parked.push(window.clone());
+        if st.workspace != self.desk.workspaces.active {
+            self.desk.workspaces.parked.push(window.clone());
         } else {
             let at = st.parked_at.filter(|at| {
                 let center = at.to_f64() + window.geometry().size.to_f64().to_point().downscale(2.0);
-                self.space.output_under(center).next().is_some()
+                self.desk.space.output_under(center).next().is_some()
             });
             match at {
-                Some(at) => self.space.map_element(window.clone(), at, true),
+                Some(at) => self.desk.space.map_element(window.clone(), at, true),
                 // Its output went away meanwhile: a fresh place on the first one.
                 None => {
-                    self.space.map_element(window.clone(), (0, 0), true);
+                    self.desk.space.map_element(window.clone(), (0, 0), true);
                     self.rehome_lost_windows(&[window.clone()]);
                 }
             }
@@ -85,6 +86,6 @@ impl Ede {
 
     /// A minimized window that closed.
     pub fn forget_minimized(&mut self, window: &Window) {
-        self.minimized.retain(|w| w != window);
+        self.desk.minimized.retain(|w| w != window);
     }
 }

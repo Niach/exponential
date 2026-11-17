@@ -1148,7 +1148,8 @@ public struct ChatComposer: Equatable, Sendable {
 public struct SessionChatView: Equatable, Sendable {
     public let rootId: String
     public let title: String
-    /// A lock glyph beside the title (`!root.shared`).
+    /// `!root.shared` (#EDE-98: no glyph of its own; the title's glyphs
+    /// are `Chats.chatMarks`).
     public let isPrivate: Bool
     /// The focused session (nil = the chat itself).
     public let focusId: String?

@@ -14,7 +14,7 @@ use smithay::{
     },
 };
 
-use crate::state::Ede;
+use crate::{desk::DeskId, state::Ede};
 
 /// The keyboard a layer surface holds (#EDE-71): an Exclusive one takes it
 /// once, with its first buffer, and whatever had it before gets it back
@@ -50,7 +50,7 @@ impl Ede {
     /// The layer surface `surface` (or the surface its subsurface hangs off) is.
     fn layer_for(&self, surface: &WlSurface) -> Option<LayerSurface> {
         let root = root_of(surface);
-        self.space.outputs().find_map(|o| {
+        self.desk.space.outputs().find_map(|o| {
             let map = layer_map_for_output(o);
             let layer = map.layer_for_surface(&root, WindowSurfaceType::TOPLEVEL).cloned();
             layer
@@ -60,7 +60,7 @@ impl Ede {
     /// The Exclusive prompt that holds the keyboard, if one does (#EDE-82:
     /// no window takes it then). A prompt's popup is the prompt's.
     pub(crate) fn exclusive_prompt(&self) -> Option<LayerSurface> {
-        let focus = self.seat.get_keyboard()?.current_focus().filter(|f| f.alive())?;
+        let focus = self.desk.seat.get_keyboard()?.current_focus().filter(|f| f.alive())?;
         let root = self.popups.find_popup(&focus).and_then(|p| smithay::desktop::find_popup_root_surface(&p).ok()).unwrap_or(focus);
         self.layer_for(&root).filter(shows_exclusive)
     }
@@ -68,13 +68,13 @@ impl Ede {
     /// The window that gets the keyboard back when that prompt closes.
     pub(crate) fn prompt_previous_window(&self) -> Option<smithay::desktop::Window> {
         let previous = layer_focus(&self.exclusive_prompt()?).previous.lock().unwrap().clone()?;
-        self.space.elements().find(|w| w.wl_surface().is_some_and(|s| *s == previous)).cloned()
+        self.desk.space.elements().find(|w| w.wl_surface().is_some_and(|s| *s == previous)).cloned()
     }
 
     /// The keyboard goes to `surface`; when it is a layer's, the layer
     /// remembers what had the keyboard and gives it back as it closes.
     pub(crate) fn focus_layer(&mut self, surface: WlSurface, serial: Serial) {
-        let keyboard = self.seat.get_keyboard().unwrap();
+        let keyboard = self.desk.seat.get_keyboard().unwrap();
         if let Some(layer) = self.layer_for(&surface) {
             let previous = keyboard.current_focus().filter(|p| p.alive());
             let own = previous.as_ref().is_some_and(|p| self.layer_for(p).as_ref() == Some(&layer));
@@ -90,9 +90,9 @@ impl Ede {
     /// keyboard before it): what is typed next is the prompt's. `lock_pid`
     /// is the sealed lock client, whose own surface is about to close.
     pub(crate) fn focus_after_unlock(&mut self, lock_pid: Option<u32>) {
-        let top = self.space.elements().last().cloned();
-        self.focus(top);
-        let prompt = self.space.outputs().find_map(|o| {
+        let top = self.desk.space.elements().last().cloned();
+        self.focus(DeskId::PERSON, top);
+        let prompt = self.desk.space.outputs().find_map(|o| {
             let map = layer_map_for_output(o);
             let found = [Layer::Overlay, Layer::Top].into_iter().find_map(|on| map.layers_on(on).rev().find(|l| Some(crate::sealed::layer_origin(l).pid) != lock_pid && shows_exclusive(l)).cloned());
             found
@@ -110,19 +110,19 @@ impl Ede {
         if self.is_locked() {
             return;
         }
-        let keyboard = self.seat.get_keyboard().unwrap();
+        let keyboard = self.desk.seat.get_keyboard().unwrap();
         let held = keyboard.current_focus().is_some_and(|f| !f.alive() || root_of(&f) == *layer.wl_surface());
         if !held {
             return;
         }
         let previous = previous.filter(|p| p.alive());
-        let window = previous.as_ref().and_then(|p| self.space.elements().find(|w| w.wl_surface().is_some_and(|s| *s == *p)).cloned());
+        let window = previous.as_ref().and_then(|p| self.desk.space.elements().find(|w| w.wl_surface().is_some_and(|s| *s == *p)).cloned());
         match (window, previous) {
-            (Some(window), _) => self.focus(Some(window)),
+            (Some(window), _) => self.focus(DeskId::PERSON, Some(window)),
             (None, Some(surface)) if self.layer_takes_keyboard(&surface) => keyboard.set_focus(self, Some(surface), SERIAL_COUNTER.next_serial()),
             _ => {
-                let top = self.space.elements().last().cloned();
-                self.focus(top);
+                let top = self.desk.space.elements().last().cloned();
+                self.focus(DeskId::PERSON, top);
             }
         }
     }
@@ -134,7 +134,7 @@ impl WlrLayerShellHandler for Ede {
     }
 
     fn new_layer_surface(&mut self, surface: WlrLayerSurface, wl_output: Option<wl_output::WlOutput>, _layer: Layer, namespace: String) {
-        let Some(output) = wl_output.as_ref().and_then(Output::from_resource).or_else(|| self.space.outputs().next().cloned()) else {
+        let Some(output) = wl_output.as_ref().and_then(Output::from_resource).or_else(|| self.desk.space.outputs().next().cloned()) else {
             // No output yet: nothing can show it.
             surface.send_close();
             return;
@@ -153,7 +153,7 @@ impl WlrLayerShellHandler for Ede {
     }
 
     fn layer_destroyed(&mut self, surface: WlrLayerSurface) {
-        let found = self.space.outputs().find_map(|o| {
+        let found = self.desk.space.outputs().find_map(|o| {
             let map = layer_map_for_output(o);
             let layer = map.layers().find(|l| l.layer_surface() == &surface).cloned();
             layer.map(|l| (o.clone(), l))
@@ -169,7 +169,7 @@ impl WlrLayerShellHandler for Ede {
 
 pub fn handle_commit(state: &mut Ede, surface: &WlSurface) {
     let Some(output) = state
-        .space
+        .desk.space
         .outputs()
         .find(|o| layer_map_for_output(o).layer_for_surface(surface, WindowSurfaceType::TOPLEVEL).is_some())
         .cloned()

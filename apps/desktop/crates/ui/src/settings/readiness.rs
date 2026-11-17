@@ -173,8 +173,10 @@ pub(super) fn pill(ink: &Ink, id: &str, paint: PillPaint, label: Value, on: Valu
 /// the note under it, and (THIS device's install rows) the Custom path
 /// field.
 fn row(ink: &Ink, paint: &Paint, id: &str, custom_path: bool) -> Vec<Value> {
-    // The fixture's switch row: label + switch, NO description; read-only
-    // (no toggle) dims the label with the switch.
+    // The fixture's switch row: label + switch, NO description but the
+    // device's reason while it cannot drive (#EXP-1899: web GlassToggleRow's
+    // `description`, the second line under the label); read-only (no toggle)
+    // dims the label with the switch.
     let label = |id: String, visible: &str| {
         let mut text = ink.text(&id, path("label"), SM, &ink.foreground);
         text["visible"] = path(visible);
@@ -185,9 +187,14 @@ fn row(ink: &Ink, paint: &Paint, id: &str, custom_path: bool) -> Vec<Value> {
     };
     let switch = json!({"id": format!("{id}_switch"), "component": "Switch", "props": {"label": "", "name": "computer_use", "checked": path("on"), "disabled": path("readOnly")},
         "on": {"change": {"event": {"name": "readinessToggle"}}}});
+    let mut description = ink.text(&format!("{id}_sw_description"), path("detail"), XS, &ink.muted);
+    description["visible"] = path("switchDetail");
+    let label_column = json!({"id": format!("{id}_sw_labels"), "component": "Box",
+        "style": {"display": "flex", "flexDirection": "column", "flexGrow": 1, "flexShrink": 1, "minWidth": 0, "gap": 2},
+        "children": [label(format!("{id}_sw_label"), "toggle"), faded(label(format!("{id}_sw_label_dim"), "readOnly"), 0.5), description]});
     let switch_row = json!({"id": format!("{id}_sw"), "component": "Box", "visible": path("switch"),
         "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "gap": ink.r(0.75), "paddingHorizontal": ink.r(0.75), "paddingVertical": ink.r(0.5)},
-        "children": [label(format!("{id}_sw_label"), "toggle"), faded(label(format!("{id}_sw_label_dim"), "readOnly"), 0.5), switch]});
+        "children": [label_column, switch]});
 
     // The line: glyph, label, the detail at the right edge, the pills.
     let mut children = vec![json!({"id": format!("{id}_indent"), "component": "Box", "visible": path("indent"), "style": {"width": 36. - ink.r(0.75) - ink.r(0.5), "flexShrink": 0}})];
@@ -352,6 +359,7 @@ fn row_state(row: &ReadinessRow, facts: &Facts) -> Value {
         "readOnly": !facts.toggle,
         "indent": row.indent,
         "detail": row.detail.clone().unwrap_or_default(),
+        "switchDetail": row.switch.is_some() && row.detail.is_some(),
         "glassOn": glass && !busy,
         "glassBusy": glass && busy,
         "primaryOn": primary && !busy,
@@ -589,10 +597,28 @@ pub(crate) mod tests {
         assert_eq!((claude["primaryBusy"].clone(), claude["primaryOn"].clone(), claude["pillLabel"].clone()), (json!(true), json!(false), json!("Update")));
         let switch = &state["groups"]["computer_use"][0];
         assert_eq!((switch["switch"].clone(), switch["on"].clone()), (json!(true), json!(true)));
+        assert_eq!(switch["switchDetail"], json!(false));
         assert_eq!(state["tail"]["work_screen"]["shown"], json!(true));
         assert_eq!(state["tail"]["computer_use_model"]["value"], json!("haiku"));
         assert_eq!(state["tail"]["computer_use_model"]["options"], json!([{"label": "Haiku", "value": "haiku"}]));
         let loading = project(Shape::Loading, &facts);
         assert_eq!((loading["loading"].clone(), loading["tail"]["work_screen"]["shown"].clone()), (json!(true), json!(false)));
+    }
+
+    /// #EXP-1899: a machine that cannot drive shows the device's reason as
+    /// the switch row's second line.
+    #[test]
+    fn the_switch_row_carries_the_reason_while_it_cannot_drive() {
+        let fixture: Value = serde_json::from_str(include_str!("../../../../../../packages/domain-contract/fixtures/device-doctor.json")).unwrap();
+        let case = fixture["cases"].as_array().unwrap().iter().find(|case| case.get("switchDescription").is_some()).unwrap();
+        let doctor = crate::device_readiness::parse(Some(&case["doctor"])).unwrap();
+        let sections = crate::device_readiness::sections(&doctor, false, None);
+        let (busy, notes, paths) = (HashSet::new(), HashMap::new(), HashMap::new());
+        let tail = [TailPicker::default(), TailPicker::default()];
+        let facts = Facts { busy: &busy, toggle: true, notes: &notes, paths: &paths, tail: &tail };
+        let state = project(Shape::Sections(&sections), &facts);
+        let switch = &state["groups"]["computer_use"][0];
+        assert_eq!((switch["switch"].clone(), switch["on"].clone(), switch["switchDetail"].clone()), (json!(true), json!(true), json!(true)));
+        assert_eq!(switch["detail"], case["switchDescription"]);
     }
 }

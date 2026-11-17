@@ -26,6 +26,8 @@ struct ChatListSpecimens: View {
         var word: ChatRowWord?
         /// S-3: a DONE chat stays, dimmed (`listCases[0]` `dim`).
         var dim = false
+        /// #EDE-98: row i wears `marksCases[i % length]` (chats.json).
+        var marks: [Chats.ChatMark] = []
     }
 
     // chats.json `listCases[0].expected` (the model every platform's
@@ -34,12 +36,14 @@ struct ChatListSpecimens: View {
         Row(id: "b", title: "Running one", group: "running", lead: .working,
             previewKind: .working, preview: Chats.Copy.Preview.working, time: "09:25"),
         Row(id: "a", title: "Needs you one", group: "needs_you", lead: .needsYou,
-            previewKind: .question, preview: "Question: Snapshot?", time: "09:10", needsYou: true),
+            previewKind: .question, preview: "Question: Snapshot?", time: "09:10", needsYou: true,
+            marks: [.team]),
         Row(id: "c", title: "Open PR", group: "recent", lead: .open,
             previewKind: .agent, preview: "Waiting for review", time: "08:30",
-            unread: 1, word: .readyToMerge),
+            unread: 1, word: .readyToMerge, marks: [.unencrypted]),
         Row(id: "d", title: "Merged", group: "recent", lead: .merged,
-            previewKind: .you, preview: "You: ship it", time: Chats.Copy.Time.yesterday, dim: true),
+            previewKind: .you, preview: "You: ship it", time: Chats.Copy.Time.yesterday, dim: true,
+            marks: [.team, .unencrypted]),
     ]
 
     /// S-3 chats.json `agentRowCases[0].expected`: the pinned agent rows,
@@ -162,6 +166,7 @@ struct ChatListSpecimens: View {
                             ForEach(section.rows) { row in
                                 ChatRowView(
                                     title: row.title,
+                                    marks: row.marks,
                                     time: row.time,
                                     preview: row.preview,
                                     previewLabel: row.previewKind == .question ? "Question:" : nil,
@@ -464,6 +469,7 @@ struct ChatHeaderSpecimens: View {
                     title: "Reduce cold start",
                     subtitle: SessionScreen.subtitle(status: SessionScreen.Copy.Status.needsInput, device: "Alex's MacBook", trigger: nil),
                     subtitleTone: .needsYou,
+                    marks: [.team, .unencrypted],
                     cli: "claude",
                     mark: .needsYou
                 )
@@ -483,6 +489,7 @@ struct ChatHeaderSpecimens: View {
                     title: "A title long enough that it truncates on one line",
                     subtitle: SessionScreen.Copy.Status.working,
                     subtitleTone: .working,
+                    marks: [.team],
                     cli: "claude",
                     mark: .working
                 )

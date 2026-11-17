@@ -1,6 +1,7 @@
-import { useMemo, useSyncExternalStore } from "react"
+import { useEffect, useMemo, useSyncExternalStore } from "react"
 import { openDigestMessages } from "@/lib/enet/sealed-open"
 import { useKeyVersion } from "@/lib/enet/use-key-holder"
+import { recordMessages } from "@/lib/chat-store/client"
 import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import { useTeamAgentRows } from "@/hooks/use-agent-row"
 import {
@@ -613,12 +614,15 @@ function useNewestMessages(input: {
         : undefined,
     [waitingKey]
   )
-  return useMemo(() => {
+  const newest = useMemo(() => {
     const loaded = (data ?? []) as SyncedMessageRow[]
     const ids = new Set(loaded.map((row) => row.id))
     const extra = ((waiting ?? []) as SyncedMessageRow[]).filter((row) => !ids.has(row.id))
     return { rows: [...loaded, ...extra], more: loaded.length >= limit, isReady }
   }, [data, waiting, limit, isReady])
+  // #EDE-115: the chat store keeps every message a chat loads (opened).
+  useEffect(() => recordMessages(newest.rows), [newest.rows])
+  return newest
 }
 
 /** The chat screen's whole model (`buildSessionChat`, fixture-locked). */

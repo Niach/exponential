@@ -44,6 +44,14 @@
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
     {
+      "package": "chat-store-wasm@0.1.0",
+      "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
+    },
+    {
+      "package": "chat-store@0.1.0",
+      "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
+    },
+    {
       "package": "chunked_transfer@1.5.0",
       "reason": "dev-dependency only — compiled for tests and benchmarks, never linked into a distributed artifact"
     },

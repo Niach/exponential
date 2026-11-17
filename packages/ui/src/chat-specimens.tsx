@@ -7,6 +7,7 @@ import {
   type AgentChatRow,
   type AppChatRow,
   type ChatLead,
+  type ChatMark,
   type ChatRow as ChatRowModel,
 } from "@exp/domain-contract/chats"
 import type { SessionChatRow } from "@exp/domain-contract/session-tree"
@@ -17,6 +18,7 @@ import { BoardGlyph } from "./board-glyph"
 import { BulkBarAction, BulkBarCapsule, BulkBarSeparator } from "./bulk-bar"
 import { Button } from "./button"
 import { CHAT_SELECTION_ICONS, ChatLeadDisc, ChatList, ChatsHeader } from "./chat-list"
+import { ChatMarks } from "./chat-marks"
 import { Dialog } from "./dialog"
 import { FAB_CHROME_CLASS } from "./fab-chrome"
 import { conceptIcon } from "./icons.generated"
@@ -55,6 +57,12 @@ const LIST_ROWS = chats.listCases[0]!.expected.rows as ChatRowModel[]
 /** S-3: the pinned agent rows (`agentRowCases[0]`: the Assistant first). */
 const AGENT_ROWS = chats.agentRowCases[0]!.expected as AgentChatRow[]
 const APP_ROWS = chats.appRowCases[0]!.expected as AppChatRow[]
+/** #EDE-98: row i wears `marksCases[i % length]` (chats.json). */
+const MARKS = chats.marksCases.map((c) => c.expected as ChatMark[])
+const marksOf = (sessionId: string): ChatMark[] => {
+  const index = LIST_ROWS.findIndex((row) => row.sessionId === sessionId)
+  return index < 0 ? [] : MARKS[index % MARKS.length]!
+}
 
 // EXP-1647: the phone column is 390px at the PHONE root (16px) = 24.375rem:
 // the wide web root is 18.5px (styles.css). #FEED-191: no rings, no chips: the
@@ -66,7 +74,7 @@ export function ChatListSpecimen() {
       className="flex w-[24.375rem] max-w-full flex-col gap-4 overflow-hidden rounded-xl bg-background p-4 max-md:rounded-none max-md:p-0"
     >
       <ChatsHeader inboxCount={3} />
-      <ChatList rows={LIST_ROWS} agentRows={AGENT_ROWS} appRows={APP_ROWS} agentOf={() => `claude`} />
+      <ChatList rows={LIST_ROWS} agentRows={AGENT_ROWS} appRows={APP_ROWS} agentOf={() => `claude`} marksOf={marksOf} />
     </div>
   )
 }
@@ -93,10 +101,15 @@ function ChatHeaderTrailing({ call = false }: { call?: boolean }) {
 
 export function ChatHeaderSpecimen() {
   const header = chats.shell.chatHeader
-  const titleOf = (lead: ChatLead, title: string, subtitle: ReactNode) => (
+  const titleOf = (lead: ChatLead, title: string, subtitle: ReactNode, marks: readonly ChatMark[] = []) => (
     <PhoneHeaderTitle
       disc={<ChatLeadDisc lead={lead} agent="claude" className="!size-10 [&>svg]:size-5! [&>[data-slot=run-mark-badge]]:right-1.5! [&>[data-slot=run-mark-badge]]:top-1.5!" />}
-      title={title}
+      title={
+        <span className="flex min-w-0 items-center" style={{ gap: chats.shell.markGap }}>
+          <span className="truncate">{title}</span>
+          <ChatMarks marks={marks} />
+        </span>
+      }
       subtitle={subtitle}
     />
   )
@@ -111,7 +124,8 @@ export function ChatHeaderSpecimen() {
         title={titleOf(
           `needs_you`,
           `Reduce cold start`,
-          <span className="text-yellow-400">{`needs input · Alex's MacBook`}</span>
+          <span className="text-yellow-400">{`needs input · Alex's MacBook`}</span>,
+          MARKS[3]
         )}
         menu={<ChatHeaderTrailing />}
       />
@@ -121,7 +135,8 @@ export function ChatHeaderSpecimen() {
         title={titleOf(
           `working`,
           `A title long enough that it truncates on one line`,
-          <span className="text-foreground">{COPY.preview.working}</span>
+          <span className="text-foreground">{COPY.preview.working}</span>,
+          MARKS[1]
         )}
         menu={<ChatHeaderTrailing />}
       />
@@ -173,6 +188,7 @@ export function ChatSelectionSpecimen() {
         rows={LIST_ROWS}
         agentRows={AGENT_ROWS}
         agentOf={() => `claude`}
+        marksOf={marksOf}
         archived={ARCHIVED_COUNT}
         selection={selected}
         onRowClick={toggle}

@@ -122,6 +122,7 @@ final class VoiceCallTests: XCTestCase {
             "maxFramesPerSecond": VoiceCall.Constants.maxFramesPerSecond,
             "maxCallMs": VoiceCall.Constants.maxCallMs,
             "idleTimeoutMs": VoiceCall.Constants.idleTimeoutMs,
+            "aliveMs": VoiceCall.Constants.aliveMs,
             "serverIdleMs": VoiceCall.Constants.serverIdleMs,
         ])
         let wire = try XCTUnwrap(fixture["wire"] as? [String: Any])
@@ -271,6 +272,12 @@ final class VoiceCallTests: XCTestCase {
         for row in try cases("ringCases") {
             let random = try XCTUnwrap(row["random"] as? NSNumber).doubleValue
             XCTAssertEqual(VoiceCall.callRingMs(random: random), row["ringMs"] as? Int, "\(random)")
+        }
+        for row in try cases("livenessCases") {
+            let input = try XCTUnwrap(row["input"] as? [String: Any])
+            let expected = try XCTUnwrap(row["expected"] as? [String: Any])
+            let dead = VoiceCall.callPathDead(alive: input["alive"] as? Bool ?? false, silentMs: input["silentMs"] as? Int ?? -1)
+            XCTAssertEqual(dead, expected["dead"] as? Bool, row["name"] as? String ?? "")
         }
         for row in try cases("answerCases") {
             let random = try XCTUnwrap(row["random"] as? NSNumber).doubleValue

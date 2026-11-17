@@ -915,14 +915,18 @@ describe.skipIf(!ready.ok)(`FEED-165: 0213 makes the earliest evidence first-see
     const m = await preDeploy()
     // 0206 made the owner first-seen (no pin) from a row since gone (an old
     // backfill); the squat's row reads older still; then the owner removed
-    // the box (the hard delete takes its row, the removal stays).
+    // the box (the hard delete takes its row, the removal stays). Both times
+    // sit before 0206 was generated (0213's `to_timestamp(1793190174.891)`):
+    // only such a row is 0206's to recompute, so a time relative to now
+    // stopped being one on 2026-11-17.
+    const generated0206 = 1_793_190_174_891
     await db
       .update(deviceFirstSeen)
-      .set({ userId: m.owner, firstSeenAt: new Date(Date.now() - 20 * 86_400_000) })
+      .set({ userId: m.owner, firstSeenAt: new Date(generated0206 - 20 * 86_400_000) })
       .where(eq(deviceFirstSeen.deviceId, m.deviceId))
     await db
       .update(devices)
-      .set({ createdAt: new Date(Date.now() - 30 * 86_400_000) })
+      .set({ createdAt: new Date(generated0206 - 30 * 86_400_000) })
       .where(and(eq(devices.userId, m.squat), eq(devices.deviceId, m.deviceId)))
     await devicesAs(m.owner).remove({ deviceId: m.deviceId })
     expect(await only0213(m.deviceId)).toBe(m.owner)

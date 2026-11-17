@@ -777,6 +777,7 @@ export const SEMANTIC_ICONS = {
   "ui-unassigned": `user-x`,
   "ui-undo": `undo-2`,
   "ui-undock": `arrow-up-right`,
+  "ui-unencrypted": `lock-open`,
   "ui-unlock": `lock-open`,
   "ui-unpin": `pin-off`,
   "ui-unselected": `square`,

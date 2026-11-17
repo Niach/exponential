@@ -126,6 +126,8 @@ public enum VoiceCall {
         public static let maxFramesPerSecond = 60
         public static let maxCallMs = 3_600_000
         public static let idleTimeoutMs = 30_000
+        /// EXP-1929: the relay's beat (`call_alive`) once paired.
+        public static let aliveMs = 5000
         /// EXP-1858: a server's speech worker exits after this long without a call.
         public static let serverIdleMs = 600_000
     }
@@ -787,6 +789,14 @@ public enum VoiceCall {
     /// (the shared cadence: `ringToneMs` on, `ringGapMs` off, looping).
     public static func callRingToneOn(ms: Int) -> Bool {
         ms >= 0 && ms % (Constants.ringToneMs + Constants.ringGapMs) < Constants.ringToneMs
+    }
+
+    /// EXP-1929 (`livenessCases`): an end of a call that got a `call_alive`
+    /// (`alive`) and has heard nothing from the relay for `silentMs` treats
+    /// the path as dead (the call ends as dropped); before the first beat (an
+    /// older relay) there is no deadline.
+    public static func callPathDead(alive: Bool, silentMs: Int) -> Bool {
+        alive && silentMs >= Constants.idleTimeoutMs
     }
 
     /// The call's timer since it was answered: mm:ss, h:mm:ss from an hour.

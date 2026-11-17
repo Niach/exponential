@@ -892,6 +892,11 @@ pub struct SessionRow {
     /// stays a neutral fallback. Open it through `coding::sealing`.
     #[serde(default)]
     pub sealed_title: Option<String>,
+    /// #EDE-97 (sealed-content.json `clearTree`): an outside MCP client
+    /// started this ROOT; the tree stays in clear for life (nobody keys it,
+    /// every writer sends plaintext). Roots only; absent = false.
+    #[serde(default, deserialize_with = "tolerant_bool_or_false")]
+    pub clear_tree: bool,
     /// THE Guide (`GuideEntry[]`, the old results entries = the PR body);
     /// read through [`crate::session_results`].
     #[serde(default, deserialize_with = "tolerant_opt_json")]

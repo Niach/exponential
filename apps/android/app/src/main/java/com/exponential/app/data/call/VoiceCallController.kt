@@ -108,6 +108,10 @@ class VoiceCallController @Inject constructor(
         var audio: VoiceCallAudio? = null
         /** call_end / error arrived, or End call was pressed: a close is no drop. */
         @Volatile var settled = false
+        /** EXP-1929: the relay beats (`call_alive`), and when it last sent anything. */
+        @Volatile var alive = false
+        @Volatile var heardAt = SystemClock.elapsedRealtime()
+        var liveJob: Job? = null
     }
 
     @Volatile private var current: Run? = null
@@ -262,9 +266,12 @@ class VoiceCallController @Inject constructor(
             return
         }
         run.session = session
+        run.heardAt = SystemClock.elapsedRealtime()
+        run.liveJob = scope.launch { watchLiveness(run) }
         try {
             for (frame in session.incoming) {
                 if (current !== run) break
+                run.heardAt = SystemClock.elapsedRealtime()
                 when (frame) {
                     is Frame.Text -> if (!onText(run, frame.readText())) break
                     is Frame.Binary -> {
@@ -281,6 +288,17 @@ class VoiceCallController @Inject constructor(
         }
         // The socket closed or failed without call_end / error: dropped.
         if (current === run && !run.settled) fail(run, "dropped") else if (current === run) finish(run)
+    }
+
+    /** EXP-1929: once the relay beat, a path that carries nothing for `idleTimeoutMs` is dead: dropped. */
+    private suspend fun watchLiveness(run: Run) {
+        while (current === run) {
+            delay(LIVENESS_TICK_MS)
+            if (current === run && VoiceCall.callPathDead(run.alive, SystemClock.elapsedRealtime() - run.heardAt)) {
+                Log.i(TAG, "call path went silent")
+                return fail(run, "dropped")
+            }
+        }
     }
 
     /** One control frame; false = the call is over (stop reading). */
@@ -323,6 +341,7 @@ class VoiceCallController @Inject constructor(
                 fail(run, msg.str("code") ?: "dropped")
                 return false
             }
+            "call_alive" -> run.alive = true
             // The room closed without a `call_end` first.
             "bye" -> {
                 fail(run, msg.str("outcome") ?: "dropped")
@@ -376,6 +395,7 @@ class VoiceCallController @Inject constructor(
             run.job?.cancel()
         }
         run.ringJob?.cancel()
+        run.liveJob?.cancel()
         VoiceCallService.stop(context)
     }
 
@@ -402,6 +422,7 @@ class VoiceCallController @Inject constructor(
     private companion object {
         const val TAG = "VoiceCall"
         const val LEVEL_TICK_MS = 33L
+        const val LIVENESS_TICK_MS = 1_000L
         fun controlFrame(t: String, extra: kotlinx.serialization.json.JsonObjectBuilder.() -> Unit = {}): String =
             buildJsonObject {
                 put("t", t)

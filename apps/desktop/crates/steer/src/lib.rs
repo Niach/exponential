@@ -68,6 +68,7 @@ pub mod commands;
 pub mod conn_stats;
 pub mod control_channel;
 pub mod enet;
+pub mod enet_catchup;
 pub mod enet_steer;
 /// EXP-846: the contract's `expToolDisplay` lookup (our MCP tools' rows).
 pub mod exp_tool;
@@ -83,6 +84,8 @@ pub use domain::image_message;
 pub mod journal;
 pub use eagent::login_picker;
 pub mod publisher;
+/// #EDE-96: the device answers a transcript search over its journal.
+pub mod search;
 pub mod seal_keys;
 /// EXP-1279: the code-mode Script card model.
 pub mod script_card;

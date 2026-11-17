@@ -80,6 +80,12 @@ public final class InstallNodeCoordinator: @unchecked Sendable {
 
     private var wakePending = false
 
+    /// #EDE-97: a writer waits for this install's registration: the next
+    /// tick re-runs the pass.
+    public func wake() {
+        lock.withLock { wakePending = true }
+    }
+
     private func takeWake() -> Bool {
         lock.withLock {
             defer { wakePending = false }

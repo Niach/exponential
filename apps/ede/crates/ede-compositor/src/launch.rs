@@ -17,7 +17,7 @@ use smithay::{
     },
 };
 
-use crate::state::Ede;
+use crate::{desk::DeskId, state::Ede};
 
 /// How long a launch may take to show its window (a cold start of a large
 /// app on a loaded machine).
@@ -85,7 +85,7 @@ impl XdgActivationHandler for Ede {
     // A client's own token counts only while that client has the keyboard:
     // the focused app may bring another window forward, nobody else.
     fn token_created(&mut self, _token: XdgActivationToken, data: XdgActivationTokenData) -> bool {
-        let focus = self.seat.get_keyboard().and_then(|k| k.current_focus());
+        let focus = self.desk.seat.get_keyboard().and_then(|k| k.current_focus());
         focus.and_then(|f| f.client()).is_some_and(|c| Some(c.id()) == data.client_id)
     }
 
@@ -95,10 +95,10 @@ impl XdgActivationHandler for Ede {
         if !valid {
             return;
         }
-        let mapped = self.space.elements().find(|w| w.wl_surface().is_some_and(|s| *s == surface)).cloned();
+        let mapped = self.desk.space.elements().find(|w| w.wl_surface().is_some_and(|s| *s == surface)).cloned();
         if let Some(window) = mapped {
-            self.focus(Some(window));
-        } else if let Some(window) = self.unmapped.iter().find(|w| w.wl_surface().is_some_and(|s| *s == surface)) {
+            self.focus(DeskId::PERSON, Some(window));
+        } else if let Some(window) = self.desk.unmapped.iter().find(|w| w.wl_surface().is_some_and(|s| *s == surface)) {
             window.user_data().insert_if_missing(|| Activated);
         }
     }

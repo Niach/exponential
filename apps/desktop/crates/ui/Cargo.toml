@@ -21,6 +21,8 @@ theme = { path = "../theme" }
 domain = { path = "../domain" }
 eengine = { path = "../eengine" }
 sync = { path = "../sync" }
+# #EDE-105: every chat on disk + its search index.
+chat-store = { path = "../chat-store" }
 api = { path = "../api" }
 observability = { path = "../observability" }
 # #LOGS-2: the per-view render spans the lag instrumentation reads.

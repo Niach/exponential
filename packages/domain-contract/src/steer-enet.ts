@@ -509,3 +509,170 @@ export function steerConnAggregate(rows: SteerConnRow[]): SteerConnAggregate {
     fallbackRate: (fallbackSettles + fallbackEnded) / views,
   }
 }
+
+// ---------------------------------------------------------------------------
+// #EDE-96 SEARCH (steer-enet.json `search`): the device answers a transcript
+// search over the session's journal. The pure rule, replayed by every mirror.
+// ---------------------------------------------------------------------------
+
+export const STEER_SEARCH_QUERY_MAX_CHARS = fixture.search.queryMaxChars
+export const STEER_SEARCH_HITS_MAX = fixture.search.hitsMax
+export const STEER_SEARCH_SCAN_MAX_BYTES = fixture.search.scanMaxBytes
+export const STEER_SEARCH_SNIPPET_CHARS = fixture.search.snippetChars
+export const STEER_SEARCH_SNIPPET_LEAD_CHARS = fixture.search.snippetLeadChars
+
+/** What a hit points at: the row kind a viewer draws it in. */
+export type SteerSearchKind = `user_message` | `narration` | `tool` | `tool_output`
+
+/** One match: `seq` = the ROW's seq (a tool's output = its `tool` row),
+ *  `matchStart`/`matchLen` in code points of `snippet`. */
+export type SteerSearchHit = { seq: number; kind: SteerSearchKind; snippet: string; matchStart: number; matchLen: number }
+
+/** The viewer's ask (`beforeSeq` absent = from the newest event). */
+export type SteerSearchFrame = { t: `search`; requestId: string; query: string; beforeSeq?: number; limit: number }
+
+/** The device's answer, to the asker only. */
+export type SteerSearchResultFrame = {
+  t: `search_result`
+  requestId: string
+  hits: SteerSearchHit[]
+  total?: number
+  done: boolean
+  scannedToSeq: number
+}
+
+/** The answer's body (`steerSearch`). */
+export type SteerSearchResult = Omit<SteerSearchResultFrame, `t` | `requestId`>
+
+/** One journal event as `steerSearch` reads it (the wire `activity` event). */
+export type SteerSearchEvent = { kind: string } & Record<string, unknown>
+
+const SEARCH_SPACE = new Set([` `, `\t`, `\n`, `\r`, `\f`, `\v`])
+
+/** Every run of ASCII whitespace (space, tab, LF, CR, FF, VT) = one space, trimmed. */
+export function steerSearchCollapse(text: string): string {
+  let out = ``
+  let space = false
+  for (const ch of text) {
+    if (SEARCH_SPACE.has(ch)) {
+      space = out !== ``
+      continue
+    }
+    if (space) out += ` `
+    space = false
+    out += ch
+  }
+  return out
+}
+
+/** The fold, per code point: NFD, marks (General_Category M) dropped, lowercased.
+ *  `source[i]` = the code-point index in `text` folded char `i` came from. */
+export function steerSearchFold(text: string): { chars: string[]; source: number[] } {
+  const chars: string[] = []
+  const source: number[] = []
+  Array.from(text).forEach((ch, index) => {
+    for (const part of ch.normalize(`NFD`)) {
+      if (/\p{M}/u.test(part)) continue
+      for (const lower of part.toLowerCase()) {
+        chars.push(lower)
+        source.push(index)
+      }
+    }
+  })
+  return { chars, source }
+}
+
+/** The searchable text of one event, its hit kind and the row it lands on. */
+function searchable(
+  event: SteerSearchEvent,
+  seq: number,
+  toolRows: Map<string, number>
+): { kind: SteerSearchKind; text: string; seq: number } | null {
+  const str = (value: unknown) => (typeof value === `string` ? value : null)
+  switch (event.kind) {
+    case `user_message`:
+    case `narration`: {
+      const text = str(event.text)
+      return text === null ? null : { kind: event.kind, text, seq }
+    }
+    case `tool`: {
+      const name = str(event.name) ?? ``
+      const detail = str(event.detail)
+      return { kind: `tool`, text: detail ? `${name} ${detail}` : name, seq }
+    }
+    case `tool_update`: {
+      const text = str(event.output) ?? str(event.diff)
+      const row = toolRows.get(str(event.id) ?? ``)
+      return text === null || row === undefined ? null : { kind: `tool_output`, text, seq: row }
+    }
+    default:
+      return null
+  }
+}
+
+/**
+ * #EDE-96 (steer-enet.json SEARCH): search a journal (`events` with their
+ * seqs, oldest first, as the device reads it) for `query`, newest first,
+ * below `beforeSeq`, at most `limit` hits and `scanMaxBytes` of text.
+ */
+export function steerSearch(input: {
+  events: readonly { seq: number; event: SteerSearchEvent }[]
+  query: string
+  beforeSeq?: number
+  limit: number
+  scanMaxBytes?: number
+}): SteerSearchResult {
+  const query = steerSearchFold(Array.from(steerSearchCollapse(input.query)).slice(0, STEER_SEARCH_QUERY_MAX_CHARS).join(``)).chars
+  if (query.length === 0) return { hits: [], done: true, scannedToSeq: 0 }
+  const limit = Math.min(Math.max(input.limit, 1), STEER_SEARCH_HITS_MAX)
+  const scanMax = input.scanMaxBytes ?? STEER_SEARCH_SCAN_MAX_BYTES
+  const toolRows = new Map<string, number>()
+  for (const { seq, event } of input.events) {
+    if (event.kind === `tool` && typeof event.id === `string`) toolRows.set(event.id, Math.min(seq, toolRows.get(event.id) ?? seq))
+  }
+  // Newest first BY SEQ (a journal read lists its latest-wins slots after the log).
+  const candidates = input.events
+    .filter(({ seq }) => input.beforeSeq === undefined || seq < input.beforeSeq)
+    .sort((a, b) => b.seq - a.seq)
+  const hits: SteerSearchHit[] = []
+  const encoder = new TextEncoder()
+  let scanned = 0
+  let scannedToSeq = 0
+  for (let index = 0; index < candidates.length; index++) {
+    const { seq, event } = candidates[index]
+    scannedToSeq = seq
+    const found = searchable(event, seq, toolRows)
+    if (found !== null) {
+      const text = steerSearchCollapse(found.text)
+      scanned += encoder.encode(text).length
+      const hit = searchMatch(text, query)
+      if (hit !== null) hits.push({ seq: found.seq, kind: found.kind, ...hit })
+    }
+    if ((hits.length >= limit || scanned >= scanMax) && index < candidates.length - 1) {
+      return { hits, done: false, scannedToSeq }
+    }
+  }
+  return input.beforeSeq === undefined ? { hits, total: hits.length, done: true, scannedToSeq } : { hits, done: true, scannedToSeq }
+}
+
+/** The first match of the folded `query` in `text` (collapsed), as a snippet. */
+function searchMatch(text: string, query: string[]): Omit<SteerSearchHit, `seq` | `kind`> | null {
+  const folded = steerSearchFold(text)
+  const chars = Array.from(text)
+  for (let i = 0; i + query.length <= folded.chars.length; i++) {
+    let j = 0
+    while (j < query.length && folded.chars[i + j] === query[j]) j++
+    if (j < query.length) continue
+    const start = folded.source[i]
+    const end = folded.source[i + query.length - 1] + 1
+    const from = Math.max(0, start - STEER_SEARCH_SNIPPET_LEAD_CHARS)
+    const to = Math.min(chars.length, Math.max(from + STEER_SEARCH_SNIPPET_CHARS, end))
+    const lead = from > 0 ? `…` : ``
+    return {
+      snippet: `${lead}${chars.slice(from, to).join(``)}${to < chars.length ? `…` : ``}`,
+      matchStart: start - from + lead.length,
+      matchLen: end - start,
+    }
+  }
+  return null
+}

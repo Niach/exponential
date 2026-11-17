@@ -9857,6 +9857,7 @@ public object ExpIcons {
         "ui-unassigned" -> `user-x`
         "ui-undo" -> `undo-2`
         "ui-undock" -> `arrow-up-right`
+        "ui-unencrypted" -> `lock-open`
         "ui-unlock" -> `lock-open`
         "ui-unpin" -> `pin-off`
         "ui-unselected" -> `square`
@@ -10493,6 +10494,8 @@ public object ExpIcons {
     public val uiUndo: ImageVector get() = `undo-2`
     /** Concept `ui-undock`. */
     public val uiUndock: ImageVector get() = `arrow-up-right`
+    /** Concept `ui-unencrypted`. */
+    public val uiUnencrypted: ImageVector get() = `lock-open`
     /** Concept `ui-unlock`. */
     public val uiUnlock: ImageVector get() = `lock-open`
     /** Concept `ui-unpin`. */

@@ -484,6 +484,16 @@ impl InstallNode {
         coding::sealing::seal_new_root(&install_id, &push.public(), &readers).map_err(|e| e.to_string())
     }
 
+    /// #EDE-108: the user this install belongs to.
+    pub fn user_id(&self) -> &str {
+        &self.inner.spec.user_id
+    }
+
+    /// #EDE-108: every install on the last allowlist (catch-up holders).
+    pub fn installs(&self) -> Vec<InstallEntry> {
+        lock(&self.inner.entries).clone()
+    }
+
     /// VAPP-33: the user `endpoint` belongs to in `team_id`'s registry list
     /// (as of the last allowlist pass).
     pub fn user_in_team(&self, team_id: &str, endpoint: &EndpointId) -> Option<String> {

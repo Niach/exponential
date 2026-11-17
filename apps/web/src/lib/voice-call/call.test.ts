@@ -68,7 +68,7 @@ function fakeAudio() {
 
 async function dialed(
   options: {
-    startCall?: () => Promise<{ url: string }>
+    startCall?: () => Promise<{ url: string; device?: string; fallback?: boolean }>
     openAudio?: () => Promise<CallAudio>
     device?: string
     language?: string
@@ -141,6 +141,22 @@ describe(`the web caller's wire`, () => {
     const { startCall, socket } = await dialed()
     expect(startCall).toHaveBeenCalledWith(`agent-1`)
     expect(socket.binaryType).toBe(`arraybuffer`)
+  })
+
+  // #EXP-1935: the server picks the target; its answer names the device
+  // that speaks (the phones apply it the same way).
+  it(`shows the device voice.startCall picked when it is another one`, async () => {
+    const { call } = await dialed({
+      device: `mint`,
+      startCall: async () => ({ url: `wss://relay/ws?t=caller`, device: `laptop`, fallback: true }),
+    })
+    expect(call.getSnapshot().state).toMatchObject({ phase: `ringing`, device: `laptop`, fallback: true })
+    expect(view(call)?.via).toBe(fixture.copy.via.replace(`{device}`, `laptop`))
+  })
+
+  it(`keeps the device it started with when an older server names none`, async () => {
+    const { call } = await dialed({ device: `mint`, fallback: true })
+    expect(call.getSnapshot().state).toMatchObject({ device: `mint`, fallback: true })
   })
 
   it(`sends the microphone as up frames only once the pair is up, the sequence counting`, async () => {
@@ -351,6 +367,34 @@ describe(`the web caller's wire`, () => {
           expect(toasts).toEqual([fixture.copy.failed.dropped])
         }
       }
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // EXP-1929 (voice-phones-2): once the relay beats, a path that carries
+  // nothing for idleTimeoutMs is dead; an older relay never beats.
+  it(`a path gone silent after the relay's beat ends dropped; without a beat it never does`, async () => {
+    vi.useFakeTimers()
+    try {
+      const { idleTimeoutMs } = fixture.constants
+      const beating = await dialed()
+      beating.socket.text({ t: `call_ready` })
+      beating.socket.text({ t: `call_alive` })
+      vi.advanceTimersByTime(idleTimeoutMs - 1_000)
+      expect(beating.call.active).toBe(true)
+      beating.socket.binary(audioFrame(KIND_DOWN, 0, new Uint8Array([1])))
+      vi.advanceTimersByTime(idleTimeoutMs - 1_000)
+      expect(beating.call.active).toBe(true)
+      vi.advanceTimersByTime(2_000)
+      expect(beating.call.active).toBe(false)
+      expect(beating.audio.closed).toBe(true)
+      expect(beating.toasts).toEqual([fixture.copy.failed.dropped])
+      const older = await dialed()
+      older.socket.text({ t: `call_ready` })
+      vi.advanceTimersByTime(3 * idleTimeoutMs)
+      expect(older.call.active).toBe(true)
+      older.call.end()
     } finally {
       vi.useRealTimers()
     }

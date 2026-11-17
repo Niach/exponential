@@ -164,6 +164,9 @@ describe(`sessions allowlist`, () => {
   it(`syncs the EXP-1458 tree key and sealed title`, () => {
     expect(SESSION_COLUMNS).toEqual(expect.arrayContaining([`seal_public_key`, `seal_epoch`, `sealed_title`, `seal_rotate_epoch`]))
   })
+  it(`syncs the EDE-97 clear-for-life flag`, () => {
+    expect(SESSION_COLUMNS).toContain(`clear_tree`)
+  })
   it(`keeps the FEED-160 PR-state guard server-only`, () => {
     expect(PULL_REQUEST_COLUMNS).not.toContain(`github_updated_at`)
     expect(PULL_REQUEST_COLUMNS).not.toContain(`provider_updated_at`)

@@ -91,6 +91,11 @@ pub struct Supervisor {
     /// shell has its own watcher and may draw an edit before this side has
     /// debounced and committed it; the frame then counts at commit time.
     drawn: HashMap<String, String>,
+    /// Per document: the digest of the content the machine last took in
+    /// (an edit, its own revert or factory write). A change to other bytes is
+    /// an edit, whoever committed it (#EDE-110: `exponential-ui set` commits in
+    /// its own process and reaches this side as `commit: None`).
+    known: HashMap<String, String>,
     command: Vec<String>,
     child: Option<Child>,
     tx: mpsc::Sender<Msg>,
@@ -104,6 +109,16 @@ impl Supervisor {
     /// `command` as the shell.
     pub fn new(ui: Runtime, command: Vec<String>, on_report: impl FnMut(Report) + Send + 'static) -> io::Result<Supervisor> {
         let names = ui.factory_names()?;
+        let mut state = ApplyState::with_factory(names.clone());
+        let (mut git_of, mut known) = (HashMap::new(), HashMap::new());
+        for name in &names {
+            known.insert(name.clone(), crate::digest(&std::fs::read(ui.dir().join(format!("{name}.json"))).unwrap_or_default()));
+            // An edit from an earlier run stays a suspect (#EDE-110).
+            if let Some(commit) = ui.edited_commit(name)? {
+                let id = state.edited_before(name, commit.summary.starts_with("Undo: "));
+                git_of.insert(id, commit.id);
+            }
+        }
         let ui = Arc::new(Mutex::new(ui));
         let (tx, rx) = mpsc::channel();
         let watcher = {
@@ -112,7 +127,7 @@ impl Supervisor {
                 let _ = tx.send(Msg::Changes(changes));
             })?
         };
-        Ok(Supervisor { ui, state: ApplyState::with_factory(names), git_of: HashMap::new(), pending: HashMap::new(), drawn: HashMap::new(), command, child: None, tx, rx, _watcher: watcher, on_report: Box::new(on_report) })
+        Ok(Supervisor { ui, state, git_of, known, pending: HashMap::new(), drawn: HashMap::new(), command, child: None, tx, rx, _watcher: watcher, on_report: Box::new(on_report) })
     }
 
     pub fn state(&self) -> &ApplyState {
@@ -192,11 +207,22 @@ impl Supervisor {
     fn on_changes(&mut self, changes: Vec<Change>) -> io::Result<()> {
         for change in changes {
             match change {
-                // `commit: None` = already in history (the supervisor's own revert, a no-op edit).
-                Change::Applied { name, commit: Some(git) } => {
+                // `commit: None` = already in history: another process committed it
+                // (`exponential-ui set`), or nothing changed since the machine last saw it.
+                Change::Applied { name, commit } => {
                     let at = now_ms();
-                    let bytes = std::fs::read(self.ui.lock().unwrap_or_else(|p| p.into_inner()).dir().join(format!("{name}.json"))).unwrap_or_default();
+                    let (bytes, git) = {
+                        let ui = self.ui.lock().unwrap_or_else(|p| p.into_inner());
+                        let bytes = std::fs::read(ui.dir().join(format!("{name}.json"))).unwrap_or_default();
+                        let git = match commit {
+                            Some(git) => Some(git),
+                            None => ui.committed(&name)?.map(|c| c.id),
+                        };
+                        (bytes, git)
+                    };
                     let digest = crate::digest(&bytes);
+                    let Some(git) = git.filter(|_| self.known.get(&name) != Some(&digest)) else { continue };
+                    self.known.insert(name.clone(), digest.clone());
                     let effects = self.step(Event::Edit { at, name: name.clone(), valid: true, issues: Vec::new() })?;
                     for effect in effects {
                         if let Effect::Commit { id, .. } = effect {
@@ -258,7 +284,9 @@ impl Supervisor {
                             ui.head()?.map(|c| c.id).unwrap_or_default()
                         }
                     };
+                    let bytes = std::fs::read(ui.dir().join(format!("{name}.json"))).unwrap_or_default();
                     drop(ui);
+                    self.known.insert(name.clone(), crate::digest(&bytes));
                     self.pending.remove(name);
                     self.git_of.insert(id.clone(), git.clone());
                     (self.on_report)(Report::Reverted { name: name.clone(), from: from.clone(), commit: git });
@@ -267,7 +295,9 @@ impl Supervisor {
                     let mut ui = self.ui.lock().unwrap_or_else(|p| p.into_inner());
                     ui.restore_factory(name)?;
                     let git = ui.head()?.map(|c| c.id).unwrap_or_default();
+                    let bytes = std::fs::read(ui.dir().join(format!("{name}.json"))).unwrap_or_default();
                     drop(ui);
+                    self.known.insert(name.clone(), crate::digest(&bytes));
                     self.pending.remove(name);
                     self.git_of.insert(id.clone(), git.clone());
                     (self.on_report)(Report::Factory { name: name.clone(), commit: git });

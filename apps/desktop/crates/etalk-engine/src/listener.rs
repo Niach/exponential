@@ -53,6 +53,7 @@
 //! after. The reader answers a Listen during it with MeetingFlushNow and
 //! Empty, and refuses a Call ([`Listening::meeting`]).
 
+use std::cell::Cell;
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
@@ -78,6 +79,26 @@ pub const MAX_HOLD: Duration = Duration::from_secs(120);
 /// #NEW-56: how long the wake word waits before opening the microphone
 /// again after it failed (no device, the model still downloading).
 pub const WAKE_RETRY: Duration = Duration::from_secs(5);
+/// EXP-1937: an open microphone that delivers nothing for this long is a
+/// closed one (talk-listen.json `clock`).
+pub const MIC_SILENT: Duration = Duration::from_millis(5_000);
+
+/// EXP-1937: the loop's time limits; every one runs on the clock, never on
+/// the audio received (the tests shorten them).
+#[derive(Debug, Clone, Copy)]
+pub struct Limits {
+    pub max_hold: Duration,
+    pub max_turn: Duration,
+    pub wake_retry: Duration,
+    pub mic_silent: Duration,
+}
+
+impl Default for Limits {
+    fn default() -> Self {
+        let max_turn = Duration::from_millis(crate::wake::MAX_TURN_MS as u64);
+        Limits { max_hold: MAX_HOLD, max_turn, wake_retry: WAKE_RETRY, mic_silent: MIC_SILENT }
+    }
+}
 
 /// The listening models, in `{data_dir}/talk/models/`.
 const MODELS: [artifact::Artifact; 2] = [models::PARAKEET_TDT_0_6B_V3, models::SILERO_VAD_V6_2];
@@ -323,6 +344,39 @@ impl Mic for Capture {
     }
 }
 
+/// EXP-1937: an open microphone and when it last delivered audio. One that
+/// stays silent for [`Limits::mic_silent`] is a closed one (talk-listen.json
+/// `clock`): its owner fails or retries as for a device that went away.
+struct Open<M: Mic> {
+    mic: M,
+    heard: Cell<Instant>,
+    silent: Duration,
+}
+
+impl<M: Mic> Open<M> {
+    fn recv_timeout(&self, timeout: Duration) -> Result<Vec<f32>, RecvTimeoutError> {
+        match self.mic.recv_timeout(timeout) {
+            Ok(samples) => {
+                self.heard.set(Instant::now());
+                Ok(samples)
+            }
+            Err(RecvTimeoutError::Timeout) if mic_closed(self.heard.get().elapsed(), self.silent) => Err(RecvTimeoutError::Disconnected),
+            Err(err) => Err(err),
+        }
+    }
+}
+
+/// EXP-1937: whether a microphone last heard `since` ago counts as closed.
+fn mic_closed(since: Duration, silent: Duration) -> bool {
+    since >= silent
+}
+
+/// EXP-1937: open the microphone (after `prepare` succeeded).
+fn open_mic<H: Hearing>(hearing: &mut H) -> Result<Open<H::Mic>, (ListenFailure, String)> {
+    let silent = hearing.limits().mic_silent;
+    Ok(Open { mic: hearing.mic()?, heard: Cell::new(Instant::now()), silent })
+}
+
 /// NEW-57: the desktop audio as the meeting reads it.
 pub trait AppAudio {
     /// The next chunk of any listened app; `Disconnected` = the capture ended.
@@ -373,6 +427,10 @@ pub trait Hearing {
     fn wake_model(&mut self, _phrase: &str) -> Option<etalk_wakeword::Detector> {
         None
     }
+    /// EXP-1937: the loop's time limits.
+    fn limits(&self) -> Limits {
+        Limits::default()
+    }
 }
 
 /// NEW-57: a meeting as the host asked for it.
@@ -390,7 +448,7 @@ struct MeetingWanted {
 struct MeetingRun<H: Hearing> {
     meeting: Meeting<H::Vad>,
     you_label: String,
-    mic: H::Mic,
+    mic: Open<H::Mic>,
     apps: Option<Box<dyn AppAudio>>,
 }
 
@@ -405,7 +463,7 @@ fn epoch_ms() -> i64 {
 /// capture that fails to open leaves the microphone alone, logged).
 fn open_meeting<H: Hearing>(hearing: &mut H, wanted: &MeetingWanted) -> Result<MeetingRun<H>, (ListenFailure, String)> {
     hearing.prepare(true)?;
-    let mic = hearing.mic()?;
+    let mic = open_mic(hearing)?;
     let apps = wanted.selection.clone().and_then(|selection| match hearing.apps(selection) {
         Ok(apps) => Some(apps),
         Err(err) => {
@@ -528,7 +586,7 @@ impl<H: Hearing> Active<H> {
 /// end the stream plays is its reference), sent as it comes.
 struct Dialing<H: Hearing> {
     id: String,
-    mic: H::Mic,
+    mic: Open<H::Mic>,
     echo: Echo,
 }
 
@@ -536,7 +594,7 @@ impl<H: Hearing> Dialing<H> {
     /// The microphone allowed and open (else why not).
     fn open(id: String, hearing: &mut H, links: &Links) -> Result<Self, (ListenFailure, String)> {
         hearing.microphone()?;
-        let mic = hearing.mic()?;
+        let mic = open_mic(hearing)?;
         eprintln!("call {id}: dialled, the microphone echo-cancelled");
         Ok(Dialing { id, mic, echo: Echo::new(links.far.clone()) })
     }
@@ -552,16 +610,26 @@ impl<H: Hearing> Dialing<H> {
 /// A push-to-talk Listen: the key is held (or #NEW-56 a wake turn).
 struct Held<H: Hearing> {
     utterance: Utterance,
-    mic: H::Mic,
+    mic: Open<H::Mic>,
     vad: H::Vad,
     started: Instant,
     /// A wake turn: the thread ends it after the quiet ([`turn_ended`]).
     woken: bool,
 }
 
+impl<H: Hearing> Held<H> {
+    /// EXP-1937: the key was held too long, or the wake turn heard enough
+    /// ([`turn_ended`]) or lasted its longest: on the clock, since a
+    /// microphone that stalls delivers no audio to count.
+    fn over(&self, limits: &Limits) -> bool {
+        let lasted = self.started.elapsed();
+        lasted >= limits.max_hold || self.woken && (turn_ended(&self.utterance) || lasted >= limits.max_turn)
+    }
+}
+
 /// #NEW-56: the wake word's microphone between turns.
 struct Scan<H: Hearing> {
-    mic: H::Mic,
+    mic: Open<H::Mic>,
     vad: H::Vad,
     scanner: WakeScanner,
     /// EXP-1424: the phrase's model once its files are ready, else the
@@ -633,7 +701,7 @@ struct Calling<H: Hearing> {
 struct CallEars<H: Hearing> {
     vad: H::Vad,
     /// `None` = remote: the audio comes as [`Job::Audio`].
-    mic: Option<H::Mic>,
+    mic: Option<Open<H::Mic>>,
     /// Local calls only.
     echo: Option<Echo>,
 }
@@ -736,7 +804,7 @@ impl<H: Hearing> Calling<H> {
                 return Ok(());
             }
             let vad = hearing.vad()?;
-            let mic = if self.remote { None } else { Some(hearing.mic()?) };
+            let mic = if self.remote { None } else { Some(open_mic(hearing)?) };
             let echo = (!self.remote).then(|| Echo::new(links.far.clone()));
             self.ears = Some(CallEars { vad, mic, echo });
         }
@@ -964,6 +1032,7 @@ fn language_of(language: &str) -> &'static str {
 
 fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
     let mut active: Option<Active<H>> = None;
+    let limits = hearing.limits();
     // Jobs read while the engines loaded, handled before new ones.
     let mut backlog: VecDeque<Job> = VecDeque::new();
     let emit = |event: Event| (links.emit)(&event);
@@ -1049,7 +1118,7 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
                 }
                 Err((reason, detail)) => {
                     eprintln!("wake word: the microphone did not open ({reason:?}): {detail}");
-                    wake_retry = Some(Instant::now() + WAKE_RETRY);
+                    wake_retry = Some(Instant::now() + limits.wake_retry);
                     report((false, Some(reason)));
                 }
             }
@@ -1210,11 +1279,6 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
                             active = None;
                             links.listening.end(&id);
                             emit(Event::ListenFailed { id, reason, detail });
-                        } else if held.started.elapsed() >= MAX_HOLD || held.woken && turn_ended(&held.utterance) {
-                            let Some(Active::Listen(held)) = active.take() else { unreachable!("a listen") };
-                            let id = held.utterance.id().to_string();
-                            finish(held, engines, links);
-                            links.listening.end(&id);
                         }
                     }
                     Err(RecvTimeoutError::Timeout) => {}
@@ -1253,6 +1317,14 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
                 }
                 // Read above (no engines).
                 Active::Dial(_) => {}
+            }
+            // EXP-1937: a Listen's limits run on the clock, with or without
+            // audio (talk-listen.json `clock`).
+            if matches!(&active, Some(Active::Listen(held)) if held.over(&limits)) {
+                let Some(Active::Listen(held)) = active.take() else { unreachable!("a listen") };
+                let id = held.utterance.id().to_string();
+                finish(held, engines, links);
+                links.listening.end(&id);
             }
             continue;
         }
@@ -1318,14 +1390,14 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
                 Err(detail) => {
                     eprintln!("wake word: {detail}");
                     scan = None;
-                    wake_retry = Some(Instant::now() + WAKE_RETRY);
+                    wake_retry = Some(Instant::now() + limits.wake_retry);
                     report((false, Some(ListenFailure::Failed)));
                 }
             },
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => {
                 scan = None;
-                wake_retry = Some(Instant::now() + WAKE_RETRY);
+                wake_retry = Some(Instant::now() + limits.wake_retry);
                 report((false, Some(ListenFailure::NoMicrophone)));
             }
         }
@@ -1340,7 +1412,7 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
 fn open_scan<H: Hearing>(hearing: &mut H, phrase: &str) -> Result<Scan<H>, (ListenFailure, String)> {
     hearing.prepare(true)?;
     let vad = hearing.vad()?;
-    let mic = hearing.mic()?;
+    let mic = open_mic(hearing)?;
     let mut scan = Scan { mic, vad, scanner: WakeScanner::new(WINDOW_MIN_MS), detector: Box::new(TranscriptMatcher), upgrade_at: None };
     scan.hear(hearing, phrase);
     Ok(scan)
@@ -1354,7 +1426,7 @@ fn handle<H: Hearing>(
     rx: &Receiver<Job>,
     backlog: &mut VecDeque<Job>,
     links: &Links,
-    lent: Option<(H::Vad, H::Mic)>,
+    lent: Option<(H::Vad, Open<H::Mic>)>,
 ) {
     let calling = |active: &mut Option<Active<H>>, id: &str| -> bool {
         matches!(active, Some(Active::Call(calling)) if calling.call.id() == id)
@@ -1474,7 +1546,7 @@ fn start<H: Hearing>(
     id: String,
     language: &str,
     links: &Links,
-    lent: Option<(H::Vad, H::Mic)>,
+    lent: Option<(H::Vad, Open<H::Mic>)>,
 ) -> Option<Held<H>> {
     let fail = |reason: ListenFailure, detail: String| {
         (links.emit)(&Event::ListenFailed { id: id.clone(), reason, detail });
@@ -1504,7 +1576,7 @@ fn start<H: Hearing>(
                 Ok(vad) => vad,
                 Err((reason, detail)) => return fail(reason, detail),
             };
-            match hearing.mic() {
+            match open_mic(hearing) {
                 Ok(mic) => (vad, mic),
                 Err((reason, detail)) => return fail(reason, detail),
             }
@@ -1581,16 +1653,21 @@ pub(crate) mod fake {
         }
     }
 
-    /// A microphone that stays open (the test holds its sender) and
-    /// records when it closes.
+    /// A microphone that stays open (the test holds its sender) until the
+    /// test unplugs it, and records when it closes. One nobody speaks into
+    /// is a stalled one.
     pub struct FakeMic {
         samples: Receiver<Vec<f32>>,
         _open: Sender<Vec<f32>>,
         closed: Arc<AtomicBool>,
+        gone: Arc<AtomicBool>,
     }
 
     impl Mic for FakeMic {
         fn recv_timeout(&self, timeout: Duration) -> Result<Vec<f32>, RecvTimeoutError> {
+            if self.gone.load(Ordering::SeqCst) {
+                return Err(RecvTimeoutError::Disconnected);
+            }
             self.samples.recv_timeout(timeout)
         }
     }
@@ -1615,6 +1692,11 @@ pub(crate) mod fake {
         /// S-3: `prepare` answers `Downloading` this many more times; then
         /// `failed` decides whether the download failed.
         pub downloads: Arc<Mutex<(usize, bool)>>,
+        /// EXP-1937: each opened microphone's unplugged flag, why the next
+        /// opens fail (None = they open), and the loop's limits.
+        pub gone: Arc<Mutex<Vec<Arc<AtomicBool>>>>,
+        pub refuse: Arc<Mutex<Option<ListenFailure>>>,
+        pub limits: Arc<Mutex<super::Limits>>,
     }
 
     /// NEW-57: desktop audio the test plays.
@@ -1638,6 +1720,9 @@ pub(crate) mod fake {
                 loads: Arc::new(Mutex::new(slow.then_some(loads))),
                 apps: Arc::default(),
                 downloads: Arc::default(),
+                gone: Arc::default(),
+                refuse: Arc::default(),
+                limits: Arc::default(),
             };
             (probe, opened, slow.then_some(release))
         }
@@ -1658,6 +1743,11 @@ pub(crate) mod fake {
             let apps = self.apps.lock().unwrap();
             let chunk = etalk::apps::Chunk { channel: channel.into(), label: label.into(), samples, captured_ms };
             apps.last().expect("a capture is open").1.send(chunk).unwrap();
+        }
+
+        /// EXP-1937: the newest microphone's device goes away.
+        pub fn unplug(&self) {
+            self.gone.lock().unwrap().last().expect("a microphone is open").store(true, Ordering::SeqCst);
         }
 
         /// Speak into the newest microphone.
@@ -1705,12 +1795,21 @@ pub(crate) mod fake {
         }
 
         fn mic(&mut self) -> Result<FakeMic, (ListenFailure, String)> {
+            if let Some(reason) = *self.probe.refuse.lock().unwrap() {
+                return Err((reason, "the fake microphone does not open".into()));
+            }
             let (open, samples) = mpsc::channel();
             let closed = Arc::new(AtomicBool::new(false));
+            let gone = Arc::new(AtomicBool::new(false));
             self.probe.opened.lock().unwrap().push(closed.clone());
+            self.probe.gone.lock().unwrap().push(gone.clone());
             self.probe.mics.lock().unwrap().push(open.clone());
             let _ = self.probe.opened_tx.send(());
-            Ok(FakeMic { samples, _open: open, closed })
+            Ok(FakeMic { samples, _open: open, closed, gone })
+        }
+
+        fn limits(&self) -> super::Limits {
+            *self.probe.limits.lock().unwrap()
         }
 
         fn engines(&mut self) -> &mut Counter {
@@ -1867,7 +1966,13 @@ mod tests {
 
     impl Harness {
         fn new() -> Self {
+            Harness::with(Limits::default())
+        }
+
+        /// EXP-1937: a harness whose loop runs on `limits`.
+        fn with(limits: Limits) -> Self {
             let (probe, opened, _) = Probe::new(false);
+            *probe.limits.lock().unwrap() = limits;
             let listening = Arc::new(Listening::default());
             let events: Arc<Mutex<Vec<Event>>> = Arc::default();
             let (sink, barged) = (events.clone(), events.clone());
@@ -2528,6 +2633,161 @@ mod tests {
         assert!(listening.meeting().is_some(), "only its own stop ends it");
         listening.end_meeting("m1");
         assert!(listening.begin("u1"));
+    }
+
+    /// EXP-1937: talk-listen.json `clock`.
+    #[test]
+    fn the_clock_follows_the_fixture() {
+        const FIXTURE: &str = include_str!("../../../../../packages/etalk/fixtures/talk-listen.json");
+        let clock = &serde_json::from_str::<serde_json::Value>(FIXTURE).unwrap()["clock"];
+        let limits = Limits::default();
+        assert_eq!(clock["micSilentMs"], limits.mic_silent.as_millis() as u64);
+        assert_eq!(clock["maxHoldMs"], limits.max_hold.as_millis() as u64);
+        assert_eq!(limits.max_turn.as_millis() as usize, crate::wake::MAX_TURN_MS);
+        for case in clock["silent"].as_array().unwrap() {
+            let since = Duration::from_millis(case["sinceAudioMs"].as_u64().unwrap());
+            assert_eq!(mic_closed(since, limits.mic_silent), case["closed"], "{}", case["name"]);
+        }
+    }
+
+    fn failed(events: &[Event], of: &str) -> Option<ListenFailure> {
+        events.iter().find_map(|event| match event {
+            Event::ListenFailed { id, reason, .. } if id == of => Some(*reason),
+            _ => None,
+        })
+    }
+
+    fn wake_reports(events: &[Event]) -> Vec<(bool, Option<ListenFailure>)> {
+        events.iter().filter_map(|event| if let Event::WakeListening { listening, reason } = event { Some((*listening, *reason)) } else { None }).collect()
+    }
+
+    fn listen(harness: &Harness, id: &str) {
+        assert!(harness.listening.begin(id));
+        harness.send(Job::Start { id: id.into(), language: "en".into() });
+    }
+
+    /// EXP-1937: the device goes away while the key is held: with speech
+    /// heard the Listen answers it, without any it fails `noMicrophone`;
+    /// both free the gate and close the microphone.
+    #[test]
+    fn an_unplugged_microphone_ends_the_listen() {
+        let harness = Harness::new();
+        listen(&harness, "u1");
+        harness.opened.recv_timeout(Duration::from_secs(10)).expect("opened");
+        harness.probe.say([tone(0.2, 0.0), tone(0.8, 0.3)].concat());
+        std::thread::sleep(Duration::from_millis(200));
+        harness.probe.unplug();
+        let events = harness.until(|events| events.iter().any(|event| matches!(event, Event::Heard { .. } | Event::ListenFailed { .. })));
+        assert!(events.iter().any(|event| matches!(event, Event::Heard { id, text } if id == "u1" && text == "clip1")), "{:?}", without_levels(&events));
+        wait("the gate is free", || !harness.listening.active());
+        listen(&harness, "u2");
+        harness.opened.recv_timeout(Duration::from_secs(10)).expect("opened");
+        harness.probe.unplug();
+        let events = harness.until(|events| failed(events, "u2").is_some());
+        assert_eq!(failed(&events, "u2"), Some(ListenFailure::NoMicrophone));
+        wait("the gate is free", || !harness.listening.active() && open_mics(&harness) == 0);
+        harness.close();
+    }
+
+    /// EXP-1937: a microphone that goes away fails a call and a dialled
+    /// call (`noMicrophone`), frees the gate and closes the device.
+    #[test]
+    fn an_unplugged_microphone_fails_the_call() {
+        for dial in [false, true] {
+            let harness = Harness::new();
+            if dial {
+                harness.listening.begin_call("c1", false);
+                harness.send(Job::Dial { id: "c1".into() });
+            } else {
+                harness.call("c1", false);
+            }
+            harness.opened.recv_timeout(Duration::from_secs(10)).expect("opened");
+            harness.probe.unplug();
+            let events = harness.until(|events| failed(events, "c1").is_some());
+            assert_eq!(failed(&events, "c1"), Some(ListenFailure::NoMicrophone), "dial {dial}");
+            wait("the gate is free", || !harness.listening.active() && open_mics(&harness) == 0);
+            harness.close();
+        }
+    }
+
+    /// EXP-1937: the wake word says a lost microphone (`noMicrophone`, the
+    /// dot goes out) and opens the default device again after its retry.
+    #[test]
+    fn the_wake_word_reports_a_lost_microphone_and_reopens() {
+        let harness = Harness::with(Limits { wake_retry: Duration::from_millis(100), ..Limits::default() });
+        harness.send(Job::Wake { phrase: "Clip1".into(), language: "en".into() });
+        harness.opened.recv_timeout(Duration::from_secs(10)).expect("opened");
+        *harness.probe.refuse.lock().unwrap() = Some(ListenFailure::NoMicrophone);
+        harness.probe.unplug();
+        let events = harness.until(|events| wake_reports(events).len() == 2);
+        assert_eq!(wake_reports(&events), [(true, None), (false, Some(ListenFailure::NoMicrophone))]);
+        // Still gone at the retry: nothing new to say.
+        std::thread::sleep(Duration::from_millis(300));
+        *harness.probe.refuse.lock().unwrap() = None;
+        harness.opened.recv_timeout(Duration::from_secs(10)).expect("reopened after the retry");
+        let events = harness.until(|events| wake_reports(events).len() == 3);
+        assert_eq!(wake_reports(&events)[2..], [(true, None)]);
+        assert_eq!(open_mics(&harness), 1);
+        harness.close();
+    }
+
+    /// EXP-1937: a microphone that does not open fails the Listen and the
+    /// call with its reason; nothing stays open, the gate is free.
+    #[test]
+    fn a_microphone_that_does_not_open_fails_the_listen_and_the_call() {
+        let harness = Harness::new();
+        *harness.probe.refuse.lock().unwrap() = Some(ListenFailure::NotGranted);
+        listen(&harness, "u1");
+        harness.until(|events| failed(events, "u1").is_some());
+        harness.call("c1", false);
+        let events = harness.until(|events| failed(events, "c1").is_some());
+        assert_eq!((failed(&events, "u1"), failed(&events, "c1")), (Some(ListenFailure::NotGranted), Some(ListenFailure::NotGranted)));
+        wait("the gate is free", || !harness.listening.active());
+        assert!(harness.probe.opened.lock().unwrap().is_empty());
+        harness.close();
+    }
+
+    /// EXP-1937 (talk-listen.json `clock`): a microphone that stays open
+    /// but delivers nothing is a closed one: the Listen and the call fail
+    /// `noMicrophone`, the wake word says so and opens it again.
+    #[test]
+    fn a_stalled_microphone_counts_as_closed() {
+        let limits = Limits { mic_silent: Duration::from_millis(150), wake_retry: Duration::from_millis(100), ..Limits::default() };
+        let harness = Harness::with(limits);
+        listen(&harness, "u1");
+        let events = harness.until(|events| failed(events, "u1").is_some());
+        assert_eq!(failed(&events, "u1"), Some(ListenFailure::NoMicrophone), "{:?}", without_levels(&events));
+        wait("the gate is free", || !harness.listening.active());
+        harness.call("c1", false);
+        let events = harness.until(|events| failed(events, "c1").is_some());
+        assert_eq!(failed(&events, "c1"), Some(ListenFailure::NoMicrophone), "{:?}", without_levels(&events));
+        wait("the gate is free", || !harness.listening.active() && open_mics(&harness) == 0);
+        harness.send(Job::Wake { phrase: "Clip1".into(), language: "en".into() });
+        let events = harness.until(|events| wake_reports(events).len() >= 3);
+        assert_eq!(wake_reports(&events)[..3], [(true, None), (false, Some(ListenFailure::NoMicrophone)), (true, None)]);
+        harness.close();
+    }
+
+    /// EXP-1937 (talk-listen.json `clock`): a wake turn ends at maxTurnMs
+    /// and a held key at the longest hold by the CLOCK: a microphone that
+    /// delivers too little audio to count that long never keeps them open.
+    #[test]
+    fn a_turn_and_a_hold_end_on_the_clock_without_audio() {
+        let limits = Limits { max_turn: Duration::from_millis(400), max_hold: Duration::from_millis(400), ..Limits::default() };
+        let harness = Harness::with(limits);
+        harness.send(Job::Wake { phrase: "Clip1".into(), language: "en".into() });
+        harness.opened.recv_timeout(Duration::from_secs(10)).expect("opened");
+        say_the_phrase(&harness);
+        let ended = |events: &[Event], of: &str| events.iter().any(|event| matches!(event, Event::Heard { id, .. } | Event::Empty { id } if id == of));
+        let events = harness.until(|events| ended(events, "wake-1"));
+        assert!(ended(&events, "wake-1"), "{:?}", without_levels(&events));
+        wait("the gate is free", || !harness.listening.active());
+        harness.send(Job::Wake { phrase: String::new(), language: "en".into() });
+        listen(&harness, "u1");
+        let events = harness.until(|events| ended(events, "u1"));
+        assert!(ended(&events, "u1"), "{:?}", without_levels(&events));
+        wait("the gate is free", || !harness.listening.active() && open_mics(&harness) == 0);
+        harness.close();
     }
 
     /// Who holds the device's microphone: `wake`, `listen`, `call` or none

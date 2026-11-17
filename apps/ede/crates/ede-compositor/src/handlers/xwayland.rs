@@ -9,8 +9,11 @@ use std::{os::unix::io::OwnedFd, process::Stdio};
 use smithay::{
     desktop::Window,
     reexports::wayland_server::protocol::wl_surface::WlSurface,
-    input::pointer::{Focus, GrabStartData},
-    utils::{Logical, Rectangle, SERIAL_COUNTER},
+    input::{
+        keyboard::KeyboardTarget,
+        pointer::{Focus, GrabStartData},
+    },
+    utils::{IsAlive, Logical, Rectangle, SERIAL_COUNTER},
     wayland::{
         selection::{
             data_device::{clear_data_device_selection, current_data_device_selection_userdata, request_data_device_client_selection, set_data_device_selection},
@@ -25,6 +28,7 @@ use smithay::{
 };
 
 use crate::{
+    desk::DeskId,
     grabs::{MoveSurfaceGrab, BTN_LEFT},
     layout::Tile,
     state::{set_window_state, window_state, Ede},
@@ -78,8 +82,28 @@ impl Ede {
         }
     }
 
+    /// #EDE-88: X gives keys to its own input focus (by default the window
+    /// under X's pointer), so the X11 window whose surface now has the
+    /// keyboard takes X's focus too, and the one that lost it gives it up.
+    pub(crate) fn sync_x11_focus(&mut self, focused: Option<&WlSurface>) {
+        let x11 = focused.and_then(|f| {
+            self.desk.space.elements().find_map(|w| w.x11_surface().filter(|x| x.wl_surface().as_ref() == Some(f)).cloned())
+        });
+        if self.desk.x11_focus.1 == x11 {
+            return;
+        }
+        let seat = self.desk.x11_focus.0.clone();
+        let serial = SERIAL_COUNTER.next_serial();
+        if let Some(old) = std::mem::replace(&mut self.desk.x11_focus.1, x11.clone()) {
+            KeyboardTarget::leave(&old, &seat, self, serial);
+        }
+        if let Some(new) = x11 {
+            KeyboardTarget::enter(&new, &seat, self, Vec::new(), serial);
+        }
+    }
+
     fn x11_window(&self, surface: &X11Surface) -> Option<Window> {
-        self.space.elements().find(|w| w.x11_surface() == Some(surface)).cloned()
+        self.desk.space.elements().find(|w| w.x11_surface() == Some(surface)).cloned()
     }
 }
 
@@ -89,9 +113,14 @@ impl XWaylandShellHandler for Ede {
     }
 
     fn surface_associated(&mut self, _xwm: XwmId, wl_surface: WlSurface, surface: X11Surface) {
-        if self.pending_x11_focus.as_ref() == Some(&surface) {
-            self.pending_x11_focus = None;
-            let keyboard = self.seat.get_keyboard().unwrap();
+        let keyboard = self.desk.seat.get_keyboard().unwrap();
+        // #EDE-122: restored right after its minimize, the window was given
+        // the keyboard on the surface Xwayland then destroyed: the keyboard
+        // is on nothing and X's focus still names the window, so its new
+        // surface takes it.
+        let orphaned = self.desk.x11_focus.1.as_ref() == Some(&surface) && keyboard.current_focus().is_some_and(|f| !f.alive());
+        if self.desk.pending_x11_focus.as_ref() == Some(&surface) || orphaned {
+            self.desk.pending_x11_focus = None;
             keyboard.set_focus(self, Some(wl_surface), SERIAL_COUNTER.next_serial());
         }
     }
@@ -106,20 +135,24 @@ impl XwmHandler for Ede {
     fn new_override_redirect_window(&mut self, _xwm: XwmId, _window: X11Surface) {}
 
     fn map_window_request(&mut self, _xwm: XwmId, surface: X11Surface) {
-        // An X11 window without its own decorations (Motif hints) gets ours.
-        if let Some(window) = self.x11_window(&surface).or_else(|| self.unmapped.iter().find(|w| w.x11_surface() == Some(&surface)).cloned()) {
-            let mut st = window_state(&window);
-            st.decorated = surface.is_decorated() && !surface.is_override_redirect();
-            set_window_state(&window, st);
-        }
         if let Err(e) = surface.set_mapped(true) {
             tracing::warn!("X11 map: {e}");
             return;
         }
         let wants_fullscreen = surface.is_fullscreen();
+        // #EDE-88: every X11 window gets our title bar unless its Motif
+        // hints ask for no decorations (smithay's `is_decorated` = "the
+        // client draws its own") or it is no application window (a dock,
+        // a splash, a menu that is not override-redirect). Set on the
+        // Window that maps, before it is placed (the frame counts there).
+        use smithay::xwayland::xwm::WmWindowType as T;
+        let decorated = !surface.is_decorated() && matches!(surface.window_type(), None | Some(T::Normal | T::Dialog | T::Utility));
         let window = Window::new_x11_window(surface);
+        let mut st = window_state(&window);
+        st.decorated = decorated;
+        set_window_state(&window, st);
         // Same rules as a Wayland toplevel's first frame.
-        self.place_new_window(window.clone());
+        self.place_new_window(self.desk_of_window(&window), window.clone());
         if wants_fullscreen {
             self.set_fullscreen(&window, true);
         }
@@ -127,28 +160,29 @@ impl XwmHandler for Ede {
 
     fn mapped_override_redirect_window(&mut self, _xwm: XwmId, surface: X11Surface) {
         let loc = surface.last_configure().loc;
-        self.space.map_element(Window::new_x11_window(surface), loc, true);
+        self.desk.space.map_element(Window::new_x11_window(surface), loc, true);
     }
 
     fn unmapped_window(&mut self, _xwm: XwmId, surface: X11Surface) {
         // Parked on another workspace: forget it there.
-        if let Some(parked) = self.workspaces.parked.iter().find(|w| w.x11_surface() == Some(&surface)).cloned() {
+        if let Some(parked) = self.desk.workspaces.parked.iter().find(|w| w.x11_surface() == Some(&surface)).cloned() {
             self.window_event(ede_protocol::events::WINDOW_CLOSED, &parked);
             self.forget_parked(&parked);
         }
-        if let Some(minimized) = self.minimized.iter().find(|w| w.x11_surface() == Some(&surface)).cloned() {
+        if let Some(minimized) = self.desk.minimized.iter().find(|w| w.x11_surface() == Some(&surface)).cloned() {
             self.window_event(ede_protocol::events::WINDOW_CLOSED, &minimized);
             self.forget_minimized(&minimized);
         }
         if let Some(window) = self.x11_window(&surface) {
-            let had_focus = self.focused_window().as_ref() == Some(&window);
+            let desk = self.desk_of_window(&window);
+            let had_focus = self.focused_window(desk).as_ref() == Some(&window);
             if !surface.is_override_redirect() {
                 self.window_event(ede_protocol::events::WINDOW_CLOSED, &window);
             }
-            self.space.unmap_elem(&window);
+            self.desk.space.unmap_elem(&window);
             if had_focus {
-                let next = self.space.elements().rev().find(|w| w.x11_surface().is_none_or(|x| !x.is_override_redirect())).cloned();
-                self.focus(next);
+                let next = self.desk.space.elements().rev().find(|w| w.x11_surface().is_none_or(|x| !x.is_override_redirect())).cloned();
+                self.focus(desk, next);
             }
         }
         if !surface.is_override_redirect() {
@@ -174,7 +208,7 @@ impl XwmHandler for Ede {
         if let Some(window) = &mapped {
             let st = window_state(window);
             if st.tile.is_some() || st.fullscreen.is_some() {
-                let _ = surface.configure(self.space.element_geometry(window));
+                let _ = surface.configure(self.desk.space.element_geometry(window));
                 return;
             }
         }
@@ -194,7 +228,7 @@ impl XwmHandler for Ede {
     fn configure_notify(&mut self, _xwm: XwmId, surface: X11Surface, geometry: Rectangle<i32, Logical>, _above: Option<u32>) {
         if let Some(window) = self.x11_window(&surface) {
             if surface.is_override_redirect() {
-                self.space.map_element(window, geometry.loc, false);
+                self.desk.space.map_element(window, geometry.loc, false);
             }
         }
     }
@@ -232,12 +266,12 @@ impl XwmHandler for Ede {
     }
 
     fn unminimize_request(&mut self, _xwm: XwmId, surface: X11Surface) {
-        if let Some(w) = self.minimized.iter().find(|w| w.x11_surface() == Some(&surface)).cloned() {
+        if let Some(w) = self.desk.minimized.iter().find(|w| w.x11_surface() == Some(&surface)).cloned() {
             self.restore_window(&w);
             // #EDE-82: a client's own request brings it in front only when
             // its app is the one typed into.
             if self.takes_keyboard(&w) {
-                self.focus(Some(w));
+                self.focus(self.desk_of_window(&w), Some(w));
             } else {
                 self.keep_behind(&w);
             }
@@ -251,8 +285,8 @@ impl XwmHandler for Ede {
 
     fn move_request(&mut self, _xwm: XwmId, surface: X11Surface, _button: u32) {
         let Some(window) = self.x11_window(&surface) else { return };
-        let Some(loc) = self.space.element_location(&window) else { return };
-        let pointer = self.seat.get_pointer().unwrap();
+        let Some(loc) = self.desk.space.element_location(&window) else { return };
+        let pointer = self.desk.seat.get_pointer().unwrap();
         let start = pointer
             .grab_start_data()
             .unwrap_or(GrabStartData { focus: None, button: BTN_LEFT, location: pointer.current_location() });
@@ -261,7 +295,7 @@ impl XwmHandler for Ede {
 
     fn allow_selection_access(&mut self, xwm: XwmId, _selection: SelectionTarget) -> bool {
         // Only the focused X11 client may read the clipboard.
-        self.focused_window().and_then(|w| w.x11_surface().and_then(|x| x.xwm_id())) == Some(xwm)
+        self.focused_window(DeskId::PERSON).and_then(|w| w.x11_surface().and_then(|x| x.xwm_id())) == Some(xwm)
     }
 
     fn send_selection(&mut self, _xwm: XwmId, selection: SelectionTarget, mime_type: String, fd: OwnedFd) {
@@ -270,29 +304,29 @@ impl XwmHandler for Ede {
         }
         // Ours ([`crate::clipboard`]) is served from memory; a Wayland
         // client's through its source.
-        let ours = match current_data_device_selection_userdata(&self.seat).as_deref() {
+        let ours = match current_data_device_selection_userdata(&self.desk.seat).as_deref() {
             Some(crate::clipboard::Selection::Ours(owned)) => Some(owned.clone()),
             _ => None,
         };
         if let Some(owned) = ours {
             self.serve_owned(&owned, &mime_type, fd);
-        } else if let Err(e) = request_data_device_client_selection(&self.seat, mime_type, fd) {
+        } else if let Err(e) = request_data_device_client_selection(&self.desk.seat, mime_type, fd) {
             tracing::warn!("clipboard to X11: {e:?}");
         }
     }
 
     fn new_selection(&mut self, _xwm: XwmId, selection: SelectionTarget, mime_types: Vec<String>) {
         if selection == SelectionTarget::Clipboard {
-            self.clipboard.changed(crate::clipboard::Owner::X11(mime_types.clone()));
-            set_data_device_selection(&self.display_handle, &self.seat, mime_types, crate::clipboard::Selection::X11);
+            self.desk.clipboard.changed(crate::clipboard::Owner::X11(mime_types.clone()));
+            set_data_device_selection(&self.display_handle, &self.desk.seat, mime_types, crate::clipboard::Selection::X11);
         }
     }
 
     fn cleared_selection(&mut self, _xwm: XwmId, selection: SelectionTarget) {
-        let x11 = matches!(current_data_device_selection_userdata(&self.seat).as_deref(), Some(crate::clipboard::Selection::X11));
+        let x11 = matches!(current_data_device_selection_userdata(&self.desk.seat).as_deref(), Some(crate::clipboard::Selection::X11));
         if selection == SelectionTarget::Clipboard && x11 {
-            self.clipboard.changed(crate::clipboard::Owner::Empty);
-            clear_data_device_selection(&self.display_handle, &self.seat);
+            self.desk.clipboard.changed(crate::clipboard::Owner::Empty);
+            clear_data_device_selection(&self.display_handle, &self.desk.seat);
         }
     }
 }

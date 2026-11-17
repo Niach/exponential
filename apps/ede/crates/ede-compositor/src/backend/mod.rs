@@ -24,7 +24,7 @@ use smithay::{
     output::Output,
 };
 
-use crate::state::Ede;
+use crate::{desk::DeskId, state::Ede};
 
 /// What `output` shows, front to back: the lock surface while the session
 /// is locked, a fullscreen window alone, else the layers and windows.
@@ -59,7 +59,7 @@ where
         backend::renderer::utils::CommitCounter,
         wayland::shell::wlr_layer::Layer,
     };
-    let Some(out) = state.space.output_geometry(output) else { return vec![] };
+    let Some(out) = state.desk.space.output_geometry(output) else { return vec![] };
     let scale = output.current_scale().fractional_scale();
     if state.is_locked() {
         if redact {
@@ -75,10 +75,10 @@ where
     let mut elements = Vec::new();
     // The recovery screen (#EDE-16) sits above everything but the cursor.
     elements.extend(state.recovery_elements(renderer, output).into_iter().map(OutputElements::Texture));
-    let focused = state.focused_window();
+    let focused = state.focused_window(DeskId::PERSON);
     let state = &*state;
     let window = |renderer: &mut R, elements: &mut Vec<_>, w: &smithay::desktop::Window| {
-        let Some(loc) = state.space.element_location(w) else { return };
+        let Some(loc) = state.desk.space.element_location(w) else { return };
         let loc = loc - w.geometry().loc - out.loc;
         if redact && state.is_protected_window(w) {
             let mut bbox = w.bbox();
@@ -127,8 +127,8 @@ where
         }
     };
     layer(renderer, &mut elements, true);
-    for w in state.space.elements().rev() {
-        let Some(bbox) = state.space.element_bbox(w) else { continue };
+    for w in state.desk.space.elements().rev() {
+        let Some(bbox) = state.desk.space.element_bbox(w) else { continue };
         if out.overlaps(bbox) {
             window(renderer, &mut elements, w);
         }
@@ -214,28 +214,107 @@ fn draw_offscreen(
     Ok(headless::Frame { width: w, height: h, pixels })
 }
 
-/// An output as `ede-protocol` captures it, drawn in software. Clients
-/// whose buffers pixman cannot read (a GPU-only dmabuf) are missing from it
-/// until the backends read back from their own renderer.
+/// What a capture draws.
+pub enum CaptureOf<'a> {
+    Output(&'a Output),
+    Window(&'a smithay::desktop::Window),
+}
+
+/// A backend's own capture path ([`Ede::capture_renderer`]).
+pub type CaptureRenderer = Box<dyn FnMut(&mut Ede, CaptureOf<'_>) -> Result<headless::Frame, String>>;
+
+/// Runs the backend's capture renderer, `None` when it has none.
+fn backend_capture(state: &mut Ede, what: CaptureOf<'_>) -> Option<Result<headless::Frame, String>> {
+    let mut capture = state.capture_renderer.take()?;
+    let frame = capture(state, what);
+    state.capture_renderer = Some(capture);
+    Some(frame)
+}
+
+/// An output as `ede-protocol` captures it: on the backend's own renderer
+/// when it has one (udev, winit), else drawn in software (headless).
 pub fn capture_output(state: &mut Ede, output: &Output) -> Result<headless::Frame, String> {
+    if let Some(frame) = backend_capture(state, CaptureOf::Output(output)) {
+        return frame;
+    }
     let mut renderer = smithay::backend::renderer::pixman::PixmanRenderer::new().map_err(|e| e.to_string())?;
     draw_output(&mut renderer, state, output, true)
 }
 
 /// One window alone (popups included) at its own size, on transparent black.
 /// The caller checks it may be captured.
-pub fn capture_window(window: &smithay::desktop::Window) -> Result<headless::Frame, String> {
-    use smithay::{backend::renderer::element::AsRenderElements, desktop::space::SpaceElement};
+pub fn capture_window(state: &mut Ede, window: &smithay::desktop::Window) -> Result<headless::Frame, String> {
+    if let Some(frame) = backend_capture(state, CaptureOf::Window(window)) {
+        return frame;
+    }
     let mut renderer = smithay::backend::renderer::pixman::PixmanRenderer::new().map_err(|e| e.to_string())?;
+    let (size, at) = window_capture_place(window);
+    draw_offscreen(&mut renderer, size, [0.0, 0.0, 0.0, 0.0], |renderer| window_capture_elements(window, renderer, at))
+}
+
+/// A window capture's size and where the window goes in it.
+fn window_capture_place(window: &smithay::desktop::Window) -> ((i32, i32), smithay::utils::Point<i32, smithay::utils::Physical>) {
+    use smithay::desktop::space::SpaceElement;
     let bbox = SpaceElement::bbox(window);
     let size = (bbox.size.w.max(1), bbox.size.h.max(1));
-    draw_offscreen(&mut renderer, size, [0.0, 0.0, 0.0, 0.0], |renderer| {
-        let at = smithay::utils::Point::<i32, smithay::utils::Logical>::from((-bbox.loc.x, -bbox.loc.y)).to_physical(1);
-        AsRenderElements::<_>::render_elements::<WaylandSurfaceRenderElement<_>>(window, renderer, at, 1.0.into(), 1.0)
-            .into_iter()
-            .map(OutputElements::Surface)
-            .collect()
-    })
+    (size, smithay::utils::Point::<i32, smithay::utils::Logical>::from((-bbox.loc.x, -bbox.loc.y)).to_physical(1))
+}
+
+fn window_capture_elements<R>(window: &smithay::desktop::Window, renderer: &mut R, at: smithay::utils::Point<i32, smithay::utils::Physical>) -> Vec<OutputElements<R>>
+where
+    R: Renderer + ImportAll + ImportMem,
+    R::TextureId: Clone + 'static,
+{
+    use smithay::backend::renderer::element::AsRenderElements;
+    AsRenderElements::<R>::render_elements::<WaylandSurfaceRenderElement<R>>(window, renderer, at, 1.0.into(), 1.0)
+        .into_iter()
+        .map(OutputElements::Surface)
+        .collect()
+}
+
+/// A capture drawn on the GLES renderer that draws the outputs (udev,
+/// winit): the dmabufs of GPU clients import there, and with a tiled
+/// modifier never into pixman, so a pixman capture lost those windows
+/// (#EDE-100). Same scene and redaction as the software path.
+pub fn capture_on_gles(renderer: &mut smithay::backend::renderer::gles::GlesRenderer, state: &mut Ede, what: CaptureOf<'_>) -> Result<headless::Frame, String> {
+    match what {
+        CaptureOf::Output(output) => {
+            let mode = output.current_mode().ok_or("output has no mode")?;
+            let clear = state.clear_color();
+            draw_offscreen_gles(renderer, (mode.size.w, mode.size.h), clear, |renderer| capture_elements(state, output, renderer))
+        }
+        CaptureOf::Window(window) => {
+            let (size, at) = window_capture_place(window);
+            draw_offscreen_gles(renderer, size, [0.0, 0.0, 0.0, 0.0], |renderer| window_capture_elements(window, renderer, at))
+        }
+    }
+}
+
+fn draw_offscreen_gles(
+    renderer: &mut smithay::backend::renderer::gles::GlesRenderer,
+    (w, h): (i32, i32),
+    clear: [f32; 4],
+    elements: impl FnOnce(&mut smithay::backend::renderer::gles::GlesRenderer) -> Vec<OutputElements<smithay::backend::renderer::gles::GlesRenderer>>,
+) -> Result<headless::Frame, String> {
+    use smithay::{
+        backend::{
+            allocator::Fourcc,
+            renderer::{gles::GlesRenderbuffer, Bind, ExportMem, Offscreen},
+        },
+        utils::{Buffer, Rectangle, Size, Transform},
+    };
+    let size: Size<i32, Buffer> = (w, h).into();
+    // RGBA8: every GLES reads it back (BGRA needs an extension).
+    let mut buffer: GlesRenderbuffer = Offscreen::<GlesRenderbuffer>::create_buffer(renderer, Fourcc::Abgr8888, size).map_err(|e| e.to_string())?;
+    let elements = elements(renderer);
+    let mut fb = renderer.bind(&mut buffer).map_err(|e| e.to_string())?;
+    let mut damage_tracker = OutputDamageTracker::new((w, h), 1.0, Transform::Normal);
+    damage_tracker.render_output(renderer, &mut fb, 0, &elements, clear).map_err(|e| format!("{e:?}"))?;
+    let mapping = renderer.copy_framebuffer(&fb, Rectangle::from_size(size), Fourcc::Abgr8888).map_err(|e| e.to_string())?;
+    let bytes = renderer.map_texture(&mapping).map_err(|e| e.to_string())?;
+    // R, G, B, A bytes, top row first → 0xAARRGGBB.
+    let pixels = bytes.chunks_exact(4).map(|p| u32::from_be_bytes([p[3], p[0], p[1], p[2]])).collect();
+    Ok(headless::Frame { width: w, height: h, pixels })
 }
 
 /// #LOGS-2: the main loop's heartbeat for the hang watchdog
@@ -254,22 +333,54 @@ pub fn watch_main_loop(handle: &smithay::reexports::calloop::LoopHandle<'static,
     }
 }
 
-/// After a frame went out: frame callbacks so clients draw the next one,
-/// then housekeeping and a flush.
-pub fn frame_done(state: &mut Ede, output: &Output) {
-    state.frame_serial += 1;
-    let now = state.start_time.elapsed();
-    for window in state.space.elements() {
-        window.send_frame(output, now, Some(Duration::ZERO), |_, _| Some(output.clone()));
+/// How often a surface an output does not show (behind the lock, under a
+/// fullscreen window, off every output) still gets a frame callback, so a
+/// client blocked on one never hangs (#EDE-100).
+pub const HIDDEN_FRAME_INTERVAL: Duration = Duration::from_secs(1);
+
+/// After `output`'s frame: frame callbacks so clients draw the next one,
+/// then housekeeping and a flush. `presented` = the frame showed something
+/// new; only then does [`Ede::frame_serial`] move, so a `since` capture of
+/// an idle desktop is unchanged (#EDE-100). A surface gets this output's
+/// callbacks at the refresh rate only when the output shows it and it is
+/// its primary output (most of the window on it); every other surface at
+/// most once per [`HIDDEN_FRAME_INTERVAL`].
+pub fn frame_done(state: &mut Ede, output: &Output, presented: bool) {
+    if presented {
+        state.frame_serial += 1;
     }
+    let now = state.start_time.elapsed();
+    let locked = state.is_locked();
+    let fullscreen = state.fullscreen_on(output);
+    for window in state.desk.space.elements() {
+        let shown = !locked && fullscreen.as_ref().is_none_or(|f| f == window) && primary_output(state, window).as_ref() == Some(output);
+        let primary = shown.then(|| output.clone());
+        window.send_frame(output, now, Some(HIDDEN_FRAME_INTERVAL), |_, _| primary.clone());
+    }
+    let layers = (!locked && fullscreen.is_none()).then(|| output.clone());
     for layer in layer_map_for_output(output).layers() {
-        layer.send_frame(output, now, Some(Duration::ZERO), |_, _| Some(output.clone()));
+        layer.send_frame(output, now, Some(HIDDEN_FRAME_INTERVAL), |_, _| layers.clone());
     }
     state.lock_frame_done(output, now);
-    state.space.refresh();
+    state.desk.space.refresh();
     state.popups.cleanup();
     layer_map_for_output(output).cleanup();
     let _ = state.display_handle.flush_clients();
+}
+
+/// The output most of `window` is on (`None` = on none).
+fn primary_output(state: &Ede, window: &smithay::desktop::Window) -> Option<Output> {
+    let bbox = state.desk.space.element_bbox(window)?;
+    state
+        .desk.space
+        .outputs()
+        .filter_map(|o| {
+            let overlap = state.desk.space.output_geometry(o)?.intersection(bbox)?;
+            Some((overlap.size.w as i64 * overlap.size.h as i64, o))
+        })
+        .filter(|(area, _)| *area > 0)
+        .max_by_key(|(area, _)| *area)
+        .map(|(_, o)| o.clone())
 }
 
 smithay::backend::renderer::element::render_elements! {
@@ -328,7 +439,7 @@ where
         input::pointer::{CursorImageAttributes, CursorImageStatus},
         wayland::compositor::with_states,
     };
-    match &state.cursor_status {
+    match &state.desk.cursor_status {
         CursorImageStatus::Hidden => (vec![], None),
         CursorImageStatus::Surface(surface) => {
             let hotspot = with_states(surface, |s| {
@@ -423,6 +534,18 @@ impl FrameHealth {
         self.failures = 0;
     }
 
+    /// #EDE-109: only a flip the kernel took is a shown frame; a refused
+    /// one is a failed frame like a failed render.
+    pub fn flipped(&mut self, queued: Result<(), String>) -> Result<(), (Failure, String)> {
+        match queued {
+            Ok(()) => {
+                self.drew();
+                Ok(())
+            }
+            Err(error) => Err((self.failed(&error), error)),
+        }
+    }
+
     pub fn failed(&mut self, _error: &str) -> Failure {
         self.failures += 1;
         if !self.drawn && self.failures >= FATAL_FAILURES {
@@ -432,6 +555,23 @@ impl FrameHealth {
         } else {
             Failure::Quiet
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Resume {
+    Scan,
+    Render,
+}
+
+/// What a device does when the session comes back, in order (#EDE-109): a
+/// monitor plugged or a mode changed while away was missed, so an activated
+/// device scans its connectors first; then every output draws.
+pub fn on_resume(activated: bool) -> &'static [Resume] {
+    if activated {
+        &[Resume::Scan, Resume::Render]
+    } else {
+        &[Resume::Render]
     }
 }
 
@@ -517,6 +657,33 @@ mod tests {
             assert_eq!(h.failed("x"), Failure::Quiet);
         }
         assert_eq!(h.failed("x"), Failure::Fatal);
+    }
+
+    /// #EDE-109: a frame that rendered but whose flip the kernel refused
+    /// is not a shown frame: refused every time, the session stops with
+    /// the reason; a flip that went through is.
+    #[test]
+    fn a_rendered_frame_whose_flip_failed_is_a_failed_frame() {
+        let mut health = FrameHealth::default();
+        let refused = || Err::<(), _>("card0-DP-1: queue_frame: EACCES".to_string());
+        assert_eq!(health.flipped(refused()).unwrap_err().0, Failure::Log);
+        for _ in 1..FATAL_FAILURES - 1 {
+            assert_eq!(health.flipped(refused()).unwrap_err().0, Failure::Quiet);
+        }
+        assert!(!health.drawn);
+        assert_eq!(health.flipped(refused()).unwrap_err().0, Failure::Fatal);
+        let mut shown = FrameHealth::default();
+        assert!(shown.flipped(Ok(())).is_ok());
+        assert!(shown.drawn);
+    }
+
+    /// #EDE-109: connectors that changed while the session was paused (a
+    /// monitor plugged on another VT) are scanned on resume, before the
+    /// first frame.
+    #[test]
+    fn a_resumed_device_scans_its_connectors_before_it_draws() {
+        assert_eq!(on_resume(true), [Resume::Scan, Resume::Render]);
+        assert_eq!(on_resume(false), [Resume::Render], "not activated: nothing to scan with");
     }
 
     #[test]

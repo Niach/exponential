@@ -7,7 +7,7 @@ mod common;
 use std::time::{Duration, Instant};
 
 use common::Session;
-use ede_compositor::{backend::headless::Harness, Config};
+use ede_compositor::{backend::headless::Harness, desk::DeskId, Config};
 use smithay::backend::input::{ButtonState, KeyState};
 use wayland_protocols::xdg::shell::client::xdg_toplevel::State as XdgState;
 
@@ -367,8 +367,8 @@ fn a_background_window_that_asks_for_fullscreen_stays_behind() {
 
     // Once the person switches to it, it is the output's fullscreen window.
     h.with(|ede| {
-        let player = ede.space.elements().next().cloned();
-        ede.focus(player);
+        let player = ede.desk.space.elements().next().cloned();
+        ede.focus(DeskId::PERSON, player);
     });
     wait_for(&mut other, |_| h.capture(0).at(600, 400) == BLUE);
 }
@@ -430,8 +430,8 @@ fn an_x11_window_takes_the_keyboard_only_from_its_own_app() {
         conn.flush().unwrap();
         win
     };
-    let x11_windows = || h.with(|ede| ede.space.elements().filter(|w| w.x11_surface().is_some()).count());
-    let focused_x11 = || h.with(|ede| ede.focused_window().and_then(|w| w.x11_surface().map(|x| x.window_id())));
+    let x11_windows = || h.with(|ede| ede.desk.space.elements().filter(|w| w.x11_surface().is_some()).count());
+    let focused_x11 = || h.with(|ede| ede.focused_window(DeskId::PERSON).and_then(|w| w.x11_surface().map(|x| x.window_id())));
 
     let first = open(None);
     until("the X11 window never mapped", &|| x11_windows() == 1);
@@ -441,10 +441,52 @@ fn an_x11_window_takes_the_keyboard_only_from_its_own_app() {
 
     // The person switches to it; its own dialog then takes the keyboard.
     h.with(|ede| {
-        let x11 = ede.space.elements().find(|w| w.x11_surface().is_some()).cloned();
-        ede.focus(x11);
+        let x11 = ede.desk.space.elements().find(|w| w.x11_surface().is_some()).cloned();
+        ede.focus(DeskId::PERSON, x11);
     });
     until("the X11 window never took the keyboard", &|| focused_x11() == Some(first));
     let dialog = open(Some(first));
     until("the X11 dialog of the focused window did not take the keyboard", &|| focused_x11() == Some(dialog));
+}
+
+/// #EDE-103: the pointer's focus follows the stack under a still pointer:
+/// after a raise the click is the raised window's, after a close it is the
+/// one now under it.
+#[test]
+fn a_click_under_a_still_pointer_reaches_the_window_now_on_top() {
+    let h = harness();
+    let (mut app, _a) = focused_app(&h, "editor", RED);
+    let _app_pointer = app.pointer();
+    let (mut other, _b) = other_app(&h, "player", BLUE);
+    let _other_pointer = other.pointer();
+    let at = h.with(|ede| {
+        let geos: Vec<_> = ede.desk.space.elements().map(|w| ede.desk.space.element_geometry(w).unwrap()).collect();
+        let both = geos[0].intersection(geos[1]).expect("the windows overlap");
+        smithay::utils::Point::<f64, smithay::utils::Logical>::from(((both.loc.x + 10) as f64, (both.loc.y + 10) as f64))
+    });
+    // The editor on top has the pointer.
+    h.with(move |ede| ede.pointer_motion_to(at, 0));
+    // The player comes to the front (Alt+Tab): no motion.
+    h.with(|ede| {
+        let player = ede.desk.space.elements().next().cloned();
+        ede.focus(DeskId::PERSON, player);
+    });
+    h.with(|ede| {
+        ede.pointer_button(0x110, ButtonState::Pressed, 1);
+        ede.pointer_button(0x110, ButtonState::Released, 2);
+    });
+    other.roundtrip();
+    app.roundtrip();
+    assert!(other.state.press_serial.is_some(), "the raised window did not get the click");
+    assert_eq!(app.state.press_serial, None, "the window behind got the click");
+
+    // The player goes away under the still pointer: the editor is under it.
+    drop(other);
+    wait_for(&mut app, |_| stack(&h).len() == 1);
+    h.with(|ede| {
+        ede.pointer_button(0x110, ButtonState::Pressed, 3);
+        ede.pointer_button(0x110, ButtonState::Released, 4);
+    });
+    app.roundtrip();
+    assert!(app.state.press_serial.is_some(), "the click went to the closed window");
 }

@@ -185,7 +185,7 @@ mod tests {
         let remote = RemoteDesktop { ctx: ctx.clone() };
         remote.drive(&path, KEYBOARD, InputEvent::Key { key: 29, pressed: true }).unwrap();
         remote.drive(&path, POINTER, InputEvent::PointerButton { button: 0x110, pressed: true }).unwrap();
-        let down = || h.with(|ede| (ede.seat.get_keyboard().unwrap().pressed_keys().len(), ede.seat.get_pointer().unwrap().is_grabbed()));
+        let down = || h.with(|ede| (ede.desk.seat.get_keyboard().unwrap().pressed_keys().len(), ede.desk.seat.get_pointer().unwrap().is_grabbed()));
         assert_eq!(down(), (1, true));
         ctx.close_session(path.as_str());
         assert_eq!(down(), (0, false), "still down after the session closed");

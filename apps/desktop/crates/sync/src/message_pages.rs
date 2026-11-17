@@ -53,6 +53,19 @@ pub fn result_cards(sqlite: &ShapeStore, root_id: &str) -> Result<Vec<MessageRow
     Ok(decode_messages(maps))
 }
 
+/// #EDE-105: the messages created at or after `created_at` (ISO; `""` =
+/// all), decoded and opened, for the chat store's catch-up.
+pub fn messages_since(sqlite: &ShapeStore, created_at: &str) -> Result<Vec<MessageRow>, StoreError> {
+    let spec = crate::shapes::shape_by_name("messages").expect("the messages shape");
+    Ok(decode_messages(sqlite.read_where_ge(spec, "created_at", created_at)?))
+}
+
+/// #EDE-105: the messages `ids` names, decoded and opened (a row stored
+/// before its chat key arrived, tried again).
+pub fn messages_by_ids(sqlite: &ShapeStore, ids: &[&str]) -> Result<Vec<MessageRow>, StoreError> {
+    Ok(decode_messages(sqlite.read_messages_by_ids(ids)?))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -185,6 +198,22 @@ mod tests {
         assert_eq!(store.read_where_in(spec, "session_id", &["r1"]).unwrap().len(), 10);
         assert!(store.read_where_in(spec, "session_id); DROP TABLE messages; --", &["r1"]).is_err(), "allowlisted columns only");
         let plan = store.explain(r#"SELECT * FROM "messages" WHERE "session_id" IN ('c1', 'r2')"#).unwrap();
+        assert!(plan.contains("messages_session"), "{plan}");
+    }
+
+    /// EXP-1930: a voice call's reply watch reads the session's rows since
+    /// an instant, off the session index.
+    #[test]
+    fn a_sessions_messages_since_an_instant() {
+        let temp = TempStore::new();
+        let store = &temp.1;
+        let rows: Vec<Value> = (0..30)
+            .map(|n| json!({"id": format!("m{n:03}"), "session_id": if n % 2 == 0 { "r1" } else { "r2" }, "root_id": "r1", "body": "x", "created_at": at(n)}))
+            .collect();
+        insert(store, rows);
+        let ids: Vec<String> = store.read_session_messages_since("r1", &at(26)).unwrap().into_iter().map(|row| row["id"].as_str().unwrap().to_string()).collect();
+        assert_eq!(ids, ["m026", "m028"]);
+        let plan = store.explain(&format!(r#"SELECT * FROM "messages" WHERE "session_id" = 'r1' AND "created_at" >= '{}'"#, at(26))).unwrap();
         assert!(plan.contains("messages_session"), "{plan}");
     }
 

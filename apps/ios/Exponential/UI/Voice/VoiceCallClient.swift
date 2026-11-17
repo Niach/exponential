@@ -47,6 +47,9 @@ final class VoiceCallClient {
     @ObservationIgnored private var startTask: Task<Void, Never>?
     @ObservationIgnored private var socket: URLSessionWebSocketTask?
     @ObservationIgnored private var audio: VoiceCallAudio?
+    /// EXP-1929: what the relay last sent, and whether it beats.
+    @ObservationIgnored private var liveness: CallLiveness?
+    @ObservationIgnored private var livenessTask: Task<Void, Never>?
     @ObservationIgnored private let toaster = Toaster.shared
     @ObservationIgnored private let ring = CallRingTone()
 
@@ -149,6 +152,21 @@ final class VoiceCallClient {
     private func dial(_ url: URL, generation: Int) {
         let task = URLSession.shared.webSocketTask(with: url)
         socket = task
+        let liveness = CallLiveness()
+        self.liveness = liveness
+        // EXP-1929: once the relay beat, a path that carries nothing for
+        // `idleTimeoutMs` is dead: the call ends dropped.
+        livenessTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard let self, generation == self.generation else { return }
+                if liveness.dead() {
+                    logger.info("call path went silent")
+                    self.fail("dropped")
+                    return
+                }
+            }
+        }
         let uplink = UplinkSender(task)
         audio = VoiceCallAudio(
             onUplink: { frame in uplink.send(frame) },
@@ -168,7 +186,7 @@ final class VoiceCallClient {
             }
         )
         task.resume()
-        Self.pump(task, audio: audio, onText: { [weak self] text in
+        Self.pump(task, audio: audio, liveness: liveness, onText: { [weak self] text in
             Task { @MainActor in
                 guard let self, generation == self.generation else { return }
                 self.handle(text)
@@ -188,10 +206,12 @@ final class VoiceCallClient {
     nonisolated private static func pump(
         _ task: URLSessionWebSocketTask,
         audio: VoiceCallAudio?,
+        liveness: CallLiveness,
         onText: @escaping @Sendable (String) -> Void,
         onClosed: @escaping @Sendable () -> Void
     ) {
         task.receive { result in
+            if case .success = result { liveness.heard() }
             switch result {
             case let .success(.data(frame)):
                 audio?.receive(frame)
@@ -203,7 +223,7 @@ final class VoiceCallClient {
                 onClosed()
                 return
             }
-            pump(task, audio: audio, onText: onText, onClosed: onClosed)
+            pump(task, audio: audio, liveness: liveness, onText: onText, onClosed: onClosed)
         }
     }
 
@@ -249,6 +269,8 @@ final class VoiceCallClient {
             if let toast = state.toast { toaster.error(toast) }
         case "error":
             fail(frame["code"] as? String ?? "dropped")
+        case "call_alive":
+            liveness?.beat()
         case "bye":
             // The room closed without a `call_end` first.
             fail(frame["outcome"] as? String ?? "dropped")
@@ -285,6 +307,9 @@ final class VoiceCallClient {
         generation += 1
         startTask?.cancel()
         startTask = nil
+        livenessTask?.cancel()
+        livenessTask = nil
+        liveness = nil
         ring.stop()
         if let audio {
             audio.stop()
@@ -296,6 +321,26 @@ final class VoiceCallClient {
         socket?.cancel(with: .normalClosure, reason: nil)
         socket = nil
         level = 0
+    }
+}
+
+/// EXP-1929: when the relay last sent anything (the receive loop, off the
+/// main actor) and whether it beats (`call_alive`).
+private final class CallLiveness: @unchecked Sendable {
+    private let lock = NSLock()
+    private var alive = false
+    private var heardAt = Date()
+
+    func heard() {
+        lock.withLock { heardAt = Date() }
+    }
+
+    func beat() {
+        lock.withLock { alive = true }
+    }
+
+    func dead() -> Bool {
+        lock.withLock { VoiceCall.callPathDead(alive: alive, silentMs: Int(Date().timeIntervalSince(heardAt) * 1000)) }
     }
 }
 

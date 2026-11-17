@@ -35,6 +35,8 @@ apps/web/public/widget/
 apps/web/public/mcp-apps/
 # The browser's eNet node (scripts/build-enet-wasm.sh, EXP-1457)
 apps/web/public/enet/
+# The web's chat store (scripts/build-chat-store-wasm.sh, EDE-115)
+apps/web/public/chat-store/
 # eAgent's reducer as wasm (scripts/build-eagent-wasm.sh, EXP-1509)
 packages/eagent/wasm/
 

@@ -3419,6 +3419,24 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v111 (#EDE-97): `sessions.clear_tree` (root rows: an outside MCP
+        // client's tree, in clear for life). The sessions cursor resets only
+        // when the column was added, so synced rows re-arrive carrying it.
+        migrator.registerMigration("v111_session_clear_tree") { db in
+            guard try db.tableExists("sessions") else { return }
+            guard try db.columns(in: "sessions").contains(where: { $0.name == "clear_tree" }) == false else { return }
+            try db.alter(table: "sessions") { t in
+                t.add(column: "clear_tree", .boolean).notNull().defaults(to: false)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'sessions'
+                    """)
+            }
+        }
+
         return migrator
     }
 

@@ -10,9 +10,9 @@ import GRDB
 // - `mentionUserIds` = the `@email` mentions resolved to user ids (metadata);
 // - `sessions.answer` = `sealedCard` (the FULL card re-sealed with its
 //   answers) + the clear `decision` / `fresh`.
-// Attachments stay clear `attachmentIds`. When nothing can be sealed (no
-// eNet in this build, the install not registered yet) the plaintext goes:
-// unprefixed bodies stay legal.
+// Attachments stay clear `attachmentIds`. #EDE-97: text goes in clear only
+// into a clear tree (an outside MCP client's); when nothing can be sealed the
+// send fails (`SealRefusal`, sealed-content.json `clearTree`).
 
 
 /// `sessions.answer` with the card sealed: only the clear part is checked
@@ -91,7 +91,7 @@ public final class SessionSealer: @unchecked Sendable {
                 return nil
             }
             guard let root else { return nil }
-            return SealRoot(id: root.id, teamId: root.teamId, deviceId: root.deviceId, shared: root.shared, key: root.sealKey)
+            return SealRoot(id: root.id, teamId: root.teamId, deviceId: root.deviceId, shared: root.shared, key: root.sealKey, clearTree: root.clearTree)
         }
     }
 
@@ -120,8 +120,8 @@ public final class SessionSealer: @unchecked Sendable {
     /// Seals the text of a send (and keys the root when it has no key).
     /// `fresh` = the server refused this send's key write once: the tree is
     /// resolved from the server, never this store (#FEED-250 `staleTree`).
-    public func prepare(accountId: String, _ input: SessionsSendInput, fresh: Bool = false) async -> PreparedSend {
-        await sending.prepare(
+    public func prepare(accountId: String, _ input: SessionsSendInput, fresh: Bool = false) async throws -> PreparedSend {
+        try await sending.prepare(
             accountId: accountId,
             input,
             root: root(accountId: accountId, for: input),

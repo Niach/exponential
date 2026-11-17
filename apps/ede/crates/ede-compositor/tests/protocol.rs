@@ -8,7 +8,7 @@ use std::{
 };
 
 use common::Session;
-use ede_compositor::{backend::headless::Harness, Config};
+use ede_compositor::{backend::headless::Harness, desk::DeskId, Config};
 use ede_protocol::{events, Capability, CaptureTarget, Client, Error, ErrorCode, InputEvent, Request, SessionId, Token};
 
 const RED: u32 = 0xffff_0000;
@@ -267,7 +267,7 @@ fn minimized_windows_leave_the_screen_and_come_back_where_they_were() {
     // Listed as minimized at its old place; not drawn, not on the space.
     let b_info = ipc.windows().unwrap().into_iter().find(|w| w.id == id_b).unwrap();
     assert!(b_info.minimized && !b_info.focused && (b_info.x, b_info.y) == (before.x, before.y));
-    assert!(h.with(|ede| ede.space.elements().count() == 1));
+    assert!(h.with(|ede| ede.desk.space.elements().count() == 1));
     assert_eq!(h.capture(0).at(before.x + 5, before.y + 5), BLUE, "a shows where b (cascaded over it) was");
     // Its last frame is still there for the taskbar's hover preview.
     let shot = ipc.capture(CaptureTarget::Window { window: id_b.clone() }).unwrap();
@@ -397,7 +397,7 @@ fn workspaces_park_windows_and_the_taskbar_brings_them_back() {
     press(&h, KEY_LEFTMETA, false);
     let switched = ipc.next_event().unwrap();
     assert_eq!((switched.kind.as_str(), switched.data["workspace"].as_u64()), (events::WORKSPACE_SWITCHED, Some(1)));
-    assert!(h.with(|ede| ede.space.elements().count() == 0));
+    assert!(h.with(|ede| ede.desk.space.elements().count() == 0));
     let windows = ipc.windows().unwrap();
     assert_eq!(windows.len(), 2, "parked windows are still listed");
     assert!(windows.iter().all(|w| w.workspace == 0 && !w.focused));
@@ -408,12 +408,12 @@ fn workspaces_park_windows_and_the_taskbar_brings_them_back() {
     ipc.focus(id_a.clone()).unwrap();
     wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&a.surface));
     assert_eq!(ipc.workspaces().unwrap()[0].active, true);
-    assert!(h.with(|ede| ede.space.elements().count() == 2));
+    assert!(h.with(|ede| ede.desk.space.elements().count() == 2));
 
     // Move b to workspace 3 over the protocol: it leaves, a stays.
     let id_b = windows.iter().find(|w| w.title.as_deref() == Some("b")).unwrap().id.clone();
     ipc.move_to_workspace(id_b.clone(), 2).unwrap();
-    assert!(h.with(|ede| ede.space.elements().count() == 1));
+    assert!(h.with(|ede| ede.desk.space.elements().count() == 1));
     let spaces = ipc.workspaces().unwrap();
     assert_eq!(spaces[2].windows, vec![id_b.clone()]);
     assert_eq!(ipc.windows().unwrap().iter().find(|w| w.id == id_b).unwrap().workspace, 2);
@@ -548,9 +548,9 @@ fn a_hold_locks_the_person_out_until_their_esc() {
     assert!(h.with(|ede| ede.person_input_held()));
 
     person_key(&h, KEY_A);
-    let before = h.with(|ede| ede.seat.get_pointer().unwrap().current_location());
+    let before = h.with(|ede| ede.desk.seat.get_pointer().unwrap().current_location());
     assert!(!h.with(|ede| ede.person_pointer_motion_to((400.0, 400.0).into(), 0)));
-    assert_eq!(h.with(|ede| ede.seat.get_pointer().unwrap().current_location()), before);
+    assert_eq!(h.with(|ede| ede.desk.seat.get_pointer().unwrap().current_location()), before);
     agent.input(InputEvent::Key { key: KEY_LEFTSHIFT, pressed: true }).unwrap();
     agent.input(InputEvent::Key { key: KEY_LEFTSHIFT, pressed: false }).unwrap();
     wait_for(&mut app, |c| c.state.keys == [KEY_LEFTSHIFT]);
@@ -594,7 +594,7 @@ fn keysyms_find_their_key_and_level_on_the_layout() {
         ipc.input(InputEvent::Keysym { keysym, pressed }).unwrap();
     }
     wait_for(&mut app, |c| c.state.keys == [KEY_A, KEY_LEFTSHIFT, KEY_A]);
-    assert!(h.with(|ede| ede.seat.get_keyboard().unwrap().pressed_keys().is_empty()), "Shift is let go with the key");
+    assert!(h.with(|ede| ede.desk.seat.get_keyboard().unwrap().pressed_keys().is_empty()), "Shift is let go with the key");
     let snowman = InputEvent::Keysym { keysym: 0x0100_2603, pressed: true };
     assert_eq!(code(ipc.input(snowman).unwrap_err()), ErrorCode::NotFound);
 
@@ -609,7 +609,7 @@ fn relative_motion_and_scrolling() {
     let mut ipc = h.ipc();
     ipc.input(InputEvent::PointerMotion { x: 100.0, y: 100.0 }).unwrap();
     ipc.input(InputEvent::PointerMotionRelative { dx: 25.0, dy: -10.0 }).unwrap();
-    let at = h.with(|ede| ede.seat.get_pointer().unwrap().current_location());
+    let at = h.with(|ede| ede.desk.seat.get_pointer().unwrap().current_location());
     assert_eq!((at.x, at.y), (125.0, 90.0));
     ipc.input(InputEvent::PointerAxis { dx: 0.0, dy: 30.0 }).unwrap();
     ipc.input(InputEvent::PointerAxisDiscrete { dx: 0, dy: -2 }).unwrap();
@@ -805,7 +805,7 @@ fn the_clipboard_crosses_xwayland_both_ways() {
     conn.map_window(win).unwrap();
     conn.flush().unwrap();
     let deadline = Instant::now() + Duration::from_secs(30);
-    while !h.with(|ede| ede.focused_window().is_some_and(|w| w.x11_surface().is_some())) {
+    while !h.with(|ede| ede.focused_window(DeskId::PERSON).is_some_and(|w| w.x11_surface().is_some())) {
         assert!(Instant::now() < deadline, "the X11 window never took focus");
         std::thread::sleep(Duration::from_millis(20));
     }
@@ -876,4 +876,63 @@ fn the_clipboard_crosses_xwayland_both_ways() {
         }
         let _ = win;
     }
+}
+
+/// #EDE-100: a `since` capture of an idle output carries no pixels (a
+/// stream polls it without a re-render); once a client drew, it does.
+#[test]
+fn a_since_capture_is_unchanged_until_something_is_drawn() {
+    let h = harness();
+    let mut app = Session::connect(h.connect());
+    let t = app.toplevel("app");
+    app.draw(&t, 300, 200, RED);
+    wait_for(&mut app, |_| h.with(|e| e.desk.space.elements().count()) == 1);
+    let mut ipc = h.ipc();
+    let target = CaptureTarget::Output { name: "HEADLESS-1".into() };
+    // The window's first frames go out.
+    std::thread::sleep(Duration::from_millis(100));
+    let first = ipc.capture_since(target.clone(), None).unwrap().expect("a first capture has pixels");
+    assert_eq!(first.at(400, 300), RED);
+
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(ipc.capture_since(target.clone(), Some(first.info.serial)).unwrap().is_none(), "nothing drawn since: unchanged");
+
+    app.draw(&t, 300, 200, BLUE);
+    std::thread::sleep(Duration::from_millis(100));
+    let next = ipc.capture_since(target, Some(first.info.serial)).unwrap().expect("drawn since: pixels");
+    assert_eq!(next.at(400, 300), BLUE);
+    assert!(next.info.serial > first.info.serial);
+}
+
+/// #EDE-100: without a backend renderer (headless) an agent's screenshot
+/// is the software frame, pixel for pixel; with one (udev, winit) output
+/// and window captures go through it.
+#[test]
+fn captures_draw_on_the_backends_renderer_and_fall_back_to_software() {
+    let h = harness();
+    let mut app = Session::connect(h.connect());
+    let t = app.toplevel("app");
+    app.draw(&t, 300, 200, RED);
+    wait_for(&mut app, |_| h.with(|e| e.desk.space.elements().count()) == 1);
+    let mut ipc = h.ipc();
+    let output = CaptureTarget::Output { name: "HEADLESS-1".into() };
+    let shot = ipc.capture(output.clone()).unwrap();
+    let software = h.capture_shared(0);
+    assert_eq!((shot.info.width, shot.info.height), (software.width, software.height));
+    assert!(shot.pixels == software.pixels.iter().flat_map(|p| p.to_le_bytes()).collect::<Vec<u8>>(), "the software frame, unchanged");
+
+    h.with(|e| {
+        e.capture_renderer = Some(Box::new(|_, what| {
+            let marker = match what {
+                ede_compositor::backend::CaptureOf::Output(_) => BLUE,
+                ede_compositor::backend::CaptureOf::Window(_) => BLACK,
+            };
+            Ok(ede_compositor::backend::headless::Frame { width: 2, height: 1, pixels: vec![marker; 2] })
+        }))
+    });
+    let shot = ipc.capture(output).unwrap();
+    assert_eq!((shot.info.width, shot.at(1, 0)), (2, BLUE), "the output on the backend's renderer");
+    let id = ipc.windows().unwrap()[0].id.clone();
+    let shot = ipc.capture(CaptureTarget::Window { window: id }).unwrap();
+    assert_eq!((shot.info.width, shot.at(1, 0)), (2, BLACK), "the window on the backend's renderer");
 }

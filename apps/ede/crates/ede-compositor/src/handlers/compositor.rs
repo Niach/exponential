@@ -48,7 +48,7 @@ impl CompositorHandler for Ede {
 
         xdg_shell::handle_commit(self, surface);
         layer_shell::handle_commit(self, surface);
-        resize::handle_commit(&mut self.space, surface);
+        resize::handle_commit(&mut self.desk.space, surface);
     }
 }
 

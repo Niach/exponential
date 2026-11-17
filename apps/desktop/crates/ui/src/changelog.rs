@@ -46,17 +46,28 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
-    id: "2026-11-17-desktop-cli-0-14-168-waiting-on-offline-chats-computer-use",
+    id: "2026-11-17-chats-encrypted-by-default",
     date: "2026-11-17",
-    title: "What a session waits on, offline chats you can read, and steadier computer use",
-    summary: "Desktop and CLI 0.14.168: a session that watches CI, a pull request or an issue says \"Waiting on …\" on its chat row and header; a chat whose device is offline still shows its synced messages and says the device is offline; computer use on X11, Wayland and eDE is steadier.",
-    body: r##"- **"Waiting on …"**: a session that watches something (a CI run, a merge, an issue moving, a time) says what it waits on in its chat row, the chat header, the session card and the Dock; a wall shows as the wall, not as "needs input".
-- **Offline chats stay readable**: when a chat's device is offline, the chat shows the messages already synced and says the device is offline instead of staying blank.
-- **Paste and copy with computer use**: paste_text and copy_selection never touch a clipboard they cannot put back whole. With an Exponential Desktop session already installed, pasting and copying through computer use (paste_text, copy_selection) are refused and the agent types the text instead until the next Exponential Desktop release.
-- **Steadier computer use**: calls queue and hold your input for a whole call, only while a tool drives (looking and waiting hold nothing); Stop, a run's end or the device's Computer use switch going off stop a call in flight; keys follow your keyboard layout, Caps Lock and AltGr on X11; the banner follows the run to another display and lets clicks through on X11 and Wayland; push to talk no longer crashes when its capsule opens or hides.
-- **Cleaner session ends**: a run that ends, is killed or panics releases its grants and processes, and ended sessions are swept without touching one that still runs.
-- **Sessions that keep going**: a stuck claude start restarts, a stalled end says why, a conversation that was never recorded starts fresh instead of failing to resume, and blank agent turns no longer show as messages.
-- **Issue references keep their punctuation**: a full stop or comma touching an issue chip wraps with it."##,
+    title: "Chats are encrypted by default",
+    summary: "Every new chat is end-to-end encrypted, including chats a trigger, a schedule or an app starts. Only a chat an MCP client outside Exponential starts stays in clear.",
+    body: r##"- **Every new chat is encrypted**: messages, cards and titles are sealed before they leave your device. A device that holds no key yet waits a moment, then says so; your draft stays.
+- **Started for you, sealed too**: a chat a trigger, a schedule, an app or a suggestion starts is sealed by the device that picks it up.
+- **Outside MCP clients**: a chat an MCP client outside Exponential starts stays in clear for life, so that client can keep reading and writing it.
+- **Older chats**: chats already in clear stay as they are.
+- **Update your desktop app and CLI**: version 0.14.96 or later is required."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_319: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-17-computer-use-follows-the-device-switch",
+    date: "2026-11-17",
+    title: "Computer use follows your device's switch",
+    summary: "Computer use runs only while the device's Computer use switch is on. A new session follows the switch, and you can turn it off for that one session in the + menu; an agent cannot turn it on for itself.",
+    body: r##"- **The device's switch decides**: a session gets computer use only while its device's Computer use switch is on. Turning the switch off ends computer use in every running session on that device at once.
+- **Off for one session**: the + menu shows Computer use only where the device's switch is on and it can drive the screen. It starts on; turn it off to start that session without computer use.
+- **Agents cannot turn it on**: a session or agent can turn computer use off for itself, never on.
+- **Why a device cannot**: a device that cannot drive its screen (a Wayland session, no display) says why under its Computer use switch."##,
 };
 
 /// An earlier head entry, kept so the mirror's history reads in place.

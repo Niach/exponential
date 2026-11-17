@@ -13,7 +13,7 @@ use smithay::{
     input::keyboard::{xkb, Keycode, Layout},
 };
 
-use crate::{protected::Refused, state::Ede};
+use crate::{desk::DeskId, protected::Refused, state::Ede};
 
 #[derive(Debug, Default)]
 pub struct Keysyms {
@@ -45,8 +45,8 @@ impl Ede {
     /// the seat's locked and latched modifiers (Caps Lock); the plainest
     /// wins. The active layout first, then the others: `Some(layout)` = the
     /// key is that layout's, not the active one's.
-    pub fn key_for_keysym(&mut self, keysym: u32) -> Option<(Keycode, Vec<Keycode>, Option<Layout>)> {
-        let keyboard = self.seat.get_keyboard().unwrap();
+    pub fn key_for_keysym(&mut self, desk: DeskId, keysym: u32) -> Option<(Keycode, Vec<Keycode>, Option<Layout>)> {
+        let keyboard = self.desk(desk).seat.get_keyboard().unwrap();
         keyboard.with_xkb_state(self, |ctx| {
             let xkb = ctx.xkb().lock().unwrap();
             let active = xkb.active_layout().0;
@@ -88,8 +88,8 @@ impl Ede {
     }
 
     /// Make `layout` the active one; the one it replaces comes back.
-    pub fn swap_layout(&mut self, layout: Layout) -> Layout {
-        let keyboard = self.seat.get_keyboard().unwrap();
+    pub fn swap_layout(&mut self, desk: DeskId, layout: Layout) -> Layout {
+        let keyboard = self.desk(desk).seat.get_keyboard().unwrap();
         keyboard.with_xkb_state(self, |mut ctx| {
             let was = ctx.xkb().lock().unwrap().active_layout();
             ctx.set_layout(layout);
@@ -100,36 +100,36 @@ impl Ede {
     /// `InputEvent::Keysym`: `Ok(false)` = no key makes it. `bindings` =
     /// the person's path (the root grant), otherwise an agent's, refused on
     /// protected surfaces and the lock like any driven key.
-    pub fn drive_keysym(&mut self, keysym: u32, pressed: bool, bindings: bool, time: u32) -> Result<bool, Refused> {
-        let Some((key, mods, layout)) = self.key_for_keysym(keysym) else { return Ok(false) };
+    pub fn drive_keysym(&mut self, desk: DeskId, keysym: u32, pressed: bool, bindings: bool, time: u32) -> Result<bool, Refused> {
+        let Some((key, mods, layout)) = self.key_for_keysym(desk, keysym) else { return Ok(false) };
         let send = |ede: &mut Ede, keycode: Keycode, state: KeyState| -> Result<(), Refused> {
             if bindings {
                 ede.keyboard_key(keycode, state, time);
                 Ok(())
             } else {
-                ede.drive_key(keycode, state, time, false)
+                ede.drive_key(desk, keycode, state, time, false)
             }
         };
         if pressed {
-            let down = self.seat.get_keyboard().unwrap().pressed_keys();
+            let down = self.desk(desk).seat.get_keyboard().unwrap().pressed_keys();
             let added: Vec<Keycode> = mods.into_iter().filter(|m| !down.contains(m)).collect();
             // Another layout's key: that layout for the length of the stroke.
-            let restore = layout.map(|layout| self.swap_layout(layout));
+            let restore = layout.map(|layout| self.swap_layout(desk, layout));
             let sent = added.iter().chain([&key]).try_for_each(|k| send(self, *k, KeyState::Pressed));
             if let Err(refused) = sent {
                 if let Some(layout) = restore {
-                    self.swap_layout(layout);
+                    self.swap_layout(desk, layout);
                 }
                 return Err(refused);
             }
-            self.ipc.keysyms.mods.retain(|(k, _, _)| *k != key);
-            self.ipc.keysyms.mods.push((key, added, restore));
+            self.desk_mut(desk).keysyms.mods.retain(|(k, _, _)| *k != key);
+            self.desk_mut(desk).keysyms.mods.push((key, added, restore));
         } else {
             send(self, key, KeyState::Released)?;
-            let at = self.ipc.keysyms.mods.iter().position(|(k, _, _)| *k == key);
-            let (_, added, restore) = at.map(|i| self.ipc.keysyms.mods.remove(i)).unwrap_or((key, Vec::new(), None));
+            let at = self.desk_mut(desk).keysyms.mods.iter().position(|(k, _, _)| *k == key);
+            let (_, added, restore) = at.map(|i| self.desk_mut(desk).keysyms.mods.remove(i)).unwrap_or((key, Vec::new(), None));
             if let Some(layout) = restore {
-                self.swap_layout(layout);
+                self.swap_layout(desk, layout);
             }
             for m in added.iter().rev() {
                 send(self, *m, KeyState::Released)?;

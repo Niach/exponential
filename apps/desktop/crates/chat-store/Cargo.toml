@@ -1,0 +1,27 @@
+[package]
+name = "chat-store"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "The chat store (#EDE-105): every chat on every device, offline, plus a local search index. A pure core replaying packages/domain-contract/fixtures/chat-store.json and a SQLite adapter."
+publish = false
+
+# THE RULE: the core (everything but `sqlite`) is serde, serde_json and
+# unicode-normalization only: no I/O, no clock, no async runtime, so the
+# phones (exponential-mobile-ffi) and the web (wasm + OPFS) link the same
+# rules. The SQLite adapter is the `sqlite` feature.
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+# The query fold (NFD, marks dropped), the same as steer's find in chat (#EDE-96).
+unicode-normalization = "0.1"
+rusqlite = { workspace = true, optional = true }
+
+[features]
+default = ["sqlite"]
+sqlite = ["dep:rusqlite"]
+
+# The open bench (`tests/open_bench.rs`) folds what it reads the way a session
+# view does; the crate itself never links steer.
+[dev-dependencies]
+steer = { path = "../steer" }

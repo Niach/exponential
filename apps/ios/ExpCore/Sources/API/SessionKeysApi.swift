@@ -95,11 +95,15 @@ public struct ServerSendTarget: Decodable, Equatable, Sendable {
     public let rootId: String?
     public let epoch: UInt32?
     public let publicKey: String?
+    /// #EDE-97: the root is an outside MCP client's tree (in clear for
+    /// life); absent on an older server = not.
+    public let clearTree: Bool?
 
-    public init(rootId: String?, epoch: UInt32?, publicKey: String?) {
+    public init(rootId: String?, epoch: UInt32?, publicKey: String?, clearTree: Bool? = nil) {
         self.rootId = rootId
         self.epoch = epoch
         self.publicKey = publicKey
+        self.clearTree = clearTree
     }
 
     /// The root's current key, when the server names one.

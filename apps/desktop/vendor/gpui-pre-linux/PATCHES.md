@@ -68,10 +68,32 @@ Marked `Exponential patch (#EDE-86)` in the source.
   grab is how the popup asks eDE's compositor for the keyboard. Nothing
   else opens a popup with `grab: true`.
 
+## A pointer leave moves the pointer out (#EDE-89)
+
+Marked `Exponential patch (#EDE-89)` in the source.
+
+- **`src/linux/wayland/client.rs`:** on `wl_pointer.leave` the window gets a
+  `MouseMove` to `POINTER_OUTSIDE` (far outside any window) before the
+  `MouseExited` (`pointer_left`). gpui's window keeps the last position it
+  saw and hit-tests every later frame there; `MouseExited` does not move it.
+  So a hover listener whose element repainted after the leave turned
+  hovered again: eDE's taskbar button kept its hover preview open after the
+  pointer left, and a dismissed preview opened again at once.
+- **`src/linux/wayland/window.rs`:** `PlatformWindow::mouse_position` is the
+  pointer's location only for the window the pointer is over
+  (`WaylandClientState::mouse_location_in`), `POINTER_OUTSIDE` for every
+  other one. Upstream returned the client's one location, which is in the
+  coordinates of whichever surface has the pointer (or (0, 0)). gpui reads it
+  on a window's first bounds: the taskbar's hover preview, a popup mapping
+  above the button, started with the pointer inside its card at the
+  button's coordinates, so its hover was on and held the preview open.
+- **Test:** `pointer_left_tests::a_leave_moves_the_pointer_out_of_the_window_first`
+  (`client.rs`), in the gate's vendored patch test step (`test.yml`).
+
 ## Packaging
 
 `Cargo.toml` stays the crates.io-normalised manifest. Dropped from the
 published crate: `Cargo.lock`, `Cargo.toml.orig`, `.cargo_vcs_info.json`,
-`.cargo-ok`. Tests: `cargo test -p gpui-pre-linux --lib -- uri_list input_shape`
+`.cargo-ok`. Tests: `cargo test -p gpui-pre-linux --lib -- uri_list input_shape pointer_left`
 from `apps/desktop` (the input shape test starts a private Xvfb and is
 skipped without one).

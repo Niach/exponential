@@ -293,11 +293,11 @@ pub const SEND_TIMEOUT: Duration = Duration::from_millis(20_000);
 
 /// The frames a viewer sends.
 pub const VIEWER_FRAMES: &[&str] = &[
-    "join", "leave", "input", "answer", "interrupt", "unqueue", "set_config", "set_mode", "kill", "history_page",
+    "join", "leave", "input", "answer", "interrupt", "unqueue", "set_config", "set_mode", "kill", "history_page", "search",
 ];
 /// The frames a device sends.
 pub const DEVICE_FRAMES: &[&str] =
-    &["activity_reset", "activity", "activity_synced", "history_chunk", "keepalive", "bye", "error"];
+    &["activity_reset", "activity", "activity_synced", "history_chunk", "search_result", "keepalive", "bye", "error"];
 /// This install neither runs the session live nor holds its journal.
 pub const ERROR_NO_SUCH_SESSION: &str = "no_such_session";
 /// The access rule refused the sender.
@@ -494,7 +494,7 @@ impl FeedPeer {
 
     /// One envelope of `frames`: eNet waits for the ack (at most
     /// [`SEND_TIMEOUT`]); a tunnel queues it sealed on the control socket.
-    async fn send(&self, session_id: &str, frames: &[String]) -> Result<(), String> {
+    pub(crate) async fn send(&self, session_id: &str, frames: &[String]) -> Result<(), String> {
         match self {
             FeedPeer::Enet(peer) => send_envelope(&peer.node, peer.id, session_id, frames).await,
             FeedPeer::Tunnel(peer) => peer.send(&envelope_bytes(session_id, frames)),
@@ -510,7 +510,7 @@ impl FeedPeer {
         }
     }
 
-    fn label(&self) -> String {
+    pub(crate) fn label(&self) -> String {
         match self {
             FeedPeer::Enet(peer) => crate::enet::endpoint_hex(&peer.id),
             FeedPeer::Tunnel(peer) => format!("tunnel {}", peer.tunnel_id),
@@ -641,10 +641,24 @@ fn serve_envelope(
     user_of: &dyn Fn(&str) -> Option<String>,
     stored: Option<&StoredJournals>,
 ) {
+    let mut envelope = envelope;
     let session_id = envelope.session_id.clone();
     let room = lock(rooms())
         .get(&session_id)
         .and_then(|room| Some((room.audience.clone(), room.cmd_tx.upgrade()?)));
+    // #EDE-108 CATCH-UP: a page that names a device needs no join; it is
+    // answered to the asker alone (journal or chat store), never queued to a
+    // feed.
+    let (pages, frames): (Vec<Value>, Vec<Value>) =
+        std::mem::take(&mut envelope.frames).into_iter().partition(crate::enet_catchup::is_page);
+    envelope.frames = frames;
+    if !pages.is_empty() {
+        let audience = room.as_ref().map(|(audience, _)| audience.clone());
+        crate::enet_catchup::serve(&peer, &session_id, pages, audience, user_of, stored);
+        if envelope.frames.is_empty() {
+            return;
+        }
+    }
     let Some((audience, cmd_tx)) = room else {
         match stored.and_then(|stored| Some((stored, stored.lookup(&session_id)?))) {
             Some((stored, session)) => {
@@ -839,6 +853,12 @@ pub struct StoredJournals {
     pub data_dir: PathBuf,
     /// Session id → its synced row's [`StoredSession`]; `None` = no row.
     pub session: Arc<dyn Fn(&str) -> Option<StoredSession> + Send + Sync>,
+    /// #EDE-108: this machine's `devices.device_id` (a catch-up page for its
+    /// own runs is answered off the journal).
+    pub device_id: Option<String>,
+    /// #EDE-108: the account's chat store, once open (a catch-up page for
+    /// any other device's run is answered off it).
+    pub chat_store: Option<crate::enet_catchup::ChatStoreSlot>,
 }
 
 /// What STORED REPLAY reads off a session's synced row.
@@ -909,7 +929,8 @@ pub fn has_stored_viewer(session_id: &str, endpoint: &EndpointId) -> bool {
 }
 
 /// One allowed envelope for a session served from its journal: `join`,
-/// `leave` and `history_page` apply; a stored run cannot be steered.
+/// `leave`, `history_page` and `search` apply; a stored run cannot be
+/// steered.
 fn serve_stored(peer: FeedPeer, envelope: Envelope, stored: &StoredJournals, ended: bool) {
     let session_id = envelope.session_id;
     let from = peer.id();
@@ -928,6 +949,20 @@ fn serve_stored(peer: FeedPeer, envelope: Envelope, stored: &StoredJournals, end
                     (request_id, page("beforeSeq"), page("limit"))
                 {
                     stored_page(&session_id, &from, stored.data_dir.clone(), request_id.to_string(), before_seq, limit);
+                }
+            }
+            Some("search") => {
+                let request_id = frame.get("requestId").and_then(Value::as_str);
+                let query = frame.get("query").and_then(Value::as_str);
+                let limit = frame.get("limit").and_then(Value::as_u64);
+                if let (Some(request_id), Some(query), Some(limit)) = (request_id, query, limit) {
+                    let ask = StoredSearch {
+                        request_id: request_id.to_string(),
+                        query: query.to_string(),
+                        before_seq: frame.get("beforeSeq").and_then(Value::as_u64),
+                        limit,
+                    };
+                    stored_search(&peer, &session_id, stored.data_dir.clone(), ask);
                 }
             }
             _ => {}
@@ -1002,6 +1037,46 @@ fn stored_page(session_id: &str, from: &PeerId, data_dir: PathBuf, request_id: S
         .await
         .unwrap_or_default();
         let _ = tx.send(crate::history::history_chunk_frame(&request_id, page));
+    });
+}
+
+/// #EDE-96: one `search` ask on a stored journal.
+struct StoredSearch {
+    request_id: String,
+    query: String,
+    before_seq: Option<u64>,
+    limit: u64,
+}
+
+/// A `search` on a stored journal (steer-enet.json SEARCH), answered off the
+/// file to the asker only: through its stored feed when it is joined (in
+/// order with that feed), else on its own (an ended row's viewer was dropped
+/// at `bye`; a search needs no join).
+fn stored_search(peer: &FeedPeer, session_id: &str, data_dir: PathBuf, ask: StoredSearch) {
+    let feed = lock(stored_viewers())
+        .get(session_id)
+        .and_then(|viewers| viewers.get(&peer.id()))
+        .map(|(_, tx)| tx.clone())
+        .filter(|tx| !tx.is_disconnected());
+    let peer = peer.clone();
+    let id = session_id.to_string();
+    tokio::spawn(async move {
+        let read_id = id.clone();
+        let frame = tokio::task::spawn_blocking(move || {
+            crate::search::answer(Some(&data_dir), &read_id, &ask.request_id, &ask.query, ask.before_seq, ask.limit)
+        })
+        .await;
+        let Ok(frame) = frame else { return };
+        match feed {
+            Some(tx) => {
+                let _ = tx.send(frame);
+            }
+            None => {
+                if let Err(err) = peer.send(&id, &[frame]).await {
+                    log::debug!("enet steer: search answer to {} failed: {err}", peer.label());
+                }
+            }
+        }
     });
 }
 
@@ -1123,7 +1198,12 @@ pub fn subscribe(session_id: &str, device: EndpointId) -> ViewerSubscription {
     ViewerSubscription { key, generation, frames }
 }
 
-fn deliver_to_viewer(from: EndpointId, envelope: Envelope) {
+fn deliver_to_viewer(from: EndpointId, mut envelope: Envelope) {
+    // #EDE-108: a catch-up page's answer goes to its asker, never a viewer.
+    crate::enet_catchup::take_answers(&mut envelope.frames);
+    if envelope.frames.is_empty() {
+        return;
+    }
     let key = (envelope.session_id, from);
     let mut viewers = lock(viewers());
     let Some(subs) = viewers.get_mut(&key) else {

@@ -1052,6 +1052,8 @@ pub const UI_UNASSIGNED: ExpIcon = ExpIcon::UserX;
 pub const UI_UNDO: ExpIcon = ExpIcon::Undo2;
 /// Registry concept `ui-undock` -> Lucide `arrow-up-right`.
 pub const UI_UNDOCK: ExpIcon = ExpIcon::ArrowUpRight;
+/// Registry concept `ui-unencrypted` -> Lucide `lock-open`.
+pub const UI_UNENCRYPTED: ExpIcon = ExpIcon::LockOpen;
 /// Registry concept `ui-unlock` -> Lucide `lock-open`.
 pub const UI_UNLOCK: ExpIcon = ExpIcon::LockOpen;
 /// Registry concept `ui-unpin` -> Lucide `pin-off`.
@@ -1396,6 +1398,7 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "ui-unassigned" => UI_UNASSIGNED,
         "ui-undo" => UI_UNDO,
         "ui-undock" => UI_UNDOCK,
+        "ui-unencrypted" => UI_UNENCRYPTED,
         "ui-unlock" => UI_UNLOCK,
         "ui-unpin" => UI_UNPIN,
         "ui-unselected" => UI_UNSELECTED,

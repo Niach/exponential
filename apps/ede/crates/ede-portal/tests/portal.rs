@@ -274,6 +274,26 @@ fn remote_control_is_never_silent() {
     assert!(w.call::<()>(REMOTE, "NotifyPointerMotion", &(path(session), none(), 5.0f64, 5.0f64)).is_err());
 }
 
+/// #EDE-101: a RemoteDesktop session started through ScreenCast.Start
+/// (the share-only path, no `allow`) never gets the seat.
+#[test]
+fn a_remote_desktop_session_never_starts_through_screencast() {
+    let w = world("");
+    let _app = w.window("notes", 300, 200);
+    let session = "/org/freedesktop/portal/desktop/session/1_1/rd3";
+    let _: (u32, Vardict) = w.call(REMOTE, "CreateSession", &(path("/r/1"), path(session), "org.example.Remote", none())).unwrap();
+    let mut devices: HashMap<&str, Value> = HashMap::new();
+    devices.insert("types", Value::from(3u32));
+    let _: (u32, Vardict) = w.call(REMOTE, "SelectDevices", &(path("/r/2"), path(session), "org.example.Remote", devices)).unwrap();
+    let mut types: HashMap<&str, Value> = HashMap::new();
+    types.insert("types", Value::from(1u32));
+    let _: (u32, Vardict) = w.call(SCREENCAST, "SelectSources", &(path("/r/3"), path(session), "org.example.Remote", types)).unwrap();
+    let (r, results): (u32, Vardict) = w.call(SCREENCAST, "Start", &(path("/r/4"), path(session), "org.example.Remote", "", none())).unwrap();
+    assert_ne!(r, 0, "ScreenCast.Start started a RemoteDesktop session: {results:?}");
+    let e = w.call::<()>(REMOTE, "NotifyKeyboardKeycode", &(path(session), none(), 30i32, 1u32)).unwrap_err();
+    assert!(e.to_string().contains("NotAllowed"), "{e}");
+}
+
 #[test]
 fn an_allowed_app_drives_the_pointer_and_keyboard() {
     let w = world("[remote_desktop]\nallow = [\"org.example.Remote\"]\n");
@@ -289,7 +309,7 @@ fn an_allowed_app_drives_the_pointer_and_keyboard() {
     let streams = <Vec<(u32, Vardict)>>::try_from(results["streams"].try_clone().unwrap()).unwrap();
     let node = streams[0].0;
     let () = w.call(REMOTE, "NotifyPointerMotionAbsolute", &(path(session), none(), node, 120.0f64, 80.0f64)).unwrap();
-    let at = w.h.with(|ede| ede.seat.get_pointer().unwrap().current_location());
+    let at = w.h.with(|ede| ede.desk.seat.get_pointer().unwrap().current_location());
     assert_eq!((at.x, at.y), (120.0, 80.0));
     let () = w.call(REMOTE, "NotifyPointerMotion", &(path(session), none(), 5.0f64, -5.0f64)).unwrap();
     let () = w.call(REMOTE, "NotifyKeyboardKeycode", &(path(session), none(), 30i32, 1u32)).unwrap();

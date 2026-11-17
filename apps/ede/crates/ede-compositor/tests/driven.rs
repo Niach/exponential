@@ -7,8 +7,8 @@ mod common;
 use std::time::{Duration, Instant};
 
 use common::Session;
-use ede_compositor::{backend::headless::Harness, Config};
-use ede_protocol::{Error, ErrorCode, InputEvent, Request};
+use ede_compositor::{backend::headless::Harness, desk::DeskId, Config};
+use ede_protocol::{Capability, Error, ErrorCode, InputEvent, Request, SessionId};
 use smithay::backend::input::{ButtonState, KeyState};
 
 const BLUE: u32 = 0xff00_00ff;
@@ -18,6 +18,7 @@ const KEY_TAB: u32 = 15;
 const KEY_LEFTCTRL: u32 = 29;
 const KEY_A: u32 = 30;
 const KEY_LEFTSHIFT: u32 = 42;
+const KEY_B: u32 = 48;
 const KEY_LEFTALT: u32 = 56;
 const KEY_LEFTMETA: u32 = 125;
 const KEY_ESC: u32 = 1;
@@ -49,9 +50,9 @@ fn notes(h: &Harness) -> (Session, (f64, f64)) {
 /// is (the pointer's click grab lasts as long as one is down).
 fn down(h: &Harness) -> (Vec<u32>, bool) {
     h.with(|ede| {
-        let mut keys: Vec<u32> = ede.seat.get_keyboard().unwrap().pressed_keys().iter().map(|k| k.raw() - 8).collect();
+        let mut keys: Vec<u32> = ede.desk.seat.get_keyboard().unwrap().pressed_keys().iter().map(|k| k.raw() - 8).collect();
         keys.sort();
-        (keys, ede.seat.get_pointer().unwrap().is_grabbed())
+        (keys, ede.desk.seat.get_pointer().unwrap().is_grabbed())
     })
 }
 
@@ -261,7 +262,7 @@ fn layouts(layout: &str) -> Harness {
 
 fn active_layout(h: &Harness) -> u32 {
     h.with(|ede| {
-        let keyboard = ede.seat.get_keyboard().unwrap();
+        let keyboard = ede.desk.seat.get_keyboard().unwrap();
         keyboard.with_xkb_state(ede, |ctx| ctx.xkb().lock().unwrap().active_layout().0)
     })
 }
@@ -269,7 +270,7 @@ fn active_layout(h: &Harness) -> u32 {
 /// The key a keysym resolves to: (evdev code, modifiers' evdev codes, the
 /// other layout it is in).
 fn key_for(h: &Harness, keysym: u32) -> Option<(u32, Vec<u32>, Option<u32>)> {
-    h.with(move |ede| ede.key_for_keysym(keysym)).map(|(key, mods, layout)| (key.raw() - 8, mods.iter().map(|m| m.raw() - 8).collect(), layout.map(|l| l.0)))
+    h.with(move |ede| ede.key_for_keysym(DeskId::PERSON, keysym)).map(|(key, mods, layout)| (key.raw() - 8, mods.iter().map(|m| m.raw() - 8).collect(), layout.map(|l| l.0)))
 }
 
 /// #EXP-1907: with the Russian layout active no key of it makes `v`: the
@@ -278,7 +279,7 @@ fn key_for(h: &Harness, keysym: u32) -> Option<(u32, Vec<u32>, Option<u32>)> {
 #[test]
 fn a_keysym_of_another_layout_is_pressed_in_that_layout() {
     let h = layouts("us,ru");
-    h.with(|ede| ede.swap_layout(smithay::input::keyboard::Layout(1)));
+    h.with(|ede| ede.swap_layout(DeskId::PERSON, smithay::input::keyboard::Layout(1)));
     assert_eq!(key_for(&h, 0x6cd), Some((KEY_V, vec![], None)), "Cyrillic em is the active layout's");
     assert_eq!(key_for(&h, 0x76), Some((KEY_V, vec![], Some(0))));
     assert_eq!(key_for(&h, 0x56), Some((KEY_V, vec![KEY_LEFTSHIFT], Some(0))));
@@ -314,4 +315,37 @@ fn a_keysym_is_resolved_under_the_seats_caps_lock() {
     person_key(&h, KEY_LEFTCTRL, KeyState::Pressed);
     assert_eq!(key_for(&h, 0x7a), Some((KEY_Z, vec![], None)));
     person_key(&h, KEY_LEFTCTRL, KeyState::Released);
+}
+
+/// #EDE-90: two runs type keysyms into the one desk, interleaved. Each
+/// stroke lands in order; the Shift one run's capital added goes up with
+/// that capital, not with the other run's key; the desk ends clean.
+#[test]
+fn two_connections_drive_keysyms_against_the_one_desk() {
+    let h = harness();
+    let (mut app, _) = notes(&h);
+    let grant = |run: &str| h.ipc().mint(SessionId::new(run).unwrap(), vec![Capability::InputPerson], None).unwrap().token;
+    let mut a = h.ipc_with(grant("run-a")).unwrap();
+    let mut b = h.ipc_with(grant("run-b")).unwrap();
+    let sym = |keysym: u32, pressed: bool| InputEvent::Keysym { keysym, pressed };
+
+    a.input(sym(0x41, true)).unwrap();
+    assert_eq!(down(&h).0, [KEY_A, KEY_LEFTSHIFT]);
+    b.input(sym(0x62, true)).unwrap();
+    b.input(sym(0x62, false)).unwrap();
+    assert_eq!(down(&h).0, [KEY_A, KEY_LEFTSHIFT], "the other run's key leaves the Shift alone");
+    a.input(sym(0x41, false)).unwrap();
+    assert_eq!(down(&h).0, Vec::<u32>::new());
+    b.input(sym(0x42, true)).unwrap();
+    assert_eq!(down(&h).0, [KEY_LEFTSHIFT, KEY_B]);
+    b.input(sym(0x42, false)).unwrap();
+    assert_eq!(down(&h), (vec![], false));
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while app.state.keys.len() < 5 {
+        assert!(Instant::now() < deadline, "keys missing: {:?}", app.state.keys);
+        std::thread::sleep(Duration::from_millis(10));
+        app.roundtrip();
+    }
+    assert_eq!(app.state.keys, [KEY_LEFTSHIFT, KEY_A, KEY_B, KEY_LEFTSHIFT, KEY_B]);
 }
