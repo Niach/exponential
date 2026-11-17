@@ -176,8 +176,11 @@ struct DeviceReadinessView: View {
     }
 
     private func switchRow(_ row: DeviceReadiness.Row) -> some View {
+        // #EXP-1899: the device's reason while it cannot drive, as the
+        // row's second line.
         GlassToggleRow(
             row.label,
+            description: row.detail,
             isOn: computerUse ?? .constant(row.switchOn)
         )
         .font(.subheadline)

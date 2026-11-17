@@ -588,16 +588,15 @@ public struct SteerDevice: Sendable, Identifiable {
     // real reason was that no machine was online. What remains here mirrors a
     // gate the server still applies.
 
-    /// EXP-1249: whether this machine reads the per-run `computerUse` flag
-    /// (contract `codingSessionComputerUseCap`, a RUN cap: advertised only
-    /// while an agent there is runnable); without it the toggle hides and the
-    /// key never rides out.
+    /// EXP-1249/#EXP-1899: the "+" menu offers the per-run Computer use
+    /// toggle for this machine: it reads the flag (contract
+    /// `codingSessionComputerUseCap`), its switch is on and it can drive
+    /// (`ComposerMenu.computerUseOffered`); otherwise the key never rides out.
     public var canToggleComputerUse: Bool {
-        caps?.contains(DomainContract.codingSessionComputerUseCap) == true
+        ComposerMenu.computerUseOffered(
+            caps: caps, doctor: doctor, switchOn: launchDefaults?.computerUse ?? false
+        )
     }
-
-    /// The per-run toggle's seed: the machine's `launch_defaults.computerUse`.
-    public var computerUseDefault: Bool { launchDefaults?.computerUse ?? false }
 
     /// EXP-420: whether this device's reported version compares below the
     /// given latest. Unknown or unparsable on either side = false — the
