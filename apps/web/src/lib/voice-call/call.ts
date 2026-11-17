@@ -20,6 +20,7 @@
 
 import {
   CALL_IDLE,
+  callPathDead,
   callStep,
   VOICE_CALL_CONSTANTS,
   VOICE_CALL_COPY,
@@ -84,6 +85,11 @@ export class VoiceCall {
   private lastDown: number | null = null
   private generation = 0
   private stopRing: (() => void) | null = null
+  /** EXP-1929: the relay beats (`call_alive`), when it last sent anything,
+   *  and the check that ends a path gone silent. */
+  private alive = false
+  private heardAt = 0
+  private liveness: ReturnType<typeof setInterval> | null = null
   /** A failure's toast: the fixture's (`failed`), or a refusal the server
    *  worded itself (an availability reason). */
   onToast: ((message: string) => void) | null = null
@@ -179,8 +185,13 @@ export class VoiceCall {
     const socket = this.deps.openSocket(url)
     socket.binaryType = `arraybuffer`
     this.socket = socket
+    this.heardAt = Date.now()
+    this.liveness = setInterval(() => {
+      if (generation === this.generation && callPathDead(this.alive, Date.now() - this.heardAt)) this.fail(`dropped`)
+    }, 1_000)
     socket.onmessage = (message) => {
       if (generation !== this.generation) return
+      this.heardAt = Date.now()
       if (typeof message.data === `string`) return this.control(message.data)
       const frame = parseAudioFrame(message.data as ArrayBuffer)
       if (!frame || frame.kind !== KIND_DOWN) return
@@ -220,6 +231,9 @@ export class VoiceCall {
         return this.fail(frame.code)
       case `bye`:
         return this.fail(frame.outcome ?? `dropped`)
+      case `call_alive`:
+        this.alive = true
+        return
     }
   }
 
@@ -267,5 +281,8 @@ export class VoiceCall {
     this.ready = false
     this.seq = 0
     this.lastDown = null
+    if (this.liveness) clearInterval(this.liveness)
+    this.liveness = null
+    this.alive = false
   }
 }

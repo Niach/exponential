@@ -69,6 +69,8 @@ export function hostCallEvent(raw: unknown): CallEvent | null {
 /** The relay's control frames a caller reads. */
 export type CallerInbound =
   | { t: `call_ready` }
+  // EXP-1929: the relay's beat once paired.
+  | { t: `call_alive` }
   | { t: `call_event`; event: unknown }
   | { t: `call_end`; reason?: string }
   | { t: `error`; code: string }

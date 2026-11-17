@@ -273,6 +273,12 @@ final class VoiceCallTests: XCTestCase {
             let random = try XCTUnwrap(row["random"] as? NSNumber).doubleValue
             XCTAssertEqual(VoiceCall.callRingMs(random: random), row["ringMs"] as? Int, "\(random)")
         }
+        for row in try cases("livenessCases") {
+            let input = try XCTUnwrap(row["input"] as? [String: Any])
+            let expected = try XCTUnwrap(row["expected"] as? [String: Any])
+            let dead = VoiceCall.callPathDead(alive: input["alive"] as? Bool ?? false, silentMs: input["silentMs"] as? Int ?? -1)
+            XCTAssertEqual(dead, expected["dead"] as? Bool, row["name"] as? String ?? "")
+        }
         for row in try cases("answerCases") {
             let random = try XCTUnwrap(row["random"] as? NSNumber).doubleValue
             let answered = VoiceCall.callAnswerMs(random: random, readyMs: row["readyMs"] as? Int)
