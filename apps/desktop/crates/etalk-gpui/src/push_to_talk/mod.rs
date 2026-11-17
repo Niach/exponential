@@ -90,7 +90,8 @@ pub struct PushToTalk {
     armed: Option<Armed>,
     grab: Option<hotkey::Grab>,
     status: hotkey::Status,
-    tx: flume::Sender<hotkey::HotkeyEvent>,
+    /// EXP-1901: bumped by every regrab; a dropped grab's events are ignored.
+    grab_generation: u64,
     /// The key is down (any backend; repeats are ignored).
     held: bool,
     state: PttState,
@@ -149,17 +150,37 @@ pub(crate) fn install(cx: &mut App) {
     let Some(device_id) = host::device_id(cx) else { return };
     let Some(speaker) = crate::speak_replies::entity(cx) else { return };
     let client = crate::speak_replies::client(cx);
-    let (tx, rx) = flume::unbounded::<hotkey::HotkeyEvent>();
+    let entity = start(device_id, client, Some(speaker), cx);
+    // DEV-ONLY (packages/shots/src/desktop-env.md): `EXP_DEV_PTT_OVERLAY=
+    // <phase>|<line>|<agent>` opens the overlay window in that state, so a
+    // capture needs no microphone, worker or sign-in.
+    if let Ok(spec) = std::env::var("EXP_DEV_PTT_OVERLAY") {
+        entity.update(cx, |this, cx| this.dev_overlay(&spec, cx));
+    }
+    let settings = crate::speak_replies::settings(cx);
+    settings_changed(&settings, cx);
+}
+
+/// The watcher, its global and its window-close observer (EXP-1901:
+/// [`install`] without the host, so a gpui test can drive it).
+fn start(
+    device_id: String,
+    client: Option<etalk::SpeechClient>,
+    speaker: Option<Entity<crate::speak_replies::SpeakReplies>>,
+    cx: &mut App,
+) -> Entity<PushToTalk> {
     let entity = cx.new(|cx: &mut Context<PushToTalk>| {
         // The voice ending (or Stop) ends Speaking.
-        cx.observe(&speaker, |this: &mut PushToTalk, _, cx| this.on_speaker(cx)).detach();
+        if let Some(speaker) = speaker.as_ref() {
+            cx.observe(speaker, |this: &mut PushToTalk, _, cx| this.on_speaker(cx)).detach();
+        }
         PushToTalk {
             device_id,
             client,
             armed: None,
             grab: None,
             status: hotkey::Status::Idle,
-            tx,
+            grab_generation: 0,
             held: false,
             state: PttState::default(),
             utterance: None,
@@ -182,37 +203,29 @@ pub(crate) fn install(cx: &mut App) {
             overlay: overlay::Overlay::default(),
         }
     });
-    // DEV-ONLY (packages/shots/src/desktop-env.md): `EXP_DEV_PTT_OVERLAY=
-    // <phase>|<line>|<agent>` opens the overlay window in that state, so a
-    // capture needs no microphone, worker or sign-in.
-    if let Ok(spec) = std::env::var("EXP_DEV_PTT_OVERLAY") {
-        entity.update(cx, |this, cx| this.dev_overlay(&spec, cx));
-    }
     cx.set_global(PushToTalkGlobal(entity.clone()));
     // #1244 review: the focused-window fallback gets no key-up once the
     // window the key is held in closes (gpui delivers none); the hold ends
     // here, or the worker's MAX_HOLD would send two minutes of the room.
     let closing = entity.downgrade();
     cx.on_window_closed(move |cx, window_id| {
-        if let Some(entity) = closing.upgrade() {
-            entity.update(cx, |this, cx| {
-                if !this.overlay.owns(window_id) {
-                    this.focus_lost(cx);
-                }
-            });
-        }
+        // EXP-1901: gpui runs this inline when a window closes, and the
+        // capsule closes from inside the watcher's own update (the hide, a
+        // wider reopen): updating the watcher here would be a second lease
+        // (a panic), so it waits for that update's end.
+        let closing = closing.clone();
+        cx.defer(move |cx| {
+            if let Some(entity) = closing.upgrade() {
+                entity.update(cx, |this, cx| {
+                    if !this.overlay.closed(window_id) && !this.overlay.owns(window_id) {
+                        this.focus_lost(cx);
+                    }
+                });
+            }
+        });
     })
     .detach();
-    let weak = entity.downgrade();
-    cx.spawn(async move |cx| {
-        while let Ok(event) = rx.recv_async().await {
-            let Some(entity) = weak.upgrade() else { break };
-            let _ = cx.update(|cx| entity.update(cx, |this, cx| this.on_hotkey(event, cx)));
-        }
-    })
-    .detach();
-    let settings = crate::speak_replies::settings(cx);
-    settings_changed(&settings, cx);
+    entity
 }
 
 /// The settings changed (a heartbeat, a save, a tray toggle): called by
@@ -344,7 +357,7 @@ pub fn set_recording(recording: bool, cx: &mut App) {
         if recording && this.held {
             this.key_up(cx);
         }
-        this.regrab();
+        this.regrab(cx);
         cx.notify();
     });
 }
@@ -452,7 +465,7 @@ impl PushToTalk {
             if self.held {
                 self.key_up(cx);
             }
-            self.regrab();
+            self.regrab(cx);
         }
         self.sync_wake(cx);
         cx.notify();
@@ -460,14 +473,40 @@ impl PushToTalk {
 
     /// Drop the grab (letting the shortcut go) and take the armed one again,
     /// unless Settings → Voice records a new key.
-    fn regrab(&mut self) {
+    fn regrab(&mut self, cx: &mut Context<Self>) {
         self.grab = None;
         self.held = false;
         self.status = hotkey::Status::Idle;
+        self.grab_generation += 1;
         let shortcut = self.armed.as_ref().and_then(|armed| armed.shortcut.clone()).filter(|_| !self.recording);
         if let Some(shortcut) = shortcut {
-            self.grab = Some(hotkey::grab(&shortcut, self.tx.clone()));
+            let tx = self.grab_events(cx);
+            self.grab = Some(hotkey::grab(&shortcut, tx));
         }
+    }
+
+    /// EXP-1901: the channel of the grab taken now. A grab's thread answers
+    /// on its own time, so what a dropped one still says (a late status, a
+    /// key) ends here: it would overwrite what is held now.
+    fn grab_events(&mut self, cx: &mut Context<Self>) -> flume::Sender<hotkey::HotkeyEvent> {
+        let (tx, rx) = flume::unbounded::<hotkey::HotkeyEvent>();
+        let generation = self.grab_generation;
+        cx.spawn(async move |this, cx| {
+            while let Ok(event) = rx.recv_async().await {
+                let live = this.update(cx, |this, cx| {
+                    let live = this.grab_generation == generation;
+                    if live {
+                        this.on_hotkey(event, cx);
+                    }
+                    live
+                });
+                if !matches!(live, Ok(true)) {
+                    break;
+                }
+            }
+        })
+        .detach();
+        tx
     }
 
     /// #NEW-56: hand the worker the wake word this device wants now (the
@@ -600,7 +639,7 @@ impl PushToTalk {
             etalk::Event::Level { id, level, bands } if ours(&id, &self.utterance) => {
                 self.level = level;
                 self.bands = bands.to_vec();
-                self.overlay.refresh(cx);
+                self.overlay.refresh(self.level, &self.bands, cx);
             }
             etalk::Event::Partial { id, text } if ours(&id, &self.utterance) => self.step(PttEvent::Partial(text), cx),
             etalk::Event::Woke { id } => self.woke(id, cx),
@@ -806,6 +845,10 @@ impl PushToTalk {
             .detach();
         }
         self.overlay.show(view.map(overlay::Face::Ptt), cx);
+        if self.state.phase == PttPhase::Listening {
+            // A capsule opened (again) mid-hold draws the level at once.
+            self.overlay.refresh(self.level, &self.bands, cx);
+        }
         cx.notify();
     }
 }
@@ -839,15 +882,6 @@ fn listen_failure(reason: etalk::ListenFailure) -> etalk::voice::ListenFailure {
         // is a flush trigger answered Empty); never reaches push to talk.
         etalk::ListenFailure::Failed | etalk::ListenFailure::Meeting => Domain::Failed,
     }
-}
-
-/// The wave's level and bands now (the overlay reads them each frame).
-pub fn level(cx: &App) -> (f32, Vec<f32>) {
-    global(cx).map(|entity| {
-        let this = entity.read(cx);
-        (this.level, this.bands.clone())
-    })
-    .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -886,6 +920,95 @@ mod tests {
         assert_eq!(armed_for(&VoiceSettings { agent_id: None, ..wake }, "d-mint"), None, "clearOnNone");
         let german = VoiceSettings { language: "de".into(), ..settings() };
         assert_eq!(armed_for(&german, "d-mint").unwrap().language, "de");
+    }
+
+    fn watcher(cx: &mut gpui::TestAppContext) -> Entity<PushToTalk> {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            gpui_component::Theme::change(gpui_component::ThemeMode::Dark, None, cx);
+            start("d-mint".into(), None, None, cx)
+        })
+    }
+
+    fn step(entity: &Entity<PushToTalk>, event: PttEvent, cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| entity.update(cx, |this, cx| this.step(event, cx)));
+    }
+
+    /// EXP-1901: the capsule's hide closes its window from inside the
+    /// watcher's own update; the window-close observer must not update the
+    /// watcher again (gpui panics on the second lease).
+    #[gpui::test]
+    async fn the_capsule_hides_and_its_window_is_gone(cx: &mut gpui::TestAppContext) {
+        let entity = watcher(cx);
+        step(&entity, PttEvent::KeyDown { muted: true }, cx);
+        assert_eq!(cx.windows().len(), 1, "the capsule shows");
+        cx.executor().advance_clock(Duration::from_millis(1500));
+        cx.run_until_parked();
+        assert!(cx.windows().is_empty(), "the capsule is gone");
+        assert_eq!(cx.update(|cx| entity.read(cx).state.phase), PttPhase::Hidden);
+    }
+
+    /// EXP-1901 (#1244 review kept): the capsule opening again, wider, for a
+    /// longer line mid-hold is not the window the key is held in; an IDE
+    /// window closing is, in the focused-window fallback.
+    #[gpui::test]
+    async fn a_wider_capsule_keeps_the_hold_an_ide_window_closing_ends_it(cx: &mut gpui::TestAppContext) {
+        let entity = watcher(cx);
+        let ide = cx.add_window(|_, _| gpui::Empty);
+        cx.update(|cx| {
+            entity.update(cx, |this, cx| {
+                this.status = hotkey::Status::FocusedOnly(etalk::voice::ShortcutReason::NoPortal);
+                this.held = true;
+                this.step(PttEvent::KeyDown { muted: false }, cx);
+            })
+        });
+        let capsule = |cx: &mut gpui::TestAppContext| cx.windows().into_iter().find(|window| window.window_id() != ide.window_id());
+        let narrow = capsule(cx).expect("the capsule shows");
+        step(&entity, PttEvent::Partial("a line long enough that the capsule has to open again, wider than before".into()), cx);
+        cx.run_until_parked();
+        let wide = capsule(cx).expect("the capsule shows again");
+        assert_ne!(narrow.window_id(), wide.window_id(), "it opened again");
+        assert_eq!(cx.windows().len(), 2, "one capsule");
+        assert!(cx.update(|cx| entity.read(cx).held), "the hold goes on");
+        cx.update(|cx| ide.update(cx, |_, window, _| window.remove_window())).unwrap();
+        cx.run_until_parked();
+        assert!(!cx.update(|cx| entity.read(cx).held), "the IDE window closing is the key-up");
+    }
+
+    /// EXP-1901: Unmute is a click inside the capsule's own window; gpui
+    /// refuses a nested update of that window, so the close runs after it.
+    #[gpui::test]
+    async fn unmute_on_the_capsule_closes_it(cx: &mut gpui::TestAppContext) {
+        let entity = watcher(cx);
+        step(&entity, PttEvent::KeyDown { muted: true }, cx);
+        let capsule = cx.windows()[0];
+        cx.update(|cx| capsule.update(cx, |_, _, cx| on_pill(cx))).unwrap();
+        cx.run_until_parked();
+        assert_eq!(cx.update(|cx| entity.read(cx).state.phase), PttPhase::Hidden);
+        assert!(cx.windows().is_empty(), "the capsule is gone");
+    }
+
+    /// EXP-1901: a dropped grab's late answer (its thread reports on its own
+    /// time) never overwrites the status of what is held now.
+    #[gpui::test]
+    async fn a_dropped_grabs_late_status_is_ignored(cx: &mut gpui::TestAppContext) {
+        let entity = watcher(cx);
+        let stale = cx.update(|cx| {
+            entity.update(cx, |this, cx| {
+                let stale = this.grab_events(cx);
+                // Nothing armed: the regrab drops the grab and takes none.
+                this.regrab(cx);
+                stale
+            })
+        });
+        stale.send(hotkey::HotkeyEvent::Status(hotkey::Status::Global)).unwrap();
+        cx.run_until_parked();
+        assert_eq!(cx.update(|cx| status(cx)), hotkey::Status::Idle, "nothing is held");
+        // The grab taken now still reports.
+        let live = cx.update(|cx| entity.update(cx, |this, cx| this.grab_events(cx)));
+        live.send(hotkey::HotkeyEvent::Status(hotkey::Status::Global)).unwrap();
+        cx.run_until_parked();
+        assert_eq!(cx.update(|cx| status(cx)), hotkey::Status::Global);
     }
 
     #[test]
