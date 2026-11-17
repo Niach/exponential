@@ -2947,6 +2947,7 @@ dependencies = [
  "anyhow",
  "api",
  "base64 0.22.1",
+ "blocking",
  "chrono",
  "data-encoding",
  "domain",

@@ -13,7 +13,7 @@
 //!   process.
 //! - `exponential-sealed polkit`: the polkit authentication agent for the session
 //!   (`exponential-polkit-agent.service`): polkitd's `BeginAuthentication` opens
-//!   the prompt, `polkit-agent-helper-1` checks the password.
+//!   the prompt, polkit's helper checks the password; it stays up between prompts.
 //! - `exponential-sealed consent --title T --body B [--allow A] [--deny D]`: a
 //!   question to the person; prints `allow` or `deny`, exits 0 or 1.
 //! - `exponential-sealed share`: the screen-share chooser the portal runs
@@ -397,12 +397,17 @@ fn polkit_agent() {
             std::process::exit(1);
         }
     };
-    if let Err(e) = polkit::register(&conn) {
-        eprintln!("exponential-sealed polkit: not registered: {e}");
-        std::process::exit(1);
+    match polkit::register(&conn) {
+        Ok(session) => tracing::info!("polkit agent registered for session {session}"),
+        Err(e) => {
+            eprintln!("exponential-sealed polkit: not registered: {e}");
+            std::process::exit(1);
+        }
     }
-    tracing::info!("polkit agent registered");
     run_app(move |cx| {
+        // #EDE-87: gpui quits when its last window closes; the agent's
+        // last window is the prompt, and the agent outlives every prompt.
+        cx.set_quit_mode(gpui::QuitMode::Explicit);
         let (acts_tx, acts_rx) = mpsc::channel::<Act>();
         // The open prompt and its answer channel.
         let mut current: Option<(String, Open, mpsc::Sender<polkit::Answer>)> = None;
