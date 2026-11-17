@@ -597,7 +597,7 @@ fn pinned_chat_row(
         wall: None,
         dim: false,
     };
-    chat_row(&as_chat, lead, cx)
+    chat_row(&as_chat, lead, &[], cx)
 }
 
 /// A Chats list section header (`copy.sections`).
