@@ -776,24 +776,7 @@ fn engine_loop(data_dir: &Path, rx: Receiver<Job>, shared: &Arc<Shared>) {
             },
         };
         wanted = true;
-        // Only the newest Speak matters; the newest Prepare is the choice.
-        let mut job = first;
-        while let Ok(next) = rx.try_recv() {
-            match next {
-                Job::Prepare(voice) => {
-                    choice = voice;
-                    if !matches!(job, Job::Speak { .. }) {
-                        job = Job::Prepare(choice.clone());
-                    }
-                }
-                // Any job brings the voice up.
-                Job::Warm => {}
-                speak => job = speak,
-            }
-        }
-        if let Job::Prepare(voice) = &job {
-            choice = voice.clone();
-        }
+        let job = coalesce(first, rx.try_iter(), &mut choice);
         if let State::Idle { failures, retry_at } = state {
             if retry_at.is_some_and(|at| Instant::now() < at) {
                 // Backing off: the voice is not tried again yet (settled:
@@ -856,6 +839,31 @@ fn engine_loop(data_dir: &Path, rx: Receiver<Job>, shared: &Arc<Shared>) {
             Job::Speak { id, text, generation } => speak(loaded, shared, &id, &text, generation),
         }
     }
+}
+
+/// One job out of `first` and what queued up behind it: only the newest
+/// Speak matters; the newest Prepare is the `choice`.
+fn coalesce(first: Job, rest: impl Iterator<Item = Job>, choice: &mut VoiceChoice) -> Job {
+    let mut job = first;
+    // EXP-1934: before the rest: a Speak right behind a Prepare replaces it
+    // as the job, and is spoken in the voice it prepared.
+    if let Job::Prepare(voice) = &job {
+        *choice = voice.clone();
+    }
+    for next in rest {
+        match next {
+            Job::Prepare(voice) => {
+                *choice = voice;
+                if !matches!(job, Job::Speak { .. }) {
+                    job = Job::Prepare(choice.clone());
+                }
+            }
+            // Any job brings the voice up.
+            Job::Warm => {}
+            speak => job = speak,
+        }
+    }
+    job
 }
 
 /// Why [`bring_up`] did not finish; both are retried later.
@@ -1369,6 +1377,34 @@ mod tests {
         }
         assert!(ring[0].abs() < 1e-6 && ring[47_999].abs() < 0.01, "faded in and out");
         assert!(ring_tone(rate, 0).is_empty());
+    }
+
+    /// EXP-1934: a Prepare is the choice whatever queued up behind it: a
+    /// Speak sent right after it is spoken in ITS voice, not the last one's.
+    #[test]
+    fn a_prepare_keeps_its_voice_whatever_follows_it() {
+        let voice = |language: &str| VoiceChoice { language: language.into(), ..Default::default() };
+        let speak = || Job::Speak { id: "r1".into(), text: "Hi.".into(), generation: 0 };
+        let run = |jobs: Vec<Job>| {
+            let mut choice = voice("previous");
+            let mut jobs = jobs.into_iter();
+            let job = coalesce(jobs.next().unwrap(), jobs, &mut choice);
+            let kind = match job {
+                Job::Prepare(prepared) => {
+                    assert_eq!(prepared, choice, "a Prepare that runs is the choice");
+                    "prepare"
+                }
+                Job::Speak { .. } => "speak",
+                Job::Warm => "warm",
+            };
+            (kind, choice.language)
+        };
+        assert_eq!(run(vec![Job::Prepare(voice("a")), speak()]), ("speak", "a".into()));
+        assert_eq!(run(vec![speak(), Job::Prepare(voice("a"))]), ("speak", "a".into()));
+        assert_eq!(run(vec![Job::Prepare(voice("a")), Job::Warm]), ("prepare", "a".into()));
+        assert_eq!(run(vec![Job::Prepare(voice("a")), Job::Prepare(voice("b")), speak()]), ("speak", "b".into()));
+        assert_eq!(run(vec![Job::Warm, speak()]), ("speak", "previous".into()));
+        assert_eq!(run(vec![Job::Prepare(voice("a"))]), ("prepare", "a".into()));
     }
 
     #[test]
