@@ -56,6 +56,38 @@ pub struct Overlay {
     /// NEW-59: where this showing went, read once when it opened and kept
     /// until the face closes (a wider reopen stays on the same display).
     place: Option<Place>,
+    /// EXP-1901: the windows this overlay closed last; the watcher's
+    /// window-close observer asks once ([`Overlay::closed`]).
+    closed: Vec<gpui::WindowId>,
+}
+
+/// EXP-1901: how many closed windows an overlay remembers (the pill's are
+/// never asked for).
+const CLOSED_KEPT: usize = 4;
+
+/// EXP-1901: run `update` in the overlay's own window. A click on the pill
+/// or the capsule arrives here from inside that window's update, where gpui
+/// refuses a nested one: `update` then runs right after it. `false` = the
+/// window is gone.
+fn update_window(
+    window: WindowHandle<OverlayView>,
+    cx: &mut App,
+    update: impl FnOnce(&mut OverlayView, &mut Window, &mut Context<OverlayView>) + 'static,
+) -> bool {
+    let mut update = Some(update);
+    let _ = window.update(cx, |this, window, cx| {
+        if let Some(update) = update.take() {
+            update(this, window, cx);
+        }
+    });
+    let Some(update) = update else { return true };
+    if !cx.windows().iter().any(|open| open.window_id() == window.window_id()) {
+        return false;
+    }
+    cx.defer(move |cx| {
+        let _ = window.update(cx, update);
+    });
+    true
 }
 
 /// NEW-59: where the overlay shows.
@@ -72,7 +104,7 @@ impl Overlay {
         let Some(view) = view else {
             self.place = None;
             if let Some(window) = self.window.take() {
-                let _ = window.update(cx, |_, window, _| window.remove_window());
+                self.close(window, cx);
             }
             return;
         };
@@ -96,21 +128,20 @@ impl Overlay {
         if let Some(window) = self.window.take() {
             // The window only grows while it shows: a shorter line sits
             // centred in it, a longer one opens it again.
-            if f32::from(window_size.width) <= self.width
-                && window
-                    .update(cx, |this, _, cx| {
-                        this.view = view.clone();
-                        cx.notify();
-                    })
-                    .is_ok()
-            {
+            if f32::from(window_size.width) <= self.width && {
+                let view = view.clone();
+                update_window(window, cx, move |this, _, cx| {
+                    this.view = view;
+                    cx.notify();
+                })
+            } {
                 self.window = Some(window);
                 return;
             }
-            let _ = window.update(cx, |_, window, _| window.remove_window());
+            self.close(window, cx);
         }
         let origin = area.map(|area| bottom_centre(area, window_size)).unwrap_or_else(|| point(px(0.), px(0.)));
-        match cx.open_window(options(display, origin, window_size, cx), |_, cx| cx.new(|_| OverlayView { view, drag: None })) {
+        match cx.open_window(options(display, origin, window_size, cx), |_, cx| cx.new(|_| OverlayView { view, drag: None, level: 0., bands: Vec::new() })) {
             Ok(window) => {
                 self.window = Some(window);
                 self.width = f32::from(window_size.width);
@@ -123,14 +154,15 @@ impl Overlay {
     /// open one only repaints; a new one opens where it was last dropped
     /// (or at the bottom centre of the display under the pointer).
     fn show_pill(&mut self, face: Box<CallFace>, cx: &mut App) {
-        if let Some(window) = self.window.as_ref() {
-            let updated = window.update(cx, |this, _, cx| {
-                if this.view != Face::Call(face.clone()) {
-                    this.view = Face::Call(face.clone());
+        if let Some(window) = self.window {
+            let next = Face::Call(face.clone());
+            let updated = update_window(window, cx, move |this, _, cx| {
+                if this.view != next {
+                    this.view = next;
                     cx.notify();
                 }
             });
-            if updated.is_ok() {
+            if updated {
                 return;
             }
             self.window = None;
@@ -147,7 +179,7 @@ impl Overlay {
                 (display, area.map(|area| pill_default(area, pill)).unwrap_or_else(|| point(px(0.), px(0.))))
             }
         };
-        match cx.open_window(options(display, origin, pill, cx), |_, cx| cx.new(|_| OverlayView { view: Face::Call(face), drag: None })) {
+        match cx.open_window(options(display, origin, pill, cx), |_, cx| cx.new(|_| OverlayView { view: Face::Call(face), drag: None, level: 0., bands: Vec::new() })) {
             Ok(window) => {
                 self.window = Some(window);
                 self.width = f32::from(pill.width);
@@ -156,16 +188,43 @@ impl Overlay {
         }
     }
 
+    fn close(&mut self, window: WindowHandle<OverlayView>, cx: &mut App) {
+        if self.closed.len() == CLOSED_KEPT {
+            self.closed.remove(0);
+        }
+        self.closed.push(window.window_id());
+        update_window(window, cx, |_, window, _| window.remove_window());
+    }
+
+    /// EXP-1901: whether `id` is a window this overlay closed (asked once:
+    /// by then [`Overlay::owns`] no longer knows it).
+    pub fn closed(&mut self, id: gpui::WindowId) -> bool {
+        let at = self.closed.iter().position(|closed| *closed == id);
+        at.map(|at| self.closed.remove(at)).is_some()
+    }
+
     /// Whether `id` is the overlay's own window (it opens again, wider, for
     /// a longer line mid-hold: never the IDE window the key is held in).
     pub fn owns(&self, id: gpui::WindowId) -> bool {
         self.window.as_ref().is_some_and(|window| window.window_id() == id)
     }
 
-    /// A new level frame: redraw the wave.
-    pub fn refresh(&self, cx: &mut App) {
+    /// The face the open window shows.
+    #[cfg(test)]
+    pub(crate) fn face(&self, cx: &mut App) -> Option<Face> {
+        self.window.as_ref()?.update(cx, |this, _, _| this.view.clone()).ok()
+    }
+
+    /// A new level frame: redraw the wave. EXP-1901: the window holds the
+    /// level itself; its first draw runs inside the watcher's update, where
+    /// reading the watcher is a panic.
+    pub fn refresh(&self, level: f32, bands: &[f32], cx: &mut App) {
         if let Some(window) = self.window.as_ref() {
-            let _ = window.update(cx, |_, _, cx| cx.notify());
+            let _ = window.update(cx, |this, _, cx| {
+                this.level = level;
+                this.bands = bands.to_vec();
+                cx.notify();
+            });
         }
     }
 }
@@ -220,6 +279,9 @@ pub struct OverlayView {
     view: Face,
     /// S-3: the pill being dragged (X11's own pointer tracking).
     drag: Option<Drag>,
+    /// The wave's level and bands now ([`Overlay::refresh`]).
+    level: f32,
+    bands: Vec<f32>,
 }
 
 /// S-3: a pill drag on X11: the pointer and the window's origin at the
@@ -385,7 +447,7 @@ impl Render for OverlayView {
         match &self.view {
             Face::Ptt(view) => {
                 let c = specimen(&self.view);
-                let (level, bands) = if view.activity == "listening" { super::level(cx) } else { (0., Vec::new()) };
+                let (level, bands) = if view.activity == "listening" { (self.level, self.bands.clone()) } else { (0., Vec::new()) };
                 let c = Capsule { level, bands, ..c };
                 // The window never takes focus; a click still lands: the
                 // pill's action (Stop, Unmute).
@@ -461,6 +523,10 @@ pub fn bottom_centre(area: Bounds<Pixels>, window: Size<Pixels>) -> Point<Pixels
 /// The display under the pointer and the area the window centres in; NEW-59
 /// moved off (or hidden from) a display with a fullscreen app.
 fn placement(cx: &App) -> Place {
+    // A test never asks the machine's real screen.
+    if cfg!(test) {
+        return Place::At(None, None);
+    }
     #[cfg(target_os = "linux")]
     if super::hotkey::session() == Some(etalk::voice::VoiceSession::X11) {
         if let Some(place) = x11_place(cx) {

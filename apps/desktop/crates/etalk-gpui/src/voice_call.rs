@@ -1192,6 +1192,31 @@ mod tests {
         });
     }
 
+    /// EXP-1901: the pill's buttons run inside the pill's own window, where
+    /// gpui refuses a nested update of it: Mute repaints the one pill (never
+    /// a second window) and End call closes it.
+    #[gpui::test]
+    async fn the_pills_own_buttons_repaint_and_close_it(cx: &mut gpui::TestAppContext) {
+        running(cx);
+        let windows = cx.windows();
+        assert_eq!(windows.len(), 1, "the pill shows");
+        let pill = windows[0];
+        let shown = |cx: &mut gpui::TestAppContext| {
+            cx.update(|cx| global(cx).unwrap().update(cx, |this, cx| this.overlay.face(cx))).and_then(|face| match face {
+                Face::Call(face) => Some(face.view.muted),
+                Face::Ptt(_) => None,
+            })
+        };
+        assert_eq!(shown(cx), Some(false));
+        cx.update(|cx| pill.update(cx, |_, _, cx| toggle_mute(cx))).unwrap();
+        cx.run_until_parked();
+        assert_eq!(cx.windows().iter().map(|window| window.window_id()).collect::<Vec<_>>(), vec![pill.window_id()], "Mute keeps the one pill");
+        assert_eq!(shown(cx), Some(true), "and repaints it");
+        cx.update(|cx| pill.update(cx, |_, _, cx| end(cx))).unwrap();
+        cx.run_until_parked();
+        assert!(cx.windows().is_empty(), "End call closes the pill");
+    }
+
     /// Sign-out (Speak replies' `on_session`) hangs up through `end`.
     #[gpui::test]
     async fn sign_out_hangs_up(cx: &mut gpui::TestAppContext) {
