@@ -533,8 +533,17 @@ mod tests {
         let leftover: i32 =
             child.lines.recv_timeout(Duration::from_secs(10)).expect("the leftover's pid").trim().parse().unwrap();
         let alive = |pid: i32| unsafe { libc::kill(pid, 0) == 0 };
+        // #EXP-1902: the shell prints the pid at the fork. Until the leftover
+        // has reached `setsid(2)` it is still in the agent's group, and the
+        // kill below would rightly take it.
+        let led = std::time::Instant::now() + Duration::from_secs(30);
+        while unsafe { libc::getsid(leftover) } != leftover {
+            assert!(std::time::Instant::now() < led, "the leftover leads its own session");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let exit = child.exit.clone();
         drop(child);
-        std::thread::sleep(Duration::from_millis(300));
+        exit.recv_timeout(Duration::from_secs(30)).expect("the agent is reaped after its group kill");
         assert!(alive(leftover), "the agent's group kill misses a setsid leftover");
         assert!(crate::run_scope::stop_session_scopes(&session), "the stop is asked");
         let deadline = std::time::Instant::now() + Duration::from_secs(20);
