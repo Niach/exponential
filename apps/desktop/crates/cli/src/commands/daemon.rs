@@ -52,6 +52,9 @@ const UPDATE_SUSPEND_SETTLE: Duration = Duration::from_secs(10);
 /// target GC (its own throttle walks each at most once an hour).
 const CARGO_TARGET_GC_BEAT: Duration = Duration::from_secs(5 * 60);
 const DOCTOR_RECHECK: Duration = Duration::from_secs(5 * 60);
+/// #EXP-1918: how often the unit started before any sign-in asks the user
+/// manager whether a session exists by now ([`crate::session_env`]).
+const SESSION_ENV_RECHECK: Duration = Duration::from_secs(30);
 /// EXP-414: a changed agent advertisement is only ACTED on once a second
 /// probe agrees ([`advert_transition`]) — this is the shortened recheck that
 /// confirms (or clears) a pending change, so a real change still converges
@@ -481,6 +484,9 @@ fn run_daemon(args: &[String]) -> CommandResult {
         worker
     });
 
+    // #EXP-1918: started at boot, the unit has no screen until someone
+    // signs in; the first probe and the loop below take the session over.
+    crate::session_env::adopt();
     let (mut advertised, mut doctor) = probe_agents(&ctx);
     maybe_fetch_codex(&ctx, &doctor_soon);
     // What the two jsonb columns last SENT said: a beat attaches a map only
@@ -612,6 +618,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
 
     let mut last_heartbeat = Instant::now();
     let mut last_doctor = Instant::now();
+    let mut last_session_env = Instant::now();
     // Auto-update (EXP-403): a due check (own cadence, or the web "Update"
     // button via the heartbeat) parks here. EXP-1489: a live session holds
     // it only until every run pauses between turns, at most
@@ -1202,6 +1209,14 @@ fn run_daemon(args: &[String]) -> CommandResult {
         // over ssh flips the machine runnable without a restart.
         // EXP-414: acted on only once TWO consecutive probes agree — a single
         // flaky auth probe was flapping the machine offline every 5 minutes.
+        // #EXP-1918: the session that started after this unit: the doctor
+        // re-probes with its screen at once.
+        if last_session_env.elapsed() >= SESSION_ENV_RECHECK {
+            last_session_env = Instant::now();
+            if crate::session_env::adopt() {
+                doctor_soon.store(true, Ordering::SeqCst);
+            }
+        }
         let doctor_due = if pending_advert.is_some() {
             ADVERT_CONFIRM_RECHECK
         } else {
@@ -2236,8 +2251,12 @@ fn reconcile_defaults_with(
 fn watch_computer_switch(settings_path: &std::path::Path) {
     static WATCH: Mutex<coding::ComputerSwitchWatch> =
         Mutex::new(coding::ComputerSwitchWatch::new());
-    let on = coding::Settings::load(settings_path).computer_use;
-    let moved = WATCH.lock().unwrap().observe(on);
+    let settings = coding::Settings::load(settings_path);
+    // #EXP-1918: the Work screen follows the file the same way (the app of
+    // this machine saves it too; the server's copy used to be the only
+    // reconcile that set it). NEW-59: the computer hub reads it from here.
+    coding::computer::set_work_display(settings.computer_use_display_id);
+    let moved = WATCH.lock().unwrap().observe(settings.computer_use);
     match moved {
         Some(coding::ComputerSwitchMove::On) => coding::computer::prepare_in_background(),
         Some(coding::ComputerSwitchMove::Off) => {
@@ -4381,6 +4400,25 @@ mod tests {
             AdvertStep::Apply
         );
         assert!(pending.is_none());
+    }
+
+    /// #EXP-1918: the app and the daemon of one machine share settings.json.
+    /// A Work screen picked in the app reaches the daemon's hub on its next
+    /// reconcile, whichever way that reconcile goes (the server's copy used
+    /// to be the only one that set it).
+    #[test]
+    fn a_work_screen_pick_saved_by_another_process_reaches_the_hub() {
+        let dir = std::env::temp_dir().join(format!("exp-cli-work-screen-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = coding::Settings::default_path(&dir);
+        for pick in [Some("DP-7".to_string()), None] {
+            let mut settings = coding::Settings::load(&path);
+            settings.computer_use_display_id = pick.clone();
+            settings.save(&path).unwrap();
+            watch_computer_switch(&path);
+            assert_eq!(coding::computer::work_display(), pick);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

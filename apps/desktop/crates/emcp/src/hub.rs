@@ -288,6 +288,21 @@ impl ToolProvider for Inner {
 
     fn ended(&self, session_id: &SessionId) {
         self.grants.lock().unwrap().remove(session_id.as_str());
+        // #EXP-1918: a mounted provider cleans up after the run too (the
+        // computer server gives the input back); called outside the lock.
+        let providers: Vec<Arc<dyn ToolProvider>> = self
+            .mounts
+            .read()
+            .unwrap()
+            .values()
+            .filter_map(|mounted| match &mounted.mount {
+                Mount::Provider(provider) => Some(provider.clone()),
+                Mount::Upstream(_) => None,
+            })
+            .collect();
+        for provider in providers {
+            provider.ended(session_id);
+        }
     }
 }
 
@@ -347,7 +362,8 @@ impl Hub {
         self.server.grant(session_id, label)
     }
 
-    /// The run's token dies and its grant is dropped.
+    /// The run's token dies, its grant is dropped and every mounted
+    /// provider hears it ended.
     pub fn revoke(&self, session_id: &SessionId) {
         self.server.revoke(session_id);
     }
