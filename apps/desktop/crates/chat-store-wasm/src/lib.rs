@@ -138,6 +138,7 @@ pub fn refusal_frame(page_json: &str, code: &str) -> Result<Option<String>, JsEr
 }
 
 /// HOLDERS for a session on `deviceId`: `Install[]` → `[{endpointId, runner}]`.
+#[wasm_bindgen]
 pub fn holders(installs_json: &str, device_id: &str, self_endpoint: &str, user_id: &str, skip_json: &str) -> Result<String, JsError> {
     let installs: Vec<Install> = parse(installs_json)?;
     let skip: Vec<String> = parse(skip_json)?;

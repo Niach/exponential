@@ -61,6 +61,8 @@ export function useWebInstall(userId: string | undefined) {
         // EXP-1459: this tab also answers pending tree-key wraps.
         setKeyLeader(true)
         let bridge: ReturnType<typeof serveSteerBridge> | undefined
+        // #EDE-115: the chat store's eNet catch-up runs in this tab only.
+        let stopCatchUp: (() => void) | undefined
         // EXP-1531: back online / visible again = the network may have changed.
         const onOnline = () => install.networkChange()
         const onVisible = () => {
@@ -74,9 +76,17 @@ export function useWebInstall(userId: string | undefined) {
             bridge = serveSteerBridge(install, new BroadcastChannel(STEER_BRIDGE_CHANNEL) as unknown as BridgeChannel)
             setLocalSteerCarrier(bridge.carrier)
           }
+          if (install.running) {
+            void import(`@/lib/chat-store/catch-up-wiring`)
+              .then(({ wireCatchUp }) => {
+                if (!abort.signal.aborted) stopCatchUp = wireCatchUp(install, userId)
+              })
+              .catch(() => {})
+          }
           // Hold the lock until this effect ends.
           await new Promise<void>((resolve) => abort.signal.addEventListener(`abort`, () => resolve()))
         } finally {
+          stopCatchUp?.()
           window.removeEventListener(`online`, onOnline)
           document.removeEventListener(`visibilitychange`, onVisible)
           if (bridge) {
