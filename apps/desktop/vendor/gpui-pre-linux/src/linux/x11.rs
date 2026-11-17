@@ -2,6 +2,8 @@ mod client;
 mod clipboard;
 mod display;
 mod event;
+// Exponential patch (#EXP-1912).
+mod input_shape;
 mod window;
 mod xim_handler;
 
