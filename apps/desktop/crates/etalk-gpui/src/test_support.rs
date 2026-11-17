@@ -14,7 +14,7 @@ use etalk::voice::{VoiceMessage, VoiceSettings};
 use gpui::{App, Task};
 
 use crate::host::{
-    Brand, CallConnection, Notice, Outgoing, SendJob, Sent, SignedIn, Surface, TalkAgent, TalkDevice, TalkHost, TalkIcon, TalkMessage, VoiceWrite,
+    Brand, CallConnection, CallLink, CallLinkEvent, Notice, Outgoing, SendJob, Sent, SignedIn, Surface, TalkAgent, TalkDevice, TalkHost, TalkIcon, TalkMessage, VoiceWrite,
 };
 
 /// This desktop, its one agent and the member's conversation with it.
@@ -38,6 +38,22 @@ pub(crate) struct Row {
 struct State {
     rows: Vec<Row>,
     notices: Vec<Notice>,
+    /// The streamed call the next `connect_call` answers with.
+    call: Option<CallConnection>,
+}
+
+/// A streamed call's link that writes down what the host did with it.
+struct LinkLog(Rc<RefCell<Vec<String>>>);
+
+impl CallLink for LinkLog {
+    fn send_event(&self, event: serde_json::Value) {
+        self.0.borrow_mut().push(format!("event {event}"));
+    }
+    fn send_speech(&self, _: Vec<i16>, _: u32) {}
+    fn flush(&self) {}
+    fn end(&self) {
+        self.0.borrow_mut().push("end".into());
+    }
 }
 
 struct TestHost {
@@ -88,7 +104,7 @@ impl TalkHost for TestHost {
         false
     }
     fn connect_call(&self, _: &str, _: &mut App) -> Option<Task<Result<CallConnection, String>>> {
-        None
+        self.state.borrow_mut().call.take().map(|call| Task::ready(Ok(call)))
     }
     fn device(&self, _: &str, _: &App) -> Option<TalkDevice> {
         None
@@ -168,6 +184,15 @@ impl Rig {
     /// The ids the worker was asked to say since the last look.
     pub(crate) fn spoken(&self) -> Vec<String> {
         self.requests().into_iter().filter_map(|request| if let etalk::Request::Speak { id, .. } = request { Some(id) } else { None }).collect()
+    }
+
+    /// The relay rings this desktop next: what the caller's side sends, and
+    /// what the host did with the link.
+    pub(crate) fn incoming_call(&self) -> (flume::Sender<CallLinkEvent>, Rc<RefCell<Vec<String>>>) {
+        let (tx, events) = flume::unbounded();
+        let log = Rc::new(RefCell::new(Vec::new()));
+        self.state.borrow_mut().call = Some(CallConnection { link: Box::new(LinkLog(log.clone())), events });
+        (tx, log)
     }
 
     pub(crate) fn notices(&self) -> Vec<Notice> {
