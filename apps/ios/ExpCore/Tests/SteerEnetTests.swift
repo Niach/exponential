@@ -247,6 +247,61 @@ final class SteerEnetTests: XCTestCase {
         }
     }
 
+    // #FEED-260 SYNCED TAIL: the synced messages after a not-live feed.
+    func testSyncedTailCases() throws {
+        XCTAssertEqual(try fixture()["syncedTailMax"] as? Int, SteerNoFeed.syncedTailMax)
+        let all = try cases("syncedTailCases")
+        XCTAssertFalse(all.isEmpty)
+        func ms(_ value: Any?) -> Int? {
+            (value as? String).flatMap(WireTimestamps.parse).map { Int(($0.timeIntervalSince1970 * 1000).rounded()) }
+        }
+        for c in all {
+            let name = c["name"] as? String ?? "?"
+            let feed = try XCTUnwrap(c["feed"] as? [[String: Any]], name).map { r in
+                SteerNoFeed.TailFeedRow(author: r["author"] as? String, text: r["text"] as? String, at: ms(r["at"]))
+            }
+            let messages = try XCTUnwrap(c["messages"] as? [[String: Any]], name)
+            let got = SteerNoFeed.syncedTail(
+                live: try XCTUnwrap(c["live"] as? Bool, name),
+                feed: feed,
+                messages: messages,
+                max: try XCTUnwrap(c["max"] as? Int, name),
+                unreachable: (c["unreachable"] as? Bool) ?? false
+            ) { m in
+                SteerNoFeed.TailMessage(
+                    id: m["id"] as? String ?? "",
+                    authorKind: m["authorKind"] as? String ?? "",
+                    hasCard: m["card"] != nil && !(m["card"] is NSNull),
+                    consumedAt: m["consumedAt"] as? String,
+                    createdAt: m["createdAt"] as? String ?? "",
+                    createdAtMs: ms(m["createdAt"]),
+                    body: m["body"] as? String ?? ""
+                )
+            }.map { $0["id"] as? String ?? "" }
+            XCTAssertEqual(got, try XCTUnwrap(c["expected"] as? [String], name), name)
+        }
+    }
+
+    // #FEED-260 OFFLINE LINE: a not-live transcript ends with the marker.
+    func testOfflineLineCases() throws {
+        let all = try cases("offlineLineCases")
+        XCTAssertFalse(all.isEmpty)
+        for c in all {
+            let name = c["name"] as? String ?? "?"
+            XCTAssertEqual(
+                SteerNoFeed.offlineLine(
+                    live: try XCTUnwrap(c["live"] as? Bool, name),
+                    rows: try XCTUnwrap(c["rows"] as? Int, name),
+                    ended: try XCTUnwrap(c["ended"] as? Bool, name),
+                    noFeed: try XCTUnwrap(c["noFeed"] as? Bool, name),
+                    deviceOffline: try XCTUnwrap(c["deviceOffline"] as? Bool, name)
+                ),
+                c["line"] as? Bool,
+                name
+            )
+        }
+    }
+
     // Android 0.14.134 ROW WAKE: the claim, a turn starting or a move cuts
     // the starting backoff short; nothing else does.
     func testRowWakeCases() throws {
