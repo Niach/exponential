@@ -529,8 +529,10 @@ impl Ede {
             Request::ClipboardSnapshot => Ok(self.clipboard_read(id, call_id, crate::clipboard::Want::Snapshot).map(|v| (v, None))),
             Request::ClipboardText => Ok(self.clipboard_read(id, call_id, crate::clipboard::Want::Text).map(|v| (v, None))),
             Request::Unlock => {
-                let token = self.ipc.clients.iter().find(|c| c.id == id).and_then(|c| c.token.clone()).ok_or_else(|| fail(ErrorCode::Unauthorized, "no token"))?;
-                self.sealed_unlock(&token).map_err(|e| fail(ErrorCode::Forbidden, e))?;
+                let conn = self.ipc.clients.iter().find(|c| c.id == id);
+                let token = conn.and_then(|c| c.token.clone()).ok_or_else(|| fail(ErrorCode::Unauthorized, "no token"))?;
+                let peer = conn.and_then(|c| smithay::reexports::rustix::net::sockopt::socket_peercred(&c.writer).ok()).map(|c| c.pid.as_raw_nonzero().get() as u32);
+                self.sealed_unlock(&token, peer).map_err(|e| fail(ErrorCode::Forbidden, e))?;
                 json(serde_json::Value::Null)
             }
             Request::Logout => {
