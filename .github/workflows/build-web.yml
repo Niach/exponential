@@ -57,10 +57,18 @@ jobs:
         with:
           tool: wasm-bindgen@${{ env.WASM_BINDGEN_VERSION }}
       - run: scripts/build-enet-wasm.sh
+      # #EDE-115: the web's chat store (chat-store-wasm), the same toolchain.
+      - run: scripts/build-chat-store-wasm.sh
       - uses: actions/upload-artifact@v4
         with:
           name: enet-wasm
           path: apps/web/public/enet
+          if-no-files-found: error
+          retention-days: 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chat-store-wasm
+          path: apps/web/public/chat-store
           if-no-files-found: error
           retention-days: 1
 
@@ -90,6 +98,12 @@ jobs:
         with:
           name: enet-wasm
           path: apps/web/public/enet
+
+      - name: Download the chat store wasm
+        uses: actions/download-artifact@v4
+        with:
+          name: chat-store-wasm
+          path: apps/web/public/chat-store
 
       - name: Prepare platform slug
         run: |
