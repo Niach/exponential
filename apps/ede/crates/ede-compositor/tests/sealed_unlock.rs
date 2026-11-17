@@ -21,7 +21,6 @@ const S: u32 = 31 + 8;
 const D: u32 = 32 + 8;
 const F: u32 = 33 + 8;
 const ENTER: u32 = 28 + 8;
-const BACKSPACE: u32 = 14 + 8;
 
 /// PAM that accepts the password `asdf` and nothing else.
 const PAM_STUB: &str = r#"
@@ -129,8 +128,8 @@ fn the_password_typed_into_the_real_lock_client_unlocks() {
     assert!(is_locked(&h), "a stolen grant unlocked the session");
 
     // The right one: unlocked, the grant gone, the window types again.
-    // (Backspace first: the field keeps the wrong password, #EDE-79's report.)
-    type_keys(&h, &[BACKSPACE, BACKSPACE, BACKSPACE, BACKSPACE, A, S, D, F, ENTER]);
+    // Typed straight away: the wrong one is gone from the field (#EDE-81).
+    type_keys(&h, &[A, S, D, F, ENTER]);
     wait("the right password did not unlock", || !is_locked(&h));
     assert!(h.ipc_with(token).is_err(), "the unlock grant outlived the lock");
     wait("the window did not get the keyboard back", || {

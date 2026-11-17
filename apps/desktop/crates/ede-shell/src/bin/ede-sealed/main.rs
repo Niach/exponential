@@ -182,6 +182,17 @@ fn set(open: &Open, path: &str, value: Value, cx: &mut App) {
     });
 }
 
+/// A write the host makes over what the person typed: a focused field
+/// bound to `path` takes it (`set` leaves a focused field its own text).
+fn assign(open: &Open, path: &str, value: Value, cx: &mut App) {
+    let p = path.to_string();
+    let _ = open.handle.update(cx, |_, _, cx| {
+        open.view.update(cx, |v, cx| {
+            let _ = v.assign_data(&p, Some(value), cx);
+        })
+    });
+}
+
 fn focus(open: &Open, id: &str, cx: &mut App) {
     let id = id.to_string();
     let _ = open.handle.update(cx, |_, _, cx| {
@@ -352,7 +363,7 @@ fn lock() {
                             cx.update(|cx| {
                                 for s in &shown {
                                     set(&s.open, "/busy", json!(false), cx);
-                                    set(&s.open, "/password", json!(""), cx);
+                                    assign(&s.open, "/password", json!(""), cx);
                                     set(&s.open, "/error", json!("Wrong password"), cx);
                                     focus(&s.open, "password", cx);
                                 }
@@ -417,7 +428,7 @@ fn polkit_agent() {
                                 if *c == cookie {
                                     cx.update(|cx| {
                                         set(open, "/busy", json!(false), cx);
-                                        set(open, "/password", json!(""), cx);
+                                        assign(open, "/password", json!(""), cx);
                                         set(open, "/error", json!(if error.contains("wrong") { "Wrong password".to_string() } else { error }), cx);
                                         focus(open, "password", cx);
                                     });
