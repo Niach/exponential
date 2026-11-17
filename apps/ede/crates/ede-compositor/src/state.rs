@@ -120,7 +120,10 @@ pub struct Ede {
     pub debug_captures: bool,
     /// A test's own process standing in for `exponential-sealed` (as
     /// [`Ede::begin_sealed_lock_as`] does for the lock): a layer surface it
-    /// maps meanwhile is a sealed one ([`crate::sealed::origin_of`]).
+    /// maps meanwhile is a sealed one ([`crate::sealed::origin_of`]). It
+    /// decides what counts as sealed, so only code inside this process
+    /// sets it (the headless tests): no protocol request, no config key
+    /// and no environment variable ever does. Always `None` in a session.
     pub sealed_stand_in: Option<u32>,
     /// Counts presented frames ([`crate::backend::frame_done`]); a capture
     /// with `since` equal to it carries no pixels.
