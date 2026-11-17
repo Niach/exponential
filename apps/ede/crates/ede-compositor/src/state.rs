@@ -43,14 +43,6 @@ pub struct Ede {
     pub socket_name: Option<OsString>,
     pub config: Config,
 
-    /// Mapped windows, back to front.
-    pub space: Space<Window>,
-    /// Toplevels that exist but have not committed a buffer yet: they are
-    /// placed when their first frame arrives, so the size is known.
-    pub unmapped: Vec<Window>,
-    /// Windows in the taskbar only (#EDE-48, [`crate::minimize`]): out of
-    /// the space, their place and workspace remembered.
-    pub minimized: Vec<Window>,
     pub popups: PopupManager,
 
     pub compositor_state: CompositorState,
@@ -60,7 +52,7 @@ pub struct Ede {
     pub output_manager_state: OutputManagerState,
     pub seat_state: SeatState<Ede>,
     pub data_device_state: DataDeviceState,
-    /// The person's desk: seat, clipboard, cursor ([`crate::desk`]).
+    /// The person's desk: seat, windows, clipboard, cursor ([`crate::desk`]).
     pub desk: crate::desk::Desk,
 
     /// Set by a backend that owns a seat session: switch to VT n.
@@ -105,8 +97,6 @@ pub struct Ede {
     pub ipc: crate::ipc::Ipc,
     /// Alt+Tab, Super, the media keys: what the shell answers ([`crate::hotkeys`]).
     pub hotkeys: crate::hotkeys::Hotkeys,
-    /// The active workspace and the parked windows ([`crate::workspaces`]).
-    pub workspaces: crate::workspaces::Workspaces,
     /// wp-fractional-scale + wp-viewporter: HiDPI at 1.5× and the like.
     pub fractional_scale_state: smithay::wayland::fractional_scale::FractionalScaleManagerState,
     pub viewporter_state: smithay::wayland::viewporter::ViewporterState,
@@ -121,8 +111,6 @@ pub struct Ede {
     /// Why the backend stopped the loop (#EDE-40: the outputs never drew);
     /// the run ends with this error.
     pub fatal: Option<String>,
-    /// The last press on a title bar, for the double-click.
-    pub title_click: Option<(Window, Instant)>,
     /// `--debug-captures` (headless and nested only): captures are not redacted.
     pub debug_captures: bool,
     /// Counts presented frames ([`crate::backend::frame_done`]); a capture
@@ -206,9 +194,6 @@ impl Ede {
             loop_signal,
             socket_name: None,
             config,
-            space: Space::default(),
-            unmapped: Vec::new(),
-            minimized: Vec::new(),
             popups: PopupManager::default(),
             compositor_state,
             xdg_shell_state,
@@ -229,6 +214,11 @@ impl Ede {
                 hold: Default::default(),
                 driven: Default::default(),
                 clipboard: Default::default(),
+                space: Space::default(),
+                unmapped: Vec::new(),
+                minimized: Vec::new(),
+                workspaces: crate::workspaces::Workspaces::default(),
+                title_click: None,
             },
             vt_switch: None,
             autostart: Vec::new(),
@@ -253,7 +243,6 @@ impl Ede {
             virtual_keyboard_state: smithay::wayland::virtual_keyboard::VirtualKeyboardManagerState::new::<Self, _>(&dh, |_| true),
             ipc: crate::ipc::Ipc::default(),
             hotkeys: crate::hotkeys::Hotkeys::default(),
-            workspaces: crate::workspaces::Workspaces::default(),
             fractional_scale_state: smithay::wayland::fractional_scale::FractionalScaleManagerState::new::<Self>(&dh),
             viewporter_state: smithay::wayland::viewporter::ViewporterState::new::<Self>(&dh),
             set_mode: None,
@@ -261,7 +250,6 @@ impl Ede {
             xdg_activation_state: smithay::wayland::xdg_activation::XdgActivationState::new::<Self>(&dh),
             recovery: crate::recovery::Recovery::default(),
             fatal: None,
-            title_click: None,
             debug_captures: false,
             frame_serial: 0,
             config_path: None,
@@ -355,9 +343,9 @@ impl Ede {
         }
         let at = match settings.as_ref().and_then(|s| s.position) {
             Some([x, y]) => (x, y),
-            None => (self.space.outputs().filter_map(|o| self.space.output_geometry(o)).map(|g| g.loc.x + g.size.w).max().unwrap_or(0), 0),
+            None => (self.desk.space.outputs().filter_map(|o| self.desk.space.output_geometry(o)).map(|g| g.loc.x + g.size.w).max().unwrap_or(0), 0),
         };
-        self.space.map_output(output, at);
+        self.desk.space.map_output(output, at);
         layer_map_for_output(output).arrange();
         self.sealed_rehome();
         self.output_changed(output.name());
@@ -369,20 +357,20 @@ impl Ede {
         let center = |space: &Space<Window>, w: &Window| {
             space.element_geometry(w).map(|g| g.loc.to_f64() + g.size.to_f64().to_point().downscale(2.0))
         };
-        let gone = self.space.output_geometry(output);
+        let gone = self.desk.space.output_geometry(output);
         let on_it: Vec<Window> = self
-            .space
+            .desk.space
             .elements()
-            .filter(|w| gone.zip(center(&self.space, w)).is_some_and(|(g, c)| g.to_f64().contains(c)))
+            .filter(|w| gone.zip(center(&self.desk.space, w)).is_some_and(|(g, c)| g.to_f64().contains(c)))
             .cloned()
             .collect();
-        self.space.unmap_output(output);
+        self.desk.space.unmap_output(output);
         self.lock_output_removed(output);
-        let outputs: Vec<Output> = self.space.outputs().cloned().collect();
+        let outputs: Vec<Output> = self.desk.space.outputs().cloned().collect();
         let mut x = 0;
         for o in outputs {
-            let w = self.space.output_geometry(&o).map(|g| g.size.w).unwrap_or(0);
-            self.space.map_output(&o, (x, 0));
+            let w = self.desk.space.output_geometry(&o).map(|g| g.size.w).unwrap_or(0);
+            self.desk.space.map_output(&o, (x, 0));
             layer_map_for_output(&o).arrange();
             x += w;
         }
@@ -395,11 +383,11 @@ impl Ede {
         let center = |space: &Space<Window>, w: &Window| {
             space.element_geometry(w).map(|g| g.loc.to_f64() + g.size.to_f64().to_point().downscale(2.0))
         };
-        let Some(area) = self.space.outputs().next().and_then(|o| self.work_area(o)) else { return };
+        let Some(area) = self.desk.space.outputs().next().and_then(|o| self.work_area(o)) else { return };
         let orphans: Vec<Window> = self
-            .space
+            .desk.space
             .elements()
-            .filter(|w| also.contains(w) || center(&self.space, w).is_some_and(|c| self.space.output_under(c).next().is_none()))
+            .filter(|w| also.contains(w) || center(&self.desk.space, w).is_some_and(|c| self.desk.space.output_under(c).next().is_none()))
             .cloned()
             .collect();
         for w in orphans {
@@ -408,7 +396,7 @@ impl Ede {
             self.untile(&w, None);
             let fh = self.frame_height(&w);
             size.h += fh;
-            let taken: Vec<_> = self.space.elements().filter(|o| *o != &w).filter_map(|o| self.space.element_location(o)).collect();
+            let taken: Vec<_> = self.desk.space.elements().filter(|o| *o != &w).filter_map(|o| self.desk.space.element_location(o)).collect();
             let mut loc = layout::place_new(size, area, &taken, 32);
             loc.y += fh;
             self.move_window(&w, loc, false);
@@ -419,25 +407,25 @@ impl Ede {
     /// by `[windows] panel_margin` on every side (the IDE look, #EDE-48),
     /// in space coordinates.
     pub fn work_area(&self, output: &Output) -> Option<Rect> {
-        let geo = self.space.output_geometry(output)?;
+        let geo = self.desk.space.output_geometry(output)?;
         let zone = layer_map_for_output(output).non_exclusive_zone();
         Some(layout::inset(Rectangle::new(geo.loc + zone.loc, zone.size), self.config.windows.panel_margin))
     }
 
     pub fn output_at(&self, p: Point<f64, Logical>) -> Option<Output> {
-        self.space.output_under(p).next().or_else(|| self.space.outputs().next()).cloned()
+        self.desk.space.output_under(p).next().or_else(|| self.desk.space.outputs().next()).cloned()
     }
 
     pub fn window_for_surface(&self, surface: &WlSurface) -> Option<Window> {
-        self.space.elements().chain(self.unmapped.iter()).find(|w| w.wl_surface().is_some_and(|s| *s == *surface)).cloned()
+        self.desk.space.elements().chain(self.desk.unmapped.iter()).find(|w| w.wl_surface().is_some_and(|s| *s == *surface)).cloned()
     }
 
     /// The topmost surface under `pos`: overlay/top layers, then windows, then
     /// bottom/background layers, with that surface's origin.
     pub fn surface_under(&self, pos: Point<f64, Logical>) -> Option<(WlSurface, Point<f64, Logical>)> {
         use smithay::wayland::shell::wlr_layer::Layer;
-        let output = self.space.output_under(pos).next()?;
-        let output_geo = self.space.output_geometry(output)?;
+        let output = self.desk.space.output_under(pos).next()?;
+        let output_geo = self.desk.space.output_geometry(output)?;
         if self.is_locked() {
             // Only the lock client, nothing behind it.
             let lock = self.lock_surface_on(output)?;
@@ -446,7 +434,7 @@ impl Ede {
         if let Some(window) = self.fullscreen_on(output) {
             // #EDE-103: the output draws only that window (and its popups):
             // nothing hidden behind it takes the pointer.
-            let location = self.space.element_location(&window)? - window.geometry().loc;
+            let location = self.desk.space.element_location(&window)? - window.geometry().loc;
             return window.surface_under(pos - location.to_f64(), WindowSurfaceType::ALL).map(|(s, p)| (s, (p + location).to_f64()));
         }
         let layers = layer_map_for_output(output);
@@ -473,7 +461,7 @@ impl Ede {
         if self.frame_under(pos).is_some() {
             return None;
         }
-        self.space
+        self.desk.space
             .element_under(pos)
             .and_then(|(window, location)| window.surface_under(pos - location.to_f64(), WindowSurfaceType::ALL).map(|(s, p)| (s, (p + location).to_f64())))
             .or_else(|| layer_hit(Layer::Bottom))
@@ -495,13 +483,13 @@ impl Ede {
         let serial = SERIAL_COUNTER.next_serial();
         let keyboard = self.desk.seat.get_keyboard().unwrap();
         if let Some(window) = &window {
-            self.space.raise_element(window, true);
+            self.desk.space.raise_element(window, true);
             #[cfg(feature = "xwayland")]
             if let (Some(xwm), Some(x11)) = (self.xwm.as_mut(), window.x11_surface()) {
                 let _ = xwm.raise_window(x11);
             }
         } else {
-            for w in self.space.elements() {
+            for w in self.desk.space.elements() {
                 w.set_activated(false);
             }
         }
@@ -516,7 +504,7 @@ impl Ede {
         if let Some(w) = &window {
             self.window_event(ede_protocol::events::WINDOW_FOCUSED, w);
         }
-        for w in self.space.elements() {
+        for w in self.desk.space.elements() {
             if let Some(t) = w.toplevel() {
                 t.send_pending_configure();
             }
@@ -531,7 +519,7 @@ impl Ede {
     /// Moves `window` to `loc` in the space; X11 windows also learn where
     /// they are (their position is part of their state).
     pub fn move_window(&mut self, window: &Window, loc: Point<i32, Logical>, activate: bool) {
-        self.space.map_element(window.clone(), loc, activate);
+        self.desk.space.map_element(window.clone(), loc, activate);
         #[cfg(feature = "xwayland")]
         if let Some(x11) = window.x11_surface() {
             let _ = x11.configure(Some(Rectangle::new(loc, x11.last_configure().size)));
@@ -540,15 +528,15 @@ impl Ede {
 
     /// First buffer arrived: pick a spot on the pointer's output and map.
     pub fn place_new_window(&mut self, window: Window) {
-        self.unmapped.retain(|w| w != &window);
+        self.desk.unmapped.retain(|w| w != &window);
         let pointer = self.desk.seat.get_pointer().unwrap().current_location();
         let mut st = window_state(&window);
-        st.workspace = self.workspaces.active;
+        st.workspace = self.desk.workspaces.active;
         set_window_state(&window, st);
         let fh = self.frame_height(&window);
         let loc = match self.output_at(pointer).and_then(|o| self.work_area(&o)) {
             Some(area) => {
-                let taken: Vec<_> = self.space.elements().filter_map(|w| self.space.element_location(w)).collect();
+                let taken: Vec<_> = self.desk.space.elements().filter_map(|w| self.desk.space.element_location(w)).collect();
                 let mut size = window.geometry().size;
                 size.h += fh;
                 let mut at = layout::place_new(size, area, &taken, 32);
@@ -575,7 +563,7 @@ impl Ede {
     /// its centre (wp-fractional-scale), so HiDPI clients draw crisply.
     pub fn send_preferred_scale(&self, window: &Window) {
         let Some(surface) = window.wl_surface() else { return };
-        let geo = self.space.element_geometry(window).unwrap_or_else(|| Rectangle::from_size(window.geometry().size));
+        let geo = self.desk.space.element_geometry(window).unwrap_or_else(|| Rectangle::from_size(window.geometry().size));
         let center = geo.loc.to_f64() + geo.size.to_f64().to_point().downscale(2.0);
         let Some(output) = self.output_at(center) else { return };
         let scale = output.current_scale().fractional_scale();
@@ -620,7 +608,7 @@ impl Ede {
     /// Tiles `window` into `tile` on the output under its centre, remembering
     /// the floating geometry the first time.
     pub fn tile(&mut self, window: &Window, tile: Tile) {
-        let Some(geo) = self.space.element_geometry(window) else { return };
+        let Some(geo) = self.desk.space.element_geometry(window) else { return };
         let center = geo.loc.to_f64() + geo.size.to_f64().to_point().downscale(2.0);
         let Some(area) = self.output_at(center).and_then(|o| self.work_area(&o)) else { return };
         let mut st = window_state(window);
@@ -668,14 +656,14 @@ impl Ede {
             return;
         }
         if on {
-            let Some(geo) = self.space.element_geometry(window).or_else(|| {
+            let Some(geo) = self.desk.space.element_geometry(window).or_else(|| {
                 let p = self.desk.seat.get_pointer().unwrap().current_location();
                 Some(Rectangle::new(p.to_i32_round(), window.geometry().size))
             }) else {
                 return;
             };
             let center = geo.loc.to_f64() + geo.size.to_f64().to_point().downscale(2.0);
-            let Some(out) = self.output_at(center).and_then(|o| self.space.output_geometry(&o)) else { return };
+            let Some(out) = self.output_at(center).and_then(|o| self.desk.space.output_geometry(&o)) else { return };
             st.fullscreen = Some(geo);
             set_window_state(window, st);
             self.configure_window(window, Some(out), None, true);
@@ -720,15 +708,15 @@ impl Ede {
     /// when that one is fullscreen (#EDE-82: one behind another window
     /// never hides what is typed into). X11 menus and tooltips do not count.
     pub fn fullscreen_on(&self, output: &Output) -> Option<Window> {
-        let out = self.space.output_geometry(output)?;
-        let top = self.space.elements().rev().find(|w| {
+        let out = self.desk.space.output_geometry(output)?;
+        let top = self.desk.space.elements().rev().find(|w| {
             #[cfg(feature = "xwayland")]
             if w.x11_surface().is_some_and(|x| x.is_override_redirect()) {
                 return false;
             }
-            self.space.element_geometry(w).is_some_and(|g| g.overlaps(out))
+            self.desk.space.element_geometry(w).is_some_and(|g| g.overlaps(out))
         })?;
-        (window_state(top).fullscreen.is_some() && self.space.element_location(top) == Some(out.loc)).then(|| top.clone())
+        (window_state(top).fullscreen.is_some() && self.desk.space.element_location(top) == Some(out.loc)).then(|| top.clone())
     }
 
     /// The floating size a window returns to, if it is tiled.

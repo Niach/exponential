@@ -34,7 +34,7 @@ impl InputMethodHandler for Ede {
     }
 
     fn parent_geometry(&self, parent: &WlSurface) -> Rectangle<i32, Logical> {
-        self.window_for_surface(parent).and_then(|w| self.space.element_geometry(&w)).unwrap_or_default()
+        self.window_for_surface(parent).and_then(|w| self.desk.space.element_geometry(&w)).unwrap_or_default()
     }
 }
 

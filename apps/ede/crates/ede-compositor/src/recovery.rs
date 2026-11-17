@@ -77,7 +77,7 @@ impl Ede {
         if !self.recovery_visible() {
             return vec![];
         }
-        let Some(geo) = self.space.output_geometry(output) else { return vec![] };
+        let Some(geo) = self.desk.space.output_geometry(output) else { return vec![] };
         let scale = output.current_scale().fractional_scale();
         let at: Point<i32, Logical> = ((geo.size.w - WIDTH) / 2, (geo.size.h - HEIGHT) / 2).into();
         let element = self.recovery.cache.element(renderer, text::key_of(&scale.to_bits()), (WIDTH, HEIGHT).into(), at.to_f64().to_physical(scale), || draw(scale));

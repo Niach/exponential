@@ -749,7 +749,7 @@ fn render_surface(udev: &Shared, state: &mut Ede, node: DrmNode, crtc: crtc::Han
     let Some(device) = u.devices.get_mut(&node) else { return };
     let Some(surface) = device.surfaces.get_mut(&crtc) else { return };
     let output = surface.output.clone();
-    let Some(output_geo) = state.space.output_geometry(&output) else { return };
+    let Some(output_geo) = state.desk.space.output_geometry(&output) else { return };
     // #LOGS-2: the frame's time, elements through the queued flip.
     let frame_started = std::time::Instant::now();
 

@@ -185,7 +185,7 @@ impl Ede {
     /// Every sealed lock surface (any output).
     pub fn sealed_lock_surfaces(&self) -> Vec<(Output, WlSurface)> {
         let LockState::Sealed(s) = &self.lock else { return vec![] };
-        self.space
+        self.desk.space
             .outputs()
             .flat_map(|o| {
                 let map = layer_map_for_output(o);
@@ -196,7 +196,7 @@ impl Ede {
 
     /// Is `surface` a sealed surface (the lock's, a prompt's)?
     pub fn is_sealed_surface(&self, surface: &WlSurface) -> bool {
-        self.space.outputs().any(|o| {
+        self.desk.space.outputs().any(|o| {
             let map = layer_map_for_output(o);
             let hit = map.layers().any(|l| l.wl_surface() == surface && (layer_origin(l).sealed || matches!(&self.lock, LockState::Sealed(s) if s.pid == layer_origin(l).pid)));
             hit
@@ -220,7 +220,7 @@ impl Ede {
 
     /// Lock surfaces without an output go onto the first one there is.
     pub fn sealed_rehome(&mut self) {
-        let Some(output) = self.space.outputs().next().cloned() else { return };
+        let Some(output) = self.desk.space.outputs().next().cloned() else { return };
         let LockState::Sealed(s) = &mut self.lock else { return };
         let layers = std::mem::take(&mut s.homeless);
         if layers.is_empty() {
@@ -243,7 +243,7 @@ impl Ede {
     /// the next starts wait: 5 s, doubling up to a minute.
     pub fn sealed_tick(&mut self) {
         // With no output there is nowhere to show: nothing is missing.
-        let shows = self.space.outputs().next().is_none() || !self.sealed_lock_surfaces().is_empty();
+        let shows = self.desk.space.outputs().next().is_none() || !self.sealed_lock_surfaces().is_empty();
         let LockState::Sealed(s) = &mut self.lock else { return };
         if s.command.is_empty() {
             return;

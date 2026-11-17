@@ -267,7 +267,7 @@ fn minimized_windows_leave_the_screen_and_come_back_where_they_were() {
     // Listed as minimized at its old place; not drawn, not on the space.
     let b_info = ipc.windows().unwrap().into_iter().find(|w| w.id == id_b).unwrap();
     assert!(b_info.minimized && !b_info.focused && (b_info.x, b_info.y) == (before.x, before.y));
-    assert!(h.with(|ede| ede.space.elements().count() == 1));
+    assert!(h.with(|ede| ede.desk.space.elements().count() == 1));
     assert_eq!(h.capture(0).at(before.x + 5, before.y + 5), BLUE, "a shows where b (cascaded over it) was");
     // Its last frame is still there for the taskbar's hover preview.
     let shot = ipc.capture(CaptureTarget::Window { window: id_b.clone() }).unwrap();
@@ -397,7 +397,7 @@ fn workspaces_park_windows_and_the_taskbar_brings_them_back() {
     press(&h, KEY_LEFTMETA, false);
     let switched = ipc.next_event().unwrap();
     assert_eq!((switched.kind.as_str(), switched.data["workspace"].as_u64()), (events::WORKSPACE_SWITCHED, Some(1)));
-    assert!(h.with(|ede| ede.space.elements().count() == 0));
+    assert!(h.with(|ede| ede.desk.space.elements().count() == 0));
     let windows = ipc.windows().unwrap();
     assert_eq!(windows.len(), 2, "parked windows are still listed");
     assert!(windows.iter().all(|w| w.workspace == 0 && !w.focused));
@@ -408,12 +408,12 @@ fn workspaces_park_windows_and_the_taskbar_brings_them_back() {
     ipc.focus(id_a.clone()).unwrap();
     wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&a.surface));
     assert_eq!(ipc.workspaces().unwrap()[0].active, true);
-    assert!(h.with(|ede| ede.space.elements().count() == 2));
+    assert!(h.with(|ede| ede.desk.space.elements().count() == 2));
 
     // Move b to workspace 3 over the protocol: it leaves, a stays.
     let id_b = windows.iter().find(|w| w.title.as_deref() == Some("b")).unwrap().id.clone();
     ipc.move_to_workspace(id_b.clone(), 2).unwrap();
-    assert!(h.with(|ede| ede.space.elements().count() == 1));
+    assert!(h.with(|ede| ede.desk.space.elements().count() == 1));
     let spaces = ipc.workspaces().unwrap();
     assert_eq!(spaces[2].windows, vec![id_b.clone()]);
     assert_eq!(ipc.windows().unwrap().iter().find(|w| w.id == id_b).unwrap().workspace, 2);
@@ -886,7 +886,7 @@ fn a_since_capture_is_unchanged_until_something_is_drawn() {
     let mut app = Session::connect(h.connect());
     let t = app.toplevel("app");
     app.draw(&t, 300, 200, RED);
-    wait_for(&mut app, |_| h.with(|e| e.space.elements().count()) == 1);
+    wait_for(&mut app, |_| h.with(|e| e.desk.space.elements().count()) == 1);
     let mut ipc = h.ipc();
     let target = CaptureTarget::Output { name: "HEADLESS-1".into() };
     // The window's first frames go out.
@@ -913,7 +913,7 @@ fn captures_draw_on_the_backends_renderer_and_fall_back_to_software() {
     let mut app = Session::connect(h.connect());
     let t = app.toplevel("app");
     app.draw(&t, 300, 200, RED);
-    wait_for(&mut app, |_| h.with(|e| e.space.elements().count()) == 1);
+    wait_for(&mut app, |_| h.with(|e| e.desk.space.elements().count()) == 1);
     let mut ipc = h.ipc();
     let output = CaptureTarget::Output { name: "HEADLESS-1".into() };
     let shot = ipc.capture(output.clone()).unwrap();

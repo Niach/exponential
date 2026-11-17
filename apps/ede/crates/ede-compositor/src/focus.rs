@@ -19,7 +19,7 @@ impl Ede {
     /// the keyboard back when the Exclusive prompt holding it closes.
     pub fn keyboard_window(&self) -> Option<Window> {
         #[cfg(feature = "xwayland")]
-        let pending = self.desk.pending_x11_focus.as_ref().and_then(|x| self.space.elements().find(|w| w.x11_surface() == Some(x)).cloned());
+        let pending = self.desk.pending_x11_focus.as_ref().and_then(|x| self.desk.space.elements().find(|w| w.x11_surface() == Some(x)).cloned());
         #[cfg(not(feature = "xwayland"))]
         let pending = None;
         self.focused_window().or(pending).or_else(|| self.prompt_previous_window())
@@ -75,13 +75,13 @@ impl Ede {
     pub(crate) fn keep_behind(&mut self, window: &Window) {
         window.set_activated(false);
         if let Some(front) = self.keyboard_window().filter(|f| f != window) {
-            self.space.raise_element(&front, true);
+            self.desk.space.raise_element(&front, true);
             #[cfg(feature = "xwayland")]
             if let (Some(xwm), Some(x11)) = (self.xwm.as_mut(), front.x11_surface()) {
                 let _ = xwm.raise_window(x11);
             }
         }
-        for w in self.space.elements() {
+        for w in self.desk.space.elements() {
             if let Some(t) = w.toplevel() {
                 t.send_pending_configure();
             }
@@ -90,10 +90,10 @@ impl Ede {
 
     /// Moves `window` to `loc`; who is in front and who is activated stay.
     pub(crate) fn remap(&mut self, window: &Window, loc: Point<i32, Logical>) {
-        if self.space.element_location(window).is_some() {
-            self.space.relocate_element(window, loc);
+        if self.desk.space.element_location(window).is_some() {
+            self.desk.space.relocate_element(window, loc);
         } else {
-            self.space.map_element(window.clone(), loc, false);
+            self.desk.space.map_element(window.clone(), loc, false);
         }
     }
 }

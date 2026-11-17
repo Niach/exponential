@@ -217,7 +217,7 @@ impl Ede {
     /// most-recent-first order (the stacking order), as Alt+Tab did on
     /// window managers before switchers drew anything.
     pub fn cycle_focus(&mut self, reverse: bool) {
-        let windows: Vec<_> = self.space.elements().cloned().collect();
+        let windows: Vec<_> = self.desk.space.elements().cloned().collect();
         if windows.len() < 2 {
             return;
         }
@@ -248,7 +248,7 @@ impl Ede {
     /// Does a layer surface (the shell) have a popup mapped?
     pub fn layer_popups_open(&self) -> bool {
         use smithay::desktop::PopupManager;
-        self.space.outputs().any(|o| {
+        self.desk.space.outputs().any(|o| {
             let map = smithay::desktop::layer_map_for_output(o);
             let any = map.layers().any(|l| PopupManager::popups_for_surface(l.wl_surface()).next().is_some());
             any

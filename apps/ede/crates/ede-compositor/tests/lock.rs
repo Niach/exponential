@@ -52,8 +52,8 @@ fn press(h: &Harness, code: u32) {
 /// The centre of the only (or topmost) window.
 fn window_center(h: &Harness) -> (i32, i32) {
     h.with(|ede| {
-        let w = ede.space.elements().last().unwrap();
-        let g = ede.space.element_geometry(w).unwrap();
+        let w = ede.desk.space.elements().last().unwrap();
+        let g = ede.desk.space.element_geometry(w).unwrap();
         (g.loc.x + g.size.w / 2, g.loc.y + g.size.h / 2)
     })
 }
@@ -200,7 +200,7 @@ fn protected_windows_are_never_captured_or_driven() {
     app.draw(&normal, 200, 200, BLUE);
     // A corner the next window (cascaded down-right) leaves uncovered.
     let (nx, ny) = h.with(|ede| {
-        let g = ede.space.element_geometry(ede.space.elements().last().unwrap()).unwrap();
+        let g = ede.desk.space.element_geometry(ede.desk.space.elements().last().unwrap()).unwrap();
         (g.loc.x + 5, g.loc.y + 5)
     });
 
@@ -223,7 +223,7 @@ fn protected_windows_are_never_captured_or_driven() {
         let refused = h.with(move |ede| ede.drive_pointer_motion((sx as f64, sy as f64).into(), 0));
         assert_eq!(refused, Err(Refused::Protected));
         assert_eq!(h.with(move |ede| ede.drive_pointer_motion((nx as f64, ny as f64).into(), 0)), Ok(()));
-        let lendable = h.with(|ede| ede.space.elements().map(|w| ede.may_lend(w)).collect::<Vec<_>>());
+        let lendable = h.with(|ede| ede.desk.space.elements().map(|w| ede.may_lend(w)).collect::<Vec<_>>());
         assert_eq!(lendable.iter().filter(|l| !**l).count(), 1);
 
         secret.toplevel.destroy();
@@ -235,7 +235,7 @@ fn protected_windows_are_never_captured_or_driven() {
 
     // A normal focused window may be driven.
     h.with(|ede| {
-        let w = ede.space.elements().last().cloned();
+        let w = ede.desk.space.elements().last().cloned();
         ede.focus(w);
     });
     app.roundtrip();

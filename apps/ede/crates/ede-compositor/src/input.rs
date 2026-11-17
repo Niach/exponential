@@ -78,8 +78,8 @@ impl Ede {
                 pointer.frame(self);
             }
             InputEvent::PointerMotionAbsolute { event, .. } => {
-                let Some(output) = self.space.outputs().next().cloned() else { return };
-                let Some(geo) = self.space.output_geometry(&output) else { return };
+                let Some(output) = self.desk.space.outputs().next().cloned() else { return };
+                let Some(geo) = self.desk.space.output_geometry(&output) else { return };
                 let pos = event.position_transformed(geo.size) + geo.loc.to_f64();
                 self.person_pointer_motion_to(pos, event.time().millis());
             }
@@ -157,7 +157,7 @@ impl Ede {
             // is the shell's: the window under it neither takes focus nor
             // starts an Alt+drag (#EDE-65: Alt is held while a tile is clicked).
             let on_layer = under.as_ref().is_some_and(|s| self.is_layer_surface(s));
-            let window = under.as_ref().and_then(|s| self.window_for_surface(s)).or_else(|| if on_layer { None } else { self.space.element_under(location).map(|(w, _)| w.clone()) });
+            let window = under.as_ref().and_then(|s| self.window_for_surface(s)).or_else(|| if on_layer { None } else { self.desk.space.element_under(location).map(|(w, _)| w.clone()) });
             match (&window, under) {
                 (Some(_), _) => self.focus(window.clone()),
                 // A layer surface that takes the keyboard (the shell's menu,
@@ -173,7 +173,7 @@ impl Ede {
             let alt = self.desk.seat.get_keyboard().unwrap().modifier_state().alt;
             if let (Some(window), true, BTN_LEFT) = (window, alt, button) {
                 // Alt+drag: move from anywhere in the window.
-                if let Some(loc) = self.space.element_location(&window) {
+                if let Some(loc) = self.desk.space.element_location(&window) {
                     let start = GrabStartData { focus: None, button, location };
                     pointer.set_grab(self, MoveSurfaceGrab::new(start, window, loc), serial, Focus::Clear);
                 }
@@ -330,12 +330,12 @@ impl Ede {
             crate::frames::Hit::Maximize => self.toggle_maximized(&window),
             crate::frames::Hit::Minimize => self.minimize_window(&window),
             crate::frames::Hit::Title => {
-                let double = self.title_click.take().is_some_and(|(w, at)| w == window && at.elapsed() < std::time::Duration::from_millis(400));
+                let double = self.desk.title_click.take().is_some_and(|(w, at)| w == window && at.elapsed() < std::time::Duration::from_millis(400));
                 if double {
                     self.toggle_maximized(&window);
                 } else {
-                    self.title_click = Some((window.clone(), std::time::Instant::now()));
-                    if let Some(loc) = self.space.element_location(&window) {
+                    self.desk.title_click = Some((window.clone(), std::time::Instant::now()));
+                    if let Some(loc) = self.desk.space.element_location(&window) {
                         let start = GrabStartData { focus: None, button, location };
                         pointer.set_grab(self, MoveSurfaceGrab::new(start, window, loc), serial, Focus::Clear);
                     }
@@ -344,7 +344,7 @@ impl Ede {
             crate::frames::Hit::Edge(edges) => {
                 // The resize grab speaks xdg-shell; X11 windows resize from inside.
                 if window.toplevel().is_some() && !edges.is_empty() {
-                    if let Some(loc) = self.space.element_location(&window) {
+                    if let Some(loc) = self.desk.space.element_location(&window) {
                         let start = GrabStartData { focus: None, button, location };
                         let rect = smithay::utils::Rectangle::new(loc, window.geometry().size);
                         pointer.set_grab(self, crate::grabs::ResizeSurfaceGrab::start(start, window, edges, rect), serial, Focus::Clear);
@@ -380,20 +380,20 @@ impl Ede {
         while let Some(parent) = smithay::wayland::compositor::get_parent(&root) {
             root = parent;
         }
-        self.space.outputs().any(|o| {
+        self.desk.space.outputs().any(|o| {
             let map = smithay::desktop::layer_map_for_output(o);
             map.layer_for_surface(&root, smithay::desktop::WindowSurfaceType::TOPLEVEL).is_some_and(&test)
         })
     }
 
     fn clamp_to_outputs(&self, pos: Point<f64, Logical>) -> Point<f64, Logical> {
-        if self.space.output_under(pos).next().is_some() {
+        if self.desk.space.output_under(pos).next().is_some() {
             return pos;
         }
         // Off every output: pull it to the nearest point of the nearest one.
-        self.space
+        self.desk.space
             .outputs()
-            .filter_map(|o| self.space.output_geometry(o))
+            .filter_map(|o| self.desk.space.output_geometry(o))
             .map(|g| {
                 let x = pos.x.clamp(g.loc.x as f64, (g.loc.x + g.size.w) as f64 - 1.0);
                 let y = pos.y.clamp(g.loc.y as f64, (g.loc.y + g.size.h) as f64 - 1.0);

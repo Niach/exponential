@@ -72,8 +72,8 @@ impl Ede {
                     root = parent;
                 }
                 s.is_alive()
-                    && (self.space.elements().any(|w| smithay::wayland::seat::WaylandFocus::wl_surface(w).is_some_and(|w| *w == root))
-                        || self.space.outputs().any(|o| {
+                    && (self.desk.space.elements().any(|w| smithay::wayland::seat::WaylandFocus::wl_surface(w).is_some_and(|w| *w == root))
+                        || self.desk.space.outputs().any(|o| {
                             smithay::desktop::layer_map_for_output(o)
                                 .layer_for_surface(&root, smithay::desktop::WindowSurfaceType::TOPLEVEL)
                                 .is_some()

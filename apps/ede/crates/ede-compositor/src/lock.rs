@@ -52,7 +52,7 @@ impl Ede {
     pub fn lock_confirmed(&self) -> bool {
         match &self.lock {
             LockState::Locked(l) => l.pending.is_none(),
-            LockState::Sealed(s) => self.space.outputs().all(|o| s.shown_on.contains(o)),
+            LockState::Sealed(s) => self.desk.space.outputs().all(|o| s.shown_on.contains(o)),
             LockState::Unlocked => false,
         }
     }
@@ -114,7 +114,7 @@ impl Ede {
     }
 
     fn confirm_lock_if_shown(&mut self) {
-        let outputs: Vec<Output> = self.space.outputs().cloned().collect();
+        let outputs: Vec<Output> = self.desk.space.outputs().cloned().collect();
         let LockState::Locked(l) = &mut self.lock else { return };
         if l.pending.is_some() && outputs.iter().all(|o| l.shown_on.contains(o)) {
             l.pending.take().unwrap().lock();
@@ -177,7 +177,7 @@ impl Ede {
         keyboard.set_focus(self, None, serial);
         let pos = pointer.current_location();
         self.pointer_motion_to(pos, 0);
-        if self.space.outputs().next().is_none() {
+        if self.desk.space.outputs().next().is_none() {
             self.confirm_lock_if_shown();
         }
     }
