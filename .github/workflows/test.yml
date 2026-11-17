@@ -103,7 +103,8 @@ jobs:
           # packages/ is include_str!-ed as .md); markdown inside apps/ does
           # (runbook.md, the editor's test.md), so it stays.
           rfiles="$(grep -vE '^packages/.*\.md$|^packages/exponential-ui/skills/' <<<"$files" || true)"
-          desktop='^(apps/desktop/|samples/apps/photobook|packages/(domain-contract|ecode|ecore|eengine|etalk|exponential-ui|icons|design-tokens|emoji|electric-protocol)/|packages/ui/exponential-ui/|\.github/actions/cargo-fetch/|\.github/workflows/test\.yml$)'
+          # #EXP-1905: + packages/emcp, whose fixtures the emcp crate compiles in and replays.
+          desktop='^(apps/desktop/|samples/apps/photobook|packages/(domain-contract|ecode|ecore|eengine|emcp|etalk|exponential-ui|icons|design-tokens|emoji|electric-protocol)/|packages/ui/exponential-ui/|\.github/actions/cargo-fetch/|\.github/workflows/test\.yml$)'
           echo "desktop=$(grep -qE "$desktop" <<<"$rfiles" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # The catalog, the six renderers, the facade, what they bundle (tokens, icons), the desktop lockfile (gpui revs).
           # #EXP-1870: + the vendored gpui crates eui-gpui links on Linux (#2875's text system).
@@ -331,6 +332,11 @@ jobs:
       # clone, the forge jobs, and backup → wipe → restore). #FEED-244: the
       # app-screen renderer (a real headless render) and the updater (its
       # device half).
+      # #EXP-1905: Computer Use (epilot, epilot-screen: fake backends and a
+      # fake capturer, no display, no seat) and the MCP Proxy (emcp with code
+      # mode: its contract replay, the loopback server, the hub). epilot's
+      # live test `headless_ede_drives_and_captures` needs a built compositor
+      # (EDE_COMPOSITOR) and returns early here: this job builds no eDE.
       # #EXP-76: ONE invocation, ONE feature set, so every crate builds once;
       # eagent, coding and ui stay lib-only. None of these crates has a doc test.
       - name: eCore, Engine, coding and UI tests
@@ -343,7 +349,8 @@ jobs:
           cargo nextest run --locked --no-fail-fast
           -p ecore -p ecode-core -p ecode -p eengine -p eengine-ffi -p eengine-desktop -p eengine-runner -p eengine-bundle
           -p eagent -p coding -p ui -p engine -p elocal -p api -p exp-http -p exp-cli -p git-remote-exp -p eui-shot -p updater
-          --features eengine/sqlite,eengine/hub,eengine-ffi/hub,eagent/local-model,ecode/github,ecode/exponential,ecode/workflows
+          -p epilot -p epilot-screen -p emcp
+          --features eengine/sqlite,eengine/hub,eengine-ffi/hub,eagent/local-model,ecode/github,ecode/exponential,ecode/workflows,emcp/codemode
           -E 'kind(lib) | not (package(eagent) | package(coding) | package(ui))'
       # #ERR-4: the vendored gpui-pre-linux's own patch tests, never upstream's
       # other tests (vendor/gpui-pre-linux/PATCHES.md). A path dependency
