@@ -146,8 +146,7 @@ impl Ede {
                 // leave the app's focus alone (as on Cinnamon).
                 (None, Some(surface)) => {
                     if self.layer_takes_keyboard(&surface) || self.popups.find_popup(&surface).is_some() {
-                        let keyboard = self.seat.get_keyboard().unwrap();
-                        keyboard.set_focus(self, Some(surface), serial);
+                        self.focus_layer(surface, serial);
                     }
                 }
                 (None, None) => self.focus(None),

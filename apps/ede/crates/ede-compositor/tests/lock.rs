@@ -351,3 +351,112 @@ fn the_sealed_lock_shows_only_the_lock_clients_surface_and_its_grant_unlocks() {
     // The grant was single-use: it is gone.
     assert!(matches!(lock_client.windows(), Err(ede_protocol::Error::Failed(_))));
 }
+
+/// #EDE-71: a prompt (`exponential-sealed polkit`, consent, share) maps an
+/// Exclusive overlay. The password typed right away is the prompt's, never
+/// the window's behind it, and the window types again once it closed.
+#[test]
+fn an_exclusive_overlay_takes_the_keyboard_as_it_maps_and_gives_it_back() {
+    use wayland_protocols_wlr::layer_shell::v1::client::{zwlr_layer_shell_v1::Layer, zwlr_layer_surface_v1::KeyboardInteractivity};
+    let h = harness(Config::default());
+    let mut app = Session::connect(h.connect());
+    app.keyboard();
+    let t = app.toplevel("terminal");
+    app.draw(&t, 300, 200, RED);
+    wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&t.surface));
+
+    let mut prompt = Session::connect(h.connect());
+    prompt.keyboard();
+    let l = prompt.keyboard_layer("polkit", Layer::Overlay, (200, 100), KeyboardInteractivity::Exclusive);
+    // Not before it drew: a surface without a buffer shows nothing to type into.
+    app.roundtrip();
+    assert_eq!(app.state.keyboard_focus.as_ref(), Some(&t.surface));
+    prompt.draw_layer(&l, BLUE);
+    wait_for(&mut app, |c| c.state.keyboard_focus.is_none());
+    wait_for(&mut prompt, |c| c.state.keyboard_focus.as_ref() == Some(&l.surface));
+    press(&h, KEY_A + 8);
+    wait_for(&mut prompt, |c| c.state.keys == [KEY_A]);
+    app.roundtrip();
+    assert!(app.state.keys.is_empty(), "the window behind the prompt got the password");
+
+    l.layer.destroy();
+    l.surface.destroy();
+    prompt.roundtrip();
+    wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&t.surface));
+    press(&h, KEY_A + 8);
+    wait_for(&mut app, |c| c.state.keys == [KEY_A]);
+}
+
+/// #EDE-71: a shell surface that took the keyboard on a click (Settings,
+/// chat, history, connect are on-demand layers) hands it back as it closes.
+#[test]
+fn closing_a_focused_layer_gives_the_keyboard_back_to_the_window() {
+    use wayland_protocols_wlr::layer_shell::v1::client::{zwlr_layer_shell_v1::Layer, zwlr_layer_surface_v1::KeyboardInteractivity};
+    let h = harness(Config::default());
+    let mut app = Session::connect(h.connect());
+    app.keyboard();
+    let t = app.toplevel("app");
+    app.draw(&t, 300, 200, RED);
+    wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&t.surface));
+
+    let mut shell = Session::connect(h.connect());
+    shell.keyboard();
+    let l = shell.keyboard_layer("settings", Layer::Top, (200, 100), KeyboardInteractivity::OnDemand);
+    shell.draw_layer(&l, BLUE);
+    // On-demand never takes the keyboard by itself.
+    app.roundtrip();
+    assert_eq!(app.state.keyboard_focus.as_ref(), Some(&t.surface));
+    wait_for(&mut shell, |_| h.capture(0).at(400, 300) == BLUE);
+    h.with(|ede| {
+        ede.pointer_motion_to((400.0, 300.0).into(), 0);
+        ede.pointer_button(0x110, ButtonState::Pressed, 1);
+        ede.pointer_button(0x110, ButtonState::Released, 2);
+    });
+    wait_for(&mut shell, |c| c.state.keyboard_focus.as_ref() == Some(&l.surface));
+
+    l.layer.destroy();
+    l.surface.destroy();
+    shell.roundtrip();
+    wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&t.surface));
+    press(&h, KEY_A + 8);
+    wait_for(&mut app, |c| c.state.keys == [KEY_A]);
+}
+
+/// #EDE-71: a prompt over a focused shell surface (Settings asks for the
+/// password) gives the keyboard back to that surface, not to a window.
+#[test]
+fn a_prompt_over_a_focused_layer_gives_the_keyboard_back_to_that_layer() {
+    use wayland_protocols_wlr::layer_shell::v1::client::{zwlr_layer_shell_v1::Layer, zwlr_layer_surface_v1::KeyboardInteractivity};
+    let h = harness(Config::default());
+    let mut app = Session::connect(h.connect());
+    app.keyboard();
+    let t = app.toplevel("app");
+    app.draw(&t, 300, 200, RED);
+    wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&t.surface));
+
+    let mut shell = Session::connect(h.connect());
+    shell.keyboard();
+    let settings = shell.keyboard_layer("settings", Layer::Top, (200, 100), KeyboardInteractivity::OnDemand);
+    shell.draw_layer(&settings, BLUE);
+    wait_for(&mut shell, |_| h.capture(0).at(400, 300) == BLUE);
+    h.with(|ede| {
+        ede.pointer_motion_to((400.0, 300.0).into(), 0);
+        ede.pointer_button(0x110, ButtonState::Pressed, 1);
+        ede.pointer_button(0x110, ButtonState::Released, 2);
+    });
+    wait_for(&mut shell, |c| c.state.keyboard_focus.as_ref() == Some(&settings.surface));
+
+    let mut prompt = Session::connect(h.connect());
+    prompt.keyboard();
+    let l = prompt.keyboard_layer("polkit", Layer::Overlay, (100, 50), KeyboardInteractivity::Exclusive);
+    prompt.draw_layer(&l, BLACK);
+    wait_for(&mut prompt, |c| c.state.keyboard_focus.as_ref() == Some(&l.surface));
+    l.layer.destroy();
+    l.surface.destroy();
+    prompt.roundtrip();
+    wait_for(&mut shell, |c| c.state.keyboard_focus.as_ref() == Some(&settings.surface));
+    press(&h, KEY_A + 8);
+    wait_for(&mut shell, |c| c.state.keys == [KEY_A]);
+    app.roundtrip();
+    assert!(app.state.keys.is_empty());
+}
