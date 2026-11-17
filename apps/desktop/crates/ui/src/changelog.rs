@@ -46,6 +46,22 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-17-ede-0-2-28-lock-focus-start-menu-clipboard",
+    date: "2026-11-17",
+    title: "Exponential Desktop 0.2.28: a lock you can trust, and the keyboard where you expect it",
+    summary: "Exponential Desktop 0.2.28: the session locks on suspend, loginctl and the start menu, a wrong password clears the field, new windows and prompts take the keyboard as they should, and computer use can paste and copy again.",
+    body: r##"- **Locking**: with the default config the session locks on suspend, on loginctl lock-session and from the start menu; the lock covers every display, survives a display going away and comes back if its screen dies.
+- **Wrong passwords**: a wrong password keeps the session locked and clears the password field, on the lock and in the admin password prompt.
+- **The keyboard goes where you look**: an app you launch takes the keyboard, windows of other apps open behind it, a password prompt takes the keyboard as it shows and keeps it until it closes, and a prompt that opened while locked has it at unlock.
+- **The start menu keyboard**: the start menu takes the keyboard again, and closing it over a prompt gives the prompt the keyboard back.
+- **Clipboard and computer use**: a clipboard read whose owner is gone answers instead of hanging, keys an agent pressed are released when it disconnects, and paste_text and copy_selection work again through computer use.
+- **Steadier shell**: clicking while a taskbar preview is open no longer crashes the shell, and keys follow your configured layouts and Caps Lock.
+- **Known issues**: there is no graphical admin password prompt on Ubuntu 26.04 yet; the first X11 window of a session gets no keys until you click it; an open taskbar preview closes the start menu on the next click; Enter in the start menu search does not launch a result; the sound applet's popup does not open."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_319: ChangelogEntry = ChangelogEntry {
     id: "2026-11-17-desktop-cli-0-14-168-waiting-on-offline-chats-computer-use",
     date: "2026-11-17",
     title: "What a session waits on, offline chats you can read, and steadier computer use",
