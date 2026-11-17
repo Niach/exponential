@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
-use crate::backend::{self, LockGuard};
+use crate::backend::{self, LockGuard, Target};
 use crate::server::ToolHost;
 use crate::tools;
 
@@ -141,11 +141,21 @@ pub(crate) struct Host {
     janitor: Mutex<bool>,
     /// For the lock's Esc callback.
     weak: Mutex<Weak<Host>>,
+    /// Whose input this host's lock takes (#EXP-1924): everything above is
+    /// this target's alone.
+    target: Target,
 }
 
 impl Host {
+    /// The person's seat's host.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn new() -> Arc<Host> {
-        let host = Arc::new(Host::default());
+        Host::on(Target::Person)
+    }
+
+    /// `target`'s host.
+    pub(crate) fn on(target: Target) -> Arc<Host> {
+        let host = Arc::new(Host { target, ..Host::default() });
         *host.weak.lock().unwrap() = Arc::downgrade(&host);
         host
     }
@@ -172,7 +182,7 @@ impl Host {
         }
         *announced = seq;
         if label.is_none() {
-            crate::work_screen::set_banner(None);
+            crate::work_screen::set_banner(self.target, None);
         }
         let presence = self.presence.lock().unwrap().clone();
         if let Some(presence) = presence {
@@ -452,7 +462,7 @@ impl Host {
             interrupted: &interrupted,
             display: &mut display,
             copy_mark: &mut copy_mark,
-            picked: crate::work_screen::picked(),
+            picked: crate::work_screen::picked(self.target),
             engage: &engage,
         };
         let result = tools::call(backend, name, &arguments, &mut ctx);
@@ -507,7 +517,7 @@ impl ToolHost for Host {
         if !self.in_flight.lock().unwrap().granted.contains(session_id) {
             return tools::error(ENDED);
         }
-        let backend = match backend::open() {
+        let backend = match backend::open(self.target) {
             Ok(backend) => backend,
             Err(reason) => return tools::error(reason),
         };
@@ -516,6 +526,104 @@ impl ToolHost for Host {
 
     fn end(&self, session_id: &str) {
         Host::end(self, session_id);
+    }
+}
+
+/// Every target's host, made on its first run, and each run's target
+/// (#EXP-1924): the endpoint's [`ToolHost`]; a call or an end goes to the
+/// run's target's host only.
+#[derive(Default)]
+pub(crate) struct Hosts {
+    hosts: Mutex<HashMap<Target, Arc<Host>>>,
+    runs: Mutex<HashMap<String, Target>>,
+    /// The banner: the person's seat's ([`Host::set_presence`]).
+    presence: Mutex<Option<Presence>>,
+}
+
+impl Hosts {
+    fn host(&self, target: Target) -> Arc<Host> {
+        if let Some(host) = self.hosts.lock().unwrap().get(&target) {
+            return host.clone();
+        }
+        let (host, made) = match self.hosts.lock().unwrap().entry(target) {
+            std::collections::hash_map::Entry::Occupied(host) => (host.get().clone(), false),
+            std::collections::hash_map::Entry::Vacant(slot) => (slot.insert(Host::on(target)).clone(), true),
+        };
+        // Told outside the map's mutex: the banner may read the host.
+        if made && target == Target::Person {
+            if let Some(presence) = self.presence.lock().unwrap().clone() {
+                host.set_presence(presence);
+            }
+        }
+        host
+    }
+
+    /// The run's target's host; `None` = never admitted.
+    fn of(&self, session_id: &str) -> Option<Arc<Host>> {
+        let target = *self.runs.lock().unwrap().get(session_id)?;
+        Some(self.host(target))
+    }
+
+    /// The banner hears the person's seat's host (made here when it is not
+    /// yet), at once with its state.
+    pub(crate) fn set_presence(&self, presence: Presence) {
+        *self.presence.lock().unwrap() = Some(presence.clone());
+        let person = self.hosts.lock().unwrap().get(&Target::Person).cloned();
+        match person {
+            Some(person) => person.set_presence(presence),
+            None => drop(self.host(Target::Person)),
+        }
+    }
+
+    /// Whether the person's input is taken right now ([`Host::engaged`]).
+    pub(crate) fn engaged(&self) -> bool {
+        self.hosts.lock().unwrap().get(&Target::Person).is_some_and(|host| host.engaged())
+    }
+
+    /// [`Host::admit`] on `target`'s host.
+    pub(crate) fn admit(&self, session_id: &str, target: Target) {
+        self.runs.lock().unwrap().insert(session_id.to_string(), target);
+        self.host(target).admit(session_id);
+    }
+
+    pub(crate) fn set_hook(&self, session_id: &str, hook: AbortHook) {
+        if let Some(host) = self.of(session_id) {
+            host.set_hook(session_id, hook);
+        }
+    }
+
+    pub(crate) fn turn_started(&self, session_id: &str) {
+        if let Some(host) = self.of(session_id) {
+            host.turn_started(session_id);
+        }
+    }
+
+    pub(crate) fn shutdown(&self) {
+        let hosts: Vec<Arc<Host>> = self.hosts.lock().unwrap().values().cloned().collect();
+        for host in hosts {
+            host.shutdown();
+        }
+    }
+}
+
+impl ToolHost for Hosts {
+    fn tools(&self) -> Result<Value, String> {
+        Ok(tools::list())
+    }
+
+    fn call(&self, session_id: &str, label: &str, name: &str, arguments: Value) -> Value {
+        match self.of(session_id) {
+            Some(host) => host.call(session_id, label, name, arguments),
+            None => tools::error(ENDED),
+        }
+    }
+
+    fn end(&self, session_id: &str) {
+        // Forgotten first: a grant for the same id from here on is a new run.
+        let target = self.runs.lock().unwrap().remove(session_id);
+        if let Some(target) = target {
+            self.host(target).end(session_id);
+        }
     }
 }
 
@@ -1006,5 +1114,81 @@ mod tests {
             host.shutdown();
             assert_eq!(*last.lock().unwrap(), None, "round {round}");
         }
+    }
+
+    /// #EXP-1924: two targets' hosts share no hold, no Esc and no queue.
+    #[test]
+    fn two_targets_share_no_lock_state_queue_or_abort() {
+        let (a, b) = (Host::new(), Host::on(Target::Person));
+        a.admit("s1");
+        b.admit("s2");
+        let backend = tools::tests::FakeBackend::default();
+        a.lease("s1", "EXP-1", &backend).unwrap();
+        assert!(a.engaged() && !b.engaged(), "a lease on one host engaged the other");
+        // A driving call holds `a`'s queue: `b`'s driving call still runs.
+        let (typing, inside) = std::sync::mpsc::channel();
+        let (go, release) = std::sync::mpsc::channel::<()>();
+        let blocked = Hooked {
+            on_type: Some({
+                let (typing, release) = (Mutex::new(typing), Mutex::new(release));
+                Box::new(move || {
+                    let _ = typing.lock().unwrap().send(());
+                    let _ = release.lock().unwrap().recv_timeout(Duration::from_secs(5));
+                })
+            }),
+            ..Default::default()
+        };
+        std::thread::scope(|scope| {
+            let typed = scope.spawn(|| a.call_on(&blocked, "s1", "EXP-1", "type", json!({ "text": "a" })));
+            inside.recv_timeout(Duration::from_secs(5)).expect("the type never started");
+            let began = Instant::now();
+            let reply = b.call_on(&backend, "s2", "EXP-2", "left_click", json!({ "x": 1, "y": 1 }));
+            assert_eq!(reply["isError"], Value::Null, "{reply}");
+            assert!(began.elapsed() < Duration::from_secs(2), "the other host's call queued behind this one");
+            assert!(!typed.is_finished());
+            go.send(()).unwrap();
+            assert_eq!(typed.join().unwrap()["isError"], Value::Null);
+        });
+        assert!(b.engaged());
+        // Esc on `a` aborts its users only; `b` keeps its hold.
+        a.abort();
+        assert!(a.aborted("s1") && !a.engaged());
+        assert!(!b.aborted("s2") && b.engaged(), "an Esc on one host reached the other");
+        a.shutdown();
+        b.shutdown();
+    }
+
+    /// #EXP-1924: `Hosts` sends each run's admit, call, turn and end to its
+    /// target's host, and a shutdown to every host. (No call here reaches
+    /// a backend: each answers before one opens.)
+    #[test]
+    fn hosts_route_each_run_to_its_targets_host() {
+        let hosts = Hosts::default();
+        hosts.admit("s1", Target::Person);
+        hosts.admit("s2", Target::Person);
+        let person = hosts.host(Target::Person);
+        assert!(Arc::ptr_eq(&person, &hosts.host(Target::Person)));
+        assert!(person.in_flight.lock().unwrap().granted.contains("s1"));
+        let cancelled = Arc::new(Mutex::new(0));
+        hosts.set_hook("s1", {
+            let cancelled = cancelled.clone();
+            Arc::new(move || *cancelled.lock().unwrap() += 1)
+        });
+        let backend = tools::tests::FakeBackend::default();
+        person.lease("s1", "EXP-1", &backend).unwrap();
+        assert!(hosts.engaged());
+        person.abort();
+        assert_eq!(*cancelled.lock().unwrap(), 1);
+        assert_eq!(hosts.call("s1", "EXP-1", "cursor_position", json!({}))["content"][0]["text"], tools::ABORTED);
+        hosts.turn_started("s1");
+        assert!(!person.aborted("s1"));
+        hosts.end("s2");
+        assert!(!person.in_flight.lock().unwrap().granted.contains("s2"));
+        assert_eq!(hosts.call("s2", "EXP-2", "cursor_position", json!({}))["content"][0]["text"], ENDED);
+        assert_eq!(hosts.call("s9", "EXP-9", "cursor_position", json!({}))["content"][0]["text"], ENDED);
+        person.lease("s1", "EXP-1", &backend).unwrap();
+        hosts.shutdown();
+        assert!(!hosts.engaged() && !person.engaged());
+        assert!(person.in_flight.lock().unwrap().granted.is_empty());
     }
 }

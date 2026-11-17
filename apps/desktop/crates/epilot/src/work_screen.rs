@@ -3,12 +3,12 @@
 //! the run's current display and where the voice overlay may open. The
 //! pure rules replay the fixture; the OS reads go through the backend.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
 use serde_json::Value;
 
-use crate::backend::{self, DisplayInfo, WindowInfo};
+use crate::backend::{self, DisplayInfo, Target, WindowInfo};
 use crate::{Display, ScreenState};
 
 const FIXTURE: &str = include_str!("../../../../../packages/domain-contract/fixtures/work-screen.json");
@@ -215,14 +215,20 @@ pub fn overlay_display(count: usize, pointer: usize, fullscreen: &[usize], work:
 /// The device's Work screen setting: the picked display's stable id
 /// (#FEED-161); `None` = Auto. Resolved to a number on every call
 /// ([`resolve`]), so a hot-plug or a reorder never moves it.
-static PICKED: Mutex<Option<String>> = Mutex::new(None);
+/// One per [`Target`] (#EXP-1924).
+static PICKED: Mutex<Option<HashMap<Target, String>>> = Mutex::new(None);
 
-pub(crate) fn set_picked(id: Option<String>) {
-    *PICKED.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = id.filter(|id| !id.is_empty());
+pub(crate) fn set_picked(target: Target, id: Option<String>) {
+    let mut picked = PICKED.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let picked = picked.get_or_insert_with(HashMap::new);
+    match id.filter(|id| !id.is_empty()) {
+        Some(id) => picked.insert(target, id),
+        None => picked.remove(&target),
+    };
 }
 
-pub(crate) fn picked() -> Option<String> {
-    PICKED.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()
+pub(crate) fn picked(target: Target) -> Option<String> {
+    PICKED.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).as_ref()?.get(&target).cloned()
 }
 
 /// The gate's `picked` off the stored id: the 1-based number of the display
@@ -337,11 +343,16 @@ pub(crate) fn state_of(displays: &[DisplayInfo], windows: &[WindowInfo], picked:
 
 /// The display the banner floats on (0-based): the current display of the
 /// last call that went through; cleared when the lock releases.
-const NO_BANNER: usize = usize::MAX;
-static BANNER: AtomicUsize = AtomicUsize::new(NO_BANNER);
+/// One per [`Target`] (#EXP-1924).
+static BANNER: Mutex<Option<HashMap<Target, usize>>> = Mutex::new(None);
 
-pub(crate) fn set_banner(display: Option<usize>) {
-    BANNER.store(display.unwrap_or(NO_BANNER), Ordering::Release);
+pub(crate) fn set_banner(target: Target, display: Option<usize>) {
+    let mut banner = BANNER.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let banner = banner.get_or_insert_with(HashMap::new);
+    match display {
+        Some(display) => banner.insert(target, display),
+        None => banner.remove(&target),
+    };
 }
 
 fn public(index: usize, display: &DisplayInfo) -> Display {
@@ -357,7 +368,7 @@ fn public(index: usize, display: &DisplayInfo) -> Display {
 }
 
 fn backend_displays() -> Option<(Box<dyn backend::Backend>, Vec<DisplayInfo>)> {
-    let backend = backend::open().ok()?;
+    let backend = backend::open(Target::Person).ok()?;
     let displays = backend.displays().ok()?;
     Some((backend, displays))
 }
@@ -375,7 +386,7 @@ pub(crate) fn screen_state() -> Option<ScreenState> {
         log::debug!("[computer] no window list for the work screen ({reason})");
         Vec::new()
     });
-    let picked = resolve(&displays, picked().as_deref());
+    let picked = resolve(&displays, picked(Target::Person).as_deref());
     let state = state_of(&displays, &windows, picked);
     let work = work_displays(&state);
     Some(ScreenState {
@@ -450,16 +461,12 @@ pub(crate) fn rect_in_pixels(display: &DisplayInfo, pixels: (u32, u32), window: 
 
 /// #EXP-1916: the 0-based display the banner floats on, without reading
 /// the OS (the IDE asks every tick whether the run moved on).
-pub(crate) fn banner_index() -> Option<usize> {
-    let index = BANNER.load(Ordering::Acquire);
-    (index != NO_BANNER).then_some(index)
+pub(crate) fn banner_index(target: Target) -> Option<usize> {
+    BANNER.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).as_ref()?.get(&target).copied()
 }
 
-pub(crate) fn banner_display() -> Option<Display> {
-    let index = BANNER.load(Ordering::Acquire);
-    if index == NO_BANNER {
-        return None;
-    }
+pub(crate) fn banner_display(target: Target) -> Option<Display> {
+    let index = banner_index(target)?;
     let (_, displays) = backend_displays()?;
     displays.get(index).map(|display| public(index, display))
 }

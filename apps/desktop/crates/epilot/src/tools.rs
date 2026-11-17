@@ -265,7 +265,7 @@ pub(crate) fn call(backend: &dyn Backend, name: &str, args: &Value, ctx: &mut Ca
     let current = work_screen::current(&screen.work, screen.primary(), *ctx.display);
     if current.is_some() {
         *ctx.display = current;
-        work_screen::set_banner(current);
+        work_screen::set_banner(backend.target(), current);
     }
     // #EXP-1898: looking and waiting leave the person's input alone.
     if work_screen::drives(name) {
@@ -319,7 +319,7 @@ fn dispatch(
             return Ok(ok("No work screen.".to_string(), json!({ "work": [] })));
         };
         *ctx.display = Some(current);
-        work_screen::set_banner(Some(current));
+        work_screen::set_banner(backend.target(), Some(current));
         return screenshot(backend, &screen, current, Frame::fit(&screen.displays[current]));
     }
     // Every other tool passed the gate, so a work display exists.
