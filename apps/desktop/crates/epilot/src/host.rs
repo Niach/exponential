@@ -741,14 +741,16 @@ mod tests {
         let reply = host.call_on(&backend, "s1", "EXP-1", "type", json!({ "text": "a" }));
         assert_eq!(reply["isError"], Value::Null, "{reply}");
         assert!(host.engaged(), "an input tool takes the hold");
-        // 29 s after the input call, a look; 2 s later the hold is idle.
-        let used = Instant::now().checked_sub(Duration::from_secs(29)).expect("a clock past 29 s");
+        // 10 s after the input call, a look; past its 30 s the hold is idle.
+        // #EXP-1905: 20 s of room before the real janitor releases it (the
+        // four looks took 3.5 s on a loaded CI runner, and 1 s was not enough).
+        let used = Instant::now().checked_sub(Duration::from_secs(10)).expect("a clock past 10 s");
         for (name, arguments) in &looks {
             host.lock.lock().unwrap().last_used = Some(used);
             host.call_on(&backend, "s1", "EXP-1", name, arguments.clone());
             assert_eq!(host.lock.lock().unwrap().last_used, Some(used), "{name} renewed the hold");
         }
-        host.sweep(Instant::now() + Duration::from_secs(2));
+        host.sweep(used + IDLE + Duration::from_secs(1));
         assert!(!host.engaged(), "a look kept the hold past its 30 s");
     }
 
