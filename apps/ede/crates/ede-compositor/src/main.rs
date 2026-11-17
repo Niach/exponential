@@ -171,6 +171,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             let mut h = ede_compositor::backend::headless::Headless {
                 renderer: smithay::backend::renderer::pixman::PixmanRenderer::new()?,
                 outputs: Vec::new(),
+                globals: Vec::new(),
             };
             h.add_output(&mut state, "HEADLESS-1", size);
             let outputs = h.outputs.clone();
