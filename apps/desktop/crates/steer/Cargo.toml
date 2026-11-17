@@ -62,6 +62,10 @@ etalk-codec = { path = "../etalk-codec" }
 # Secret-redaction patterns for the public activity emitter (§P7). Already in
 # the workspace lock via transitive deps — adds no new build.
 regex = "1"
+# #EDE-108: the chat store's catch-up rules and its SQLite adapter (a holder
+# answers off it; the catch-up loop fills it). chat-store's own tests
+# dev-depend on steer: a dev-dependency cycle, which Cargo allows.
+chat-store = { path = "../chat-store" }
 
 [dev-dependencies]
 # EXP-1457: verifies the install-register signature independently of enet-core.

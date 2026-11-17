@@ -547,6 +547,10 @@ fn run_daemon(args: &[String]) -> CommandResult {
                 let store = rows.store()?;
                 steer::StoredSession::of(&session_row(&store, session_id)?)
             }),
+            // #EDE-108: a reader's catch-up page for a run of this machine
+            // is answered off its journal (the daemon keeps no chat store).
+            device_id: Some(device_id.clone()),
+            chat_store: None,
         });
         node
     });

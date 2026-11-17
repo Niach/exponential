@@ -527,6 +527,8 @@ fn stored(dir: &std::path::Path, session_id: &str, starter: &str, ended: Arc<std
                 ended: ended.load(std::sync::atomic::Ordering::SeqCst),
             })
         }),
+        device_id: None,
+        chat_store: None,
     }
 }
 

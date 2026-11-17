@@ -106,6 +106,10 @@ pub fn start(account: &api::Account, cx: &mut App) {
     node.serve_stored(steer::StoredJournals {
         data_dir: auth.data_dir.clone(),
         session: stored_session_lookup(rows, account.id.clone()),
+        // #EDE-108: catch-up pages for this machine's runs come off its
+        // journals, for any other device's off the account's chat store.
+        device_id: Some(steer::persistent_device_id(&auth.data_dir)),
+        chat_store: Some(crate::chat_store::serving_slot()),
     });
     state.by_account.insert(account.id.clone(), node);
 }
@@ -125,6 +129,12 @@ fn stored_session_lookup(
         let row: domain::rows::SessionRow = serde_json::from_value(serde_json::Value::Object(row)).ok()?;
         steer::StoredSession::of(&row)
     })
+}
+
+/// #EDE-108: `account_id`'s running node (the chat store's catch-up asks
+/// through it).
+pub(crate) fn node(account_id: &str, cx: &App) -> Option<InstallNode> {
+    cx.try_global::<EnetInstalls>()?.by_account.get(account_id).cloned()
 }
 
 /// Stops `account_id`'s node; the install stays registered. Returns it so

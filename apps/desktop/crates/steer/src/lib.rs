@@ -68,6 +68,7 @@ pub mod commands;
 pub mod conn_stats;
 pub mod control_channel;
 pub mod enet;
+pub mod enet_catchup;
 pub mod enet_steer;
 /// EXP-846: the contract's `expToolDisplay` lookup (our MCP tools' rows).
 pub mod exp_tool;
