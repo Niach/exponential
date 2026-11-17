@@ -10,6 +10,7 @@ private let logger = Logger(subsystem: "at.exponential", category: "DatabaseMana
 public final class DatabaseManager: @unchecked Sendable {
     private let lock = NSLock()
     private var pools: [String: DatabasePool] = [:]
+    private var shared: [String: SharedReads] = [:]
 
     public init() {}
 
@@ -56,7 +57,20 @@ public final class DatabaseManager: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         pools[accountId] = nil
+        shared[accountId] = nil
         logger.info("Closed DB pool for account \(accountId, privacy: .public)")
+    }
+
+    /// #ERR-26: the account database's shared reads (one per open pool: a
+    /// reopened pool gets new ones).
+    public func sharedReads(forAccountId accountId: String) throws -> SharedReads {
+        let pool = try pool(forAccountId: accountId)
+        return lock.withLock {
+            if let existing = shared[accountId], existing.writer === pool { return existing }
+            let reads = SharedReads(writer: pool)
+            shared[accountId] = reads
+            return reads
+        }
     }
 
     /// The accounts whose pool is open.
@@ -69,6 +83,7 @@ public final class DatabaseManager: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         pools.removeAll()
+        shared.removeAll()
     }
 
     /// Delete the underlying SQLite files for the given account.

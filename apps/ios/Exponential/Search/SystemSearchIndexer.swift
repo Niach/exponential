@@ -85,23 +85,21 @@ final class SystemSearchIndexer {
     // MARK: - Private
 
     private func start(accountId: String, userId: String?) {
-        guard let pool = try? db.pool(forAccountId: accountId) else { return }
-        let observation = ValueObservation.tracking { db in
-            try Self.read(db, userId: userId)
-        }.removeDuplicates()
-        let debounce = Duration.milliseconds(SystemSearch.debounceMs)
+        guard let reads = try? db.sharedReads(forAccountId: accountId) else { return }
+        // #ERR-26: a pass at most once per debounce, and the store read at
+        // most that often too (a sleep in this loop would not bound GRDB's
+        // fetches: they ran on every synced write).
+        let read = reads.shared(
+            "systemSearch:\(userId ?? "")",
+            tables: ["boards", "issues", "sessions"],
+            minInterval: .milliseconds(SystemSearch.debounceMs)
+        ) { writer in
+            try await writer.read { try Self.read($0, userId: userId) }
+        }
         tasks[accountId] = Task { @MainActor [weak self] in
-            do {
-                // The newest snapshot only: a pass at most once per debounce.
-                let values = observation.values(in: pool, bufferingPolicy: .bufferingNewest(1))
-                for try await items in values {
-                    try await Task.sleep(for: debounce)
-                    guard let self else { return }
-                    await self.write(accountId: accountId, items: items)
-                }
-            } catch is CancellationError {
-            } catch {
-                logger.error("Spotlight stream ended: \(error.localizedDescription)")
+            for await items in read.values() {
+                guard let self else { return }
+                await self.write(accountId: accountId, items: items)
             }
         }
     }
@@ -147,9 +145,9 @@ final class SystemSearchIndexer {
         let boards = try BoardEntity.fetchAll(db).map { SystemSearch.Board(id: $0.id, name: $0.name) }
         // The store holds live issues only (the shapes leave trash and
         // archive out); an issue without an identifier yet is not findable.
-        let issues = try IssueEntity.fetchAll(db, sql: """
-            SELECT * FROM "issues" ORDER BY "updated_at" DESC LIMIT ?
-            """, arguments: [caps.maxIssues]).compactMap { issue -> SystemSearch.Issue? in
+        let issues = try IssueEntity.withoutDescription(db)
+            .order(Column("updated_at").desc).limit(caps.maxIssues)
+            .fetchAll(db).compactMap { issue -> SystemSearch.Issue? in
             guard let identifier = issue.identifier, !identifier.isEmpty else { return nil }
             return SystemSearch.Issue(
                 id: issue.id, identifier: identifier, title: issue.title, boardId: issue.boardId,
@@ -158,12 +156,14 @@ final class SystemSearchIndexer {
         }
         // The share-targets filter: plain roots, never an agent's
         // conversation, an app's editor or an encrypted chat.
-        let roots = try SessionEntity.fetchAll(db, sql: """
-            SELECT * FROM "sessions"
-            WHERE "parent_id" IS NULL AND "agent_id" IS NULL AND "app_id" IS NULL
-              AND "seal_public_key" IS NULL AND "sealed_title" IS NULL
-            ORDER BY "updated_at" DESC LIMIT ?
-            """, arguments: [caps.maxChats])
+        // #ERR-26: never the digests or the guides.
+        let roots = try SessionEntity.all(db, except: ["digest", "guide"])
+            .filter(sql: """
+                "parent_id" IS NULL AND "agent_id" IS NULL AND "app_id" IS NULL
+                  AND "seal_public_key" IS NULL AND "sealed_title" IS NULL
+                """)
+            .order(Column("updated_at").desc).limit(caps.maxChats)
+            .fetchAll(db)
         let chats = roots
             .filter { userId == nil || $0.userId == userId || $0.shared }
             .map { root in

@@ -120,7 +120,10 @@ final class AgentComposerModel {
     private var teamRows: [TeamEntity] = []
     var teamsPicked: [String]?
     private var pullRequestRows: [StartPullRequestOption.Candidate] = []
+    @ObservationIgnored private var openPulls: [PullRequestEntity] = []
+    @ObservationIgnored private var pullLinks: [PullRequestIssueEntity] = []
     @ObservationIgnored private var poolTask: Task<Void, Never>?
+    @ObservationIgnored private var issuesTask: Task<Void, Never>?
 
     /// At most this many issues per chat (contract `sessionsSend.maxIssues`).
     static let maxIssues = DomainContract.sessionsSendMaxIssues
@@ -172,6 +175,8 @@ final class AgentComposerModel {
     func release() {
         poolTask?.cancel()
         poolTask = nil
+        issuesTask?.cancel()
+        issuesTask = nil
         dismissErrorToast()
     }
 
@@ -216,11 +221,13 @@ final class AgentComposerModel {
     }
 
     /// Issues, boards, prompts, agents and the open pull requests (with
-    /// their linked issues' identifiers) — one observation, every pool live.
+    /// their linked issues' identifiers), every pool live. #ERR-26: the issues
+    /// are the account's ONE shared read (whole rows: the picker ranks
+    /// descriptions), never a copy of their own.
     private func observePools() {
-        guard poolTask == nil, let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+        guard poolTask == nil, let pool = try? deps.db.pool(forAccountId: accountId),
+              let reads = try? deps.db.sharedReads(forAccountId: accountId) else { return }
         let observation = ValueObservation.tracking { db in
-            let issues = try IssueEntity.fetchAll(db)
             let boards = try BoardEntity.fetchAll(db)
             // NEW-2: the saved prompts and the agent definitions.
             let prompts = try PromptEntity.fetchAll(db)
@@ -230,34 +237,48 @@ final class AgentComposerModel {
                 .filter(Column("state") == DomainContract.prStateOpen)
                 .fetchAll(db)
             let links = try PullRequestIssueEntity.fetchAll(db)
-            return (issues, boards, prompts, (agents, teams), pulls, links)
+            return (boards, prompts, (agents, teams), pulls, links)
         }
         poolTask = Task { [weak self] in
             do {
-                for try await (issues, boards, prompts, agents, pulls, links) in observation.values(in: pool) {
+                for try await (boards, prompts, agents, pulls, links) in observation.values(in: pool) {
                     guard let self else { return }
-                    self.issueRows = issues
                     self.boardRows = boards
                     self.rebuildIssueOptions()
                     self.promptRows = prompts
                     self.agentRows = agents.0
                     self.syncedTeamIds = agents.1.map(\.id)
                     self.teamRows = agents.1
-                    let identifierById = Dictionary(
-                        issues.map { ($0.id, $0.identifier ?? "") }, uniquingKeysWith: { a, _ in a }
-                    )
-                    let linked = Dictionary(grouping: links, by: \.pullRequestId)
-                    self.pullRequestRows = pulls.map { pull in
-                        StartPullRequestOption.Candidate(
-                            id: pull.id,
-                            teamId: pull.teamId,
-                            number: pull.number,
-                            state: pull.state,
-                            identifiers: (linked[pull.id] ?? []).compactMap { identifierById[$0.issueId] }
-                        )
-                    }
+                    self.openPulls = pulls
+                    self.pullLinks = links
+                    self.rebuildPullRequestRows()
                 }
             } catch {}
+        }
+        let issues = reads.issues.values()
+        issuesTask = Task { [weak self] in
+            for await issues in issues {
+                guard let self else { return }
+                self.issueRows = issues
+                self.rebuildIssueOptions()
+                self.rebuildPullRequestRows()
+            }
+        }
+    }
+
+    private func rebuildPullRequestRows() {
+        let identifierById = Dictionary(
+            issueRows.map { ($0.id, $0.identifier ?? "") }, uniquingKeysWith: { a, _ in a }
+        )
+        let linked = Dictionary(grouping: pullLinks, by: \.pullRequestId)
+        pullRequestRows = openPulls.map { pull in
+            StartPullRequestOption.Candidate(
+                id: pull.id,
+                teamId: pull.teamId,
+                number: pull.number,
+                state: pull.state,
+                identifiers: (linked[pull.id] ?? []).compactMap { identifierById[$0.issueId] }
+            )
         }
     }
 
