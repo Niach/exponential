@@ -18,6 +18,8 @@ export type ChatDocKind = `user_message` | `narration` | `tool` | `tool_output` 
 export type StoredEvent = {
   rootId: string
   sessionId: string
+  /** The device that ran it: a session moved in place restarts its seqs on the new device. */
+  deviceId: string
   seq: number
   storedAt: number
   event: { kind: string } & Record<string, unknown>
@@ -37,6 +39,7 @@ export type StoredMessage = {
 export type ChatDoc = {
   rootId: string
   sessionId: string
+  deviceId?: string
   kind: ChatDocKind
   text: string
   at: number
@@ -48,6 +51,7 @@ export type ChatDoc = {
 export type ChatHit = {
   rootId: string
   sessionId: string
+  deviceId?: string
   kind: ChatDocKind
   at: number
   seq?: number
@@ -125,7 +129,7 @@ const num = (value: unknown) => (typeof value === `number` ? value : null)
 /** INDEX SCOPE: the docs one stored event yields (never thoughts). */
 export function eventDocs(stored: StoredEvent): ChatDoc[] {
   const { event } = stored
-  const base = { rootId: stored.rootId, sessionId: stored.sessionId, seq: stored.seq, at: num(event.at) ?? stored.storedAt }
+  const base = { rootId: stored.rootId, sessionId: stored.sessionId, deviceId: stored.deviceId, seq: stored.seq, at: num(event.at) ?? stored.storedAt }
   switch (event.kind) {
     case `user_message`:
     case `narration`: {
@@ -166,31 +170,36 @@ export function messageDocs(message: StoredMessage): ChatDoc[] {
 /** The store's contents (what `ingest` built). */
 export type ChatStoreState = { events: StoredEvent[]; messages: StoredMessage[] }
 
-/** DEDUP: events by (sessionId, seq), first write wins; messages by id, latest wins.
- *  Events are kept per session in seq order. */
+/** DEDUP: events by (sessionId, deviceId, seq), first write wins; messages by id,
+ *  latest wins. Events are kept per session and device in seq order. */
 export function ingest(
   state: ChatStoreState,
   batch: { events?: StoredEvent[]; messages?: StoredMessage[] }
 ): ChatStoreState {
-  const seen = new Set(state.events.map((e) => `${e.sessionId}\u0000${e.seq}`))
+  const key = (e: StoredEvent) => `${e.sessionId}\u0000${e.deviceId}\u0000${e.seq}`
+  const seen = new Set(state.events.map(key))
   const events = [...state.events]
   for (const event of batch.events ?? []) {
-    const key = `${event.sessionId}\u0000${event.seq}`
-    if (seen.has(key)) continue
-    seen.add(key)
+    if (seen.has(key(event))) continue
+    seen.add(key(event))
     events.push(event)
   }
-  events.sort((a, b) => (a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : a.seq - b.seq))
+  events.sort((a, b) => cmp(a.sessionId, b.sessionId) || cmp(a.deviceId, b.deviceId) || a.seq - b.seq)
   const messages = new Map(state.messages.map((m) => [m.id, m]))
   for (const message of batch.messages ?? []) messages.set(message.id, message)
   return { events, messages: [...messages.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)) }
 }
 
-/** ORDER: newest first by `at`, then session id, then seq (higher first; a message
+const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+
+/** ORDER: newest first by `at`, then session id, then device id, then seq (higher first; a message
  *  after the session's events at the same instant), then message id. */
 export function compareHits(a: ChatHit, b: ChatHit): number {
   if (a.at !== b.at) return b.at - a.at
   if (a.sessionId !== b.sessionId) return a.sessionId < b.sessionId ? -1 : 1
+  const da = a.deviceId ?? ``
+  const db = b.deviceId ?? ``
+  if (da !== db) return da < db ? -1 : 1
   const sa = a.seq ?? -1
   const sb = b.seq ?? -1
   if (sa !== sb) return sb - sa
@@ -205,7 +214,7 @@ function allHits(state: ChatStoreState, query: string[], rootId?: string): ChatH
   for (const e of state.events) {
     const id = str(e.event.id)
     if (e.event.kind !== `tool` || !id) continue
-    const key = `${e.sessionId}\u0000${id}`
+    const key = `${e.sessionId}\u0000${e.deviceId}\u0000${id}`
     const row = toolRows.get(key)
     if (row === undefined || e.seq < row) toolRows.set(key, e.seq)
   }
@@ -218,10 +227,11 @@ function allHits(state: ChatStoreState, query: string[], rootId?: string): ChatH
   for (const doc of docs) {
     const match = firstMatch(doc.text, query)
     if (!match) continue
-    const seq = doc.toolId !== undefined ? (toolRows.get(`${doc.sessionId}\u0000${doc.toolId}`) ?? doc.seq) : doc.seq
+    const seq = doc.toolId !== undefined ? (toolRows.get(`${doc.sessionId}\u0000${doc.deviceId}\u0000${doc.toolId}`) ?? doc.seq) : doc.seq
     const hit: ChatHit = {
       rootId: doc.rootId,
       sessionId: doc.sessionId,
+      ...(doc.deviceId !== undefined ? { deviceId: doc.deviceId } : {}),
       kind: doc.kind,
       at: doc.at,
       ...(seq !== undefined ? { seq } : {}),

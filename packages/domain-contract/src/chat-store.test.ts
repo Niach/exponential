@@ -31,7 +31,7 @@ describe(`chat store ingest`, () => {
       let store: ChatStoreState = { events: [], messages: [] }
       for (const batch of entry.batches) store = ingest(store, batch as never)
       expect({
-        events: store.events.map((e) => ({ sessionId: e.sessionId, seq: e.seq, text: (e.event.text as string | undefined) ?? null })),
+        events: store.events.map((e) => ({ sessionId: e.sessionId, deviceId: e.deviceId, seq: e.seq, text: (e.event.text as string | undefined) ?? null })),
         messages: store.messages.map((m) => ({ id: m.id, body: m.body })),
       }).toEqual(entry.expect)
     })

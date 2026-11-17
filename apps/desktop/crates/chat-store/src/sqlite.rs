@@ -15,7 +15,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::{
     all_result, chat_result, collect_hits, docs_of_event, docs_of_message, text, AllResult, ChatResult, Doc, DocKind, Hit,
-    StoredEvent, StoredMessage,
+    StoredEvent, StoredMessage, ToolKey,
 };
 
 pub use rusqlite::Error;
@@ -23,20 +23,22 @@ pub use rusqlite::Error;
 const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS events (
     session_id TEXT NOT NULL,
+    device_id TEXT NOT NULL,
     seq INTEGER NOT NULL,
     root_id TEXT NOT NULL,
     kind TEXT NOT NULL,
     at INTEGER NOT NULL,
     stored_at INTEGER NOT NULL,
     event TEXT NOT NULL,
-    PRIMARY KEY (session_id, seq)
+    PRIMARY KEY (session_id, device_id, seq)
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS events_root ON events (root_id);
 CREATE TABLE IF NOT EXISTS tools (
     session_id TEXT NOT NULL,
+    device_id TEXT NOT NULL,
     tool_id TEXT NOT NULL,
     seq INTEGER NOT NULL,
-    PRIMARY KEY (session_id, tool_id)
+    PRIMARY KEY (session_id, device_id, tool_id)
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS messages (
     id TEXT PRIMARY KEY,
@@ -51,6 +53,7 @@ CREATE TABLE IF NOT EXISTS docs (
     id INTEGER PRIMARY KEY,
     root_id TEXT NOT NULL,
     session_id TEXT NOT NULL,
+    device_id TEXT,
     kind TEXT NOT NULL,
     at INTEGER NOT NULL,
     seq INTEGER,
@@ -59,14 +62,14 @@ CREATE TABLE IF NOT EXISTS docs (
     text TEXT NOT NULL,
     folded TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS docs_event ON docs (session_id, seq);
+CREATE INDEX IF NOT EXISTS docs_event ON docs (session_id, device_id, seq);
 CREATE INDEX IF NOT EXISTS docs_message ON docs (message_id);
 CREATE INDEX IF NOT EXISTS docs_root ON docs (root_id);
 CREATE VIRTUAL TABLE IF NOT EXISTS docs_fts USING fts5(folded, content='docs', content_rowid='id', tokenize='trigram');
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 "#;
 
-/// A session's stored span.
+/// A session's stored span on one device.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Span {
     pub first_seq: u64,
@@ -111,23 +114,24 @@ impl SqliteStore {
         self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    /// Stores the events it does not hold yet (DEDUP by session + seq, first
-    /// write wins) and indexes them; returns how many were new.
+    /// Stores the events it does not hold yet (DEDUP by session + device +
+    /// seq, first write wins) and indexes them; returns how many were new.
     pub fn put_events<'e>(&self, events: impl IntoIterator<Item = &'e StoredEvent>) -> Result<usize, Error> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
         let mut added = 0;
         {
             let mut insert = tx.prepare_cached(
-                "INSERT OR IGNORE INTO events (session_id, seq, root_id, kind, at, stored_at, event) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                "INSERT OR IGNORE INTO events (session_id, device_id, seq, root_id, kind, at, stored_at, event) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             )?;
             let mut tool = tx.prepare_cached(
-                "INSERT INTO tools (session_id, tool_id, seq) VALUES (?1, ?2, ?3) ON CONFLICT (session_id, tool_id) DO UPDATE SET seq = min(seq, excluded.seq)",
+                "INSERT INTO tools (session_id, device_id, tool_id, seq) VALUES (?1, ?2, ?3, ?4) ON CONFLICT (session_id, device_id, tool_id) DO UPDATE SET seq = min(seq, excluded.seq)",
             )?;
             for event in events {
                 let json = serde_json::to_string(&event.event).unwrap_or_default();
                 let inserted = insert.execute(params![
                     event.session_id,
+                    event.device_id,
                     event.seq as i64,
                     event.root_id,
                     event.kind(),
@@ -140,7 +144,7 @@ impl SqliteStore {
                 }
                 added += 1;
                 if let Some(id) = event.tool_id() {
-                    tool.execute(params![event.session_id, id, event.seq as i64])?;
+                    tool.execute(params![event.session_id, event.device_id, id, event.seq as i64])?;
                 }
                 if let Some(doc) = docs_of_event(event) {
                     insert_doc(&tx, &doc)?;
@@ -187,21 +191,28 @@ impl SqliteStore {
         tx.commit()
     }
 
-    /// A session's events in seq order (`before` = only below that seq; the
-    /// newest `limit` of them when given).
-    pub fn read_events(&self, session_id: &str, before: Option<u64>, limit: Option<usize>) -> Result<Vec<StoredEvent>, Error> {
+    /// A session's events on `device_id` in seq order (`before` = only below
+    /// that seq; the newest `limit` of them when given).
+    pub fn read_events(
+        &self,
+        session_id: &str,
+        device_id: &str,
+        before: Option<u64>,
+        limit: Option<usize>,
+    ) -> Result<Vec<StoredEvent>, Error> {
         let conn = self.conn();
         let mut stmt = conn.prepare_cached(
-            "SELECT root_id, seq, stored_at, event FROM events WHERE session_id = ?1 AND seq < ?2 ORDER BY seq DESC LIMIT ?3",
+            "SELECT root_id, seq, stored_at, event FROM events WHERE session_id = ?1 AND device_id = ?2 AND seq < ?3 ORDER BY seq DESC LIMIT ?4",
         )?;
         let before = before.map_or(i64::MAX, |seq| seq as i64);
         let limit = limit.map_or(-1, |limit| limit as i64);
         let mut out: Vec<StoredEvent> = stmt
-            .query_map(params![session_id, before, limit], |row| {
+            .query_map(params![session_id, device_id, before, limit], |row| {
                 let json: String = row.get(3)?;
                 Ok(StoredEvent {
                     root_id: row.get(0)?,
                     session_id: session_id.to_string(),
+                    device_id: device_id.to_string(),
                     seq: row.get::<_, i64>(1)? as u64,
                     stored_at: row.get(2)?,
                     event: serde_json::from_str(&json).unwrap_or_default(),
@@ -212,12 +223,13 @@ impl SqliteStore {
         Ok(out)
     }
 
-    /// The span of `session_id`'s stored events (`None` = none stored).
-    pub fn span(&self, session_id: &str) -> Result<Option<Span>, Error> {
+    /// The span of `session_id`'s stored events on `device_id` (`None` =
+    /// none stored).
+    pub fn span(&self, session_id: &str, device_id: &str) -> Result<Option<Span>, Error> {
         let conn = self.conn();
         let (first, last, count): (Option<i64>, Option<i64>, i64) = conn.query_row(
-            "SELECT min(seq), max(seq), count(*) FROM events WHERE session_id = ?1",
-            params![session_id],
+            "SELECT min(seq), max(seq), count(*) FROM events WHERE session_id = ?1 AND device_id = ?2",
+            params![session_id, device_id],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )?;
         Ok(match (first, last) {
@@ -234,27 +246,28 @@ impl SqliteStore {
         let root_filter = if root_id.is_some() { " AND d.root_id = ?2" } else { "" };
         let sql = if query.len() >= 3 {
             format!(
-                "SELECT d.root_id, d.session_id, d.kind, d.at, d.seq, d.tool_id, d.message_id, d.text FROM docs_fts JOIN docs d ON d.id = docs_fts.rowid WHERE docs_fts MATCH ?1{root_filter}"
+                "SELECT d.root_id, d.session_id, d.device_id, d.kind, d.at, d.seq, d.tool_id, d.message_id, d.text FROM docs_fts JOIN docs d ON d.id = docs_fts.rowid WHERE docs_fts MATCH ?1{root_filter}"
             )
         } else {
             format!(
-                "SELECT d.root_id, d.session_id, d.kind, d.at, d.seq, d.tool_id, d.message_id, d.text FROM docs d WHERE instr(d.folded, ?1) > 0{root_filter}"
+                "SELECT d.root_id, d.session_id, d.device_id, d.kind, d.at, d.seq, d.tool_id, d.message_id, d.text FROM docs d WHERE instr(d.folded, ?1) > 0{root_filter}"
             )
         };
         let pattern = if query.len() >= 3 { format!("\"{}\"", needle.replace('"', "\"\"")) } else { needle };
         let mut stmt = conn.prepare_cached(&sql)?;
         let map = |row: &rusqlite::Row<'_>| -> rusqlite::Result<Option<Doc>> {
-            let kind: String = row.get(2)?;
+            let kind: String = row.get(3)?;
             let Some(kind) = DocKind::parse(&kind) else { return Ok(None) };
             Ok(Some(Doc {
                 root_id: row.get(0)?,
                 session_id: row.get(1)?,
+                device_id: row.get(2)?,
                 kind,
-                at: row.get(3)?,
-                seq: row.get::<_, Option<i64>>(4)?.map(|seq| seq as u64),
-                tool_id: row.get(5)?,
-                message_id: row.get(6)?,
-                text: row.get(7)?,
+                at: row.get(4)?,
+                seq: row.get::<_, Option<i64>>(5)?.map(|seq| seq as u64),
+                tool_id: row.get(6)?,
+                message_id: row.get(7)?,
+                text: row.get(8)?,
             }))
         };
         let docs: Vec<Doc> = match root_id {
@@ -264,16 +277,17 @@ impl SqliteStore {
         .into_iter()
         .flatten()
         .collect();
-        let mut tool_rows: HashMap<(String, String), u64> = HashMap::new();
+        let mut tool_rows: HashMap<ToolKey, u64> = HashMap::new();
         {
-            let mut lookup = conn.prepare_cached("SELECT seq FROM tools WHERE session_id = ?1 AND tool_id = ?2")?;
+            let mut lookup =
+                conn.prepare_cached("SELECT seq FROM tools WHERE session_id = ?1 AND device_id = ?2 AND tool_id = ?3")?;
             for doc in &docs {
                 let Some(tool) = &doc.tool_id else { continue };
-                let key = (doc.session_id.clone(), tool.clone());
+                let key = (doc.session_id.clone(), doc.device_id.clone().unwrap_or_default(), tool.clone());
                 if tool_rows.contains_key(&key) {
                     continue;
                 }
-                if let Some(seq) = lookup.query_row(params![key.0, key.1], |row| row.get::<_, i64>(0)).optional()? {
+                if let Some(seq) = lookup.query_row(params![key.0, key.1, key.2], |row| row.get::<_, i64>(0)).optional()? {
                     tool_rows.insert(key, seq as u64);
                 }
             }
@@ -309,15 +323,29 @@ impl SqliteStore {
         // Prose always stays; any other event goes once its time is past.
         delete_docs(
             &tx,
-            "seq IS NOT NULL AND EXISTS (SELECT 1 FROM events e WHERE e.session_id = docs.session_id AND e.seq = docs.seq \
+            "seq IS NOT NULL AND EXISTS (SELECT 1 FROM events e WHERE e.session_id = docs.session_id AND e.device_id = docs.device_id \
+             AND e.seq = docs.seq \
              AND e.kind NOT IN ('user_message', 'narration') AND e.at < ?1)",
             params![cutoff],
         )?;
         let removed =
             tx.execute("DELETE FROM events WHERE kind NOT IN ('user_message', 'narration') AND at < ?1", params![cutoff])?;
-        tx.execute("DELETE FROM tools WHERE NOT EXISTS (SELECT 1 FROM events e WHERE e.session_id = tools.session_id AND e.seq = tools.seq)", [])?;
+        tx.execute(
+            "DELETE FROM tools WHERE NOT EXISTS (SELECT 1 FROM events e WHERE e.session_id = tools.session_id \
+             AND e.device_id = tools.device_id AND e.seq = tools.seq)",
+            [],
+        )?;
         tx.commit()?;
         Ok(removed)
+    }
+
+    /// The messages stored without a body (their chat key was missing): the
+    /// ones a catch-up tries to open again.
+    pub fn locked_message_ids(&self) -> Result<Vec<String>, Error> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare_cached("SELECT id FROM messages WHERE body IS NULL")?;
+        let ids = stmt.query_map([], |row| row.get(0))?.collect();
+        ids
     }
 
     /// A value of the store's own bookkeeping (catch-up watermarks).
@@ -333,11 +361,12 @@ impl SqliteStore {
 fn insert_doc(tx: &rusqlite::Transaction<'_>, doc: &Doc) -> Result<(), Error> {
     let folded = text::folded(&doc.text);
     tx.prepare_cached(
-        "INSERT INTO docs (root_id, session_id, kind, at, seq, tool_id, message_id, text, folded) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        "INSERT INTO docs (root_id, session_id, device_id, kind, at, seq, tool_id, message_id, text, folded) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
     )?
     .execute(params![
         doc.root_id,
         doc.session_id,
+        doc.device_id,
         doc.kind.as_str(),
         doc.at,
         doc.seq.map(|seq| seq as i64),
@@ -404,7 +433,8 @@ mod tests {
                     store.put_messages(&from::<Vec<StoredMessage>>(messages)).unwrap();
                 }
             }
-            let events = store.read_events("s1", None, None).unwrap();
+            let conn_events = |device| store.read_events("s1", device, None, None).unwrap();
+            let events: Vec<StoredEvent> = conn_events("d1").into_iter().chain(conn_events("d2")).collect();
             let conn = store.conn();
             let messages: Vec<Value> = conn
                 .prepare("SELECT id, body FROM messages ORDER BY id")
@@ -414,7 +444,7 @@ mod tests {
                 .collect::<Result<_, _>>()
                 .unwrap();
             let got = json!({
-                "events": events.iter().map(|e| json!({ "sessionId": e.session_id, "seq": e.seq, "text": e.event.get("text") })).collect::<Vec<_>>(),
+                "events": events.iter().map(|e| json!({ "sessionId": e.session_id, "deviceId": e.device_id, "seq": e.seq, "text": e.event.get("text") })).collect::<Vec<_>>(),
                 "messages": messages,
             });
             assert_eq!(got, case["expect"], "{}", case["name"]);
@@ -430,7 +460,7 @@ mod tests {
         for case in f["retention"]["cases"].as_array().unwrap() {
             let store = store_of(&events, &[]);
             store.apply_retention(case["now"].as_i64().unwrap(), case["windowDays"].as_u64().map(|d| d as u32)).unwrap();
-            let kept: Vec<u64> = store.read_events("s1", None, None).unwrap().iter().map(|e| e.seq).collect();
+            let kept: Vec<u64> = store.read_events("s1", "d1", None, None).unwrap().iter().map(|e| e.seq).collect();
             assert_eq!(json!(kept), case["expect"], "{}", case["name"]);
             // The index forgot what went: the old output is not found any more.
             let found = store.search_chat("r1", "old output", 50).unwrap().total;
@@ -456,6 +486,9 @@ mod tests {
         store.put_messages([&opened]).unwrap();
         assert_eq!(store.search_chat("r1", "draft", 10).unwrap().total, 0);
         assert_eq!(store.search_chat("r1", "ok", 10).unwrap().total, 1);
+        assert!(store.locked_message_ids().unwrap().is_empty());
+        store.put_messages([&StoredMessage { id: "m2".into(), body: None, ..opened.clone() }]).unwrap();
+        assert_eq!(store.locked_message_ids().unwrap(), ["m2"]);
         assert_eq!(store.search_all("\"", 10).unwrap().total, 0);
         assert_eq!(store.search_all("fixed\"", 10).unwrap().total, 0);
     }
@@ -466,15 +499,16 @@ mod tests {
             .map(|seq| StoredEvent {
                 root_id: "r".into(),
                 session_id: "s".into(),
+                device_id: "d".into(),
                 seq,
                 stored_at: 0,
                 event: json!({ "kind": "narration", "text": format!("n{seq}") }),
             })
             .collect();
         let store = store_of(&events, &[]);
-        assert_eq!(store.span("s").unwrap(), Some(Span { first_seq: 1, last_seq: 10, count: 10 }));
-        assert_eq!(store.span("x").unwrap(), None);
-        let page: Vec<u64> = store.read_events("s", Some(8), Some(3)).unwrap().iter().map(|e| e.seq).collect();
+        assert_eq!(store.span("s", "d").unwrap(), Some(Span { first_seq: 1, last_seq: 10, count: 10 }));
+        assert_eq!(store.span("s", "other").unwrap(), None);
+        let page: Vec<u64> = store.read_events("s", "d", Some(8), Some(3)).unwrap().iter().map(|e| e.seq).collect();
         assert_eq!(page, [5, 6, 7]);
         assert_eq!(store.put_events(&events).unwrap(), 0);
     }

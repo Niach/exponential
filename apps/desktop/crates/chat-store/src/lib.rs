@@ -36,6 +36,9 @@ const DAY_MS: i64 = 86_400_000;
 pub struct StoredEvent {
     pub root_id: String,
     pub session_id: String,
+    /// The device that ran it: a session moved in place restarts its seqs
+    /// on the new device.
+    pub device_id: String,
     pub seq: u64,
     /// Ms the store took it (the doc's time when the event has no `at`).
     pub stored_at: i64,
@@ -115,6 +118,8 @@ impl DocKind {
 pub struct Doc {
     pub root_id: String,
     pub session_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_id: Option<String>,
     pub kind: DocKind,
     pub text: String,
     pub at: i64,
@@ -156,6 +161,7 @@ pub fn docs_of_event(stored: &StoredEvent) -> Option<Doc> {
     Some(Doc {
         root_id: stored.root_id.clone(),
         session_id: stored.session_id.clone(),
+        device_id: Some(stored.device_id.clone()),
         kind,
         text,
         at: stored.at(),
@@ -171,6 +177,7 @@ pub fn docs_of_message(message: &StoredMessage) -> Option<Doc> {
     Some(Doc {
         root_id: message.root_id.clone(),
         session_id: message.session_id.clone(),
+        device_id: None,
         kind: DocKind::Message,
         text: body.to_string(),
         at: message.created_at,
@@ -186,6 +193,8 @@ pub fn docs_of_message(message: &StoredMessage) -> Option<Doc> {
 pub struct Hit {
     pub root_id: String,
     pub session_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_id: Option<String>,
     pub kind: DocKind,
     pub at: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -220,34 +229,39 @@ pub struct AllResult {
     pub total: usize,
 }
 
-/// ORDER: newest first, then session id, then seq (higher first; a message
+/// ORDER: newest first, then session id, then device id, then seq (higher first; a message
 /// after the events of the same instant), then message id.
 pub fn compare_hits(a: &Hit, b: &Hit) -> std::cmp::Ordering {
     let seq = |hit: &Hit| hit.seq.map_or(-1, |seq| seq as i128);
     b.at
         .cmp(&a.at)
         .then_with(|| a.session_id.cmp(&b.session_id))
+        .then_with(|| a.device_id.as_deref().unwrap_or_default().cmp(b.device_id.as_deref().unwrap_or_default()))
         .then_with(|| seq(b).cmp(&seq(a)))
         .then_with(|| a.message_id.as_deref().unwrap_or_default().cmp(b.message_id.as_deref().unwrap_or_default()))
 }
 
 /// The hits of the folded `query` among `docs` (a tool's output lands on its
-/// tool row via `tool_rows`: (session, tool id) → the lowest seq), deduped
+/// tool row via `tool_rows`: (session, device, tool id) → the lowest seq), deduped
 /// and ordered. Callers may hand in only CANDIDATES, as long as every doc
 /// that matches is among them.
-pub fn collect_hits(docs: impl IntoIterator<Item = Doc>, tool_rows: &HashMap<(String, String), u64>, query: &[char]) -> Vec<Hit> {
+pub fn collect_hits(docs: impl IntoIterator<Item = Doc>, tool_rows: &HashMap<ToolKey, u64>, query: &[char]) -> Vec<Hit> {
     let mut hits = Vec::new();
     let mut prose: HashSet<(String, String)> = HashSet::new();
     let mut messages = Vec::new();
     for doc in docs {
         let Some(found) = text::first_match(&doc.text, query) else { continue };
         let seq = match &doc.tool_id {
-            Some(tool) => tool_rows.get(&(doc.session_id.clone(), tool.clone())).copied().or(doc.seq),
+            Some(tool) => tool_rows
+                .get(&(doc.session_id.clone(), doc.device_id.clone().unwrap_or_default(), tool.clone()))
+                .copied()
+                .or(doc.seq),
             None => doc.seq,
         };
         let hit = Hit {
             root_id: doc.root_id,
             session_id: doc.session_id,
+            device_id: doc.device_id,
             kind: doc.kind,
             at: doc.at,
             seq,
@@ -309,11 +323,15 @@ pub fn retain(event: &StoredEvent, now_ms: i64, window_days: Option<u32>) -> boo
     }
 }
 
+/// (session, device, tool id): where a tool's output lands.
+pub type ToolKey = (String, String, String);
+
 /// The pure store (the reference the SQLite adapter answers like): DEDUP
-/// events by (session, seq), first write wins; messages by id, latest wins.
+/// events by (session, device, seq), first write wins; messages by id,
+/// latest wins.
 #[derive(Clone, Debug, Default)]
 pub struct MemoryStore {
-    events: BTreeMap<(String, u64), StoredEvent>,
+    events: BTreeMap<(String, String, u64), StoredEvent>,
     messages: BTreeMap<String, StoredMessage>,
 }
 
@@ -326,7 +344,7 @@ impl MemoryStore {
     pub fn put_events(&mut self, events: impl IntoIterator<Item = StoredEvent>) -> usize {
         let mut added = 0;
         for event in events {
-            let key = (event.session_id.clone(), event.seq);
+            let key = (event.session_id.clone(), event.device_id.clone(), event.seq);
             if let std::collections::btree_map::Entry::Vacant(slot) = self.events.entry(key) {
                 slot.insert(event);
                 added += 1;
@@ -341,7 +359,7 @@ impl MemoryStore {
         }
     }
 
-    /// Every stored event, per session in seq order.
+    /// Every stored event, per session and device in seq order.
     pub fn events(&self) -> impl Iterator<Item = &StoredEvent> {
         self.events.values()
     }
@@ -351,10 +369,11 @@ impl MemoryStore {
     }
 
     fn hits(&self, query: &[char], root_id: Option<&str>) -> Vec<Hit> {
-        let mut tool_rows: HashMap<(String, String), u64> = HashMap::new();
+        let mut tool_rows: HashMap<ToolKey, u64> = HashMap::new();
         for event in self.events.values() {
             if let Some(id) = event.tool_id() {
-                let row = tool_rows.entry((event.session_id.clone(), id.to_string())).or_insert(event.seq);
+                let key = (event.session_id.clone(), event.device_id.clone(), id.to_string());
+                let row = tool_rows.entry(key).or_insert(event.seq);
                 *row = (*row).min(event.seq);
             }
         }
@@ -451,7 +470,7 @@ mod tests {
                 }
             }
             let got = json!({
-                "events": store.events().map(|e| json!({ "sessionId": e.session_id, "seq": e.seq, "text": e.event.get("text") })).collect::<Vec<_>>(),
+                "events": store.events().map(|e| json!({ "sessionId": e.session_id, "deviceId": e.device_id, "seq": e.seq, "text": e.event.get("text") })).collect::<Vec<_>>(),
                 "messages": store.messages().map(|m| json!({ "id": m.id, "body": m.body })).collect::<Vec<_>>(),
             });
             assert_eq!(got, case["expect"], "{}", case["name"]);
