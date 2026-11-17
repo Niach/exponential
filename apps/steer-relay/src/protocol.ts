@@ -54,6 +54,8 @@ export const CALL_MAX_FRAMES_PER_SECOND = voiceCall.constants.maxFramesPerSecond
 /** NEW-55 review: the longest call, and the silence that ends a paired one. */
 export const CALL_MAX_MS = voiceCall.constants.maxCallMs
 export const CALL_IDLE_TIMEOUT_MS = voiceCall.constants.idleTimeoutMs
+/** EXP-1929: a paired call's beat (`call_alive` + a ping to both ends). */
+export const CALL_ALIVE_MS = voiceCall.constants.aliveMs
 /** One `call_event` payload, serialized, at most. A flow event is a line of
  *  transcript at worst; anything bigger is not one. */
 export const CALL_EVENT_MAX_BYTES = 8 * 1024
@@ -1021,6 +1023,9 @@ export type ServerFrame =
   | { t: `call_ring`; callId: string; agentId: string }
   // NEW-55: relay → caller AND host once the host joined: the pair is up.
   | { t: `call_ready` }
+  // EXP-1929: relay → caller AND host every CALL_ALIVE_MS once paired: the
+  // path is alive (older builds ignore it).
+  | { t: `call_alive` }
   // NEW-55: forwarded between the pair (see the client frames above).
   | { t: `call_mute`; muted: boolean }
   | { t: `call_event`; event: Record<string, unknown> }

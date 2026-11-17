@@ -17,12 +17,13 @@
 //! machine, the panel, the ring tone) is the IDE's (`etalk_gpui::voice_call`).
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
 use serde_json::{json, Value};
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::call_host::{audio_frame, parse_audio_frame, FRAME_MS, KIND_DOWN, KIND_UP, MAX_FRAME_BYTES, UP_RATE};
+use crate::call_host::{audio_frame, idle_timeout, parse_audio_frame, send_within, Liveness, FRAME_MS, KIND_DOWN, KIND_UP, MAX_FRAME_BYTES, UP_RATE};
 use crate::SteerRuntime;
 
 /// voice-call.json `constants.downRate`: the host's reply audio.
@@ -101,6 +102,8 @@ pub enum Control {
     End { reason: Option<String> },
     Error(String),
     Bye(Option<String>),
+    /// EXP-1929: the relay's beat (`call_alive`).
+    Alive,
 }
 
 /// A text frame's control (None = not one the caller reads).
@@ -113,6 +116,7 @@ pub fn parse_control(text: &str) -> Option<Control> {
         "call_end" => Control::End { reason: text("reason") },
         "error" => Control::Error(text("code").unwrap_or_else(|| "dropped".into())),
         "bye" => Control::Bye(text("outcome")),
+        "call_alive" => Control::Alive,
         _ => return None,
     })
 }
@@ -226,14 +230,14 @@ impl Downlink {
 pub fn connect(runtime: &Arc<SteerRuntime>, url: String, on_event: impl Fn(CallCallerEvent) + Send + Sync + 'static) -> CallCaller {
     let (tx, rx) = flume::unbounded::<Outbound>();
     runtime.handle().spawn(async move {
-        if let Err(err) = run(&url, &rx, &on_event).await {
+        if let Err(err) = run(&url, &rx, &on_event, idle_timeout()).await {
             on_event(CallCallerEvent::Dropped(err));
         }
     });
     CallCaller { tx }
 }
 
-async fn run(url: &str, rx: &flume::Receiver<Outbound>, on_event: &(impl Fn(CallCallerEvent) + Send + Sync)) -> Result<(), String> {
+async fn run(url: &str, rx: &flume::Receiver<Outbound>, on_event: &(impl Fn(CallCallerEvent) + Send + Sync), timeout: Duration) -> Result<(), String> {
     let stream = crate::dial(url).await.map_err(|err| match err {
         crate::DialError::Unauthorized => "the call ticket was refused".to_string(),
         crate::DialError::Other(err) => err,
@@ -244,11 +248,17 @@ async fn run(url: &str, rx: &flume::Receiver<Outbound>, on_event: &(impl Fn(Call
     let mut ready = false;
     let mut muted = false;
     let mut heard_down = false;
+    // EXP-1929: the caller's own frames never stop, so only the relay's
+    // side tells whether the path still carries anything.
+    let mut liveness = Liveness::new(timeout);
     loop {
         tokio::select! {
+            () = liveness.dead() => return Err("the call went silent".into()),
             inbound = source.next() => {
                 let Some(inbound) = inbound else { return Err("the relay closed the call".into()) };
-                match inbound.map_err(|err| crate::redact_ticket(&err.to_string()))? {
+                let inbound = inbound.map_err(|err| crate::redact_ticket(&err.to_string()))?;
+                liveness.heard(false);
+                match inbound {
                     Message::Binary(frame) => {
                         if let Some((KIND_DOWN, seq, packet)) = parse_audio_frame(&frame) {
                             if !heard_down {
@@ -267,7 +277,7 @@ async fn run(url: &str, rx: &flume::Receiver<Outbound>, on_event: &(impl Fn(Call
                             ready = true;
                             if muted {
                                 let frame = json!({ "t": "call_mute", "muted": true }).to_string();
-                                sink.send(Message::text(frame)).await.map_err(|err| err.to_string())?;
+                                send_within(&mut sink, Message::text(frame), timeout).await?;
                             }
                             on_event(CallCallerEvent::Ready);
                         }
@@ -298,6 +308,7 @@ async fn run(url: &str, rx: &flume::Receiver<Outbound>, on_event: &(impl Fn(Call
                             let _ = sink.close().await;
                             return Ok(());
                         }
+                        Some(Control::Alive) => liveness.heard(true),
                         None => {}
                     },
                     Message::Close(_) => {
@@ -310,7 +321,7 @@ async fn run(url: &str, rx: &flume::Receiver<Outbound>, on_event: &(impl Fn(Call
             outbound = rx.recv_async() => {
                 let Ok(outbound) = outbound else {
                     // Every handle dropped without End: hang up.
-                    let _ = sink.send(Message::text(json!({ "t": "call_end" }).to_string())).await;
+                    let _ = send_within(&mut sink, Message::text(json!({ "t": "call_end" }).to_string()), timeout).await;
                     let _ = sink.close().await;
                     return Ok(());
                 };
@@ -321,7 +332,7 @@ async fn run(url: &str, rx: &flume::Receiver<Outbound>, on_event: &(impl Fn(Call
                             continue;
                         }
                         for frame in up.push(&pcm) {
-                            sink.send(Message::Binary(frame.into())).await.map_err(|err| err.to_string())?;
+                            send_within(&mut sink, Message::Binary(frame.into()), timeout).await?;
                         }
                     }
                     Outbound::Mute(now) => {
@@ -329,11 +340,11 @@ async fn run(url: &str, rx: &flume::Receiver<Outbound>, on_event: &(impl Fn(Call
                         up.set_muted(now);
                         if ready {
                             let frame = json!({ "t": "call_mute", "muted": now }).to_string();
-                            sink.send(Message::text(frame)).await.map_err(|err| err.to_string())?;
+                            send_within(&mut sink, Message::text(frame), timeout).await?;
                         }
                     }
                     Outbound::End => {
-                        let _ = sink.send(Message::text(json!({ "t": "call_end" }).to_string())).await;
+                        let _ = send_within(&mut sink, Message::text(json!({ "t": "call_end" }).to_string()), timeout).await;
                         let _ = sink.close().await;
                         return Ok(());
                     }
@@ -346,6 +357,42 @@ async fn run(url: &str, rx: &flume::Receiver<Outbound>, on_event: &(impl Fn(Call
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// EXP-1929 (voice-gpui-call-2): a dialled call whose relay beat once
+    /// and then went silent drops within the deadline, though its own
+    /// microphone frames keep going out.
+    #[tokio::test]
+    async fn a_dialled_call_that_goes_silent_drops() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("ws://{}/", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            let (tcp, _) = listener.accept().await.unwrap();
+            let mut ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
+            for t in ["call_ready", "call_alive"] {
+                ws.send(Message::text(json!({ "t": t }).to_string())).await.unwrap();
+            }
+            while ws.next().await.is_some() {}
+        });
+        let timeout = Duration::from_millis(300);
+        let (tx, rx) = flume::unbounded();
+        tokio::spawn(async move {
+            loop {
+                if tx.send(Outbound::Audio(vec![0; 320])).is_err() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        });
+        let events = std::sync::Mutex::new(Vec::new());
+        let ended = tokio::time::timeout(timeout * 10, run(&url, &rx, &|event| events.lock().unwrap().push(event), timeout)).await;
+        assert_eq!(ended.expect("the dead call ends"), Err("the call went silent".to_string()));
+        assert_eq!(*events.lock().unwrap(), vec![CallCallerEvent::Ready]);
+    }
+
+    #[test]
+    fn the_beat_is_read() {
+        assert!(matches!(parse_control(r#"{"t":"call_alive"}"#), Some(Control::Alive)));
+    }
 
     #[test]
     fn constants_match_the_fixture() {

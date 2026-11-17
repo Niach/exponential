@@ -20,6 +20,7 @@
 
 import type { SteerTicketClaims } from "@exp/steer-ticket"
 import {
+  CALL_ALIVE_MS,
   CALL_FRAME_HEADER_BYTES,
   CALL_KIND_DOWN,
   CALL_KIND_UP,
@@ -50,6 +51,8 @@ export interface RelaySocket {
   close(code?: number, reason?: string): void
   /** Bytes queued on the socket, for call backpressure. */
   bufferedAmount(): number
+  /** EXP-1929: a WebSocket ping (every client answers it by itself). */
+  ping?(): void
 }
 
 interface Conn {
@@ -65,6 +68,9 @@ interface Conn {
    *  and when it was last refilled). */
   frameTokens?: number
   frameTokensAt?: number
+  /** EXP-1929: a paired call socket's last sign of life (any frame or a
+   *  pong). */
+  lastSeenAt?: number
   /** Last time this socket's rejected-frame warning was logged (rate limit). */
   lastFrameWarnAt?: number
   /** #EXP-1525: a control socket whose `online` carried `tunnel: 1`. */
@@ -100,7 +106,8 @@ interface CallRoom {
   /** NEW-55 review: once paired, ends the call at CALL_MAX_MS. */
   lengthTimer: ReturnType<typeof setTimeout> | null
   /** NEW-55 review: once paired, checks for CALL_IDLE_TIMEOUT_MS without a
-   *  forwarded frame. */
+   *  forwarded frame (EXP-1929: or without anything from either socket),
+   *  and beats both ends every CALL_ALIVE_MS. */
   idleTimer: ReturnType<typeof setInterval> | null
   /** The last forwarded binary frame (or the pairing). */
   lastFrameAt: number
@@ -110,6 +117,8 @@ interface CallRoom {
  *  buffering them — a call is realtime, a late frame is worthless, and the
  *  queue must not grow. ~2 s of the 32 kbps downlink. */
 const CALL_HIGH_WATER = 8 * 1024
+
+const CALL_ALIVE_FRAME = frame({ t: `call_alive` })
 
 function callDeviceKey(ownerId: string, deviceId: string): string {
   return `${ownerId}\n${deviceId}`
@@ -223,6 +232,8 @@ export class Hub {
   private callFramesForwarded = 0
   private callFramesDropped = 0
   private callFramesSkipped = 0
+  /** EXP-1929: pongs from call sockets (every client answers the beat's ping). */
+  private callPongs = 0
   /** #EXP-1525: tunnels opened, refused (device offline / unsupported), cut
    *  for backpressure, and sealed frames forwarded each way. */
   private tunnelsOpened = 0
@@ -265,6 +276,7 @@ export class Hub {
   onMessage(sock: RelaySocket, data: string) {
     const conn = this.conns.get(sock)
     if (!conn) return
+    this.seen(conn)
 
     // VAPP-43: session content never crosses the relay. Checked on the frame
     // TYPE alone, before any schema: a content frame is refused whatever it
@@ -291,6 +303,7 @@ export class Hub {
   onBinary(sock: RelaySocket, data: Uint8Array) {
     const conn = this.conns.get(sock)
     if (!conn) return
+    this.seen(conn)
     const call = this.callFor(conn)
     if (!call) return this.dropBinary(conn, `no_call`, data.length)
     const up = call.caller === conn
@@ -381,6 +394,19 @@ export class Hub {
     conn.sock.send(CONTENT_REFUSED_FRAME)
     if (!this.mayWarn(conn)) return
     console.warn(`[hub] refused ${conn.claims.role} content frame (t=${t})`)
+  }
+
+  /** EXP-1929: a pong (the answer to a call socket's ping). */
+  onPong(sock: RelaySocket) {
+    const conn = this.conns.get(sock)
+    if (!conn?.callId) return
+    this.callPongs += 1
+    this.seen(conn)
+  }
+
+  /** EXP-1929: a call socket showed a sign of life. */
+  private seen(conn: Conn) {
+    if (conn.callId) conn.lastSeenAt = Date.now()
   }
 
   onClose(sock: RelaySocket) {
@@ -732,6 +758,7 @@ export class Hub {
       callFramesForwarded: this.callFramesForwarded,
       callFramesDropped: this.callFramesDropped,
       callFramesSkipped: this.callFramesSkipped,
+      callPongs: this.callPongs,
       tunnelsOpened: this.tunnelsOpened,
       tunnelsRefused: this.tunnelsRefused,
       tunnelsOverflowed: this.tunnelsOverflowed,
@@ -831,18 +858,30 @@ export class Hub {
     call.host = conn
     conn.callId = call.callId
     // NEW-55 review: a paired call ends at CALL_MAX_MS, or after
-    // CALL_IDLE_TIMEOUT_MS without a frame either way.
+    // CALL_IDLE_TIMEOUT_MS without a frame either way. EXP-1929: or when
+    // EITHER socket sent nothing at all (a frame, a pong) for as long: the
+    // caller's stream no longer hides a host that vanished. Both ends get
+    // `call_alive` and a ping every CALL_ALIVE_MS (a listening host answers
+    // the ping; an end that got a beat ends a call gone quiet itself).
     call.lastFrameAt = Date.now()
+    call.caller.lastSeenAt = call.lastFrameAt
+    conn.lastSeenAt = call.lastFrameAt
     call.lengthTimer = setTimeout(() => {
       call.lengthTimer = null
       this.expireCall(call, `max_length`)
     }, CALL_MAX_MS)
-    call.idleTimer = setInterval(
-      () => {
-        if (Date.now() - call.lastFrameAt >= CALL_IDLE_TIMEOUT_MS) this.expireCall(call, `idle`)
-      },
-      Math.min(CALL_IDLE_TIMEOUT_MS, 5_000)
-    )
+    call.idleTimer = setInterval(() => {
+      const now = Date.now()
+      const quiet = (member: Conn) => now - (member.lastSeenAt ?? 0) >= CALL_IDLE_TIMEOUT_MS
+      if (now - call.lastFrameAt >= CALL_IDLE_TIMEOUT_MS || quiet(call.caller) || quiet(conn)) {
+        this.expireCall(call, `idle`)
+        return
+      }
+      for (const member of [call.caller, conn]) {
+        member.sock.send(CALL_ALIVE_FRAME)
+        member.sock.ping?.()
+      }
+    }, CALL_ALIVE_MS)
     const ready = frame({ t: `call_ready` })
     call.caller.sock.send(ready)
     conn.sock.send(ready)
