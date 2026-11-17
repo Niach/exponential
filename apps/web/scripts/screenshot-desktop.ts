@@ -834,6 +834,9 @@ async function main() {
         // every composer shot says "Not ready on Alex's MacBook Pro".
         acpAgents: AGENTS,
         caps: CAPS,
+        // #EXP-1899: its Computer use switch is on, so the composer "+" menu
+        // offers the Computer use row (composer-menu.json `computerUse.offered`).
+        launchDefaults: { computerUse: true },
         agentAccounts: report.agentAccounts,
         agentUsage: report.agentUsage,
         agentUsageAt: now,
@@ -850,6 +853,7 @@ async function main() {
           agents: AGENTS,
           acpAgents: AGENTS,
           caps: CAPS,
+          launchDefaults: { computerUse: true },
           agentAccounts: report.agentAccounts,
           agentUsage: report.agentUsage,
           agentUsageAt: now,

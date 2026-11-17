@@ -938,6 +938,12 @@ impl PlatformWindow for WindowsWindow {
             .ok();
     }
 
+    // Exponential patch (#EXP-1923): an empty input region = no click is this
+    // window's (the computer-use banner); upstream ignored the call here.
+    fn set_input_region(&self, region: Option<&[Bounds<Pixels>]>) {
+        set_click_through(self.0.hwnd, region.is_some_and(|region| region.is_empty()));
+    }
+
     fn set_background_appearance(&self, background_appearance: WindowBackgroundAppearance) {
         self.state.background_appearance.set(background_appearance);
         let hwnd = self.0.hwnd;

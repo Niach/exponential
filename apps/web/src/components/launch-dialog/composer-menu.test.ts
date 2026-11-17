@@ -10,6 +10,7 @@ import {
   composerFileChoiceTestId,
   composerMenuLayout,
   composerMenuRowTestId,
+  computerUseOffered,
   implementButtonLabel,
   type ComposerMenuConditions,
   type ComposerMenuSurface,
@@ -120,4 +121,25 @@ describe(`teamsPickValue (#EXP-1715)`, () => {
       expect(teamsPickValue(testCase.picked, testCase.teams)).toBe(testCase.expected)
     })
   }
+})
+
+// #EXP-1899: the Computer use row shows only where the device's switch is on
+// and it can drive a screen (composer-menu.json `computerUse.offered`).
+describe.each(fixture.computerUse.offered)(`computerUse.offered: $name`, (row) => {
+  it(`offered = ${row.offered}`, () => {
+    const doctor =
+      row.doctorState === null
+        ? null
+        : {
+            checkedAt: `2026-11-17T09:00:00.000Z`,
+            items: [{ key: `computer_use`, group: `computer_use`, state: row.doctorState }],
+          }
+    expect(
+      computerUseOffered({
+        caps: row.caps,
+        doctor,
+        launchDefaults: { computerUse: row.launchDefault },
+      })
+    ).toBe(row.offered)
+  })
 })

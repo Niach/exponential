@@ -36,6 +36,9 @@ use pw::{
 
 use crate::Connect;
 
+/// The core error PipeWire's connection reports when the daemon is gone.
+const EPIPE: i32 = 32;
+
 struct Frame {
     width: u32,
     height: u32,
@@ -52,6 +55,8 @@ enum Cmd {
 /// The PipeWire thread.
 pub struct Pw {
     tx: pw::channel::Sender<Cmd>,
+    /// PipeWire went away (#EDE-101): the thread ended its streams and quit.
+    dead: Arc<AtomicBool>,
 }
 
 struct Entry {
@@ -72,9 +77,12 @@ struct Data {
 
 impl Pw {
     /// Connects to PipeWire on a new thread. `on_end` runs (on that thread)
-    /// when a stream's source went away (its window closed).
+    /// when a stream's source went away (its window closed), or PipeWire
+    /// did: then every stream ends and this Pw is dead.
     pub fn start(connect: Connect, on_end: Arc<dyn Fn(u64) + Send + Sync>) -> Result<Pw, String> {
         let (tx, rx) = pw::channel::channel::<Cmd>();
+        let dead = Arc::new(AtomicBool::new(false));
+        let thread_dead = dead.clone();
         let (ready_tx, ready_rx) = mpsc::channel();
         let own_tx = tx.clone();
         std::thread::Builder::new()
@@ -95,6 +103,28 @@ impl Pw {
                     }
                 };
                 let streams: Rc<RefCell<HashMap<u64, Entry>>> = Rc::default();
+                // PipeWire restarted or crashed: the connection is gone for
+                // good. The shares end (their apps hear Closed) and the next
+                // one starts a new Pw.
+                let (ended, quit, gone) = (streams.clone(), mainloop.clone(), on_end.clone());
+                let _core_listener = core
+                    .add_listener_local()
+                    .error(move |id, _seq, res, message| {
+                        if id != pw::core::PW_ID_CORE || res != -EPIPE {
+                            return;
+                        }
+                        tracing::warn!("PipeWire went away: {message}");
+                        thread_dead.store(true, Ordering::Relaxed);
+                        let keys: Vec<u64> = ended.borrow_mut().drain().map(|(key, e)| {
+                            e.stop.store(true, Ordering::Relaxed);
+                            key
+                        }).collect();
+                        for key in keys {
+                            gone(key);
+                        }
+                        quit.quit();
+                    })
+                    .register();
                 let _attached = rx.attach(mainloop.loop_(), move |cmd| match cmd {
                     Cmd::Create { key, target, size, fps, reply } => {
                         match create(&core, key, target, size, fps, reply.clone(), connect.clone(), own_tx.clone()) {
@@ -130,7 +160,7 @@ impl Pw {
             })
             .map_err(|e| e.to_string())?;
         ready_rx.recv_timeout(Duration::from_secs(10)).map_err(|_| "PipeWire did not start".to_string())??;
-        Ok(Pw { tx })
+        Ok(Pw { tx, dead })
     }
 
     /// A new source node for `target`; returns its node id.
@@ -142,6 +172,20 @@ impl Pw {
 
     pub fn destroy(&self, key: u64) {
         let _ = self.tx.send(Cmd::Destroy(key));
+    }
+}
+
+impl crate::Pipe for Pw {
+    fn create(&self, key: u64, target: CaptureTarget, size: (u32, u32), fps: u32) -> Result<u32, String> {
+        Pw::create(self, key, target, size, fps)
+    }
+
+    fn destroy(&self, key: u64) {
+        Pw::destroy(self, key)
+    }
+
+    fn alive(&self) -> bool {
+        !self.dead.load(Ordering::Relaxed)
     }
 }
 

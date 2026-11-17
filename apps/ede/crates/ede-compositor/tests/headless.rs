@@ -520,7 +520,8 @@ fn an_x11_window_through_xwayland_opens_centred_takes_focus_and_is_drawn() {
         assert!(Instant::now() < deadline, "the X11 window never mapped");
         std::thread::sleep(Duration::from_millis(20));
     };
-    assert_eq!(geo, Rectangle::new((480, 280).into(), (320, 240).into()), "centred like a Wayland window");
+    // Its title bar (#EDE-88) counts in the centring, as a Wayland window's.
+    assert_eq!(geo, Rectangle::new((480, 298).into(), (320, 240).into()), "centred like a Wayland window");
     // The focus follows the map asynchronously (the X11 WM handshake), so
     // wait for it instead of racing it: CI runners lost the race.
     let deadline = Instant::now() + Duration::from_secs(30);
@@ -539,6 +540,114 @@ fn an_x11_window_through_xwayland_opens_centred_takes_focus_and_is_drawn() {
     if let Some(path) = verdict {
         std::fs::write(path, "passed\n").expect("write the verdict");
     }
+}
+
+/// Xwayland on `h`, or `None` (skipped) without the binary.
+#[cfg(feature = "xwayland")]
+fn xwayland(h: &Harness) -> Option<x11rb::rust_connection::RustConnection> {
+    if std::process::Command::new("Xwayland").arg("-version").output().is_err() {
+        eprintln!("skipped: no Xwayland binary");
+        return None;
+    }
+    h.with(|ede| ede.start_xwayland());
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let display = loop {
+        if let Some(n) = h.with(|ede| ede.xdisplay) {
+            break n;
+        }
+        assert!(Instant::now() < deadline, "Xwayland never became ready");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    Some(x11rb::connect(Some(&format!(":{display}"))).expect("connect to Xwayland").0)
+}
+
+/// Maps a 320×240 X11 window (key presses selected) with `motif` as its
+/// `_MOTIF_WM_HINTS` and waits until the compositor maps it.
+#[cfg(feature = "xwayland")]
+fn map_x11(h: &Harness, conn: &x11rb::rust_connection::RustConnection, motif: Option<[u32; 5]>) -> u32 {
+    use x11rb::{
+        connection::Connection,
+        protocol::xproto::{AtomEnum, ConnectionExt as _, CreateWindowAux, EventMask, PropMode, WindowClass},
+        wrapper::ConnectionExt as _,
+    };
+    let root = conn.setup().roots[0].root;
+    let win = conn.generate_id().unwrap();
+    let aux = CreateWindowAux::new().background_pixel(0x00ff_0000).event_mask(EventMask::KEY_PRESS | EventMask::FOCUS_CHANGE);
+    conn.create_window(x11rb::COPY_DEPTH_FROM_PARENT, win, root, 0, 0, 320, 240, 0, WindowClass::INPUT_OUTPUT, 0, &aux).unwrap();
+    conn.change_property8(PropMode::REPLACE, win, AtomEnum::WM_NAME, AtomEnum::STRING, b"xclient").unwrap();
+    if let Some(hints) = motif {
+        let atom = conn.intern_atom(false, b"_MOTIF_WM_HINTS").unwrap().reply().unwrap().atom;
+        conn.change_property32(PropMode::REPLACE, win, atom, atom, &hints).unwrap();
+    }
+    conn.map_window(win).unwrap();
+    conn.flush().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !h.with(move |ede| ede.space.elements().any(|w| w.x11_surface().is_some_and(|x| x.window_id() == win) && smithay::wayland::seat::WaylandFocus::wl_surface(w).is_some())) {
+        assert!(Instant::now() < deadline, "the X11 window never mapped");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    win
+}
+
+/// #EDE-88 (`ede-core-5`): the first X11 window of a session takes the
+/// keys typed next without a click, wherever the pointer is: the X side
+/// of the focus (SetInputFocus) follows the compositor's.
+#[cfg(feature = "xwayland")]
+#[test]
+fn the_first_x11_window_takes_keys_without_a_click() {
+    use x11rb::{connection::Connection, protocol::Event};
+    // Two outputs: the window opens centred on the right one, away from
+    // where X's own pointer starts (the middle of the whole X screen), so
+    // keys that follow X's pointer miss it.
+    let h = harness(&[(1280, 800), (1280, 800)]);
+    let Some(conn) = xwayland(&h) else { return };
+    h.with(|ede| ede.pointer_motion_to((2500.0, 5.0).into(), 0));
+    let win = map_x11(&h, &conn, None);
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !h.with(|ede| ede.focused_window().is_some_and(|w| w.x11_surface().is_some())) {
+        assert!(Instant::now() < deadline, "it has keyboard focus");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    const KEY_A: u32 = 30 + 8;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut sent = Instant::now() - Duration::from_secs(1);
+    loop {
+        // Xwayland may still be taking the focus in: type again until it lands.
+        if sent.elapsed() > Duration::from_millis(500) {
+            key(&h, KEY_A, KeyState::Pressed);
+            key(&h, KEY_A, KeyState::Released);
+            sent = Instant::now();
+        }
+        match conn.poll_for_event().unwrap() {
+            Some(Event::KeyPress(e)) if e.event == win && u32::from(e.detail) == KEY_A => break,
+            Some(_) => continue,
+            None => {}
+        }
+        assert!(Instant::now() < deadline, "the X11 window never got the key");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// #EDE-88 (`ede-core-9`): an X11 window gets the compositor's title bar
+/// (the same frame as a Wayland window's); one whose Motif hints ask for
+/// no decorations keeps none.
+#[cfg(feature = "xwayland")]
+#[test]
+fn x11_windows_get_the_title_bar_unless_motif_hints_say_none() {
+    let h = harness(&[(1280, 800)]);
+    let Some(conn) = xwayland(&h) else { return };
+    let plain = map_x11(&h, &conn, None);
+    // flags = MWM_HINTS_DECORATIONS, decorations = none.
+    let bare = map_x11(&h, &conn, Some([2, 0, 0, 0, 0]));
+    let framed = move |id: u32| {
+        h.with(move |ede| {
+            let w = ede.space.elements().find(|w| w.x11_surface().is_some_and(|x| x.window_id() == id)).cloned().unwrap();
+            ede.frame_rect(&w).map(|r| (r, ede.space.element_geometry(&w).unwrap()))
+        })
+    };
+    let (bar, geo) = framed(plain).expect("a plain X11 window has the title bar");
+    assert_eq!((bar.loc.y + bar.size.h, bar.size.w), (geo.loc.y, geo.size.w), "it sits right above the window");
+    assert_eq!(framed(bare), None, "Motif no-decorations keeps none");
 }
 
 /// #EDE-16: a window that leaves decorations to the compositor gets a

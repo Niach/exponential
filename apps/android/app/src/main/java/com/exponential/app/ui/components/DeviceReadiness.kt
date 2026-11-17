@@ -96,11 +96,14 @@ fun DeviceReadinessBlock(
                 // EXP-1320: the readiness rows are a list: no dividers.
                 group.rows.forEach { row ->
                     if (row.isSwitch) {
+                        // #EXP-1899: the device's reason while it cannot
+                        // drive, as the row's second line.
                         SwitchRow(
                             title = row.label,
                             checked = row.switchOn,
                             onCheckedChange = { onComputerUseChange?.invoke(it) },
                             enabled = onComputerUseChange != null,
+                            description = row.detail,
                         )
                     } else {
                         DeviceReadinessRow(

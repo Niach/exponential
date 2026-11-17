@@ -6,15 +6,17 @@
 //! `dwExtraInfo`, which is how the lock tells ours from theirs. Keys go
 //! through the foreground window's keyboard layout (`VkKeyScanExW`); a
 //! character the layout has no plain or Shift key for (AltGr, another
-//! script) is a `KEYEVENTF_UNICODE` stroke instead. The process is per-monitor
+//! script) is a `KEYEVENTF_UNICODE` stroke instead, except a letter or digit
+//! of a shortcut, which is its own VK (#EXP-1922). The process is per-monitor
 //! DPI aware (v2), so every rect and point here is physical pixels of the
 //! virtual screen. The screen is a GDI blit of the desktop; the windows are
 //! `EnumWindows` cut down to what a person can see and switch to.
 //!
 //! The lock is a pair of low-level hooks (keyboard, mouse) on a thread of
 //! their own: everything the person does is swallowed except Esc (the
-//! abort) and the release of a key they held when the lock engaged (so no
-//! modifier stays stuck under our typing). Windows silently drops a hook
+//! abort) and the release of a key or button they held when the lock
+//! engaged (so no modifier stays stuck under our typing, no button under
+//! our moves: #EXP-1921). Windows silently drops a hook
 //! that answers slower than `LowLevelHooksTimeout`, so the hook procs only
 //! decide and post; `on_esc` runs off the message loop, hooks already gone.
 //!
@@ -61,7 +63,8 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP,
     MOUSEEVENTF_VIRTUALDESK, MOUSEEVENTF_WHEEL, MOUSEINPUT, MOUSE_EVENT_FLAGS, VIRTUAL_KEY, VK_BACK, VK_CONTROL,
     VK_DELETE, VK_DOWN, VK_END, VK_ESCAPE, VK_F1, VK_HOME, VK_INSERT, VK_LEFT, VK_LWIN, VK_MENU, VK_NEXT, VK_PRIOR,
-    VK_RETURN, VK_RIGHT, VK_SHIFT, VK_SPACE, VK_TAB, VK_UP,
+    VK_LBUTTON, VK_MBUTTON, VK_RBUTTON, VK_RETURN, VK_RIGHT, VK_RWIN, VK_SHIFT, VK_SPACE, VK_TAB, VK_UP, VK_XBUTTON1,
+    VK_XBUTTON2,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, EDD_GET_DEVICE_INTERFACE_NAME, EnumWindows, GetClassNameW, GetCursorPos, GetForegroundWindow, GetMessageW, GetSystemMetrics, GetWindowLongW,
@@ -69,11 +72,11 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     IsWindowVisible, PeekMessageW, PostThreadMessageW, SetCursorPos, SetForegroundWindow, SetWindowsHookExW,
     ShowWindow, UnhookWindowsHookEx, GWL_EXSTYLE, HHOOK, HOOKPROC, KBDLLHOOKSTRUCT, LLKHF_INJECTED, LLMHF_INJECTED,
     MSG, MSLLHOOKSTRUCT, PM_NOREMOVE, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
-    SW_RESTORE, WHEEL_DELTA, WH_KEYBOARD_LL, WH_MOUSE_LL, WINDOWS_HOOK_ID, WM_APP, WM_KEYDOWN, WM_QUIT,
-    WM_SYSKEYDOWN, WS_EX_TOOLWINDOW,
+    SW_RESTORE, WHEEL_DELTA, WH_KEYBOARD_LL, WH_MOUSE_LL, WINDOWS_HOOK_ID, WM_APP, WM_KEYDOWN, WM_LBUTTONUP, WM_MBUTTONUP,
+    WM_QUIT, WM_RBUTTONUP, WM_SYSKEYDOWN, WM_XBUTTONUP, WS_EX_TOOLWINDOW, XBUTTON1, XBUTTON2,
 };
 
-use crate::backend::{Backend, Button, Clipboard, DisplayInfo, Image, LockGuard, Pasted, SavedClipboard, WindowInfo};
+use crate::backend::{Backend, Button, Clipboard, DisplayInfo, HeldAtEngage, Image, LockGuard, Pasted, SavedClipboard, WindowInfo};
 use crate::keys::{Key, Named};
 
 /// Our tag on every INPUT ("EXP1"): the lock's hooks let these through.
@@ -203,6 +206,20 @@ fn char_stroke(scan: i16) -> Option<(VIRTUAL_KEY, bool)> {
         return None;
     }
     Some((VIRTUAL_KEY::from(vk), state & 1 != 0))
+}
+
+/// #EXP-1922: the key for `ch` when the layout has none. Under Ctrl, Alt
+/// or Win (`modified`) a letter or digit is a shortcut, which apps bind to
+/// its layout-independent VK ('A'..'Z' and '0'..'9' are their own VK codes),
+/// never to a Unicode packet; anything else is typed as Unicode (`None`).
+fn shortcut_vk(ch: char, modified: bool) -> Option<VIRTUAL_KEY> {
+    (modified && ch.is_ascii_alphanumeric()).then(|| VIRTUAL_KEY::from(ch.to_ascii_uppercase() as u8))
+}
+
+/// Whether `vk` is down now.
+fn pressed(vk: VIRTUAL_KEY) -> bool {
+    // SAFETY: no pointers. The high bit = down.
+    unsafe { GetAsyncKeyState(i32::from(vk)) < 0 }
 }
 
 /// `ch` on the keyboard layout of the window that gets the keys.
@@ -660,7 +677,15 @@ impl Backend for Win32 {
                     }
                     send(&inputs)
                 }
-                None => send(&unicode_inputs(ch, !down)),
+                None => {
+                    // A release follows its press: the VK, if that is down.
+                    let modified = [VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN].into_iter().any(pressed);
+                    let held = |vk: VIRTUAL_KEY| !down && pressed(vk);
+                    match shortcut_vk(ch, modified).or_else(|| shortcut_vk(ch, true).filter(|&vk| held(vk))) {
+                        Some(vk) => send(&[vk_input(vk, false, !down)]),
+                        None => send(&unicode_inputs(ch, !down)),
+                    }
+                }
             },
         }
     }
@@ -695,26 +720,50 @@ enum Verdict {
 
 /// The keyboard hook's decision. `held` = the keys down when the lock
 /// engaged: each one's release passes, once.
-fn judge_key(ours: bool, vk: u32, down: bool, held: &mut [bool; 256]) -> Verdict {
+fn judge_key(ours: bool, vk: u32, down: bool, held: &mut HeldAtEngage<256>) -> Verdict {
     if ours {
         return Verdict::Pass;
     }
-    if down {
-        return if vk == u32::from(VK_ESCAPE) { Verdict::Esc } else { Verdict::Swallow };
+    if down && vk == u32::from(VK_ESCAPE) {
+        return Verdict::Esc;
     }
-    match held.get_mut(vk as usize) {
-        Some(slot) if *slot => {
-            *slot = false;
-            Verdict::Pass
-        }
-        _ => Verdict::Swallow,
+    if held.passes(vk as usize, down) {
+        Verdict::Pass
+    } else {
+        Verdict::Swallow
+    }
+}
+
+/// The mouse hook's decision on `message` (`mouse_data` = the
+/// MSLLHOOKSTRUCT's): the release of a button held when the lock engaged
+/// passes, once, like a key's (#EXP-1921); the rest of the person's is
+/// swallowed.
+fn judge_mouse(ours: bool, message: u32, mouse_data: u32, held: &mut HeldAtEngage<256>) -> Verdict {
+    if ours {
+        return Verdict::Pass;
+    }
+    let released = match message {
+        WM_LBUTTONUP => Some(VK_LBUTTON),
+        WM_RBUTTONUP => Some(VK_RBUTTON),
+        WM_MBUTTONUP => Some(VK_MBUTTON),
+        WM_XBUTTONUP => match (mouse_data >> 16) as u16 {
+            XBUTTON1 => Some(VK_XBUTTON1),
+            XBUTTON2 => Some(VK_XBUTTON2),
+            _ => None,
+        },
+        _ => None,
+    };
+    if released.is_some_and(|vk| held.passes(usize::from(vk), false)) {
+        Verdict::Pass
+    } else {
+        Verdict::Swallow
     }
 }
 
 // The hooks run on the thread that installed them (the lock thread, inside
 // its GetMessageW), so their state is that thread's.
 thread_local! {
-    static HELD: Cell<[bool; 256]> = const { Cell::new([false; 256]) };
+    static HELD: Cell<HeldAtEngage<256>> = const { Cell::new(HeldAtEngage::NONE) };
     static ESC_POSTED: Cell<bool> = const { Cell::new(false) };
 }
 
@@ -757,7 +806,14 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
         // SAFETY: for code >= 0, `lparam` points at the event's
         // MSLLHOOKSTRUCT for the duration of the call.
         let event = unsafe { &*(lparam as *const MSLLHOOKSTRUCT) };
-        if !is_ours(event.flags & LLMHF_INJECTED != 0, event.dwExtraInfo) {
+        let ours = is_ours(event.flags & LLMHF_INJECTED != 0, event.dwExtraInfo);
+        let verdict = HELD.with(|held| {
+            let mut buttons = held.get();
+            let verdict = judge_mouse(ours, wparam as u32, event.mouseData, &mut buttons);
+            held.set(buttons);
+            verdict
+        });
+        if verdict != Verdict::Pass {
             return 1;
         }
     }
@@ -796,7 +852,7 @@ struct Lock {
 
 impl Lock {
     fn take(on_esc: Box<dyn Fn() + Send + Sync>) -> Result<Lock, String> {
-        let (ready_tx, ready_rx) = mpsc::channel::<Result<u32, String>>();
+        let (ready, start) = crate::backend::lock_start::<Result<u32, String>>();
         let thread = std::thread::Builder::new()
             .name("computer-use-lock".into())
             .spawn(move || {
@@ -810,7 +866,7 @@ impl Lock {
                 {
                     Ok(hooks) => hooks,
                     Err(reason) => {
-                        let _ = ready_tx.send(Err(reason));
+                        ready.send(Err(reason));
                         return;
                     }
                 };
@@ -819,11 +875,23 @@ impl Lock {
                 // loop below pumps.
                 HELD.with(|held| held.set(pressed_keys()));
                 // SAFETY: no pointers.
-                let _ = ready_tx.send(Ok(unsafe { GetCurrentThreadId() }));
+                if !ready.send(Ok(unsafe { GetCurrentThreadId() })) {
+                    // #EXP-1921: `take` gave up waiting; nobody would ever
+                    // release these hooks.
+                    log::warn!("[computer] the input hooks started after the lock gave up: removed");
+                    return;
+                }
                 hold(hooks, &*on_esc, &mut msg);
             })
             .map_err(|err| format!("lock thread: {err}"))?;
-        match ready_rx.recv_timeout(Duration::from_secs(5)) {
+        // A start that answered just as the wait gave up is ended here.
+        let late = |answer: Result<u32, String>| {
+            if let Ok(thread_id) = answer {
+                // SAFETY: no pointers; the thread's queue exists (peeked).
+                unsafe { PostThreadMessageW(thread_id, WM_QUIT, 0, 0) };
+            }
+        };
+        match start.wait(Duration::from_secs(5), late) {
             Ok(Ok(thread_id)) => Ok(Lock { thread_id, thread: Some(thread) }),
             Ok(Err(reason)) => {
                 let _ = thread.join();
@@ -835,10 +903,10 @@ impl Lock {
     }
 }
 
-/// Every key (and button) down right now.
-fn pressed_keys() -> [bool; 256] {
-    let mut held = [false; 256];
-    for (vk, slot) in held.iter_mut().enumerate().skip(1) {
+/// Every key (and button: VK 1..6) down right now.
+fn pressed_keys() -> HeldAtEngage<256> {
+    let mut held = HeldAtEngage::NONE;
+    for (vk, slot) in held.0.iter_mut().enumerate().skip(1) {
         // SAFETY: no pointers. The high bit = down.
         *slot = unsafe { GetAsyncKeyState(vk as i32) } < 0;
     }
@@ -1165,6 +1233,7 @@ impl Clipboard for WinClipboard {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use windows_sys::Win32::UI::WindowsAndMessaging::WM_MOUSEMOVE;
 
     #[test]
     fn coordinates_normalise_over_the_virtual_screen() {
@@ -1197,6 +1266,18 @@ mod tests {
         assert_eq!(char_stroke(0x0651), None);
     }
 
+    /// #EXP-1922: a layout without the letter (Russian) still gets Ctrl+V
+    /// as the V key; text stays Unicode.
+    #[test]
+    fn a_shortcut_letter_off_the_layout_is_its_own_vk() {
+        assert_eq!(shortcut_vk('v', true), Some(0x56));
+        assert_eq!(shortcut_vk('V', true), Some(0x56));
+        assert_eq!(shortcut_vk('7', true), Some(0x37));
+        assert_eq!(shortcut_vk('v', false), None);
+        assert_eq!(shortcut_vk('ж', true), None);
+        assert_eq!(shortcut_vk('-', true), None);
+    }
+
     #[test]
     fn wheel_signs_follow_the_trait() {
         let delta = WHEEL_DELTA as i32;
@@ -1220,8 +1301,8 @@ mod tests {
 
     #[test]
     fn the_keyboard_hook_swallows_all_but_esc_and_held_releases() {
-        let mut held = [false; 256];
-        held[usize::from(VK_SHIFT)] = true;
+        let mut held = HeldAtEngage::<256>::NONE;
+        held.0[usize::from(VK_SHIFT)] = true;
         let esc = u32::from(VK_ESCAPE);
         let shift = u32::from(VK_SHIFT);
         assert_eq!(judge_key(false, esc, true, &mut held), Verdict::Esc);
@@ -1230,5 +1311,22 @@ mod tests {
         assert_eq!(judge_key(false, shift, false, &mut held), Verdict::Pass);
         assert_eq!(judge_key(false, shift, false, &mut held), Verdict::Swallow);
         assert_eq!(judge_key(true, 0x41, true, &mut held), Verdict::Pass);
+    }
+
+    /// #EXP-1921: a button the person held when the lock engaged gets its
+    /// release through, once.
+    #[test]
+    fn the_mouse_hook_passes_the_release_of_a_button_held_at_engage_once() {
+        let mut held = HeldAtEngage::<256>::NONE;
+        held.0[usize::from(VK_LBUTTON)] = true;
+        held.0[usize::from(VK_XBUTTON2)] = true;
+        let xbutton = |which: u16| u32::from(which) << 16;
+        assert_eq!(judge_mouse(false, WM_LBUTTONUP, 0, &mut held), Verdict::Pass);
+        assert_eq!(judge_mouse(false, WM_LBUTTONUP, 0, &mut held), Verdict::Swallow);
+        assert_eq!(judge_mouse(false, WM_RBUTTONUP, 0, &mut held), Verdict::Swallow);
+        assert_eq!(judge_mouse(false, WM_XBUTTONUP, xbutton(XBUTTON1), &mut held), Verdict::Swallow);
+        assert_eq!(judge_mouse(false, WM_XBUTTONUP, xbutton(XBUTTON2), &mut held), Verdict::Pass);
+        assert_eq!(judge_mouse(false, WM_MOUSEMOVE, 0, &mut held), Verdict::Swallow);
+        assert_eq!(judge_mouse(true, WM_MOUSEMOVE, 0, &mut held), Verdict::Pass);
     }
 }

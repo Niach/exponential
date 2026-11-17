@@ -28,14 +28,18 @@
 //! (`$XDG_RUNTIME_DIR/exponential-desktop/$WAYLAND_DISPLAY.sock`) is there.
 //! Grants by default (#EDE-22): the root token file only mints, once per
 //! process and compositor, a grant for `epilot` holding `capture`,
-//! `input:person` and `ui` (`focus_window`); every connection here uses that
-//! grant, and turning computer use off revokes it. `EDE_TOKEN` (a grant
-//! handed to this process) is used as it is when it cannot mint.
+//! `input:person` and `ui` (`focus_window`), for what no run asks (the
+//! doctor, the screen state, the banner); turning computer use off revokes
+//! it. A run's calls use a grant of the run's own (#EXP-1925: session id =
+//! the run's, an expiry renewed while the run calls), revoked at the run's
+//! end. `EDE_TOKEN` (a grant handed to this process) is used as it is when
+//! it cannot mint.
 
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-use std::time::Duration;
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ede_protocol::{Capability, CaptureTarget, ClipboardItem, Client, InputEvent, Request, SessionId, Token, WindowId, CLIPBOARD_SECRET_HINT, CLIPBOARD_TEXT_MIMES};
 
@@ -91,6 +95,28 @@ pub(crate) fn unsupported(session: &Result<Session, String>) -> Option<String> {
 /// process, not one per tool call (the hub opens a backend per call).
 static GRANT: Mutex<Option<(PathBuf, Token)>> = Mutex::new(None);
 
+/// #EXP-1925: how long a run's grant lives; a call with less than
+/// [`RUN_GRANT_RENEW`] of it left mints the next one. The ones before
+/// expire on their own (a call in flight keeps its connection).
+const RUN_GRANT_TTL: Duration = Duration::from_secs(15 * 60);
+const RUN_GRANT_RENEW: Duration = Duration::from_secs(5 * 60);
+
+/// One grant minted for a run.
+#[derive(Clone)]
+struct RunGrant {
+    socket: PathBuf,
+    token: Token,
+    /// Unix milliseconds.
+    expires_at: i64,
+}
+
+/// Per run: the grants minted for it and not yet expired, newest last.
+static RUN_GRANTS: LazyLock<Mutex<HashMap<String, Vec<RunGrant>>>> = LazyLock::new(Default::default);
+
+fn now_ms() -> i64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
+}
+
 /// What a tool call needs: the screen, the person's seat, and `ui` for
 /// `focus_window` (`activate_window`, #EXP-1897).
 const CAPABILITIES: [Capability; 3] = [Capability::Capture, Capability::InputPerson, Capability::Ui];
@@ -115,10 +141,26 @@ fn pixels_of(output: &ede_protocol::OutputInfo) -> (u32, u32) {
     (scaled(output.width), scaled(output.height))
 }
 
-/// The switch turned off: the grant this process minted ends (#EXP-1897).
+/// The switch turned off: the grants this process minted end (#EXP-1897),
+/// every run's too (#EXP-1925).
 pub(crate) fn revoke_grant() {
     if let Some(Ok(session)) = session() {
         session.revoke();
+        let runs: Vec<String> = RUN_GRANTS.lock().unwrap_or_else(|p| p.into_inner()).keys().cloned().collect();
+        for run in runs {
+            session.end_run(&run);
+        }
+    }
+}
+
+/// #EXP-1925: `run` ended: the grants minted for it end. Touches nothing
+/// when none was.
+pub(crate) fn end_run(run: &str) {
+    if !RUN_GRANTS.lock().unwrap_or_else(|p| p.into_inner()).contains_key(run) {
+        return;
+    }
+    if let Some(Ok(session)) = session() {
+        session.end_run(run);
     }
 }
 
@@ -133,6 +175,71 @@ impl Session {
 
     fn connect_token(&self, token: Token) -> Result<Client, String> {
         Client::connect(&self.socket, token).map_err(|err| format!("eDE ({}): {err}", self.socket.display()))
+    }
+
+    /// A connection under `run`'s own grant (#EXP-1925), minted on its
+    /// first call and again once less than [`RUN_GRANT_RENEW`] is left (or
+    /// the compositor no longer knows it); `None`, or a root that cannot
+    /// mint, = [`Session::connect`].
+    fn connect_as(&self, run: Option<&str>) -> Result<Client, String> {
+        let Some(run) = run else { return self.connect() };
+        let fresh = now_ms() + RUN_GRANT_RENEW.as_millis() as i64;
+        let cached = RUN_GRANTS
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(run)
+            .and_then(|grants| grants.last())
+            .filter(|grant| grant.socket == self.socket && grant.expires_at > fresh)
+            .map(|grant| grant.token.clone());
+        if let Some(token) = cached {
+            match self.connect_token(token) {
+                Ok(client) => return Ok(client),
+                Err(err) if !err.contains("unknown or expired token") => return Err(err),
+                Err(_) => {}
+            }
+        }
+        let mut root = self.connect_token(self.root_token()?)?;
+        if !root.hello.capabilities.contains(&Capability::System) {
+            drop(root);
+            return self.connect();
+        }
+        let now = now_ms();
+        let expires_at = now + RUN_GRANT_TTL.as_millis() as i64;
+        let session = SessionId::new(run).map_err(|err| err.to_string())?;
+        let token = root.mint(session, CAPABILITIES.to_vec(), Some(expires_at)).map_err(e("eDE grant"))?.token;
+        drop(root);
+        {
+            let mut runs = RUN_GRANTS.lock().unwrap_or_else(|p| p.into_inner());
+            let grants = runs.entry(run.to_string()).or_default();
+            grants.retain(|grant| grant.expires_at > now);
+            grants.push(RunGrant { socket: self.socket.clone(), token: token.clone(), expires_at });
+        }
+        self.connect_token(token)
+    }
+
+    /// `run`'s grants on this compositor end; the compositor forgets them.
+    fn end_run(&self, run: &str) {
+        let grants = {
+            let mut runs = RUN_GRANTS.lock().unwrap_or_else(|p| p.into_inner());
+            let Some(grants) = runs.get_mut(run) else { return };
+            let ours: Vec<RunGrant> = grants.iter().filter(|grant| grant.socket == self.socket).cloned().collect();
+            grants.retain(|grant| grant.socket != self.socket);
+            if grants.is_empty() {
+                runs.remove(run);
+            }
+            ours
+        };
+        let now = now_ms();
+        let live: Vec<Token> = grants.into_iter().filter(|grant| grant.expires_at > now).map(|grant| grant.token).collect();
+        if live.is_empty() {
+            return;
+        }
+        let revoked = self.root_token().and_then(|root| self.connect_token(root)).and_then(|mut root| {
+            live.into_iter().try_for_each(|token| root.call(Request::RevokeGrant { token }).map(|_| ()).map_err(e("eDE grant")))
+        });
+        if let Err(err) = revoked {
+            log::warn!("computer use: a run's eDE grant was not revoked: {err}");
+        }
     }
 
     /// A connection under this process's own grant, minted on first use
@@ -176,13 +283,23 @@ impl Session {
     }
 }
 
+/// The backend under this process's own grant.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn open(session: &Session) -> Result<Box<dyn Backend>, String> {
-    Ok(Box::new(Ede { client: Mutex::new(session.connect()?), session: session.clone() }))
+    open_as(session, None)
+}
+
+/// The backend for `run`'s call, under its own grant ([`Session::connect_as`]).
+pub(crate) fn open_as(session: &Session, run: Option<&str>) -> Result<Box<dyn Backend>, String> {
+    let run = run.map(str::to_string);
+    Ok(Box::new(Ede { client: Mutex::new(session.connect_as(run.as_deref())?), session: session.clone(), run }))
 }
 
 pub(crate) struct Ede {
     client: Mutex<Client>,
     session: Session,
+    /// The run whose grant this is; `None` = the process's.
+    run: Option<String>,
 }
 
 fn e(what: &str) -> impl Fn(ede_protocol::Error) -> String + '_ {
@@ -330,7 +447,7 @@ impl Backend for Ede {
     }
 
     fn lock(&self, on_esc: Box<dyn Fn() + Send + Sync>) -> Result<Box<dyn LockGuard>, String> {
-        Ok(Box::new(Hold::take(self.session.connect()?, on_esc)?))
+        Ok(Box::new(Hold::take(self.session.connect_as(self.run.as_deref())?, on_esc)?))
     }
 
     fn clipboard(&self) -> Result<Box<dyn Clipboard + '_>, String> {
@@ -633,7 +750,75 @@ mod tests {
         });
         let client = Client::over(ours, Token::new("a".repeat(64)).unwrap()).unwrap();
         let session = Session { socket: PathBuf::from("/nonexistent"), token_file: PathBuf::from("/nonexistent"), token: None };
-        (Ede { client: Mutex::new(client), session }, server)
+        (Ede { client: Mutex::new(client), session, run: None }, server)
+    }
+
+    /// #EXP-1925: a fake compositor on a socket of its own: the root token
+    /// mints, every mint and revoke is logged (`mint <session> <expiry?>`,
+    /// `revoke <token>`).
+    fn fake_socket() -> (Session, std::sync::Arc<Mutex<Vec<String>>>, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("epilot-grants-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (socket, token_file) = (dir.join("ede.sock"), dir.join("token"));
+        let root = "f".repeat(64);
+        std::fs::write(&token_file, &root).unwrap();
+        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        let log = std::sync::Arc::new(Mutex::new(Vec::new()));
+        let minted = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let seen = log.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { return };
+                let (log, minted, root) = (seen.clone(), minted.clone(), root.clone());
+                std::thread::spawn(move || loop {
+                    let Ok(frame) = read_frame(&mut stream) else { return };
+                    let call: Call = serde_json::from_slice(&frame).unwrap();
+                    let result = match call.request {
+                        Request::Hello { token, .. } => {
+                            let mut capabilities = vec!["capture", "input:person", "ui"];
+                            if token.as_str() == root {
+                                capabilities.push("system");
+                            }
+                            serde_json::json!({"version": 1, "capabilities": capabilities, "session_id": "s"})
+                        }
+                        Request::MintGrant { session_id, expires_at, capabilities, .. } => {
+                            log.lock().unwrap().push(format!("mint {session_id} {}", expires_at.is_some()));
+                            let token = format!("{:064x}", minted.fetch_add(1, Ordering::SeqCst) + 1);
+                            let token = Token::new(token).unwrap();
+                            serde_json::to_value(ede_protocol::Grant { token, session_id, run_id: None, capabilities, expires_at }).unwrap()
+                        }
+                        Request::RevokeGrant { token } => {
+                            log.lock().unwrap().push(format!("revoke {}", token.as_str()));
+                            serde_json::Value::Null
+                        }
+                        other => panic!("unexpected {other:?}"),
+                    };
+                    let message = Message::Reply { id: call.id, result };
+                    write_frame(&mut stream, &serde_json::to_vec(&message).unwrap()).unwrap();
+                });
+            }
+        });
+        (Session { socket, token_file, token: None }, log, dir)
+    }
+
+    /// #EXP-1925: two runs mint two grants (each its own, with an expiry;
+    /// a run's next call reuses its grant), and a run's end revokes
+    /// exactly its own.
+    #[test]
+    fn each_run_mints_its_own_grant_and_its_end_revokes_only_that() {
+        let (session, log, dir) = fake_socket();
+        let (a, b) = ("epilot-test-run-a", "epilot-test-run-b");
+        let token_a = session.connect_as(Some(a)).unwrap().token().clone();
+        let token_b = session.connect_as(Some(b)).unwrap().token().clone();
+        assert_ne!(token_a, token_b);
+        assert_eq!(session.connect_as(Some(a)).unwrap().token(), &token_a, "a run's next call mints anew");
+        assert_eq!(log.lock().unwrap().clone(), [format!("mint {a} true"), format!("mint {b} true")]);
+        session.end_run(a);
+        assert_eq!(log.lock().unwrap()[2..], [format!("revoke {}", token_a.as_str())]);
+        assert!(RUN_GRANTS.lock().unwrap().contains_key(b) && !RUN_GRANTS.lock().unwrap().contains_key(a));
+        session.end_run(b);
+        assert_eq!(log.lock().unwrap()[3..], [format!("revoke {}", token_b.as_str())]);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// paste_text's round on eDE: save = snapshot, set = every text type

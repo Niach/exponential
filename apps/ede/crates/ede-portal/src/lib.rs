@@ -61,6 +61,19 @@ pub fn minted_token() -> Result<ede_protocol::Token, Error> {
 
 pub type Vardict = HashMap<String, OwnedValue>;
 
+/// What the portal asks of its PipeWire connection: [`stream::Pw`], or a
+/// test's fake.
+pub(crate) trait Pipe: Send + Sync {
+    fn create(&self, key: u64, target: ede_protocol::CaptureTarget, size: (u32, u32), fps: u32) -> Result<u32, String>;
+    fn destroy(&self, key: u64);
+    /// False once PipeWire went away under it.
+    fn alive(&self) -> bool;
+}
+
+/// Runs when a stream's source went away (or PipeWire did).
+pub(crate) type OnEnd = Arc<dyn Fn(u64) + Send + Sync>;
+type StartPipe = Box<dyn Fn(Connect, OnEnd) -> Result<Arc<dyn Pipe>, String> + Send + Sync>;
+
 /// Portal responses.
 pub const SUCCESS: u32 = 0;
 pub const CANCELLED: u32 = 1;
@@ -101,13 +114,20 @@ pub struct Ctx {
     pub config: Mutex<Config>,
     config_path: Option<PathBuf>,
     pub sessions: Mutex<HashMap<String, Session>>,
-    pw: OnceLock<Result<stream::Pw, String>>,
+    /// Started on the first share, started again once PipeWire went away
+    /// (#EDE-101); a failed start is never kept.
+    pw: Mutex<Option<Arc<dyn Pipe>>>,
+    start_pw: StartPipe,
     conn: OnceLock<zbus::Connection>,
     next_stream: Mutex<u64>,
 }
 
 impl Ctx {
     pub fn new(connect: Connect, config_path: Option<PathBuf>) -> Arc<Ctx> {
+        Self::with_pipe(connect, config_path, Box::new(|connect, on_end| stream::Pw::start(connect, on_end).map(|pw| Arc::new(pw) as Arc<dyn Pipe>)))
+    }
+
+    fn with_pipe(connect: Connect, config_path: Option<PathBuf>, start_pw: StartPipe) -> Arc<Ctx> {
         let config = Config::load(config_path.as_deref());
         Arc::new(Ctx {
             connect,
@@ -115,7 +135,8 @@ impl Ctx {
             config: Mutex::new(config),
             config_path,
             sessions: Mutex::default(),
-            pw: OnceLock::new(),
+            pw: Mutex::new(None),
+            start_pw,
             conn: OnceLock::new(),
             next_stream: Mutex::new(1),
         })
@@ -137,27 +158,28 @@ impl Ctx {
         unreachable!()
     }
 
-    pub(crate) fn pw_get(&self) -> Option<&Result<stream::Pw, String>> {
-        self.pw.get()
+    pub(crate) fn pw_get(&self) -> Option<Arc<dyn Pipe>> {
+        self.pw.lock().unwrap().clone()
     }
 
     pub fn connection(&self) -> Option<&zbus::Connection> {
         self.conn.get()
     }
 
-    fn pw(self: &Arc<Self>) -> Result<&stream::Pw, String> {
+    fn pw(self: &Arc<Self>) -> Result<Arc<dyn Pipe>, String> {
+        let mut slot = self.pw.lock().unwrap();
+        if let Some(pw) = slot.as_ref().filter(|pw| pw.alive()) {
+            return Ok(pw.clone());
+        }
         let ctx = Arc::downgrade(self);
-        self.pw
-            .get_or_init(|| {
-                let on_end = Arc::new(move |key: u64| {
-                    if let Some(ctx) = ctx.upgrade() {
-                        ctx.stream_ended(key);
-                    }
-                });
-                stream::Pw::start(self.connect.clone(), on_end)
-            })
-            .as_ref()
-            .map_err(Clone::clone)
+        let on_end: OnEnd = Arc::new(move |key: u64| {
+            if let Some(ctx) = ctx.upgrade() {
+                ctx.stream_ended(key);
+            }
+        });
+        let pw = (self.start_pw)(self.connect.clone(), on_end)?;
+        *slot = Some(pw.clone());
+        Ok(pw)
     }
 
     /// A new PipeWire node capturing `target`.
@@ -179,7 +201,7 @@ impl Ctx {
         for release in session.pressed.iter().rev() {
             let _ = self.ede(|c| c.input(release.clone()));
         }
-        if let Some(Ok(pw)) = self.pw.get() {
+        if let Some(pw) = self.pw_get() {
             for s in &session.streams {
                 pw.destroy(s.key);
             }
@@ -279,4 +301,80 @@ fn listen(ctx: Arc<Ctx>) {
 
 pub fn opt_str(options: &Vardict, key: &str) -> Option<String> {
     options.get(key).and_then(|v| <&str>::try_from(v).ok()).map(String::from)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+    struct FakePipe {
+        alive: AtomicBool,
+        on_end: OnEnd,
+        keys: Mutex<Vec<u64>>,
+    }
+
+    impl Pipe for FakePipe {
+        fn create(&self, key: u64, _: ede_protocol::CaptureTarget, _: (u32, u32), _: u32) -> Result<u32, String> {
+            if !self.alive() {
+                return Err("the PipeWire thread is gone".into());
+            }
+            self.keys.lock().unwrap().push(key);
+            Ok(40 + key as u32)
+        }
+        fn destroy(&self, key: u64) {
+            self.keys.lock().unwrap().retain(|k| *k != key);
+        }
+        fn alive(&self) -> bool {
+            self.alive.load(Ordering::Relaxed)
+        }
+    }
+
+    impl FakePipe {
+        /// What stream::Pw does when its core errors out: dead, and every
+        /// stream it carried ends.
+        fn go_away(&self) {
+            self.alive.store(false, Ordering::Relaxed);
+            let keys = std::mem::take(&mut *self.keys.lock().unwrap());
+            for key in keys {
+                (self.on_end)(key);
+            }
+        }
+    }
+
+    /// #EDE-101: PipeWire not there at the first share, then there; then
+    /// gone (a restart) under a live share: the share ends, and the next
+    /// one connects again instead of failing until re-login.
+    #[test]
+    fn pipewire_is_reconnected_after_a_failed_start_and_a_restart() {
+        let starts = Arc::new(AtomicUsize::new(0));
+        let pipes: Arc<Mutex<Vec<Arc<FakePipe>>>> = Arc::default();
+        let (n, made) = (starts.clone(), pipes.clone());
+        let start: StartPipe = Box::new(move |_, on_end| {
+            if n.fetch_add(1, Ordering::Relaxed) == 0 {
+                return Err("PipeWire: no such file or directory".into());
+            }
+            let pipe = Arc::new(FakePipe { alive: AtomicBool::new(true), on_end, keys: Mutex::default() });
+            made.lock().unwrap().push(pipe.clone());
+            Ok(pipe)
+        });
+        let connect: Connect = Arc::new(|| Err(Error::Io(std::io::ErrorKind::NotFound.into())));
+        let ctx = Ctx::with_pipe(connect, None, start);
+        let target = || ede_protocol::CaptureTarget::Output { name: "HEADLESS-1".into() };
+
+        assert!(ctx.create_stream(target(), (800, 600)).is_err(), "no PipeWire yet");
+        let (key, node_id) = ctx.create_stream(target(), (800, 600)).expect("PipeWire is up now: the failed start is not cached");
+        let mut session = Session::new(Kind::ScreenCast, "org.example.Meet");
+        session.started = true;
+        let pick = Pick::Output("HEADLESS-1".into());
+        session.streams.push(StreamInfo { key, node_id, target: pick.target(), pick, position: (0, 0), size: (800, 600) });
+        let path = "/org/freedesktop/portal/desktop/session/1_1/sc";
+        ctx.sessions.lock().unwrap().insert(path.into(), session);
+
+        pipes.lock().unwrap()[0].go_away();
+        assert!(ctx.sessions.lock().unwrap().is_empty(), "the share on the dead PipeWire ended");
+        ctx.create_stream(target(), (800, 600)).expect("a new share connects to the new PipeWire");
+        assert_eq!(starts.load(Ordering::Relaxed), 3);
+        assert!(pipes.lock().unwrap()[1].alive());
+    }
 }

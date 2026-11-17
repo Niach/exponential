@@ -18,6 +18,7 @@ import com.exponential.app.domain.DeviceReadiness
 import com.exponential.app.domain.parseDeviceDoctor
 import com.exponential.app.ui.components.DeviceReadinessBlock
 import com.exponential.app.ui.components.DeviceReadinessRow
+import com.exponential.app.ui.components.SwitchRow
 import com.exponential.app.ui.theme.AppBackground
 import com.exponential.app.ui.theme.TextEmphasis
 
@@ -25,7 +26,9 @@ import com.exponential.app.ui.theme.TextEmphasis
 // entry `device-readiness`, its low-disk case (the fixture's last) as a
 // phone draws them (always another device): the block in Device settings,
 // then the composer's low-disk row (`DeviceReadiness.warningRow`, a warning
-// with no pill). Capture-only (shot `sg_device-readiness`,
+// with no pill). #EXP-1899: then the case whose machine cannot drive: its
+// Computer use switch row with the device's reason as the second line.
+// Capture-only (shot `sg_device-readiness`,
 // StyleguideScreenshotsTest#captureOnlyScreens).
 
 const val DeviceReadinessSpecimenTestId = "device-readiness-specimen"
@@ -34,6 +37,10 @@ private val cases = listOf(
     "EXP-1375: low disk with two kept worktrees: a warning, never a blocker" to
         """{"checkedAt":"2026-10-28T09:00:00.000Z","items":[{"key":"git","group":"required","state":"ok","detail":"2.55.0"},{"key":"claude","group":"agents","state":"ok","detail":"2.1.289"},{"key":"codex","group":"agents","state":"missing","detail":"Signed out","action":"sign_in"},{"key":"computer_use","group":"computer_use","state":"off"},{"key":"disk","group":"storage","state":"action","detail":"6.2 GB free"},{"key":"worktree-1","group":"storage","parent":"disk","label":"exp-session-9497089a","state":"off","detail":"Uncommitted changes"},{"key":"worktree-2","group":"storage","parent":"disk","label":"exp-EXP-1375","state":"off","detail":"Unpushed commits"},{"key":"cargo_sweep","group":"storage","parent":"disk","label":"Build cache","state":"off","detail":"31 GB freed · 14 Nov 23:02"}]}""",
 )
+
+private val cannotDrive =
+    "#EXP-1899: computer use on, a Wayland session: the switch row carries the device's reason" to
+        """{"checkedAt":"2026-11-17T09:00:00.000Z","items":[{"key":"git","group":"required","state":"ok","detail":"2.55.0"},{"key":"claude","group":"agents","state":"ok","detail":"2.1.289"},{"key":"codex","group":"agents","state":"missing","detail":"Signed out","action":"sign_in"},{"key":"computer_use","group":"computer_use","state":"missing","detail":"This is a Wayland session; computer use needs an X11 session for now (sign in with the \"on Xorg\" session)."}]}"""
 
 @Composable
 fun DeviceReadinessSpecimenScreen() {
@@ -59,6 +66,18 @@ fun DeviceReadinessSpecimenScreen() {
                         DeviceReadinessRow(row = row, onAction = {}, horizontalPadding = 0.dp, verticalPadding = 4.dp)
                     }
                 }
+                parseDeviceDoctor(cannotDrive.second)
+                    ?.let { doctor -> DeviceReadiness.groups(doctor, remote = true).flatMap { it.rows }.firstOrNull { it.isSwitch } }
+                    ?.let { row ->
+                        Caption(cannotDrive.first)
+                        SwitchRow(
+                            title = row.label,
+                            checked = row.switchOn,
+                            onCheckedChange = {},
+                            enabled = false,
+                            description = row.detail,
+                        )
+                    }
             }
         }
     }

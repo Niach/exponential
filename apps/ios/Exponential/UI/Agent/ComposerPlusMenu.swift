@@ -252,11 +252,10 @@ struct ComposerPlusMenu: View {
         case .ultracode:
             return Binding(get: { launch.ultracode }, set: { launch.ultracode = $0 })
         default:
-            // Untouched = the machine's current default; only a flip lands
-            // in `launch.computerUse` (and so on the wire).
-            let deviceDefault = model.device?.computerUseDefault ?? false
+            // #EXP-1899: on until the person opts out (the row shows only
+            // where the device's switch is on); only an opt-out rides out.
             return Binding(
-                get: { launch.computerUse ?? deviceDefault },
+                get: { launch.computerUse ?? true },
                 set: { launch.computerUse = $0 }
             )
         }

@@ -9,7 +9,10 @@ use std::{os::unix::io::OwnedFd, process::Stdio};
 use smithay::{
     desktop::Window,
     reexports::wayland_server::protocol::wl_surface::WlSurface,
-    input::pointer::{Focus, GrabStartData},
+    input::{
+        keyboard::KeyboardTarget,
+        pointer::{Focus, GrabStartData},
+    },
     utils::{Logical, Rectangle, SERIAL_COUNTER},
     wayland::{
         selection::{
@@ -78,6 +81,26 @@ impl Ede {
         }
     }
 
+    /// #EDE-88: X gives keys to its own input focus (by default the window
+    /// under X's pointer), so the X11 window whose surface now has the
+    /// keyboard takes X's focus too, and the one that lost it gives it up.
+    pub(crate) fn sync_x11_focus(&mut self, focused: Option<&WlSurface>) {
+        let x11 = focused.and_then(|f| {
+            self.space.elements().find_map(|w| w.x11_surface().filter(|x| x.wl_surface().as_ref() == Some(f)).cloned())
+        });
+        if self.x11_focus.1 == x11 {
+            return;
+        }
+        let seat = self.x11_focus.0.clone();
+        let serial = SERIAL_COUNTER.next_serial();
+        if let Some(old) = std::mem::replace(&mut self.x11_focus.1, x11.clone()) {
+            KeyboardTarget::leave(&old, &seat, self, serial);
+        }
+        if let Some(new) = x11 {
+            KeyboardTarget::enter(&new, &seat, self, Vec::new(), serial);
+        }
+    }
+
     fn x11_window(&self, surface: &X11Surface) -> Option<Window> {
         self.space.elements().find(|w| w.x11_surface() == Some(surface)).cloned()
     }
@@ -106,18 +129,22 @@ impl XwmHandler for Ede {
     fn new_override_redirect_window(&mut self, _xwm: XwmId, _window: X11Surface) {}
 
     fn map_window_request(&mut self, _xwm: XwmId, surface: X11Surface) {
-        // An X11 window without its own decorations (Motif hints) gets ours.
-        if let Some(window) = self.x11_window(&surface).or_else(|| self.unmapped.iter().find(|w| w.x11_surface() == Some(&surface)).cloned()) {
-            let mut st = window_state(&window);
-            st.decorated = surface.is_decorated() && !surface.is_override_redirect();
-            set_window_state(&window, st);
-        }
         if let Err(e) = surface.set_mapped(true) {
             tracing::warn!("X11 map: {e}");
             return;
         }
         let wants_fullscreen = surface.is_fullscreen();
+        // #EDE-88: every X11 window gets our title bar unless its Motif
+        // hints ask for no decorations (smithay's `is_decorated` = "the
+        // client draws its own") or it is no application window (a dock,
+        // a splash, a menu that is not override-redirect). Set on the
+        // Window that maps, before it is placed (the frame counts there).
+        use smithay::xwayland::xwm::WmWindowType as T;
+        let decorated = !surface.is_decorated() && matches!(surface.window_type(), None | Some(T::Normal | T::Dialog | T::Utility));
         let window = Window::new_x11_window(surface);
+        let mut st = window_state(&window);
+        st.decorated = decorated;
+        set_window_state(&window, st);
         // Same rules as a Wayland toplevel's first frame.
         self.place_new_window(window.clone());
         if wants_fullscreen {
