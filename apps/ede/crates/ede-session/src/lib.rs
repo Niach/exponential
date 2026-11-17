@@ -551,6 +551,8 @@ mod tests {
         assert!(deb.contains("/etc/pam.d/exponential-desktop") && root.join("pam/exponential-desktop").exists(), "the lock's PAM service ships");
         let polkit = std::fs::read_to_string(root.join("systemd/exponential-polkit-agent.service")).unwrap();
         assert!(polkit.contains("ExecStart=/usr/bin/exponential-sealed polkit\n"), "#EDE-17: the sealed agent");
+        // #EDE-87: the agent ends with status 0 too (gpui quitting); polkit falls to pkexec's text agent without it.
+        assert!(polkit.contains("Restart=always\n"), "the polkit agent comes back whatever its exit status");
         // #EDE-19: the bridge runs before the shell, so the launcher's icon theme is set.
         let theme = std::fs::read_to_string(root.join("systemd/exponential-theme.service")).unwrap();
         assert!(theme.contains("ExecStart=/usr/bin/exponential-theme sync\n") && theme.contains("Before=exponential-shell.service\n"));
