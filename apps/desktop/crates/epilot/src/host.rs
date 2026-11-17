@@ -1,7 +1,8 @@
 //! The host behind the hub: one desktop, many runs, ONE lock.
 //!
 //! The lock (the person's keyboard and pointer taken, see `backend`) engages
-//! on a run's first call and stays while runs keep calling: a model thinks
+//! on a run's first DRIVING call (`work_screen::drives`; a look or a wait
+//! never takes or renews it, #EXP-1898) and stays while runs keep driving: a model thinks
 //! for seconds between a screenshot and the click it decides on, and an
 //! unlocked gap there would let the person's own keystrokes land in the
 //! window the agent is about to drive. It releases when every run that used
@@ -68,6 +69,9 @@ struct Calls {
     pending: HashMap<String, (usize, bool)>,
     /// The run whose call drives right now.
     running: Option<String>,
+    /// The runs with a live grant ([`Host::admit`]); a call of any other
+    /// answers [`ENDED`] (#EXP-1898).
+    granted: HashSet<String>,
 }
 
 /// One call from its arrival to its return.
@@ -118,9 +122,10 @@ enum Refused {
 
 #[derive(Default)]
 pub(crate) struct Host {
-    /// Held for a whole call: calls queue, so two runs (or one run's
+    /// Held for a whole DRIVING call: they queue, so two runs (or one run's
     /// parallel calls) never drive the one pointer, keyboard and clipboard
-    /// at the same time (#EXP-1893).
+    /// at the same time (#EXP-1893). A look or a wait is not in the queue
+    /// (#EXP-1898).
     calls: Mutex<()>,
     lock: Mutex<LockState>,
     runs: Mutex<HashMap<String, Run>>,
@@ -175,6 +180,12 @@ impl Host {
     /// Whether the person's input is taken right now.
     pub(crate) fn engaged(&self) -> bool {
         self.lock.lock().unwrap().held.is_some()
+    }
+
+    /// The run got its grant (`crate::grant`): its calls run until its end
+    /// or the switch going off ([`Host::stop_calls`]).
+    pub(crate) fn admit(&self, session_id: &str) {
+        self.in_flight.lock().unwrap().granted.insert(session_id.to_string());
     }
 
     pub(crate) fn set_hook(&self, session_id: &str, hook: AbortHook) {
@@ -264,6 +275,9 @@ impl Host {
     fn stop_calls(&self, session_id: Option<&str>) {
         let ours = |id: &String| session_id.is_none_or(|session_id| session_id == id);
         let mut calls = self.in_flight.lock().unwrap();
+        // The grant goes with the stop, under one mutex: a call arriving
+        // from here on answers the end and does nothing (#EXP-1898).
+        calls.granted.retain(|id| !ours(id));
         for (id, pending) in calls.pending.iter_mut() {
             if ours(id) {
                 pending.1 = true;
@@ -368,12 +382,23 @@ impl Host {
 
     /// One call on `backend` (the OS's, a fake in tests).
     fn call_on(&self, backend: &dyn backend::Backend, session_id: &str, label: &str, name: &str, arguments: Value) -> Value {
-        // Counted from here, so the run's end reaches it while it queues.
-        self.in_flight.lock().unwrap().pending.entry(session_id.to_string()).or_default().0 += 1;
+        {
+            let mut calls = self.in_flight.lock().unwrap();
+            // #EXP-1898: admitted by the HTTP layer just before the run's
+            // grant went, here after its end.
+            if !calls.granted.contains(session_id) {
+                return tools::error(ENDED);
+            }
+            // Counted from here, so the run's end reaches it while it queues.
+            calls.pending.entry(session_id.to_string()).or_default().0 += 1;
+        }
         let _arrived = Arrived(self, session_id);
-        // One call at a time; a panic in an earlier call must not end
-        // computer use for good.
-        let _queued = self.calls.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        // #EXP-1898: a look or a wait reads, it does not drive: no queue,
+        // no hold, and the run's end does not wait for it.
+        let drives = crate::work_screen::drives(name);
+        // One driving call at a time; a panic in an earlier call must not
+        // end computer use for good.
+        let _queued = drives.then(|| self.calls.lock().unwrap_or_else(|poisoned| poisoned.into_inner()));
         // The run ended while this call queued; else it drives from here,
         // and the run's end waits for it (dropped before `_queued`).
         let _running = {
@@ -381,8 +406,10 @@ impl Host {
             if calls.pending.get(session_id).is_some_and(|pending| pending.1) {
                 return tools::error(ENDED);
             }
-            calls.running = Some(session_id.to_string());
-            Running(self)
+            drives.then(|| {
+                calls.running = Some(session_id.to_string());
+                Running(self)
+            })
         };
         // Esc while this call queued.
         if self.aborted(session_id) {
@@ -416,10 +443,13 @@ impl Host {
             let mut runs = self.runs.lock().unwrap();
             let run = runs.entry(session_id.to_string()).or_default();
             run.display = display;
-            run.copy_mark = copy_mark;
+            // A look runs beside the run's driving call: the mark is not its.
+            if drives {
+                run.copy_mark = copy_mark;
+            }
         }
-        // The call is over: the idle clock starts now.
-        {
+        // The driving call is over: the idle clock starts now.
+        if drives {
             let mut lock = self.lock.lock().unwrap();
             lock.in_call = false;
             if !interrupted() {
@@ -445,6 +475,9 @@ impl ToolHost for Host {
     fn call(&self, session_id: &str, label: &str, name: &str, arguments: Value) -> Value {
         if self.aborted(session_id) {
             return tools::error(tools::ABORTED);
+        }
+        if !self.in_flight.lock().unwrap().granted.contains(session_id) {
+            return tools::error(ENDED);
         }
         let backend = match backend::open() {
             Ok(backend) => backend,
@@ -561,6 +594,14 @@ mod tests {
         }
     }
 
+    /// A host whose runs `s1` and `s2` hold a grant.
+    fn granted() -> Arc<Host> {
+        let host = Host::new();
+        host.admit("s1");
+        host.admit("s2");
+        host
+    }
+
     fn typed(backend: &Hooked) -> Vec<String> {
         backend.inner.log.lock().unwrap().iter().filter(|line| line.starts_with("type ")).cloned().collect()
     }
@@ -569,7 +610,7 @@ mod tests {
     /// janitor leaves the hold alone; idle past the call's end it releases.
     #[test]
     fn a_call_longer_than_idle_keeps_the_hold() {
-        let host = Host::new();
+        let host = granted();
         let held_mid_call = Arc::new(Mutex::new(Vec::new()));
         let backend = Hooked {
             on_type: Some({
@@ -596,7 +637,7 @@ mod tests {
     /// keyboard at the same time.
     #[test]
     fn two_runs_calls_never_overlap() {
-        let host = Host::new();
+        let host = granted();
         let inside = Arc::new(Mutex::new((0, 0)));
         let backend = Hooked {
             on_type: Some({
@@ -635,7 +676,7 @@ mod tests {
     /// hold stays released.
     #[test]
     fn esc_between_the_abort_check_and_the_lease_leaves_the_hold_released() {
-        let host = Host::new();
+        let host = granted();
         let armed = Arc::new(Mutex::new(false));
         let backend = Hooked {
             on_windows: Some({
@@ -684,13 +725,130 @@ mod tests {
         }
     }
 
+    /// #EXP-1898: looking and waiting never take the hold, and never renew
+    /// one an input tool took.
+    #[test]
+    fn looking_and_waiting_never_take_or_extend_the_hold() {
+        let host = granted();
+        let backend = tools::tests::FakeBackend::default();
+        let looks = [("screenshot", json!({})), ("list_windows", json!({})), ("cursor_position", json!({})), ("wait", json!({ "seconds": 0 }))];
+        for (name, arguments) in &looks {
+            let reply = host.call_on(&backend, "s1", "EXP-1", name, arguments.clone());
+            assert_eq!(reply["isError"], Value::Null, "{name}: {reply}");
+            assert!(!host.engaged(), "{name} took the person's input");
+        }
+        assert!(!backend.log.lock().unwrap().iter().any(|line| line == "lock"));
+        let reply = host.call_on(&backend, "s1", "EXP-1", "type", json!({ "text": "a" }));
+        assert_eq!(reply["isError"], Value::Null, "{reply}");
+        assert!(host.engaged(), "an input tool takes the hold");
+        // 29 s after the input call, a look; 2 s later the hold is idle.
+        let used = Instant::now().checked_sub(Duration::from_secs(29)).expect("a clock past 29 s");
+        for (name, arguments) in &looks {
+            host.lock.lock().unwrap().last_used = Some(used);
+            host.call_on(&backend, "s1", "EXP-1", name, arguments.clone());
+            assert_eq!(host.lock.lock().unwrap().last_used, Some(used), "{name} renewed the hold");
+        }
+        host.sweep(Instant::now() + Duration::from_secs(2));
+        assert!(!host.engaged(), "a look kept the hold past its 30 s");
+    }
+
+    /// #EXP-1898: a look or a wait is not in the queue: run A's long `wait`
+    /// never stalls run B's click.
+    #[test]
+    fn a_wait_never_stalls_another_runs_click() {
+        let host = granted();
+        let (waiting, entered) = std::sync::mpsc::channel();
+        let waiter = Hooked {
+            on_windows: Some({
+                let waiting = Mutex::new(waiting);
+                Box::new(move || {
+                    let _ = waiting.lock().unwrap().send(());
+                })
+            }),
+            ..Default::default()
+        };
+        let backend = tools::tests::FakeBackend::default();
+        std::thread::scope(|scope| {
+            let wait = scope.spawn(|| host.call_on(&waiter, "s1", "EXP-1", "wait", json!({ "seconds": 5 })));
+            entered.recv_timeout(Duration::from_secs(5)).expect("the wait never started");
+            let began = Instant::now();
+            let reply = host.call_on(&backend, "s2", "EXP-2", "left_click", json!({ "x": 1, "y": 1 }));
+            let took = began.elapsed();
+            assert_eq!(reply["isError"], Value::Null, "{reply}");
+            assert!(!wait.is_finished(), "the wait was over before the click");
+            // The wait's run ends: it stops between two of its 50 ms steps.
+            host.end("s1");
+            assert_eq!(wait.join().unwrap()["content"][0]["text"], ENDED);
+            assert!(took < Duration::from_secs(2), "the click queued behind another run's wait for {took:?}");
+        });
+        host.shutdown();
+    }
+
+    /// #EXP-1898: a screenshot in the middle of another run's `type`
+    /// returns without waiting for it.
+    #[test]
+    fn a_screenshot_never_waits_for_another_runs_type() {
+        let host = granted();
+        let shown = Arc::new(Mutex::new(Vec::new()));
+        let backend = Hooked {
+            on_type: Some({
+                let (host, shown) = (host.clone(), shown.clone());
+                Box::new(move || {
+                    let (done, shot) = std::sync::mpsc::channel();
+                    let host = host.clone();
+                    std::thread::spawn(move || {
+                        let backend = tools::tests::FakeBackend::default();
+                        let _ = done.send(host.call_on(&backend, "s2", "EXP-2", "screenshot", json!({})));
+                    });
+                    shown.lock().unwrap().push(shot.recv_timeout(Duration::from_secs(2)).ok());
+                })
+            }),
+            ..Default::default()
+        };
+        let reply = host.call_on(&backend, "s1", "EXP-1", "type", json!({ "text": "a" }));
+        assert_eq!(reply["isError"], Value::Null, "{reply}");
+        let shown = shown.lock().unwrap();
+        let shot = shown[0].as_ref().expect("the screenshot waited for the other run's type");
+        assert_eq!(shot["isError"], Value::Null, "{shot}");
+        host.shutdown();
+    }
+
+    /// #EXP-1898: a call the HTTP layer admitted just before the run's grant
+    /// went reaches the host after the run's end: it answers the end, takes
+    /// no hold and touches nothing.
+    #[test]
+    fn a_call_after_the_runs_end_answers_the_end_and_does_nothing() {
+        let host = granted();
+        let backend = tools::tests::FakeBackend::default();
+        host.end("s1");
+        for name in ["type", "screenshot"] {
+            let reply = host.call_on(&backend, "s1", "EXP-1", name, json!({ "text": "a" }));
+            assert_eq!(reply["isError"], true, "{name}: {reply}");
+            assert_eq!(reply["content"][0]["text"], ENDED);
+        }
+        // The other run's grant stands; a new grant admits the run again.
+        assert_eq!(host.call_on(&backend, "s2", "EXP-2", "cursor_position", json!({}))["isError"], Value::Null);
+        assert!(backend.log.lock().unwrap().is_empty(), "{:?}", backend.log.lock().unwrap());
+        host.shutdown();
+        let reply = host.call_on(&backend, "s2", "EXP-2", "type", json!({ "text": "a" }));
+        assert_eq!(reply["content"][0]["text"], ENDED, "the switch going off ends every grant");
+        host.admit("s1");
+        assert_eq!(host.call_on(&backend, "s1", "EXP-1", "cursor_position", json!({}))["isError"], Value::Null);
+        host.end("s1");
+        let reply = host.call_on(&backend, "s1", "EXP-1", "type", json!({ "text": "a" }));
+        assert_eq!(reply["isError"], true, "{reply}");
+        assert_eq!(reply["content"][0]["text"], ENDED);
+        assert!(!host.engaged(), "a call after the run's end took the person's input");
+        assert!(backend.log.lock().unwrap().is_empty(), "{:?}", backend.log.lock().unwrap());
+    }
+
     /// #EXP-1894: `stop` (the run's end, the switch going off) lands on
     /// another thread in the middle of a long `type`. Every character sent
     /// was sent under the hold and before `stop` returned; the rest is not
     /// sent.
     fn a_long_type_stops_at(stop: fn(&Host)) -> Value {
         use std::sync::atomic::{AtomicBool, Ordering};
-        let host = Host::new();
+        let host = granted();
         let returned = Arc::new(AtomicBool::new(false));
         let sent = Arc::new(Mutex::new(Vec::new()));
         let stopper = Arc::new(Mutex::new(None));

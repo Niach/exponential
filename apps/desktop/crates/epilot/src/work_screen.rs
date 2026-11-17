@@ -49,6 +49,14 @@ pub(crate) fn is_input(tool: &str) -> bool {
     input_tools().iter().any(|input| input == tool)
 }
 
+/// #EXP-1898: whether `tool` DRIVES (`inputTools`, plus the clipboard's
+/// `read_clipboard`): it takes the person's input for the call and queues
+/// with the other driving calls. Looking and waiting (`screenshot`,
+/// `list_windows`, `cursor_position`, `wait`) do neither.
+pub(crate) fn drives(tool: &str) -> bool {
+    is_input(tool) || tool == "read_clipboard"
+}
+
 /// Whether `tool` presses keys into the focused window (`keyTools`).
 pub(crate) fn is_key(tool: &str) -> bool {
     key_tools().iter().any(|key| key == tool)
