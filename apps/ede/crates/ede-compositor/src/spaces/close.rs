@@ -105,7 +105,9 @@ impl Ede {
             self.display_handle.remove_global::<Ede>(global);
         }
         self.display_handle.remove_global::<Ede>(output_global);
-        let Desk { seat, .. } = desk;
+        // #EDE-126: what still read from its clients answers `unavailable`.
+        let Desk { seat, clipboard, .. } = desk;
+        self.clipboard_closed(clipboard);
         drop(output);
         self.spaces.closing.push(Closing { seat, since: Instant::now(), logged: false });
         tracing::info!("{} closed", name.as_str());

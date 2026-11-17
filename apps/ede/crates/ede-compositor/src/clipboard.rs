@@ -10,6 +10,11 @@
 //! deferred until the read is done ([`Ede::ipc_reply_later`]). Our own
 //! bytes go out the same way. Contents are never logged.
 //!
+//! #EDE-126: every desk has its own ([`crate::desk::Desk::clipboard`]). A
+//! read keeps its desk's id across turns of the loop and looks the desk up
+//! again each time: a space that closed under it ends the read
+//! ([`Ede::clipboard_closed`]). Xwayland's CLIPBOARD is the person's alone.
+//!
 //! eDE has no wlr/ext data-control global, so no clipboard manager sees a
 //! selection: only the keyboard-focused client (Wayland's rule, and the
 //! XWM's `allow_selection_access`) can read a sensitive one.
@@ -122,6 +127,11 @@ impl Clipboard {
         }
     }
 
+    /// The reads that wait for their source.
+    pub fn pending(&self) -> usize {
+        self.jobs.len()
+    }
+
     pub fn taken(&self, serial: u64) -> ClipboardTaken {
         ClipboardTaken { serial: self.serial, taken: serial == self.serial && self.taken }
     }
@@ -217,14 +227,18 @@ impl Ede {
         if items.is_empty() {
             let serial = self.desk_mut(desk).clipboard.changed(Owner::Empty);
             clear_data_device_selection(&self.display_handle, &self.desk(desk).seat);
-            self.xwm_selection(None);
+            if desk == DeskId::PERSON {
+                self.xwm_selection(None);
+            }
             return Ok(serial);
         }
         let mimes: Vec<String> = items.iter().map(|item| item.mime.clone()).collect();
         let owned = Arc::new(Owned { serial: self.desk(desk).clipboard.serial + 1, items, sensitive });
         let serial = self.desk_mut(desk).clipboard.changed(Owner::Ours(owned.clone()));
         set_data_device_selection(&self.display_handle, &self.desk(desk).seat, mimes.clone(), Selection::Ours(owned));
-        self.xwm_selection(Some(mimes));
+        if desk == DeskId::PERSON {
+            self.xwm_selection(Some(mimes));
+        }
         Ok(serial)
     }
 
@@ -248,10 +262,12 @@ impl Ede {
         }
     }
 
-    /// A client (Wayland or X11) reads `mime` of our selection into `fd`.
-    pub(crate) fn serve_owned(&mut self, owned: &Arc<Owned>, mime: &str, fd: OwnedFd) {
+    /// A client (Wayland or X11) of `desk` reads `mime` of our selection
+    /// there into `fd`.
+    pub(crate) fn serve_owned(&mut self, desk: DeskId, owned: &Arc<Owned>, mime: &str, fd: OwnedFd) {
         let Some(index) = owned.items.iter().position(|item| item.mime == mime) else { return };
-        self.desk.clipboard.served(owned, mime);
+        let Some(clipboard) = self.try_desk_mut(desk).map(|desk| &mut desk.clipboard) else { return };
+        clipboard.served(owned, mime);
         let _ = fcntl_setfl(&fd, OFlags::WRONLY | OFlags::NONBLOCK);
         let file = std::fs::File::from(fd);
         let owned = owned.clone();
@@ -281,7 +297,7 @@ impl Ede {
 
     /// `clipboard_snapshot` / `clipboard_text`: the reply now (`Some`),
     /// or later once the source's pipes are read (`None`).
-    pub(crate) fn clipboard_read(&mut self, desk: DeskId, conn: u64, call_id: u64, want: Want) -> Option<serde_json::Value> {
+    pub fn clipboard_read(&mut self, desk: DeskId, conn: u64, call_id: u64, want: Want) -> Option<serde_json::Value> {
         let serial = self.desk(desk).clipboard.serial;
         let (from, offered) = match self.desk(desk).clipboard.owner.clone() {
             Owner::Empty => return Some(reply(want, serial, Vec::new(), Vec::new())),
@@ -316,65 +332,85 @@ impl Ede {
             attempt: 0,
             reading: None,
         });
-        self.read_next(id);
+        self.read_next(desk, id);
         None
     }
 
+    /// The job `id` of `desk`'s clipboard; `None` when it is done or its
+    /// desk is gone (a space that closed).
+    fn job(&mut self, desk: DeskId, id: u64) -> Option<&mut Job> {
+        self.try_desk_mut(desk)?.clipboard.jobs.iter_mut().find(|j| j.id == id)
+    }
+
+    /// #EDE-126: the space this clipboard was on closed: what still read
+    /// from its clients ends, each call answered `unavailable`.
+    pub(crate) fn clipboard_closed(&mut self, clipboard: Clipboard) {
+        for job in clipboard.jobs {
+            for token in job.reading.into_iter().flat_map(|reading| [reading.pipe, reading.timer]).flatten() {
+                self.loop_handle.remove(token);
+            }
+            self.ipc_reply_later(job.conn, job.call_id, Err(Failure::new(ErrorCode::Unavailable, "the space closed")));
+        }
+    }
+
     /// Starts the job's next type, or finishes it.
-    fn read_next(&mut self, id: u64) {
+    fn read_next(&mut self, desk: DeskId, id: u64) {
         loop {
-            let Some(job) = self.desk.clipboard.jobs.iter_mut().find(|j| j.id == id) else { return };
+            let Some(job) = self.job(desk, id) else { return };
             job.reading = None;
             job.attempt += 1;
             let attempt = job.attempt;
             let from = job.from;
             let next = if Instant::now() < job.deadline && job.total < CLIPBOARD_TOTAL_MAX { job.mimes.pop_front() } else { None };
-            let Some(mime) = next else { return self.finish_job(id) };
+            let Some(mime) = next else { return self.finish_job(desk, id) };
             let Ok((read, write)) = pipe_with(PipeFlags::CLOEXEC) else {
                 job.unread.push(mime);
-                return self.finish_job(id);
+                return self.finish_job(desk, id);
             };
             let _ = fcntl_setfl(&read, OFlags::NONBLOCK);
-            if !self.ask_source(from, &mime, write) {
+            if !self.ask_source(desk, from, &mime, write) {
                 // A selection that is gone has nothing left to lose.
-                if !matches!(self.desk.clipboard.owner, Owner::Empty) {
-                    self.leave_unread(id, mime);
+                if !self.try_desk(desk).is_some_and(|desk| matches!(desk.clipboard.owner, Owner::Empty)) {
+                    self.leave_unread(desk, id, mime);
                 }
                 continue;
             }
             let file = std::fs::File::from(read);
             let pipe = self.loop_handle.insert_source(Generic::new(file, Interest::READ, Mode::Level), move |_, file, state| {
                 let file: &std::fs::File = file;
-                Ok(state.read_some(id, attempt, file))
+                Ok(state.read_some(desk, id, attempt, file))
             });
             let Ok(pipe) = pipe else {
-                self.leave_unread(id, mime);
+                self.leave_unread(desk, id, mime);
                 continue;
             };
             let timer = self.loop_handle.insert_source(Timer::from_duration(Duration::from_millis(CLIPBOARD_READ_MS)), move |_, _, state| {
-                state.read_timed_out(id, attempt);
+                state.read_timed_out(desk, id, attempt);
                 TimeoutAction::Drop
             });
-            let Some(job) = self.desk.clipboard.jobs.iter_mut().find(|j| j.id == id) else { return };
+            let Some(job) = self.job(desk, id) else { return };
             job.reading = Some(Reading { mime, buf: Vec::new(), pipe: Some(pipe), timer: timer.ok() });
             return;
         }
     }
 
-    /// Hands `fd` to whoever owns the selection; `false` = it cannot serve.
-    fn ask_source(&mut self, from: Source, mime: &str, fd: OwnedFd) -> bool {
+    /// Hands `fd` to whoever owns `desk`'s selection; `false` = it cannot serve.
+    fn ask_source(&mut self, desk: DeskId, from: Source, mime: &str, fd: OwnedFd) -> bool {
+        let Some(clipboard) = self.try_desk_mut(desk) else { return false };
         match from {
-            Source::Client => match request_data_device_client_selection(&self.desk.seat, mime.to_string(), fd) {
+            Source::Client => match request_data_device_client_selection(&clipboard.seat, mime.to_string(), fd) {
                 Ok(()) => true,
                 Err(smithay::wayland::selection::data_device::SelectionRequestError::NoSelection) => {
                     // The source died without a new selection.
-                    if matches!(self.desk.clipboard.owner, Owner::Client(_)) {
-                        self.desk.clipboard.changed(Owner::Empty);
+                    if matches!(clipboard.clipboard.owner, Owner::Client(_)) {
+                        clipboard.clipboard.changed(Owner::Empty);
                     }
                     false
                 }
                 Err(_) => false,
             },
+            // Xwayland's selection is the person's: no space reads it.
+            Source::X11 if desk != DeskId::PERSON => false,
             #[cfg(feature = "xwayland")]
             Source::X11 => self.xwm.as_mut().is_some_and(|xwm| xwm.send_selection(smithay::wayland::selection::SelectionTarget::Clipboard, mime.to_string(), fd).is_ok()),
             #[cfg(not(feature = "xwayland"))]
@@ -382,9 +418,9 @@ impl Ede {
         }
     }
 
-    fn read_some(&mut self, id: u64, attempt: u64, mut file: &std::fs::File) -> PostAction {
+    fn read_some(&mut self, desk: DeskId, id: u64, attempt: u64, mut file: &std::fs::File) -> PostAction {
         let step = {
-            let Some(job) = self.desk.clipboard.jobs.iter_mut().find(|j| j.id == id && j.attempt == attempt) else { return PostAction::Remove };
+            let Some(job) = self.job(desk, id).filter(|j| j.attempt == attempt) else { return PostAction::Remove };
             let Some(reading) = job.reading.as_mut() else { return PostAction::Remove };
             let mut chunk = [0u8; 65536];
             loop {
@@ -405,12 +441,12 @@ impl Ede {
         match step {
             Step::More => PostAction::Continue,
             Step::Done | Step::Skip | Step::Failed => {
-                let Some(job) = self.desk.clipboard.jobs.iter_mut().find(|j| j.id == id) else { return PostAction::Remove };
+                let Some(job) = self.job(desk, id) else { return PostAction::Remove };
                 let reading = job.reading.take().expect("reading");
                 if let Some(timer) = reading.timer {
                     self.loop_handle.remove(timer);
                 }
-                let Some(job) = self.desk.clipboard.jobs.iter_mut().find(|j| j.id == id) else { return PostAction::Remove };
+                let Some(job) = self.job(desk, id) else { return PostAction::Remove };
                 if matches!(step, Step::Done) {
                     job.total += reading.buf.len();
                     job.items.push(ClipboardItem { mime: reading.mime, data: reading.buf });
@@ -422,31 +458,32 @@ impl Ede {
                         job.unread.extend(job.mimes.drain(..));
                     }
                 }
-                self.read_next(id);
+                self.read_next(desk, id);
                 PostAction::Remove
             }
         }
     }
 
-    fn read_timed_out(&mut self, id: u64, attempt: u64) {
-        let Some(job) = self.desk.clipboard.jobs.iter_mut().find(|j| j.id == id && j.attempt == attempt) else { return };
+    fn read_timed_out(&mut self, desk: DeskId, id: u64, attempt: u64) {
+        let Some(job) = self.job(desk, id).filter(|j| j.attempt == attempt) else { return };
         let Some(reading) = job.reading.take() else { return };
         job.unread.push(reading.mime);
         if let Some(pipe) = reading.pipe {
             self.loop_handle.remove(pipe);
         }
-        self.read_next(id);
+        self.read_next(desk, id);
     }
 
-    fn leave_unread(&mut self, id: u64, mime: String) {
-        if let Some(job) = self.desk.clipboard.jobs.iter_mut().find(|j| j.id == id) {
+    fn leave_unread(&mut self, desk: DeskId, id: u64, mime: String) {
+        if let Some(job) = self.job(desk, id) {
             job.unread.push(mime);
         }
     }
 
-    fn finish_job(&mut self, id: u64) {
-        let Some(index) = self.desk.clipboard.jobs.iter().position(|j| j.id == id) else { return };
-        let mut job = self.desk.clipboard.jobs.remove(index);
+    fn finish_job(&mut self, desk: DeskId, id: u64) {
+        let Some(jobs) = self.try_desk_mut(desk).map(|desk| &mut desk.clipboard.jobs) else { return };
+        let Some(index) = jobs.iter().position(|j| j.id == id) else { return };
+        let mut job = jobs.remove(index);
         // The deadline or the total ended the read: the rest was never asked.
         job.unread.extend(job.mimes.drain(..));
         let value = reply(job.want, job.serial, job.items, job.unread);
