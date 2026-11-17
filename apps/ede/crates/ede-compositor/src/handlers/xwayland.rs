@@ -134,6 +134,13 @@ impl XwmHandler for Ede {
         self.xwm.as_mut().expect("X11 events only arrive once the WM runs")
     }
 
+    /// #EDE-125: the person's X11 clients drag on the person's seat. smithay
+    /// would take the seat whose button went down last, an agent's in its
+    /// space included.
+    fn dnd_seat(&mut self, _xwm: XwmId, seat: &smithay::input::Seat<Self>) -> bool {
+        *seat == self.desk.seat
+    }
+
     fn new_window(&mut self, _xwm: XwmId, _window: X11Surface) {}
     fn new_override_redirect_window(&mut self, _xwm: XwmId, _window: X11Surface) {}
 
