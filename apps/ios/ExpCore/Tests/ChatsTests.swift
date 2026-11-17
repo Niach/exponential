@@ -710,7 +710,7 @@ final class ChatsTests: XCTestCase {
         XCTAssertEqual(Set(shell.keys), [
             "tabs", "tabIcons", "bar", "boardTab", "teamTab", "boardMenu", "header", "boardChips", "chatHeader", "leadDisc",
             "selectBadge", "selectBadgeRing", "selectBadgeGlyph", "selectBadgeRadius", "archivedGlyph",
-            "dimOpacity", "chatLead",
+            "dimOpacity", "chatLead", "markGlyph", "markGap",
         ])
         XCTAssertEqual(shell["chatLead"] as? String, Chats.Shell.chatLead)
         XCTAssertEqual(shell["leadDisc"] as? Double, Chats.Shell.leadDisc)
