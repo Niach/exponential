@@ -68,7 +68,7 @@ function fakeAudio() {
 
 async function dialed(
   options: {
-    startCall?: () => Promise<{ url: string }>
+    startCall?: () => Promise<{ url: string; device?: string; fallback?: boolean }>
     openAudio?: () => Promise<CallAudio>
     device?: string
     language?: string
@@ -141,6 +141,22 @@ describe(`the web caller's wire`, () => {
     const { startCall, socket } = await dialed()
     expect(startCall).toHaveBeenCalledWith(`agent-1`)
     expect(socket.binaryType).toBe(`arraybuffer`)
+  })
+
+  // #EXP-1935: the server picks the target; its answer names the device
+  // that speaks (the phones apply it the same way).
+  it(`shows the device voice.startCall picked when it is another one`, async () => {
+    const { call } = await dialed({
+      device: `mint`,
+      startCall: async () => ({ url: `wss://relay/ws?t=caller`, device: `laptop`, fallback: true }),
+    })
+    expect(call.getSnapshot().state).toMatchObject({ phase: `ringing`, device: `laptop`, fallback: true })
+    expect(view(call)?.via).toBe(fixture.copy.via.replace(`{device}`, `laptop`))
+  })
+
+  it(`keeps the device it started with when an older server names none`, async () => {
+    const { call } = await dialed({ device: `mint`, fallback: true })
+    expect(call.getSnapshot().state).toMatchObject({ device: `mint`, fallback: true })
   })
 
   it(`sends the microphone as up frames only once the pair is up, the sequence counting`, async () => {

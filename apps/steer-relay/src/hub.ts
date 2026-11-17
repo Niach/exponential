@@ -204,6 +204,9 @@ export class Hub {
    *  its ONE running callId (a second caller reads `busy`). */
   private calls = new Map<string, CallRoom>()
   private callsByDevice = new Map<string, string>()
+  /** #EXP-1935: every callId that rang, until its ticket's `exp` (ms): the
+   *  ticket rides in the URL, so it rings its device once and never again. */
+  private rungCalls = new Map<string, number>()
   /** #EXP-1525: tunnelId → its viewer and device sockets. */
   private tunnels = new Map<string, Tunnel>()
 
@@ -811,6 +814,14 @@ export class Hub {
       this.refuseCall(conn, `busy`)
       return
     }
+    // #EXP-1935: its call rang before and is over: a replay, not a call.
+    const now = Date.now()
+    for (const [rung, until] of this.rungCalls) if (until < now) this.rungCalls.delete(rung)
+    if (this.rungCalls.has(callId)) {
+      this.refuseCall(conn, `no_such_call`)
+      return
+    }
+    this.rungCalls.set(callId, conn.claims.exp * 1000)
     const call: CallRoom = {
       callId,
       ownerId,

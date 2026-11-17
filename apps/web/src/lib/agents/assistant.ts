@@ -10,7 +10,7 @@ import {
 } from "@exp/domain-contract/agent-settings"
 import type { AgentTrigger } from "@exp/db-schema/domain"
 import { db } from "@/db/connection"
-import { agents, devices, userVoiceSettings, type Agent } from "@/db/schema"
+import { agents, devices, teamMembers, userVoiceSettings, type Agent } from "@/db/schema"
 import { getTeamMember } from "@/lib/auth/membership"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
 
@@ -95,7 +95,8 @@ export function checkedAgentTriggers<T extends AgentTriggerLike>(role: string, t
 
 /** The voice Assistant + device a member's voice runs on: the stored
  *  `agent_id` while it is one of their Assistants, else their oldest
- *  Assistant; the device = its device when that is one of their own
+ *  Assistant (#EXP-1935: only in teams they still belong to; the one of a
+ *  team they left is no longer theirs to message); the device = its device when that is one of their own
  *  desktops (voice.json: phones and servers never run the voice). */
 export async function voiceAssistantOf(
   exec: Exec,
@@ -105,6 +106,7 @@ export async function voiceAssistantOf(
   const mine = await exec
     .select({ id: agents.id, deviceId: agents.deviceId })
     .from(agents)
+    .innerJoin(teamMembers, and(eq(teamMembers.teamId, agents.teamId), eq(teamMembers.userId, userId)))
     .where(and(eq(agents.ownerId, userId), eq(agents.role, `assistant`)))
     .orderBy(asc(agents.createdAt))
   const assistant = mine.find((row) => row.id === storedAgentId) ?? mine[0]
@@ -125,6 +127,8 @@ export async function syncVoiceMirror(exec: Exec, userId: string): Promise<void>
   const [row] = await exec.select().from(userVoiceSettings).where(eq(userVoiceSettings.userId, userId)).limit(1)
   const next = await voiceAssistantOf(exec, userId, row?.agentId ?? null)
   if (row && row.agentId === next.agentId && row.voiceDeviceId === next.voiceDeviceId) return
+  // Nothing stored and nothing to mirror (a member who never used voice).
+  if (!row && next.agentId === null) return
   const now = new Date()
   const cleared = next.agentId === null || next.voiceDeviceId === null
   const moved = row !== undefined && (row.agentId !== next.agentId || row.voiceDeviceId !== next.voiceDeviceId)
