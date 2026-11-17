@@ -2325,9 +2325,11 @@ impl MdPaint {
 
 /// A selectable text unit: registered in [`MdUnits`], the selection
 /// highlighted in its runs, link ranges pressable.
-fn unit_text(id: SharedString, text: SharedString, runs: Vec<TextRun>, links: Vec<(Range<usize>, String)>, chips: Vec<(Range<usize>, String)>, p: &MdPaint) -> AnyElement {
+/// #EDE-95: `fills` = the unit's search marks, painted under the text.
+fn unit_text(id: SharedString, text: SharedString, runs: Vec<TextRun>, links: Vec<(Range<usize>, String)>, chips: Vec<(Range<usize>, String)>, fills: Vec<super::highlight::MarkFill>, p: &MdPaint) -> AnyElement {
     let unit = p.units.as_ref().map(|u| u.borrow().get(&p.node).map_or(0, Vec::len)).unwrap_or(0);
     let range = p.selection.filter(|s| s.node == p.node).and_then(|s| s.range_in(unit, text.len()));
+    let len = text.len();
     let styled = StyledText::new(text.clone()).with_runs(highlight(runs, range, p.selection_bg));
     // #VAPP-258: the host's window-level selection takes the unit instead.
     let joined = p.window_selection.map(|bg| (styled.layout().clone(), text.clone(), chips.clone(), bg));
@@ -2335,7 +2337,8 @@ fn unit_text(id: SharedString, text: SharedString, runs: Vec<TextRun>, links: Ve
         let live = p.live.borrow().clone().unwrap_or_else(|| Rc::new(std::cell::Cell::new(true)));
         units.borrow_mut().entry(p.node).or_default().push(MdUnit { layout: styled.layout().clone(), text, chips, live });
     }
-    let el = unit_element(id.clone(), styled, links, p);
+    let fill_layout = styled.layout().clone();
+    let el = super::highlight::marked(unit_element(id.clone(), styled, links, p), fill_layout, len, fills);
     match joined {
         Some((layout, text, chips, bg)) => super::markdown_selection::SelectableUnit::new(format!("{id}.sel"), el, layout, text, bg).chips(chips).into_any_element(),
         None => el,
@@ -2362,7 +2365,8 @@ fn text_block(id: SharedString, inlines: &[Inline], spec: &TextSpec, family: &Sh
     let (shown, runs) = runs(inlines, family, &p.mono, spec.weight, colors);
     // #EDE-95: the search marks on the runs, inline code's on its label.
     let (text_marks, mut chip_marks) = super::highlight::split_unit_marks(inlines, marks);
-    let runs = super::highlight::mark_runs(p.fallback(&shown, runs), &text_marks);
+    let fills = super::highlight::mark_fills(&runs, &text_marks);
+    let runs = p.fallback(&shown, runs);
     // Link ranges (a chip opens its own href) and the chips' byte offsets.
     let mut links: Vec<(std::ops::Range<usize>, String)> = Vec::new();
     let mut chips: Vec<(usize, &InlineChip, Option<&String>)> = Vec::new();
@@ -2379,7 +2383,7 @@ fn text_block(id: SharedString, inlines: &[Inline], spec: &TextSpec, family: &Sh
         }
         at += span.text.len();
     }
-    let body = unit_text(id.clone(), shown, runs, links, labels, p);
+    let body = unit_text(id.clone(), shown, runs, links, labels, fills, p);
     let mut el = div().relative().w_full().text_size(px(spec.size)).line_height(px(spec.line_height)).child(body);
     if !chips.is_empty() {
         let starts: Vec<usize> = chips.iter().map(|(at, _, _)| *at).collect();
@@ -2417,7 +2421,9 @@ fn inline_code(id: SharedString, chip: &InlineChip, href: Option<String>, (x, to
     });
     let label: SharedString = chip.label.clone().into();
     let runs = p.fallback(&label, vec![TextRun { len: label.len(), font, color, background_color: None, underline: href.as_ref().map(|_| UnderlineStyle { thickness: px(1.0), color: Some(colors.link), wavy: false }), strikethrough: None }]);
-    let runs = super::highlight::mark_runs(runs, marks);
+    let fills = super::highlight::plain_fills(marks);
+    let styled = StyledText::new(label.clone()).with_runs(runs);
+    let fill_layout = styled.layout().clone();
     let row = div()
         .id(id)
         .absolute()
@@ -2434,7 +2440,7 @@ fn inline_code(id: SharedString, chip: &InlineChip, href: Option<String>, (x, to
         .line_height(px(ascent + descent))
         .whitespace_nowrap()
         .text_color(color)
-        .child(StyledText::new(label).with_runs(runs));
+        .child(super::highlight::marked(styled, fill_layout, label.len(), fills));
     match href {
         Some(href) => {
             let on_link = p.on_link.clone();
@@ -2692,7 +2698,7 @@ pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint
                             .text_size(px(s.code.size))
                             .line_height(px(s.code.line_height))
                             .whitespace_nowrap()
-                            .child(unit_text(bid, text, runs, Vec::new(), Vec::new(), p)),
+                            .child(unit_text(bid, text, runs, Vec::new(), Vec::new(), Vec::new(), p)),
                     )
                     .into_any_element()
             }

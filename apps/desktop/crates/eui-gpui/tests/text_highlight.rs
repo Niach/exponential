@@ -10,7 +10,7 @@ use eui_core::theme::Mode;
 use eui_core::themes::builtin_theme;
 use eui_core::NestedNode;
 use eui_gpui::host::HostPlugin;
-use eui_gpui::paint::highlight::{joined_marks, line_marks, mark_runs, markdown_highlight_count, markdown_highlight_texts, markdown_marks, split_unit_marks, MarkColors};
+use eui_gpui::paint::highlight::{joined_marks, line_marks, mark_fills, plain_fills, markdown_highlight_count, markdown_highlight_texts, markdown_marks, split_unit_marks, MarkColors};
 use eui_gpui::paint::markdown::{parse, Inline, InlineChip, CODE_CHIP};
 use eui_gpui::view::{SurfaceView, SurfaceViewOptions};
 use gpui::{font, hsla, TestAppContext, TextRun};
@@ -52,12 +52,17 @@ fn the_current_match_numbers_across_blocks() {
 }
 
 #[test]
-fn runs_split_at_the_marks() {
-    let run = |len| TextRun { len, font: font("Inter"), color: gpui::black(), background_color: None, underline: None, strikethrough: None };
+fn fills_split_at_the_runs_and_take_their_font() {
+    // #EDE-95: a fill is the glyph box of its run's font (never a run
+    // background, which spans the line height), so a mark cuts at the runs.
+    let run = |len, family: &'static str| TextRun { len, font: font(family), color: gpui::black(), background_color: None, underline: None, strikethrough: None };
     let c = colors();
-    let out = mark_runs(vec![run(4), run(6)], &[(2..6, c.matched), (8..10, c.current)]);
-    let lens: Vec<_> = out.iter().map(|r| (r.len, r.background_color)).collect();
-    assert_eq!(lens, vec![(2, None), (2, Some(c.matched)), (2, Some(c.matched)), (2, None), (2, Some(c.current))]);
+    let runs = vec![run(4, "Inter"), run(6, "Mono")];
+    assert!(mark_fills(&runs, &[]).is_empty());
+    let out: Vec<_> = mark_fills(&runs, &[(2..6, c.matched), (8..10, c.current)]).into_iter().map(|f| (f.range, f.color, f.font.map(|f| f.family.to_string()))).collect();
+    assert_eq!(out, vec![(2..4, c.matched, Some("Inter".into())), (4..6, c.matched, Some("Mono".into())), (8..10, c.current, Some("Mono".into()))]);
+    let plain: Vec<_> = plain_fills(&[(0..3, c.matched), (5..5, c.current)]).into_iter().map(|f| (f.range, f.font.is_none())).collect();
+    assert_eq!(plain, vec![(0..3, true)], "an empty mark paints nothing");
 }
 
 #[test]

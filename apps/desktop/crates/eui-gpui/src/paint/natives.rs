@@ -450,7 +450,9 @@ pub fn text_lines(cx: &LeafCx, lines: &[String], clamp: Option<usize>, window: &
         match &per_line {
             Some(per_line) => {
                 let marks = crate::paint::highlight::joined_marks(&per_line[from..to], &lens[from..to], &prefixes[from..to]);
-                gpui::StyledText::new(text).with_highlights(crate::paint::highlight::highlight_styles(&marks)).into_any_element()
+                let styled = gpui::StyledText::new(text.clone());
+                let layout = styled.layout().clone();
+                crate::paint::highlight::marked(styled, layout, text.len(), crate::paint::highlight::plain_fills(&marks))
             }
             None => text.into_any_element(),
         }
@@ -619,9 +621,11 @@ pub fn linked_text(cx: &LeafCx, segments: Vec<eui_core::host::TextLink>, host: R
         .and_then(eui_core::text_highlight::highlight_spec)
         .map(|spec| crate::paint::highlight::text_marks(&joined, &spec, crate::paint::highlight::MarkColors::of(cx.theme, cx.mode)).into_iter().map(|(r, c)| (r.start + shift..r.end + shift, c)).collect())
         .unwrap_or_default();
-    let runs = crate::paint::highlight::mark_runs(runs, &marks);
+    let fills = crate::paint::highlight::mark_fills(&runs, &marks);
+    let len = text.len();
     let styled = gpui::StyledText::new(SharedString::from(text)).with_runs(runs);
     let layout = styled.layout().clone();
+    let fill_layout = layout.clone();
     let probe = ranges.clone();
     let links = gpui::InteractiveText::new(SharedString::from(format!("{}.links", cx.node.id)), styled).on_click(ranges, move |ix, _window, cx| {
         if let Some(href) = hrefs.get(ix) {
@@ -636,7 +640,7 @@ pub fn linked_text(cx: &LeafCx, segments: Vec<eui_core::host::TextLink>, host: R
                 cx.stop_propagation();
             }
         })
-        .child(links)
+        .child(crate::paint::highlight::marked(links, fill_layout, len, fills))
         .into_any_element()
 }
 
