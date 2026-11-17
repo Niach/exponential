@@ -26,12 +26,11 @@ use chat_store::catchup::{self, chunk_frame, Answer, Ask, Install, PageAsk};
 pub use chat_store::catchup::{page_frame, PageAnswer};
 pub(crate) use chat_store::catchup::is_page;
 use chat_store::catchup::parse_page;
-#[cfg(test)]
 use chat_store::catchup::PAGE_FRAME_MAX;
 use chat_store::sqlite::SqliteStore;
 use chat_store::StoredEvent;
 use enet_core::{EndpointId, Node};
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use crate::enet::InstallNode;
 use crate::enet_steer::{FeedPeer, StoredJournals};
@@ -85,7 +84,7 @@ pub(crate) fn serve(
             let frame = match refusal {
                 Some(code) => {
                     log::info!("enet catch-up: {} refused for {session_id} ({code})", peer.label());
-                    chunk_frame(&page.request_id, &page.device_id, &[], &empty(&page.ask), Some(code))
+                    chunk_frame(&page.request_id, &page.device_id, &[], &empty(&page.ask), Some(code), PAGE_FRAME_MAX)
                 }
                 None => {
                     let id = session_id.clone();
@@ -113,7 +112,8 @@ type Source = (std::path::PathBuf, Option<String>, Option<ChatStoreSlot>);
 /// The holder's chunk for one page (blocking: a file or the store is read).
 fn answer_frame(session_id: &str, page: &PageAsk, source: Option<Source>) -> String {
     let (answer, events) = held_page(session_id, &page.device_id, &page.ask, source);
-    chunk_frame(&page.request_id, &page.device_id, &events, &answer, None)
+    let events: Vec<(u64, &Value)> = events.iter().map(|(seq, event)| (*seq, event)).collect();
+    chunk_frame(&page.request_id, &page.device_id, &events, &answer, None, PAGE_FRAME_MAX)
 }
 
 /// The page off the journal (this device ran it) or the chat store.
@@ -561,6 +561,7 @@ pub fn may_run_now(idle_ms: u64) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn a_page_round_trips_through_its_frame() {
@@ -581,14 +582,14 @@ mod tests {
         let big = "x".repeat(PAGE_FRAME_MAX / 3);
         let events: Vec<(u64, Value)> = (0..5).map(|seq| (seq, json!({ "kind": "narration", "text": big }))).collect();
         let answer = Answer { seqs: (0..5).collect(), through_seq: Some(4), done: true, last_seq: Some(4), full_to: Some(4) };
-        let frame: Value = serde_json::from_str(&chunk_frame("r", "d", &events, &answer, None)).unwrap();
+        let frame: Value = serde_json::from_str(&chunk_frame("r", "d", &events.iter().map(|(seq, event)| (*seq, event)).collect::<Vec<_>>(), &answer, None, PAGE_FRAME_MAX)).unwrap();
         assert!(frame.to_string().len() < PAGE_FRAME_MAX);
         assert_eq!(frame["seqs"], json!([0, 1]));
         assert_eq!((frame["throughSeq"].clone(), frame["done"].clone()), (json!(1), json!(false)));
         // One event over the envelope alone is skipped, the walk moves on.
         let huge = vec![(7, json!({ "kind": "narration", "text": "x".repeat(PAGE_FRAME_MAX) }))];
         let answer = Answer { seqs: vec![7], through_seq: Some(7), done: true, last_seq: Some(9), full_to: Some(9) };
-        let frame: Value = serde_json::from_str(&chunk_frame("r", "d", &huge, &answer, None)).unwrap();
+        let frame: Value = serde_json::from_str(&chunk_frame("r", "d", &huge.iter().map(|(seq, event)| (*seq, event)).collect::<Vec<_>>(), &answer, None, PAGE_FRAME_MAX)).unwrap();
         assert_eq!((frame["seqs"].clone(), frame["throughSeq"].clone(), frame["done"].clone()), (json!([]), json!(7), json!(false)));
     }
 

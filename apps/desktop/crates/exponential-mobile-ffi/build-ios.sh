@@ -111,6 +111,10 @@ echo "== ExponentialMobileFFI.xcframework"
 NET="$CRATES/exponential-net-ffi/bindings/swift"
 mkdir -p "$WORK/headers/mobile/ExponentialNetFFIFFI"
 cp "$NET/ExponentialNetFFIFFI.h" "$NET/module.modulemap" "$WORK/headers/mobile/ExponentialNetFFIFFI/"
+# #EDE-114: the chat store's C module (`ExponentialChatStoreFFIFFI`) beside it.
+CHAT="$CRATES/chat-store-ffi/bindings/swift"
+mkdir -p "$WORK/headers/mobile/ExponentialChatStoreFFIFFI"
+cp "$CHAT/ExponentialChatStoreFFIFFI.h" "$CHAT/module.modulemap" "$WORK/headers/mobile/ExponentialChatStoreFFIFFI/"
 mobile_lib() { echo "$THIN/$1/libexponential_mobile_ffi.a"; }
 xcframework "$HERE/out/ExponentialMobileFFI.xcframework" libexponential_mobile_ffi.a "$WORK/headers/mobile" mobile_lib
 

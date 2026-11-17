@@ -297,10 +297,18 @@ pub fn parse_page(frame: &Value) -> Option<PageAsk> {
     })
 }
 
-/// ONE `history_chunk`, cut from its end to fit an envelope
-/// ([`PAGE_FRAME_MAX`]); an event too large alone is skipped.
-pub fn chunk_frame(request_id: &str, device_id: &str, events: &[(u64, Value)], answer: &Answer, error: Option<&str>) -> String {
-    let budget = PAGE_FRAME_MAX - 512;
+/// ONE `history_chunk`, cut from its end to fit `max_bytes` (a holder sends
+/// [`PAGE_FRAME_MAX`]); an event too large alone is skipped: the walk moves
+/// past it.
+pub fn chunk_frame(
+    request_id: &str,
+    device_id: &str,
+    events: &[(u64, &Value)],
+    answer: &Answer,
+    error: Option<&str>,
+    max_bytes: usize,
+) -> String {
+    let budget = max_bytes.saturating_sub(512);
     let mut kept: Vec<(u64, &Value)> = Vec::new();
     let mut size = 0usize;
     let mut answer = answer.clone();
@@ -313,7 +321,7 @@ pub fn chunk_frame(request_id: &str, device_id: &str, events: &[(u64, Value)], a
             break;
         }
         size += len;
-        kept.push((*seq, event));
+        kept.push((*seq, *event));
     }
     let mut frame = json!({
         "t": "history_chunk",
@@ -330,6 +338,14 @@ pub fn chunk_frame(request_id: &str, device_id: &str, events: &[(u64, Value)], a
         frame["error"] = json!(code);
     }
     frame.to_string()
+}
+
+/// A refusal (`unauthorized`, `no_such_session`): the same chunk empty,
+/// with `error` (`None` = not a catch-up page).
+pub fn refusal_frame(page: &Value, code: &str) -> Option<String> {
+    let page = parse_page(page)?;
+    let empty = finish(Vec::new(), page.ask.limit(), None, None, &page.ask);
+    Some(chunk_frame(&page.request_id, &page.device_id, &[], &empty, Some(code), usize::MAX))
 }
 
 /// A holder's answer to one page, as the asker reads its chunk.

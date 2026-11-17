@@ -1543,6 +1543,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "chat-store-ffi"
+version = "0.1.0"
+dependencies = [
+ "chat-store",
+ "serde",
+ "serde_json",
+ "uniffi",
+]
+
+[[package]]
 name = "chat-store-wasm"
 version = "0.1.0"
 dependencies = [
