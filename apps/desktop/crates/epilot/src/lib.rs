@@ -148,7 +148,7 @@ pub fn screen_layout() -> Option<ScreenLayout> {
 
 struct Live {
     server: emcp::Server,
-    host: Arc<host::Host>,
+    host: Arc<host::Hosts>,
 }
 
 /// The process-wide endpoint, started on the first grant. An `Err` (no free
@@ -157,7 +157,7 @@ static LIVE: OnceLock<Result<Live, String>> = OnceLock::new();
 
 fn live() -> Result<&'static Live, String> {
     LIVE.get_or_init(|| {
-        let host = host::Host::new();
+        let host = Arc::new(host::Hosts::default());
         let server = server::serve(host.clone())?;
         log::info!("[computer] serving computer use on {}", server.url());
         if let Some(presence) = PRESENCE.get() {
@@ -202,12 +202,12 @@ pub struct ScreenState {
 /// the picked [`Display::id`]; `None` = Auto). The hub resolves it to the
 /// display carrying that id on every call (#FEED-161).
 pub fn set_work_display(id: Option<String>) {
-    work_screen::set_picked(id);
+    work_screen::set_picked(backend::Target::Person, id);
 }
 
 /// The Work screen setting as the hub reads it now ([`set_work_display`]).
 pub fn work_display() -> Option<String> {
-    work_screen::picked()
+    work_screen::picked(backend::Target::Person)
 }
 
 /// #EXP-1919 SAME MONITOR (`work-screen.json` `pickCases`): the display a
@@ -309,14 +309,14 @@ pub fn screen_state() -> Option<ScreenState> {
 /// NEW-59: the display the computer-use banner floats on: the engaged run's
 /// current display (the work screen), else `None` (the primary).
 pub fn banner_display() -> Option<Display> {
-    work_screen::banner_display()
+    work_screen::banner_display(backend::Target::Person)
 }
 
 /// #EXP-1916: that display's 0-based index, or `None`; a plain read (no OS
 /// call), so the banner's owner can watch it for the run moving to another
 /// display while the hold lasts.
 pub fn banner_index() -> Option<usize> {
-    work_screen::banner_index()
+    work_screen::banner_index(backend::Target::Person)
 }
 
 /// Admit the run `session_id`; a grant it held before stops working.
@@ -328,7 +328,7 @@ pub fn grant(session_id: &str, label: &str) -> Result<Grant, String> {
     }
     let id = emcp::SessionId::new(session_id).map_err(|err| err.to_string())?;
     let live = live()?;
-    live.host.admit(id.as_str());
+    live.host.admit(id.as_str(), backend::Target::Person);
     Ok(Grant { url: live.server.url().to_string(), token: live.server.grant(&id, label).into() })
 }
 
@@ -416,7 +416,7 @@ pub fn readiness() -> Readiness {
 pub fn prepare() -> Readiness {
     let readiness = readiness_of(&backend::request_permissions());
     if readiness == Readiness::Ready {
-        match backend::open() {
+        match backend::open(backend::Target::Person) {
             Ok(backend) => match backend.displays() {
                 Ok(displays) => log::info!("[computer] computer use is ready on {} ({} display(s))", backend::name(), displays.len()),
                 Err(reason) => log::warn!("[computer] the screen does not answer: {reason}"),

@@ -195,7 +195,22 @@ pub(crate) trait Clipboard {
     fn text(&self) -> Result<Option<String>, String>;
 }
 
+/// Whose screen and input a run drives (#EXP-1924). Only the person's seat
+/// today; every lock, Esc set, call queue, Work screen pick and banner is
+/// one target's.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub(crate) enum Target {
+    /// The person's own seat: their screen, pointer and keyboard.
+    #[default]
+    Person,
+}
+
 pub(crate) trait Backend: Send {
+    /// The target this backend drives ([`open`]'s). A backend for another
+    /// target than the person's must override it.
+    fn target(&self) -> Target {
+        Target::Person
+    }
     /// Every display, the primary marked; never empty.
     fn displays(&self) -> Result<Vec<DisplayInfo>, String>;
     /// `display`'s pixels now; any resolution, the frame fits it.
@@ -323,8 +338,9 @@ pub(crate) fn name() -> &'static str {
     "none"
 }
 
-/// Open the backend for one call.
-pub(crate) fn open() -> Result<Box<dyn Backend>, String> {
+/// Open the backend driving `target` for one call.
+pub(crate) fn open(target: Target) -> Result<Box<dyn Backend>, String> {
+    let Target::Person = target;
     if let Some(reason) = unsupported() {
         return Err(reason);
     }
