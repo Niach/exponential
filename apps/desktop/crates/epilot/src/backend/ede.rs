@@ -253,6 +253,7 @@ impl Backend for Ede {
                 // eDE lays outputs out left to right from the first.
                 primary: index == 0,
                 name: output.name,
+                connector: None,
             })
             .collect();
         finish_ids(&mut displays, &connectors);

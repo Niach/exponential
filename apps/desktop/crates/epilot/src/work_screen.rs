@@ -226,11 +226,54 @@ pub(crate) fn picked() -> Option<String> {
 }
 
 /// The gate's `picked` off the stored id: the 1-based number of the display
-/// carrying it ([`picked_index`]), 0 when none does; `None` = Auto.
+/// carrying it ([`carried_index`]), 0 when none does; `None` = Auto.
 pub(crate) fn resolve(displays: &[DisplayInfo], picked: Option<&str>) -> Option<u32> {
     let id = picked?;
+    Some(carried_index(displays, id).map_or(0, |index| index as u32 + 1))
+}
+
+/// The 0-based display the hub reads a stored pick as (`pickCases[].hub`):
+/// the one carrying it, else (#EXP-1919) for a `base@connector` the lone
+/// display `base` on that connector, whose twin went. Never a guess: the
+/// host rewrites any other form ([`pick_of`]).
+pub(crate) fn carried_index(displays: &[DisplayInfo], stored: &str) -> Option<usize> {
+    if let Some(index) = displays.iter().position(|display| display.id == stored) {
+        return Some(index);
+    }
+    let (_, connector) = stored.rsplit_once('@')?;
+    displays.iter().position(|display| display.connector.as_deref() == Some(connector) && backend::twin_id(&display.id, connector) == stored)
+}
+
+/// #EXP-1919 SAME MONITOR (`pickCases[].expect`): the 0-based display a
+/// stored pick names for the host, which also knows `seen`, the
+/// `base@connector` form of the display it last saw carrying the pick:
+/// [`carried_index`], else for a bare id whose display got a twin the
+/// display `seen` (not connected without it, never another twin); only a
+/// pick never seen falls to the legacy rule ([`picked_index`]).
+pub(crate) fn pick_index(displays: &[DisplayInfo], stored: &str, seen: Option<&str>) -> Option<usize> {
+    if let Some(index) = carried_index(displays, stored) {
+        return Some(index);
+    }
+    let own = |seen: &&str| seen.rsplit_once('@').is_some_and(|(_, connector)| backend::twin_id(stored, connector) == *seen);
+    if let Some(seen) = seen.filter(own) {
+        return displays.iter().position(|display| display.id == seen);
+    }
     let ids: Vec<&str> = displays.iter().map(|display| display.id.as_str()).collect();
-    Some(picked_index(&ids, id).map_or(0, |index| index as u32 + 1))
+    picked_index(&ids, stored)
+}
+
+/// [`pick_index`] as the host stores it: the id that display carries now
+/// and its `base@connector` form (`None` = no connector tells it apart).
+pub(crate) fn pick_of(displays: &[DisplayInfo], stored: &str, seen: Option<&str>) -> Option<crate::PickedDisplay> {
+    let display = &displays[pick_index(displays, stored, seen)?];
+    let seen = display.connector.as_deref().map(|connector| {
+        if display.id.ends_with(&format!("@{connector}")) {
+            display.id.clone()
+        } else {
+            backend::twin_id(&display.id, connector)
+        }
+    });
+    Some(crate::PickedDisplay { id: display.id.clone(), seen })
 }
 
 /// The 0-based display a stored pick names among `ids` (the OS's order):
@@ -342,40 +385,12 @@ pub(crate) fn screen_state() -> Option<ScreenState> {
     })
 }
 
-/// The displays with their pixel sizes, re-read at most every
-/// `DISPLAYS_TTL`: screen memory's 4 Hz focus poll would otherwise pay
-/// two display enumerations per look (~1.5 ms on a Mac) for a layout that
-/// changes when a monitor is plugged.
-const DISPLAYS_TTL: std::time::Duration = std::time::Duration::from_secs(3);
-type DisplayCache = (std::time::Instant, Vec<(DisplayInfo, (u32, u32))>);
-static DISPLAY_CACHE: std::sync::Mutex<Option<DisplayCache>> = std::sync::Mutex::new(None);
-
-pub(crate) fn screen_view() -> Option<crate::ScreenView> {
-    let backend = backend::open().ok()?;
-    let displays = {
-        let mut cache = DISPLAY_CACHE.lock().unwrap();
-        match cache.as_ref().filter(|(at, _)| at.elapsed() < DISPLAYS_TTL) {
-            Some((_, displays)) => displays.clone(),
-            None => {
-                let displays: Vec<(DisplayInfo, (u32, u32))> = backend
-                    .displays()
-                    .ok()?
-                    .into_iter()
-                    .map(|display| {
-                        let pixels = backend::pixel_size(display.x, display.y, display.width, display.height);
-                        (display, pixels)
-                    })
-                    .collect();
-                *cache = Some((std::time::Instant::now(), displays.clone()));
-                displays
-            }
-        }
-    };
-    let windows = backend.list_windows().ok()?;
-    Some(view_of(&displays, &windows, picked().as_deref(), backend::app_id))
+pub(crate) fn pick_now(stored: &str, seen: Option<&str>) -> Option<crate::PickedDisplay> {
+    let (_, displays) = backend_displays()?;
+    pick_of(&displays, stored, seen)
 }
 
-/// [`screen_view`] off one display set (with pixel sizes) and one window
+/// [`crate::ScreenView`] off one display set (with pixel sizes) and one window
 /// list (top first); `app_id` names a pid's app (asked for the focused
 /// window and each display's top window).
 pub(crate) fn view_of(
@@ -523,7 +538,7 @@ mod tests {
     #[test]
     fn the_focused_rect_is_in_the_displays_pixels_and_clipped_to_it() {
         // A Retina panel: 1512x982 points, 3024x1964 pixels, right of a 1920 one.
-        let display = DisplayInfo { id: String::new(), x: 1920, y: 0, width: 1512, height: 982, primary: false, name: String::new() };
+        let display = DisplayInfo { id: String::new(), x: 1920, y: 0, width: 1512, height: 982, primary: false, name: String::new(), connector: None };
         let window = |x, y, width, height| WindowInfo {
             id: 1,
             title: String::new(),
@@ -546,7 +561,7 @@ mod tests {
 
     #[test]
     fn the_state_reads_fullscreen_and_focus_off_the_windows_displays() {
-        let display = |x, primary| DisplayInfo { id: format!("id-{x}"), x, y: 0, width: 1000, height: 1000, primary, name: String::new() };
+        let display = |x, primary| DisplayInfo { id: format!("id-{x}"), x, y: 0, width: 1000, height: 1000, primary, name: String::new(), connector: None };
         let displays = [display(0, true), display(1000, false)];
         let window = |x, active, fullscreen| WindowInfo {
             id: 1,
@@ -574,8 +589,8 @@ mod tests {
     fn a_window_belongs_to_the_display_it_overlaps_most() {
         // Display 0 is short (600 tall), display 1 is 1000.
         let displays = [
-            DisplayInfo { id: "a".into(), x: 0, y: 0, width: 1000, height: 600, primary: true, name: String::new() },
-            DisplayInfo { id: "b".into(), x: 1000, y: 0, width: 1000, height: 1000, primary: false, name: String::new() },
+            DisplayInfo { id: "a".into(), x: 0, y: 0, width: 1000, height: 600, primary: true, name: String::new(), connector: None },
+            DisplayInfo { id: "b".into(), x: 1000, y: 0, width: 1000, height: 1000, primary: false, name: String::new(), connector: None },
         ];
         let window = |x, y, width, height| WindowInfo {
             id: 1,
@@ -604,7 +619,7 @@ mod tests {
     /// id nobody carries = 0 (gone), never Auto.
     #[test]
     fn the_picked_id_resolves_to_its_display_after_a_reorder() {
-        let display = |id: &str| DisplayInfo { id: id.into(), x: 0, y: 0, width: 10, height: 10, primary: false, name: String::new() };
+        let display = |id: &str| DisplayInfo { id: id.into(), x: 0, y: 0, width: 10, height: 10, primary: false, name: String::new(), connector: None };
         assert_eq!(resolve(&[display("a"), display("b")], Some("b")), Some(2));
         assert_eq!(resolve(&[display("b"), display("a")], Some("b")), Some(1));
         assert_eq!(resolve(&[display("a")], Some("b")), Some(0));
@@ -621,14 +636,14 @@ mod tests {
             let got = picked_index(&ids, case["stored"].as_str().unwrap()).map(|index| ids[index]);
             assert_eq!(got, case["expect"].as_str(), "{}", case["name"]);
             let displays: Vec<DisplayInfo> =
-                ids.iter().map(|id| DisplayInfo { id: id.to_string(), x: 0, y: 0, width: 10, height: 10, primary: false, name: String::new() }).collect();
-            let number = got.map_or(0, |id| ids.iter().position(|other| *other == id).unwrap() as u32 + 1);
-            assert_eq!(resolve(&displays, case["stored"].as_str()), Some(number), "{}", case["name"]);
+                ids.iter().map(|id| DisplayInfo { id: id.to_string(), x: 0, y: 0, width: 10, height: 10, primary: false, name: String::new(), connector: None }).collect();
+            // The host's rule for a pick it never saw on a display.
+            assert_eq!(pick_index(&displays, case["stored"].as_str().unwrap(), None).map(|index| ids[index]), got, "{}", case["name"]);
         }
         // Every old id names its own twin under the new one, ids cut to 128 too.
         let long = "x".repeat(200);
         for base in ["edid:0123456789abcdef", long.as_str()] {
-            let display = |id: &str| DisplayInfo { id: id.into(), x: 0, y: 0, width: 10, height: 10, primary: false, name: String::new() };
+            let display = |id: &str| DisplayInfo { id: id.into(), x: 0, y: 0, width: 10, height: 10, primary: false, name: String::new(), connector: None };
             let mut old = [display(base), display("uuid-b"), display(base), display(base)];
             let mut new = old.clone();
             backend::finish_ids(&mut old, &[]);
@@ -640,11 +655,61 @@ mod tests {
         }
     }
 
+    /// #EXP-1919 SAME MONITOR: a display's id changes form with its twin
+    /// (`base` alone, `base@connector` beside it); the pick stays on its
+    /// monitor (`work-screen.json` `pickCases`).
+    #[test]
+    fn a_pick_stays_on_its_monitor_when_a_twin_goes_or_arrives() {
+        for case in fixture()["pickCases"].as_array().unwrap() {
+            let name = case["name"].as_str().unwrap();
+            let displays: Vec<DisplayInfo> = case["displays"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| DisplayInfo {
+                    id: row["id"].as_str().unwrap().into(),
+                    x: 0,
+                    y: 0,
+                    width: 10,
+                    height: 10,
+                    primary: false,
+                    name: String::new(),
+                    connector: row["connector"].as_str().map(str::to_string),
+                })
+                .collect();
+            let stored = case["stored"].as_str().unwrap();
+            let id_of = |index: Option<usize>| index.map(|index| displays[index].id.as_str());
+            assert_eq!(id_of(pick_index(&displays, stored, case["seen"].as_str())), case["expect"].as_str(), "{name}");
+            assert_eq!(id_of(carried_index(&displays, stored)), case["hub"].as_str(), "{name}: hub");
+        }
+        // The round trip off real id lists, ids cut to 128 too: DP-1 is
+        // picked beside its twin, the twin goes, comes back and sorts first.
+        let long = "x".repeat(200);
+        for base in ["edid:H", long.as_str()] {
+            let display = |id: &str| DisplayInfo { id: id.into(), x: 0, y: 0, width: 10, height: 10, primary: false, name: String::new(), connector: None };
+            let mut both = [display(base), display(base)];
+            backend::finish_ids(&mut both, &[Some("HDMI-1".into()), Some("DP-1".into())]);
+            let mut alone = [display(base)];
+            backend::finish_ids(&mut alone, &[Some("DP-1".into())]);
+            assert_eq!(resolve(&alone, Some(both[1].id.as_str())), Some(1), "the picked monitor is connected");
+            let kept = pick_of(&alone, &both[1].id, None).unwrap();
+            assert_eq!((kept.id.as_str(), kept.seen.as_deref()), (alone[0].id.as_str(), Some(both[1].id.as_str())));
+            assert_eq!(resolve(&both, Some(kept.id.as_str())), Some(0), "the hub never guesses a twin");
+            let back = pick_of(&both, &kept.id, kept.seen.as_deref()).unwrap();
+            assert_eq!((back.id.as_str(), back.seen.as_deref()), (both[1].id.as_str(), Some(both[1].id.as_str())));
+        }
+        // Twins told apart by order carry no connector: nothing to remember.
+        let display = |id: &str| DisplayInfo { id: id.into(), x: 0, y: 0, width: 10, height: 10, primary: false, name: String::new(), connector: None };
+        let mut ordered = [display("uuid-a"), display("uuid-a")];
+        backend::finish_ids(&mut ordered, &[Some("1".into()), None]);
+        assert_eq!(pick_of(&ordered, "uuid-a#2", None), Some(crate::PickedDisplay { id: "uuid-a#2".into(), seen: None }));
+    }
+
     /// NEW-58: screen memory's view: the focused window with its app id,
     /// the work displays 1-based, each display's top window.
     #[test]
     fn the_screen_view_reads_focus_work_and_top_windows_in_one_list() {
-        let display = |x, primary| (DisplayInfo { id: format!("id-{x}"), x, y: 0, width: 1000, height: 1000, primary, name: String::new() }, (2000, 2000));
+        let display = |x, primary| (DisplayInfo { id: format!("id-{x}"), x, y: 0, width: 1000, height: 1000, primary, name: String::new(), connector: None }, (2000, 2000));
         let displays = [display(0, true), display(1000, false)];
         let window = |app: &str, x, active, fullscreen| WindowInfo {
             id: 1,

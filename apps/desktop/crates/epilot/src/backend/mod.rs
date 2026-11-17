@@ -40,6 +40,10 @@ pub(crate) struct DisplayInfo {
     pub height: u32,
     pub primary: bool,
     pub name: String,
+    /// #EXP-1919: what tells this display from a twin (set by
+    /// [`finish_ids`]: its connector, whether a twin is connected or not);
+    /// `None` = the OS named none, or its twins are told apart by order.
+    pub connector: Option<String>,
 }
 
 impl DisplayInfo {
@@ -76,7 +80,8 @@ pub(crate) fn finish_ids(displays: &mut [DisplayInfo], connectors: &[Option<Stri
         let by_connector = twins.len() > 1
             && twins.iter().all(|twin| connector(*twin).is_some())
             && twins.iter().all(|twin| twins.iter().filter(|other| connector(**other) == connector(*twin)).count() == 1);
-        let mut id = if by_connector { suffixed(base, &format!("@{}", connector(index).unwrap_or_default())) } else { base.clone() };
+        let mut id = if by_connector { twin_id(base, &connector(index).unwrap_or_default()) } else { base.clone() };
+        display.connector = connector(index).filter(|_| by_connector || twins.len() == 1);
         // OS order: the fallback, and the last guard against a collision.
         let mut n = 1;
         while seen.contains(&id) {
@@ -86,6 +91,14 @@ pub(crate) fn finish_ids(displays: &mut [DisplayInfo], connectors: &[Option<Stri
         seen.push(id.clone());
         display.id = id;
     }
+}
+
+/// #EXP-1919: the id a display `base` carries beside a twin: `@` + its
+/// connector, cut so the whole fits [`ID_MAX`].
+pub(crate) fn twin_id(base: &str, connector: &str) -> String {
+    let suffix = format!("@{connector}");
+    let room = ID_MAX.saturating_sub(suffix.chars().count());
+    format!("{}{suffix}", base.chars().take(room).collect::<String>())
 }
 
 /// FNV-1a 64: a hash that stays the same across builds (X11's `edid:` id).
@@ -325,7 +338,7 @@ mod tests {
     use super::*;
 
     fn display(id: &str) -> DisplayInfo {
-        DisplayInfo { id: id.into(), x: 0, y: 0, width: 100, height: 100, primary: false, name: String::new() }
+        DisplayInfo { id: id.into(), x: 0, y: 0, width: 100, height: 100, primary: false, name: String::new(), connector: None }
     }
 
     /// #FEED-161: without connectors twins get `#2`, `#3` in the OS's

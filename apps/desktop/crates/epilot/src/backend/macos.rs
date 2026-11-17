@@ -562,6 +562,7 @@ fn active_displays() -> Result<Vec<(CGDirectDisplayID, DisplayInfo)>, String> {
                 height: bounds.size.height.round().max(0.0) as u32,
                 primary: display.is_main(),
                 name: format!("Display {}", index + 1),
+                connector: None,
             };
             (id, info)
         })

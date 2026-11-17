@@ -147,7 +147,7 @@ mod tests {
     use super::*;
 
     fn display(id: &str, x: i32, width: u32) -> (DisplayInfo, (u32, u32)) {
-        (DisplayInfo { id: id.into(), x, y: 0, width, height: 1000, primary: x == 0, name: String::new() }, (width * 2, 2000))
+        (DisplayInfo { id: id.into(), x, y: 0, width, height: 1000, primary: x == 0, name: String::new(), connector: None }, (width * 2, 2000))
     }
 
     fn window(app: &str, x: i32, width: u32, active: bool) -> WindowInfo {

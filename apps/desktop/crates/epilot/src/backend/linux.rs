@@ -473,6 +473,7 @@ impl X11 {
             height: u32::from(geometry.height),
             primary: true,
             name: "screen".into(),
+            connector: None,
         })
     }
 
@@ -531,6 +532,7 @@ impl Backend for X11 {
                     height: u32::from(monitor.height),
                     primary: monitor.primary,
                     name,
+                    connector: None,
                 }
             })
             .collect();
