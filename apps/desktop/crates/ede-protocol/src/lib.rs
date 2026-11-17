@@ -176,7 +176,8 @@ pub enum Request {
     /// Every type the selection offers, read into memory now:
     /// [`ClipboardSnapshot`]. A type past [`CLIPBOARD_ITEM_MAX`] is skipped,
     /// reading stops past [`CLIPBOARD_TOTAL_MAX`], a source that does not
-    /// answer within [`CLIPBOARD_READ_MS`] loses that type.
+    /// answer within [`CLIPBOARD_READ_MS`] loses that type. Every type left
+    /// out is named in [`ClipboardSnapshot::unread`].
     ClipboardSnapshot,
     /// The compositor owns the selection itself and serves `items` to the
     /// focused client (and Xwayland's): [`ClipboardSerial`] of the new
@@ -231,6 +232,20 @@ pub struct ClipboardSerial {
 pub struct ClipboardSnapshot {
     pub serial: u64,
     pub items: Vec<ClipboardItem>,
+    /// The types the selection offers that are NOT in `items` (#EXP-1900):
+    /// too large, past the total, or their read failed or timed out.
+    /// `Some(empty)` = `items` is the whole selection; `None` = a
+    /// compositor from before the field, which dropped types without
+    /// saying so: the snapshot may be partial.
+    #[serde(default)]
+    pub unread: Option<Vec<String>>,
+}
+
+impl ClipboardSnapshot {
+    /// `items` is everything the selection held.
+    pub fn is_whole(&self) -> bool {
+        self.unread.as_ref().is_some_and(Vec::is_empty)
+    }
 }
 
 /// `serial` = the selection's serial now: another one than asked = someone
@@ -890,8 +905,16 @@ mod tests {
             assert_eq!(json["op"], op);
             assert_eq!(serde_json::from_value::<Call>(json).unwrap(), call);
         }
-        let snapshot = ClipboardSnapshot { serial: 3, items };
+        let snapshot = ClipboardSnapshot { serial: 3, items, unread: Some(vec!["image/png".into()]) };
         assert_eq!(serde_json::from_value::<ClipboardSnapshot>(serde_json::to_value(&snapshot).unwrap()).unwrap(), snapshot);
+        assert!(!snapshot.is_whole());
+        // #EXP-1900: only a compositor that names nothing unread read it all;
+        // one from before the field dropped types silently.
+        let whole: ClipboardSnapshot = serde_json::from_str(r#"{"serial":4,"items":[],"unread":[]}"#).unwrap();
+        assert!(whole.is_whole());
+        let old: ClipboardSnapshot = serde_json::from_str(r#"{"serial":4,"items":[]}"#).unwrap();
+        assert_eq!(old.unread, None);
+        assert!(!old.is_whole());
         let text: ClipboardText = serde_json::from_str(r#"{"serial":4,"text":null}"#).unwrap();
         assert_eq!(text.text, None);
         assert!(!format!("{:?}", ClipboardItem { mime: "a".into(), data: b"secret".to_vec() }).contains("secret"));

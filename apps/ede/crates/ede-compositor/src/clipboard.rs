@@ -184,6 +184,8 @@ struct Job {
     serial: u64,
     mimes: VecDeque<String>,
     items: Vec<ClipboardItem>,
+    /// The types this read left out (#EXP-1900): the reply names them.
+    unread: Vec<String>,
     total: usize,
     deadline: Instant,
     /// Bumped per type: a stale pipe or timer callback sees another one.
@@ -202,7 +204,10 @@ struct Reading {
 enum Step {
     More,
     Done,
+    /// Too large, or past the total.
     Skip,
+    /// The pipe failed mid-read: what came is not the type.
+    Failed,
 }
 
 impl Ede {
@@ -279,20 +284,20 @@ impl Ede {
     pub(crate) fn clipboard_read(&mut self, conn: u64, call_id: u64, want: Want) -> Option<serde_json::Value> {
         let serial = self.clipboard.serial;
         let (from, offered) = match self.clipboard.owner.clone() {
-            Owner::Empty => return Some(reply(want, serial, Vec::new())),
+            Owner::Empty => return Some(reply(want, serial, Vec::new(), Vec::new())),
             Owner::Ours(owned) => {
                 let items = wanted(&owned.items.iter().map(|item| item.mime.clone()).collect::<Vec<_>>(), want)
                     .iter()
                     .filter_map(|mime| owned.item(mime).cloned())
                     .collect();
-                return Some(reply(want, serial, items));
+                return Some(reply(want, serial, items, Vec::new()));
             }
             Owner::Client(mimes) => (Source::Client, mimes),
             Owner::X11(mimes) => (Source::X11, mimes),
         };
         let mimes: VecDeque<String> = wanted(&offered, want).into();
         if mimes.is_empty() {
-            return Some(reply(want, serial, Vec::new()));
+            return Some(reply(want, serial, Vec::new(), Vec::new()));
         }
         self.clipboard.next_job += 1;
         let id = self.clipboard.next_job;
@@ -305,6 +310,7 @@ impl Ede {
             serial,
             mimes,
             items: Vec::new(),
+            unread: Vec::new(),
             total: 0,
             deadline: Instant::now() + Duration::from_millis(SNAPSHOT_MS),
             attempt: 0,
@@ -324,9 +330,16 @@ impl Ede {
             let from = job.from;
             let next = if Instant::now() < job.deadline && job.total < CLIPBOARD_TOTAL_MAX { job.mimes.pop_front() } else { None };
             let Some(mime) = next else { return self.finish_job(id) };
-            let Ok((read, write)) = pipe_with(PipeFlags::CLOEXEC) else { return self.finish_job(id) };
+            let Ok((read, write)) = pipe_with(PipeFlags::CLOEXEC) else {
+                job.unread.push(mime);
+                return self.finish_job(id);
+            };
             let _ = fcntl_setfl(&read, OFlags::NONBLOCK);
             if !self.ask_source(from, &mime, write) {
+                // A selection that is gone has nothing left to lose.
+                if !matches!(self.clipboard.owner, Owner::Empty) {
+                    self.leave_unread(id, mime);
+                }
                 continue;
             }
             let file = std::fs::File::from(read);
@@ -334,7 +347,10 @@ impl Ede {
                 let file: &std::fs::File = file;
                 Ok(state.read_some(id, attempt, file))
             });
-            let Ok(pipe) = pipe else { continue };
+            let Ok(pipe) = pipe else {
+                self.leave_unread(id, mime);
+                continue;
+            };
             let timer = self.loop_handle.insert_source(Timer::from_duration(Duration::from_millis(CLIPBOARD_READ_MS)), move |_, _, state| {
                 state.read_timed_out(id, attempt);
                 TimeoutAction::Drop
@@ -382,13 +398,13 @@ impl Ede {
                     }
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break Step::More,
                     Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
-                    Err(_) => break Step::Done,
+                    Err(_) => break Step::Failed,
                 }
             }
         };
         match step {
             Step::More => PostAction::Continue,
-            Step::Done | Step::Skip => {
+            Step::Done | Step::Skip | Step::Failed => {
                 let Some(job) = self.clipboard.jobs.iter_mut().find(|j| j.id == id) else { return PostAction::Remove };
                 let reading = job.reading.take().expect("reading");
                 if let Some(timer) = reading.timer {
@@ -398,9 +414,13 @@ impl Ede {
                 if matches!(step, Step::Done) {
                     job.total += reading.buf.len();
                     job.items.push(ClipboardItem { mime: reading.mime, data: reading.buf });
-                } else if reading.buf.len() <= CLIPBOARD_ITEM_MAX {
-                    // Past the total: nothing more fits.
-                    job.mimes.clear();
+                } else {
+                    let past_total = matches!(step, Step::Skip) && reading.buf.len() <= CLIPBOARD_ITEM_MAX;
+                    job.unread.push(reading.mime);
+                    if past_total {
+                        // Nothing more fits.
+                        job.unread.extend(job.mimes.drain(..));
+                    }
                 }
                 self.read_next(id);
                 PostAction::Remove
@@ -411,23 +431,32 @@ impl Ede {
     fn read_timed_out(&mut self, id: u64, attempt: u64) {
         let Some(job) = self.clipboard.jobs.iter_mut().find(|j| j.id == id && j.attempt == attempt) else { return };
         let Some(reading) = job.reading.take() else { return };
+        job.unread.push(reading.mime);
         if let Some(pipe) = reading.pipe {
             self.loop_handle.remove(pipe);
         }
         self.read_next(id);
     }
 
+    fn leave_unread(&mut self, id: u64, mime: String) {
+        if let Some(job) = self.clipboard.jobs.iter_mut().find(|j| j.id == id) {
+            job.unread.push(mime);
+        }
+    }
+
     fn finish_job(&mut self, id: u64) {
         let Some(index) = self.clipboard.jobs.iter().position(|j| j.id == id) else { return };
-        let job = self.clipboard.jobs.remove(index);
-        let value = reply(job.want, job.serial, job.items);
+        let mut job = self.clipboard.jobs.remove(index);
+        // The deadline or the total ended the read: the rest was never asked.
+        job.unread.extend(job.mimes.drain(..));
+        let value = reply(job.want, job.serial, job.items, job.unread);
         self.ipc_reply_later(job.conn, job.call_id, Ok(value));
     }
 }
 
-fn reply(want: Want, serial: u64, items: Vec<ClipboardItem>) -> serde_json::Value {
+fn reply(want: Want, serial: u64, items: Vec<ClipboardItem>, unread: Vec<String>) -> serde_json::Value {
     match want {
-        Want::Snapshot => serde_json::to_value(ClipboardSnapshot { serial, items }).unwrap(),
+        Want::Snapshot => serde_json::to_value(ClipboardSnapshot { serial, items, unread: Some(unread) }).unwrap(),
         Want::Text => serde_json::to_value(ClipboardText { serial, text: text_of(&items) }).unwrap(),
     }
 }

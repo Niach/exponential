@@ -691,6 +691,7 @@ fn the_clipboard_is_set_read_back_and_taken() {
     assert_eq!(snapshot.serial, theirs);
     let read: Vec<(&str, &[u8])> = snapshot.items.iter().map(|i| (i.mime.as_str(), i.data.as_slice())).collect();
     assert_eq!(read, [("text/plain;charset=utf-8", "copied ü".as_bytes()), ("text/html", b"<b>copied</b>".as_slice())]);
+    assert_eq!(snapshot.unread.as_deref(), Some(&["application/x-hang".to_string()][..]), "the hung type is named");
     let (text, epilot2) = pumped(&mut app, move || (epilot.clipboard_text().unwrap(), epilot));
     epilot = epilot2;
     assert_eq!(text.text.as_deref(), Some("copied ü"));
@@ -704,8 +705,67 @@ fn the_clipboard_is_set_read_back_and_taken() {
     let cleared = epilot.clipboard_set(vec![], false).unwrap();
     assert!(cleared > restored);
     wait_for(&mut app, |c| c.state.selection.is_none());
-    assert_eq!(epilot.clipboard_snapshot().unwrap(), ede_protocol::ClipboardSnapshot { serial: cleared, items: vec![] });
+    assert_eq!(epilot.clipboard_snapshot().unwrap(), ede_protocol::ClipboardSnapshot { serial: cleared, items: vec![], unread: Some(vec![]) });
     assert_eq!(epilot.clipboard_text().unwrap().text, None);
+}
+
+/// #EXP-1900: a snapshot says what it left out, so ePilot never restores a
+/// partial clipboard as if it were whole: a type past the item limit, a
+/// type its source never answers, and whatever no longer fits the total
+/// are named in `unread`; a selection read to the end names nothing.
+#[test]
+fn a_snapshot_names_the_types_it_could_not_read() {
+    use ede_protocol::{CLIPBOARD_ITEM_MAX, CLIPBOARD_TOTAL_MAX};
+    let h = harness();
+    let mut app = Session::connect(h.connect());
+    app.keyboard();
+    let t = app.toplevel("editor");
+    app.draw(&t, 300, 200, BLUE);
+    wait_for(&mut app, |c| c.state.keyboard_focus.is_some());
+    let device = app.data_device();
+    let mut epilot = Some(h.ipc());
+    let mut snapshot = |app: &mut Session| {
+        let mut ipc = epilot.take().unwrap();
+        let (snapshot, ipc) = pumped(app, move || (ipc.clipboard_snapshot().unwrap(), ipc));
+        epilot = Some(ipc);
+        snapshot
+    };
+    let mimes = |snapshot: &ede_protocol::ClipboardSnapshot| snapshot.items.iter().map(|i| i.mime.clone()).collect::<Vec<_>>();
+
+    // Read to the end: whole.
+    let _whole = app.set_selection(&device, &[("text/plain", Some(b"note".as_slice())), ("text/html", Some(b"<i>note</i>"))]);
+    let whole = snapshot(&mut app);
+    assert_eq!(mimes(&whole), ["text/plain", "text/html"]);
+    assert_eq!(whole.unread, Some(vec![]));
+    assert!(whole.is_whole());
+
+    // An image past the item limit.
+    let image = vec![7u8; CLIPBOARD_ITEM_MAX + 1];
+    let _large = app.set_selection(&device, &[("text/plain", Some(b"note".as_slice())), ("image/png", Some(&image))]);
+    let large = snapshot(&mut app);
+    assert_eq!(mimes(&large), ["text/plain"]);
+    assert_eq!(large.unread, Some(vec!["image/png".to_string()]));
+    assert!(!large.is_whole());
+
+    // A type its source never answers.
+    let _hung = app.set_selection(&device, &[("application/x-hang", None), ("text/plain", Some(b"note".as_slice()))]);
+    let hung = snapshot(&mut app);
+    assert_eq!(mimes(&hung), ["text/plain"]);
+    assert_eq!(hung.unread, Some(vec!["application/x-hang".to_string()]));
+
+    // More than the total: every offered type is either read or named.
+    let part = vec![1u8; 7 << 20];
+    let offered = ["a/1", "a/2", "a/3", "a/4", "a/5"];
+    let types: Vec<(&str, Option<&[u8]>)> = offered.iter().map(|mime| (*mime, Some(part.as_slice()))).collect();
+    let _over = app.set_selection(&device, &types);
+    let over = snapshot(&mut app);
+    let unread = over.unread.clone().expect("a compositor that says what it left out");
+    assert!(over.items.iter().map(|i| i.data.len()).sum::<usize>() <= CLIPBOARD_TOTAL_MAX);
+    assert!(unread.contains(&"a/5".to_string()), "35 MiB do not fit 32: {unread:?}");
+    let mut seen = mimes(&over);
+    seen.extend(unread);
+    seen.sort();
+    assert_eq!(seen, offered);
 }
 
 /// The clipboard across Xwayland: an X11 client pastes the selection

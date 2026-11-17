@@ -376,7 +376,14 @@ impl Clipboard for X11Clipboard<'_> {
         if self.owner()? == NONE {
             return Ok(saved);
         }
-        let Some((_, 32, targets)) = self.convert(self.names.targets)? else { return Ok(saved) };
+        // Whatever is left out below makes the save partial (#EXP-1900): an
+        // owner that does not list its targets, a target past the count, one
+        // it does not hand over, one too large.
+        let Some((_, 32, targets)) = self.convert(self.names.targets)? else {
+            saved.partial = true;
+            return Ok(saved);
+        };
+        saved.partial = targets.len() / 4 > TARGETS_MAX;
         let mut total = 0;
         for chunk in targets.chunks_exact(4).take(TARGETS_MAX) {
             let target = u32::from_ne_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
@@ -384,8 +391,12 @@ impl Clipboard for X11Clipboard<'_> {
             if META.contains(&name.as_str()) || saved.formats.iter().any(|(saved, _)| saved.split('\t').next() == Some(name.as_str())) {
                 continue;
             }
-            let Some((kind, format, data)) = self.convert(target)? else { continue };
+            let Some((kind, format, data)) = self.convert(target)? else {
+                saved.partial = true;
+                continue;
+            };
             if data.len() > FORMAT_MAX || total + data.len() > SAVED_MAX {
+                saved.partial = true;
                 continue;
             }
             total += data.len();
