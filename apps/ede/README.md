@@ -311,7 +311,8 @@ layer surface of that executable as protected (black in captures, never
 driven, no input method), and trusts the lock client by the pid it spawned:
 
 - **Lock** (`exponential-sealed lock`): with no `[lock] command` the compositor
-  starts it on Super+L, idle and suspend; while locked only that process's
+  starts it on Super+L, idle, suspend, `loginctl lock-session` and the
+  `lock` op (Lock in the start menu); while locked only that process's
   surfaces show (black until one arrives), only they get input, bindings
   are off except VT switching. The password goes to PAM inside the binary
   (`libpam.so.0` opened at run time; service `ede` when `/etc/pam.d/exponential-desktop`
@@ -778,7 +779,7 @@ edge_tiling = true
 panel_margin = 10     # the IDE look (#EDE-48): the work area (maximize, tiling, Super+Up/Left/Right, new windows) is the output minus the panel's zone, inset by this many px on every side; 0 = flush
 
 [lock]
-command = ["swaylock", "-f", "-c", "000000"]   # any ext-session-lock client; empty = no locking
+command = ["swaylock", "-f", "-c", "000000"]   # any ext-session-lock client; empty (the default) = the sealed lock, `exponential-sealed lock`
 on_suspend = true     # lock before suspend and on `loginctl lock-session` (udev)
 
 [idle]
@@ -826,14 +827,16 @@ before the desktop starts), and every envelope is POSTed to the server's tunnel
 ## Lock, idle, input methods, protected surfaces
 
 The lock screen is a client of `ext-session-lock` (the genUI shell's, later;
-`swaylock` today). From the lock request on, every output draws only that
+`swaylock` today), or with no `[lock] command` the sealed lock
+(`exponential-sealed lock`, above). From the lock request on, every output draws only that
 client's lock surface (black until it draws), only it gets keys and clicks,
 and bindings are off except Ctrl+Alt+F1…F12. If the lock client crashes the
 session stays locked (black) until a new lock client takes over; a second
 client can neither lock over it nor unlock it. Super+L, `[idle] lock_after`
-(held off by idle inhibitors such as a playing video), `loginctl
-lock-session` and suspend run `[lock] command`; before suspend a logind delay
-inhibitor waits up to 2 s for the lock to show. `ext-idle-notify` is there for
+(held off by idle inhibitors such as a playing video), the `lock` op,
+`loginctl lock-session` and suspend run `[lock] command`, or the sealed lock
+when it is empty; before suspend a logind delay inhibitor waits up to 2 s for
+the lock to show. `ext-idle-notify` is there for
 the shell's screen blanking.
 
 Protected surfaces are never captured, lent or driven: the lock screen,

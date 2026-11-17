@@ -46,6 +46,8 @@ pub struct Sealed {
     pub token: ede_protocol::Token,
     pub respawns: u32,
     pub started: Instant,
+    /// The outputs that showed a locked frame.
+    pub shown_on: Vec<Output>,
 }
 
 /// Where `exponential-sealed` is: next to this binary, else on `PATH`.
@@ -77,7 +79,7 @@ impl Ede {
             Some(child) => {
                 let pid = child.id();
                 tracing::info!(pid, "sealed lock client started");
-                self.lock = LockState::Sealed(Sealed { child: Some(child), pid, token: grant.token, respawns: 0, started: Instant::now() });
+                self.lock = LockState::Sealed(Sealed { child: Some(child), pid, token: grant.token, respawns: 0, started: Instant::now(), shown_on: Vec::new() });
             }
             None => {
                 tracing::error!("exponential-sealed could not start: the session stays unlocked");
@@ -92,7 +94,7 @@ impl Ede {
     /// A test's lock: the test's own process plays the lock client.
     pub fn begin_sealed_lock_as(&mut self, pid: u32) -> ede_protocol::Token {
         let grant = self.ipc.mint_for(SEALED_SESSION, vec![ede_protocol::Capability::System, ede_protocol::Capability::Ui]);
-        self.lock = LockState::Sealed(Sealed { child: None, pid, token: grant.token.clone(), respawns: 0, started: Instant::now() });
+        self.lock = LockState::Sealed(Sealed { child: None, pid, token: grant.token.clone(), respawns: 0, started: Instant::now(), shown_on: Vec::new() });
         self.enter_lock();
         self.emit(ede_protocol::events::SESSION_LOCKED, serde_json::Value::Null);
         grant.token
