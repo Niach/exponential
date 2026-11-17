@@ -1,0 +1,7 @@
+- Opening a very large chat uses less than half the memory
+- Tapping a notification opens its chat over the Agent tab; Back returns there
+- Back slides the screen away, the back gesture too
+- A chat shows its synced messages while its device is offline, and says so
+- A session that hit a wall says so instead of "needs input"
+- Blank agent turns no longer show as empty messages
+- A waiting session says what it is waiting on
