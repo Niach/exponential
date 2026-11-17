@@ -72,6 +72,10 @@ pub struct Ede {
     pub dmabuf_state: smithay::wayland::dmabuf::DmabufState,
     /// Set by the backend that owns the renderer: can it import this buffer?
     pub dmabuf_importer: Option<DmabufImporter>,
+    /// Draws captures on the renderer that draws the outputs (udev, winit:
+    /// GLES, which reads the GPU clients' dmabufs pixman cannot, #EDE-100);
+    /// `None` = pixman (headless).
+    pub capture_renderer: Option<crate::backend::CaptureRenderer>,
     /// Explicit sync (drm-syncobj), when the primary GPU supports it.
     #[cfg(feature = "udev")]
     pub syncobj_state: Option<smithay::wayland::drm_syncobj::DrmSyncobjState>,
@@ -236,6 +240,7 @@ impl Ede {
             autostart: Vec::new(),
             dmabuf_state: smithay::wayland::dmabuf::DmabufState::new(),
             dmabuf_importer: None,
+            capture_renderer: None,
             #[cfg(feature = "udev")]
             syncobj_state: None,
             #[cfg(feature = "xwayland")]

@@ -51,6 +51,9 @@ pub fn init(event_loop: &mut EventLoop<'static, Ede>, state: &mut Ede) -> Result
     let backend = Rc::new(RefCell::new(backend));
     let importer = backend.clone();
     state.dmabuf_importer = Some(Box::new(move |dmabuf| importer.borrow_mut().renderer().import_dmabuf(dmabuf, None).is_ok()));
+    // Captures on the window's GLES renderer (#EDE-100).
+    let capturer = backend.clone();
+    state.capture_renderer = Some(Box::new(move |state, what| super::capture_on_gles(capturer.borrow_mut().renderer(), state, what)));
 
     event_loop.handle().insert_source(winit, move |event, _, state| {
         let mut backend_ref = backend.borrow_mut();

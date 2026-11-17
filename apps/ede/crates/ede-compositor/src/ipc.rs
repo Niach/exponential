@@ -498,7 +498,7 @@ impl Ede {
                         if !self.may_capture(&w) {
                             return Err(fail(ErrorCode::Forbidden, "a protected window is never captured"));
                         }
-                        crate::backend::capture_window(&w)
+                        crate::backend::capture_window(self, &w)
                     }
                 }
                 .map_err(|e| fail(ErrorCode::Internal, &e))?;

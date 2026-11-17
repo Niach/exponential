@@ -214,28 +214,107 @@ fn draw_offscreen(
     Ok(headless::Frame { width: w, height: h, pixels })
 }
 
-/// An output as `ede-protocol` captures it, drawn in software. Clients
-/// whose buffers pixman cannot read (a GPU-only dmabuf) are missing from it
-/// until the backends read back from their own renderer.
+/// What a capture draws.
+pub enum CaptureOf<'a> {
+    Output(&'a Output),
+    Window(&'a smithay::desktop::Window),
+}
+
+/// A backend's own capture path ([`Ede::capture_renderer`]).
+pub type CaptureRenderer = Box<dyn FnMut(&mut Ede, CaptureOf<'_>) -> Result<headless::Frame, String>>;
+
+/// Runs the backend's capture renderer, `None` when it has none.
+fn backend_capture(state: &mut Ede, what: CaptureOf<'_>) -> Option<Result<headless::Frame, String>> {
+    let mut capture = state.capture_renderer.take()?;
+    let frame = capture(state, what);
+    state.capture_renderer = Some(capture);
+    Some(frame)
+}
+
+/// An output as `ede-protocol` captures it: on the backend's own renderer
+/// when it has one (udev, winit), else drawn in software (headless).
 pub fn capture_output(state: &mut Ede, output: &Output) -> Result<headless::Frame, String> {
+    if let Some(frame) = backend_capture(state, CaptureOf::Output(output)) {
+        return frame;
+    }
     let mut renderer = smithay::backend::renderer::pixman::PixmanRenderer::new().map_err(|e| e.to_string())?;
     draw_output(&mut renderer, state, output, true)
 }
 
 /// One window alone (popups included) at its own size, on transparent black.
 /// The caller checks it may be captured.
-pub fn capture_window(window: &smithay::desktop::Window) -> Result<headless::Frame, String> {
-    use smithay::{backend::renderer::element::AsRenderElements, desktop::space::SpaceElement};
+pub fn capture_window(state: &mut Ede, window: &smithay::desktop::Window) -> Result<headless::Frame, String> {
+    if let Some(frame) = backend_capture(state, CaptureOf::Window(window)) {
+        return frame;
+    }
     let mut renderer = smithay::backend::renderer::pixman::PixmanRenderer::new().map_err(|e| e.to_string())?;
+    let (size, at) = window_capture_place(window);
+    draw_offscreen(&mut renderer, size, [0.0, 0.0, 0.0, 0.0], |renderer| window_capture_elements(window, renderer, at))
+}
+
+/// A window capture's size and where the window goes in it.
+fn window_capture_place(window: &smithay::desktop::Window) -> ((i32, i32), smithay::utils::Point<i32, smithay::utils::Physical>) {
+    use smithay::desktop::space::SpaceElement;
     let bbox = SpaceElement::bbox(window);
     let size = (bbox.size.w.max(1), bbox.size.h.max(1));
-    draw_offscreen(&mut renderer, size, [0.0, 0.0, 0.0, 0.0], |renderer| {
-        let at = smithay::utils::Point::<i32, smithay::utils::Logical>::from((-bbox.loc.x, -bbox.loc.y)).to_physical(1);
-        AsRenderElements::<_>::render_elements::<WaylandSurfaceRenderElement<_>>(window, renderer, at, 1.0.into(), 1.0)
-            .into_iter()
-            .map(OutputElements::Surface)
-            .collect()
-    })
+    (size, smithay::utils::Point::<i32, smithay::utils::Logical>::from((-bbox.loc.x, -bbox.loc.y)).to_physical(1))
+}
+
+fn window_capture_elements<R>(window: &smithay::desktop::Window, renderer: &mut R, at: smithay::utils::Point<i32, smithay::utils::Physical>) -> Vec<OutputElements<R>>
+where
+    R: Renderer + ImportAll + ImportMem,
+    R::TextureId: Clone + 'static,
+{
+    use smithay::backend::renderer::element::AsRenderElements;
+    AsRenderElements::<R>::render_elements::<WaylandSurfaceRenderElement<R>>(window, renderer, at, 1.0.into(), 1.0)
+        .into_iter()
+        .map(OutputElements::Surface)
+        .collect()
+}
+
+/// A capture drawn on the GLES renderer that draws the outputs (udev,
+/// winit): the dmabufs of GPU clients import there, and with a tiled
+/// modifier never into pixman, so a pixman capture lost those windows
+/// (#EDE-100). Same scene and redaction as the software path.
+pub fn capture_on_gles(renderer: &mut smithay::backend::renderer::gles::GlesRenderer, state: &mut Ede, what: CaptureOf<'_>) -> Result<headless::Frame, String> {
+    match what {
+        CaptureOf::Output(output) => {
+            let mode = output.current_mode().ok_or("output has no mode")?;
+            let clear = state.clear_color();
+            draw_offscreen_gles(renderer, (mode.size.w, mode.size.h), clear, |renderer| capture_elements(state, output, renderer))
+        }
+        CaptureOf::Window(window) => {
+            let (size, at) = window_capture_place(window);
+            draw_offscreen_gles(renderer, size, [0.0, 0.0, 0.0, 0.0], |renderer| window_capture_elements(window, renderer, at))
+        }
+    }
+}
+
+fn draw_offscreen_gles(
+    renderer: &mut smithay::backend::renderer::gles::GlesRenderer,
+    (w, h): (i32, i32),
+    clear: [f32; 4],
+    elements: impl FnOnce(&mut smithay::backend::renderer::gles::GlesRenderer) -> Vec<OutputElements<smithay::backend::renderer::gles::GlesRenderer>>,
+) -> Result<headless::Frame, String> {
+    use smithay::{
+        backend::{
+            allocator::Fourcc,
+            renderer::{gles::GlesRenderbuffer, Bind, ExportMem, Offscreen},
+        },
+        utils::{Buffer, Rectangle, Size, Transform},
+    };
+    let size: Size<i32, Buffer> = (w, h).into();
+    // RGBA8: every GLES reads it back (BGRA needs an extension).
+    let mut buffer: GlesRenderbuffer = Offscreen::<GlesRenderbuffer>::create_buffer(renderer, Fourcc::Abgr8888, size).map_err(|e| e.to_string())?;
+    let elements = elements(renderer);
+    let mut fb = renderer.bind(&mut buffer).map_err(|e| e.to_string())?;
+    let mut damage_tracker = OutputDamageTracker::new((w, h), 1.0, Transform::Normal);
+    damage_tracker.render_output(renderer, &mut fb, 0, &elements, clear).map_err(|e| format!("{e:?}"))?;
+    let mapping = renderer.copy_framebuffer(&fb, Rectangle::from_size(size), Fourcc::Abgr8888).map_err(|e| e.to_string())?;
+    let bytes = renderer.map_texture(&mapping).map_err(|e| e.to_string())?;
+    // R, G, B, A bytes, top row first → 0xAARRGGBB.
+    let pixels = bytes.chunks_exact(4).map(|p| u32::from_be_bytes([p[3], p[0], p[1], p[2]])).collect();
+    Ok(headless::Frame { width: w, height: h, pixels })
 }
 
 /// #LOGS-2: the main loop's heartbeat for the hang watchdog
