@@ -458,20 +458,26 @@ impl Clipboard for MacClipboard {
     fn save(&self) -> Result<SavedClipboard, String> {
         objc2::rc::autoreleasepool(|_| {
             let mut formats = Vec::new();
+            // A type without data or past the cap is left out: partial (#EXP-1900).
+            let mut partial = false;
             let Some(items) = self.board.pasteboardItems() else { return Ok(SavedClipboard::default()) };
             let mut total = 0usize;
             for (index, item) in items.iter().enumerate() {
                 for kind in item.types().iter() {
-                    let Some(data) = item.dataForType(&kind) else { continue };
+                    let Some(data) = item.dataForType(&kind) else {
+                        partial = true;
+                        continue;
+                    };
                     let len = data.len();
                     if total.saturating_add(len) > SAVE_CAP {
+                        partial = true;
                         continue;
                     }
                     total += len;
                     formats.push((format!("{index}\t{kind}"), data.to_vec()));
                 }
             }
-            Ok(SavedClipboard { formats })
+            Ok(SavedClipboard { formats, partial })
         })
     }
 

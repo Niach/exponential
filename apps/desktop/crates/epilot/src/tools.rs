@@ -624,11 +624,25 @@ fn paste_source(args: &Value) -> Result<String, String> {
     Ok(text)
 }
 
+/// The person's clipboard, saved whole, or a refusal BEFORE anything touched
+/// it (#EXP-1900): a save that left a format out (a large image, one that
+/// cannot be read) would come back as a smaller clipboard, so the tool does
+/// not start. The one policy for every backend; they only report
+/// [`crate::backend::SavedClipboard::partial`]. `nothing` = what did not
+/// happen, `instead` = what the agent does now.
+fn save_whole(clipboard: &dyn crate::backend::Clipboard, nothing: &str, instead: &str) -> Result<crate::backend::SavedClipboard, String> {
+    let saved = clipboard.save().map_err(|err| format!("Could not keep the clipboard ({err}); {nothing}."))?;
+    if saved.partial {
+        return Err(format!("The person's clipboard holds something that cannot be saved whole (a large image, or a type that cannot be read), so it was left untouched and {nothing}. {instead}"));
+    }
+    Ok(saved)
+}
+
 /// Save, set, press once, put back. The person's clipboard is back
 /// whatever happens after it was saved.
 fn paste(backend: &dyn Backend, text: &str, sensitive: bool, combo: &crate::keys::Combo, interrupted: &dyn Fn() -> bool) -> Result<Value, String> {
     let clipboard = backend.clipboard()?;
-    let saved = clipboard.save().map_err(|err| format!("Could not keep the clipboard ({err}); nothing was pasted."))?;
+    let saved = save_whole(&*clipboard, "nothing was pasted", "Use `type` for this text.")?;
     let pasted = (|| {
         clipboard.set_text(text, sensitive)?;
         if interrupted() {
@@ -657,7 +671,7 @@ fn paste(backend: &dyn Backend, text: &str, sensitive: bool, combo: &crate::keys
 /// Press copy, wait for the clipboard to change, read it, put it back.
 fn copy(backend: &dyn Backend, combo: &crate::keys::Combo, interrupted: &dyn Fn() -> bool) -> Result<Value, String> {
     let clipboard = backend.clipboard()?;
-    let saved = clipboard.save().map_err(|err| format!("Could not keep the clipboard ({err}); nothing was copied."))?;
+    let saved = save_whole(&*clipboard, "nothing was copied", "Read the text from a screenshot instead.")?;
     let copied = (|| {
         let before = clipboard.change_count()?;
         press_combo(backend, combo)?;
@@ -789,6 +803,8 @@ pub(crate) mod tests {
         pub count: u64,
         pub copies: Option<String>,
         pub refuses_paste: bool,
+        /// It also holds something `save` cannot keep (a large image).
+        pub partial: bool,
     }
 
     struct FakeClipboard<'a>(&'a FakeBackend);
@@ -805,8 +821,8 @@ pub(crate) mod tests {
         }
         fn save(&self) -> Result<crate::backend::SavedClipboard, String> {
             self.log("clip save".into());
-            let text = self.0.clip.lock().unwrap().text.clone();
-            Ok(crate::backend::SavedClipboard { formats: text.map(|text| vec![("text".to_string(), text.into_bytes())]).unwrap_or_default() })
+            let clip = self.0.clip.lock().unwrap();
+            Ok(crate::backend::SavedClipboard { formats: clip.text.clone().map(|text| vec![("text".to_string(), text.into_bytes())]).unwrap_or_default(), partial: clip.partial })
         }
         fn set_text(&self, text: &str, sensitive: bool) -> Result<(), String> {
             self.log(format!("clip set {}", if sensitive { "<secret>" } else { text }));
@@ -1242,6 +1258,34 @@ pub(crate) mod tests {
         assert_eq!(one(&backend, "paste_text", json!({}))["isError"], true);
         assert_eq!(one(&backend, "paste_text", json!({ "text": "a", "file": "/x" }))["isError"], true);
         assert_eq!(one(&backend, "paste_text", json!({ "text": "x".repeat(PASTE_MAX_CHARS + 1) }))["isError"], true);
+    }
+
+    /// #EXP-1900: a clipboard that cannot be saved whole (a large image
+    /// beside the text) is never touched: no set, no key, no restore, and
+    /// the refusal says what to do instead.
+    #[test]
+    fn a_clipboard_that_cannot_be_saved_whole_is_left_untouched() {
+        let backend = FakeBackend::default();
+        *backend.clip.lock().unwrap() = FakeClip { text: Some("mine".into()), count: 3, copies: Some("picked".into()), partial: true, ..FakeClip::default() };
+        for (tool, args, instead) in [("paste_text", json!({ "text": "hello" }), "nothing was pasted. Use `type` for this text."), ("copy_selection", json!({}), "nothing was copied. Read the text from a screenshot instead.")] {
+            let reply = one(&backend, tool, args);
+            assert_eq!(reply["isError"], true, "{tool}: {reply}");
+            let text = reply["content"][0]["text"].as_str().unwrap();
+            assert!(text.starts_with("The person's clipboard holds something that cannot be saved whole") && text.ends_with(instead), "{tool}: {text}");
+            assert!(!text.contains("as it was"), "{tool}: {text}");
+            assert_eq!(backend.log.lock().unwrap().as_slice(), ["clip save"], "{tool} touched the clipboard or pressed a key");
+            backend.log.lock().unwrap().clear();
+            let clip = backend.clip.lock().unwrap();
+            assert_eq!((clip.text.as_deref(), clip.count), (Some("mine"), 3), "{tool}");
+        }
+        // Saved whole, the same clipboard is pasted over and put back.
+        backend.clip.lock().unwrap().partial = false;
+        let reply = one(&backend, "paste_text", json!({ "text": "hello" }));
+        assert_eq!(reply["isError"], Value::Null, "{reply}");
+        assert_eq!(reply["content"][0]["text"], "Pasted 5 characters; the clipboard is as it was.");
+        let log = backend.log.lock().unwrap().join(" | ");
+        assert!(log.starts_with("clip save | clip set hello") && log.contains("key Char('v') down") && log.ends_with("clip restore 1"), "{log}");
+        assert_eq!(backend.clip.lock().unwrap().text.as_deref(), Some("mine"));
     }
 
     #[test]

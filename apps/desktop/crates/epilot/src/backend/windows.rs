@@ -1012,6 +1012,14 @@ fn format_id(name: &str) -> Result<u32, String> {
     }
 }
 
+/// Whether Windows synthesizes `format` again from a format `save` keeps:
+/// the text and DIB groups from their first member, a bitmap and its
+/// palette from the DIB. Any other format `keep_format` leaves out (a
+/// metafile, a display or private handle) is gone after a restore.
+fn remade(format: u32) -> bool {
+    [CF_UNICODETEXT, CF_TEXT, CF_OEMTEXT, CF_DIB, CF_DIBV5, CF_BITMAP, CF_PALETTE].iter().any(|&known| u32::from(known) == format)
+}
+
 /// Whether `format` is worth saving given the formats before it (Windows
 /// lists what the program set first, then what it synthesizes from those).
 fn keep_format(format: u32, earlier: &[u32]) -> bool {
@@ -1056,15 +1064,24 @@ impl Clipboard for WinClipboard {
             let keep = keep_format(format, &seen);
             seen.push(format);
             if !keep {
+                // Left out (#EXP-1900): a loss unless Windows makes it again.
+                saved.partial |= !remade(format);
                 continue;
             }
-            let Some(name) = format_name(format) else { continue };
+            let Some(name) = format_name(format) else {
+                saved.partial = true;
+                continue;
+            };
             // SAFETY: the clipboard is open and `format` is an HGLOBAL
             // format (`keep_format`).
             let bytes = unsafe { global_bytes(GetClipboardData(format), CLIPBOARD_SAVE_CAP - used) };
-            if let Some(bytes) = bytes {
-                used += bytes.len();
-                saved.formats.push((name, bytes));
+            match bytes {
+                Some(bytes) => {
+                    used += bytes.len();
+                    saved.formats.push((name, bytes));
+                }
+                // Too large, or not readable memory.
+                None => saved.partial = true,
             }
         }
         Ok(saved)

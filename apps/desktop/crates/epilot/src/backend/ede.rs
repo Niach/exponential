@@ -382,7 +382,9 @@ impl Clipboard for EdeClipboard<'_> {
 
     fn save(&self) -> Result<SavedClipboard, String> {
         let snapshot = self.client().clipboard_snapshot().map_err(clipboard_error("clipboard"))?;
-        Ok(SavedClipboard { formats: snapshot.items.into_iter().map(|item| (item.mime, item.data)).collect() })
+        // An eDE from before `unread` dropped types without saying so: partial.
+        let partial = !snapshot.is_whole();
+        Ok(SavedClipboard { formats: snapshot.items.into_iter().map(|item| (item.mime, item.data)).collect(), partial })
     }
 
     fn set_text(&self, text: &str, sensitive: bool) -> Result<(), String> {
@@ -642,7 +644,7 @@ mod tests {
         use serde_json::json;
         let (ede, server) = fake_compositor(vec![
             Ok(json!({"serial": 4})),
-            Ok(json!({"serial": 4, "items": [{"mime": "image/png", "data": "AAE="}, {"mime": CLIPBOARD_SECRET_HINT, "data": "c2VjcmV0"}]})),
+            Ok(json!({"serial": 4, "items": [{"mime": "image/png", "data": "AAE="}, {"mime": CLIPBOARD_SECRET_HINT, "data": "c2VjcmV0"}], "unread": []})),
             Ok(json!({"serial": 5})),
             Ok(json!({"serial": 5, "taken": false})),
             Ok(json!({"serial": 5, "taken": true})),
@@ -655,6 +657,7 @@ mod tests {
         assert_eq!(clipboard.change_count().unwrap(), 4);
         let saved = clipboard.save().unwrap();
         assert_eq!(saved.formats, vec![("image/png".to_string(), vec![0, 1]), (CLIPBOARD_SECRET_HINT.to_string(), b"secret".to_vec())]);
+        assert!(!saved.partial);
         clipboard.set_text("pw", true).unwrap();
         assert_eq!(clipboard.wait_pasted(Duration::from_secs(2)), Pasted::Taken);
         clipboard.restore(saved).unwrap();
@@ -683,6 +686,27 @@ mod tests {
         let (ede, _server) = fake_compositor(vec![Err("unknown variant `clipboard_serial`, expected one of `hello`, `list_windows`")]);
         let err = ede.clipboard().unwrap().change_count().unwrap_err();
         assert_eq!(err, "This eDE is too old for the clipboard; update eDE.");
+    }
+
+    /// #EXP-1900: a snapshot that names a type it left out is a partial
+    /// save, and so is one from an eDE that cannot say (no `unread`).
+    #[test]
+    fn a_snapshot_with_unread_types_or_from_an_old_ede_is_a_partial_save() {
+        use serde_json::json;
+        let (ede, server) = fake_compositor(vec![
+            Ok(json!({"serial": 4, "items": [{"mime": "text/plain", "data": "YQ=="}], "unread": ["image/png"]})),
+            Ok(json!({"serial": 4, "items": [{"mime": "text/plain", "data": "YQ=="}]})),
+            Ok(json!({"serial": 4, "items": [], "unread": []})),
+        ]);
+        let clipboard = ede.clipboard().unwrap();
+        let named = clipboard.save().unwrap();
+        assert!(named.partial);
+        assert_eq!(named.formats.len(), 1);
+        assert!(clipboard.save().unwrap().partial, "an old eDE cannot say it read everything");
+        assert!(!clipboard.save().unwrap().partial, "an empty clipboard is whole");
+        drop(clipboard);
+        drop(ede);
+        server.join().unwrap();
     }
 
     #[test]

@@ -135,6 +135,11 @@ pub(crate) trait LockGuard: Send {}
 #[derive(Default)]
 pub(crate) struct SavedClipboard {
     pub formats: Vec<(String, Vec<u8>)>,
+    /// The clipboard held more than `formats` (#EXP-1900): a format too
+    /// large or one that could not be read was left out, so restoring this
+    /// would lose it. The tool layer (`tools.rs`) then refuses before it
+    /// touches the clipboard; a backend only reports.
+    pub partial: bool,
 }
 
 /// Whether the focused window took the text a paste offered.
@@ -158,7 +163,8 @@ pub(crate) trait Clipboard {
     /// owner-change count, eDE the compositor's selection serial).
     fn change_count(&self) -> Result<u64, String>;
     /// Everything the clipboard holds now, to [`Clipboard::restore`] later;
-    /// formats that cannot be read (too large, an OS handle) are skipped.
+    /// a format that cannot be read (too large, an OS handle) is left out
+    /// and the save says so ([`SavedClipboard::partial`]).
     fn save(&self) -> Result<SavedClipboard, String>;
     /// Put `text` on the clipboard. `sensitive` = a secret: marked so
     /// clipboard managers and the OS history skip it (X11: served only to
