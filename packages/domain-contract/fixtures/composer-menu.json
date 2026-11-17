@@ -207,9 +207,10 @@
     "many": "Implement {n} issues"
   },
   "computerUse": {
-    "$comment": "Per-run computer use. The start payload key sits next to `mcpServerIds` in steer.startSession, codingSessions.start and the relay's start frame; true/false = this run, absent or null = the device's launch_defaults.computerUse. The toggle seeds from that device default on every device change and rides out only to a device advertising `cap` (older builds would ignore it).",
+    "$comment": "Per-run computer use (#EXP-1899: the DEVICE's Computer use switch is the gate). The start payload key sits next to `mcpServerIds` in steer.startSession, codingSessions.start and the relay's start frame; false = this run opts out; true, absent or null = it follows the device's launch_defaults.computerUse; never on while that switch is off. sessions.computer_use stores exactly that (true = follows, false = opted out): a person's start without the key stores true; over MCP nothing is raised (an omitted key = the starting session's own value, a child its parent's, none = false; an explicit true is refused when the caller or the session is opted out, false always works). A device advertising `switchCap` applies the gate itself (grant = switch on AND the session follows; switching off ends every running grant at once); for a build without it the server stores the effective value (the pick AND its copy of the switch) and switching off clears its live sessions. The toggle rides out only to a device advertising `cap` (older builds would ignore it).",
     "payloadKey": "computerUse",
-    "cap": "computer-use-run"
+    "cap": "computer-use-run",
+    "switchCap": "computer-use-switch"
   },
   "cases": [
     {"name": "#FEED-204: an app editor's composer reads its device", "surface": "session", "conditions": {"device": true}, "expected": ["add-file", "implement-issue", "-", "device"]},

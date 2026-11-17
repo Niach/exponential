@@ -30,6 +30,7 @@ import {
   type Session,
 } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
+import { assertComputerUsePick, computerUseAtStart, gatedComputerUse } from "@/lib/sessions/computer-use"
 import { assertSkillsInTeam } from "@/lib/skills-guard"
 import { uniqueViolationConstraint } from "@/lib/trpc/db-errors"
 import { startDiskWarning } from "@/lib/device-disk"
@@ -667,14 +668,15 @@ type RunnerSource = Pick<
  *  `from` (a child from its parent, a continuation from the ended row). A
  *  blank model/effort (`""`, an old client's "CLI default") is NULL: it is
  *  neither stored nor inherited. */
-function runnerFields(input: Partial<SessionsSendInput>, from?: RunnerSource | null) {
+function runnerFields(input: Partial<SessionsSendInput>, from?: RunnerSource | null, computerUse = false) {
   return {
     cli: input.cli ?? from?.cli ?? null,
     account: input.account ?? from?.account ?? null,
     model: input.model?.trim() || from?.model || null,
     effort: input.effort?.trim() || from?.effort || null,
     subagentModel: input.subagentModel?.trim() || from?.subagentModel || null,
-    computerUse: input.computerUse ?? from?.computerUse ?? false,
+    // #EXP-1899: the caller's rule (`computerUseAtStart`), never the input's.
+    computerUse,
     ultracode: input.ultracode ?? from?.ultracode ?? false,
   }
 }
@@ -1157,6 +1159,8 @@ async function applyDirectMove(tx: Tx, session: Session, target: MoveTarget) {
       ...(live ? { status: `queued` as const, busy: false, background: false } : {}),
       deviceId: target.deviceId,
       account: target.account,
+      // #EXP-1899: a build without the gate gets the effective value.
+      computerUse: await gatedComputerUse(tx, session.computerUse, target.deviceId, device.ownerId),
       // #FEED-177: a queued root takes its new box's sharing (`visibilityMove`).
       shared: target.shared,
       updatedAt: new Date(),
@@ -1308,7 +1312,17 @@ async function messageSession(
     effort: input.effort,
     ultracode: input.ultracode,
   })
+  // #EXP-1899: over MCP computer use is only ever turned off.
+  assertComputerUsePick({
+    pick: input.computerUse,
+    viaMcp,
+    caller: caller?.computerUse ?? null,
+    target: target.computerUse,
+  })
   const picks = runnerPicks(input)
+  if (picks.computerUse) {
+    picks.computerUse = await gatedComputerUse(db, true, target.deviceId, await sessionDeviceOwner(target))
+  }
 
   const hasMessage = !!input.text?.trim() || !!input.attachmentIds?.length
   const move = await planMove(target, input, userId)
@@ -1669,6 +1683,13 @@ async function reviveRoot(
       deviceId: args.device.deviceId,
       account: moveTarget ? moveTarget.account : (input.account ?? root.account),
       ...runnerPicks(input),
+      // #EXP-1899: also the kept value, on the device it revives on.
+      computerUse: await gatedComputerUse(
+        tx,
+        input.computerUse ?? root.computerUse,
+        args.device.deviceId,
+        args.device.ownerId
+      ),
       ...(input.mcpServerIds !== undefined
         ? { mcpServerIds: await assertMcpServersInTeam(tx, root.teamId, input.mcpServerIds) }
         : {}),
@@ -1764,7 +1785,12 @@ async function continueSession(
     deviceId: args.device.deviceId,
     // EXP-1376: the message's pickers win over the ended row's (its agent
     // stays).
-    ...runnerFields({ ...input, cli: undefined }, ended),
+    ...runnerFields(
+      { ...input, cli: undefined },
+      ended,
+      // #EXP-1899: `messageSession` refused an MCP raise already.
+      await gatedComputerUse(tx, input.computerUse ?? ended.computerUse, args.device.deviceId, args.device.ownerId)
+    ),
     mcpServerIds:
       input.mcpServerIds !== undefined
         ? await assertMcpServersInTeam(tx, root.teamId, input.mcpServerIds)
@@ -1822,6 +1848,14 @@ async function startChild(
   const teamId = await childTeam(input, parent)
   await assertTeamMember(userId, teamId)
   const deviceId = input.deviceId ?? parent.deviceId
+  // #EXP-1899: the parent's value unless the child opts out (a person may
+  // also opt it back in).
+  const computerUse = computerUseAtStart({
+    pick: input.computerUse,
+    viaMcp,
+    caller: caller?.computerUse ?? null,
+    from: parent.computerUse,
+  })
   // #FEED-182: profile ids are device-local — a child on ANOTHER device gets
   // a login of THAT device (the named one, or the parent's by email).
   const crossDevice = deviceId !== parent.deviceId
@@ -1861,7 +1895,7 @@ async function startChild(
       depth: parent.depth + 1,
       userId,
       deviceId,
-      ...runnerFields(input, parent),
+      ...runnerFields(input, parent, await gatedComputerUse(tx, computerUse, deviceId, device.ownerId)),
       ...(crossDevice ? { account: childAccount } : {}),
       // EXP-1341: the parent's `name`, else a suggestion's title; omitted =
       // the session names itself (session-title.json).
@@ -1936,6 +1970,14 @@ async function startRoot(
     throw new TRPCError({ code: `BAD_REQUEST`, message: `teamId is required for a new session` })
   }
   await assertTeamMember(userId, teamId)
+  // #EXP-1899: a person's start follows the device's switch; over MCP the
+  // starting session's own value, never raised.
+  const computerUse = computerUseAtStart({
+    pick: input.computerUse,
+    viaMcp,
+    caller: caller?.computerUse ?? null,
+    from: null,
+  })
 
   // An agent's spawn runs on the agent's own device unless it names one:
   // the caller's root is a conversation session (its device = the agent's).
@@ -2000,7 +2042,7 @@ async function startRoot(
       deviceId,
       startedByAgentId,
       // NEW-1: the root WORKS: the composer's picks are its own.
-      ...runnerFields(input),
+      ...runnerFields(input, null, await gatedComputerUse(tx, computerUse, deviceId, device.ownerId)),
       mcpServerIds,
       skillIds,
       repositoryId,

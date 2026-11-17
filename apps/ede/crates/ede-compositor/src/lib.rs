@@ -16,6 +16,7 @@ pub mod clipboard;
 pub mod config;
 pub mod doctor;
 pub mod fallback;
+pub mod focus;
 pub mod frames;
 pub mod grabs;
 mod handlers;
