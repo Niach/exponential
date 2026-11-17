@@ -220,9 +220,9 @@ pub fn displays() -> Vec<Display> {
 }
 
 /// NEW-59: `display`'s size in physical pixels (the doctor's `displays`
-/// and the Work screen labels): macOS reports [`Display`] in points, so a
-/// Retina panel reads its native pixels here; elsewhere the rect already is
-/// pixels.
+/// and the Work screen labels): macOS reports [`Display`] in points and eDE
+/// in logical units, so a Retina panel or a scaled output reads its native
+/// pixels here; elsewhere the rect already is pixels.
 pub fn pixel_size(display: &Display) -> (u32, u32) {
     backend::pixel_size(display.x, display.y, display.width, display.height)
 }
@@ -424,6 +424,7 @@ pub fn shutdown() {
         live.server.revoke_all();
         live.host.shutdown();
     }
+    backend::revoke_grant();
 }
 
 /// Whether an agent drives the screen right now (the person's input is

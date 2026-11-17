@@ -254,15 +254,24 @@ pub(crate) fn app_id(pid: u32) -> Option<String> {
 }
 
 /// NEW-59: the native pixel size of the display at this rect (screen
-/// units); the rect's own size where the OS already counts pixels.
+/// units: macOS points, eDE logical units); the rect's own size where the
+/// OS already counts pixels.
 pub(crate) fn pixel_size(x: i32, y: i32, width: u32, height: u32) -> (u32, u32) {
     #[cfg(target_os = "macos")]
     return macos::pixel_size(x, y, width, height);
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
+    return ede::pixel_size(x, y, width, height).unwrap_or((width, height));
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
         let _ = (x, y);
         (width, height)
     }
+}
+
+/// The switch turned off: a grant minted at the desktop ends (eDE).
+pub(crate) fn revoke_grant() {
+    #[cfg(target_os = "linux")]
+    ede::revoke_grant();
 }
 
 /// [`crate::screen_layout`]: X11 only, where the toolkit's display is the
