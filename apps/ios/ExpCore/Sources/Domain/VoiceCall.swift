@@ -126,6 +126,8 @@ public enum VoiceCall {
         public static let maxFramesPerSecond = 60
         public static let maxCallMs = 3_600_000
         public static let idleTimeoutMs = 30_000
+        /// EXP-1929: the relay's beat (`call_alive`) once paired.
+        public static let aliveMs = 5000
         /// EXP-1858: a server's speech worker exits after this long without a call.
         public static let serverIdleMs = 600_000
     }

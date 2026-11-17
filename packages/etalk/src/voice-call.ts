@@ -383,6 +383,14 @@ export function callRingToneOn(ms: number): boolean {
   return ms >= 0 && ms % (ringToneMs + ringGapMs) < ringToneMs
 }
 
+/** EXP-1929 (`livenessCases`): an end of a call that got a `call_alive`
+ *  (`alive`) and has heard nothing from the relay for `silentMs` treats the
+ *  path as dead and ends the call as dropped; before the first beat (an
+ *  older relay) there is no deadline. */
+export function callPathDead(alive: boolean, silentMs: number): boolean {
+  return alive && silentMs >= fixture.constants.idleTimeoutMs
+}
+
 /** The call's timer since it was answered: mm:ss, h:mm:ss from an hour. */
 export function callTimer(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000))

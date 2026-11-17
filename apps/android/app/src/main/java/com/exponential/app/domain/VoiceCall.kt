@@ -139,6 +139,8 @@ object VoiceCall {
         const val MAX_FRAMES_PER_SECOND = 60
         const val MAX_CALL_MS = 3_600_000
         const val IDLE_TIMEOUT_MS = 30_000
+        /** EXP-1929: the relay's beat (`call_alive`) once paired. */
+        const val ALIVE_MS = 5_000
         /** EXP-1858: a server's speech worker exits after this long without a call. */
         const val SERVER_IDLE_MS = 600_000
     }
@@ -182,7 +184,7 @@ object VoiceCall {
         const val KIND_DOWN = 2
         const val MAX_FRAME_BYTES = 1500
         /** The JSON text frames (`wire.control`'s keys). */
-        val control: List<String> = listOf("call_ring", "call_ready", "call_event", "call_mute", "call_end")
+        val control: List<String> = listOf("call_ring", "call_ready", "call_event", "call_mute", "call_end", "call_alive")
 
         /** One uplink/downlink frame: kind, the u16 big-endian [seq], the packet. */
         fun frame(kind: Int, seq: Int, packet: ByteArray): ByteArray {

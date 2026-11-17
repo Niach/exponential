@@ -276,6 +276,7 @@ function adapt(ws: ServerWebSocket<WsData>): RelaySocket {
       sendBinary: (data: Uint8Array) => void ws.send(data),
       close: (code, reason) => ws.close(code, reason),
       bufferedAmount: () => ws.getBufferedAmount(),
+      ping: () => void ws.ping(),
     }
     adapters.set(ws, adapter)
   }
@@ -358,6 +359,10 @@ export default {
         return
       }
       hub.onBinary(adapt(ws), message)
+    },
+    // EXP-1929: a call socket's answer to the beat's ping.
+    pong(ws: ServerWebSocket<WsData>) {
+      hub.onPong(adapt(ws))
     },
     close(ws: ServerWebSocket<WsData>) {
       hub.onClose(adapt(ws))

@@ -2,6 +2,7 @@ import { describe, expect, spyOn, test } from "bun:test"
 import type { SteerTicketClaims } from "@exp/steer-ticket"
 import { COMPACT_VERDICT_TIMEOUT_MS, Hub, type RelaySocket, TUNNEL_HIGH_WATER, UPSTREAM_ANSWER_TIMEOUT_MS } from "./hub"
 import {
+  CALL_ALIVE_MS,
   CALL_IDLE_TIMEOUT_MS,
   CALL_MAX_FRAME_BYTES,
   CALL_MAX_FRAMES_PER_SECOND,
@@ -19,6 +20,8 @@ class FakeSocket implements RelaySocket {
   binary: Uint8Array[] = []
   closed: { code?: number; reason?: string } | null = null
   buffered = 0
+  /** EXP-1929: WebSocket pings sent. */
+  pings = 0
 
   send(data: string) {
     this.sent.push(data)
@@ -31,6 +34,9 @@ class FakeSocket implements RelaySocket {
   }
   bufferedAmount() {
     return this.buffered
+  }
+  ping() {
+    this.pings += 1
   }
 
   frames(): { t: string; [k: string]: unknown }[] {
@@ -546,6 +552,7 @@ describe(`stats counters (EXP-553)`, () => {
       callFramesForwarded: 0,
       callFramesDropped: 0,
       callFramesSkipped: 0,
+      callPongs: 0,
       tunnelsOpened: 0,
       tunnelsRefused: 0,
       tunnelsOverflowed: 0,
@@ -776,7 +783,7 @@ describe(`voice calls (NEW-55)`, () => {
 
   test(`a paired call with no frame for CALL_IDLE_TIMEOUT_MS ends with idle`, () => {
     const { hub, caller, host, intervals } = pairedWithTimers()
-    const idle = intervals.find((t) => t.ms === Math.min(CALL_IDLE_TIMEOUT_MS, 5_000))
+    const idle = intervals.find((t) => t.ms === CALL_ALIVE_MS)
     expect(idle).toBeDefined()
     const now = Date.now
     try {
@@ -792,6 +799,56 @@ describe(`voice calls (NEW-55)`, () => {
     expect(caller.lastFrame(`call_end`)).toEqual({ t: `call_end`, reason: `idle` })
     expect(host.closed?.code).toBe(CLOSE_SESSION_ENDED)
     expect(hub.stats().calls).toBe(0)
+    hub.destroy()
+  })
+
+  /** EXP-1929: run the paired call's beat for `ms`, one tick per
+   *  CALL_ALIVE_MS; `each` runs before every tick. */
+  function beat(ms: number, each: () => void) {
+    const { hub, caller, host, intervals } = pairedWithTimers()
+    const alive = intervals.find((t) => t.ms === CALL_ALIVE_MS)
+    expect(alive).toBeDefined()
+    const now = Date.now
+    const start = now()
+    try {
+      for (let at = CALL_ALIVE_MS; at <= ms && hub.stats().calls > 0; at += CALL_ALIVE_MS) {
+        Date.now = () => start + at
+        each.call({ hub, caller, host })
+        alive!.fn()
+      }
+    } finally {
+      Date.now = now
+    }
+    return { hub, caller, host }
+  }
+
+  // EXP-1929 (voice-phones-2): the caller's stream no longer hides a host
+  // that vanished without a FIN.
+  test(`a host that vanished is noticed while the caller streams`, () => {
+    let seq = 0
+    const { hub, caller, host } = beat(CALL_IDLE_TIMEOUT_MS + CALL_ALIVE_MS, function (this: { hub: Hub; caller: FakeSocket }) {
+      this.hub.onBinary(this.caller, audio(1, seq++))
+    })
+    expect(caller.lastFrame(`call_end`)).toEqual({ t: `call_end`, reason: `idle` })
+    expect(host.closed?.code).toBe(CLOSE_SESSION_ENDED)
+    expect(hub.stats().calls).toBe(0)
+    hub.destroy()
+  })
+
+  // EXP-1929: a listening host sends nothing, but answers the relay's ping:
+  // alive. Both ends get `call_alive` and a ping every CALL_ALIVE_MS.
+  test(`a silent host that answers the ping keeps the call`, () => {
+    let seq = 0
+    const { hub, caller, host } = beat(3 * CALL_IDLE_TIMEOUT_MS, function (this: { hub: Hub; caller: FakeSocket; host: FakeSocket }) {
+      this.hub.onBinary(this.caller, audio(1, seq++))
+      this.hub.onPong(this.host)
+    })
+    expect(hub.stats().calls).toBe(1)
+    const beats = (3 * CALL_IDLE_TIMEOUT_MS) / CALL_ALIVE_MS
+    for (const end of [caller, host]) {
+      expect(end.framesOf(`call_alive`)).toHaveLength(beats)
+      expect(end.pings).toBe(beats)
+    }
     hub.destroy()
   })
 

@@ -136,6 +136,7 @@ class VoiceCallTest {
             "maxFramesPerSecond" to k.MAX_FRAMES_PER_SECOND,
             "maxCallMs" to k.MAX_CALL_MS,
             "idleTimeoutMs" to k.IDLE_TIMEOUT_MS,
+            "aliveMs" to k.ALIVE_MS,
             "serverIdleMs" to k.SERVER_IDLE_MS,
         )
         val fixtureConstants = obj("constants")
