@@ -2243,6 +2243,10 @@ pub struct MdPaint {
     /// #VAPP-258 step 5: the laid-out flag of the block being built (a
     /// lazy block's units are live only once it shows; `None` = live).
     pub live: RefCell<Option<Rc<std::cell::Cell<bool>>>>,
+    /// #EDE-95: each searched unit's search marks (`highlight`; empty =
+    /// none), byte ranges into its searched text
+    /// ([`super::highlight::markdown_marks`]).
+    pub marks: HashMap<super::highlight::MdUnitKey, Vec<super::highlight::Mark>>,
 }
 
 /// #VAPP-258: one chip kind's colours over the Chip look.
@@ -2354,9 +2358,11 @@ fn unit_element(id: SharedString, styled: StyledText, links: Vec<(Range<usize>, 
     }
 }
 
-fn text_block(id: SharedString, inlines: &[Inline], spec: &TextSpec, family: &SharedString, p: &MdPaint, colors: RunColors, wrap: f32, text: &mut dyn MdText) -> AnyElement {
+fn text_block(id: SharedString, inlines: &[Inline], spec: &TextSpec, family: &SharedString, p: &MdPaint, colors: RunColors, wrap: f32, text: &mut dyn MdText, marks: &[super::highlight::Mark]) -> AnyElement {
     let (shown, runs) = runs(inlines, family, &p.mono, spec.weight, colors);
-    let runs = p.fallback(&shown, runs);
+    // #EDE-95: the search marks on the runs, inline code's on its label.
+    let (text_marks, mut chip_marks) = super::highlight::split_unit_marks(inlines, marks);
+    let runs = super::highlight::mark_runs(p.fallback(&shown, runs), &text_marks);
     // Link ranges (a chip opens its own href) and the chips' byte offsets.
     let mut links: Vec<(std::ops::Range<usize>, String)> = Vec::new();
     let mut chips: Vec<(usize, &InlineChip, Option<&String>)> = Vec::new();
@@ -2384,7 +2390,7 @@ fn text_block(id: SharedString, inlines: &[Inline], spec: &TextSpec, family: &Sh
             let x = if p.rtl { x + (wrap - line_w).max(0.0) } else { x };
             let cid: SharedString = format!("{id}.chip{k}").into();
             el = el.child(if chip.kind == CODE_CHIP {
-                inline_code(cid, chip, href.cloned(), (x, top), spec, p, colors)
+                inline_code(cid, chip, href.cloned(), (x, top), spec, p, colors, &chip_marks.remove(&k).unwrap_or_default())
             } else {
                 inline_chip(cid, chip, href.cloned(), (x, top + (spec.line_height - h) / 2.0, h), p, colors.ink)
             });
@@ -2397,7 +2403,7 @@ fn text_block(id: SharedString, inlines: &[Inline], spec: &TextSpec, family: &Sh
 /// `Markdown/code` box from the font's descent to its ascent around the
 /// block's baseline (+ `paddingVertical`), the label in the code type on that
 /// baseline, centred across the placeholder.
-fn inline_code(id: SharedString, chip: &InlineChip, href: Option<String>, (x, top): (f32, f32), spec: &TextSpec, p: &MdPaint, colors: RunColors) -> AnyElement {
+fn inline_code(id: SharedString, chip: &InlineChip, href: Option<String>, (x, top): (f32, f32), spec: &TextSpec, p: &MdPaint, colors: RunColors, marks: &[super::highlight::Mark]) -> AnyElement {
     let code = &p.styles.inline_code;
     let type_ = code.spec(spec, None);
     let color = if href.is_some() { colors.link } else { colors.ink };
@@ -2411,6 +2417,7 @@ fn inline_code(id: SharedString, chip: &InlineChip, href: Option<String>, (x, to
     });
     let label: SharedString = chip.label.clone().into();
     let runs = p.fallback(&label, vec![TextRun { len: label.len(), font, color, background_color: None, underline: href.as_ref().map(|_| UnderlineStyle { thickness: px(1.0), color: Some(colors.link), wavy: false }), strikethrough: None }]);
+    let runs = super::highlight::mark_runs(runs, marks);
     let row = div()
         .id(id)
         .absolute()
@@ -2546,6 +2553,8 @@ pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint
     // #VAPP-258 step 5: a long document lays out and paints only the blocks
     // that cross the clip ([`LazyMdBlock`]); every block keeps its box.
     let lazy = blocks.len() >= eui_core::host::MARKDOWN_LAZY_BLOCKS && !forced_eager();
+    // #EDE-95: a searched unit's marks (none for the rest).
+    let marks_of = |key: super::highlight::MdUnitKey| p.marks.get(&key).map_or(&[][..], Vec::as_slice);
     for (i, (b, bx)) in blocks.iter().zip(&lay.blocks).enumerate() {
         let bid: SharedString = format!("{id}.md{i}").into();
         let live = lazy.then(|| Rc::new(std::cell::Cell::new(false)));
@@ -2560,8 +2569,8 @@ pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint
         }
         let placed = if lazy { div().relative() } else { div().absolute().left_0().top(px(bx.y)) }.w(px(width)).h(px(bx.height));
         let el: AnyElement = match &b.kind {
-            BlockKind::Paragraph => placed.when(p.rtl, |d| d.text_right()).child(text_block(bid, &b.inlines, &s.body, &p.family, p, p.colors, width.max(1.0), text)).into_any_element(),
-            BlockKind::Heading(_) => placed.when(p.rtl, |d| d.text_right()).child(text_block(bid, &b.inlines, s.spec_of(&b.kind), &p.heading_family, p, p.colors, width.max(1.0), text)).into_any_element(),
+            BlockKind::Paragraph => placed.when(p.rtl, |d| d.text_right()).child(text_block(bid, &b.inlines, &s.body, &p.family, p, p.colors, width.max(1.0), text, marks_of((i, 0, 0)))).into_any_element(),
+            BlockKind::Heading(_) => placed.when(p.rtl, |d| d.text_right()).child(text_block(bid, &b.inlines, s.spec_of(&b.kind), &p.heading_family, p, p.colors, width.max(1.0), text, marks_of((i, 0, 0)))).into_any_element(),
             BlockKind::ListItem { marker, task, depth } => {
                 let lead = s.list_indent * *depth as f32;
                 let body_w = (width - lead - s.list_indent).max(1.0);
@@ -2609,11 +2618,11 @@ pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint
                 };
                 placed
                     .child(gutter)
-                    .child(div().absolute().left(px(body_x)).top_0().w(px(body_w)).when(p.rtl, |d| d.text_right()).child(text_block(bid, &b.inlines, &s.body, &p.family, p, p.colors, body_w, text)))
+                    .child(div().absolute().left(px(body_x)).top_0().w(px(body_w)).when(p.rtl, |d| d.text_right()).child(text_block(bid, &b.inlines, &s.body, &p.family, p, p.colors, body_w, text, marks_of((i, 0, 0)))))
                     .into_any_element()
             }
             BlockKind::Image { src, alt, size } => {
-                let alt_el = text_block(bid.clone(), &b.inlines, &s.body, &p.family, p, RunColors { ink: p.muted, ..p.colors }, width.max(1.0), text);
+                let alt_el = text_block(bid.clone(), &b.inlines, &s.body, &p.family, p, RunColors { ink: p.muted, ..p.colors }, width.max(1.0), text, &[]);
                 match (p.image)(src) {
                     Some(source) => {
                         let fallback_alt: SharedString = alt.clone().into();
@@ -2661,7 +2670,7 @@ pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint
                         .when(p.rtl, |d| d.text_right())
                         .top_0()
                         .w(px((width - s.quote_border - s.quote_pad).max(1.0)))
-                        .child(text_block(bid, &b.inlines, &s.body, &p.family, p, RunColors { ink: p.muted, ..p.colors }, (width - s.quote_border - s.quote_pad).max(1.0), text)),
+                        .child(text_block(bid, &b.inlines, &s.body, &p.family, p, RunColors { ink: p.muted, ..p.colors }, (width - s.quote_border - s.quote_pad).max(1.0), text, marks_of((i, 0, 0)))),
                 )
                 .into_any_element(),
             BlockKind::CodeBlock => {
@@ -2723,7 +2732,7 @@ pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint
                                         .top(px(s.cell_pad_v))
                                         .w(px(text_w[c]))
                                         .when(p.rtl, |d| d.text_right())
-                                        .child(text_block(format!("{bid}.{r}.{c}").into(), &cell, &spec, &p.family, p, p.colors, text_w[c], text)),
+                                        .child(text_block(format!("{bid}.{r}.{c}").into(), &cell, &spec, &p.family, p, p.colors, text_w[c], text, marks_of((i, r, c)))),
                                 ),
                         );
                     }

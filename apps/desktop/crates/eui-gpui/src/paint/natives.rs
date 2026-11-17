@@ -438,8 +438,23 @@ pub fn text_lines(cx: &LeafCx, lines: &[String], clamp: Option<usize>, window: &
         let shown = crate::text::with_paragraph_direction(&shown, cx.rtl).into_owned();
         return aligned(cx.typed(div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h))), a).overflow_hidden().whitespace_nowrap().child(SharedString::from(shown)).into_any_element();
     }
+    // #EDE-95: the `highlight` marks of each line (before the direction marks).
+    let per_line = line_highlights(cx, lines);
+    let lens: Vec<usize> = lines.iter().map(String::len).collect();
     // Round 2 §2: every line shapes with the node's paragraph direction.
     let marked: Vec<String> = lines.iter().map(|l| crate::text::with_paragraph_direction(l, cx.rtl).into_owned()).collect();
+    let prefixes: Vec<usize> = marked.iter().zip(&lens).map(|(m, l)| m.len() - l).collect();
+    // Lines `from..to` joined by one byte, with their marks.
+    let shown = |from: usize, to: usize, sep: &str| -> AnyElement {
+        let text = SharedString::from(marked[from..to].join(sep));
+        match &per_line {
+            Some(per_line) => {
+                let marks = crate::paint::highlight::joined_marks(&per_line[from..to], &lens[from..to], &prefixes[from..to]);
+                gpui::StyledText::new(text).with_highlights(crate::paint::highlight::highlight_styles(&marks)).into_any_element()
+            }
+            None => text.into_any_element(),
+        }
+    };
     let lines = &marked[..];
     // A shimmering text paints glyph by glyph too (its per-glyph colours).
     if cx.style.letter_spacing != 0.0 || cx.shimmer.is_some() {
@@ -465,19 +480,31 @@ pub fn text_lines(cx: &LeafCx, lines: &[String], clamp: Option<usize>, window: &
                 "center" => x - 0.5,
                 _ => x,
             };
-            aligned(cx.typed(div().absolute().left(px(x)).top(px(y)).w(px(w + 1.0)).h(px(h))), a).truncate().child(SharedString::from(lines.join(" "))).into_any_element()
+            aligned(cx.typed(div().absolute().left(px(x)).top(px(y)).w(px(w + 1.0)).h(px(h))), a).truncate().child(shown(0, lines.len(), " ")).into_any_element()
         }
         Some(n) if lines.len() > n && n > 1 => {
             let mut col = cx.content().flex().flex_col().overflow_hidden();
-            for (k, line) in lines.iter().enumerate().take(n) {
-                let text = if k + 1 == n { lines[k..].join(" ") } else { line.clone() };
+            for k in 0..n.min(lines.len()) {
+                let text = if k + 1 == n { shown(k, lines.len(), " ") } else { shown(k, k + 1, " ") };
                 let row = aligned(div().w_full().h(px(lh)).flex_none().whitespace_nowrap(), a);
-                col = col.child(if k + 1 == n { row.truncate() } else { row.overflow_hidden() }.child(SharedString::from(text)));
+                col = col.child(if k + 1 == n { row.truncate() } else { row.overflow_hidden() }.child(text));
             }
             col.into_any_element()
         }
-        _ => aligned(cx.content(), a).whitespace_nowrap().child(SharedString::from(lines.join("\n"))).into_any_element(),
+        _ => aligned(cx.content(), a).whitespace_nowrap().child(shown(0, lines.len(), "\n")).into_any_element(),
     }
+}
+
+/// #EDE-95: a Text's `highlight` marks on its painted lines (line-local
+/// byte ranges; `None` = no `highlight` or no match). The rule runs on the
+/// text as shown (its `textTransform`); the lines are its pieces in order.
+fn line_highlights(cx: &LeafCx, lines: &[String]) -> Option<Vec<Vec<crate::paint::highlight::Mark>>> {
+    let spec = cx.node.props.get("highlight").and_then(eui_core::text_highlight::highlight_spec)?;
+    let raw = cx.node.props.get("text").and_then(Value::as_str)?;
+    // A one-line clamp joins the hard breaks with spaces (the same bytes).
+    let source = crate::text::transform(raw, cx.style.text_transform.as_deref()).replace('\n', " ");
+    let marks = crate::paint::highlight::text_marks(&source, &spec, crate::paint::highlight::MarkColors::of(cx.theme, cx.mode));
+    (!marks.is_empty()).then(|| crate::paint::highlight::line_marks(&source, lines, &marks))
 }
 
 /// The rotating loader glyph.
@@ -583,6 +610,16 @@ pub fn linked_text(cx: &LeafCx, segments: Vec<eui_core::host::TextLink>, host: R
         }
         at += len;
     }
+    // #EDE-95: the `highlight` marks (a Row subtitle the host links).
+    let shift = text.len() - joined.len();
+    let marks: Vec<crate::paint::highlight::Mark> = cx
+        .node
+        .props
+        .get("highlight")
+        .and_then(eui_core::text_highlight::highlight_spec)
+        .map(|spec| crate::paint::highlight::text_marks(&joined, &spec, crate::paint::highlight::MarkColors::of(cx.theme, cx.mode)).into_iter().map(|(r, c)| (r.start + shift..r.end + shift, c)).collect())
+        .unwrap_or_default();
+    let runs = crate::paint::highlight::mark_runs(runs, &marks);
     let styled = gpui::StyledText::new(SharedString::from(text)).with_runs(runs);
     let layout = styled.layout().clone();
     let probe = ranges.clone();

@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Text / Markdown `highlight` search marks (#EDE-95): `$color.match` behind each match and `$color.matchCurrent` behind the current one as a run background (text colour and layout unchanged) on a Text's lines (a host-linked Row subtitle too; not yet the letter-spaced, shimmering or middle-cut paths) and on each searched Markdown block (`paint::highlight`: inline code marks its label, a host chip is a barrier, code blocks unsearched, `current` numbered across blocks); `markdown_highlight_count` + `tests/text_highlight.rs` replay `markdownCases`.
 - Markdown chips keep their punctuation (#EXP-1882): `size_chips` caps a chip at the line less the non-space text it touches (`chip_glue`; the placeholder's non-breaking spaces already glue it), so a full-width chip no longer pushes its `)`, `.` or `,` onto the next line.
 - `SurfaceView::set_forced_states` (#EXP-1781): the host's forced interaction states (paint only); leaves (a Slider thumb) and the painter-drawn Segmented item (`<id>.item.<k>`) take them too. The IDE's specimen screen passes a specimen's `states`. `tests/forced_states.rs`.
 - Box `tail` (#EXP-1876): `paint::tail` fills the box + its speech-bubble tail as ONE outline (the outline in the border colour, the same outline inset by the border width in the background) on a canvas reaching 10 px past the frame; the tail's corner squares; rtl mirrors it. `tail_canvas` is public: the IDE's own chat bubble paints with it.

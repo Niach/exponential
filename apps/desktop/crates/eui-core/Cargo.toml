@@ -57,6 +57,9 @@ stacker = "0.1"
 # VAPP-132: the restyle memo's key hash (the version already in
 # apps/desktop/Cargo.lock).
 rustc-hash = "2"
+# #EDE-95: search marks fold per scalar through NFD (`text_highlight`); the
+# version already in apps/desktop/Cargo.lock.
+unicode-normalization = "0.1"
 
 # VAPP-124: stacker has no Android or iOS stack-limit backend; `src/stack.rs`
 # asks pthread there.

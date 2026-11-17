@@ -3580,6 +3580,7 @@ dependencies = [
  "serde_json",
  "stacker",
  "taffy 0.12.2",
+ "unicode-normalization",
  "url",
 ]
 
