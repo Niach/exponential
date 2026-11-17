@@ -417,7 +417,8 @@ impl Attached {
         // #EXP-1868: a session that ENDED takes what it started with it
         // (its scopes: vite, gradle/kotlin daemons, emulators; the compose
         // stacks of its worktree). An idle, suspended or released run keeps
-        // everything (`ends_row`), as does a replay.
+        // everything (`ends_row`), as does a replay, and (#EXP-1909) every
+        // end the server did not decide.
         if tears_down(ctx.replay, ctx.persistent, outcome) {
             coding::session_teardown::end_session_processes_soon(
                 ctx.data_dir.clone(),
@@ -604,8 +605,15 @@ fn ends_row(persistent: bool, outcome: &str) -> bool {
 /// #EXP-1868: does this exit tear the session's processes down? Only an END:
 /// never an agent root's idle, a suspend, a release to another device or a
 /// transcript replay.
+/// #EXP-1909: and only an end the SERVER decided (`killed`: the row read
+/// ended before the kill reached this run). An end this device reports (the
+/// CLI went away, a failed start, the stall watchdog) is the server's to
+/// answer: it keeps a lost run, a failed start and a root chat idle
+/// (`watchdog.json`: "a lost process never ends the session"). Whatever
+/// then does end is the sweep's (`coding::session_teardown::sweep_ended`),
+/// which reads the row.
 fn tears_down(replay: bool, persistent: bool, outcome: &str) -> bool {
-    !replay && ends_row(persistent, outcome) && outcome != RELEASED_OUTCOME
+    !replay && ends_row(persistent, outcome) && outcome == coding::pickup::KILL_OUTCOME
 }
 
 /// EXP-1292: an agent root (or a suspended session) whose process is gone —
@@ -1544,12 +1552,24 @@ mod tests {
     /// idle (agent root), a suspend, a release and a replay keep them.
     #[test]
     fn only_an_end_tears_the_sessions_processes_down() {
-        assert!(tears_down(false, false, "ended"));
         assert!(tears_down(false, false, "killed"));
         assert!(!tears_down(false, false, SUSPEND_OUTCOME));
         assert!(!tears_down(false, false, RELEASED_OUTCOME));
         assert!(!tears_down(false, true, "ended"));
         assert!(!tears_down(true, false, "ended"));
+    }
+
+    /// #EXP-1909: only a row the SERVER ended tears down here. A lost run
+    /// (OOM), a failed start, a stall or the CLI's own exit report an end the
+    /// server may answer with idle (`watchdog.json`: "a lost process never
+    /// ends the session"): their leftovers are the sweep's, which reads the
+    /// row.
+    #[test]
+    fn a_run_the_server_may_keep_alive_keeps_its_processes() {
+        assert!(!tears_down(false, false, "exit:-1"), "the CLI was OOM-killed");
+        assert!(!tears_down(false, false, "exit:0"));
+        assert!(!tears_down(false, false, "ended"), "the stall watchdog, a failed handshake");
+        assert!(tears_down(false, false, "killed"));
     }
 
     #[test]
