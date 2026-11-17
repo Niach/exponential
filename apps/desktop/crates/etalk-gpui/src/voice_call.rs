@@ -162,8 +162,13 @@ pub fn active(cx: &App) -> bool {
 
 /// The agent of the running call whose speech runs HERE (Speak replies
 /// speaks its conversation; EXP-1857: a dialled call's runs elsewhere).
+/// #EXP-1936: none while it still rings: replies are the call's from the
+/// greeting on (a Speak during the ring would end the ring tone).
 pub fn agent_id(cx: &App) -> Option<String> {
-    global(cx).and_then(|entity| entity.read(cx).active.as_ref().filter(|active| !active.dialled).map(|active| active.agent_id.clone()))
+    let entity = global(cx)?;
+    let this = entity.read(cx);
+    let active = this.active.as_ref().filter(|active| !active.dialled && this.state.phase != CallPhase::Ringing)?;
+    Some(active.agent_id.clone())
 }
 
 /// S-3: THIS client runs a call with `agent_id` (its telephone shows the
@@ -550,7 +555,7 @@ impl VoiceCall {
     fn begin(&mut self, agent_id: String, host: Option<Box<dyn CallLink>>, device: String, fallback: bool, cx: &mut Context<Self>) {
         let Some(client) = crate::speak_replies::client(cx) else { return };
         // A held push to talk and anything being said stop first.
-        crate::push_to_talk::signed_out(cx);
+        crate::push_to_talk::cancel_for_call(cx);
         if crate::speak_replies::speaking(cx).is_some() {
             crate::speak_replies::stop(cx);
         }
@@ -575,7 +580,7 @@ impl VoiceCall {
     /// speaker here, and rings until the host answers.
     fn dial(&mut self, agent_id: String, device: String, fallback: bool, cx: &mut Context<Self>) {
         let Some(client) = crate::speak_replies::client(cx) else { return };
-        crate::push_to_talk::signed_out(cx);
+        crate::push_to_talk::cancel_for_call(cx);
         if crate::speak_replies::speaking(cx).is_some() {
             crate::speak_replies::stop(cx);
         }
@@ -1590,6 +1595,71 @@ mod tests {
             host_event(&id, serde_json::json!({ "t": "failed", "code": "unavailable" }), cx);
             assert!(!active(cx));
         });
+    }
+
+    use crate::test_support::{settings, Rig, AGENT};
+
+    /// A local call through the real `start`, still ringing: its worker id.
+    fn rung(cx: &mut gpui::TestAppContext) -> String {
+        cx.update(|cx| {
+            start(AGENT.into(), cx);
+            assert_eq!(phase(cx), CallPhase::Ringing);
+            global(cx).unwrap().read(cx).active.as_ref().unwrap().id.clone()
+        })
+    }
+
+    /// The worker listens and the longest drawn ring passed: answered.
+    fn answered(rig: &Rig, id: &str, cx: &mut gpui::TestAppContext) {
+        rig.worker(etalk::Event::CallListening { id: id.into() }, cx);
+        let constants = &VOICE_CALL.constants;
+        cx.executor().advance_clock(Duration::from_millis(constants.min_ring_ms + constants.ring_jitter_ms));
+        cx.run_until_parked();
+    }
+
+    fn finished(rig: &Rig, id: &str, cx: &mut gpui::TestAppContext) {
+        rig.worker(etalk::Event::Finished { id: id.into(), stopped: false }, cx);
+    }
+
+    /// #EXP-1936: the call and the speaker together: the greeting is said
+    /// and its end listens; an utterance goes out and waits; the agent's
+    /// reply is spoken and the call follows it; a card-only row is not.
+    #[gpui::test]
+    async fn a_call_speaks_its_greeting_and_its_replies(cx: &mut gpui::TestAppContext) {
+        let rig = Rig::install(settings(), cx);
+        let id = rung(cx);
+        assert!(matches!(rig.requests().last(), Some(etalk::Request::Call { remote: false, .. })));
+        answered(&rig, &id, cx);
+        let greeting = format!("{id}-greeting");
+        assert_eq!(rig.spoken(), [greeting.clone()]);
+        assert_eq!(cx.update(|cx| phase(cx)), CallPhase::Speaking);
+        finished(&rig, &greeting, cx);
+        assert_eq!(cx.update(|cx| phase(cx)), CallPhase::Listening);
+        rig.worker(etalk::Event::Said { id: id.clone(), text: "status of the release".into() }, cx);
+        assert_eq!(cx.update(|cx| phase(cx)), CallPhase::Thinking);
+        rig.row(crate::test_support::Row { id: "card".into(), author_kind: "agent", body: "A plan.".into(), has_card: true, created_at: "2026-11-17T10:00:04.000Z".into() }, cx);
+        assert!(rig.spoken().is_empty(), "a card is shown, never spoken");
+        rig.message("r1", "agent", "All green. Ship it.", 5, cx);
+        assert_eq!(rig.spoken(), ["r1"]);
+        assert_eq!(cx.update(|cx| (phase(cx), face(cx).unwrap().view.caption)), (CallPhase::Speaking, "All green.".to_string()));
+        finished(&rig, "r1", cx);
+        assert_eq!(cx.update(|cx| phase(cx)), CallPhase::Listening);
+        assert!(rig.notices().is_empty());
+    }
+
+    /// #EXP-1936: while the call still rings no reply is the call's: the
+    /// answer to a message typed before it is not read aloud (a Speak would
+    /// end the ring tone, and the greeting would cut it off).
+    #[gpui::test]
+    async fn a_reply_during_the_ring_is_not_the_calls(cx: &mut gpui::TestAppContext) {
+        let rig = Rig::install(settings(), cx);
+        let id = rung(cx);
+        rig.message("typed", "agent", "The answer to what you typed.", 5, cx);
+        assert!(rig.spoken().is_empty(), "nothing is said during the ring");
+        assert_eq!(cx.update(|cx| (agent_id(cx), crate::speak_replies::speaking(cx))), (None, None));
+        assert_eq!(cx.update(|cx| phase(cx)), CallPhase::Ringing);
+        answered(&rig, &id, cx);
+        assert_eq!(rig.spoken(), [format!("{id}-greeting")]);
+        assert_eq!(cx.update(|cx| agent_id(cx)).as_deref(), Some(AGENT), "answered: its replies are the call's");
     }
 
     /// F41: a host that fails the call names the code before `call_end`.

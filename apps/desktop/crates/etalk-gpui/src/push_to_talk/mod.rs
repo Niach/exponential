@@ -259,6 +259,15 @@ pub fn signed_out(cx: &mut App) {
     entity.update(cx, |this, cx| this.arm(None, cx));
 }
 
+/// #EXP-1936: a call starts: it takes the microphone, so the utterance in
+/// flight is dropped. The binding and the wake word stay as they are (a
+/// key-down returns while a call runs, the worker holds the wake word back
+/// itself): both work again the moment the call ends.
+pub(crate) fn cancel_for_call(cx: &mut App) {
+    let Some(entity) = global(cx) else { return };
+    entity.update(cx, |this, cx| this.cancel(cx));
+}
+
 /// `etalk::Event`s that belong to listening.
 pub(crate) fn is_listen_event(event: &etalk::Event) -> bool {
     matches!(
@@ -284,6 +293,12 @@ pub(crate) fn worker_changed(ready: bool, cx: &mut App) {
         this.wake_listening = false;
         this.wake_reason = None;
         this.sync_wake(cx);
+        // #EXP-1936: the worker went away with a Listen open (the key held,
+        // or released and waiting): no answer will come, so it fails now.
+        if !ready && this.utterance.take().is_some() {
+            this.woken = false;
+            this.step(PttEvent::ListenFailed(etalk::voice::ListenFailure::Failed), cx);
+        }
         cx.notify();
     });
 }
@@ -481,7 +496,8 @@ impl PushToTalk {
         let shortcut = self.armed.as_ref().and_then(|armed| armed.shortcut.clone()).filter(|_| !self.recording);
         if let Some(shortcut) = shortcut {
             let tx = self.grab_events(cx);
-            self.grab = Some(hotkey::grab(&shortcut, tx));
+            // #EXP-1936: a test never holds a key of the machine it runs on.
+            self.grab = (!cfg!(test)).then(|| hotkey::grab(&shortcut, tx));
         }
     }
 
@@ -1009,6 +1025,84 @@ mod tests {
         live.send(hotkey::HotkeyEvent::Status(hotkey::Status::Global)).unwrap();
         cx.run_until_parked();
         assert_eq!(cx.update(|cx| status(cx)), hotkey::Status::Global);
+    }
+
+    use crate::test_support::{Rig, AGENT, SENT};
+
+    fn key(down: bool, cx: &mut gpui::TestAppContext) {
+        let event = if down { hotkey::HotkeyEvent::Down } else { hotkey::HotkeyEvent::Up };
+        cx.update(|cx| global(cx).unwrap().update(cx, |this, cx| this.on_hotkey(event, cx)));
+        cx.run_until_parked();
+    }
+
+    fn phase(cx: &mut gpui::TestAppContext) -> PttPhase {
+        cx.update(|cx| global(cx).unwrap().read(cx).state.phase)
+    }
+
+    /// #EXP-1936: Stop on the capsule (the speaker's `stop`) ends Speaking:
+    /// the capsule follows the speaker, which has to say that it stopped.
+    #[gpui::test]
+    async fn stop_on_the_capsule_ends_speaking(cx: &mut gpui::TestAppContext) {
+        let rig = Rig::install(crate::test_support::settings(), cx);
+        key(true, cx);
+        key(false, cx);
+        rig.worker(etalk::Event::Heard { id: "ptt-1".into(), text: "status of the release".into() }, cx);
+        assert_eq!(phase(cx), PttPhase::Thinking);
+        rig.message(SENT, "user", "status of the release", 1, cx);
+        rig.message("r1", "agent", "All green. Ship it.", 5, cx);
+        assert_eq!(rig.spoken(), ["r1"], "a voice turn's reply is read aloud");
+        assert_eq!(phase(cx), PttPhase::Speaking);
+        cx.update(on_pill);
+        cx.run_until_parked();
+        assert_eq!(rig.requests(), [etalk::Request::Stop]);
+        assert_eq!(phase(cx), PttPhase::Spoken, "the capsule left Speaking");
+        assert_eq!(cx.update(|cx| crate::speak_replies::speaking(cx)), None);
+        // The worker's answer to the Stop finds nothing left to end.
+        rig.worker(etalk::Event::Finished { id: "r1".into(), stopped: true }, cx);
+        assert_eq!(phase(cx), PttPhase::Spoken);
+    }
+
+    /// #EXP-1936: a call takes the microphone, not the binding: the held
+    /// utterance is dropped, the key stays grabbed and the worker keeps its
+    /// wake word, so both work again the moment the call ends.
+    #[gpui::test]
+    async fn a_call_leaves_push_to_talk_and_the_wake_word_armed(cx: &mut gpui::TestAppContext) {
+        let rig = Rig::install(VoiceSettings { wake_word: true, ..crate::test_support::settings() }, cx);
+        let armed = |cx: &mut gpui::TestAppContext| {
+            cx.update(|cx| {
+                let entity = global(cx).unwrap();
+                let this = entity.read(cx);
+                (this.armed.clone(), this.grab_generation, this.wake_sent.clone())
+            })
+        };
+        let before = armed(cx);
+        assert!(before.0.is_some() && before.2.is_some(), "armed, the wake word handed over");
+        key(true, cx);
+        assert_eq!(phase(cx), PttPhase::Listening);
+        rig.requests();
+        cx.update(|cx| crate::voice_call::start(AGENT.into(), cx));
+        let requests = rig.requests();
+        assert!(requests.contains(&etalk::Request::CancelListen { id: "ptt-1".into() }), "the held utterance is dropped: {requests:?}");
+        assert!(!requests.iter().any(|request| matches!(request, etalk::Request::Wake { .. })), "the wake word stays: {requests:?}");
+        assert_eq!(phase(cx), PttPhase::Hidden);
+        assert_eq!(armed(cx), before, "armed through the call");
+        cx.update(crate::voice_call::end);
+        assert_eq!(armed(cx), before, "and after it");
+    }
+
+    /// #EXP-1936: the speech worker died while the key was held: no Heard,
+    /// Empty or ListenFailed will ever come, so the capsule fails now.
+    #[gpui::test]
+    async fn a_worker_lost_mid_hold_fails_the_capsule(cx: &mut gpui::TestAppContext) {
+        let rig = Rig::install(crate::test_support::settings(), cx);
+        key(true, cx);
+        assert_eq!(phase(cx), PttPhase::Listening);
+        rig.worker(etalk::Event::Exited, cx);
+        assert_eq!(phase(cx), PttPhase::Failed(etalk::voice::ListenFailure::Failed));
+        rig.requests();
+        key(false, cx);
+        assert!(!rig.requests().iter().any(|request| matches!(request, etalk::Request::EndListen { .. })), "nothing left to end");
+        assert_eq!(phase(cx), PttPhase::Failed(etalk::voice::ListenFailure::Failed));
     }
 
     #[test]
