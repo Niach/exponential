@@ -182,6 +182,7 @@ fun ChatsScreen(
             ChatsContent(
                 list = list,
                 agentOf = { facts[it]?.agent },
+                marksOf = { facts[it]?.marks.orEmpty() },
                 needsYouCount = needsYouRows.size,
                 onOpenNeedsYou = onOpenNeedsYou,
                 onOpenChat = onOpenChat,
@@ -313,6 +314,8 @@ fun ChatsContent(
     /** #FEED-191 (needs-you.json): the entry's count; 0 = no entry. */
     needsYouCount: Int = 0,
     onOpenNeedsYou: () -> Unit = {},
+    /** #EDE-98: a root's title marks ([Chats.chatMarks]); none by default. */
+    marksOf: (rootId: String) -> List<String> = { emptyList() },
 ) {
     // #EXP-1384: the header's search pushes the phone search; the inbox
     // circle is this list's own (the specimen drives it).
@@ -335,6 +338,7 @@ fun ChatsContent(
         ChatRow(
             row = row,
             agent = agentOf(row.sessionId),
+            marks = marksOf(row.sessionId),
             onClick = { if (selecting) onToggleSelect(row.sessionId) else onOpenChat(row.sessionId) },
             onLongClick = { if (selecting) onToggleSelect(row.sessionId) else onLongPressChat(row) },
             selected = if (selecting) row.sessionId in selected else null,

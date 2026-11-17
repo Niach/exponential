@@ -504,8 +504,15 @@ class ChatsViewModel @Inject constructor(
 
     /** What a chat row's menu needs per root: its status, whether the
      *  viewer may steer it (shared, or the starter) and whether the viewer
-     *  started it (with [isOwner], who may delete it). */
-    data class RootFacts(val status: String, val canSteer: Boolean, val agent: String?, val mine: Boolean = false)
+     *  started it (with [isOwner], who may delete it). #EDE-98: its title's
+     *  marks ([Chats.chatMarks]). */
+    data class RootFacts(
+        val status: String,
+        val canSteer: Boolean,
+        val agent: String?,
+        val mine: Boolean = false,
+        val marks: List<String> = emptyList(),
+    )
 
     val rootFacts: StateFlow<Map<String, RootFacts>> = combine(sessionRows, auth.userId) { rows, me ->
         rows.filter { it.isRoot }.associate { row ->
@@ -514,6 +521,7 @@ class ChatsViewModel @Inject constructor(
                 row.shared || (me != null && row.userId == me),
                 row.cli,
                 mine = me != null && row.userId == me,
+                marks = Chats.chatMarks(row.shared, row.sealEpoch),
             )
         }
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, LIST_SHARING, emptyMap())

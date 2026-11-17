@@ -6,7 +6,7 @@ import XCTest
 // desktop `domain::chats`) against fixtures/chats.json: every case group
 // (previewCases, timeCases, listCases, menuCases,
 // agentMenuCases, replyCases, dividerCases, plainCases, windowCases, digestCases,
-// selectionCases, rangeCases, dotCases, sectionCases, boardMineCases) plus the copy, test
+// selectionCases, rangeCases, dotCases, sectionCases, boardMineCases, marksCases) plus the copy, test
 // ids, shell and surface-card constants. Whole expected objects are compared
 // as JSON values.
 final class ChatsTests: XCTestCase {
@@ -517,6 +517,20 @@ final class ChatsTests: XCTestCase {
         }
     }
 
+    /// #EDE-98 `marksCases`: the chat marks, the WHOLE expected list.
+    func testMarksCases() throws {
+        for testCase in try cases("marksCases") {
+            let name = string(testCase["name"]) ?? ""
+            let input = try XCTUnwrap(testCase["input"] as? [String: Any], name)
+            let got = Chats.chatMarks(
+                shared: try XCTUnwrap(input["shared"] as? Bool, name),
+                sealEpoch: input["sealEpoch"] as? Int
+            )
+            XCTAssertEqual(got.map(\.rawValue), try XCTUnwrap(testCase["expected"] as? [String], name), name)
+        }
+        for mark in Chats.ChatMark.allCases { XCTAssertFalse(mark.testId.isEmpty); XCTAssertFalse(mark.label.isEmpty) }
+    }
+
     /// #FEED-191 `sectionCases`: the list's sections, the WHOLE expected array.
     func testSectionCases() throws {
         for testCase in try cases("sectionCases") {
@@ -622,7 +636,10 @@ final class ChatsTests: XCTestCase {
         XCTAssertEqual(Set(copy.keys), [
             "title", "tabs", "headers", "boardMenu", "preview", "time", "menu", "confirmDelete", "toasts", "stopTurn", "dividers",
             "superseded", "boardChips", "team", "inbox", "loadEarlier", "working", "selection", "archived",
-            "sections",
+            "sections", "marks",
+        ])
+        XCTAssertEqual(copy["marks"] as? [String: String], [
+            "team": C.Marks.team, "unencrypted": C.Marks.unencrypted,
         ])
         XCTAssertEqual(copy["sections"] as? [String: String], [
             "agents": C.Sections.agents, "apps": C.Sections.apps, "needs_you": C.Sections.needsYou, "working": C.Sections.working,
@@ -642,6 +659,7 @@ final class ChatsTests: XCTestCase {
             "searchButton": T.searchButton,
             "loadEarlier": T.loadEarlier, "jumpToBottom": T.jumpToBottom,
             "chatArchived": T.chatArchived, "selectionBar": T.selectionBar, "appRow": T.appRow,
+            "chatMarkTeam": T.chatMarkTeam, "chatMarkUnencrypted": T.chatMarkUnencrypted,
         ])
         let transcript = try XCTUnwrap(fixture["transcript"] as? [String: Any])
         XCTAssertEqual(transcript["window"] as? Int, Chats.Transcript.window)
@@ -702,6 +720,8 @@ final class ChatsTests: XCTestCase {
         XCTAssertEqual(shell["selectBadgeRadius"] as? Double, Chats.Shell.selectBadgeRadius)
         XCTAssertEqual(shell["archivedGlyph"] as? Double, Chats.Shell.archivedGlyph)
         XCTAssertEqual(shell["dimOpacity"] as? Double, Chats.Shell.dimOpacity)
+        XCTAssertEqual(shell["markGlyph"] as? Double, Chats.Shell.markGlyph)
+        XCTAssertEqual(shell["markGap"] as? Double, Chats.Shell.markGap)
 
         let surface = try XCTUnwrap(fixture["surfaceCard"] as? [String: Any])
         typealias S = Chats.SurfaceEnter

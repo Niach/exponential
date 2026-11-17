@@ -4,6 +4,8 @@ import {
   sidebarAgents,
   appChatRows,
   chatList,
+  chatMarks,
+  type ChatMark,
   type AgentChatRow,
   type AppChatRow,
   type ChatList,
@@ -54,6 +56,8 @@ export function useChatList(
   waitingOf: (sessionId: string) => string | null
   /** #FEED-263: a root's wall and its device's name (the `wall` word's text), else null. */
   wallOf: (sessionId: string) => { kind: string; device: string | null } | null
+  /** #EDE-98: a root's title glyphs (chats.json `chatMarks`). */
+  marksOf: (sessionId: string) => readonly ChatMark[]
   isReady: boolean
 } {
   const { groups, isReady } = useChatsList(teamId)
@@ -141,6 +145,10 @@ export function useChatList(
   }, [groups])
 
   const cliByRoot = useMemo(() => new Map(rows.map((row) => [row.id, row.cli ?? null])), [rows])
+  const marksByRoot = useMemo(
+    () => new Map(rows.filter((row) => !row.parentId).map((row) => [row.id, chatMarks(row)])),
+    [rows]
+  )
   return {
     list,
     agentRows,
@@ -151,6 +159,7 @@ export function useChatList(
       const wall = walls.get(sessionId)
       return wall ? { kind: wall.kind, device: deviceGlyph(wall.deviceId)?.name ?? null } : null
     },
+    marksOf: (sessionId) => marksByRoot.get(sessionId) ?? [],
     isReady,
   }
 }

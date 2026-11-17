@@ -172,6 +172,15 @@ pub struct ChatsCopy {
     /// S-3: the section headers while an agent row exists (`Agents`,
     /// `Chats`).
     pub sections: ChatsSectionsCopy,
+    /// #EDE-98: the chat marks' accessible labels ([`chat_marks`]).
+    pub marks: ChatMarksCopy,
+}
+
+/// #EDE-98 `copy.marks`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ChatMarksCopy {
+    pub team: String,
+    pub unencrypted: String,
 }
 
 /// S-3: `copy.sections`.
@@ -211,6 +220,9 @@ pub struct ChatsTestIds {
     pub app_row: String,
     /// #EXP-1836: the board's tab strip (`shell.boardChips`).
     pub board_chip: String,
+    /// #EDE-98: the chat marks.
+    pub chat_mark_team: String,
+    pub chat_mark_unencrypted: String,
 }
 
 /// `transcript` (#EXP-1380 WINDOW + FOLLOW): a chat paints its newest
@@ -311,6 +323,9 @@ pub struct ChatsShell {
     /// S-3: the chat row's lead glyph concept (`action-chat`; needs you =
     /// that glyph + the amber badge). Never the brand mark.
     pub chat_lead: String,
+    /// #EDE-98: a chat mark's glyph size and its gap after the title.
+    pub mark_glyph: f32,
+    pub mark_gap: f32,
 }
 
 /// `shell.bar.drag`: the selection lens.
@@ -1197,6 +1212,56 @@ fn archived_ids<'a>(reads: &[&'a SessionReadRow]) -> std::collections::HashSet<&
         .collect()
 }
 
+/// #EDE-98 (`marksCases`): a chat's title glyphs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ChatMark {
+    /// A shared (team) chat: `ui-team`.
+    #[serde(rename = "ui-team")]
+    Team,
+    /// The tree has no key (the root's `seal_epoch` null): `ui-unencrypted`.
+    #[serde(rename = "ui-unencrypted")]
+    Unencrypted,
+}
+
+impl ChatMark {
+    /// The mark's icon concept.
+    pub fn concept(self) -> &'static str {
+        match self {
+            Self::Team => "ui-team",
+            Self::Unencrypted => "ui-unencrypted",
+        }
+    }
+
+    /// The accessible label (`copy.marks`).
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Team => &CHATS.copy.marks.team,
+            Self::Unencrypted => &CHATS.copy.marks.unencrypted,
+        }
+    }
+
+    /// The test id (`testIds.chatMark*`).
+    pub fn test_id(self) -> &'static str {
+        match self {
+            Self::Team => &CHATS.test_ids.chat_mark_team,
+            Self::Unencrypted => &CHATS.test_ids.chat_mark_unencrypted,
+        }
+    }
+}
+
+/// #EDE-98 (`marksCases`): the team icon when the root is shared, then the
+/// open lock when the tree has no key. Private + encrypted = none.
+pub fn chat_marks(shared: bool, seal_epoch: Option<i64>) -> Vec<ChatMark> {
+    let mut marks = Vec::new();
+    if shared {
+        marks.push(ChatMark::Team);
+    }
+    if seal_epoch.is_none() {
+        marks.push(ChatMark::Unencrypted);
+    }
+    marks
+}
+
 /// #EXP-1388 (`dotCases`): the Chats nav dot = an unread depth-0 row whose
 /// root is not archived (a row that needs you counts anyway).
 pub fn chats_unread(groups: &[ChatsListGroup], reads: &[&SessionReadRow]) -> bool {
@@ -1959,6 +2024,22 @@ mod tests {
             let wire = serde_json::to_value(key).unwrap();
             assert_eq!(key.title(), copy[wire.as_str().unwrap()].as_str().unwrap());
         }
+    }
+
+    #[test]
+    fn marks_cases_match_the_fixture() {
+        let fixture = fixture();
+        let cases = fixture["marksCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let input = &case["input"];
+            let marks = chat_marks(input["shared"].as_bool().unwrap(), input["sealEpoch"].as_i64());
+            let expected: Vec<ChatMark> = serde_json::from_value(case["expected"].clone()).unwrap();
+            assert_eq!(marks, expected, "{}", case["name"]);
+            let concepts: Vec<&str> = marks.iter().map(|mark| mark.concept()).collect();
+            assert_eq!(serde_json::json!(concepts), case["expected"], "{}", case["name"]);
+        }
+        assert_eq!(ChatMark::Unencrypted.label(), "Not encrypted");
     }
 
     #[test]

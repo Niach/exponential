@@ -318,10 +318,17 @@ struct ChatsView: View {
         .accessibilityIdentifier(Chats.TestIds.appRow)
     }
 
+    /// #EDE-98 (chats.json `chatMarks`): a chat row's marks off its root
+    /// (the pinned agent and app rows draw none, like every platform's).
+    private func marks(_ rootId: String) -> [Chats.ChatMark] {
+        lists.marks[rootId] ?? []
+    }
+
     private func chatRow(_ row: Chats.ChatRow) -> some View {
         let selected = selectionActive && selectedIds.contains(row.sessionId)
         return ChatRowView(
             title: row.title,
+            marks: marks(row.sessionId),
             time: row.time,
             preview: row.preview.text,
             previewLabel: previewLabel(row.preview.kind),

@@ -33,6 +33,9 @@ final class SessionListsModel {
     /// A session's agent CLI (the row's run mark), by session id (EXP-1323:
     /// nested child rows too).
     private(set) var clis: [String: String] = [:]
+    /// #EDE-98: each root's chat marks (`Chats.chatMarks`: shared, no key),
+    /// by root id: the glyphs after a Chats row's title.
+    private(set) var marks: [String: [Chats.ChatMark]] = [:]
     /// EXP-1309: a Chats row's quiet word off its pull requests, by root id
     /// (`SessionTree.chatRowWord`).
     private(set) var words: [String: ChatRowWord] = [:]
@@ -197,6 +200,7 @@ final class SessionListsModel {
         running = []
         identifiers = [:]
         clis = [:]
+        marks = [:]
         words = [:]
         waiting = [:]
         walls = [:]
@@ -222,6 +226,7 @@ final class SessionListsModel {
         var messages: [TreeMessage]
         var reads: [TreeSessionRead]
         var clis: [String: String]
+        var marks: [String: [Chats.ChatMark]]
         var pullRequests: [PullRequestEntity]
         var deviceRows: [DeviceEntity]
         var agents: [AgentLike]
@@ -240,6 +245,7 @@ final class SessionListsModel {
         var running: [ChatsListRow]
         var identifiers: [String: String]
         var clis: [String: String]
+        var marks: [String: [Chats.ChatMark]]
         var words: [String: ChatRowWord]
         var waiting: [String: String]
         var walls: [String: ChatRowWall]
@@ -264,6 +270,7 @@ final class SessionListsModel {
         running = derived.running
         identifiers = derived.identifiers
         clis = derived.clis
+        marks = derived.marks
         words = derived.words
         waiting = derived.waiting
         walls = derived.walls
@@ -314,6 +321,12 @@ final class SessionListsModel {
             reads: try SessionReadEntity.fetchAll(db).map { TreeSessionRead(sessionReadRow: $0) },
             clis: Dictionary(
                 sessions.map { ($0.id, $0.cli ?? "") },
+                uniquingKeysWith: { a, _ in a }
+            ),
+            marks: Dictionary(
+                sessions.filter { $0.parentId == nil }.map {
+                    ($0.id, Chats.chatMarks(shared: $0.shared, sealEpoch: $0.sealEpoch))
+                },
                 uniquingKeysWith: { a, _ in a }
             ),
             pullRequests: try PullRequestEntity.fetchAll(db),
@@ -443,6 +456,7 @@ final class SessionListsModel {
             running: running,
             identifiers: identifiers,
             clis: rows.clis,
+            marks: rows.marks,
             words: words,
             waiting: waiting,
             walls: walls,

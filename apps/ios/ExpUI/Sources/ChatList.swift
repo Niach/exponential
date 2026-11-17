@@ -26,6 +26,8 @@ public enum ChatListMetrics {
 /// the hairline under the text column only.
 public struct ChatRowView<Lead: View>: View {
     private let title: String
+    /// #EDE-98: the chat marks right after the title (`Chats.chatMarks`).
+    private let marks: [Chats.ChatMark]
     private let time: String
     /// nil = no preview line (#EXP-1388: the Archived entry row).
     private let preview: String?
@@ -50,6 +52,7 @@ public struct ChatRowView<Lead: View>: View {
 
     public init(
         title: String,
+        marks: [Chats.ChatMark] = [],
         time: String,
         preview: String?,
         needsYouCount: Int? = nil,
@@ -64,6 +67,7 @@ public struct ChatRowView<Lead: View>: View {
         @ViewBuilder lead: () -> Lead
     ) {
         self.title = title
+        self.marks = marks
         self.time = time
         self.preview = preview
         self.needsYouCount = needsYouCount
@@ -91,11 +95,14 @@ public struct ChatRowView<Lead: View>: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(title)
-                        .font(.body.weight(unread ? .semibold : .medium))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                    HStack(spacing: CGFloat(Chats.Shell.markGap)) {
+                        Text(title)
+                            .font(.body.weight(unread ? .semibold : .medium))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        ChatMarksView(marks: marks)
+                    }
                     Spacer(minLength: 4)
                     if let needsYouCount {
                         CountBadge(count: needsYouCount, tone: .attention)

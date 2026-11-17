@@ -753,13 +753,14 @@ pub(crate) fn issue_glyph(status: Option<&domain::statuses::ResolvedStatus>, cx:
     status.map(|status| crate::icons::resolved_status_icon(status, cx).xsmall().flex_shrink_0())
 }
 
-/// The page title (draft 3): the title at the header rung, a lock while the
-/// chat is private.
-pub(crate) fn title_row(title: &str, private: bool, cx: &App) -> gpui::Div {
+/// The page title (draft 3): the title at the header rung, then its marks
+/// (#EDE-98 chats.json `chatMarks`: the team icon when shared, the open
+/// lock when the tree has no key; a private chat draws none).
+pub(crate) fn title_row(title: &str, marks: &[domain::chats::ChatMark], cx: &App) -> gpui::Div {
     let theme = cx.theme();
     h_flex()
         .min_w_0()
-        .gap_2()
+        .gap(px(domain::chats::CHATS.shell.mark_gap))
         .items_center()
         .child(
             div()
@@ -770,14 +771,7 @@ pub(crate) fn title_row(title: &str, private: bool, cx: &App) -> gpui::Div {
                 .text_color(theme.foreground)
                 .child(SharedString::from(title.to_string())),
         )
-        .when(private, |row| {
-            row.child(
-                Icon::new(registry::UI_PRIVATE)
-                    .small()
-                    .flex_shrink_0()
-                    .text_color(theme.muted_foreground),
-            )
-        })
+        .children(crate::chat_list::chat_mark_glyphs("header", marks, cx))
 }
 
 /// Web `permissions.isMember` for the chat's team (route `sessions/$sessionId`):
@@ -3989,12 +3983,14 @@ impl SessionChatScreenView {
                 let link = chat_member(model, cx).then(|| self.menu_target(None));
                 let menu = crate::agent_screen::agent_header_menu(agent_id, on_settings, link, cx);
                 let avatar = crate::agent_screen::agent_header_disc(agent.as_ref(), cx);
-                let title = title_row(&name, false, cx).id("chat-title").into_any_element();
+                let marks = domain::chats::chat_marks(model.root.shared, model.root.seal_epoch);
+                let title = title_row(&name, &marks, cx).id("chat-title").into_any_element();
                 (avatar, title, merge.into_iter().chain(call).collect::<Vec<_>>(), menu, agent)
             }
             // EXP-1316: a chat's title is derived, plain text (no rename).
             None => {
-                let title = title_row(&model.view.title, model.view.private, cx).id("chat-title").into_any_element();
+                let marks = domain::chats::chat_marks(model.root.shared, model.root.seal_epoch);
+                let title = title_row(&model.view.title, &marks, cx).id("chat-title").into_any_element();
                 (chat_header_lead(model, waiting_item.is_some(), cx), title, merge.into_iter().collect::<Vec<_>>(), guide_menu(model, self.menu_target(None), cx), None)
             }
         };

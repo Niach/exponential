@@ -136,6 +136,10 @@ object Chats {
         const val LOAD_EARLIER = "Load earlier"
         const val WORKING = "Working…"
 
+        /** #EDE-98 `copy.marks`: a chat mark's accessible label. */
+        const val MARK_TEAM = "Shared with the team"
+        const val MARK_UNENCRYPTED = "Not encrypted"
+
         /** A divider kind's words (`copy.dividers`). */
         fun divider(kind: String): String = if (kind == DIVIDER_KIND_COMPACT) DIVIDER_COMPACT else DIVIDER_NEW
 
@@ -267,6 +271,10 @@ object Chats {
         /** S-3 `shell.chatLead`: a chat row's lead glyph CONCEPT (never the
          *  brand mark). */
         const val CHAT_LEAD = "action-chat"
+        /** #EDE-98 `shell.markGlyph` / `shell.markGap`: a chat mark's glyph,
+         *  its gap after the title and between marks (dp). */
+        const val MARK_GLYPH = 12
+        const val MARK_GAP = 4
     }
 
     object TestIds {
@@ -287,7 +295,29 @@ object Chats {
         const val SELECTION_BAR = "bulk-action-bar"
         /** #EXP-1733: an app row of the Chats list. */
         const val APP_ROW = "chat-app-row"
+        /** #EDE-98: the chat marks (header + list rows). */
+        const val CHAT_MARK_TEAM = "chat-mark-team"
+        const val CHAT_MARK_UNENCRYPTED = "chat-mark-unencrypted"
     }
+
+    /** #EDE-98 the chat marks' glyph CONCEPTS. */
+    const val MARK_TEAM = "ui-team"
+    const val MARK_UNENCRYPTED = "ui-unencrypted"
+
+    /** #EDE-98 chats.json `marksCases` (TS `chatMarks`): the glyphs right
+     *  after a chat's title, in order: [MARK_TEAM] when the root is shared,
+     *  then [MARK_UNENCRYPTED] when the tree has no key (`sealEpoch` null).
+     *  A private encrypted chat = none. */
+    fun chatMarks(shared: Boolean, sealEpoch: Int?): List<String> = buildList {
+        if (shared) add(MARK_TEAM)
+        if (sealEpoch == null) add(MARK_UNENCRYPTED)
+    }
+
+    /** #EDE-98: a mark's `copy.marks` label. */
+    fun chatMarkLabel(mark: String): String = if (mark == MARK_TEAM) Copy.MARK_TEAM else Copy.MARK_UNENCRYPTED
+
+    /** #EDE-98: a mark's test id. */
+    fun chatMarkTestId(mark: String): String = if (mark == MARK_TEAM) TestIds.CHAT_MARK_TEAM else TestIds.CHAT_MARK_UNENCRYPTED
 
     /** #EXP-1380 `transcript`: a chat paints its newest [WINDOW] rows, `Load
      *  earlier` widens by [WINDOW_STEP]; the tail is followed within

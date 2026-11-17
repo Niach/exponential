@@ -28,6 +28,7 @@ import {
   chatMenuEntries,
   transcriptWindowStart,
   teamMeta,
+  chatMarks,
   boardMineIssues,
 } from "./chats"
 
@@ -54,6 +55,7 @@ describe(`chats.json`, () => {
   for (const c of fixture.rangeCases) test(`range: ${c.name}`, () => expect(chatSelectionRange(c.order, c.anchor, c.target)).toEqual(c.expected))
   for (const c of fixture.boardMineCases)
     test(`board mine: ${c.name}`, () => expect(boardMineIssues(c.issues, c.boardId, c.me).map((i) => i.id)).toEqual(c.expected))
+  for (const c of fixture.marksCases) test(`marks: ${c.name}`, () => expect(chatMarks(c.input)).toEqual(c.expected))
   for (const c of fixture.teamMetaCases) test(`team meta: ${c.expected}`, () => expect(teamMeta(c.members, c.boards)).toBe(c.expected))
   for (const c of fixture.dotCases) test(`dot: ${c.name}`, () => expect(chatsUnread(c.input.groups as never, c.input.reads as never)).toBe(c.expected))
   test(`delete titles`, () => {
