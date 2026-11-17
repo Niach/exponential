@@ -89,9 +89,9 @@ fn launched_client() {
     let t = c.toplevel(&std::env::var("EDE_TEST_LAUNCH_TITLE").unwrap());
     c.draw(&t, 300, 200, BLUE);
     let deadline = Instant::now() + Duration::from_secs(20);
-    while !c.state.toplevels[0].closed && Instant::now() < deadline {
+    // Until it is closed, or the compositor is gone.
+    while !c.state.toplevels[0].closed && Instant::now() < deadline && c.queue.roundtrip(&mut c.state).is_ok() {
         std::thread::sleep(Duration::from_millis(20));
-        c.roundtrip();
     }
 }
 
