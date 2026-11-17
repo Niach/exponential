@@ -463,9 +463,12 @@ pub(super) fn unexpected_issues(bound: &std::collections::HashSet<(String, Strin
 
 /// The `(node id, "/components/<id>/[style/]<key>")` of every style value
 /// and prop in `tree` that is a binding (`{"@path"}` / `{"@call"}`), for the
-/// mount's debug check.
+/// mount's debug check. In tests it also refuses a document with a twin node
+/// id, so every pane's document test checks that too (#EXP-1887).
 #[cfg(any(test, debug_assertions))]
 pub(super) fn bound_values(tree: &Value) -> std::collections::HashSet<(String, String)> {
+    #[cfg(test)]
+    assert_eq!(duplicate_ids(tree), Vec::<String>::new(), "node ids used twice");
     fn walk(node: &Value, out: &mut std::collections::HashSet<(String, String)>) {
         let Some(map) = node.as_object() else { return };
         let bound = |value: &Value| value.as_object().is_some_and(|v| v.contains_key("@path") || v.contains_key("@call"));

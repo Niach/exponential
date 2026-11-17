@@ -612,7 +612,7 @@ fn document(inks: &Inks, options: &Options) -> Value {
     // The IDE's multi picker filters its apps.
     apps["props"]["searchable"] = json!(true);
     apps["props"]["placeholder"] = json!(apps_value(&[]));
-    let meeting = group(ink, "meeting", tray.clone(), vec![
+    let meeting = group(ink, "meeting_group", tray.clone(), vec![
         (switch_rows(ink, "meeting", &words.meeting, "/pane/tray/meeting", "meeting"), None),
         (picker_rows("auto_stop", json!(true), &words.auto_stop_after, "/pane/tray/autoStop", "autoStop", &options.auto_stop, Some(path("/pane/tray/autoStop/disabled")), None), Some(json!(true))),
         (picker_rows("desktop_audio", json!(true), &words.desktop_audio, "/pane/tray/desktopAudio", "desktopAudio", &options.desktop_audio, None, None), Some(json!(true))),
@@ -1233,6 +1233,16 @@ mod tests {
         assert_eq!(Field::WakePhrase.normalized(" ab\u{7}cd "), "abcd");
         let raw = "x".repeat(Field::WakePhrase.limit() + 10);
         assert_eq!(Field::WakePhrase.normalized(&raw).len(), Field::WakePhrase.limit());
+    }
+
+    /// #EXP-1887: no node id twice (the Meeting group shared its first
+    /// switch row's id).
+    #[test]
+    fn the_document_has_one_node_per_id() {
+        for member_rows_only in [false, true] {
+            let tree = document(&test_inks(), &test_options(member_rows_only));
+            assert_eq!(super::super::doc::duplicate_ids(&tree), Vec::<String>::new());
+        }
     }
 
     #[test]
